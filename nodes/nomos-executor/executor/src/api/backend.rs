@@ -7,8 +7,13 @@ use std::{
     time::Duration,
 };
 
-use axum::{http::HeaderValue, routing, Router, Server};
-use hyper::header::{CONTENT_TYPE, USER_AGENT};
+use axum::{
+    http::{
+        header::{CONTENT_TYPE, USER_AGENT},
+        HeaderValue,
+    },
+    routing, Router,
+};
 use nomos_api::{
     http::{
         consensus::Cryptarchia,
@@ -52,6 +57,7 @@ use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId, DynEr
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use services_utils::wait_until_services_are_ready;
 use subnetworks_assignations::MembershipHandler;
+use tokio::net::TcpListener;
 use tower_http::{
     cors::{Any, CorsLayer},
     trace::TraceLayer,
@@ -386,7 +392,7 @@ where
             >,
         >,
 {
-    type Error = hyper::Error;
+    type Error = std::io::Error;
     type Settings = AxumBackendSettings;
 
     async fn new(settings: Self::Settings) -> Result<Self, Self::Error>
@@ -647,8 +653,10 @@ where
             )
             .with_state(handle);
 
-        Server::bind(&self.settings.address)
-            .serve(app.into_make_service())
+        let listener = TcpListener::bind(&self.settings.address)
             .await
+            .expect("Failed to bind address");
+
+        axum::serve(listener, app).await
     }
 }

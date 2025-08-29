@@ -20,11 +20,10 @@ workspace = true
 
 [dependencies]
 async-trait              = "0.1"
-axum                     = { version = "0.6" }
+axum                     = { version = "0.7.5" }
 clap                     = { version = "4.5.13", features = ["derive"] }
 color-eyre               = "0.6.0"
 futures                  = "0.3"
-hyper                    = { version = "0.14", features = ["full"] }
 kzgrs-backend            = { workspace = true }
 nomos-api                = { workspace = true }
 nomos-blend-service      = { workspace = true, features = ["libp2p"] }
@@ -48,7 +47,7 @@ serde_yaml               = "0.9"
 services-utils           = { workspace = true }
 subnetworks-assignations = { workspace = true }
 tokio                    = "1"
-tower-http               = { version = "0.4", features = ["cors", "trace"] }
+tower-http               = { version = "0.6", features = ["cors", "limit", "timeout", "trace"] }
 tracing                  = { workspace = true }
 utoipa                   = { workspace = true }
 utoipa-swagger-ui        = { workspace = true }

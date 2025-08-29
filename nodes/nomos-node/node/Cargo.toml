@@ -59,10 +59,9 @@ utoipa            = { workspace = true }
 utoipa-swagger-ui = { workspace = true }
 
 # axum related dependencies
-axum       = { version = "0.6" }
-hyper      = { version = "0.14", features = ["full"] }
+axum       = { version = "0.7.5" }
 time       = "0.3"
-tower-http = { version = "0.4", features = ["cors", "trace"] }
+tower-http = { version = "0.6", features = ["cors", "trace"] }
 
 [features]
 default         = ["tracing"]
