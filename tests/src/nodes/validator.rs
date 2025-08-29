@@ -389,6 +389,8 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                     .expect("Rounds per session cannot be zero."),
                 rounds_per_observation_window: NonZeroU64::try_from(30u64)
                     .expect("Rounds per observation window cannot be zero."),
+                rounds_per_session_transition_period: NonZeroU64::try_from(30u64)
+                    .expect("Rounds per session transition period cannot be zero."),
             },
             scheduler: SchedulerSettingsExt {
                 cover: CoverTrafficSettingsExt {
