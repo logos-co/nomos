@@ -1,7 +1,4 @@
-use std::sync::LazyLock;
-
 use groth16::{serde::serde_fr, Field as _, Fr};
-use num_bigint::BigUint;
 use poseidon2::{Digest, Poseidon2Bn254Hasher};
 use serde::{Deserialize, Serialize};
 
@@ -19,24 +16,16 @@ pub fn padded_leaves<const N: usize>(elements: &[NoteId]) -> [Fr; N] {
     leaves.try_into().expect("Size is asserted per loop")
 }
 
-static NOMOS_MERKLE_LEAF: LazyLock<Fr> =
-    LazyLock::new(|| BigUint::from_bytes_be(b"NOMOS_MERKLE_LEAF").into());
-
 #[must_use]
 pub fn leaf(data: &Fr) -> Fr {
     let mut hasher = Poseidon2Bn254Hasher::default();
-    <Poseidon2Bn254Hasher as Digest>::update(&mut hasher, &NOMOS_MERKLE_LEAF);
     <Poseidon2Bn254Hasher as Digest>::update(&mut hasher, data);
     hasher.finalize()
 }
 
-static NOMOS_MERKLE_NODE: LazyLock<Fr> =
-    LazyLock::new(|| BigUint::from_bytes_be(b"NOMOS_MERKLE_NODE").into());
-
 #[must_use]
 pub fn node(a: &Fr, b: &Fr) -> Fr {
     let mut hasher = Poseidon2Bn254Hasher::default();
-    <Poseidon2Bn254Hasher as Digest>::update(&mut hasher, &NOMOS_MERKLE_NODE);
     <Poseidon2Bn254Hasher as Digest>::update(&mut hasher, a);
     <Poseidon2Bn254Hasher as Digest>::update(&mut hasher, b);
     hasher.finalize()
@@ -111,6 +100,8 @@ pub fn path<const N: usize>(leaves: [Fr; N], idx: usize) -> Vec<PathNode> {
 
 #[cfg(test)]
 mod test {
+    use num_bigint::BigUint;
+
     use super::*;
 
     #[test]
