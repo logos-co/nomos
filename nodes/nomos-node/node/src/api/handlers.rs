@@ -5,21 +5,22 @@ use std::{
 };
 
 use axum::{
-    body::StreamBody,
+    body::Body,
     extract::{Query, State},
-    response::{IntoResponse, Response},
+    http::StatusCode,
+    response::{IntoResponse as _, Response},
     Json,
 };
-use http::{header, StatusCode};
 use nomos_api::http::{
     cl::{self, ClMempoolService},
     consensus::{self, Cryptarchia},
     da::{self, BalancerMessageFactory, DaVerifier, MonitorMessageFactory},
-    libp2p, mempool, storage,
+    libp2p, mempool,
+    storage::StorageAdapter,
 };
 use nomos_core::{
     da::{
-        blob::{info::DispersedBlobInfo, LightShare, Share},
+        blob::{info::DispersedBlobInfo, Share},
         BlobId, DaVerifier as CoreDaVerifier,
     },
     header::HeaderId,
@@ -56,11 +57,11 @@ macro_rules! make_request_and_return_response {
     ($cond:expr) => {{
         match $cond.await {
             ::std::result::Result::Ok(val) => ::axum::response::IntoResponse::into_response((
-                ::hyper::StatusCode::OK,
+                ::axum::http::StatusCode::OK,
                 ::axum::Json(val),
             )),
             ::std::result::Result::Err(e) => ::axum::response::IntoResponse::into_response((
-                ::hyper::StatusCode::INTERNAL_SERVER_ERROR,
+                ::axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                 e.to_string(),
             )),
         }
@@ -536,7 +537,7 @@ pub async fn block<S, HttpStorageAdapter, Tx, RuntimeServiceId>(
 where
     Tx: Serialize + DeserializeOwned + Clone + Eq,
     S: StorageSerde + Send + Sync + 'static,
-    HttpStorageAdapter: storage::StorageAdapter<S, RuntimeServiceId> + Send + Sync + 'static,
+    HttpStorageAdapter: StorageAdapter<S, RuntimeServiceId> + Send + Sync + 'static,
     <S as StorageSerde>::Error: Send + Sync,
     RuntimeServiceId:
         AsServiceId<StorageService<RocksBackend<S>, RuntimeServiceId>> + Debug + Sync + Display,
@@ -612,7 +613,7 @@ where
     <StorageOp as StorageSerde>::Error: Send + Sync,
     DaStorageConverter:
         DaConverter<DaStorageBackend<StorageOp>, Share = DaShare> + Send + Sync + 'static,
-    HttpStorageAdapter: storage::StorageAdapter<StorageOp, RuntimeServiceId>,
+    HttpStorageAdapter: StorageAdapter<StorageOp, RuntimeServiceId>,
     RuntimeServiceId: AsServiceId<StorageService<DaStorageBackend<StorageOp>, RuntimeServiceId>>
         + Debug
         + Sync
@@ -648,7 +649,7 @@ pub async fn da_get_light_share<
     Json(request): Json<DaSamplingRequest<DaShare>>,
 ) -> Response
 where
-    DaShare: Share + DeserializeOwned + Clone + Send + Sync + 'static,
+    DaShare: Share + Clone + Send + Sync + 'static,
     <DaShare as Share>::BlobId: Clone + DeserializeOwned + Send + Sync + 'static,
     <DaShare as Share>::ShareIndex: Clone + DeserializeOwned + Send + Sync + 'static,
     DaShare::LightShare: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
@@ -656,7 +657,7 @@ where
     DaStorageConverter:
         DaConverter<RocksBackend<StorageOp>, Share = DaShare> + Send + Sync + 'static,
     <StorageOp as StorageSerde>::Error: Send + Sync,
-    HttpStorageAdapter: storage::StorageAdapter<StorageOp, RuntimeServiceId>,
+    HttpStorageAdapter: StorageAdapter<StorageOp, RuntimeServiceId>,
     RuntimeServiceId: AsServiceId<StorageService<RocksBackend<StorageOp>, RuntimeServiceId>>
         + Debug
         + Sync
@@ -694,20 +695,13 @@ pub async fn da_get_shares<
 where
     DaShare: Share + 'static,
     <DaShare as Share>::BlobId: Clone + Send + Sync + 'static,
-    <DaShare as Share>::ShareIndex: Serialize + DeserializeOwned + Send + Sync + Eq + Hash,
-    <DaShare as Share>::LightShare: LightShare<ShareIndex = <DaShare as Share>::ShareIndex>
-        + Serialize
-        + DeserializeOwned
-        + Send
-        + Sync
-        + 'static,
+    <DaShare as Share>::ShareIndex: Serialize + DeserializeOwned + Hash + Eq + Send + Sync,
+    <DaShare as Share>::LightShare: Serialize + DeserializeOwned + Send + Sync + 'static,
     StorageOp: StorageSerde + Send + Sync + 'static,
+    <StorageOp as StorageSerde>::Error: Send + Sync,
     DaStorageConverter:
         DaConverter<RocksBackend<StorageOp>, Share = DaShare> + Send + Sync + 'static,
-    <StorageOp as StorageSerde>::Error: Send + Sync,
-    HttpStorageAdapter: storage::StorageAdapter<StorageOp, RuntimeServiceId> + 'static,
-    <DaShare as Share>::LightShare: LightShare<ShareIndex = <DaShare as Share>::ShareIndex>,
-    <DaShare as Share>::ShareIndex: 'static,
+    HttpStorageAdapter: StorageAdapter<StorageOp, RuntimeServiceId> + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -728,10 +722,17 @@ where
     .await
     {
         Ok(shares) => {
-            let body = StreamBody::new(shares);
-            IntoResponse::into_response(([(header::CONTENT_TYPE, "application/x-ndjson")], body))
+            let body = Body::from_stream(shares);
+            match Response::builder()
+                .status(StatusCode::OK)
+                .header("content-type", "application/json")
+                .body(body)
+            {
+                Ok(response) => response,
+                Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+            }
         }
-        Err(e) => IntoResponse::into_response((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
 }
 

@@ -6,11 +6,7 @@ use std::{
 
 use bytes::Bytes;
 use futures::Stream;
-use nomos_core::{
-    block::Block,
-    da::blob::{LightShare, Share},
-    header::HeaderId,
-};
+use nomos_core::{block::Block, da::blob::Share, header::HeaderId};
 use nomos_storage::{
     api::da::DaConverter,
     backends::{rocksdb::RocksBackend, StorageBackend, StorageSerde},
@@ -58,12 +54,7 @@ where
         DaShare: Share + 'static,
         DaShare::BlobId: Clone + Send + Sync + 'static,
         DaShare::ShareIndex: DeserializeOwned + Hash + Eq + Send + Sync + 'static,
-        DaShare::LightShare: LightShare<ShareIndex = DaShare::ShareIndex>
-            + Serialize
-            + DeserializeOwned
-            + Send
-            + Sync
-            + 'static,
+        DaShare::LightShare: Serialize + DeserializeOwned + Send + Sync + 'static,
         Converter: DaConverter<RocksBackend<StorageOp>, Share = DaShare> + Send + Sync + 'static,
         RuntimeServiceId: Debug
             + Sync

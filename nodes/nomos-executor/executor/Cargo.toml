@@ -9,8 +9,6 @@ version = "0.1.0"
 ignored = [
   # Required by Overwatch's `#[derive_services]` macro.
   "tracing",
-  # Required by Overwatch's `#[derive_services]` macro.
-  "tokio",
   # Required by `wait_until_services_are_ready` macro.
   "futures",
 ]
@@ -20,11 +18,10 @@ workspace = true
 
 [dependencies]
 async-trait              = "0.1"
-axum                     = { default-features = false, version = "0.6" }
+axum                     = { default-features = false, features = ["http1", "http2", "json", "query", "tokio"], version = "0.7.5" }
 clap                     = { default-features = false, features = ["derive"], version = "4.5.13" }
 color-eyre               = { default-features = false, version = "0.6.0" }
 futures                  = { default-features = false, version = "0.3" }
-hyper                    = { default-features = false, version = "0.14" }
 kzgrs-backend            = { workspace = true }
 nomos-api                = { workspace = true }
 nomos-blend-service      = { workspace = true }
@@ -47,8 +44,8 @@ serde                    = { default-features = false, version = "1" }
 serde_yaml               = "0.9"
 services-utils           = { workspace = true }
 subnetworks-assignations = { workspace = true }
-tokio                    = "1"
-tower-http               = { default-features = false, version = "0.4" }
+tokio                    = { features = ["net"], version = "1" }
+tower-http               = { default-features = false, features = ["cors", "trace"], version = "0.5" }
 tracing                  = { workspace = true }
 utoipa                   = { workspace = true }
 utoipa-swagger-ui        = { workspace = true }

@@ -134,7 +134,7 @@ tempfile          = { default-features = false, version = "3" }
 thiserror         = { default-features = false, version = "2.0" }
 tracing           = { default-features = false, version = "0.1" }
 utoipa            = { default-features = false, version = "4.0" }
-utoipa-swagger-ui = { default-features = false, version = "4.0" }
+utoipa-swagger-ui = { default-features = false, version = "7.0" }
 
 [workspace.lints.clippy]
 

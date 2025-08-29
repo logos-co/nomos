@@ -7,8 +7,6 @@ version = "0.1.0"
 [package.metadata.cargo-machete]
 # False positives.
 ignored = [
-  # Required by Overwatch's `#[derive_services]` macro.
-  "tokio",
   # Required by `wait_until_services_are_ready` macro.
   "futures",
 ]
@@ -59,10 +57,9 @@ utoipa            = { workspace = true }
 utoipa-swagger-ui = { features = ["axum"], workspace = true }
 
 # axum related dependencies
-axum       = { default-features = false, features = ["json", "query", "tokio"], version = "0.6" }
-hyper      = { default-features = false, version = "0.14" }
+axum       = { default-features = false, features = ["http1", "http2", "json", "query", "tokio"], version = "0.7.5" }
 time       = { default-features = false, version = "0.3" }
-tower-http = { default-features = false, features = ["cors", "trace"], version = "0.4" }
+tower-http = { default-features = false, features = ["cors", "trace"], version = "0.5" }
 
 [features]
 default         = ["tracing"]

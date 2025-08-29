@@ -36,20 +36,26 @@ overwatch                = { workspace = true }
 serde                    = { default-features = false, version = "1" }
 serde_json               = { default-features = false, version = "1.0.140" }
 subnetworks-assignations = { workspace = true }
-tokio                    = { default-features = false, version = "1" }
+tokio                    = { default-features = false, features = ["net"], version = "1" }
 tracing                  = { default-features = false, version = "0.1" }
 
 # axum related dependencies
-axum  = { default-features = false, optional = true, version = "0.6" }
-hyper = { default-features = false, optional = true, version = "0.14" }
+axum = { default-features = false, optional = true, features = [
+  "http1",
+  "http2",
+  "json",
+  "query",
+  "tokio",
+], version = "0.7.5" }
+hyper = { default-features = false, optional = true, version = "1.0" }
 
 # openapi related dependencies
 utoipa            = { workspace = true }
 utoipa-swagger-ui = { workspace = true }
 
 [dev-dependencies]
-axum              = { default-features = false, features = ["tokio"], version = "0.6" }
-hyper             = { default-features = false, version = "0.14" }
+axum              = { default-features = false, features = ["http1", "http2", "json", "query", "tokio"], version = "0.7.5" }
+hyper             = { default-features = false, version = "1.0" }
 reqwest           = { default-features = false, workspace = true }
 serde             = { default-features = false, version = "1" }
 tracing           = { workspace = true }

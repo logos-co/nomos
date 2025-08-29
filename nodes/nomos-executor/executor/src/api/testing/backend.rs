@@ -3,8 +3,14 @@ use std::{
     time::Duration,
 };
 
-use axum::{http::HeaderValue, routing::post, Router, Server};
-use hyper::header::{CONTENT_TYPE, USER_AGENT};
+use axum::{
+    http::{
+        header::{CONTENT_TYPE, USER_AGENT},
+        HeaderValue,
+    },
+    routing::post,
+    Router,
+};
 use kzgrs_backend::common::share::DaShare;
 use nomos_api::Backend;
 use nomos_da_network_service::backends::libp2p::executor::DaNetworkExecutorBackend;
@@ -26,6 +32,7 @@ use nomos_node::{
 };
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId, DynError};
 use services_utils::wait_until_services_are_ready;
+use tokio::net::TcpListener;
 use tower_http::{
     cors::{Any, CorsLayer},
     trace::TraceLayer,
@@ -70,7 +77,7 @@ where
         + AsServiceId<TestDaNetworkService<RuntimeServiceId>>
         + AsServiceId<TestDaSamplingService<RuntimeServiceId>>,
 {
-    type Error = hyper::Error;
+    type Error = std::io::Error;
     type Settings = AxumBackendSettings;
 
     async fn new(settings: Self::Settings) -> Result<Self, Self::Error>
@@ -158,8 +165,10 @@ where
             )
             .with_state(handle);
 
-        Server::bind(&self.settings.address)
-            .serve(app.into_make_service())
+        let listener = TcpListener::bind(&self.settings.address)
             .await
+            .expect("Failed to bind address");
+
+        axum::serve(listener, app).await
     }
 }

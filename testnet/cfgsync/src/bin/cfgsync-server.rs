@@ -2,6 +2,7 @@ use std::{path::PathBuf, process};
 
 use cfgsync::server::{cfgsync_app, CfgSyncConfig};
 use clap::Parser;
+use tokio::net::TcpListener;
 
 #[derive(Parser, Debug)]
 #[command(about = "CfgSync")]
@@ -22,8 +23,7 @@ async fn main() {
     let app = cfgsync_app(config.into());
 
     println!("Server running on http://0.0.0.0:{port}");
-    axum::Server::bind(&format!("0.0.0.0:{port}").parse().unwrap())
-        .serve(app.into_make_service())
-        .await
-        .unwrap();
+    let listener = TcpListener::bind(&format!("0.0.0.0:{port}")).await.unwrap();
+
+    axum::serve(listener, app).await.unwrap();
 }
