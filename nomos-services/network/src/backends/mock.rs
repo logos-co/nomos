@@ -231,7 +231,6 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for Mock {
     type Message = MockBackendMessage;
     type PubSubEvent = NetworkEvent;
     type ChainSyncEvent = ();
-
     fn new(config: Self::Settings, _: OverwatchHandle<RuntimeServiceId>) -> Self {
         let (pubsub_events_tx, _) = broadcast::channel(BROADCAST_CHANNEL_BUF);
         let (chainsync_events_tx, _) = broadcast::channel(BROADCAST_CHANNEL_BUF);

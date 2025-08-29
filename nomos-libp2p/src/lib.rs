@@ -3,7 +3,11 @@ mod config;
 pub mod protocol_name;
 mod swarm;
 
-pub use config::{secret_key_serde, IdentifySettings, KademliaSettings, SwarmConfig};
+pub use config::{
+    secret_key_serde, AutonatClientSettings, IdentifySettings, KademliaSettings, NatSettings,
+    SwarmConfig,
+};
+pub use cryptarchia_sync::{self, Event};
 pub use libp2p::{
     self,
     core::upgrade,

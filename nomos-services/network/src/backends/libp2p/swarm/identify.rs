@@ -1,10 +1,11 @@
 use std::collections::HashSet;
 
 use nomos_libp2p::libp2p::identify;
+use rand::RngCore;
 
 use crate::backends::libp2p::swarm::SwarmHandler;
 
-impl SwarmHandler {
+impl<R: Clone + Send + RngCore + 'static> SwarmHandler<R> {
     pub(super) fn handle_identify_event(&mut self, event: identify::Event) {
         match event {
             identify::Event::Received { peer_id, info, .. } => {
