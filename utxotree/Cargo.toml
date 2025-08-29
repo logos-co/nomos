@@ -5,15 +5,18 @@ name              = "utxotree"
 version           = "0.1.0"
 
 [dependencies]
-digest    = "0.10"
-rpds      = { version = "1", features = ["serde"] }
-serde     = { version = "1.0", features = ["derive", "rc"], optional = true }
-thiserror = "1.0"
+ark-ff     = "0.4"
+groth16    = { workspace = true, features = ["deser"] }
+num-bigint = { version = "0.4" }
+poseidon2  = { workspace = true }
+rpds       = { version = "1", features = ["serde"] }
+serde      = { version = "1.0", features = ["derive", "rc"], optional = true }
+thiserror  = "1.0"
 
 [dev-dependencies]
-blake2            = "0.10"
 quickcheck        = "1.0"
 quickcheck_macros = "1.0"
+rand              = "0.9"
 
 [lints]
 workspace = true

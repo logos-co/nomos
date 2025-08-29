@@ -1,6 +1,8 @@
 use crypto_bigint::{CheckedMul as _, CheckedSub as _, Encoding as _, U256};
+use groth16::{serde::serde_fr, Fr};
+use num_bigint::BigUint;
+use poseidon2::{Digest as _, Poseidon2Bn254Hasher};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest as _, Sha256};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LeaderPublic {
@@ -8,16 +10,18 @@ pub struct LeaderPublic {
     pub slot: u64,
     pub scaled_phi_approx: (U256, U256),
     pub entropy: [u8; 32],
-    pub aged_root: [u8; 32],
-    pub latest_root: [u8; 32],
+    #[serde(with = "serde_fr")]
+    pub aged_root: Fr,
+    #[serde(with = "serde_fr")]
+    pub latest_root: Fr,
     // TODO: missing rewards
 }
 
 impl LeaderPublic {
     #[must_use]
     pub fn new(
-        aged_root: [u8; 32],
-        latest_root: [u8; 32],
+        aged_root: Fr,
+        latest_root: Fr,
         entropy: [u8; 32],
         epoch_nonce: [u8; 32],
         slot: u64,
@@ -58,10 +62,16 @@ impl LeaderPublic {
     }
 
     #[must_use]
-    pub fn check_winning(&self, value: u64, note_id: [u8; 32], sk: [u8; 16]) -> bool {
+    pub fn check_winning(&self, value: u64, note_id: Fr, sk: Fr) -> bool {
         let threshold = phi_approx(U256::from_u64(value), self.scaled_phi_approx);
-        let ticket = ticket(note_id, sk, self.epoch_nonce, self.slot);
-        ticket < threshold
+        let threshold = BigUint::from_bytes_le(&threshold.to_le_bytes());
+        let ticket = ticket(
+            note_id,
+            sk,
+            BigUint::from_bytes_le(&self.epoch_nonce).into(),
+            BigUint::from(self.slot).into(),
+        );
+        ticket < threshold.into()
     }
 }
 
@@ -77,23 +87,16 @@ fn phi_approx(stake: U256, approx: (U256, U256)) -> U256 {
         .unwrap()
 }
 
-fn ticket(note_id: [u8; 32], sk: [u8; 16], epoch_nonce: [u8; 32], slot: u64) -> U256 {
-    let mut hasher = Sha256::new();
-    hasher.update(b"LEAD_V1");
-    hasher.update(epoch_nonce);
-    hasher.update(slot.to_be_bytes());
-    hasher.update(note_id);
-    hasher.update(sk);
-
-    let ticket_bytes: [u8; 32] = hasher.finalize().into();
-
-    U256::from_be_bytes(ticket_bytes)
+fn ticket(note_id: Fr, sk: Fr, epoch_nonce: Fr, slot: Fr) -> Fr {
+    Poseidon2Bn254Hasher::digest(&[note_id, sk, epoch_nonce, slot])
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LeaderPrivate {
     // PLACEHOLDER: fix after mantle update
     pub value: u64,
-    pub note_id: [u8; 32],
-    pub sk: [u8; 16],
+    #[serde(with = "serde_fr")]
+    pub note_id: Fr,
+    #[serde(with = "serde_fr")]
+    pub sk: Fr,
 }

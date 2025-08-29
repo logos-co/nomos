@@ -6,6 +6,7 @@ use std::{
     fmt::{Debug, Display},
     future::Future,
     hash::Hash,
+    marker::PhantomData,
     time::Duration,
 };
 
@@ -38,6 +39,7 @@ use tokio_stream::wrappers::IntervalStream;
 
 use crate::{
     core::settings::BlendConfig,
+    membership,
     message::{NetworkMessage, ProcessedMessage, ServiceMessage},
 };
 
@@ -52,17 +54,18 @@ const LOG_TARGET: &str = "blend::service::core";
 /// independent of each other. For example, the blend backend can use the
 /// libp2p network stack, while the network adapter can use the other network
 /// backend.
-pub struct BlendService<Backend, NodeId, Network, RuntimeServiceId>
+pub struct BlendService<Backend, NodeId, Network, MembershipAdapter, RuntimeServiceId>
 where
     Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId>,
     Network: NetworkAdapter<RuntimeServiceId>,
 {
     backend: Backend,
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
+    _phantom: PhantomData<MembershipAdapter>,
 }
 
-impl<Backend, NodeId, Network, RuntimeServiceId> ServiceData
-    for BlendService<Backend, NodeId, Network, RuntimeServiceId>
+impl<Backend, NodeId, Network, MembershipAdapter, RuntimeServiceId> ServiceData
+    for BlendService<Backend, NodeId, Network, MembershipAdapter, RuntimeServiceId>
 where
     Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId>,
     Network: NetworkAdapter<RuntimeServiceId>,
@@ -74,13 +77,17 @@ where
 }
 
 #[async_trait]
-impl<Backend, NodeId, Network, RuntimeServiceId> ServiceCore<RuntimeServiceId>
-    for BlendService<Backend, NodeId, Network, RuntimeServiceId>
+impl<Backend, NodeId, Network, MembershipAdapter, RuntimeServiceId> ServiceCore<RuntimeServiceId>
+    for BlendService<Backend, NodeId, Network, MembershipAdapter, RuntimeServiceId>
 where
     Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId> + Send + Sync,
     NodeId: Clone + Send + Eq + Hash + Sync + 'static,
     Network: NetworkAdapter<RuntimeServiceId, BroadcastSettings: Unpin> + Send + Sync,
+    MembershipAdapter: membership::Adapter + Send,
+    membership::ServiceMessage<MembershipAdapter>: Send + Sync + 'static,
+    <MembershipAdapter as membership::Adapter>::Error: Send + Sync + 'static,
     RuntimeServiceId: AsServiceId<NetworkService<Network::Backend, RuntimeServiceId>>
+        + AsServiceId<<MembershipAdapter as membership::Adapter>::Service>
         + AsServiceId<Self>
         + Clone
         + Debug
@@ -107,6 +114,7 @@ where
                 BlakeRng::from_entropy(),
             ),
             service_resources_handle,
+            _phantom: PhantomData,
         })
     }
 
@@ -121,6 +129,7 @@ where
                     ..
                 },
             ref mut backend,
+            ..
         } = self;
 
         let blend_config = settings_handle.notifier().get_updated_settings();
@@ -135,6 +144,15 @@ where
         );
         let network_relay = overwatch_handle.relay::<NetworkService<_, _>>().await?;
         let network_adapter = Network::new(network_relay);
+
+        let membership_adapter = MembershipAdapter::new(
+            overwatch_handle
+                .relay::<<MembershipAdapter as membership::Adapter>::Service>()
+                .await?,
+            blend_config.crypto.signing_private_key.public_key(),
+        );
+        let mut _membership_stream = membership_adapter.subscribe().await?;
+        // TODO: Use membership_stream as a session stream: https://github.com/logos-co/nomos/issues/1532
 
         // Yields once every randomly-scheduled release round.
         let mut message_scheduler = UninitializedMessageScheduler::<
@@ -155,7 +173,8 @@ where
         wait_until_services_are_ready!(
             &overwatch_handle,
             Some(Duration::from_secs(60)),
-            NetworkService<_, _>
+            NetworkService<_, _>,
+            <MembershipAdapter as membership::Adapter>::Service
         )
         .await?;
 

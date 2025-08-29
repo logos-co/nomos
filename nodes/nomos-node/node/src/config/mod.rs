@@ -7,11 +7,12 @@ use blend::BlendConfig;
 use clap::{builder::OsStr, Parser, ValueEnum};
 use color_eyre::eyre::{eyre, Result};
 use hex::FromHex as _;
-use nomos_core::mantle::{Note, Utxo};
+use nomos_core::mantle::{Note, TxHash, Utxo};
 use nomos_libp2p::{ed25519::SecretKey, Multiaddr};
 use nomos_network::backends::libp2p::Libp2p as NetworkBackend;
 use nomos_tracing::logging::{gelf::GelfConfig, local::FileConfig};
 use nomos_tracing_service::{LoggerLayer, Tracing};
+use num_bigint::BigUint;
 use overwatch::services::ServiceData;
 use serde::{Deserialize, Serialize};
 use tracing::Level;
@@ -403,14 +404,16 @@ pub fn update_cryptarchia_consensus(
         return Ok(());
     };
 
-    let sk = nomos_core::mantle::keys::SecretKey::from(<[u8; 16]>::from_hex(secret_key)?);
+    let sk = nomos_core::mantle::keys::SecretKey::from(BigUint::from_bytes_le(
+        &<[u8; 16]>::from_hex(secret_key)?,
+    ));
     cryptarchia.leader_config.sk = sk;
 
     let pk = sk.to_public_key();
 
-    let tx_hash = <[u8; 32]>::from_hex(tx_hash)?;
+    let tx_hash: TxHash = BigUint::from_bytes_le(&<[u8; 32]>::from_hex(tx_hash)?).into();
     cryptarchia.leader_config.utxos.push(Utxo {
-        tx_hash: tx_hash.into(),
+        tx_hash,
         output_index,
         note: Note { value, pk },
     });

@@ -13,6 +13,7 @@ bytes                  = { workspace = true }
 cryptarchia-engine     = { workspace = true, features = ["serde"] }
 cryptarchia-sync       = { workspace = true }
 futures                = "0.3"
+groth16                = { workspace = true }
 nomos-blend-service    = { workspace = true }
 nomos-core             = { workspace = true }
 nomos-da-sampling      = { workspace = true }
@@ -23,6 +24,7 @@ nomos-storage          = { workspace = true }
 nomos-time             = { workspace = true }
 nomos-utils            = { workspace = true }
 nomos_proof_statements = { workspace = true }
+num-bigint             = "0.4"
 overwatch              = { workspace = true }
 rand                   = "0.8"
 risc0-zkvm             = { workspace = true }

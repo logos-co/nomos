@@ -11,9 +11,11 @@ workspace = true
 cryptarchia-engine     = { workspace = true }
 crypto-bigint          = "0.5"
 ed25519                = "2.2.3"
+groth16                = { workspace = true }
 nomos-core             = { workspace = true }
 nomos-utils            = { workspace = true, optional = true, features = ["serde"] }
 nomos_proof_statements = { workspace = true }
+num-bigint             = "0.4"
 rand                   = { workspace = true }
 rpds                   = "1.1.1"
 serde                  = { version = "1.0", features = ["derive"], optional = true }

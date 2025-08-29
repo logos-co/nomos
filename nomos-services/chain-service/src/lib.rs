@@ -675,7 +675,23 @@ where
                 (cryptarchia, storage_blocks_to_remove)
             }
             Err(e) => {
-                panic!("Initial Block Download failed: {e:?}");
+                error!("Initial Block Download failed: {e:?}. Initiating graceful shutdown.");
+
+                if let Err(shutdown_err) = self
+                    .service_resources_handle
+                    .overwatch_handle
+                    .shutdown()
+                    .await
+                {
+                    error!("Failed to shutdown overwatch: {shutdown_err:?}");
+                }
+
+                error!("Initial Block Download did not complete successfully: {e}. Common causes: unresponsive initial peers, \
+                network issues, or incorrect peer addresses. Consider retrying with different bootstrap peers.");
+
+                return Err(DynError::from(format!(
+                    "Initial Block Download failed: {e:?}"
+                )));
             }
         };
 

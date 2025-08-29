@@ -15,6 +15,9 @@ pub struct Libp2pBlendBackendSettings {
     pub node_key: ed25519::SecretKey,
     pub max_dial_attempts_per_peer_per_message: NonZeroU64,
     pub protocol_name: StreamProtocol,
+    // $\Phi_{EC}$: the minimum number of connections that the edge node establishes with
+    // core nodes to send a single message that needs to be blended.
+    pub replication_factor: NonZeroU64,
 }
 
 impl Libp2pBlendBackendSettings {

@@ -3,6 +3,7 @@ pub mod state;
 use std::{collections::BTreeSet, hash::Hash};
 
 use blake2::{Blake2b, Digest as _};
+use bytes::{Bytes, BytesMut};
 use multiaddr::Multiaddr;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -49,6 +50,16 @@ pub enum ServiceType {
     DataAvailability,
     #[serde(rename = "EX")]
     ExecutorNetwork,
+}
+
+impl AsRef<str> for ServiceType {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::BlendNetwork => "BN",
+            Self::DataAvailability => "DA",
+            Self::ExecutorNetwork => "EX",
+        }
+    }
 }
 
 pub type Nonce = u64;
@@ -174,6 +185,18 @@ impl DeclarationMessage {
 
         DeclarationId(hasher.finalize().into())
     }
+
+    #[must_use]
+    pub fn payload_bytes(&self) -> Bytes {
+        let mut buff = BytesMut::new();
+        buff.extend_from_slice(self.service_type.as_ref().as_bytes());
+        for locator in &self.locators {
+            buff.extend_from_slice(locator.0.as_ref());
+        }
+        buff.extend_from_slice(self.provider_id.0.as_ref());
+        buff.extend_from_slice(self.zk_id.0.as_ref());
+        buff.freeze()
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
@@ -182,11 +205,34 @@ pub struct WithdrawMessage {
     pub nonce: Nonce,
 }
 
+impl WithdrawMessage {
+    #[must_use]
+    pub fn payload_bytes(&self) -> Bytes {
+        let mut buff = BytesMut::new();
+        buff.extend_from_slice(self.declaration_id.0.as_ref());
+        buff.extend_from_slice(&(self.nonce.to_le_bytes()));
+        buff.freeze()
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct ActiveMessage<Metadata> {
     pub declaration_id: DeclarationId,
     pub nonce: Nonce,
     pub metadata: Option<Metadata>,
+}
+
+impl<Metadata: AsRef<[u8]>> ActiveMessage<Metadata> {
+    #[must_use]
+    pub fn payload_bytes(&self) -> Bytes {
+        let mut buff = BytesMut::new();
+        buff.extend_from_slice(self.declaration_id.0.as_ref());
+        buff.extend_from_slice(&(self.nonce.to_le_bytes()));
+        if let Some(metadata) = &self.metadata {
+            buff.extend_from_slice(metadata.as_ref());
+        }
+        buff.freeze()
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]

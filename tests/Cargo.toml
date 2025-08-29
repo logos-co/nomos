@@ -41,6 +41,7 @@ nomos-time               = { workspace = true }
 nomos-tracing            = { workspace = true }
 nomos-tracing-service    = { workspace = true }
 nomos-utils              = { workspace = true }
+num-bigint               = "0.4"
 rand                     = { workspace = true }
 reqwest                  = { workspace = true, features = ["json"] }
 serde                    = { version = "1", features = ["derive"] }

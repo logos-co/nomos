@@ -4,7 +4,7 @@ use chain_service::{
     network::adapters::libp2p::LibP2pAdapter as ConsensusNetworkAdapter, ConsensusMsg,
     CryptarchiaConsensus, CryptarchiaInfo,
 };
-use kzgrs_backend::dispersal::BlobInfo;
+use kzgrs_backend::dispersal::{BlobInfo, Metadata};
 use nomos_core::{
     da::{
         blob::{self, select::FillSize as FillSizeWithBlobs},
@@ -15,9 +15,13 @@ use nomos_core::{
 };
 use nomos_da_sampling::backend::DaSamplingServiceBackend;
 use nomos_libp2p::PeerId;
+use nomos_membership::{
+    adapters::sdp::LedgerSdpAdapter, backends::mock::MockMembershipBackend, MembershipService,
+};
 use nomos_mempool::{
     backend::mockpool::MockPool, network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
 };
+use nomos_sdp::backends::mock::MockSdpBackend;
 use nomos_storage::backends::{rocksdb::RocksBackend, StorageSerde};
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -60,15 +64,26 @@ type BlendService<RuntimeServiceId> = nomos_blend_service::BlendService<
         nomos_blend_service::core::backends::libp2p::Libp2pBlendBackend,
         PeerId,
         nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
+        BlendMembershipAdapter<RuntimeServiceId>,
         RuntimeServiceId,
     >,
     nomos_blend_service::edge::BlendService<
         nomos_blend_service::edge::backends::libp2p::Libp2pBlendBackend,
         PeerId,
         <nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<RuntimeServiceId>>::BroadcastSettings,
+        BlendMembershipAdapter<RuntimeServiceId>,
         RuntimeServiceId
     >,
     RuntimeServiceId,
+>;
+
+type BlendMembershipAdapter<RuntimeServiceId> = nomos_blend_service::membership::service::Adapter<
+    MembershipService<
+        MockMembershipBackend,
+        LedgerSdpAdapter<MockSdpBackend, Metadata, RuntimeServiceId>,
+        RuntimeServiceId,
+    >,
+    PeerId,
 >;
 
 pub async fn cryptarchia_info<
@@ -97,6 +112,7 @@ where
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
     RuntimeServiceId: Debug
+        + Send
         + Sync
         + Display
         + 'static
@@ -151,6 +167,7 @@ where
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
     RuntimeServiceId: Debug
+        + Send
         + Sync
         + Display
         + 'static

@@ -1,10 +1,12 @@
 use cryptarchia_engine::Slot;
+use groth16::Fr;
 use nomos_core::{
     mantle::{keys::SecretKey, Utxo},
     proofs::leader_proof::Risc0LeaderProof,
 };
 use nomos_ledger::{EpochState, UtxoTree};
 use nomos_proof_statements::leadership::{LeaderPrivate, LeaderPublic};
+use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 
 /// TODO: this is a temporary solution until we have a proper wallet
@@ -48,7 +50,7 @@ impl Leader {
                 continue;
             };
 
-            let note_id = [1; 32]; // placeholder for note ID, replace after mantle notes format update
+            let note_id: Fr = BigUint::from(1u8).into(); // placeholder for note ID, replace after mantle notes format update
 
             let public_inputs = LeaderPublic::new(
                 aged_tree.root(),
@@ -60,7 +62,7 @@ impl Leader {
                 epoch_state.total_stake(),
             );
 
-            if public_inputs.check_winning(utxo.note.value, note_id, *self.sk.as_bytes()) {
+            if public_inputs.check_winning(utxo.note.value, note_id, *self.sk.as_fr()) {
                 tracing::debug!(
                     "leader for slot {:?}, {:?}/{:?}",
                     slot,
@@ -71,7 +73,7 @@ impl Leader {
                 let private_inputs = LeaderPrivate {
                     value: utxo.note.value,
                     note_id,
-                    sk: *self.sk.as_bytes(),
+                    sk: *self.sk.as_fr(),
                 };
                 let res = tokio::task::spawn_blocking(move || {
                     Risc0LeaderProof::prove(

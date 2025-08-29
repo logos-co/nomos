@@ -18,10 +18,12 @@ const-hex              = "1"
 cryptarchia-engine     = { workspace = true, features = ["serde"] }
 ed25519                = { version = "2.2", features = ["serde"] }
 ed25519-dalek          = { version = "2.2.0", features = ["serde"] }
-hex                    = { version = "0.4" }
+groth16                = { workspace = true, features = ["deser"] }
 multiaddr              = "0.18"
 nomos_proof_statements = { workspace = true }
 nomos_risc0_proofs     = { path = "../risc0_proofs" }
+num-bigint             = "0.4"
+poseidon2              = { workspace = true }
 risc0-zkvm             = { workspace = true }
 serde                  = { version = "1.0", features = ["derive"] }
 thiserror              = "1.0"

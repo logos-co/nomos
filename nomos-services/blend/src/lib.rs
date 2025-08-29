@@ -24,7 +24,8 @@ use crate::{
             MessageComponents, NetworkBackendOfService, ServiceComponents as CoreServiceComponents,
         },
     },
-    settings::NetworkSettings,
+    membership::Adapter as _,
+    settings::Settings,
 };
 
 pub mod core;
@@ -32,8 +33,10 @@ pub mod edge;
 pub mod message;
 pub mod settings;
 
+pub mod membership;
 mod service_components;
 pub use service_components::ServiceComponents;
+
 #[cfg(test)]
 mod test_utils;
 
@@ -54,7 +57,7 @@ where
     CoreService: ServiceData + CoreServiceComponents<RuntimeServiceId>,
     EdgeService: ServiceData,
 {
-    type Settings = NetworkSettings<CoreService::NodeId>;
+    type Settings = Settings<CoreService::NodeId>;
     type State = NoState<Self::Settings>;
     type StateOperator = NoOperator<Self::State>;
     type Message = CoreService::Message;
@@ -70,9 +73,14 @@ where
             NetworkAdapter: NetworkAdapterTrait<RuntimeServiceId, BroadcastSettings = <<CoreService as ServiceData>::Message as MessageComponents>::BroadcastSettings> + Send,
             NodeId: Clone + Send + Sync,
         > + Send,
-    EdgeService: ServiceData<Message = <CoreService as ServiceData>::Message> + Send,
+    EdgeService: ServiceData<Message = <CoreService as ServiceData>::Message> + edge::ServiceComponents +  Send,
+    EdgeService::MembershipAdapter: membership::Adapter + Send,
+    <EdgeService::MembershipAdapter as membership::Adapter>::Error: Send + Sync + 'static,
+    membership::ServiceMessage<EdgeService::MembershipAdapter>: Send + Sync + 'static,
     RuntimeServiceId: AsServiceId<Self>
         + AsServiceId<CoreService>
+        + AsServiceId<EdgeService>
+        + AsServiceId<MembershipService<EdgeService>>
         + AsServiceId<
             NetworkService<
                 NetworkBackendOfService<CoreService, RuntimeServiceId>,
@@ -95,11 +103,28 @@ where
     }
 
     async fn run(mut self) -> Result<(), DynError> {
-        let settings = self
-            .service_resources_handle
-            .settings_handle
-            .notifier()
-            .get_updated_settings();
+        let Self {
+            service_resources_handle:
+                OpaqueServiceResourcesHandle::<Self, RuntimeServiceId> {
+                    ref mut inbound_relay,
+                    ref overwatch_handle,
+                    ref settings_handle,
+                    ref status_updater,
+                    ..
+                },
+            ..
+        } = self;
+
+        let settings = settings_handle.notifier().get_updated_settings();
+
+        let membership_adapter = <MembershipAdapter<EdgeService> as membership::Adapter>::new(
+            overwatch_handle
+                .relay::<MembershipService<EdgeService>>()
+                .await?,
+            settings.crypto.signing_private_key.public_key(),
+        );
+        let mut _membership_stream = membership_adapter.subscribe().await?;
+        // TODO: Use membership_stream as a session stream: https://github.com/logos-co/nomos/issues/1532
 
         // TODO: Add logic to start/stop the core or edge service based on the new
         // membership info.
@@ -107,21 +132,19 @@ where
         let minimal_network_size = settings.minimal_network_size;
         let membership_size = settings.membership.len();
 
-        let inbound_relay = &mut self.service_resources_handle.inbound_relay;
-
         if membership_size >= minimal_network_size.get() as usize {
             wait_until_services_are_ready!(
-                &self.service_resources_handle.overwatch_handle,
+                &overwatch_handle,
                 Some(Duration::from_secs(60)),
-                CoreService
+                CoreService,
+                MembershipService<EdgeService>
             )
             .await?;
-            let core_relay = self
-                .service_resources_handle
-                .overwatch_handle
+            let core_relay =
+                overwatch_handle
                 .relay::<CoreService>()
                 .await?;
-            self.service_resources_handle.status_updater.notify_ready();
+            status_updater.notify_ready();
             info!(
                 target: LOG_TARGET,
                 "Service '{}' is ready.",
@@ -135,14 +158,14 @@ where
             }
         } else {
             wait_until_services_are_ready!(
-                &self.service_resources_handle.overwatch_handle,
+                &overwatch_handle,
                 Some(Duration::from_secs(60)),
-                NetworkService<NetworkBackendOfService<CoreService, RuntimeServiceId>, _>
+                NetworkService<NetworkBackendOfService<CoreService, RuntimeServiceId>, _>,
+                MembershipService<EdgeService>
             )
             .await?;
-            let core_network_relay = self
-                .service_resources_handle
-                .overwatch_handle
+            let core_network_relay =
+                overwatch_handle
                 .relay::<NetworkService<NetworkBackendOfService<CoreService, RuntimeServiceId>, _>>(
                 )
                 .await?;
@@ -150,7 +173,7 @@ where
             let core_network_adapter = <CoreService::NetworkAdapter as NetworkAdapterTrait<
                 RuntimeServiceId,
             >>::new(core_network_relay);
-            self.service_resources_handle.status_updater.notify_ready();
+            status_updater.notify_ready();
             info!(
                 target: LOG_TARGET,
                 "Service '{}' is ready.",
@@ -171,3 +194,8 @@ where
         Ok(())
     }
 }
+
+type MembershipAdapter<EdgeService> = <EdgeService as edge::ServiceComponents>::MembershipAdapter;
+
+type MembershipService<EdgeService> =
+    <MembershipAdapter<EdgeService> as membership::Adapter>::Service;

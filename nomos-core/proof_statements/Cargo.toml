@@ -6,8 +6,10 @@ version = "0.1.0"
 
 [dependencies]
 crypto-bigint = { version = "0.5.5", features = ["serde"] }
+groth16       = { path = "../../zk/groth16", features = ["deser"] }
+num-bigint    = "0.4"
+poseidon2     = { path = "../../zk/poseidon2" }
 serde         = { version = "1.0", features = ["derive"] }
-sha2          = "0.10"
 
 [lints.clippy]
 

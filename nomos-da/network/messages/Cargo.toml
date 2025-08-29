@@ -8,6 +8,7 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
+blake2        = "0.10"
 futures       = "0.3.31"
 kzgrs-backend = { workspace = true }
 nomos-core    = { workspace = true }

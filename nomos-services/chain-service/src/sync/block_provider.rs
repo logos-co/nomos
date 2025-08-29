@@ -559,6 +559,7 @@ mod tests {
         },
         StorageService,
     };
+    use num_bigint::BigUint;
     use overwatch::{derive_services, overwatch::OverwatchRunner};
     use serde::de::DeserializeOwned;
     use tempfile::TempDir;
@@ -955,12 +956,18 @@ mod tests {
 
         fn make_test_proof() -> nomos_core::proofs::leader_proof::Risc0LeaderProof {
             let public_inputs = LeaderPublic::new(
-                [1u8; 32], [2u8; 32], [3u8; 32], [4u8; 32], 0u64, 0.05f64, 1000u64,
+                BigUint::from(1u8).into(),
+                BigUint::from(2u8).into(),
+                [3u8; 32],
+                [4u8; 32],
+                0u64,
+                0.05f64,
+                1000u64,
             );
             let private_inputs = LeaderPrivate {
                 value: 100,
-                note_id: [5u8; 32],
-                sk: [6u8; 16],
+                note_id: BigUint::from(5u8).into(),
+                sk: BigUint::from(6u8).into(),
             };
             nomos_core::proofs::leader_proof::Risc0LeaderProof::prove(
                 public_inputs,

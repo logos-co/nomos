@@ -29,9 +29,6 @@ impl<const SIZE: usize, Tx: Transaction> TxSelect for FillSize<SIZE, Tx> {
         &self,
         txs: I,
     ) -> impl Iterator<Item = Self::Tx> + 'i {
-        utils::select::select_from_till_fill_size::<SIZE, Self::Tx>(
-            |tx| tx.as_sign_bytes().len(),
-            txs,
-        )
+        utils::select::select_from_till_fill_size::<SIZE, Self::Tx>(|_| 1, txs)
     }
 }

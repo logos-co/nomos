@@ -35,7 +35,7 @@ async fn edge_redial_same_peer() {
         ))
         .build();
     let message = TestEncapsulatedMessage::new(b"test-payload");
-    swarm.send_message(message.clone());
+    swarm.send_message(&message);
 
     let dial_attempt_1_record = swarm
         .pending_dials()
@@ -156,7 +156,7 @@ async fn edge_redial_different_peer_after_redial_limit() {
 
     // We instruct the swarm to try to dial the unreachable swarm first by excluding
     // the core swarm from the initial set of recipients.
-    edge_swarm.send_message_to_anyone_except(*core_swarm.local_peer_id(), message.clone());
+    edge_swarm.send_message_to_anyone_except(*core_swarm.local_peer_id(), &message);
 
     spawn(async move { core_swarm.run().await });
     spawn(async move { edge_swarm.run().await });

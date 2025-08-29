@@ -1,17 +1,19 @@
-use crate::utils::serde_bytes_newtype;
+use groth16::{serde::serde_fr, Fr};
+use num_bigint::BigUint;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct SecretKey([u8; 16]);
-serde_bytes_newtype!(SecretKey, 16);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct SecretKey(#[serde(with = "serde_fr")] Fr);
 
 impl SecretKey {
     #[must_use]
-    pub const fn new(key: [u8; 16]) -> Self {
+    pub const fn new(key: Fr) -> Self {
         Self(key)
     }
 
     #[must_use]
-    pub const fn as_bytes(&self) -> &[u8; 16] {
+    pub const fn as_fr(&self) -> &Fr {
         &self.0
     }
 
@@ -21,18 +23,18 @@ impl SecretKey {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct PublicKey([u8; 32]);
-serde_bytes_newtype!(PublicKey, 32);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct PublicKey(#[serde(with = "serde_fr")] Fr);
 
 impl PublicKey {
     #[must_use]
-    pub const fn new(key: [u8; 32]) -> Self {
+    pub const fn new(key: Fr) -> Self {
         Self(key)
     }
 
     #[must_use]
-    pub const fn as_bytes(&self) -> &[u8; 32] {
+    pub const fn as_fr(&self) -> &Fr {
         &self.0
     }
 }
@@ -43,25 +45,37 @@ impl From<SecretKey> for PublicKey {
     }
 }
 
-impl From<[u8; 16]> for SecretKey {
-    fn from(key: [u8; 16]) -> Self {
+impl From<Fr> for SecretKey {
+    fn from(key: Fr) -> Self {
         Self::new(key)
     }
 }
 
-impl From<[u8; 32]> for PublicKey {
-    fn from(key: [u8; 32]) -> Self {
+impl From<BigUint> for SecretKey {
+    fn from(value: BigUint) -> Self {
+        Self(value.into())
+    }
+}
+
+impl From<Fr> for PublicKey {
+    fn from(key: Fr) -> Self {
         Self::new(key)
     }
 }
 
-impl From<SecretKey> for [u8; 16] {
+impl From<BigUint> for PublicKey {
+    fn from(value: BigUint) -> Self {
+        Self(value.into())
+    }
+}
+
+impl From<SecretKey> for Fr {
     fn from(secret: SecretKey) -> Self {
         secret.0
     }
 }
 
-impl From<PublicKey> for [u8; 32] {
+impl From<PublicKey> for Fr {
     fn from(public: PublicKey) -> Self {
         public.0
     }

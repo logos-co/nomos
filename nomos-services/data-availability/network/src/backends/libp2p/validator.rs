@@ -5,7 +5,7 @@ use futures::{
     Stream, StreamExt as _,
 };
 use libp2p::PeerId;
-use nomos_core::{block::BlockNumber, da::BlobId, header::HeaderId};
+use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId};
 use nomos_da_network_core::{
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
     swarm::{
@@ -251,7 +251,7 @@ where
 
     async fn start_historic_sampling(
         &self,
-        block_number: BlockNumber,
+        session_id: SessionNumber,
         block_id: HeaderId,
         blob_ids: HashSet<BlobId>,
         membership: Self::HistoricMembership,
@@ -259,7 +259,7 @@ where
         handle_historic_sample_request(
             &self.historic_sample_request_channel,
             blob_ids,
-            block_number,
+            session_id,
             block_id,
             membership,
         )

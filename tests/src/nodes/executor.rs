@@ -20,7 +20,7 @@ use nomos_blend_service::{
     settings::TimingSettings,
 };
 use nomos_core::{
-    block::{Block, BlockNumber},
+    block::{Block, SessionNumber},
     da::BlobId,
     header::HeaderId,
     mantle::SignedMantleTx,
@@ -316,7 +316,7 @@ impl Executor {
 
     pub async fn da_get_membership(
         &self,
-        block_number: BlockNumber,
+        session_id: SessionNumber,
     ) -> Result<MembershipResponse, reqwest::Error> {
         let response = CLIENT
             .post(format!(
@@ -324,7 +324,7 @@ impl Executor {
                 self.testing_http_addr, DA_GET_MEMBERSHIP
             ))
             .header("Content-Type", "application/json")
-            .body(serde_json::to_string(&block_number).unwrap())
+            .body(serde_json::to_string(&session_id).unwrap())
             .send()
             .await;
 

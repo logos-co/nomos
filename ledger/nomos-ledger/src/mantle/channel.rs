@@ -84,7 +84,10 @@ impl Channels {
         }
 
         if let Some(channel) = self.channels.get_mut(&channel_id) {
-            if channel.keys[0].verify(tx_hash.as_ref(), sig).is_err() {
+            if channel.keys[0]
+                .verify(tx_hash.as_signing_bytes().as_ref(), sig)
+                .is_err()
+            {
                 return Err(Error::InvalidSignature);
             }
             channel.keys = op.keys.clone().into();

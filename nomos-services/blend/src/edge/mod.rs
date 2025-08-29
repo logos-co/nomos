@@ -2,7 +2,12 @@ pub mod backends;
 pub(crate) mod service_components;
 pub mod settings;
 
-use std::{fmt::Display, hash::Hash};
+use std::{
+    fmt::{Debug, Display},
+    hash::Hash,
+    marker::PhantomData,
+    time::Duration,
+};
 
 use backends::BlendBackend;
 use nomos_blend_scheduling::message_blend::crypto::CryptographicProcessor;
@@ -17,24 +22,27 @@ use overwatch::{
 };
 use rand::{RngCore, SeedableRng as _};
 use serde::Serialize;
+pub(crate) use service_components::ServiceComponents;
+use services_utils::wait_until_services_are_ready;
 use settings::BlendConfig;
 use tokio::time::interval;
 use tokio_stream::{wrappers::IntervalStream, StreamExt as _};
 
-use crate::message::ServiceMessage;
+use crate::{membership, message::ServiceMessage};
 
 const LOG_TARGET: &str = "blend::service::edge";
 
-pub struct BlendService<Backend, NodeId, BroadcastSettings, RuntimeServiceId>
+pub struct BlendService<Backend, NodeId, BroadcastSettings, MembershipAdapter, RuntimeServiceId>
 where
     Backend: BlendBackend<NodeId, RuntimeServiceId>,
     NodeId: Clone,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
+    _phantom: PhantomData<MembershipAdapter>,
 }
 
-impl<Backend, NodeId, BroadcastSettings, RuntimeServiceId> ServiceData
-    for BlendService<Backend, NodeId, BroadcastSettings, RuntimeServiceId>
+impl<Backend, NodeId, BroadcastSettings, MembershipAdapter, RuntimeServiceId> ServiceData
+    for BlendService<Backend, NodeId, BroadcastSettings, MembershipAdapter, RuntimeServiceId>
 where
     Backend: BlendBackend<NodeId, RuntimeServiceId>,
     NodeId: Clone,
@@ -46,13 +54,24 @@ where
 }
 
 #[async_trait::async_trait]
-impl<Backend, NodeId, BroadcastSettings, RuntimeServiceId> ServiceCore<RuntimeServiceId>
-    for BlendService<Backend, NodeId, BroadcastSettings, RuntimeServiceId>
+impl<Backend, NodeId, BroadcastSettings, MembershipAdapter, RuntimeServiceId>
+    ServiceCore<RuntimeServiceId>
+    for BlendService<Backend, NodeId, BroadcastSettings, MembershipAdapter, RuntimeServiceId>
 where
     Backend: BlendBackend<NodeId, RuntimeServiceId> + Send + Sync,
     NodeId: Clone + Eq + Hash + Send + Sync + 'static,
     BroadcastSettings: Serialize + Send,
-    RuntimeServiceId: AsServiceId<Self> + Display + Clone + Send,
+    MembershipAdapter: membership::Adapter + Send,
+    membership::ServiceMessage<MembershipAdapter>: Send + Sync + 'static,
+    <MembershipAdapter as membership::Adapter>::Error: Send + Sync + 'static,
+    RuntimeServiceId: AsServiceId<<MembershipAdapter as membership::Adapter>::Service>
+        + AsServiceId<Self>
+        + Display
+        + Debug
+        + Clone
+        + Send
+        + Sync
+        + 'static,
 {
     fn init(
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
@@ -60,12 +79,14 @@ where
     ) -> Result<Self, overwatch::DynError> {
         Ok(Self {
             service_resources_handle,
+            _phantom: PhantomData,
         })
     }
 
     async fn run(mut self) -> Result<(), overwatch::DynError> {
         let Self {
             service_resources_handle,
+            ..
         } = self;
 
         let settings = service_resources_handle
@@ -75,6 +96,23 @@ where
         let membership = settings.membership();
         let current_membership = Some(membership.clone());
         let minimum_network_size = settings.minimum_network_size;
+
+        let membership_adapter = MembershipAdapter::new(
+            service_resources_handle
+                .overwatch_handle
+                .relay::<<MembershipAdapter as membership::Adapter>::Service>()
+                .await?,
+            settings.crypto.signing_private_key.public_key(),
+        );
+        let mut _membership_stream = membership_adapter.subscribe().await?;
+        // TODO: Use membership_stream as a session stream: https://github.com/logos-co/nomos/issues/1532
+
+        wait_until_services_are_ready!(
+            &service_resources_handle.overwatch_handle,
+            Some(Duration::from_secs(60)),
+            <MembershipAdapter as membership::Adapter>::Service
+        )
+        .await?;
 
         // TODO: Add logic to try process new sessions. I.e:
         // * If the old session membership was too small and the new one is large

@@ -209,19 +209,21 @@ impl LedgerState {
 #[cfg(test)]
 mod tests {
     use cryptarchia::tests::{config, generate_proof, utxo};
+    use groth16::Fr;
     use nomos_core::{
         mantle::{
-            gas::MainnetGasConstants, ledger::Tx as LedgerTx, MantleTx, Note, SignedMantleTx,
-            Transaction as _,
+            gas::MainnetGasConstants, keys::PublicKey, ledger::Tx as LedgerTx, MantleTx, Note,
+            SignedMantleTx, Transaction as _,
         },
         proofs::zksig::DummyZkSignature,
     };
+    use num_bigint::BigUint;
 
     use super::*;
 
     type HeaderId = [u8; 32];
 
-    fn create_tx(inputs: Vec<NoteId>, outputs: Vec<Note>, pks: Vec<[u8; 32]>) -> SignedMantleTx {
+    fn create_tx(inputs: Vec<NoteId>, outputs: Vec<Note>, pks: Vec<Fr>) -> SignedMantleTx {
         let ledger_tx = LedgerTx::new(inputs, outputs);
         let mantle_tx = MantleTx {
             ops: vec![],
@@ -261,8 +263,8 @@ mod tests {
     fn test_ledger_try_update_with_transaction() {
         let (ledger, genesis_id, utxo) = create_test_ledger();
 
-        let output_note = Note::new(1, [1; 32].into());
-        let pk = [0; 32];
+        let output_note = Note::new(1, PublicKey::new(BigUint::from(1u8).into()));
+        let pk = BigUint::from(0u8).into();
         let tx = create_tx(vec![utxo.id()], vec![output_note], vec![pk]);
 
         // Create a dummy proof (using same structure as in cryptarchia tests)

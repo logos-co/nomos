@@ -45,6 +45,7 @@ nomos-system-sig         = { workspace = true }
 nomos-time               = { workspace = true, features = ["ntp", "serde"] }
 nomos-tracing            = { workspace = true }
 nomos-tracing-service    = { workspace = true }
+num-bigint               = "0.4"
 overwatch                = { workspace = true }
 serde                    = "1"
 serde_yaml               = "0.9"

@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Mutex};
 
 use libp2p::PeerId;
-use nomos_core::block::BlockNumber;
+use nomos_core::block::SessionNumber;
 use nomos_da_network_core::SubnetworkId;
 use overwatch::{
     services::{relay::OutboundRelay, state::NoState, ServiceData},
@@ -21,7 +21,7 @@ impl ServiceData for MockStorageService {
 
 #[derive(Default)]
 struct StorageState {
-    assignations: HashMap<BlockNumber, Assignations<PeerId, SubnetworkId>>,
+    assignations: HashMap<SessionNumber, Assignations<PeerId, SubnetworkId>>,
     addressbook: HashMap<PeerId, libp2p::Multiaddr>,
 }
 
@@ -40,23 +40,23 @@ impl MembershipStorageAdapter<PeerId, SubnetworkId> for MockStorage {
 
     async fn store(
         &self,
-        block_number: BlockNumber,
+        session_id: SessionNumber,
         assignations: Assignations<PeerId, SubnetworkId>,
     ) -> Result<(), DynError> {
         self.state
             .lock()
             .unwrap()
             .assignations
-            .insert(block_number, assignations);
+            .insert(session_id, assignations);
         Ok(())
     }
 
     async fn get(
         &self,
-        block_number: BlockNumber,
+        session_id: SessionNumber,
     ) -> Result<Option<Assignations<PeerId, SubnetworkId>>, DynError> {
         let state = self.state.lock().unwrap();
-        Ok(state.assignations.get(&block_number).cloned())
+        Ok(state.assignations.get(&session_id).cloned())
     }
 
     async fn store_addresses(

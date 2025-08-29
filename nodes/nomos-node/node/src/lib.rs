@@ -7,9 +7,12 @@ use color_eyre::eyre::Result;
 use generic_services::VerifierMempoolAdapter;
 use kzgrs_backend::common::share::DaShare;
 pub use kzgrs_backend::dispersal::BlobInfo;
-pub use nomos_blend_service::core::{
-    backends::libp2p::Libp2pBlendBackend as BlendBackend,
-    network::libp2p::Libp2pAdapter as BlendNetworkAdapter,
+pub use nomos_blend_service::{
+    core::{
+        backends::libp2p::Libp2pBlendBackend as BlendBackend,
+        network::libp2p::Libp2pAdapter as BlendNetworkAdapter,
+    },
+    membership::service::Adapter as BlendMembershipAdapter,
 };
 use nomos_core::mantle::SignedMantleTx;
 pub use nomos_core::{
@@ -95,6 +98,7 @@ pub(crate) type BlendCoreService = nomos_blend_service::core::BlendService<
     BlendBackend,
     PeerId,
     BlendNetworkAdapter<RuntimeServiceId>,
+    BlendMembershipAdapter<MembershipService<RuntimeServiceId>, PeerId>,
     RuntimeServiceId,
 >;
 
@@ -104,6 +108,7 @@ pub(crate) type BlendEdgeService = nomos_blend_service::edge::BlendService<
     <BlendNetworkAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<
         RuntimeServiceId,
     >>::BroadcastSettings,
+    BlendMembershipAdapter<MembershipService<RuntimeServiceId>, PeerId>,
     RuntimeServiceId,
 >;
 

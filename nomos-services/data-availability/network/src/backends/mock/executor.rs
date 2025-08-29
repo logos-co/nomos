@@ -3,7 +3,7 @@ use std::{collections::HashSet, pin::Pin};
 use futures::{Stream, StreamExt as _};
 use kzgrs_backend::common::{build_blob_id, share::DaShare};
 use libp2p::PeerId;
-use nomos_core::{block::BlockNumber, da::BlobId, header::HeaderId};
+use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId};
 use nomos_da_network_core::SubnetworkId;
 use overwatch::{overwatch::handle::OverwatchHandle, services::state::NoState};
 use serde::{Deserialize, Serialize};
@@ -128,7 +128,7 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for MockExecutorBackend 
 
     async fn start_historic_sampling(
         &self,
-        _block_number: BlockNumber,
+        _session_number: SessionNumber,
         _block_id: HeaderId,
         _blob_ids: HashSet<BlobId>,
         _membership: Self::HistoricMembership,

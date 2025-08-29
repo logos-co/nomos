@@ -8,7 +8,7 @@ use libp2p::{
     Multiaddr, PeerId, Swarm, SwarmBuilder, TransportError,
 };
 use log::debug;
-use nomos_core::{block::BlockNumber, da::BlobId, header::HeaderId};
+use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId};
 use subnetworks_assignations::MembershipHandler;
 use tokio::{
     sync::mpsc::{unbounded_channel, UnboundedSender},
@@ -41,7 +41,7 @@ use crate::{
     SubnetworkId,
 };
 
-pub type SampleArgs<Membership> = (HashSet<BlobId>, BlockNumber, HeaderId, Membership);
+pub type SampleArgs<Membership> = (HashSet<BlobId>, SessionNumber, HeaderId, Membership);
 
 // Metrics
 const EVENT_SAMPLING: &str = "sampling";

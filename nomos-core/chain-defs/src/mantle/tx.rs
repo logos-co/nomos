@@ -1,7 +1,13 @@
-use blake2::Digest as _;
+use std::sync::LazyLock;
+
+use bytes::Bytes;
+use groth16::{serde::serde_fr, Fr};
+use num_bigint::BigUint;
+use poseidon2::Digest;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    crypto::ZkHasher,
     mantle::{
         gas::{Gas, GasConstants, GasCost},
         ledger::Tx as LedgerTx,
@@ -9,28 +15,35 @@ use crate::{
         AuthenticatedMantleTx, Transaction, TransactionHasher,
     },
     proofs::zksig::{DummyZkSignature as ZkSignature, ZkSignatureProof},
-    utils::serde_bytes_newtype,
 };
+
 /// The hash of a transaction
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash, PartialOrd, Ord)]
-pub struct TxHash(pub [u8; 32]);
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Hash, PartialOrd, Ord, Serialize, Deserialize,
+)]
+#[serde(transparent)]
+pub struct TxHash(#[serde(with = "serde_fr")] pub Fr);
 
-serde_bytes_newtype!(TxHash, 32);
-
-impl From<[u8; 32]> for TxHash {
-    fn from(bytes: [u8; 32]) -> Self {
-        Self(bytes)
+impl From<Fr> for TxHash {
+    fn from(fr: Fr) -> Self {
+        Self(fr)
     }
 }
 
-impl From<TxHash> for [u8; 32] {
+impl From<BigUint> for TxHash {
+    fn from(value: BigUint) -> Self {
+        Self(value.into())
+    }
+}
+
+impl From<TxHash> for Fr {
     fn from(hash: TxHash) -> Self {
         hash.0
     }
 }
 
-impl AsRef<[u8; 32]> for TxHash {
-    fn as_ref(&self) -> &[u8; 32] {
+impl AsRef<Fr> for TxHash {
+    fn as_ref(&self) -> &Fr {
         &self.0
     }
 }
@@ -39,14 +52,12 @@ impl TxHash {
     /// For testing purposes
     #[cfg(test)]
     pub fn random(mut rng: impl rand::RngCore) -> Self {
-        let mut sk = [0u8; 32];
-        rng.fill_bytes(&mut sk);
-        Self(sk)
+        Self(BigUint::from(rng.next_u64()).into())
     }
 
     #[must_use]
-    pub fn hex(&self) -> String {
-        hex::encode(self.0)
+    pub fn as_signing_bytes(&self) -> Bytes {
+        self.0 .0 .0.iter().flat_map(|b| b.to_le_bytes()).collect()
     }
 }
 
@@ -58,29 +69,27 @@ pub struct MantleTx {
     pub storage_gas_price: Gas,
 }
 
+static NOMOS_MANTLE_TXHASH_V1_FR: LazyLock<Fr> =
+    LazyLock::new(|| BigUint::from_bytes_be(b"NOMOS_MANTLE_TXHASH_V1").into());
+
+static END_OPS_FR: LazyLock<Fr> = LazyLock::new(|| BigUint::from_bytes_be(b"END_OPS").into());
+
 impl Transaction for MantleTx {
     const HASHER: TransactionHasher<Self> =
-        |tx| <[u8; 32]>::from(crate::crypto::Hasher::digest(tx.as_sign_bytes())).into();
+        |tx| <ZkHasher as Digest>::digest(&tx.as_signing_frs()).into();
     type Hash = TxHash;
 
-    fn as_sign_bytes(&self) -> bytes::Bytes {
+    fn as_signing_frs(&self) -> Vec<Fr> {
         // constant and structure as defined in the Mantle specification:
         // https://www.notion.so/Mantle-Specification-21c261aa09df810c8820fab1d78b53d9
-        const NOMOS_MANTLE_TXHASH_V1: &[u8] = b"NOMOS_MANTLE_TXHASH_V1";
-        const END_OPS: &[u8] = b"END_OPS";
 
-        let mut buff = bytes::BytesMut::new();
-        buff.extend_from_slice(NOMOS_MANTLE_TXHASH_V1);
-        for op in &self.ops {
-            buff.extend_from_slice(op.as_sign_bytes().as_ref());
-        }
-        buff.extend_from_slice(END_OPS);
-
-        buff.extend_from_slice(self.storage_gas_price.to_le_bytes().as_ref());
-        buff.extend_from_slice(self.execution_gas_price.to_le_bytes().as_ref());
-
-        buff.extend_from_slice(&self.ledger_tx.hash().0);
-        buff.freeze()
+        let mut output: Vec<Fr> = vec![*NOMOS_MANTLE_TXHASH_V1_FR];
+        output.extend(self.ops.iter().flat_map(Op::as_signing_fr));
+        output.push(*END_OPS_FR);
+        output.push(BigUint::from(self.storage_gas_price).into());
+        output.push(BigUint::from(self.execution_gas_price).into());
+        output.extend(self.ledger_tx.as_signing_frs());
+        output
     }
 }
 
@@ -100,11 +109,11 @@ pub struct SignedMantleTx {
 
 impl Transaction for SignedMantleTx {
     const HASHER: TransactionHasher<Self> =
-        |tx| <[u8; 32]>::from(crate::crypto::Hasher::digest(tx.as_sign_bytes())).into();
+        |tx| <ZkHasher as Digest>::digest(&tx.as_signing_frs()).into();
     type Hash = TxHash;
 
-    fn as_sign_bytes(&self) -> bytes::Bytes {
-        self.mantle_tx.as_sign_bytes()
+    fn as_signing_frs(&self) -> Vec<Fr> {
+        self.mantle_tx.as_signing_frs()
     }
 }
 

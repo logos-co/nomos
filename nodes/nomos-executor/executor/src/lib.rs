@@ -3,9 +3,12 @@ pub mod config;
 
 use api::backend::AxumBackend;
 use kzgrs_backend::common::share::DaShare;
-use nomos_blend_service::core::{
-    backends::libp2p::Libp2pBlendBackend as BlendBackend,
-    network::libp2p::Libp2pAdapter as BlendNetworkAdapter,
+use nomos_blend_service::{
+    core::{
+        backends::libp2p::Libp2pBlendBackend as BlendBackend,
+        network::libp2p::Libp2pAdapter as BlendNetworkAdapter,
+    },
+    membership::service::Adapter as BlendMembershipAdapter,
 };
 use nomos_core::mantle::SignedMantleTx;
 use nomos_da_dispersal::{
@@ -53,6 +56,7 @@ pub(crate) type BlendCoreService = nomos_blend_service::core::BlendService<
     BlendBackend,
     PeerId,
     BlendNetworkAdapter<RuntimeServiceId>,
+    BlendMembershipAdapter<MembershipService<RuntimeServiceId>, PeerId>,
     RuntimeServiceId,
 >;
 
@@ -62,6 +66,7 @@ pub(crate) type BlendEdgeService = nomos_blend_service::edge::BlendService<
     <BlendNetworkAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<
         RuntimeServiceId,
     >>::BroadcastSettings,
+    BlendMembershipAdapter<MembershipService<RuntimeServiceId>, PeerId>,
     RuntimeServiceId,
 >;
 
