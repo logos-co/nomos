@@ -1,10 +1,9 @@
 use std::error::Error;
-use std::ops::{Mul as _, MulAssign, Neg};
-use ark_ec::{pairing::Pairing, AffineRepr, CurveGroup, VariableBaseMSM};
+use std::ops::{Mul as _, Neg};
+use ark_ec::{pairing::Pairing, CurveGroup, VariableBaseMSM};
 use ark_ff::{One, Field, UniformRand};
 use ark_std::rand::thread_rng;
 use ark_bn254::{Bn254, Fr, G1Projective, G1Affine, G2Affine, G2Projective};
-use ark_relations::r1cs::SynthesisError;
 use ark_groth16::{Groth16, r1cs_to_qap::LibsnarkReduction};
 
 use crate::{proof::Proof, verification_key::PreparedVerificationKey};
@@ -18,10 +17,10 @@ pub fn groth16_verify<E: Pairing>(
     Groth16::<E, LibsnarkReduction>::verify_proof(vk.as_ref(), &proof, public_inputs)
 }
 
-pub fn groth16__batch_verify(
+pub fn groth16_batch_verify(
     vk: &PreparedVerificationKey<Bn254>,
     proofs: &Vec<Proof<Bn254>>,
-    public_inputs: &Vec<&Vec<Fr>>,
+    public_inputs: &Vec<Vec<Fr>>,
 ) -> bool {
 
     let mut rng = thread_rng();
@@ -56,11 +55,11 @@ pub fn groth16__batch_verify(
 
     let batched_public_inputs : Vec<Fr> = std::iter::once(r_sum)
         .chain(
-            (0..public_inputs.len()).map(|j| {
+            (0..public_inputs[0].len()).map(|j| {
                 r_roots
                     .iter()
                     .enumerate()
-                    .map(|(i, &w)| w * public_inputs[i][j])
+                    .map(|(i, &w)| w.mul(&public_inputs[i][j]))
                     .sum()
             }),
         )

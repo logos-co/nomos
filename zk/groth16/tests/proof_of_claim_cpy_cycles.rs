@@ -4,7 +4,7 @@ use std::{hint::black_box, ops::Deref as _, sync::LazyLock};
 #[cfg(all(target_arch = "x86_64", feature = "deser"))]
 use groth16::{
     Groth16Proof, Groth16ProofJsonDeser, Groth16PublicInput, Groth16PublicInputDeser,
-    Groth16VerificationKey, Groth16VerificationKeyJsonDeser, groth16_verify,
+    Groth16VerificationKey, Groth16VerificationKeyJsonDeser, groth16_verify, groth16_batch_verify
 };
 #[cfg(all(target_arch = "x86_64", feature = "deser"))]
 use serde_json::{Value, json};
@@ -195,4 +195,22 @@ fn poc_cpu_cycles() {
     let post = unsafe { core::arch::x86_64::_rdtsc() };
     let cycles = (post - pre) / iters;
     println!("proof-of-claim-cycles-count: {cycles} cpu cycles");
+
+
+    let proofs_batch: Vec<Groth16Proof> = (0..10)
+        .map(|_| {
+            serde_json::from_value::<Groth16ProofJsonDeser>(PROOF.deref().clone())
+                .unwrap()
+                .try_into()
+                .unwrap()
+        })
+        .collect();
+    let pi_batch: Vec<Vec<_>> = std::iter::repeat_with(|| pi.clone()).take(10).collect();
+    let pre = unsafe { core::arch::x86_64::_rdtsc() };
+    for _ in 0..iters {
+        black_box(groth16_batch_verify(&pvk, &proofs_batch, &pi_batch));
+    }
+    let post = unsafe { core::arch::x86_64::_rdtsc() };
+    let cycles = (post - pre) / iters;
+    println!("batched-proof-of-claim-cycles-count: {cycles} cpu cycles");
 }
