@@ -76,7 +76,11 @@ where
     CoreService: ServiceData<Message: MessageComponents<Payload: Into<Vec<u8>>> + Send + 'static>
         + CoreServiceComponents<
             RuntimeServiceId,
-            NetworkAdapter: NetworkAdapterTrait<RuntimeServiceId, BroadcastSettings = <<CoreService as ServiceData>::Message as MessageComponents>::BroadcastSettings> + Send + Sync,
+            NetworkAdapter: NetworkAdapterTrait<
+                RuntimeServiceId,
+                BroadcastSettings = BroadcastSettings<CoreService>,
+            > + Send
+                                + Sync,
             NodeId: Clone + Hash + Eq + Send + Sync + 'static,
         > + Send,
     EdgeService: ServiceData<Message = CoreService::Message> + edge::ServiceComponents + Send,
@@ -129,12 +133,17 @@ where
                 .relay::<MembershipService<EdgeService>>()
                 .await?,
             settings.crypto.signing_private_key.public_key(),
-        ).subscribe().await?;
+        )
+        .subscribe()
+        .await?;
         // TODO: Use membership_stream once the membership/SDP services are ready to provide the real membership: https://github.com/logos-co/nomos/issues/1532
 
         let mut membership = settings.membership();
         let mut session_stream = SessionEventStream::new(
-            Box::pin(constant_membership_stream(membership.clone(), settings.time.session_duration())),
+            Box::pin(constant_membership_stream(
+                membership.clone(),
+                settings.time.session_duration(),
+            )),
             settings.time.session_transition_period(),
         );
 
@@ -147,7 +156,10 @@ where
         let network_adapter = <CoreService::NetworkAdapter as NetworkAdapterTrait<
             RuntimeServiceId,
         >>::new(
-            overwatch_handle.relay::<NetworkService<NetworkBackendOfService<CoreService, RuntimeServiceId>, _>>().await?
+            overwatch_handle
+                .relay::<NetworkService<NetworkBackendOfService<CoreService, RuntimeServiceId>, _>>(
+                )
+                .await?,
         );
 
         wait_until_services_are_ready!(
@@ -183,6 +195,9 @@ where
     }
 }
 
+type BroadcastSettings<CoreService> =
+    <<CoreService as ServiceData>::Message as MessageComponents>::BroadcastSettings;
+
 type MembershipAdapter<EdgeService> = <EdgeService as edge::ServiceComponents>::MembershipAdapter;
 
 type MembershipService<EdgeService> =
@@ -194,7 +209,11 @@ where
     CoreService: ServiceData<Message: MessageComponents<Payload: Into<Vec<u8>>> + Send + 'static>
         + CoreServiceComponents<
             RuntimeServiceId,
-            NetworkAdapter: NetworkAdapterTrait<RuntimeServiceId, BroadcastSettings = <<CoreService as ServiceData>::Message as MessageComponents>::BroadcastSettings> + Send + Sync,
+            NetworkAdapter: NetworkAdapterTrait<
+                RuntimeServiceId,
+                BroadcastSettings = BroadcastSettings<CoreService>,
+            > + Send
+                                + Sync,
             NodeId: Clone + Hash + Eq + Send + Sync + 'static,
         > + Send,
     EdgeService: ServiceData<Message = CoreService::Message>,
@@ -227,6 +246,8 @@ where
         network_adapter: &CoreService::NetworkAdapter,
     ) {
         let (payload, broadcast_settings) = message.into_components();
-        network_adapter.broadcast(payload.into(), broadcast_settings).await;
+        network_adapter
+            .broadcast(payload.into(), broadcast_settings)
+            .await;
     }
 }
