@@ -37,7 +37,8 @@ use nomos_da_network_service::{
 };
 use nomos_da_sampling::{backend::DaSamplingServiceBackend, DaSamplingService};
 use nomos_da_verifier::{backend::VerifierBackend, mempool::DaMempoolAdapter};
-use nomos_http_api_common::paths;
+pub use nomos_http_api_common::settings::AxumBackendSettings;
+use nomos_http_api_common::{paths, utils::create_rate_limit_layer};
 use nomos_libp2p::PeerId;
 use nomos_mempool::{
     backend::mockpool::MockPool, tx::service::openapi::Status, DaMempoolService, MempoolMetrics,
@@ -58,8 +59,11 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use services_utils::wait_until_services_are_ready;
 use subnetworks_assignations::MembershipHandler;
 use tokio::net::TcpListener;
+use tower::limit::ConcurrencyLimitLayer;
 use tower_http::{
     cors::{Any, CorsLayer},
+    limit::RequestBodyLimitLayer,
+    timeout::TimeoutLayer,
     trace::TraceLayer,
 };
 use utoipa::OpenApi;
@@ -70,15 +74,6 @@ use super::handlers::disperse_data;
 type DaStorageBackend<SerdeOp> = RocksBackend<SerdeOp>;
 type DaStorageService<DaStorageSerializer, RuntimeServiceId> =
     StorageService<DaStorageBackend<DaStorageSerializer>, RuntimeServiceId>;
-
-/// Configuration for the Http Server
-#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
-pub struct AxumBackendSettings {
-    /// Socket where the server will be listening on for incoming requests.
-    pub address: std::net::SocketAddr,
-    /// Allowed origins for this server deployment requests.
-    pub cors_origins: Vec<String>,
-}
 
 pub struct AxumBackend<
     DaShare,
@@ -441,12 +436,6 @@ where
         }
 
         let app = Router::new()
-            .layer(
-                builder
-                    .allow_headers([CONTENT_TYPE, USER_AGENT])
-                    .allow_methods(Any),
-            )
-            .layer(TraceLayer::new_for_http())
             .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
             .route(
                 paths::CL_METRICS,
@@ -651,12 +640,25 @@ where
                     >,
                 ),
             )
-            .with_state(handle);
+            .with_state(handle)
+            .layer(TimeoutLayer::new(self.settings.timeout))
+            .layer(RequestBodyLimitLayer::new(self.settings.max_body_size))
+            .layer(ConcurrencyLimitLayer::new(
+                self.settings.max_concurrent_requests,
+            ))
+            .layer(create_rate_limit_layer(&self.settings))
+            .layer(TraceLayer::new_for_http())
+            .layer(
+                builder
+                    .allow_headers(vec![CONTENT_TYPE, USER_AGENT])
+                    .allow_methods(Any),
+            );
 
         let listener = TcpListener::bind(&self.settings.address)
             .await
             .expect("Failed to bind address");
 
+        let app = app.into_make_service_with_connect_info::<std::net::SocketAddr>();
         axum::serve(listener, app).await
     }
 }

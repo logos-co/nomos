@@ -41,8 +41,6 @@ use serde::{de::DeserializeOwned, Serialize};
 use subnetworks_assignations::MembershipHandler;
 use tokio::sync::oneshot;
 
-use crate::wait_with_timeout;
-
 pub type DaVerifier<
     Blob,
     NetworkAdapter,
@@ -133,7 +131,9 @@ where
         .await
         .map_err(|(e, _)| e)?;
 
-    wait_with_timeout(receiver, "Timeout while waiting for add share".to_owned()).await
+    receiver
+        .await
+        .map_err(|_| DynError::from("Failed to add share"))
 }
 
 pub async fn get_commitments<SamplingBackend, SamplingNetwork, SamplingStorage, RuntimeServiceId>(
@@ -162,7 +162,9 @@ where
         .await
         .map_err(|(e, _)| e)?;
 
-    wait_with_timeout(receiver, "Timeout while waiting for get range".to_owned()).await
+    receiver
+        .await
+        .map_err(|_| DynError::from("Failed to get range"))
 }
 
 pub async fn disperse_data<Backend, NetworkAdapter, Membership, RuntimeServiceId>(
@@ -195,11 +197,9 @@ where
         .await
         .map_err(|(e, _)| e)?;
 
-    wait_with_timeout(
-        receiver,
-        "Timeout while waiting for disperse data".to_owned(),
-    )
-    .await?
+    receiver
+        .await
+        .map_err(|_| DynError::from("Failed to disperse data"))?
 }
 
 pub async fn block_peer<
@@ -243,7 +243,9 @@ where
         .await
         .map_err(|(e, _)| e)?;
 
-    wait_with_timeout(receiver, "Timeout while waiting for block peer".to_owned()).await
+    receiver
+        .await
+        .map_err(|_| DynError::from("Failed to block peer"))
 }
 
 pub async fn unblock_peer<
@@ -287,11 +289,9 @@ where
         .await
         .map_err(|(e, _)| e)?;
 
-    wait_with_timeout(
-        receiver,
-        "Timeout while waiting for unblock peer".to_owned(),
-    )
-    .await
+    receiver
+        .await
+        .map_err(|_| DynError::from("Failed to unblock peer"))
 }
 
 pub async fn blacklisted_peers<
@@ -334,11 +334,9 @@ where
         .await
         .map_err(|(e, _)| e)?;
 
-    wait_with_timeout(
-        receiver,
-        "Timeout while waiting for blacklisted peers".to_owned(),
-    )
-    .await
+    receiver
+        .await
+        .map_err(|_| DynError::from("Failed to get blacklisted peers"))
 }
 
 pub async fn da_get_membership<
@@ -378,11 +376,9 @@ where
     let message = DaNetworkMsg::GetMembership { session_id, sender };
     relay.send(message).await.map_err(|(e, _)| e)?;
 
-    wait_with_timeout(
-        receiver,
-        "Timeout while waiting for get membership".to_owned(),
-    )
-    .await
+    receiver
+        .await
+        .map_err(|_| DynError::from("Failed to get membership"))
 }
 
 pub async fn balancer_stats<
@@ -425,11 +421,9 @@ where
         .await
         .map_err(|(e, _)| e)?;
 
-    wait_with_timeout(
-        receiver,
-        "Timeout while waiting for balancer stats".to_owned(),
-    )
-    .await
+    receiver
+        .await
+        .map_err(|_| DynError::from("Failed to get balancer stats"))
 }
 
 pub async fn monitor_stats<
@@ -472,11 +466,9 @@ where
         .await
         .map_err(|(e, _)| e)?;
 
-    wait_with_timeout(
-        receiver,
-        "Timeout while waiting for monitor stats".to_owned(),
-    )
-    .await
+    receiver
+        .await
+        .map_err(|_| DynError::from("Failed to get monitor stats"))
 }
 
 // Factory for generating messages for connection monitor (validator and

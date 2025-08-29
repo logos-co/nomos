@@ -13,22 +13,26 @@ use axum::{
 };
 use nomos_api::Backend;
 use nomos_da_network_service::backends::libp2p::validator::DaNetworkValidatorBackend;
-use nomos_http_api_common::paths::{DA_GET_MEMBERSHIP, UPDATE_MEMBERSHIP};
+use nomos_http_api_common::{
+    paths::{DA_GET_MEMBERSHIP, UPDATE_MEMBERSHIP},
+    settings::AxumBackendSettings,
+    utils::create_rate_limit_layer,
+};
 use nomos_membership::MembershipService as MembershipServiceTrait;
 pub use nomos_network::backends::libp2p::Libp2p as NetworkBackend;
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId, DynError};
 use services_utils::wait_until_services_are_ready;
 use tokio::net::TcpListener;
+use tower::limit::ConcurrencyLimitLayer;
 use tower_http::{
     cors::{Any, CorsLayer},
+    limit::RequestBodyLimitLayer,
+    timeout::TimeoutLayer,
     trace::TraceLayer,
 };
 
 use crate::{
-    api::{
-        backend::AxumBackendSettings,
-        testing::handlers::{da_get_membership, update_membership},
-    },
+    api::testing::handlers::{da_get_membership, update_membership},
     generic_services::{DaMembershipAdapter, MembershipBackend, MembershipSdp, MembershipService},
     DaMembershipStorage, DaNetworkApiAdapter, NomosDaMembership,
 };
@@ -97,12 +101,6 @@ where
 
         // Simple router with ONLY testing endpoints
         let app = Router::new()
-            .layer(
-                builder
-                    .allow_headers(vec![CONTENT_TYPE, USER_AGENT])
-                    .allow_methods(Any),
-            )
-            .layer(TraceLayer::new_for_http())
             .route(
                 UPDATE_MEMBERSHIP,
                 post(
@@ -126,12 +124,25 @@ where
                     >,
                 ),
             )
-            .with_state(handle);
+            .with_state(handle)
+            .layer(TimeoutLayer::new(self.settings.timeout))
+            .layer(RequestBodyLimitLayer::new(self.settings.max_body_size))
+            .layer(ConcurrencyLimitLayer::new(
+                self.settings.max_concurrent_requests,
+            ))
+            .layer(create_rate_limit_layer(&self.settings))
+            .layer(TraceLayer::new_for_http())
+            .layer(
+                builder
+                    .allow_headers(vec![CONTENT_TYPE, USER_AGENT])
+                    .allow_methods(Any),
+            );
 
         let listener = TcpListener::bind(&self.settings.address)
             .await
             .expect("Failed to bind address");
 
+        let app = app.into_make_service_with_connect_info::<std::net::SocketAddr>();
         axum::serve(listener, app).await
     }
 }

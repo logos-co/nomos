@@ -492,9 +492,11 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
         http: nomos_api::ApiServiceSettings {
             backend_settings: AxumBackendSettings {
                 address: config.api_config.address,
-                cors_origins: vec![],
+                rate_limit_per_second: 10000,
+                rate_limit_burst: 10000,
+                max_concurrent_requests: 1000,
+                ..Default::default()
             },
-            request_timeout: None,
         },
         da_sampling: DaSamplingServiceSettings {
             sampling_settings: KzgrsSamplingBackendSettings {
@@ -542,9 +544,11 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
         testing_http: nomos_api::ApiServiceSettings {
             backend_settings: AxumBackendSettings {
                 address: testing_http_address,
-                cors_origins: vec![],
+                rate_limit_per_second: 10000,
+                rate_limit_burst: 10000,
+                max_concurrent_requests: 1000,
+                ..Default::default()
             },
-            request_timeout: None,
         },
     }
 }
