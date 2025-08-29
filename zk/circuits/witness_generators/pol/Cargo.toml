@@ -5,9 +5,8 @@ name              = "pol-witness-generator"
 version           = "0.1.0"
 
 [dependencies]
-circuits-utils         = { workspace = true }
-tempfile               = { workspace = true }
-witness-generator-core = { workspace = true }
+circuits-utils = { workspace = true }
+tempfile       = { workspace = true }
 
 [lints]
 workspace = true

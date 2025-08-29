@@ -48,10 +48,10 @@ members = [
   "zk/circuits/prover",
   "zk/circuits/utils",
   "zk/circuits/verifier",
-  "zk/circuits/witness_generators/core",
   "zk/circuits/witness_generators/pol",
   "zk/groth16",
   "zk/poseidon2",
+  "zk/proofs/pol",
 ]
 resolver = "2"
 
@@ -108,7 +108,6 @@ services-utils           = { path = "./nomos-services/utils" }
 subnetworks-assignations = { path = "./nomos-da/network/subnetworks-assignations" }
 tests                    = { path = "./tests" }
 utxotree                 = { path = "./utxotree" }
-witness-generator-core   = { path = "./zk/circuits/witness_generators/core" }
 
 # External
 blake2            = "0.10"
