@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Settings<NodeId> {
     pub crypto: CryptographicProcessorSettings,
+    pub time: TimingSettings,
     pub minimal_network_size: NonZeroU64,
     // TODO: Replace with SDP membership stream.
     pub membership: Vec<Node<NodeId>>,
@@ -24,6 +25,8 @@ pub struct TimingSettings {
     /// Duration of a round.
     pub round_duration: Duration,
     pub rounds_per_observation_window: NonZeroU64,
+    /// Session transition period in rounds.
+    pub rounds_per_session_transition_period: NonZeroU64,
 }
 
 impl TimingSettings {
@@ -35,5 +38,12 @@ impl TimingSettings {
     #[must_use]
     pub fn intervals_per_session(&self) -> NonZeroU64 {
         NonZeroU64::try_from(self.rounds_per_session.get() / self.rounds_per_interval.get()).expect("Obtained `0` when calculating the number of intervals per session, which is not allowed.")
+    }
+
+    #[must_use]
+    pub const fn session_transition_period(&self) -> Duration {
+        Duration::from_secs(
+            self.rounds_per_session_transition_period.get() * self.round_duration.as_secs(),
+        )
     }
 }
