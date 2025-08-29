@@ -418,11 +418,9 @@ where
     };
     relay.send(message).await.map_err(|(e, _)| e)?;
 
-    wait_with_timeout(
-        receiver,
-        "Timeout while waiting for historic sampling".to_owned(),
-    )
-    .await
+    receiver
+        .await
+        .map_err(|_| DynError::from("Failed to get historic sampling"))
 }
 
 pub async fn balancer_stats<

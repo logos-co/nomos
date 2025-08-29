@@ -21,7 +21,10 @@ use nomos_da_sampling::{
         converter::DaStorageConverter, RocksAdapter as SamplingStorageAdapter,
     },
 };
-use nomos_http_api_common::paths::{DA_GET_MEMBERSHIP, DA_HISTORIC_SAMPLING, UPDATE_MEMBERSHIP};
+use nomos_http_api_common::{
+    paths::{DA_GET_MEMBERSHIP, DA_HISTORIC_SAMPLING, UPDATE_MEMBERSHIP},
+    utils::create_rate_limit_layer,
+};
 use nomos_membership::MembershipService as MembershipServiceTrait;
 pub use nomos_network::backends::libp2p::Libp2p as NetworkBackend;
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId, DynError};
@@ -180,6 +183,7 @@ where
             .await
             .expect("Failed to bind address");
 
+        let app = app.into_make_service_with_connect_info::<std::net::SocketAddr>();
         axum::serve(listener, app).await
     }
 }

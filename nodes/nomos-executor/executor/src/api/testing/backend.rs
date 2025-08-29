@@ -21,7 +21,11 @@ use nomos_da_sampling::{
         converter::DaStorageConverter, RocksAdapter as SamplingStorageAdapter,
     },
 };
-use nomos_http_api_common::paths::{DA_GET_MEMBERSHIP, DA_HISTORIC_SAMPLING, UPDATE_MEMBERSHIP};
+use nomos_http_api_common::{
+    paths::{DA_GET_MEMBERSHIP, DA_HISTORIC_SAMPLING, UPDATE_MEMBERSHIP},
+    settings::AxumBackendSettings,
+    utils::create_rate_limit_layer,
+};
 use nomos_membership::MembershipService as MembershipServiceTrait;
 use nomos_node::{
     api::testing::handlers::{da_get_membership, da_historic_sampling, update_membership},
@@ -178,6 +182,7 @@ where
             .await
             .expect("Failed to bind address");
 
+        let app = app.into_make_service_with_connect_info::<std::net::SocketAddr>();
         axum::serve(listener, app).await
     }
 }
