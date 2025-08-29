@@ -13,7 +13,10 @@ use axum::{
 };
 use nomos_api::Backend;
 use nomos_da_network_service::backends::libp2p::executor::DaNetworkExecutorBackend;
-use nomos_http_api_common::paths::{DA_GET_MEMBERSHIP, UPDATE_MEMBERSHIP};
+use nomos_http_api_common::{
+    paths::{DA_GET_MEMBERSHIP, UPDATE_MEMBERSHIP},
+    settings::AxumBackendSettings,
+};
 use nomos_membership::MembershipService as MembershipServiceTrait;
 use nomos_node::{
     api::testing::handlers::{da_get_membership, update_membership},
@@ -28,7 +31,7 @@ use tower_http::{
     trace::TraceLayer,
 };
 
-use crate::{api::backend::AxumBackendSettings, DaMembershipStorage};
+use crate::DaMembershipStorage;
 
 pub struct TestAxumBackend {
     settings: AxumBackendSettings,
