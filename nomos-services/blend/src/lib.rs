@@ -184,7 +184,7 @@ where
                     membership = new_membership;
                 },
                 Some(message) = inbound_relay.next() => {
-                    if let Err(e) = Self::handle_inbound_message(
+                    if let Err(e) = handle_inbound_message(
                         message, &membership, minimal_network_size, &core_relay, &edge_relay, &network_adapter,
                     ).await {
                         error!(target: LOG_TARGET, "Failed to handle inbound message: {e:?}");
@@ -203,51 +203,229 @@ type MembershipAdapter<EdgeService> = <EdgeService as edge::ServiceComponents>::
 type MembershipService<EdgeService> =
     <MembershipAdapter<EdgeService> as membership::Adapter>::Service;
 
-impl<CoreService, EdgeService, RuntimeServiceId>
-    BlendService<CoreService, EdgeService, RuntimeServiceId>
+async fn handle_inbound_message<Message, NodeId, NetworkAdapter, RuntimeServiceId>(
+    message: Message,
+    membership: &Membership<NodeId>,
+    minimal_network_size: usize,
+    core_relay: &OutboundRelay<Message>,
+    edge_relay: &OutboundRelay<Message>,
+    network_adapter: &NetworkAdapter,
+) -> Result<(), DynError>
 where
-    CoreService: ServiceData<Message: MessageComponents<Payload: Into<Vec<u8>>> + Send + 'static>
-        + CoreServiceComponents<
-            RuntimeServiceId,
-            NetworkAdapter: NetworkAdapterTrait<
-                RuntimeServiceId,
-                BroadcastSettings = BroadcastSettings<CoreService>,
-            > + Send
-                                + Sync,
-            NodeId: Clone + Hash + Eq + Send + Sync + 'static,
-        > + Send,
-    EdgeService: ServiceData<Message = CoreService::Message>,
+    Message: MessageComponents<Payload: Into<Vec<u8>>> + Send + 'static,
+    NodeId: Eq + Hash + Send + Sync,
+    NetworkAdapter: NetworkAdapterTrait<RuntimeServiceId, BroadcastSettings = Message::BroadcastSettings>
+        + Send
+        + Sync,
 {
-    async fn handle_inbound_message(
-        message: CoreService::Message,
-        membership: &Membership<CoreService::NodeId>,
-        minimal_network_size: usize,
-        core_relay: &OutboundRelay<CoreService::Message>,
-        edge_relay: &OutboundRelay<EdgeService::Message>,
-        network_adapter: &CoreService::NetworkAdapter,
-    ) -> Result<(), DynError> {
-        if membership.size() < minimal_network_size {
-            info!(target: LOG_TARGET, "Blend network too small. Broadcasting via gossipsub.");
-            Self::broadcast_message(message, network_adapter).await;
-            return Ok(());
-        }
-
-        if !membership.contains_local() {
-            debug!(target: LOG_TARGET, "Relaying a message to edge service");
-            return edge_relay.send(message).await.map_err(|(e, _)| e.into());
-        }
-
-        debug!(target: LOG_TARGET, "Relaying a message to core service");
-        core_relay.send(message).await.map_err(|(e, _)| e.into())
-    }
-
-    async fn broadcast_message(
-        message: CoreService::Message,
-        network_adapter: &CoreService::NetworkAdapter,
-    ) {
+    if membership.size() < minimal_network_size {
+        info!(target: LOG_TARGET, "Blend network too small. Broadcasting via gossipsub.");
         let (payload, broadcast_settings) = message.into_components();
         network_adapter
             .broadcast(payload.into(), broadcast_settings)
             .await;
+        return Ok(());
+    }
+
+    if !membership.contains_local() {
+        debug!(target: LOG_TARGET, "Relaying a message to edge service");
+        return edge_relay.send(message).await.map_err(|(e, _)| e.into());
+    }
+
+    debug!(target: LOG_TARGET, "Relaying a message to core service");
+    core_relay.send(message).await.map_err(|(e, _)| e.into())
+}
+
+#[cfg(test)]
+mod tests {
+    use libp2p::Multiaddr;
+    use nomos_blend_message::crypto::{Ed25519PrivateKey, Ed25519PublicKey};
+    use nomos_blend_scheduling::membership::Node;
+    use nomos_network::{backends::NetworkBackend, message::NetworkMsg};
+    use overwatch::overwatch::OverwatchHandle;
+    use tokio::sync::mpsc::{self, error::TryRecvError};
+    use tokio_stream::wrappers::BroadcastStream;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn broadcast_when_network_is_small() {
+        let (core_sender, mut core_receiver) = mpsc::channel(1);
+        let core_relay = OutboundRelay::<TestMessage>::new(core_sender);
+        let (edge_sender, mut edge_receiver) = mpsc::channel(1);
+        let edge_relay = OutboundRelay::<TestMessage>::new(edge_sender);
+        let (network_sender, mut network_receiver) = mpsc::channel(1);
+        let network_adapter = TestNetworkAdapter::<()>::new(OutboundRelay::new(network_sender));
+
+        let test_message = b"hello".to_vec();
+        handle_inbound_message(
+            TestMessage(test_message.clone()),
+            &membership(&[], None),
+            1,
+            &core_relay,
+            &edge_relay,
+            &network_adapter,
+        )
+        .await
+        .expect("Handling must succeed");
+
+        match network_receiver.recv().await.unwrap() {
+            NetworkMsg::Process(msg) => {
+                assert_eq!(msg, test_message);
+            }
+            msg => {
+                panic!("expected NetworkMsg::Process, got {msg:?}");
+            }
+        }
+        assert!(matches!(core_receiver.try_recv(), Err(TryRecvError::Empty)));
+        assert!(matches!(edge_receiver.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[tokio::test]
+    async fn relay_to_core() {
+        let (core_sender, mut core_receiver) = mpsc::channel(1);
+        let core_relay = OutboundRelay::<TestMessage>::new(core_sender);
+        let (edge_sender, mut edge_receiver) = mpsc::channel(1);
+        let edge_relay = OutboundRelay::<TestMessage>::new(edge_sender);
+        let (network_sender, mut network_receiver) = mpsc::channel(1);
+        let network_adapter = TestNetworkAdapter::<()>::new(OutboundRelay::new(network_sender));
+
+        let test_message = b"hello".to_vec();
+        handle_inbound_message(
+            TestMessage(test_message.clone()),
+            &membership(&[0], Some(0)),
+            1,
+            &core_relay,
+            &edge_relay,
+            &network_adapter,
+        )
+        .await
+        .expect("Handling must succeed");
+
+        assert_eq!(
+            core_receiver.recv().await.unwrap(),
+            TestMessage(test_message)
+        );
+        assert!(matches!(edge_receiver.try_recv(), Err(TryRecvError::Empty)));
+        assert!(matches!(
+            network_receiver.try_recv(),
+            Err(TryRecvError::Empty)
+        ));
+    }
+
+    #[tokio::test]
+    async fn relay_to_edge() {
+        let (core_sender, mut core_receiver) = mpsc::channel(1);
+        let core_relay = OutboundRelay::<TestMessage>::new(core_sender);
+        let (edge_sender, mut edge_receiver) = mpsc::channel(1);
+        let edge_relay = OutboundRelay::<TestMessage>::new(edge_sender);
+        let (network_sender, mut network_receiver) = mpsc::channel(1);
+        let network_adapter = TestNetworkAdapter::<()>::new(OutboundRelay::new(network_sender));
+
+        let test_message = b"hello".to_vec();
+        handle_inbound_message(
+            TestMessage(test_message.clone()),
+            &membership(&[0], None),
+            1,
+            &core_relay,
+            &edge_relay,
+            &network_adapter,
+        )
+        .await
+        .expect("Handling must succeed");
+
+        assert_eq!(
+            edge_receiver.recv().await.unwrap(),
+            TestMessage(test_message)
+        );
+        assert!(matches!(core_receiver.try_recv(), Err(TryRecvError::Empty)));
+        assert!(matches!(
+            network_receiver.try_recv(),
+            Err(TryRecvError::Empty)
+        ));
+    }
+
+    fn membership(ids: &[u8], local_id: Option<u8>) -> Membership<u8> {
+        Membership::new(
+            &ids.iter()
+                .map(|id| Node {
+                    id: *id,
+                    address: Multiaddr::empty(),
+                    public_key: key(*id),
+                })
+                .collect::<Vec<_>>(),
+            local_id.map(key).as_ref(),
+        )
+    }
+
+    fn key(id: u8) -> Ed25519PublicKey {
+        Ed25519PrivateKey::from([id; 32]).public_key()
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct TestMessage(Vec<u8>);
+
+    impl MessageComponents for TestMessage {
+        type Payload = Vec<u8>;
+        type BroadcastSettings = ();
+
+        fn into_components(self) -> (Self::Payload, Self::BroadcastSettings) {
+            (self.0, ())
+        }
+    }
+
+    struct TestNetworkAdapter<RuntimeServiceId> {
+        relay: OutboundRelay<
+            <NetworkService<TestNetworkBackend, RuntimeServiceId> as ServiceData>::Message,
+        >,
+    }
+
+    #[async_trait::async_trait]
+    impl<RuntimeServiceId> NetworkAdapterTrait<RuntimeServiceId>
+        for TestNetworkAdapter<RuntimeServiceId>
+    {
+        type Backend = TestNetworkBackend;
+        type BroadcastSettings = ();
+
+        fn new(
+            relay: OutboundRelay<
+                <NetworkService<Self::Backend, RuntimeServiceId> as ServiceData>::Message,
+            >,
+        ) -> Self {
+            Self { relay }
+        }
+
+        async fn broadcast(&self, message: Vec<u8>, _: Self::BroadcastSettings) {
+            self.relay
+                .send(NetworkMsg::Process(message))
+                .await
+                .expect("Relay shouldn't be closed");
+        }
+    }
+
+    struct TestNetworkBackend;
+
+    #[async_trait::async_trait]
+    impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for TestNetworkBackend {
+        type Settings = ();
+        type Message = Vec<u8>;
+        type PubSubEvent = ();
+        type ChainSyncEvent = ();
+
+        fn new((): Self::Settings, _: OverwatchHandle<RuntimeServiceId>) -> Self {
+            unimplemented!()
+        }
+
+        async fn process(&self, _: Self::Message) {
+            unimplemented!()
+        }
+
+        async fn subscribe_to_pubsub(&mut self) -> BroadcastStream<Self::PubSubEvent> {
+            unimplemented!()
+        }
+
+        async fn subscribe_to_chainsync(&mut self) -> BroadcastStream<Self::ChainSyncEvent> {
+            unimplemented!()
+        }
     }
 }
