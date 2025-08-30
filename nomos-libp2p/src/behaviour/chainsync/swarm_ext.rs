@@ -18,7 +18,7 @@ impl Swarm {
 
         chain_sync
             .request_tip(peer_id, reply_sender)
-            .map_err(Into::into)
+            .map_err(|err| BehaviourError::from(Box::new(err)))
     }
 
     pub fn start_blocks_download(
@@ -41,6 +41,6 @@ impl Swarm {
                 additional_blocks,
                 reply_sender,
             )
-            .map_err(Into::into)
+            .map_err(|err| BehaviourError::from(Box::new(err)))
     }
 }

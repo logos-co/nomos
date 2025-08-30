@@ -167,13 +167,13 @@ mod todo {
     pub enum TodoError {
         /// Todo already exists conflict.
         #[schema(example = "Todo already exists")]
-        Conflict(String),
+        Conflict(Box<str>),
         /// Todo not found by id.
         #[schema(example = "id = 1")]
-        NotFound(String),
+        NotFound(Box<str>),
         /// Todo operation unauthorized
         #[schema(example = "missing api key")]
-        Unauthorized(String),
+        Unauthorized(Box<str>),
     }
 
     /// List all Todo items
@@ -257,10 +257,9 @@ mod todo {
             .map(|found| {
                 (
                     StatusCode::CONFLICT,
-                    Json(TodoError::Conflict(format!(
-                        "todo already exists: {}",
-                        found.id
-                    ))),
+                    Json(TodoError::Conflict(
+                        format!("todo already exists: {}", found.id).into(),
+                    )),
                 )
                     .into_response()
             })
@@ -320,8 +319,8 @@ mod todo {
       path = "/todo/{id}",
       responses(
           (status = 200, description = "Todo marked done successfully"),
-          (status = 401, description = "Unauthorized to delete Todo", body = TodoError, example = json!(TodoError::Unauthorized(String::from("missing api key")))),
-          (status = 404, description = "Todo not found", body = TodoError, example = json!(TodoError::NotFound(String::from("id = 1"))))
+          (status = 401, description = "Unauthorized to delete Todo", body = TodoError, example = json!(TodoError::Unauthorized(String::from("missing api key").into()))),
+          (status = 404, description = "Todo not found", body = TodoError, example = json!(TodoError::NotFound(String::from("id = 1").into())))
       ),
       params(
           ("id" = i32, Path, description = "Todo database id")
@@ -349,7 +348,7 @@ mod todo {
         if todos.len() == len {
             (
                 StatusCode::NOT_FOUND,
-                Json(TodoError::NotFound(format!("id = {id}"))),
+                Json(TodoError::NotFound(format!("id = {id}").into())),
             )
                 .into_response()
         } else {
@@ -366,11 +365,15 @@ mod todo {
         match headers.get("todo_apikey") {
             Some(header) if header != "utoipa-rocks" => Err((
                 StatusCode::UNAUTHORIZED,
-                Json(TodoError::Unauthorized(String::from("incorrect api key"))),
+                Json(TodoError::Unauthorized(
+                    String::from("incorrect api key").into(),
+                )),
             )),
             None if require_api_key => Err((
                 StatusCode::UNAUTHORIZED,
-                Json(TodoError::Unauthorized(String::from("missing api key"))),
+                Json(TodoError::Unauthorized(
+                    String::from("missing api key").into(),
+                )),
             )),
             _ => Ok(()),
         }
