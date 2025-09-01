@@ -9,35 +9,33 @@ use crate::{
 #[derive(Clone, Serialize)]
 #[serde(into = "PolInputsJson", rename_all = "snake_case")]
 pub struct PolWitnessInputs {
-    #[serde(flatten)]
     pub wallet: PolWalletInputs,
-    #[serde(flatten)]
     pub chain: PolChainInputs,
 }
 
 impl PolWitnessInputs {
     #[must_use]
-    pub const fn from_public_and_private(public: PolChainInputs, private: PolWalletInputs) -> Self {
-        Self {
-            wallet: private,
-            chain: public,
-        }
+    pub const fn from_chain_and_wallet_data(
+        chain: PolChainInputs,
+        wallet: PolWalletInputs,
+    ) -> Self {
+        Self { wallet, chain }
     }
 }
 
 #[derive(Serialize)]
 pub struct PolInputsJson {
     #[serde(flatten)]
-    pub private: PolWalletInputsJson,
+    pub wallet: PolWalletInputsJson,
     #[serde(flatten)]
-    pub public: PolChainInputsJson,
+    pub chain: PolChainInputsJson,
 }
 
 impl From<&PolWitnessInputs> for PolInputsJson {
     fn from(inputs: &PolWitnessInputs) -> Self {
         Self {
-            private: (&inputs.wallet).into(),
-            public: (&inputs.chain).into(),
+            wallet: (&inputs.wallet).into(),
+            chain: (&inputs.chain).into(),
         }
     }
 }
@@ -45,8 +43,8 @@ impl From<&PolWitnessInputs> for PolInputsJson {
 impl From<PolWitnessInputs> for PolInputsJson {
     fn from(inputs: PolWitnessInputs) -> Self {
         Self {
-            private: (&inputs.wallet).into(),
-            public: (&inputs.chain).into(),
+            wallet: (&inputs.wallet).into(),
+            chain: (&inputs.chain).into(),
         }
     }
 }
