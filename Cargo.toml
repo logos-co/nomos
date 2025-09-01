@@ -2,6 +2,13 @@
 # Make sure any excluded crates are still clipped in our CI. Also, make sure they use the same Clippy and rustc lints we specify in this file down below.
 exclude = ["nomos-core/proof_statements", "nomos-core/risc0_proofs"]
 members = [
+  "./zk/circuits/prover",
+  "./zk/circuits/utils",
+  "./zk/circuits/verifier",
+  "./zk/circuits/witness_generators/core",
+  "./zk/circuits/witness_generators/pol",
+  "./zk/groth16",
+  "./zk/poseidon2",
   "consensus/cryptarchia-engine",
   "consensus/cryptarchia-sync",
   "ledger/nomos-ledger",
@@ -45,13 +52,6 @@ members = [
   "testnet/cfgsync",
   "tests",
   "utxotree",
-  "zk/circuits/prover",
-  "zk/circuits/utils",
-  "zk/circuits/verifier",
-  "zk/circuits/witness_generators/core",
-  "zk/circuits/witness_generators/pol",
-  "zk/groth16",
-  "zk/poseidon2",
 ]
 resolver = "2"
 
@@ -60,9 +60,9 @@ resolver = "2"
 bundler                  = { default-features = false, path = "./nomos-bundler" }
 cfgsync                  = { default-features = false, path = "./testnet/cfgsync" }
 chain-service            = { default-features = false, path = "./nomos-services/chain-service" }
-circuits-prover          = { default-features = false, path = "zk/circuits/prover" }
-circuits-utils           = { default-features = false, path = "zk/circuits/utils" }
-circuits-verifier        = { default-features = false, path = "zk/circuits/verifier" }
+circuits-prover          = { default-features = false, path = "./zk/circuits/prover" }
+circuits-utils           = { default-features = false, path = "./zk/circuits/utils" }
+circuits-verifier        = { default-features = false, path = "./zk/circuits/verifier" }
 common-http-client       = { default-features = false, path = "./nodes/nomos-node/http-client" }
 cryptarchia-engine       = { default-features = false, path = "./consensus/cryptarchia-engine" }
 cryptarchia-sync         = { default-features = false, path = "./consensus/cryptarchia-sync" }
@@ -102,7 +102,7 @@ nomos-tracing            = { default-features = false, path = "./nomos-tracing" 
 nomos-tracing-service    = { default-features = false, path = "./nomos-services/tracing" }
 nomos-utils              = { default-features = false, path = "./nomos-utils" }
 nomos_proof_statements   = { default-features = false, path = "./nomos-core/proof_statements" }
-pol-witness-generator    = { default-features = false, path = "zk/circuits/witness_generators/pol" }
+pol-witness-generator    = { default-features = false, path = "./zk/circuits/witness_generators/pol" }
 poseidon2                = { default-features = false, path = "./zk/poseidon2" }
 services-utils           = { default-features = false, path = "./nomos-services/utils" }
 subnetworks-assignations = { default-features = false, path = "./nomos-da/network/subnetworks-assignations" }
