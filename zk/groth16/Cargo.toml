@@ -5,7 +5,7 @@ name              = "groth16"
 version           = "0.1.0"
 
 [dependencies]
-ark-bn254 = "0.4"
+ark-bn254   = "0.4"
 ark-ec      = "0.4"
 ark-ff      = { version = "0.4" }
 ark-groth16 = { default-features = false, features = ["std"], version = "0.4" }

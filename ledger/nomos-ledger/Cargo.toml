@@ -9,7 +9,7 @@ workspace = true
 
 [dependencies]
 cryptarchia-engine     = { workspace = true }
-crypto-bigint = "0.5"
+crypto-bigint          = "0.5"
 ed25519                = { default-features = false, version = "2.2.3" }
 groth16                = { workspace = true }
 nomos-core             = { workspace = true }
