@@ -9,16 +9,16 @@ workspace = true
 
 [dependencies]
 counter         = "0.6"
-libp2p-identity = { default-features = false, features = ["peerid", "serde"], version = "0.2" }
+libp2p-identity = { features = ["peerid", "serde"], version = "0.2" }
 nomos-utils     = { workspace = true }
-rand            = { default-features = false, features = ["std_rng"], workspace = true }
+rand            = { features = ["std_rng"], workspace = true }
 serde           = { default-features = false, version = "1" }
 
 [dev-dependencies]
 divan           = { default-features = false, version = "0.1" }
-libp2p-identity = { default-features = false, features = ["peerid", "rand"], version = "0.2" }
+libp2p-identity = { features = ["peerid", "rand"], version = "0.2" }
 nomos-utils     = { features = ["rng"], workspace = true }
-rand            = { default-features = false, features = ["small_rng", "std"], workspace = true }
+rand            = { features = ["small_rng", "std"], workspace = true }
 
 [[bench]]
 harness = false

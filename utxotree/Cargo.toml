@@ -16,7 +16,7 @@ thiserror  = "1.0"
 [dev-dependencies]
 quickcheck        = { default-features = false, version = "1.0" }
 quickcheck_macros = "1.0"
-rand              = "0.9"
+rand = "0.9"
 
 [lints]
 workspace = true

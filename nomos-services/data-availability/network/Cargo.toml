@@ -32,7 +32,7 @@ serde                    = { default-features = false, features = ["derive"], ve
 services-utils           = { workspace = true }
 subnetworks-assignations = { workspace = true }
 thiserror                = "1"
-tokio                    = { default-features = false, features = ["macros", "sync"], version = "1" }
+tokio                    = { features = ["macros", "sync"], version = "1" }
 tokio-stream             = { default-features = false, version = "0.1" }
 tracing                  = { workspace = true }
 url                      = { default-features = false, version = "2.5.4" }

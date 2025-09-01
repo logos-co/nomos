@@ -53,4 +53,4 @@ hyper             = { default-features = false, version = "0.14" }
 reqwest           = { default-features = false, workspace = true }
 serde             = { default-features = false, version = "1" }
 tracing           = { workspace = true }
-utoipa-swagger-ui = { default-features = false, features = ["axum"], workspace = true }
+utoipa-swagger-ui = { features = ["axum"], workspace = true }

@@ -10,7 +10,7 @@ workspace = true
 [dependencies]
 cached                   = { workspace = true }
 either                   = { default-features = false, version = "1.13.0" }
-fixed                    = { default-features = false, features = ["serde-str"], version = "1" }
+fixed                    = { features = ["serde-str"], version = "1" }
 futures                  = { default-features = false, version = "0.3" }
 indexmap                 = { default-features = false, version = "2.2" }
 kzgrs-backend            = { workspace = true }
@@ -38,4 +38,4 @@ libp2p             = { features = ["plaintext", "yamux"], workspace = true }
 libp2p-swarm-test  = { default-features = false, features = ["tokio"], version = "0.5.0" }
 rstest             = { default-features = false, version = "0.25" }
 tokio              = { default-features = false, version = "1" }
-tracing-subscriber = { default-features = false, features = ["env-filter", "fmt", "std"], version = "0.3" }
+tracing-subscriber = { default-features = false, features = ["env-filter", "fmt"], version = "0.3" }

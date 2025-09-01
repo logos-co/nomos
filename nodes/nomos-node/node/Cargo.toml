@@ -62,7 +62,7 @@ utoipa-swagger-ui = { features = ["axum"], workspace = true }
 axum       = { default-features = false, features = ["json", "query", "tokio"], version = "0.6" }
 hyper      = { default-features = false, version = "0.14" }
 time       = { default-features = false, version = "0.3" }
-tower-http = { default-features = false, features = ["cors", "trace"], version = "0.4" }
+tower-http = { features = ["cors", "trace"], version = "0.4" }
 
 [features]
 default         = ["tracing"]

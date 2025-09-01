@@ -7,9 +7,7 @@ version           = "0.1.0"
 [dependencies]
 ark-bn254 = { default-features = false, features = ["scalar_field"], version = "0.4" }
 ark-ff = "0.4"
-jf-poseidon2 = { default-features = false, features = [
-  "bn254",
-], git = "https://github.com/EspressoSystems/jellyfish.git" }
+jf-poseidon2 = { default-features = false, features = ["bn254"], git = "https://github.com/EspressoSystems/jellyfish.git" }
 num-bigint = { default-features = false, version = "0.4" }
 
 [lints]

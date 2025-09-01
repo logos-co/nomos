@@ -22,7 +22,7 @@ zeroize       = { default-features = false, features = ["zeroize_derive"], versi
 [dev-dependencies]
 ed25519-dalek = { default-features = false, features = ["rand_core"], version = "2" }
 rand          = { features = ["getrandom"], workspace = true }
-serde         = { default-features = false, features = ["std"], version = "1" }
+serde = "1"
 
 [features]
 default = ["preload"]

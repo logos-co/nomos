@@ -15,7 +15,7 @@ blake2        = { default-features = false, version = "0.10" }
 itertools     = { default-features = false, version = "0.12" }
 kzgrs         = { workspace = true }
 nomos-core    = { workspace = true }
-rand          = { default-features = false, features = ["std"], workspace = true }
+rand          = { features = ["std"], workspace = true }
 rayon         = { optional = true, version = "1.10.0" }
 serde         = { default-features = false, version = "1.0" }
 
