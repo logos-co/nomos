@@ -15,6 +15,7 @@ impl BlendConfig {
     fn proxy(&self) -> <BlendService as ServiceData>::Settings {
         nomos_blend_service::settings::Settings {
             crypto: self.0.crypto.clone(),
+            time: self.0.time.clone(),
             membership: self.0.membership.clone(),
             minimal_network_size: self.0.minimum_network_size,
         }

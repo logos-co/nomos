@@ -10,7 +10,9 @@ use std::{
 };
 
 use backends::BlendBackend;
-use nomos_blend_scheduling::message_blend::crypto::CryptographicProcessor;
+use nomos_blend_scheduling::{
+    message_blend::crypto::CryptographicProcessor, session::SessionEventStream,
+};
 use nomos_core::wire;
 use nomos_utils::blake_rng::BlakeRng;
 use overwatch::{
@@ -104,8 +106,11 @@ where
                 .await?,
             settings.crypto.signing_private_key.public_key(),
         );
-        let mut _membership_stream = membership_adapter.subscribe().await?;
-        // TODO: Use membership_stream as a session stream: https://github.com/logos-co/nomos/issues/1532
+        let mut _session_stream = SessionEventStream::new(
+            membership_adapter.subscribe().await?,
+            settings.time.session_transition_period(),
+        );
+        // TODO: Use session_stream: https://github.com/logos-co/nomos/issues/1532
 
         wait_until_services_are_ready!(
             &service_resources_handle.overwatch_handle,
