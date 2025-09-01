@@ -3,7 +3,7 @@ use num_bigint::BigUint;
 use serde::Serialize;
 
 #[derive(Clone)]
-pub struct PolPrivateInputs {
+pub struct PolWalletInputs {
     secret_key: Groth16Input,
     note_value: Groth16Input,
     transaction_hash: Groth16Input,
@@ -19,7 +19,7 @@ pub struct PolPrivateInputs {
     starting_slot: Groth16Input,
 }
 
-pub struct PolPrivateInputsData {
+pub struct PolWalletInputsData {
     pub secret_key: Fr,
     pub note_value: u64,
     pub transaction_hash: Fr,
@@ -36,7 +36,7 @@ pub struct PolPrivateInputsData {
 }
 
 #[derive(Serialize)]
-pub struct PolPrivateInputsJson {
+pub struct PolWalletInputsJson {
     secret_key: Groth16InputDeser,
     note_value: Groth16InputDeser,
     transaction_hash: Groth16InputDeser,
@@ -51,9 +51,9 @@ pub struct PolPrivateInputsJson {
     secrets_root: Groth16InputDeser,
     starting_slot: Groth16InputDeser,
 }
-impl From<&PolPrivateInputs> for PolPrivateInputsJson {
+impl From<&PolWalletInputs> for PolWalletInputsJson {
     fn from(
-        PolPrivateInputs {
+        PolWalletInputs {
             secret_key,
             note_value,
             transaction_hash,
@@ -67,7 +67,7 @@ impl From<&PolPrivateInputs> for PolPrivateInputsJson {
             slot_secret,
             secrets_root,
             starting_slot,
-        }: &PolPrivateInputs,
+        }: &PolWalletInputs,
     ) -> Self {
         Self {
             secret_key: secret_key.into(),
@@ -87,9 +87,9 @@ impl From<&PolPrivateInputs> for PolPrivateInputsJson {
     }
 }
 
-impl From<PolPrivateInputsData> for PolPrivateInputs {
+impl From<PolWalletInputsData> for PolWalletInputs {
     fn from(
-        PolPrivateInputsData {
+        PolWalletInputsData {
             secret_key,
             note_value,
             transaction_hash,
@@ -103,7 +103,7 @@ impl From<PolPrivateInputsData> for PolPrivateInputs {
             slot_secret,
             secrets_root,
             starting_slot,
-        }: PolPrivateInputsData,
+        }: PolWalletInputsData,
     ) -> Self {
         Self {
             secret_key: secret_key.into(),

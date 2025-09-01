@@ -10,8 +10,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 #[derive(Copy, Clone)]
-pub struct PolPublicInputs {
-    entropy_contribution: Groth16Input,
+pub struct PolChainInputs {
     slot_number: Groth16Input,
     epoch_nonce: Groth16Input,
     lottery_0: Groth16Input,
@@ -22,8 +21,7 @@ pub struct PolPublicInputs {
     leader_pk2: Groth16Input,
 }
 
-pub struct PolPublicInputsData {
-    pub entropy_contribution: Fr,
+pub struct PolChainInputsData {
     pub slot_number: u64,
     pub epoch_nonce: u64,
     pub total_stake: u64,
@@ -33,8 +31,7 @@ pub struct PolPublicInputsData {
 }
 
 #[derive(Deserialize, Serialize)]
-pub struct PolPublicInputsJson {
-    entropy_contribution: Groth16InputDeser,
+pub struct PolChainInputsJson {
     slot_number: Groth16InputDeser,
     epoch_nonce: Groth16InputDeser,
     lottery_0: Groth16InputDeser,
@@ -47,12 +44,11 @@ pub struct PolPublicInputsJson {
     leader_pk2: Groth16InputDeser,
 }
 
-impl TryFrom<PolPublicInputsJson> for PolPublicInputs {
+impl TryFrom<PolChainInputsJson> for PolChainInputs {
     type Error = <Groth16Input as TryFrom<Groth16InputDeser>>::Error;
 
     fn try_from(
-        PolPublicInputsJson {
-            entropy_contribution,
+        PolChainInputsJson {
             slot_number,
             epoch_nonce,
             lottery_0,
@@ -61,10 +57,9 @@ impl TryFrom<PolPublicInputsJson> for PolPublicInputs {
             latest_root,
             leader_pk1,
             leader_pk2,
-        }: PolPublicInputsJson,
+        }: PolChainInputsJson,
     ) -> Result<Self, Self::Error> {
         Ok(Self {
-            entropy_contribution: entropy_contribution.try_into()?,
             slot_number: slot_number.try_into()?,
             epoch_nonce: epoch_nonce.try_into()?,
             lottery_0: lottery_0.try_into()?,
@@ -77,9 +72,9 @@ impl TryFrom<PolPublicInputsJson> for PolPublicInputs {
     }
 }
 
-impl From<&PolPublicInputs> for PolPublicInputsJson {
+impl From<&PolChainInputs> for PolChainInputsJson {
     fn from(
-        PolPublicInputs {
+        PolChainInputs {
             slot_number,
             epoch_nonce,
             lottery_0,
@@ -88,11 +83,9 @@ impl From<&PolPublicInputs> for PolPublicInputsJson {
             latest_root,
             leader_pk1: leader_pk_1,
             leader_pk2: leader_pk_2,
-            entropy_contribution,
-        }: &PolPublicInputs,
+        }: &PolChainInputs,
     ) -> Self {
         Self {
-            entropy_contribution: entropy_contribution.into(),
             slot_number: slot_number.into(),
             epoch_nonce: epoch_nonce.into(),
             lottery_0: lottery_0.into(),
@@ -140,19 +133,18 @@ pub enum PolInputsFromDataError {
     EpochGreaterThanP,
 }
 
-impl TryFrom<PolPublicInputsData> for PolPublicInputs {
+impl TryFrom<PolChainInputsData> for PolChainInputs {
     type Error = PolInputsFromDataError;
 
     fn try_from(
-        PolPublicInputsData {
-            entropy_contribution,
+        PolChainInputsData {
             slot_number,
             epoch_nonce,
             total_stake,
             aged_root,
             latest_root,
             leader_pk: (pk1, pk2),
-        }: PolPublicInputsData,
+        }: PolChainInputsData,
     ) -> Result<Self, Self::Error> {
         let slot_number = U256::from(slot_number);
         if slot_number > *P {
@@ -184,24 +176,6 @@ impl TryFrom<PolPublicInputsData> for PolPublicInputs {
             latest_root: latest_root.into(),
             leader_pk1: pk1.into(),
             leader_pk2: pk2.into(),
-            entropy_contribution: entropy_contribution.into(),
         })
-    }
-}
-
-impl PolPublicInputs {
-    #[must_use]
-    pub const fn to_inputs(&self) -> [Fr; 9] {
-        [
-            self.entropy_contribution.into_inner(),
-            self.slot_number.into_inner(),
-            self.epoch_nonce.into_inner(),
-            self.lottery_0.into_inner(),
-            self.lottery_1.into_inner(),
-            self.aged_root.into_inner(),
-            self.latest_root.into_inner(),
-            self.leader_pk1.into_inner(),
-            self.leader_pk2.into_inner(),
-        ]
     }
 }

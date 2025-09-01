@@ -1,49 +1,113 @@
-use serde::Serialize;
+use groth16::{Fr, Groth16Input, Groth16InputDeser};
+use serde::{Deserialize, Serialize};
 
 use crate::{
-    private_inputs::{PolPrivateInputs, PolPrivateInputsJson},
-    public_inputs::{PolPublicInputs, PolPublicInputsJson},
+    chain_inputs::{PolChainInputs, PolChainInputsJson},
+    wallet_inputs::{PolWalletInputs, PolWalletInputsJson},
 };
 
 #[derive(Clone, Serialize)]
 #[serde(into = "PolInputsJson", rename_all = "snake_case")]
-pub struct PolInputs {
-    pub private: PolPrivateInputs,
-    pub public: PolPublicInputs,
+pub struct PolWitnessInputs {
+    #[serde(flatten)]
+    pub wallet: PolWalletInputs,
+    #[serde(flatten)]
+    pub chain: PolChainInputs,
 }
 
-impl PolInputs {
+impl PolWitnessInputs {
     #[must_use]
-    pub const fn from_public_and_private(
-        public: PolPublicInputs,
-        private: PolPrivateInputs,
-    ) -> Self {
-        Self { private, public }
+    pub const fn from_public_and_private(public: PolChainInputs, private: PolWalletInputs) -> Self {
+        Self {
+            wallet: private,
+            chain: public,
+        }
     }
 }
 
 #[derive(Serialize)]
 pub struct PolInputsJson {
     #[serde(flatten)]
-    pub private: PolPrivateInputsJson,
+    pub private: PolWalletInputsJson,
     #[serde(flatten)]
-    pub public: PolPublicInputsJson,
+    pub public: PolChainInputsJson,
 }
 
-impl From<&PolInputs> for PolInputsJson {
-    fn from(inputs: &PolInputs) -> Self {
+impl From<&PolWitnessInputs> for PolInputsJson {
+    fn from(inputs: &PolWitnessInputs) -> Self {
         Self {
-            private: (&inputs.private).into(),
-            public: (&inputs.public).into(),
+            private: (&inputs.wallet).into(),
+            public: (&inputs.chain).into(),
         }
     }
 }
 
-impl From<PolInputs> for PolInputsJson {
-    fn from(inputs: PolInputs) -> Self {
+impl From<PolWitnessInputs> for PolInputsJson {
+    fn from(inputs: PolWitnessInputs) -> Self {
         Self {
-            private: (&inputs.private).into(),
-            public: (&inputs.public).into(),
+            private: (&inputs.wallet).into(),
+            public: (&inputs.chain).into(),
         }
+    }
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct PolVerifierInputJson([Groth16InputDeser; 9]);
+
+pub struct PolVerifierInput {
+    entropy_contribution: Groth16Input,
+    slot_number: Groth16Input,
+    epoch_nonce: Groth16Input,
+    lottery_0: Groth16Input,
+    lottery_1: Groth16Input,
+    aged_root: Groth16Input,
+    latest_root: Groth16Input,
+    leader_pk1: Groth16Input,
+    leader_pk2: Groth16Input,
+}
+
+impl TryFrom<PolVerifierInputJson> for PolVerifierInput {
+    type Error = <Groth16Input as TryFrom<Groth16InputDeser>>::Error;
+
+    fn try_from(value: PolVerifierInputJson) -> Result<Self, Self::Error> {
+        let [
+            entropy_contribution,
+            slot_number,
+            epoch_nonce,
+            lottery_0,
+            lottery_1,
+            aged_root,
+            latest_root,
+            leader_pk1,
+            leader_pk2,
+        ] = value.0;
+        Ok(Self {
+            entropy_contribution: entropy_contribution.try_into()?,
+            slot_number: slot_number.try_into()?,
+            epoch_nonce: epoch_nonce.try_into()?,
+            lottery_0: lottery_0.try_into()?,
+            lottery_1: lottery_1.try_into()?,
+            aged_root: aged_root.try_into()?,
+            latest_root: latest_root.try_into()?,
+            leader_pk1: leader_pk1.try_into()?,
+            leader_pk2: leader_pk2.try_into()?,
+        })
+    }
+}
+
+impl PolVerifierInput {
+    #[must_use]
+    pub const fn to_inputs(&self) -> [Fr; 9] {
+        [
+            self.entropy_contribution.into_inner(),
+            self.slot_number.into_inner(),
+            self.epoch_nonce.into_inner(),
+            self.lottery_0.into_inner(),
+            self.lottery_1.into_inner(),
+            self.aged_root.into_inner(),
+            self.latest_root.into_inner(),
+            self.leader_pk1.into_inner(),
+            self.leader_pk2.into_inner(),
+        ]
     }
 }

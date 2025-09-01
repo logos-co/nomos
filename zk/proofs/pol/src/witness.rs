@@ -1,4 +1,4 @@
-use crate::{PolInputs, inputs::PolInputsJson};
+use crate::{PolWitnessInputs, inputs::PolInputsJson};
 
 pub struct Witness(Vec<u8>);
 
@@ -20,7 +20,7 @@ impl AsRef<[u8]> for Witness {
     }
 }
 
-pub fn generate_witness(inputs: &PolInputs) -> Result<Witness, std::io::Error> {
+pub fn generate_witness(inputs: &PolWitnessInputs) -> Result<Witness, std::io::Error> {
     let pol_inputs_json: PolInputsJson = inputs.into();
     let str_inputs: String =
         serde_json::to_string(&pol_inputs_json).expect("Failed to serialize inputs");

@@ -1,20 +1,24 @@
+mod chain_inputs;
 mod inputs;
-mod private_inputs;
 mod proving_key;
-mod public_inputs;
 mod verification_key;
+mod wallet_inputs;
 mod witness;
 
 use std::error::Error;
 
+pub use chain_inputs::{PolChainInputs, PolChainInputsData};
 use groth16::{Groth16Input, Groth16InputDeser, Groth16Proof, Groth16ProofJsonDeser};
-pub use inputs::PolInputs;
-pub use private_inputs::{PolPrivateInputs, PolPrivateInputsData};
-pub use public_inputs::{PolPublicInputs, PolPublicInputsData};
+pub use inputs::PolWitnessInputs;
 use thiserror::Error;
+pub use wallet_inputs::{PolWalletInputs, PolWalletInputsData};
 pub use witness::Witness;
 
-use crate::{proving_key::POL_PROVING_KEY_PATH, public_inputs::PolPublicInputsJson};
+use crate::{
+    chain_inputs::PolChainInputsJson,
+    inputs::{PolVerifierInput, PolVerifierInputJson},
+    proving_key::POL_PROVING_KEY_PATH,
+};
 
 pub type PoLProof = Groth16Proof;
 
@@ -49,17 +53,17 @@ pub enum ProveError {
 ///   witness or proving from contents.
 /// - Returns a `ProveError::Json` if there is an error during JSON
 ///   serialization or deserialization.
-pub fn prove(inputs: &PolInputs) -> Result<(PoLProof, PolPublicInputs), ProveError> {
+pub fn prove(inputs: &PolWitnessInputs) -> Result<(PoLProof, PolVerifierInput), ProveError> {
     let witness = witness::generate_witness(inputs).map_err(ProveError::Io)?;
-    let (proof, public_inputs) =
+    let (proof, verifier_inputs) =
         circuits_prover::prover_from_contents(*POL_PROVING_KEY_PATH, witness.as_ref())
             .map_err(ProveError::Io)?;
     let proof: Groth16ProofJsonDeser = serde_json::from_slice(&proof).map_err(ProveError::Json)?;
-    let public_inputs: PolPublicInputsJson =
-        serde_json::from_slice(&public_inputs).map_err(ProveError::Json)?;
+    let verifier_inputs: PolVerifierInputJson =
+        serde_json::from_slice(&verifier_inputs).map_err(ProveError::Json)?;
     Ok((
         proof.try_into().map_err(ProveError::Groth16JsonProof)?,
-        public_inputs
+        verifier_inputs
             .try_into()
             .map_err(ProveError::Groth16JsonInput)?,
     ))
@@ -85,31 +89,32 @@ pub fn prove(inputs: &PolInputs) -> Result<(PoLProof, PolPublicInputs), ProveErr
 ///
 /// - Returns an error if there is an issue with the verification key or the
 ///   underlying verification process fails.
-pub fn verify(proof: &PoLProof, public_inputs: &PolPublicInputs) -> Result<bool, impl Error> {
+pub fn verify(proof: &PoLProof, public_inputs: &PolVerifierInput) -> Result<bool, impl Error> {
     let inputs = public_inputs.to_inputs();
     groth16::groth16_verify(verification_key::POL_VK.as_ref(), proof, &inputs)
 }
 
 #[cfg(test)]
 mod tests {
+    use groth16::Fr;
+    use num_bigint::BigUint;
+    use num_traits::Zero;
+
     use super::*;
 
     #[test]
     fn test_full_flow() {
-        // let public_data = PolPublicInputsData {
-        //     entropy_contribution: [0; 32],
-        //     slot_number: 10,
-        //     epoch_nonce: 125,
-        //     total_stake: 50,
-        //     aged_root: [0; 32],
-        //     latest_root: [0; 32],
-        //     leader_pk: (
-        //         (0..16).collect::<Vec<_>>().try_into().unwrap(),
-        //         (0..16).rev().collect::<Vec<_>>().try_into().unwrap(),
-        //     ),
+        // let public_data = PolChainInputsData {
+        //     entropy_contribution: BigUint::from_str(),
+        //     slot_number: 511,
+        //     epoch_nonce: 651,
+        //     total_stake: 5000,
+        //     aged_root: BigUint::from().into(),
+        //     latest_root: BigUint::from().into(),
+        //     leader_pk: (BigUint::from().into(), BigUint::from().into()),
         // };
-        // let private_data = PolPrivateInputsData {
-        //     secret_key: [],
+        // let private_data = PolWalletInputsData {
+        //     secret_key: Fr::zero(),
         //     note_value: 0,
         //     transaction_hash: [],
         //     output_number: 0,
