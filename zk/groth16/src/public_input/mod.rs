@@ -5,6 +5,8 @@ use std::str::FromStr;
 use ark_bn254::Bn254;
 use ark_bn254::Fr;
 use ark_ec::pairing::Pairing;
+#[cfg(feature = "deser")]
+use ark_ff::Zero;
 
 #[cfg(feature = "deser")]
 pub mod deserialize;
@@ -52,6 +54,24 @@ impl TryFrom<InputDeser> for Input<Bn254> {
 #[cfg(feature = "deser")]
 impl From<&Input<Bn254>> for InputDeser {
     fn from(value: &Input<Bn254>) -> Self {
+        // Have to branch here, as by default it's an empty string, but we want "0"
+        if value.0.is_zero() {
+            return Self("0".to_owned());
+        }
         Self(value.0.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ark_ff::Field as _;
+
+    use super::*;
+    #[cfg(feature = "deser")]
+    #[test]
+    fn serialize_zero() {
+        let zero: Input<Bn254> = Fr::ZERO.into();
+        let value: InputDeser = (&zero).into();
+        assert_eq!(value.0, "0");
     }
 }
