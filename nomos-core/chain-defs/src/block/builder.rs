@@ -1,9 +1,8 @@
-use blake2::digest::Digest as _;
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{
     block::Block,
-    crypto::Hasher,
+    crypto::{Digest as _, Hasher},
     da::blob::{info::DispersedBlobInfo, BlobSelect},
     header::Builder,
     mantle::{Transaction, TxSelect},

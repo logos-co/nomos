@@ -72,7 +72,7 @@ impl LedgerState {
                     // these proofs could be verified even before reaching this point
                     // as you only need the op itself to validate the signature
                     op.signer
-                        .verify(tx_hash.as_ref(), sig)
+                        .verify(tx_hash.as_signing_bytes().as_ref(), sig)
                         .map_err(|_| Error::InvalidSignature)?;
                     self.channels =
                         self.channels
@@ -80,7 +80,7 @@ impl LedgerState {
                 }
                 (Op::ChannelInscribe(op), Some(OpProof::Ed25519Sig(sig))) => {
                     op.signer
-                        .verify(tx_hash.as_ref(), sig)
+                        .verify(tx_hash.as_signing_bytes().as_ref(), sig)
                         .map_err(|_| Error::InvalidSignature)?;
                     self.channels =
                         self.channels
@@ -154,7 +154,11 @@ mod tests {
         let tx_hash = tx.hash();
         tx.ops_profs = signing_keys
             .into_iter()
-            .map(|key| Some(OpProof::Ed25519Sig(key.sign(tx_hash.as_ref()))))
+            .map(|key| {
+                Some(OpProof::Ed25519Sig(
+                    key.sign(tx_hash.as_signing_bytes().as_ref()),
+                ))
+            })
             .collect();
         tx
     }
