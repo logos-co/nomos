@@ -125,8 +125,8 @@ risc0-zkvm        = "2.3.2"
 serde_with        = "3.12.0"
 tempfile          = "3"
 tracing           = "0.1"
-utoipa            = { version = "4.0" }
-utoipa-swagger-ui = { version = "4.0" }
+utoipa            = { version = "4.2" }
+utoipa-swagger-ui = { version = "7.1", features = ["axum"] }
 
 [workspace.lints.clippy]
 

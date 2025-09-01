@@ -7,8 +7,13 @@ use std::{
     time::Duration,
 };
 
-use axum::{http::HeaderValue, routing, Router, Server};
-use hyper::header::{CONTENT_TYPE, USER_AGENT};
+use axum::{
+    http::{
+        header::{CONTENT_TYPE, USER_AGENT},
+        HeaderValue,
+    },
+    routing, Router,
+};
 use nomos_api::{
     http::{consensus::Cryptarchia, da::DaVerifier, storage},
     Backend,
@@ -43,6 +48,7 @@ use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId, DynEr
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use services_utils::wait_until_services_are_ready;
 use subnetworks_assignations::MembershipHandler;
+use tokio::net::TcpListener;
 use tower_http::{
     cors::{Any, CorsLayer},
     trace::TraceLayer,
@@ -345,7 +351,7 @@ where
             >,
         >,
 {
-    type Error = hyper::Error;
+    type Error = std::io::Error;
     type Settings = AxumBackendSettings;
 
     async fn new(settings: Self::Settings) -> Result<Self, Self::Error>
@@ -420,12 +426,6 @@ where
         }
 
         let app = Router::new()
-            .layer(
-                builder
-                    .allow_headers([CONTENT_TYPE, USER_AGENT])
-                    .allow_methods(Any),
-            )
-            .layer(TraceLayer::new_for_http())
             .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
             .route(
                 paths::CL_METRICS,
@@ -622,10 +622,23 @@ where
                     >,
                 ),
             )
-            .with_state(handle);
+            .with_state(handle)
+            .layer(TraceLayer::new_for_http())
+            .layer(
+                builder
+                    .allow_headers(vec![CONTENT_TYPE, USER_AGENT])
+                    .allow_methods(Any),
+            );
 
-        Server::bind(&self.settings.address)
-            .serve(app.into_make_service())
+        let listener = TcpListener::bind(&self.settings.address)
             .await
+            .map_err(|e| {
+                std::io::Error::new(
+                    e.kind(),
+                    format!("Failed to bind to address {}: {}", self.settings.address, e),
+                )
+            })?;
+
+        axum::serve(listener, app).await
     }
 }
