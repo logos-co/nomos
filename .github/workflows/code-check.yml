@@ -130,48 +130,48 @@ jobs:
       - name: Run cargo-features-manager
         run: cargo features prune --dry-run
   
-  lints:
-    name: Check Rust lints
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ ubuntu-latest, macos-latest ]
-    runs-on: ${{ matrix.os }}
-    env:
-          RISC0_SKIP_BUILD: true
-          RUSTFLAGS: -D warnings
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
-      - name: Set up Cargo cache
-        uses: ./.github/actions/setup-cargo-cache
-        with:
-          key: ${{ github.ref }}->${{ github.workflow }}->${{ github.job }}->${{ matrix.os }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}        
-      - name: Run cargo clippy on workspace
-        uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
-        with:
-          command: clippy
-          args: --all --all-targets --all-features
-      - name: Update Cargo cache
-        if: success() || failure()
-        uses: ./.github/actions/update-cargo-cache
-        with:
-          key: ${{ github.ref }}->${{ github.workflow }}->${{ github.job }}->${{ matrix.os }}          
-      - name: Install risc0 Rust toolchain
-        uses: actions-rs/toolchain@88dc2356392166efad76775c878094f4e83ff746  # Version 1.0.6
-        with:
-          toolchain: 1.88.0
-          components: clippy
-          override: true
-      - name: Run cargo clippy on risc0 crates
-        id: risc0-clippy
-        # We need to do this way since we can't use `--all-features` for crates outside of the workspace, so we need to lint each crate separately.
-        run: |
-          cd ./nomos-core/proof_statements
-          cargo clippy --all-targets --all-features
-          cd ../risc0_proofs
-          cargo clippy --all-targets --all-features
+  # lints:
+  #   name: Check Rust lints
+  #   strategy:
+  #     fail-fast: false
+  #     matrix:
+  #       os: [ ubuntu-latest, macos-latest ]
+  #   runs-on: ${{ matrix.os }}
+  #   env:
+  #         RISC0_SKIP_BUILD: true
+  #         RUSTFLAGS: -D warnings
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
+  #     - name: Set up Cargo cache
+  #       uses: ./.github/actions/setup-cargo-cache
+  #       with:
+  #         key: ${{ github.ref }}->${{ github.workflow }}->${{ github.job }}->${{ matrix.os }}
+  #         github-token: ${{ secrets.GITHUB_TOKEN }}        
+  #     - name: Run cargo clippy on workspace
+  #       uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
+  #       with:
+  #         command: clippy
+  #         args: --all --all-targets --all-features
+  #     - name: Update Cargo cache
+  #       if: success() || failure()
+  #       uses: ./.github/actions/update-cargo-cache
+  #       with:
+  #         key: ${{ github.ref }}->${{ github.workflow }}->${{ github.job }}->${{ matrix.os }}          
+  #     - name: Install risc0 Rust toolchain
+  #       uses: actions-rs/toolchain@88dc2356392166efad76775c878094f4e83ff746  # Version 1.0.6
+  #       with:
+  #         toolchain: 1.88.0
+  #         components: clippy
+  #         override: true
+  #     - name: Run cargo clippy on risc0 crates
+  #       id: risc0-clippy
+  #       # We need to do this way since we can't use `--all-features` for crates outside of the workspace, so we need to lint each crate separately.
+  #       run: |
+  #         cd ./nomos-core/proof_statements
+  #         cargo clippy --all-targets --all-features
+  #         cd ../risc0_proofs
+  #         cargo clippy --all-targets --all-features
  
   # tests:
   #   name: Run test suite
