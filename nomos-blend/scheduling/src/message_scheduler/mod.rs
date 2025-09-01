@@ -8,6 +8,7 @@ use core::{
 };
 
 use futures::{stream::empty, Stream, StreamExt as _};
+use rand::RngCore;
 use tracing::{info, trace};
 
 use crate::{
@@ -59,7 +60,7 @@ impl<SessionClock, Rng, ProcessedMessage>
     UninitializedMessageScheduler<SessionClock, Rng, ProcessedMessage>
 where
     SessionClock: Stream<Item = SessionInfo> + Unpin,
-    Rng: rand::Rng + Clone,
+    Rng: RngCore + Clone,
 {
     /// Waits until the provided [`SessionClock`] returns the first tick with
     /// the relevant session information.
@@ -107,7 +108,7 @@ pub struct MessageScheduler<SessionClock, Rng, ProcessedMessage> {
 
 impl<SessionClock, Rng, ProcessedMessage> MessageScheduler<SessionClock, Rng, ProcessedMessage>
 where
-    Rng: rand::Rng + Clone,
+    Rng: RngCore + Clone,
 {
     fn new(
         session_clock: SessionClock,
@@ -194,7 +195,7 @@ impl<SessionClock, Rng, ProcessedMessage> Stream
     for MessageScheduler<SessionClock, Rng, ProcessedMessage>
 where
     SessionClock: Stream<Item = SessionInfo> + Unpin,
-    Rng: rand::Rng + Clone + Unpin,
+    Rng: RngCore + Clone + Unpin,
     ProcessedMessage: Debug + Unpin,
 {
     type Item = RoundInfo<ProcessedMessage>;

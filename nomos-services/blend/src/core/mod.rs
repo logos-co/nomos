@@ -12,14 +12,14 @@ use std::{
 
 use async_trait::async_trait;
 use backends::BlendBackend;
-use futures::{future::join_all, StreamExt as _};
+use futures::{future::join_all, Stream, StreamExt as _};
 use network::NetworkAdapter;
 use nomos_blend_message::{crypto::random_sized_bytes, encap::DecapsulationOutput, PayloadType};
 use nomos_blend_network::EncapsulatedMessageWithValidatedPublicHeader;
 use nomos_blend_scheduling::{
     membership::Membership,
     message_blend::{crypto::CryptographicProcessor, CryptographicProcessorSettings},
-    message_scheduler::{round_info::RoundInfo, MessageScheduler},
+    message_scheduler::{round_info::RoundInfo, session_info::SessionInfo, MessageScheduler},
     session::{SessionEvent, SessionEventStream},
     UninitializedMessageScheduler,
 };
@@ -34,7 +34,7 @@ use overwatch::{
     OpaqueServiceResourcesHandle,
 };
 use rand::{seq::SliceRandom as _, RngCore, SeedableRng as _};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use services_utils::wait_until_services_are_ready;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -64,7 +64,7 @@ where
     Network: NetworkAdapter<RuntimeServiceId>,
 {
     backend: Backend,
-    session_event_sender: mpsc::Sender<SessionEvent<Membership<NodeId>>>,
+    session_event_forwarder: mpsc::Sender<SessionEvent<Membership<NodeId>>>,
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     _phantom: PhantomData<MembershipAdapter>,
 }
@@ -116,7 +116,7 @@ where
                 Box::pin(ReceiverStream::new(receiver)),
                 BlakeRng::from_entropy(),
             ),
-            session_event_sender: sender,
+            session_event_forwarder: sender,
             service_resources_handle,
             _phantom: PhantomData,
         })
@@ -133,19 +133,11 @@ where
                     ..
                 },
             ref mut backend,
-            ref session_event_sender,
+            ref session_event_forwarder,
             ..
         } = self;
 
         let blend_config = settings_handle.notifier().get_updated_settings();
-        let mut membership = blend_config.membership();
-        let minimum_network_size = blend_config.minimum_network_size;
-        let mut rng = BlakeRng::from_entropy();
-        let mut cryptographic_processor = CryptographicProcessor::new(
-            blend_config.crypto.clone(),
-            membership.clone(),
-            rng.clone(),
-        );
         let network_relay = overwatch_handle.relay::<NetworkService<_, _>>().await?;
         let network_adapter = Network::new(network_relay);
 
@@ -161,7 +153,7 @@ where
 
         let mut session_stream = SessionEventStream::new(
             Box::pin(constant_membership_stream(
-                membership.clone(),
+                blend_config.membership(),
                 blend_config.time.session_duration(),
             )),
             blend_config.time.session_transition_period(),
@@ -175,7 +167,7 @@ where
         >::new(
             blend_config.session_stream(),
             blend_config.scheduler_settings(),
-            rng.clone(),
+            BlakeRng::from_entropy(),
         )
         .wait_next_session_start()
         .await;
@@ -198,25 +190,69 @@ where
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
 
-        loop {
-            tokio::select! {
-                Some(local_data_message) = inbound_relay.next() => {
-                    if membership.size() >= minimum_network_size.get() as usize {
-                        handle_local_data_message(local_data_message, &mut cryptographic_processor, backend, &mut message_scheduler).await;
-                    } else {
-                        warn!(target: LOG_TARGET, "Ignoring local data message as the blend network is too small");
-                    }
+        run(
+            &blend_config,
+            backend,
+            &network_adapter,
+            inbound_relay,
+            &mut blend_messages,
+            &mut message_scheduler,
+            &mut session_stream,
+            session_event_forwarder,
+        )
+        .await
+    }
+}
+
+/// Runs the main loop of the service, by listening to all the streams
+/// and handling the events accordingly.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "The main loop needs many components. Better to not bundle them all up."
+)]
+async fn run<NodeId, Backend, SessionClock, BroadcastSettings, Network, RuntimeServiceId>(
+    settings: &BlendConfig<Backend::Settings, NodeId>,
+    backend: &Backend,
+    network_adapter: &Network,
+    mut inbound_relay: impl Stream<Item = ServiceMessage<BroadcastSettings>> + Send + Unpin,
+    mut blend_messages: impl Stream<Item = EncapsulatedMessageWithValidatedPublicHeader> + Send + Unpin,
+    scheduler: &mut MessageScheduler<SessionClock, BlakeRng, ProcessedMessage<BroadcastSettings>>,
+    mut session_stream: impl Stream<Item = SessionEvent<Membership<NodeId>>> + Send + Unpin,
+    session_forwarder: &mpsc::Sender<SessionEvent<Membership<NodeId>>>,
+) -> Result<(), overwatch::DynError>
+where
+    NodeId: Clone + Eq + Hash + Send + Sync,
+    Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId> + Sync,
+    SessionClock: Stream<Item = SessionInfo> + Send + Unpin,
+    BroadcastSettings: Serialize + DeserializeOwned + Debug + Send + Unpin,
+    Network: NetworkAdapter<RuntimeServiceId, BroadcastSettings = BroadcastSettings> + Send + Sync,
+{
+    let mut membership = settings.membership();
+    let mut cryptographic_processor = CryptographicProcessor::new(
+        settings.crypto.clone(),
+        membership.clone(),
+        BlakeRng::from_entropy(),
+    );
+
+    let mut rng = BlakeRng::from_entropy();
+    loop {
+        tokio::select! {
+            Some(local_data_message) = inbound_relay.next() => {
+                if membership.size() >= settings.minimum_network_size.get() as usize {
+                    handle_local_data_message(local_data_message, &mut cryptographic_processor, backend, scheduler).await;
+                } else {
+                    warn!(target: LOG_TARGET, "Ignoring local data message as the blend network is too small");
                 }
-                Some(incoming_message) = blend_messages.next() => {
-                    handle_incoming_blend_message(incoming_message, &mut message_scheduler, &cryptographic_processor);
-                }
-                Some(round_info) = message_scheduler.next() => {
-                    handle_release_round(round_info, &mut cryptographic_processor, &mut rng, backend, &network_adapter).await;
-                }
-                Some(event) = session_stream.next() => {
-                    if let Some(new) = handle_session_event(event, session_event_sender, &blend_config.crypto).await {
-                        (membership, cryptographic_processor) = new;
-                    }
+            }
+            Some(incoming_message) = blend_messages.next() => {
+                handle_incoming_blend_message(incoming_message, scheduler, &cryptographic_processor);
+            }
+            Some(round_info) = scheduler.next() => {
+                handle_release_round(round_info, &mut cryptographic_processor, &mut rng, backend, network_adapter).await;
+            }
+            Some(event) = session_stream.next() => {
+                if let Some(new) = handle_session_event(event, session_forwarder, &settings.crypto).await {
+                    (membership, cryptographic_processor) = new;
                 }
             }
         }
@@ -402,15 +438,46 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::{num::NonZeroU64, pin::Pin};
+
     use libp2p::Multiaddr;
     use nomos_blend_message::crypto::{Ed25519PrivateKey, Ed25519PublicKey};
-    use nomos_blend_scheduling::membership::Node;
+    use nomos_blend_scheduling::{membership::Node, EncapsulatedMessage};
+    use nomos_network::backends::NetworkBackend;
+    use nomos_utils::math::NonNegativeF64;
+    use overwatch::{overwatch::OverwatchHandle, services::relay::OutboundRelay};
     use tokio::time::sleep;
+    use tokio_stream::wrappers::BroadcastStream;
+
+    use crate::{
+        core::settings::{
+            CoverTrafficSettingsExt, MessageDelayerSettingsExt, SchedulerSettingsExt,
+        },
+        settings::TimingSettings,
+    };
 
     use super::*;
 
     #[tokio::test]
     async fn handle_new_session_event() {
+        let (node_id_sender, node_id_receiver) = mpsc::channel(1);
+        let (local_msg_sender, local_msg_receiver) = mpsc::channel(1);
+        let (session_sender, session_receiver) = mpsc::channel(1);
+
+        tokio::spawn(async move {
+            let _ = run(
+                &settings(10, 1, node_id_sender),
+                &TestBackend,
+                &TestNetworkAdapter,
+                ReceiverStream::new(local_msg_receiver),
+                futures::stream::pending(),
+                scheduler,
+                session_stream,
+                session_forwarder,
+            )
+            .await;
+        });
+
         let (session_forwarder, mut session_receiver) = mpsc::channel(1);
 
         // Should return a new membership and a new crypto processor.
@@ -456,6 +523,7 @@ mod tests {
     }
 
     type NodeId = u8;
+    type NodeIdSender = mpsc::Sender<NodeId>;
 
     fn membership(ids: &[NodeId], local_id: Option<NodeId>) -> Membership<NodeId> {
         Membership::new(
@@ -476,10 +544,109 @@ mod tests {
         (private_key, public_key)
     }
 
-    fn crypto_settings(local_id: u8) -> CryptographicProcessorSettings {
-        CryptographicProcessorSettings {
-            signing_private_key: key(local_id).0,
-            num_blend_layers: 1,
+    fn settings(
+        local_id: NodeId,
+        minimum_network_size: u64,
+        msg_sender: NodeIdSender,
+    ) -> BlendConfig<NodeIdSender, NodeId> {
+        BlendConfig {
+            membership: Vec::new(),
+            crypto: CryptographicProcessorSettings {
+                signing_private_key: key(local_id).0,
+                num_blend_layers: 1,
+            },
+            scheduler: SchedulerSettingsExt {
+                cover: CoverTrafficSettingsExt {
+                    message_frequency_per_round: NonNegativeF64::try_from(1.0).unwrap(),
+                    redundancy_parameter: 0,
+                    intervals_for_safety_buffer: 0,
+                },
+                delayer: MessageDelayerSettingsExt {
+                    maximum_release_delay_in_rounds: NonZeroU64::new(1).unwrap(),
+                },
+            },
+            time: TimingSettings {
+                rounds_per_session: NonZeroU64::new(1).unwrap(),
+                rounds_per_interval: NonZeroU64::new(1).unwrap(),
+                round_duration: Duration::from_secs(1),
+                rounds_per_observation_window: NonZeroU64::new(1).unwrap(),
+                rounds_per_session_transition_period: NonZeroU64::new(1).unwrap(),
+            },
+            backend: msg_sender,
+            minimum_network_size: NonZeroU64::new(minimum_network_size).unwrap(),
+        }
+    }
+
+    struct TestBackend;
+
+    #[async_trait::async_trait]
+    impl<NodeId, Rng, RuntimeServiceId> BlendBackend<NodeId, Rng, RuntimeServiceId> for TestBackend {
+        type Settings = ();
+
+        fn new(
+            service_config: BlendConfig<Self::Settings, NodeId>,
+            overwatch_handle: OverwatchHandle<RuntimeServiceId>,
+            session_stream: Pin<Box<dyn Stream<Item = SessionEvent<Membership<NodeId>>> + Send>>,
+            rng: Rng,
+        ) -> Self {
+            Self
+        }
+
+        fn shutdown(self) {}
+
+        async fn publish(&self, msg: EncapsulatedMessage) {
+            unimplemented!()
+        }
+
+        fn listen_to_incoming_messages(
+            &mut self,
+        ) -> Pin<Box<dyn Stream<Item = EncapsulatedMessageWithValidatedPublicHeader> + Send>>
+        {
+            unimplemented!()
+        }
+    }
+
+    struct TestNetworkAdapter;
+
+    #[async_trait::async_trait]
+    impl<RuntimeServiceId> NetworkAdapter<RuntimeServiceId> for TestNetworkAdapter {
+        type Backend = TestNetworkBackend;
+        type BroadcastSettings = ();
+
+        fn new(
+            network_relay: OutboundRelay<
+                <NetworkService<Self::Backend, RuntimeServiceId> as ServiceData>::Message,
+            >,
+        ) -> Self {
+            Self
+        }
+
+        async fn broadcast(&self, message: Vec<u8>, broadcast_settings: Self::BroadcastSettings) {}
+    }
+
+    struct TestNetworkBackend;
+
+    #[async_trait::async_trait]
+    impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for TestNetworkBackend {
+        type Settings = ();
+        type Message = Vec<u8>;
+        type PubSubEvent = ();
+        type ChainSyncEvent = ();
+
+        fn new((): Self::Settings, _: OverwatchHandle<RuntimeServiceId>) -> Self {
+            unimplemented!()
+        }
+
+        async fn process(&self, _: Self::Message) {
+            unimplemented!()
+        }
+
+        async fn subscribe_to_pubsub(&mut self) -> BroadcastStream<Self::PubSubEvent> {
+            unimplemented!()
+        }
+
+        async fn subscribe_to_chainsync(&mut self) -> BroadcastStream<Self::ChainSyncEvent> {
+            unimplemented!()
         }
     }
 }
