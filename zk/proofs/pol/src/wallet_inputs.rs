@@ -31,12 +31,19 @@ pub struct PolWalletInputsData {
 
 #[derive(Serialize)]
 pub struct PolWalletInputsJson {
+    #[serde(rename = "v")]
     note_value: Groth16InputDeser,
+    #[serde(rename = "note_tx_hash")]
     transaction_hash: Groth16InputDeser,
-    output_numer: Groth16InputDeser,
+    #[serde(rename = "note_output_number")]
+    output_number: Groth16InputDeser,
+    #[serde(rename = "noteid_aged_path")]
     aged_path: Vec<Groth16InputDeser>,
+    #[serde(rename = "noteid_aged_selectors")]
     aged_selector: Vec<Groth16InputDeser>,
+    #[serde(rename = "noteid_latest_path")]
     latest_path: Vec<Groth16InputDeser>,
+    #[serde(rename = "noteid_latest_selectors")]
     latest_selector: Vec<Groth16InputDeser>,
     slot_secret: Groth16InputDeser,
     slot_secret_path: Vec<Groth16InputDeser>,
@@ -47,7 +54,7 @@ impl From<&PolWalletInputs> for PolWalletInputsJson {
         PolWalletInputs {
             note_value,
             transaction_hash,
-            output_number: output_numer,
+            output_number,
             aged_path,
             aged_selector,
             latest_path,
@@ -60,7 +67,7 @@ impl From<&PolWalletInputs> for PolWalletInputsJson {
         Self {
             note_value: note_value.into(),
             transaction_hash: transaction_hash.into(),
-            output_numer: output_numer.into(),
+            output_number: output_number.into(),
             aged_path: aged_path.iter().map(Into::into).collect(),
             aged_selector: aged_selector.iter().map(Into::into).collect(),
             latest_path: latest_path.iter().map(Into::into).collect(),

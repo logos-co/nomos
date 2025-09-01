@@ -32,15 +32,20 @@ pub struct PolChainInputsData {
 
 #[derive(Deserialize, Serialize)]
 pub struct PolChainInputsJson {
+    #[serde(rename = "sl")]
     slot_number: Groth16InputDeser,
     epoch_nonce: Groth16InputDeser,
+    #[serde(rename = "t0")]
     lottery_0: Groth16InputDeser,
+    #[serde(rename = "t1")]
     lottery_1: Groth16InputDeser,
+    #[serde(rename = "ledger_aged")]
     aged_root: Groth16InputDeser,
+    #[serde(rename = "ledger_latest")]
     latest_root: Groth16InputDeser,
-    #[serde(rename = "one_time_key_part_one")]
+    #[serde(rename = "P_lead_part_one")]
     leader_pk1: Groth16InputDeser,
-    #[serde(rename = "one_time_key_part_two")]
+    #[serde(rename = "P_lead_part_two")]
     leader_pk2: Groth16InputDeser,
 }
 
