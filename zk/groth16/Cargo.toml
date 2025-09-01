@@ -12,7 +12,7 @@ ark-groth16 = { default-features = false, features = ["std"], version = "0.4" }
 hex         = { version = "0.4", optional = true }
 num-bigint  = { version = "0.4", optional = true }
 serde       = { default-features = false, features = ["derive"], optional = true, version = "1.0" }
-serde_json  = { default-features = false, optional = true, version = "1.0" }
+serde_json  = { default-features = false, optional = true, version = "1.0", features = ["alloc"] }
 thiserror   = { default-features = false, optional = true, version = "2.0" }
 
 [dev-dependencies]

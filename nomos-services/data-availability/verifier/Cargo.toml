@@ -19,7 +19,7 @@ nomos-da-sampling        = { workspace = true }
 nomos-mempool            = { workspace = true }
 nomos-storage            = { workspace = true }
 nomos-tracing            = { workspace = true }
-nomos-utils              = { workspace = true }
+nomos-utils              = { workspace = true, features = ["serde"] }
 overwatch                = { workspace = true }
 serde                    = { default-features = false, version = "1.0" }
 serde_with               = { workspace = true }
