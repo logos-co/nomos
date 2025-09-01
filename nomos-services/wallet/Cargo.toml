@@ -5,6 +5,8 @@ name    = "wallet"
 version = "0.1.0"
 
 [dependencies]
+thiserror = "1.0"
+
 nomos-core    = { workspace = true }
 nomos-ledger  = { workspace = true, features = ["serde"] }
 
