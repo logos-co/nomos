@@ -15,7 +15,6 @@ pub use wallet_inputs::{PolWalletInputs, PolWalletInputsData};
 pub use witness::Witness;
 
 use crate::{
-    chain_inputs::PolChainInputsJson,
     inputs::{PolVerifierInput, PolVerifierInputJson},
     proving_key::POL_PROVING_KEY_PATH,
 };
@@ -96,14 +95,13 @@ pub fn verify(proof: &PoLProof, public_inputs: &PolVerifierInput) -> Result<bool
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
+    use std::str::FromStr as _;
 
-    use groth16::Fr;
     use num_bigint::BigUint;
-    use num_traits::Zero;
 
     use super::*;
 
+    #[expect(clippy::too_many_lines, reason = "For the sake of the test let it be")]
     #[test]
     fn test_full_flow() {
         let chain_data = PolChainInputsData {
