@@ -56,7 +56,7 @@ tracing                  = { workspace = true }
 
 # openapi related dependencies
 utoipa            = { workspace = true }
-utoipa-swagger-ui = { features = ["axum"], workspace = true }
+utoipa-swagger-ui = { features = ["axum", "rocket"], workspace = true }
 
 # axum related dependencies
 axum       = { default-features = false, features = ["json", "query", "tokio"], version = "0.6" }
