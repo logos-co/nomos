@@ -2,12 +2,12 @@ use cryptarchia_engine::{Epoch, Slot};
 use groth16::Fr;
 use nomos_core::{
     crypto::{Digest as _, Hasher, ZkHasher},
-    mantle::{gas::GasConstants, AuthenticatedMantleTx, Note, NoteId, Utxo, Value},
+    mantle::{gas::GasConstants, AuthenticatedMantleTx, NoteId, Utxo, Value},
     proofs::{leader_proof, zksig::ZkSignatureProof as _},
 };
 use nomos_proof_statements::{leadership::LeaderPublic, zksig::ZkSignaturePublic};
 
-pub type UtxoTree = utxotree::UtxoTree<NoteId, Note, ZkHasher>;
+pub type UtxoTree = utxotree::UtxoTree<NoteId, Utxo, ZkHasher>;
 use super::{Config, LedgerError};
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -197,15 +197,15 @@ impl LedgerState {
         let mut pks: Vec<Fr> = vec![];
         let ledger_tx = &tx.mantle_tx().ledger_tx;
         for input in &ledger_tx.inputs {
-            let note;
-            (self.utxos, note) = self
+            let utxo;
+            (self.utxos, utxo) = self
                 .utxos
                 .remove(input)
                 .map_err(|_| LedgerError::InvalidNote(*input))?;
             balance = balance
-                .checked_add(note.value)
+                .checked_add(utxo.note.value)
                 .ok_or(LedgerError::Overflow)?;
-            pks.push(note.pk.into());
+            pks.push(utxo.note.pk.into());
         }
 
         if !tx.ledger_tx_proof().verify(&ZkSignaturePublic {
@@ -223,7 +223,7 @@ impl LedgerState {
             balance = balance
                 .checked_sub(note.value)
                 .ok_or(LedgerError::InsufficientBalance)?;
-            self.utxos = self.utxos.insert(utxo.id(), note).0;
+            self.utxos = self.utxos.insert(utxo.id(), utxo).0;
         }
 
         let gas_cost = tx.gas_cost::<Constants>();
@@ -276,12 +276,12 @@ impl LedgerState {
     pub fn from_utxos(utxos: impl IntoIterator<Item = Utxo>) -> Self {
         let utxos = utxos
             .into_iter()
-            .map(|utxo| (utxo.id(), utxo.note))
+            .map(|utxo| (utxo.id(), utxo))
             .collect::<UtxoTree>();
         let total_stake = utxos
             .utxos()
             .iter()
-            .map(|(_, (note, _))| note.value)
+            .map(|(_, (utxo, _))| utxo.note.value)
             .sum::<Value>();
         Self {
             utxos: utxos.clone(),
