@@ -1,11 +1,11 @@
 use std::{
-    ops::{Div as _, Sub as _},
+    ops::{Deref as _, Div as _, Sub as _},
     sync::LazyLock,
 };
 
 use groth16::{Fr, Groth16Input, Groth16InputDeser};
 use num_bigint::BigUint;
-use primitive_types::U256;
+use num_traits::Num as _;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -103,18 +103,19 @@ impl From<&PolChainInputs> for PolChainInputsJson {
     }
 }
 
-static P: LazyLock<U256> = LazyLock::new(|| {
-    U256::from_str_radix(
-        "0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001",
+static P: LazyLock<BigUint> = LazyLock::new(|| {
+    BigUint::from_str_radix(
+        "30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001",
         16,
     )
     .expect("P must be a valid hex string")
 });
+
 // t0 constant :
 // 0x27b6fe27507ca57ca369280400c79b5d2f58ff94d87cb0fbfc8294eb69eb1ea
-static T0_CONSTANT: LazyLock<U256> = LazyLock::new(|| {
-    U256::from_str_radix(
-        "0x27b6fe27507ca57ca369280400c79b5d2f58ff94d87cb0fbfc8294eb69eb1ea",
+static T0_CONSTANT: LazyLock<BigUint> = LazyLock::new(|| {
+    BigUint::from_str_radix(
+        "27b6fe27507ca57ca369280400c79b5d2f58ff94d87cb0fbfc8294eb69eb1ea",
         16,
     )
     .expect("Constant must be a valid hex string")
@@ -122,9 +123,9 @@ static T0_CONSTANT: LazyLock<U256> = LazyLock::new(|| {
 
 // t1 constant:
 // -0x104bfd09ebdd0a57772289d0973489b62662a4dc6f09da8b4af3c5cfb1dcdd
-static T1_CONSTANT: LazyLock<U256> = LazyLock::new(|| {
-    U256::from_str_radix(
-        "0x104bfd09ebdd0a57772289d0973489b62662a4dc6f09da8b4af3c5cfb1dcdd",
+static T1_CONSTANT: LazyLock<BigUint> = LazyLock::new(|| {
+    BigUint::from_str_radix(
+        "104bfd09ebdd0a57772289d0973489b62662a4dc6f09da8b4af3c5cfb1dcdd",
         16,
     )
     .expect("Constant must be a valid hex string")
@@ -151,32 +152,24 @@ impl TryFrom<PolChainInputsData> for PolChainInputs {
             leader_pk: (pk1, pk2),
         }: PolChainInputsData,
     ) -> Result<Self, Self::Error> {
-        let slot_number = U256::from(slot_number);
+        let slot_number = BigUint::from(slot_number);
         if slot_number > *P {
             return Err(PolInputsFromDataError::SlotGreaterThanP);
         }
-        let epoch_nonce = U256::from(epoch_nonce);
+        let epoch_nonce = BigUint::from(epoch_nonce);
         if epoch_nonce > *P {
             return Err(PolInputsFromDataError::EpochGreaterThanP);
         }
-        let total_stake = U256::from(total_stake);
+        let total_stake = BigUint::from(total_stake);
 
-        let lottery_0 = T0_CONSTANT.div(total_stake);
-        let lottery_1 = P.sub(T1_CONSTANT.div(total_stake.pow(U256::from(2u8))));
+        let lottery_0 = T0_CONSTANT.deref().div(total_stake.clone());
+        let lottery_1 = P.deref().sub(T1_CONSTANT.deref().div(total_stake.pow(2)));
 
         Ok(Self {
-            slot_number: Groth16Input::new(Fr::from(BigUint::from_bytes_le(
-                slot_number.to_little_endian().as_ref(),
-            ))),
-            epoch_nonce: Groth16Input::new(Fr::from(BigUint::from_bytes_le(
-                epoch_nonce.to_little_endian().as_ref(),
-            ))),
-            lottery_0: Groth16Input::new(Fr::from(BigUint::from_bytes_le(
-                lottery_0.to_little_endian().as_ref(),
-            ))),
-            lottery_1: Groth16Input::new(Fr::from(BigUint::from_bytes_le(
-                lottery_1.to_little_endian().as_ref(),
-            ))),
+            slot_number: Groth16Input::new(slot_number.into()),
+            epoch_nonce: Groth16Input::new(epoch_nonce.into()),
+            lottery_0: Groth16Input::new(lottery_0.into()),
+            lottery_1: Groth16Input::new(lottery_1.into()),
             aged_root: aged_root.into(),
             latest_root: latest_root.into(),
             leader_pk1: pk1.into(),
