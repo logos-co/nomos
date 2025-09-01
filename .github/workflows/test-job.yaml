@@ -1,0 +1,28 @@
+on:
+  push:
+    branches:
+        - aa/test-not-dry-run
+
+name: Test job
+
+concurrency:
+  group: ${{ github.workflow }}@${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+    check-features:
+        name: Check features
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
+            - name: Install cargo-features-manager
+              run: cargo install cargo-features-manager@0.10.0
+            - name: Run cargo-features-manager
+              run: cargo features prune
+            - name: Commit and push changes
+              run: |
+                git config user.name "test"
+                git add -a
+                git commit -m "test changed TOML files" || echo "No changes to commit"
+                git push origin HEAD:${GITHUB_REF#refs/heads/}
