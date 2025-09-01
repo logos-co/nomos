@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, HashMap},
     fmt::{Debug, Formatter},
     pin::Pin,
     task::{Context, Poll},
@@ -8,6 +8,7 @@ use std::{
 
 use cryptarchia_sync::HeaderId;
 use futures::{future::BoxFuture, stream::FuturesUnordered, Stream, StreamExt as _};
+use nomos_core::block::Height;
 use overwatch::DynError;
 use tracing::{debug, info};
 
@@ -21,8 +22,8 @@ use crate::network::BoxedStream;
 pub struct Downloads<'a, NodeId, Block> {
     /// [`Future`]s that read a single block from a [`Download`].
     downloads: FuturesUnordered<BoxFuture<'a, DownloadResult<NodeId, Block>>>,
-    /// A set of blocks that are being targeted by [`Self::downloads`].
-    targets: HashSet<HeaderId>,
+    /// Blocks that are being targeted by [`Self::downloads`].
+    targets: Targets,
     /// [`Delay`] for peers that have no download needed at the moment.
     delays: FuturesUnordered<BoxFuture<'a, Delay<NodeId>>>,
     /// The duration of a delay.
@@ -67,8 +68,16 @@ where
         match self.downloads.poll_next_unpin(cx) {
             Poll::Ready(Some(result)) => match result {
                 Ok((Some((_, block)), download)) => {
+                    let max_target_height = self
+                        .targets
+                        .max_height()
+                        .expect("There is at least one target height");
                     self.targets.remove(&download.target);
-                    Poll::Ready(Some(DownloadsOutput::BlockReceived { block, download }))
+                    Poll::Ready(Some(DownloadsOutput::BlockReceived {
+                        block,
+                        download,
+                        max_target_height,
+                    }))
                 }
                 Ok((None, download)) => {
                     self.targets.remove(&download.target);
@@ -97,7 +106,7 @@ where
     pub fn new(delay_duration: Duration) -> Self {
         Self {
             downloads: FuturesUnordered::new(),
-            targets: HashSet::new(),
+            targets: Targets::new(),
             delays: FuturesUnordered::new(),
             delay_duration,
         }
@@ -108,7 +117,7 @@ where
     /// If there is already any registered download for the same target,
     /// the download is ignored and a delay is scheduled for the peer.
     pub fn add_download(&mut self, download: Download<NodeId, Block>) {
-        if !self.targets.insert(download.target) {
+        if !self.targets.add(download.target, download.target_height) {
             debug!(
                 "Download for target {:?} already exists. Delaying the peer {:?}",
                 download.target, download.peer
@@ -143,7 +152,7 @@ where
         }));
     }
 
-    pub const fn targets(&self) -> &HashSet<HeaderId> {
+    pub const fn targets(&self) -> &Targets {
         &self.targets
     }
 
@@ -158,14 +167,72 @@ where
 pub enum DownloadsOutput<NodeId, Block> {
     DelayCompleted(Delay<NodeId>),
     BlockReceived {
+        /// A block received from a [`Download`]
         block: Block,
+        /// The [`Download`] that yielded the `block`.
         download: Download<NodeId, Block>,
+        /// The maximum height of all targets currently being managed by
+        /// [`Downloads`], including the target of the `download`.
+        max_target_height: Height,
     },
     DownloadCompleted(Download<NodeId, Block>),
     Error {
         error: DynError,
         download: Download<NodeId, Block>,
     },
+}
+
+#[derive(Default)]
+pub struct Targets {
+    /// Blocks that are being targeted by [`Downloads`].
+    ids: HashMap<HeaderId, Height>,
+    /// Heights and counts of the target blocks in the `[Self::ids]`.
+    heights: BTreeMap<Height, usize>,
+}
+
+impl Targets {
+    fn new() -> Self {
+        Self {
+            ids: HashMap::new(),
+            heights: BTreeMap::new(),
+        }
+    }
+
+    /// Adds a target block.
+    /// If the target already exists, it does nothing and returns `false`.
+    fn add(&mut self, id: HeaderId, height: Height) -> bool {
+        if self.has(&id) {
+            return false;
+        }
+        self.ids.insert(id, height);
+        *self.heights.entry(height).or_insert(0) += 1;
+        true
+    }
+
+    /// Removes a target block.
+    /// Returns `true` if the target existed and was removed.
+    fn remove(&mut self, id: &HeaderId) -> bool {
+        if let Some(height) = self.ids.remove(id) {
+            if let Some(count) = self.heights.get_mut(&height) {
+                *count -= 1;
+                if *count == 0 {
+                    self.heights.remove(&height);
+                }
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Returns the maximum height of all target blocks.
+    fn max_height(&self) -> Option<Height> {
+        self.heights.keys().next_back().copied()
+    }
+
+    pub fn has(&self, id: &HeaderId) -> bool {
+        self.ids.contains_key(id)
+    }
 }
 
 /// A download from a specific peer.
@@ -176,6 +243,7 @@ pub struct Download<NodeId, Block> {
     peer: NodeId,
     /// The target block this download aims to reach.
     target: HeaderId,
+    target_height: Height,
     /// A stream of blocks that may continue up to [`Self::target`].
     stream: BoxedStream<Result<(HeaderId, Block), DynError>>,
     /// The last block that was read from [`Self::stream`].
@@ -187,11 +255,13 @@ impl<NodeId, Block> Download<NodeId, Block> {
     pub fn new(
         peer: NodeId,
         target: HeaderId,
+        target_height: Height,
         stream: BoxedStream<Result<(HeaderId, Block), DynError>>,
     ) -> Self {
         Self {
             peer,
             target,
+            target_height,
             stream,
             last: None,
         }
@@ -277,6 +347,8 @@ impl<NodeId> Delay<NodeId> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use futures::{stream, FutureExt as _, StreamExt as _};
 
     use super::*;
@@ -286,7 +358,7 @@ mod tests {
         let peer: TestNodeId = 1;
         let target = header_id(1);
         let stream = block_stream(vec![]);
-        let mut download = Download::new(peer, target, stream);
+        let mut download = Download::new(peer, target, 1, stream);
 
         assert!(download.next().await.is_none());
     }
@@ -302,7 +374,7 @@ mod tests {
             // This should not be returned since target is the 3.
             Ok((header_id(4), 400)),
         ]);
-        let mut download = Download::new(peer, target, stream);
+        let mut download = Download::new(peer, target, 3, stream);
 
         // Get first block
         let (id, block) = download.next().await.unwrap().unwrap();
@@ -335,7 +407,7 @@ mod tests {
             Ok((header_id(2), 200)),
             // Target (4) is not in the stream.
         ]);
-        let mut download = Download::new(peer, target, stream);
+        let mut download = Download::new(peer, target, 4, stream);
 
         // Get first block
         let (id, block) = download.next().await.unwrap().unwrap();
@@ -361,7 +433,7 @@ mod tests {
             Ok((header_id(1), 100)),
             Err(DynError::from("test error")),
         ]);
-        let mut download = Download::new(peer, target, stream);
+        let mut download = Download::new(peer, target, 3, stream);
 
         // Get first block
         let (id, block) = download.next().await.unwrap().unwrap();
@@ -378,42 +450,54 @@ mod tests {
     async fn add_single_download() {
         let mut downloads = Downloads::new(Duration::from_millis(1));
         let target = header_id(2);
+        let target_height = 2;
         let download = Download::new(
             1,
             target,
+            target_height,
             block_stream(vec![Ok((header_id(1), 100)), Ok((header_id(2), 200))]),
         );
 
         // Add download to Downloads
         downloads.add_download(download);
-        assert!(downloads.targets().contains(&target));
+        assert!(downloads.targets().has(&target));
         assert_eq!(downloads.num_peers(), 1);
 
         // Should yield a BlockReceived output
-        let DownloadsOutput::BlockReceived { block, download } = downloads.next().await.unwrap()
+        let DownloadsOutput::BlockReceived {
+            block,
+            download,
+            max_target_height,
+        } = downloads.next().await.unwrap()
         else {
             panic!("Expected BlockReceived output");
         };
-        assert!(!downloads.targets().contains(&target));
+        assert!(!downloads.targets().has(&target));
         assert_eq!(block, 100);
+        assert_eq!(max_target_height, target_height);
 
         // Add download to Downloads again
         downloads.add_download(download);
-        assert!(downloads.targets().contains(&target));
+        assert!(downloads.targets().has(&target));
         assert_eq!(downloads.num_peers(), 1);
 
         // Should yield a BlockReceived output
-        let DownloadsOutput::BlockReceived { block, download } = downloads.next().await.unwrap()
+        let DownloadsOutput::BlockReceived {
+            block,
+            download,
+            max_target_height,
+        } = downloads.next().await.unwrap()
         else {
             panic!("Expected BlockReceived output");
         };
-        assert!(!downloads.targets().contains(&target));
+        assert!(!downloads.targets().has(&target));
         assert_eq!(downloads.num_peers(), 0);
         assert_eq!(block, 200);
+        assert_eq!(max_target_height, target_height);
 
         // Add download to Downloads again
         downloads.add_download(download);
-        assert!(downloads.targets().contains(&target));
+        assert!(downloads.targets().has(&target));
         assert_eq!(downloads.num_peers(), 1);
 
         // Should yield a DownloadCompleted output
@@ -421,7 +505,7 @@ mod tests {
             downloads.next().await,
             Some(DownloadsOutput::DownloadCompleted(_))
         ));
-        assert!(!downloads.targets().contains(&target));
+        assert!(!downloads.targets().has(&target));
         assert_eq!(downloads.num_peers(), 0);
 
         // Should yield a None since no download is in the Downloads.
@@ -432,9 +516,11 @@ mod tests {
     async fn add_single_download_with_error() {
         let mut downloads = Downloads::new(Duration::from_millis(1));
         let target = header_id(2);
+        let target_height = 2;
         let download = Download::new(
             1,
             target,
+            target_height,
             block_stream(vec![
                 Ok((header_id(1), 100)),
                 Err(DynError::from("test error")),
@@ -443,28 +529,33 @@ mod tests {
 
         // Add download to Downloads
         downloads.add_download(download);
-        assert!(downloads.targets().contains(&target));
+        assert!(downloads.targets().has(&target));
         assert_eq!(downloads.num_peers(), 1);
 
         // Should yield a BlockReceived output
-        let DownloadsOutput::BlockReceived { block, download } = downloads.next().await.unwrap()
+        let DownloadsOutput::BlockReceived {
+            block,
+            download,
+            max_target_height,
+        } = downloads.next().await.unwrap()
         else {
             panic!("Expected BlockReceived output");
         };
-        assert!(!downloads.targets().contains(&target));
+        assert!(!downloads.targets().has(&target));
         assert_eq!(downloads.num_peers(), 0);
         assert_eq!(block, 100);
+        assert_eq!(max_target_height, target_height);
 
         // Add download to Downloads again
         downloads.add_download(download);
-        assert!(downloads.targets().contains(&target));
+        assert!(downloads.targets().has(&target));
         assert_eq!(downloads.num_peers(), 1);
 
         // Should yield a Error output
         let DownloadsOutput::Error { .. } = downloads.next().await.unwrap() else {
             panic!("Expected BlockReceived output");
         };
-        assert!(!downloads.targets().contains(&target));
+        assert!(!downloads.targets().has(&target));
         assert_eq!(downloads.num_peers(), 0);
 
         // Should yield a None since no download is in the Downloads.
@@ -478,31 +569,46 @@ mod tests {
         // Download 1: Single block
         let peer1: TestNodeId = 1;
         let target1 = header_id(1);
-        let download1 = Download::new(peer1, target1, block_stream(vec![Ok((header_id(1), 100))]));
+        let target_height1 = 1;
+        let download1 = Download::new(
+            peer1,
+            target1,
+            target_height1,
+            block_stream(vec![Ok((header_id(1), 100))]),
+        );
 
         // Download 2: Two blocks
         let peer2: TestNodeId = 2;
         let target2 = header_id(3);
+        let target_height2 = 2;
         let download2 = Download::new(
             peer2,
             target2,
+            target_height2,
             block_stream(vec![Ok((header_id(2), 200)), Ok((header_id(3), 300))]),
         );
+
+        let mut expected_max_target_height = target_height2;
 
         // Add all downloads to Downloads
         downloads.add_download(download1);
         downloads.add_download(download2);
-        assert!(downloads.targets().contains(&target1));
-        assert!(downloads.targets().contains(&target2));
+        assert!(downloads.targets().has(&target1));
+        assert!(downloads.targets().has(&target2));
         assert_eq!(downloads.num_peers(), 2);
 
         let mut expected_blocks = HashSet::<TestBlock>::from([100, 200, 300]);
 
         // Should yield a BlockReceived output
-        let DownloadsOutput::BlockReceived { block, download } = downloads.next().await.unwrap()
+        let DownloadsOutput::BlockReceived {
+            block,
+            download,
+            max_target_height,
+        } = downloads.next().await.unwrap()
         else {
             panic!("Expected BlockReceived output");
         };
+        assert_eq!(max_target_height, 2);
         assert_eq!(downloads.num_peers(), 1);
         assert!(expected_blocks.remove(&block));
 
@@ -510,7 +616,12 @@ mod tests {
         assert_eq!(downloads.num_peers(), 2);
 
         match downloads.next().await {
-            Some(DownloadsOutput::BlockReceived { block, download }) => {
+            Some(DownloadsOutput::BlockReceived {
+                block,
+                download,
+                max_target_height,
+            }) => {
+                assert_eq!(max_target_height, expected_max_target_height);
                 // The returned block should be one of the expected blocks.
                 assert_eq!(downloads.num_peers(), 1);
                 assert!(expected_blocks.remove(&block));
@@ -526,19 +637,33 @@ mod tests {
         }
 
         match downloads.next().await {
-            Some(DownloadsOutput::BlockReceived { block, download }) => {
+            Some(DownloadsOutput::BlockReceived {
+                block,
+                download,
+                max_target_height,
+            }) => {
+                assert_eq!(max_target_height, expected_max_target_height);
                 assert!(expected_blocks.remove(&block));
                 downloads.add_download(download);
             }
             Some(DownloadsOutput::DownloadCompleted(download)) => {
                 // Any peer can complete at this point.
                 assert!(HashSet::from([peer1, peer2]).contains(download.peer()));
+                // Adjust the expected_max_target_height if the higher peer completed.
+                if download.peer() == &peer2 {
+                    expected_max_target_height = target_height1;
+                }
             }
             _ => panic!("Expected BlockReceived or DownloadCompleted output"),
         }
 
         match downloads.next().await {
-            Some(DownloadsOutput::BlockReceived { block, download }) => {
+            Some(DownloadsOutput::BlockReceived {
+                block,
+                download,
+                max_target_height,
+            }) => {
+                assert_eq!(max_target_height, expected_max_target_height);
                 assert!(expected_blocks.remove(&block));
                 downloads.add_download(download);
             }
@@ -567,30 +692,49 @@ mod tests {
         // Download 1
         let peer1: TestNodeId = 1;
         let target = header_id(1);
-        let download1 = Download::new(peer1, target, block_stream(vec![Ok((header_id(1), 100))]));
+        let target_height = 1;
+        let download1 = Download::new(
+            peer1,
+            target,
+            target_height,
+            block_stream(vec![Ok((header_id(1), 100))]),
+        );
 
         // Download 2: with the same target
         let peer2: TestNodeId = 2;
-        let download2 = Download::new(peer2, target, block_stream(vec![Ok((header_id(1), 100))]));
+        let download2 = Download::new(
+            peer2,
+            target,
+            target_height,
+            block_stream(vec![Ok((header_id(1), 100))]),
+        );
 
         // Add all downloads to Downloads
         downloads.add_download(download1);
         downloads.add_download(download2);
         // Should only have one target.
-        assert_eq!(downloads.targets(), &HashSet::from([target]));
+        assert_eq!(
+            downloads.targets().ids,
+            HashMap::from([(target, target_height)])
+        );
         // But, should have two peers (one for download and one for delay).
         assert_eq!(downloads.num_peers(), 2);
         // One peer should be delayed due to the duplicate target.
         assert_eq!(downloads.delays.len(), 1);
 
         // Should yield a BlockReceived output from peer1
-        let DownloadsOutput::BlockReceived { block, download } = downloads.next().await.unwrap()
+        let DownloadsOutput::BlockReceived {
+            block,
+            download,
+            max_target_height,
+        } = downloads.next().await.unwrap()
         else {
             panic!("Expected BlockReceived output");
         };
         assert_eq!(downloads.num_peers(), 1);
         assert_eq!(block, 100);
         assert_eq!(download.peer(), &peer1);
+        assert_eq!(max_target_height, target_height);
 
         downloads.add_download(download);
         assert_eq!(downloads.num_peers(), 2);
@@ -616,7 +760,7 @@ mod tests {
         // Add a download for peer1
         let peer1: TestNodeId = 1;
         // An empty stream for simplicity
-        let download = Download::new(peer1, header_id(1), block_stream(vec![]));
+        let download = Download::new(peer1, header_id(1), 1, block_stream(vec![]));
         downloads.add_download(download);
 
         // Add a delay for peer2
@@ -645,6 +789,7 @@ mod tests {
         let download = Download::new(
             peer1,
             header_id(1),
+            1,
             slow_block_stream(vec![Ok((header_id(1), 100))], Duration::from_secs(2)),
         );
         downloads.add_download(download);
@@ -661,12 +806,17 @@ mod tests {
         assert_eq!(delay.latest_downloaded_block(), None);
 
         // Should yield a BlockReceived output from peer1
-        let DownloadsOutput::BlockReceived { block, download } = downloads.next().await.unwrap()
+        let DownloadsOutput::BlockReceived {
+            block,
+            download,
+            max_target_height,
+        } = downloads.next().await.unwrap()
         else {
             panic!("Expected BlockReceived output");
         };
         assert_eq!(block, 100);
         assert_eq!(download.peer(), &peer1);
+        assert_eq!(max_target_height, 1);
 
         // Should yield a None since no download is in progress.
         // (we didn't add the download back to the Downloads)

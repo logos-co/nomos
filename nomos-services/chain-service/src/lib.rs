@@ -1,5 +1,6 @@
 mod blend;
 mod bootstrap;
+mod da;
 mod leadership;
 mod messages;
 pub mod network;
@@ -17,14 +18,14 @@ use std::{
     time::Duration,
 };
 
-use cryptarchia_engine::{PrunedBlocks, Slot};
+use cryptarchia_engine::{Branch, PrunedBlocks, Slot};
 use cryptarchia_sync::{GetTipResponse, ProviderResponse};
 use futures::StreamExt as _;
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
 pub use nomos_blend_service::ServiceComponents as BlendServiceComponents;
 use nomos_core::{
-    block::{builder::BlockBuilder, Block},
+    block::{builder::BlockBuilder, Block, Height},
     da::blob::{info::DispersedBlobInfo, metadata::Metadata as BlobMetadata, BlobSelect},
     header::{Builder, Header, HeaderId},
     mantle::{gas::MainnetGasConstants, SignedMantleTx, Transaction, TxSelect},
@@ -62,6 +63,7 @@ use tracing_futures::Instrument as _;
 use crate::{
     blend::BlendAdapter,
     bootstrap::{ibd::InitialBlockDownload, state::choose_engine_state},
+    da::BlobValidationPolicy,
     leadership::Leader,
     relays::CryptarchiaConsensusRelays,
     states::CryptarchiaConsensusState,
@@ -70,6 +72,7 @@ use crate::{
 };
 pub use crate::{
     bootstrap::config::{BootstrapConfig, IbdConfig, OfflineGracePeriodConfig},
+    da::Settings as DaSettings,
     sync::config::{OrphanConfig, SyncConfig},
 };
 
@@ -118,6 +121,10 @@ impl Cryptarchia {
 
     const fn tip(&self) -> HeaderId {
         self.consensus.tip()
+    }
+
+    const fn tip_height(&self) -> Height {
+        self.consensus.tip_branch().length()
     }
 
     fn tip_state(&self) -> &LedgerState {
@@ -206,7 +213,11 @@ impl Cryptarchia {
     }
 
     fn has_block(&self, block_id: &HeaderId) -> bool {
-        self.consensus.branches().get(block_id).is_some()
+        self.branch(block_id).is_some()
+    }
+
+    fn branch(&self, block_id: &HeaderId) -> Option<&Branch<HeaderId>> {
+        self.consensus.branches().get(block_id)
     }
 }
 
@@ -219,6 +230,7 @@ where
     pub transaction_selector_settings: Ts,
     #[serde(default)]
     pub blob_selector_settings: Bs,
+    pub da_settings: da::Settings,
     pub config: nomos_ledger::Config,
     pub genesis_id: HeaderId,
     pub genesis_state: LedgerState,
@@ -553,6 +565,7 @@ where
             genesis_id,
             transaction_selector_settings,
             blob_selector_settings,
+            da_settings,
             leader_config,
             network_adapter_settings,
             blend_broadcast_settings,
@@ -639,8 +652,9 @@ where
         // refactoring.       https://github.com/logos-co/nomos/issues/1505
         let initial_block_download = InitialBlockDownload::new(
             bootstrap_config.ibd,
+            da_settings,
             network_adapter,
-            |cryptarchia, storage_blocks_to_remove, block| {
+            |cryptarchia, storage_blocks_to_remove, block, blob_validation_policy| {
                 let leader = &leader;
                 let relays = &relays;
                 let block_subscription_sender = &self.block_subscription_sender;
@@ -652,6 +666,7 @@ where
                         cryptarchia,
                         leader,
                         block,
+                        blob_validation_policy,
                         &storage_blocks_to_remove,
                         relays,
                         block_subscription_sender,
@@ -733,11 +748,18 @@ where
                             continue;
                         }
 
+                        // Determine the blob validation policy based on the current tip height.
+                        let blob_validation_policy = BlobValidationPolicy::skip_old(
+                            &da_settings,
+                            cryptarchia.tip_height(),
+                        );
+
                         // Process the received block and update the cryptarchia state.
                         match Self::process_block_and_update_state(
                             cryptarchia.clone(),
                             &leader,
                             block.clone(),
+                            blob_validation_policy,
                             &storage_blocks_to_remove,
                             &relays,
                             &self.block_subscription_sender,
@@ -792,6 +814,7 @@ where
                                     cryptarchia.clone(),
                                     &leader,
                                     block.clone(),
+                                    BlobValidationPolicy::Skip,
                                     &storage_blocks_to_remove,
                                     &relays,
                                     &self.block_subscription_sender,
@@ -834,10 +857,17 @@ where
                             continue;
                         }
 
+                        // Determine the blob validation policy based on the current tip height.
+                        let blob_validation_policy = BlobValidationPolicy::skip_old(
+                            &da_settings,
+                            cryptarchia.tip_height(),
+                        );
+
                         match Self::process_block_and_update_state(
                             cryptarchia.clone(),
                             &leader,
                             block.clone(),
+                            blob_validation_policy,
                             &storage_blocks_to_remove,
                             &relays,
                             &self.block_subscription_sender,
@@ -1044,10 +1074,12 @@ where
         clippy::type_complexity,
         reason = "CryptarchiaConsensusState and CryptarchiaConsensusRelays amount of generics."
     )]
+    #[expect(clippy::too_many_arguments, reason = "Refactor arguments")]
     async fn process_block_and_update_state(
         cryptarchia: Cryptarchia,
         leader: &Leader,
         block: Block<ClPool::Item, DaPool::Item>,
+        blob_validation_policy: BlobValidationPolicy,
         storage_blocks_to_remove: &HashSet<HeaderId>,
         relays: &CryptarchiaConsensusRelays<
             BlendService,
@@ -1075,8 +1107,14 @@ where
             >,
         >,
     ) -> Result<(Cryptarchia, HashSet<HeaderId>), Error> {
-        let (cryptarchia, pruned_blocks) =
-            Self::process_block(cryptarchia, block, relays, block_subscription_sender).await?;
+        let (cryptarchia, pruned_blocks) = Self::process_block(
+            cryptarchia,
+            block,
+            blob_validation_policy,
+            relays,
+            block_subscription_sender,
+        )
+        .await?;
 
         let storage_blocks_to_remove = Self::delete_pruned_blocks_from_storage(
             pruned_blocks.stale_blocks().copied(),
@@ -1133,6 +1171,7 @@ where
     async fn process_block(
         cryptarchia: Cryptarchia,
         block: Block<ClPool::Item, DaPool::Item>,
+        blob_validation_policy: BlobValidationPolicy,
         relays: &CryptarchiaConsensusRelays<
             BlendService,
             BS,
@@ -1150,21 +1189,36 @@ where
     ) -> Result<(Cryptarchia, PrunedBlocks<HeaderId>), Error> {
         debug!("received proposal {:?}", block);
 
-        let sampled_blobs = match get_sampled_blobs(relays.sampling_relay().clone()).await {
-            Ok(sampled_blobs) => sampled_blobs,
-            Err(error) => {
-                error!("Unable to retrieved sampled blobs: {error}");
-                return Ok((cryptarchia, PrunedBlocks::new()));
-            }
-        };
-        if !Self::validate_blocks_blobs(&block, &sampled_blobs) {
-            error!("Invalid block: {block:?}");
-            return Ok((cryptarchia, PrunedBlocks::new()));
-        }
-
-        // TODO: filter on time?
         let header = block.header();
         let id = header.id();
+
+        // Retrieve the parent block to determine the height of the new block.
+        let Some(parent) = cryptarchia.branch(&header.parent()) else {
+            return Err(Error::Consensus(cryptarchia_engine::Error::ParentMissing(
+                header.parent(),
+            )));
+        };
+        let height = parent
+            .length()
+            .checked_add(1)
+            .expect("New block height overflow");
+
+        if blob_validation_policy.should_validate(height) {
+            // TODO: Replace with `RequestHistoricSample` API: https://github.com/logos-co/nomos/issues/1622
+            let sampled_blobs = match get_sampled_blobs(relays.sampling_relay().clone()).await {
+                Ok(sampled_blobs) => sampled_blobs,
+                Err(error) => {
+                    error!("Unable to retrieved sampled blobs: {error}");
+                    return Ok((cryptarchia, PrunedBlocks::new()));
+                }
+            };
+            if !Self::validate_blocks_blobs(&block, &sampled_blobs) {
+                error!("Invalid block: {block:?}");
+                return Ok((cryptarchia, PrunedBlocks::new()));
+            }
+        } else {
+            debug!("Skipped blob validation for block {id:?}");
+        }
 
         let (cryptarchia, pruned_blocks) = cryptarchia.try_apply_header(header)?;
 
@@ -1405,11 +1459,15 @@ where
         // Skip LIB block since it's already applied
         let blocks = blocks.into_iter().skip(1);
 
+        // Skip blob validation as we're loading blocks that were already validated
+        let blob_validation_policy = BlobValidationPolicy::Skip;
+
         let mut pruned_blocks = PrunedBlocks::new();
         for block in blocks {
             match Self::process_block(
                 cryptarchia.clone(),
                 block,
+                blob_validation_policy,
                 relays,
                 &self.block_subscription_sender,
             )
@@ -1542,6 +1600,7 @@ where
                 let response = ProviderResponse::Available(GetTipResponse::Tip {
                     tip: tip.id(),
                     slot: tip.slot(),
+                    height: tip.length(),
                 });
 
                 info!("Sending tip response: {response:?}");

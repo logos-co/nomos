@@ -154,6 +154,9 @@ time:
 cryptarchia:
   transaction_selector_settings: null
   blob_selector_settings: null
+  da_settings:
+    availability_window_in_sessions: 2
+    session_length_in_blocks: 4320
   config:
     epoch_config:
       epoch_stake_distribution_stabilization: 3

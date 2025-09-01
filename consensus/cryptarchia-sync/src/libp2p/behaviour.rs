@@ -606,12 +606,13 @@ mod tests {
 
         tokio::spawn(async move { downloader_swarm.loop_on_next().await });
 
-        let Tip { tip, slot } = receiver.await.unwrap().unwrap() else {
+        let Tip { tip, slot, height } = receiver.await.unwrap().unwrap() else {
             panic!("Expected a tip response");
         };
 
         assert_eq!(tip, HeaderId::from([0; 32]));
         assert_eq!(slot, Slot::from(0));
+        assert_eq!(height, 0);
     }
 
     #[tokio::test]
@@ -751,6 +752,7 @@ mod tests {
             ProviderResponse::Available(Tip {
                 tip: HeaderId::from([0; 32]),
                 slot: Slot::from(0),
+                height: 0,
             })
         }
 
@@ -791,6 +793,7 @@ mod tests {
             ProviderResponse::Available(Tip {
                 tip: HeaderId::from([0; 32]),
                 slot: Slot::from(0),
+                height: 0,
             })
         }
 

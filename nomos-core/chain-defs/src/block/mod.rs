@@ -8,6 +8,7 @@ use crate::{header::Header, wire};
 pub type TxHash = [u8; 32];
 
 pub type BlockNumber = u64;
+pub type Height = BlockNumber;
 
 pub type SessionNumber = u64;
 

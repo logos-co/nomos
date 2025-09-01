@@ -8,7 +8,7 @@ use std::{
     time::Duration,
 };
 
-use chain_service::{CryptarchiaInfo, CryptarchiaSettings, OrphanConfig, SyncConfig};
+use chain_service::{CryptarchiaInfo, CryptarchiaSettings, DaSettings, OrphanConfig, SyncConfig};
 use common_http_client::CommonHttpClient;
 use cryptarchia_engine::time::SlotConfig;
 use futures::Stream;
@@ -391,6 +391,10 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
             genesis_state: config.consensus_config.genesis_state,
             transaction_selector_settings: (),
             blob_selector_settings: (),
+            da_settings: DaSettings {
+                availability_window_in_sessions: 2,
+                session_length_in_blocks: 4320,
+            },
             network_adapter_settings:
                 chain_service::network::adapters::libp2p::LibP2pAdapterSettings {
                     topic: String::from(nomos_node::CONSENSUS_TOPIC),

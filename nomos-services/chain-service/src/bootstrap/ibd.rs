@@ -7,7 +7,8 @@ use overwatch::DynError;
 use tracing::{debug, error};
 
 use crate::{
-    bootstrap::download::{Delay, Download, Downloads, DownloadsOutput},
+    bootstrap::download::{Delay, Download, Downloads, DownloadsOutput, Targets},
+    da::{self, BlobValidationPolicy},
     network::NetworkAdapter,
     Cryptarchia, IbdConfig,
 };
@@ -19,10 +20,16 @@ pub struct InitialBlockDownload<NetAdapter, ProcessBlockFn, ProcessBlockFut, Run
 where
     NetAdapter: NetworkAdapter<RuntimeServiceId>,
     NetAdapter::PeerId: Clone + Eq + Hash,
-    ProcessBlockFn: Fn(Cryptarchia, HashSet<HeaderId>, NetAdapter::Block) -> ProcessBlockFut,
+    ProcessBlockFn: Fn(
+        Cryptarchia,
+        HashSet<HeaderId>,
+        NetAdapter::Block,
+        BlobValidationPolicy,
+    ) -> ProcessBlockFut,
     ProcessBlockFut: Future<Output = (Cryptarchia, HashSet<HeaderId>)>,
 {
     config: IbdConfig<NetAdapter::PeerId>,
+    da_settings: da::Settings,
     network: NetAdapter,
     process_block: ProcessBlockFn,
     _phantom: PhantomData<RuntimeServiceId>,
@@ -33,16 +40,23 @@ impl<NetAdapter, ProcessBlockFn, ProcessBlockFut, RuntimeServiceId>
 where
     NetAdapter: NetworkAdapter<RuntimeServiceId>,
     NetAdapter::PeerId: Clone + Eq + Hash,
-    ProcessBlockFn: Fn(Cryptarchia, HashSet<HeaderId>, NetAdapter::Block) -> ProcessBlockFut,
+    ProcessBlockFn: Fn(
+        Cryptarchia,
+        HashSet<HeaderId>,
+        NetAdapter::Block,
+        BlobValidationPolicy,
+    ) -> ProcessBlockFut,
     ProcessBlockFut: Future<Output = (Cryptarchia, HashSet<HeaderId>)>,
 {
     pub const fn new(
         config: IbdConfig<NetAdapter::PeerId>,
+        da_settings: da::Settings,
         network: NetAdapter,
         process_block: ProcessBlockFn,
     ) -> Self {
         Self {
             config,
+            da_settings,
             network,
             process_block,
             _phantom: PhantomData,
@@ -56,8 +70,14 @@ where
     NetAdapter: NetworkAdapter<RuntimeServiceId> + Send + Sync,
     NetAdapter::PeerId: Copy + Clone + Eq + Hash + Debug + Send + Sync + Unpin,
     NetAdapter::Block: Debug + Unpin,
-    ProcessBlockFn:
-        Fn(Cryptarchia, HashSet<HeaderId>, NetAdapter::Block) -> ProcessBlockFut + Send + Sync,
+    ProcessBlockFn: Fn(
+            Cryptarchia,
+            HashSet<HeaderId>,
+            NetAdapter::Block,
+            BlobValidationPolicy,
+        ) -> ProcessBlockFut
+        + Send
+        + Sync,
     ProcessBlockFut: Future<Output = (Cryptarchia, HashSet<HeaderId>)> + Send,
     RuntimeServiceId: Sync,
 {
@@ -133,7 +153,7 @@ where
         peer: NetAdapter::PeerId,
         latest_downloaded_block: Option<HeaderId>,
         cryptarchia: &Cryptarchia,
-        targets_in_progress: &HashSet<HeaderId>,
+        targets_in_progress: &Targets,
     ) -> Result<Option<Download<NetAdapter::PeerId, NetAdapter::Block>>, Error> {
         // Get the most recent peer's tip.
         let tip_response = self
@@ -143,8 +163,8 @@ where
             .map_err(Error::BlockProvider)?;
 
         // Use the peer's tip as the target for the download.
-        let target = match tip_response {
-            GetTipResponse::Tip { tip, .. } => tip,
+        let (target, target_height) = match tip_response {
+            GetTipResponse::Tip { tip, height, .. } => (tip, height),
             GetTipResponse::Failure(reason) => {
                 return Err(Error::BlockProvider(DynError::from(reason)));
             }
@@ -167,16 +187,15 @@ where
             .await
             .map_err(Error::BlockProvider)?;
 
-        Ok(Some(Download::new(peer, target, stream)))
+        Ok(Some(Download::new(peer, target, target_height, stream)))
     }
 
     fn should_download(
         target: &HeaderId,
         cryptarchia: &Cryptarchia,
-        targets_in_progress: &HashSet<HeaderId>,
+        targets_in_progress: &Targets,
     ) -> bool {
-        cryptarchia.consensus.branches().get(target).is_none()
-            && !targets_in_progress.contains(target)
+        cryptarchia.consensus.branches().get(target).is_none() && !targets_in_progress.has(target)
     }
 
     /// Proceeds [`Downloads`] by reading/processing blocks.
@@ -216,9 +235,22 @@ where
                         )
                         .await;
                 }
-                DownloadsOutput::BlockReceived { block, download } => {
-                    (cryptarchia, storage_blocks_to_remove) =
-                        (self.process_block)(cryptarchia, storage_blocks_to_remove, block).await;
+                DownloadsOutput::BlockReceived {
+                    block,
+                    download,
+                    max_target_height,
+                } => {
+                    let blob_validation_policy = BlobValidationPolicy::skip_old(
+                        &self.da_settings,
+                        max_target_height.max(cryptarchia.tip_height()),
+                    );
+                    (cryptarchia, storage_blocks_to_remove) = (self.process_block)(
+                        cryptarchia,
+                        storage_blocks_to_remove,
+                        block,
+                        blob_validation_policy,
+                    )
+                    .await;
                     // TODO: Stop download if process_block fails.
                     //       (Requires refactoring the chain service)
                     // TODO: Close the download (the underlying stream) when we need to stop it.
@@ -305,6 +337,7 @@ mod tests {
     use std::{collections::HashMap, iter::empty, num::NonZero};
 
     use cryptarchia_engine::{EpochConfig, Slot};
+    use nomos_core::block::Height;
     use nomos_ledger::LedgerState;
     use nomos_network::{backends::NetworkBackend, message::ChainSyncEvent, NetworkService};
     use overwatch::{
@@ -320,6 +353,7 @@ mod tests {
     async fn no_peers_configured() {
         let (cryptarchia, _) = InitialBlockDownload::new(
             config(HashSet::new()),
+            da_settings(),
             MockNetworkAdapter::<()>::new(HashMap::new()),
             process_block,
         )
@@ -337,15 +371,16 @@ mod tests {
         let peer = BlockProvider::new(
             vec![
                 Block::genesis(),
-                Block::new(1, GENESIS_ID, 1),
-                Block::new(2, 1, 2),
+                Block::new(1, GENESIS_ID, 1, 1),
+                Block::new(2, 1, 2, 2),
             ],
-            Ok(Block::new(2, 1, 2)),
+            Ok(Block::new(2, 1, 2, 2)),
             2,
             false,
         );
         let (cryptarchia, _) = InitialBlockDownload::new(
             config([NodeId(0)].into()),
+            da_settings(),
             MockNetworkAdapter::<()>::new(HashMap::from([(NodeId(0), peer.clone())])),
             process_block,
         )
@@ -362,16 +397,17 @@ mod tests {
         let peer = BlockProvider::new(
             vec![
                 Block::genesis(),
-                Block::new(1, GENESIS_ID, 1),
-                Block::new(2, 1, 2),
-                Block::new(3, 2, 3),
+                Block::new(1, GENESIS_ID, 1, 1),
+                Block::new(2, 1, 2, 2),
+                Block::new(3, 2, 3, 3),
             ],
-            Ok(Block::new(3, 2, 3)),
+            Ok(Block::new(3, 2, 3, 3)),
             2,
             false,
         );
         let (cryptarchia, _) = InitialBlockDownload::new(
             config([NodeId(0)].into()),
+            da_settings(),
             MockNetworkAdapter::<()>::new(HashMap::from([(NodeId(0), peer.clone())])),
             process_block,
         )
@@ -388,26 +424,27 @@ mod tests {
         let peer0 = BlockProvider::new(
             vec![
                 Block::genesis(),
-                Block::new(1, GENESIS_ID, 1),
-                Block::new(2, 1, 2),
+                Block::new(1, GENESIS_ID, 1, 1),
+                Block::new(2, 1, 2, 2),
             ],
-            Ok(Block::new(2, 1, 2)),
+            Ok(Block::new(2, 1, 2, 2)),
             2,
             false,
         );
         let peer1 = BlockProvider::new(
             vec![
                 Block::genesis(),
-                Block::new(3, GENESIS_ID, 3),
-                Block::new(4, 3, 4),
-                Block::new(5, 4, 5),
+                Block::new(3, GENESIS_ID, 3, 1),
+                Block::new(4, 3, 4, 2),
+                Block::new(5, 4, 5, 3),
             ],
-            Ok(Block::new(5, 4, 5)),
+            Ok(Block::new(5, 4, 5, 3)),
             2,
             false,
         );
         let (cryptarchia, _) = InitialBlockDownload::new(
             config([NodeId(0), NodeId(1)].into()),
+            da_settings(),
             MockNetworkAdapter::<()>::new(HashMap::from([
                 (NodeId(0), peer0.clone()),
                 (NodeId(1), peer1.clone()),
@@ -431,26 +468,27 @@ mod tests {
         let peer0 = BlockProvider::new(
             vec![
                 Block::genesis(),
-                Block::new(1, GENESIS_ID, 1),
-                Block::new(2, 1, 2),
+                Block::new(1, GENESIS_ID, 1, 1),
+                Block::new(2, 1, 2, 2),
             ],
-            Ok(Block::new(2, 1, 2)),
+            Ok(Block::new(2, 1, 2, 2)),
             2,
             true, // Return error while streaming blocks
         );
         let peer1 = BlockProvider::new(
             vec![
                 Block::genesis(),
-                Block::new(3, GENESIS_ID, 3),
-                Block::new(4, 3, 4),
-                Block::new(5, 4, 5),
+                Block::new(3, GENESIS_ID, 3, 1),
+                Block::new(4, 3, 4, 2),
+                Block::new(5, 4, 5, 3),
             ],
-            Ok(Block::new(5, 4, 5)),
+            Ok(Block::new(5, 4, 5, 3)),
             2,
             false,
         );
         let (cryptarchia, _) = InitialBlockDownload::new(
             config([NodeId(0), NodeId(1)].into()),
+            da_settings(),
             MockNetworkAdapter::<()>::new(HashMap::from([
                 (NodeId(0), peer0.clone()),
                 (NodeId(1), peer1.clone()),
@@ -473,26 +511,27 @@ mod tests {
         let peer0 = BlockProvider::new(
             vec![
                 Block::genesis(),
-                Block::new(1, GENESIS_ID, 1),
-                Block::new(2, 1, 2),
+                Block::new(1, GENESIS_ID, 1, 1),
+                Block::new(2, 1, 2, 2),
             ],
-            Ok(Block::new(2, 1, 2)),
+            Ok(Block::new(2, 1, 2, 2)),
             2,
             true, // Return error while streaming blocks
         );
         let peer1 = BlockProvider::new(
             vec![
                 Block::genesis(),
-                Block::new(3, GENESIS_ID, 3),
-                Block::new(4, 3, 4),
-                Block::new(5, 4, 5),
+                Block::new(3, GENESIS_ID, 3, 1),
+                Block::new(4, 3, 4, 2),
+                Block::new(5, 4, 5, 3),
             ],
-            Ok(Block::new(5, 4, 5)),
+            Ok(Block::new(5, 4, 5, 3)),
             2,
             true, // Return error while streaming blocks
         );
         let result = InitialBlockDownload::new(
             config([NodeId(0), NodeId(1)].into()),
+            da_settings(),
             MockNetworkAdapter::<()>::new(HashMap::from([
                 (NodeId(0), peer0.clone()),
                 (NodeId(1), peer1.clone()),
@@ -513,8 +552,8 @@ mod tests {
         let peer0 = BlockProvider::new(
             vec![
                 Block::genesis(),
-                Block::new(1, GENESIS_ID, 1),
-                Block::new(2, 1, 2),
+                Block::new(1, GENESIS_ID, 1, 1),
+                Block::new(2, 1, 2, 2),
             ],
             Err(()), // Return error while initiating download
             2,
@@ -523,16 +562,17 @@ mod tests {
         let peer1 = BlockProvider::new(
             vec![
                 Block::genesis(),
-                Block::new(3, GENESIS_ID, 3),
-                Block::new(4, 3, 4),
-                Block::new(5, 4, 5),
+                Block::new(3, GENESIS_ID, 3, 1),
+                Block::new(4, 3, 4, 2),
+                Block::new(5, 4, 5, 3),
             ],
-            Ok(Block::new(5, 4, 5)),
+            Ok(Block::new(5, 4, 5, 3)),
             2,
             false,
         );
         let (cryptarchia, _) = InitialBlockDownload::new(
             config([NodeId(0), NodeId(1)].into()),
+            da_settings(),
             MockNetworkAdapter::<()>::new(HashMap::from([
                 (NodeId(0), peer0.clone()),
                 (NodeId(1), peer1.clone()),
@@ -555,8 +595,8 @@ mod tests {
         let peer0 = BlockProvider::new(
             vec![
                 Block::genesis(),
-                Block::new(1, GENESIS_ID, 1),
-                Block::new(2, 1, 2),
+                Block::new(1, GENESIS_ID, 1, 1),
+                Block::new(2, 1, 2, 2),
             ],
             Err(()), // Return error while initiating download
             2,
@@ -565,9 +605,9 @@ mod tests {
         let peer1 = BlockProvider::new(
             vec![
                 Block::genesis(),
-                Block::new(3, GENESIS_ID, 3),
-                Block::new(4, 3, 4),
-                Block::new(5, 4, 5),
+                Block::new(3, GENESIS_ID, 3, 1),
+                Block::new(4, 3, 4, 2),
+                Block::new(5, 4, 5, 3),
             ],
             Err(()), // Return error while initiating download
             2,
@@ -575,6 +615,7 @@ mod tests {
         );
         let result = InitialBlockDownload::new(
             config([NodeId(0), NodeId(1)].into()),
+            da_settings(),
             MockNetworkAdapter::<()>::new(HashMap::from([
                 (NodeId(0), peer0.clone()),
                 (NodeId(1), peer1.clone()),
@@ -591,6 +632,7 @@ mod tests {
         mut cryptarchia: Cryptarchia,
         storage_blocks_to_remove: HashSet<HeaderId>,
         block: Block,
+        _: BlobValidationPolicy,
     ) -> (Cryptarchia, HashSet<HeaderId>) {
         // Add the block only to the consensus, not to the ledger state
         // because the mocked block doesn't have a proof.
@@ -617,6 +659,13 @@ mod tests {
         }
     }
 
+    fn da_settings() -> da::Settings {
+        da::Settings {
+            availability_window_in_sessions: 1,
+            session_length_in_blocks: 1,
+        }
+    }
+
     const GENESIS_ID: u8 = 0;
 
     #[derive(Clone, Debug, PartialEq)]
@@ -624,14 +673,16 @@ mod tests {
         id: HeaderId,
         parent: HeaderId,
         slot: Slot,
+        height: Height,
     }
 
     impl Block {
-        fn new(id: u8, parent: u8, slot: u64) -> Self {
+        fn new(id: u8, parent: u8, slot: u64, height: Height) -> Self {
             Self {
                 id: [id; 32].into(),
                 parent: [parent; 32].into(),
                 slot: slot.into(),
+                height,
             }
         }
 
@@ -640,6 +691,7 @@ mod tests {
                 id: [GENESIS_ID; 32].into(),
                 parent: [GENESIS_ID; 32].into(),
                 slot: Slot::genesis(),
+                height: 0,
             }
         }
     }
@@ -739,6 +791,7 @@ mod tests {
                 Ok(tip) => Ok(GetTipResponse::Tip {
                     tip: tip.id,
                     slot: tip.slot,
+                    height: tip.height,
                 }),
                 Err(()) => Err(DynError::from("Cannot provide tip")),
             }
