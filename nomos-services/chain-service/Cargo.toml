@@ -24,7 +24,7 @@ nomos-storage          = { workspace = true }
 nomos-time             = { workspace = true }
 nomos-utils            = { workspace = true }
 nomos_proof_statements = { workspace = true }
-num-bigint             = "0.4"
+num-bigint             = { version = "0.4", default-features = false }
 overwatch              = { workspace = true }
 rand                   = { default-features = false, version = "0.8" }
 risc0-zkvm             = { workspace = true }
