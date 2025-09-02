@@ -136,10 +136,6 @@ where
     SamplingStorage: DaStorageAdapter<RuntimeServiceId, Share = DaShare> + Send + Sync,
     ShareVerifier: VerifierBackend<DaShare = DaShare> + Send + Sync,
 {
-    #[expect(
-        clippy::needless_pass_by_ref_mut,
-        reason = "FuturesUnordered needs to be send and sync"
-    )]
     #[instrument(skip_all)]
     async fn handle_service_message(
         msg: <Self as ServiceData>::Message,
