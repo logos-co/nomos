@@ -1,0 +1,715 @@
+use nomos_blend_scheduling::{membership::Membership, session::SessionEvent};
+use nomos_network::NetworkService;
+use overwatch::{
+    overwatch::OverwatchHandle,
+    services::{AsServiceId, ServiceData},
+};
+use std::{
+    fmt::{Debug, Display},
+    hash::Hash,
+};
+
+use crate::{
+    core::{
+        network::NetworkAdapter as NetworkAdapterTrait,
+        service_components::{
+            MessageComponents, NetworkBackendOfService, ServiceComponents as CoreServiceComponents,
+        },
+    },
+    modes::{self, BroadcastMode, CoreMode, EdgeMode, Mode as _},
+    BroadcastSettings,
+};
+
+/// An instance that can operate in Core, Edge, or Broadcast mode,
+/// and can transition between them.
+pub enum Instance<CoreService, EdgeService, RuntimeServiceId>
+where
+    CoreService: ServiceData + CoreServiceComponents<RuntimeServiceId>,
+    EdgeService: ServiceData,
+{
+    Core(CoreMode<CoreService, RuntimeServiceId>),
+    Edge(EdgeMode<EdgeService, RuntimeServiceId>),
+    EdgeAfterCore {
+        mode: EdgeMode<EdgeService, RuntimeServiceId>,
+        // Keep the previous core mode for the session transition period.
+        prev: CoreMode<CoreService, RuntimeServiceId>,
+    },
+    Broadcast(BroadcastMode<CoreService::NetworkAdapter, CoreService::Message, RuntimeServiceId>),
+    BroadcastAfterCore {
+        mode: BroadcastMode<CoreService::NetworkAdapter, CoreService::Message, RuntimeServiceId>,
+        // Keep the previous core mode for the session transition period.
+        prev: CoreMode<CoreService, RuntimeServiceId>,
+    },
+}
+
+impl<CoreService, EdgeService, RuntimeServiceId>
+    Instance<CoreService, EdgeService, RuntimeServiceId>
+where
+    CoreService: ServiceData<
+            Message: MessageComponents<
+                Payload: Into<Vec<u8>>,
+                BroadcastSettings: Into<BroadcastSettings<CoreService>>,
+            > + Send
+                         + Sync
+                         + 'static,
+        > + CoreServiceComponents<
+            RuntimeServiceId,
+            NetworkAdapter: NetworkAdapterTrait<
+                RuntimeServiceId,
+                BroadcastSettings = BroadcastSettings<CoreService>,
+            > + Send
+                                + Sync
+                                + 'static,
+            NodeId: Eq + Hash,
+        > + 'static,
+    EdgeService: ServiceData<Message = CoreService::Message> + 'static,
+    RuntimeServiceId: AsServiceId<CoreService>
+        + AsServiceId<EdgeService>
+        + AsServiceId<
+            NetworkService<
+                NetworkBackendOfService<CoreService, RuntimeServiceId>,
+                RuntimeServiceId,
+            >,
+        > + Debug
+        + Display
+        + Clone
+        + Send
+        + Sync
+        + 'static,
+{
+    /// Initializes a new instance in the specified mode.
+    pub async fn new(
+        mode: Mode,
+        overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
+    ) -> Result<Self, modes::Error> {
+        match mode {
+            Mode::Core => Ok(Self::Core(Self::new_core_mode(overwatch_handle).await?)),
+            Mode::Edge => Ok(Self::Edge(Self::new_edge_mode(overwatch_handle).await?)),
+            Mode::Broadcast => Ok(Self::Broadcast(
+                Self::new_broadcast_mode(overwatch_handle).await?,
+            )),
+        }
+    }
+
+    async fn new_core_mode(
+        overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
+    ) -> Result<CoreMode<CoreService, RuntimeServiceId>, modes::Error> {
+        CoreMode::new(overwatch_handle.clone()).await
+    }
+
+    async fn new_edge_mode(
+        overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
+    ) -> Result<EdgeMode<EdgeService, RuntimeServiceId>, modes::Error> {
+        EdgeMode::new(overwatch_handle.clone()).await
+    }
+
+    async fn new_broadcast_mode(
+        overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
+    ) -> Result<
+        BroadcastMode<CoreService::NetworkAdapter, CoreService::Message, RuntimeServiceId>,
+        modes::Error,
+    > {
+        BroadcastMode::new::<
+            NetworkService<
+                NetworkBackendOfService<CoreService, RuntimeServiceId>,
+                RuntimeServiceId,
+            >,
+        >(overwatch_handle)
+        .await
+    }
+
+    /// Handles an inbound message by delegating it to the current mode.
+    pub async fn handle_inbound_message(
+        &self,
+        message: CoreService::Message,
+    ) -> Result<(), modes::Error> {
+        match self {
+            Self::Core(mode) => mode.handle_inbound_message(message).await,
+            Self::Edge(mode) | Self::EdgeAfterCore { mode, .. } => {
+                mode.handle_inbound_message(message).await
+            }
+            Self::Broadcast(mode) | Self::BroadcastAfterCore { mode, .. } => {
+                mode.handle_inbound_message(message).await
+            }
+        }
+    }
+
+    /// Handles a session event, potentially causing a mode transition.
+    pub async fn handle_session_event(
+        self,
+        event: SessionEvent<Membership<CoreService::NodeId>>,
+        overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
+        minimal_network_size: usize,
+    ) -> Result<Self, modes::Error> {
+        match event {
+            SessionEvent::NewSession(membership) => {
+                self.transition(
+                    Mode::choose(&membership, minimal_network_size),
+                    overwatch_handle,
+                )
+                .await
+            }
+            SessionEvent::TransitionPeriodExpired => {
+                Ok(self.handle_transition_period_expired().await)
+            }
+        }
+    }
+
+    /// Transitions the instance to the specified mode.
+    async fn transition(
+        self,
+        to_mode: Mode,
+        overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
+    ) -> Result<Self, modes::Error> {
+        match to_mode {
+            Mode::Core => self.transition_to_core(overwatch_handle).await,
+            Mode::Edge => self.transition_to_edge(overwatch_handle).await,
+            Mode::Broadcast => self.transition_to_broadcast(overwatch_handle).await,
+        }
+    }
+
+    /// Transitions to Core mode.
+    ///
+    /// If the current mode is Core, it stays in Core mode.
+    /// Otherwise, it shuts down the current mode and starts a new Core mode.
+    async fn transition_to_core(
+        self,
+        overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
+    ) -> Result<Self, modes::Error> {
+        match self {
+            Self::Core(mode) => Ok(Self::Core(mode)),
+            Self::Edge(mode) => {
+                mode.shutdown().await;
+                Ok(Self::Core(Self::new_core_mode(overwatch_handle).await?))
+            }
+            Self::EdgeAfterCore { mode, prev } => {
+                prev.shutdown().await;
+                mode.shutdown().await;
+                Ok(Self::Core(Self::new_core_mode(overwatch_handle).await?))
+            }
+            Self::Broadcast(mode) => {
+                mode.shutdown().await;
+                Ok(Self::Core(Self::new_core_mode(overwatch_handle).await?))
+            }
+            Self::BroadcastAfterCore { mode, prev } => {
+                prev.shutdown().await;
+                mode.shutdown().await;
+                Ok(Self::Core(Self::new_core_mode(overwatch_handle).await?))
+            }
+        }
+    }
+
+    /// Transitions to Edge mode.
+    ///
+    /// If the current mode is Edge, it stays in Edge mode.
+    /// Otherwise, it shuts down the current mode and starts a new Edge mode.
+    async fn transition_to_edge(
+        self,
+        overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
+    ) -> Result<Self, modes::Error> {
+        match self {
+            Self::Core(mode) => Ok(Self::EdgeAfterCore {
+                mode: Self::new_edge_mode(overwatch_handle).await?,
+                prev: mode,
+            }),
+            Self::Edge(mode) => Ok(Self::Edge(mode)),
+            Self::EdgeAfterCore { mode, prev } => {
+                prev.shutdown().await;
+                Ok(Self::Edge(mode))
+            }
+            Self::Broadcast(mode) => {
+                mode.shutdown().await;
+                Ok(Self::Edge(Self::new_edge_mode(overwatch_handle).await?))
+            }
+            Self::BroadcastAfterCore { mode, prev } => {
+                prev.shutdown().await;
+                mode.shutdown().await;
+                Ok(Self::Edge(Self::new_edge_mode(overwatch_handle).await?))
+            }
+        }
+    }
+
+    /// Transitions to Broadcast mode.
+    ///
+    /// If the current mode is Broadcast, it stays in Broadcast mode.
+    /// Otherwise, it shuts down the current mode and starts a new Broadcast mode.
+    async fn transition_to_broadcast(
+        self,
+        overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
+    ) -> Result<Self, modes::Error> {
+        match self {
+            Self::Core(mode) => Ok(Self::BroadcastAfterCore {
+                mode: Self::new_broadcast_mode(overwatch_handle).await?,
+                prev: mode,
+            }),
+            Self::Edge(mode) => {
+                mode.shutdown().await;
+                Ok(Self::Broadcast(
+                    Self::new_broadcast_mode(overwatch_handle).await?,
+                ))
+            }
+            Self::EdgeAfterCore { mode, prev } => {
+                prev.shutdown().await;
+                mode.shutdown().await;
+                Ok(Self::Broadcast(
+                    Self::new_broadcast_mode(overwatch_handle).await?,
+                ))
+            }
+            Self::Broadcast(mode) => Ok(Self::Broadcast(mode)),
+            Self::BroadcastAfterCore { mode, prev } => {
+                prev.shutdown().await;
+                Ok(Self::Broadcast(mode))
+            }
+        }
+    }
+
+    /// Handles the expiration of the transition period,
+    /// by shutting down the previous Core mode if exists.
+    async fn handle_transition_period_expired(self) -> Self {
+        match self {
+            Self::EdgeAfterCore { mode, prev } => {
+                prev.shutdown().await;
+                Self::Edge(mode)
+            }
+            Self::BroadcastAfterCore { mode, prev } => {
+                prev.shutdown().await;
+                Self::Broadcast(mode)
+            }
+            _ => self,
+        }
+    }
+
+    /// Shuts down the instance by shutting down underlying modes.
+    #[cfg(test)]
+    async fn shutdown(self) {
+        match self {
+            Self::Core(mode) => mode.shutdown().await,
+            Self::Edge(mode) => mode.shutdown().await,
+            Self::EdgeAfterCore { mode, prev } => {
+                mode.shutdown().await;
+                prev.shutdown().await;
+            }
+            Self::Broadcast(mode) => mode.shutdown().await,
+            Self::BroadcastAfterCore { mode, prev } => {
+                mode.shutdown().await;
+                prev.shutdown().await;
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum Mode {
+    Core,
+    Edge,
+    Broadcast,
+}
+
+impl Mode {
+    pub fn choose<NodeId>(membership: &Membership<NodeId>, minimal_network_size: usize) -> Self
+    where
+        NodeId: Eq + Hash,
+    {
+        if membership.size() < minimal_network_size {
+            Self::Broadcast
+        } else if membership.contains_local() {
+            Self::Core
+        } else {
+            Self::Edge
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use libp2p::Multiaddr;
+    use nomos_blend_message::crypto::{Ed25519PrivateKey, Ed25519PublicKey};
+    use nomos_blend_scheduling::membership::Node;
+    use nomos_network::config::NetworkConfig;
+    use overwatch::{
+        overwatch::OverwatchRunner,
+        services::{
+            state::{NoOperator, NoState},
+            ServiceCore,
+        },
+        DynError, OpaqueServiceResourcesHandle,
+    };
+    use tokio::time::sleep;
+
+    use crate::modes::broadcast_tests::{TestMessage, TestNetworkAdapter, TestNetworkBackend};
+
+    use super::*;
+
+    /// Check if the instance is initialized successfully for each mode.
+    #[test]
+    fn test_new() {
+        let app = OverwatchRunner::<Services>::run(settings(), None).unwrap();
+        app.runtime().handle().block_on(async {
+            let handle = app.handle();
+
+            // Start only the network service first.
+            // Other services will be started when the instance is created.
+            start_network_service(handle).await;
+
+            // Check if the Core instance is created successfully.
+            let instance = TestInstance::new(Mode::Core, handle).await.unwrap();
+            assert!(matches!(instance, Instance::Core(_)));
+            instance.shutdown().await;
+
+            // Check if the Edge instance is created successfully.
+            let instance = TestInstance::new(Mode::Edge, handle).await.unwrap();
+            assert!(matches!(instance, Instance::Edge(_)));
+            instance.shutdown().await;
+
+            // Check if the Broadcast instance is created successfully.
+            let instance = TestInstance::new(Mode::Broadcast, handle).await.unwrap();
+            assert!(matches!(instance, Instance::Broadcast(_)));
+            instance.shutdown().await;
+        });
+    }
+
+    /// Check if the instance transitions to Core mode correctly from all other modes.
+    #[test]
+    fn test_transition_to_core() {
+        let app = OverwatchRunner::<Services>::run(settings(), None).unwrap();
+        app.runtime().handle().block_on(async {
+            let handle = app.handle();
+
+            // Start only the network service first.
+            // Other services will be started when the instance is created.
+            start_network_service(handle).await;
+
+            // Core -> Core
+            let instance = TestInstance::new(Mode::Core, handle).await.unwrap();
+            let instance = instance.transition(Mode::Core, handle).await.unwrap();
+            assert!(matches!(instance, Instance::Core(_)));
+            instance.shutdown().await;
+
+            // Edge -> Core
+            let instance = TestInstance::new(Mode::Edge, handle).await.unwrap();
+            let instance = instance.transition(Mode::Core, handle).await.unwrap();
+            assert!(matches!(instance, Instance::Core(_)));
+            instance.shutdown().await;
+
+            // EdgeAfterCore -> Core
+            let instance = TestInstance::new(Mode::Core, handle).await.unwrap();
+            let instance = instance.transition(Mode::Edge, handle).await.unwrap();
+            assert!(matches!(instance, Instance::EdgeAfterCore { .. }));
+            let instance = instance.transition(Mode::Core, handle).await.unwrap();
+            assert!(matches!(instance, Instance::Core(_)));
+            instance.shutdown().await;
+
+            // Broadcast -> Core
+            let instance = TestInstance::new(Mode::Broadcast, handle).await.unwrap();
+            let instance = instance.transition(Mode::Core, handle).await.unwrap();
+            assert!(matches!(instance, Instance::Core(_)));
+            instance.shutdown().await;
+
+            // BroadcastAfterCore -> Core
+            let instance = TestInstance::new(Mode::Core, handle).await.unwrap();
+            let instance = instance.transition(Mode::Broadcast, handle).await.unwrap();
+            assert!(matches!(instance, Instance::BroadcastAfterCore { .. }));
+            let instance = instance.transition(Mode::Core, handle).await.unwrap();
+            assert!(matches!(instance, Instance::Core(_)));
+            instance.shutdown().await;
+        });
+    }
+
+    /// Check if the instance transitions to Edge mode correctly from all other modes.
+    #[test]
+    fn test_transition_to_edge() {
+        let app = OverwatchRunner::<Services>::run(settings(), None).unwrap();
+        app.runtime().handle().block_on(async {
+            let handle = app.handle();
+
+            // Start only the network service first.
+            // Other services will be started when the instance is created.
+            start_network_service(handle).await;
+
+            // Core -> EdgeAfterCore
+            let instance = TestInstance::new(Mode::Core, handle).await.unwrap();
+            let instance = instance.transition(Mode::Edge, handle).await.unwrap();
+            assert!(matches!(instance, Instance::EdgeAfterCore { .. }));
+            instance.shutdown().await;
+
+            // Edge -> Edge
+            let instance = TestInstance::new(Mode::Edge, handle).await.unwrap();
+            let instance = instance.transition(Mode::Edge, handle).await.unwrap();
+            assert!(matches!(instance, Instance::Edge(_)));
+            instance.shutdown().await;
+
+            // EdgeAfterCore -> Edge
+            let instance = TestInstance::new(Mode::Core, handle).await.unwrap();
+            let instance = instance.transition(Mode::Edge, handle).await.unwrap();
+            assert!(matches!(instance, Instance::EdgeAfterCore { .. }));
+            let instance = instance.transition(Mode::Edge, handle).await.unwrap();
+            assert!(matches!(instance, Instance::Edge(_)));
+            instance.shutdown().await;
+
+            // Broadcast -> Edge
+            let instance = TestInstance::new(Mode::Broadcast, handle).await.unwrap();
+            let instance = instance.transition(Mode::Edge, handle).await.unwrap();
+            assert!(matches!(instance, Instance::Edge(_)));
+            instance.shutdown().await;
+
+            // BroadcastAfterCore -> Edge
+            let instance = TestInstance::new(Mode::Core, handle).await.unwrap();
+            let instance = instance.transition(Mode::Broadcast, handle).await.unwrap();
+            assert!(matches!(instance, Instance::BroadcastAfterCore { .. }));
+            let instance = instance.transition(Mode::Edge, handle).await.unwrap();
+            assert!(matches!(instance, Instance::Edge(_)));
+            instance.shutdown().await;
+        });
+    }
+
+    /// Check if the instance transitions to Broadcast mode correctly from all other modes.
+    #[test]
+    fn test_transition_to_broadcast() {
+        let app = OverwatchRunner::<Services>::run(settings(), None).unwrap();
+        app.runtime().handle().block_on(async {
+            let handle = app.handle();
+
+            // Start only the network service first.
+            // Other services will be started when the instance is created.
+            start_network_service(handle).await;
+
+            // Core -> BroadcastAfterCore
+            let instance = TestInstance::new(Mode::Core, handle).await.unwrap();
+            let instance = instance.transition(Mode::Broadcast, handle).await.unwrap();
+            assert!(matches!(instance, Instance::BroadcastAfterCore { .. }));
+            instance.shutdown().await;
+
+            // Edge -> Broadcast
+            let instance = TestInstance::new(Mode::Edge, handle).await.unwrap();
+            let instance = instance.transition(Mode::Broadcast, handle).await.unwrap();
+            assert!(matches!(instance, Instance::Broadcast(_)));
+            instance.shutdown().await;
+
+            // EdgeAfterCore -> Broadcast
+            let instance = TestInstance::new(Mode::Core, handle).await.unwrap();
+            let instance = instance.transition(Mode::Edge, handle).await.unwrap();
+            assert!(matches!(instance, Instance::EdgeAfterCore { .. }));
+            let instance = instance.transition(Mode::Broadcast, handle).await.unwrap();
+            assert!(matches!(instance, Instance::Broadcast(_)));
+            instance.shutdown().await;
+
+            // Broadcast -> Broadcast
+            let instance = TestInstance::new(Mode::Broadcast, handle).await.unwrap();
+            let instance = instance.transition(Mode::Broadcast, handle).await.unwrap();
+            assert!(matches!(instance, Instance::Broadcast(_)));
+            instance.shutdown().await;
+
+            // BroadcastAfterCore -> Broadcast
+            let instance = TestInstance::new(Mode::Core, handle).await.unwrap();
+            let instance = instance.transition(Mode::Broadcast, handle).await.unwrap();
+            assert!(matches!(instance, Instance::BroadcastAfterCore { .. }));
+            let instance = instance.transition(Mode::Broadcast, handle).await.unwrap();
+            assert!(matches!(instance, Instance::Broadcast(_)));
+            instance.shutdown().await;
+        });
+    }
+
+    /// Check if the instance handles session events correctly.
+    #[test]
+    fn test_handle_session_event() {
+        let app = OverwatchRunner::<Services>::run(settings(), None).unwrap();
+        app.runtime().handle().block_on(async {
+            let handle = app.handle();
+
+            // Start only the network service first.
+            // Other services will be started when the instance is created.
+            start_network_service(handle).await;
+
+            // Start with the Core instance.
+            let instance = TestInstance::new(Mode::Core, handle).await.unwrap();
+
+            // Core -> BroadcastAfterCore
+            let minimal_network_size = 1;
+            let instance = instance
+                .handle_session_event(
+                    // With an empty membership smaller than the minimal size.
+                    SessionEvent::NewSession(membership(&[], None)),
+                    handle,
+                    minimal_network_size,
+                )
+                .await
+                .unwrap();
+            assert!(matches!(instance, Instance::BroadcastAfterCore { .. }));
+
+            // BroadcastAfterCore -> Broadcast, after the transition period expires.
+            let instance = instance
+                .handle_session_event(
+                    SessionEvent::TransitionPeriodExpired,
+                    handle,
+                    minimal_network_size,
+                )
+                .await
+                .unwrap();
+            assert!(matches!(instance, Instance::Broadcast(_)));
+
+            // Broadcast -> Edge
+            let instance = instance
+                .handle_session_event(
+                    SessionEvent::NewSession(membership(&[1], None)),
+                    handle,
+                    minimal_network_size,
+                )
+                .await
+                .unwrap();
+            assert!(matches!(instance, Instance::Edge(_)));
+
+            // Edge -> Edge (stay)
+            let instance = instance
+                .handle_session_event(
+                    SessionEvent::NewSession(membership(&[1], None)),
+                    handle,
+                    minimal_network_size,
+                )
+                .await
+                .unwrap();
+            assert!(matches!(instance, Instance::Edge(_)));
+
+            // Edge -> Core
+            let instance = instance
+                .handle_session_event(
+                    SessionEvent::NewSession(membership(&[1], Some(1))),
+                    handle,
+                    minimal_network_size,
+                )
+                .await
+                .unwrap();
+            assert!(matches!(instance, Instance::Core(_)));
+        });
+    }
+
+    type TestInstance = Instance<CoreService, EdgeService, RuntimeServiceId>;
+
+    #[overwatch::derive_services]
+    struct Services {
+        core: CoreService,
+        edge: EdgeService,
+        network: NetworkService<TestNetworkBackend, RuntimeServiceId>,
+    }
+
+    async fn start_network_service(handle: &OverwatchHandle<RuntimeServiceId>) {
+        handle
+            .start_service::<NetworkService<TestNetworkBackend, RuntimeServiceId>>()
+            .await
+            .unwrap();
+    }
+
+    struct CoreService {
+        service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
+    }
+
+    impl ServiceData for CoreService {
+        type Settings = ();
+        type State = NoState<Self::Settings>;
+        type StateOperator = NoOperator<Self::State>;
+        type Message = TestMessage;
+    }
+
+    #[async_trait::async_trait]
+    impl ServiceCore<RuntimeServiceId> for CoreService {
+        fn init(
+            service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
+            _: Self::State,
+        ) -> Result<Self, DynError> {
+            Ok(Self {
+                service_resources_handle,
+            })
+        }
+
+        async fn run(self) -> Result<(), DynError> {
+            let Self {
+                service_resources_handle:
+                    OpaqueServiceResourcesHandle::<Self, RuntimeServiceId> {
+                        ref status_updater, ..
+                    },
+                ..
+            } = self;
+            status_updater.notify_ready();
+
+            loop {
+                sleep(Duration::from_secs(1)).await;
+            }
+        }
+    }
+
+    impl CoreServiceComponents<RuntimeServiceId> for CoreService {
+        type NetworkAdapter = TestNetworkAdapter;
+        type BlendBackend = ();
+        type NodeId = u8;
+        type Rng = ();
+    }
+
+    struct EdgeService {
+        service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
+    }
+
+    impl ServiceData for EdgeService {
+        type Settings = ();
+        type State = NoState<Self::Settings>;
+        type StateOperator = NoOperator<Self::State>;
+        type Message = TestMessage;
+    }
+
+    #[async_trait::async_trait]
+    impl ServiceCore<RuntimeServiceId> for EdgeService {
+        fn init(
+            service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
+            _: Self::State,
+        ) -> Result<Self, DynError> {
+            Ok(Self {
+                service_resources_handle,
+            })
+        }
+
+        async fn run(self) -> Result<(), DynError> {
+            let Self {
+                service_resources_handle:
+                    OpaqueServiceResourcesHandle::<Self, RuntimeServiceId> {
+                        ref status_updater, ..
+                    },
+                ..
+            } = self;
+            status_updater.notify_ready();
+
+            loop {
+                sleep(Duration::from_secs(1)).await;
+            }
+        }
+    }
+
+    fn settings() -> ServicesServiceSettings {
+        ServicesServiceSettings {
+            core: (),
+            edge: (),
+            network: NetworkConfig { backend: () },
+        }
+    }
+
+    type NodeId = u8;
+
+    fn membership(ids: &[NodeId], local_id: Option<NodeId>) -> Membership<NodeId> {
+        let nodes = ids
+            .iter()
+            .copied()
+            .map(|id| Node {
+                id,
+                address: Multiaddr::empty(),
+                public_key: key(id).1,
+            })
+            .collect::<Vec<_>>();
+        let local_public_key = local_id.map(|id| key(id).1);
+        Membership::new(&nodes, local_public_key.as_ref())
+    }
+
+    fn key(id: u8) -> (Ed25519PrivateKey, Ed25519PublicKey) {
+        let private_key = Ed25519PrivateKey::from([id; 32]);
+        let public_key = private_key.public_key();
+        (private_key, public_key)
+    }
+}
