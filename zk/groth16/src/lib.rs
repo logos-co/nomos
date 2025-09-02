@@ -13,8 +13,8 @@ pub(crate) mod utils;
 mod verification_key;
 mod verifier;
 
-pub use ark_ff::Field;
 pub use ark_bn254::{Bn254, Fr};
+pub use ark_ff::Field;
 pub use verifier::groth16_verify;
 
 pub type Groth16Proof = proof::Proof<Bn254>;
