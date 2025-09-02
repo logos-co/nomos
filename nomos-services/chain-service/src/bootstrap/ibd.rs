@@ -20,7 +20,7 @@ where
     NetAdapter: NetworkAdapter<RuntimeServiceId>,
     NetAdapter::PeerId: Clone + Eq + Hash,
     ProcessBlockFn: Fn(Cryptarchia, HashSet<HeaderId>, NetAdapter::Block) -> ProcessBlockFut,
-    ProcessBlockFut: Future<Output = (Cryptarchia, HashSet<HeaderId>)>,
+    ProcessBlockFut: Future<Output = Result<(Cryptarchia, HashSet<HeaderId>), Error>>,
 {
     config: IbdConfig<NetAdapter::PeerId>,
     network: NetAdapter,
@@ -34,7 +34,7 @@ where
     NetAdapter: NetworkAdapter<RuntimeServiceId>,
     NetAdapter::PeerId: Clone + Eq + Hash,
     ProcessBlockFn: Fn(Cryptarchia, HashSet<HeaderId>, NetAdapter::Block) -> ProcessBlockFut,
-    ProcessBlockFut: Future<Output = (Cryptarchia, HashSet<HeaderId>)>,
+    ProcessBlockFut: Future<Output = Result<(Cryptarchia, HashSet<HeaderId>), Error>>,
 {
     pub const fn new(
         config: IbdConfig<NetAdapter::PeerId>,
@@ -58,7 +58,7 @@ where
     NetAdapter::Block: Debug + Unpin,
     ProcessBlockFn:
         Fn(Cryptarchia, HashSet<HeaderId>, NetAdapter::Block) -> ProcessBlockFut + Send + Sync,
-    ProcessBlockFut: Future<Output = (Cryptarchia, HashSet<HeaderId>)> + Send,
+    ProcessBlockFut: Future<Output = Result<(Cryptarchia, HashSet<HeaderId>), Error>> + Send,
     RuntimeServiceId: Sync,
 {
     /// Runs IBD with the configured peers.
@@ -217,13 +217,28 @@ where
                         .await;
                 }
                 DownloadsOutput::BlockReceived { block, download } => {
-                    (cryptarchia, storage_blocks_to_remove) =
-                        (self.process_block)(cryptarchia, storage_blocks_to_remove, block).await;
-                    // TODO: Stop download if process_block fails.
-                    //       (Requires refactoring the chain service)
-                    // TODO: Close the download (the underlying stream) when we need to stop it.
-                    //       https://github.com/logos-co/nomos/issues/1517
-                    downloads.add_download(download);
+                    match (self.process_block)(
+                        cryptarchia.clone(),
+                        storage_blocks_to_remove.clone(),
+                        block,
+                    )
+                    .await
+                    {
+                        Ok((c, s)) => {
+                            cryptarchia = c;
+                            storage_blocks_to_remove = s;
+                            downloads.add_download(download);
+                        }
+                        Err(e) => {
+                            error!("Block processing failed: {e}");
+                            failed_peers.insert(*download.peer());
+                            if failed_peers.len() == num_peers {
+                                return Err(Error::AllPeersFailed);
+                            }
+                            // // TODO: Close the download (the underlying stream) when we need to stop it.
+                            // //       https://github.com/logos-co/nomos/issues/1517
+                        }
+                    }
                 }
                 DownloadsOutput::DownloadCompleted(download) => {
                     debug!(
@@ -292,12 +307,15 @@ where
     }
 }
 
+use crate::Error as ChainError;
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("Block provider error: {0}")]
     BlockProvider(DynError),
     #[error("All peers failed")]
     AllPeersFailed,
+    #[error("Block processing failed: {0}")]
+    BlockProcessing(#[from] ChainError),
 }
 
 #[cfg(test)]
@@ -591,7 +609,7 @@ mod tests {
         mut cryptarchia: Cryptarchia,
         storage_blocks_to_remove: HashSet<HeaderId>,
         block: Block,
-    ) -> (Cryptarchia, HashSet<HeaderId>) {
+    ) -> Result<(Cryptarchia, HashSet<HeaderId>), Error> {
         // Add the block only to the consensus, not to the ledger state
         // because the mocked block doesn't have a proof.
         // It's enough because the tests doesn't check the ledger state.
@@ -600,7 +618,7 @@ mod tests {
             .receive_block(block.id, block.parent, block.slot)
             .expect("Block must be valid");
         cryptarchia.consensus = consensus;
-        (cryptarchia, storage_blocks_to_remove)
+        Ok((cryptarchia, storage_blocks_to_remove))
     }
 
     fn contain(block: &Block, cryptarchia: &Cryptarchia) -> bool {

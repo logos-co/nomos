@@ -17,6 +17,7 @@ use std::{
     time::Duration,
 };
 
+use crate::bootstrap::ibd::Error as IBDError;
 use cryptarchia_engine::{PrunedBlocks, Slot};
 use cryptarchia_sync::{GetTipResponse, ProviderResponse};
 use futures::StreamExt as _;
@@ -645,8 +646,6 @@ where
                 let relays = &relays;
                 let block_subscription_sender = &self.block_subscription_sender;
                 let state_updater = &self.service_resources_handle.state_updater;
-                let cryptarchia_clone = cryptarchia.clone();
-                let storage_blocks_to_remove_clone = storage_blocks_to_remove.clone();
                 async move {
                     Self::process_block_and_update_state(
                         cryptarchia,
@@ -658,9 +657,9 @@ where
                         state_updater,
                     )
                     .await
-                    .unwrap_or_else(|e| {
+                    .map_err(|e| {
                         error!("Error processing block during IBD: {:?}", e);
-                        (cryptarchia_clone, storage_blocks_to_remove_clone)
+                        IBDError::from(e)
                     })
                 }
             },
