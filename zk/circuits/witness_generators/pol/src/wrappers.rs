@@ -73,7 +73,7 @@ mod tests {
     use super::*;
 
     static INPUT: LazyLock<PathBuf> = LazyLock::new(|| {
-        let file = PathBuf::from("../pol/resources/tests/input.json");
+        let file = PathBuf::from("resources/tests/input.json");
         assert!(file.exists(), "Could not find {}.", file.display());
         file
     });
