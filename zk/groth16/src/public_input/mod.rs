@@ -1,9 +1,7 @@
 #[cfg(feature = "deser")]
 use std::str::FromStr;
 
-#[cfg(feature = "deser")]
-use ark_bn254::Bn254;
-use ark_bn254::Fr;
+use ark_bn254::{Bn254, Fr};
 use ark_ec::pairing::Pairing;
 #[cfg(feature = "deser")]
 use ark_ff::Zero as _;
