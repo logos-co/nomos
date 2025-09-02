@@ -28,7 +28,8 @@ use crate::{
         libp2p::common::{
             handle_balancer_command, handle_historic_sample_request, handle_monitor_command,
             handle_sample_request, handle_validator_events_stream, CommitmentsEvent,
-            DaNetworkBackendSettings, SamplingEvent, VerificationEvent, BROADCAST_CHANNEL_SIZE,
+            DaNetworkBackendSettings, HistoricSamplingEvent, SamplingEvent, VerificationEvent,
+            BROADCAST_CHANNEL_SIZE,
         },
         NetworkBackend,
     },
@@ -61,6 +62,7 @@ pub enum DaNetworkEventKind {
     Sampling,
     Commitments,
     Verifying,
+    HistoricSampling,
 }
 
 /// DA network incoming events
@@ -69,6 +71,7 @@ pub enum DaNetworkEvent {
     Sampling(SamplingEvent),
     Commitments(CommitmentsEvent),
     Verifying(VerificationEvent),
+    HistoricSampling(HistoricSamplingEvent),
 }
 
 /// DA network backend for validators
@@ -87,6 +90,7 @@ pub struct DaNetworkValidatorBackend<Membership> {
     sampling_broadcast_receiver: broadcast::Receiver<SamplingEvent>,
     commitments_broadcast_receiver: broadcast::Receiver<CommitmentsEvent>,
     verifying_broadcast_receiver: broadcast::Receiver<VerificationEvent>,
+    historic_sampling_broadcast_receiver: broadcast::Receiver<HistoricSamplingEvent>,
     _membership: PhantomData<Membership>,
 }
 
@@ -161,6 +165,9 @@ where
         let (verifying_broadcast_sender, verifying_broadcast_receiver) =
             broadcast::channel(BROADCAST_CHANNEL_SIZE);
 
+        let (historic_sampling_broadcast_sender, historic_sampling_broadcast_receiver) =
+            broadcast::channel(BROADCAST_CHANNEL_SIZE);
+
         let (replies_task_abort_handle, replies_task_abort_registration) = AbortHandle::new_pair();
         overwatch_handle.runtime().spawn(Abortable::new(
             handle_validator_events_stream(
@@ -168,6 +175,7 @@ where
                 sampling_broadcast_sender,
                 commitments_broadcast_sender,
                 verifying_broadcast_sender,
+                historic_sampling_broadcast_sender,
             ),
             replies_task_abort_registration,
         ));
@@ -183,6 +191,7 @@ where
             sampling_broadcast_receiver,
             commitments_broadcast_receiver,
             verifying_broadcast_receiver,
+            historic_sampling_broadcast_receiver,
             _membership: PhantomData,
         }
     }
@@ -245,6 +254,11 @@ where
                 BroadcastStream::new(self.verifying_broadcast_receiver.resubscribe())
                     .filter_map(|event| async { event.ok() })
                     .map(Self::NetworkEvent::Verifying),
+            ),
+            DaNetworkEventKind::HistoricSampling => Box::pin(
+                BroadcastStream::new(self.historic_sampling_broadcast_receiver.resubscribe())
+                    .filter_map(|event| async { event.ok() })
+                    .map(Self::NetworkEvent::HistoricSampling),
             ),
         }
     }
