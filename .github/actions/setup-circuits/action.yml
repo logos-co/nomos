@@ -36,3 +36,7 @@ runs:
       env:
         DOWNLOADED_FILES: ${{ steps.download-circuits.outputs.downloaded_files }}
       run: bash "${{ github.action_path }}/add-circuits-env.sh" "${{ inputs.download-directory }}"
+
+    - name: Setup .zkeys paths
+      shell: bash
+      run: echo "NOMOS_POL_PROVING_KEY_PATH=${GITHUB_WORKSPACE}/zk/proofs/pol/src/proving_key/pol.zkey" >> "$GITHUB_ENV"
