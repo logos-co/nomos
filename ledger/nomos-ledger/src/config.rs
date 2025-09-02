@@ -9,6 +9,7 @@ pub struct Config {
     pub epoch_config: cryptarchia_engine::EpochConfig,
     pub consensus_config: cryptarchia_engine::Config,
     pub service_params: sdp::ServiceParameters,
+    pub min_stake: sdp::MinStake,
 }
 
 impl Config {
@@ -55,6 +56,7 @@ mod tests {
     use std::num::NonZero;
 
     use cryptarchia_engine::EpochConfig;
+    use nomos_core::sdp::{MinStake, ServiceParameters};
     #[test]
     fn epoch_snapshots() {
         let config = super::Config {
@@ -66,6 +68,16 @@ mod tests {
             consensus_config: cryptarchia_engine::Config {
                 security_param: NonZero::new(5).unwrap(),
                 active_slot_coeff: 0.5,
+            },
+            service_params: ServiceParameters {
+                lock_period: 10,
+                inactivity_period: 20,
+                retention_period: 100,
+                timestamp: 0,
+            },
+            min_stake: MinStake {
+                threshold: 1,
+                timestamp: 0,
             },
         };
         assert_eq!(config.epoch_length(), 100);
@@ -86,6 +98,16 @@ mod tests {
             consensus_config: cryptarchia_engine::Config {
                 security_param: NonZero::new(5).unwrap(),
                 active_slot_coeff: 0.5,
+            },
+            service_params: ServiceParameters {
+                lock_period: 10,
+                inactivity_period: 20,
+                retention_period: 100,
+                timestamp: 0,
+            },
+            min_stake: MinStake {
+                threshold: 1,
+                timestamp: 0,
             },
         };
         assert_eq!(config.epoch(1.into()), 0.into());
