@@ -117,6 +117,7 @@ where
         } = self;
 
         let settings = settings_handle.notifier().get_updated_settings();
+        tracing::info!("DEBUG: BlendService: Starting with minimal_network_size: {}, membership_size: {}", settings.minimal_network_size.get(), settings.membership.len());
 
         let membership_adapter = <MembershipAdapter<EdgeService> as membership::Adapter>::new(
             overwatch_handle
@@ -124,10 +125,13 @@ where
                 .await?,
             settings.crypto.signing_private_key.public_key(),
         );
+        tracing::info!("DEBUG: BlendService: Created membership adapter");
+        
         let mut _session_stream = SessionEventStream::new(
             membership_adapter.subscribe().await?,
             settings.time.session_transition_period(),
         );
+        tracing::info!("DEBUG: BlendService: Created session event stream");
         // TODO: Use session_stream: https://github.com/logos-co/nomos/issues/1532
 
         // TODO: Add logic to start/stop the core or edge service based on the new
@@ -137,6 +141,7 @@ where
         let membership_size = settings.membership.len();
 
         if membership_size >= minimal_network_size.get() as usize {
+            tracing::info!("DEBUG: BlendService: Starting core service mode (membership size: {} >= minimal: {})", membership_size, minimal_network_size.get());
             wait_until_services_are_ready!(
                 &overwatch_handle,
                 Some(Duration::from_secs(60)),
@@ -149,18 +154,22 @@ where
                 .relay::<CoreService>()
                 .await?;
             status_updater.notify_ready();
+            tracing::info!("DEBUG: BlendService: Core service ready, starting message relay");
             info!(
                 target: LOG_TARGET,
                 "Service '{}' is ready.",
                 <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
             );
             while let Some(message) = inbound_relay.next().await {
+                tracing::info!("DEBUG: BlendService: Relaying message to core service");
                 debug!(target: LOG_TARGET, "Relaying a message to core service");
                 if let Err((e, _)) = core_relay.send(message).await {
+                    tracing::error!("DEBUG: BlendService: Failed to relay message to core service: {:?}", e);
                     error!(target: LOG_TARGET, "Failed to relay message to core service: {e:?}");
                 }
             }
         } else {
+            tracing::info!("DEBUG: BlendService: Starting network service mode (membership size: {} < minimal: {})", membership_size, minimal_network_size.get());
             wait_until_services_are_ready!(
                 &overwatch_handle,
                 Some(Duration::from_secs(60)),
@@ -178,12 +187,14 @@ where
                 RuntimeServiceId,
             >>::new(core_network_relay);
             status_updater.notify_ready();
+            tracing::info!("DEBUG: BlendService: Network service ready, starting broadcast mode");
             info!(
                 target: LOG_TARGET,
                 "Service '{}' is ready.",
                 <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
             );
             while let Some(message) = inbound_relay.next().await {
+                tracing::info!("DEBUG: BlendService: Broadcasting message via gossipsub");
                 info!(target: LOG_TARGET, "Blend network too small. Broadcasting via gossipsub.");
                 let (payload, broadcast_settings) = message.into_components();
                 core_network_adapter

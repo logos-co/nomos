@@ -165,7 +165,11 @@ where
         Pin<Box<dyn Stream<Item = Result<(BlobId, Self::SubnetworkId), DynError>> + Send>>,
         DynError,
     > {
+        tracing::info!("DEBUG: dispersal_events_stream: starting");
         let (sender, receiver) = oneshot::channel();
+        tracing::info!("DEBUG: dispersal_events_stream: created oneshot channel");
+
+        tracing::info!("DEBUG: dispersal_events_stream: About to send DaNetworkMsg::Subscribe via relay");
         self.outbound_relay
             .send(DaNetworkMsg::Subscribe {
                 kind: DaNetworkEventKind::Dispersal,
@@ -173,23 +177,36 @@ where
             })
             .await
             .map_err(|(e, _)| Box::new(e) as DynError)?;
+        tracing::info!("DEBUG: dispersal_events_stream: Relay send completed successfully");
+
+        tracing::info!("DEBUG: dispersal_events_stream: waiting for response from receiver.await");
         receiver
             .await
             .map_err(|e| Box::new(e) as DynError)
             .map(|stream| {
                 Box::pin(stream.filter_map(|event| async {
+                    tracing::info!("DEBUG: NetworkAdapter: received network event: {:?}", event);
                     match event {
                         DaNetworkEvent::Sampling(_)
                         | DaNetworkEvent::Commitments(_)
                         | DaNetworkEvent::Verifying(_)
-                        | DaNetworkEvent::HistoricSampling(_) => None,
+                        | DaNetworkEvent::HistoricSampling(_) => {
+                            tracing::info!("DEBUG: NetworkAdapter: filtering out non-dispersal event");
+                            None
+                        }
                         DaNetworkEvent::Dispersal(DispersalExecutorEvent::DispersalError {
                             error,
-                        }) => Some(Err(Box::new(error) as DynError)),
+                        }) => {
+                            tracing::info!("DEBUG: NetworkAdapter: received dispersal error: {:?}", error);
+                            Some(Err(Box::new(error) as DynError))
+                        }
                         DaNetworkEvent::Dispersal(DispersalExecutorEvent::DispersalSuccess {
                             blob_id,
                             subnetwork_id,
-                        }) => Some(Ok((blob_id, subnetwork_id))),
+                        }) => {
+                            tracing::info!("DEBUG: NetworkAdapter: received dispersal success for blob_id: {:?}, subnetwork_id: {}", blob_id, subnetwork_id);
+                            Some(Ok((blob_id, subnetwork_id)))
+                        }
                     }
                 }))
                     as BoxStream<'static, Result<(BlobId, Self::SubnetworkId), DynError>>

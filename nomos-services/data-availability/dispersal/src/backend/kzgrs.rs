@@ -106,18 +106,40 @@ where
         original_size: usize,
         signer: Ed25519PublicKey,
     ) -> Result<(), Self::Error> {
+        tracing::info!(
+            "DEBUG: disperse_tx started for blob_id: {:?}, num_columns: {}",
+            blob_id,
+            num_columns
+        );
         let wallet_adapter = self.wallet_adapter.as_ref();
         let network_adapter = self.network_adapter.as_ref();
 
+        tracing::info!("DEBUG: disperse_tx: creating blob transaction");
         let tx = wallet_adapter
             .blob_tx(blob_id, original_size, signer)
             .map_err(Box::new)?;
+        tracing::info!(
+            "DEBUG: disperse_tx: blob transaction created, calling dispersal_events_stream"
+        );
+
+        tracing::info!("DEBUG: disperse_tx: About to call dispersal_events_stream");
         let responses_stream = network_adapter.dispersal_events_stream().await?;
+        tracing::info!("DEBUG: disperse_tx: dispersal_events_stream returned successfully");
+
+        tracing::info!(
+            "DEBUG: disperse_tx: dispersing {} transactions",
+            num_columns
+        );
         for subnetwork_id in 0..num_columns {
+            tracing::info!(
+                "DEBUG: disperse_tx: dispersing tx to subnetwork_id: {}",
+                subnetwork_id
+            );
             network_adapter
                 .disperse_tx((subnetwork_id as u16).into(), tx.clone())
                 .await?;
         }
+        tracing::info!("DEBUG: disperse_tx: all transactions dispersed, waiting for responses");
 
         let valid_responses = responses_stream
             .filter_map(|event| async move {
@@ -129,9 +151,14 @@ where
             .take(num_columns)
             .collect::<()>();
         // timeout when collecting positive responses
+        tracing::info!(
+            "DEBUG: disperse_tx: waiting for {} valid responses with timeout",
+            num_columns
+        );
         tokio::time::timeout(self.timeout, valid_responses)
             .await
             .map_err(|e| Box::new(e) as DynError)?;
+        tracing::info!("DEBUG: disperse_tx: completed successfully");
         Ok(())
     }
 }
@@ -160,14 +187,21 @@ where
         encoded_data: <encoder::DaEncoder as DaEncoder>::EncodedData,
         original_size: usize,
     ) -> Result<(), DynError> {
+        tracing::info!("DEBUG: disperse method started");
         let blob_id = build_blob_id(&encoded_data.row_commitments);
         let num_columns = encoded_data.combined_column_proofs.len();
+        tracing::info!(
+            "DEBUG: disperse: blob_id: {:?}, num_columns: {}",
+            blob_id,
+            num_columns
+        );
 
         let handler = DispersalHandler {
             network_adapter: Arc::clone(&self.network_adapter),
             wallet_adapter: Arc::clone(&self.wallet_adapter),
             timeout: self.settings.dispersal_timeout,
         };
+        tracing::info!("DEBUG: disperse: calling disperse_tx");
         let () = handler
             .disperse_tx(
                 blob_id,
@@ -176,7 +210,14 @@ where
                 Ed25519PublicKey::from_bytes(&[0u8; 32])?, // TODO: pass key from config
             )
             .await?;
-        handler.disperse_shares(encoded_data).await
+        tracing::info!("DEBUG: disperse: disperse_tx completed successfully");
+        tracing::info!("DEBUG: disperse: calling disperse_shares");
+        let result = handler.disperse_shares(encoded_data).await;
+        tracing::info!(
+            "DEBUG: disperse: disperse_shares completed with result: {:?}",
+            result
+        );
+        result
     }
 }
 

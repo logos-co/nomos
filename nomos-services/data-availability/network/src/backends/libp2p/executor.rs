@@ -275,8 +275,12 @@ where
                 }
             }
             ExecutorDaNetworkMessage::RequestTxDispersal { subnetwork_id, tx } => {
+                tracing::info!("DEBUG: DaNetworkExecutorBackend: Processing RequestTxDispersal for subnetwork_id: {}", subnetwork_id);
                 if let Err(e) = self.dispersal_tx_sender.send((subnetwork_id, *tx)) {
+                    tracing::error!("DEBUG: DaNetworkExecutorBackend: Failed to send tx to dispersal behaviour: {e}");
                     error!("Could not send internal tx to underlying dispersal behaviour: {e}");
+                } else {
+                    tracing::info!("DEBUG: DaNetworkExecutorBackend: Successfully sent tx to dispersal behaviour for subnetwork_id: {}", subnetwork_id);
                 }
             }
             ExecutorDaNetworkMessage::MonitorRequest(command) => {
@@ -301,6 +305,10 @@ where
         &mut self,
         event: Self::EventKind,
     ) -> Pin<Box<dyn Stream<Item = Self::NetworkEvent> + Send>> {
+        tracing::info!(
+            "DEBUG: DaNetworkExecutorBackend: subscribe method STARTED for kind: {:?}",
+            event
+        );
         match event {
             DaNetworkEventKind::Sampling => Box::pin(
                 BroadcastStream::new(self.sampling_broadcast_receiver.resubscribe())
@@ -317,11 +325,16 @@ where
                     .filter_map(|event| async { event.ok() })
                     .map(Self::NetworkEvent::Verifying),
             ),
-            DaNetworkEventKind::Dispersal => Box::pin(
-                BroadcastStream::new(self.dispersal_broadcast_receiver.resubscribe())
-                    .filter_map(|event| async { event.ok() })
-                    .map(Self::NetworkEvent::Dispersal),
-            ),
+            DaNetworkEventKind::Dispersal => {
+                tracing::info!(
+                    "DEBUG: DaNetworkExecutorBackend: Creating dispersal event subscription"
+                );
+                Box::pin(
+                    BroadcastStream::new(self.dispersal_broadcast_receiver.resubscribe())
+                        .filter_map(|event| async { event.ok() })
+                        .map(Self::NetworkEvent::Dispersal),
+                )
+            },
             DaNetworkEventKind::HistoricSampling => Box::pin(
                 BroadcastStream::new(self.historic_sampling_broadcast_receiver.resubscribe())
                     .filter_map(|event| async { event.ok() })
