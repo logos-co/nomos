@@ -458,8 +458,8 @@ where
                                     return false;
                                 }
 
-                                // todo: maybe spawn blocking so it yields why it verifies on a
-                                // separate thread Verify all shares
+                                // todo: maybe spawn blocking so it yields while it verifies on a
+                                // separate thread
                                 for (blob_id, blob_shares) in &shares {
                                     if let Some(blob_commitments) = commitments.get(blob_id) {
                                         for share in blob_shares {
