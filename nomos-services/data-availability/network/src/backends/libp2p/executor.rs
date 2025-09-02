@@ -33,7 +33,7 @@ use crate::{
         libp2p::common::{
             handle_balancer_command, handle_historic_sample_request, handle_monitor_command,
             handle_sample_request, handle_validator_events_stream, DaNetworkBackendSettings,
-            SamplingEvent, BROADCAST_CHANNEL_SIZE,
+            HistoricSamplingEvent, SamplingEvent, BROADCAST_CHANNEL_SIZE,
         },
         NetworkBackend,
     },
@@ -72,6 +72,7 @@ pub enum DaNetworkEventKind {
     Commitments,
     Verifying,
     Dispersal,
+    HistoricSampling,
 }
 
 /// DA network incoming events
@@ -81,6 +82,7 @@ pub enum DaNetworkEvent {
     Commitments(CommitmentsEvent),
     Verifying(VerificationEvent),
     Dispersal(DispersalExecutorEvent),
+    HistoricSampling(HistoricSamplingEvent),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -108,6 +110,7 @@ where
     commitments_broadcast_receiver: broadcast::Receiver<CommitmentsEvent>,
     verifying_broadcast_receiver: broadcast::Receiver<VerificationEvent>,
     dispersal_broadcast_receiver: broadcast::Receiver<DispersalExecutorEvent>,
+    historic_sampling_broadcast_receiver: broadcast::Receiver<HistoricSamplingEvent>,
     dispersal_shares_sender: UnboundedSender<(Membership::NetworkId, DaShare)>,
     dispersal_tx_sender: UnboundedSender<(Membership::NetworkId, SignedMantleTx)>,
     balancer_command_sender: UnboundedSender<ConnectionBalancerCommand<BalancerStats>>,
@@ -190,6 +193,8 @@ where
             broadcast::channel(BROADCAST_CHANNEL_SIZE);
         let (dispersal_broadcast_sender, dispersal_broadcast_receiver) =
             broadcast::channel(BROADCAST_CHANNEL_SIZE);
+        let (historic_sampling_broadcast_sender, historic_sampling_broadcast_receiver) =
+            broadcast::channel(BROADCAST_CHANNEL_SIZE);
 
         let (verifier_replies_task_abort_handle, verifier_replies_task_abort_registration) =
             AbortHandle::new_pair();
@@ -199,6 +204,7 @@ where
                 sampling_broadcast_sender,
                 commitments_broadcast_sender,
                 verifying_broadcast_sender,
+                historic_sampling_broadcast_sender,
             ),
             verifier_replies_task_abort_registration,
         ));
@@ -224,6 +230,7 @@ where
             commitments_broadcast_receiver,
             verifying_broadcast_receiver,
             dispersal_broadcast_receiver,
+            historic_sampling_broadcast_receiver,
             dispersal_shares_sender,
             dispersal_tx_sender,
             balancer_command_sender,
@@ -314,6 +321,11 @@ where
                 BroadcastStream::new(self.dispersal_broadcast_receiver.resubscribe())
                     .filter_map(|event| async { event.ok() })
                     .map(Self::NetworkEvent::Dispersal),
+            ),
+            DaNetworkEventKind::HistoricSampling => Box::pin(
+                BroadcastStream::new(self.historic_sampling_broadcast_receiver.resubscribe())
+                    .filter_map(|event| async { event.ok() })
+                    .map(Self::NetworkEvent::HistoricSampling),
             ),
         }
     }

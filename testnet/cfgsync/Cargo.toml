@@ -8,8 +8,8 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
-axum                   = { version = "0.6" }
-clap                   = { version = "4", features = ["derive"] }
+axum                   = { default-features = false, version = "0.6" }
+clap                   = { default-features = false, version = "4" }
 nomos-blend-scheduling = { workspace = true }
 nomos-core             = { workspace = true }
 nomos-da-network-core  = { workspace = true }
@@ -18,14 +18,14 @@ nomos-libp2p           = { workspace = true }
 nomos-membership       = { workspace = true }
 nomos-node             = { workspace = true }
 nomos-tracing-service  = { workspace = true }
-nomos-utils            = { workspace = true, features = ["time"] }
+nomos-utils            = { workspace = true }
 rand                   = { workspace = true }
-reqwest                = { workspace = true, features = ["json", "rustls-tls"] }
-serde                  = { version = "1", features = ["derive"] }
-serde_json             = "1.0"
+reqwest                = { workspace = true }
+serde                  = { default-features = false, version = "1" }
+serde_json             = { default-features = false, version = "1.0" }
 serde_path_to_error    = "0.1"
 serde_with             = { workspace = true }
 serde_yaml             = "0.9"
 tests                  = { workspace = true }
-tokio                  = { version = "1", features = ["rt-multi-thread"] }
+tokio                  = { default-features = false, version = "1" }
 tracing                = { workspace = true }

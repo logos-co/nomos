@@ -5,7 +5,6 @@ use thiserror::Error;
 pub mod gas;
 pub mod keys;
 pub mod ledger;
-pub mod merkle;
 #[cfg(feature = "mock")]
 pub mod mock;
 pub mod ops;

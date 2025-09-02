@@ -10,37 +10,39 @@ workspace = true
 [dependencies]
 async-trait            = "0.1"
 bytes                  = { workspace = true }
-cryptarchia-engine     = { workspace = true, features = ["serde"] }
+cryptarchia-engine     = { workspace = true }
 cryptarchia-sync       = { workspace = true }
-futures                = "0.3"
+futures                = { default-features = false, version = "0.3" }
 groth16                = { workspace = true }
 nomos-blend-service    = { workspace = true }
 nomos-core             = { workspace = true }
 nomos-da-sampling      = { workspace = true }
-nomos-ledger           = { workspace = true, features = ["serde"] }
+nomos-ledger           = { features = ["serde"], workspace = true }
 nomos-mempool          = { workspace = true }
 nomos-network          = { workspace = true }
 nomos-storage          = { workspace = true }
 nomos-time             = { workspace = true }
 nomos-utils            = { workspace = true }
 nomos_proof_statements = { workspace = true }
-num-bigint             = "0.4"
+num-bigint             = { version = "0.4", default-features = false }
 overwatch              = { workspace = true }
-rand                   = "0.8"
+rand                   = { default-features = false, version = "0.8" }
 risc0-zkvm             = { workspace = true }
-serde                  = { version = "1", features = ["derive"] }
+serde                  = { default-features = false, version = "1" }
 serde_with             = { workspace = true }
 services-utils         = { workspace = true }
 thiserror              = "1.0"
-tokio                  = { version = "1", features = ["sync"] }
-tokio-stream           = "0.1"
+tokio                  = { default-features = false, version = "1" }
+tokio-stream           = { default-features = false, version = "0.1" }
 tracing                = { workspace = true }
-tracing-futures        = "0.2"
-utoipa                 = { workspace = true, optional = true }
+tracing-futures        = { default-features = false, version = "0.2" }
+utoipa                 = { optional = true, workspace = true }
 
 [dev-dependencies]
 kzgrs-backend = { workspace = true }
-tempfile      = "3"
+nomos-network = { features = ["mock"], workspace = true }
+nomos-storage = { features = ["rocksdb-backend"], workspace = true }
+tempfile      = { default-features = false, version = "3" }
 
 [features]
 default = []

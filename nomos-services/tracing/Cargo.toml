@@ -11,7 +11,7 @@ workspace = true
 async-trait        = "0.1"
 nomos-tracing      = { workspace = true }
 overwatch          = { workspace = true }
-serde              = { version = "1.0", features = ["derive"] }
+serde              = { default-features = false, version = "1.0" }
 tracing            = { workspace = true }
 tracing-appender   = "0.2"
-tracing-subscriber = { version = "0.3", features = ["json", "registry"] }
+tracing-subscriber = { default-features = false, version = "0.3" }

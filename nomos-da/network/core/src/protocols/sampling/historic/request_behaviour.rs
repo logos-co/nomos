@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     future::ready,
     io::ErrorKind,
     task::{Context, Poll},
@@ -36,8 +36,8 @@ use crate::{
     addressbook::AddressBookHandler,
     protocol::SAMPLING_PROTOCOL,
     protocols::sampling::{
-        errors::SamplingError,
-        historic::{HistoricSamplingError, HistoricSamplingEvent},
+        errors::{HistoricSamplingError, SamplingError},
+        historic::HistoricSamplingEvent,
         streams::{self, SampleStream},
         SubnetsConfig,
     },
@@ -60,8 +60,8 @@ enum StreamSamplingError {
 
 type HistoricSamplingResponseSuccess = (
     HeaderId,
-    HashSet<DaLightShare>,
-    HashSet<DaSharesCommitments>,
+    HashMap<BlobId, Vec<DaLightShare>>,
+    HashMap<BlobId, DaSharesCommitments>,
 );
 
 type HistoricFutureError = (HeaderId, HistoricSamplingError);
@@ -231,7 +231,7 @@ where
         blob_ids: &HashSet<BlobId>,
         control: &Control,
         connection_sender: &tokio::sync::broadcast::Sender<PeerId>,
-    ) -> Result<HashSet<DaLightShare>, HistoricSamplingError> {
+    ) -> Result<HashMap<BlobId, Vec<DaLightShare>>, HistoricSamplingError> {
         let mut subnetwork_tasks = FuturesUnordered::new();
 
         for subnetwork_id in subnets {
@@ -246,12 +246,15 @@ where
             subnetwork_tasks.push(task);
         }
 
-        let mut all_shares = HashSet::new();
+        let mut all_shares = HashMap::new();
         while let Some(result) = subnetwork_tasks.next().await {
             match result {
                 Ok(shares) => {
-                    for share in shares {
-                        all_shares.insert(share);
+                    for (blob_id, share_vec) in shares {
+                        all_shares
+                            .entry(blob_id)
+                            .or_insert_with(Vec::new)
+                            .extend(share_vec);
                     }
                 }
                 Err(err) => return Err(err),
@@ -268,14 +271,14 @@ where
         mut blob_ids: HashSet<BlobId>,
         subnetwork_id: SubnetworkId,
         connection_receiver: tokio::sync::broadcast::Receiver<PeerId>,
-    ) -> Result<Vec<DaLightShare>, HistoricSamplingError> {
+    ) -> Result<HashMap<BlobId, Vec<DaLightShare>>, HistoricSamplingError> {
         // Pre-select up to MAX_PEER_RETRIES peers from the subnetwork
         let candidate_peers = {
             let mut rng = rand::thread_rng();
             Self::pick_random_subnetwork_peers(subnetwork_id, membership, local_peer_id, &mut rng)
         };
 
-        let mut all_shares = Vec::new();
+        let mut all_shares = HashMap::new();
 
         'peers_loop: for peer_id in candidate_peers {
             if blob_ids.is_empty() {
@@ -292,7 +295,10 @@ where
                         let request = sampling::SampleRequest::new_share(blob_id, subnetwork_id);
                         match Self::handle_share_request(stream, request).await {
                             Ok((share_data, new_stream)) => {
-                                all_shares.push(share_data);
+                                all_shares
+                                    .entry(blob_id)
+                                    .or_insert_with(Vec::new)
+                                    .push(share_data);
                                 blob_ids.remove(&blob_id);
                                 stream = new_stream;
                             }
@@ -332,7 +338,7 @@ where
         blob_ids: &HashSet<BlobId>,
         control: &Control,
         connection_receiver: tokio::sync::broadcast::Receiver<PeerId>,
-    ) -> Result<HashSet<DaSharesCommitments>, HistoricSamplingError> {
+    ) -> Result<HashMap<BlobId, DaSharesCommitments>, HistoricSamplingError> {
         // Pre-select up to MAX_PEER_RETRIES peers from a random subnet
         let candidate_peers = {
             let mut peers = Vec::new();
@@ -357,7 +363,7 @@ where
         }
 
         let mut remaining_blob_ids = blob_ids.clone();
-        let mut commitments = HashSet::new();
+        let mut commitments = HashMap::new();
 
         'peers_loop: for peer_id in candidate_peers {
             if remaining_blob_ids.is_empty() {
@@ -374,7 +380,7 @@ where
                         let request = sampling::SampleRequest::new_commitments(blob_id);
                         match Self::handle_commitment_request(stream, request).await {
                             Ok((commitment, new_stream)) => {
-                                commitments.insert(commitment);
+                                commitments.insert(blob_id, commitment);
                                 remaining_blob_ids.remove(&blob_id);
                                 stream = new_stream;
                             }
@@ -486,8 +492,8 @@ where
 
     const fn handle_historic_success(
         block_id: HeaderId,
-        shares: HashSet<DaLightShare>,
-        commitments: HashSet<DaSharesCommitments>,
+        shares: HashMap<BlobId, Vec<DaLightShare>>,
+        commitments: HashMap<BlobId, DaSharesCommitments>,
     ) -> Poll<ToSwarm<<Self as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self>>> {
         Poll::Ready(ToSwarm::GenerateEvent(
             HistoricSamplingEvent::SamplingSuccess {

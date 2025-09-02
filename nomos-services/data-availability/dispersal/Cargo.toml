@@ -9,18 +9,18 @@ workspace = true
 
 [dependencies]
 async-trait              = "0.1"
-futures                  = "0.3"
+futures                  = { default-features = false, version = "0.3" }
 kzgrs-backend            = { workspace = true }
 nomos-core               = { workspace = true }
 nomos-da-network-core    = { workspace = true }
 nomos-da-network-service = { workspace = true }
 nomos-tracing            = { workspace = true }
-nomos-utils              = { workspace = true, features = ["time"] }
+nomos-utils              = { workspace = true }
 overwatch                = { workspace = true }
-serde                    = { version = "1.0", features = ["derive"] }
+serde                    = { default-features = false, version = "1.0" }
 serde_with               = { workspace = true }
 services-utils           = { workspace = true }
 subnetworks-assignations = { workspace = true }
 tokio                    = "1"
-tokio-stream             = "0.1.15"
+tokio-stream             = { default-features = false, version = "0.1.15" }
 tracing                  = { workspace = true }

@@ -1,4 +1,8 @@
-use std::{collections::HashSet, fmt::Debug, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Debug,
+    time::Duration,
+};
 
 use futures::{
     channel::oneshot::{Receiver, Sender},
@@ -15,7 +19,9 @@ use nomos_da_network_core::{
     protocols::{
         dispersal::validator::behaviour::DispersalEvent,
         sampling::{
-            self, errors::SamplingError, BehaviourSampleReq, BehaviourSampleRes, SubnetsConfig,
+            self,
+            errors::{HistoricSamplingError, SamplingError},
+            BehaviourSampleReq, BehaviourSampleRes, SubnetsConfig,
         },
     },
     swarm::{
@@ -116,6 +122,19 @@ impl CommitmentsEvent {
 }
 
 #[derive(Debug, Clone)]
+pub enum HistoricSamplingEvent {
+    HistoricSamplingSuccess {
+        block_id: HeaderId,
+        shares: HashMap<BlobId, Vec<DaLightShare>>,
+        commitments: HashMap<BlobId, DaSharesCommitments>,
+    },
+    HistoricSamplingError {
+        block_id: HeaderId,
+        error: HistoricSamplingError,
+    },
+}
+
+#[derive(Debug, Clone)]
 pub enum VerificationEvent {
     Tx {
         // Number of subnetwork assignations that the node is assigned to at the moment of
@@ -164,6 +183,7 @@ pub(crate) async fn handle_validator_events_stream(
     sampling_broadcast_sender: broadcast::Sender<SamplingEvent>,
     commitments_broadcast_sender: broadcast::Sender<CommitmentsEvent>,
     validation_broadcast_sender: broadcast::Sender<VerificationEvent>,
+    historic_sample_broadcast_sender: broadcast::Sender<HistoricSamplingEvent>,
 ) {
     let ValidatorEventsStream {
         mut sampling_events_receiver,
@@ -175,7 +195,7 @@ pub(crate) async fn handle_validator_events_stream(
         // safe set: https://docs.rs/tokio/latest/tokio/macro.select.html#cancellation-safety
         tokio::select! {
             Some(sampling_event) = StreamExt::next(&mut sampling_events_receiver) => {
-                handle_sampling_event(&sampling_broadcast_sender, &commitments_broadcast_sender, sampling_event).await;
+                handle_sampling_event(&sampling_broadcast_sender, &commitments_broadcast_sender, &historic_sample_broadcast_sender, sampling_event).await;
             }
             Some(dispersal_event) = StreamExt::next(&mut validation_events_receiver) => {
                 handle_dispersal_event(&validation_broadcast_sender, dispersal_event).await;
@@ -273,6 +293,7 @@ async fn handle_incoming_tx_with_response(
 async fn handle_sampling_event(
     sampling_broadcast_sender: &broadcast::Sender<SamplingEvent>,
     commitments_broadcast_sender: &broadcast::Sender<CommitmentsEvent>,
+    historic_sample_broadcast_sender: &broadcast::Sender<HistoricSamplingEvent>,
     sampling_event: sampling::SamplingEvent,
 ) {
     match sampling_event {
@@ -320,10 +341,48 @@ async fn handle_sampling_event(
                 error,
             );
         }
-        sampling::SamplingEvent::HistoricSamplingSuccess { .. } => todo!(),
-        sampling::SamplingEvent::HistoricSamplingError { .. } => {
-            todo!("Handle historic sampling error");
+        sampling::SamplingEvent::HistoricSamplingSuccess {
+            block_id,
+            shares,
+            commitments,
+        } => handle_historic_sample_success(
+            block_id,
+            shares,
+            commitments,
+            historic_sample_broadcast_sender,
+        ),
+        sampling::SamplingEvent::HistoricSamplingError { block_id, error } => {
+            handle_historic_sample_error(block_id, error, historic_sample_broadcast_sender);
         }
+    }
+}
+
+fn handle_historic_sample_success(
+    block_id: HeaderId,
+    shares: HashMap<BlobId, Vec<DaLightShare>>,
+    commitments: HashMap<BlobId, DaSharesCommitments>,
+    historic_sample_broadcast_sender: &broadcast::Sender<HistoricSamplingEvent>,
+) {
+    if let Err(e) =
+        historic_sample_broadcast_sender.send(HistoricSamplingEvent::HistoricSamplingSuccess {
+            block_id,
+            shares,
+            commitments,
+        })
+    {
+        error!("Error in internal broadcast of historic sampling success: {e:?}");
+    }
+}
+
+fn handle_historic_sample_error(
+    block_id: HeaderId,
+    error: HistoricSamplingError,
+    historic_sample_broadcast_sender: &broadcast::Sender<HistoricSamplingEvent>,
+) {
+    if let Err(e) = historic_sample_broadcast_sender
+        .send(HistoricSamplingEvent::HistoricSamplingError { block_id, error })
+    {
+        error!("Error in internal broadcast of historic sampling error: {e:?}");
     }
 }
 

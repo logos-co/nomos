@@ -5,7 +5,7 @@ mod requests;
 mod responses;
 mod streams;
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 use errors::SamplingError;
 use futures::{
@@ -27,7 +27,8 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::{
     addressbook::AddressBookHandler,
     protocols::sampling::{
-        historic::{request_behaviour::HistoricRequestSamplingBehaviour, HistoricSamplingError},
+        errors::HistoricSamplingError,
+        historic::request_behaviour::HistoricRequestSamplingBehaviour,
         requests::request_behaviour::RequestSamplingBehaviour,
         responses::response_behaviour::ResponseSamplingBehaviour,
     },
@@ -137,8 +138,8 @@ pub enum SamplingEvent {
     },
     HistoricSamplingSuccess {
         block_id: HeaderId,
-        shares: HashSet<DaLightShare>,
-        commitments: HashSet<DaSharesCommitments>,
+        shares: HashMap<BlobId, Vec<DaLightShare>>,
+        commitments: HashMap<BlobId, DaSharesCommitments>,
     },
     CommitmentsSuccess {
         blob_id: BlobId,
