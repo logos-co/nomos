@@ -1,6 +1,6 @@
 name: Setup Circuits
 
-description: Setup Circom Circuits, Rapidsnark prover and Rapidsnark verifier.
+description: Set up Circom Circuits, Rapidsnark prover and Rapidsnark verifier.
 
 inputs:
   github-token:
@@ -14,12 +14,6 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - name: Install deps
-      shell: bash
-      run: |
-        sudo apt update
-        sudo apt install -y libc6 libstdc++6 
-
     - name: Download Circuits
       id: download-circuits
       uses: robinraju/release-downloader@v1
