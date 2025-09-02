@@ -54,15 +54,7 @@ pub fn groth16_batch_verify(
     let batched_pi_c = G1Projective::msm(&pis_c,&r_roots).unwrap().into_affine();
 
     let batched_public_inputs : Vec<Fr> = std::iter::once(r_sum)
-        .chain(
-            (0..public_inputs[0].len()).map(|j| {
-                r_roots
-                    .iter()
-                    .enumerate()
-                    .map(|(i, &w)| w.mul(&public_inputs[i][j]))
-                    .sum()
-            }),
-        )
+        .chain((0..public_inputs[0].len()).map(|i| r_roots.iter().zip(public_inputs.iter()).map(|(r, pi)| *r * pi[i]).sum()))
         .collect();
 
     let batched_ic = G1Projective::msm(&vk.vk.vk.gamma_abc_g1,&batched_public_inputs).unwrap().into_affine();
