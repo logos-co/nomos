@@ -38,6 +38,8 @@ pub enum LedgerError<Id> {
     ZeroValueNote,
     #[error("Mantle error: {0}")]
     Mantle(#[from] mantle::Error),
+    #[error("Locked note: {0:?}")]
+    LockedNote(NoteId),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -174,11 +176,14 @@ impl LedgerState {
     ) -> Result<Self, LedgerError<Id>> {
         for tx in txs {
             let _balance;
-            (self.cryptarchia_ledger, _balance) =
-                self.cryptarchia_ledger.try_apply_tx::<_, Constants>(&tx)?;
+            (self.cryptarchia_ledger, _balance) = self
+                .cryptarchia_ledger
+                .try_apply_tx::<_, Constants>(&self.mantle_ledger.locked_notes(), &tx)?;
+
             self.mantle_ledger = self.mantle_ledger.try_apply_tx::<Constants>(
                 current_block_number,
-                &config.service_params,
+                &config,
+                &self.cryptarchia_ledger.latest_commitments(),
                 tx,
             )?;
         }
@@ -255,7 +260,7 @@ mod tests {
         }
     }
 
-    fn create_test_ledger() -> (Ledger<HeaderId>, HeaderId, Utxo) {
+    pub fn create_test_ledger() -> (Ledger<HeaderId>, HeaderId, Utxo) {
         let utxo = utxo();
         let genesis_state = LedgerState::from_utxos([utxo]);
         let ledger = Ledger::new([0; 32], genesis_state, config());
@@ -294,6 +299,7 @@ mod tests {
                 new_id,
                 genesis_id,
                 Slot::from(1u64),
+                1,
                 &proof,
                 std::iter::once(&tx),
             )

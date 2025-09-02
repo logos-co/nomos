@@ -1,4 +1,5 @@
 pub mod channel;
+pub mod locked_notes;
 pub mod sdp;
 
 use ed25519::signature::Verifier as _;
@@ -11,6 +12,8 @@ use nomos_core::{
     sdp::state::DeclarationStateError,
 };
 use sdp::SdpLedgerError;
+
+use crate::{Config, UtxoTree};
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
 pub enum Error {
@@ -33,6 +36,8 @@ pub enum Error {
     InvalidSignature,
     #[error("Sdp ledger error: {0:?}")]
     Sdp(#[from] SdpLedgerError),
+    #[error("Locked notest error: {0:?}")]
+    LockedNotes(#[from] locked_notes::Error),
 }
 
 impl From<DeclarationStateError> for Error {
@@ -47,6 +52,7 @@ impl From<DeclarationStateError> for Error {
 pub struct LedgerState {
     channels: channel::Channels,
     sdp: sdp::SdpLedger,
+    locked_notes: locked_notes::LockedNotes,
 }
 
 impl Default for LedgerState {
@@ -61,13 +67,19 @@ impl LedgerState {
         Self {
             channels: channel::Channels::new(),
             sdp: sdp::SdpLedger::new(),
+            locked_notes: locked_notes::LockedNotes::new(),
         }
+    }
+
+    pub fn locked_notes(&self) -> &locked_notes::LockedNotes {
+        &self.locked_notes
     }
 
     pub fn try_apply_tx<Constants: GasConstants>(
         mut self,
         current_block_number: BlockNumber,
-        service_params: &nomos_core::sdp::ServiceParameters,
+        config: &Config,
+        utxo_tree: &UtxoTree,
         tx: impl AuthenticatedMantleTx,
     ) -> Result<Self, Error> {
         let tx_hash = tx.hash();
@@ -96,7 +108,13 @@ impl LedgerState {
                 }
                 (Op::SDPDeclare(op), Some(OpProof::Ed25519Sig(_sig))) => {
                     // WIP TODO: Verify proofs.
-                    // WIP TODO: Add locked note.
+
+                    self.locked_notes = self.locked_notes.lock(
+                        utxo_tree,
+                        &config.min_stake,
+                        op.service_type,
+                        &op.locked_note_id,
+                    )?;
                     self.sdp = self
                         .sdp
                         .apply_declare_msg(current_block_number, &op.declaration_id())?;
@@ -105,7 +123,7 @@ impl LedgerState {
                     // WIP TODO: Verify proofs.
                     self.sdp = self.sdp.apply_active_msg(
                         current_block_number,
-                        service_params,
+                        &config.service_params,
                         &op.declaration_id,
                         op.nonce,
                     )?;
@@ -114,7 +132,7 @@ impl LedgerState {
                     // WIP TODO: Verify proofs.
                     self.sdp = self.sdp.apply_withdrawn_msg(
                         current_block_number,
-                        service_params,
+                        &config.service_params,
                         &op.declaration_id,
                         op.nonce,
                     )?;
@@ -143,6 +161,7 @@ mod tests {
     };
 
     use super::*;
+    use crate::cryptarchia::tests::{config, genesis_state, utxo};
 
     fn create_test_keys() -> (SigningKey, VerifyingKey) {
         create_test_keys_with_seed(0)
@@ -195,6 +214,8 @@ mod tests {
 
     #[test]
     fn test_channel_blob_operation() {
+        let cryptarchia_state = genesis_state(&[utxo()]);
+        let test_config = config();
         let ledger_state = LedgerState::new();
         let (signing_key, verifying_key) = create_test_keys();
         let channel_id = ChannelId::from([1; 32]);
@@ -209,12 +230,19 @@ mod tests {
         };
 
         let tx = create_signed_tx(Op::ChannelBlob(blob_op), &signing_key);
-        let result = ledger_state.try_apply_tx::<MainnetGasConstants>(tx);
+        let result = ledger_state.try_apply_tx::<MainnetGasConstants>(
+            0,
+            &test_config,
+            cryptarchia_state.latest_commitments(),
+            tx,
+        );
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_channel_inscribe_operation() {
+        let cryptarchia_state = genesis_state(&[utxo()]);
+        let test_config = config();
         let ledger_state = LedgerState::new();
         let (signing_key, verifying_key) = create_test_keys();
         let channel_id = ChannelId::from([2; 32]);
@@ -227,7 +255,12 @@ mod tests {
         };
 
         let tx = create_signed_tx(Op::ChannelInscribe(inscribe_op), &signing_key);
-        let result = ledger_state.try_apply_tx::<MainnetGasConstants>(tx);
+        let result = ledger_state.try_apply_tx::<MainnetGasConstants>(
+            0,
+            &test_config,
+            cryptarchia_state.latest_commitments(),
+            tx,
+        );
         assert!(result.is_ok());
 
         let new_state = result.unwrap();
@@ -236,6 +269,8 @@ mod tests {
 
     #[test]
     fn test_channel_set_keys_operation() {
+        let cryptarchia_state = genesis_state(&[utxo()]);
+        let test_config = config();
         let ledger_state = LedgerState::new();
         let (signing_key, verifying_key) = create_test_keys();
         let channel_id = ChannelId::from([3; 32]);
@@ -246,7 +281,12 @@ mod tests {
         };
 
         let tx = create_signed_tx(Op::ChannelSetKeys(set_keys_op), &signing_key);
-        let result = ledger_state.try_apply_tx::<MainnetGasConstants>(tx);
+        let result = ledger_state.try_apply_tx::<MainnetGasConstants>(
+            0,
+            &test_config,
+            cryptarchia_state.latest_commitments(),
+            tx,
+        );
         assert!(result.is_ok());
 
         let new_state = result.unwrap();
@@ -259,6 +299,8 @@ mod tests {
 
     #[test]
     fn test_invalid_signature_error() {
+        let cryptarchia_state = genesis_state(&[utxo()]);
+        let test_config = config();
         let ledger_state = LedgerState::new();
         let (_, verifying_key) = create_test_keys_with_seed(1);
         let (wrong_signing_key, _) = create_test_keys_with_seed(2);
@@ -274,24 +316,38 @@ mod tests {
         };
 
         let tx = create_signed_tx(Op::ChannelBlob(blob_op), &wrong_signing_key);
-        let result = ledger_state.try_apply_tx::<MainnetGasConstants>(tx);
+        let result = ledger_state.try_apply_tx::<MainnetGasConstants>(
+            0,
+            &test_config,
+            cryptarchia_state.latest_commitments(),
+            tx,
+        );
         assert_eq!(result, Err(Error::InvalidSignature));
     }
 
     #[test]
     fn test_unsupported_operation() {
+        let cryptarchia_state = genesis_state(&[utxo()]);
+        let test_config = config();
         let ledger_state = LedgerState::new();
 
         let tx_with_unsupported_op = create_test_tx_with_ops(vec![Op::Native(
             nomos_core::mantle::ops::native::NativeOp {},
         )]);
 
-        let result = ledger_state.try_apply_tx::<MainnetGasConstants>(tx_with_unsupported_op);
+        let result = ledger_state.try_apply_tx::<MainnetGasConstants>(
+            0,
+            &test_config,
+            cryptarchia_state.latest_commitments(),
+            tx_with_unsupported_op,
+        );
         assert_eq!(result, Err(Error::UnsupportedOp));
     }
 
     #[test]
     fn test_ops_missing_proofs() {
+        let cryptarchia_state = genesis_state(&[utxo()]);
+        let test_config = config();
         let ledger_state = LedgerState::new();
         let (_, verifying_key) = create_test_keys();
         let channel_id = ChannelId::from([5; 32]);
@@ -309,12 +365,19 @@ mod tests {
         let mut tx = create_test_tx_with_ops(vec![op]);
         tx.ops_profs = vec![None]; // Missing proof
 
-        let result = ledger_state.try_apply_tx::<MainnetGasConstants>(tx);
+        let result = ledger_state.try_apply_tx::<MainnetGasConstants>(
+            0,
+            &test_config,
+            cryptarchia_state.latest_commitments(),
+            tx,
+        );
         assert_eq!(result, Err(Error::UnsupportedOp));
     }
 
     #[test]
     fn test_invalid_parent_error() {
+        let cryptarchia_state = genesis_state(&[utxo()]);
+        let test_config = config();
         let mut ledger_state = LedgerState::new();
         let (signing_key, verifying_key) = create_test_keys();
         let channel_id = ChannelId::from([5; 32]);
@@ -331,7 +394,12 @@ mod tests {
 
         let first_tx = create_signed_tx(Op::ChannelBlob(first_blob), &signing_key);
         ledger_state = ledger_state
-            .try_apply_tx::<MainnetGasConstants>(first_tx)
+            .try_apply_tx::<MainnetGasConstants>(
+                0,
+                &test_config,
+                cryptarchia_state.latest_commitments(),
+                first_tx,
+            )
             .unwrap();
 
         // Now try to add a message with wrong parent
@@ -346,9 +414,12 @@ mod tests {
         };
 
         let second_tx = create_signed_tx(Op::ChannelBlob(second_blob), &signing_key);
-        let result = ledger_state
-            .clone()
-            .try_apply_tx::<MainnetGasConstants>(second_tx);
+        let result = ledger_state.clone().try_apply_tx::<MainnetGasConstants>(
+            0,
+            &test_config,
+            cryptarchia_state.latest_commitments(),
+            second_tx,
+        );
         assert!(matches!(result, Err(Error::InvalidParent { .. })));
 
         // Writing into an empty channel with a parent != MsgId::root() should also fail
@@ -363,12 +434,19 @@ mod tests {
         };
 
         let empty_tx = create_signed_tx(Op::ChannelBlob(empty_blob), &signing_key);
-        let empty_result = ledger_state.try_apply_tx::<MainnetGasConstants>(empty_tx);
+        let empty_result = ledger_state.try_apply_tx::<MainnetGasConstants>(
+            0,
+            &test_config,
+            cryptarchia_state.latest_commitments(),
+            empty_tx,
+        );
         assert!(matches!(empty_result, Err(Error::InvalidParent { .. })));
     }
 
     #[test]
     fn test_unauthorized_signer_error() {
+        let cryptarchia_state = genesis_state(&[utxo()]);
+        let test_config = config();
         let mut ledger_state = LedgerState::new();
         let (signing_key, verifying_key) = create_test_keys();
         let (unauthorized_signing_key, unauthorized_verifying_key) = create_test_keys_with_seed(3);
@@ -387,7 +465,12 @@ mod tests {
         let correct_parent = first_blob.id();
         let first_tx = create_signed_tx(Op::ChannelBlob(first_blob), &signing_key);
         ledger_state = ledger_state
-            .try_apply_tx::<MainnetGasConstants>(first_tx)
+            .try_apply_tx::<MainnetGasConstants>(
+                0,
+                &test_config,
+                cryptarchia_state.latest_commitments(),
+                first_tx,
+            )
             .unwrap();
 
         // Now try to add a message with unauthorized signer
@@ -401,12 +484,19 @@ mod tests {
         };
 
         let second_tx = create_signed_tx(Op::ChannelBlob(second_blob), &unauthorized_signing_key);
-        let result = ledger_state.try_apply_tx::<MainnetGasConstants>(second_tx);
+        let result = ledger_state.try_apply_tx::<MainnetGasConstants>(
+            0,
+            &test_config,
+            cryptarchia_state.latest_commitments(),
+            second_tx,
+        );
         assert!(matches!(result, Err(Error::UnauthorizedSigner { .. })));
     }
 
     #[test]
     fn test_empty_keys_error() {
+        let cryptarchia_state = genesis_state(&[utxo()]);
+        let test_config = config();
         let ledger_state = LedgerState::new();
         let (signing_key, _) = create_test_keys();
         let channel_id = ChannelId::from([7; 32]);
@@ -417,12 +507,19 @@ mod tests {
         };
 
         let tx = create_signed_tx(Op::ChannelSetKeys(set_keys_op), &signing_key);
-        let result = ledger_state.try_apply_tx::<MainnetGasConstants>(tx);
+        let result = ledger_state.try_apply_tx::<MainnetGasConstants>(
+            0,
+            &test_config,
+            cryptarchia_state.latest_commitments(),
+            tx,
+        );
         assert_eq!(result, Err(Error::EmptyKeys { channel_id }));
     }
 
     #[test]
     fn test_multiple_operations_in_transaction() {
+        let cryptarchia_state = genesis_state(&[utxo()]);
+        let test_config = config();
         // Create channel 1 by posting a blob
         // Create channel 2 by posting an inscription
         // Change the keys for channel 1
@@ -474,7 +571,12 @@ mod tests {
         ];
         let tx = create_multi_signed_tx(ops, vec![&sk1, &sk2, &sk1, &sk4]);
 
-        let result = ledger_state.try_apply_tx::<MainnetGasConstants>(tx);
+        let result = ledger_state.try_apply_tx::<MainnetGasConstants>(
+            0,
+            &test_config,
+            cryptarchia_state.latest_commitments(),
+            tx,
+        );
         assert!(result.is_ok());
 
         let new_state = result.unwrap();

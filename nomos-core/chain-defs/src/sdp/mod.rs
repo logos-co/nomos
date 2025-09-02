@@ -7,7 +7,7 @@ use bytes::{Bytes, BytesMut};
 use multiaddr::Multiaddr;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::block::BlockNumber;
+use crate::{block::BlockNumber, mantle::NoteId};
 
 pub type StakeThreshold = u64;
 
@@ -48,8 +48,6 @@ pub enum ServiceType {
     BlendNetwork,
     #[serde(rename = "DA")]
     DataAvailability,
-    #[serde(rename = "EX")]
-    ExecutorNetwork,
 }
 
 impl AsRef<str> for ServiceType {
@@ -120,6 +118,7 @@ pub struct DeclarationInfo {
     pub service: ServiceType,
     pub locators: Vec<Locator>,
     pub zk_id: ZkPublicKey,
+    pub locked_note_id: NoteId,
 }
 
 impl DeclarationInfo {
@@ -131,6 +130,7 @@ impl DeclarationInfo {
             service: msg.service_type,
             locators: msg.locators,
             zk_id: msg.zk_id,
+            locked_note_id: msg.locked_note_id,
         }
     }
 }
@@ -161,6 +161,7 @@ pub struct DeclarationMessage {
     pub locators: Vec<Locator>,
     pub provider_id: ProviderId,
     pub zk_id: ZkPublicKey,
+    pub locked_note_id: NoteId,
 }
 
 impl DeclarationMessage {
@@ -170,7 +171,6 @@ impl DeclarationMessage {
         let service = match self.service_type {
             ServiceType::BlendNetwork => "BN",
             ServiceType::DataAvailability => "DA",
-            ServiceType::ExecutorNetwork => "EX",
         };
 
         // From the

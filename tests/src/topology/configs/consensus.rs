@@ -77,6 +77,10 @@ pub fn create_consensus_configs(
             retention_period: 100,
             timestamp: 0,
         },
+        min_stake: nomos_core::sdp::MinStake {
+            threshold: 1,
+            timestamp: 0,
+        },
     };
 
     utxos
