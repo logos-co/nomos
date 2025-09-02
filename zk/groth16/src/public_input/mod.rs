@@ -6,7 +6,7 @@ use ark_bn254::Bn254;
 use ark_bn254::Fr;
 use ark_ec::pairing::Pairing;
 #[cfg(feature = "deser")]
-use ark_ff::Zero;
+use ark_ff::Zero as _;
 
 #[cfg(feature = "deser")]
 pub mod deserialize;

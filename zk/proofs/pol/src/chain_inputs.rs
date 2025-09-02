@@ -1,11 +1,12 @@
 use std::{
-    ops::{Deref as _, Div as _, Sub as _},
+    ops::{Deref as _, Div as _},
+    str::FromStr as _,
     sync::LazyLock,
 };
 
 use groth16::{Fr, Groth16Input, Groth16InputDeser};
 use num_bigint::BigUint;
-use num_traits::Num as _;
+use num_traits::CheckedSub as _;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -104,9 +105,8 @@ impl From<&PolChainInputs> for PolChainInputsJson {
 }
 
 static P: LazyLock<BigUint> = LazyLock::new(|| {
-    BigUint::from_str_radix(
-        "30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001",
-        16,
+    BigUint::from_str(
+        "21888242871839275222246405745257275088548364400416034343698204186575808495617",
     )
     .expect("P must be a valid hex string")
 });
@@ -114,9 +114,8 @@ static P: LazyLock<BigUint> = LazyLock::new(|| {
 // t0 constant :
 // 0x27b6fe27507ca57ca369280400c79b5d2f58ff94d87cb0fbfc8294eb69eb1ea
 static T0_CONSTANT: LazyLock<BigUint> = LazyLock::new(|| {
-    BigUint::from_str_radix(
-        "27b6fe27507ca57ca369280400c79b5d2f58ff94d87cb0fbfc8294eb69eb1ea",
-        16,
+    BigUint::from_str(
+        "1122720085251457488657939587576977282954863756865979276605118041105190793706",
     )
     .expect("Constant must be a valid hex string")
 });
@@ -124,11 +123,8 @@ static T0_CONSTANT: LazyLock<BigUint> = LazyLock::new(|| {
 // t1 constant:
 // -0x104bfd09ebdd0a57772289d0973489b62662a4dc6f09da8b4af3c5cfb1dcdd
 static T1_CONSTANT: LazyLock<BigUint> = LazyLock::new(|| {
-    BigUint::from_str_radix(
-        "104bfd09ebdd0a57772289d0973489b62662a4dc6f09da8b4af3c5cfb1dcdd",
-        16,
-    )
-    .expect("Constant must be a valid hex string")
+    BigUint::from_str("28794005923809446652337194229268641024881242442862297438215833784455126237")
+        .expect("Constant must be a valid hex string")
 });
 
 #[derive(Debug, Error)]
@@ -163,7 +159,9 @@ impl TryFrom<PolChainInputsData> for PolChainInputs {
         let total_stake = BigUint::from(total_stake);
 
         let lottery_0 = T0_CONSTANT.deref().div(total_stake.clone());
-        let lottery_1 = P.deref().sub(T1_CONSTANT.deref().div(total_stake.pow(2)));
+        let lottery_1 = P
+            .checked_sub(&T1_CONSTANT.deref().div(total_stake.pow(2)))
+            .expect("(T1 / (S^2)) must be less than P");
 
         Ok(Self {
             slot_number: Groth16Input::new(slot_number.into()),
@@ -175,5 +173,35 @@ impl TryFrom<PolChainInputsData> for PolChainInputs {
             leader_pk1: pk1.into(),
             leader_pk2: pk2.into(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn constants() {
+        let total_stake = 5000u32;
+        assert_eq!(
+            T0_CONSTANT.to_string(),
+            "1122720085251457488657939587576977282954863756865979276605118041105190793706"
+        );
+        assert_eq!(
+            T1_CONSTANT.to_string(),
+            "28794005923809446652337194229268641024881242442862297438215833784455126237"
+        );
+        let lottery_0: BigUint = T0_CONSTANT.deref().div(total_stake);
+        assert_eq!(
+            lottery_0.to_string(),
+            "224544017050291497731587917515395456590972751373195855321023608221038158"
+        );
+        let lottery_1 = P
+            .checked_sub(&T1_CONSTANT.deref().div(total_stake.pow(2)))
+            .expect("(T1 / (S^2)) must be less than P");
+        assert_eq!(
+            lottery_1.to_string(),
+            "21888242870687514985294027879163787319377618759420784645983712289047175144239"
+        );
     }
 }
