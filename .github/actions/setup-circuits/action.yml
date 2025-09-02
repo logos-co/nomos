@@ -14,6 +14,12 @@ inputs:
 runs:
   using: "composite"
   steps:
+    - name: Normalise OS
+      id: normalise-os
+      shell: bash
+      run:
+        echo "os=$(echo "$RUNNER_OS" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
     - name: Download Circuits
       id: download-circuits
       uses: robinraju/release-downloader@v1
@@ -21,7 +27,7 @@ runs:
         repository: "logos-co/nomos-pocs"
         latest: true
         tag: "circom_circuits-v*"
-        fileName: '*-linux-*.tar.gz'
+        fileName: '*-${{ steps.normalise-os.outputs.os }}-*.tar.gz'
         token: ${{ inputs.github-token }}
         out-file-path: ${{ inputs.download-directory }}
 
