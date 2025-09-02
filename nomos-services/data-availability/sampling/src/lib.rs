@@ -422,14 +422,12 @@ where
         reply_channel: oneshot::Sender<Option<()>>,
         timeout: Duration,
     ) -> Option<BoxFuture<'static, ()>> {
-        // Get the historic events stream
         let Ok(historic_stream) = network_adapter.listen_to_historic_sampling_messages().await
         else {
             let _ = reply_channel.send(None);
             return None;
         };
 
-        // Send the request
         if network_adapter
             .request_historic_sampling(session_id, block_id, blob_ids.clone())
             .await
@@ -439,7 +437,6 @@ where
             return None;
         }
 
-        // Return the waiting future
         let verifier = verifier.clone();
         Some(
             async move {
