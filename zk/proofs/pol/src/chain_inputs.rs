@@ -108,7 +108,7 @@ static P: LazyLock<BigUint> = LazyLock::new(|| {
     BigUint::from_str(
         "21888242871839275222246405745257275088548364400416034343698204186575808495617",
     )
-    .expect("P must be a valid hex string")
+    .expect("P constant should parse")
 });
 
 // t0 constant :
@@ -117,14 +117,14 @@ static T0_CONSTANT: LazyLock<BigUint> = LazyLock::new(|| {
     BigUint::from_str(
         "1122720085251457488657939587576977282954863756865979276605118041105190793706",
     )
-    .expect("Constant must be a valid hex string")
+    .expect("Constant should parse")
 });
 
 // t1 constant:
 // -0x104bfd09ebdd0a57772289d0973489b62662a4dc6f09da8b4af3c5cfb1dcdd
 static T1_CONSTANT: LazyLock<BigUint> = LazyLock::new(|| {
     BigUint::from_str("28794005923809446652337194229268641024881242442862297438215833784455126237")
-        .expect("Constant must be a valid hex string")
+        .expect("Constant should parse")
 });
 
 #[derive(Debug, Error)]

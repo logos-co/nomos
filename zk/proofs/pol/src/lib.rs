@@ -37,13 +37,13 @@ pub enum ProveError {
 /// This function generates a proof for the given set of inputs.
 ///
 /// # Arguments
-/// - `inputs`: A reference to `PolInputs`, which contains the necessary data to
-///   generate the witness and construct the proof.
+/// - `inputs`: A reference to `PolWitnessInputs`, which contains the necessary
+///   data to generate the witness and construct the proof.
 ///
 /// # Returns
-/// - `Ok((PoLProof, PolPublicInputs))`: On success, returns a tuple containing
+/// - `Ok((PoLProof, PolVerifierInput))`: On success, returns a tuple containing
 ///   the generated proof (`PoLProof`) and the corresponding public inputs
-///   (`PolPublicInputs`).
+///   (`PolVerifierInput`).
 /// - `Err(ProveError)`: On failure, returns an error of type `ProveError`,
 ///   which can occur due to I/O errors or JSON (de)serialization errors.
 ///
@@ -74,7 +74,7 @@ pub fn prove(inputs: &PolWitnessInputs) -> Result<(PoLProof, PolVerifierInput), 
 /// # Arguments
 ///
 /// - `proof`: A reference to the proof (`PoLProof`) that needs verification.
-/// - `public_inputs`: A reference to `PolPublicInputs`, which contains the
+/// - `public_inputs`: A reference to `PolVerifierInput`, which contains the
 ///   public inputs against which the proof is verified.
 ///
 /// # Returns
