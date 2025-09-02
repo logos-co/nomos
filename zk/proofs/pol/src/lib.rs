@@ -55,7 +55,7 @@ pub enum ProveError {
 pub fn prove(inputs: &PolWitnessInputs) -> Result<(PoLProof, PolVerifierInput), ProveError> {
     let witness = witness::generate_witness(inputs).map_err(ProveError::Io)?;
     let (proof, verifier_inputs) =
-        circuits_prover::prover_from_contents(*POL_PROVING_KEY_PATH, witness.as_ref())
+        circuits_prover::prover_from_contents(POL_PROVING_KEY_PATH.as_path(), witness.as_ref())
             .map_err(ProveError::Io)?;
     let proof: Groth16ProofJsonDeser = serde_json::from_slice(&proof).map_err(ProveError::Json)?;
     let verifier_inputs: PolVerifierInputJson =
