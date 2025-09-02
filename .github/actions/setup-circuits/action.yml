@@ -1,0 +1,38 @@
+name: Setup Circuits
+
+description: Set up Circom Circuits, Rapidsnark prover and Rapidsnark verifier.
+
+inputs:
+  github-token:
+    description: GitHub token for downloading releases
+    required: true
+  download-directory:
+    description: Directory to download the circuits to
+    required: false
+    default: 'bin/circuits'
+
+runs:
+  using: "composite"
+  steps:
+    - name: Normalise OS
+      id: normalise-os
+      shell: bash
+      run:
+        echo "os=$(echo "$RUNNER_OS" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+    - name: Download Circuits
+      id: download-circuits
+      uses: robinraju/release-downloader@v1
+      with:
+        repository: "logos-co/nomos-pocs"
+        latest: true
+        tag: "circom_circuits-v*"
+        fileName: '*-${{ steps.normalise-os.outputs.os }}-*.tar.gz'
+        token: ${{ inputs.github-token }}
+        out-file-path: ${{ inputs.download-directory }}
+
+    - name: Setup Circuits' Env Vars
+      shell: bash
+      env:
+        DOWNLOADED_FILES: ${{ steps.download-circuits.outputs.downloaded_files }}
+      run: bash "${{ github.action_path }}/add-circuits-env.sh" "${{ inputs.download-directory }}"

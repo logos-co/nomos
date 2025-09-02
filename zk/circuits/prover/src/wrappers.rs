@@ -93,3 +93,100 @@ pub fn prover_from_contents(
     let public = std::fs::read(public_file)?;
     Ok((proof, public))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    static CIRCUIT_ZKEY: LazyLock<PathBuf> = LazyLock::new(|| {
+        let file = PathBuf::from("../witness_generators/pol/resources/tests/pol.zkey");
+        assert!(file.exists(), "Could not find {}.", file.display());
+        file
+    });
+
+    static WITNESS_WTNS: LazyLock<PathBuf> = LazyLock::new(|| {
+        let file = PathBuf::from("../witness_generators/pol/resources/tests/witness.wtns");
+        assert!(file.exists(), "Could not find {}.", file.display());
+        file
+    });
+
+    #[test]
+    fn test_prover() {
+        let circuit_file = CIRCUIT_ZKEY.clone();
+        let witness_file = WITNESS_WTNS.clone();
+        let proof_file = NamedTempFile::new().unwrap();
+        let public_file = NamedTempFile::new().unwrap();
+
+        let result = prover(
+            &circuit_file,
+            &witness_file,
+            &proof_file.path().to_path_buf(),
+            &public_file.path().to_path_buf(),
+        )
+        .unwrap();
+        assert_eq!(
+            result.0,
+            proof_file.path().to_path_buf(),
+            "The proof file path should match the expected path"
+        );
+        assert_eq!(
+            result.1,
+            public_file.path().to_path_buf(),
+            "The public file path should match the expected path"
+        );
+
+        let proof_content = std::fs::read_to_string(proof_file.path()).unwrap();
+        assert!(
+            !proof_content.is_empty(),
+            "The proof file should not be empty"
+        );
+
+        let public_content = std::fs::read_to_string(public_file.path()).unwrap();
+        assert!(
+            !public_content.is_empty(),
+            "The public file should not be empty"
+        );
+    }
+
+    #[test]
+    fn test_prover_invalid_input() {
+        let circuit_file = CIRCUIT_ZKEY.clone();
+        let mut witness_file = NamedTempFile::new().unwrap();
+        witness_file.write_all(b"invalid witness").unwrap();
+        let proof_file = NamedTempFile::new().unwrap();
+        let public_file = NamedTempFile::new().unwrap();
+
+        let result = prover(
+            &circuit_file,
+            &witness_file.path().to_path_buf(),
+            &proof_file.path().to_path_buf(),
+            &public_file.path().to_path_buf(),
+        );
+        assert!(
+            result.is_err(),
+            "Expected prover to fail with invalid input"
+        );
+    }
+
+    #[test]
+    fn test_prover_from_contents() {
+        let circuit_contents = std::fs::read(&*CIRCUIT_ZKEY).unwrap();
+        let witness_contents = std::fs::read(&*WITNESS_WTNS).unwrap();
+
+        let (proof, public) = prover_from_contents(&circuit_contents, &witness_contents).unwrap();
+        assert!(!proof.is_empty(), "The proof should not be empty");
+        assert!(!public.is_empty(), "The public inputs should not be empty");
+    }
+
+    #[test]
+    fn test_prover_from_contents_invalid() {
+        let invalid_circuit_contents = b"invalid circuit";
+        let invalid_witness_contents = b"invalid witness";
+
+        let result = prover_from_contents(invalid_circuit_contents, invalid_witness_contents);
+        assert!(
+            result.is_err(),
+            "Expected prover_from_contents to fail with invalid input"
+        );
+    }
+}
