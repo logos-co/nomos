@@ -150,10 +150,6 @@ where
     SamplingStorage: DaStorageAdapter<RuntimeServiceId, Share = DaShare> + Send + Sync,
     ShareVerifier: VerifierBackend<DaShare = DaShare> + Send + Sync + Clone + 'static,
 {
-    #[expect(
-        clippy::needless_pass_by_ref_mut,
-        reason = "FuturesUnordered needs to be send and sync"
-    )]
     #[instrument(skip_all)]
     async fn handle_service_message(
         msg: <Self as ServiceData>::Message,
@@ -449,6 +445,19 @@ where
                                 shares,
                                 commitments,
                             } if received_block_id == block_id => {
+                                let requested = blob_ids;
+                                if shares.len() != requested.len()
+                                    || commitments.len() != requested.len()
+                                {
+                                    return false;
+                                }
+                                if !requested
+                                    .iter()
+                                    .all(|b| shares.contains_key(b) && commitments.contains_key(b))
+                                {
+                                    return false;
+                                }
+
                                 // Verify all shares
                                 for (blob_id, blob_shares) in &shares {
                                     if let Some(blob_commitments) = commitments.get(blob_id) {
