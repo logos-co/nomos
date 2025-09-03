@@ -94,7 +94,7 @@ async fn test_sampling_scenarios(executor: &Executor, blob_ids: &[BlobId]) {
     let invalid_future = async {
         let block_id = [1u8; 32];
         let mut mixed_blob_ids = blob_ids.to_vec();
-        mixed_blob_ids[0] = [99u8; 32].into();
+        mixed_blob_ids[0] = [99u8; 32];
 
         let result = executor
             .da_historic_sampling(0, block_id.into(), mixed_blob_ids)
