@@ -156,6 +156,8 @@ async fn perform_dissemination_tests(executor: &Executor) {
             .await
             .unwrap();
 
+        tokio::time::sleep(Duration::from_secs(20)).await;
+
         if !onchain {
             wait_for_blob_onchain(executor, blob_id).await;
             onchain = true;

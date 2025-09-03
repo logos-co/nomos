@@ -1,6 +1,7 @@
 use std::{
     fmt::{Debug, Display},
     marker::PhantomData,
+    sync::Arc,
     time::Duration,
 };
 
@@ -115,7 +116,8 @@ where
         + 'static,
     Backend: DispersalBackend<NetworkAdapter = NetworkAdapter, WalletAdapter = WalletAdapter>
         + Send
-        + Sync,
+        + Sync
+        + 'static,
     Backend::Settings: Clone + Send + Sync,
     Backend::BlobId: Serialize,
     NetworkAdapter: DispersalNetworkAdapter<SubnetworkId = Membership::NetworkId> + Send,
@@ -173,16 +175,21 @@ where
         )
         .await?;
 
+        let backend = Arc::new(backend);
+
         while let Some(dispersal_msg) = inbound_relay.recv().await {
             match dispersal_msg {
                 DaDispersalMsg::Disperse {
                     data,
                     reply_channel,
                 } => {
-                    let response = backend.process_dispersal(data).await;
-                    if let Err(Err(e)) = reply_channel.send(response) {
-                        error!("Error forwarding dispersal response: {e}");
-                    }
+                    let backend = Arc::clone(&backend);
+                    tokio::spawn(async move {
+                        let response = backend.process_dispersal(data).await;
+                        if let Err(Err(e)) = reply_channel.send(response) {
+                            error!("Error forwarding dispersal response: {e}");
+                        }
+                    });
                 }
             }
         }
