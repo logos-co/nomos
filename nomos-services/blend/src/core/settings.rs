@@ -76,7 +76,7 @@ where
     NodeId: Eq + Hash + Clone,
 {
     pub(super) fn membership(&self) -> Membership<NodeId> {
-        let local_signing_pubkey = self.crypto.signing_private_key.public_key();
+        let local_signing_pubkey = self.crypto.non_ephemeral_signing_key.public_key();
         Membership::new(&self.membership, Some(&local_signing_pubkey))
     }
 }

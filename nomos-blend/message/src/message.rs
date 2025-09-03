@@ -1,3 +1,4 @@
+use nomos_core::crypto::ZkHash;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, Bytes};
 
@@ -81,7 +82,7 @@ impl BlendingHeader {
         let r1 = pseudo_random_sized_bytes::<KEY_SIZE>(&concat(key, &[1]));
         let r2 = pseudo_random_sized_bytes::<PROOF_OF_QUOTA_SIZE>(&concat(key, &[2]));
         let r3 = pseudo_random_sized_bytes::<SIGNATURE_SIZE>(&concat(key, &[3]));
-        let r4 = pseudo_random_sized_bytes::<PROOF_OF_SELECTION_SIZE>(&concat(key, &[4]));
+        let _r4 = pseudo_random_sized_bytes::<PROOF_OF_SELECTION_SIZE>(&concat(key, &[4]));
         Self {
             // Unlike the spec, derive a private key from random bytes
             // and then derive the public key from it
@@ -90,7 +91,7 @@ impl BlendingHeader {
             signing_pubkey: Ed25519PrivateKey::from(r1).public_key(),
             proof_of_quota: ProofOfQuota::from(r2),
             signature: Signature::from(r3),
-            proof_of_selection: ProofOfSelection::from(r4),
+            proof_of_selection: ProofOfSelection::from(ZkHash::default()),
             is_last: false,
         }
     }

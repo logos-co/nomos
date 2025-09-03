@@ -150,7 +150,7 @@ where
             overwatch_handle
                 .relay::<<MembershipAdapter as membership::Adapter>::Service>()
                 .await?,
-            blend_config.crypto.signing_private_key.public_key(),
+            blend_config.crypto.non_ephemeral_signing_key.public_key(),
         );
         let mut _session_stream = SessionEventStream::new(
             membership_adapter.subscribe().await?,

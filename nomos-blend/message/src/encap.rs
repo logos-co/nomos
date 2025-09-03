@@ -48,7 +48,7 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
             |(part, signing_key, proof_of_quota), (i, input)| {
                 (
                     part.encapsulate(
-                        &input.shared_key,
+                        &input.ephemeral_encryption_key,
                         &signing_key,
                         proof_of_quota,
                         input.proof_of_selection.clone(),
@@ -319,7 +319,7 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPrivateHeader<ENCAPSULATION_C
         Self(
             inputs
                 .iter()
-                .map(|input| Some(&input.shared_key))
+                .map(|input| Some(&input.ephemeral_encryption_key))
                 .chain(repeat_n(None, inputs.num_empty_slots()))
                 .rev()
                 .map(|rng_key| {
@@ -334,9 +334,11 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPrivateHeader<ENCAPSULATION_C
                             // (inclusive).
                             inputs
                                 .iter()
-                                .take_while_inclusive(|&input| &input.shared_key != rng_key)
+                                .take_while_inclusive(|&input| {
+                                    &input.ephemeral_encryption_key != rng_key
+                                })
                                 .for_each(|input| {
-                                    header.encapsulate(&input.shared_key);
+                                    header.encapsulate(&input.ephemeral_encryption_key);
                                 });
                             header
                         },

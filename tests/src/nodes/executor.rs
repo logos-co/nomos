@@ -352,7 +352,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
         blend: BlendConfig::new(nomos_blend_service::core::settings::BlendConfig {
             backend: config.blend_config.backend,
             crypto: CryptographicProcessorSettings {
-                signing_private_key: config.blend_config.private_key.clone(),
+                non_ephemeral_signing_key: config.blend_config.private_key.clone(),
                 num_blend_layers: 1,
             },
             time: TimingSettings {

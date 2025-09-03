@@ -1,15 +1,14 @@
+use nomos_core::crypto::ZkHash;
 use serde::{Deserialize, Serialize};
 
 use crate::crypto::keys::Ed25519PublicKey;
 
 pub const PROOF_OF_QUOTA_SIZE: usize = 160;
 
-pub type ZkHash = [u8; 32];
-
 pub struct PublicInputs {
     pub session_number: u64,
-    pub core_quota: u64,
-    pub leader_quota: u64,
+    pub core_quota: usize,
+    pub leader_quota: usize,
     pub core_root: ZkHash,
     pub signing_key: Ed25519PublicKey,
     pub pol_epoch_nonce: u64,
@@ -84,9 +83,9 @@ impl ProofOfQuota {
     }
 
     #[must_use]
-    pub fn new(_public_inputs: PublicInputs, _private_inputs: PrivateInputs) -> Self {
+    pub fn new(_public_inputs: PublicInputs, _private_inputs: PrivateInputs) -> (Self, ZkHash) {
         // TODO: Interact with circom circuit generation.
-        Self::dummy()
+        (Self::dummy(), ZkHash::default())
     }
 
     pub fn verify(self, _public_inputs: &PublicInputs) -> Result<ZkHash, ()> {

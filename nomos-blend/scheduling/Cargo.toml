@@ -11,6 +11,7 @@ workspace = true
 derivative          = "2"
 fork_stream         = { workspace = true }
 futures             = { default-features = false, version = "0.3" }
+groth16             = { workspace = true }
 hex                 = { default-features = false, version = "0.4" }
 multiaddr           = { default-features = false, version = "0.18" }
 nomos-blend-message = { workspace = true }

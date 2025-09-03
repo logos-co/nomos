@@ -44,7 +44,7 @@ pub struct EncapsulationInput {
     /// A shared key derived from the ephemeral encryption key and
     /// the selected blend node's non-ephemeral encryption key.
     /// Encryption keys are derived from the signing keys.
-    pub(crate) shared_key: SharedKey,
+    pub(crate) ephemeral_encryption_key: SharedKey,
     /// A proof of quota for the encapsulation.
     pub(crate) proof_of_quota: ProofOfQuota,
     /// A proof of selection of the selected blend node.
@@ -63,12 +63,12 @@ impl EncapsulationInput {
         proof_of_quota: ProofOfQuota,
         proof_of_selection: ProofOfSelection,
     ) -> Self {
-        let shared_key = signing_key
+        let ephemeral_encryption_key = signing_key
             .derive_x25519()
             .derive_shared_key(&blend_node_signing_key.derive_x25519());
         Self {
             signing_key,
-            shared_key,
+            ephemeral_encryption_key,
             proof_of_quota,
             proof_of_selection,
         }
