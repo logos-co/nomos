@@ -10,7 +10,7 @@ use libp2p::{
     PeerId, Swarm,
 };
 use libp2p_swarm_test::SwarmExt as _;
-use nomos_blend_message::crypto::Ed25519PrivateKey;
+use nomos_blend_message::crypto::keys::Ed25519PrivateKey;
 use nomos_blend_network::{
     core::{
         with_core::behaviour::{Config as CoreToCoreConfig, IntervalStreamProvider},

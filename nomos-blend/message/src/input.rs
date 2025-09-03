@@ -1,5 +1,8 @@
 use crate::{
-    crypto::{Ed25519PrivateKey, Ed25519PublicKey, ProofOfQuota, ProofOfSelection, SharedKey},
+    crypto::{
+        keys::{Ed25519PrivateKey, Ed25519PublicKey, SharedKey},
+        proofs::{quota::ProofOfQuota, selection::ProofOfSelection},
+    },
     error::Error,
 };
 

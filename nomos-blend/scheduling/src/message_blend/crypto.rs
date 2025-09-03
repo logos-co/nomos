@@ -2,7 +2,10 @@ use std::hash::Hash;
 
 use derivative::Derivative;
 use nomos_blend_message::{
-    crypto::{Ed25519PrivateKey, ProofOfQuota, ProofOfSelection, X25519PrivateKey},
+    crypto::{
+        keys::{Ed25519PrivateKey, X25519PrivateKey},
+        proofs::{quota::ProofOfQuota, selection::ProofOfSelection},
+    },
     encap::{
         DecapsulationOutput as InternalDecapsulationOutput,
         EncapsulatedMessage as InternalEncapsulatedMessage,

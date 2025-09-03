@@ -4,7 +4,7 @@ use std::{
 };
 
 use multiaddr::Multiaddr;
-use nomos_blend_message::crypto::Ed25519PublicKey;
+use nomos_blend_message::crypto::keys::Ed25519PublicKey;
 use rand::{
     seq::{IteratorRandom as _, SliceRandom as _},
     Rng,
@@ -110,7 +110,7 @@ impl<NodeId> Membership<NodeId> {
 
 #[cfg(test)]
 mod tests {
-    use nomos_blend_message::crypto::Ed25519PrivateKey;
+    use nomos_blend_message::crypto::keys::Ed25519PrivateKey;
     use rand::rngs::OsRng;
 
     use super::*;

@@ -7,8 +7,10 @@ use serde_big_array::BigArray;
 
 use crate::{
     crypto::{
-        random_sized_bytes, Ed25519PrivateKey, Ed25519PublicKey, ProofOfQuota, ProofOfSelection,
-        SharedKey, Signature, X25519PrivateKey,
+        keys::{Ed25519PrivateKey, Ed25519PublicKey, SharedKey, X25519PrivateKey},
+        proofs::{quota::ProofOfQuota, selection::ProofOfSelection},
+        random_sized_bytes,
+        signatures::Signature,
     },
     error::Error,
     input::EncapsulationInputs,

@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use futures::{select, Stream, StreamExt as _};
 use libp2p::{identity::Keypair, Multiaddr, PeerId, Swarm};
 use libp2p_swarm_test::SwarmExt as _;
-use nomos_blend_message::crypto::Ed25519PrivateKey;
+use nomos_blend_message::crypto::keys::Ed25519PrivateKey;
 use nomos_blend_scheduling::membership::{Membership, Node};
 use nomos_libp2p::{NetworkBehaviour, SwarmEvent};
 use tokio::time::interval;
