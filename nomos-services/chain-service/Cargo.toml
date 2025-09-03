@@ -42,7 +42,7 @@ utoipa                 = { optional = true, workspace = true }
 kzgrs-backend = { workspace = true }
 nomos-network = { features = ["mock"], workspace = true }
 nomos-storage = { features = ["rocksdb-backend"], workspace = true }
-tempfile      = { default-features = false, version = "3" }
+tempfile      = { workspace = true }
 
 [features]
 default = []

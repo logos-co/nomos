@@ -101,14 +101,193 @@ pub fn find_file_in_path(file_name: &str) -> Option<PathBuf> {
 /// # Returns
 ///
 /// An `Option<PathBuf>` that contains the path to the file if found.
+// TODO: Calculate crate-relative bin here so we can use it for error messages.
 pub fn find_file(file_name: &str, environment_variable: &str) -> Result<PathBuf, String> {
-    let file = find_file_in_environment_variable(environment_variable, file_name)
+    let file = find_file_in_environment_variable(file_name, environment_variable)
         .or_else(|| find_file_in_path(file_name))
         .or_else(|| find_file_in_crate_bin(file_name));
 
     file.ok_or_else(||
         format!(
-            "File '{file_name}' could not be found in the crate-relative 'bin/' directory, environment variable ({environment_variable}), or system PATH.",
+            "File '{file_name}' could not be found in the environment variable ({environment_variable}), crate-relative 'bin/' directory, or system PATH."
         )
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_find_file_in_directory() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let file_name = "file";
+        let file_path = temp_dir.path().join(file_name);
+        std::fs::write(&file_path, "content").unwrap();
+
+        assert_eq!(
+            find_file_in_directory(temp_dir.path(), file_name),
+            Some(file_path)
+        );
+        assert_eq!(
+            find_file_in_directory(temp_dir.path(), "non_existent_file"),
+            None
+        );
+    }
+
+    #[test]
+    fn test_find_file_in_crate_bin() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let file_name = "file";
+
+        temp_env::with_vars([(CARGO_MANIFEST_DIR, temp_dir.path().to_str())], || {
+            let bin_dir = temp_dir.path().join(CRATE_RELATIVE_BIN_PATH);
+            std::fs::create_dir_all(&bin_dir).unwrap();
+            let file_path = bin_dir.join(file_name);
+            std::fs::write(&file_path, "content").unwrap();
+
+            assert_eq!(find_file_in_crate_bin(file_name), Some(file_path));
+        });
+
+        let temp_dir_no_bin = tempfile::tempdir().unwrap();
+        temp_env::with_vars(
+            [(CARGO_MANIFEST_DIR, temp_dir_no_bin.path().to_str())],
+            || {
+                assert_eq!(find_file_in_crate_bin("non_existent_file"), None);
+            },
+        );
+    }
+
+    #[test]
+    fn test_find_file_in_environment_variable() {
+        let env_var_name = "TEST_ENV_VAR";
+        let file_name = "file";
+        let temp_dir = tempfile::tempdir().unwrap();
+        let file_path = temp_dir.path().join(file_name);
+        std::fs::write(&file_path, "content").unwrap();
+
+        // Env var points to a directory: should look for the file within that directory
+        temp_env::with_vars([(env_var_name, temp_dir.path().to_str())], || {
+            assert_eq!(
+                find_file_in_environment_variable(file_name, env_var_name),
+                Some(file_path.clone())
+            );
+            assert_eq!(
+                find_file_in_environment_variable("non_existent_file", env_var_name),
+                None
+            );
+        });
+
+        // Env var points to an existing file: should return that file regardless of the
+        // file name provided
+        temp_env::with_vars([(env_var_name, file_path.clone().to_str())], || {
+            assert_eq!(
+                find_file_in_environment_variable(file_name, env_var_name),
+                Some(file_path.clone())
+            );
+            assert_eq!(
+                find_file_in_environment_variable("non_existent_file", env_var_name),
+                Some(file_path)
+            );
+        });
+
+        // Env var points to a non-existent path: should return None
+        let non_existent_path = temp_dir.path().join("non_existent");
+        temp_env::with_vars([(env_var_name, Some(non_existent_path))], || {
+            assert_eq!(
+                find_file_in_environment_variable(file_name, env_var_name),
+                None
+            );
+        });
+    }
+
+    #[test]
+    fn test_find_file_in_path() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let file_path = temp_dir.path().join("file_with_unusual_name");
+        std::fs::write(&file_path, "content").unwrap();
+
+        let original_path = std::env::var_os(PATH_ENV_VAR).unwrap_or_default();
+        let new_path = std::env::join_paths(
+            std::env::split_paths(&original_path).chain([temp_dir.path().to_path_buf()]),
+        )
+        .expect("Could not join paths");
+
+        temp_env::with_vars([(PATH_ENV_VAR, new_path.to_str())], || {
+            assert_eq!(find_file_in_path("file_with_unusual_name"), Some(file_path));
+            assert_eq!(find_file_in_path("non_existent_file"), None);
+        });
+    }
+
+    /// Comprehensive test for [`find_file`] function, checking all search
+    /// locations in order.
+    ///
+    /// This test configures the environment incrementally to ensure that the
+    /// function correctly prioritises the search locations, from highest to
+    /// lowest priority:
+    /// 1. Environment variable pointing to the file directly.
+    /// 2. System PATH.
+    /// 3. Crate-relative `bin/` directory.
+    /// 4. Failure to find the file in any location.
+    ///
+    /// The test doesn't check what internal function
+    /// was used to find the file, but implicitly trusts that if the file is
+    /// found, it was found in the correct location due to the order of
+    /// environment setup.
+    #[test]
+    fn test_find_file() {
+        let env_var_name = "TEST_ENV_VAR_FOR_FIND_FILE";
+        let file_name = "file_with_unusual_name";
+        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir_path = temp_dir.path();
+        let file_path = temp_dir.path().join(file_name);
+        std::fs::write(&file_path, "content").unwrap();
+
+        // Set up the crate's bin directory environment (while keeping env var and PATH
+        // unset)
+        temp_env::with_vars([(CARGO_MANIFEST_DIR, temp_dir_path.to_str())], || {
+            let bin_dir = temp_dir_path.join(CRATE_RELATIVE_BIN_PATH);
+            std::fs::create_dir_all(&bin_dir).unwrap();
+            let bin_file_path = bin_dir.join(file_name);
+            std::fs::write(&bin_file_path, "content").unwrap();
+            assert_eq!(find_file(file_name, env_var_name).unwrap(), bin_file_path);
+
+            // Set up the system PATH environment (while keeping the crate's bin directory
+            // in PATH)
+            let original_path = std::env::var_os(PATH_ENV_VAR).unwrap_or_default();
+            let new_path = std::env::join_paths(
+                std::env::split_paths(&original_path).chain([temp_dir_path.to_path_buf()]),
+            )
+            .expect("Could not join paths");
+            let path_file_path = temp_dir_path.join(file_name);
+            temp_env::with_vars([(PATH_ENV_VAR, new_path.to_str())], || {
+                assert_eq!(
+                    find_file(file_name, env_var_name).unwrap(),
+                    path_file_path.clone()
+                );
+
+                // Set up the environment variable environment (while keeping PATH and crate's
+                // bin directory intact)
+                temp_env::with_vars([(env_var_name, file_path.to_str())], || {
+                    assert_eq!(
+                        find_file(file_name, env_var_name).unwrap(),
+                        file_path.clone()
+                    );
+                });
+            });
+        });
+
+        // File could not be found anywhere
+        temp_env::with_vars(
+            [
+                (env_var_name, Option::<&str>::None),
+                (CARGO_MANIFEST_DIR, None),
+            ],
+            || {
+                let file = find_file("non_existent_file", env_var_name);
+                assert!(file.is_err());
+                assert!(file.unwrap_err().contains("could not be found"));
+            },
+        );
+    }
 }
