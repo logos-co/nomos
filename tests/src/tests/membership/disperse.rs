@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, time::Duration};
 
 use futures::StreamExt as _;
 use kzgrs_backend::dispersal::Index;
@@ -30,6 +30,9 @@ async fn update_membership_and_disseminate() {
 
     update_all_validators(&topology, &finalize_block_event).await;
     update_all_executors(&topology, &finalize_block_event).await;
+
+    // Wait for nodes to initialise
+    tokio::time::sleep(Duration::from_secs(5)).await;
 
     perform_dissemination_tests(&topology.executors()[0]).await;
 }
