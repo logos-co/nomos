@@ -30,18 +30,6 @@ pub fn groth16_batch_verify(
         .iter()
         .sum();
 
-    let pis_a : Vec<G1Affine> = proofs
-        .iter()
-        .map(|proof| {
-            proof.pi_a
-        })
-        .collect();
-    let pis_b : Vec<G2Affine> = proofs
-        .iter()
-        .map(|proof| {
-            proof.pi_b
-        })
-        .collect();
     let pis_c : Vec<G1Affine> = proofs
         .iter()
         .map(|proof| {
@@ -49,8 +37,6 @@ pub fn groth16_batch_verify(
         })
         .collect();
 
-    let batched_pi_a = G1Projective::msm(&pis_a,&r_roots).unwrap().into_affine();
-    let batched_pi_b = G2Projective::msm(&pis_b,&r_roots).unwrap().into_affine();
     let batched_pi_c = G1Projective::msm(&pis_c,&r_roots).unwrap().into_affine();
 
     let batched_public_inputs : Vec<Fr> = std::iter::once(r_sum)
@@ -59,23 +45,23 @@ pub fn groth16_batch_verify(
 
     let batched_ic = G1Projective::msm(&vk.vk.vk.gamma_abc_g1,&batched_public_inputs).unwrap().into_affine();
 
-    let qap = Bn254::multi_miller_loop(
-        [
-            batched_pi_a,
-            batched_ic.into(),
-            batched_pi_c.into(),
-            vk.vk.vk.alpha_g1.mul(r_sum).into(),
-        ],
-        [
-            batched_pi_b.into(),
-            vk.vk.gamma_g2_neg_pc.clone(),
-            vk.vk.delta_g2_neg_pc.clone(),
-            vk.vk.vk.beta_g2.neg().into(),
-        ],
-    );
+    let mut g1_terms: Vec<_> = Vec::with_capacity(proofs.len() + 3);
+    let mut g2_terms: Vec<_> = Vec::with_capacity(proofs.len() + 3);
+
+    for (i, proof) in proofs.iter().enumerate() {
+        g1_terms.push(proof.pi_a.mul(r_roots[i]).into_affine());
+        g2_terms.push(proof.pi_b.into());
+    }
+    g1_terms.push(vk.vk.vk.alpha_g1.mul(r_sum).neg().into());
+    g2_terms.push(vk.vk.vk.beta_g2.into());
+    g1_terms.push(batched_ic);
+    g2_terms.push(vk.vk.gamma_g2_neg_pc.clone());
+    g1_terms.push(batched_pi_c);
+    g2_terms.push(vk.vk.delta_g2_neg_pc.clone());
+
+    let qap = Bn254::multi_miller_loop(g1_terms,g2_terms);
 
     let test = Bn254::final_exponentiation(qap).unwrap();
-
     test.0.is_one()
 }
 
