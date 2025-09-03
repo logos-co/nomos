@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    cell::LazyCell,
+    path::{Path, PathBuf},
+};
 
 const CARGO_MANIFEST_DIR: &str = "CARGO_MANIFEST_DIR";
 const CRATE_RELATIVE_BIN_PATH: &str = "bin";
@@ -18,23 +21,6 @@ const PATH_ENV_VAR: &str = "PATH";
 pub fn find_file_in_directory(directory: &Path, file_name: &str) -> Option<PathBuf> {
     let path = directory.join(file_name);
     path.is_file().then_some(path)
-}
-
-/// Find a file in the crate's bin directory
-///
-/// # Arguments
-///
-/// * `file_name` - The name of the file to find.
-///
-/// # Returns
-///
-/// An `Option<PathBuf>` that contains the path to the file if found.
-#[must_use]
-pub fn find_file_in_crate_bin(file_name: &str) -> Option<PathBuf> {
-    let crate_bin_path = std::env::var(CARGO_MANIFEST_DIR)
-        .ok()
-        .map(|dir| PathBuf::from(dir).join(CRATE_RELATIVE_BIN_PATH))?;
-    find_file_in_directory(&crate_bin_path, file_name)
 }
 
 /// Find a file in an environment variable.
@@ -101,17 +87,32 @@ pub fn find_file_in_path(file_name: &str) -> Option<PathBuf> {
 /// # Returns
 ///
 /// An `Option<PathBuf>` that contains the path to the file if found.
-// TODO: Calculate crate-relative bin here so we can use it for error messages.
 pub fn find_file(file_name: &str, environment_variable: &str) -> Result<PathBuf, String> {
+    let crate_bin = LazyCell::new(|| {
+        std::env::var(CARGO_MANIFEST_DIR)
+            .map(|dir| PathBuf::from(dir).join(CRATE_RELATIVE_BIN_PATH))
+    });
+
     let file = find_file_in_environment_variable(file_name, environment_variable)
         .or_else(|| find_file_in_path(file_name))
-        .or_else(|| find_file_in_crate_bin(file_name));
+        .or_else(|| {
+            let crate_bin = crate_bin.as_ref().ok()?;
+            find_file_in_directory(crate_bin, file_name)
+        });
 
-    file.ok_or_else(||
+    file.ok_or_else(|| {
+        let display_crate_bin = crate_bin
+            .as_ref()
+            .ok()
+            .map_or_else(
+                || "<CARGO_MANIFEST_DIR not set>".to_owned(),
+                |path| path.to_string_lossy().into_owned()
+            );
+
         format!(
-            "File '{file_name}' could not be found in the environment variable ({environment_variable}), crate-relative 'bin/' directory, or system PATH."
+            "File '{file_name}' could not be found in the environment variable ({environment_variable}), crate-relative 'bin/' directory ({display_crate_bin}), or system PATH."
         )
-    )
+    })
 }
 
 #[cfg(test)]
@@ -132,29 +133,6 @@ mod tests {
         assert_eq!(
             find_file_in_directory(temp_dir.path(), "non_existent_file"),
             None
-        );
-    }
-
-    #[test]
-    fn test_find_file_in_crate_bin() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let file_name = "file";
-
-        temp_env::with_vars([(CARGO_MANIFEST_DIR, temp_dir.path().to_str())], || {
-            let bin_dir = temp_dir.path().join(CRATE_RELATIVE_BIN_PATH);
-            std::fs::create_dir_all(&bin_dir).unwrap();
-            let file_path = bin_dir.join(file_name);
-            std::fs::write(&file_path, "content").unwrap();
-
-            assert_eq!(find_file_in_crate_bin(file_name), Some(file_path));
-        });
-
-        let temp_dir_no_bin = tempfile::tempdir().unwrap();
-        temp_env::with_vars(
-            [(CARGO_MANIFEST_DIR, temp_dir_no_bin.path().to_str())],
-            || {
-                assert_eq!(find_file_in_crate_bin("non_existent_file"), None);
-            },
         );
     }
 
@@ -278,16 +256,8 @@ mod tests {
         });
 
         // File could not be found anywhere
-        temp_env::with_vars(
-            [
-                (env_var_name, Option::<&str>::None),
-                (CARGO_MANIFEST_DIR, None),
-            ],
-            || {
-                let file = find_file("non_existent_file", env_var_name);
-                assert!(file.is_err());
-                assert!(file.unwrap_err().contains("could not be found"));
-            },
-        );
+        let file = find_file("non_existent_file", env_var_name);
+        assert!(file.is_err());
+        assert!(file.unwrap_err().contains("could not be found"));
     }
 }
