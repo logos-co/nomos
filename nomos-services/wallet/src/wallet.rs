@@ -122,15 +122,15 @@ impl Wallet {
         // we want to consume small valued notes first to keep our wallet tidy
         utxos.sort_by_key(|utxo| utxo.note.value);
 
-        let mut index = 0;
         let mut selected_utxos = Vec::new();
         let mut selected_amount = 0;
 
-        while selected_amount < amount && index < utxos.len() {
-            let utxo = utxos[index];
+        for utxo in utxos {
             selected_utxos.push(utxo);
             selected_amount += utxo.note.value;
-            index += 1;
+            if selected_amount >= amount {
+                break;
+            }
         }
 
         if selected_amount < amount {
@@ -143,23 +143,26 @@ impl Wallet {
             //      added the 3 NMO note and then then 4 NMO note to the selected utxos list.
             //
             //      The 4 NMO note alone would have satisfied the request, the 3 NMO note is
-            //      redundant and would be returned as change.
+            //      redundant and would be returned as change in a transaction.
             //
             // To resolve this, we remove as many of the smallest notes as we can while still
             // keep us above the requested amount.
 
             // Remove redundant small notes from the beginning while maintaining enough value
-            while !selected_utxos.is_empty() {
-                let smallest_value = selected_utxos[0].note.value;
-                if selected_amount - smallest_value >= amount {
-                    // We can afford to remove this small note
-                    selected_utxos.remove(0);
-                    selected_amount -= smallest_value;
+            let mut skip_count = 0;
+            let mut temp_amount = selected_amount;
+
+            for utxo in &selected_utxos {
+                if temp_amount - utxo.note.value >= amount {
+                    temp_amount -= utxo.note.value;
+                    skip_count += 1;
                 } else {
-                    // Removing this note would put us below the required amount
                     break;
                 }
             }
+
+            // Remove the redundant notes from the beginning
+            selected_utxos.drain(..skip_count);
 
             Ok(Some(selected_utxos))
         }
