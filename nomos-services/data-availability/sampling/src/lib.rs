@@ -74,7 +74,7 @@ pub enum DaSamplingServiceMsg<BlobId> {
         session_id: SessionNumber,
         block_id: HeaderId,
         blob_ids: HashSet<BlobId>,
-        reply_channel: oneshot::Sender<Option<()>>,
+        reply_channel: oneshot::Sender<bool>,
     },
 }
 
@@ -415,12 +415,12 @@ where
         session_id: SessionNumber,
         block_id: HeaderId,
         blob_ids: HashSet<BlobId>,
-        reply_channel: oneshot::Sender<Option<()>>,
+        reply_channel: oneshot::Sender<bool>,
         timeout: Duration,
     ) -> Option<BoxFuture<'static, ()>> {
         let Ok(historic_stream) = network_adapter.listen_to_historic_sampling_messages().await
         else {
-            let _ = reply_channel.send(None);
+            let _ = reply_channel.send(false);
             return None;
         };
 
@@ -429,7 +429,7 @@ where
             .await
             .is_err()
         {
-            let _ = reply_channel.send(None);
+            let _ = reply_channel.send(false);
             return None;
         }
 
@@ -487,7 +487,7 @@ where
                 .await
                 .unwrap_or(false);
 
-                let _ = reply_channel.send(result.then_some(()));
+                let _ = reply_channel.send(result);
             }
             .boxed(),
         )
