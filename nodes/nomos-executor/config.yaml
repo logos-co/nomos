@@ -181,6 +181,7 @@ cryptarchia:
       timestamp: 0
   genesis_id: 0x0000000000000000000000000000000000000000000000000000000000000000
   genesis_state:
+    block_number: 0
     cryptarchia_ledger:
       utxos:
         0:

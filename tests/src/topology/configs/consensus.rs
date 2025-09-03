@@ -60,7 +60,7 @@ pub fn create_consensus_configs(
             output_index: 0,
         })
         .collect::<Vec<_>>();
-    let genesis_state = LedgerState::from_utxos(utxos.clone());
+    let genesis_state = LedgerState::from_utxos(0, utxos.clone());
     let ledger_config = nomos_ledger::Config {
         epoch_config: EpochConfig {
             epoch_stake_distribution_stabilization: NonZero::new(3).unwrap(),

@@ -386,7 +386,6 @@ pub mod tests {
             id,
             parent,
             slot,
-            0,
             &proof,
             std::iter::empty::<&SignedMantleTx>(),
         )?;
@@ -487,6 +486,7 @@ pub mod tests {
 
     fn full_ledger_state(cryptarchia_ledger: LedgerState) -> crate::LedgerState {
         crate::LedgerState {
+            block_number: 0,
             cryptarchia_ledger,
             mantle_ledger: crate::mantle::LedgerState::default(),
         }
