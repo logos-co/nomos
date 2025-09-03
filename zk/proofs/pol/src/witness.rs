@@ -1,5 +1,6 @@
 use crate::{PolWitnessInputs, inputs::PolInputsJson};
 
+/// Witness of the circuit.
 pub struct Witness(Vec<u8>);
 
 impl Witness {
