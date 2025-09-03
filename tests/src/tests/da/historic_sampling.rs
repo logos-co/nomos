@@ -78,29 +78,36 @@ async fn update_all_nodes(topology: &Topology, event: FinalizedBlockEvent) {
 async fn test_sampling_scenarios(executor: &Executor, blob_ids: &[BlobId]) {
     let block_id = [0u8; 32];
 
-    // todo: add more complex cases with multiple sessions
-    let result = executor
-        .da_historic_sampling(0, block_id.into(), blob_ids.to_vec())
-        .await
-        .expect("HTTP request should succeed");
-    assert!(
-        result,
-        "Historical sampling should return true for session 0 where data exists"
-    );
+    // Test 1: Valid blobs
+    let valid_future = async {
+        let result = executor
+            .da_historic_sampling(0, block_id.into(), blob_ids.to_vec())
+            .await
+            .expect("HTTP request should succeed");
+        assert!(
+            result,
+            "Historical sampling should return true for session 0 where data exists"
+        );
+    };
 
-    // Test 2: Mix of valid and invalid blobs - should return false
-    let mut mixed_blob_ids = blob_ids.to_vec();
-    // Replace one blob ID with a non-existent one
-    mixed_blob_ids[0] = [99u8; 32];
+    // Test 2: Mixed valid/invalid blobs
+    let invalid_future = async {
+        let block_id = [1u8; 32];
+        let mut mixed_blob_ids = blob_ids.to_vec();
+        mixed_blob_ids[0] = [99u8; 32].into();
 
-    let result = executor
-        .da_historic_sampling(0, block_id.into(), mixed_blob_ids)
-        .await
-        .expect("HTTP request should succeed");
-    assert!(
-        !result,
-        "Historical sampling should return false when any blob is invalid"
-    );
+        let result = executor
+            .da_historic_sampling(0, block_id.into(), mixed_blob_ids)
+            .await
+            .expect("HTTP request should succeed");
+        assert!(
+            !result,
+            "Historical sampling should return false when any blob is invalid"
+        );
+    };
+
+    // Run both tests concurrently
+    tokio::join!(valid_future, invalid_future);
 }
 
 fn create_test_metadata() -> kzgrs_backend::dispersal::Metadata {
