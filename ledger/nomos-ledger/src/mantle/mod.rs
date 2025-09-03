@@ -71,7 +71,8 @@ impl LedgerState {
         }
     }
 
-    pub fn locked_notes(&self) -> &locked_notes::LockedNotes {
+    #[must_use]
+    pub const fn locked_notes(&self) -> &locked_notes::LockedNotes {
         &self.locked_notes
     }
 
@@ -108,16 +109,19 @@ impl LedgerState {
                 }
                 (Op::SDPDeclare(op), Some(OpProof::Ed25519Sig(_sig))) => {
                     // WIP TODO: Verify proofs.
-
-                    self.locked_notes = self.locked_notes.lock(
+                    let locked_notes = self.locked_notes.lock(
                         utxo_tree,
                         &config.min_stake,
                         op.service_type,
                         &op.locked_note_id,
                     )?;
-                    self.sdp = self
-                        .sdp
-                        .apply_declare_msg(current_block_number, &op.declaration_id())?;
+                    self.sdp = self.sdp.apply_declare_msg(
+                        current_block_number,
+                        op.service_type,
+                        &op.locked_note_id,
+                        &op.declaration_id(),
+                    )?;
+                    self.locked_notes = locked_notes;
                 }
                 (Op::SDPActive(op), Some(OpProof::Ed25519Sig(_sig))) => {
                     // WIP TODO: Verify proofs.
@@ -130,12 +134,17 @@ impl LedgerState {
                 }
                 (Op::SDPWithdraw(op), Some(OpProof::Ed25519Sig(_sig))) => {
                     // WIP TODO: Verify proofs.
+                    let declaration = self.sdp.get_declaration(&op.declaration_id)?;
+                    let locked_notes = self
+                        .locked_notes
+                        .unlock(declaration.service_type, &declaration.locked_note_id)?;
                     self.sdp = self.sdp.apply_withdrawn_msg(
                         current_block_number,
                         &config.service_params,
                         &op.declaration_id,
                         op.nonce,
                     )?;
+                    self.locked_notes = locked_notes;
                 }
                 _ => {
                     return Err(Error::UnsupportedOp);

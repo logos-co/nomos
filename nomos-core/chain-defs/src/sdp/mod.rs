@@ -55,7 +55,15 @@ impl AsRef<str> for ServiceType {
         match self {
             Self::BlendNetwork => "BN",
             Self::DataAvailability => "DA",
-            Self::ExecutorNetwork => "EX",
+        }
+    }
+}
+
+impl From<ServiceType> for usize {
+    fn from(service_type: ServiceType) -> Self {
+        match service_type {
+            ServiceType::BlendNetwork => 0,
+            ServiceType::DataAvailability => 1,
         }
     }
 }
@@ -137,6 +145,8 @@ impl DeclarationInfo {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeclarationState {
+    pub service_type: ServiceType,
+    pub locked_note_id: NoteId,
     pub created: BlockNumber,
     pub active: BlockNumber,
     pub withdrawn: Option<BlockNumber>,
@@ -145,8 +155,14 @@ pub struct DeclarationState {
 
 impl DeclarationState {
     #[must_use]
-    pub const fn new(block_number: BlockNumber) -> Self {
+    pub const fn new(
+        block_number: BlockNumber,
+        service_type: ServiceType,
+        locked_note_id: NoteId,
+    ) -> Self {
         Self {
+            service_type,
+            locked_note_id,
             created: block_number,
             active: block_number,
             withdrawn: None,

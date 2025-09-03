@@ -101,6 +101,7 @@ mod tests {
 
     use cryptarchia_engine::State::Bootstrapping;
     use groth16::Fr;
+    use nomos_core::sdp::{MinStake, ServiceParameters};
     use num_bigint::BigUint;
 
     use super::*;
@@ -121,6 +122,16 @@ mod tests {
                 epoch_period_nonce_stabilization: 1.try_into().unwrap(),
             },
             consensus_config: cryptarchia_engine_config,
+            service_params: ServiceParameters {
+                lock_period: 10,
+                inactivity_period: 20,
+                retention_period: 100,
+                timestamp: 0,
+            },
+            min_stake: MinStake {
+                threshold: 1,
+                timestamp: 0,
+            },
         };
 
         let (cryptarchia_engine, pruned_blocks) = {
