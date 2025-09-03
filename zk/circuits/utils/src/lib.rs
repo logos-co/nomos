@@ -1,7 +1,4 @@
-use std::{
-    cell::LazyCell,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 const CARGO_MANIFEST_DIR: &str = "CARGO_MANIFEST_DIR";
 const CRATE_RELATIVE_BIN_PATH: &str = "bin";
@@ -70,10 +67,23 @@ pub fn find_file_in_path(file_name: &str) -> Option<PathBuf> {
         .find(|path| path.is_file())
 }
 
+/// Get the crate-relative `bin/` directory.
+///
+/// # Returns
+///
+/// A `Result<PathBuf, String>` that contains the path to the crate's `bin/`
+/// directory if the `CARGO_MANIFEST_DIR` environment variable is set, or an
+/// error message if it is not.
+fn get_crate_bin() -> Result<PathBuf, String> {
+    std::env::var(CARGO_MANIFEST_DIR)
+        .map(|dir| PathBuf::from(dir).join(CRATE_RELATIVE_BIN_PATH))
+        .map_err(|error| format!("Environment variable {CARGO_MANIFEST_DIR} is not set: {error}"))
+}
+
 /// Find a file by checking multiple locations.
 ///
-/// This function checks the repository's bin directory, an environment
-/// variable, and finally falls back to the system PATH.
+/// This function checks, in order, the specified environment variable, the
+/// system PATH, and the local bin directory to the crate where this was called.
 ///
 /// If the environment variable points to a file directly, it will be used,
 /// regardless of the file name.
@@ -88,31 +98,25 @@ pub fn find_file_in_path(file_name: &str) -> Option<PathBuf> {
 ///
 /// An `Option<PathBuf>` that contains the path to the file if found.
 pub fn find_file(file_name: &str, environment_variable: &str) -> Result<PathBuf, String> {
-    let crate_bin = LazyCell::new(|| {
-        std::env::var(CARGO_MANIFEST_DIR)
-            .map(|dir| PathBuf::from(dir).join(CRATE_RELATIVE_BIN_PATH))
-    });
+    if let Some(path) = find_file_in_environment_variable(file_name, environment_variable) {
+        return Ok(path);
+    }
 
-    let file = find_file_in_environment_variable(file_name, environment_variable)
-        .or_else(|| find_file_in_path(file_name))
-        .or_else(|| {
-            let crate_bin = crate_bin.as_ref().ok()?;
-            find_file_in_directory(crate_bin, file_name)
-        });
+    if let Some(path) = find_file_in_path(file_name) {
+        return Ok(path);
+    }
 
-    file.ok_or_else(|| {
-        let display_crate_bin = crate_bin
-            .as_ref()
-            .ok()
-            .map_or_else(
-                || "<CARGO_MANIFEST_DIR not set>".to_owned(),
-                |path| path.to_string_lossy().into_owned()
-            );
+    let crate_bin = get_crate_bin();
+    if let Ok(bin_dir) = &crate_bin
+        && let Some(path) = find_file_in_directory(bin_dir, file_name)
+    {
+        return Ok(path);
+    }
 
-        format!(
-            "File '{file_name}' could not be found in the environment variable ({environment_variable}), crate-relative 'bin/' directory ({display_crate_bin}), or system PATH."
-        )
-    })
+    let display_crate_bin = crate_bin.map_or_else(|error| error, |path| path.display().to_string());
+    Err(format!(
+        "File '{file_name}' could not be found in the environment variable ({environment_variable}), system PATH, or crate-relative 'bin/' directory ({display_crate_bin})."
+    ))
 }
 
 #[cfg(test)]
@@ -134,6 +138,20 @@ mod tests {
             find_file_in_directory(temp_dir.path(), "non_existent_file"),
             None
         );
+    }
+
+    #[test]
+    fn test_get_crate_bin() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir_path = temp_dir.path().to_str();
+        temp_env::with_vars([(CARGO_MANIFEST_DIR, temp_dir_path)], || {
+            let expected_bin_path = temp_dir.path().join(CRATE_RELATIVE_BIN_PATH);
+            assert_eq!(get_crate_bin().unwrap(), expected_bin_path);
+        });
+        temp_env::with_vars([(CARGO_MANIFEST_DIR, Option::<&str>::None)], || {
+            let error = get_crate_bin().unwrap_err();
+            assert!(error.contains("is not set"));
+        });
     }
 
     #[test]
