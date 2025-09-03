@@ -178,12 +178,12 @@ impl LedgerState {
             let _balance;
             (self.cryptarchia_ledger, _balance) = self
                 .cryptarchia_ledger
-                .try_apply_tx::<_, Constants>(&self.mantle_ledger.locked_notes(), &tx)?;
+                .try_apply_tx::<_, Constants>(self.mantle_ledger.locked_notes(), &tx)?;
 
             self.mantle_ledger = self.mantle_ledger.try_apply_tx::<Constants>(
                 current_block_number,
-                &config,
-                &self.cryptarchia_ledger.latest_commitments(),
+                config,
+                self.cryptarchia_ledger.latest_commitments(),
                 tx,
             )?;
         }

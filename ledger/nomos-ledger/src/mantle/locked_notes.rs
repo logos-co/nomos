@@ -18,10 +18,17 @@ pub enum Error {
         note_id: NoteId,
         service_type: ServiceType,
     },
+    #[error("Note {note_id:?} not locked for {service_type:?}")]
+    NoteNotLockedForService {
+        note_id: NoteId,
+        service_type: ServiceType,
+    },
+    #[error("Note is not locked: {0:?}")]
+    NoteNotLocked(NoteId),
 }
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct LockedNotes {
     // Locked note can be associated with BN and DA services only.
     // Array index 0 of `[bool; 2]` represents BN service, index 1 represents DA service.
@@ -29,12 +36,14 @@ pub struct LockedNotes {
 }
 
 impl LockedNotes {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             locked_notes: rpds::HashTrieMapSync::new_sync(),
         }
     }
 
+    #[must_use]
     pub fn contains(&self, id: &NoteId) -> bool {
         self.locked_notes.contains_key(id)
     }
@@ -57,10 +66,7 @@ impl LockedNotes {
             });
         }
 
-        let idx = match service_type {
-            ServiceType::BlendNetwork => 0,
-            ServiceType::DataAvailability => 1,
-        };
+        let idx: usize = service_type.into();
 
         if let Some(services) = self.locked_notes.get_mut(note_id) {
             if services[idx] {
@@ -77,5 +83,249 @@ impl LockedNotes {
         }
 
         Ok(self)
+    }
+
+    pub fn unlock(mut self, service_type: ServiceType, note_id: &NoteId) -> Result<Self, Error> {
+        let idx: usize = service_type.into();
+
+        if let Some(services) = self.locked_notes.get(note_id) {
+            if !services[idx] {
+                return Err(Error::NoteNotLockedForService {
+                    note_id: *note_id,
+                    service_type,
+                });
+            }
+
+            let mut new_services = *services;
+            new_services[idx] = false;
+
+            if !new_services[0] && !new_services[1] {
+                self.locked_notes = self.locked_notes.remove(note_id);
+            } else {
+                self.locked_notes = self.locked_notes.insert(*note_id, new_services);
+            }
+
+            Ok(self)
+        } else {
+            Err(Error::NoteNotLocked(*note_id))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use nomos_core::sdp::{MinStake, ServiceType};
+
+    use crate::{
+        cryptarchia::tests::{genesis_state, utxo},
+        mantle::locked_notes::{Error, LockedNotes},
+    };
+
+    #[test]
+    fn test_lock_success() {
+        let utxo = utxo();
+        let note_id = utxo.id();
+        let state = genesis_state(&[utxo]);
+        let utxo_tree = state.latest_commitments();
+        let locked_notes = LockedNotes::new();
+        let min_stake = MinStake {
+            threshold: 1,
+            timestamp: 0,
+        };
+
+        let locked_notes_bn = locked_notes
+            .lock(utxo_tree, &min_stake, ServiceType::BlendNetwork, &note_id)
+            .expect("Should be able to lock for BN service");
+
+        assert!(locked_notes_bn.contains(&note_id));
+        assert_eq!(
+            locked_notes_bn.locked_notes.get(&note_id),
+            Some(&[true, false])
+        );
+
+        let locked_notes_both = locked_notes_bn
+            .lock(
+                utxo_tree,
+                &min_stake,
+                ServiceType::DataAvailability,
+                &note_id,
+            )
+            .expect("Should be able to lock for DA service");
+
+        assert!(locked_notes_both.contains(&note_id));
+        assert_eq!(
+            locked_notes_both.locked_notes.get(&note_id),
+            Some(&[true, true])
+        );
+    }
+
+    #[test]
+    fn test_lock_fail_already_used() {
+        let utxo = utxo();
+        let note_id = utxo.id();
+        let state = genesis_state(&[utxo]);
+        let utxo_tree = state.latest_commitments();
+        let locked_notes = LockedNotes::new();
+        let min_stake = MinStake {
+            threshold: 1,
+            timestamp: 0,
+        };
+
+        let locked_notes_once = locked_notes
+            .lock(
+                utxo_tree,
+                &min_stake,
+                ServiceType::DataAvailability,
+                &note_id,
+            )
+            .unwrap();
+
+        let result = locked_notes_once.lock(
+            utxo_tree,
+            &min_stake,
+            ServiceType::DataAvailability,
+            &note_id,
+        );
+
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err(),
+            Error::NoteAlreadyUsedForService {
+                note_id,
+                service_type: ServiceType::DataAvailability
+            }
+        );
+    }
+
+    #[test]
+    fn lock_fail_insufficient() {
+        let utxo = utxo();
+        let note_id = utxo.id();
+        let state = genesis_state(&[utxo]);
+        let utxo_tree = state.latest_commitments();
+        let locked_notes = LockedNotes::new();
+
+        let min_stake = MinStake {
+            threshold: 999_999,
+            timestamp: 0,
+        };
+
+        let result = locked_notes.lock(utxo_tree, &min_stake, ServiceType::BlendNetwork, &note_id);
+
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err(),
+            Error::NoteInsufficientValue {
+                note_id,
+                value: 10000
+            }
+        );
+    }
+
+    #[test]
+    fn test_lock_fail_does_not_exist() {
+        let note_id = utxo().id();
+        let state = genesis_state(&[utxo()]);
+        let utxo_tree = state.latest_commitments();
+        let locked_notes = LockedNotes::new();
+        let min_stake = MinStake {
+            threshold: 1,
+            timestamp: 0,
+        };
+
+        let result = locked_notes.lock(utxo_tree, &min_stake, ServiceType::BlendNetwork, &note_id);
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), Error::NoteDoesNotExist(note_id));
+    }
+    #[test]
+    fn test_unlock_one_of_two_services() {
+        let utxo = utxo();
+        let note_id = utxo.id();
+        let state = genesis_state(&[utxo]);
+        let utxo_tree = state.latest_commitments();
+        let min_stake = MinStake {
+            threshold: 1,
+            timestamp: 0,
+        };
+        let locked_for_both = LockedNotes::new()
+            .lock(utxo_tree, &min_stake, ServiceType::BlendNetwork, &note_id)
+            .unwrap()
+            .lock(
+                utxo_tree,
+                &min_stake,
+                ServiceType::DataAvailability,
+                &note_id,
+            )
+            .unwrap();
+
+        let locked_for_da_only = locked_for_both
+            .unlock(ServiceType::BlendNetwork, &note_id)
+            .expect("Should unlock BN service");
+
+        assert!(locked_for_da_only.contains(&note_id));
+        assert_eq!(
+            locked_for_da_only.locked_notes.get(&note_id),
+            Some(&[false, true])
+        );
+    }
+
+    #[test]
+    fn test_unlock_last_service_removes_note() {
+        let utxo = utxo();
+        let note_id = utxo.id();
+        let state = genesis_state(&[utxo]);
+        let utxo_tree = state.latest_commitments();
+        let min_stake = MinStake {
+            threshold: 1,
+            timestamp: 0,
+        };
+        let locked_for_bn = LockedNotes::new()
+            .lock(utxo_tree, &min_stake, ServiceType::BlendNetwork, &note_id)
+            .unwrap();
+
+        let fully_unlocked = locked_for_bn
+            .unlock(ServiceType::BlendNetwork, &note_id)
+            .expect("Should unlock the last service");
+
+        assert!(!fully_unlocked.contains(&note_id));
+        assert!(fully_unlocked.locked_notes.is_empty());
+    }
+
+    #[test]
+    fn test_unlock_note_not_locked() {
+        let note_id = utxo().id();
+        let empty_notes = LockedNotes::new();
+
+        let result = empty_notes.unlock(ServiceType::BlendNetwork, &note_id);
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), Error::NoteNotLocked(note_id));
+    }
+
+    #[test]
+    fn test_unlock_fail_if_not_locked_for_specific_service() {
+        let utxo = utxo();
+        let note_id = utxo.id();
+        let state = genesis_state(&[utxo]);
+        let utxo_tree = state.latest_commitments();
+        let min_stake = MinStake {
+            threshold: 1,
+            timestamp: 0,
+        };
+        let locked_for_bn = LockedNotes::new()
+            .lock(utxo_tree, &min_stake, ServiceType::BlendNetwork, &note_id)
+            .unwrap();
+
+        let result = locked_for_bn.unlock(ServiceType::DataAvailability, &note_id);
+
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err(),
+            Error::NoteNotLockedForService {
+                note_id,
+                service_type: ServiceType::DataAvailability
+            }
+        );
     }
 }

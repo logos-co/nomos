@@ -176,6 +176,9 @@ cryptarchia:
       inactivity_period: 20
       retention_period: 100
       timestamp: 0
+    min_stake:
+      threshold: 1
+      timestamp: 0
   genesis_id: 0x0000000000000000000000000000000000000000000000000000000000000000
   genesis_state:
     cryptarchia_ledger:
@@ -309,6 +312,10 @@ cryptarchia:
     mantle_ledger:
       channels:
         channels: {}
+      sdp:
+        declarations: {}
+      locked_notes:
+        locked_notes: {}
   time:
     slot_duration: [2, 0]
     chain_start_time: [2025, 41, 9, 38, 29, 993653000, 0, 0, 0]

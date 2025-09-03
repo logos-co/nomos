@@ -305,6 +305,7 @@ mod tests {
     use std::{collections::HashMap, iter::empty, num::NonZero};
 
     use cryptarchia_engine::{EpochConfig, Slot};
+    use nomos_core::sdp::{MinStake, ServiceParameters};
     use nomos_ledger::LedgerState;
     use nomos_network::{backends::NetworkBackend, message::ChainSyncEvent, NetworkService};
     use overwatch::{
@@ -826,6 +827,16 @@ mod tests {
                 consensus_config: cryptarchia_engine::Config {
                     security_param: NonZero::new(1).unwrap(),
                     active_slot_coeff: 1.0,
+                },
+                service_params: ServiceParameters {
+                    lock_period: 10,
+                    inactivity_period: 20,
+                    retention_period: 100,
+                    timestamp: 0,
+                },
+                min_stake: MinStake {
+                    threshold: 1,
+                    timestamp: 0,
                 },
             },
             cryptarchia_engine::State::Bootstrapping,
