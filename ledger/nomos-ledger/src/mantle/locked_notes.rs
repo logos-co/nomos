@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use nomos_core::{
     mantle::NoteId,
     sdp::{MinStake, ServiceType},
@@ -30,9 +32,7 @@ pub enum Error {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct LockedNotes {
-    // Locked note can be associated with BN and DA services only.
-    // Array index 0 of `[bool; 2]` represents BN service, index 1 represents DA service.
-    locked_notes: rpds::HashTrieMapSync<NoteId, [bool; 2]>,
+    locked_notes: rpds::HashTrieMapSync<NoteId, HashSet<ServiceType>>,
 }
 
 impl LockedNotes {
@@ -66,19 +66,16 @@ impl LockedNotes {
             });
         }
 
-        let idx: usize = service_type.into();
-
         if let Some(services) = self.locked_notes.get_mut(note_id) {
-            if services[idx] {
+            if services.contains(&service_type) {
                 return Err(Error::NoteAlreadyUsedForService {
                     note_id: *note_id,
                     service_type,
                 });
             }
-            services[idx] = true;
+            services.insert(service_type);
         } else {
-            let mut services = [false, false];
-            services[idx] = true;
+            let services = [service_type].into();
             self.locked_notes = self.locked_notes.insert(*note_id, services);
         }
 
@@ -86,23 +83,21 @@ impl LockedNotes {
     }
 
     pub fn unlock(mut self, service_type: ServiceType, note_id: &NoteId) -> Result<Self, Error> {
-        let idx: usize = service_type.into();
-
         if let Some(services) = self.locked_notes.get(note_id) {
-            if !services[idx] {
+            if !services.contains(&service_type) {
                 return Err(Error::NoteNotLockedForService {
                     note_id: *note_id,
                     service_type,
                 });
             }
 
-            let mut new_services = *services;
-            new_services[idx] = false;
+            let mut updated_services = services.clone();
+            updated_services.remove(&service_type);
 
-            if !new_services[0] && !new_services[1] {
+            if updated_services.is_empty() {
                 self.locked_notes = self.locked_notes.remove(note_id);
             } else {
-                self.locked_notes = self.locked_notes.insert(*note_id, new_services);
+                self.locked_notes = self.locked_notes.insert(*note_id, updated_services);
             }
 
             Ok(self)
@@ -114,6 +109,8 @@ impl LockedNotes {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use nomos_core::sdp::{MinStake, ServiceType};
 
     use crate::{
@@ -140,7 +137,7 @@ mod tests {
         assert!(locked_notes_bn.contains(&note_id));
         assert_eq!(
             locked_notes_bn.locked_notes.get(&note_id),
-            Some(&[true, false])
+            Some(&HashSet::from([ServiceType::BlendNetwork]))
         );
 
         let locked_notes_both = locked_notes_bn
@@ -155,7 +152,10 @@ mod tests {
         assert!(locked_notes_both.contains(&note_id));
         assert_eq!(
             locked_notes_both.locked_notes.get(&note_id),
-            Some(&[true, true])
+            Some(&HashSet::from([
+                ServiceType::BlendNetwork,
+                ServiceType::DataAvailability
+            ]))
         );
     }
 
@@ -266,7 +266,7 @@ mod tests {
         assert!(locked_for_da_only.contains(&note_id));
         assert_eq!(
             locked_for_da_only.locked_notes.get(&note_id),
-            Some(&[false, true])
+            Some(&HashSet::from([ServiceType::DataAvailability]))
         );
     }
 
