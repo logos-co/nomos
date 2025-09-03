@@ -17,11 +17,9 @@ use crate::serde::ed25519_pubkey_hex;
 #[derive(Clone, Debug)]
 pub struct Membership<NodeId> {
     /// All nodes, including local and remote.
-    nodes: HashMap<NodeId, Node<NodeId>>,
-    /// IDs of remote nodes only, excluding the local node if present.
-    /// Kept as a separate [`Vec`] to enable efficient random sampling,
-    /// which is faster than sampling from the keys in [`HashMap`].
-    remote_nodes: Vec<NodeId>,
+    nodes_map: HashMap<NodeId, Node<NodeId>>,
+    node_ids: Vec<NodeId>,
+    local_node_index: Option<usize>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -43,37 +41,37 @@ where
 {
     #[must_use]
     pub fn new(nodes: &[Node<NodeId>], local_public_key: Option<&Ed25519PublicKey>) -> Self {
-        let mut core_nodes = HashMap::with_capacity(nodes.len());
-        let mut remote_core_nodes = Vec::with_capacity(nodes.len());
-        for node in nodes {
-            core_nodes.insert(node.id.clone(), node.clone());
+        let mut nodes_map = HashMap::with_capacity(nodes.len());
+        let mut node_ids = Vec::with_capacity(nodes.len());
+        let mut local_node_index: Option<usize> = None;
+        for (index, node) in nodes.iter().enumerate() {
+            nodes_map.insert(node.id.clone(), node.clone());
+            node_ids.push(node.id.clone());
             if !matches!(local_public_key, Some(key) if node.public_key == *key) {
-                remote_core_nodes.push(node.id.clone());
+                assert!(local_node_index.is_none());
+                local_node_index = Some(index);
             }
         }
 
         Self {
-            nodes: core_nodes,
-            remote_nodes: remote_core_nodes,
+            nodes_map,
+            node_ids,
+            local_node_index,
         }
     }
-}
 
-impl<NodeId> Membership<NodeId>
-where
-    NodeId: Eq + Hash,
-{
     /// Choose `amount` random remote nodes.
     pub fn choose_remote_nodes<R: Rng>(
         &self,
         rng: &mut R,
         amount: usize,
     ) -> impl Iterator<Item = &Node<NodeId>> {
-        self.remote_nodes.choose_multiple(rng, amount).map(|id| {
-            self.nodes
-                .get(id)
-                .expect("Node ID must exist in core nodes.")
-        })
+        self.filter_and_choose_remote_nodes(rng, amount, &mut HashSet::new())
+            .map(|id| {
+                self.nodes_map
+                    .get(id)
+                    .expect("Node ID must exist in core nodes.")
+            })
     }
 
     /// Choose `amount` random remote nodes excluding the given set of node IDs.
@@ -81,22 +79,39 @@ where
         &self,
         rng: &mut R,
         amount: usize,
-        exclude_peers: &HashSet<NodeId>,
+        exclude_peers: &mut HashSet<NodeId>,
     ) -> impl Iterator<Item = &Node<NodeId>> {
-        self.remote_nodes
+        if let Some(local_node_id) = self
+            .local_node_index
+            .map(|index| self.node_ids.get(index).unwrap().clone())
+        {
+            exclude_peers.insert(local_node_id);
+        }
+        self.node_ids
             .iter()
             .filter(|id| !exclude_peers.contains(id))
             .choose_multiple(rng, amount)
             .into_iter()
             .map(|id| {
-                self.nodes
+                self.nodes_map
                     .get(id)
                     .expect("Node ID must exist in core nodes.")
             })
     }
+}
+
+impl<NodeId> Membership<NodeId>
+where
+    NodeId: Eq + Hash,
+{
+    pub fn get_remote_node_at(&self, index: usize) -> Option<&Node<NodeId>> {
+        self.node_ids
+            .get(index)
+            .map(|node_id| self.nodes_map.get(node_id).unwrap())
+    }
 
     pub fn contains(&self, node_id: &NodeId) -> bool {
-        self.nodes.contains_key(node_id)
+        self.nodes_map.contains_key(node_id)
     }
 }
 
@@ -104,7 +119,7 @@ impl<NodeId> Membership<NodeId> {
     /// Returns the number of all nodes, including local and remote.
     #[must_use]
     pub fn size(&self) -> usize {
-        self.nodes.len()
+        self.nodes_map.len()
     }
 }
 

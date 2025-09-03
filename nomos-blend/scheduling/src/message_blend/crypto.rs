@@ -90,6 +90,7 @@ impl ProofsStorage {
                     public_inputs,
                     PrivateInputs::new_proof_of_core_quota_inputs(key_index, private_inputs),
                 );
+                // TODO: Verifiably select the recipient of each message layer based on the spec: https://www.notion.so/nomos-tech/Message-Encapsulation-Mechanism-215261aa09df81309d7fd7f1c2da086b?source=copy_link#215261aa09df81319317cb1e86b2e527.
                 // TODO: Generate a proof of selection and link it to the secret selection randomness: https://www.notion.so/nomos-tech/Blend-Protocol-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df8110a059d0eb477559b5.
                 GeneratedProofs {
                     signing_key,
