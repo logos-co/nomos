@@ -1,7 +1,7 @@
 use core::time::Duration;
 
 use libp2p::core::{Endpoint, Multiaddr};
-use nomos_blend_message::crypto::Ed25519PrivateKey;
+use nomos_blend_message::crypto::keys::Ed25519PrivateKey;
 use nomos_blend_network::core::with_core::behaviour::NegotiatedPeerState;
 use nomos_blend_scheduling::membership::{Membership, Node};
 use test_log::test;

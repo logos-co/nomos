@@ -3,9 +3,13 @@ use serde_with::{serde_as, Bytes};
 
 use crate::{
     crypto::{
-        pseudo_random_sized_bytes, random_sized_bytes, Ed25519PrivateKey, Ed25519PublicKey,
-        ProofOfQuota, ProofOfSelection, Signature, KEY_SIZE, PROOF_OF_QUOTA_SIZE,
-        PROOF_OF_SELECTION_SIZE, SIGNATURE_SIZE,
+        keys::{Ed25519PrivateKey, Ed25519PublicKey, KEY_SIZE},
+        proofs::{
+            quota::{ProofOfQuota, PROOF_OF_QUOTA_SIZE},
+            selection::{ProofOfSelection, PROOF_OF_SELECTION_SIZE},
+        },
+        pseudo_random_sized_bytes, random_sized_bytes,
+        signatures::{Signature, SIGNATURE_SIZE},
     },
     error::Error,
 };

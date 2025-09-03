@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use libp2p::{Multiaddr, PeerId, Stream, Swarm};
 use libp2p_stream::Behaviour as StreamBehaviour;
 use libp2p_swarm_test::SwarmExt as _;
-use nomos_blend_message::crypto::Ed25519PrivateKey;
+use nomos_blend_message::crypto::keys::Ed25519PrivateKey;
 use nomos_blend_scheduling::membership::{Membership, Node};
 
 use crate::core::{tests::utils::PROTOCOL_NAME, with_edge::behaviour::Behaviour};

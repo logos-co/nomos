@@ -9,7 +9,10 @@ use libp2p::{
     StreamProtocol, Swarm, Transport as _,
 };
 use nomos_blend_message::{
-    crypto::{Ed25519PrivateKey, ProofOfQuota, ProofOfSelection},
+    crypto::{
+        keys::Ed25519PrivateKey,
+        proofs::{quota::ProofOfQuota, selection::ProofOfSelection},
+    },
     input::EncapsulationInput,
     PayloadType,
 };
