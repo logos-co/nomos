@@ -397,7 +397,7 @@ pub async fn da_historic_sampling<
     session_id: SessionNumber,
     block_id: HeaderId,
     blob_ids: Vec<SamplingBackend::BlobId>,
-) -> Result<Option<()>, DynError>
+) -> Result<bool, DynError>
 where
     SamplingBackend: DaSamplingServiceBackend,
     <SamplingBackend as DaSamplingServiceBackend>::BlobId: Send + Eq + Hash + 'static,

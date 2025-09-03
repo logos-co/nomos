@@ -340,29 +340,27 @@ impl Executor {
         session_id: SessionNumber,
         block_id: HeaderId,
         blob_ids: Vec<BlobId>,
-    ) -> Result<(), reqwest::Error> {
+    ) -> Result<bool, reqwest::Error> {
         let request = HistoricSamplingRequest {
             session_id,
             block_id,
             blob_ids,
         };
-        let json_body = serde_json::to_string(&request).unwrap();
 
         let response = CLIENT
             .post(format!(
                 "http://{}{}",
                 self.testing_http_addr, DA_HISTORIC_SAMPLING
             ))
-            .header("Content-Type", "application/json")
-            .body(json_body)
+            .json(&request)
             .send()
-            .await;
+            .await?;
 
-        assert!(response.is_ok(), "{}", DA_GET_TESTING_ENDPOINT_ERROR);
+        response.error_for_status_ref()?;
 
-        let response = response.unwrap();
-        response.error_for_status()?;
-        Ok(())
+        // Parse the boolean response
+        let success: bool = response.json().await?;
+        Ok(success)
     }
 }
 

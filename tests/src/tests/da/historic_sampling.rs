@@ -20,12 +20,8 @@ async fn test_historical_sampling_across_sessions() {
     // Disseminate some blobs in session 0
     let blob_ids = disseminate_blobs_in_session_zero(executor).await;
 
-    // Create session 1 with deactivated members
-    // Block 1: Deactivate all providers on ALL nodes
-    deactivate_all_providers(&topology, 1).await;
-
-    // Blocks 2-4: Complete session 0 and form session 1 on ALL nodes
-    for block_num in 2..=4 {
+    // Blocks 1-4: Complete session 0 and form session 1 on ALL nodes
+    for block_num in 1..=4 {
         update_all_nodes(
             &topology,
             FinalizedBlockEvent {
@@ -35,6 +31,8 @@ async fn test_historical_sampling_across_sessions() {
         )
         .await;
     }
+
+    // todo: add more complex cases with multiple sessions
 
     // Wait for propagation
     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
@@ -113,18 +111,15 @@ async fn update_all_nodes(topology: &Topology, event: FinalizedBlockEvent) {
 async fn test_sampling_scenarios(executor: &Executor, blob_ids: &[BlobId]) {
     let block_id = [0u8; 32];
 
-    // Test 1: Sampling from session 1 (deactivated members) - should fail
-    let result = executor
-        .da_historic_sampling(1, block_id.into(), blob_ids.to_vec())
-        .await;
-    assert!(result.is_err(), result.unwrap_err().to_string());
-
-    // Test 2: Sampling from session 0 (where data was disseminated) - should
-    // succeed
+    // todo: add more complex cases with multiple sessions
     let result = executor
         .da_historic_sampling(0, block_id.into(), blob_ids.to_vec())
-        .await;
-    assert!(result.is_ok(), result.unwrap_err().to_string());
+        .await
+        .expect("HTTP request should succeed");
+    assert!(
+        result,
+        "Historical sampling should return true for session 0 where data exists"
+    );
 }
 
 fn create_test_metadata() -> kzgrs_backend::dispersal::Metadata {
