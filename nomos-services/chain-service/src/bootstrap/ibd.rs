@@ -817,7 +817,7 @@ mod tests {
     fn new_cryptarchia() -> Cryptarchia {
         Cryptarchia::from_lib(
             [GENESIS_ID; 32].into(),
-            LedgerState::from_utxos(empty()),
+            LedgerState::from_utxos(0, empty()),
             nomos_ledger::Config {
                 epoch_config: EpochConfig {
                     epoch_stake_distribution_stabilization: NonZero::new(1).unwrap(),

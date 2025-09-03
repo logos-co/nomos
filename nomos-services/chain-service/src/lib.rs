@@ -143,16 +143,10 @@ impl Cryptarchia {
         let parent = header.parent();
         let slot = header.slot();
         // A block number of this block if it's applied to the chain.
-        let current_block_number = self
-            .consensus
-            .branches()
-            .get(&parent)
-            .map_or(1, |branch| branch.length() + 1);
         let ledger = self.ledger.try_update::<_, MainnetGasConstants>(
             id,
             parent,
             slot,
-            current_block_number,
             header.leader_proof(),
             std::iter::empty::<&SignedMantleTx>(),
         )?;

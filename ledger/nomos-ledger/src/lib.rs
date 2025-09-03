@@ -66,7 +66,6 @@ where
         id: Id,
         parent_id: Id,
         slot: Slot,
-        current_block_number: BlockNumber,
         proof: &LeaderProof,
         txs: impl Iterator<Item = impl AuthenticatedMantleTx>,
     ) -> Result<Self, LedgerError<Id>>
@@ -82,7 +81,7 @@ where
         let new_state = parent_state.clone().try_update::<_, _, Constants>(
             slot,
             proof,
-            current_block_number,
+            parent_state.block_number + 1,
             txs,
             &self.config,
         )?;
@@ -124,6 +123,7 @@ where
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct LedgerState {
+    block_number: BlockNumber,
     cryptarchia_ledger: CryptarchiaLedger,
     mantle_ledger: MantleLedger,
 }
@@ -162,6 +162,10 @@ impl LedgerState {
             .try_apply_header::<LeaderProof, Id>(slot, proof, config)?;
         // If we need to do something for mantle ops/rewards, this would be the place.
         Ok(Self {
+            block_number: self
+                .block_number
+                .checked_add(1)
+                .expect("Nomos lived long and prospered"),
             cryptarchia_ledger,
             mantle_ledger: self.mantle_ledger,
         })
@@ -190,8 +194,9 @@ impl LedgerState {
         Ok(self)
     }
 
-    pub fn from_utxos(utxos: impl IntoIterator<Item = Utxo>) -> Self {
+    pub fn from_utxos(block_number: BlockNumber, utxos: impl IntoIterator<Item = Utxo>) -> Self {
         Self {
+            block_number,
             cryptarchia_ledger: CryptarchiaLedger::from_utxos(utxos),
             mantle_ledger: MantleLedger::default(),
         }
@@ -262,7 +267,7 @@ mod tests {
 
     pub fn create_test_ledger() -> (Ledger<HeaderId>, HeaderId, Utxo) {
         let utxo = utxo();
-        let genesis_state = LedgerState::from_utxos([utxo]);
+        let genesis_state = LedgerState::from_utxos(0, [utxo]);
         let ledger = Ledger::new([0; 32], genesis_state, config());
         (ledger, [0; 32], utxo)
     }
@@ -299,7 +304,6 @@ mod tests {
                 new_id,
                 genesis_id,
                 Slot::from(1u64),
-                1,
                 &proof,
                 std::iter::once(&tx),
             )
