@@ -62,34 +62,6 @@ async fn disseminate_blobs_in_session_zero(executor: &Executor) -> Vec<BlobId> {
     blob_ids
 }
 
-async fn deactivate_all_providers(topology: &Topology, block_number: u64) {
-    // Get providers from one of the executors (they all have the same config)
-    let providers = topology.executors()[0]
-        .config()
-        .membership
-        .backend
-        .session_zero_membership
-        .get(&nomos_core::sdp::ServiceType::DataAvailability)
-        .expect("Expected data availability membership");
-
-    let updates: Vec<FinalizedBlockEventUpdate> = providers
-        .iter()
-        .map(|provider_id| FinalizedBlockEventUpdate {
-            service_type: nomos_core::sdp::ServiceType::DataAvailability,
-            provider_id: *provider_id,
-            state: nomos_core::sdp::FinalizedDeclarationState::Inactive,
-            locators: BTreeSet::default(),
-        })
-        .collect();
-
-    let event = FinalizedBlockEvent {
-        block_number,
-        updates,
-    };
-
-    update_all_nodes(topology, event).await;
-}
-
 async fn update_all_nodes(topology: &Topology, event: FinalizedBlockEvent) {
     // Update all validators
     for validator in topology.validators() {
@@ -120,6 +92,22 @@ async fn test_sampling_scenarios(executor: &Executor, blob_ids: &[BlobId]) {
         result,
         "Historical sampling should return true for session 0 where data exists"
     );
+
+    // Test 2: Mix of valid and invalid blobs - should return false
+    let mut mixed_blob_ids = blob_ids.to_vec();
+    // Replace one blob ID with a non-existent one
+    if !mixed_blob_ids.is_empty() {
+        mixed_blob_ids[0] = [99u8; 32].into();
+
+        let result = executor
+            .da_historic_sampling(0, block_id.into(), mixed_blob_ids)
+            .await
+            .expect("HTTP request should succeed");
+        assert!(
+            !result,
+            "Historical sampling should return false when any blob is invalid"
+        );
+    }
 }
 
 fn create_test_metadata() -> kzgrs_backend::dispersal::Metadata {
