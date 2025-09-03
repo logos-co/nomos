@@ -37,6 +37,18 @@ impl WalletState {
         Self { pk_index, ledger }
     }
 
+    pub fn utxos(&self) -> Vec<Utxo> {
+        let utxotree = self.ledger.latest_commitments().utxos();
+        self.pk_index
+            .iter()
+            .flat_map(|(_pk, ids)| {
+                ids.iter()
+                    .filter_map(|id| utxotree.get(id))
+                    .map(|(utxo, _pos)| *utxo)
+            })
+            .collect()
+    }
+
     pub fn balance(&self, pk: PublicKey) -> Option<Value> {
         let balance = self
             .pk_index
@@ -82,16 +94,81 @@ impl Wallet {
     }
 
     pub fn apply_ledger(&mut self, block: HeaderId, ledger: LedgerState) {
-        self.wallet_states
-            .insert(block, WalletState::from_ledger(&self.known_keys, ledger));
+        let wallet_state = WalletState::from_ledger(&self.known_keys, ledger);
+        self.wallet_states.insert(block, wallet_state);
     }
 
     pub fn balance(&self, tip: HeaderId, pk: PublicKey) -> Result<Option<Value>> {
-        Ok(self
-            .wallet_states
+        let balance = self.wallet_state_at(tip)?.balance(pk);
+
+        Ok(balance)
+    }
+
+    pub fn utxos_for_amount(
+        &self,
+        tip: HeaderId,
+        amount: Value,
+        pks: impl IntoIterator<Item = PublicKey>,
+    ) -> Result<Option<Vec<Utxo>>> {
+        let wallet_state = self.wallet_state_at(tip)?;
+
+        let eligible_pks: BTreeSet<PublicKey> = pks.into_iter().collect();
+        let mut utxos: Vec<Utxo> = wallet_state
+            .utxos()
+            .into_iter()
+            .filter(|utxo| eligible_pks.contains(&utxo.note.pk))
+            .collect();
+
+        // we want to consume small valued notes first to keep our wallet tidy
+        utxos.sort_by_key(|utxo| utxo.note.value);
+
+        let mut index = 0;
+        let mut selected_utxos = Vec::new();
+        let mut selected_amount = 0;
+
+        while selected_amount < amount && index < utxos.len() {
+            let utxo = utxos[index];
+            selected_utxos.push(utxo);
+            selected_amount += utxo.note.value;
+            index += 1;
+        }
+
+        if selected_amount < amount {
+            Ok(None)
+        } else {
+            // We may have smaller notes that are redundant.
+            //
+            // e.g. Suppose we hold notes valued [3 NMO, 4 NMO] and we asked for 4 NMO
+            //      then, since we sort the notes by value, we would have first
+            //      added the 3 NMO note and then then 4 NMO note to the selected utxos list.
+            //
+            //      The 4 NMO note alone would have satisfied the request, the 3 NMO note is
+            //      redundant and would be returned as change.
+            //
+            // To resolve this, we remove as many of the smallest notes as we can while still
+            // keep us above the requested amount.
+
+            // Remove redundant small notes from the beginning while maintaining enough value
+            while !selected_utxos.is_empty() {
+                let smallest_value = selected_utxos[0].note.value;
+                if selected_amount - smallest_value >= amount {
+                    // We can afford to remove this small note
+                    selected_utxos.remove(0);
+                    selected_amount -= smallest_value;
+                } else {
+                    // Removing this note would put us below the required amount
+                    break;
+                }
+            }
+
+            Ok(Some(selected_utxos))
+        }
+    }
+
+    fn wallet_state_at(&self, tip: HeaderId) -> Result<&WalletState> {
+        self.wallet_states
             .get(&tip)
-            .ok_or(WalletError::UnknownBlock)?
-            .balance(pk))
+            .ok_or(WalletError::UnknownBlock)
     }
 }
 
@@ -218,5 +295,100 @@ mod tests {
 
         assert_eq!(wallet.balance(block_2, alice).unwrap(), Some(4));
         assert_eq!(wallet.balance(block_2, bob).unwrap(), Some(20));
+    }
+
+    #[test]
+    fn test_utxos_for_amount() {
+        let alice_1 = PublicKey::from([0u8; 32]);
+        let alice_2 = PublicKey::from([1u8; 32]);
+        let bob = PublicKey::from([2u8; 32]);
+
+        let ledger = LedgerState::from_utxos([
+            Utxo {
+                tx_hash: [0u8; 32].into(),
+                output_index: 0,
+                note: Note::new(4, alice_1),
+            },
+            Utxo {
+                tx_hash: [0u8; 32].into(),
+                output_index: 1,
+                note: Note::new(3, alice_2),
+            },
+            Utxo {
+                tx_hash: [0u8; 32].into(),
+                output_index: 2,
+                note: Note::new(5, alice_2),
+            },
+            Utxo {
+                tx_hash: [0u8; 32].into(),
+                output_index: 3,
+                note: Note::new(10, alice_2),
+            },
+            Utxo {
+                tx_hash: [0u8; 32].into(),
+                output_index: 4,
+                note: Note::new(20, bob),
+            },
+        ]);
+
+        let genesis = HeaderId::from([0u8; 32]);
+
+        let wallet = Wallet::new(genesis, ledger, [alice_1, alice_2, bob]);
+
+        // requesting 2 NMO from alices keys
+        assert_eq!(
+            wallet
+                .utxos_for_amount(genesis, 2, [alice_1, alice_2])
+                .unwrap(),
+            Some(vec![Utxo {
+                tx_hash: [0u8; 32].into(),
+                output_index: 1,
+                note: Note::new(3, alice_2)
+            }])
+        );
+
+        // requesting 3 NMO from alices keys
+        assert_eq!(
+            wallet
+                .utxos_for_amount(genesis, 3, [alice_1, alice_2])
+                .unwrap(),
+            Some(vec![Utxo {
+                tx_hash: [0u8; 32].into(),
+                output_index: 1,
+                note: Note::new(3, alice_2)
+            }])
+        );
+
+        // requesting 4 NMO from alices keys
+        assert_eq!(
+            wallet
+                .utxos_for_amount(genesis, 4, [alice_1, alice_2])
+                .unwrap(),
+            Some(vec![Utxo {
+                tx_hash: [0u8; 32].into(),
+                output_index: 0,
+                note: Note::new(4, alice_1)
+            }])
+        );
+
+        // requesting 5 NMO from alices keys
+        // returns two UTXO's 3 & 4 NMO despite there existing a note of exactly 5 NMO available for alice
+        assert_eq!(
+            wallet
+                .utxos_for_amount(genesis, 5, [alice_1, alice_2])
+                .unwrap(),
+            Some(vec![
+                Utxo {
+                    tx_hash: [0u8; 32].into(),
+                    output_index: 1,
+                    note: Note::new(3, alice_2)
+                },
+                Utxo {
+                    tx_hash: [0u8; 32].into(),
+                    output_index: 0,
+                    note: Note::new(4, alice_1)
+                }
+            ])
+        );
     }
 }
