@@ -1,16 +1,21 @@
-use std::fmt::{Debug, Display};
+use std::{
+    fmt::{Debug, Display},
+    hash::Hash,
+};
 
 use axum::{extract::State, response::Response, Json};
 use nomos_api::http::{
     da::{self},
     membership::{self, MembershipUpdateRequest},
 };
-use nomos_core::block::SessionNumber;
+use nomos_core::{block::SessionNumber, header::HeaderId};
 use nomos_da_network_service::{
     api::ApiAdapter as ApiAdapterTrait, backends::NetworkBackend, NetworkService,
 };
+use nomos_da_sampling::{backend::DaSamplingServiceBackend, DaSamplingService};
 use nomos_membership::{adapters::SdpAdapter, backends::MembershipBackend, MembershipService};
 use overwatch::{overwatch::OverwatchHandle, services::AsServiceId};
+use serde::{Deserialize, Serialize};
 use subnetworks_assignations::MembershipHandler;
 
 use crate::make_request_and_return_response;
@@ -77,4 +82,45 @@ where
         ApiAdapter,
         RuntimeServiceId,
     >(handle, session_id))
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct HistoricSamplingRequest<BlobId> {
+    pub session_id: SessionNumber,
+    pub block_id: HeaderId,
+    pub blob_ids: Vec<BlobId>,
+}
+
+pub async fn da_historic_sampling<
+    SamplingBackend,
+    SamplingNetwork,
+    SamplingStorage,
+    RuntimeServiceId,
+>(
+    State(handle): State<OverwatchHandle<RuntimeServiceId>>,
+    Json(request): Json<HistoricSamplingRequest<SamplingBackend::BlobId>>,
+) -> Response
+where
+    SamplingBackend: DaSamplingServiceBackend,
+    <SamplingBackend as DaSamplingServiceBackend>::BlobId: Send + Eq + Hash + 'static,
+    SamplingNetwork: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
+    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
+    RuntimeServiceId: Debug
+        + Sync
+        + Display
+        + AsServiceId<
+            DaSamplingService<SamplingBackend, SamplingNetwork, SamplingStorage, RuntimeServiceId>,
+        >,
+{
+    make_request_and_return_response!(da::da_historic_sampling::<
+        SamplingBackend,
+        SamplingNetwork,
+        SamplingStorage,
+        RuntimeServiceId,
+    >(
+        handle,
+        request.session_id,
+        request.block_id,
+        request.blob_ids
+    ))
 }

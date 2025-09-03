@@ -19,7 +19,12 @@ use nomos_blend_service::{
     core::settings::{CoverTrafficSettingsExt, MessageDelayerSettingsExt, SchedulerSettingsExt},
     settings::TimingSettings,
 };
-use nomos_core::{block::Block, da::BlobId, mantle::SignedMantleTx, sdp::FinalizedBlockEvent};
+use nomos_core::{
+    block::{Block, SessionNumber},
+    da::BlobId,
+    mantle::SignedMantleTx,
+    sdp::FinalizedBlockEvent,
+};
 use nomos_da_network_core::{
     protocols::sampling::SubnetsConfig,
     swarm::{BalancerStats, DAConnectionPolicySettings, MonitorStats},
@@ -40,12 +45,12 @@ use nomos_da_verifier::{
 };
 use nomos_http_api_common::paths::{
     CRYPTARCHIA_HEADERS, CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_GET_SHARES_COMMITMENTS,
-    DA_MONITOR_STATS, STORAGE_BLOCK, UPDATE_MEMBERSHIP,
+    DA_HISTORIC_SAMPLING, DA_MONITOR_STATS, STORAGE_BLOCK, UPDATE_MEMBERSHIP,
 };
 use nomos_mempool::MempoolMetrics;
 use nomos_network::{backends::libp2p::Libp2pConfig, config::NetworkConfig};
 use nomos_node::{
-    api::backend::AxumBackendSettings,
+    api::{backend::AxumBackendSettings, testing::handlers::HistoricSamplingRequest},
     config::{blend::BlendConfig, mempool::MempoolConfig},
     BlobInfo, Config, HeaderId, RocksBackendSettings,
 };
@@ -62,7 +67,9 @@ use tokio::time::error::Elapsed;
 
 use super::{create_tempdir, persist_tempdir, CLIENT};
 use crate::{
-    adjust_timeout, get_available_port, nodes::LOGS_PREFIX, topology::configs::GeneralConfig,
+    adjust_timeout, get_available_port,
+    nodes::{DA_GET_TESTING_ENDPOINT_ERROR, LOGS_PREFIX},
+    topology::configs::GeneralConfig,
     IS_DEBUG_TRACING,
 };
 
@@ -256,6 +263,36 @@ impl Validator {
             Try: cargo build --workspace --all-features",
             self.testing_http_addr
         );
+
+        let response = response.unwrap();
+        response.error_for_status()?;
+        Ok(())
+    }
+
+    pub async fn da_historic_sampling(
+        &self,
+        session_id: SessionNumber,
+        block_id: HeaderId,
+        blob_ids: Vec<BlobId>,
+    ) -> Result<(), reqwest::Error> {
+        let request = HistoricSamplingRequest {
+            session_id,
+            block_id,
+            blob_ids,
+        };
+        let json_body = serde_json::to_string(&request).unwrap();
+
+        let response = CLIENT
+            .post(format!(
+                "http://{}{}",
+                self.testing_http_addr, DA_HISTORIC_SAMPLING
+            ))
+            .header("Content-Type", "application/json")
+            .body(json_body)
+            .send()
+            .await;
+
+        assert!(response.is_ok(), "{}", DA_GET_TESTING_ENDPOINT_ERROR);
 
         let response = response.unwrap();
         response.error_for_status()?;

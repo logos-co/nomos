@@ -5,14 +5,24 @@ use std::{
 
 use axum::{http::HeaderValue, routing::post, Router, Server};
 use hyper::header::{CONTENT_TYPE, USER_AGENT};
+use kzgrs_backend::common::share::DaShare;
 use nomos_api::Backend;
 use nomos_da_network_service::backends::libp2p::executor::DaNetworkExecutorBackend;
-use nomos_http_api_common::paths::{DA_GET_MEMBERSHIP, UPDATE_MEMBERSHIP};
+use nomos_da_sampling::{
+    backend::kzgrs::KzgrsSamplingBackend,
+    network::adapters::executor::Libp2pAdapter as SamplingLibp2pAdapter,
+    storage::adapters::rocksdb::{
+        converter::DaStorageConverter, RocksAdapter as SamplingStorageAdapter,
+    },
+};
+use nomos_http_api_common::paths::{DA_GET_MEMBERSHIP, DA_HISTORIC_SAMPLING, UPDATE_MEMBERSHIP};
 use nomos_membership::MembershipService as MembershipServiceTrait;
 use nomos_node::{
-    api::testing::handlers::{da_get_membership, update_membership},
-    generic_services::{DaMembershipAdapter, MembershipBackend, MembershipSdp, MembershipService},
-    DaNetworkApiAdapter, NomosDaMembership,
+    api::testing::handlers::{da_get_membership, da_historic_sampling, update_membership},
+    generic_services::{
+        self, DaMembershipAdapter, MembershipBackend, MembershipSdp, MembershipService,
+    },
+    DaNetworkApiAdapter, NomosDaMembership, Wire,
 };
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId, DynError};
 use services_utils::wait_until_services_are_ready;
@@ -36,6 +46,17 @@ type TestDaNetworkService<RuntimeServiceId> = nomos_da_network_service::NetworkS
     RuntimeServiceId,
 >;
 
+type TestDaSamplingService<RuntimeServiceId> = generic_services::DaSamplingService<
+    SamplingLibp2pAdapter<
+        NomosDaMembership,
+        DaMembershipAdapter<RuntimeServiceId>,
+        DaMembershipStorage,
+        DaNetworkApiAdapter,
+        RuntimeServiceId,
+    >,
+    RuntimeServiceId,
+>;
+
 #[async_trait::async_trait]
 impl<RuntimeServiceId> Backend<RuntimeServiceId> for TestAxumBackend
 where
@@ -46,7 +67,8 @@ where
         + Clone
         + 'static
         + AsServiceId<MembershipService<RuntimeServiceId>>
-        + AsServiceId<TestDaNetworkService<RuntimeServiceId>>,
+        + AsServiceId<TestDaNetworkService<RuntimeServiceId>>
+        + AsServiceId<TestDaSamplingService<RuntimeServiceId>>,
 {
     type Error = hyper::Error;
     type Settings = AxumBackendSettings;
@@ -113,6 +135,23 @@ where
                         DaMembershipAdapter<RuntimeServiceId>,
                         DaMembershipStorage,
                         DaNetworkApiAdapter,
+                        RuntimeServiceId,
+                    >,
+                ),
+            )
+            .route(
+                DA_HISTORIC_SAMPLING,
+                post(
+                    da_historic_sampling::<
+                        KzgrsSamplingBackend,
+                        nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
+                            NomosDaMembership,
+                            DaMembershipAdapter<RuntimeServiceId>,
+                            DaMembershipStorage,
+                            DaNetworkApiAdapter,
+                            RuntimeServiceId,
+                        >,
+                        SamplingStorageAdapter<DaShare, Wire, DaStorageConverter>,
                         RuntimeServiceId,
                     >,
                 ),
