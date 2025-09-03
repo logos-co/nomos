@@ -1,11 +1,6 @@
-use std::collections::BTreeSet;
-
 use futures::StreamExt as _;
 use kzgrs_backend::dispersal::Index;
-use nomos_core::{
-    da::BlobId,
-    sdp::{FinalizedBlockEvent, FinalizedBlockEventUpdate},
-};
+use nomos_core::{da::BlobId, sdp::FinalizedBlockEvent};
 use tests::{
     common::da::{disseminate_with_metadata, wait_for_blob_onchain, APP_ID},
     nodes::executor::Executor,
@@ -96,18 +91,16 @@ async fn test_sampling_scenarios(executor: &Executor, blob_ids: &[BlobId]) {
     // Test 2: Mix of valid and invalid blobs - should return false
     let mut mixed_blob_ids = blob_ids.to_vec();
     // Replace one blob ID with a non-existent one
-    if !mixed_blob_ids.is_empty() {
-        mixed_blob_ids[0] = [99u8; 32].into();
+    mixed_blob_ids[0] = [99u8; 32];
 
-        let result = executor
-            .da_historic_sampling(0, block_id.into(), mixed_blob_ids)
-            .await
-            .expect("HTTP request should succeed");
-        assert!(
-            !result,
-            "Historical sampling should return false when any blob is invalid"
-        );
-    }
+    let result = executor
+        .da_historic_sampling(0, block_id.into(), mixed_blob_ids)
+        .await
+        .expect("HTTP request should succeed");
+    assert!(
+        !result,
+        "Historical sampling should return false when any blob is invalid"
+    );
 }
 
 fn create_test_metadata() -> kzgrs_backend::dispersal::Metadata {
