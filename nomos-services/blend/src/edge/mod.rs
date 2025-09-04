@@ -11,7 +11,7 @@ use std::{
 };
 
 use backends::BlendBackend;
-use futures::{Stream, StreamExt as _};
+use futures::{FutureExt as _, Stream, StreamExt as _};
 use nomos_blend_scheduling::{
     membership::Membership,
     session::{SessionEvent, SessionEventStream},
@@ -186,7 +186,8 @@ where
     // Read the initial membership, expecting it to be yielded immediately.
     let SessionEvent::NewSession(membership) = session_stream
         .next()
-        .await
+        .now_or_never()
+        .expect("Session stream should yield the first event immediately")
         .expect("Session stream shouldn't be closed")
     else {
         panic!("NewSession must be yielded first");
@@ -260,20 +261,14 @@ mod tests {
     #[test_log::test(tokio::test)]
     async fn run_with_session_transition() {
         let local_node = 99;
-        let minimal_network_size = 1;
-        let (_, session_sender, msg_sender, mut node_id_receiver) =
-            spawn_run(local_node, minimal_network_size);
-
-        // Send the initial membership.
         let mut core_node = 0;
-        session_sender
-            .send(SessionEvent::NewSession(membership(
-                &[core_node],
-                local_node,
-            )))
-            .await
-            .expect("channel opened");
-        sleep(Duration::from_millis(100)).await;
+        let minimal_network_size = 1;
+        let (_, session_sender, msg_sender, mut node_id_receiver) = spawn_run(
+            local_node,
+            minimal_network_size,
+            Some(membership(&[core_node], local_node)),
+        )
+        .await;
 
         // A message should be forwarded to the core node 0.
         msg_sender.send(vec![0]).await.expect("channel opened");
@@ -305,20 +300,14 @@ mod tests {
     #[test_log::test(tokio::test)]
     async fn run_ignores_transition_period_expired() {
         let local_node = 99;
-        let minimal_network_size = 1;
-        let (_, session_sender, msg_sender, mut node_id_receiver) =
-            spawn_run(local_node, minimal_network_size);
-
-        // Send the initial membership.
         let core_node = 0;
-        session_sender
-            .send(SessionEvent::NewSession(membership(
-                &[core_node],
-                local_node,
-            )))
-            .await
-            .expect("channel opened");
-        sleep(Duration::from_millis(100)).await;
+        let minimal_network_size = 1;
+        let (_, session_sender, msg_sender, mut node_id_receiver) = spawn_run(
+            local_node,
+            minimal_network_size,
+            Some(membership(&[core_node], local_node)),
+        )
+        .await;
 
         // Send a TransitionPeriodExpired that should be ignored.
         session_sender
@@ -342,18 +331,14 @@ mod tests {
     )]
     async fn run_panics_with_small_initial_membership() {
         let local_node = 99;
-        let minimal_network_size = 2;
-        let (join_handle, session_sender, _, _) = spawn_run(local_node, minimal_network_size);
-
-        // Send the initial membership, which is too small.
         let core_nodes = [0];
-        session_sender
-            .send(SessionEvent::NewSession(membership(
-                &core_nodes,
-                local_node,
-            )))
-            .await
-            .expect("channel opened");
+        let minimal_network_size = 2;
+        let (join_handle, _, _, _) = spawn_run(
+            local_node,
+            minimal_network_size,
+            Some(membership(&core_nodes, local_node)),
+        )
+        .await;
 
         resume_panic_from(join_handle).await;
     }
@@ -365,18 +350,14 @@ mod tests {
     )]
     async fn run_panics_with_local_is_core_in_initial_membership() {
         let local_node = 99;
-        let minimal_network_size = 1;
-        let (join_handle, session_sender, _, _) = spawn_run(local_node, minimal_network_size);
-
-        // Send the initial membership where the local node is core.
         let core_nodes = [local_node];
-        session_sender
-            .send(SessionEvent::NewSession(membership(
-                &core_nodes,
-                local_node,
-            )))
-            .await
-            .expect("channel opened");
+        let minimal_network_size = 1;
+        let (join_handle, _, _, _) = spawn_run(
+            local_node,
+            minimal_network_size,
+            Some(membership(&core_nodes, local_node)),
+        )
+        .await;
 
         resume_panic_from(join_handle).await;
     }
@@ -386,19 +367,14 @@ mod tests {
     #[test_log::test(tokio::test)]
     async fn run_fails_if_new_membership_is_small() {
         let local_node = 99;
-        let minimal_network_size = 1;
-        let (join_handle, session_sender, _, _) = spawn_run(local_node, minimal_network_size);
-
-        // Send the initial membership.
         let core_node = 0;
-        session_sender
-            .send(SessionEvent::NewSession(membership(
-                &[core_node],
-                local_node,
-            )))
-            .await
-            .expect("channel opened");
-        sleep(Duration::from_millis(100)).await;
+        let minimal_network_size = 1;
+        let (join_handle, session_sender, _, _) = spawn_run(
+            local_node,
+            minimal_network_size,
+            Some(membership(&[core_node], local_node)),
+        )
+        .await;
 
         // Send a new session with an empty membership (smaller than the min size).
         session_sender
@@ -415,19 +391,14 @@ mod tests {
     #[test_log::test(tokio::test)]
     async fn run_fails_if_local_is_core_in_new_membership() {
         let local_node = 99;
-        let minimal_network_size = 1;
-        let (join_handle, session_sender, _, _) = spawn_run(local_node, minimal_network_size);
-
-        // Send the initial membership.
         let core_node = 0;
-        session_sender
-            .send(SessionEvent::NewSession(membership(
-                &[core_node],
-                local_node,
-            )))
-            .await
-            .expect("channel opened");
-        sleep(Duration::from_millis(100)).await;
+        let minimal_network_size = 1;
+        let (join_handle, session_sender, _, _) = spawn_run(
+            local_node,
+            minimal_network_size,
+            Some(membership(&[core_node], local_node)),
+        )
+        .await;
 
         // Send a new session with a membership where the local node is core.
         session_sender
@@ -443,10 +414,25 @@ mod tests {
         ));
     }
 
-    #[expect(clippy::type_complexity, reason = "A test utility function")]
-    fn spawn_run(
+    /// [`run`] panics if the session stream does not yield the first event
+    /// immediately.
+    #[test_log::test(tokio::test)]
+    #[should_panic(expected = "Session stream should yield the first event immediately")]
+    async fn run_panics_if_session_stream_is_not_immediate() {
+        let local_node = 99;
+        let minimal_network_size = 1;
+        // Do not provide the initial membership, so the session stream does not yield
+        // immediately.
+        let (join_handle, _session_sender, _, _) =
+            spawn_run(local_node, minimal_network_size, None).await;
+
+        resume_panic_from(join_handle).await;
+    }
+
+    async fn spawn_run(
         local_node: NodeId,
         minimal_network_size: u64,
+        initial_membership: Option<Membership<NodeId>>,
     ) -> (
         JoinHandle<Result<(), Error>>,
         mpsc::Sender<SessionEvent<Membership<NodeId>>>,
@@ -456,6 +442,13 @@ mod tests {
         let (session_sender, session_receiver) = mpsc::channel(1);
         let (msg_sender, msg_receiver) = mpsc::channel(1);
         let (node_id_sender, node_id_receiver) = mpsc::channel(1);
+
+        if let Some(initial_membership) = initial_membership {
+            session_sender
+                .send(SessionEvent::NewSession(initial_membership))
+                .await
+                .expect("channel opened");
+        }
 
         let join_handle = tokio::spawn(async move {
             run::<TestBackend, _, _>(
