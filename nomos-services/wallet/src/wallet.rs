@@ -1,8 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use nomos_core::{
+    block::Block,
     header::HeaderId,
-    mantle::{keys::PublicKey, NoteId, Utxo, Value},
+    mantle::{keys::PublicKey, NoteId, SignedMantleTx, Utxo, Value},
 };
 use nomos_ledger::LedgerState;
 
@@ -105,6 +106,46 @@ impl WalletState {
 
         Some(balance)
     }
+
+    pub fn apply_block(
+        &self,
+        known_keys: &BTreeSet<PublicKey>,
+        block: Block<SignedMantleTx, ()>,
+    ) -> Self {
+        let mut utxos = self.utxos.clone();
+        let mut pk_index = self.pk_index.clone();
+
+        // Process each transaction in the block
+        for signed_tx in block.transactions() {
+            let ledger_tx = &signed_tx.mantle_tx.ledger_tx;
+
+            // Remove spent UTXOs (inputs)
+            for spent_id in &ledger_tx.inputs {
+                if let Some(utxo) = utxos.remove(spent_id) {
+                    let note_ids = pk_index
+                        .get_mut(&utxo.note.pk)
+                        .expect("pk_index missing entry for utxo");
+
+                    note_ids.remove(spent_id);
+
+                    if note_ids.is_empty() {
+                        pk_index.remove(&utxo.note.pk);
+                    }
+                }
+            }
+
+            // Add new UTXOs (outputs) - only if they belong to our known keys
+            for utxo in ledger_tx.utxos() {
+                if known_keys.contains(&utxo.note.pk) {
+                    let note_id = utxo.id();
+                    utxos.insert(note_id, utxo);
+                    pk_index.entry(utxo.note.pk).or_default().insert(note_id);
+                }
+            }
+        }
+
+        Self { utxos, pk_index }
+    }
 }
 
 struct Wallet {
@@ -126,6 +167,19 @@ impl Wallet {
             known_keys: known_keys.into_iter().collect(),
             wallet_states: [(lib, wallet_state)].into(),
         }
+    }
+
+    pub fn apply_block(
+        &mut self,
+        parent: HeaderId,
+        block: Block<SignedMantleTx, ()>,
+    ) -> Result<()> {
+        let block_id = block.header().id();
+        let block_wallet_state = self
+            .wallet_state_at(parent)?
+            .apply_block(&self.known_keys, block);
+        self.wallet_states.insert(block_id, block_wallet_state);
+        Ok(())
     }
 
     pub fn apply_ledger(&mut self, block: HeaderId, ledger: LedgerState) {
