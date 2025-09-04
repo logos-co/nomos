@@ -67,7 +67,7 @@ where
         amount: usize,
     ) -> impl Iterator<Item = &Node<NodeId>> {
         self.filter_and_choose_remote_nodes(rng, amount, &mut HashSet::new())
-            .map(|id| {
+            .map(|Node { id, .. }| {
                 self.nodes_map
                     .get(id)
                     .expect("Node ID must exist in core nodes.")
@@ -104,6 +104,7 @@ impl<NodeId> Membership<NodeId>
 where
     NodeId: Eq + Hash,
 {
+    #[must_use]
     pub fn get_remote_node_at(&self, index: usize) -> Option<&Node<NodeId>> {
         self.node_ids
             .get(index)

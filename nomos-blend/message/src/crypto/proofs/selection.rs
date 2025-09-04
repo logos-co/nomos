@@ -10,9 +10,9 @@ const DOMAIN_SEPARATION_TAG: [u8; 23] = *b"SELECTION_RANDOMNESS_V1";
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProofOfSelection(#[serde(with = "serde_fr")] ZkHash);
 
-pub struct ProofOfSelectionInput {
+pub struct ProofOfSelectionInputs {
     pub secret_key: ZkHash,
-    pub node_index: usize,
+    pub ephemeral_key_index: usize,
     pub session_number: u64,
 }
 
@@ -30,14 +30,15 @@ impl ProofOfSelection {
     }
 
     pub fn new(
-        ProofOfSelectionInput {
-            node_index,
+        ProofOfSelectionInputs {
+            ephemeral_key_index,
             secret_key,
             session_number,
-        }: ProofOfSelectionInput,
+        }: ProofOfSelectionInputs,
     ) -> Self {
         let domain_separation_tag: Fr = BigUint::from_bytes_le(&DOMAIN_SEPARATION_TAG[..]).into();
-        let node_index: Fr = BigUint::from_bytes_le(&node_index.to_le_bytes()[..]).into();
+        let ephemeral_key_index: Fr =
+            BigUint::from_bytes_le(&ephemeral_key_index.to_le_bytes()[..]).into();
         let session_number: Fr = BigUint::from_bytes_le(&session_number.to_le_bytes()[..]).into();
 
         let hash = {
@@ -45,7 +46,7 @@ impl ProofOfSelection {
             hasher.update(&[
                 domain_separation_tag,
                 secret_key,
-                node_index,
+                ephemeral_key_index,
                 session_number,
             ]);
             hasher.finalize()
@@ -58,5 +59,11 @@ impl ProofOfSelection {
 impl From<ZkHash> for ProofOfSelection {
     fn from(hash: ZkHash) -> Self {
         Self(hash)
+    }
+}
+
+impl AsRef<ZkHash> for ProofOfSelection {
+    fn as_ref(&self) -> &ZkHash {
+        &self.0
     }
 }

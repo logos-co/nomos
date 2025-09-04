@@ -88,9 +88,10 @@ impl ProofOfQuota {
         (Self::dummy(), ZkHash::default())
     }
 
-    pub fn verify(self, _public_inputs: &PublicInputs) -> Result<ZkHash, ()> {
+    #[must_use]
+    pub fn verify(self, _public_inputs: &PublicInputs, _nullifier: ZkHash) -> bool {
         // TODO: Interact with circom circuit verification.
-        Ok(ZkHash::default())
+        true
     }
 }
 

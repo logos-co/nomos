@@ -3,13 +3,13 @@ use std::hash::Hash;
 use derivative::Derivative;
 use nomos_blend_message::{
     crypto::{
-        keys::{Ed25519PrivateKey, X25519PrivateKey},
+        keys::{Ed25519PrivateKey, Ed25519PublicKey, X25519PrivateKey},
         proofs::{
             quota::{
                 PrivateInputs, ProofOfCoreQuotaPrivateInputs, ProofOfLeadershipQuotaPrivateInputs,
                 ProofOfQuota, PublicInputs,
             },
-            selection::{ProofOfSelection, ProofOfSelectionInput},
+            selection::{ProofOfSelection, ProofOfSelectionInputs},
         },
     },
     encap::{
@@ -19,7 +19,11 @@ use nomos_blend_message::{
     input::{EncapsulationInput, EncapsulationInputs as InternalEncapsulationInputs},
     Error, PayloadType,
 };
-use nomos_core::{crypto::ZkHash, wire};
+use nomos_core::{
+    crypto::{ZkHash, ZkHasher},
+    wire,
+};
+use num_bigint::BigUint;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 
@@ -34,6 +38,7 @@ struct GeneratedProofs {
     signing_key: Ed25519PrivateKey,
     proof_of_quota: ProofOfQuota,
     proof_of_selection: ProofOfSelection,
+    recipient_non_ephemeral_verifying_key: Ed25519PublicKey,
     key_nullifier: ZkHash,
 }
 
@@ -42,6 +47,8 @@ struct ProofsStorage {
     proof_of_leadership_quotas: Vec<GeneratedProofs>,
 }
 
+// TODO: Remove this `Default` impl when all the pieces are implemented
+#[derive(Default)]
 pub struct SessionInfo {
     number: u64,
     core_quota: usize,
@@ -54,7 +61,7 @@ pub struct SessionInfo {
 }
 
 impl ProofsStorage {
-    fn new(
+    fn new<NodeId>(
         SessionInfo {
             core_quota,
             core_root,
@@ -66,7 +73,11 @@ impl ProofsStorage {
             pol_t1,
         }: SessionInfo,
         secret_key: ZkHash,
-    ) -> Self {
+        membership: &Membership<NodeId>,
+    ) -> Self
+    where
+        NodeId: Eq + Hash,
+    {
         let proof_of_core_quotas = (0..=core_quota)
             .map(|key_index| {
                 let signing_key = Ed25519PrivateKey::generate();
@@ -90,11 +101,28 @@ impl ProofsStorage {
                     public_inputs,
                     PrivateInputs::new_proof_of_core_quota_inputs(key_index, private_inputs),
                 );
-                // TODO: Verifiably select the recipient of each message layer based on the spec: https://www.notion.so/nomos-tech/Message-Encapsulation-Mechanism-215261aa09df81309d7fd7f1c2da086b?source=copy_link#215261aa09df81319317cb1e86b2e527.
-                // TODO: Generate a proof of selection and link it to the secret selection randomness: https://www.notion.so/nomos-tech/Blend-Protocol-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df8110a059d0eb477559b5.
+                let proof_of_selection = ProofOfSelection::new(ProofOfSelectionInputs {
+                    ephemeral_key_index: key_index,
+                    secret_key,
+                    session_number: number,
+                });
+                // TODO: Calculate recipient node index.
+                let recipient_node_index = {
+                    let mut hasher = ZkHasher::new();
+                    hasher.update(&[*proof_of_selection.as_ref()]);
+                    // let res = hasher.finalize();
+                    // let index = (res.0 as usize) % membership.size();
+                    0usize
+                };
+                let recipient_non_ephemeral_verifying_key = membership
+                    .get_remote_node_at(recipient_node_index)
+                    .unwrap()
+                    .public_key;
                 GeneratedProofs {
                     signing_key,
                     proof_of_quota,
+                    proof_of_selection,
+                    recipient_non_ephemeral_verifying_key,
                     key_nullifier,
                 }
             })
@@ -120,9 +148,28 @@ impl ProofsStorage {
                     public_inputs,
                     PrivateInputs::new_proof_of_leadership_quota_inputs(key_index, private_inputs),
                 );
+                let proof_of_selection = ProofOfSelection::new(ProofOfSelectionInputs {
+                    ephemeral_key_index: key_index,
+                    secret_key,
+                    session_number: number,
+                });
+                // TODO: Calculate recipient node index.
+                let recipient_node_index = {
+                    let mut hasher = ZkHasher::new();
+                    hasher.update(&[*proof_of_selection.as_ref()]);
+                    // let res = hasher.finalize();
+                    // let index = (res.0 as usize) % membership.size();
+                    0usize
+                };
+                let recipient_non_ephemeral_verifying_key = membership
+                    .get_remote_node_at(recipient_node_index)
+                    .unwrap()
+                    .public_key;
                 GeneratedProofs {
                     signing_key,
                     proof_of_quota,
+                    proof_of_selection,
+                    recipient_non_ephemeral_verifying_key,
                     key_nullifier,
                 }
             })
@@ -164,29 +211,36 @@ pub struct CryptographicProcessorSettings {
     pub non_ephemeral_quota_key: ZkHash,
 }
 
-impl<NodeId, Rng> CryptographicProcessor<NodeId, Rng> {
+impl<NodeId, Rng> CryptographicProcessor<NodeId, Rng>
+where
+    NodeId: Eq + Hash,
+{
     pub fn new(
         settings: CryptographicProcessorSettings,
         membership: Membership<NodeId>,
-        session_info: SessionInfo,
         rng: Rng,
     ) -> Self {
         // Derive the non-ephemeral encryption key
         // from the non-ephemeral signing key.
+        let proof_of_quota_storage = ProofsStorage::new(
+            // TODO: Replace with input session_info.
+            SessionInfo::default(),
+            settings.non_ephemeral_quota_key,
+            &membership,
+        );
         Self {
             encryption_private_key: settings.non_ephemeral_signing_key.derive_x25519(),
             membership,
             non_ephemeral_quota_key: settings.non_ephemeral_quota_key,
             non_ephemeral_signing_key: settings.non_ephemeral_signing_key,
             num_blend_layers: settings.num_blend_layers as usize,
-            proof_of_quota_storage: ProofsStorage::new(
-                session_info,
-                settings.non_ephemeral_quota_key,
-            ),
+            proof_of_quota_storage,
             rng,
         }
     }
+}
 
+impl<NodeId, Rng> CryptographicProcessor<NodeId, Rng> {
     pub fn decapsulate_serialized_message(
         &self,
         message: &[u8],
@@ -204,7 +258,7 @@ impl<NodeId, Rng> CryptographicProcessor<NodeId, Rng> {
 
 impl<NodeId, Rng> CryptographicProcessor<NodeId, Rng>
 where
-    NodeId: Eq + Hash,
+    NodeId: Eq + Hash + Clone,
     Rng: RngCore,
 {
     pub fn encapsulate_cover_payload(
