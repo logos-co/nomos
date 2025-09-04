@@ -71,14 +71,13 @@ impl WalletState {
 }
 
 struct Wallet {
-    lib: HeaderId,
     known_keys: HashSet<PublicKey>,
     wallet_states: BTreeMap<HeaderId, WalletState>,
 }
 
 impl Wallet {
     pub fn new(
-        lib: HeaderId,
+        block: HeaderId,
         ledger: LedgerState,
         known_keys: impl IntoIterator<Item = PublicKey>,
     ) -> Self {
@@ -87,9 +86,8 @@ impl Wallet {
         let wallet_state = WalletState::from_ledger(&known_keys, ledger);
 
         Self {
-            lib,
             known_keys: known_keys.into_iter().collect(),
-            wallet_states: [(lib, wallet_state)].into(),
+            wallet_states: [(block, wallet_state)].into(),
         }
     }
 
@@ -112,7 +110,7 @@ impl Wallet {
     ) -> Result<Option<Vec<Utxo>>> {
         let wallet_state = self.wallet_state_at(tip)?;
 
-        let eligible_pks: BTreeSet<PublicKey> = pks.into_iter().collect();
+        let eligible_pks: HashSet<PublicKey> = pks.into_iter().collect();
         let mut utxos: Vec<Utxo> = wallet_state
             .utxos()
             .into_iter()
@@ -198,27 +196,9 @@ mod tests {
         let genesis = HeaderId::from([0; 32]);
 
         let ledger = LedgerState::from_utxos([
-            Utxo {
-                tx_hash: tx_hash(0),
-                output_index: 0,
-                note: Note {
-                    value: 100,
-                    pk: alice,
-                },
-            },
-            Utxo {
-                tx_hash: tx_hash(0),
-                output_index: 0,
-                note: Note { value: 20, pk: bob },
-            },
-            Utxo {
-                tx_hash: tx_hash(0),
-                output_index: 0,
-                note: Note {
-                    value: 4,
-                    pk: alice,
-                },
-            },
+            Utxo::new(tx_hash(0), 0, Note::new(100, alice)),
+            Utxo::new(tx_hash(0), 1, Note::new(20, bob)),
+            Utxo::new(tx_hash(0), 2, Note::new(4, alice)),
         ]);
 
         let wallet = Wallet::new(genesis, ledger.clone(), []);
@@ -252,40 +232,15 @@ mod tests {
         let mut wallet = Wallet::new(genesis, genesis_ledger, [alice, bob]);
 
         let ledger_1 = LedgerState::from_utxos([
-            Utxo {
-                tx_hash: tx_hash(0),
-                output_index: 0,
-                note: Note {
-                    value: 100,
-                    pk: alice,
-                },
-            },
-            Utxo {
-                tx_hash: tx_hash(0),
-                output_index: 0,
-                note: Note {
-                    value: 4,
-                    pk: alice,
-                },
-            },
+            Utxo::new(tx_hash(0), 0, Note::new(100, alice)),
+            Utxo::new(tx_hash(0), 1, Note::new(4, alice)),
         ]);
 
         wallet.apply_ledger(block_1, ledger_1);
 
         let ledger_2 = LedgerState::from_utxos([
-            Utxo {
-                tx_hash: tx_hash(0),
-                output_index: 0,
-                note: Note { value: 20, pk: bob },
-            },
-            Utxo {
-                tx_hash: tx_hash(0),
-                output_index: 0,
-                note: Note {
-                    value: 4,
-                    pk: alice,
-                },
-            },
+            Utxo::new(tx_hash(0), 0, Note::new(20, bob)),
+            Utxo::new(tx_hash(0), 1, Note::new(4, alice)),
         ]);
 
         wallet.apply_ledger(block_2, ledger_2);
@@ -302,36 +257,16 @@ mod tests {
 
     #[test]
     fn test_utxos_for_amount() {
-        let alice_1 = PublicKey::from([0u8; 32]);
-        let alice_2 = PublicKey::from([1u8; 32]);
-        let bob = PublicKey::from([2u8; 32]);
+        let alice_1 = pk(1);
+        let alice_2 = pk(2);
+        let bob = pk(3);
 
         let ledger = LedgerState::from_utxos([
-            Utxo {
-                tx_hash: [0u8; 32].into(),
-                output_index: 0,
-                note: Note::new(4, alice_1),
-            },
-            Utxo {
-                tx_hash: [0u8; 32].into(),
-                output_index: 1,
-                note: Note::new(3, alice_2),
-            },
-            Utxo {
-                tx_hash: [0u8; 32].into(),
-                output_index: 2,
-                note: Note::new(5, alice_2),
-            },
-            Utxo {
-                tx_hash: [0u8; 32].into(),
-                output_index: 3,
-                note: Note::new(10, alice_2),
-            },
-            Utxo {
-                tx_hash: [0u8; 32].into(),
-                output_index: 4,
-                note: Note::new(20, bob),
-            },
+            Utxo::new(tx_hash(0), 0, Note::new(4, alice_1)),
+            Utxo::new(tx_hash(0), 1, Note::new(3, alice_2)),
+            Utxo::new(tx_hash(0), 2, Note::new(5, alice_2)),
+            Utxo::new(tx_hash(0), 3, Note::new(10, alice_2)),
+            Utxo::new(tx_hash(0), 4, Note::new(20, bob)),
         ]);
 
         let genesis = HeaderId::from([0u8; 32]);
@@ -343,11 +278,7 @@ mod tests {
             wallet
                 .utxos_for_amount(genesis, 2, [alice_1, alice_2])
                 .unwrap(),
-            Some(vec![Utxo {
-                tx_hash: [0u8; 32].into(),
-                output_index: 1,
-                note: Note::new(3, alice_2)
-            }])
+            Some(vec![Utxo::new(tx_hash(0), 1, Note::new(3, alice_2))])
         );
 
         // requesting 3 NMO from alices keys
@@ -355,11 +286,7 @@ mod tests {
             wallet
                 .utxos_for_amount(genesis, 3, [alice_1, alice_2])
                 .unwrap(),
-            Some(vec![Utxo {
-                tx_hash: [0u8; 32].into(),
-                output_index: 1,
-                note: Note::new(3, alice_2)
-            }])
+            Some(vec![Utxo::new(tx_hash(0), 1, Note::new(3, alice_2))])
         );
 
         // requesting 4 NMO from alices keys
@@ -367,11 +294,7 @@ mod tests {
             wallet
                 .utxos_for_amount(genesis, 4, [alice_1, alice_2])
                 .unwrap(),
-            Some(vec![Utxo {
-                tx_hash: [0u8; 32].into(),
-                output_index: 0,
-                note: Note::new(4, alice_1)
-            }])
+            Some(vec![Utxo::new(tx_hash(0), 0, Note::new(4, alice_1))])
         );
 
         // requesting 5 NMO from alices keys
@@ -381,17 +304,52 @@ mod tests {
                 .utxos_for_amount(genesis, 5, [alice_1, alice_2])
                 .unwrap(),
             Some(vec![
-                Utxo {
-                    tx_hash: [0u8; 32].into(),
-                    output_index: 1,
-                    note: Note::new(3, alice_2)
-                },
-                Utxo {
-                    tx_hash: [0u8; 32].into(),
-                    output_index: 0,
-                    note: Note::new(4, alice_1)
-                }
+                Utxo::new(tx_hash(0), 1, Note::new(3, alice_2)),
+                Utxo::new(tx_hash(0), 0, Note::new(4, alice_1)),
             ])
         );
     }
+
+    // #[test]
+    // fn test_utxos_for_amount_respects_spent_unconfirmed() {
+    //     let alice = PublicKey::from([0u8; 32]);
+
+    //     let ledger = LedgerState::from_utxos([
+    //         Utxo::new(tx_hash(0), 0, Note::new(4, alice)),
+    //         Utxo::new(tx_hash(0), 1, Note::new(3, alice)),
+    //     ]);
+
+    //     let genesis = HeaderId::from([0u8; 32]);
+
+    //     let mut wallet = Wallet::new(genesis, ledger, [alice]);
+
+    //     assert_eq!(
+    //         wallet.utxos_for_amount(genesis, 1, [alice]).unwrap(),
+    //         Some(vec![Utxo::new(tx_hash(0), 1, Note::new(3, alice))])
+    //     );
+
+    //     wallet.mark_spent_unconfirmed(Utxo::new(tx_hash(0), 1, Note::new(3, alice)).id());
+    //     assert!(false);
+    // }
+
+    // #[test]
+    // fn test_spent_unconfirmed_cleared_after_expiry() {
+    //     let alice = PublicKey::from([0u8; 32]);
+
+    //     let ledger = LedgerState::from_utxos([
+    //         Utxo::new(tx_hash(0), 0, Note::new(4, alice)),
+    //         Utxo::new(tx_hash(0), 1, Note::new(3, alice)),
+    //     ]);
+
+    //     let genesis = HeaderId::from([0u8; 32]);
+
+    //     let mut wallet = Wallet::new(genesis, ledger, [alice]);
+
+    //     panic!();
+    // }
+
+    // #[test]
+    // fn test_balance_takes_into_account_unspent_unconfirmed_notes() {
+    //     panic!();
+    // }
 }
