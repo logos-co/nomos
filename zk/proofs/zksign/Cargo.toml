@@ -1,0 +1,21 @@
+[package]
+edition = "2024"
+license.workspace = true
+name = "zksign"
+version = "0.1.0"
+
+[dependencies]
+circuits-utils = { workspace = true }
+circuits-prover = { workspace = true }
+groth16 = { workspace = true, features = ["deser"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+poseidon2 = { workspace = true }
+num-bigint = "0.4"
+rand = "0.8"
+
+[lints]
+workspace = true
