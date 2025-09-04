@@ -162,15 +162,16 @@ where
 
 /// Run the event loop of the service.
 ///
-/// It returns an [`Error`] immediately if the initial membership does not
-/// satisfy the edge node condition defined in [`check_edge_condition`].
-/// Otherwise, it notifies readiness and starts the event loop.
-///
-/// In the event loop, it listens for new sessions and messages to blend,
+/// It listens for new sessions and messages to blend.
 /// It recreates the [`MessageHandler`] on each new session to handle messages
 /// with the new membership.
 /// It returns an [`Error`] if the new membership does not satisfy the edge node
 /// condition.
+///
+/// # Panics
+/// - If the initial membership is not yielded immediately from the session
+///   stream.
+/// - If the initial membership does not satisfy the edge node condition.
 async fn run<Backend, NodeId, RuntimeServiceId>(
     mut session_stream: impl Stream<Item = SessionEvent<Membership<NodeId>>> + Send + Unpin,
     mut messages_to_blend: impl Stream<Item = Vec<u8>> + Send + Unpin,
