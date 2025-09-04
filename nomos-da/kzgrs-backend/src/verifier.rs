@@ -148,6 +148,7 @@ mod test {
         let encoded_data = encoder.encode(&data).unwrap();
 
         let share = encoded_data.iter().next().unwrap();
+        let len = share.column.len();
         let (light_share, commitments) = share.into_share_and_commitments();
         let t0 = unsafe { core::arch::x86_64::_rdtsc() };
         for _ in 0..iters {
@@ -166,8 +167,8 @@ mod test {
         println!("{header}",);
         println!("  - iterations        : {iters:>20}");
         println!(
-            "  - elements          : {:>20}",
-            configuration.elements_count
+            "  - sample elements   : {:>20}",
+            len
         );
         println!("  - cycles total      : {cycles_diff:>20}");
         println!("  - cycles per run    : {cycles_per_run:>20}");
@@ -212,8 +213,8 @@ mod test {
             println!("{header}", );
             println!("  - iterations        : {iters:>20}");
             println!(
-                "  - elements          : {:>20}",
-                configuration.elements_count
+                "  - sample elements   : {:>20}",
+                shares[0].column.len()
             );
             println!("  - batch size        : {batch_size:>20}");
             println!("  - cycles total      : {cycles_diff:>20}");
@@ -227,7 +228,7 @@ mod test {
     #[ignore = "This test is just for calculation the cycles for the above set of proofs. This will be moved to the pertinent proof in the future."]
     #[test]
     fn test_verify_cycles() {
-        let iters = 50u64;
+        let iters = 1000u64;
 
         let configurations = [
             utils::Configuration::from_elements_count(32),
@@ -244,11 +245,15 @@ mod test {
     #[ignore = "This test is just for calculation the cycles for the above set of proofs. This will be moved to the pertinent proof in the future."]
     #[test]
     fn test_batch_verify_cycles() {
-        let iters = 50u64;
+        let iters = 1000u64;
 
         let configurations = [
             utils::Configuration::from_elements_count(32),
+            //utils::Configuration::from_elements_count(64),
+            //utils::Configuration::from_elements_count(128),
             utils::Configuration::from_elements_count(256),
+            //utils::Configuration::from_elements_count(512),
+            //utils::Configuration::from_elements_count(768),
             utils::Configuration::from_elements_count(1024),
         ];
 
