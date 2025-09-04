@@ -191,7 +191,7 @@ mod tests {
         // Empty ledger state.
         let ledger_state = nomos_ledger::Ledger::new(
             cryptarchia_engine.lib(),
-            LedgerState::from_utxos(0, []),
+            LedgerState::from_utxos([]),
             ledger_config,
         );
 

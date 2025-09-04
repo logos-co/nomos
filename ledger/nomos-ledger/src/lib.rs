@@ -78,13 +78,10 @@ where
             .get(&parent_id)
             .ok_or(LedgerError::ParentNotFound(parent_id))?;
 
-        let new_state = parent_state.clone().try_update::<_, _, Constants>(
-            slot,
-            proof,
-            parent_state.block_number + 1,
-            txs,
-            &self.config,
-        )?;
+        let new_state =
+            parent_state
+                .clone()
+                .try_update::<_, _, Constants>(slot, proof, txs, &self.config)?;
 
         let mut states = self.states.clone();
         states.insert(id, new_state);
@@ -133,7 +130,6 @@ impl LedgerState {
         self,
         slot: Slot,
         proof: &LeaderProof,
-        current_block_number: BlockNumber,
         txs: impl Iterator<Item = impl AuthenticatedMantleTx>,
         config: &Config,
     ) -> Result<Self, LedgerError<Id>>
@@ -142,7 +138,7 @@ impl LedgerState {
         Constants: GasConstants,
     {
         self.try_apply_header(slot, proof, config)?
-            .try_apply_contents::<_, Constants>(current_block_number, config, txs)
+            .try_apply_contents::<_, Constants>(config, txs)
     }
 
     /// Apply header-related changed to the ledger state. These include
@@ -174,7 +170,6 @@ impl LedgerState {
     /// Apply the contents of an update to the ledger state.
     fn try_apply_contents<Id, Constants: GasConstants>(
         mut self,
-        current_block_number: BlockNumber,
         config: &Config,
         txs: impl Iterator<Item = impl AuthenticatedMantleTx>,
     ) -> Result<Self, LedgerError<Id>> {
@@ -185,7 +180,7 @@ impl LedgerState {
                 .try_apply_tx::<_, Constants>(self.mantle_ledger.locked_notes(), &tx)?;
 
             self.mantle_ledger = self.mantle_ledger.try_apply_tx::<Constants>(
-                current_block_number,
+                self.block_number,
                 config,
                 self.cryptarchia_ledger.latest_commitments(),
                 tx,
@@ -194,9 +189,9 @@ impl LedgerState {
         Ok(self)
     }
 
-    pub fn from_utxos(block_number: BlockNumber, utxos: impl IntoIterator<Item = Utxo>) -> Self {
+    pub fn from_utxos(utxos: impl IntoIterator<Item = Utxo>) -> Self {
         Self {
-            block_number,
+            block_number: 0,
             cryptarchia_ledger: CryptarchiaLedger::from_utxos(utxos),
             mantle_ledger: MantleLedger::default(),
         }
@@ -267,7 +262,7 @@ mod tests {
 
     pub fn create_test_ledger() -> (Ledger<HeaderId>, HeaderId, Utxo) {
         let utxo = utxo();
-        let genesis_state = LedgerState::from_utxos(0, [utxo]);
+        let genesis_state = LedgerState::from_utxos([utxo]);
         let ledger = Ledger::new([0; 32], genesis_state, config());
         (ledger, [0; 32], utxo)
     }
