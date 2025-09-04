@@ -8,6 +8,7 @@ use nomos_da_network_service::membership::adapters::service::peer_id_from_provid
 use nomos_libp2p::ed25519;
 use rand::{rngs::OsRng, RngCore as _};
 use reqwest::Url;
+use serial_test::serial;
 use tests::{
     adjust_timeout,
     common::da::{disseminate_with_metadata, wait_for_blob_onchain, APP_ID, DA_TESTS_TIMEOUT},
@@ -17,6 +18,7 @@ use tests::{
 };
 
 #[tokio::test]
+#[serial]
 async fn test_get_share_data() {
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let executor = &topology.executors()[0];
@@ -49,6 +51,7 @@ async fn test_get_share_data() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_get_commitments_from_peers() {
     let interconnected_topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let validator = &interconnected_topology.validators()[0];
@@ -89,6 +92,7 @@ async fn test_get_commitments_from_peers() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_block_peer() {
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let executor = &topology.executors()[0];
@@ -152,6 +156,7 @@ async fn test_block_peer() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_get_shares() {
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let executor = &topology.executors()[0];

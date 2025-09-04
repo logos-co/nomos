@@ -4,6 +4,7 @@ use futures::StreamExt as _;
 use kzgrs_backend::{
     common::share::DaShare, dispersal::Index, reconstruction::reconstruct_without_missing_data,
 };
+use serial_test::serial;
 use subnetworks_assignations::MembershipHandler as _;
 use tests::{
     common::da::{
@@ -15,6 +16,7 @@ use tests::{
 
 #[ignore = "for manual usage, disseminate_retrieve_reconstruct is preferred for ci"]
 #[tokio::test]
+#[serial]
 async fn disseminate_and_retrieve() {
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let executor = &topology.executors()[0];
@@ -55,6 +57,7 @@ async fn disseminate_and_retrieve() {
 
 #[ignore = "Reenable after transaction mempool is used"]
 #[tokio::test]
+#[serial]
 async fn disseminate_retrieve_reconstruct() {
     const ITERATIONS: usize = 10;
 
@@ -105,6 +108,7 @@ async fn disseminate_retrieve_reconstruct() {
 
 #[ignore = "Reenable when tools to inspect mempool are added"]
 #[tokio::test]
+#[serial]
 async fn four_subnets_disseminate_retrieve_reconstruct() {
     const ITERATIONS: usize = 10;
 
@@ -190,6 +194,7 @@ async fn four_subnets_disseminate_retrieve_reconstruct() {
 }
 
 #[tokio::test]
+#[serial]
 async fn disseminate_same_data() {
     const ITERATIONS: usize = 10;
 
@@ -230,6 +235,7 @@ async fn disseminate_same_data() {
 
 #[ignore = "for local debugging"]
 #[tokio::test]
+#[serial]
 async fn local_testnet() {
     let topology = Topology::spawn(TopologyConfig::validators_and_executor(3, 2, 2)).await;
     let executor = &topology.executors()[0];
@@ -263,6 +269,7 @@ fn create_metadata(app_id: &[u8], index: u64) -> kzgrs_backend::dispersal::Metad
 
 #[ignore = "for local debugging"]
 #[tokio::test]
+#[serial]
 async fn split_2025_death_payload() {
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let executor = &topology.executors()[0];
