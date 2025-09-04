@@ -388,7 +388,7 @@ mod tests {
 
     /// [`run`] ignores [`SessionEvent::TransitionPeriodExpired`].
     #[test_log::test(tokio::test)]
-    async fn run_ignores_transtition_period_expired() {
+    async fn run_ignores_transition_period_expired() {
         let local_node = 99;
         let minimal_network_size = 1;
         let (_, session_sender, msg_sender, mut node_id_receiver) =
