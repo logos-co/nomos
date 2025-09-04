@@ -242,7 +242,7 @@ impl LedgerState {
         hasher.update(EPOCH_NONCE_V1);
         hasher.update(self.nonce);
         hasher.update(contrib);
-        hasher.update(slot.to_be_bytes());
+        hasher.update(slot.to_le_bytes());
 
         let nonce: [u8; 32] = hasher.finalize().into();
         Self { nonce, ..self }

@@ -22,6 +22,8 @@ pub struct Membership<NodeId> {
     /// Kept as a separate [`Vec`] to enable efficient random sampling,
     /// which is faster than sampling from the keys in [`HashMap`].
     remote_nodes: Vec<NodeId>,
+    /// ID of the local node if it is part of the membership.
+    local_node: Option<NodeId>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -42,12 +44,15 @@ where
     NodeId: Clone + Hash + Eq,
 {
     #[must_use]
-    pub fn new(nodes: &[Node<NodeId>], local_public_key: Option<&Ed25519PublicKey>) -> Self {
+    pub fn new(nodes: &[Node<NodeId>], local_public_key: &Ed25519PublicKey) -> Self {
         let mut core_nodes = HashMap::with_capacity(nodes.len());
         let mut remote_core_nodes = Vec::with_capacity(nodes.len());
+        let mut local_node = None;
         for node in nodes {
             core_nodes.insert(node.id.clone(), node.clone());
-            if !matches!(local_public_key, Some(key) if node.public_key == *key) {
+            if node.public_key == *local_public_key {
+                local_node = Some(node.id.clone());
+            } else {
                 remote_core_nodes.push(node.id.clone());
             }
         }
@@ -55,7 +60,16 @@ where
         Self {
             nodes: core_nodes,
             remote_nodes: remote_core_nodes,
+            local_node,
         }
+    }
+
+    #[cfg(feature = "unsafe-test-functions")]
+    #[must_use]
+    pub fn new_without_local(nodes: &[Node<NodeId>]) -> Self {
+        use nomos_blend_message::crypto::Ed25519PrivateKey;
+
+        Self::new(nodes, &Ed25519PrivateKey::generate().public_key())
     }
 }
 
@@ -98,6 +112,10 @@ where
     pub fn contains(&self, node_id: &NodeId) -> bool {
         self.nodes.contains_key(node_id)
     }
+
+    pub const fn contains_local(&self) -> bool {
+        self.local_node.is_some()
+    }
 }
 
 impl<NodeId> Membership<NodeId> {
@@ -120,10 +138,11 @@ mod tests {
         let nodes = vec![node(1, 1), node(2, 2), node(3, 3)];
         let local_key = key(2);
 
-        let membership = Membership::new(&nodes, Some(&local_key));
+        let membership = Membership::new(&nodes, &local_key);
 
         assert_eq!(membership.size(), 3);
         assert_eq!(membership.remote_nodes.len(), 2);
+        assert!(membership.contains_local());
         assert!(!membership.remote_nodes.contains(&2));
         assert!(membership.remote_nodes.contains(&1));
         assert!(membership.remote_nodes.contains(&3));
@@ -132,11 +151,13 @@ mod tests {
     #[test]
     fn test_membership_new_without_local_node() {
         let nodes = vec![node(1, 1), node(2, 2), node(3, 3)];
+        let local_key = key(99);
 
-        let membership = Membership::new(&nodes, None);
+        let membership = Membership::new(&nodes, &local_key);
 
         assert_eq!(membership.size(), 3);
         assert_eq!(membership.remote_nodes.len(), 3);
+        assert!(!membership.contains_local());
         assert!(membership.remote_nodes.contains(&1));
         assert!(membership.remote_nodes.contains(&2));
         assert!(membership.remote_nodes.contains(&3));
@@ -144,14 +165,16 @@ mod tests {
 
     #[test]
     fn test_membership_new_empty() {
-        let membership = Membership::<u32>::new(&[], None);
+        let local_key = key(99);
+        let membership = Membership::<u32>::new(&[], &local_key);
         assert_eq!(membership.size(), 0);
     }
 
     #[test]
     fn test_choose_remote_nodes() {
         let nodes = vec![node(1, 1), node(2, 2), node(3, 3), node(4, 4)];
-        let membership = Membership::new(&nodes, None);
+        let local_key = key(99);
+        let membership = Membership::new(&nodes, &local_key);
 
         let chosen: HashSet<_> = membership
             .choose_remote_nodes(&mut OsRng, 2)
@@ -163,7 +186,8 @@ mod tests {
     #[test]
     fn test_choose_remote_nodes_more_than_available() {
         let nodes = vec![node(1, 1), node(2, 2)];
-        let membership = Membership::new(&nodes, None);
+        let local_key = key(99);
+        let membership = Membership::new(&nodes, &local_key);
 
         let chosen: HashSet<_> = membership
             .choose_remote_nodes(&mut OsRng, 5)
@@ -175,7 +199,8 @@ mod tests {
     #[test]
     fn test_choose_remote_nodes_zero() {
         let nodes = vec![node(1, 1), node(2, 2)];
-        let membership = Membership::new(&nodes, None);
+        let local_key = key(99);
+        let membership = Membership::new(&nodes, &local_key);
 
         let mut chosen = membership.choose_remote_nodes(&mut OsRng, 0);
         assert!(chosen.next().is_none());
@@ -184,7 +209,8 @@ mod tests {
     #[test]
     fn test_filter_and_choose_remote_nodes() {
         let nodes = vec![node(1, 1), node(2, 2), node(3, 3)];
-        let membership = Membership::new(&nodes, None);
+        let local_key = key(99);
+        let membership = Membership::new(&nodes, &local_key);
         let exclude_peers = HashSet::from([3]);
 
         let chosen: HashSet<_> = membership
@@ -197,7 +223,8 @@ mod tests {
     #[test]
     fn test_filter_and_choose_remote_nodes_all_excluded() {
         let nodes = vec![node(1, 1), node(2, 2)];
-        let membership = Membership::new(&nodes, None);
+        let local_key = key(99);
+        let membership = Membership::new(&nodes, &local_key);
         let exclude_peers = HashSet::from([1, 2]);
 
         let chosen: HashSet<_> = membership
@@ -210,7 +237,8 @@ mod tests {
     #[test]
     fn test_contains() {
         let nodes = vec![node(1, 1)];
-        let membership = Membership::new(&nodes, None);
+        let local_key = key(99);
+        let membership = Membership::new(&nodes, &local_key);
 
         assert!(membership.contains(&1));
         assert!(!membership.contains(&2));

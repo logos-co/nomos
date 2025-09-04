@@ -5,6 +5,7 @@ use std::{
 
 use futures::stream::{self, StreamExt as _};
 use nomos_libp2p::PeerId;
+use serial_test::serial;
 use tests::{
     adjust_timeout,
     common::sync::{wait_for_validators_mode, wait_for_validators_mode_and_height},
@@ -18,6 +19,7 @@ use tests::{
 };
 
 #[tokio::test]
+#[serial]
 async fn test_ibd_behind_nodes() {
     let n_validators = 4;
     let n_initial_validators = 2;

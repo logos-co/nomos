@@ -25,7 +25,7 @@ async fn edge_message_propagation() {
     } = CoreSwarmBuilder::default().build(|id| BlendBehaviourBuilder::new(&id).build());
     let (swarm_1_membership_entry, _) = core_swarm_1.listen_and_return_membership_entry(None).await;
 
-    let membership = Membership::new(from_ref(&swarm_1_membership_entry), None);
+    let membership = Membership::new_without_local(from_ref(&swarm_1_membership_entry));
     let CoreTestSwarm {
         swarm: mut core_swarm_2,
         incoming_message_receiver: mut core_swarm_2_incoming_message_receiver,
@@ -53,15 +53,15 @@ async fn edge_message_propagation() {
 
     // We pass swarm 2 to the edge swarm, which will select it to propagate its
     // message.
-    let membership_for_edge_swarm = Membership::new(from_ref(&swarm_2_membership_entry), None);
+    let membership_for_edge_swarm =
+        Membership::new_without_local(from_ref(&swarm_2_membership_entry));
     let EdgeTestSwarm {
         swarm: edge_swarm,
         command_sender: edge_swarm_command_sender,
-    } = EdgeSwarmBuilder::default()
+    } = EdgeSwarmBuilder::new(membership_for_edge_swarm)
         // We test that we can pick the `min` between the replication factor and the available
         // peers.
         .with_replication_factor(usize::MAX)
-        .with_membership(membership_for_edge_swarm)
         .build();
     spawn(async move { edge_swarm.run().await });
 
@@ -128,19 +128,15 @@ async fn replication_factor() {
 
     // We pass all 3 swarms to the edge swarm, and we test that only 2 of them
     // (replication factor) are picked.
-    let membership_for_edge_swarm = Membership::new(
-        &[
-            swarm_1_membership_entry,
-            swarm_2_membership_entry,
-            swarm_3_membership_entry,
-        ],
-        None,
-    );
+    let membership_for_edge_swarm = Membership::new_without_local(&[
+        swarm_1_membership_entry,
+        swarm_2_membership_entry,
+        swarm_3_membership_entry,
+    ]);
     let EdgeTestSwarm {
         swarm: edge_swarm,
         command_sender: edge_swarm_command_sender,
-    } = EdgeSwarmBuilder::default()
-        .with_membership(membership_for_edge_swarm)
+    } = EdgeSwarmBuilder::new(membership_for_edge_swarm)
         .with_replication_factor(2)
         .build();
     spawn(async move { edge_swarm.run().await });

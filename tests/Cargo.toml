@@ -49,6 +49,7 @@ reqwest                  = { workspace = true, features = ["json"] }
 serde                    = { version = "1", features = ["derive"] }
 serde_json               = "1.0"
 serde_yaml               = "0.9"
+serial_test              = "3.1.1"
 subnetworks-assignations = { workspace = true }
 tempfile                 = { workspace = true }
 time                     = { default-features = false, version = "0.3" }

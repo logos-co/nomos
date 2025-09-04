@@ -1,7 +1,7 @@
 use std::{
     fmt::{Debug, Display},
+    hash::Hash,
     marker::PhantomData,
-    time::Duration,
 };
 
 use async_trait::async_trait;
@@ -15,7 +15,6 @@ use overwatch::{
     },
     DynError, OpaqueServiceResourcesHandle,
 };
-use services_utils::wait_until_services_are_ready;
 use tracing::{debug, error, info};
 
 use crate::{
@@ -25,8 +24,9 @@ use crate::{
             MessageComponents, NetworkBackendOfService, ServiceComponents as CoreServiceComponents,
         },
     },
+    instance::{Instance, Mode},
     membership::Adapter as _,
-    settings::Settings,
+    settings::{constant_membership_stream, Settings},
 };
 
 pub mod core;
@@ -34,7 +34,9 @@ pub mod edge;
 pub mod message;
 pub mod settings;
 
+mod instance;
 pub mod membership;
+mod modes;
 mod service_components;
 pub use service_components::ServiceComponents;
 
@@ -68,13 +70,20 @@ where
 impl<CoreService, EdgeService, RuntimeServiceId> ServiceCore<RuntimeServiceId>
     for BlendService<CoreService, EdgeService, RuntimeServiceId>
 where
-    CoreService: ServiceData<Message: MessageComponents<Payload: Into<Vec<u8>>> + Send + 'static>
+    CoreService: ServiceData<Message: MessageComponents<Payload: Into<Vec<u8>>> + Send + Sync + 'static>
         + CoreServiceComponents<
             RuntimeServiceId,
-            NetworkAdapter: NetworkAdapterTrait<RuntimeServiceId, BroadcastSettings = <<CoreService as ServiceData>::Message as MessageComponents>::BroadcastSettings> + Send,
-            NodeId: Clone + Send + Sync,
-        > + Send,
-    EdgeService: ServiceData<Message = <CoreService as ServiceData>::Message> + edge::ServiceComponents +  Send,
+            NetworkAdapter: NetworkAdapterTrait<
+                RuntimeServiceId,
+                BroadcastSettings = BroadcastSettings<CoreService>,
+            > + Send
+                                + Sync
+                                + 'static,
+            NodeId: Clone + Hash + Eq + Send + Sync + 'static,
+        > + Send
+        + 'static,
+    EdgeService:
+        ServiceData<Message = CoreService::Message> + edge::ServiceComponents + Send + 'static,
     EdgeService::MembershipAdapter: membership::Adapter + Send,
     <EdgeService::MembershipAdapter as membership::Adapter>::Error: Send + Sync + 'static,
     membership::ServiceMessage<EdgeService::MembershipAdapter>: Send + Sync + 'static,
@@ -89,6 +98,7 @@ where
             >,
         > + Debug
         + Display
+        + Clone
         + Send
         + Sync
         + 'static,
@@ -117,87 +127,58 @@ where
         } = self;
 
         let settings = settings_handle.notifier().get_updated_settings();
+        let minimal_network_size = settings.minimal_network_size.get() as usize;
 
-        let membership_adapter = <MembershipAdapter<EdgeService> as membership::Adapter>::new(
+        let _membership_stream = <MembershipAdapter<EdgeService> as membership::Adapter>::new(
             overwatch_handle
                 .relay::<MembershipService<EdgeService>>()
                 .await?,
             settings.crypto.signing_private_key.public_key(),
-        );
-        let mut _session_stream = SessionEventStream::new(
-            membership_adapter.subscribe().await?,
+        )
+        .subscribe()
+        .await?;
+        // TODO: Use membership_stream once the membership/SDP services are ready to provide the real membership: https://github.com/logos-co/nomos/issues/1532
+
+        let membership = settings.membership();
+        let mut session_stream = SessionEventStream::new(
+            Box::pin(constant_membership_stream(
+                membership.clone(),
+                settings.time.session_duration(),
+            )),
             settings.time.session_transition_period(),
         );
-        // TODO: Use session_stream: https://github.com/logos-co/nomos/issues/1532
 
-        // TODO: Add logic to start/stop the core or edge service based on the new
-        // membership info.
+        let mut instance = Instance::<CoreService, EdgeService, RuntimeServiceId>::new(
+            Mode::choose(&membership, minimal_network_size),
+            overwatch_handle,
+        )
+        .await?;
 
-        let minimal_network_size = settings.minimal_network_size;
-        let membership_size = settings.membership.len();
+        status_updater.notify_ready();
+        info!(
+            target: LOG_TARGET,
+            "Service '{}' is ready.",
+            <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
+        );
 
-        if membership_size >= minimal_network_size.get() as usize {
-            wait_until_services_are_ready!(
-                &overwatch_handle,
-                Some(Duration::from_secs(60)),
-                CoreService,
-                MembershipService<EdgeService>
-            )
-            .await?;
-            let core_relay =
-                overwatch_handle
-                .relay::<CoreService>()
-                .await?;
-            status_updater.notify_ready();
-            info!(
-                target: LOG_TARGET,
-                "Service '{}' is ready.",
-                <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
-            );
-            while let Some(message) = inbound_relay.next().await {
-                debug!(target: LOG_TARGET, "Relaying a message to core service");
-                if let Err((e, _)) = core_relay.send(message).await {
-                    error!(target: LOG_TARGET, "Failed to relay message to core service: {e:?}");
-                }
-            }
-        } else {
-            wait_until_services_are_ready!(
-                &overwatch_handle,
-                Some(Duration::from_secs(60)),
-                NetworkService<NetworkBackendOfService<CoreService, RuntimeServiceId>, _>,
-                MembershipService<EdgeService>
-            )
-            .await?;
-            let core_network_relay =
-                overwatch_handle
-                .relay::<NetworkService<NetworkBackendOfService<CoreService, RuntimeServiceId>, _>>(
-                )
-                .await?;
-            // A network adapter that uses the same settings as the core Blend service.
-            let core_network_adapter = <CoreService::NetworkAdapter as NetworkAdapterTrait<
-                RuntimeServiceId,
-            >>::new(core_network_relay);
-            status_updater.notify_ready();
-            info!(
-                target: LOG_TARGET,
-                "Service '{}' is ready.",
-                <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
-            );
-            while let Some(message) = inbound_relay.next().await {
-                info!(target: LOG_TARGET, "Blend network too small. Broadcasting via gossipsub.");
-                let (payload, broadcast_settings) = message.into_components();
-                core_network_adapter
-                    .broadcast(
-                        payload.into(),
-                        broadcast_settings,
-                    )
-                    .await;
+        loop {
+            tokio::select! {
+                Some(event) = session_stream.next() => {
+                    debug!(target: LOG_TARGET, "Received a new session event");
+                    instance = instance.handle_session_event(event, overwatch_handle, minimal_network_size).await?;
+                },
+                Some(message) = inbound_relay.next() => {
+                    if let Err(e) = instance.handle_inbound_message(message).await {
+                        error!(target: LOG_TARGET, "Failed to handle inbound message: {e:?}");
+                    }
+                },
             }
         }
-
-        Ok(())
     }
 }
+
+type BroadcastSettings<CoreService> =
+    <<CoreService as ServiceData>::Message as MessageComponents>::BroadcastSettings;
 
 type MembershipAdapter<EdgeService> = <EdgeService as edge::ServiceComponents>::MembershipAdapter;
 

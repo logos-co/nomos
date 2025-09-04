@@ -1,7 +1,6 @@
 use serde::Deserialize;
 
 use crate::{
-    curve::Curve,
     proof::{JsonG1, JsonG2},
     protocol::Protocol,
 };
@@ -9,7 +8,6 @@ use crate::{
 #[derive(Deserialize)]
 pub struct ProofJsonDeser {
     pub protocol: Protocol,
-    pub curve: Curve,
     pub pi_a: JsonG1,
     pub pi_b: JsonG2,
     pub pi_c: JsonG1,

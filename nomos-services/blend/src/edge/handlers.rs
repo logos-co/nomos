@@ -1,0 +1,96 @@
+use std::{hash::Hash, marker::PhantomData};
+
+use nomos_blend_scheduling::{
+    membership::Membership, message_blend::crypto::CryptographicProcessor,
+};
+use nomos_utils::blake_rng::BlakeRng;
+use overwatch::overwatch::OverwatchHandle;
+use rand::SeedableRng as _;
+
+use crate::edge::{backends::BlendBackend, Settings, LOG_TARGET};
+
+pub struct MessageHandler<Backend, NodeId, RuntimeServiceId> {
+    cryptographic_processor: CryptographicProcessor<NodeId, BlakeRng>,
+    backend: Backend,
+    _phantom: PhantomData<RuntimeServiceId>,
+}
+
+impl<Backend, NodeId, RuntimeServiceId> MessageHandler<Backend, NodeId, RuntimeServiceId>
+where
+    Backend: BlendBackend<NodeId, RuntimeServiceId>,
+    NodeId: Clone + Send + 'static,
+{
+    /// Creates a [`MessageHandler`] with the given membership.
+    ///
+    /// It returns [`Error`] if the membership does not satisfy the following
+    /// edge node condition:
+    /// 1. The membership size is at least `settings.minimum_network_size`.
+    /// 2. The local node is not a core node.
+    pub fn try_new_with_edge_condition_check(
+        settings: &Settings<Backend, NodeId, RuntimeServiceId>,
+        membership: Membership<NodeId>,
+        overwatch_handle: OverwatchHandle<RuntimeServiceId>,
+    ) -> Result<Self, Error>
+    where
+        NodeId: Eq + Hash,
+    {
+        if membership.size() < settings.minimum_network_size.get() as usize {
+            Err(Error::NetworkIsTooSmall(membership.size()))
+        } else if membership.contains_local() {
+            Err(Error::LocalIsCoreNode)
+        } else {
+            Ok(Self::new(settings, membership, overwatch_handle))
+        }
+    }
+
+    fn new(
+        settings: &Settings<Backend, NodeId, RuntimeServiceId>,
+        membership: Membership<NodeId>,
+        overwatch_handle: OverwatchHandle<RuntimeServiceId>,
+    ) -> Self {
+        let cryptographic_processor = CryptographicProcessor::new(
+            settings.crypto.clone(),
+            membership.clone(),
+            BlakeRng::from_entropy(),
+        );
+        let backend = Backend::new(
+            settings.backend.clone(),
+            overwatch_handle,
+            membership,
+            BlakeRng::from_entropy(),
+        );
+        Self {
+            cryptographic_processor,
+            backend,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<Backend, NodeId, RuntimeServiceId> MessageHandler<Backend, NodeId, RuntimeServiceId>
+where
+    NodeId: Eq + Hash + Clone + Send,
+    Backend: BlendBackend<NodeId, RuntimeServiceId> + Sync,
+{
+    /// Blend a new message received from another service.
+    pub async fn handle_messages_to_blend(&mut self, message: Vec<u8>) {
+        let Ok(message) = self
+            .cryptographic_processor
+            .encapsulate_data_payload(&message)
+            .inspect_err(|e| {
+                tracing::error!(target: LOG_TARGET, "Failed to encapsulate message: {e:?}");
+            })
+        else {
+            return;
+        };
+        self.backend.send(message).await;
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("Network is too small: {0}")]
+    NetworkIsTooSmall(usize),
+    #[error("Local node is a core node")]
+    LocalIsCoreNode,
+}

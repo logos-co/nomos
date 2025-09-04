@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, time::Duration};
 
 use futures::StreamExt as _;
 use kzgrs_backend::dispersal::Index;
@@ -7,6 +7,7 @@ use nomos_core::{
     sdp::{FinalizedBlockEvent, FinalizedBlockEventUpdate, ProviderId},
 };
 use rand::{thread_rng, Rng as _};
+use serial_test::serial;
 use tests::{
     common::da::{disseminate_with_metadata, wait_for_blob_onchain, APP_ID},
     get_available_port,
@@ -18,6 +19,7 @@ use tests::{
 };
 
 #[tokio::test]
+#[serial]
 async fn update_membership_and_disseminate() {
     let topology_config = TopologyConfig::validator_and_executor();
     let n_participants = topology_config.n_validators + topology_config.n_executors;
@@ -30,6 +32,9 @@ async fn update_membership_and_disseminate() {
 
     update_all_validators(&topology, &finalize_block_event).await;
     update_all_executors(&topology, &finalize_block_event).await;
+
+    // Wait for nodes to initialise
+    tokio::time::sleep(Duration::from_secs(5)).await;
 
     perform_dissemination_tests(&topology.executors()[0]).await;
 }
