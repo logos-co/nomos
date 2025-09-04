@@ -10,7 +10,7 @@ use overwatch::{
 use services_utils::wait_until_services_are_ready;
 use tracing::{error, info};
 
-use crate::modes::{Error, Mode, LOG_TARGET};
+use crate::modes::{Error, LOG_TARGET};
 
 pub struct OnDemandServiceMode<Service, RuntimeServiceId>
 where
@@ -58,21 +58,12 @@ where
             overwatch_handle,
         })
     }
-}
 
-#[async_trait::async_trait]
-impl<Message, Service, RuntimeServiceId> Mode<Message>
-    for OnDemandServiceMode<Service, RuntimeServiceId>
-where
-    Message: Send + 'static,
-    Service: ServiceData<Message = Message>,
-    RuntimeServiceId: AsServiceId<Service> + Debug + Display + Send + Sync + 'static,
-{
-    async fn handle_inbound_message(&self, message: Message) -> Result<(), Error> {
+    pub async fn handle_inbound_message(&self, message: Service::Message) -> Result<(), Error> {
         self.relay.send(message).await.map_err(|(e, _)| e.into())
     }
 
-    async fn shutdown(self) {
+    pub async fn shutdown(self) {
         stop_service(&self.overwatch_handle).await;
     }
 }

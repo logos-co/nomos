@@ -17,7 +17,7 @@ use crate::{
             MessageComponents, NetworkBackendOfService, ServiceComponents as CoreServiceComponents,
         },
     },
-    modes::{self, BroadcastMode, CoreMode, EdgeMode, Mode as _},
+    modes::{self, BroadcastMode, CoreMode, EdgeMode},
     BroadcastSettings,
 };
 
@@ -35,9 +35,9 @@ where
         // Keep the previous core mode for the session transition period.
         prev: CoreMode<CoreService, RuntimeServiceId>,
     },
-    Broadcast(BroadcastMode<CoreService::NetworkAdapter, CoreService::Message, RuntimeServiceId>),
+    Broadcast(BroadcastMode<CoreService::NetworkAdapter, RuntimeServiceId>),
     BroadcastAfterCore {
-        mode: BroadcastMode<CoreService::NetworkAdapter, CoreService::Message, RuntimeServiceId>,
+        mode: BroadcastMode<CoreService::NetworkAdapter, RuntimeServiceId>,
         // Keep the previous core mode for the session transition period.
         prev: CoreMode<CoreService, RuntimeServiceId>,
     },
@@ -106,10 +106,7 @@ where
 
     async fn new_broadcast_mode(
         overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
-    ) -> Result<
-        BroadcastMode<CoreService::NetworkAdapter, CoreService::Message, RuntimeServiceId>,
-        modes::Error,
-    > {
+    ) -> Result<BroadcastMode<CoreService::NetworkAdapter, RuntimeServiceId>, modes::Error> {
         BroadcastMode::new::<
             NetworkService<
                 NetworkBackendOfService<CoreService, RuntimeServiceId>,
@@ -188,13 +185,9 @@ where
                 mode.shutdown().await;
                 Ok(Self::Core(Self::new_core_mode(overwatch_handle).await?))
             }
-            Self::Broadcast(mode) => {
-                mode.shutdown().await;
-                Ok(Self::Core(Self::new_core_mode(overwatch_handle).await?))
-            }
-            Self::BroadcastAfterCore { mode, prev } => {
+            Self::Broadcast(_) => Ok(Self::Core(Self::new_core_mode(overwatch_handle).await?)),
+            Self::BroadcastAfterCore { prev, .. } => {
                 prev.shutdown().await;
-                mode.shutdown().await;
                 Ok(Self::Core(Self::new_core_mode(overwatch_handle).await?))
             }
         }
@@ -218,13 +211,9 @@ where
                 prev.shutdown().await;
                 Ok(Self::Edge(mode))
             }
-            Self::Broadcast(mode) => {
-                mode.shutdown().await;
-                Ok(Self::Edge(Self::new_edge_mode(overwatch_handle).await?))
-            }
-            Self::BroadcastAfterCore { mode, prev } => {
+            Self::Broadcast(_) => Ok(Self::Edge(Self::new_edge_mode(overwatch_handle).await?)),
+            Self::BroadcastAfterCore { prev, .. } => {
                 prev.shutdown().await;
-                mode.shutdown().await;
                 Ok(Self::Edge(Self::new_edge_mode(overwatch_handle).await?))
             }
         }
@@ -291,9 +280,10 @@ where
                 mode.shutdown().await;
                 prev.shutdown().await;
             }
-            Self::Broadcast(mode) => mode.shutdown().await,
-            Self::BroadcastAfterCore { mode, prev } => {
-                mode.shutdown().await;
+            Self::Broadcast(_) => {
+                // No-op
+            }
+            Self::BroadcastAfterCore { prev, .. } => {
                 prev.shutdown().await;
             }
         }

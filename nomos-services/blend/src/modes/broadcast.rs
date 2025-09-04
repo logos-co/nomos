@@ -13,28 +13,33 @@ use services_utils::wait_until_services_are_ready;
 
 use crate::{
     core::{network::NetworkAdapter, service_components::MessageComponents},
-    modes::{Error, Mode},
+    modes::Error,
 };
 
-pub struct BroadcastMode<Adapter, Message, RuntimeServiceId> {
+pub struct BroadcastMode<Adapter, RuntimeServiceId> {
     adapter: Adapter,
-    _phantom: PhantomData<(Message, RuntimeServiceId)>,
+    _phantom: PhantomData<RuntimeServiceId>,
 }
 
-impl<Adapter, Message, RuntimeServiceId> BroadcastMode<Adapter, Message, RuntimeServiceId>
+impl<Adapter, RuntimeServiceId> BroadcastMode<Adapter, RuntimeServiceId>
 where
     Adapter: NetworkAdapter<RuntimeServiceId> + Send + Sync,
 {
-    pub async fn new<Service>(
+    pub async fn new<NetworkService>(
         overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
     ) -> Result<Self, Error>
     where
-        Service: ServiceData<Message = BackendNetworkMsg<Adapter::Backend, RuntimeServiceId>>,
-        RuntimeServiceId: AsServiceId<Service> + Debug + Display + Send + Sync + 'static,
+        NetworkService:
+            ServiceData<Message = BackendNetworkMsg<Adapter::Backend, RuntimeServiceId>>,
+        RuntimeServiceId: AsServiceId<NetworkService> + Debug + Display + Send + Sync + 'static,
     {
-        wait_until_services_are_ready!(&overwatch_handle, Some(Duration::from_secs(5)), Service)
-            .await?;
-        let relay = overwatch_handle.relay::<Service>().await?;
+        wait_until_services_are_ready!(
+            &overwatch_handle,
+            Some(Duration::from_secs(5)),
+            NetworkService
+        )
+        .await?;
+        let relay = overwatch_handle.relay::<NetworkService>().await?;
         let adapter = Adapter::new(relay);
         Ok(Self {
             adapter,
@@ -43,29 +48,25 @@ where
     }
 }
 
-#[async_trait::async_trait]
-impl<Message, Adapter, RuntimeServiceId> Mode<Message>
-    for BroadcastMode<Adapter, Message, RuntimeServiceId>
+impl<Adapter, RuntimeServiceId> BroadcastMode<Adapter, RuntimeServiceId>
 where
-    Message: MessageComponents<
-            Payload: Into<Vec<u8>>,
-            BroadcastSettings: Into<Adapter::BroadcastSettings>,
-        > + Send
-        + Sync
-        + 'static,
     Adapter: NetworkAdapter<RuntimeServiceId> + Send + Sync + 'static,
     RuntimeServiceId: Send + Sync + 'static,
 {
-    async fn handle_inbound_message(&self, message: Message) -> Result<(), Error> {
+    pub async fn handle_inbound_message<Message>(&self, message: Message) -> Result<(), Error>
+    where
+        Message: MessageComponents<
+                Payload: Into<Vec<u8>>,
+                BroadcastSettings: Into<Adapter::BroadcastSettings>,
+            > + Send
+            + Sync
+            + 'static,
+    {
         let (payload, broadcast_settings) = message.into_components();
         self.adapter
             .broadcast(payload.into(), broadcast_settings.into())
             .await;
         Ok(())
-    }
-
-    async fn shutdown(self) {
-        // No-op
     }
 }
 
@@ -82,7 +83,7 @@ pub mod tests {
         },
         DynError, OpaqueServiceResourcesHandle,
     };
-    use tokio::sync::{mpsc, oneshot};
+    use tokio::sync::mpsc;
     use tokio_stream::wrappers::BroadcastStream;
     use tracing::{debug, info};
 
@@ -103,12 +104,11 @@ pub mod tests {
             .unwrap();
 
             // Create the BroadcastMode
-            let mut mode =
-                BroadcastMode::<TestNetworkAdapter, TestMessage, RuntimeServiceId>::new::<
-                    TestNetworkService,
-                >(app.handle())
-                .await
-                .unwrap();
+            let mut mode = BroadcastMode::<TestNetworkAdapter, RuntimeServiceId>::new::<
+                TestNetworkService,
+            >(app.handle())
+            .await
+            .unwrap();
 
             // Check if the mode broadcasts a message correctly.
             mode.handle_inbound_message(TestMessage(b"hello".to_vec()))
@@ -123,19 +123,12 @@ pub mod tests {
                 b"hello".to_vec()
             );
 
-            // Check if the adapter is dropped on shutdown.
-            let (drop_sender, drop_receiver) = oneshot::channel();
-            mode.adapter.register_drop_notifier(drop_sender);
-            mode.shutdown().await;
-            drop_receiver.await.unwrap();
-
             // Check if the mode can be created again.
-            let mut mode =
-                BroadcastMode::<TestNetworkAdapter, TestMessage, RuntimeServiceId>::new::<
-                    TestNetworkService,
-                >(app.handle())
-                .await
-                .unwrap();
+            let mut mode = BroadcastMode::<TestNetworkAdapter, RuntimeServiceId>::new::<
+                TestNetworkService,
+            >(app.handle())
+            .await
+            .unwrap();
             mode.handle_inbound_message(TestMessage(b"world".to_vec()))
                 .await
                 .unwrap();
@@ -230,15 +223,6 @@ pub mod tests {
         >,
         broadcasted_messages_sender: mpsc::Sender<Vec<u8>>,
         broadcasted_messages_receiver: mpsc::Receiver<Vec<u8>>,
-        drop_notifier: Option<oneshot::Sender<()>>,
-    }
-
-    impl Drop for TestNetworkAdapter {
-        fn drop(&mut self) {
-            if let Some(drop_notifier) = self.drop_notifier.take() {
-                drop_notifier.send(()).unwrap();
-            }
-        }
     }
 
     #[async_trait::async_trait]
@@ -256,7 +240,6 @@ pub mod tests {
                 relay,
                 broadcasted_messages_sender,
                 broadcasted_messages_receiver,
-                drop_notifier: None,
             }
         }
 
@@ -270,12 +253,6 @@ pub mod tests {
                 .send(message)
                 .await
                 .unwrap();
-        }
-    }
-
-    impl TestNetworkAdapter {
-        fn register_drop_notifier(&mut self, sender: oneshot::Sender<()>) {
-            self.drop_notifier = Some(sender);
         }
     }
 
