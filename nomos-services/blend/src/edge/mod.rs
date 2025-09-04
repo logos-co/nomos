@@ -13,7 +13,7 @@ use std::{
 };
 
 use backends::BlendBackend;
-use futures::{FutureExt as _, Stream, StreamExt as _};
+use futures::{Stream, StreamExt as _};
 use nomos_blend_scheduling::{
     membership::Membership,
     session::{SessionEvent, SessionEventStream},
@@ -32,6 +32,7 @@ use serde::Serialize;
 pub(crate) use service_components::ServiceComponents;
 use services_utils::wait_until_services_are_ready;
 use settings::BlendConfig;
+use tokio::time::timeout;
 use tracing::{debug, error, info};
 
 use crate::{
@@ -187,11 +188,12 @@ where
     RuntimeServiceId: Clone,
 {
     // Read the initial membership, expecting it to be yielded immediately.
-    let SessionEvent::NewSession(membership) = session_stream
-        .next()
-        .now_or_never()
-        .expect("Session stream should yield the first event immediately")
-        .expect("Session stream shouldn't be closed")
+    // We use 1s timeout to tolerate small delays.
+    let SessionEvent::NewSession(membership) =
+        timeout(Duration::from_secs(1), session_stream.next())
+            .await
+            .expect("Session stream should yield the first event immediately")
+            .expect("Session stream shouldn't be closed")
     else {
         panic!("NewSession must be yielded first");
     };
