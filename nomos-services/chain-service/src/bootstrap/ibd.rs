@@ -217,16 +217,16 @@ where
                         .await;
                 }
                 DownloadsOutput::BlockReceived { block, download } => {
-                    match (self.process_block)(
+                    let process_block_result = (self.process_block)(
                         cryptarchia.clone(),
                         storage_blocks_to_remove.clone(),
                         block,
                     )
-                    .await
-                    {
-                        Ok((c, s)) => {
-                            cryptarchia = c;
-                            storage_blocks_to_remove = s;
+                    .await;
+                    match process_block_result {
+                        Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
+                            cryptarchia = new_cryptarchia;
+                            storage_blocks_to_remove = new_storage_blocks_to_remove;
                             downloads.add_download(download);
                         }
                         Err(e) => {
