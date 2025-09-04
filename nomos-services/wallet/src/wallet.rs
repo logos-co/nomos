@@ -9,8 +9,8 @@ use nomos_ledger::LedgerState;
 use crate::{Result, WalletError};
 
 struct WalletState {
+    utxos: BTreeMap<NoteId, Utxo>,
     pk_index: HashMap<PublicKey, BTreeSet<NoteId>>,
-    ledger: LedgerState,
 }
 
 impl WalletState {
@@ -28,93 +28,22 @@ impl WalletState {
         let mut pk_index: HashMap<PublicKey, BTreeSet<NoteId>> = HashMap::new();
 
         for (id, utxo) in &utxos {
-            pk_index
-                .entry(utxo.note.pk)
-                .or_insert_with(BTreeSet::new)
-                .insert(*id);
+            pk_index.entry(utxo.note.pk).or_default().insert(*id);
         }
 
-        Self { pk_index, ledger }
-    }
-
-    pub fn utxos(&self) -> Vec<Utxo> {
-        let utxotree = self.ledger.latest_commitments().utxos();
-        self.pk_index
-            .iter()
-            .flat_map(|(_pk, ids)| {
-                ids.iter()
-                    .filter_map(|id| utxotree.get(id))
-                    .map(|(utxo, _pos)| *utxo)
-            })
-            .collect()
-    }
-
-    pub fn balance(&self, pk: PublicKey) -> Option<Value> {
-        let balance = self
-            .pk_index
-            .get(&pk)?
-            .iter()
-            .map(|id| {
-                self.ledger
-                    .latest_commitments()
-                    .utxos()
-                    .get(id)
-                    .expect("missing utxo entry")
-                    .0
-                    .note
-                    .value
-            })
-            .sum();
-
-        Some(balance)
-    }
-}
-
-struct Wallet {
-    known_keys: HashSet<PublicKey>,
-    wallet_states: BTreeMap<HeaderId, WalletState>,
-}
-
-impl Wallet {
-    pub fn new(
-        block: HeaderId,
-        ledger: LedgerState,
-        known_keys: impl IntoIterator<Item = PublicKey>,
-    ) -> Self {
-        let known_keys: HashSet<PublicKey> = known_keys.into_iter().collect();
-
-        let wallet_state = WalletState::from_ledger(&known_keys, ledger);
-
-        Self {
-            known_keys: known_keys.into_iter().collect(),
-            wallet_states: [(block, wallet_state)].into(),
-        }
-    }
-
-    pub fn apply_ledger(&mut self, block: HeaderId, ledger: LedgerState) {
-        let wallet_state = WalletState::from_ledger(&self.known_keys, ledger);
-        self.wallet_states.insert(block, wallet_state);
-    }
-
-    pub fn balance(&self, tip: HeaderId, pk: PublicKey) -> Result<Option<Value>> {
-        let balance = self.wallet_state_at(tip)?.balance(pk);
-
-        Ok(balance)
+        Self { utxos, pk_index }
     }
 
     pub fn utxos_for_amount(
         &self,
-        tip: HeaderId,
         amount: Value,
         pks: impl IntoIterator<Item = PublicKey>,
-    ) -> Result<Option<Vec<Utxo>>> {
-        let wallet_state = self.wallet_state_at(tip)?;
-
-        let eligible_pks: HashSet<PublicKey> = pks.into_iter().collect();
-        let mut utxos: Vec<Utxo> = wallet_state
-            .utxos()
+    ) -> Option<Vec<Utxo>> {
+        let mut utxos: Vec<Utxo> = pks
             .into_iter()
-            .filter(|utxo| eligible_pks.contains(&utxo.note.pk))
+            .flat_map(|pk| self.pk_index.get(&pk))
+            .flatten()
+            .map(|id| self.utxos[id])
             .collect();
 
         // we want to consume small valued notes first to keep our wallet tidy
@@ -132,7 +61,7 @@ impl Wallet {
         }
 
         if selected_amount < amount {
-            Ok(None)
+            None
         } else {
             // We may have smaller notes that are redundant.
             //
@@ -162,8 +91,60 @@ impl Wallet {
             // Remove the redundant notes from the beginning
             selected_utxos.drain(..skip_count);
 
-            Ok(Some(selected_utxos))
+            Some(selected_utxos)
         }
+    }
+
+    pub fn balance(&self, pk: PublicKey) -> Option<Value> {
+        let balance = self
+            .pk_index
+            .get(&pk)?
+            .iter()
+            .map(|id| self.utxos[id].note.value)
+            .sum();
+
+        Some(balance)
+    }
+}
+
+struct Wallet {
+    known_keys: HashSet<PublicKey>,
+    wallet_states: BTreeMap<HeaderId, WalletState>,
+}
+
+impl Wallet {
+    pub fn from_lib(
+        known_keys: impl IntoIterator<Item = PublicKey>,
+        lib: HeaderId,
+        ledger: LedgerState,
+    ) -> Self {
+        let known_keys: HashSet<PublicKey> = known_keys.into_iter().collect();
+
+        let wallet_state = WalletState::from_ledger(&known_keys, ledger);
+
+        Self {
+            known_keys: known_keys.into_iter().collect(),
+            wallet_states: [(lib, wallet_state)].into(),
+        }
+    }
+
+    pub fn apply_ledger(&mut self, block: HeaderId, ledger: LedgerState) {
+        // TODO: remove this function in favor of `Wallet::apply_block`
+        let wallet_state = WalletState::from_ledger(&self.known_keys, ledger);
+        self.wallet_states.insert(block, wallet_state);
+    }
+
+    pub fn balance(&self, tip: HeaderId, pk: PublicKey) -> Result<Option<Value>> {
+        Ok(self.wallet_state_at(tip)?.balance(pk))
+    }
+
+    pub fn utxos_for_amount(
+        &self,
+        tip: HeaderId,
+        amount: Value,
+        pks: impl IntoIterator<Item = PublicKey>,
+    ) -> Result<Option<Vec<Utxo>>> {
+        Ok(self.wallet_state_at(tip)?.utxos_for_amount(amount, pks))
     }
 
     fn wallet_state_at(&self, tip: HeaderId) -> Result<&WalletState> {
@@ -201,19 +182,19 @@ mod tests {
             Utxo::new(tx_hash(0), 2, Note::new(4, alice)),
         ]);
 
-        let wallet = Wallet::new(genesis, ledger.clone(), []);
+        let wallet = Wallet::from_lib([], genesis, ledger.clone());
         assert_eq!(wallet.balance(genesis, alice).unwrap(), None);
         assert_eq!(wallet.balance(genesis, bob).unwrap(), None);
 
-        let wallet = Wallet::new(genesis, ledger.clone(), [alice]);
+        let wallet = Wallet::from_lib([alice], genesis, ledger.clone());
         assert_eq!(wallet.balance(genesis, alice).unwrap(), Some(104));
         assert_eq!(wallet.balance(genesis, bob).unwrap(), None);
 
-        let wallet = Wallet::new(genesis, ledger.clone(), [bob]);
+        let wallet = Wallet::from_lib([bob], genesis, ledger.clone());
         assert_eq!(wallet.balance(genesis, alice).unwrap(), None);
         assert_eq!(wallet.balance(genesis, bob).unwrap(), Some(20));
 
-        let wallet = Wallet::new(genesis, ledger, [alice, bob]);
+        let wallet = Wallet::from_lib([alice, bob], genesis, ledger);
         assert_eq!(wallet.balance(genesis, alice).unwrap(), Some(104));
         assert_eq!(wallet.balance(genesis, bob).unwrap(), Some(20));
     }
@@ -229,7 +210,7 @@ mod tests {
 
         let genesis_ledger = LedgerState::from_utxos([]);
 
-        let mut wallet = Wallet::new(genesis, genesis_ledger, [alice, bob]);
+        let mut wallet = Wallet::from_lib([alice, bob], genesis, genesis_ledger);
 
         let ledger_1 = LedgerState::from_utxos([
             Utxo::new(tx_hash(0), 0, Note::new(100, alice)),
@@ -271,7 +252,7 @@ mod tests {
 
         let genesis = HeaderId::from([0u8; 32]);
 
-        let wallet = Wallet::new(genesis, ledger, [alice_1, alice_2, bob]);
+        let wallet = Wallet::from_lib([alice_1, alice_2, bob], genesis, ledger);
 
         // requesting 2 NMO from alices keys
         assert_eq!(
