@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use nomos_core::{
     block::Block,
     header::HeaderId,
-    mantle::{keys::PublicKey, NoteId, SignedMantleTx, Utxo, Value},
+    mantle::{keys::PublicKey, AuthenticatedMantleTx, NoteId, Utxo, Value},
 };
 use nomos_ledger::LedgerState;
 
@@ -107,17 +107,17 @@ impl WalletState {
         Some(balance)
     }
 
-    pub fn apply_block(
+    pub fn apply_block<T: AuthenticatedMantleTx + Clone + Eq>(
         &self,
-        known_keys: &BTreeSet<PublicKey>,
-        block: Block<SignedMantleTx, ()>,
+        known_keys: &HashSet<PublicKey>,
+        block: Block<T, ()>,
     ) -> Self {
         let mut utxos = self.utxos.clone();
         let mut pk_index = self.pk_index.clone();
 
         // Process each transaction in the block
-        for signed_tx in block.transactions() {
-            let ledger_tx = &signed_tx.mantle_tx.ledger_tx;
+        for authenticated_tx in block.transactions() {
+            let ledger_tx = &authenticated_tx.mantle_tx().ledger_tx;
 
             // Remove spent UTXOs (inputs)
             for spent_id in &ledger_tx.inputs {
@@ -169,10 +169,10 @@ impl Wallet {
         }
     }
 
-    pub fn apply_block(
+    pub fn apply_block<T: AuthenticatedMantleTx + Clone + Eq>(
         &mut self,
         parent: HeaderId,
-        block: Block<SignedMantleTx, ()>,
+        block: Block<T, ()>,
     ) -> Result<()> {
         let block_id = block.header().id();
         let block_wallet_state = self
@@ -254,7 +254,7 @@ mod tests {
     }
 
     #[test]
-    fn test_ledger_sync() {
+    fn test_sync() {
         let alice = pk(1);
         let bob = pk(2);
 
