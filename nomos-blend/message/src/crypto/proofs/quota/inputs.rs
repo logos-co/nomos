@@ -36,8 +36,19 @@ impl Default for PublicInputs {
 
 pub type VerificationInputs = PublicInputs;
 
+pub struct VerificationInputsWithoutSigningKey {
+    pub session_number: u64,
+    pub core_quota: usize,
+    pub leader_quota: usize,
+    pub core_root: ZkHash,
+    pub pol_epoch_nonce: u64,
+    pub pol_t0: u64,
+    pub pol_t1: u64,
+    pub pol_ledger_aged: ZkHash,
+}
+
 /// Private inputs for Proof of Core Quota. Spec: https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#215261aa09df81a18576f67b910d34d4.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct ProofOfCoreQuotaPrivateInputs {
     pub core_sk: ZkHash,
     pub core_path: Vec<ZkHash>,
@@ -45,7 +56,7 @@ pub struct ProofOfCoreQuotaPrivateInputs {
 }
 
 /// Private inputs for Proof of Leadership Quota. Spec: https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#215261aa09df81a18576f67b910d34d4.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct ProofOfLeadershipQuotaPrivateInputs {
     pub pol_sl: u64,
     pub pol_sk_starting_slot: u64,

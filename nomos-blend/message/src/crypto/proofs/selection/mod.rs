@@ -3,7 +3,7 @@ use nomos_core::crypto::{ZkHash, ZkHasher};
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 
-use crate::crypto::proofs::selection::inputs::ProofOfSelectionInputs;
+use crate::crypto::proofs::selection::inputs::{ProofOfSelectionInputs, SecretKey};
 
 pub mod inputs;
 
@@ -30,6 +30,11 @@ impl ProofOfSelection {
             BigUint::from_bytes_le(&ephemeral_key_index.to_le_bytes()[..]).into();
         let session_number: Fr = BigUint::from_bytes_le(&session_number.to_le_bytes()[..]).into();
 
+        let secret_key = match secret_key {
+            SecretKey::Core(core_sk) => core_sk,
+            // TODO: Change this logic
+            SecretKey::PoL(_) => ZkHash::default(),
+        };
         let secret_selection_randomness = {
             let mut hasher = ZkHasher::new();
             hasher.update(&[

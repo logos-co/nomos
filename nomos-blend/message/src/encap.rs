@@ -9,7 +9,10 @@ use crate::{
     crypto::{
         keys::{Ed25519PrivateKey, Ed25519PublicKey, SharedKey, X25519PrivateKey},
         proofs::{
-            quota::{inputs::VerificationInputs, ProofOfQuota},
+            quota::{
+                inputs::{VerificationInputs, VerificationInputsWithoutSigningKey},
+                ProofOfQuota,
+            },
             selection::ProofOfSelection,
         },
         random_sized_bytes,
@@ -397,7 +400,7 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPrivateHeader<ENCAPSULATION_C
     fn decapsulate(
         mut self,
         key: &SharedKey,
-        poq_verification_input: &VerificationInputs,
+        poq_verification_input: &VerificationInputsWithoutSigningKey,
     ) -> Result<PrivateHeaderDecapsulationOutput<ENCAPSULATION_COUNT>, Error> {
         // Decrypt all blending headers
         self.0.iter_mut().for_each(|header| {
@@ -416,7 +419,10 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPrivateHeader<ENCAPSULATION_C
             signing_pubkey,
         } = self.first().try_deserialize()?;
         let poq_nullifier = proof_of_quota
-            .verify(poq_verification_input)
+            // TODO: Add the decapsulated public key to the set of public inputs to verify the proof
+            .verify(&VerificationInputs {
+                signing_key: signing_pubkey,
+            })
             .map_err(|_| Error::ProofOfQuotaVerificationFailed)?;
         proof_of_selection
             .verify(&poq_nullifier)

@@ -6,10 +6,16 @@ use nomos_blend_message::{
         keys::{Ed25519PrivateKey, Ed25519PublicKey, X25519PrivateKey},
         proofs::{
             quota::{
-                PrivateInputs, ProofOfCoreQuotaPrivateInputs, ProofOfLeadershipQuotaPrivateInputs,
-                ProofOfQuota, PublicInputs,
+                inputs::{
+                    PrivateInputs, ProofOfCoreQuotaPrivateInputs,
+                    ProofOfLeadershipQuotaPrivateInputs, PublicInputs, VerificationInputs,
+                },
+                ProofOfQuota,
             },
-            selection::{ProofOfSelection, ProofOfSelectionInputs},
+            selection::{
+                inputs::{ProofOfSelectionInputs, SecretKey},
+                ProofOfSelection,
+            },
         },
     },
     encap::{
@@ -45,8 +51,7 @@ struct ProofsStorage {
     proof_of_leadership_quotas: VecDeque<GeneratedProofs>,
 }
 
-// TODO: Remove this `Default` impl when all the pieces are implemented
-#[derive(Default)]
+#[derive(Clone)]
 pub struct SessionInfo {
     number: u64,
     core_quota: usize,
@@ -70,12 +75,14 @@ impl ProofsStorage {
             pol_t0,
             pol_t1,
         }: SessionInfo,
-        secret_key: ZkHash,
+        proof_of_core_quota_private_inputs: ProofOfCoreQuotaPrivateInputs,
+        proof_of_leadership_quota_private_inputs: ProofOfLeadershipQuotaPrivateInputs,
         membership: &Membership<NodeId>,
     ) -> Self
     where
         NodeId: Eq + Hash,
     {
+        let secret_key = proof_of_core_quota_private_inputs.core_sk;
         let proof_of_core_quotas = (0..=core_quota)
             .map(|key_index| {
                 let signing_key = Ed25519PrivateKey::generate();
@@ -90,18 +97,16 @@ impl ProofsStorage {
                     session_number: number,
                     signing_key: signing_key.public_key(),
                 };
-                // TODO: Retrieve actual values
-                let private_inputs = ProofOfCoreQuotaPrivateInputs {
-                    core_sk: secret_key,
-                    ..Default::default()
-                };
                 let proof_of_quota = ProofOfQuota::new(
                     public_inputs,
-                    PrivateInputs::new_proof_of_core_quota_inputs(key_index, private_inputs),
+                    PrivateInputs::new_proof_of_core_quota_inputs(
+                        key_index,
+                        proof_of_core_quota_private_inputs.clone(),
+                    ),
                 );
                 let proof_of_selection = ProofOfSelection::new(ProofOfSelectionInputs {
                     ephemeral_key_index: key_index,
-                    secret_key,
+                    secret_key: SecretKey::Core(secret_key),
                     session_number: number,
                 });
                 // TODO: Calculate recipient node index.
@@ -125,6 +130,7 @@ impl ProofsStorage {
             })
             .collect();
 
+        let secret_key = proof_of_leadership_quota_private_inputs.pol_slot_secret;
         let proof_of_leadership_quotas = (0..=leader_quota)
             .map(|key_index| {
                 let signing_key = Ed25519PrivateKey::generate();
@@ -139,23 +145,22 @@ impl ProofsStorage {
                     session_number: number,
                     signing_key: signing_key.public_key(),
                 };
-                // TODO: Retrieve actual values
-                let private_inputs = ProofOfLeadershipQuotaPrivateInputs::default();
                 let proof_of_quota = ProofOfQuota::new(
                     public_inputs,
-                    PrivateInputs::new_proof_of_leadership_quota_inputs(key_index, private_inputs),
+                    PrivateInputs::new_proof_of_leadership_quota_inputs(
+                        key_index,
+                        proof_of_leadership_quota_private_inputs.clone(),
+                    ),
                 );
                 let proof_of_selection = ProofOfSelection::new(ProofOfSelectionInputs {
                     ephemeral_key_index: key_index,
-                    secret_key,
+                    secret_key: SecretKey::PoL(secret_key),
                     session_number: number,
                 });
                 // TODO: Calculate recipient node index.
                 let recipient_node_index = {
                     let mut hasher = ZkHasher::new();
                     hasher.update(&[*proof_of_selection.as_ref()]);
-                    // let res = hasher.finalize();
-                    // let index = (res.0 as usize) % membership.size();
                     0usize
                 };
                 let recipient_non_ephemeral_verifying_key = membership
@@ -197,6 +202,7 @@ pub struct CryptographicProcessor<NodeId, Rng> {
     non_ephemeral_signing_key: Ed25519PrivateKey,
     num_blend_layers: usize,
     non_ephemeral_quota_key: ZkHash,
+    session_info: SessionInfo,
 }
 
 #[derive(Clone, Derivative, Serialize, Deserialize)]
@@ -222,14 +228,17 @@ where
     pub fn new(
         settings: CryptographicProcessorSettings,
         membership: Membership<NodeId>,
+        session_info: SessionInfo,
+        proof_of_core_quota_private_inputs: ProofOfCoreQuotaPrivateInputs,
+        proof_of_leadership_quota_private_inputs: ProofOfLeadershipQuotaPrivateInputs,
         rng: Rng,
     ) -> Self {
         // Derive the non-ephemeral encryption key
         // from the non-ephemeral signing key.
         let proof_of_quota_storage = ProofsStorage::new(
-            // TODO: Replace with input session_info.
-            SessionInfo::default(),
-            settings.non_ephemeral_quota_key,
+            session_info.clone(),
+            proof_of_core_quota_private_inputs,
+            proof_of_leadership_quota_private_inputs,
             &membership,
         );
         Self {
@@ -239,6 +248,7 @@ where
             non_ephemeral_signing_key: settings.non_ephemeral_signing_key,
             num_blend_layers: settings.num_blend_layers as usize,
             proof_of_quota_storage,
+            session_info,
             rng,
         }
     }
