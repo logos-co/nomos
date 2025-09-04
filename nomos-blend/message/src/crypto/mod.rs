@@ -36,9 +36,7 @@ fn blake_random_bytes(buf: &mut [u8], key: &[u8]) {
     cipher.fill_bytes(buf);
 }
 
-const HASH_SIZE: usize = 64; // Size of the hash output for Blake2b-512
-
-fn blake2b512(input: &[u8]) -> [u8; HASH_SIZE] {
+fn blake2b512(input: &[u8]) -> [u8; 64] {
     let mut hasher = Blake2b512::new();
     hasher.update(input);
     hasher.finalize().into()

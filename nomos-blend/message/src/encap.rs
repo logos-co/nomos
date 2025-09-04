@@ -1,20 +1,23 @@
 use std::iter::repeat_n;
 
 use itertools::Itertools as _;
-use nomos_core::wire;
+use nomos_core::{crypto::ZkHash, wire};
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
 use crate::{
     crypto::{
         keys::{Ed25519PrivateKey, Ed25519PublicKey, SharedKey, X25519PrivateKey},
-        proofs::{quota::ProofOfQuota, selection::ProofOfSelection},
+        proofs::{
+            quota::{inputs::VerificationInputs, ProofOfQuota},
+            selection::ProofOfSelection,
+        },
         random_sized_bytes,
         signatures::Signature,
     },
     error::Error,
     input::EncapsulationInputs,
-    message::{BlendingHeader, Payload, PayloadType, PublicHeader},
+    message::{payload::PayloadType, BlendingHeader, Payload, PublicHeader},
 };
 
 pub type MessageIdentifier = Ed25519PublicKey;
@@ -86,13 +89,17 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
     pub fn decapsulate(
         self,
         private_key: &X25519PrivateKey,
+        poq_verification_input: &VerificationInputs,
     ) -> Result<DecapsulationOutput<ENCAPSULATION_COUNT>, Error> {
         // Derive the shared key.
         let shared_key =
             private_key.derive_shared_key(&self.public_header.signing_pubkey().derive_x25519());
 
         // Decapsulate the encapsulated part.
-        match self.encapsulated_part.decapsulate(&shared_key)? {
+        match self
+            .encapsulated_part
+            .decapsulate(&shared_key, poq_verification_input)?
+        {
             PartDecapsulationOutput::Incompleted((encapsulated_part, public_header)) => {
                 Ok(DecapsulationOutput::Incompleted(Self {
                     public_header,
@@ -119,14 +126,17 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
         *self.public_header.signing_pubkey()
     }
 
-    pub fn verify_public_header(&self) -> Result<(), Error> {
+    pub fn verify_public_header(
+        &self,
+        poq_verification_input: &VerificationInputs,
+    ) -> Result<ZkHash, Error> {
         self.public_header
             .verify_signature(&EncapsulatedPart::signing_body(
                 &self.encapsulated_part.private_header,
                 &self.encapsulated_part.payload,
             ))?;
-        // TODO: Add proof of quota verification
-        Ok(())
+        self.public_header
+            .verify_proof_of_quota(poq_verification_input)
     }
 
     #[cfg(feature = "unsafe-test-functions")]
@@ -228,8 +238,12 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPart<ENCAPSULATION_COUNT> {
     fn decapsulate(
         self,
         key: &SharedKey,
+        poq_verification_input: &VerificationInputs,
     ) -> Result<PartDecapsulationOutput<ENCAPSULATION_COUNT>, Error> {
-        match self.private_header.decapsulate(key)? {
+        match self
+            .private_header
+            .decapsulate(key, poq_verification_input)?
+        {
             PrivateHeaderDecapsulationOutput::Incompleted((private_header, public_header)) => {
                 let payload = self.payload.decapsulate(key);
                 Self::verify_reconstructed_public_header(
@@ -383,6 +397,7 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPrivateHeader<ENCAPSULATION_C
     fn decapsulate(
         mut self,
         key: &SharedKey,
+        poq_verification_input: &VerificationInputs,
     ) -> Result<PrivateHeaderDecapsulationOutput<ENCAPSULATION_COUNT>, Error> {
         // Decrypt all blending headers
         self.0.iter_mut().for_each(|header| {
@@ -393,17 +408,22 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPrivateHeader<ENCAPSULATION_C
         // by verifying the decrypted proof of selection.
         // If the `private_key` is not correct, the proof of selection is
         // badly decrypted and verification will fail.
-        let first_blending_header = self.first().try_deserialize()?;
-        if !first_blending_header.proof_of_selection.verify() {
-            return Err(Error::ProofOfSelectionVerificationFailed);
-        }
+        let BlendingHeader {
+            is_last,
+            proof_of_quota,
+            proof_of_selection,
+            signature,
+            signing_pubkey,
+        } = self.first().try_deserialize()?;
+        let poq_nullifier = proof_of_quota
+            .verify(poq_verification_input)
+            .map_err(|_| Error::ProofOfQuotaVerificationFailed)?;
+        proof_of_selection
+            .verify(&poq_nullifier)
+            .map_err(|_| Error::ProofOfSelectionVerificationFailed)?;
 
         // Build a new public header with the values in the first blending header.
-        let public_header = PublicHeader::new(
-            first_blending_header.signing_pubkey,
-            first_blending_header.proof_of_quota,
-            first_blending_header.signature,
-        );
+        let public_header = PublicHeader::new(signing_pubkey, proof_of_quota, signature);
 
         // Shift blending headers one leftward.
         self.shift_left();
@@ -415,7 +435,7 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPrivateHeader<ENCAPSULATION_C
         last_blending_header.encapsulate(key);
         self.replace_last(last_blending_header);
 
-        if first_blending_header.is_last {
+        if is_last {
             Ok(PrivateHeaderDecapsulationOutput::Completed((
                 self,
                 public_header,
@@ -542,7 +562,10 @@ impl EncapsulatedPayload {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{input::EncapsulationInput, message::MAX_PAYLOAD_BODY_SIZE};
+    use crate::{
+        crypto::proofs::quota::inputs::PublicInputs, input::EncapsulationInput,
+        message::payload::MAX_PAYLOAD_BODY_SIZE,
+    };
 
     const ENCAPSULATION_COUNT: usize = 3;
 
@@ -564,7 +587,10 @@ mod tests {
 
         // We can decapsulate with the correct private key.
         let DecapsulationOutput::Incompleted(msg) = msg
-            .decapsulate(blend_node_enc_keys.last().unwrap())
+            .decapsulate(
+                blend_node_enc_keys.last().unwrap(),
+                &PublicInputs::default(),
+            )
             .unwrap()
         else {
             panic!("Expected an incompleted message");
@@ -574,7 +600,10 @@ mod tests {
         // which we already used for the first decapsulation.
         assert!(msg
             .clone()
-            .decapsulate(blend_node_enc_keys.last().unwrap())
+            .decapsulate(
+                blend_node_enc_keys.last().unwrap(),
+                &PublicInputs::default(),
+            )
             .is_err());
 
         // We can decapsulate with the correct private key
@@ -583,7 +612,10 @@ mod tests {
             payload_type,
             payload_body,
         }) = msg
-            .decapsulate(blend_node_enc_keys.first().unwrap())
+            .decapsulate(
+                blend_node_enc_keys.first().unwrap(),
+                &PublicInputs::default(),
+            )
             .unwrap()
         else {
             panic!("Expected an incompleted message");

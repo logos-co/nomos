@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-pub const SIGNATURE_SIZE: usize = 64;
+pub const SIGNATURE_SIZE: usize = size_of::<ed25519_dalek::Signature>();
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Signature(ed25519_dalek::Signature);

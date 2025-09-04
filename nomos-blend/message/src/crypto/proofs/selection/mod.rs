@@ -8,6 +8,7 @@ use crate::crypto::proofs::selection::inputs::ProofOfSelectionInputs;
 pub mod inputs;
 
 const DOMAIN_SEPARATION_TAG: [u8; 23] = *b"SELECTION_RANDOMNESS_V1";
+pub const PROOF_OF_SELECTION_SIZE: usize = size_of::<ProofOfSelection>();
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProofOfSelection {
@@ -47,14 +48,18 @@ impl ProofOfSelection {
 
     // TODO: Implement actual verification logic.
     #[must_use]
-    pub fn verify(self, key_nullifier: &ZkHash) -> bool {
+    pub fn verify(self, key_nullifier: &ZkHash) -> Result<(), ()> {
         let hashed_secret_randomness = {
             let mut hasher = ZkHasher::new();
             hasher.update(&[self.secret_selection_randomness]);
             hasher.finalize()
         };
         // TODO: Remove check with dummy
-        &hashed_secret_randomness == key_nullifier || self == Self::dummy()
+        if &hashed_secret_randomness == key_nullifier || self == Self::dummy() {
+            Ok(())
+        } else {
+            Err(())
+        }
     }
 
     // TODO: Remove this once the actual proof of selection is implemented.
@@ -77,5 +82,13 @@ impl From<ZkHash> for ProofOfSelection {
 impl AsRef<ZkHash> for ProofOfSelection {
     fn as_ref(&self) -> &ZkHash {
         &self.secret_selection_randomness
+    }
+}
+
+impl From<[u8; PROOF_OF_SELECTION_SIZE]> for ProofOfSelection {
+    fn from(value: [u8; PROOF_OF_SELECTION_SIZE]) -> Self {
+        Self {
+            secret_selection_randomness: BigUint::from_bytes_be(&value).into(),
+        }
     }
 }

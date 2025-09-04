@@ -15,6 +15,27 @@ pub struct PublicInputs {
     pub pol_ledger_aged: ZkHash,
 }
 
+#[cfg(test)]
+impl Default for PublicInputs {
+    fn default() -> Self {
+        use crate::crypto::keys::Ed25519PrivateKey;
+
+        Self {
+            core_quota: usize::default(),
+            core_root: ZkHash::default(),
+            leader_quota: usize::default(),
+            pol_epoch_nonce: u64::default(),
+            pol_ledger_aged: ZkHash::default(),
+            pol_t0: u64::default(),
+            pol_t1: u64::default(),
+            session_number: u64::default(),
+            signing_key: Ed25519PrivateKey::generate().public_key(),
+        }
+    }
+}
+
+pub type VerificationInputs = PublicInputs;
+
 /// Private inputs for Proof of Core Quota. Spec: https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#215261aa09df81a18576f67b910d34d4.
 #[derive(Default)]
 pub struct ProofOfCoreQuotaPrivateInputs {
