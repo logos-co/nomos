@@ -58,14 +58,11 @@ impl SwarmBuilder {
 
     pub fn with_empty_membership(mut self) -> Self {
         assert!(self.membership.is_none());
-        self.membership = Some(Membership::new(
-            &[Node {
-                address: Multiaddr::empty(),
-                id: PeerId::random(),
-                public_key: Ed25519PrivateKey::generate().public_key(),
-            }],
-            &Ed25519PrivateKey::generate().public_key(),
-        ));
+        self.membership = Some(Membership::new_without_local(&[Node {
+            address: Multiaddr::empty(),
+            id: PeerId::random(),
+            public_key: Ed25519PrivateKey::generate().public_key(),
+        }]));
         self
     }
 
@@ -84,9 +81,8 @@ impl SwarmBuilder {
             swarm_message_receiver,
             incoming_message_sender,
             pending(),
-            self.membership.unwrap_or_else(|| {
-                Membership::new(&[], &Ed25519PrivateKey::generate().public_key())
-            }),
+            self.membership
+                .unwrap_or_else(|| Membership::new_without_local(&[])),
             BlakeRng::from_entropy(),
             3u64.try_into().unwrap(),
             1usize.try_into().unwrap(),
@@ -123,14 +119,11 @@ impl BlendBehaviourBuilder {
 
     pub fn with_empty_membership(mut self) -> Self {
         assert!(self.membership.is_none());
-        self.membership = Some(Membership::new(
-            &[Node {
-                address: Multiaddr::empty(),
-                id: PeerId::random(),
-                public_key: Ed25519PrivateKey::generate().public_key(),
-            }],
-            &Ed25519PrivateKey::generate().public_key(),
-        ));
+        self.membership = Some(Membership::new_without_local(&[Node {
+            address: Multiaddr::empty(),
+            id: PeerId::random(),
+            public_key: Ed25519PrivateKey::generate().public_key(),
+        }]));
         self
     }
 

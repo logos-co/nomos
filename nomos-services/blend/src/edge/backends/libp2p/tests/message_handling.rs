@@ -1,6 +1,5 @@
 use core::{slice::from_ref, time::Duration};
 
-use nomos_blend_message::crypto::Ed25519PrivateKey;
 use nomos_blend_scheduling::membership::Membership;
 use test_log::test;
 use tokio::{select, spawn, time::sleep};
@@ -26,10 +25,7 @@ async fn edge_message_propagation() {
     } = CoreSwarmBuilder::default().build(|id| BlendBehaviourBuilder::new(&id).build());
     let (swarm_1_membership_entry, _) = core_swarm_1.listen_and_return_membership_entry(None).await;
 
-    let membership = Membership::new(
-        from_ref(&swarm_1_membership_entry),
-        &Ed25519PrivateKey::generate().public_key(),
-    );
+    let membership = Membership::new_without_local(from_ref(&swarm_1_membership_entry));
     let CoreTestSwarm {
         swarm: mut core_swarm_2,
         incoming_message_receiver: mut core_swarm_2_incoming_message_receiver,
@@ -57,10 +53,8 @@ async fn edge_message_propagation() {
 
     // We pass swarm 2 to the edge swarm, which will select it to propagate its
     // message.
-    let membership_for_edge_swarm = Membership::new(
-        from_ref(&swarm_2_membership_entry),
-        &Ed25519PrivateKey::generate().public_key(),
-    );
+    let membership_for_edge_swarm =
+        Membership::new_without_local(from_ref(&swarm_2_membership_entry));
     let EdgeTestSwarm {
         swarm: edge_swarm,
         command_sender: edge_swarm_command_sender,
@@ -134,14 +128,11 @@ async fn replication_factor() {
 
     // We pass all 3 swarms to the edge swarm, and we test that only 2 of them
     // (replication factor) are picked.
-    let membership_for_edge_swarm = Membership::new(
-        &[
-            swarm_1_membership_entry,
-            swarm_2_membership_entry,
-            swarm_3_membership_entry,
-        ],
-        &Ed25519PrivateKey::generate().public_key(),
-    );
+    let membership_for_edge_swarm = Membership::new_without_local(&[
+        swarm_1_membership_entry,
+        swarm_2_membership_entry,
+        swarm_3_membership_entry,
+    ]);
     let EdgeTestSwarm {
         swarm: edge_swarm,
         command_sender: edge_swarm_command_sender,

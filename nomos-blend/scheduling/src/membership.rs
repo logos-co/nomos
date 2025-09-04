@@ -63,6 +63,14 @@ where
             local_node,
         }
     }
+
+    #[cfg(feature = "unsafe-test-functions")]
+    #[must_use]
+    pub fn new_without_local(nodes: &[Node<NodeId>]) -> Self {
+        use nomos_blend_message::crypto::Ed25519PrivateKey;
+
+        Self::new(nodes, &Ed25519PrivateKey::generate().public_key())
+    }
 }
 
 impl<NodeId> Membership<NodeId>
