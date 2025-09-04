@@ -1,4 +1,4 @@
-use std::hash::Hash;
+use std::{collections::VecDeque, hash::Hash};
 
 use derivative::Derivative;
 use nomos_blend_message::{
@@ -23,7 +23,6 @@ use nomos_core::{
     crypto::{ZkHash, ZkHasher},
     wire,
 };
-use num_bigint::BigUint;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 
@@ -34,17 +33,16 @@ pub type EncapsulatedMessage = InternalEncapsulatedMessage<ENCAPSULATION_COUNT>;
 pub type EncapsulationInputs = InternalEncapsulationInputs<ENCAPSULATION_COUNT>;
 pub type UnwrappedMessage = InternalDecapsulationOutput<ENCAPSULATION_COUNT>;
 
-struct GeneratedProofs {
+pub struct GeneratedProofs {
     signing_key: Ed25519PrivateKey,
     proof_of_quota: ProofOfQuota,
     proof_of_selection: ProofOfSelection,
     recipient_non_ephemeral_verifying_key: Ed25519PublicKey,
-    key_nullifier: ZkHash,
 }
 
 struct ProofsStorage {
-    proof_of_core_quotas: Vec<GeneratedProofs>,
-    proof_of_leadership_quotas: Vec<GeneratedProofs>,
+    proof_of_core_quotas: VecDeque<GeneratedProofs>,
+    proof_of_leadership_quotas: VecDeque<GeneratedProofs>,
 }
 
 // TODO: Remove this `Default` impl when all the pieces are implemented
@@ -97,7 +95,7 @@ impl ProofsStorage {
                     core_sk: secret_key,
                     ..Default::default()
                 };
-                let (proof_of_quota, key_nullifier) = ProofOfQuota::new(
+                let proof_of_quota = ProofOfQuota::new(
                     public_inputs,
                     PrivateInputs::new_proof_of_core_quota_inputs(key_index, private_inputs),
                 );
@@ -123,7 +121,6 @@ impl ProofsStorage {
                     proof_of_quota,
                     proof_of_selection,
                     recipient_non_ephemeral_verifying_key,
-                    key_nullifier,
                 }
             })
             .collect();
@@ -144,7 +141,7 @@ impl ProofsStorage {
                 };
                 // TODO: Retrieve actual values
                 let private_inputs = ProofOfLeadershipQuotaPrivateInputs::default();
-                let (proof_of_quota, key_nullifier) = ProofOfQuota::new(
+                let proof_of_quota = ProofOfQuota::new(
                     public_inputs,
                     PrivateInputs::new_proof_of_leadership_quota_inputs(key_index, private_inputs),
                 );
@@ -170,7 +167,6 @@ impl ProofsStorage {
                     proof_of_quota,
                     proof_of_selection,
                     recipient_non_ephemeral_verifying_key,
-                    key_nullifier,
                 }
             })
             .collect();
@@ -179,6 +175,14 @@ impl ProofsStorage {
             proof_of_core_quotas,
             proof_of_leadership_quotas,
         }
+    }
+
+    fn pop_next_proof_of_core_quota(&mut self) -> Option<GeneratedProofs> {
+        self.proof_of_core_quotas.pop_front()
+    }
+
+    fn pop_next_proof_of_leadership_quota(&mut self) -> Option<GeneratedProofs> {
+        self.proof_of_leadership_quotas.pop_front()
     }
 }
 
@@ -298,33 +302,51 @@ where
         payload_type: PayloadType,
         payload: &[u8],
     ) -> Result<EncapsulatedMessage, Error> {
-        // Retrieve the non-ephemeral signing keys of the blend nodes
-        // TODO: Change logic used to select nodes based on the spec: https://www.notion.so/nomos-tech/Message-Encapsulation-Mechanism-215261aa09df81309d7fd7f1c2da086b?source=copy_link#215261aa09df81319317cb1e86b2e527.
-        let blend_node_signing_keys = self
-            .membership
-            .choose_remote_nodes(&mut self.rng, self.num_blend_layers)
-            .map(|node| node.public_key)
-            .collect::<Vec<_>>();
+        let (Some(first_layer_proof), Some(second_layer_proof), Some(third_layer_proof)) =
+            (match payload_type {
+                PayloadType::Cover => (
+                    self.proof_of_quota_storage.pop_next_proof_of_core_quota(),
+                    self.proof_of_quota_storage.pop_next_proof_of_core_quota(),
+                    self.proof_of_quota_storage.pop_next_proof_of_core_quota(),
+                ),
+                PayloadType::Data => (
+                    self.proof_of_quota_storage
+                        .pop_next_proof_of_leadership_quota(),
+                    self.proof_of_quota_storage
+                        .pop_next_proof_of_leadership_quota(),
+                    self.proof_of_quota_storage
+                        .pop_next_proof_of_leadership_quota(),
+                ),
+            })
+        else {
+            // TODO: Ideally, we want to still use whatever proof is left, e.g., if only 1
+            // or 2 proofs are left, we want to encapsulate the message only once or twice.
+            return Err(Error::NoProofOfQuotasLeft);
+        };
 
-        let inputs = EncapsulationInputs::new(
-            blend_node_signing_keys
-                .iter()
-                .map(|blend_node_signing_key| {
-                    // Retrieve a pre-computed ephemeral signing key, proof of quota, and proof of
-                    // selection for each encapsulation.
-                    let ephemeral_signing_key = Ed25519PrivateKey::generate();
-                    EncapsulationInput::new(
-                        ephemeral_signing_key,
-                        blend_node_signing_key,
-                        ProofOfQuota::dummy(),
-                        ProofOfSelection::dummy(),
-                    )
-                })
+        let encapsulation_inputs = EncapsulationInputs::new(
+            [first_layer_proof, second_layer_proof, third_layer_proof]
+                .into_iter()
+                .map(
+                    |GeneratedProofs {
+                         proof_of_quota,
+                         proof_of_selection,
+                         recipient_non_ephemeral_verifying_key,
+                         signing_key,
+                     }| {
+                        EncapsulationInput::new(
+                            signing_key,
+                            &recipient_non_ephemeral_verifying_key,
+                            proof_of_quota,
+                            proof_of_selection,
+                        )
+                    },
+                )
                 .collect::<Vec<_>>()
                 .into_boxed_slice(),
         )?;
 
-        EncapsulatedMessage::new(&inputs, payload_type, payload)
+        EncapsulatedMessage::new(&encapsulation_inputs, payload_type, payload)
     }
 }
 

@@ -19,8 +19,14 @@ pub struct ProofOfSelectionInputs {
 impl ProofOfSelection {
     // TODO: Implement actual verification logic.
     #[must_use]
-    pub fn verify(&self) -> bool {
-        self == &Self::dummy()
+    pub fn verify(self, key_nullifier: &ZkHash) -> bool {
+        let hashed_secret_randomness = {
+            let mut hasher = ZkHasher::new();
+            hasher.update(&[self.0]);
+            hasher.finalize()
+        };
+        // TODO: Remove check with dummy
+        &hashed_secret_randomness == key_nullifier || self == Self::dummy()
     }
 
     // TODO: Remove this once the actual proof of selection is implemented.
@@ -29,6 +35,7 @@ impl ProofOfSelection {
         Self(ZkHash::default())
     }
 
+    #[must_use]
     pub fn new(
         ProofOfSelectionInputs {
             ephemeral_key_index,

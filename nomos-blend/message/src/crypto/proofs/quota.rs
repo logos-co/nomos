@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::crypto::keys::Ed25519PublicKey;
 
-pub const PROOF_OF_QUOTA_SIZE: usize = 160;
+pub const PROOF_SIZE: usize = 128;
 
 /// Public inputs for all types of Proof of Quota. Spec defined at: https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#215261aa09df81fd9bf3fbb0eededca5.
 pub struct PublicInputs {
@@ -90,26 +90,34 @@ impl PrivateInputs {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Hash, PartialEq, Eq)]
-pub struct ProofOfQuota(#[serde(with = "serde_big_array::BigArray")] [u8; PROOF_OF_QUOTA_SIZE]);
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct ProofOfQuota {
+    proof: [u8; PROOF_SIZE],
+    key_nullifier: ZkHash,
+}
+
+// TODO: Implement serialize and deserialize logic here.
 
 impl ProofOfQuota {
     // TODO: Remove this once the actual proof of quota is implemented.
     #[must_use]
-    pub const fn dummy() -> Self {
-        Self([6u8; PROOF_OF_QUOTA_SIZE])
+    pub fn dummy() -> Self {
+        Self {
+            key_nullifier: ZkHash::default(),
+            proof: [6u8; PROOF_SIZE],
+        }
     }
 
     #[must_use]
-    pub fn new(_public_inputs: PublicInputs, _private_inputs: PrivateInputs) -> (Self, ZkHash) {
+    pub fn new(_public_inputs: PublicInputs, _private_inputs: PrivateInputs) -> Self {
         // TODO: Interact with circom circuit generation.
-        (Self::dummy(), ZkHash::default())
+        Self::dummy()
     }
 
     #[must_use]
     pub fn verify(self, _public_inputs: &PublicInputs, _nullifier: ZkHash) -> bool {
         // TODO: Interact with circom circuit verification.
-        true
+        self == Self::dummy()
     }
 }
 
