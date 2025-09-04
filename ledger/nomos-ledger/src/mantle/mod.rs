@@ -130,14 +130,13 @@ impl LedgerState {
                         .0
                         .verify(tx_hash.as_signing_bytes().as_ref(), ed25519_sig)
                         .map_err(|_| Error::InvalidSignature)?;
-                    let locked_notes = self.locked_notes.lock(
+                    self.locked_notes = self.locked_notes.lock(
                         utxo_tree,
                         &config.min_stake,
                         op.service_type,
                         &op.locked_note_id,
                     )?;
                     self.sdp = self.sdp.apply_declare_msg(current_block_number, op)?;
-                    self.locked_notes = locked_notes;
                 }
                 (Op::SDPActive(op), Some(OpProof::ZkSig(sig))) => {
                     let declaration = self.sdp.get_declaration(&op.declaration_id)?;
@@ -167,7 +166,7 @@ impl LedgerState {
                     }) {
                         return Err(Error::InvalidSignature);
                     }
-                    let locked_notes = self
+                    self.locked_notes = self
                         .locked_notes
                         .unlock(declaration.service_type, &declaration.locked_note_id)?;
                     self.sdp = self.sdp.apply_withdrawn_msg(
@@ -175,7 +174,6 @@ impl LedgerState {
                         &config.service_params,
                         op,
                     )?;
-                    self.locked_notes = locked_notes;
                 }
                 _ => {
                     return Err(Error::UnsupportedOp);
