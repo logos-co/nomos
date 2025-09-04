@@ -1,8 +1,8 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(transparent)]
-pub struct PublicInputDeser(pub String);
+pub struct InputDeser(pub String);
 
 #[cfg(test)]
 mod tests {
@@ -11,7 +11,7 @@ mod tests {
     use ark_bn254::Bn254;
     use serde_json::{Value, json};
 
-    use crate::public_input::{PublicInput, deserialize::PublicInputDeser};
+    use crate::public_input::{Input, deserialize::InputDeser};
 
     static PI: LazyLock<Value> = LazyLock::new(|| {
         json!([
@@ -27,7 +27,7 @@ mod tests {
     });
     #[test]
     fn deserialize() {
-        let pi: Vec<PublicInputDeser> = serde_json::from_value(PI.deref().clone()).unwrap();
-        let _: Result<Vec<PublicInput<Bn254>>, _> = pi.into_iter().map(TryInto::try_into).collect();
+        let pi: Vec<InputDeser> = serde_json::from_value(PI.deref().clone()).unwrap();
+        let _: Result<Vec<Input<Bn254>>, _> = pi.into_iter().map(TryInto::try_into).collect();
     }
 }

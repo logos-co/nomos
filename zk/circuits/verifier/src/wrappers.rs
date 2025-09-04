@@ -79,3 +79,77 @@ pub fn verifier_from_contents(
         &proof_file.path().to_path_buf(),
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    static VERIFICATION_KEY_JSON: LazyLock<PathBuf> = LazyLock::new(|| {
+        let file = PathBuf::from("../witness_generators/pol/resources/tests/verification_key.json");
+        assert!(file.exists(), "Could not find {}.", file.display());
+        file
+    });
+
+    static PROOF_JSON: LazyLock<PathBuf> = LazyLock::new(|| {
+        let file = PathBuf::from("../witness_generators/pol/resources/tests/proof.json");
+        assert!(file.exists(), "Could not find {}.", file.display());
+        file
+    });
+
+    static PUBLIC_JSON: LazyLock<PathBuf> = LazyLock::new(|| {
+        let file = PathBuf::from("../witness_generators/pol/resources/tests/public.json");
+        assert!(file.exists(), "Could not find {}.", file.display());
+        file
+    });
+
+    #[test]
+    fn test_verifier() {
+        let result = verifier(&VERIFICATION_KEY_JSON, &PUBLIC_JSON, &PROOF_JSON);
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+    }
+
+    #[test]
+    fn test_verifier_invalid() {
+        let mut invalid_proof = NamedTempFile::new().unwrap();
+        invalid_proof.write_all(b"invalid proof").unwrap();
+
+        let result = verifier(
+            &VERIFICATION_KEY_JSON,
+            &PUBLIC_JSON,
+            &invalid_proof.path().to_path_buf(),
+        );
+        assert!(result.is_ok());
+        assert!(!result.unwrap());
+    }
+
+    #[test]
+    fn test_verifier_from_contents() {
+        let verification_key_contents = std::fs::read(&*VERIFICATION_KEY_JSON).unwrap();
+        let public_contents = std::fs::read(&*PUBLIC_JSON).unwrap();
+        let proof_contents = std::fs::read(&*PROOF_JSON).unwrap();
+
+        let result = verifier_from_contents(
+            verification_key_contents.as_slice(),
+            public_contents.as_slice(),
+            proof_contents.as_slice(),
+        );
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+    }
+
+    #[test]
+    fn test_verifier_from_contents_invalid() {
+        let verification_key_contents = std::fs::read(&*VERIFICATION_KEY_JSON).unwrap();
+        let public_contents = std::fs::read(&*PUBLIC_JSON).unwrap();
+        let invalid_proof_contents = b"invalid proof";
+
+        let result = verifier_from_contents(
+            verification_key_contents.as_slice(),
+            public_contents.as_slice(),
+            invalid_proof_contents,
+        );
+        assert!(result.is_ok());
+        assert!(!result.unwrap());
+    }
+}
