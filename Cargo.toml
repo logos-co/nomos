@@ -121,7 +121,7 @@ overwatch-derive  = { default-features = false, git = "https://github.com/logos-
 rand              = { default-features = false, version = "0.8" }
 reqwest           = { default-features = false, version = "0.12" }
 risc0-zkvm        = { default-features = false, version = "2.3.2" }
-serde_with        = { default-features = false, version = "3.12.0" }
+serde_with        = { default-features = false, version = "3.14.0" }
 tempfile          = { default-features = false, version = "3" }
 tracing           = { default-features = false, version = "0.1" }
 utoipa            = { default-features = false, version = "4.0" }

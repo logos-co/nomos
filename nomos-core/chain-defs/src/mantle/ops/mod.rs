@@ -29,9 +29,12 @@ use super::{
         sdp::{SDPActiveOp, SDPDeclareOp, SDPWithdrawOp},
     },
 };
-use crate::mantle::ops::{
-    internal::{OpDe, OpSer},
-    wire::OpWireVisitor,
+use crate::{
+    mantle::ops::{
+        internal::{OpDe, OpSer},
+        wire::OpWireVisitor,
+    },
+    proofs::zksig,
 };
 
 /// Core set of supported Mantle operations.
@@ -60,6 +63,11 @@ pub enum Op {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OpProof {
     Ed25519Sig(ed25519::Signature),
+    ZkSig(zksig::DummyZkSignature),
+    ZkAndEd25519Sigs {
+        zk_sig: zksig::DummyZkSignature,
+        ed25519_sig: ed25519::Signature,
+    },
 }
 
 /// Delegates serialization through the [`OpInternal`] representation.

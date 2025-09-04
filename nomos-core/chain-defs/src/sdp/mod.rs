@@ -3,7 +3,8 @@ pub mod state;
 use std::{collections::BTreeSet, hash::Hash};
 
 use blake2::{Blake2b, Digest as _};
-use bytes::{Bytes, BytesMut};
+use bytes::{BufMut as _, Bytes, BytesMut};
+use groth16::{serde::serde_fr, Fr};
 use multiaddr::Multiaddr;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -71,7 +72,20 @@ impl From<ServiceType> for usize {
 pub type Nonce = u64;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-pub struct ProviderId(pub [u8; 32]);
+pub struct ProviderId(pub ed25519_dalek::VerifyingKey);
+
+#[derive(Debug)]
+pub struct InvalidKeyBytesError;
+
+impl TryFrom<[u8; 32]> for ProviderId {
+    type Error = InvalidKeyBytesError;
+
+    fn try_from(bytes: [u8; 32]) -> Result<Self, Self::Error> {
+        ed25519_dalek::VerifyingKey::from_bytes(&bytes)
+            .map(ProviderId)
+            .map_err(|_| InvalidKeyBytesError)
+    }
+}
 
 impl Serialize for ProviderId {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -80,7 +94,7 @@ impl Serialize for ProviderId {
     {
         if serializer.is_human_readable() {
             // For JSON: serialize as hex string
-            const_hex::encode(self.0).serialize(serializer)
+            const_hex::encode(self.0.as_bytes()).serialize(serializer)
         } else {
             // For binary: serialize as bytes
             self.0.serialize(serializer)
@@ -97,13 +111,19 @@ impl<'de> Deserialize<'de> for ProviderId {
             // For JSON: deserialize from hex string
             let s = String::deserialize(deserializer)?;
             let bytes = const_hex::decode(&s).map_err(serde::de::Error::custom)?;
-            if bytes.len() != 32 {
-                return Err(serde::de::Error::custom("Invalid byte length"));
-            }
-            Ok(Self(bytes.try_into().unwrap()))
+            let key_bytes: [u8; 32] = bytes
+                .try_into()
+                .map_err(|_| serde::de::Error::custom("Invalid byte length: expected 32 bytes"))?;
+
+            let verifying_key = ed25519_dalek::VerifyingKey::from_bytes(&key_bytes)
+                .map_err(serde::de::Error::custom)?;
+
+            Ok(Self(verifying_key))
         } else {
             // For binary: deserialize from bytes
-            Ok(Self(<[u8; 32]>::deserialize(deserializer)?))
+            Ok(Self(ed25519_dalek::VerifyingKey::deserialize(
+                deserializer,
+            )?))
         }
     }
 }
@@ -116,8 +136,7 @@ pub struct DeclarationId(pub [u8; 32]);
 pub struct ActivityId(pub [u8; 32]);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct ZkPublicKey(pub [u8; 32]);
+pub struct ZkPublicKey(#[serde(with = "serde_fr")] pub Fr);
 
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct DeclarationInfo {
@@ -147,6 +166,7 @@ impl DeclarationInfo {
 pub struct DeclarationState {
     pub service_type: ServiceType,
     pub locked_note_id: NoteId,
+    pub zk_id: ZkPublicKey,
     pub created: BlockNumber,
     pub active: BlockNumber,
     pub withdrawn: Option<BlockNumber>,
@@ -159,10 +179,12 @@ impl DeclarationState {
         block_number: BlockNumber,
         service_type: ServiceType,
         locked_note_id: NoteId,
+        zk_id: ZkPublicKey,
     ) -> Self {
         Self {
             service_type,
             locked_note_id,
+            zk_id,
             created: block_number,
             active: block_number,
             withdrawn: None,
@@ -194,7 +216,9 @@ impl DeclarationMessage {
         // declaration_id = Hash(service||provider_id||zk_id||locators)
         hasher.update(service.as_bytes());
         hasher.update(self.provider_id.0);
-        hasher.update(self.zk_id.0);
+        for number in self.zk_id.0 .0 .0 {
+            hasher.update(number.to_be_bytes());
+        }
         for locator in &self.locators {
             hasher.update(locator.0.as_ref());
         }
@@ -210,7 +234,9 @@ impl DeclarationMessage {
             buff.extend_from_slice(locator.0.as_ref());
         }
         buff.extend_from_slice(self.provider_id.0.as_ref());
-        buff.extend_from_slice(self.zk_id.0.as_ref());
+        for number in self.zk_id.0 .0 .0 {
+            buff.put_u64(number); // big endian bytes
+        }
         buff.freeze()
     }
 }
@@ -266,7 +292,7 @@ pub struct Event {
 }
 
 pub enum SdpMessage<Metadata> {
-    Declare(DeclarationMessage),
+    Declare(Box<DeclarationMessage>),
     Activity(ActiveMessage<Metadata>),
     Withdraw(WithdrawMessage),
 }

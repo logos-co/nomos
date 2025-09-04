@@ -704,7 +704,7 @@ pub mod tests {
             storage_gas_price: 1,
         };
         SignedMantleTx {
-            ops_profs: vec![],
+            ops_proofs: vec![],
             ledger_tx_proof: DummyZkSignature::prove(ZkSignaturePublic {
                 pks,
                 msg_hash: mantle_tx.hash().into(),

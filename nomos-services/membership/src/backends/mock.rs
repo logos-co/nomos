@@ -189,9 +189,9 @@ mod tests {
     use super::{MembershipBackend as _, MockMembershipBackend, MockMembershipBackendSettings};
 
     fn pid(seed: u8) -> ProviderId {
-        let mut b = [0u8; 32];
+        let mut b = [1u8; 32];
         b[0] = seed;
-        ProviderId(b)
+        ProviderId::try_from(b).unwrap()
     }
 
     fn locator(seed: u8) -> Locator {
