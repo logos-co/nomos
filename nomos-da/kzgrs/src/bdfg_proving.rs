@@ -11,6 +11,7 @@ use blake2::{
     digest::{Update as _, VariableOutput as _},
     Blake2bVar,
 };
+use num_traits::Zero;
 #[cfg(feature = "parallel")]
 use rayon::iter::{IntoParallelIterator as _, ParallelIterator as _};
 
@@ -294,9 +295,6 @@ pub fn verify_multiple_columns(
     let mut rng = thread_rng();
     let r: Fr = Fr::rand(&mut rng);
     let r_roots = compute_h_roots(r, column_proofs.len());
-    let r_sum : Fr = r_roots
-        .iter()
-        .sum();
 
     let batched_commitment = G1Projective::msm(&aggregated_commitments,&r_roots).unwrap().into_affine();
 
@@ -306,19 +304,26 @@ pub fn verify_multiple_columns(
         .map(|(i, x)| x.mul(&r_roots[i]))
         .sum();
 
-    let batched_proof =  G1Projective::msm(&proofs,&r_roots).unwrap().into_affine();
+    let batched_proof =  G1Projective::msm(&proofs,&r_roots).unwrap();
 
-    let batched_index : Fr = column_idxs
-        .iter()
-        .enumerate()
-        .map(|(i, &x)| domain.element(x as usize).mul(&r_roots[i]))
-        .sum();
+    let batched_index = G1Projective::msm(&proofs,&r_roots.iter().enumerate().map(|(i, r)| r.mul(&domain.element(column_idxs[i]))).collect::<Vec<Fr>>()).unwrap().into_affine();
 
-    let commitment_check_g1 = batched_commitment + global_parameters.powers_of_g[0].mul(batched_elements).neg();
-    let proof_check_g2 = global_parameters.beta_h.mul(r_sum) + global_parameters.h.mul(batched_index).neg();
-    let lhs = Bls12_381::pairing(commitment_check_g1, global_parameters.h);
-    let rhs = Bls12_381::pairing(batched_proof, proof_check_g2);
-    lhs == rhs
+
+    let commitment_check_g1 = batched_commitment + global_parameters.powers_of_g[0].mul(batched_elements).neg() + batched_index;
+    let qap = Bls12_381::multi_miller_loop(
+        [
+            commitment_check_g1,
+            batched_proof,
+        ],
+        [
+            global_parameters.h.neg(), // This could be precomputed and included in the global parameter instead
+            global_parameters.beta_h
+        ],
+    );
+
+    let test = Bls12_381::final_exponentiation(qap).unwrap();
+
+    test.is_zero()
 }
 
 fn compute_h_roots(h: Fr, size: usize) -> Vec<Fr> {

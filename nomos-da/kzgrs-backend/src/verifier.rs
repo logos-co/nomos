@@ -194,7 +194,7 @@ mod test {
             (&mut commitmentss).append(&mut vec![commitments]);
         }
 
-        for batch_size in (10..max_batch_size+1).step_by(10) {
+        for batch_size in (1..10).step_by(1) {
             let t0 = unsafe { core::arch::x86_64::_rdtsc() };
             for _ in 0..iters {
                 black_box(verifier.batch_verify(&shares[0..batch_size], &commitmentss[0..batch_size], domain_size));
@@ -244,7 +244,7 @@ mod test {
     #[ignore = "This test is just for calculation the cycles for the above set of proofs. This will be moved to the pertinent proof in the future."]
     #[test]
     fn test_batch_verify_cycles() {
-        let iters = 50u64;
+        let iters = 1u64;
 
         let configurations = [
             utils::Configuration::from_elements_count(32),
@@ -253,7 +253,7 @@ mod test {
         ];
 
         for configuration in &configurations {
-            bench_batch_verify_cycles(iters,200, configuration);
+            bench_batch_verify_cycles(iters,10, configuration);
         }
     }
 }
