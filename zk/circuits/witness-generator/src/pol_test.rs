@@ -17,7 +17,7 @@ mod tests {
     });
 
     static INPUT: LazyLock<PathBuf> = LazyLock::new(|| {
-        let file = PathBuf::from("resources/tests/input.json");
+        let file = PathBuf::from("../resources/tests/pol/input.json");
         assert!(file.exists(), "Could not find {}.", file.display());
         file
     });
