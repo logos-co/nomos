@@ -7,7 +7,8 @@ use std::{
 
 use tempfile::NamedTempFile;
 
-/// Runs the `pol` circuit to generate a witness from the provided inputs.
+/// Runs the witness generator binary to generate a witness from the provided
+/// inputs.
 ///
 /// # Arguments
 ///
@@ -39,7 +40,8 @@ fn generate_witness_from_paths(
     Ok(witness_file.to_owned())
 }
 
-/// Runs the `pol` circuit to generate a witness from the provided inputs.
+/// Runs the witness generator binary to generate a witness from the provided
+/// inputs.
 ///
 /// # Note
 ///
