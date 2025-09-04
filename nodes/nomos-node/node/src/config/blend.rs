@@ -40,7 +40,6 @@ impl BlendConfig {
                     .expect("Edge message replication factor cannot be zero."),
             },
             crypto: self.0.crypto.clone(),
-            time: self.0.time.clone(),
             membership: self.0.membership.clone(),
             minimum_network_size: self.0.minimum_network_size,
         }

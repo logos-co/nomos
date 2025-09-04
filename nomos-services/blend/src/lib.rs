@@ -25,7 +25,6 @@ use crate::{
         },
     },
     instance::{Instance, Mode},
-    membership::Adapter as _,
     settings::{constant_membership_stream, Settings},
 };
 
@@ -45,7 +44,7 @@ mod test_utils;
 
 const LOG_TARGET: &str = "blend::service";
 
-pub struct BlendService<CoreService, EdgeService, RuntimeServiceId>
+pub struct BlendService<CoreService, EdgeService, MembershipAdapter, RuntimeServiceId>
 where
     CoreService: ServiceData + CoreServiceComponents<RuntimeServiceId>,
     EdgeService: ServiceData,
@@ -54,8 +53,8 @@ where
     _phantom: PhantomData<(CoreService, EdgeService)>,
 }
 
-impl<CoreService, EdgeService, RuntimeServiceId> ServiceData
-    for BlendService<CoreService, EdgeService, RuntimeServiceId>
+impl<CoreService, EdgeService, MembershipAdapter, RuntimeServiceId> ServiceData
+    for BlendService<CoreService, EdgeService, MembershipAdapter, RuntimeServiceId>
 where
     CoreService: ServiceData + CoreServiceComponents<RuntimeServiceId>,
     EdgeService: ServiceData,
@@ -67,8 +66,8 @@ where
 }
 
 #[async_trait]
-impl<CoreService, EdgeService, RuntimeServiceId> ServiceCore<RuntimeServiceId>
-    for BlendService<CoreService, EdgeService, RuntimeServiceId>
+impl<CoreService, EdgeService, MembershipAdapter, RuntimeServiceId> ServiceCore<RuntimeServiceId>
+    for BlendService<CoreService, EdgeService, MembershipAdapter, RuntimeServiceId>
 where
     CoreService: ServiceData<Message: MessageComponents<Payload: Into<Vec<u8>>> + Send + Sync + 'static>
         + CoreServiceComponents<
@@ -84,13 +83,13 @@ where
         + 'static,
     EdgeService:
         ServiceData<Message = CoreService::Message> + edge::ServiceComponents + Send + 'static,
-    EdgeService::MembershipAdapter: membership::Adapter + Send,
-    <EdgeService::MembershipAdapter as membership::Adapter>::Error: Send + Sync + 'static,
-    membership::ServiceMessage<EdgeService::MembershipAdapter>: Send + Sync + 'static,
+    MembershipAdapter: membership::Adapter + Send,
+    <MembershipAdapter as membership::Adapter>::Error: Send + Sync + 'static,
+    membership::ServiceMessage<MembershipAdapter>: Send + Sync + 'static,
     RuntimeServiceId: AsServiceId<Self>
         + AsServiceId<CoreService>
         + AsServiceId<EdgeService>
-        + AsServiceId<MembershipService<EdgeService>>
+        + AsServiceId<MembershipService<MembershipAdapter>>
         + AsServiceId<
             NetworkService<
                 NetworkBackendOfService<CoreService, RuntimeServiceId>,
@@ -129,9 +128,9 @@ where
         let settings = settings_handle.notifier().get_updated_settings();
         let minimal_network_size = settings.minimal_network_size.get() as usize;
 
-        let _membership_stream = <MembershipAdapter<EdgeService> as membership::Adapter>::new(
+        let _membership_stream = MembershipAdapter::new(
             overwatch_handle
-                .relay::<MembershipService<EdgeService>>()
+                .relay::<MembershipService<MembershipAdapter>>()
                 .await?,
             settings.crypto.signing_private_key.public_key(),
         )
@@ -180,7 +179,4 @@ where
 type BroadcastSettings<CoreService> =
     <<CoreService as ServiceData>::Message as MessageComponents>::BroadcastSettings;
 
-type MembershipAdapter<EdgeService> = <EdgeService as edge::ServiceComponents>::MembershipAdapter;
-
-type MembershipService<EdgeService> =
-    <MembershipAdapter<EdgeService> as membership::Adapter>::Service;
+type MembershipService<MembershipAdapter> = <MembershipAdapter as membership::Adapter>::Service;

@@ -77,7 +77,7 @@ where
 {
     pub(super) fn membership(&self) -> Membership<NodeId> {
         let local_signing_pubkey = self.crypto.signing_private_key.public_key();
-        Membership::new(&self.membership, Some(&local_signing_pubkey))
+        Membership::new(&self.membership, &local_signing_pubkey)
     }
 }
 

@@ -10,8 +10,8 @@ pub trait ServiceComponents {
     type BroadcastSettings;
 }
 
-impl<CoreService, EdgeService, RuntimeServiceId> ServiceComponents
-    for BlendService<CoreService, EdgeService, RuntimeServiceId>
+impl<CoreService, EdgeService, MemebershipAdapter, RuntimeServiceId> ServiceComponents
+    for BlendService<CoreService, EdgeService, MemebershipAdapter, RuntimeServiceId>
 where
     CoreService: ServiceData + core::service_components::ServiceComponents<RuntimeServiceId>,
     EdgeService: ServiceData + edge::service_components::ServiceComponents,

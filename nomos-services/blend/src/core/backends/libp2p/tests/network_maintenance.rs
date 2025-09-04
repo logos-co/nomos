@@ -37,7 +37,7 @@ async fn on_unhealthy_peer() {
                 public_key: Ed25519PrivateKey::generate().public_key(),
             },
         ],
-        None,
+        &Ed25519PrivateKey::generate().public_key(),
     );
     let TestSwarm {
         swarm: mut listening_swarm,
@@ -131,7 +131,7 @@ async fn on_malicious_peer() {
                 public_key: Ed25519PrivateKey::generate().public_key(),
             },
         ],
-        None,
+        &Ed25519PrivateKey::generate().public_key(),
     );
     let TestSwarm {
         swarm: mut listening_swarm,

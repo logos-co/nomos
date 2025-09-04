@@ -56,9 +56,9 @@ pub type BlendService<RuntimeServiceId> = nomos_blend_service::BlendService<
         nomos_blend_service::edge::backends::libp2p::Libp2pBlendBackend,
         PeerId,
         <nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<RuntimeServiceId>>::BroadcastSettings,
-        BlendMembershipAdapter<RuntimeServiceId>,
         RuntimeServiceId
     >,
+    BlendMembershipAdapter<RuntimeServiceId>,
     RuntimeServiceId,
 >;
 

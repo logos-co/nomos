@@ -1,12 +1,13 @@
+use std::{
+    fmt::{Debug, Display},
+    hash::Hash,
+};
+
 use nomos_blend_scheduling::{membership::Membership, session::SessionEvent};
 use nomos_network::NetworkService;
 use overwatch::{
     overwatch::OverwatchHandle,
     services::{AsServiceId, ServiceData},
-};
-use std::{
-    fmt::{Debug, Display},
-    hash::Hash,
 };
 
 use crate::{
@@ -232,7 +233,8 @@ where
     /// Transitions to Broadcast mode.
     ///
     /// If the current mode is Broadcast, it stays in Broadcast mode.
-    /// Otherwise, it shuts down the current mode and starts a new Broadcast mode.
+    /// Otherwise, it shuts down the current mode and starts a new Broadcast
+    /// mode.
     async fn transition_to_broadcast(
         self,
         overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
@@ -321,7 +323,7 @@ impl Mode {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use std::time::Duration;
 
     use libp2p::Multiaddr;
@@ -338,9 +340,8 @@ mod tests {
     };
     use tokio::time::sleep;
 
-    use crate::modes::broadcast_tests::{TestMessage, TestNetworkAdapter, TestNetworkBackend};
-
     use super::*;
+    use crate::modes::broadcast_tests::{TestMessage, TestNetworkAdapter, TestNetworkBackend};
 
     /// Check if the instance is initialized successfully for each mode.
     #[test]
@@ -370,7 +371,8 @@ mod tests {
         });
     }
 
-    /// Check if the instance transitions to Core mode correctly from all other modes.
+    /// Check if the instance transitions to Core mode correctly from all other
+    /// modes.
     #[test]
     fn test_transition_to_core() {
         let app = OverwatchRunner::<Services>::run(settings(), None).unwrap();
@@ -417,7 +419,8 @@ mod tests {
         });
     }
 
-    /// Check if the instance transitions to Edge mode correctly from all other modes.
+    /// Check if the instance transitions to Edge mode correctly from all other
+    /// modes.
     #[test]
     fn test_transition_to_edge() {
         let app = OverwatchRunner::<Services>::run(settings(), None).unwrap();
@@ -464,7 +467,8 @@ mod tests {
         });
     }
 
-    /// Check if the instance transitions to Broadcast mode correctly from all other modes.
+    /// Check if the instance transitions to Broadcast mode correctly from all
+    /// other modes.
     #[test]
     fn test_transition_to_broadcast() {
         let app = OverwatchRunner::<Services>::run(settings(), None).unwrap();
@@ -530,7 +534,7 @@ mod tests {
             let instance = instance
                 .handle_session_event(
                     // With an empty membership smaller than the minimal size.
-                    SessionEvent::NewSession(membership(&[], None)),
+                    SessionEvent::NewSession(membership(&[], 99)),
                     handle,
                     minimal_network_size,
                 )
@@ -552,7 +556,7 @@ mod tests {
             // Broadcast -> Edge
             let instance = instance
                 .handle_session_event(
-                    SessionEvent::NewSession(membership(&[1], None)),
+                    SessionEvent::NewSession(membership(&[1], 99)),
                     handle,
                     minimal_network_size,
                 )
@@ -563,7 +567,7 @@ mod tests {
             // Edge -> Edge (stay)
             let instance = instance
                 .handle_session_event(
-                    SessionEvent::NewSession(membership(&[1], None)),
+                    SessionEvent::NewSession(membership(&[1], 99)),
                     handle,
                     minimal_network_size,
                 )
@@ -574,7 +578,7 @@ mod tests {
             // Edge -> Core
             let instance = instance
                 .handle_session_event(
-                    SessionEvent::NewSession(membership(&[1], Some(1))),
+                    SessionEvent::NewSession(membership(&[1], 1)),
                     handle,
                     minimal_network_size,
                 )
@@ -691,23 +695,26 @@ mod tests {
         }
     }
 
-    type NodeId = u8;
+    pub type NodeId = u8;
 
-    fn membership(ids: &[NodeId], local_id: Option<NodeId>) -> Membership<NodeId> {
-        let nodes = ids
-            .iter()
+    pub fn membership(ids: &[NodeId], local_id: NodeId) -> Membership<NodeId> {
+        let nodes = nodes(ids);
+        let local_public_key = key(local_id).1;
+        Membership::new(&nodes, &local_public_key)
+    }
+
+    pub fn nodes(ids: &[NodeId]) -> Vec<Node<NodeId>> {
+        ids.iter()
             .copied()
             .map(|id| Node {
                 id,
                 address: Multiaddr::empty(),
                 public_key: key(id).1,
             })
-            .collect::<Vec<_>>();
-        let local_public_key = local_id.map(|id| key(id).1);
-        Membership::new(&nodes, local_public_key.as_ref())
+            .collect()
     }
 
-    fn key(id: u8) -> (Ed25519PrivateKey, Ed25519PublicKey) {
+    pub fn key(id: u8) -> (Ed25519PrivateKey, Ed25519PublicKey) {
         let private_key = Ed25519PrivateKey::from([id; 32]);
         let public_key = private_key.public_key();
         (private_key, public_key)

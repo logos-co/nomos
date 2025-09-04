@@ -6,16 +6,13 @@ pub trait ServiceComponents {
     /// Settings for broadcasting messages that have passed through the blend
     /// network.
     type BroadcastSettings;
-    /// Adapter for membership service.
-    type MembershipAdapter;
 }
 
-impl<Backend, NodeId, BroadcastSettings, MembershipAdapter, RuntimeServiceId> ServiceComponents
-    for BlendService<Backend, NodeId, BroadcastSettings, MembershipAdapter, RuntimeServiceId>
+impl<Backend, NodeId, BroadcastSettings, RuntimeServiceId> ServiceComponents
+    for BlendService<Backend, NodeId, BroadcastSettings, RuntimeServiceId>
 where
     Backend: BlendBackend<NodeId, RuntimeServiceId>,
     NodeId: Clone,
 {
     type BroadcastSettings = BroadcastSettings;
-    type MembershipAdapter = MembershipAdapter;
 }

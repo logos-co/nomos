@@ -66,12 +66,15 @@ pub(crate) type BlendEdgeService = nomos_blend_service::edge::BlendService<
     <BlendNetworkAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<
         RuntimeServiceId,
     >>::BroadcastSettings,
-    BlendMembershipAdapter<MembershipService<RuntimeServiceId>, PeerId>,
     RuntimeServiceId,
 >;
 
-pub(crate) type BlendService =
-    nomos_blend_service::BlendService<BlendCoreService, BlendEdgeService, RuntimeServiceId>;
+pub(crate) type BlendService = nomos_blend_service::BlendService<
+    BlendCoreService,
+    BlendEdgeService,
+    BlendMembershipAdapter<MembershipService<RuntimeServiceId>, PeerId>,
+    RuntimeServiceId,
+>;
 
 pub(crate) type DaDispersalService = DispersalService<
     DispersalKZGRSBackend<

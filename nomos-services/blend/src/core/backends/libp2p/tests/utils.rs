@@ -64,7 +64,7 @@ impl SwarmBuilder {
                 id: PeerId::random(),
                 public_key: Ed25519PrivateKey::generate().public_key(),
             }],
-            None,
+            &Ed25519PrivateKey::generate().public_key(),
         ));
         self
     }
@@ -84,8 +84,9 @@ impl SwarmBuilder {
             swarm_message_receiver,
             incoming_message_sender,
             pending(),
-            self.membership
-                .unwrap_or_else(|| Membership::new(&[], None)),
+            self.membership.unwrap_or_else(|| {
+                Membership::new(&[], &Ed25519PrivateKey::generate().public_key())
+            }),
             BlakeRng::from_entropy(),
             3u64.try_into().unwrap(),
             1usize.try_into().unwrap(),
@@ -128,7 +129,7 @@ impl BlendBehaviourBuilder {
                 id: PeerId::random(),
                 public_key: Ed25519PrivateKey::generate().public_key(),
             }],
-            None,
+            &Ed25519PrivateKey::generate().public_key(),
         ));
         self
     }

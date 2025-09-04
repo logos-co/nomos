@@ -53,7 +53,7 @@ impl BehaviourBuilder {
                     })
                     .collect::<Vec<_>>()
                     .as_ref(),
-                None,
+                &Ed25519PrivateKey::generate().public_key(),
             ))
         };
         Behaviour {
