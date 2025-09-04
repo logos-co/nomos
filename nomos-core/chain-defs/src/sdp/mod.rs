@@ -217,7 +217,7 @@ impl DeclarationMessage {
         hasher.update(service.as_bytes());
         hasher.update(self.provider_id.0);
         for number in self.zk_id.0 .0 .0 {
-            hasher.update(number.to_be_bytes());
+            hasher.update(number.to_le_bytes());
         }
         for locator in &self.locators {
             hasher.update(locator.0.as_ref());
@@ -235,7 +235,7 @@ impl DeclarationMessage {
         }
         buff.extend_from_slice(self.provider_id.0.as_ref());
         for number in self.zk_id.0 .0 .0 {
-            buff.put_u64(number); // big endian bytes
+            buff.put_u64_le(number);
         }
         buff.freeze()
     }
