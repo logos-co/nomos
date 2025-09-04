@@ -37,7 +37,7 @@ pub enum Error {
     InvalidSignature,
     #[error("Sdp ledger error: {0:?}")]
     Sdp(#[from] SdpLedgerError),
-    #[error("Locked notest error: {0:?}")]
+    #[error("Locked notes error: {0:?}")]
     LockedNotes(#[from] locked_notes::Error),
 }
 
