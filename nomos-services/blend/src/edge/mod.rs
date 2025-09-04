@@ -184,12 +184,13 @@ where
     let SessionEvent::NewSession(membership) = session_stream
         .next()
         .await
-        .ok_or(Error::SessionStreamClosed)?
+        .expect("Session stream shouldn't be closed")
     else {
-        return Err(Error::UnexpectedSessionEvent);
+        panic!("NewSession must be yielded first");
     };
 
-    check_edge_condition(&membership, settings.minimum_network_size.get() as usize)?;
+    check_edge_condition(&membership, settings.minimum_network_size.get() as usize)
+        .expect("The initial membership should satisfy the edge node condition");
 
     let mut message_handler = MessageHandler::<Backend, NodeId, RuntimeServiceId>::new(
         settings,
@@ -231,10 +232,6 @@ where
 
 #[derive(Debug, thiserror::Error)]
 enum Error {
-    #[error("Session stream closed")]
-    SessionStreamClosed,
-    #[error("Unexpected session event received")]
-    UnexpectedSessionEvent,
     #[error("Network is too small: {0}")]
     NetworkIsTooSmall(usize),
     #[error("Local node is a core node")]
@@ -326,7 +323,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::num::NonZeroU64;
+    use std::{num::NonZeroU64, panic};
 
     use libp2p::Multiaddr;
     use nomos_blend_message::crypto::{Ed25519PrivateKey, Ed25519PublicKey};
@@ -420,9 +417,12 @@ mod tests {
         );
     }
 
-    /// [`run`] fails if the initial membership is too small.
+    /// [`run`] panics if the initial membership is too small.
     #[test_log::test(tokio::test)]
-    async fn run_fails_with_small_initial_membership() {
+    #[should_panic(
+        expected = "The initial membership should satisfy the edge node condition: NetworkIsTooSmall"
+    )]
+    async fn run_panics_with_small_initial_membership() {
         let local_node = 99;
         let minimal_network_size = 2;
         let (join_handle, session_sender, _, _) = spawn_run(local_node, minimal_network_size);
@@ -436,15 +436,16 @@ mod tests {
             )))
             .await
             .expect("channel opened");
-        assert!(matches!(
-            join_handle.await.unwrap(),
-            Err(Error::NetworkIsTooSmall(1))
-        ));
+
+        resume_panic_from(join_handle).await;
     }
 
-    /// [`run`] fails if the local node is not edge in the initial membership.
+    /// [`run`] panics if the local node is not edge in the initial membership.
     #[test_log::test(tokio::test)]
-    async fn run_fails_with_local_is_core_in_initial_membership() {
+    #[should_panic(
+        expected = "The initial membership should satisfy the edge node condition: LocalIsCoreNode"
+    )]
+    async fn run_panics_with_local_is_core_in_initial_membership() {
         let local_node = 99;
         let minimal_network_size = 1;
         let (join_handle, session_sender, _, _) = spawn_run(local_node, minimal_network_size);
@@ -458,10 +459,8 @@ mod tests {
             )))
             .await
             .expect("channel opened");
-        assert!(matches!(
-            join_handle.await.unwrap(),
-            Err(Error::LocalIsCoreNode)
-        ));
+
+        resume_panic_from(join_handle).await;
     }
 
     /// [`run`] fails if a new membership is smaller than the minimum network
@@ -552,6 +551,12 @@ mod tests {
         });
 
         (join_handle, session_sender, msg_sender, node_id_receiver)
+    }
+
+    /// Expect the panic from the given async task,
+    /// and resume the panic, so the async test can check the panic message.
+    async fn resume_panic_from(join_handle: JoinHandle<Result<(), Error>>) {
+        panic::resume_unwind(join_handle.await.unwrap_err().into_panic());
     }
 
     fn membership(ids: &[NodeId], local_id: NodeId) -> Membership<NodeId> {
