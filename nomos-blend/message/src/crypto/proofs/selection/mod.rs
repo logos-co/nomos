@@ -3,38 +3,19 @@ use nomos_core::crypto::{ZkHash, ZkHasher};
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 
-pub const PROOF_OF_SELECTION_SIZE: usize = 32;
+use crate::crypto::proofs::selection::inputs::ProofOfSelectionInputs;
+
+pub mod inputs;
 
 const DOMAIN_SEPARATION_TAG: [u8; 23] = *b"SELECTION_RANDOMNESS_V1";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ProofOfSelection(#[serde(with = "serde_fr")] ZkHash);
-
-pub struct ProofOfSelectionInputs {
-    pub secret_key: ZkHash,
-    pub ephemeral_key_index: usize,
-    pub session_number: u64,
+pub struct ProofOfSelection {
+    #[serde(with = "serde_fr")]
+    secret_selection_randomness: ZkHash,
 }
 
 impl ProofOfSelection {
-    // TODO: Implement actual verification logic.
-    #[must_use]
-    pub fn verify(self, key_nullifier: &ZkHash) -> bool {
-        let hashed_secret_randomness = {
-            let mut hasher = ZkHasher::new();
-            hasher.update(&[self.0]);
-            hasher.finalize()
-        };
-        // TODO: Remove check with dummy
-        &hashed_secret_randomness == key_nullifier || self == Self::dummy()
-    }
-
-    // TODO: Remove this once the actual proof of selection is implemented.
-    #[must_use]
-    pub fn dummy() -> Self {
-        Self(ZkHash::default())
-    }
-
     #[must_use]
     pub fn new(
         ProofOfSelectionInputs {
@@ -48,7 +29,7 @@ impl ProofOfSelection {
             BigUint::from_bytes_le(&ephemeral_key_index.to_le_bytes()[..]).into();
         let session_number: Fr = BigUint::from_bytes_le(&session_number.to_le_bytes()[..]).into();
 
-        let hash = {
+        let secret_selection_randomness = {
             let mut hasher = ZkHasher::new();
             hasher.update(&[
                 domain_separation_tag,
@@ -59,18 +40,42 @@ impl ProofOfSelection {
             hasher.finalize()
         };
 
-        Self(hash)
+        Self {
+            secret_selection_randomness,
+        }
+    }
+
+    // TODO: Implement actual verification logic.
+    #[must_use]
+    pub fn verify(self, key_nullifier: &ZkHash) -> bool {
+        let hashed_secret_randomness = {
+            let mut hasher = ZkHasher::new();
+            hasher.update(&[self.secret_selection_randomness]);
+            hasher.finalize()
+        };
+        // TODO: Remove check with dummy
+        &hashed_secret_randomness == key_nullifier || self == Self::dummy()
+    }
+
+    // TODO: Remove this once the actual proof of selection is implemented.
+    #[must_use]
+    pub fn dummy() -> Self {
+        Self {
+            secret_selection_randomness: ZkHash::default(),
+        }
     }
 }
 
 impl From<ZkHash> for ProofOfSelection {
     fn from(hash: ZkHash) -> Self {
-        Self(hash)
+        Self {
+            secret_selection_randomness: hash,
+        }
     }
 }
 
 impl AsRef<ZkHash> for ProofOfSelection {
     fn as_ref(&self) -> &ZkHash {
-        &self.0
+        &self.secret_selection_randomness
     }
 }
