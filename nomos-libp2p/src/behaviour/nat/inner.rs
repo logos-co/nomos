@@ -284,9 +284,10 @@ mod tests {
         identity::Keypair,
         plaintext,
         swarm::{NetworkBehaviour, SwarmEvent},
-        yamux, Swarm,
+        tcp, yamux, Swarm,
     };
     use libp2p_swarm_test::SwarmExt as _;
+    use multiaddr::Protocol;
     use rand::{
         rngs::{OsRng, StdRng},
         SeedableRng as _,
@@ -305,15 +306,11 @@ mod tests {
 
     #[tokio::test]
     async fn nat_mapping_happy_flow() {
-        let (server, server_addr) = create_server_with_blocking_transport();
+        let (server, server_addr) = create_server_with_blocking_transport().await;
 
-        let expected_addr: Multiaddr = format!("/memory/{}", rand::random::<u32>())
-            .parse()
-            .unwrap();
+        let (mut client, expected_addr) = create_client::<TestMapper>(false).await;
+
         EXPECTED_ADDRESS.with(|a| *a.borrow_mut() = Some(expected_addr.clone()));
-
-        let mut client = create_client::<TestMapper>(false);
-        client.listen_on(expected_addr.clone()).unwrap();
 
         client.dial(server_addr).unwrap();
 
@@ -335,17 +332,9 @@ mod tests {
 
     #[tokio::test]
     async fn nat_mapping_failure_flow() {
-        let (server, server_addr) = create_server_with_blocking_transport();
+        let (server, server_addr) = create_server_with_blocking_transport().await;
 
-        let expected_addr: Multiaddr = format!("/memory/{}", rand::random::<u32>())
-            .parse()
-            .unwrap();
-
-        EXPECTED_ADDRESS.with(|a| *a.borrow_mut() = None);
-
-        let mut client = create_client::<TestMapper>(false);
-        client.listen_on(expected_addr.clone()).unwrap();
-
+        let (mut client, expected_addr) = create_client::<TestMapper>(false).await;
         client.dial(server_addr).unwrap();
 
         let actual_events = collect_nat_events(client, server, expected_addr)
@@ -456,12 +445,14 @@ mod tests {
         let keypair = Keypair::generate_ed25519();
         let transport = if use_blocking {
             FirstDialBlockingTransport::default()
+                .or_transport(tcp::tokio::Transport::default())
                 .upgrade(Version::V1)
                 .authenticate(plaintext::Config::new(&keypair))
                 .multiplex(yamux::Config::default())
                 .boxed()
         } else {
             MemoryTransport::default()
+                .or_transport(tcp::tokio::Transport::default())
                 .upgrade(Version::V1)
                 .authenticate(plaintext::Config::new(&keypair))
                 .multiplex(yamux::Config::default())
@@ -477,7 +468,7 @@ mod tests {
             .build()
     }
 
-    fn create_server_with_blocking_transport() -> (Swarm<Server>, Multiaddr) {
+    async fn create_server_with_blocking_transport() -> (Swarm<Server>, Multiaddr) {
         let mut swarm = create_memory_swarm(true, |keypair| Server {
             autonat: server::Behaviour::new(OsRng),
             identify: identify::Behaviour::new(identify::Config::new(
@@ -486,21 +477,25 @@ mod tests {
             )),
         });
 
-        let server_addr: Multiaddr = format!("/memory/{}", rand::random::<u32>())
-            .parse()
-            .unwrap();
+        swarm.listen().with_memory_addr_external().await;
 
-        swarm.listen_on(server_addr.clone()).unwrap();
+        let server_addr = swarm
+            .listeners()
+            .find(|addr| addr.iter().any(|p| matches!(p, Protocol::Memory(_))))
+            .expect("Should have a memory listener")
+            .clone();
 
         (swarm, server_addr)
     }
 
-    fn create_client<Mapper: NatMapper + 'static>(use_blocking: bool) -> Swarm<Client<Mapper>> {
+    async fn create_client<Mapper: NatMapper + 'static>(
+        use_blocking: bool,
+    ) -> (Swarm<Client<Mapper>>, Multiaddr) {
         let mut nat_settings = NatSettings::default();
         nat_settings.autonat.probe_interval_millisecs = Some(500);
         nat_settings.mapping.max_retries = 0;
 
-        create_memory_swarm(use_blocking, move |keypair| {
+        let mut swarm = create_memory_swarm(use_blocking, move |keypair| {
             let nat = InnerNatBehaviour::create(
                 StdRng::from_entropy(),
                 nat_settings,
@@ -514,7 +509,17 @@ mod tests {
             ));
 
             Client { nat, identify }
-        })
+        });
+
+        swarm.listen().with_memory_addr_external().await;
+
+        let tcp_addr = swarm
+            .listeners()
+            .find(|addr| addr.iter().any(|p| matches!(p, Protocol::Tcp(_))))
+            .expect("Should have a TCP listener")
+            .clone();
+
+        (swarm, tcp_addr)
     }
 
     async fn collect_nat_events<
