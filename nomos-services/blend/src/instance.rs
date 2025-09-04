@@ -176,18 +176,8 @@ where
     ) -> Result<Self, modes::Error> {
         match self {
             Self::Core(mode) => Ok(Self::Core(mode)),
-            Self::Edge(mode) => {
+            mode => {
                 mode.shutdown().await;
-                Ok(Self::Core(Self::new_core_mode(overwatch_handle).await?))
-            }
-            Self::EdgeAfterCore { mode, prev } => {
-                prev.shutdown().await;
-                mode.shutdown().await;
-                Ok(Self::Core(Self::new_core_mode(overwatch_handle).await?))
-            }
-            Self::Broadcast(_) => Ok(Self::Core(Self::new_core_mode(overwatch_handle).await?)),
-            Self::BroadcastAfterCore { prev, .. } => {
-                prev.shutdown().await;
                 Ok(Self::Core(Self::new_core_mode(overwatch_handle).await?))
             }
         }
@@ -211,9 +201,8 @@ where
                 prev.shutdown().await;
                 Ok(Self::Edge(mode))
             }
-            Self::Broadcast(_) => Ok(Self::Edge(Self::new_edge_mode(overwatch_handle).await?)),
-            Self::BroadcastAfterCore { prev, .. } => {
-                prev.shutdown().await;
+            mode => {
+                mode.shutdown().await;
                 Ok(Self::Edge(Self::new_edge_mode(overwatch_handle).await?))
             }
         }
@@ -233,23 +222,16 @@ where
                 mode: Self::new_broadcast_mode(overwatch_handle).await?,
                 prev: mode,
             }),
-            Self::Edge(mode) => {
-                mode.shutdown().await;
-                Ok(Self::Broadcast(
-                    Self::new_broadcast_mode(overwatch_handle).await?,
-                ))
-            }
-            Self::EdgeAfterCore { mode, prev } => {
-                prev.shutdown().await;
-                mode.shutdown().await;
-                Ok(Self::Broadcast(
-                    Self::new_broadcast_mode(overwatch_handle).await?,
-                ))
-            }
             Self::Broadcast(mode) => Ok(Self::Broadcast(mode)),
             Self::BroadcastAfterCore { mode, prev } => {
                 prev.shutdown().await;
                 Ok(Self::Broadcast(mode))
+            }
+            mode => {
+                mode.shutdown().await;
+                Ok(Self::Broadcast(
+                    Self::new_broadcast_mode(overwatch_handle).await?,
+                ))
             }
         }
     }
@@ -271,7 +253,6 @@ where
     }
 
     /// Shuts down the instance by shutting down underlying modes.
-    #[cfg(test)]
     async fn shutdown(self) {
         match self {
             Self::Core(mode) => mode.shutdown().await,
