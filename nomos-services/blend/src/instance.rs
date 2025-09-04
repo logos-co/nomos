@@ -1,12 +1,13 @@
+use std::{
+    fmt::{Debug, Display},
+    hash::Hash,
+};
+
 use nomos_blend_scheduling::{membership::Membership, session::SessionEvent};
 use nomos_network::NetworkService;
 use overwatch::{
     overwatch::OverwatchHandle,
     services::{AsServiceId, ServiceData},
-};
-use std::{
-    fmt::{Debug, Display},
-    hash::Hash,
 };
 
 use crate::{
@@ -232,7 +233,8 @@ where
     /// Transitions to Broadcast mode.
     ///
     /// If the current mode is Broadcast, it stays in Broadcast mode.
-    /// Otherwise, it shuts down the current mode and starts a new Broadcast mode.
+    /// Otherwise, it shuts down the current mode and starts a new Broadcast
+    /// mode.
     async fn transition_to_broadcast(
         self,
         overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
@@ -338,9 +340,8 @@ mod tests {
     };
     use tokio::time::sleep;
 
-    use crate::modes::broadcast_tests::{TestMessage, TestNetworkAdapter, TestNetworkBackend};
-
     use super::*;
+    use crate::modes::broadcast_tests::{TestMessage, TestNetworkAdapter, TestNetworkBackend};
 
     /// Check if the instance is initialized successfully for each mode.
     #[test]
@@ -370,7 +371,8 @@ mod tests {
         });
     }
 
-    /// Check if the instance transitions to Core mode correctly from all other modes.
+    /// Check if the instance transitions to Core mode correctly from all other
+    /// modes.
     #[test]
     fn test_transition_to_core() {
         let app = OverwatchRunner::<Services>::run(settings(), None).unwrap();
@@ -417,7 +419,8 @@ mod tests {
         });
     }
 
-    /// Check if the instance transitions to Edge mode correctly from all other modes.
+    /// Check if the instance transitions to Edge mode correctly from all other
+    /// modes.
     #[test]
     fn test_transition_to_edge() {
         let app = OverwatchRunner::<Services>::run(settings(), None).unwrap();
@@ -464,7 +467,8 @@ mod tests {
         });
     }
 
-    /// Check if the instance transitions to Broadcast mode correctly from all other modes.
+    /// Check if the instance transitions to Broadcast mode correctly from all
+    /// other modes.
     #[test]
     fn test_transition_to_broadcast() {
         let app = OverwatchRunner::<Services>::run(settings(), None).unwrap();

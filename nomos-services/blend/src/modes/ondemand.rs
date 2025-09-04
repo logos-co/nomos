@@ -41,14 +41,14 @@ where
             wait_until_services_are_ready!(&overwatch_handle, Some(Duration::from_secs(5)), Service)
                 .await
         {
-            Self::stop_service(&overwatch_handle).await;
+            stop_service(&overwatch_handle).await;
             return Err(e.into());
         }
 
         let relay = match overwatch_handle.relay::<Service>().await {
             Ok(relay) => relay,
             Err(e) => {
-                Self::stop_service(&overwatch_handle).await;
+                stop_service(&overwatch_handle).await;
                 return Err(e.into());
             }
         };
@@ -57,17 +57,6 @@ where
             relay,
             overwatch_handle,
         })
-    }
-
-    async fn stop_service(overwatch_handle: &OverwatchHandle<RuntimeServiceId>) {
-        info!(
-            target = LOG_TARGET,
-            "Stopping service {}",
-            <RuntimeServiceId as AsServiceId<Service>>::SERVICE_ID
-        );
-        if let Err(e) = overwatch_handle.stop_service::<Service>().await {
-            error!(target = LOG_TARGET, "Failed to stop service: {e:}");
-        }
     }
 }
 
@@ -84,7 +73,22 @@ where
     }
 
     async fn shutdown(self) {
-        Self::stop_service(&self.overwatch_handle).await;
+        stop_service(&self.overwatch_handle).await;
+    }
+}
+
+async fn stop_service<Service, RuntimeServiceId>(
+    overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
+) where
+    RuntimeServiceId: AsServiceId<Service> + Debug + Display + Sync,
+{
+    info!(
+        target = LOG_TARGET,
+        "Stopping service {}",
+        <RuntimeServiceId as AsServiceId<Service>>::SERVICE_ID
+    );
+    if let Err(e) = overwatch_handle.stop_service::<Service>().await {
+        error!(target = LOG_TARGET, "Failed to stop service: {e:}");
     }
 }
 
