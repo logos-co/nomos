@@ -3,7 +3,7 @@ pub mod state;
 use std::{collections::BTreeSet, hash::Hash};
 
 use blake2::{Blake2b, Digest as _};
-use bytes::{BufMut as _, Bytes, BytesMut};
+use bytes::{Bytes, BytesMut};
 use groth16::{serde::serde_fr, Fr};
 use multiaddr::Multiaddr;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -234,9 +234,7 @@ impl DeclarationMessage {
             buff.extend_from_slice(locator.0.as_ref());
         }
         buff.extend_from_slice(self.provider_id.0.as_ref());
-        for number in self.zk_id.0 .0 .0 {
-            buff.put_u64_le(number);
-        }
+        buff.extend(self.zk_id.0 .0 .0.iter().flat_map(|n| n.to_le_bytes()));
         buff.freeze()
     }
 }
