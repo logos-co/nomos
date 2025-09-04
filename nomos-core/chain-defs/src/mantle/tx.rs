@@ -3,7 +3,7 @@ use std::sync::LazyLock;
 use bytes::Bytes;
 use groth16::{serde::serde_fr, Fr};
 use num_bigint::BigUint;
-use poseidon2::Digest;
+use poseidon2::{Digest, ZkHash};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -22,10 +22,10 @@ use crate::{
     Debug, Clone, Copy, PartialEq, Eq, Default, Hash, PartialOrd, Ord, Serialize, Deserialize,
 )]
 #[serde(transparent)]
-pub struct TxHash(#[serde(with = "serde_fr")] pub Fr);
+pub struct TxHash(#[serde(with = "serde_fr")] pub ZkHash);
 
-impl From<Fr> for TxHash {
-    fn from(fr: Fr) -> Self {
+impl From<ZkHash> for TxHash {
+    fn from(fr: ZkHash) -> Self {
         Self(fr)
     }
 }
@@ -36,14 +36,14 @@ impl From<BigUint> for TxHash {
     }
 }
 
-impl From<TxHash> for Fr {
+impl From<TxHash> for ZkHash {
     fn from(hash: TxHash) -> Self {
         hash.0
     }
 }
 
-impl AsRef<Fr> for TxHash {
-    fn as_ref(&self) -> &Fr {
+impl AsRef<ZkHash> for TxHash {
+    fn as_ref(&self) -> &ZkHash {
         &self.0
     }
 }

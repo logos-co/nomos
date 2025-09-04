@@ -175,33 +175,45 @@ jobs:
     steps:
       - name: Disable rustup override
         run: rustup override unset
+
       - name: Checkout repository
         uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
+
       - name: Install risc0 dependencies
         uses: ./.github/actions/install-risc0
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Set up Cargo cache
         uses: ./.github/actions/setup-cargo-cache
         with:
           key: ${{ github.ref }}->${{ github.workflow }}->${{ github.job }}->${{ join(matrix.os, '_') }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Run the node binary to check the config file validity
         uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
         with:
           command: run
           args: -p nomos-node nodes/nomos-node/config.yaml --check-config
+
       - name: Run the executor binary to check the config file validity
         uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
         with:
           command: run
           args: -p nomos-executor nodes/nomos-executor/config.yaml --check-config
+
       # This includes testing feature needed for tests
       - name: Build binaries with all features
         uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72
         with:
           command: build
           args: --all-features
+
+      - name: Setup Circuits
+        uses: ./.github/actions/setup-circuits
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Cargo test
         uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
         env:
@@ -211,11 +223,13 @@ jobs:
           command: test
           # We don't test benches as they take 6h+, leading to a timeout
           args: --all --lib --bins --tests --examples --all-features
+
       - name: Update Cargo cache
         if: success() || failure()
         uses: ./.github/actions/update-cargo-cache
         with:
           key: ${{ github.ref }}->${{ github.workflow }}->${{ github.job }}->${{ join(matrix.os, '_') }}
+
       - name: Upload integration tests results
         uses: actions/upload-artifact@6027e3dd177782cd8ab9af838c04fd81a07f1d47 # Version 4.6.2
         if: failure()

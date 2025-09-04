@@ -8,7 +8,7 @@ pub use message::{EncapsulatedMessageWithValidatedPublicHeader, ValidateMessageP
 
 pub mod core;
 
-pub const PROTOCOL_NAME: StreamProtocol = StreamProtocol::new("/nomos/blend/0.1.0");
+pub const PROTOCOL_NAME: StreamProtocol = StreamProtocol::new("/nomos/blend/1.0.0");
 
 /// Write a message to the stream
 pub async fn send_msg(mut stream: Stream, msg: Vec<u8>) -> io::Result<Stream> {

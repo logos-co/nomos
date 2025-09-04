@@ -8,6 +8,7 @@ use nomos_da_network_service::membership::adapters::service::peer_id_from_provid
 use nomos_libp2p::ed25519;
 use rand::{rngs::OsRng, RngCore as _};
 use reqwest::Url;
+use serial_test::serial;
 use tests::{
     adjust_timeout,
     common::da::{disseminate_with_metadata, wait_for_blob_onchain, APP_ID, DA_TESTS_TIMEOUT},
@@ -17,9 +18,13 @@ use tests::{
 };
 
 #[tokio::test]
+#[serial]
 async fn test_get_share_data() {
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let executor = &topology.executors()[0];
+
+    // Wait for nodes to initialise
+    tokio::time::sleep(Duration::from_secs(5)).await;
 
     let data = [1u8; 31];
     let app_id = hex::decode(APP_ID).unwrap();
@@ -32,6 +37,9 @@ async fn test_get_share_data() {
 
     wait_for_blob_onchain(executor, blob_id).await;
 
+    // Wait for transactions to be stored
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
     let executor_shares = executor
         .get_shares(blob_id, HashSet::new(), HashSet::new(), true)
         .await
@@ -43,10 +51,14 @@ async fn test_get_share_data() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_get_commitments_from_peers() {
     let interconnected_topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let validator = &interconnected_topology.validators()[0];
     let executor = &interconnected_topology.executors()[0];
+
+    // Wait for nodes to initialise
+    tokio::time::sleep(Duration::from_secs(5)).await;
 
     // Create independent node that only knows about membership of
     // `interconnected_topology` nodes. This validator will not receive any data
@@ -80,6 +92,7 @@ async fn test_get_commitments_from_peers() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_block_peer() {
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let executor = &topology.executors()[0];
@@ -143,10 +156,14 @@ async fn test_block_peer() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_get_shares() {
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let executor = &topology.executors()[0];
     let num_subnets = executor.config().da_network.backend.num_subnets as usize;
+
+    // Wait for nodes to initialise
+    tokio::time::sleep(Duration::from_secs(5)).await;
 
     let data = [1u8; 31];
     let app_id = hex::decode(APP_ID).unwrap();
@@ -158,6 +175,9 @@ async fn test_get_shares() {
         .unwrap();
 
     wait_for_blob_onchain(executor, blob_id).await;
+
+    // Wait for transactions to be stored
+    tokio::time::sleep(Duration::from_secs(2)).await;
 
     let exec_url = Url::parse(&format!(
         "http://{}",

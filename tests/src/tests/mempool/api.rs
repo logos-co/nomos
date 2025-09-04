@@ -4,9 +4,11 @@ use nomos_core::{
     proofs::zksig::{DummyZkSignature, ZkSignaturePublic},
 };
 use reqwest::Url;
+use serial_test::serial;
 use tests::topology::{Topology, TopologyConfig};
 
 #[tokio::test]
+#[serial]
 async fn test_post_mantle_tx() {
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let validator = &topology.validators()[0];
