@@ -5,6 +5,7 @@ use crate::crypto::keys::Ed25519PublicKey;
 
 pub const PROOF_OF_QUOTA_SIZE: usize = 160;
 
+/// Public inputs for all types of Proof of Quota. Spec defined at: https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#215261aa09df81fd9bf3fbb0eededca5.
 pub struct PublicInputs {
     pub session_number: u64,
     pub core_quota: usize,
@@ -17,6 +18,7 @@ pub struct PublicInputs {
     pub pol_ledger_aged: ZkHash,
 }
 
+/// Private inputs for Proof of Core Quota. Spec: https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#215261aa09df81a18576f67b910d34d4.
 #[derive(Default)]
 pub struct ProofOfCoreQuotaPrivateInputs {
     pub core_sk: ZkHash,
@@ -24,6 +26,7 @@ pub struct ProofOfCoreQuotaPrivateInputs {
     pub core_path_selectors: Vec<bool>,
 }
 
+/// Private inputs for Proof of Leadership Quota. Spec: https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#215261aa09df81a18576f67b910d34d4.
 #[derive(Default)]
 pub struct ProofOfLeadershipQuotaPrivateInputs {
     pub pol_sl: u64,
@@ -37,11 +40,28 @@ pub struct ProofOfLeadershipQuotaPrivateInputs {
     pub pol_slot_secret_path: Vec<ZkHash>,
 }
 
+enum PrivateInputsType {
+    CoreQuota(ProofOfCoreQuotaPrivateInputs),
+    LeadershipQuota(ProofOfLeadershipQuotaPrivateInputs),
+}
+
+impl From<ProofOfCoreQuotaPrivateInputs> for PrivateInputsType {
+    fn from(value: ProofOfCoreQuotaPrivateInputs) -> Self {
+        Self::CoreQuota(value)
+    }
+}
+
+impl From<ProofOfLeadershipQuotaPrivateInputs> for PrivateInputsType {
+    fn from(value: ProofOfLeadershipQuotaPrivateInputs) -> Self {
+        Self::LeadershipQuota(value)
+    }
+}
+
+/// Private inputs for all types of Proof of Quota. Spec: https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#215261aa09df81a18576f67b910d34d4.
 pub struct PrivateInputs {
     key_index: usize,
     selector: bool,
-    proof_of_core_quota: ProofOfCoreQuotaPrivateInputs,
-    proof_of_leadership_quota: ProofOfLeadershipQuotaPrivateInputs,
+    private_inputs: PrivateInputsType,
 }
 
 impl PrivateInputs {
@@ -53,8 +73,7 @@ impl PrivateInputs {
         Self {
             key_index,
             selector: false,
-            proof_of_core_quota: proof_of_core_quota_inputs,
-            proof_of_leadership_quota: ProofOfLeadershipQuotaPrivateInputs::default(),
+            private_inputs: proof_of_core_quota_inputs.into(),
         }
     }
 
@@ -66,8 +85,7 @@ impl PrivateInputs {
         Self {
             key_index,
             selector: true,
-            proof_of_core_quota: ProofOfCoreQuotaPrivateInputs::default(),
-            proof_of_leadership_quota: proof_of_leadership_quota_inputs,
+            private_inputs: proof_of_leadership_quota_inputs.into(),
         }
     }
 }
