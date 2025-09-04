@@ -9,6 +9,7 @@ use std::error::Error;
 
 use groth16::{Fr, Groth16Input, Groth16InputDeser, Groth16Proof, Groth16ProofJsonDeser};
 pub use inputs::ZkSignWitnessInputs;
+pub use private::{PrivateKeysTryFromError, ZkSignPrivateKeysData};
 pub use public::ZkSignVerifierInputs;
 
 use crate::{proving_key::ZKSIGN_PROVING_KEY_PATH, public::ZkSignVerifierInputsJson};
@@ -99,7 +100,6 @@ mod tests {
     use rand::RngCore as _;
 
     use super::*;
-    use crate::private::ZkSignPrivateKeysData;
 
     #[test]
     fn test_full_flow() {

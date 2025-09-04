@@ -1,4 +1,6 @@
-use groth16::{Fr, Groth16Input, Groth16InputDeser};
+use std::fmt::Display;
+
+use groth16::{Field as _, Fr, Groth16Input, Groth16InputDeser};
 use serde::Serialize;
 
 pub struct ZkSignPrivateKeysData([Fr; 32]);
@@ -16,6 +18,27 @@ pub struct ZkSignPrivateKeysInputsJson {
 impl From<[Fr; 32]> for ZkSignPrivateKeysData {
     fn from(value: [Fr; 32]) -> Self {
         Self(value)
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub struct PrivateKeysTryFromError(usize);
+
+impl Display for PrivateKeysTryFromError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Size should be 32, got {}", self.0)
+    }
+}
+impl TryFrom<&[Fr]> for ZkSignPrivateKeysData {
+    type Error = PrivateKeysTryFromError;
+    fn try_from(value: &[Fr]) -> Result<Self, Self::Error> {
+        let len = value.len();
+        if len > 32 {
+            return Err(PrivateKeysTryFromError(len));
+        }
+        let mut buff: [Fr; 32] = [Fr::ZERO; 32];
+        buff.copy_from_slice(&value[..len]);
+        Ok(Self(buff))
     }
 }
 
