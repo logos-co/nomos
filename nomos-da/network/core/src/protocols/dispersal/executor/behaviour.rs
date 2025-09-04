@@ -373,7 +373,16 @@ where
         subnetwork_id: SubnetworkId,
         request: &dispersal::DispersalRequest,
     ) {
+        let blob_id = request.blob_id().unwrap_or_default();
+        tracing::info!("DEBUG: DispersalExecutor: disperse_request called for blob_id: {:?}, subnetwork_id: {}", blob_id, subnetwork_id);
+
         let members = self.membership.members_of(&subnetwork_id);
+        tracing::info!(
+            "DEBUG: DispersalExecutor: found {} members for subnetwork_id: {}",
+            members.len(),
+            subnetwork_id
+        );
+
         let peers = members
             .iter()
             .filter(|peer_id| self.connected_peers.contains_key(peer_id));

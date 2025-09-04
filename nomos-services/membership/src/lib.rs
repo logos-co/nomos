@@ -171,16 +171,27 @@ where
                 service_type,
                 result_sender,
             } => {
+                tracing::info!(
+                    "DEBUG: MembershipService: Subscribe request for service_type: {:?}",
+                    service_type
+                );
+
                 let tx = self
                     .subscribe_channels
                     .entry(service_type)
                     .or_insert_with(|| {
                         let (tx, _) = broadcast::channel(BROADCAST_CHANNEL_SIZE);
+                        tracing::info!("DEBUG: MembershipService: Created new broadcast channel for service_type: {:?}", service_type);
                         tx
                     });
 
                 let stream = make_pin_broadcast_stream(tx.subscribe());
                 let providers = self.backend.get_latest_providers(service_type).await;
+                tracing::info!(
+                    "DEBUG: MembershipService: Retrieved {} providers for service_type: {:?}",
+                    providers.as_ref().map(|(_, p)| p.len()).unwrap_or(0),
+                    service_type
+                );
 
                 if let Ok((session_id, providers)) = providers {
                     if !providers.is_empty() && tx.send((session_id, providers)).is_err() {
@@ -195,6 +206,7 @@ where
                             service_type
                         );
                     }
+                    tracing::info!("DEBUG: MembershipService: Successfully sent subscription response for service_type: {:?}", service_type);
                 } else {
                     tracing::error!(
                         "Failed to get latest providers for service type: {:?}",

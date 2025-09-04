@@ -174,15 +174,22 @@ where
         .await?;
 
         while let Some(dispersal_msg) = inbound_relay.recv().await {
+            tracing::info!(
+                "DEBUG: Dispersal Service: Received message: {:?}",
+                std::mem::discriminant(&dispersal_msg)
+            );
             match dispersal_msg {
                 DaDispersalMsg::Disperse {
                     data,
                     reply_channel,
                 } => {
+                    tracing::info!("DEBUG: Dispersal Service: Processing Disperse message with {} bytes", data.len());
                     let response = backend.process_dispersal(data).await;
+                    tracing::info!("DEBUG: Dispersal Service: process_dispersal completed, sending response");
                     if let Err(Err(e)) = reply_channel.send(response) {
                         error!("Error forwarding dispersal response: {e}");
                     }
+                    tracing::info!("DEBUG: Dispersal Service: Disperse message processing completed");
                 }
             }
         }

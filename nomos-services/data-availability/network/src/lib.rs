@@ -368,6 +368,8 @@ where
         loop {
             tokio::select! {
                 Some(msg) = inbound_relay.recv() => {
+                    tracing::info!("DEBUG: DaNetwork Service: Received message from relay: {:?}", std::mem::discriminant(&msg));
+                    tracing::info!("DEBUG: DaNetwork Service: About to match on message: {:?}", std::mem::discriminant(&msg));
                     Self::handle_network_service_message(msg, backend, &membership_storage, api_adapter, addressbook).await;
                 }
                 Some((session_id, providers)) = membership_updates_stream.next() => {
@@ -451,10 +453,13 @@ where
     ) {
         match msg {
             DaNetworkMsg::Process(msg) => {
+                tracing::info!("DEBUG: DA Network Service: Processing message: {:?}", std::mem::discriminant(&msg));
                 // split sending in two steps to help the compiler understand we do not
                 // need to hold an instance of &I (which is not Send) across an await point
                 let send = backend.process(msg);
+                tracing::info!("DEBUG: DA Network Service: Calling backend.process()");
                 send.await;
+                tracing::info!("DEBUG: DA Network Service: backend.process() completed");
             }
             DaNetworkMsg::Subscribe { kind, sender } => sender
                 .send(backend.subscribe(kind).await)

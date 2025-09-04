@@ -185,8 +185,15 @@ where
         + Display
         + AsServiceId<DaDispersal<Backend, NetworkAdapter, Membership, RuntimeServiceId>>,
 {
+    tracing::info!(
+        "DEBUG: HTTP API: disperse_data called with {} bytes",
+        data.len()
+    );
     let relay = handle.relay().await?;
+    tracing::info!("DEBUG: HTTP API: got relay to dispersal service");
+
     let (sender, receiver) = oneshot::channel();
+    tracing::info!("DEBUG: HTTP API: sending DaDispersalMsg::Disperse to dispersal service");
     relay
         .send(DaDispersalMsg::Disperse {
             data,
@@ -194,12 +201,16 @@ where
         })
         .await
         .map_err(|(e, _)| e)?;
+    tracing::info!("DEBUG: HTTP API: Disperse message sent, waiting for response");
 
-    wait_with_timeout(
+    let result = wait_with_timeout(
         receiver,
         "Timeout while waiting for disperse data".to_owned(),
     )
-    .await?
+    .await?;
+
+    tracing::info!("DEBUG: HTTP API: disperse_data completed successfully");
+    result
 }
 
 pub async fn block_peer<
