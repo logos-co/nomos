@@ -75,6 +75,9 @@ async fn send_provider_update(
         })
         .await
         .unwrap();
+
+    // Wait for update to propagate
+    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
 }
 
 async fn verify_session_zero_membership(executor: &Executor) {
