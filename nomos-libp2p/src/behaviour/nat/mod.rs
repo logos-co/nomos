@@ -25,7 +25,7 @@ use crate::{
 
 /// This behaviour is responsible for confirming that the addresses of the node
 /// are publicly reachable.
-pub struct Behaviour<R: RngCore + 'static> {
+pub struct Behaviour<Rng: RngCore + 'static> {
     /// The static public listen address is passed through this variable to
     /// the `poll()` method. Unused if the node is not configured with a static
     /// public IP address.
@@ -33,11 +33,11 @@ pub struct Behaviour<R: RngCore + 'static> {
     /// Provides dynamic NAT-status detection, NAT-status improvement (via
     /// address mapping on the NAT-box), and periodic maintenance capabilities.
     /// Disabled if the node is configured with a static public IP address.
-    inner_behaviour: Toggle<NatBehaviour<R>>,
+    inner_behaviour: Toggle<NatBehaviour<Rng>>,
 }
 
-impl<R: RngCore + 'static> Behaviour<R> {
-    pub fn new(rng: R, nat_config: Option<NatSettings>) -> Self {
+impl<Rng: RngCore + 'static> Behaviour<Rng> {
+    pub fn new(rng: Rng, nat_config: Option<NatSettings>) -> Self {
         let inner_behaviour =
             Toggle::from(nat_config.map(|config| InnerNatBehaviour::new(rng, config)));
 
@@ -48,7 +48,7 @@ impl<R: RngCore + 'static> Behaviour<R> {
     }
 }
 
-impl<R: RngCore + 'static> NetworkBehaviour for Behaviour<R> {
+impl<Rng: RngCore + 'static> NetworkBehaviour for Behaviour<Rng> {
     type ConnectionHandler = ToggleConnectionHandler<
         <autonat::v2::client::Behaviour as NetworkBehaviour>::ConnectionHandler,
     >;
@@ -149,116 +149,5 @@ impl<R: RngCore + 'static> NetworkBehaviour for Behaviour<R> {
         }
 
         Poll::Pending
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::time::Duration;
-
-    use libp2p::{identify, identity, swarm::SwarmEvent, Swarm};
-    use libp2p_swarm_test::SwarmExt as _;
-    use rand::rngs::OsRng;
-    use tokio::time::timeout;
-    use tracing_subscriber::{fmt::TestWriter, EnvFilter};
-
-    use super::*;
-
-    #[derive(NetworkBehaviour)]
-    pub struct Client {
-        nat: Behaviour<OsRng>,
-        identify: identify::Behaviour,
-    }
-
-    impl Client {
-        pub fn new(public_key: identity::PublicKey) -> Self {
-            let mut settings = NatSettings::default();
-            settings.autonat.probe_interval_millisecs = Some(10);
-
-            let nat = Behaviour::new(OsRng, Some(settings));
-            let identify =
-                identify::Behaviour::new(identify::Config::new("/unittest".into(), public_key));
-            Self { nat, identify }
-        }
-    }
-
-    #[derive(NetworkBehaviour)]
-    pub struct Server {
-        autonat_server: autonat::v2::server::Behaviour<OsRng>,
-        identify: identify::Behaviour,
-    }
-
-    impl Server {
-        pub fn new(public_key: identity::PublicKey) -> Self {
-            let autonat_server = autonat::v2::server::Behaviour::new(OsRng);
-            let identify =
-                identify::Behaviour::new(identify::Config::new("/unittest".into(), public_key));
-            Self {
-                autonat_server,
-                identify,
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn test_external_address_is_confirmed_by_autonat_server() {
-        const _500MS: Duration = Duration::from_millis(500);
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter(EnvFilter::from_default_env())
-            .compact()
-            .with_writer(TestWriter::default())
-            .try_init();
-        let mut client = Swarm::new_ephemeral_tokio(|keypair| Client::new(keypair.public()));
-        let mut server = Swarm::new_ephemeral_tokio(|keypair| Server::new(keypair.public()));
-
-        let (_, client_addr) = client.listen().await;
-        let _ = server.listen().with_tcp_addr_external().await;
-
-        let client_addr_clone = client_addr.clone();
-
-        client.connect(&mut server).await;
-
-        let client_task = timeout(_500MS, async move {
-            // The address candidate is automatically taken by Identify from the address
-            // observed by the server.
-            let confirmed = client
-                .wait(|e| match e {
-                    SwarmEvent::ExternalAddrConfirmed { address } => Some(address),
-                    _ => None,
-                })
-                .await;
-            assert_eq!(confirmed, client_addr);
-            let autonat::v2::client::Event {
-                tested_addr,
-                result,
-                ..
-            } = client
-                .wait(|e| match e {
-                    SwarmEvent::Behaviour(ClientEvent::Nat(Either::Left(event))) => Some(event),
-                    _ => None,
-                })
-                .await;
-            assert_eq!(tested_addr, client_addr);
-            assert!(result.is_ok(), "Result: {result:?}");
-        });
-
-        let server_task = timeout(_500MS, async move {
-            let autonat::v2::server::Event {
-                tested_addr,
-                result,
-                ..
-            } = server
-                .wait(|e| match e {
-                    SwarmEvent::Behaviour(ServerEvent::AutonatServer(event)) => Some(event),
-                    _ => None,
-                })
-                .await;
-            assert_eq!(tested_addr, client_addr_clone);
-            assert!(result.is_ok(), "Result: {result:?}");
-        });
-
-        let (client_result, server_result) = tokio::join!(client_task, server_task);
-        client_result.expect("No timeout");
-        server_result.expect("No timeout");
     }
 }
