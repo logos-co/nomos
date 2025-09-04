@@ -19,7 +19,7 @@ use nomos_core::{
         DaVerifier as CoreDaVerifier,
     },
     header::HeaderId,
-    mantle::{SignedMantleTx, Transaction},
+    mantle::{AuthenticatedMantleTx, SignedMantleTx, Transaction},
 };
 use nomos_da_network_core::SubnetworkId;
 use nomos_da_network_service::{
@@ -219,7 +219,7 @@ where
         nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId> + Send + Sync + 'static,
     DaVerifierStorage:
         nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync + 'static,
-    Tx: Transaction
+    Tx: AuthenticatedMantleTx
         + Clone
         + Debug
         + Eq

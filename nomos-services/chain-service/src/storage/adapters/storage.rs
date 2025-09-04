@@ -11,28 +11,25 @@ use tokio::sync::oneshot;
 
 use crate::storage::StorageAdapter as StorageAdapterTrait;
 
-pub struct StorageAdapter<Storage, Tx, BlobCertificate, RuntimeServiceId>
+pub struct StorageAdapter<Storage, Tx, RuntimeServiceId>
 where
     Storage: StorageBackend + Send + Sync + 'static,
 {
     pub storage_relay:
         OutboundRelay<<StorageService<Storage, RuntimeServiceId> as ServiceData>::Message>,
     _tx: PhantomData<Tx>,
-    _blob_certificate: PhantomData<BlobCertificate>,
 }
 
 #[async_trait::async_trait]
-impl<Storage, Tx, BlobCertificate, RuntimeServiceId> StorageAdapterTrait<RuntimeServiceId>
-    for StorageAdapter<Storage, Tx, BlobCertificate, RuntimeServiceId>
+impl<Storage, Tx, RuntimeServiceId> StorageAdapterTrait<RuntimeServiceId>
+    for StorageAdapter<Storage, Tx, RuntimeServiceId>
 where
     Storage: StorageBackend + Send + Sync + 'static,
-    <Storage as StorageChainApi>::Block:
-        TryFrom<Block<Tx, BlobCertificate>> + TryInto<Block<Tx, BlobCertificate>>,
+    <Storage as StorageChainApi>::Block: TryFrom<Block<Tx>> + TryInto<Block<Tx>>,
     Tx: Clone + Eq + Serialize + DeserializeOwned + Send + Sync + 'static,
-    BlobCertificate: Clone + Eq + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     type Backend = Storage;
-    type Block = Block<Tx, BlobCertificate>;
+    type Block = Block<Tx>;
 
     async fn new(
         storage_relay: OutboundRelay<
@@ -42,7 +39,6 @@ where
         Self {
             storage_relay,
             _tx: PhantomData,
-            _blob_certificate: PhantomData,
         }
     }
 
