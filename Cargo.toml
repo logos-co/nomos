@@ -49,9 +49,11 @@ members = [
   "zk/circuits/utils",
   "zk/circuits/verifier",
   "zk/circuits/witness_generators/pol",
+  "zk/circuits/witness_generators/poq",
   "zk/groth16",
   "zk/poseidon2",
   "zk/proofs/pol",
+  "zk/proofs/poq"
 ]
 resolver = "2"
 
@@ -103,6 +105,7 @@ nomos-tracing-service    = { default-features = false, path = "./nomos-services/
 nomos-utils              = { default-features = false, path = "./nomos-utils" }
 nomos_proof_statements   = { default-features = false, path = "./nomos-core/proof_statements" }
 pol-witness-generator    = { default-features = false, path = "./zk/circuits/witness_generators/pol" }
+poq-witness-generator    = { default-features = false, path = "./zk/circuits/witness_generators/poq" }
 poseidon2                = { default-features = false, path = "./zk/poseidon2" }
 services-utils           = { default-features = false, path = "./nomos-services/utils" }
 subnetworks-assignations = { default-features = false, path = "./nomos-da/network/subnetworks-assignations" }
