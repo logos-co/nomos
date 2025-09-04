@@ -71,7 +71,7 @@ impl SdpLedger {
             return Err(SdpLedgerError::SdpDeclarationNotFound(op.declaration_id).into());
         };
 
-        if op.nonce != current_state.nonce + 1 {
+        if op.nonce <= current_state.nonce {
             return Err(SdpLedgerError::SdpInvalidNonce(op.nonce).into());
         }
 
@@ -93,7 +93,7 @@ impl SdpLedger {
             return Err(SdpLedgerError::SdpDeclarationNotFound(op.declaration_id).into());
         };
 
-        if op.nonce != current_state.nonce + 1 {
+        if op.nonce <= current_state.nonce {
             return Err(SdpLedgerError::SdpInvalidNonce(op.nonce).into());
         }
 
