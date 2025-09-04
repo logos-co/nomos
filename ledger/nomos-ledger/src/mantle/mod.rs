@@ -7,7 +7,7 @@ use nomos_core::{
     block::BlockNumber,
     mantle::{
         ops::{channel::ChannelId, Op, OpProof},
-        AuthenticatedMantleTx, GasConstants,
+        AuthenticatedMantleTx, GasConstants, NoteId,
     },
     proofs::zksig::{self, ZkSignatureProof as _},
     sdp::state::DeclarationStateError,
@@ -39,6 +39,8 @@ pub enum Error {
     Sdp(#[from] SdpLedgerError),
     #[error("Locked notes error: {0:?}")]
     LockedNotes(#[from] locked_notes::Error),
+    #[error("Note not found: {0:?}")]
+    NoteNotFound(NoteId),
 }
 
 impl From<DeclarationStateError> for Error {
@@ -115,8 +117,11 @@ impl LedgerState {
                         ed25519_sig,
                     }),
                 ) => {
+                    let Some((note, _)) = utxo_tree.utxos().get(&op.locked_note_id) else {
+                        return Err(Error::NoteNotFound(op.locked_note_id));
+                    };
                     if !zk_sig.verify(&zksig::ZkSignaturePublic {
-                        pks: vec![op.locked_note_id.0, op.zk_id.0],
+                        pks: vec![note.pk.into(), op.zk_id.0],
                         msg_hash: tx_hash.0,
                     }) {
                         return Err(Error::InvalidSignature);
@@ -136,8 +141,11 @@ impl LedgerState {
                 }
                 (Op::SDPActive(op), Some(OpProof::ZkSig(sig))) => {
                     let declaration = self.sdp.get_declaration(&op.declaration_id)?;
+                    let Some((note, _)) = utxo_tree.utxos().get(&declaration.locked_note_id) else {
+                        return Err(Error::NoteNotFound(declaration.locked_note_id));
+                    };
                     if !sig.verify(&zksig::ZkSignaturePublic {
-                        pks: vec![declaration.locked_note_id.0, declaration.zk_id.0],
+                        pks: vec![note.pk.into(), declaration.zk_id.0],
                         msg_hash: tx_hash.0,
                     }) {
                         return Err(Error::InvalidSignature);
@@ -150,8 +158,11 @@ impl LedgerState {
                 }
                 (Op::SDPWithdraw(op), Some(OpProof::ZkSig(sig))) => {
                     let declaration = self.sdp.get_declaration(&op.declaration_id)?;
+                    let Some((note, _)) = utxo_tree.utxos().get(&declaration.locked_note_id) else {
+                        return Err(Error::NoteNotFound(declaration.locked_note_id));
+                    };
                     if !sig.verify(&zksig::ZkSignaturePublic {
-                        pks: vec![declaration.locked_note_id.0, declaration.zk_id.0],
+                        pks: vec![note.pk.into(), declaration.zk_id.0],
                         msg_hash: tx_hash.0,
                     }) {
                         return Err(Error::InvalidSignature);
@@ -643,7 +654,7 @@ mod tests {
 
         declare_tx.ops_proofs = vec![Some(OpProof::ZkAndEd25519Sigs {
             zk_sig: DummyZkSignature::prove(zksig::ZkSignaturePublic {
-                pks: vec![declare_op.locked_note_id.0, declare_op.zk_id.0],
+                pks: vec![utxo.note.pk.into(), declare_op.zk_id.0],
                 msg_hash: declare_tx_hash.0,
             }),
             ed25519_sig: signing_key.sign(declare_tx_hash.as_signing_bytes().as_ref()),
@@ -673,7 +684,7 @@ mod tests {
         let active_tx_hash = active_tx.hash();
         active_tx.ops_proofs = vec![Some(OpProof::ZkSig(DummyZkSignature::prove(
             zksig::ZkSignaturePublic {
-                pks: vec![declare_op.locked_note_id.0, declare_op.zk_id.0],
+                pks: vec![utxo.note.pk.into(), declare_op.zk_id.0],
                 msg_hash: active_tx_hash.0,
             },
         )))];
@@ -700,7 +711,7 @@ mod tests {
         let withdraw_tx_hash = withdraw_tx.hash();
         withdraw_tx.ops_proofs = vec![Some(OpProof::ZkSig(DummyZkSignature::prove(
             zksig::ZkSignaturePublic {
-                pks: vec![declare_op.locked_note_id.0, declare_op.zk_id.0],
+                pks: vec![utxo.note.pk.into(), declare_op.zk_id.0],
                 msg_hash: withdraw_tx_hash.0,
             },
         )))];
