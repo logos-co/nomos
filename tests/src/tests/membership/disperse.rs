@@ -7,6 +7,7 @@ use nomos_core::{
     sdp::{FinalizedBlockEvent, FinalizedBlockEventUpdate, ProviderId},
 };
 use rand::{thread_rng, Rng as _};
+use serial_test::serial;
 use tests::{
     common::da::{disseminate_with_metadata, wait_for_blob_onchain, APP_ID},
     get_available_port,
@@ -18,6 +19,7 @@ use tests::{
 };
 
 #[tokio::test]
+#[serial]
 async fn update_membership_and_disseminate() {
     let topology_config = TopologyConfig::validator_and_executor();
     let n_participants = topology_config.n_validators + topology_config.n_executors;
