@@ -1,4 +1,5 @@
 pub mod backends;
+mod handlers;
 pub(crate) mod service_components;
 pub mod settings;
 
@@ -13,11 +14,9 @@ use backends::BlendBackend;
 use futures::{Stream, StreamExt as _};
 use nomos_blend_scheduling::{
     membership::Membership,
-    message_blend::crypto::CryptographicProcessor,
     session::{SessionEvent, SessionEventStream},
 };
 use nomos_core::wire;
-use nomos_utils::blake_rng::BlakeRng;
 use overwatch::{
     overwatch::OverwatchHandle,
     services::{
@@ -27,14 +26,18 @@ use overwatch::{
     },
     OpaqueServiceResourcesHandle,
 };
-use rand::SeedableRng as _;
 use serde::Serialize;
 pub(crate) use service_components::ServiceComponents;
 use services_utils::wait_until_services_are_ready;
 use settings::BlendConfig;
 use tracing::{debug, error, info};
 
-use crate::{membership, message::ServiceMessage, settings::constant_membership_stream};
+use crate::{
+    edge::handlers::{Error, MessageHandler},
+    membership,
+    message::ServiceMessage,
+    settings::constant_membership_stream,
+};
 
 const LOG_TARGET: &str = "blend::service::edge";
 
@@ -151,7 +154,7 @@ where
         )
         .await
         .map_err(|e| {
-            error!(target: LOG_TARGET, "Edge blend service is being terminated with error: {e}");
+            error!(target: LOG_TARGET, "Edge blend service is being terminated with error: {e:?}");
             e.into()
         })
     }
@@ -189,14 +192,13 @@ where
         panic!("NewSession must be yielded first");
     };
 
-    check_edge_condition(&membership, settings.minimum_network_size.get() as usize)
+    let mut message_handler =
+        MessageHandler::<Backend, NodeId, RuntimeServiceId>::try_new_with_edge_condition_check(
+            settings,
+            membership,
+            overwatch_handle.clone(),
+        )
         .expect("The initial membership should satisfy the edge node condition");
-
-    let mut message_handler = MessageHandler::<Backend, NodeId, RuntimeServiceId>::new(
-        settings,
-        membership,
-        overwatch_handle.clone(),
-    );
 
     notify_ready();
 
@@ -212,37 +214,10 @@ where
     }
 }
 
-/// Check if the local node is an edge node in the membership,
-/// and if the membership size is at least the minimal network size.
-fn check_edge_condition<NodeId>(
-    membership: &Membership<NodeId>,
-    minimal_network_size: usize,
-) -> Result<(), Error>
-where
-    NodeId: Eq + Hash,
-{
-    if membership.size() < minimal_network_size {
-        Err(Error::NetworkIsTooSmall(membership.size()))
-    } else if membership.contains_local() {
-        Err(Error::LocalIsCoreNode)
-    } else {
-        Ok(())
-    }
-}
-
-#[derive(Debug, thiserror::Error)]
-enum Error {
-    #[error("Network is too small: {0}")]
-    NetworkIsTooSmall(usize),
-    #[error("Local node is a core node")]
-    LocalIsCoreNode,
-}
-
 /// Handle a new session.
 ///
 /// It creates a new [`MessageHandler`] if the membership satisfies all the edge
-/// node condition defined in [`check_edge_condition`].
-/// Otherwise, it returns [`Error`].
+/// node condition. Otherwise, it returns [`Error`].
 fn handle_new_session<Backend, NodeId, RuntimeServiceId>(
     membership: Membership<NodeId>,
     settings: &Settings<Backend, NodeId, RuntimeServiceId>,
@@ -253,73 +228,16 @@ where
     NodeId: Clone + Eq + Hash + Send + 'static,
     RuntimeServiceId: Clone,
 {
-    check_edge_condition(&membership, settings.minimum_network_size.get() as usize)?;
-
-    debug!(target: LOG_TARGET, "Creating a new message handler");
-    Ok(MessageHandler::<Backend, NodeId, RuntimeServiceId>::new(
+    debug!(target: LOG_TARGET, "Trying to create a new message handler");
+    MessageHandler::<Backend, NodeId, RuntimeServiceId>::try_new_with_edge_condition_check(
         settings,
         membership,
         overwatch_handle.clone(),
-    ))
+    )
 }
 
 type Settings<Backend, NodeId, RuntimeServiceId> =
     BlendConfig<<Backend as BlendBackend<NodeId, RuntimeServiceId>>::Settings, NodeId>;
-
-struct MessageHandler<Backend, NodeId, RuntimeServiceId> {
-    cryptographic_processor: CryptographicProcessor<NodeId, BlakeRng>,
-    backend: Backend,
-    _phantom: PhantomData<RuntimeServiceId>,
-}
-
-impl<Backend, NodeId, RuntimeServiceId> MessageHandler<Backend, NodeId, RuntimeServiceId>
-where
-    Backend: BlendBackend<NodeId, RuntimeServiceId>,
-    NodeId: Clone + Send + 'static,
-{
-    fn new(
-        settings: &Settings<Backend, NodeId, RuntimeServiceId>,
-        membership: Membership<NodeId>,
-        overwatch_handle: OverwatchHandle<RuntimeServiceId>,
-    ) -> Self {
-        let cryptographic_processor = CryptographicProcessor::new(
-            settings.crypto.clone(),
-            membership.clone(),
-            BlakeRng::from_entropy(),
-        );
-        let backend = Backend::new(
-            settings.backend.clone(),
-            overwatch_handle,
-            membership,
-            BlakeRng::from_entropy(),
-        );
-        Self {
-            cryptographic_processor,
-            backend,
-            _phantom: PhantomData,
-        }
-    }
-}
-
-impl<Backend, NodeId, RuntimeServiceId> MessageHandler<Backend, NodeId, RuntimeServiceId>
-where
-    NodeId: Eq + Hash + Clone + Send,
-    Backend: BlendBackend<NodeId, RuntimeServiceId> + Sync,
-{
-    /// Blend a new message received from another service.
-    async fn handle_messages_to_blend(&mut self, message: Vec<u8>) {
-        let Ok(message) = self
-            .cryptographic_processor
-            .encapsulate_data_payload(&message)
-            .inspect_err(|e| {
-                tracing::error!(target: LOG_TARGET, "Failed to encapsulate message: {e:?}");
-            })
-        else {
-            return;
-        };
-        self.backend.send(message).await;
-    }
-}
 
 #[cfg(test)]
 mod tests {
