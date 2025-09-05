@@ -40,7 +40,7 @@ pub struct PoQWalletInputsJson {
     output_number: Groth16InputDeser,
     #[serde(rename = "pol_noteid_path")]
     aged_path: Vec<Groth16InputDeser>,
-    #[serde(rename = "noteid_aged_selectors")]
+    #[serde(rename = "pol_noteid_path_selectors")]
     aged_selector: Vec<Groth16InputDeser>,
     #[serde(rename = "pol_slot_secret")]
     slot_secret: Groth16InputDeser,
@@ -92,8 +92,8 @@ impl From<PoQWalletInputsData> for PoQWalletInputs {
         }: PoQWalletInputsData,
     ) -> Self {
         Self {
-            pol_slot: slot_secret.into(),
-            pol_slot_secret: Groth16Input::new(Fr::from(BigUint::from(note_value))),
+            pol_slot: Groth16Input::new(Fr::from(BigUint::from(slot))),
+            pol_slot_secret: Groth16Input::new(Fr::from(BigUint::from(slot_secret))),
             pol_slot_secret_path: slot_secret_path.into_iter().map(Into::into).collect(),
             pol_noteid_path: aged_path.into_iter().map(Into::into).collect(),
             pol_noteid_path_selectors: aged_selector

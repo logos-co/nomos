@@ -26,8 +26,8 @@ impl PoQWitnessInputs {
     ) -> Self {
         Self { chain, common, blend: PoQBlendInputs::from( PoQBlendInputsData {
             core_sk: Fr::ZERO,
-            core_path: vec![Fr::ZERO; 32],
-            core_path_selectors: vec![false; 32],
+            core_path: vec![Fr::ZERO; 20],
+            core_path_selectors: vec![false; 20],
         } ), wallet }
     }
 
@@ -37,7 +37,7 @@ impl PoQWitnessInputs {
         blend: PoQBlendInputs,
     ) -> Self {
         Self { chain, common, blend, wallet: PoQWalletInputs::from(PoQWalletInputsData {
-            slot: 0,
+            slot: 2,
             note_value: 0,
             transaction_hash: Fr::ZERO,
             output_number: 0,
@@ -45,7 +45,7 @@ impl PoQWitnessInputs {
             aged_selector: vec![false; 32],
             slot_secret: Fr::ZERO,
             slot_secret_path: vec![Fr::ZERO; 25],
-            starting_slot: 0,
+            starting_slot: 1,
         } ), }
     }
 }
