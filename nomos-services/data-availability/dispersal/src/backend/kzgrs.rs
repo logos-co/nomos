@@ -191,7 +191,7 @@ where
 {
     type Settings = DispersalKZGRSBackendSettings;
     type Encoder = encoder::DaEncoder;
-    type Dispersal = DispersalHandler<NetworkAdapter, WalletAdapter>;   
+    type Dispersal = DispersalHandler<NetworkAdapter, WalletAdapter>;
     type NetworkAdapter = NetworkAdapter;
     type WalletAdapter = WalletAdapter;
     type BlobId = BlobId;
