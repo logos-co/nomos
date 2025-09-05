@@ -335,7 +335,7 @@ mempool:
 membership:
   backend:
     session_sizes:
-      0: 4320  # DataAvailability - 4320 blocks per session
+      DA: 4320  # DataAvailability - 4320 blocks per session
     session_zero_memberships: {}
     session_zero_locators: {}
 sdp:
