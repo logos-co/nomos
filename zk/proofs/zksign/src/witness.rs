@@ -1,4 +1,17 @@
+use std::{path::PathBuf, sync::LazyLock};
+
+use circuits_utils::find_binary;
+
 use crate::inputs::{ZkSignWitnessInputs, ZkSignWitnessInputsJson};
+
+const BINARY_NAME: &str = "zksign";
+const BINARY_ENV_VAR: &str = "NOMOS_ZKSIGN";
+
+static BINARY: LazyLock<PathBuf> = LazyLock::new(|| {
+    find_binary(BINARY_NAME, BINARY_ENV_VAR).unwrap_or_else(|error_message| {
+        panic!("Could not find the required '{BINARY_NAME}' binary: {error_message}");
+    })
+});
 
 /// Witness of the circuit.
 pub struct Witness(Vec<u8>);
@@ -20,6 +33,5 @@ pub fn generate_witness(inputs: &ZkSignWitnessInputs) -> Result<Witness, std::io
     let pol_inputs_json: ZkSignWitnessInputsJson = inputs.into();
     let str_inputs: String =
         serde_json::to_string(&pol_inputs_json).expect("Failed to serialize inputs");
-    todo!("plug witness generator");
-    // pol_witness_generator::generate_witness(&str_inputs).map(Witness)
+    witness_generator::generate_witness(&str_inputs, BINARY.as_path()).map(Witness)
 }
