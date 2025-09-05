@@ -42,25 +42,31 @@ impl MembershipBackend for MockMembershipBackend {
         let mut active_sessions = HashMap::new();
         let mut forming_sessions = HashMap::new();
 
-        for (service_type, members) in settings.session_zero_memberships {
+        // Initialize sessions for all configured service types
+        for service_type in settings.session_sizes.keys() {
+            let members = settings
+                .session_zero_memberships
+                .get(service_type)
+                .cloned()
+                .unwrap_or_default();
+
             let locators = settings
                 .session_zero_locators
-                .get(&service_type)
+                .get(service_type)
                 .cloned()
                 .unwrap_or_default();
 
             let session_0 = SessionState {
                 session_number: 0,
-                membership: members.clone(),
-                locators: locators.clone(),
+                membership: members,
+                locators,
             };
 
-            active_sessions.insert(service_type, session_0.clone());
+            active_sessions.insert(*service_type, session_0.clone());
 
-            // Forming starts at session 1
             let mut session_1 = session_0;
             session_1.session_number = 1;
-            forming_sessions.insert(service_type, session_1);
+            forming_sessions.insert(*service_type, session_1);
         }
 
         Self {
