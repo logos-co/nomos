@@ -10,7 +10,7 @@ use std::{
     time::Duration,
 };
 
-use futures::StreamExt as _;
+use futures::{stream::FuturesUnordered, StreamExt as _};
 use nomos_da_sampling::backend::kzgrs::KzgrsSamplingBackend;
 use nomos_network::{message::BackendNetworkMsg, NetworkService};
 use overwatch::{
@@ -158,6 +158,7 @@ where
     Processor: PayloadProcessor<Payload = NetworkAdapter::Payload> + Send,
     Processor::Settings: Clone + Send + Sync,
     Processor::DaSamplingService: ServiceData,
+    Processor::Error: Send + Sync,
     <<Processor as PayloadProcessor>::DaSamplingService as ServiceData>::Message: Send + 'static,
     RecoveryBackend: RecoveryBackendTrait + Send,
     RuntimeServiceId: Display
@@ -223,6 +224,14 @@ where
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
 
+        let mut trigger_sampling_tasks = FuturesUnordered::new();
+        let trigger_sampling_delay = self
+            .service_resources_handle
+            .settings_handle
+            .notifier()
+            .get_updated_settings()
+            .trigger_sampling_delay;
+
         wait_until_services_are_ready!(
             &self.service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
@@ -246,7 +255,11 @@ where
                     self.handle_mempool_message(relay_msg, network_service_relay.clone());
                 }
                 Some((key, item)) = network_items.next() => {
-                    if let Err(e) =processor.process(&item).await {
+                    if let Err(e) = processor.process(
+                        &mut trigger_sampling_tasks,
+                        trigger_sampling_delay,
+                        &item
+                    ).await {
                         tracing::debug!("could not process item from network due to: {e:?}");
                         continue;
                     }
@@ -257,6 +270,11 @@ where
                     tracing::info!(counter.tx_mempool_pending_items = self.pool.pending_item_count());
                     self.service_resources_handle.state_updater.update(Some(self.pool.save().into()));
                 }
+                Some(result) = trigger_sampling_tasks.next() => {
+                    if let Err(e) = result {
+                        tracing::error!("coulnd not trigger sampling due to {e}");
+                    }
+                },
             }
         }
     }
@@ -272,6 +290,7 @@ where
     NetworkAdapter::Settings: Clone + Send + 'static,
     Processor: PayloadProcessor<Payload = NetworkAdapter::Payload>,
     Processor::Settings: Clone,
+    Processor::Error: Send + Sync,
     RecoveryBackend: RecoveryBackendTrait,
     RuntimeServiceId: 'static,
 {

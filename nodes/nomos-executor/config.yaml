@@ -358,7 +358,6 @@ storage:
   column_family: blocks
 mempool:
   cl_pool_recovery_path: ./recovery/cl_mempool.json
-  da_pool_recovery_path: ./recovery/da_mempool.json
   trigger_sampling_delay:
     secs: 5
     nanos: 0
