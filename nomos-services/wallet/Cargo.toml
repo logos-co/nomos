@@ -5,10 +5,14 @@ name    = "wallet"
 version = "0.1.0"
 
 [dependencies]
+async-trait = "0.1"
 thiserror = "1.0"
+tokio = { version = "1", features = ["sync"] }
 
+chain-service = { workspace = true }
 nomos-core    = { workspace = true }
 nomos-ledger  = { workspace = true, features = ["serde"] }
+overwatch     = { workspace = true }
 
 [dev-dependencies]
 num-bigint             = { version = "0.4", default-features = false }

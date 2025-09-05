@@ -4,11 +4,11 @@ use nomos_core::{
     block::Block,
     header::HeaderId,
     mantle::ledger::Tx as LedgerTx,
-    mantle::{keys::PublicKey, AuthenticatedMantleTx, Note, NoteId, Utxo, Value},
+    mantle::{keys::PublicKey, AuthenticatedMantleTx, NoteId, Utxo, Value},
 };
 use nomos_ledger::LedgerState;
 
-use crate::{Result, WalletError};
+use crate::WalletError;
 
 pub struct WalletBlock {
     pub id: HeaderId,
@@ -29,6 +29,7 @@ impl<T: AuthenticatedMantleTx + Clone + Eq, D: Clone + Eq> From<Block<T, D>> for
     }
 }
 
+#[derive(Clone)]
 struct WalletState {
     utxos: BTreeMap<NoteId, Utxo>,
     pk_index: HashMap<PublicKey, BTreeSet<NoteId>>,
@@ -162,7 +163,8 @@ impl WalletState {
     }
 }
 
-struct Wallet {
+#[derive(Clone)]
+pub struct Wallet {
     known_keys: HashSet<PublicKey>,
     wallet_states: BTreeMap<HeaderId, WalletState>,
 }
@@ -183,15 +185,15 @@ impl Wallet {
         }
     }
 
-    pub fn apply_block(&mut self, block: &WalletBlock) -> Result<()> {
+    pub fn apply_block(&mut self, block: &WalletBlock) -> Result<(), WalletError> {
         let block_wallet_state = self
             .wallet_state_at(block.parent)?
-            .apply_block(&self.known_keys, &block);
+            .apply_block(&self.known_keys, block);
         self.wallet_states.insert(block.id, block_wallet_state);
         Ok(())
     }
 
-    pub fn balance(&self, tip: HeaderId, pk: PublicKey) -> Result<Option<Value>> {
+    pub fn balance(&self, tip: HeaderId, pk: PublicKey) -> Result<Option<Value>, WalletError> {
         Ok(self.wallet_state_at(tip)?.balance(pk))
     }
 
@@ -200,11 +202,11 @@ impl Wallet {
         tip: HeaderId,
         amount: Value,
         pks: impl IntoIterator<Item = PublicKey>,
-    ) -> Result<Option<Vec<Utxo>>> {
+    ) -> Result<Option<Vec<Utxo>>, WalletError> {
         Ok(self.wallet_state_at(tip)?.utxos_for_amount(amount, pks))
     }
 
-    fn wallet_state_at(&self, tip: HeaderId) -> Result<&WalletState> {
+    fn wallet_state_at(&self, tip: HeaderId) -> Result<&WalletState, WalletError> {
         self.wallet_states
             .get(&tip)
             .ok_or(WalletError::UnknownBlock)
@@ -213,7 +215,7 @@ impl Wallet {
 
 #[cfg(test)]
 mod tests {
-    use nomos_core::mantle::TxHash;
+    use nomos_core::mantle::{Note, TxHash};
     use num_bigint::BigUint;
 
     use super::*;
