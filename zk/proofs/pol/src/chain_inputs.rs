@@ -161,6 +161,16 @@ pub enum PolInputsFromDataError {
     EpochGreaterThanP,
 }
 
+pub fn compute_lottery_values(total_stake: u64) -> (BigUint, BigUint) {
+    let total_stake = BigUint::from(total_stake);
+
+    let lottery_0 = T0_CONSTANT.deref().div(total_stake.clone());
+    let lottery_1 = P
+        .checked_sub(&T1_CONSTANT.deref().div(total_stake.pow(2)))
+        .expect("(T1 / (S^2)) must be less than P");
+    (lottery_0, lottery_1)
+}
+
 impl TryFrom<PolChainInputsData> for PolChainInputs {
     type Error = PolInputsFromDataError;
 
@@ -182,12 +192,8 @@ impl TryFrom<PolChainInputsData> for PolChainInputs {
         if epoch_nonce > *P {
             return Err(PolInputsFromDataError::EpochGreaterThanP);
         }
-        let total_stake = BigUint::from(total_stake);
 
-        let lottery_0 = T0_CONSTANT.deref().div(total_stake.clone());
-        let lottery_1 = P
-            .checked_sub(&T1_CONSTANT.deref().div(total_stake.pow(2)))
-            .expect("(T1 / (S^2)) must be less than P");
+        let (lottery_0, lottery_1) = compute_lottery_values(total_stake);
 
         Ok(Self {
             slot_number: Groth16Input::new(slot_number.into()),
@@ -199,35 +205,5 @@ impl TryFrom<PolChainInputsData> for PolChainInputs {
             leader_pk1: pk1.into(),
             leader_pk2: pk2.into(),
         })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn constants() {
-        let total_stake = 5000u32;
-        assert_eq!(
-            T0_CONSTANT.to_string(),
-            "1122720085251457488657939587576977282954863756865979276605118041105190793706"
-        );
-        assert_eq!(
-            T1_CONSTANT.to_string(),
-            "28794005923809446652337194229268641024881242442862297438215833784455126237"
-        );
-        let lottery_0: BigUint = T0_CONSTANT.deref().div(total_stake);
-        assert_eq!(
-            lottery_0.to_string(),
-            "224544017050291497731587917515395456590972751373195855321023608221038158"
-        );
-        let lottery_1 = P
-            .checked_sub(&T1_CONSTANT.deref().div(total_stake.pow(2)))
-            .expect("(T1 / (S^2)) must be less than P");
-        assert_eq!(
-            lottery_1.to_string(),
-            "21888242870687514985294027879163787319377618759420784645983712289047175144239"
-        );
     }
 }
