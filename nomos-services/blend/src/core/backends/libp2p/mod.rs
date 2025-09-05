@@ -56,6 +56,7 @@ where
     fn new(
         config: BlendConfig<Self::Settings, PeerId>,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
+        latest_session_info: Membership<PeerId>,
         session_stream: Pin<Box<dyn Stream<Item = SessionEvent<Membership<PeerId>>> + Send>>,
         rng: Rng,
     ) -> Self {
@@ -65,6 +66,7 @@ where
 
         let swarm = BlendSwarm::<_, _, ObservationWindowTokioIntervalProvider>::new(
             config,
+            latest_session_info,
             session_stream,
             rng,
             swarm_message_receiver,

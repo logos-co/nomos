@@ -79,23 +79,25 @@ impl<SessionStream, Rng, ObservationWindowProvider>
 where
     Rng: RngCore,
     ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
-        + for<'c> From<&'c BlendConfig<Libp2pBlendBackendSettings, PeerId>>
-        + 'static,
+        + for<'c> From<(
+            &'c BlendConfig<Libp2pBlendBackendSettings, PeerId>,
+            &'c Membership<PeerId>,
+        )> + 'static,
 {
     pub(super) fn new(
         config: BlendConfig<Libp2pBlendBackendSettings, PeerId>,
+        latest_session_info: Membership<PeerId>,
         session_stream: SessionStream,
         rng: Rng,
         swarm_messages_receiver: mpsc::Receiver<BlendSwarmMessage>,
         incoming_message_sender: broadcast::Sender<EncapsulatedMessageWithValidatedPublicHeader>,
         minimum_network_size: NonZeroUsize,
     ) -> Self {
-        let membership = config.membership();
         let keypair = config.backend.keypair();
         let mut swarm = SwarmBuilder::with_existing_identity(keypair)
             .with_tokio()
             .with_quic()
-            .with_behaviour(|_| BlendBehaviour::new(&config))
+            .with_behaviour(|_| BlendBehaviour::new(&config, latest_session_info.clone()))
             .expect("Blend Behaviour should be built")
             .with_swarm_config(|cfg| {
                 // The idle timeout starts ticking once there are no active streams on a
@@ -116,7 +118,7 @@ where
             swarm_messages_receiver,
             incoming_message_sender,
             session_stream,
-            latest_session_info: membership,
+            latest_session_info,
             rng,
             max_dial_attempts_per_connection: config.backend.max_dial_attempts_per_peer,
             ongoing_dials: HashMap::with_capacity(

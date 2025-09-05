@@ -146,7 +146,7 @@ where
 
         let session_stream = SessionEventStream::new(
             Box::pin(constant_membership_stream(
-                blend_config.membership(),
+                membership::<Backend, BlakeRng, NodeId, RuntimeServiceId>(&blend_config),
                 blend_config.time.session_duration(),
             )),
             blend_config.time.session_transition_period(),
@@ -209,7 +209,7 @@ where
     let mut handler = MessageHandler::try_new_with_core_condition_check(
         &settings.crypto,
         settings.minimum_network_size.get() as usize,
-        membership,
+        membership.clone(),
     )?;
 
     let (session_event_sender, session_event_receiver) =
@@ -217,7 +217,7 @@ where
     let mut backend = <Backend as BlendBackend<NodeId, BlakeRng, RuntimeServiceId>>::new(
         settings.clone(),
         overwatch_handle.clone(),
-        // TODO: check if it's okay to use this stream that already yielded the first item.
+        membership,
         Box::pin(ReceiverStream::new(session_event_receiver)),
         BlakeRng::from_entropy(),
     );
@@ -432,4 +432,16 @@ where
         .expect("Channel shouldn't be closed");
 
     Ok(new_message_handler)
+}
+
+// TODO: Remove this and use the membership service stream instead: https://github.com/logos-co/nomos/issues/1532
+fn membership<Backend, Rng, NodeId, RuntimeServiceId>(
+    settings: &Settings<Backend, Rng, NodeId, RuntimeServiceId>,
+) -> Membership<NodeId>
+where
+    Backend: BlendBackend<NodeId, Rng, RuntimeServiceId>,
+    NodeId: Clone + Eq + Hash,
+{
+    let local_signing_pubkey = settings.crypto.signing_private_key.public_key();
+    Membership::new(&settings.membership, &local_signing_pubkey)
 }

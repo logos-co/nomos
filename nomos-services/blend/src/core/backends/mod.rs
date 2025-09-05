@@ -18,6 +18,7 @@ pub trait BlendBackend<NodeId, Rng, RuntimeServiceId> {
     fn new(
         service_config: BlendConfig<Self::Settings, NodeId>,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
+        latest_session_info: Membership<NodeId>,
         session_stream: Pin<Box<dyn Stream<Item = SessionEvent<Membership<NodeId>>> + Send>>,
         rng: Rng,
     ) -> Self;
