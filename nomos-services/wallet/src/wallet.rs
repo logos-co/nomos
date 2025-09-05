@@ -3,11 +3,31 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use nomos_core::{
     block::Block,
     header::HeaderId,
-    mantle::{keys::PublicKey, AuthenticatedMantleTx, NoteId, Utxo, Value},
+    mantle::ledger::Tx as LedgerTx,
+    mantle::{keys::PublicKey, AuthenticatedMantleTx, Note, NoteId, Utxo, Value},
 };
 use nomos_ledger::LedgerState;
 
 use crate::{Result, WalletError};
+
+pub struct WalletBlock {
+    pub id: HeaderId,
+    pub parent: HeaderId,
+    pub ledger_txs: Vec<LedgerTx>,
+}
+
+impl<T: AuthenticatedMantleTx + Clone + Eq, D: Clone + Eq> From<Block<T, D>> for WalletBlock {
+    fn from(block: Block<T, D>) -> Self {
+        Self {
+            id: block.header().id(),
+            parent: block.header().parent(),
+            ledger_txs: block
+                .transactions()
+                .map(|auth_tx| auth_tx.mantle_tx().ledger_tx.clone())
+                .collect(),
+        }
+    }
+}
 
 struct WalletState {
     utxos: BTreeMap<NoteId, Utxo>,
@@ -107,18 +127,12 @@ impl WalletState {
         Some(balance)
     }
 
-    pub fn apply_block<T: AuthenticatedMantleTx + Clone + Eq>(
-        &self,
-        known_keys: &HashSet<PublicKey>,
-        block: Block<T, ()>,
-    ) -> Self {
+    pub fn apply_block(&self, known_keys: &HashSet<PublicKey>, block: &WalletBlock) -> Self {
         let mut utxos = self.utxos.clone();
         let mut pk_index = self.pk_index.clone();
 
         // Process each transaction in the block
-        for authenticated_tx in block.transactions() {
-            let ledger_tx = &authenticated_tx.mantle_tx().ledger_tx;
-
+        for ledger_tx in &block.ledger_txs {
             // Remove spent UTXOs (inputs)
             for spent_id in &ledger_tx.inputs {
                 if let Some(utxo) = utxos.remove(spent_id) {
@@ -169,23 +183,12 @@ impl Wallet {
         }
     }
 
-    pub fn apply_block<T: AuthenticatedMantleTx + Clone + Eq>(
-        &mut self,
-        parent: HeaderId,
-        block: Block<T, ()>,
-    ) -> Result<()> {
-        let block_id = block.header().id();
+    pub fn apply_block(&mut self, block: &WalletBlock) -> Result<()> {
         let block_wallet_state = self
-            .wallet_state_at(parent)?
-            .apply_block(&self.known_keys, block);
-        self.wallet_states.insert(block_id, block_wallet_state);
+            .wallet_state_at(block.parent)?
+            .apply_block(&self.known_keys, &block);
+        self.wallet_states.insert(block.id, block_wallet_state);
         Ok(())
-    }
-
-    pub fn apply_ledger(&mut self, block: HeaderId, ledger: LedgerState) {
-        // TODO: remove this function in favor of `Wallet::apply_block`
-        let wallet_state = WalletState::from_ledger(&self.known_keys, ledger);
-        self.wallet_states.insert(block, wallet_state);
     }
 
     pub fn balance(&self, tip: HeaderId, pk: PublicKey) -> Result<Option<Value>> {
@@ -210,7 +213,7 @@ impl Wallet {
 
 #[cfg(test)]
 mod tests {
-    use nomos_core::mantle::{Note, TxHash};
+    use nomos_core::mantle::TxHash;
     use num_bigint::BigUint;
 
     use super::*;
@@ -259,35 +262,50 @@ mod tests {
         let bob = pk(2);
 
         let genesis = HeaderId::from([0; 32]);
-        let block_1 = HeaderId::from([1; 32]);
-        let block_2 = HeaderId::from([2; 32]);
 
         let genesis_ledger = LedgerState::from_utxos([]);
 
         let mut wallet = Wallet::from_lib([alice, bob], genesis, genesis_ledger);
 
-        let ledger_1 = LedgerState::from_utxos([
-            Utxo::new(tx_hash(0), 0, Note::new(100, alice)),
-            Utxo::new(tx_hash(0), 1, Note::new(4, alice)),
-        ]);
+        // Create WalletBlock for block 1 (builds on genesis)
+        // This creates two UTXOs for alice
+        let tx1 = LedgerTx {
+            inputs: vec![],
+            outputs: vec![Note::new(100, alice), Note::new(4, alice)],
+        };
 
-        wallet.apply_ledger(block_1, ledger_1);
+        let block_1 = WalletBlock {
+            id: HeaderId::from([1; 32]),
+            parent: genesis,
+            ledger_txs: vec![tx1.clone()],
+        };
 
-        let ledger_2 = LedgerState::from_utxos([
-            Utxo::new(tx_hash(0), 0, Note::new(20, bob)),
-            Utxo::new(tx_hash(0), 1, Note::new(4, alice)),
-        ]);
+        wallet.apply_block(&block_1).unwrap();
 
-        wallet.apply_ledger(block_2, ledger_2);
+        // Create WalletBlock for block 2 (builds on block 1)
+        // This simulates spending alice's 100 NMO utxo and creating a 20 NMO utxo for bob
+        // We need to get the actual UTXO ID from the first transaction
+        let utxo_100 = tx1.utxo_by_index(0).unwrap();
+
+        let block_2 = WalletBlock {
+            id: HeaderId::from([2; 32]),
+            parent: block_1.id,
+            ledger_txs: vec![LedgerTx {
+                inputs: vec![utxo_100.id()],
+                outputs: vec![Note::new(20, bob)],
+            }],
+        };
+
+        wallet.apply_block(&block_2).unwrap();
 
         assert_eq!(wallet.balance(genesis, alice).unwrap(), None);
         assert_eq!(wallet.balance(genesis, bob).unwrap(), None);
 
-        assert_eq!(wallet.balance(block_1, alice).unwrap(), Some(104));
-        assert_eq!(wallet.balance(block_1, bob).unwrap(), None);
+        assert_eq!(wallet.balance(block_1.id, alice).unwrap(), Some(104));
+        assert_eq!(wallet.balance(block_1.id, bob).unwrap(), None);
 
-        assert_eq!(wallet.balance(block_2, alice).unwrap(), Some(4));
-        assert_eq!(wallet.balance(block_2, bob).unwrap(), Some(20));
+        assert_eq!(wallet.balance(block_2.id, alice).unwrap(), Some(4));
+        assert_eq!(wallet.balance(block_2.id, bob).unwrap(), Some(20));
     }
 
     #[test]
