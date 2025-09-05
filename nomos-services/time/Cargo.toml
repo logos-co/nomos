@@ -25,7 +25,7 @@ tokio-stream       = { default-features = false, version = "0.1" }
 tracing            = { default-features = false, version = "0.1" }
 
 [dev-dependencies]
-rand = { default-features = false, workspace = true }
+nomos-utils = { workspace = true }
 
 [features]
 ntp       = ["dep:sntpc", "dep:thiserror", "tokio/net"]

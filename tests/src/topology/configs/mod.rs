@@ -16,16 +16,14 @@ use blend::GeneralBlendConfig;
 use consensus::GeneralConsensusConfig;
 use da::GeneralDaConfig;
 use network::GeneralNetworkConfig;
+use nomos_utils::net::get_available_udp_port;
 use rand::{thread_rng, Rng as _};
 use tracing::GeneralTracingConfig;
 
-use crate::{
-    get_available_port,
-    topology::configs::{
-        api::GeneralApiConfig, bootstrap::GeneralBootstrapConfig, consensus::ConsensusParams,
-        da::DaParams, membership::GeneralMembershipConfig, network::NetworkParams,
-        time::GeneralTimeConfig,
-    },
+use crate::topology::configs::{
+    api::GeneralApiConfig, bootstrap::GeneralBootstrapConfig, consensus::ConsensusParams,
+    da::DaParams, membership::GeneralMembershipConfig, network::NetworkParams,
+    time::GeneralTimeConfig,
 };
 
 #[derive(Clone)]
@@ -56,7 +54,7 @@ pub fn create_general_configs_with_network(
 
     for id in &mut ids {
         thread_rng().fill(id);
-        ports.push(get_available_port());
+        ports.push(get_available_udp_port().unwrap());
     }
 
     let consensus_params = ConsensusParams::default_for_participants(n_nodes);

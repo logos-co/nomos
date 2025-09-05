@@ -186,7 +186,7 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr};
 
     use log::trace;
-    use rand::{thread_rng, Rng as _};
+    use nomos_utils::net::get_available_tcp_port;
 
     use super::*;
     use crate::backends::ntp::async_client::{AsyncNTPClient, NTPClientSettings};
@@ -194,7 +194,7 @@ mod tests {
     #[tokio::test]
     async fn test_fake_ntp_server() {
         let server_ip_address = "127.0.0.1";
-        let server_port = thread_rng().gen_range(49152..65535);
+        let server_port = get_available_tcp_port().unwrap();
         let parsed_server_ip_address: Ipv4Addr = server_ip_address.parse().unwrap();
         let server_socket_address =
             SocketAddr::new(IpAddr::from(parsed_server_ip_address), server_port);

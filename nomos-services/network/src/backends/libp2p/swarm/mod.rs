@@ -263,16 +263,12 @@ mod tests {
     use std::{net::Ipv4Addr, sync::Once, time::Instant};
 
     use nomos_libp2p::{protocol_name::ProtocolName, Protocol};
-    use rand::{thread_rng, Rng as _};
+    use nomos_utils::net::get_available_udp_port;
     use tracing_subscriber::EnvFilter;
 
     use super::*;
 
     static INIT: Once = Once::new();
-
-    fn random_port() -> u16 {
-        thread_rng().gen_range(49152..65535)
-    }
 
     fn init_tracing() {
         let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
@@ -319,7 +315,7 @@ mod tests {
         let (pubsub_events_tx, _) = broadcast::channel(10);
         let (chainsync_events_tx, _) = broadcast::channel(10);
 
-        let config = create_libp2p_config(vec![], random_port());
+        let config = create_libp2p_config(vec![], get_available_udp_port().unwrap());
         let mut bootstrap_node = SwarmHandler::new(
             config,
             tx1.clone(),
@@ -372,7 +368,10 @@ mod tests {
             let (pubsub_events_tx, _) = broadcast::channel(10);
             let (chainsync_events_tx, _) = broadcast::channel(10);
 
-            let config = create_libp2p_config(vec![bootstrap_addr.clone()], random_port());
+            let config = create_libp2p_config(
+                vec![bootstrap_addr.clone()],
+                get_available_udp_port().unwrap(),
+            );
             let mut handler = SwarmHandler::new(
                 config,
                 tx.clone(),

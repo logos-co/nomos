@@ -14,9 +14,10 @@ mod test {
     use kzgrs_backend::testutils;
     use libp2p::{
         identity::{Keypair, PublicKey},
+        multiaddr::multiaddr,
         quic,
         swarm::SwarmEvent,
-        Multiaddr, PeerId, Swarm,
+        PeerId, Swarm,
     };
     use libp2p_swarm_test::SwarmExt as _;
     use log::info;
@@ -35,7 +36,7 @@ mod test {
         common::Share,
         replication::{ReplicationRequest, ReplicationResponseId},
     };
-    use rand::{thread_rng, Rng as _};
+    use nomos_utils::net::get_available_udp_port;
     use tokio::sync::mpsc;
     use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 
@@ -68,15 +69,6 @@ mod test {
             .unwrap()
             .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(Duration::from_secs(10)))
             .build()
-    }
-
-    fn random_quic_addr() -> Multiaddr {
-        format!(
-            "/ip4/127.0.0.1/udp/{}/quic-v1",
-            thread_rng().gen_range(49152..65535)
-        )
-        .parse()
-        .unwrap()
     }
 
     fn make_neighbours(keys: &[&Keypair]) -> AllNeighbours {
@@ -181,9 +173,16 @@ mod test {
         let (done_2_tx, mut done_2_rx) = mpsc::channel::<()>(1);
         let (done_3_tx, mut done_3_rx) = mpsc::channel::<()>(1);
 
-        let addr1 = random_quic_addr();
-        let addr3 = random_quic_addr();
-
+        let addr1 = multiaddr!(
+            Ip4([127, 0, 0, 1]),
+            Udp(get_available_udp_port().unwrap()),
+            QuicV1
+        );
+        let addr3 = multiaddr!(
+            Ip4([127, 0, 0, 1]),
+            Udp(get_available_udp_port().unwrap()),
+            QuicV1
+        );
         swarm_1.listen_on(addr1.clone()).unwrap();
         swarm_3.listen_on(addr3.clone()).unwrap();
 
@@ -248,7 +247,11 @@ mod test {
 
         let msg_count = 10usize;
 
-        let addr = random_quic_addr();
+        let addr = multiaddr!(
+            Ip4([127, 0, 0, 1]),
+            Udp(get_available_udp_port().unwrap()),
+            QuicV1
+        );
         swarm_1.listen_on(addr.clone()).unwrap();
 
         // future that listens for messages and collects `msg_count` of them, then
@@ -356,7 +359,11 @@ mod test {
             mantle_tx: base_mantle_tx,
         };
 
-        let addr1 = random_quic_addr();
+        let addr1 = multiaddr!(
+            Ip4([127, 0, 0, 1]),
+            Udp(get_available_udp_port().unwrap()),
+            QuicV1
+        );
         swarm1.listen_on(addr1.clone()).unwrap();
 
         let task1 = async move {
