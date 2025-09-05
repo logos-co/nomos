@@ -73,7 +73,7 @@ where
         blob_id: BlobId,
         sender: oneshot::Sender<Option<Commitments>>,
     },
-    RequestHistoricSample {
+    RequestHistoricSampling {
         session_id: SessionNumber,
         block_id: HeaderId,
         blob_ids: HashSet<BlobId>,
@@ -103,7 +103,7 @@ where
                     "DaNetworkMsg::GetCommitments{{ blob_id: {blob_id:?} }}"
                 )
             }
-            Self::RequestHistoricSample {
+            Self::RequestHistoricSampling {
                 session_id,
                 blob_ids,
                 block_id,
@@ -512,7 +512,7 @@ where
                     tracing::error!("Failed to request commitments: {e}");
                 }
             }
-            DaNetworkMsg::RequestHistoricSample {
+            DaNetworkMsg::RequestHistoricSampling {
                 session_id,
                 blob_ids,
                 block_id,

@@ -4,20 +4,20 @@ pub mod storage;
 pub mod verifier;
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeSet, HashMap, HashSet},
     fmt::{Debug, Display},
     marker::PhantomData,
     time::Duration,
 };
 
 use backend::{DaSamplingServiceBackend, SamplingState};
-use futures::{future::BoxFuture, stream::FuturesUnordered, FutureExt as _};
-use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};
+use futures::{future::BoxFuture, stream::FuturesUnordered, FutureExt as _, Stream};
+use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
 use network::NetworkAdapter;
-use nomos_core::da::BlobId;
+use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId};
 use nomos_da_network_core::protocols::sampling::errors::SamplingError;
 use nomos_da_network_service::{
-    backends::libp2p::common::{CommitmentsEvent, SamplingEvent},
+    backends::libp2p::common::{CommitmentsEvent, HistoricSamplingEvent, SamplingEvent},
     NetworkService,
 };
 use nomos_storage::StorageService;
@@ -37,6 +37,14 @@ use tokio::sync::oneshot;
 use tokio_stream::StreamExt as _;
 use tracing::{error, instrument};
 use verifier::{kzgrs::KzgrsDaVerifier, VerifierBackend};
+
+const HISTORICAL_SAMPLING_TIMEOUT: Duration = Duration::from_secs(30);
+
+struct PendingTasks<'a> {
+    long_tasks: &'a mut FuturesUnordered<BoxFuture<'static, ()>>,
+    sampling_continuations:
+        &'a mut FuturesUnordered<BoxFuture<'static, (BlobId, Option<DaSharesCommitments>)>>,
+}
 
 pub type DaSamplingService<SamplingBackend, SamplingNetwork, SamplingStorage, RuntimeServiceId> =
     GenericDaSamplingService<
@@ -61,6 +69,12 @@ pub enum DaSamplingServiceMsg<BlobId> {
     },
     MarkInBlock {
         blobs_id: Vec<BlobId>,
+    },
+    RequestHistoricSampling {
+        session_id: SessionNumber,
+        block_id: HeaderId,
+        blob_ids: HashSet<BlobId>,
+        reply_channel: oneshot::Sender<bool>,
     },
 }
 
@@ -134,12 +148,8 @@ where
     SamplingBackend::Settings: Clone,
     SamplingNetwork: NetworkAdapter<RuntimeServiceId> + Send + Sync + 'static,
     SamplingStorage: DaStorageAdapter<RuntimeServiceId, Share = DaShare> + Send + Sync,
-    ShareVerifier: VerifierBackend<DaShare = DaShare> + Send + Sync,
+    ShareVerifier: VerifierBackend<DaShare = DaShare> + Send + Sync + Clone + 'static,
 {
-    #[expect(
-        clippy::needless_pass_by_ref_mut,
-        reason = "FuturesUnordered needs to be send and sync"
-    )]
     #[instrument(skip_all)]
     async fn handle_service_message(
         msg: <Self as ServiceData>::Message,
@@ -147,11 +157,12 @@ where
         storage_adapter: &SamplingStorage,
         sampler: &mut SamplingBackend,
         commitments_wait_duration: Duration,
-        long_tasks: &mut FuturesUnordered<BoxFuture<'_, ()>>,
-        sampling_continuations: &mut FuturesUnordered<
-            BoxFuture<'_, (BlobId, Option<DaSharesCommitments>)>,
-        >,
+        share_verifier: &ShareVerifier,
+        tasks: &mut PendingTasks<'_>,
     ) {
+        let (long_tasks, sampling_continuations) =
+            (&mut tasks.long_tasks, &mut tasks.sampling_continuations);
+
         match msg {
             DaSamplingServiceMsg::TriggerSampling { blob_id } => {
                 if matches!(sampler.init_sampling(blob_id).await, SamplingState::Init) {
@@ -217,6 +228,26 @@ where
             }
             DaSamplingServiceMsg::MarkInBlock { blobs_id } => {
                 sampler.mark_completed(&blobs_id).await;
+            }
+            DaSamplingServiceMsg::RequestHistoricSampling {
+                session_id,
+                block_id,
+                blob_ids,
+                reply_channel,
+            } => {
+                if let Some(future) = Self::request_and_wait_historic_sampling(
+                    network_adapter,
+                    share_verifier,
+                    session_id,
+                    block_id,
+                    blob_ids,
+                    reply_channel,
+                    HISTORICAL_SAMPLING_TIMEOUT,
+                )
+                .await
+                {
+                    long_tasks.push(future);
+                }
             }
         }
     }
@@ -377,6 +408,129 @@ where
         )
         .await
     }
+
+    async fn request_and_wait_historic_sampling(
+        network_adapter: &SamplingNetwork,
+        verifier: &ShareVerifier,
+        session_id: SessionNumber,
+        block_id: HeaderId,
+        blob_ids: HashSet<BlobId>,
+        reply_channel: oneshot::Sender<bool>,
+        timeout: Duration,
+    ) -> Option<BoxFuture<'static, ()>> {
+        let Ok(historic_stream) = network_adapter.listen_to_historic_sampling_messages().await
+        else {
+            if let Err(e) = reply_channel.send(false) {
+                tracing::error!("Failed to send historic sampling response: {}", e);
+            }
+            return None;
+        };
+
+        if network_adapter
+            .request_historic_sampling(session_id, block_id, blob_ids.clone())
+            .await
+            .is_err()
+        {
+            if let Err(e) = reply_channel.send(false) {
+                tracing::error!("Failed to send historic sampling response: {}", e);
+            }
+            return None;
+        }
+
+        let verifier = verifier.clone();
+        Some(
+            async move {
+                let result = Self::wait_for_historic_response(
+                    historic_stream,
+                    timeout,
+                    block_id,
+                    blob_ids,
+                    verifier,
+                )
+                .await;
+
+                if let Err(e) = reply_channel.send(result) {
+                    tracing::error!("Failed to send historic sampling result: {}", e);
+                }
+            }
+            .boxed(),
+        )
+    }
+
+    #[inline]
+    async fn wait_for_historic_response(
+        mut stream: impl Stream<Item = HistoricSamplingEvent> + Send + Unpin,
+        timeout: Duration,
+        target_block_id: HeaderId,
+        expected_blob_ids: HashSet<BlobId>,
+        verifier: ShareVerifier,
+    ) -> bool {
+        tokio::time::timeout(timeout, async move {
+            while let Some(event) = stream.next().await {
+                match event {
+                    HistoricSamplingEvent::HistoricSamplingSuccess {
+                        block_id,
+                        shares,
+                        commitments,
+                    } if block_id == target_block_id => {
+                        return Self::verify_historic_sampling(
+                            &expected_blob_ids,
+                            &shares,
+                            &commitments,
+                            &verifier,
+                        );
+                    }
+                    HistoricSamplingEvent::HistoricSamplingError { block_id, .. }
+                        if block_id == target_block_id =>
+                    {
+                        return false;
+                    }
+                    _ => (),
+                }
+            }
+            false
+        })
+        .await
+        .unwrap_or(false)
+    }
+
+    #[inline]
+    fn verify_historic_sampling(
+        expected_blob_ids: &HashSet<BlobId>,
+        shares: &HashMap<BlobId, Vec<DaLightShare>>,
+        commitments: &HashMap<BlobId, DaSharesCommitments>,
+        verifier: &ShareVerifier,
+    ) -> bool {
+        // Check counts match
+        if shares.len() != expected_blob_ids.len() || commitments.len() != expected_blob_ids.len() {
+            return false;
+        }
+
+        // Check all expected blobs are present
+        if !expected_blob_ids
+            .iter()
+            .all(|b| shares.contains_key(b) && commitments.contains_key(b))
+        {
+            return false;
+        }
+
+        // Verify all shares
+        // TODO: maybe spawn blocking so it yields while it verifies on a separate
+        // thread
+        for (blob_id, blob_shares) in shares {
+            let Some(blob_commitments) = commitments.get(blob_id) else {
+                return false;
+            };
+
+            for share in blob_shares {
+                if verifier.verify(blob_commitments, share).is_err() {
+                    return false;
+                }
+            }
+        }
+
+        true
+    }
 }
 
 impl<SamplingBackend, SamplingNetwork, SamplingStorage, ShareVerifier, RuntimeServiceId> ServiceData
@@ -420,7 +574,7 @@ where
     SamplingNetwork::Settings: Send + Sync,
     SamplingNetwork::Membership: MembershipHandler + Clone + 'static,
     SamplingStorage: DaStorageAdapter<RuntimeServiceId, Share = DaShare> + Send + Sync,
-    ShareVerifier: VerifierBackend<DaShare = DaShare> + Send + Sync,
+    ShareVerifier: VerifierBackend<DaShare = DaShare> + Send + Sync + Clone + 'static,
     ShareVerifier::Settings: Clone + Send + Sync,
     RuntimeServiceId: AsServiceId<Self>
         + AsServiceId<
@@ -507,8 +661,11 @@ where
                             &storage_adapter,
                             &mut sampler,
                             commitments_wait_duration,
-                            &mut long_tasks,
-                            &mut sampling_continuations,
+                            &share_verifier,
+                            &mut PendingTasks {
+                                long_tasks: &mut long_tasks,
+                                sampling_continuations: &mut sampling_continuations,
+                            }
                         ).await;
                     }
                     Some(sampling_message) = sampling_message_stream.next() => {

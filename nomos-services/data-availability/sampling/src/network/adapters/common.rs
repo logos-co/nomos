@@ -64,6 +64,23 @@ macro_rules! adapter_for {
                 Ok(())
             }
 
+            async fn request_historic_sampling(
+                &self,
+                session_id: SessionNumber,
+                block_id: HeaderId,
+                blob_ids: HashSet<BlobId>,
+            ) -> Result<(), DynError> {
+                self.network_relay
+                    .send(DaNetworkMsg::RequestHistoricSampling{
+                        session_id,
+                        block_id,
+                        blob_ids,
+                    })
+                    .await
+                    .expect("RequestHistoricSampling message should have been sent");
+                Ok(())
+            }
+
             async fn listen_to_sampling_messages(
                 &self,
             ) -> Result<Pin<Box<dyn Stream<Item = SamplingEvent> + Send>>, DynError> {
@@ -110,6 +127,32 @@ macro_rules! adapter_for {
                             }
                             _ => {
                                 unreachable!("Subscribing to commitments events should return a commitments only event stream");
+                            }
+                        }).boxed()
+                    })
+                    .map_err(|error| Box::new(error) as DynError)
+            }
+
+            async fn listen_to_historic_sampling_messages(
+                &self,
+            ) -> Result<Pin<Box<dyn Stream<Item = HistoricSamplingEvent> + Send>>, DynError> {
+                let (stream_sender, stream_receiver) = oneshot::channel();
+                self.network_relay
+                    .send(DaNetworkMsg::Subscribe {
+                        kind: $DaEventKind::HistoricSampling,
+                        sender: stream_sender,
+                    })
+                    .await
+                    .map_err(|(error, _)| error)?;
+                stream_receiver
+                    .await
+                    .map(|stream| {
+                        tokio_stream::StreamExt::filter_map(stream, |event| match event {
+                            $DaNetworkEvent::HistoricSampling(event) => {
+                                Some(event)
+                            }
+                            _ => {
+                                unreachable!("Subscribing to historic sampling events should return a historic sampling only event stream");
                             }
                         }).boxed()
                     })

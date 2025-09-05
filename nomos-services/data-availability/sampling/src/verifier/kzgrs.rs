@@ -24,6 +24,7 @@ impl fmt::Display for KzgrsDaVerifierError {
 
 impl std::error::Error for KzgrsDaVerifierError {}
 
+#[derive(Clone)]
 pub struct KzgrsDaVerifier {
     verifier: NomosKzgrsVerifier,
     domain_size: usize,

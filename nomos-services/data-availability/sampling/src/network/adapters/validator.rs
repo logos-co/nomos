@@ -1,14 +1,14 @@
-use std::{fmt::Debug, pin::Pin};
+use std::{collections::HashSet, fmt::Debug, pin::Pin};
 
 use futures::{Stream, StreamExt as _};
 use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};
 use libp2p_identity::PeerId;
-use nomos_core::da::BlobId;
+use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId};
 use nomos_da_network_core::SubnetworkId;
 use nomos_da_network_service::{
     api::ApiAdapter as ApiAdapterTrait,
     backends::libp2p::{
-        common::SamplingEvent,
+        common::{HistoricSamplingEvent, SamplingEvent},
         validator::{
             DaNetworkEvent, DaNetworkEventKind, DaNetworkMessage, DaNetworkValidatorBackend,
         },

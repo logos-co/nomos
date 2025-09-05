@@ -7,6 +7,7 @@ use crate::common::{
     Chunk,
 };
 
+#[derive(Clone)]
 pub struct DaVerifier {
     pub global_parameters: GlobalParameters,
 }
