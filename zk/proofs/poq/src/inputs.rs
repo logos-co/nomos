@@ -1,4 +1,4 @@
-use groth16::{Field, Fr, Groth16Input, Groth16InputDeser};
+use groth16::{Field as _, Fr, Groth16Input, Groth16InputDeser};
 use serde::{Deserialize, Serialize};
 
 use crate::{blend_inputs::{PoQBlendInputs, PoQBlendInputsJson, PoQBlendInputsData}, chain_inputs::{PoQChainInputs, PoQChainInputsJson}, common_inputs::{PoQCommonInputs, PoQCommonInputsJson}, wallet_inputs::{PoQWalletInputs, PoQWalletInputsJson, PoQWalletInputsData}, PoQChainInputsData, PoQCommonInputsData};
@@ -35,9 +35,9 @@ impl PoQWitnessInputs {
         blend: PoQBlendInputs,
     ) -> Result<Self, <PoQChainInputs as TryFrom<PoQChainInputsData>>::Error> {
         Ok(Self {
-            chain: chain.into(),
-            common: common.into(),
-            blend: blend.into(),
+            chain,
+            common,
+            blend,
             wallet: PoQWalletInputs::from(PoQWalletInputsData {
             slot: 2,
             note_value: 0,
@@ -95,8 +95,8 @@ pub struct PoQVerifierInput {
     core_quota: Groth16Input,
     leader_quota: Groth16Input,
     core_root: Groth16Input,
-    K_part_one: Groth16Input,
-    K_part_two: Groth16Input,
+    k_part_one: Groth16Input,
+    k_part_two: Groth16Input,
     pol_epoch_nonce: Groth16Input,
     pol_t0: Groth16Input,
     pol_t1: Groth16Input,
@@ -113,8 +113,8 @@ impl TryFrom<PoQVerifierInputJson> for PoQVerifierInput {
         core_quota,
         leader_quota,
         core_root,
-        K_part_one,
-        K_part_two,
+        k_part_one,
+        k_part_two,
         pol_epoch_nonce,
         pol_t0,
         pol_t1,
@@ -126,8 +126,8 @@ impl TryFrom<PoQVerifierInputJson> for PoQVerifierInput {
             core_quota: core_quota.try_into()?,
             leader_quota: leader_quota.try_into()?,
             core_root: core_root.try_into()?,
-            K_part_one: K_part_one.try_into()?,
-            K_part_two: K_part_two.try_into()?,
+            k_part_one: k_part_one.try_into()?,
+            k_part_two: k_part_two.try_into()?,
             pol_epoch_nonce: pol_epoch_nonce.try_into()?,
             pol_t0: pol_t0.try_into()?,
             pol_t1: pol_t1.try_into()?,
@@ -145,8 +145,8 @@ impl PoQVerifierInput {
             self.core_quota.into_inner(),
             self.leader_quota.into_inner(),
             self.core_root.into_inner(),
-            self.K_part_one.into_inner(),
-            self.K_part_two.into_inner(),
+            self.k_part_one.into_inner(),
+            self.k_part_two.into_inner(),
             self.pol_epoch_nonce.into_inner(),
             self.pol_t0.into_inner(),
             self.pol_t1.into_inner(),

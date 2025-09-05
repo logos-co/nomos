@@ -1,14 +1,6 @@
-use std::{
-    ops::{Deref as _, Div as _},
-    str::FromStr as _,
-    sync::LazyLock,
-};
-
-use groth16::{Field, Fr, Groth16Input, Groth16InputDeser};
+use groth16::{Field as _, Fr, Groth16Input, Groth16InputDeser};
 use num_bigint::BigUint;
-use num_traits::CheckedSub as _;
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 
 #[derive(Copy, Clone)]
 pub struct PoQCommonInputs {

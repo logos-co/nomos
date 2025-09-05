@@ -34,11 +34,11 @@ mod wallet_inputs;
 mod witness;
 
 use std::error::Error;
-use std::ops::{Deref, Div};
-use std::str::FromStr;
+use std::ops::{Deref as _, Div as _};
+use std::str::FromStr as _;
 use std::sync::LazyLock;
 use num_bigint::BigUint;
-use num_traits::CheckedSub;
+use num_traits::CheckedSub as _;
 pub use chain_inputs::{PolChainInputs, PolChainInputsData};
 use groth16::{Groth16Input, Groth16InputDeser, Groth16Proof, Groth16ProofJsonDeser};
 pub use inputs::PolWitnessInputs;

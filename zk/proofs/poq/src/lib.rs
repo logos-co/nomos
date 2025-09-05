@@ -185,8 +185,8 @@ mod tests {
 
         let witness_inputs = PoQWitnessInputs::from_core_node_data(
             chain_data.try_into().unwrap(),
-            common_data.try_into().unwrap(),
-            blend_data.try_into().unwrap(),
+            common_data.into(),
+            blend_data.into(),
         ).unwrap();
 
         let (proof, inputs) = prove(&witness_inputs).unwrap();
@@ -214,7 +214,7 @@ mod tests {
             index: 1,
         };
         let wallet_data = PoQWalletInputsData {
-            slot: 1435614687,
+            slot: 1_435_614_687,
             note_value: 50,
             transaction_hash: BigUint::from_str("21065390439947646370948402545392395624652238557579612986928505993617830869524").unwrap().into(),
             output_number: 3506,
@@ -327,13 +327,13 @@ mod tests {
                 .into_iter()
                 .map(|value| BigUint::from_str(value).unwrap().into())
                 .collect(),
-            starting_slot: 1403099973,
+            starting_slot: 1_403_099_973,
         };
 
         let witness_inputs = PoQWitnessInputs::from_leader_data(
-            chain_data.try_into().unwrap(),
-            common_data.try_into().unwrap(),
-            wallet_data.try_into().unwrap(),
+            chain_data,
+            common_data,
+            wallet_data,
         ).unwrap();
 
         let (proof, inputs) = prove(&witness_inputs).unwrap();

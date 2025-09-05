@@ -1,11 +1,5 @@
-use std::{
-    ops::{Deref as _, Div as _},
-    str::FromStr as _,
-};
-
 use groth16::{Fr, Groth16Input, Groth16InputDeser};
 use num_bigint::BigUint;
-use num_traits::CheckedSub as _;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use pol::{compute_lottery_values, P};
