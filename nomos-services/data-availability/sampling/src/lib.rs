@@ -4,15 +4,15 @@ pub mod storage;
 pub mod verifier;
 
 use std::{
-    collections::{BTreeSet, HashSet},
+    collections::{BTreeSet, HashMap, HashSet},
     fmt::{Debug, Display},
     marker::PhantomData,
     time::Duration,
 };
 
 use backend::{DaSamplingServiceBackend, SamplingState};
-use futures::{future::BoxFuture, stream::FuturesUnordered, FutureExt as _};
-use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};
+use futures::{future::BoxFuture, stream::FuturesUnordered, FutureExt as _, Stream};
+use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
 use network::NetworkAdapter;
 use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId};
 use nomos_da_network_core::protocols::sampling::errors::SamplingError;
@@ -420,7 +420,9 @@ where
     ) -> Option<BoxFuture<'static, ()>> {
         let Ok(historic_stream) = network_adapter.listen_to_historic_sampling_messages().await
         else {
-            let _ = reply_channel.send(false);
+            if let Err(e) = reply_channel.send(false) {
+                tracing::error!("Failed to send historic sampling response: {}", e);
+            }
             return None;
         };
 
@@ -429,68 +431,105 @@ where
             .await
             .is_err()
         {
-            let _ = reply_channel.send(false);
+            if let Err(e) = reply_channel.send(false) {
+                tracing::error!("Failed to send historic sampling response: {}", e);
+            }
             return None;
         }
 
         let verifier = verifier.clone();
         Some(
             async move {
-                let result = tokio::time::timeout(timeout, async move {
-                    let mut stream = historic_stream;
-                    while let Some(event) = stream.next().await {
-                        match event {
-                            HistoricSamplingEvent::HistoricSamplingSuccess {
-                                block_id: received_block_id,
-                                shares,
-                                commitments,
-                            } if received_block_id == block_id => {
-                                let requested = blob_ids;
-                                if shares.len() != requested.len()
-                                    || commitments.len() != requested.len()
-                                {
-                                    return false;
-                                }
-                                if !requested
-                                    .iter()
-                                    .all(|b| shares.contains_key(b) && commitments.contains_key(b))
-                                {
-                                    return false;
-                                }
+                let result = Self::wait_for_historic_response(
+                    historic_stream,
+                    timeout,
+                    block_id,
+                    blob_ids,
+                    verifier,
+                )
+                .await;
 
-                                // todo: maybe spawn blocking so it yields while it verifies on a
-                                // separate thread
-                                for (blob_id, blob_shares) in &shares {
-                                    if let Some(blob_commitments) = commitments.get(blob_id) {
-                                        for share in blob_shares {
-                                            if verifier.verify(blob_commitments, share).is_err() {
-                                                return false;
-                                            }
-                                        }
-                                    } else {
-                                        return false;
-                                    }
-                                }
-                                return true;
-                            }
-                            HistoricSamplingEvent::HistoricSamplingError {
-                                block_id: received_block_id,
-                                ..
-                            } if received_block_id == block_id => {
-                                return false;
-                            }
-                            _ => (),
-                        }
-                    }
-                    false
-                })
-                .await
-                .unwrap_or(false);
-
-                let _ = reply_channel.send(result);
+                if let Err(e) = reply_channel.send(result) {
+                    tracing::error!("Failed to send historic sampling result: {}", e);
+                }
             }
             .boxed(),
         )
+    }
+
+    #[inline]
+    async fn wait_for_historic_response(
+        mut stream: impl Stream<Item = HistoricSamplingEvent> + Send + Unpin,
+        timeout: Duration,
+        target_block_id: HeaderId,
+        expected_blob_ids: HashSet<BlobId>,
+        verifier: ShareVerifier,
+    ) -> bool {
+        tokio::time::timeout(timeout, async move {
+            while let Some(event) = stream.next().await {
+                match event {
+                    HistoricSamplingEvent::HistoricSamplingSuccess {
+                        block_id,
+                        shares,
+                        commitments,
+                    } if block_id == target_block_id => {
+                        return Self::verify_historic_sampling(
+                            &expected_blob_ids,
+                            &shares,
+                            &commitments,
+                            &verifier,
+                        );
+                    }
+                    HistoricSamplingEvent::HistoricSamplingError { block_id, .. }
+                        if block_id == target_block_id =>
+                    {
+                        return false;
+                    }
+                    _ => (),
+                }
+            }
+            false
+        })
+        .await
+        .unwrap_or(false)
+    }
+
+    #[inline]
+    fn verify_historic_sampling(
+        expected_blob_ids: &HashSet<BlobId>,
+        shares: &HashMap<BlobId, Vec<DaLightShare>>,
+        commitments: &HashMap<BlobId, DaSharesCommitments>,
+        verifier: &ShareVerifier,
+    ) -> bool {
+        // Check counts match
+        if shares.len() != expected_blob_ids.len() || commitments.len() != expected_blob_ids.len() {
+            return false;
+        }
+
+        // Check all expected blobs are present
+        if !expected_blob_ids
+            .iter()
+            .all(|b| shares.contains_key(b) && commitments.contains_key(b))
+        {
+            return false;
+        }
+
+        // Verify all shares
+        // TODO: maybe spawn blocking so it yields while it verifies on a separate
+        // thread
+        for (blob_id, blob_shares) in shares {
+            let Some(blob_commitments) = commitments.get(blob_id) else {
+                return false;
+            };
+
+            for share in blob_shares {
+                if verifier.verify(blob_commitments, share).is_err() {
+                    return false;
+                }
+            }
+        }
+
+        true
     }
 }
 
