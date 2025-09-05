@@ -40,6 +40,17 @@ pub trait StorageBackend: StorageBackendApi + Sized {
         items: HashMap<Bytes, Bytes>,
     ) -> Result<(), <Self as StorageBackend>::Error>;
     async fn load(&mut self, key: &[u8]) -> Result<Option<Bytes>, <Self as StorageBackend>::Error>;
+
+    async fn multi_get(
+        &mut self,
+        keys: &[&[u8]],
+    ) -> Result<Vec<Option<Bytes>>, <Self as StorageBackend>::Error> {
+        let mut results = Vec::with_capacity(keys.len());
+        for key in keys {
+            results.push(self.load(key).await?);
+        }
+        Ok(results)
+    }
     /// Loads all values whose keys start with the given prefix.
     async fn load_prefix(
         &mut self,

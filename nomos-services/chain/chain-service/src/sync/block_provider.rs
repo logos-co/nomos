@@ -535,7 +535,7 @@ where
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use std::{collections::BTreeMap, num::NonZero};
 
     use cryptarchia_engine::Config;
@@ -663,7 +663,7 @@ mod tests {
     }
 
     #[expect(dead_code, reason = "Fix in a separate PR")]
-    struct TestEnv {
+    pub struct TestEnv {
         service: overwatch::overwatch::Overwatch<RuntimeServiceId>,
         storage_relay: StorageRelay<RocksBackend>,
         cryptarchia: cryptarchia_engine::Cryptarchia<HeaderId>,
@@ -925,7 +925,7 @@ mod tests {
             );
         }
 
-        fn make_test_proof() -> nomos_core::proofs::leader_proof::Risc0LeaderProof {
+        pub fn make_test_proof() -> nomos_core::proofs::leader_proof::Risc0LeaderProof {
             let public_inputs = LeaderPublic::new(
                 BigUint::from(1u8).into(),
                 BigUint::from(2u8).into(),

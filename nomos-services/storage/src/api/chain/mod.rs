@@ -1,15 +1,21 @@
 pub mod requests;
 
-use std::{collections::BTreeMap, error::Error, num::NonZeroUsize, ops::RangeInclusive};
+use std::{
+    collections::{BTreeMap, HashMap},
+    error::Error,
+    num::NonZeroUsize,
+    ops::RangeInclusive,
+};
 
 use async_trait::async_trait;
 use cryptarchia_engine::Slot;
-use nomos_core::header::HeaderId;
+use nomos_core::{header::HeaderId, mantle::TxHash};
 
 #[async_trait]
 pub trait StorageChainApi {
     type Error: Error + Send + Sync + 'static;
     type Block: Send + Sync;
+    type Tx: Send + Sync;
 
     async fn get_block(&mut self, header_id: HeaderId) -> Result<Option<Self::Block>, Self::Error>;
 
@@ -37,4 +43,16 @@ pub trait StorageChainApi {
         slot_range: RangeInclusive<Slot>,
         limit: NonZeroUsize,
     ) -> Result<Vec<HeaderId>, Self::Error>;
+
+    async fn store_transactions(
+        &mut self,
+        transactions: HashMap<TxHash, Self::Tx>,
+    ) -> Result<(), Self::Error>;
+
+    async fn get_transactions(
+        &mut self,
+        tx_hashes: &[TxHash],
+    ) -> Result<Vec<Self::Tx>, Self::Error>;
+
+    async fn remove_transactions(&mut self, tx_hashes: &[TxHash]) -> Result<(), Self::Error>;
 }

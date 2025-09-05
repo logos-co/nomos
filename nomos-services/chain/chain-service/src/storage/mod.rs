@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use cryptarchia_engine::Slot;
 use futures::future::join_all;
-use nomos_core::header::HeaderId;
+use nomos_core::{header::HeaderId, mantle::TxHash};
 use nomos_storage::{backends::StorageBackend, StorageService};
 use overwatch::services::{relay::OutboundRelay, ServiceData};
 
@@ -12,6 +12,7 @@ use overwatch::services::{relay::OutboundRelay, ServiceData};
 pub trait StorageAdapter<RuntimeServiceId> {
     type Backend: StorageBackend + Send + Sync + 'static;
     type Block: Send;
+    type Tx: Send;
 
     async fn new(
         network_relay: OutboundRelay<
@@ -66,4 +67,16 @@ pub trait StorageAdapter<RuntimeServiceId> {
         &self,
         blocks: BTreeMap<Slot, HeaderId>,
     ) -> Result<(), overwatch::DynError>;
+
+    async fn store_transactions(
+        &self,
+        transactions: Vec<Self::Tx>,
+    ) -> Result<(), overwatch::DynError>;
+
+    async fn get_transactions(
+        &self,
+        tx_hashes: &[TxHash],
+    ) -> Result<Vec<Self::Tx>, overwatch::DynError>;
+
+    async fn remove_transactions(&self, tx_hashes: &[TxHash]) -> Result<(), overwatch::DynError>;
 }

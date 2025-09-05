@@ -6,11 +6,11 @@ use serde::{Deserialize, Serialize};
 pub const BEDROCK_VERSION: u8 = 1;
 
 use crate::{
+    codec::SerdeOp,
     crypto::Hasher,
     proofs::leader_proof::{LeaderProof, Risc0LeaderProof},
     utils::{display_hex_bytes_newtype, serde_bytes_newtype},
 };
-use crate::codec::SerdeOp;
 
 #[derive(Clone, Debug, Eq, PartialEq, Copy, Hash, PartialOrd, Ord)]
 pub struct HeaderId([u8; 32]);
@@ -199,8 +199,8 @@ pub enum Error {
 #[test]
 fn test_serde() {
     assert_eq!(
-        <HeaderId as crate::codec::SerdeOp>::deserialize::<HeaderId>(
-            &<HeaderId as crate::codec::SerdeOp>::serialize(&HeaderId([0; 32]))
+        <HeaderId as SerdeOp>::deserialize::<HeaderId>(
+            &<HeaderId as SerdeOp>::serialize(&HeaderId([0; 32]))
                 .expect("HeaderId should be able to be serialized")
         )
         .unwrap(),
