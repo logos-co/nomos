@@ -1,11 +1,13 @@
 use blake2::Digest as _;
 use cryptarchia_engine::Slot;
+use ed25519_dalek::Signer as _;
 use groth16::fr_to_bytes;
 use serde::{Deserialize, Serialize};
 
 pub const BEDROCK_VERSION: u8 = 1;
 
 use crate::{
+    codec::SerializeOp as _,
     crypto::Hasher,
     proofs::leader_proof::{Groth16LeaderProof, LeaderProof},
     utils::{display_hex_bytes_newtype, serde_bytes_newtype},
@@ -20,8 +22,22 @@ pub struct ContentId([u8; 32]);
 #[derive(Clone, Debug, Eq, PartialEq, Copy)]
 pub struct Nonce([u8; 32]);
 
+#[derive(Clone, Debug, Eq, PartialEq, Copy, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum Version {
+    Bedrock = BEDROCK_VERSION,
+}
+
+impl Version {
+    #[must_use]
+    pub const fn to_bytes(self) -> [u8; 1] {
+        [self as u8]
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Header {
+    version: Version,
     parent_block: HeaderId,
     slot: Slot,
     block_root: ContentId,
@@ -30,13 +46,18 @@ pub struct Header {
 
 impl Header {
     #[must_use]
+    pub const fn version(&self) -> &Version {
+        &self.version
+    }
+
+    #[must_use]
     pub const fn parent(&self) -> HeaderId {
         self.parent_block
     }
 
     fn update_hasher(&self, h: &mut Hasher) {
         h.update(b"BLOCK_ID_V1");
-        h.update([BEDROCK_VERSION]);
+        h.update(self.version.to_bytes());
         h.update(self.parent_block.0);
         h.update(self.slot.to_le_bytes());
         h.update(self.block_root.0);
@@ -59,8 +80,21 @@ impl Header {
     }
 
     #[must_use]
+    pub const fn block_root(&self) -> &ContentId {
+        &self.block_root
+    }
+
+    #[must_use]
     pub const fn slot(&self) -> Slot {
         self.slot
+    }
+
+    pub fn sign(
+        &self,
+        signing_key: &ed25519_dalek::SigningKey,
+    ) -> Result<ed25519_dalek::Signature, crate::block::Error> {
+        let header_bytes = self.to_bytes()?;
+        Ok(signing_key.sign(&header_bytes))
     }
 
     #[must_use]
@@ -71,6 +105,7 @@ impl Header {
         proof_of_leadership: Groth16LeaderProof,
     ) -> Self {
         Self {
+            version: Version::Bedrock,
             parent_block,
             slot,
             block_root,
