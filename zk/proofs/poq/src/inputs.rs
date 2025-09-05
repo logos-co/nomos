@@ -1,12 +1,7 @@
 use groth16::{Field, Fr, Groth16Input, Groth16InputDeser};
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    blend_inputs::{PoQBlendInputs, PoQBlendInputsJson, PoQBlendInputsData},
-    chain_inputs::{PoQChainInputs, PoQChainInputsJson},
-    common_inputs::{PoQCommonInputs, PoQCommonInputsJson},
-    wallet_inputs::{PoQWalletInputs, PoQWalletInputsJson, PoQWalletInputsData},
-};
+use crate::{blend_inputs::{PoQBlendInputs, PoQBlendInputsJson, PoQBlendInputsData}, chain_inputs::{PoQChainInputs, PoQChainInputsJson}, common_inputs::{PoQCommonInputs, PoQCommonInputsJson}, wallet_inputs::{PoQWalletInputs, PoQWalletInputsJson, PoQWalletInputsData}, PoQChainInputsData, PoQCommonInputsData};
 
 #[derive(Clone, Serialize)]
 #[serde(into = "PoQInputsJson", rename_all = "snake_case")]
@@ -20,15 +15,18 @@ pub struct PoQWitnessInputs {
 impl PoQWitnessInputs {
 
     pub fn from_leader_data(
-        chain: PoQChainInputs,
-        common: PoQCommonInputs,
-        wallet: PoQWalletInputs,
-    ) -> Self {
-        Self { chain, common, blend: PoQBlendInputs::from( PoQBlendInputsData {
-            core_sk: Fr::ZERO,
-            core_path: vec![Fr::ZERO; 20],
-            core_path_selectors: vec![false; 20],
-        } ), wallet }
+        chain: PoQChainInputsData,
+        common: PoQCommonInputsData,
+        wallet: PoQWalletInputsData,
+    ) -> Result<Self, <PoQChainInputs as TryFrom<PoQChainInputsData>>::Error> {
+        Ok(Self { chain: chain.try_into()?,
+            common: common.into(),
+            blend: PoQBlendInputs::from( PoQBlendInputsData {
+                core_sk: Fr::ZERO,
+                core_path: vec![Fr::ZERO; 20],
+                core_path_selectors: vec![false; 20],
+            } ),
+            wallet: wallet.into() })
     }
 
     pub fn from_core_node_data(
