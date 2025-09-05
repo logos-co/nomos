@@ -52,7 +52,7 @@ members = [
   "zk/groth16",
   "zk/poseidon2",
   "zk/proofs/pol",
-  "zk/proofs/poq"
+  "zk/proofs/poq",
 ]
 resolver = "2"
 
