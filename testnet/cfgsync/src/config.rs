@@ -260,9 +260,9 @@ pub fn create_membership_configs(ids: &[[u8; 32]], hosts: &[Host]) -> Vec<Genera
     }
 
     let mock_backend_settings = MockMembershipBackendSettings {
-        session_size_blocks: 1,
-        session_zero_membership: membership_entry,
-        session_zero_locators_mapping: initial_locators_mapping,
+        session_sizes: HashMap::from([(ServiceType::DataAvailability, 4)]),
+        session_zero_memberships: membership_entry,
+        session_zero_locators: initial_locators_mapping,
     };
 
     let config = GeneralMembershipConfig {

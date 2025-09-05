@@ -343,7 +343,8 @@ mempool:
     nanos: 0
 membership:
   backend:
-    session_size_blocks: 4320
-    session_zero_membership: {}
-    session_zero_locators_mapping: {}
+    session_sizes:
+      0: 4320  # DataAvailability - 4320 blocks per session
+    session_zero_memberships: {}
+    session_zero_locators: {}
 sdp:

@@ -348,7 +348,7 @@ where
     type Error = hyper::Error;
     type Settings = AxumBackendSettings;
 
-    async fn new(settings: Self::Settings) -> Result<Self, Self::Error>
+    async fn new    (settings: Self::Settings) -> Result<Self, Self::Error>
     where
         Self: Sized,
     {

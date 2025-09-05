@@ -12,53 +12,63 @@ use serde::{Deserialize, Serialize};
 use super::{MembershipBackend, MembershipBackendError};
 use crate::{backends::NewSesssion, MembershipProviders};
 
-type MockMembershipEntry = HashMap<ServiceType, HashSet<ProviderId>>;
+#[derive(Debug, Clone)]
+struct SessionState {
+    session_number: SessionNumber,
+    membership: HashSet<ProviderId>,
+    locators: HashMap<ProviderId, BTreeSet<Locator>>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MockMembershipBackendSettings {
-    pub session_size_blocks: u32,
-    pub session_zero_membership: MockMembershipEntry,
-    pub session_zero_locators_mapping: HashMap<ServiceType, HashMap<ProviderId, BTreeSet<Locator>>>,
+    pub session_sizes: HashMap<ServiceType, u32>,
+    // Initial state for each service type
+    pub session_zero_memberships: HashMap<ServiceType, HashSet<ProviderId>>,
+    pub session_zero_locators: HashMap<ServiceType, HashMap<ProviderId, BTreeSet<Locator>>>,
 }
 
 pub struct MockMembershipBackend {
-    // Only store the latest completed session
-    active_session_id: SessionNumber,
-    active_session_membership: MockMembershipEntry,
-    active_session_locators: HashMap<ServiceType, HashMap<ProviderId, BTreeSet<Locator>>>,
-
-    // Current session state
+    active_sessions: HashMap<ServiceType, SessionState>,
+    forming_sessions: HashMap<ServiceType, SessionState>,
     latest_block_number: BlockNumber,
-    session_size: u32,
-
-    // In-flight session being formed
-    forming_session_id: SessionNumber,
-    forming_session_updates: MockMembershipEntry,
-    forming_session_locators: HashMap<ServiceType, HashMap<ProviderId, BTreeSet<Locator>>>,
+    session_sizes: HashMap<ServiceType, u32>,
 }
 
 #[async_trait::async_trait]
 impl MembershipBackend for MockMembershipBackend {
     type Settings = MockMembershipBackendSettings;
-    fn init(settings: MockMembershipBackendSettings) -> Self {
-        Self {
-            active_session_id: 0,
-            active_session_membership: settings.session_zero_membership.clone(),
-            active_session_locators: settings.session_zero_locators_mapping.clone(),
-            latest_block_number: 0,
-            session_size: settings.session_size_blocks,
-            // Start forming session 1 immediately as session 0 is seeded
-            forming_session_id: 1,
-            forming_session_updates: settings.session_zero_membership,
-            forming_session_locators: settings.session_zero_locators_mapping,
-        }
-    }
 
-    async fn get_latest_providers(
-        &self,
-        service_type: ServiceType,
-    ) -> Result<MembershipProviders, MembershipBackendError> {
-        Ok(self.get_active_session_snapshot(service_type))
+    fn init(settings: MockMembershipBackendSettings) -> Self {
+        let mut active_sessions = HashMap::new();
+        let mut forming_sessions = HashMap::new();
+
+        for (service_type, members) in settings.session_zero_memberships {
+            let locators = settings
+                .session_zero_locators
+                .get(&service_type)
+                .cloned()
+                .unwrap_or_default();
+
+            let session_0 = SessionState {
+                session_number: 0,
+                membership: members.clone(),
+                locators: locators.clone(),
+            };
+
+            active_sessions.insert(service_type, session_0.clone());
+
+            // Forming starts at session 1
+            let mut session_1 = session_0;
+            session_1.session_number = 1;
+            forming_sessions.insert(service_type, session_1);
+        }
+
+        Self {
+            active_sessions,
+            forming_sessions,
+            latest_block_number: 0,
+            session_sizes: settings.session_sizes,
+        }
     }
 
     async fn update(
@@ -78,101 +88,84 @@ impl MembershipBackend for MockMembershipBackend {
             return Err(MembershipBackendError::BlockFromPast);
         }
 
-        // Apply updates to forming session
-        for FinalizedBlockEventUpdate {
-            service_type,
-            provider_id,
-            state,
-            locators,
-        } in update.updates
-        {
-            let service_data = self
-                .forming_session_updates
-                .entry(service_type)
-                .or_default();
-
-            match state {
-                nomos_core::sdp::FinalizedDeclarationState::Active => {
-                    self.forming_session_locators
-                        .entry(service_type)
-                        .or_default()
-                        .insert(provider_id, locators);
-
-                    service_data.insert(provider_id);
-                }
-                nomos_core::sdp::FinalizedDeclarationState::Inactive
-                | nomos_core::sdp::FinalizedDeclarationState::Withdrawn => {
-                    service_data.remove(&provider_id);
-                    self.forming_session_locators
-                        .entry(service_type)
-                        .or_default()
-                        .remove(&provider_id);
-                }
+        // Apply updates to forming sessions of relevant service types
+        for event_update in update.updates {
+            if let Some(forming_session) = self.forming_sessions.get_mut(&event_update.service_type)
+            {
+                forming_session.apply_update(&event_update);
             }
         }
 
         self.latest_block_number = block_number;
 
-        let next_session_id = self.block_to_session(block_number + 1);
+        // Check which services complete their sessions at this block
+        let mut completed_sessions = HashMap::new();
 
-        // Check if forming session is complete
-        if self.forming_session_id <= next_session_id {
-            // Move forming session to active
-            self.active_session_id = self.forming_session_id;
-            self.active_session_membership = self.forming_session_updates.clone();
-            self.active_session_locators = self.forming_session_locators.clone();
+        for (service_type, session_size) in &self.session_sizes {
+            let next_session = (block_number + 1) / BlockNumber::from(*session_size);
 
-            // Prepare result
-            let result = self
-                .active_session_membership
-                .keys()
-                .map(|service_type| {
-                    (
-                        *service_type,
-                        self.get_active_session_snapshot(*service_type),
-                    )
-                })
-                .collect();
+            if let Some(forming_session) = self.forming_sessions.get(service_type) {
+                // Check if forming session should be promoted
+                if forming_session.session_number <= next_session {
+                    // Clone forming session to promote it
+                    let promoted_session = forming_session.clone();
 
-            // Start next session
-            self.forming_session_id += 1;
-            self.forming_session_updates = self.active_session_membership.clone();
-            self.forming_session_locators = self.active_session_locators.clone();
+                    // Get snapshot before promoting
+                    completed_sessions.insert(*service_type, promoted_session.to_snapshot());
 
-            Ok(Some(result))
-        } else {
-            // Session still forming
-            Ok(None)
+                    // Promote forming to active
+                    self.active_sessions
+                        .insert(*service_type, promoted_session.clone());
+
+                    // Start new forming session with incremented session number
+                    let mut new_forming = promoted_session;
+                    new_forming.session_number = next_session + 1;
+                    self.forming_sessions.insert(*service_type, new_forming);
+                }
+            }
         }
+
+        Ok(if completed_sessions.is_empty() {
+            None
+        } else {
+            Some(completed_sessions)
+        })
+    }
+
+    async fn get_latest_providers(
+        &self,
+        service_type: ServiceType,
+    ) -> Result<MembershipProviders, MembershipBackendError> {
+        Ok(self
+            .active_sessions
+            .get(&service_type)
+            .map_or_else(|| (0, HashMap::new()), SessionState::to_snapshot))
     }
 }
 
-impl MockMembershipBackend {
-    const fn block_to_session(&self, block_number: BlockNumber) -> SessionNumber {
-        block_number / (self.session_size as BlockNumber)
+impl SessionState {
+    fn apply_update(&mut self, update: &FinalizedBlockEventUpdate) {
+        match update.state {
+            nomos_core::sdp::FinalizedDeclarationState::Active => {
+                self.membership.insert(update.provider_id);
+                self.locators
+                    .insert(update.provider_id, update.locators.clone());
+            }
+            nomos_core::sdp::FinalizedDeclarationState::Inactive
+            | nomos_core::sdp::FinalizedDeclarationState::Withdrawn => {
+                self.membership.remove(&update.provider_id);
+                self.locators.remove(&update.provider_id);
+            }
+        }
     }
 
-    fn get_active_session_snapshot(&self, service_type: ServiceType) -> MembershipProviders {
-        let snapshot = self
-            .active_session_membership
-            .get(&service_type)
-            .map(|providers| {
-                providers
-                    .iter()
-                    .map(|pid| {
-                        let locs = self
-                            .active_session_locators
-                            .get(&service_type)
-                            .and_then(|m| m.get(pid))
-                            .cloned()
-                            .unwrap_or_default();
-                        (*pid, locs)
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        (self.active_session_id, snapshot)
+    fn to_snapshot(&self) -> MembershipProviders {
+        let providers = self
+            .membership
+            .iter()
+            .map(|pid| (*pid, self.locators.get(pid).cloned().unwrap_or_default()))
+            .collect();
+        (self.session_number, providers)
     }
 }
 
@@ -238,9 +231,9 @@ mod tests {
             .insert(p1, p1_locs.clone());
 
         let settings = MockMembershipBackendSettings {
-            session_size_blocks: 3,
-            session_zero_membership: session0_membership,
-            session_zero_locators_mapping: session0_locators,
+            session_sizes: HashMap::from([(service, 3)]),
+            session_zero_memberships: session0_membership,
+            session_zero_locators: session0_locators,
         };
 
         let backend = MockMembershipBackend::init(settings);
@@ -272,9 +265,9 @@ mod tests {
 
         // Small session size for easy boundary testing
         let settings = MockMembershipBackendSettings {
-            session_size_blocks: 3, // blocks 0,1,2 => session 0; 3,4,5 => session 1; etc.
-            session_zero_membership: session0_membership,
-            session_zero_locators_mapping: session0_locators,
+            session_sizes: HashMap::from([(service, 3)]),
+            session_zero_memberships: session0_membership,
+            session_zero_locators: session0_locators,
         };
 
         let mut backend = MockMembershipBackend::init(settings);
