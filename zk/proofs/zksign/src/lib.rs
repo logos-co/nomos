@@ -7,7 +7,7 @@ mod witness;
 
 use std::error::Error;
 
-use groth16::{Fr, Groth16Input, Groth16InputDeser, Groth16Proof, Groth16ProofJsonDeser};
+use groth16::{Groth16Input, Groth16InputDeser, Groth16Proof, Groth16ProofJsonDeser};
 pub use inputs::ZkSignWitnessInputs;
 pub use private::{PrivateKeysTryFromError, ZkSignPrivateKeysData};
 pub use public::ZkSignVerifierInputs;
@@ -37,13 +37,13 @@ pub enum ProveError {
 /// This function generates a proof for the given set of inputs.
 ///
 /// # Arguments
-/// - `inputs`: A reference to `PolWitnessInputs`, which contains the necessary
-///   data to generate the witness and construct the proof.
+/// - `inputs`: A reference to `ZkSignWitnessInputs`, which contains the
+///   necessary data to generate the witness and construct the proof.
 ///
 /// # Returns
-/// - `Ok((PoLProof, PolVerifierInput))`: On success, returns a tuple containing
-///   the generated proof (`PoLProof`) and the corresponding public inputs
-///   (`PolVerifierInput`).
+/// - `Ok((ZkSignProof, ZkSignVerifierInput))`: On success, returns a tuple
+///   containing the generated proof (`ZkSignProof`) and the corresponding
+///   public inputs (`ZkSignVerifierInput`).
 /// - `Err(ProveError)`: On failure, returns an error of type `ProveError`,
 ///   which can occur due to I/O errors or JSON (de)serialization errors.
 ///
@@ -75,8 +75,8 @@ pub fn prove(
 ///
 /// # Arguments
 ///
-/// - `proof`: A reference to the proof (`PoLProof`) that needs verification.
-/// - `public_inputs`: A reference to `PolVerifierInput`, which contains the
+/// - `proof`: A reference to the proof (`ZkSignProof`) that needs verification.
+/// - `public_inputs`: A reference to `ZkSignVerifierInput`, which contains the
 ///   public inputs against which the proof is verified.
 ///
 /// # Returns
@@ -95,7 +95,7 @@ pub fn verify(
     public_inputs: &ZkSignVerifierInputs,
 ) -> Result<bool, impl Error> {
     groth16::groth16_verify(
-        verification_key::POL_VK.as_ref(),
+        verification_key::ZKSIGN_VK.as_ref(),
         proof,
         &public_inputs.as_inputs(),
     )
@@ -103,6 +103,7 @@ pub fn verify(
 
 #[cfg(test)]
 mod tests {
+    use groth16::Fr;
     use num_bigint::BigUint;
     use poseidon2::{Digest as _, Poseidon2Bn254Hasher};
     use rand::RngCore as _;

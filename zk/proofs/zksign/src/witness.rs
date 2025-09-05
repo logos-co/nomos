@@ -30,8 +30,8 @@ impl AsRef<[u8]> for Witness {
 }
 
 pub fn generate_witness(inputs: &ZkSignWitnessInputs) -> Result<Witness, std::io::Error> {
-    let pol_inputs_json: ZkSignWitnessInputsJson = inputs.into();
+    let inputs_json: ZkSignWitnessInputsJson = inputs.into();
     let str_inputs: String =
-        serde_json::to_string(&pol_inputs_json).expect("Failed to serialize inputs");
+        serde_json::to_string(&inputs_json).expect("Failed to serialize inputs");
     witness_generator::generate_witness(&str_inputs, BINARY.as_path()).map(Witness)
 }

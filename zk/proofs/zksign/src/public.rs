@@ -1,4 +1,4 @@
-use groth16::{Field, Fr, Groth16Input, Groth16InputDeser};
+use groth16::{Field as _, Fr, Groth16Input, Groth16InputDeser};
 use serde::Deserialize;
 
 pub struct ZkSignVerifierInputs {
@@ -32,8 +32,8 @@ impl TryFrom<ZkSignVerifierInputsJson> for ZkSignVerifierInputs {
     type Error = ZkSignVerifierInputsJsonTryFromError;
 
     fn try_from(mut value: ZkSignVerifierInputsJson) -> Result<Self, Self::Error> {
-        let msg = value.0.pop().ok_or_else(|| Self::Error::EmptySlice)?;
-        Ok(ZkSignVerifierInputs {
+        let msg = value.0.pop().ok_or(Self::Error::EmptySlice)?;
+        Ok(Self {
             public_keys: value
                 .0
                 .into_iter()

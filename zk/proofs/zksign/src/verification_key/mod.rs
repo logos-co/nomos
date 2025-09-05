@@ -12,7 +12,7 @@ impl AsRef<Groth16PreparedVerificationKey> for ZkSignVerifyingKey {
     }
 }
 
-pub static POL_VK: LazyLock<ZkSignVerifyingKey> = LazyLock::new(|| {
+pub static ZKSIGN_VK: LazyLock<ZkSignVerifyingKey> = LazyLock::new(|| {
     let vk_json = include_bytes!("verification_key.json");
     let groth16_vk_json: Groth16VerificationKeyJsonDeser =
         serde_json::from_slice(vk_json).expect("Key should always be valid");
