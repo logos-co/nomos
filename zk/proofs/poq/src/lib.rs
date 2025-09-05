@@ -195,7 +195,7 @@ mod tests {
 
     #[expect(clippy::too_many_lines, reason = "For the sake of the test let it be")]
     #[test]
-    fn test_leader_node_full_flow() {
+    fn test_leader_full_flow() {
         let chain_data = PoQChainInputsData {
             session: 156,
             core_root: BigUint::from_str("17245194574930318657496521067216150592363395809120624186030395110066629172713").unwrap().into(),
