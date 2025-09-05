@@ -7,10 +7,11 @@ use std::{collections::BTreeSet, fmt::Display, time::Duration};
 
 use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 use cryptarchia_engine::Slot;
+use ed25519_dalek::SigningKey;
 use futures::{StreamExt as _, TryFutureExt as _};
 pub use leadership::LeaderConfig;
 use nomos_core::{
-    block::Block,
+    block::{Block, BuilderWithSignature},
     da,
     header::{Header, HeaderId},
     mantle::{AuthenticatedMantleTx, Op, Transaction, TxHash, TxSelect},
@@ -375,9 +376,8 @@ where
                                 match cryptarchia_api.process_leader_block(block.clone()).await {
                                     Ok(()) => {
                                         // Block successfully processed, now publish it to the network
-                                        blend_adapter.publish_block(
-                                            block,
-                                        ).await;
+                                        let proposal = block.to_proposal();
+                                        blend_adapter.publish_proposal(proposal).await;
                                     }
                                     Err(e) => {
                                         error!(target: LOG_TARGET, "Error processing local block: {:?}", e);
@@ -443,7 +443,7 @@ where
     Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash> + Send + Sync + 'static,
     Mempool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     Mempool::Settings: Clone + Send + Sync + 'static,
-    Mempool::Item: Transaction<Hash = Mempool::Key>
+    Mempool::Item: AuthenticatedMantleTx<Hash = Mempool::Key>
         + Debug
         + Clone
         + Eq
@@ -452,7 +452,6 @@ where
         + Send
         + Sync
         + 'static,
-    Mempool::Item: AuthenticatedMantleTx,
     MempoolNetAdapter: MempoolAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>
         + Send
         + Sync
@@ -498,9 +497,30 @@ where
                     })))
                     .collect::<Vec<_>>();
                 let content_id = [0; 32].into(); // TODO: calculate the actual content id
+                // TODO: Use correct derived one time key
+                let dummy_signing_key = SigningKey::from_bytes(&[1u8; 32]);
+                let header = Header::new(parent, content_id, slot, proof);
+
+                let Ok(signature) = header.sign(&dummy_signing_key) else {
+                    error!("Failed to sign header during block proposal");
+                    return None;
+                };
 
                 // TODO: this should probably be a proposal or be transformed into a proposal
-                let block = Block::new(Header::new(parent, content_id, slot, proof), txs);
+                let block = match Block::builder()
+                    .header(header)
+                    .and_then(|b| b.transactions(txs))
+                    .map(|b| b.service_reward(None))
+                    .and_then(|b| b.signature(signature))
+                    .and_then(BuilderWithSignature::build)
+                {
+                    Ok(block) => block,
+                    Err(e) => {
+                        error!("Failed to create valid block during proposal: {e}");
+                        return None;
+                    }
+                };
+
                 debug!("proposed block with id {:?}", block.header().id());
                 output = Some(block);
             }
@@ -518,6 +538,7 @@ async fn get_mempool_contents<Payload, Item, Key>(
 ) -> Result<Box<dyn Iterator<Item = Item> + Send>, oneshot::error::RecvError>
 where
     Key: Send,
+    Item: Send,
     Payload: Send,
 {
     let (reply_channel, rx) = oneshot::channel();

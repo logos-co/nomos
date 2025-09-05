@@ -26,7 +26,7 @@ use services_utils::{
 };
 
 use crate::{
-    MempoolMetrics, MempoolMsg,
+    MempoolMetrics, MempoolMsg, TransactionsByHashesResponse,
     backend::{Mempool, RecoverableMempool},
     network::NetworkAdapter as NetworkAdapterTrait,
     processor::{PayloadProcessor, tx::SignedTxProcessor},
@@ -115,6 +115,27 @@ where
             service_resources_handle,
             _phantom: PhantomData,
         }
+    }
+
+    fn partition_transactions_by_availability(
+        pool: &Pool,
+        hashes: Vec<Pool::Key>,
+    ) -> (Vec<Pool::Item>, Vec<Pool::Key>)
+    where
+        Pool::Item: Clone,
+    {
+        let mut found_transactions = Vec::new();
+        let mut not_found_hashes = Vec::new();
+
+        for hash in hashes {
+            if let Some(transaction) = pool.get_item(&hash).cloned() {
+                found_transactions.push(transaction);
+            } else {
+                not_found_hashes.push(hash);
+            }
+        }
+
+        (found_transactions, not_found_hashes)
     }
 }
 
@@ -341,6 +362,20 @@ where
                 reply_channel
                     .send(self.pool.view(ancestor_hint))
                     .unwrap_or_else(|_| tracing::debug!("could not send back pool view"));
+            }
+            MempoolMsg::GetTransactionsByHashes {
+                hashes,
+                reply_channel,
+            } => {
+                let (found_transactions, not_found_hashes) =
+                    Self::partition_transactions_by_availability(&self.pool, hashes);
+
+                let response =
+                    TransactionsByHashesResponse::new(found_transactions, not_found_hashes);
+
+                reply_channel.send(response).unwrap_or_else(|_| {
+                    tracing::debug!("could not send back transactions by hashes response");
+                });
             }
             MempoolMsg::MarkInBlock { ids, block } => {
                 self.pool.mark_in_block(&ids, block);

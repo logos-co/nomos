@@ -1,10 +1,10 @@
-use nomos_core::block::Block;
+use nomos_core::{block::Proposal, mantle::AuthenticatedMantleTx};
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum NetworkMessage<Tx>
 where
-    Tx: Clone + Eq,
+    Tx: AuthenticatedMantleTx + Clone,
 {
-    Block(Block<Tx>),
+    Proposal(Proposal<Tx>),
 }

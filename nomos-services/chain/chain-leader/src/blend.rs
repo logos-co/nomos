@@ -1,10 +1,10 @@
 use std::marker::PhantomData;
 
-use chain_common::NetworkMessage as ChainNetworkMessage;
+use chain_common::messages;
 use nomos_blend_service::message::{NetworkMessage, ServiceMessage};
-use nomos_core::{block::Block, codec::SerdeOp};
+use nomos_core::{block::Proposal, codec::SerdeOp, mantle::AuthenticatedMantleTx};
 use overwatch::services::{ServiceData, relay::OutboundRelay};
-use serde::Serialize;
+use serde::{Serialize, de::DeserializeOwned};
 use tracing::error;
 
 use crate::LOG_TARGET;
@@ -42,15 +42,15 @@ where
     <BlendService as ServiceData>::Message: Send,
     BlendService::BroadcastSettings: Clone + Sync,
 {
-    pub async fn publish_block<Tx>(&self, block: Block<Tx>)
+    pub async fn publish_proposal<Tx>(&self, proposal: Proposal<Tx>)
     where
-        Tx: Clone + Eq + Serialize + for<'de> serde::Deserialize<'de> + Send,
+        Tx: AuthenticatedMantleTx + Clone + Serialize + DeserializeOwned,
     {
         if let Err((e, _)) = self
             .relay
             .send(ServiceMessage::Blend(NetworkMessage {
-                message: <ChainNetworkMessage<Tx> as SerdeOp>::serialize(
-                    &ChainNetworkMessage::Block(block),
+                message: <messages::NetworkMessage<Tx> as SerdeOp>::serialize(
+                    &messages::NetworkMessage::Proposal(proposal),
                 )
                 .expect("NetworkMessage should be able to be serialized")
                 .to_vec(),
@@ -58,7 +58,7 @@ where
             }))
             .await
         {
-            error!(target: LOG_TARGET, "Failed to relay block to blend service: {e:?}");
+            error!(target: LOG_TARGET, "Failed to relay proposal to blend service: {e:?}");
         }
     }
 }
