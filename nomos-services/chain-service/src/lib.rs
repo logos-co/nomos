@@ -19,7 +19,7 @@ use std::{
 
 use cryptarchia_engine::{PrunedBlocks, Slot};
 use cryptarchia_sync::{GetTipResponse, ProviderResponse};
-use futures::StreamExt as _;
+use futures::{StreamExt as _, TryFutureExt as _};
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
 pub use nomos_blend_service::ServiceComponents as BlendServiceComponents;
@@ -1193,10 +1193,18 @@ where
         >,
     ) -> Option<Block<ClPool::Item>> {
         let mut output = None;
-        let txs = get_mempool_contents(relays.cl_mempool_relay().clone()).await;
-        match txs {
-            Ok(txs) => {
-                let txs = tx_selector.select_tx_from(txs).collect::<Vec<_>>();
+        let txs = get_mempool_contents(relays.cl_mempool_relay().clone()).map_err(DynError::from);
+        let blobs_ids = get_sampled_blobs(relays.sampling_relay().clone());
+        match futures::try_join!(txs, blobs_ids) {
+            Ok((txs, blobs)) => {
+                let txs = tx_selector
+                    .select_tx_from(txs.filter(|tx|
+                    // skip txs that try to include a blob which is not yet sampled
+                    tx.mantle_tx().ops.iter().all(|op| match op {
+                        Op::ChannelBlob(op) => blobs.contains(&op.blob),
+                        _ => true,
+                    })))
+                    .collect::<Vec<_>>();
                 let content_id = [0; 32].into(); // TODO: calculate the actual content id
                                                  // TODO: this should probably be a proposal or be transformed into a proposal
                 let block = Block::new(Header::new(parent, content_id, slot, proof), txs);
