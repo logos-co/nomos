@@ -2,13 +2,13 @@ use std::num::NonZeroU64;
 
 use futures::{Stream, StreamExt as _};
 use nomos_blend_scheduling::{
-    membership::Node, message_blend::CryptographicProcessorSettings,
+    membership::{Membership, Node},
+    message_blend::CryptographicProcessorSettings,
     message_scheduler::session_info::SessionInfo,
+    session::SessionEvent,
 };
 use nomos_utils::math::NonNegativeF64;
 use serde::{Deserialize, Serialize};
-use tokio::time::interval;
-use tokio_stream::wrappers::IntervalStream;
 
 use crate::settings::TimingSettings;
 
@@ -72,18 +72,37 @@ pub struct MessageDelayerSettingsExt {
 }
 
 impl<BackendSettings, NodeId> BlendConfig<BackendSettings, NodeId> {
-    pub(super) fn session_stream(&self) -> impl Stream<Item = SessionInfo> {
-        let membership_size = self.membership.len() + 1;
-        let static_quota_for_membership =
-            self.scheduler
-                .cover
-                .session_quota(&self.crypto, &self.time, membership_size);
-        IntervalStream::new(interval(self.time.session_duration()))
+    pub(super) fn session_info_stream(
+        &self,
+        session_event_stream: impl Stream<Item = SessionEvent<Membership<NodeId>>> + Send + 'static,
+    ) -> impl Stream<Item = SessionInfo> + Unpin
+    where
+        BackendSettings: Clone + Send + 'static,
+        NodeId: Clone + Send + 'static,
+    {
+        let settings = self.clone();
+        session_event_stream
+            .filter_map(move |event| {
+                let settings = settings.clone();
+                async move {
+                    match event {
+                        SessionEvent::NewSession(membership) => {
+                            Some(settings.scheduler.cover.session_quota(
+                                &settings.crypto,
+                                &settings.time,
+                                membership.size(),
+                            ))
+                        }
+                        SessionEvent::TransitionPeriodExpired => None,
+                    }
+                }
+            })
             .enumerate()
-            .map(move |(session_number, _)| SessionInfo {
-                core_quota: static_quota_for_membership,
+            .map(|(session_number, core_quota)| SessionInfo {
+                core_quota,
                 session_number: (session_number as u128).into(),
             })
+            .boxed()
     }
 
     pub(super) fn scheduler_settings(&self) -> nomos_blend_scheduling::message_scheduler::Settings {

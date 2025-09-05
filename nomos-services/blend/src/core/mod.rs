@@ -90,10 +90,10 @@ const CHANNEL_SIZE: usize = 10;
 impl<Backend, NodeId, Network, MembershipAdapter, RuntimeServiceId> ServiceCore<RuntimeServiceId>
     for BlendService<Backend, NodeId, Network, MembershipAdapter, RuntimeServiceId>
 where
-    Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId> + Send + Sync,
+    Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId> + Send + Sync + 'static,
     NodeId: Clone + Send + Eq + Hash + Sync + 'static,
     Network: NetworkAdapter<RuntimeServiceId, BroadcastSettings: Unpin> + Send + Sync,
-    MembershipAdapter: membership::Adapter + Send,
+    MembershipAdapter: membership::Adapter + Send + Sync + 'static,
     membership::ServiceMessage<MembershipAdapter>: Send + Sync + 'static,
     <MembershipAdapter as membership::Adapter>::Error: Send + Sync + 'static,
     RuntimeServiceId: AsServiceId<NetworkService<Network::Backend, RuntimeServiceId>>
@@ -134,23 +134,14 @@ where
         let network_relay = overwatch_handle.relay::<NetworkService<_, _>>().await?;
         let network_adapter = Network::new(network_relay);
 
-        let _membership_stream = MembershipAdapter::new(
+        let membership_adapter = MembershipAdapter::new(
             overwatch_handle
                 .relay::<<MembershipAdapter as membership::Adapter>::Service>()
                 .await?,
             blend_config.crypto.signing_private_key.public_key(),
-        )
-        .subscribe()
-        .await?;
-        // TODO: Use membership_stream once the membership/SDP services are ready to provide the real membership: https://github.com/logos-co/nomos/issues/1532
-
-        let session_stream = SessionEventStream::new(
-            Box::pin(constant_membership_stream(
-                membership::<Backend, BlakeRng, NodeId, RuntimeServiceId>(&blend_config),
-                blend_config.time.session_duration(),
-            )),
-            blend_config.time.session_transition_period(),
         );
+        let session_stream =
+            new_session_stream::<_, _, Backend, _>(&membership_adapter, &blend_config).await?;
 
         wait_until_services_are_ready!(
             &overwatch_handle,
@@ -160,8 +151,9 @@ where
         )
         .await?;
 
-        run::<Backend, _, _, _>(
+        run::<Backend, _, _, _, _>(
             session_stream,
+            &membership_adapter,
             inbound_relay,
             network_adapter,
             &blend_config,
@@ -179,8 +171,35 @@ where
     }
 }
 
-async fn run<Backend, NodeId, Network, RuntimeServiceId>(
+async fn new_session_stream<MembershipAdapter, NodeId, Backend, RuntimeServiceId>(
+    membership_adapter: &MembershipAdapter,
+    settings: &Settings<Backend, BlakeRng, NodeId, RuntimeServiceId>,
+) -> Result<
+    impl Stream<Item = SessionEvent<Membership<NodeId>>> + Send + Unpin,
+    MembershipAdapter::Error,
+>
+where
+    MembershipAdapter: membership::Adapter + Send + Sync,
+    // membership::ServiceMessage<MembershipAdapter>: Send + Sync + 'static,
+    // <MembershipAdapter as membership::Adapter>::Error: Send + Sync + 'static,
+    Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId>,
+    NodeId: Clone + Send + Eq + Hash + Sync + 'static,
+{
+    let _membership_stream = membership_adapter.subscribe().await?;
+    // TODO: Use membership_stream once the membership/SDP services are ready to provide the real membership: https://github.com/logos-co/nomos/issues/1532
+
+    Ok(SessionEventStream::new(
+        Box::pin(constant_membership_stream(
+            membership::<Backend, BlakeRng, NodeId, RuntimeServiceId>(settings),
+            settings.time.session_duration(),
+        )),
+        settings.time.session_transition_period(),
+    ))
+}
+
+async fn run<Backend, NodeId, Network, MembershipAdapter, RuntimeServiceId>(
     mut session_stream: impl Stream<Item = SessionEvent<Membership<NodeId>>> + Send + Unpin,
+    membership_adapter: &MembershipAdapter,
     mut local_data_messages: impl Stream<Item = ServiceMessage<Network::BroadcastSettings>>
         + Send
         + Unpin,
@@ -190,10 +209,12 @@ async fn run<Backend, NodeId, Network, RuntimeServiceId>(
     notify_ready: impl Fn(),
 ) -> Result<(), overwatch::DynError>
 where
-    Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId> + Send + Sync,
+    Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId> + Send + Sync + 'static,
     NodeId: Clone + Send + Eq + Hash + Sync + 'static,
     Network: NetworkAdapter<RuntimeServiceId, BroadcastSettings: Unpin> + Send + Sync,
-    RuntimeServiceId: Clone,
+    MembershipAdapter: membership::Adapter + Send + Sync + 'static,
+    <MembershipAdapter as membership::Adapter>::Error: Send + Sync + 'static,
+    RuntimeServiceId: Clone + 'static,
 {
     // Read the initial membership, expecting it to be yielded immediately.
     // We use 1s timeout to tolerate small delays.
@@ -227,8 +248,13 @@ where
     // Yields once every randomly-scheduled release round.
     let mut message_scheduler =
         UninitializedMessageScheduler::<_, _, ProcessedMessage<Network::BroadcastSettings>>::new(
-            // TODO: verify if this is correct
-            settings.session_stream(),
+            settings.session_info_stream(
+                new_session_stream::<MembershipAdapter, NodeId, Backend, RuntimeServiceId>(
+                    membership_adapter,
+                    settings,
+                )
+                .await?,
+            ),
             settings.scheduler_settings(),
             BlakeRng::from_entropy(),
         )
