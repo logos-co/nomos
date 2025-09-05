@@ -297,9 +297,6 @@ impl Mode {
 mod tests {
     use std::time::Duration;
 
-    use libp2p::Multiaddr;
-    use nomos_blend_message::crypto::{Ed25519PrivateKey, Ed25519PublicKey};
-    use nomos_blend_scheduling::membership::Node;
     use nomos_network::config::NetworkConfig;
     use overwatch::{
         overwatch::OverwatchRunner,
@@ -312,7 +309,10 @@ mod tests {
     use tokio::time::sleep;
 
     use super::*;
-    use crate::modes::broadcast_tests::{TestMessage, TestNetworkAdapter, TestNetworkBackend};
+    use crate::{
+        modes::broadcast_tests::{TestMessage, TestNetworkAdapter, TestNetworkBackend},
+        test_utils::membership::{membership, NodeId},
+    };
 
     /// Check if the instance is initialized successfully for each mode.
     #[test]
@@ -617,7 +617,7 @@ mod tests {
     impl CoreServiceComponents<RuntimeServiceId> for CoreService {
         type NetworkAdapter = TestNetworkAdapter;
         type BlendBackend = ();
-        type NodeId = u8;
+        type NodeId = NodeId;
         type Rng = ();
     }
 
@@ -665,27 +665,5 @@ mod tests {
             edge: (),
             network: NetworkConfig { backend: () },
         }
-    }
-
-    type NodeId = u8;
-
-    fn membership(ids: &[NodeId], local_id: NodeId) -> Membership<NodeId> {
-        let nodes = ids
-            .iter()
-            .copied()
-            .map(|id| Node {
-                id,
-                address: Multiaddr::empty(),
-                public_key: key(id).1,
-            })
-            .collect::<Vec<_>>();
-        let local_public_key = key(local_id).1;
-        Membership::new(&nodes, &local_public_key)
-    }
-
-    fn key(id: u8) -> (Ed25519PrivateKey, Ed25519PublicKey) {
-        let private_key = Ed25519PrivateKey::from([id; 32]);
-        let public_key = private_key.public_key();
-        (private_key, public_key)
     }
 }

@@ -2,6 +2,8 @@ pub mod backends;
 mod handlers;
 pub mod network;
 pub mod settings;
+#[cfg(test)]
+mod tests;
 
 use std::{
     fmt::{Debug, Display},
@@ -13,6 +15,7 @@ use std::{
 
 use async_trait::async_trait;
 use backends::BlendBackend;
+use fork_stream::StreamExt as _;
 use futures::{future::join_all, Stream, StreamExt as _};
 use network::NetworkAdapter;
 use nomos_blend_message::{crypto::random_sized_bytes, encap::DecapsulationOutput, PayloadType};
@@ -38,8 +41,7 @@ use overwatch::{
 use rand::{seq::SliceRandom as _, RngCore, SeedableRng as _};
 use serde::{Deserialize, Serialize};
 use services_utils::wait_until_services_are_ready;
-use tokio::{sync::mpsc, time::timeout};
-use tokio_stream::wrappers::ReceiverStream;
+use tokio::time::timeout;
 use tracing::{debug, error, info};
 
 use crate::{
@@ -83,8 +85,6 @@ where
     type StateOperator = NoOperator<Self::State>;
     type Message = ServiceMessage<Network::BroadcastSettings>;
 }
-
-const CHANNEL_SIZE: usize = 10;
 
 #[async_trait]
 impl<Backend, NodeId, Network, MembershipAdapter, RuntimeServiceId> ServiceCore<RuntimeServiceId>
@@ -141,7 +141,7 @@ where
             blend_config.crypto.signing_private_key.public_key(),
         );
         let session_stream =
-            new_session_stream::<_, _, Backend, _>(&membership_adapter, &blend_config).await?;
+            new_session_stream::<_, _, Backend, _>(&membership_adapter, &blend_config).await;
 
         wait_until_services_are_ready!(
             &overwatch_handle,
@@ -151,9 +151,8 @@ where
         )
         .await?;
 
-        run::<Backend, _, _, _, _>(
+        run::<Backend, _, _, _>(
             session_stream,
-            &membership_adapter,
             inbound_relay,
             network_adapter,
             &blend_config,
@@ -168,16 +167,17 @@ where
             },
         )
         .await
+        .map_err(|e| {
+            error!(target: LOG_TARGET, "Service '{}' is being terminated with error: {e:?}", <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID);
+            e.into()
+        })
     }
 }
 
 async fn new_session_stream<MembershipAdapter, NodeId, Backend, RuntimeServiceId>(
     membership_adapter: &MembershipAdapter,
     settings: &Settings<Backend, BlakeRng, NodeId, RuntimeServiceId>,
-) -> Result<
-    impl Stream<Item = SessionEvent<Membership<NodeId>>> + Send + Unpin,
-    MembershipAdapter::Error,
->
+) -> impl Stream<Item = SessionEvent<Membership<NodeId>>> + Send + Unpin
 where
     MembershipAdapter: membership::Adapter + Send + Sync,
     // membership::ServiceMessage<MembershipAdapter>: Send + Sync + 'static,
@@ -185,21 +185,23 @@ where
     Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId>,
     NodeId: Clone + Send + Eq + Hash + Sync + 'static,
 {
-    let _membership_stream = membership_adapter.subscribe().await?;
+    let _membership_stream = membership_adapter
+        .subscribe()
+        .await
+        .expect("Membership service should be ready");
     // TODO: Use membership_stream once the membership/SDP services are ready to provide the real membership: https://github.com/logos-co/nomos/issues/1532
 
-    Ok(SessionEventStream::new(
+    SessionEventStream::new(
         Box::pin(constant_membership_stream(
             membership::<Backend, BlakeRng, NodeId, RuntimeServiceId>(settings),
             settings.time.session_duration(),
         )),
         settings.time.session_transition_period(),
-    ))
+    )
 }
 
-async fn run<Backend, NodeId, Network, MembershipAdapter, RuntimeServiceId>(
-    mut session_stream: impl Stream<Item = SessionEvent<Membership<NodeId>>> + Send + Unpin,
-    membership_adapter: &MembershipAdapter,
+async fn run<Backend, NodeId, Network, RuntimeServiceId>(
+    session_stream: impl Stream<Item = SessionEvent<Membership<NodeId>>> + Send + Unpin + 'static,
     mut local_data_messages: impl Stream<Item = ServiceMessage<Network::BroadcastSettings>>
         + Send
         + Unpin,
@@ -207,17 +209,18 @@ async fn run<Backend, NodeId, Network, MembershipAdapter, RuntimeServiceId>(
     settings: &Settings<Backend, BlakeRng, NodeId, RuntimeServiceId>,
     overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
     notify_ready: impl Fn(),
-) -> Result<(), overwatch::DynError>
+) -> Result<(), Error>
 where
     Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId> + Send + Sync + 'static,
     NodeId: Clone + Send + Eq + Hash + Sync + 'static,
     Network: NetworkAdapter<RuntimeServiceId, BroadcastSettings: Unpin> + Send + Sync,
-    MembershipAdapter: membership::Adapter + Send + Sync + 'static,
-    <MembershipAdapter as membership::Adapter>::Error: Send + Sync + 'static,
     RuntimeServiceId: Clone + 'static,
 {
+    let session_stream_fork = session_stream.fork();
+
     // Read the initial membership, expecting it to be yielded immediately.
     // We use 1s timeout to tolerate small delays.
+    let mut session_stream = session_stream_fork.clone();
     let SessionEvent::NewSession(membership) =
         timeout(Duration::from_secs(1), session_stream.next())
             .await
@@ -231,15 +234,14 @@ where
         &settings.crypto,
         settings.minimum_network_size.get() as usize,
         membership.clone(),
-    )?;
+    )
+    .expect("The initial membership should satisfy the core node condition");
 
-    let (session_event_sender, session_event_receiver) =
-        mpsc::channel::<SessionEvent<Membership<NodeId>>>(CHANNEL_SIZE);
     let mut backend = <Backend as BlendBackend<NodeId, BlakeRng, RuntimeServiceId>>::new(
         settings.clone(),
         overwatch_handle.clone(),
         membership,
-        Box::pin(ReceiverStream::new(session_event_receiver)),
+        session_stream_fork.clone().boxed(),
         BlakeRng::from_entropy(),
     );
     // Yields new messages received via Blend peers.
@@ -248,13 +250,7 @@ where
     // Yields once every randomly-scheduled release round.
     let mut message_scheduler =
         UninitializedMessageScheduler::<_, _, ProcessedMessage<Network::BroadcastSettings>>::new(
-            settings.session_info_stream(
-                new_session_stream::<MembershipAdapter, NodeId, Backend, RuntimeServiceId>(
-                    membership_adapter,
-                    settings,
-                )
-                .await?,
-            ),
+            settings.session_info_stream(session_stream_fork.clone()),
             settings.scheduler_settings(),
             BlakeRng::from_entropy(),
         )
@@ -275,7 +271,7 @@ where
                 handler.handle_release_round(round_info, &backend, &network_adapter).await;
             }
             Some(event) = session_stream.next() => {
-                handler = handle_session_event(event, handler, &session_event_sender, &settings.crypto, settings.minimum_network_size.get() as usize).await?;
+                handler = handle_session_event(&event, handler, &settings.crypto, settings.minimum_network_size.get() as usize)?;
             }
         }
     }
@@ -432,32 +428,24 @@ async fn handle_release_round<NodeId, Rng, Backend, NetAdapter, RuntimeServiceId
 /// It returns a new [`Membership`] and a new [`CryptographicProcessor`]
 /// if the event is a [`SessionEvent::NewSession`].
 /// Otherwise, it returns [`None`].
-async fn handle_session_event<NodeId>(
-    event: SessionEvent<Membership<NodeId>>,
+fn handle_session_event<NodeId>(
+    event: &SessionEvent<Membership<NodeId>>,
     message_handler: MessageHandler<NodeId>,
-    forwarder: &mpsc::Sender<SessionEvent<Membership<NodeId>>>,
     crypto_settings: &CryptographicProcessorSettings,
     minimmal_network_size: usize,
 ) -> Result<MessageHandler<NodeId>, Error>
 where
     NodeId: Clone + Eq + Hash + Send,
 {
-    let new_message_handler = if let SessionEvent::NewSession(ref membership) = event {
+    if let SessionEvent::NewSession(membership) = event {
         MessageHandler::try_new_with_core_condition_check(
             crypto_settings,
             minimmal_network_size,
             membership.clone(),
-        )?
+        )
     } else {
-        message_handler
-    };
-
-    forwarder
-        .send(event)
-        .await
-        .expect("Channel shouldn't be closed");
-
-    Ok(new_message_handler)
+        Ok(message_handler)
+    }
 }
 
 // TODO: Remove this and use the membership service stream instead: https://github.com/logos-co/nomos/issues/1532
