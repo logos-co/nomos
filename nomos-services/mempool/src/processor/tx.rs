@@ -1,6 +1,6 @@
-use std::error::Error;
+use std::{error::Error, time::Duration};
 
-use futures::{stream::FuturesUnordered, StreamExt};
+use futures::stream::FuturesUnordered;
 use nomos_core::{
     da::BlobId,
     mantle::{ops::Op, tx::SignedMantleTx},
@@ -8,16 +8,16 @@ use nomos_core::{
 use nomos_da_sampling::DaSamplingServiceMsg;
 use overwatch::services::{relay::OutboundRelay, ServiceData};
 
-use super::PayloadProcessor;
+use super::{PayloadProcessor, SamplingFutureResult};
 
 #[derive(thiserror::Error, Debug)]
 pub enum SignedTxProcessorError {
     #[error("Error from sampling relay {0}")]
-    Sampling(Box<dyn Error + Send>),
+    Sampling(Box<dyn Error + Send + Sync>),
 }
 
 impl SignedTxProcessorError {
-    fn sampling_error(err: impl Error + Send + 'static) -> Self {
+    fn sampling_error(err: impl Error + Send + Sync + 'static) -> Self {
         Self::Sampling(Box::new(err))
     }
 }
@@ -47,41 +47,27 @@ where
         Self { sampling_relay }
     }
 
-    async fn process(&self, payload: &Self::Payload) -> Result<(), Vec<Self::Error>> {
-        let all_futures: FuturesUnordered<_> = payload
-            .mantle_tx
-            .ops
-            .iter()
-            .filter_map(|op| {
-                if let Op::ChannelBlob(blob_op) = op {
-                    Some(async {
-                        self.sampling_relay
-                            .send(DaSamplingServiceMsg::TriggerSampling {
-                                blob_id: blob_op.blob,
-                            })
-                            .await
-                            .map_err(|(e, _)| SignedTxProcessorError::sampling_error(e))
-                    })
-                } else {
-                    None
-                }
-            })
-            .collect();
+    async fn process(
+        &self,
+        trigger_sampling_tasks: &mut FuturesUnordered<SamplingFutureResult<Self::Error>>,
+        trigger_sampling_delay: Duration,
+        payload: &Self::Payload,
+    ) -> Result<(), Vec<Self::Error>> {
+        for op in &payload.mantle_tx.ops {
+            if let Op::ChannelBlob(blob_op) = op {
+                let sampling_relay = self.sampling_relay.clone();
+                let blob_id = blob_op.blob;
 
-        // In this case errors are about sending the `TriggerSampling` message to the DA
-        // Sampling Service. These errors do not represent the result of
-        // sampling itself, but might indicate that sending the message to
-        // sampling service failed.
-        let errors: Vec<SignedTxProcessorError> = StreamExt::collect::<Vec<_>>(all_futures)
-            .await
-            .into_iter()
-            .filter_map(Result::err)
-            .collect();
-
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(errors)
+                trigger_sampling_tasks.push(Box::pin(async move {
+                    tokio::time::sleep(trigger_sampling_delay).await;
+                    sampling_relay
+                        .send(DaSamplingServiceMsg::TriggerSampling { blob_id })
+                        .await
+                        .map_err(|(e, _)| SignedTxProcessorError::sampling_error(e))
+                }));
+            }
         }
+
+        Ok(())
     }
 }

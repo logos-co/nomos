@@ -105,6 +105,7 @@ fn test_mock_mempool() {
                 network_adapter: (),
                 processor: (),
                 recovery_path: recovery_file_path.clone(),
+                trigger_sampling_delay: std::time::Duration::from_secs(1),
             },
             logging: TracingSettings::default(),
             no_service: (),
@@ -171,6 +172,7 @@ fn test_mock_mempool() {
             network_adapter: (),
             processor: (),
             recovery_path: recovery_file_path.clone(),
+            trigger_sampling_delay: std::time::Duration::from_secs(1),
         });
         let recovered_state = recovery_backend
             .load_state()
