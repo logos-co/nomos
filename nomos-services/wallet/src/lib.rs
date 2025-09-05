@@ -45,7 +45,6 @@ pub struct WalletService<CryptarchiaService, RuntimeServiceId>
 where
     CryptarchiaService: ServiceData,
 {
-    wallet: Wallet, // TAI: do we even need to keep the wallet state in the struct? I think we can initialize it in run() and store it as a local variable there.
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
 }
 
@@ -71,30 +70,29 @@ where
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
         _initial_state: Self::State,
     ) -> Result<Self, DynError> {
-        let settings = service_resources_handle
-            .settings_handle
-            .notifier()
-            .get_updated_settings();
-
-        // TODO: query cryptarchia for LIB and LIB LedgerState
-        let lib = HeaderId::from([0u8; 32]);
-        let lib_ledger = LedgerState::from_utxos([]);
-        let wallet = Wallet::from_lib(settings.known_keys.clone(), lib, lib_ledger);
-
         Ok(Self {
-            wallet,
             service_resources_handle,
         })
     }
 
     async fn run(mut self) -> Result<(), DynError> {
         let Self {
-            mut wallet,
             service_resources_handle,
         } = self;
 
+        let settings = service_resources_handle
+            .settings_handle
+            .notifier()
+            .get_updated_settings();
+
         let status_updater = service_resources_handle.status_updater;
         let mut inbound_relay = service_resources_handle.inbound_relay;
+
+        // TODO: Query cryptarchia for LIB and LIB LedgerState
+        // For now, use genesis as placeholder
+        let lib = HeaderId::from([0u8; 32]);
+        let lib_ledger = LedgerState::from_utxos([]);
+        let mut wallet = Wallet::from_lib(settings.known_keys.clone(), lib, lib_ledger);
 
         status_updater.notify_ready();
         eprintln!("Wallet service is ready");
