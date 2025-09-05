@@ -3,6 +3,8 @@ use bytes::Bytes;
 use poseidon2::Fr;
 
 use crate::{header::Header, wire};
+
+mod serialization;
 pub type TxHash = [u8; 32];
 pub type BlockNumber = u64;
 pub type SessionNumber = u64;
@@ -22,6 +24,10 @@ pub struct References {
 }
 
 /// A block
+#[expect(
+    clippy::unsafe_derive_deserialize,
+    reason = "Temporary dummy signature"
+)]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Block<Tx> {
     header: Header,
@@ -67,6 +73,25 @@ impl<Tx> Block<Tx> {
     #[must_use]
     pub fn into_transactions(self) -> Vec<Tx> {
         self.transactions
+    }
+
+    /// Convert Block to Proposal for network transmission
+    /// TODO: Implement
+    #[must_use]
+    pub fn to_proposal(&self) -> Proposal {
+        let references = References {
+            service_reward: None,
+            mempool_transactions: Vec::new(),
+        };
+
+        // SAFETY: Temporary dummy signature
+        let signature = unsafe { std::mem::zeroed() };
+
+        Proposal {
+            header: self.header.clone(),
+            references,
+            signature,
+        }
     }
 }
 
