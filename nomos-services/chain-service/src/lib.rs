@@ -10,7 +10,7 @@ mod sync;
 
 use core::fmt::Debug;
 use std::{
-    collections::{BTreeSet, HashSet},
+    collections::{BTreeSet, HashMap, HashSet},
     fmt::Display,
     hash::Hash,
     path::PathBuf,
@@ -24,7 +24,7 @@ pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
 pub use nomos_blend_service::ServiceComponents as BlendServiceComponents;
 use nomos_core::{
-    block::Block,
+    block::{Block, Proposal},
     da::{
         self,
         blob::{info::DispersedBlobInfo, metadata::Metadata as BlobMetadata},
@@ -400,7 +400,7 @@ impl<
         RuntimeServiceId,
     >
 where
-    NetAdapter: NetworkAdapter<RuntimeServiceId, Block = Block<ClPool::Item>>
+    NetAdapter: NetworkAdapter<RuntimeServiceId, Block = Block<ClPool::Item>, Proposal = Proposal>
         + Clone
         + Send
         + Sync
@@ -575,7 +575,7 @@ where
             NetAdapter::new(network_adapter_settings, relays.network_relay().clone()).await;
         let tx_selector = TxS::new(transaction_selector_settings);
 
-        let mut incoming_blocks = network_adapter.blocks_stream().await?;
+        let mut incoming_proposals = network_adapter.proposals_stream().await?;
         let mut chainsync_events = network_adapter.chainsync_events_stream().await?;
         let sync_blocks_provider: BlockProvider<_, _> =
             BlockProvider::new(relays.storage_adapter().storage_relay.clone());
@@ -711,41 +711,51 @@ where
                         );
                     }
 
-                    Some(block) = incoming_blocks.next() => {
-                        Self::log_received_block(&block);
-
-                        if cryptarchia.has_block(&block.header().id()) {
-                            info!(target: LOG_TARGET, "Block {:?} already processed, ignoring", block.header().id());
-                            continue;
-                        }
-
-                        // Process the received block and update the cryptarchia state.
-                        match Self::process_block_and_update_state(
-                            cryptarchia.clone(),
-                            &leader,
-                            block.clone(),
-                            &storage_blocks_to_remove,
-                            &relays,
-                            &self.block_subscription_sender,
-                            &self.service_resources_handle.state_updater
+                    Some(proposal) = incoming_proposals.next() => {
+                        match reconstruct_block_from_proposal(
+                            proposal.clone(),
+                            relays.cl_mempool_relay().clone()
                         ).await {
-                            Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
-                                cryptarchia = new_cryptarchia;
-                                storage_blocks_to_remove = new_storage_blocks_to_remove;
+                            Ok(block) => {
+                                Self::log_received_block(&block);
 
-                                orphan_downloader.remove_orphan(&block.header().id());
+                                if cryptarchia.has_block(&block.header().id()) {
+                                    info!(target: LOG_TARGET, "Block {:?} already processed, ignoring", block.header().id());
+                                    continue;
+                                }
 
-                                info!(counter.consensus_processed_blocks = 1);
-                            }
-                            Err(Error::Ledger(nomos_ledger::LedgerError::ParentNotFound(parent))
-                                | Error::Consensus(cryptarchia_engine::Error::ParentMissing(parent)),) => {
+                                 // Process the received block and update the cryptarchia state.
+                                match Self::process_block_and_update_state(
+                                    cryptarchia.clone(),
+                                    &leader,
+                                    block.clone(),
+                                    &storage_blocks_to_remove,
+                                    &relays,
+                                    &self.block_subscription_sender,
+                                    &self.service_resources_handle.state_updater
+                                ).await {
+                                    Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
+                                        cryptarchia = new_cryptarchia;
+                                        storage_blocks_to_remove = new_storage_blocks_to_remove;
 
-                                orphan_downloader.enqueue_orphan(block.header().id(), cryptarchia.tip(), cryptarchia.lib());
+                                        orphan_downloader.remove_orphan(&block.header().id());
 
-                                error!(target: LOG_TARGET, "Received block with parent {:?} that is not in the ledger state. Ignoring block.", parent);
+                                        info!(counter.consensus_processed_blocks = 1);
+                                    }
+                                    Err(Error::Ledger(nomos_ledger::LedgerError::ParentNotFound(parent))
+                                        | Error::Consensus(cryptarchia_engine::Error::ParentMissing(parent)),) => {
+
+                                        orphan_downloader.enqueue_orphan(block.header().id(), cryptarchia.tip(), cryptarchia.lib());
+
+                                        error!(target: LOG_TARGET, "Received proposal with parent {:?} that is not in the ledger state. Ignoring proposal.", parent);
+                                    }
+                                    Err(e) => {
+                                        error!(target: LOG_TARGET, "Error processing reconstructed block: {:?}", e);
+                                    }
+                                }
                             }
                             Err(e) => {
-                                error!(target: LOG_TARGET, "Error processing block: {:?}", e);
+                                error!(target: LOG_TARGET, "Failed to reconstruct block from proposal: {:?}", e);
                             }
                         }
                     }
@@ -787,9 +797,7 @@ where
                                         cryptarchia = new_cryptarchia;
                                         storage_blocks_to_remove = new_storage_blocks_to_remove;
 
-                                        blend_adapter.publish_block(
-                                    block,
-                                ).await;
+                                        blend_adapter.publish_proposal(block.to_proposal()).await;
                                     }
                                     Err(e) => {
                                         error!(target: LOG_TARGET, "Error processing local block: {:?}", e);
@@ -900,7 +908,7 @@ impl<
         RuntimeServiceId,
     >
 where
-    NetAdapter: NetworkAdapter<RuntimeServiceId, Block = Block<ClPool::Item>>
+    NetAdapter: NetworkAdapter<RuntimeServiceId, Block = Block<ClPool::Item>, Proposal = Proposal>
         + Clone
         + Send
         + Sync
@@ -1642,4 +1650,29 @@ where
         .await
         .map_err(|(error, _)| Box::new(error) as DynError)?;
     receiver.await.map_err(|error| Box::new(error) as DynError)
+}
+
+/// Reconstruct a Block from a Proposal by looking up transactions from mempool
+async fn reconstruct_block_from_proposal<Payload, Item, Key>(
+    proposal: Proposal,
+    mempool: OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>,
+) -> Result<Block<Item>, DynError>
+where
+    Key: Send + Eq + Hash,
+    Payload: Send,
+    Item: Clone + Transaction<Hash = Key>,
+{
+    let mempool_contents = get_mempool_contents(mempool).await?;
+
+    let _tx_map: HashMap<Key, Item> = mempool_contents.map(|tx| (tx.hash(), tx)).collect();
+
+    let reconstructed_transactions = Vec::new();
+    for _tx_ref in &proposal.references().mempool_transactions {
+        // TODO: Convert Fr to TxHash and select transaction
+        tracing::warn!("Transaction reference lookup not fully implemented yet");
+    }
+
+    let header = proposal.header().clone();
+
+    Ok(Block::new(header, reconstructed_transactions))
 }
