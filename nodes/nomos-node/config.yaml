@@ -162,8 +162,17 @@ cryptarchia:
     consensus_config:
       security_param: 10
       active_slot_coeff: 0.9
+    service_params:
+      lock_period: 10
+      inactivity_period: 20
+      retention_period: 100
+      timestamp: 0
+    min_stake:
+      threshold: 1
+      timestamp: 0
   genesis_id: 0x0000000000000000000000000000000000000000000000000000000000000000
   genesis_state:
+    block_number: 0
     cryptarchia_ledger:
       utxos:
         0:
@@ -295,6 +304,10 @@ cryptarchia:
     mantle_ledger:
       channels:
         channels: {}
+      sdp:
+        declarations: {}
+      locked_notes:
+        locked_notes: {}
   time:
     slot_duration: [2, 0]
     chain_start_time: [2025, 41, 9, 38, 29, 993653000, 0, 0, 0]

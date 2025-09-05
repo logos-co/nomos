@@ -103,7 +103,7 @@ impl From<SignedMantleTx> for MantleTx {
 pub struct SignedMantleTx {
     pub mantle_tx: MantleTx,
     // TODO: make this more efficient
-    pub ops_profs: Vec<Option<OpProof>>,
+    pub ops_proofs: Vec<Option<OpProof>>,
     pub ledger_tx_proof: ZkSignature,
 }
 
@@ -130,7 +130,7 @@ impl AuthenticatedMantleTx for SignedMantleTx {
         self.mantle_tx
             .ops
             .iter()
-            .zip(self.ops_profs.iter().map(Option::as_ref))
+            .zip(self.ops_proofs.iter().map(Option::as_ref))
     }
 }
 

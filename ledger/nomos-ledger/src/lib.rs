@@ -14,6 +14,7 @@ pub use cryptarchia::{EpochState, UtxoTree};
 use cryptarchia_engine::Slot;
 use mantle::LedgerState as MantleLedger;
 use nomos_core::{
+    block::BlockNumber,
     mantle::{gas::GasConstants, AuthenticatedMantleTx, NoteId, Utxo},
     proofs::leader_proof,
 };
@@ -37,6 +38,8 @@ pub enum LedgerError<Id> {
     ZeroValueNote,
     #[error("Mantle error: {0}")]
     Mantle(#[from] mantle::Error),
+    #[error("Locked note: {0:?}")]
+    LockedNote(NoteId),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -117,6 +120,7 @@ where
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct LedgerState {
+    block_number: BlockNumber,
     cryptarchia_ledger: CryptarchiaLedger,
     mantle_ledger: MantleLedger,
 }
@@ -134,7 +138,7 @@ impl LedgerState {
         Constants: GasConstants,
     {
         self.try_apply_header(slot, proof, config)?
-            .try_apply_contents::<_, Constants>(txs)
+            .try_apply_contents::<_, Constants>(config, txs)
     }
 
     /// Apply header-related changed to the ledger state. These include
@@ -154,6 +158,10 @@ impl LedgerState {
             .try_apply_header::<LeaderProof, Id>(slot, proof, config)?;
         // If we need to do something for mantle ops/rewards, this would be the place.
         Ok(Self {
+            block_number: self
+                .block_number
+                .checked_add(1)
+                .expect("Nomos lived long and prospered"),
             cryptarchia_ledger,
             mantle_ledger: self.mantle_ledger,
         })
@@ -162,19 +170,28 @@ impl LedgerState {
     /// Apply the contents of an update to the ledger state.
     fn try_apply_contents<Id, Constants: GasConstants>(
         mut self,
+        config: &Config,
         txs: impl Iterator<Item = impl AuthenticatedMantleTx>,
     ) -> Result<Self, LedgerError<Id>> {
         for tx in txs {
             let _balance;
-            (self.cryptarchia_ledger, _balance) =
-                self.cryptarchia_ledger.try_apply_tx::<_, Constants>(&tx)?;
-            self.mantle_ledger = self.mantle_ledger.try_apply_tx::<Constants>(tx)?;
+            (self.cryptarchia_ledger, _balance) = self
+                .cryptarchia_ledger
+                .try_apply_tx::<_, Constants>(self.mantle_ledger.locked_notes(), &tx)?;
+
+            self.mantle_ledger = self.mantle_ledger.try_apply_tx::<Constants>(
+                self.block_number,
+                config,
+                self.cryptarchia_ledger.latest_commitments(),
+                tx,
+            )?;
         }
         Ok(self)
     }
 
     pub fn from_utxos(utxos: impl IntoIterator<Item = Utxo>) -> Self {
         Self {
+            block_number: 0,
             cryptarchia_ledger: CryptarchiaLedger::from_utxos(utxos),
             mantle_ledger: MantleLedger::default(),
         }
@@ -232,7 +249,7 @@ mod tests {
             storage_gas_price: 1,
         };
         SignedMantleTx {
-            ops_profs: vec![],
+            ops_proofs: vec![],
             ledger_tx_proof: DummyZkSignature::prove(
                 nomos_core::proofs::zksig::ZkSignaturePublic {
                     pks,
@@ -243,7 +260,7 @@ mod tests {
         }
     }
 
-    fn create_test_ledger() -> (Ledger<HeaderId>, HeaderId, Utxo) {
+    pub fn create_test_ledger() -> (Ledger<HeaderId>, HeaderId, Utxo) {
         let utxo = utxo();
         let genesis_state = LedgerState::from_utxos([utxo]);
         let ledger = Ledger::new([0; 32], genesis_state, config());

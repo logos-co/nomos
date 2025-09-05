@@ -136,6 +136,7 @@ impl Cryptarchia {
         let id = header.id();
         let parent = header.parent();
         let slot = header.slot();
+        // A block number of this block if it's applied to the chain.
         let ledger = self.ledger.try_update::<_, MainnetGasConstants>(
             id,
             parent,
