@@ -12,7 +12,10 @@ pub use inputs::ZkSignWitnessInputs;
 pub use private::{PrivateKeysTryFromError, ZkSignPrivateKeysData};
 pub use public::ZkSignVerifierInputs;
 
-use crate::{proving_key::ZKSIGN_PROVING_KEY_PATH, public::ZkSignVerifierInputsJson};
+use crate::{
+    proving_key::ZKSIGN_PROVING_KEY_PATH,
+    public::{ZkSignVerifierInputsJson, ZkSignVerifierInputsJsonTryFromError},
+};
 
 pub type ZkSignProof = Groth16Proof;
 
@@ -26,6 +29,8 @@ pub enum ProveError {
     Groth16JsonInput(<Groth16Input as TryFrom<Groth16InputDeser>>::Error),
     #[error(transparent)]
     Groth16JsonProof(<Groth16Proof as TryFrom<Groth16ProofJsonDeser>>::Error),
+    #[error(transparent)]
+    VerifierInputsJson(ZkSignVerifierInputsJsonTryFromError),
 }
 
 ///
@@ -61,7 +66,7 @@ pub fn prove(
         proof.try_into().map_err(ProveError::Groth16JsonProof)?,
         verifier_inputs
             .try_into()
-            .map_err(ProveError::Groth16JsonInput)?,
+            .map_err(ProveError::VerifierInputsJson)?,
     ))
 }
 
@@ -89,8 +94,11 @@ pub fn verify(
     proof: &ZkSignProof,
     public_inputs: &ZkSignVerifierInputs,
 ) -> Result<bool, impl Error> {
-    let inputs: [Fr; _] = public_inputs.public_keys.map(Groth16Input::into_inner);
-    groth16::groth16_verify(verification_key::POL_VK.as_ref(), proof, &inputs)
+    groth16::groth16_verify(
+        verification_key::POL_VK.as_ref(),
+        proof,
+        &public_inputs.as_inputs(),
+    )
 }
 
 #[cfg(test)]

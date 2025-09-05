@@ -1,30 +1,48 @@
-use groth16::{Groth16Input, Groth16InputDeser};
-use serde::{Deserialize, Serialize};
+use groth16::{Field, Fr, Groth16Input, Groth16InputDeser};
+use serde::Deserialize;
 
 pub struct ZkSignVerifierInputs {
     pub public_keys: [Groth16Input; 32],
     pub msg: Groth16Input,
 }
 
-#[derive(Deserialize, Serialize)]
-pub struct ZkSignVerifierInputsJson {
-    public_keys: [Groth16InputDeser; 32],
-    msg: Groth16InputDeser,
+impl ZkSignVerifierInputs {
+    pub fn as_inputs(&self) -> [Fr; 33] {
+        let mut buff = [Fr::ZERO; 33];
+        buff[..32].copy_from_slice(self.public_keys.map(Groth16Input::into_inner).as_ref());
+        buff[32] = self.msg.into_inner();
+        buff
+    }
 }
 
-impl TryFrom<ZkSignVerifierInputsJson> for ZkSignVerifierInputs {
-    type Error = <Groth16Input as TryFrom<Groth16InputDeser>>::Error;
+#[derive(Deserialize)]
+#[serde(transparent)]
+pub struct ZkSignVerifierInputsJson(Vec<Groth16InputDeser>);
 
-    fn try_from(value: ZkSignVerifierInputsJson) -> Result<Self, Self::Error> {
-        Ok(Self {
+#[derive(Debug, thiserror::Error)]
+pub enum ZkSignVerifierInputsJsonTryFromError {
+    #[error("Error during deserialization: {0:?}")]
+    Groth16DeserError(<Groth16Input as TryFrom<Groth16InputDeser>>::Error),
+    #[error("Size should be 32")]
+    SizeShould32,
+    #[error("Empty slice")]
+    EmptySlice,
+}
+impl TryFrom<ZkSignVerifierInputsJson> for ZkSignVerifierInputs {
+    type Error = ZkSignVerifierInputsJsonTryFromError;
+
+    fn try_from(mut value: ZkSignVerifierInputsJson) -> Result<Self, Self::Error> {
+        let msg = value.0.pop().ok_or_else(|| Self::Error::EmptySlice)?;
+        Ok(ZkSignVerifierInputs {
             public_keys: value
-                .public_keys
+                .0
                 .into_iter()
                 .map(TryInto::try_into)
-                .collect::<Result<Vec<_>, _>>()?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(Self::Error::Groth16DeserError)?
                 .try_into()
                 .unwrap_or_else(|_| panic!("Size should be 32")),
-            msg: value.msg.try_into()?,
+            msg: msg.try_into().map_err(Self::Error::Groth16DeserError)?,
         })
     }
 }

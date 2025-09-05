@@ -4,8 +4,8 @@ use serde::Serialize;
 use crate::private::{ZkSignPrivateKeysData, ZkSignPrivateKeysInputs, ZkSignPrivateKeysInputsJson};
 
 pub struct ZkSignWitnessInputs {
-    msg: Groth16Input,
-    private_keys: ZkSignPrivateKeysInputs,
+    pub msg: Groth16Input,
+    pub private_keys: ZkSignPrivateKeysInputs,
 }
 
 impl ZkSignWitnessInputs {
@@ -21,7 +21,7 @@ impl ZkSignWitnessInputs {
 #[derive(Serialize)]
 pub struct ZkSignWitnessInputsJson {
     msg: Groth16InputDeser,
-    #[serde(flatten)]
+    #[serde(rename = "secret_keys")]
     private_keys: ZkSignPrivateKeysInputsJson,
 }
 
