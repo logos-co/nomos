@@ -63,7 +63,7 @@ impl Default for DaParams {
                 failure_time_window: Duration::from_secs(5),
                 ..Default::default()
             },
-            balancer_interval: Duration::from_secs(5),
+            balancer_interval: Duration::from_secs(1),
             redial_cooldown: Duration::ZERO,
             replication_settings: ReplicationConfig {
                 seen_message_cache_size: 1000,

@@ -126,12 +126,8 @@ where
         + Send
         + 'static,
     Network::Settings: Clone,
-    MempoolAdapter: DaMempoolAdapter<
-            BlobId = <ShareVerifier::DaShare as Share>::BlobId,
-            Tx = <TxVerifier as TxVerifierBackend>::Tx,
-        > + Send
-        + Sync
-        + 'static,
+    MempoolAdapter:
+        DaMempoolAdapter<Tx = <TxVerifier as TxVerifierBackend>::Tx> + Send + Sync + 'static,
     Storage: DaStorageAdapter<RuntimeServiceId, Share = ShareVerifier::DaShare, Tx = TxVerifier::Tx>
         + Send
         + Sync
@@ -165,7 +161,7 @@ where
                     mempool_trigger.update(blob_id.clone(), assignations),
                     backend::trigger::ShareState::Complete
                 ) {
-                    mempool_adapter.post_tx(blob_id, tx).await?;
+                    mempool_adapter.post_tx(tx).await?;
                 }
             }
         } else {
@@ -201,7 +197,7 @@ where
         let blob_ids = mempool_trigger.prune(now);
         for blob_id in blob_ids {
             if let Some((_, tx)) = storage_adapter.get_tx(blob_id.clone()).await? {
-                match mempool_adapter.post_tx(blob_id, tx).await {
+                match mempool_adapter.post_tx(tx).await {
                     Ok(()) | Err(MempoolAdapterError::Mempool(MempoolError::ExistingItem)) => {}
                     Err(err) => return Err(Box::new(err)),
                 };
@@ -289,12 +285,8 @@ where
         + Sync
         + 'static,
     DaStorage::Settings: Clone + Send + Sync + 'static,
-    MempoolAdapter: DaMempoolAdapter<
-            BlobId = <ShareVerifier::DaShare as Share>::BlobId,
-            Tx = <TxVerifier as TxVerifierBackend>::Tx,
-        > + Send
-        + Sync
-        + 'static,
+    MempoolAdapter:
+        DaMempoolAdapter<Tx = <TxVerifier as TxVerifierBackend>::Tx> + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Display
         + Sync

@@ -4,12 +4,9 @@ use chain_service::{
     network::adapters::libp2p::LibP2pAdapter as ConsensusNetworkAdapter, ConsensusMsg,
     CryptarchiaConsensus, CryptarchiaInfo,
 };
-use kzgrs_backend::dispersal::{BlobInfo, Metadata};
+use kzgrs_backend::dispersal::Metadata;
 use nomos_core::{
-    da::{
-        blob::{self},
-        BlobId,
-    },
+    da::BlobId,
     header::HeaderId,
     mantle::{select::FillSize as FillSizeWithTx, AuthenticatedMantleTx, Transaction},
 };
@@ -43,12 +40,6 @@ pub type Cryptarchia<
     BlendService<RuntimeServiceId>,
     MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
     MempoolNetworkAdapter<Tx, <Tx as Transaction>::Hash, RuntimeServiceId>,
-    MockPool<HeaderId, BlobInfo, <BlobInfo as blob::info::DispersedBlobInfo>::BlobId>,
-    MempoolNetworkAdapter<
-        BlobInfo,
-        <BlobInfo as blob::info::DispersedBlobInfo>::BlobId,
-        RuntimeServiceId,
-    >,
     FillSizeWithTx<SIZE, Tx>,
     RocksBackend<SS>,
     SamplingBackend,
