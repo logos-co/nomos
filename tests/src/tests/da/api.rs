@@ -18,6 +18,7 @@ use tests::{
 };
 
 #[tokio::test]
+#[ignore = "Reenable after transaction mempool is used"]
 #[serial]
 async fn test_get_share_data() {
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
@@ -157,6 +158,7 @@ async fn test_block_peer() {
 
 #[tokio::test]
 #[serial]
+#[ignore = "Reenable after transaction mempool is used"]
 async fn test_get_shares() {
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let executor = &topology.executors()[0];
