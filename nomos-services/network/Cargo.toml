@@ -23,6 +23,7 @@ utoipa           = { optional = true, workspace = true }
 
 [dev-dependencies]
 chrono             = { default-features = false, features = ["now"], version = "0.4" }
+nomos-utils        = { workspace = true }
 tokio              = { default-features = false, version = "1" }
 tracing-subscriber = { default-features = false, features = ["env-filter", "fmt", "std"], version = "0.3" }
 

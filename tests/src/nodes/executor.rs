@@ -68,14 +68,13 @@ use nomos_time::{
 };
 use nomos_tracing::logging::local::FileConfig;
 use nomos_tracing_service::LoggerLayer;
-use nomos_utils::math::NonNegativeF64;
+use nomos_utils::{math::NonNegativeF64, net::get_available_tcp_port};
 use reqwest::Url;
 use tempfile::NamedTempFile;
 
 use super::{create_tempdir, persist_tempdir, CLIENT};
 use crate::{
-    adjust_timeout, get_available_port, nodes::LOGS_PREFIX, topology::configs::GeneralConfig,
-    IS_DEBUG_TRACING,
+    adjust_timeout, nodes::LOGS_PREFIX, topology::configs::GeneralConfig, IS_DEBUG_TRACING,
 };
 
 const BIN_PATH: &str = "../target/debug/nomos-executor";
@@ -338,7 +337,7 @@ impl Executor {
 #[must_use]
 #[expect(clippy::too_many_lines, reason = "TODO: Address this at some point.")]
 pub fn create_executor_config(config: GeneralConfig) -> Config {
-    let testing_http_address = format!("127.0.0.1:{}", get_available_port())
+    let testing_http_address = format!("127.0.0.1:{}", get_available_tcp_port().unwrap())
         .parse()
         .unwrap();
 

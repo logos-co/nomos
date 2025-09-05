@@ -36,6 +36,7 @@ kzgrs              = { workspace = true }
 kzgrs-backend      = { features = ["testutils"], workspace = true }
 libp2p             = { features = ["plaintext", "yamux"], workspace = true }
 libp2p-swarm-test  = { default-features = false, features = ["tokio"], version = "0.5.0" }
+nomos-utils        = { workspace = true }
 rstest             = { default-features = false, version = "0.25" }
 tokio              = { default-features = false, version = "1" }
 tracing-subscriber = { default-features = false, features = ["env-filter", "fmt", "std"], version = "0.3" }

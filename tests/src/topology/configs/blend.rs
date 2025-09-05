@@ -10,8 +10,7 @@ use nomos_libp2p::{
     protocol_name::StreamProtocol,
     Multiaddr, PeerId,
 };
-
-use crate::get_available_port;
+use nomos_utils::net::get_available_udp_port;
 
 #[derive(Clone)]
 pub struct GeneralBlendConfig {
@@ -33,7 +32,7 @@ pub fn create_blend_configs(ids: &[[u8; 32]]) -> Vec<GeneralBlendConfig> {
                 backend: Libp2pBlendBackendSettings {
                     listening_address: Multiaddr::from_str(&format!(
                         "/ip4/127.0.0.1/udp/{}/quic-v1",
-                        get_available_port(),
+                        get_available_udp_port().unwrap(),
                     ))
                     .unwrap(),
                     node_key,
