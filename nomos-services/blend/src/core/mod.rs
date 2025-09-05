@@ -134,14 +134,23 @@ where
         let network_relay = overwatch_handle.relay::<NetworkService<_, _>>().await?;
         let network_adapter = Network::new(network_relay);
 
-        let membership_adapter = MembershipAdapter::new(
+        let _membership_stream = MembershipAdapter::new(
             overwatch_handle
                 .relay::<<MembershipAdapter as membership::Adapter>::Service>()
                 .await?,
             blend_config.crypto.signing_private_key.public_key(),
+        )
+        .subscribe()
+        .await
+        .expect("Membership service should be ready");
+        // TODO: Use membership_stream once the membership/SDP services are ready to provide the real membership: https://github.com/logos-co/nomos/issues/1532
+        let session_stream = SessionEventStream::new(
+            Box::pin(constant_membership_stream(
+                membership::<Backend, BlakeRng, NodeId, RuntimeServiceId>(&blend_config),
+                blend_config.time.session_duration(),
+            )),
+            blend_config.time.session_transition_period(),
         );
-        let session_stream =
-            new_session_stream::<_, _, Backend, _>(&membership_adapter, &blend_config).await;
 
         wait_until_services_are_ready!(
             &overwatch_handle,
@@ -172,32 +181,6 @@ where
             e.into()
         })
     }
-}
-
-async fn new_session_stream<MembershipAdapter, NodeId, Backend, RuntimeServiceId>(
-    membership_adapter: &MembershipAdapter,
-    settings: &Settings<Backend, BlakeRng, NodeId, RuntimeServiceId>,
-) -> impl Stream<Item = SessionEvent<Membership<NodeId>>> + Send + Unpin
-where
-    MembershipAdapter: membership::Adapter + Send + Sync,
-    // membership::ServiceMessage<MembershipAdapter>: Send + Sync + 'static,
-    // <MembershipAdapter as membership::Adapter>::Error: Send + Sync + 'static,
-    Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId>,
-    NodeId: Clone + Send + Eq + Hash + Sync + 'static,
-{
-    let _membership_stream = membership_adapter
-        .subscribe()
-        .await
-        .expect("Membership service should be ready");
-    // TODO: Use membership_stream once the membership/SDP services are ready to provide the real membership: https://github.com/logos-co/nomos/issues/1532
-
-    SessionEventStream::new(
-        Box::pin(constant_membership_stream(
-            membership::<Backend, BlakeRng, NodeId, RuntimeServiceId>(settings),
-            settings.time.session_duration(),
-        )),
-        settings.time.session_transition_period(),
-    )
 }
 
 async fn run<Backend, NodeId, Network, RuntimeServiceId>(
