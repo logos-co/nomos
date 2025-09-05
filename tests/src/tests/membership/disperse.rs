@@ -57,7 +57,7 @@ fn create_finalized_block_event(
     let non_zero_membership = membership_config
         .service_settings
         .backend
-        .session_zero_membership
+        .session_zero_memberships
         .get(&nomos_core::sdp::ServiceType::DataAvailability)
         .expect("Expected data availability membership");
 
@@ -80,7 +80,7 @@ fn create_block_event_updates(
             let locators = membership_config
                 .service_settings
                 .backend
-                .session_zero_locators_mapping
+                .session_zero_locators
                 .get(&nomos_core::sdp::ServiceType::DataAvailability)
                 .expect("Expected data availability service type")
                 .get(provider)

@@ -104,7 +104,7 @@ async fn test_block_peer() {
         .config()
         .membership
         .backend
-        .session_zero_membership
+        .session_zero_memberships
         .get(&nomos_core::sdp::ServiceType::DataAvailability)
         .expect("Expected data availability membership");
     assert!(!membership.is_empty());
