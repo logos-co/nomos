@@ -1,5 +1,4 @@
 pub mod backend;
-pub mod da;
 pub mod network;
 pub mod processor;
 pub mod tx;
@@ -8,7 +7,6 @@ pub mod verify;
 use std::fmt::{Debug, Error, Formatter};
 
 use backend::{MempoolError, Status};
-pub use da::{service::DaMempoolService, settings::DaMempoolSettings};
 use tokio::sync::oneshot::Sender;
 pub use tx::{service::TxMempoolService, settings::TxMempoolSettings};
 

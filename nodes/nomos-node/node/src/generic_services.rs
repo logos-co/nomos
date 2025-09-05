@@ -1,10 +1,6 @@
 use chain_service::CryptarchiaConsensus;
-use kzgrs_backend::{
-    common::share::DaShare,
-    dispersal::{BlobInfo, Metadata},
-};
+use kzgrs_backend::{common::share::DaShare, dispersal::Metadata};
 use nomos_core::{
-    da::blob::info::DispersedBlobInfo,
     header::HeaderId,
     mantle::{SignedMantleTx, Transaction},
 };
@@ -67,11 +63,11 @@ type BlendMembershipAdapter<RuntimeServiceId> =
 
 pub type VerifierMempoolAdapter<NetworkAdapter, RuntimeServiceId> = KzgrsMempoolAdapter<
     nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
-        BlobInfo,
-        <BlobInfo as DispersedBlobInfo>::BlobId,
+        SignedMantleTx,
+        <SignedMantleTx as Transaction>::Hash,
         RuntimeServiceId,
     >,
-    MockPool<HeaderId, BlobInfo, <BlobInfo as DispersedBlobInfo>::BlobId>,
+    MockPool<HeaderId, SignedMantleTx, <SignedMantleTx as Transaction>::Hash>,
     KzgrsSamplingBackend,
     NetworkAdapter,
     nomos_da_sampling::storage::adapters::rocksdb::RocksAdapter<DaShare, Wire, DaStorageConverter>,
@@ -103,19 +99,6 @@ pub type DaSamplingService<SamplingAdapter, RuntimeServiceId> =
         RuntimeServiceId,
     >;
 
-pub type DaMempoolService<DaSamplingNetwork, RuntimeServiceId> = nomos_mempool::DaMempoolService<
-    nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
-        BlobInfo,
-        <BlobInfo as DispersedBlobInfo>::BlobId,
-        RuntimeServiceId,
-    >,
-    MockPool<HeaderId, BlobInfo, <BlobInfo as DispersedBlobInfo>::BlobId>,
-    KzgrsSamplingBackend,
-    DaSamplingNetwork,
-    nomos_da_sampling::storage::adapters::rocksdb::RocksAdapter<DaShare, Wire, DaStorageConverter>,
-    RuntimeServiceId,
->;
-
 pub type CryptarchiaService<SamplingAdapter, RuntimeServiceId> = CryptarchiaConsensus<
     chain_service::network::adapters::libp2p::LibP2pAdapter<SignedMantleTx, RuntimeServiceId>,
     BlendService<RuntimeServiceId>,
@@ -123,12 +106,6 @@ pub type CryptarchiaService<SamplingAdapter, RuntimeServiceId> = CryptarchiaCons
     nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
         SignedMantleTx,
         <SignedMantleTx as Transaction>::Hash,
-        RuntimeServiceId,
-    >,
-    MockPool<HeaderId, BlobInfo, <BlobInfo as DispersedBlobInfo>::BlobId>,
-    nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
-        BlobInfo,
-        <BlobInfo as DispersedBlobInfo>::BlobId,
         RuntimeServiceId,
     >,
     nomos_core::mantle::select::FillSize<MB16, SignedMantleTx>,
