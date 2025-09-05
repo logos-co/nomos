@@ -187,7 +187,7 @@ mod tests {
             chain_data.try_into().unwrap(),
             common_data.try_into().unwrap(),
             blend_data.try_into().unwrap(),
-        );
+        ).unwrap();
 
         let (proof, inputs) = prove(&witness_inputs).unwrap();
         assert!(verify(&proof, &inputs).unwrap());
@@ -334,7 +334,7 @@ mod tests {
             chain_data.try_into().unwrap(),
             common_data.try_into().unwrap(),
             wallet_data.try_into().unwrap(),
-        );
+        ).unwrap();
 
         let (proof, inputs) = prove(&witness_inputs).unwrap();
         assert!(verify(&proof, &inputs).unwrap());

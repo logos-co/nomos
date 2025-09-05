@@ -33,8 +33,12 @@ impl PoQWitnessInputs {
         chain: PoQChainInputs,
         common: PoQCommonInputs,
         blend: PoQBlendInputs,
-    ) -> Self {
-        Self { chain, common, blend, wallet: PoQWalletInputs::from(PoQWalletInputsData {
+    ) -> Result<Self, <PoQChainInputs as TryFrom<PoQChainInputsData>>::Error> {
+        Ok(Self {
+            chain: chain.into(),
+            common: common.into(),
+            blend: blend.into(),
+            wallet: PoQWalletInputs::from(PoQWalletInputsData {
             slot: 2,
             note_value: 0,
             transaction_hash: Fr::ZERO,
@@ -44,7 +48,7 @@ impl PoQWitnessInputs {
             slot_secret: Fr::ZERO,
             slot_secret_path: vec![Fr::ZERO; 25],
             starting_slot: 1,
-        } ), }
+        } ), })
     }
 }
 
