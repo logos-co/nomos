@@ -42,6 +42,7 @@ use crate::{
     core::settings::BlendConfig,
     membership,
     message::{NetworkMessage, ProcessedMessage, ServiceMessage},
+    settings::constant_membership_stream,
 };
 
 pub(super) mod service_components;
@@ -146,17 +147,23 @@ where
         let network_relay = overwatch_handle.relay::<NetworkService<_, _>>().await?;
         let network_adapter = Network::new(network_relay);
 
-        let membership_adapter = MembershipAdapter::new(
+        let _membership_stream = MembershipAdapter::new(
             overwatch_handle
                 .relay::<<MembershipAdapter as membership::Adapter>::Service>()
                 .await?,
             blend_config.crypto.signing_private_key.public_key(),
-        );
-        let mut _session_stream = SessionEventStream::new(
-            membership_adapter.subscribe().await?,
+        )
+        .subscribe()
+        .await
+        .expect("Membership service should be ready");
+        // TODO: Use membership_stream once the membership/SDP services are ready to provide the real membership: https://github.com/logos-co/nomos/issues/1532
+        let session_stream = SessionEventStream::new(
+            Box::pin(constant_membership_stream(
+                membership,
+                blend_config.time.session_duration(),
+            )),
             blend_config.time.session_transition_period(),
         );
-        // TODO: Use session_stream: https://github.com/logos-co/nomos/issues/1532
 
         // Yields once every randomly-scheduled release round.
         let mut message_scheduler = UninitializedMessageScheduler::<
@@ -164,7 +171,7 @@ where
             _,
             ProcessedMessage<Network::BroadcastSettings>,
         >::new(
-            blend_config.session_stream(),
+            blend_config.session_info_stream(session_stream),
             blend_config.scheduler_settings(),
             rng.clone(),
         )

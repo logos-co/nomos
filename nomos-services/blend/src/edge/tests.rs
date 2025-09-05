@@ -5,12 +5,8 @@ use std::{
     time::Duration,
 };
 
-use libp2p::Multiaddr;
-use nomos_blend_message::crypto::{Ed25519PrivateKey, Ed25519PublicKey};
 use nomos_blend_scheduling::{
-    membership::{Membership, Node},
-    message_blend::CryptographicProcessorSettings,
-    session::SessionEvent,
+    membership::Membership, message_blend::CryptographicProcessorSettings, session::SessionEvent,
     EncapsulatedMessage,
 };
 use overwatch::overwatch::{commands::OverwatchCommand, OverwatchHandle};
@@ -21,6 +17,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use crate::{
     edge::{backends::BlendBackend, handlers::Error, run, settings::BlendConfig},
     settings::TimingSettings,
+    test_utils::membership::{key, membership, NodeId},
 };
 
 /// [`run`] forwards messages to the core nodes in the updated membership.
@@ -236,25 +233,6 @@ async fn resume_panic_from(join_handle: JoinHandle<Result<(), Error>>) {
     panic::resume_unwind(join_handle.await.unwrap_err().into_panic());
 }
 
-fn membership(ids: &[NodeId], local_id: NodeId) -> Membership<NodeId> {
-    Membership::new(
-        &ids.iter()
-            .map(|id| Node {
-                id: *id,
-                address: Multiaddr::empty(),
-                public_key: key(*id).1,
-            })
-            .collect::<Vec<_>>(),
-        &key(local_id).1,
-    )
-}
-
-fn key(id: NodeId) -> (Ed25519PrivateKey, Ed25519PublicKey) {
-    let private_key = Ed25519PrivateKey::from([id; 32]);
-    let public_key = private_key.public_key();
-    (private_key, public_key)
-}
-
 fn settings(
     local_id: NodeId,
     minimum_network_size: u64,
@@ -278,7 +256,6 @@ fn settings(
     }
 }
 
-type NodeId = u8;
 type NodeIdSender = mpsc::Sender<NodeId>;
 
 struct TestBackend {
