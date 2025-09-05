@@ -328,4 +328,107 @@ mod tests {
         assert_eq!(sid_a2, 1);
         assert_eq!(prov_a2, *prov_promoted);
     }
+
+    #[tokio::test]
+    async fn multiple_service_types_with_different_session_sizes() {
+        let service_da = ServiceType::DataAvailability;
+        let service_mp = ServiceType::BlendNetwork; // Assuming you have this variant
+
+        // Set up initial providers
+        let p1 = pid(1);
+        let p1_locs = locs::<2>(1);
+        let p2 = pid(2);
+        let p2_locs = locs::<2>(10);
+
+        // Session 0 membership: P1 in DA, P2 in BlendNetwork
+        let mut session0_memberships = HashMap::new();
+        session0_memberships.insert(service_da, HashSet::from([p1]));
+        session0_memberships.insert(service_mp, HashSet::from([p2]));
+
+        let mut session0_locators = HashMap::new();
+        session0_locators.insert(service_da, HashMap::from([(p1, p1_locs.clone())]));
+        session0_locators.insert(service_mp, HashMap::from([(p2, p2_locs.clone())]));
+
+        // Different session sizes: DA=3 blocks, BlendNetwork=5 blocks
+        let settings = MockMembershipBackendSettings {
+            session_sizes: HashMap::from([
+                (service_da, 3), // DA sessions: 0-2, 3-5, 6-8...
+                (service_mp, 5), // MP sessions: 0-4, 5-9, 10-14...
+            ]),
+            session_zero_memberships: session0_memberships,
+            session_zero_locators: session0_locators,
+        };
+
+        let mut backend = MockMembershipBackend::init(settings);
+
+        // Add new providers to forming sessions
+        let p3 = pid(3);
+        let p3_locs = locs::<2>(20);
+        let p4 = pid(4);
+        let p4_locs = locs::<2>(30);
+
+        // Block 1: Add P3 to DA, P4 to Blend Network (both in forming)
+        let ev1 = FinalizedBlockEvent {
+            block_number: 1,
+            updates: vec![
+                update(
+                    service_da,
+                    p3,
+                    FinalizedDeclarationState::Active,
+                    p3_locs.clone(),
+                ),
+                update(
+                    service_mp,
+                    p4,
+                    FinalizedDeclarationState::Active,
+                    p4_locs.clone(),
+                ),
+            ],
+        };
+        backend.update(ev1).await.unwrap();
+
+        // Block 2: DA should promote after this (end of session 0), Blend Network
+        // should not
+        let ev2 = FinalizedBlockEvent {
+            block_number: 2,
+            updates: vec![],
+        };
+        let result2 = backend.update(ev2).await.unwrap();
+
+        // Only DA should have promoted
+        let promoted = result2.expect("DA should promote at block 2");
+        assert_eq!(promoted.len(), 1);
+        assert!(promoted.contains_key(&service_da));
+        assert!(!promoted.contains_key(&service_mp));
+
+        // DA should now be in session 1 with P3
+        let (da_sid, da_providers) = promoted.get(&service_da).unwrap();
+        assert_eq!(*da_sid, 1);
+        assert!(da_providers.contains_key(&p3));
+        assert!(da_providers.contains_key(&p1)); // P1 is not withdrawn
+
+        // Blend Network should still be in session 0
+        let (mp_sid, mp_providers) = backend.get_latest_providers(service_mp).await.unwrap();
+        assert_eq!(mp_sid, 0);
+        assert!(mp_providers.contains_key(&p2)); // Still has original
+        assert!(!mp_providers.contains_key(&p4)); // P4 still in forming
+
+        // Block 4: Blend Network should promote after this (end of session 0)
+        let ev3 = FinalizedBlockEvent {
+            block_number: 4,
+            updates: vec![],
+        };
+        let result3 = backend.update(ev3).await.unwrap();
+
+        // Only Blend Network should promote
+        let promoted = result3.expect("Blend Network should promote at block 4");
+        assert_eq!(promoted.len(), 1);
+        assert!(promoted.contains_key(&service_mp));
+
+        // Blend Network should now be in session 1 with P4
+        let (mp_sid, mp_providers) = promoted.get(&service_mp).unwrap();
+        assert_eq!(*mp_sid, 1);
+        assert!(mp_providers.contains_key(&p4));
+        assert!(mp_providers.contains_key(&p2)); // P2 still there
+    }
 }
