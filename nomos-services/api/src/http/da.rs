@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     error::Error,
     fmt::{Debug, Display},
     hash::Hash,
@@ -8,6 +9,7 @@ use kzgrs_backend::common::share::DaSharesCommitments;
 use nomos_core::{
     block::SessionNumber,
     da::{blob::Share, DaVerifier as CoreDaVerifier},
+    header::HeaderId,
     mantle::SignedMantleTx,
 };
 use nomos_da_dispersal::{
@@ -381,6 +383,48 @@ where
     wait_with_timeout(
         receiver,
         "Timeout while waiting for get membership".to_owned(),
+    )
+    .await
+}
+
+pub async fn da_historic_sampling<
+    SamplingBackend,
+    SamplingNetwork,
+    SamplingStorage,
+    RuntimeServiceId,
+>(
+    handle: OverwatchHandle<RuntimeServiceId>,
+    session_id: SessionNumber,
+    block_id: HeaderId,
+    blob_ids: Vec<SamplingBackend::BlobId>,
+) -> Result<bool, DynError>
+where
+    SamplingBackend: DaSamplingServiceBackend,
+    <SamplingBackend as DaSamplingServiceBackend>::BlobId: Send + Eq + Hash + 'static,
+    SamplingNetwork: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
+    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
+    RuntimeServiceId: Debug
+        + Sync
+        + Display
+        + AsServiceId<
+            DaSamplingService<SamplingBackend, SamplingNetwork, SamplingStorage, RuntimeServiceId>,
+        >,
+{
+    let relay = handle.relay().await?;
+    let (sender, receiver) = oneshot::channel();
+    let blob_ids: HashSet<SamplingBackend::BlobId> = blob_ids.into_iter().collect();
+
+    let message = DaSamplingServiceMsg::RequestHistoricSampling {
+        session_id,
+        block_id,
+        blob_ids,
+        reply_channel: sender,
+    };
+    relay.send(message).await.map_err(|(e, _)| e)?;
+
+    wait_with_timeout(
+        receiver,
+        "Timeout while waiting for historic sampling".to_owned(),
     )
     .await
 }
