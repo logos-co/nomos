@@ -52,6 +52,7 @@ members = [
   "zk/groth16",
   "zk/poseidon2",
   "zk/proofs/pol",
+  "zk/proofs/zksign",
 ]
 resolver = "2"
 
@@ -108,6 +109,7 @@ subnetworks-assignations = { default-features = false, path = "./nomos-da/networ
 tests                    = { default-features = false, path = "./tests" }
 utxotree                 = { default-features = false, path = "./utxotree" }
 witness-generator        = { default-features = false, path = "zk/circuits/witness-generator" }
+zksign                   = { default-features = false, path = "./zk/proofs/zksign" }
 
 # External
 blake2            = { default-features = false, version = "0.10" }
@@ -121,8 +123,10 @@ overwatch-derive  = { default-features = false, git = "https://github.com/logos-
 rand              = { default-features = false, version = "0.8" }
 reqwest           = { default-features = false, version = "0.12" }
 risc0-zkvm        = { default-features = false, version = "2.3.2" }
+serde_json        = { default-features = false, version = "1.0" }
 serde_with        = { default-features = false, version = "3.12.0" }
 tempfile          = { default-features = false, version = "3" }
+thiserror         = { default-features = false, version = "2.0" }
 tracing           = { default-features = false, version = "0.1" }
 utoipa            = { default-features = false, version = "4.0" }
 utoipa-swagger-ui = { default-features = false, version = "4.0" }
