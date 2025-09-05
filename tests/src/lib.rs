@@ -1,3 +1,4 @@
+pub mod benchmarks;
 pub mod common;
 pub mod nodes;
 pub mod topology;

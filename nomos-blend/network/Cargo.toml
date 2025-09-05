@@ -18,14 +18,15 @@ nomos-libp2p           = { workspace = true }
 tracing                = { workspace = true }
 
 [dev-dependencies]
-async-trait         = { version = "0.1" }
-libp2p              = { default-features = false, workspace = true }
-libp2p-stream       = { workspace = true }
-libp2p-swarm-test   = { default-features = false, features = ["tokio"], version = "0.5.0" }
-nomos-blend-message = { features = ["unsafe-test-functions"], workspace = true }
-test-log            = { default-features = false, version = "0.2.18" }
-tokio               = { default-features = false, version = "1" }
-tokio-stream        = { default-features = false, version = "0.1" }
+async-trait            = { version = "0.1" }
+libp2p                 = { default-features = false, workspace = true }
+libp2p-stream          = { workspace = true }
+libp2p-swarm-test      = { default-features = false, features = ["tokio"], version = "0.5.0" }
+nomos-blend-message    = { features = ["unsafe-test-functions"], workspace = true }
+nomos-blend-scheduling = { features = ["unsafe-test-functions"], workspace = true }
+test-log               = { default-features = false, version = "0.2.18" }
+tokio                  = { default-features = false, version = "1" }
+tokio-stream           = { default-features = false, version = "0.1" }
 
 [features]
 unsafe-test-functions = []

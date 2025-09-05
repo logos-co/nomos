@@ -1,3 +1,31 @@
+//! # zk-pol
+//!
+//! ## Usage
+//!
+//! The library provides a single function, `prove`, which takes a set of
+//! inputs and generates a proof. The function returns a tuple containing the
+//! generated proof and the corresponding public inputs.
+//! A normal flow of usage will involve the following steps:
+//! 1. Fill out some `PolChainData` with the public inputs
+//! 2. Fill out some `PolWalletData` with the private inputs
+//! 3. Construct the `PolWitnessInputs` from the `PolChainData` and
+//!    `PolWalletData`
+//! 4. Call `prove` with the `PolWitnessInputs`
+//! 5. Use the returned proof and public inputs to verify the proof
+//!
+//! ## Example
+//!
+//! ```ignore
+//! use zk_pol::{prove, PolChainInputs, PolChainInputsData, PolWalletInputs, PolWalletInputsData};
+//!
+//! fn main() {
+//!     let chain_data = PolChainInputsData {..};
+//!     let wallet_data = PolWalletInputsData {..};
+//!     let witness_inputs = PolWitnessInputs::from_chain_and_wallet_data(chain_data, wallet_data).unwrap();
+//!     let (proof, inputs) = prove(&witness_inputs).unwrap();
+//!     assert!(verify(&proof, &inputs).unwrap());
+//! }
+
 mod chain_inputs;
 mod inputs;
 mod proving_key;
@@ -264,10 +292,8 @@ mod tests {
             .collect(),
             starting_slot: 118,
         };
-        let witness_inputs = PolWitnessInputs::from_chain_and_wallet_data(
-            chain_data.try_into().unwrap(),
-            wallet_data.into(),
-        );
+        let witness_inputs =
+            PolWitnessInputs::from_chain_and_wallet_data(chain_data, wallet_data).unwrap();
 
         let (proof, inputs) = prove(&witness_inputs).unwrap();
         assert!(verify(&proof, &inputs).unwrap());

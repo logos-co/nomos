@@ -10,6 +10,7 @@ use num_traits::CheckedSub as _;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+/// Public inputs of the POL cirmcom circuit with circom specific types.
 #[derive(Copy, Clone)]
 pub struct PolChainInputs {
     slot_number: Groth16Input,
@@ -22,6 +23,7 @@ pub struct PolChainInputs {
     leader_pk2: Groth16Input,
 }
 
+/// Public inputs of the POL cirmcom circuit to be provided by the chain.
 pub struct PolChainInputsData {
     pub slot_number: u64,
     pub epoch_nonce: u64,

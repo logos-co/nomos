@@ -2,6 +2,7 @@ use groth16::{Field as _, Fr, Groth16Input, Groth16InputDeser};
 use num_bigint::BigUint;
 use serde::Serialize;
 
+/// Public inputs of the POL cirmcom circuit as circuit field values.
 #[derive(Clone)]
 pub struct PolWalletInputs {
     note_value: Groth16Input,
@@ -16,6 +17,7 @@ pub struct PolWalletInputs {
     starting_slot: Groth16Input,
 }
 
+/// Private inputs of the POL cirmcom circuit to be provided by the wallet.
 pub struct PolWalletInputsData {
     pub note_value: u64,
     pub transaction_hash: Fr,

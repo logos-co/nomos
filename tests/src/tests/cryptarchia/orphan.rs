@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use futures::stream::{self, StreamExt as _};
+use serial_test::serial;
 use tests::{
     adjust_timeout,
     common::sync::wait_for_validators_mode_and_height,
@@ -12,6 +13,7 @@ use tests::{
 };
 
 #[tokio::test]
+#[serial]
 async fn test_orphan_handling() {
     let n_validators = 3;
     let min_height = 5;

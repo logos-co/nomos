@@ -2,10 +2,12 @@ use groth16::{Fr, Groth16Input, Groth16InputDeser};
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    PolChainInputsData, PolWalletInputsData,
     chain_inputs::{PolChainInputs, PolChainInputsJson},
     wallet_inputs::{PolWalletInputs, PolWalletInputsJson},
 };
 
+/// The inputs to the circuit prover.
 #[derive(Clone, Serialize)]
 #[serde(into = "PolInputsJson", rename_all = "snake_case")]
 pub struct PolWitnessInputs {
@@ -14,12 +16,14 @@ pub struct PolWitnessInputs {
 }
 
 impl PolWitnessInputs {
-    #[must_use]
-    pub const fn from_chain_and_wallet_data(
-        chain: PolChainInputs,
-        wallet: PolWalletInputs,
-    ) -> Self {
-        Self { wallet, chain }
+    pub fn from_chain_and_wallet_data(
+        chain: PolChainInputsData,
+        wallet: PolWalletInputsData,
+    ) -> Result<Self, <PolChainInputs as TryFrom<PolChainInputsData>>::Error> {
+        Ok(Self {
+            wallet: wallet.into(),
+            chain: chain.try_into()?,
+        })
     }
 }
 
@@ -52,6 +56,8 @@ impl From<PolWitnessInputs> for PolInputsJson {
 #[derive(Deserialize, Serialize)]
 pub struct PolVerifierInputJson([Groth16InputDeser; 9]);
 
+/// Public inputs of the POL verifier circuit as returned by the prover.
+/// This inputs are the ones that need to be fed into the verifier.
 pub struct PolVerifierInput {
     entropy_contribution: Groth16Input,
     slot_number: Groth16Input,

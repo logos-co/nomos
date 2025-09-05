@@ -48,8 +48,7 @@ members = [
   "zk/circuits/prover",
   "zk/circuits/utils",
   "zk/circuits/verifier",
-  "zk/circuits/witness_generators/pol",
-  "zk/circuits/witness_generators/poq",
+  "zk/circuits/witness-generator",
   "zk/groth16",
   "zk/poseidon2",
   "zk/proofs/pol",
@@ -104,13 +103,12 @@ nomos-tracing            = { default-features = false, path = "./nomos-tracing" 
 nomos-tracing-service    = { default-features = false, path = "./nomos-services/tracing" }
 nomos-utils              = { default-features = false, path = "./nomos-utils" }
 nomos_proof_statements   = { default-features = false, path = "./nomos-core/proof_statements" }
-pol-witness-generator    = { default-features = false, path = "./zk/circuits/witness_generators/pol" }
-poq-witness-generator    = { default-features = false, path = "./zk/circuits/witness_generators/poq" }
 poseidon2                = { default-features = false, path = "./zk/poseidon2" }
 services-utils           = { default-features = false, path = "./nomos-services/utils" }
 subnetworks-assignations = { default-features = false, path = "./nomos-da/network/subnetworks-assignations" }
 tests                    = { default-features = false, path = "./tests" }
 utxotree                 = { default-features = false, path = "./utxotree" }
+witness-generator        = { default-features = false, path = "zk/circuits/witness-generator" }
 
 # External
 blake2            = { default-features = false, version = "0.10" }

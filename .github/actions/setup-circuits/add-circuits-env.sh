@@ -4,7 +4,7 @@
 # Description : Extracts circuit archives, finds the binaries, and exports environment variables for GitHub Actions.
 # Requirements: Downloaded .tar.gz archives are expected to follow a couple of conventions:
 # - The archives should be located in the specified directory.
-# - The archive names should start with the application name (e.g., "pol-", "prover-", "verifier-").
+# - The archive names should start with the application name (e.g., "pol", "poq", "prover", "verifier").
 # - The binaries inside the archives should match the application names.
 # Usage       : ./add-circuits-env.sh <CIRCUITS_DIRECTORY>
 # -----------------------------------------------------------------------------
