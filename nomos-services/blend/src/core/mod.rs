@@ -1,4 +1,5 @@
 pub mod backends;
+mod handlers;
 pub mod network;
 pub mod settings;
 
@@ -12,20 +13,22 @@ use std::{
 
 use async_trait::async_trait;
 use backends::BlendBackend;
-use futures::{future::join_all, StreamExt as _};
+use futures::{future::join_all, Stream, StreamExt as _};
 use network::NetworkAdapter;
 use nomos_blend_message::{crypto::random_sized_bytes, encap::DecapsulationOutput, PayloadType};
 use nomos_blend_network::EncapsulatedMessageWithValidatedPublicHeader;
 use nomos_blend_scheduling::{
-    message_blend::crypto::CryptographicProcessor,
+    membership::Membership,
+    message_blend::{crypto::CryptographicProcessor, CryptographicProcessorSettings},
     message_scheduler::{round_info::RoundInfo, MessageScheduler},
-    session::SessionEventStream,
+    session::{SessionEvent, SessionEventStream},
     UninitializedMessageScheduler,
 };
 use nomos_core::wire;
 use nomos_network::NetworkService;
 use nomos_utils::blake_rng::BlakeRng;
 use overwatch::{
+    overwatch::OverwatchHandle,
     services::{
         state::{NoOperator, NoState},
         AsServiceId, ServiceCore, ServiceData,
@@ -35,13 +38,18 @@ use overwatch::{
 use rand::{seq::SliceRandom as _, RngCore, SeedableRng as _};
 use serde::{Deserialize, Serialize};
 use services_utils::wait_until_services_are_ready;
-use tokio::time::interval;
-use tokio_stream::wrappers::IntervalStream;
+use tokio::{sync::mpsc, time::timeout};
+use tokio_stream::wrappers::ReceiverStream;
+use tracing::{debug, error, info};
 
 use crate::{
-    core::settings::BlendConfig,
+    core::{
+        handlers::{Error, MessageHandler},
+        settings::BlendConfig,
+    },
     membership,
     message::{NetworkMessage, ProcessedMessage, ServiceMessage},
+    settings::constant_membership_stream,
 };
 
 pub(super) mod service_components;
@@ -60,7 +68,6 @@ where
     Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId>,
     Network: NetworkAdapter<RuntimeServiceId>,
 {
-    backend: Backend,
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     _phantom: PhantomData<MembershipAdapter>,
 }
@@ -76,6 +83,8 @@ where
     type StateOperator = NoOperator<Self::State>;
     type Message = ServiceMessage<Network::BroadcastSettings>;
 }
+
+const CHANNEL_SIZE: usize = 10;
 
 #[async_trait]
 impl<Backend, NodeId, Network, MembershipAdapter, RuntimeServiceId> ServiceCore<RuntimeServiceId>
@@ -101,19 +110,7 @@ where
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
         _initial_state: Self::State,
     ) -> Result<Self, overwatch::DynError> {
-        let settings_reader = service_resources_handle.settings_handle.notifier();
-        let blend_config = settings_reader.get_updated_settings();
-        let membership = blend_config.membership();
         Ok(Self {
-            backend: <Backend as BlendBackend<NodeId, BlakeRng, RuntimeServiceId>>::new(
-                settings_reader.get_updated_settings(),
-                service_resources_handle.overwatch_handle.clone(),
-                Box::pin(
-                    IntervalStream::new(interval(blend_config.time.session_duration()))
-                        .map(move |_| membership.clone()),
-                ),
-                BlakeRng::from_entropy(),
-            ),
             service_resources_handle,
             _phantom: PhantomData,
         })
@@ -123,56 +120,37 @@ where
         let Self {
             service_resources_handle:
                 OpaqueServiceResourcesHandle::<Self, RuntimeServiceId> {
-                    ref mut inbound_relay,
-                    ref overwatch_handle,
-                    ref settings_handle,
-                    ref status_updater,
+                    inbound_relay,
+                    overwatch_handle,
+                    settings_handle,
+                    status_updater,
                     ..
                 },
-            ref mut backend,
             ..
         } = self;
 
         let blend_config = settings_handle.notifier().get_updated_settings();
-        let membership = blend_config.membership();
-        let membership_size = membership.size();
-        let minimum_network_size = blend_config.minimum_network_size;
-        let mut rng = BlakeRng::from_entropy();
-        let mut cryptographic_processor = CryptographicProcessor::new(
-            blend_config.crypto.clone(),
-            membership.clone(),
-            rng.clone(),
-        );
+
         let network_relay = overwatch_handle.relay::<NetworkService<_, _>>().await?;
         let network_adapter = Network::new(network_relay);
 
-        let membership_adapter = MembershipAdapter::new(
+        let _membership_stream = MembershipAdapter::new(
             overwatch_handle
                 .relay::<<MembershipAdapter as membership::Adapter>::Service>()
                 .await?,
             blend_config.crypto.signing_private_key.public_key(),
-        );
-        let mut _session_stream = SessionEventStream::new(
-            membership_adapter.subscribe().await?,
+        )
+        .subscribe()
+        .await?;
+        // TODO: Use membership_stream once the membership/SDP services are ready to provide the real membership: https://github.com/logos-co/nomos/issues/1532
+
+        let session_stream = SessionEventStream::new(
+            Box::pin(constant_membership_stream(
+                blend_config.membership(),
+                blend_config.time.session_duration(),
+            )),
             blend_config.time.session_transition_period(),
         );
-        // TODO: Use session_stream: https://github.com/logos-co/nomos/issues/1532
-
-        // Yields once every randomly-scheduled release round.
-        let mut message_scheduler = UninitializedMessageScheduler::<
-            _,
-            _,
-            ProcessedMessage<Network::BroadcastSettings>,
-        >::new(
-            blend_config.session_stream(),
-            blend_config.scheduler_settings(),
-            rng.clone(),
-        )
-        .wait_next_session_start()
-        .await;
-
-        // Yields new messages received via Blend peers.
-        let mut blend_messages = backend.listen_to_incoming_messages();
 
         wait_until_services_are_ready!(
             &overwatch_handle,
@@ -182,29 +160,103 @@ where
         )
         .await?;
 
-        status_updater.notify_ready();
-        tracing::info!(
-            target: LOG_TARGET,
-            "Service '{}' is ready.",
-            <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
-        );
+        run::<Backend, _, _, _>(
+            session_stream,
+            inbound_relay,
+            network_adapter,
+            &blend_config,
+            &overwatch_handle,
+            || {
+                status_updater.notify_ready();
+                info!(
+                    target: LOG_TARGET,
+                    "Service '{}' is ready.",
+                    <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
+                );
+            },
+        )
+        .await
+    }
+}
 
-        loop {
-            tokio::select! {
-                // Core blend service is supposed to be used only through the proxy service. As an additional protection, if it is used directly with a network that is too small, the service will simply not accept any incoming messages to be blended.
-                Some(local_data_message) = inbound_relay.next(), if membership_size >= minimum_network_size.get() as usize => {
-                    handle_local_data_message(local_data_message, &mut cryptographic_processor, backend, &mut message_scheduler).await;
-                }
-                Some(incoming_message) = blend_messages.next() => {
-                    handle_incoming_blend_message(incoming_message, &mut message_scheduler, &cryptographic_processor);
-                }
-                Some(round_info) = message_scheduler.next() => {
-                    handle_release_round(round_info, &mut cryptographic_processor, &mut rng, backend, &network_adapter).await;
-                }
+async fn run<Backend, NodeId, Network, RuntimeServiceId>(
+    mut session_stream: impl Stream<Item = SessionEvent<Membership<NodeId>>> + Send + Unpin,
+    mut local_data_messages: impl Stream<Item = ServiceMessage<Network::BroadcastSettings>>
+        + Send
+        + Unpin,
+    network_adapter: Network,
+    settings: &Settings<Backend, BlakeRng, NodeId, RuntimeServiceId>,
+    overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
+    notify_ready: impl Fn(),
+) -> Result<(), overwatch::DynError>
+where
+    Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId> + Send + Sync,
+    NodeId: Clone + Send + Eq + Hash + Sync + 'static,
+    Network: NetworkAdapter<RuntimeServiceId, BroadcastSettings: Unpin> + Send + Sync,
+    RuntimeServiceId: Clone,
+{
+    // Read the initial membership, expecting it to be yielded immediately.
+    // We use 1s timeout to tolerate small delays.
+    let SessionEvent::NewSession(membership) =
+        timeout(Duration::from_secs(1), session_stream.next())
+            .await
+            .expect("Session stream should yield the first event immediately")
+            .expect("Session stream shouldn't be closed")
+    else {
+        panic!("NewSession must be yielded first");
+    };
+
+    let mut handler = MessageHandler::try_new_with_core_condition_check(
+        &settings.crypto,
+        settings.minimum_network_size.get() as usize,
+        membership,
+    )?;
+
+    let (session_event_sender, session_event_receiver) =
+        mpsc::channel::<SessionEvent<Membership<NodeId>>>(CHANNEL_SIZE);
+    let mut backend = <Backend as BlendBackend<NodeId, BlakeRng, RuntimeServiceId>>::new(
+        settings.clone(),
+        overwatch_handle.clone(),
+        // TODO: check if it's okay to use this stream that already yielded the first item.
+        Box::pin(ReceiverStream::new(session_event_receiver)),
+        BlakeRng::from_entropy(),
+    );
+    // Yields new messages received via Blend peers.
+    let mut incoming_blend_messages = backend.listen_to_incoming_messages();
+
+    // Yields once every randomly-scheduled release round.
+    let mut message_scheduler =
+        UninitializedMessageScheduler::<_, _, ProcessedMessage<Network::BroadcastSettings>>::new(
+            // TODO: verify if this is correct
+            settings.session_stream(),
+            settings.scheduler_settings(),
+            BlakeRng::from_entropy(),
+        )
+        .wait_next_session_start()
+        .await;
+
+    notify_ready();
+
+    loop {
+        tokio::select! {
+            Some(local_data_message) = local_data_messages.next() => {
+                handler.handle_local_data_message(local_data_message, &backend, &mut message_scheduler).await;
+            }
+            Some(incoming_message) = incoming_blend_messages.next() => {
+                handler.handle_incoming_blend_message(incoming_message, &mut message_scheduler);
+            }
+            Some(round_info) = message_scheduler.next() => {
+                handler.handle_release_round(round_info, &backend, &network_adapter).await;
+            }
+            Some(event) = session_stream.next() => {
+                handler = handle_session_event(event, handler, &session_event_sender, &settings.crypto, settings.minimum_network_size.get() as usize).await?;
             }
         }
     }
 }
+
+type Settings<Backend, Rng, NodeId, RuntimeServiceId> =
+    BlendConfig<<Backend as BlendBackend<NodeId, Rng, RuntimeServiceId>>::Settings, NodeId>;
 
 /// Blend a new message received from another service.
 ///
@@ -234,14 +286,16 @@ async fn handle_local_data_message<
 {
     let ServiceMessage::Blend(message_payload) = local_data_message;
 
-    let Ok(serialized_data_message) = wire::serialize(&message_payload).inspect_err(|_| tracing::error!(target: LOG_TARGET, "Message from internal service failed to be serialized.")) else {
+    let Ok(serialized_data_message) = wire::serialize(&message_payload).inspect_err(
+        |_| error!(target: LOG_TARGET, "Message from internal service failed to be serialized."),
+    ) else {
         return;
     };
 
     let Ok(wrapped_message) = cryptographic_processor
         .encapsulate_data_payload(&serialized_data_message)
         .inspect_err(|e| {
-            tracing::error!(target: LOG_TARGET, "Failed to wrap message: {e:?}");
+            error!(target: LOG_TARGET, "Failed to wrap message: {e:?}");
         })
     else {
         return;
@@ -259,19 +313,22 @@ fn handle_incoming_blend_message<Rng, NodeId, SessionClock, BroadcastSettings>(
 ) where
     BroadcastSettings: for<'de> Deserialize<'de>,
 {
-    let Ok(decapsulated_message) = cryptographic_processor.decapsulate_message(validated_encapsulated_message.into_inner()).inspect_err(|e| {
-        tracing::debug!(target: LOG_TARGET, "Failed to decapsulate received message with error {e:?}");
-    }) else {
+    let Ok(decapsulated_message) = cryptographic_processor
+        .decapsulate_message(validated_encapsulated_message.into_inner())
+        .inspect_err(|e| {
+            debug!(target: LOG_TARGET, "Failed to decapsulate received message with error {e:?}");
+        })
+    else {
         return;
     };
     match decapsulated_message {
         DecapsulationOutput::Completed(fully_decapsulated_message) => {
             match fully_decapsulated_message.into_components() {
                 (PayloadType::Cover, _) => {
-                    tracing::info!(target: LOG_TARGET, "Discarding received cover message.");
+                    info!(target: LOG_TARGET, "Discarding received cover message.");
                 }
                 (PayloadType::Data, serialized_data_message) => {
-                    tracing::debug!(target: LOG_TARGET, "Processing a fully decapsulated data message.");
+                    debug!(target: LOG_TARGET, "Processing a fully decapsulated data message.");
                     if let Ok(deserialized_network_message) =
                         wire::deserialize::<NetworkMessage<BroadcastSettings>>(
                             serialized_data_message.as_ref(),
@@ -279,7 +336,7 @@ fn handle_incoming_blend_message<Rng, NodeId, SessionClock, BroadcastSettings>(
                     {
                         scheduler.schedule_message(deserialized_network_message.into());
                     } else {
-                        tracing::debug!(target: LOG_TARGET, "Unrecognized data message from blend backend. Dropping.");
+                        debug!(target: LOG_TARGET, "Unrecognized data message from blend backend. Dropping.");
                     }
                 }
             }
@@ -341,5 +398,38 @@ async fn handle_release_round<NodeId, Rng, Backend, NetAdapter, RuntimeServiceId
 
     // Release all messages concurrently, and wait for all of them to be sent.
     join_all(processed_messages_relay_futures).await;
-    tracing::debug!(target: LOG_TARGET, "Sent out {total_message_count} processed and/or cover messages at this release window.");
+    debug!(target: LOG_TARGET, "Sent out {total_message_count} processed and/or cover messages at this release window.");
+}
+
+/// Handles a new [`SessionEvent`] and forwards it to the given channel.
+///
+/// It returns a new [`Membership`] and a new [`CryptographicProcessor`]
+/// if the event is a [`SessionEvent::NewSession`].
+/// Otherwise, it returns [`None`].
+async fn handle_session_event<NodeId>(
+    event: SessionEvent<Membership<NodeId>>,
+    message_handler: MessageHandler<NodeId>,
+    forwarder: &mpsc::Sender<SessionEvent<Membership<NodeId>>>,
+    crypto_settings: &CryptographicProcessorSettings,
+    minimmal_network_size: usize,
+) -> Result<MessageHandler<NodeId>, Error>
+where
+    NodeId: Clone + Eq + Hash + Send,
+{
+    let new_message_handler = if let SessionEvent::NewSession(ref membership) = event {
+        MessageHandler::try_new_with_core_condition_check(
+            crypto_settings,
+            minimmal_network_size,
+            membership.clone(),
+        )?
+    } else {
+        message_handler
+    };
+
+    forwarder
+        .send(event)
+        .await
+        .expect("Channel shouldn't be closed");
+
+    Ok(new_message_handler)
 }

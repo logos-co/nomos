@@ -19,6 +19,7 @@ pub struct BlendConfig<BackendSettings, NodeId> {
     pub crypto: CryptographicProcessorSettings,
     pub scheduler: SchedulerSettingsExt,
     pub time: TimingSettings,
+    // TODO: Remove this and use the membership service stream instead: https://github.com/logos-co/nomos/issues/1532
     pub membership: Vec<Node<NodeId>>,
     pub minimum_network_size: NonZeroU64,
 }
