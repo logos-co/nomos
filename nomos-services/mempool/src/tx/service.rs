@@ -342,6 +342,19 @@ where
                     .send(self.pool.view(ancestor_hint))
                     .unwrap_or_else(|_| tracing::debug!("could not send back pool view"));
             }
+            MempoolMsg::GetTransactionsByHashes {
+                hashes,
+                reply_channel,
+            } => {
+                let transactions: Vec<Pool::Item> = hashes
+                    .into_iter()
+                    .filter_map(|hash| self.pool.get_item(&hash).cloned())
+                    .collect();
+
+                reply_channel.send(transactions).unwrap_or_else(|_| {
+                    tracing::debug!("could not send back transactions by hashes");
+                });
+            }
             MempoolMsg::MarkInBlock { ids, block } => {
                 self.pool.mark_in_block(&ids, block);
             }

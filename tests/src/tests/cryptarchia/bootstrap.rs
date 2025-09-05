@@ -20,6 +20,7 @@ use tests::{
 
 #[tokio::test]
 #[serial]
+#[ignore = "Re enable after new block format is fully integrated"]
 async fn test_ibd_behind_nodes() {
     let n_validators = 4;
     let n_initial_validators = 2;

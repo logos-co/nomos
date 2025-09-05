@@ -2,7 +2,11 @@ use std::{collections::HashSet, fmt::Debug, hash::Hash, marker::PhantomData};
 
 use cryptarchia_sync::GetTipResponse;
 use futures::{future::select_ok, FutureExt as _, TryStreamExt as _};
-use nomos_core::{block::Block, codec::SerdeOp, header::HeaderId};
+use nomos_core::{
+    block::{Block, Proposal},
+    codec::SerdeOp,
+    header::HeaderId,
+};
 use nomos_network::{
     backends::libp2p::{
         ChainSyncCommand, Command, DiscoveryCommand, Libp2p, NetworkCommand, PeerId,
@@ -110,6 +114,7 @@ where
     type Settings = LibP2pAdapterSettings;
     type PeerId = PeerId;
     type Block = Block<Tx>;
+    type Proposal = Proposal;
 
     async fn new(settings: Self::Settings, network_relay: Relay<Libp2p, RuntimeServiceId>) -> Self {
         let relay = network_relay.clone();
@@ -125,7 +130,7 @@ where
         }
     }
 
-    async fn blocks_stream(&self) -> Result<BoxedStream<Self::Block>, DynError> {
+    async fn proposals_stream(&self) -> Result<BoxedStream<Self::Proposal>, DynError> {
         let (sender, receiver) = oneshot::channel();
         if let Err((e, _)) = self
             .network_relay
@@ -136,15 +141,15 @@ where
         }
         let stream = receiver.await.map_err(Box::new)?;
         Ok(Box::new(stream.filter_map(|message| match message {
-            Ok(message) => <NetworkMessage<Tx> as SerdeOp>::deserialize(&message.data).map_or_else(
+            Ok(message) => <NetworkMessage as SerdeOp>::deserialize(&message.data).map_or_else(
                 |_| {
                     tracing::debug!("unrecognized gossipsub message");
                     None
                 },
                 |msg| match msg {
-                    NetworkMessage::Block(block) => {
-                        tracing::debug!("received block {:?}", block.header().id());
-                        Some(block)
+                    NetworkMessage::Proposal(proposal) => {
+                        debug!("received proposal {:?}", proposal.header().id());
+                        Some(proposal)
                     }
                 },
             ),

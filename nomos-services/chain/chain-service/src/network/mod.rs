@@ -19,6 +19,7 @@ pub trait NetworkAdapter<RuntimeServiceId> {
     type Settings: Clone + 'static;
     type PeerId;
     type Block;
+    type Proposal;
 
     async fn new(
         settings: Self::Settings,
@@ -26,7 +27,7 @@ pub trait NetworkAdapter<RuntimeServiceId> {
             <NetworkService<Self::Backend, RuntimeServiceId> as ServiceData>::Message,
         >,
     ) -> Self;
-    async fn blocks_stream(&self) -> Result<BoxedStream<Self::Block>, DynError>;
+    async fn proposals_stream(&self) -> Result<BoxedStream<Self::Proposal>, DynError>;
 
     async fn chainsync_events_stream(&self) -> Result<BoxedStream<ChainSyncEvent>, DynError>;
 

@@ -150,6 +150,10 @@ where
         Box::new(pending_items.into_iter())
     }
 
+    fn get_item(&self, key: &Self::Key) -> Option<&Self::Item> {
+        self.pending_items.get(key)
+    }
+
     fn mark_in_block(&mut self, keys: &[Self::Key], block: BlockId) {
         let mut items_in_block = Vec::with_capacity(keys.len());
         for key in keys {
