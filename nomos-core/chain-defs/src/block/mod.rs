@@ -1,71 +1,76 @@
-pub mod builder;
-
 use ::serde::{de::DeserializeOwned, Deserialize, Serialize};
 use bytes::Bytes;
+use poseidon2::Fr;
 
 use crate::{header::Header, wire};
-
 pub type TxHash = [u8; 32];
-
 pub type BlockNumber = u64;
-
 pub type SessionNumber = u64;
+
+/// A block proposal
+#[derive(Clone, Debug)]
+pub struct Proposal {
+    pub header: Header,
+    pub references: References,
+    pub signature: ed25519_dalek::Signature,
+}
+
+#[derive(Clone, Debug)]
+pub struct References {
+    pub service_reward: Option<Fr>,
+    pub mempool_transactions: Vec<Fr>, // 1024 - len(service_reward)
+}
 
 /// A block
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Block<Tx: Clone + Eq, BlobCertificate: Clone + Eq> {
+pub struct Block<Tx> {
     header: Header,
-    cl_transactions: Vec<Tx>,
-    bl_blobs: Vec<BlobCertificate>,
+    transactions: Vec<Tx>,
 }
 
-impl<Tx: Clone + Eq, BlobCertificate: Clone + Eq> Block<Tx, BlobCertificate> {
+impl Proposal {
     #[must_use]
     pub const fn header(&self) -> &Header {
         &self.header
     }
 
-    pub fn transactions(&self) -> impl Iterator<Item = &Tx> + '_ {
-        self.cl_transactions.iter()
+    #[must_use]
+    pub const fn references(&self) -> &References {
+        &self.references
     }
 
-    pub fn blobs(&self) -> impl Iterator<Item = &BlobCertificate> + '_ {
-        self.bl_blobs.iter()
+    #[must_use]
+    pub const fn signature(&self) -> &ed25519_dalek::Signature {
+        &self.signature
     }
 }
 
-impl<
-        Tx: Clone + Eq + Serialize + DeserializeOwned,
-        BlobCertificate: Clone + Eq + Serialize + DeserializeOwned,
-    > Block<Tx, BlobCertificate>
-{
-    /// Encode block into bytes
+impl<Tx> Block<Tx> {
     #[must_use]
-    pub fn as_bytes(&self) -> Bytes {
-        wire::serialize(self).unwrap().into()
+    pub const fn new(header: Header, transactions: Vec<Tx>) -> Self {
+        Self {
+            header,
+            transactions,
+        }
     }
 
     #[must_use]
-    pub fn from_bytes(bytes: &[u8]) -> Self {
-        wire::deserialize(bytes).unwrap()
+    pub const fn header(&self) -> &Header {
+        &self.header
     }
 
     #[must_use]
-    pub const fn cl_transactions_len(&self) -> usize {
-        self.cl_transactions.len()
+    pub fn transactions(&self) -> impl ExactSizeIterator<Item = &Tx> + '_ {
+        self.transactions.iter()
     }
 
     #[must_use]
-    pub const fn bl_blobs_len(&self) -> usize {
-        self.bl_blobs.len()
+    pub fn into_transactions(self) -> Vec<Tx> {
+        self.transactions
     }
 }
 
-impl<
-        Tx: Clone + Eq + Serialize + DeserializeOwned,
-        BlobCertificate: Clone + Eq + Serialize + DeserializeOwned,
-    > TryFrom<Bytes> for Block<Tx, BlobCertificate>
-{
+impl<Tx: Clone + Eq + Serialize + DeserializeOwned> TryFrom<Bytes> for Block<Tx> {
     type Error = wire::Error;
 
     fn try_from(bytes: Bytes) -> Result<Self, Self::Error> {
@@ -73,14 +78,10 @@ impl<
     }
 }
 
-impl<
-        Tx: Clone + Eq + Serialize + DeserializeOwned,
-        BlobCertificate: Clone + Eq + Serialize + DeserializeOwned,
-    > TryFrom<Block<Tx, BlobCertificate>> for Bytes
-{
+impl<Tx: Clone + Eq + Serialize + DeserializeOwned> TryFrom<Block<Tx>> for Bytes {
     type Error = wire::Error;
 
-    fn try_from(block: Block<Tx, BlobCertificate>) -> Result<Self, Self::Error> {
+    fn try_from(block: Block<Tx>) -> Result<Self, Self::Error> {
         let serialized = wire::serialize(&block)?;
         Ok(serialized.into())
     }

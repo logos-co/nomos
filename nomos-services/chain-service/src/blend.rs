@@ -41,10 +41,9 @@ where
     <BlendService as ServiceData>::Message: Send,
     BlendService::BroadcastSettings: Clone + Sync,
 {
-    pub async fn publish_block<Tx, BlobCert>(&self, block: Block<Tx, BlobCert>)
+    pub async fn publish_block<Tx>(&self, block: Block<Tx>)
     where
         Tx: Clone + Eq + Serialize + Send,
-        BlobCert: Clone + Eq + Serialize + Send,
     {
         if let Err((e, _)) = self
             .relay

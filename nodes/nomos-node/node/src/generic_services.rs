@@ -117,11 +117,7 @@ pub type DaMempoolService<DaSamplingNetwork, RuntimeServiceId> = nomos_mempool::
 >;
 
 pub type CryptarchiaService<SamplingAdapter, RuntimeServiceId> = CryptarchiaConsensus<
-    chain_service::network::adapters::libp2p::LibP2pAdapter<
-        SignedMantleTx,
-        BlobInfo,
-        RuntimeServiceId,
-    >,
+    chain_service::network::adapters::libp2p::LibP2pAdapter<SignedMantleTx, RuntimeServiceId>,
     BlendService<RuntimeServiceId>,
     MockPool<HeaderId, SignedMantleTx, <SignedMantleTx as Transaction>::Hash>,
     nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
@@ -136,7 +132,6 @@ pub type CryptarchiaService<SamplingAdapter, RuntimeServiceId> = CryptarchiaCons
         RuntimeServiceId,
     >,
     nomos_core::mantle::select::FillSize<MB16, SignedMantleTx>,
-    nomos_core::da::blob::select::FillSize<MB16, BlobInfo>,
     RocksBackend<Wire>,
     KzgrsSamplingBackend,
     SamplingAdapter,

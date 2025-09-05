@@ -7,11 +7,11 @@ use chain_service::{
 use kzgrs_backend::dispersal::{BlobInfo, Metadata};
 use nomos_core::{
     da::{
-        blob::{self, select::FillSize as FillSizeWithBlobs},
+        blob::{self},
         BlobId,
     },
     header::HeaderId,
-    mantle::{select::FillSize as FillSizeWithTx, Transaction},
+    mantle::{select::FillSize as FillSizeWithTx, AuthenticatedMantleTx, Transaction},
 };
 use nomos_da_sampling::backend::DaSamplingServiceBackend;
 use nomos_libp2p::PeerId;
@@ -39,7 +39,7 @@ pub type Cryptarchia<
     RuntimeServiceId,
     const SIZE: usize,
 > = CryptarchiaConsensus<
-    ConsensusNetworkAdapter<Tx, BlobInfo, RuntimeServiceId>,
+    ConsensusNetworkAdapter<Tx, RuntimeServiceId>,
     BlendService<RuntimeServiceId>,
     MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
     MempoolNetworkAdapter<Tx, <Tx as Transaction>::Hash, RuntimeServiceId>,
@@ -50,7 +50,6 @@ pub type Cryptarchia<
         RuntimeServiceId,
     >,
     FillSizeWithTx<SIZE, Tx>,
-    FillSizeWithBlobs<SIZE, BlobInfo>,
     RocksBackend<SS>,
     SamplingBackend,
     SamplingNetworkAdapter,
@@ -99,7 +98,15 @@ pub async fn cryptarchia_info<
     handle: &OverwatchHandle<RuntimeServiceId>,
 ) -> Result<CryptarchiaInfo, DynError>
 where
-    Tx: Transaction + Eq + Clone + Debug + Serialize + DeserializeOwned + Send + Sync + 'static,
+    Tx: AuthenticatedMantleTx
+        + Eq
+        + Clone
+        + Debug
+        + Serialize
+        + DeserializeOwned
+        + Send
+        + Sync
+        + 'static,
     <Tx as Transaction>::Hash:
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     SS: StorageSerde + Send + Sync + 'static,
@@ -154,7 +161,15 @@ pub async fn cryptarchia_headers<
     to: Option<HeaderId>,
 ) -> Result<Vec<HeaderId>, DynError>
 where
-    Tx: Transaction + Clone + Debug + Eq + Serialize + DeserializeOwned + Send + Sync + 'static,
+    Tx: AuthenticatedMantleTx
+        + Clone
+        + Debug
+        + Eq
+        + Serialize
+        + DeserializeOwned
+        + Send
+        + Sync
+        + 'static,
     <Tx as Transaction>::Hash:
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     SS: StorageSerde + Send + Sync + 'static,

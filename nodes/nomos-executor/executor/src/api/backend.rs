@@ -23,7 +23,7 @@ use nomos_core::{
         DaVerifier as CoreDaVerifier,
     },
     header::HeaderId,
-    mantle::{SignedMantleTx, Transaction},
+    mantle::{AuthenticatedMantleTx, SignedMantleTx, Transaction},
 };
 use nomos_da_network_core::SubnetworkId;
 use nomos_da_network_service::{
@@ -250,7 +250,7 @@ where
     DaVerifierStorage::Settings: Clone,
     DaMembershipAdapter: MembershipAdapter + Send + Sync + 'static,
     DaMembershipStorage: MembershipStorageAdapter<PeerId, SubnetworkId> + Send + Sync + 'static,
-    Tx: Transaction
+    Tx: AuthenticatedMantleTx
         + Clone
         + Debug
         + Eq

@@ -87,7 +87,7 @@ where
             <StorageService<RocksBackend<StorageOp>, RuntimeServiceId> as ServiceData>::Message,
         >,
         id: HeaderId,
-    ) -> Result<Option<Block<Tx, kzgrs_backend::dispersal::BlobInfo>>, crate::http::DynError>
+    ) -> Result<Option<Block<Tx>>, crate::http::DynError>
     where
         Tx: Serialize + DeserializeOwned + Clone + Eq;
 }

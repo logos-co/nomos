@@ -51,22 +51,20 @@ enum BlockLocation {
     Storage,
 }
 
-pub struct BlockProvider<Storage, Tx, BlobCertificate>
+pub struct BlockProvider<Storage, Tx>
 where
     Storage: StorageBackend,
     Tx: Clone + Eq,
-    BlobCertificate: Clone + Eq,
 {
     storage_relay: StorageRelay<Storage>,
-    _phantom: PhantomData<(Tx, BlobCertificate)>,
+    _phantom: PhantomData<Tx>,
 }
 
-impl<Storage, Tx, BlobCertificate> BlockProvider<Storage, Tx, BlobCertificate>
+impl<Storage, Tx> BlockProvider<Storage, Tx>
 where
     Storage: StorageBackend + 'static,
-    <Storage as StorageChainApi>::Block: TryInto<Block<Tx, BlobCertificate>>,
+    <Storage as StorageChainApi>::Block: TryInto<Block<Tx>>,
     Tx: Serialize + Clone + Eq + Send + Sync + 'static,
-    BlobCertificate: Serialize + Clone + Eq + Send + Sync + 'static,
 {
     pub const fn new(storage_relay: StorageRelay<Storage>) -> Self {
         Self {
@@ -432,7 +430,7 @@ where
     async fn find_max_slot_immutable_block(
         &self,
         ids: impl Iterator<Item = HeaderId>,
-    ) -> Result<Option<Block<Tx, BlobCertificate>>, GetBlocksError> {
+    ) -> Result<Option<Block<Tx>>, GetBlocksError> {
         Ok(self
             .load_immutable_blocks(ids)
             .await?
@@ -444,7 +442,7 @@ where
     async fn load_immutable_blocks(
         &self,
         ids: impl Iterator<Item = HeaderId>,
-    ) -> Result<Vec<Block<Tx, BlobCertificate>>, GetBlocksError> {
+    ) -> Result<Vec<Block<Tx>>, GetBlocksError> {
         let mut blocks = Vec::new();
         for id in ids {
             if let Some(block) = self.load_immutable_block(id).await? {
@@ -461,7 +459,7 @@ where
     async fn load_immutable_block(
         &self,
         id: HeaderId,
-    ) -> Result<Option<Block<Tx, BlobCertificate>>, GetBlocksError> {
+    ) -> Result<Option<Block<Tx>>, GetBlocksError> {
         let Some(block) = Self::load_block(id, &self.storage_relay).await? else {
             return Ok(None);
         };
@@ -487,7 +485,7 @@ where
     async fn load_block(
         id: HeaderId,
         storage: &StorageRelay<Storage>,
-    ) -> Result<Option<Block<Tx, BlobCertificate>>, GetBlocksError> {
+    ) -> Result<Option<Block<Tx>>, GetBlocksError> {
         let (tx, rx) = oneshot::channel();
         storage
             .send(StorageMsg::get_block_request(id, tx))
@@ -544,13 +542,7 @@ mod tests {
 
     use cryptarchia_engine::Config;
     use futures::StreamExt as _;
-    use kzgrs_backend::dispersal::BlobInfo;
-    use nomos_core::{
-        block::builder::BlockBuilder,
-        da::blob::select::FillSize as BlobFillSize,
-        header::Builder,
-        mantle::{select::FillSize as TxFillSize, SignedMantleTx},
-    };
+    use nomos_core::{header::Header, mantle::SignedMantleTx};
     use nomos_proof_statements::leadership::{LeaderPrivate, LeaderPublic};
     use nomos_storage::{
         backends::{
@@ -696,7 +688,7 @@ mod tests {
         storage_relay: StorageRelay<RocksBackend<Wire>>,
         cryptarchia: cryptarchia_engine::Cryptarchia<HeaderId>,
         proof: nomos_core::proofs::leader_proof::Risc0LeaderProof,
-        provider: BlockProvider<RocksBackend<Wire>, SignedMantleTx, BlobInfo>,
+        provider: BlockProvider<RocksBackend<Wire>, SignedMantleTx>,
     }
 
     impl TestEnv {
@@ -752,7 +744,7 @@ mod tests {
             &self,
             count: usize,
             slot_offset: u64,
-        ) -> Vec<(Block<SignedMantleTx, BlobInfo>, HeaderId, HeaderId, Slot)> {
+        ) -> Vec<(Block<SignedMantleTx>, HeaderId, HeaderId, Slot)> {
             let mut blocks = Vec::new();
             let mut prev_header = HeaderId::from([0u8; 32]);
 
@@ -821,21 +813,16 @@ mod tests {
             &self,
             prev_header: HeaderId,
             slot: Slot,
-        ) -> Block<SignedMantleTx, BlobInfo> {
-            BlockBuilder::new(
-                TxFillSize::<1, SignedMantleTx>::new(),
-                BlobFillSize::<1, BlobInfo>::new(),
-                Builder::new(prev_header, slot, self.proof.clone()),
+        ) -> Block<SignedMantleTx> {
+            Block::new(
+                Header::new(prev_header, [0; 32].into(), slot, self.proof.clone()),
+                vec![],
             )
-            .with_transactions(vec![].into_iter())
-            .with_blobs_info(vec![].into_iter())
-            .build()
-            .expect("Block should be built successfully")
         }
 
         async fn add_block(
             &mut self,
-            block: &Block<SignedMantleTx, BlobInfo>,
+            block: &Block<SignedMantleTx>,
             header_id: HeaderId,
             prev_header: HeaderId,
             slot: Slot,
@@ -849,11 +836,7 @@ mod tests {
             self.store_block_in_storage(block, header_id, slot).await;
         }
 
-        async fn store_block_only(
-            &self,
-            block: &Block<SignedMantleTx, BlobInfo>,
-            header_id: HeaderId,
-        ) {
+        async fn store_block_only(&self, block: &Block<SignedMantleTx>, header_id: HeaderId) {
             let store_result: Result<_, _> = block.clone().try_into();
             self.storage_relay
                 .send(StorageMsg::store_block_request(
@@ -866,7 +849,7 @@ mod tests {
 
         async fn store_block_in_storage(
             &self,
-            block: &Block<SignedMantleTx, BlobInfo>,
+            block: &Block<SignedMantleTx>,
             header_id: HeaderId,
             slot: Slot,
         ) {
@@ -895,10 +878,9 @@ mod tests {
 
             let mut blocks = Vec::new();
             if let Some(ProviderResponse::Available(mut stream)) = rx.recv().await {
-                while let Some(res) = stream.next().await {
-                    if let Ok(bytes) = res {
-                        let block: Block<SignedMantleTx, BlobInfo> =
-                            wire::deserialize(&bytes).unwrap();
+                while let Some(res) = &stream.next().await {
+                    if let Ok(bytes) = &res {
+                        let block: Block<SignedMantleTx> = wire::deserialize(bytes).unwrap();
                         blocks.push(block.header().id());
                     } else {
                         break;

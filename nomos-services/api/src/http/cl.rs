@@ -1,7 +1,10 @@
 use core::fmt::Debug;
 use std::fmt::Display;
 
-use nomos_core::{header::HeaderId, mantle::Transaction};
+use nomos_core::{
+    header::HeaderId,
+    mantle::{AuthenticatedMantleTx, Transaction},
+};
 use nomos_mempool::{
     backend::mockpool::MockPool, network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
     tx::service::openapi::Status, MempoolMetrics, MempoolMsg, TxMempoolService,
@@ -25,7 +28,14 @@ pub async fn cl_mempool_metrics<Tx, SamplingNetworkAdapter, SamplingStorage, Run
     handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
 ) -> Result<MempoolMetrics, super::DynError>
 where
-    Tx: Transaction + Clone + Debug + Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
+    Tx: AuthenticatedMantleTx
+        + Clone
+        + Debug
+        + Serialize
+        + for<'de> Deserialize<'de>
+        + Send
+        + Sync
+        + 'static,
     <Tx as Transaction>::Hash:
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     SamplingNetworkAdapter:
@@ -58,7 +68,14 @@ pub async fn cl_mempool_status<Tx, SamplingNetworkAdapter, SamplingStorage, Runt
     items: Vec<<Tx as Transaction>::Hash>,
 ) -> Result<Vec<Status<HeaderId>>, super::DynError>
 where
-    Tx: Transaction + Clone + Debug + Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
+    Tx: AuthenticatedMantleTx
+        + Clone
+        + Debug
+        + Serialize
+        + for<'de> Deserialize<'de>
+        + Send
+        + Sync
+        + 'static,
     <Tx as Transaction>::Hash:
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     SamplingNetworkAdapter:
