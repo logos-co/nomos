@@ -332,7 +332,7 @@ mod tests {
     #[tokio::test]
     async fn multiple_service_types_with_different_session_sizes() {
         let service_da = ServiceType::DataAvailability;
-        let service_mp = ServiceType::BlendNetwork; // Assuming you have this variant
+        let service_mp = ServiceType::BlendNetwork;
 
         // Set up initial providers
         let p1 = pid(1);
