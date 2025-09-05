@@ -8,6 +8,7 @@ use std::{
 use futures::Stream;
 use tokio::time::{sleep, Sleep};
 
+#[derive(Clone)]
 pub enum SessionEvent<Session> {
     NewSession(Session),
     TransitionPeriodExpired,
