@@ -5,7 +5,6 @@ use std::{
     time::Duration,
 };
 
-use futures::Stream;
 use tokio::time::{sleep, Sleep};
 
 #[derive(Clone)]
@@ -30,7 +29,7 @@ pub enum SessionEvent<Session> {
 /// (O: NewSession, E: TransitionPeriodExpired, S*: Sessions)
 /// ```
 pub struct SessionEventStream<Session> {
-    session_stream: Pin<Box<dyn Stream<Item = Session> + Send + Sync>>,
+    session_stream: Pin<Box<dyn futures::Stream<Item = Session> + Send + Sync>>,
     transition_period: Duration,
     transition_period_timer: Option<Pin<Box<Sleep>>>,
 }
@@ -38,7 +37,7 @@ pub struct SessionEventStream<Session> {
 impl<Session> SessionEventStream<Session> {
     #[must_use]
     pub fn new(
-        session_stream: Pin<Box<dyn Stream<Item = Session> + Send + Sync>>,
+        session_stream: Pin<Box<dyn futures::Stream<Item = Session> + Send + Sync>>,
         transition_period: Duration,
     ) -> Self {
         Self {
@@ -49,7 +48,7 @@ impl<Session> SessionEventStream<Session> {
     }
 }
 
-impl<Session> Stream for SessionEventStream<Session> {
+impl<Session> futures::Stream for SessionEventStream<Session> {
     type Item = SessionEvent<Session>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -78,10 +77,76 @@ impl<Session> Stream for SessionEventStream<Session> {
     }
 }
 
+/// A stream wrapper that ensures the first item is yielded immediately.
+///
+/// # Panics
+/// If the first item is not yielded within 1 second, it panics.
+pub struct FirstImmediateStream<Stream> {
+    /// The underlying stream.
+    stream: Stream,
+    /// Timeout to tolerate small delays before the first item is yielded from
+    /// the underlying stream.
+    /// [`None`] after the first item is yielded.
+    first_item_timeout: Option<Pin<Box<Sleep>>>,
+}
+
+impl<Stream> FirstImmediateStream<Stream> {
+    /// Builds a [`FirstImmediateStream`] by initializing the 1s timeout for the
+    /// first item.
+    pub fn new(stream: Stream) -> Self {
+        Self {
+            stream,
+            first_item_timeout: Some(Box::pin(sleep(Duration::from_secs(1)))),
+        }
+    }
+}
+
+impl<Stream, Item> futures::Stream for FirstImmediateStream<Stream>
+where
+    Stream: futures::Stream<Item = Item> + Unpin,
+{
+    type Item = Item;
+
+    /// Polls the underlying stream for the next item.
+    ///
+    /// # Panics
+    /// If the first item is not yielded within 1 second, it panics.
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        // Check if we are still waiting for the first item.
+        if self.first_item_timeout.is_some() {
+            // Poll the underlying stream to get the first item.
+            match Pin::new(&mut self.stream).poll_next(cx) {
+                Poll::Ready(Some(item)) => {
+                    // Stop the timeout and return the first item.
+                    self.first_item_timeout = None;
+                    return Poll::Ready(Some(item));
+                }
+                Poll::Ready(None) => panic!("Stream closed before the first item"),
+                Poll::Pending => {}
+            }
+
+            // If the first item wasn't ready, check the timeout.
+            match self
+                .first_item_timeout
+                .as_mut()
+                .expect("timeout must exist")
+                .as_mut()
+                .poll(cx)
+            {
+                Poll::Ready(()) => panic!("The first item was not yielded within timeout"),
+                Poll::Pending => return Poll::Pending,
+            }
+        }
+
+        // Poll the underlying stream normally after the first item.
+        Pin::new(&mut self.stream).poll_next(cx)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use futures::StreamExt as _;
-    use tokio::time::{interval, Instant};
+    use tokio::time::{interval, interval_at, Instant};
     use tokio_stream::wrappers::IntervalStream;
 
     use super::*;
@@ -175,5 +240,37 @@ mod tests {
             elapsed.abs_diff(session_duration) <= tolerance,
             "elapsed:{elapsed:?}, expected:{session_duration:?}",
         );
+    }
+
+    #[tokio::test]
+    async fn first_immediate_stream_yields_first_item_immediately() {
+        // Initialize with an underlying stream that yields the first item (nearly)
+        // immediately.
+        let mut stream = FirstImmediateStream::new(
+            IntervalStream::new(interval(Duration::from_millis(1500)))
+                .enumerate()
+                .map(|(i, _)| i),
+        );
+
+        // The first item is yieled without panic (timeout).
+        assert_eq!(stream.next().await, Some(0));
+        // Next items are yielded normally.
+        assert_eq!(stream.next().await, Some(1));
+        assert_eq!(stream.next().await, Some(2));
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "The first item was not yielded within timeout")]
+    async fn first_immediate_stream_panics_if_first_item_delayed() {
+        // Initialize with an underlying stream that doesn't yield the first item
+        // immediately.
+        let mut stream = FirstImmediateStream::new(IntervalStream::new(interval_at(
+            // The first time will be yieled after 2s.
+            Instant::now() + Duration::from_secs(2),
+            Duration::from_millis(1500),
+        )));
+
+        // This should panic due to the timeout.
+        stream.next().await;
     }
 }

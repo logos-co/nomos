@@ -6,7 +6,6 @@ use std::{
 
 use async_trait::async_trait;
 use futures::StreamExt as _;
-use nomos_blend_scheduling::session::SessionEventStream;
 use nomos_network::NetworkService;
 use overwatch::{
     services::{
@@ -26,7 +25,7 @@ use crate::{
     },
     instance::{Instance, Mode},
     membership::Adapter as _,
-    settings::{constant_membership_stream, Settings},
+    settings::{constant_session_stream, Settings},
 };
 
 pub mod core;
@@ -140,11 +139,9 @@ where
         // TODO: Use membership_stream once the membership/SDP services are ready to provide the real membership: https://github.com/logos-co/nomos/issues/1532
 
         let membership = settings.membership();
-        let mut session_stream = SessionEventStream::new(
-            Box::pin(constant_membership_stream(
-                membership.clone(),
-                settings.time.session_duration(),
-            )),
+        let mut session_stream = constant_session_stream(
+            membership.clone(),
+            settings.time.session_duration(),
             settings.time.session_transition_period(),
         );
 

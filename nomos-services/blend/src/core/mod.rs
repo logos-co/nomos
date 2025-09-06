@@ -21,7 +21,7 @@ use nomos_blend_scheduling::{
     membership::Membership,
     message_blend::crypto::CryptographicProcessor,
     message_scheduler::{round_info::RoundInfo, MessageScheduler},
-    session::{SessionEvent, SessionEventStream},
+    session::SessionEvent,
     UninitializedMessageScheduler,
 };
 use nomos_core::wire;
@@ -37,13 +37,12 @@ use overwatch::{
 use rand::{seq::SliceRandom as _, RngCore, SeedableRng as _};
 use serde::{Deserialize, Serialize};
 use services_utils::wait_until_services_are_ready;
-use tokio::time::timeout;
 
 use crate::{
     core::settings::BlendConfig,
     membership,
     message::{NetworkMessage, ProcessedMessage, ServiceMessage},
-    settings::constant_membership_stream,
+    settings::constant_session_stream,
 };
 
 pub(super) mod service_components;
@@ -144,11 +143,9 @@ where
         .await
         .expect("Membership service should be ready");
         // TODO: Use membership_stream once the membership/SDP services are ready to provide the real membership: https://github.com/logos-co/nomos/issues/1532
-        let mut session_stream = SessionEventStream::new(
-            Box::pin(constant_membership_stream(
-                membership,
-                blend_config.time.session_duration(),
-            )),
+        let mut session_stream = constant_session_stream(
+            membership,
+            blend_config.time.session_duration(),
             blend_config.time.session_transition_period(),
         )
         .fork();
@@ -166,14 +163,10 @@ where
         .wait_next_session_start()
         .await;
 
-        // Read the initial membership, expecting it to be yielded immediately.
-        // We use 1s timeout to tolerate small delays.
-        // TODO: Refactor this to a separate struct.
-        let SessionEvent::NewSession(membership) =
-            timeout(Duration::from_secs(1), session_stream.next())
-                .await
-                .expect("Session stream should yield the first event immediately")
-                .expect("Session stream shouldn't be closed")
+        let SessionEvent::NewSession(membership) = session_stream
+            .next()
+            .await
+            .expect("Session stream shouldn't be closed")
         else {
             panic!("NewSession must be yielded first");
         };

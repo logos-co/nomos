@@ -16,7 +16,7 @@ use backends::BlendBackend;
 use futures::{Stream, StreamExt as _};
 use nomos_blend_scheduling::{
     membership::Membership,
-    session::{SessionEvent, SessionEventStream},
+    session::{FirstImmediateStream, SessionEvent},
 };
 use nomos_core::wire;
 use overwatch::{
@@ -32,14 +32,13 @@ use serde::Serialize;
 pub(crate) use service_components::ServiceComponents;
 use services_utils::wait_until_services_are_ready;
 use settings::BlendConfig;
-use tokio::time::timeout;
 use tracing::{debug, error, info};
 
 use crate::{
     edge::handlers::{Error, MessageHandler},
     membership,
     message::ServiceMessage,
-    settings::constant_membership_stream,
+    settings::constant_session_stream,
 };
 
 const LOG_TARGET: &str = "blend::service::edge";
@@ -121,11 +120,9 @@ where
         .await?;
         // TODO: Use membership_stream once the membership/SDP services are ready to provide the real membership: https://github.com/logos-co/nomos/issues/1532
 
-        let session_stream = SessionEventStream::new(
-            Box::pin(constant_membership_stream(
-                membership.clone(),
-                settings.time.session_duration(),
-            )),
+        let session_stream = constant_session_stream(
+            membership.clone(),
+            settings.time.session_duration(),
             settings.time.session_transition_period(),
         );
 
@@ -176,7 +173,9 @@ where
 ///   stream.
 /// - If the initial membership does not satisfy the edge node condition.
 async fn run<Backend, NodeId, RuntimeServiceId>(
-    mut session_stream: impl Stream<Item = SessionEvent<Membership<NodeId>>> + Send + Unpin,
+    mut session_stream: FirstImmediateStream<
+        impl Stream<Item = SessionEvent<Membership<NodeId>>> + Send + Unpin,
+    >,
     mut messages_to_blend: impl Stream<Item = Vec<u8>> + Send + Unpin,
     settings: &Settings<Backend, NodeId, RuntimeServiceId>,
     overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
@@ -187,14 +186,10 @@ where
     NodeId: Clone + Eq + Hash + Send + Sync + 'static,
     RuntimeServiceId: Clone,
 {
-    // Read the initial membership, expecting it to be yielded immediately.
-    // We use 1s timeout to tolerate small delays.
-    // TODO: Refactor this to a separate struct.
-    let SessionEvent::NewSession(membership) =
-        timeout(Duration::from_secs(1), session_stream.next())
-            .await
-            .expect("Session stream should yield the first event immediately")
-            .expect("Session stream shouldn't be closed")
+    let SessionEvent::NewSession(membership) = session_stream
+        .next()
+        .await
+        .expect("Session stream shouldn't be closed")
     else {
         panic!("NewSession must be yielded first");
     };

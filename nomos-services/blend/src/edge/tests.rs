@@ -6,7 +6,9 @@ use std::{
 };
 
 use nomos_blend_scheduling::{
-    membership::Membership, message_blend::CryptographicProcessorSettings, session::SessionEvent,
+    membership::Membership,
+    message_blend::CryptographicProcessorSettings,
+    session::{FirstImmediateStream, SessionEvent},
     EncapsulatedMessage,
 };
 use overwatch::overwatch::{commands::OverwatchCommand, OverwatchHandle};
@@ -177,21 +179,6 @@ async fn run_fails_if_local_is_core_in_new_membership() {
     ));
 }
 
-/// [`run`] panics if the session stream does not yield the first event
-/// immediately.
-#[test_log::test(tokio::test)]
-#[should_panic(expected = "Session stream should yield the first event immediately")]
-async fn run_panics_if_session_stream_is_not_immediate() {
-    let local_node = 99;
-    let minimal_network_size = 1;
-    // Do not provide the initial membership, so the session stream does not yield
-    // immediately.
-    let (join_handle, _session_sender, _, _) =
-        spawn_run(local_node, minimal_network_size, None).await;
-
-    resume_panic_from(join_handle).await;
-}
-
 async fn spawn_run(
     local_node: NodeId,
     minimal_network_size: u64,
@@ -215,7 +202,7 @@ async fn spawn_run(
 
     let join_handle = tokio::spawn(async move {
         run::<TestBackend, _, _>(
-            ReceiverStream::new(session_receiver),
+            FirstImmediateStream::new(ReceiverStream::new(session_receiver)),
             ReceiverStream::new(msg_receiver),
             &settings(local_node, minimal_network_size, node_id_sender),
             &overwatch_handle(),
