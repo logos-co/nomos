@@ -5,8 +5,8 @@ use std::{
     time::Duration,
 };
 
-use futures::Stream;
-use tokio::time::{sleep, Sleep};
+use futures::StreamExt as _;
+use tokio::time::{sleep, timeout, Sleep};
 
 #[derive(Clone)]
 pub enum SessionEvent<Session> {
@@ -29,18 +29,15 @@ pub enum SessionEvent<Session> {
 ///
 /// (O: NewSession, E: TransitionPeriodExpired, S*: Sessions)
 /// ```
-pub struct SessionEventStream<Session> {
-    session_stream: Pin<Box<dyn Stream<Item = Session> + Send + Sync>>,
+pub struct SessionEventStream<Stream> {
+    session_stream: Stream,
     transition_period: Duration,
     transition_period_timer: Option<Pin<Box<Sleep>>>,
 }
 
-impl<Session> SessionEventStream<Session> {
+impl<Stream> SessionEventStream<Stream> {
     #[must_use]
-    pub fn new(
-        session_stream: Pin<Box<dyn Stream<Item = Session> + Send + Sync>>,
-        transition_period: Duration,
-    ) -> Self {
+    const fn new(session_stream: Stream, transition_period: Duration) -> Self {
         Self {
             session_stream,
             transition_period,
@@ -49,12 +46,15 @@ impl<Session> SessionEventStream<Session> {
     }
 }
 
-impl<Session> Stream for SessionEventStream<Session> {
+impl<Stream, Session> futures::Stream for SessionEventStream<Stream>
+where
+    Stream: futures::Stream<Item = Session> + Unpin,
+{
     type Item = SessionEvent<Session>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         // Check if a new session is available.
-        match self.session_stream.as_mut().poll_next(cx) {
+        match self.session_stream.poll_next_unpin(cx) {
             Poll::Ready(Some(session)) => {
                 // Start the transition period timer, and yield the new session.
                 // If the previous transition period timer has not been expired yet,
@@ -78,10 +78,92 @@ impl<Session> Stream for SessionEventStream<Session> {
     }
 }
 
+/// A staging type that initializes a [`SessionEventStream`] by consuming
+/// the first [`Session`] from the underlying stream, expected to be yielded
+/// within a short timeout.
+pub struct UninitializedSessionEventStream<Stream> {
+    stream: FirstReadyStream<Stream>,
+    transition_period: Duration,
+}
+
+impl<Stream> UninitializedSessionEventStream<Stream> {
+    #[must_use]
+    pub const fn new(session_stream: Stream, transition_period: Duration) -> Self {
+        Self {
+            stream: FirstReadyStream::new(session_stream, Duration::from_secs(1)),
+            transition_period,
+        }
+    }
+}
+
+impl<Stream, Session> UninitializedSessionEventStream<Stream>
+where
+    Stream: futures::Stream<Item = Session> + Unpin,
+{
+    /// Initializes a [`SessionEventStream`] by consuming the first [`Session`]
+    /// from the underlying stream.
+    ///
+    /// It returns the first [`Session`] and the initialized
+    /// [`SessionEventStream`].
+    ///
+    /// It returns an error if the first session is not yieled within a short
+    /// time.
+    pub async fn initialize(
+        self,
+    ) -> Result<(Session, SessionEventStream<Stream>), FirstReadyStreamError> {
+        let (first_session, remaining_stream) = self.stream.first().await?;
+        Ok((
+            first_session,
+            SessionEventStream::new(remaining_stream, self.transition_period),
+        ))
+    }
+}
+
+/// A stream wrapper that expects the underlying stream to yield its first item
+/// within the given timeout.
+///
+/// Instead of implementing [`futures::Stream`], this provides only
+/// [`Self::first`] that explicitly tries to read the first item and returns a
+/// result.
+struct FirstReadyStream<Stream> {
+    stream: Stream,
+    timeout: Duration,
+}
+
+impl<Stream> FirstReadyStream<Stream> {
+    const fn new(stream: Stream, timeout: Duration) -> Self {
+        Self { stream, timeout }
+    }
+}
+
+impl<Stream, Item> FirstReadyStream<Stream>
+where
+    Stream: futures::Stream<Item = Item> + Unpin,
+{
+    /// Yields the first item if it is yielded within the timeout from the
+    /// underlying stream.
+    /// The remaining stream is also returned for continued use.
+    async fn first(mut self) -> Result<(Item, Stream), FirstReadyStreamError> {
+        let item = timeout(self.timeout, self.stream.next())
+            .await
+            .map_err(|_| FirstReadyStreamError::FirstItemNotReady)?
+            .ok_or(FirstReadyStreamError::StreamClosed)?;
+        Ok((item, self.stream))
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum FirstReadyStreamError {
+    #[error("The first item was not yielded in time")]
+    FirstItemNotReady,
+    #[error("The underlying stream was closed before yielding the first item")]
+    StreamClosed,
+}
+
 #[cfg(test)]
 mod tests {
     use futures::StreamExt as _;
-    use tokio::time::{interval, Instant};
+    use tokio::time::{interval, interval_at, Instant};
     use tokio_stream::wrappers::IntervalStream;
 
     use super::*;
@@ -175,5 +257,40 @@ mod tests {
             elapsed.abs_diff(session_duration) <= tolerance,
             "elapsed:{elapsed:?}, expected:{session_duration:?}",
         );
+    }
+
+    #[tokio::test]
+    async fn first_ready_stream_yields_first_item_immediately() {
+        // Use an underlying stream that yields the first item nearly immediately.
+        let stream = FirstReadyStream::new(
+            IntervalStream::new(interval(Duration::from_secs(1)))
+                .enumerate()
+                .map(|(i, _)| i),
+            Duration::from_millis(100),
+        );
+
+        let (first, mut stream) = stream.first().await.expect("first item should be yielded");
+        assert_eq!(first, 0);
+        // Next items are yielded normally.
+        assert_eq!(stream.next().await, Some(1));
+        assert_eq!(stream.next().await, Some(2));
+    }
+
+    #[tokio::test]
+    async fn first_relay_stream_fails_if_first_item_is_not_ready() {
+        // Use an underlying stream that yield the first item too late.
+        let stream = FirstReadyStream::new(
+            IntervalStream::new(interval_at(
+                // The first time will be yieled after 2s.
+                Instant::now() + Duration::from_secs(2),
+                Duration::from_secs(1),
+            )),
+            Duration::from_millis(100),
+        );
+
+        assert!(matches!(
+            stream.first().await,
+            Err(FirstReadyStreamError::FirstItemNotReady)
+        ));
     }
 }
