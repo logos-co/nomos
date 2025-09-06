@@ -22,7 +22,7 @@ use nomos_blend_network::{
     },
     EncapsulatedMessageWithValidatedPublicHeader,
 };
-use nomos_blend_scheduling::{membership::Membership, EncapsulatedMessage};
+use nomos_blend_scheduling::{membership::Membership, session::SessionEvent, EncapsulatedMessage};
 use nomos_libp2p::{DialOpts, SwarmEvent};
 use rand::RngCore;
 use tokio::sync::{broadcast, mpsc};
@@ -77,25 +77,28 @@ where
 impl<SessionStream, Rng, ObservationWindowProvider>
     BlendSwarm<SessionStream, Rng, ObservationWindowProvider>
 where
+    SessionStream: Stream<Item = SessionEvent<Membership<PeerId>>> + Unpin,
     Rng: RngCore,
     ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
-        + for<'c> From<&'c BlendConfig<Libp2pBlendBackendSettings, PeerId>>
-        + 'static,
+        + for<'c> From<(
+            &'c BlendConfig<Libp2pBlendBackendSettings, PeerId>,
+            &'c Membership<PeerId>,
+        )> + 'static,
 {
     pub(super) fn new(
         config: BlendConfig<Libp2pBlendBackendSettings, PeerId>,
+        current_membership: Membership<PeerId>,
         session_stream: SessionStream,
         rng: Rng,
         swarm_messages_receiver: mpsc::Receiver<BlendSwarmMessage>,
         incoming_message_sender: broadcast::Sender<EncapsulatedMessageWithValidatedPublicHeader>,
         minimum_network_size: NonZeroUsize,
     ) -> Self {
-        let membership = config.membership();
         let keypair = config.backend.keypair();
         let mut swarm = SwarmBuilder::with_existing_identity(keypair)
             .with_tokio()
             .with_quic()
-            .with_behaviour(|_| BlendBehaviour::new(&config))
+            .with_behaviour(|_| BlendBehaviour::new(&config, current_membership.clone()))
             .expect("Blend Behaviour should be built")
             .with_swarm_config(|cfg| {
                 // The idle timeout starts ticking once there are no active streams on a
@@ -116,7 +119,7 @@ where
             swarm_messages_receiver,
             incoming_message_sender,
             session_stream,
-            latest_session_info: membership,
+            latest_session_info: current_membership,
             rng,
             max_dial_attempts_per_connection: config.backend.max_dial_attempts_per_peer,
             ongoing_dials: HashMap::with_capacity(
@@ -483,7 +486,7 @@ impl<SessionStream, Rng, ObservationWindowProvider>
     BlendSwarm<SessionStream, Rng, ObservationWindowProvider>
 where
     Rng: RngCore,
-    SessionStream: Stream<Item = Membership<PeerId>> + Unpin,
+    SessionStream: Stream<Item = SessionEvent<Membership<PeerId>>> + Unpin,
     ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
         + 'static,
 {
@@ -514,9 +517,17 @@ where
                 self.handle_event(event);
                 predicate_matched
             }
-            Some(new_session_info) = self.session_stream.next() => {
-                self.latest_session_info = new_session_info;
-                // TODO: Perform the session transition logic
+            Some(event) = self.session_stream.next() => {
+                match event {
+                    SessionEvent::NewSession(membership) => {
+                        self.latest_session_info = membership.clone();
+                        self.swarm.behaviour_mut().blend.with_core_mut().start_new_session(membership.clone());
+                        self.swarm.behaviour_mut().blend.with_edge_mut().start_new_session(membership);
+                    },
+                    SessionEvent::TransitionPeriodExpired => {
+                        self.swarm.behaviour_mut().blend.with_core_mut().finish_session_transition();
+                    },
+                }
                 false
             }
         }
