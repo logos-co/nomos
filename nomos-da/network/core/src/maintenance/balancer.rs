@@ -55,6 +55,7 @@ where
         UnboundedSender<ConnectionBalancerCommand<<Balancer as ConnectionBalancer>::Stats>>,
     command_receiver:
         UnboundedReceiver<ConnectionBalancerCommand<<Balancer as ConnectionBalancer>::Stats>>,
+    stats_sender: Option<UnboundedSender<<Balancer as ConnectionBalancer>::Stats>>,
     waker: Option<Waker>,
 }
 
@@ -63,7 +64,11 @@ where
     Balancer: ConnectionBalancer,
     Addressbook: AddressBookHandler,
 {
-    pub fn new(addressbook: Addressbook, balancer: Balancer) -> Self {
+    pub fn new(
+        addressbook: Addressbook,
+        balancer: Balancer,
+        stats_sender: Option<UnboundedSender<<Balancer as ConnectionBalancer>::Stats>>,
+    ) -> Self {
         let (command_sender, command_receiver) = mpsc::unbounded_channel();
 
         Self {
@@ -72,12 +77,16 @@ where
             peers_to_dial: VecDeque::new(),
             command_sender,
             command_receiver,
+            stats_sender,
             waker: None,
         }
     }
 
     fn record_event(&mut self, event: ConnectionEvent) {
         self.balancer.record_event(event);
+        if let Some(stats_sender) = &self.stats_sender {
+            let _ = stats_sender.send(self.balancer.stats());
+        }
         if let Some(waker) = self.waker.take() {
             waker.wake();
         }
@@ -238,11 +247,19 @@ mod tests {
         let membership_dialer = AllNeighbours::default();
 
         let mut dialer = Swarm::new_ephemeral_tokio(|_| {
-            ConnectionBalancerBehaviour::new(membership_dialer.clone(), MockBalancer::default())
+            ConnectionBalancerBehaviour::new(
+                membership_dialer.clone(),
+                MockBalancer::default(),
+                None,
+            )
         });
 
         let mut listener = Swarm::new_ephemeral_tokio(|_| {
-            ConnectionBalancerBehaviour::new(AllNeighbours::default(), MockBalancer::default())
+            ConnectionBalancerBehaviour::new(
+                AllNeighbours::default(),
+                MockBalancer::default(),
+                None,
+            )
         });
 
         let dialer_peer = *dialer.local_peer_id();
@@ -302,7 +319,11 @@ mod tests {
         let membership_dialer = AllNeighbours::default();
 
         let mut dialer = Swarm::new_ephemeral_tokio(|_| {
-            ConnectionBalancerBehaviour::new(membership_dialer.clone(), MockBalancer::default())
+            ConnectionBalancerBehaviour::new(
+                membership_dialer.clone(),
+                MockBalancer::default(),
+                None,
+            )
         });
 
         let peer1 = PeerId::random();

@@ -83,7 +83,7 @@ where
             ),
             validator_dispersal: DispersalValidatorBehaviour::new(peer_id, membership.clone()),
             replication: ReplicationBehaviour::new(replication_config, peer_id, membership),
-            balancer: ConnectionBalancerBehaviour::new(addressbook, balancer),
+            balancer: ConnectionBalancerBehaviour::new(addressbook, balancer, None),
             monitor: ConnectionMonitorBehaviour::new(monitor, redial_cooldown),
         }
     }
