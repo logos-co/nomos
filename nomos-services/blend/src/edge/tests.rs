@@ -6,8 +6,8 @@ use std::{
 };
 
 use nomos_blend_scheduling::{
-    membership::Membership, message_blend::CryptographicProcessorSettings, session::SessionEvent,
-    EncapsulatedMessage,
+    membership::Membership, message_blend::CryptographicProcessorSettings,
+    session::UninitializedSessionEventStream, EncapsulatedMessage,
 };
 use overwatch::overwatch::{commands::OverwatchCommand, OverwatchHandle};
 use rand::{rngs::OsRng, RngCore};
@@ -43,43 +43,12 @@ async fn run_with_session_transition() {
     // Send a new session with another core node 1.
     core_node = NodeId(1);
     session_sender
-        .send(SessionEvent::NewSession(membership(
-            &[core_node],
-            local_node,
-        )))
+        .send(membership(&[core_node], local_node))
         .await
         .expect("channel opened");
     sleep(Duration::from_millis(100)).await;
 
     // A message should be forwarded to the core node 1.
-    msg_sender.send(vec![0]).await.expect("channel opened");
-    assert_eq!(
-        node_id_receiver.recv().await.expect("channel opened"),
-        core_node
-    );
-}
-
-/// [`run`] ignores [`SessionEvent::TransitionPeriodExpired`].
-#[test_log::test(tokio::test)]
-async fn run_ignores_transition_period_expired() {
-    let local_node = NodeId(99);
-    let core_node = NodeId(0);
-    let minimal_network_size = 1;
-    let (_, session_sender, msg_sender, mut node_id_receiver) = spawn_run(
-        local_node,
-        minimal_network_size,
-        Some(membership(&[core_node], local_node)),
-    )
-    .await;
-
-    // Send a TransitionPeriodExpired that should be ignored.
-    session_sender
-        .send(SessionEvent::TransitionPeriodExpired)
-        .await
-        .expect("channel opened");
-    sleep(Duration::from_millis(100)).await;
-
-    // A message still should be forwarded to the core node 0.
     msg_sender.send(vec![0]).await.expect("channel opened");
     assert_eq!(
         node_id_receiver.recv().await.expect("channel opened"),
@@ -141,7 +110,7 @@ async fn run_fails_if_new_membership_is_small() {
 
     // Send a new session with an empty membership (smaller than the min size).
     session_sender
-        .send(SessionEvent::NewSession(membership(&[], local_node)))
+        .send(membership(&[], local_node))
         .await
         .expect("channel opened");
     assert!(matches!(
@@ -165,10 +134,7 @@ async fn run_fails_if_local_is_core_in_new_membership() {
 
     // Send a new session with a membership where the local node is core.
     session_sender
-        .send(SessionEvent::NewSession(membership(
-            &[local_node],
-            local_node,
-        )))
+        .send(membership(&[local_node], local_node))
         .await
         .expect("channel opened");
     assert!(matches!(
@@ -177,28 +143,13 @@ async fn run_fails_if_local_is_core_in_new_membership() {
     ));
 }
 
-/// [`run`] panics if the session stream does not yield the first event
-/// immediately.
-#[test_log::test(tokio::test)]
-#[should_panic(expected = "Session stream should yield the first event immediately")]
-async fn run_panics_if_session_stream_is_not_immediate() {
-    let local_node = NodeId(99);
-    let minimal_network_size = 1;
-    // Do not provide the initial membership, so the session stream does not yield
-    // immediately.
-    let (join_handle, _session_sender, _, _) =
-        spawn_run(local_node, minimal_network_size, None).await;
-
-    resume_panic_from(join_handle).await;
-}
-
 async fn spawn_run(
     local_node: NodeId,
     minimal_network_size: u64,
     initial_membership: Option<Membership<NodeId>>,
 ) -> (
     JoinHandle<Result<(), Error>>,
-    mpsc::Sender<SessionEvent<Membership<NodeId>>>,
+    mpsc::Sender<Membership<NodeId>>,
     mpsc::Sender<Vec<u8>>,
     mpsc::Receiver<NodeId>,
 ) {
@@ -208,14 +159,19 @@ async fn spawn_run(
 
     if let Some(initial_membership) = initial_membership {
         session_sender
-            .send(SessionEvent::NewSession(initial_membership))
+            .send(initial_membership)
             .await
             .expect("channel opened");
     }
 
     let join_handle = tokio::spawn(async move {
         run::<TestBackend, _, _>(
-            ReceiverStream::new(session_receiver),
+            UninitializedSessionEventStream::new(
+                ReceiverStream::new(session_receiver),
+                // Set 0 for the session transition period since
+                // [`SessionEvent::TransitionPeriodExpired`] will be ignored anyway.
+                Duration::ZERO,
+            ),
             ReceiverStream::new(msg_receiver),
             &settings(local_node, minimal_network_size, node_id_sender),
             &overwatch_handle(),

@@ -80,14 +80,24 @@ impl<BackendSettings, NodeId> BlendConfig<BackendSettings, NodeId> {
     /// [`SessionEvent::TransitionPeriodExpired`] events are ignored.
     pub(super) fn session_info_stream(
         &self,
+        initial_session: &Membership<NodeId>,
         session_event_stream: impl Stream<Item = SessionEvent<Membership<NodeId>>> + Send + 'static,
-    ) -> impl Stream<Item = SessionInfo> + Unpin
+    ) -> (SessionInfo, impl Stream<Item = SessionInfo> + Unpin)
     where
         BackendSettings: Clone + Send + 'static,
         NodeId: Clone + Send + 'static,
     {
         let settings = self.clone();
-        session_event_stream
+        let initial_session_info = SessionInfo {
+            core_quota: settings.scheduler.cover.session_quota(
+                &settings.crypto,
+                &settings.time,
+                initial_session.size(),
+            ),
+            session_number: 0u128.into(),
+        };
+
+        let session_info_stream = session_event_stream
             .filter_map(move |event| {
                 let settings = settings.clone();
                 async move {
@@ -106,9 +116,16 @@ impl<BackendSettings, NodeId> BlendConfig<BackendSettings, NodeId> {
             .enumerate()
             .map(|(session_number, core_quota)| SessionInfo {
                 core_quota,
-                session_number: (session_number as u128).into(),
+                // Add 1 to the session number since the initial session number is 0.
+                session_number: (session_number
+                    .checked_add(1)
+                    .expect("session number must not overflow")
+                    as u128)
+                    .into(),
             })
-            .boxed()
+            .boxed();
+
+        (initial_session_info, session_info_stream)
     }
 
     pub(super) fn scheduler_settings(&self) -> nomos_blend_scheduling::message_scheduler::Settings {
@@ -137,26 +154,13 @@ mod tests {
         let settings = settings(1.0, 10);
 
         let (session_sender, session_receiver) = mpsc::channel(1);
-        let mut stream = settings.session_info_stream(ReceiverStream::new(session_receiver));
+        let (initial_session_info, mut stream) = settings.session_info_stream(
+            &membership(&[NodeId(0)], NodeId(0)),
+            ReceiverStream::new(session_receiver),
+        );
 
-        // No session info until a new session event is fed.
-        assert!(stream.next().now_or_never().is_none());
-
-        // Feed a new session event.
-        session_sender
-            .send(SessionEvent::NewSession(membership(
-                &[NodeId(0)],
-                NodeId(0),
-            )))
-            .await
-            .unwrap();
-        // Expect a new session info with session number 0.
-        let info0 = stream
-            .next()
-            .now_or_never()
-            .expect("should yield immediately")
-            .expect("shouldn't be closed");
-        assert_eq!(info0.session_number, 0u128.into());
+        // Expect that the initial session info has the session number 0.
+        assert_eq!(initial_session_info.session_number, 0u128.into());
 
         // Feed a transition period expired event (should be ignored).
         session_sender
@@ -175,14 +179,14 @@ mod tests {
             .await
             .unwrap();
         // Expect a new session info with session number 1.
-        let info1 = stream
+        let info = stream
             .next()
             .now_or_never()
             .expect("should yield immediately")
             .expect("shouldn't be closed");
-        assert_eq!(info1.session_number, 1u128.into());
+        assert_eq!(info.session_number, 1u128.into());
         // Expect the core quota to be different due to the different membership size.
-        assert_ne!(info0.core_quota, info1.core_quota);
+        assert_ne!(info.core_quota, initial_session_info.core_quota);
 
         // The stream should yield `None` if the underlying stream is closed.
         drop(session_sender);

@@ -21,8 +21,6 @@ use nomos_blend_scheduling::{
     membership::Membership,
     message_blend::crypto::CryptographicProcessor,
     message_scheduler::{round_info::RoundInfo, MessageScheduler},
-    session::{SessionEvent, SessionEventStream},
-    UninitializedMessageScheduler,
 };
 use nomos_core::wire;
 use nomos_network::NetworkService;
@@ -37,13 +35,12 @@ use overwatch::{
 use rand::{seq::SliceRandom as _, RngCore, SeedableRng as _};
 use serde::{Deserialize, Serialize};
 use services_utils::wait_until_services_are_ready;
-use tokio::time::timeout;
 
 use crate::{
     core::settings::BlendConfig,
     membership,
     message::{NetworkMessage, ProcessedMessage, ServiceMessage},
-    settings::constant_membership_stream,
+    settings::constant_session_stream,
 };
 
 pub(super) mod service_components;
@@ -122,15 +119,8 @@ where
         } = self;
 
         let blend_config = settings_handle.notifier().get_updated_settings();
-        let membership = initial_membership(&blend_config);
-        let membership_size = membership.size();
         let minimum_network_size = blend_config.minimum_network_size;
-        let mut rng = BlakeRng::from_entropy();
-        let mut cryptographic_processor = CryptographicProcessor::new(
-            blend_config.crypto.clone(),
-            membership.clone(),
-            rng.clone(),
-        );
+
         let network_relay = overwatch_handle.relay::<NetworkService<_, _>>().await?;
         let network_adapter = Network::new(network_relay);
 
@@ -144,44 +134,38 @@ where
         .await
         .expect("Membership service should be ready");
         // TODO: Use membership_stream once the membership/SDP services are ready to provide the real membership: https://github.com/logos-co/nomos/issues/1532
-        let mut session_stream = SessionEventStream::new(
-            Box::pin(constant_membership_stream(
-                membership,
-                blend_config.time.session_duration(),
-            )),
+        let (current_membership, session_stream) = constant_session_stream(
+            initial_membership(&blend_config),
+            blend_config.time.session_duration(),
             blend_config.time.session_transition_period(),
         )
-        .fork();
+        .initialize()
+        .await
+        .expect("The current session must be ready");
+
+        let session_stream = session_stream.fork();
+
+        let mut cryptographic_processor = CryptographicProcessor::new(
+            blend_config.crypto.clone(),
+            current_membership.clone(),
+            BlakeRng::from_entropy(),
+        );
 
         // Yields once every randomly-scheduled release round.
-        let mut message_scheduler = UninitializedMessageScheduler::<
-            _,
-            _,
-            ProcessedMessage<Network::BroadcastSettings>,
-        >::new(
-            blend_config.session_info_stream(session_stream.clone().boxed()),
-            blend_config.scheduler_settings(),
-            rng.clone(),
-        )
-        .wait_next_session_start()
-        .await;
-
-        // Read the initial membership, expecting it to be yielded immediately.
-        // We use 1s timeout to tolerate small delays.
-        // TODO: Refactor this to a separate struct.
-        let SessionEvent::NewSession(membership) =
-            timeout(Duration::from_secs(1), session_stream.next())
-                .await
-                .expect("Session stream should yield the first event immediately")
-                .expect("Session stream shouldn't be closed")
-        else {
-            panic!("NewSession must be yielded first");
-        };
+        let (initial_session_info, session_info_stream) =
+            blend_config.session_info_stream(&current_membership, session_stream.clone());
+        let mut message_scheduler =
+            MessageScheduler::<_, _, ProcessedMessage<Network::BroadcastSettings>>::new(
+                session_info_stream,
+                initial_session_info,
+                BlakeRng::from_entropy(),
+                blend_config.scheduler_settings(),
+            );
 
         let mut backend = <Backend as BlendBackend<NodeId, BlakeRng, RuntimeServiceId>>::new(
             blend_config.clone(),
             overwatch_handle.clone(),
-            membership,
+            current_membership.clone(),
             session_stream.boxed(),
             BlakeRng::from_entropy(),
         );
@@ -204,10 +188,12 @@ where
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
 
+        let mut rng = BlakeRng::from_entropy();
         loop {
             tokio::select! {
                 // Core blend service is supposed to be used only through the proxy service. As an additional protection, if it is used directly with a network that is too small, the service will simply not accept any incoming messages to be blended.
-                Some(local_data_message) = inbound_relay.next(), if membership_size >= minimum_network_size.get() as usize => {
+                // TODO: Remove the `if` by shutting down this service if new membership is small.
+                Some(local_data_message) = inbound_relay.next(), if current_membership.size() >= minimum_network_size.get() as usize => {
                     handle_local_data_message(local_data_message, &mut cryptographic_processor, &backend, &mut message_scheduler).await;
                 }
                 Some(incoming_message) = blend_messages.next() => {
