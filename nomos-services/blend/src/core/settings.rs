@@ -1,4 +1,4 @@
-use std::{hash::Hash, num::NonZeroU64};
+use std::num::NonZeroU64;
 
 use futures::{Stream, StreamExt as _};
 use nomos_blend_scheduling::{
@@ -18,6 +18,7 @@ pub struct BlendConfig<BackendSettings, NodeId> {
     pub crypto: CryptographicProcessorSettings,
     pub scheduler: SchedulerSettingsExt,
     pub time: TimingSettings,
+    // TODO: Remove this and use the membership service stream instead: https://github.com/logos-co/nomos/issues/1532
     pub membership: Vec<Node<NodeId>>,
     pub minimum_network_size: NonZeroU64,
 }
@@ -68,16 +69,6 @@ impl CoverTrafficSettingsExt {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct MessageDelayerSettingsExt {
     pub maximum_release_delay_in_rounds: NonZeroU64,
-}
-
-impl<BackendSettings, NodeId> BlendConfig<BackendSettings, NodeId>
-where
-    NodeId: Eq + Hash + Clone,
-{
-    pub(super) fn membership(&self) -> Membership<NodeId> {
-        let local_signing_pubkey = self.crypto.signing_private_key.public_key();
-        Membership::new(&self.membership, &local_signing_pubkey)
-    }
 }
 
 impl<BackendSettings, NodeId> BlendConfig<BackendSettings, NodeId> {

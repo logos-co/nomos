@@ -19,7 +19,10 @@ use nomos_blend_network::{
     },
     EncapsulatedMessageWithValidatedPublicHeader,
 };
-use nomos_blend_scheduling::membership::{Membership, Node};
+use nomos_blend_scheduling::{
+    membership::{Membership, Node},
+    session::SessionEvent,
+};
 use nomos_libp2p::{Protocol, SwarmEvent};
 use nomos_utils::blake_rng::BlakeRng;
 use rand::SeedableRng as _;
@@ -38,7 +41,11 @@ use crate::{
 };
 
 pub struct TestSwarm {
-    pub swarm: BlendSwarm<Pending<Membership<PeerId>>, BlakeRng, TestObservationWindowProvider>,
+    pub swarm: BlendSwarm<
+        Pending<SessionEvent<Membership<PeerId>>>,
+        BlakeRng,
+        TestObservationWindowProvider,
+    >,
     pub swarm_message_sender: mpsc::Sender<BlendSwarmMessage>,
     pub incoming_message_receiver:
         broadcast::Receiver<EncapsulatedMessageWithValidatedPublicHeader>,

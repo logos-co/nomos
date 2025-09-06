@@ -189,6 +189,7 @@ where
 {
     // Read the initial membership, expecting it to be yielded immediately.
     // We use 1s timeout to tolerate small delays.
+    // TODO: Refactor this to a separate struct.
     let SessionEvent::NewSession(membership) =
         timeout(Duration::from_secs(1), session_stream.next())
             .await
