@@ -1,6 +1,5 @@
 use core::{
     fmt::Debug,
-    marker::PhantomData,
     num::NonZeroU64,
     pin::Pin,
     task::{Context, Poll},
@@ -29,64 +28,6 @@ mod tests;
 
 const LOG_TARGET: &str = "blend::scheduling";
 
-/// A message scheduler waiting for the session stream to provide consumable
-/// session info, to compute session-related components to pass to its
-/// constituent sub-streams.
-pub struct UninitializedMessageScheduler<SessionClock, Rng, ProcessedMessage> {
-    /// The random generator to select rounds for message releasing.
-    rng: Rng,
-    /// The input stream that ticks upon a session change.
-    session_clock: SessionClock,
-    /// The settings to initialize all the required sub-streams.
-    settings: Settings,
-    _phantom: PhantomData<ProcessedMessage>,
-}
-
-impl<SessionClock, Rng, ProcessedMessage>
-    UninitializedMessageScheduler<SessionClock, Rng, ProcessedMessage>
-{
-    pub const fn new(session_clock: SessionClock, settings: Settings, rng: Rng) -> Self {
-        Self {
-            rng,
-            session_clock,
-            settings,
-            _phantom: PhantomData,
-        }
-    }
-}
-
-impl<SessionClock, Rng, ProcessedMessage>
-    UninitializedMessageScheduler<SessionClock, Rng, ProcessedMessage>
-where
-    SessionClock: Stream<Item = SessionInfo> + Unpin,
-    Rng: rand::Rng + Clone,
-{
-    /// Waits until the provided [`SessionClock`] returns the first tick with
-    /// the relevant session information.
-    pub async fn wait_next_session_start(
-        self,
-    ) -> MessageScheduler<SessionClock, Rng, ProcessedMessage> {
-        let Self {
-            rng,
-            mut session_clock,
-            settings,
-            ..
-        } = self;
-        // We wait until the provided session stream returns its first usable value,
-        // which we use to initialize the scheduler.
-        let first_session_info = async {
-            loop {
-                if let Some(session_info) = session_clock.next().await {
-                    break session_info;
-                }
-            }
-        }
-        .await;
-
-        MessageScheduler::new(session_clock, first_session_info, rng, settings)
-    }
-}
-
 /// The initialized version of [`UninitializedMessageScheduler`] that is created
 /// after the session stream yields its first result.
 pub struct MessageScheduler<SessionClock, Rng, ProcessedMessage> {
@@ -109,7 +50,7 @@ impl<SessionClock, Rng, ProcessedMessage> MessageScheduler<SessionClock, Rng, Pr
 where
     Rng: rand::Rng + Clone,
 {
-    fn new(
+    pub fn new(
         session_clock: SessionClock,
         initial_session_info: SessionInfo,
         mut rng: Rng,

@@ -6,7 +6,7 @@ pub use message_blend::crypto::{
     UnwrappedMessage,
 };
 pub mod message_scheduler;
-pub use message_scheduler::UninitializedMessageScheduler;
+pub use message_scheduler::MessageScheduler;
 mod serde;
 
 mod cover_traffic;
