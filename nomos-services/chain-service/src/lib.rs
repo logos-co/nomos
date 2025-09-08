@@ -661,7 +661,7 @@ where
                         }
 
                         match reconstruct_block_from_proposal(
-                            proposal.clone(),
+                            proposal,
                             relays.cl_mempool_relay().clone()
                         ).await {
                             Ok(block) => {
