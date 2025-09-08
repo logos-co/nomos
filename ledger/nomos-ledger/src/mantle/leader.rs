@@ -25,7 +25,7 @@ pub struct LeaderState {
     // at the start of each epoch this is increased by the amount of rewards
     // that have been collected in the previous epoch.
     // unclaimed rewards are carried over to the next epoch.
-    rewards: Value,
+    claimable_rewards: Value,
     // Merkle tree of vouchers, vouchers can only be claimed with a delay
     // of one epoch.
     vouchers: MerkleMountainRange<VoucherCm, nomos_core::crypto::Hasher>,
@@ -55,7 +55,7 @@ impl LeaderState {
             claimable_vouchers_root: [0; 32],
             n_claimable_vouchers: 0,
             nfs: rpds::HashTrieSetSync::new_sync(),
-            rewards: 0,
+            claimable_rewards: 0,
             vouchers: MerkleMountainRange::new(),
         }
     }
@@ -107,19 +107,19 @@ impl LeaderState {
             .checked_sub(self.nfs.size() as u64)
             .expect("more nullifiers than vouchers");
         let reward_amount = if n_unclaimed_vouchers > 0 {
-            self.rewards / n_unclaimed_vouchers
+            self.claimable_rewards / n_unclaimed_vouchers
         } else {
             0
         };
 
-        let new_rewards = self.rewards - reward_amount;
+        let claimable_rewards = self.claimable_rewards - reward_amount;
         Ok((
             Self {
                 epoch: self.epoch,
                 claimable_vouchers_root: self.claimable_vouchers_root,
                 n_claimable_vouchers: self.n_claimable_vouchers,
                 nfs,
-                rewards: new_rewards,
+                claimable_rewards,
                 vouchers: self.vouchers.clone(),
             },
             Balance::from(reward_amount),
@@ -137,7 +137,7 @@ mod tests {
         let state = state.try_apply_header(1.into(), [3; 32]).unwrap();
         let state = state.try_apply_header(2.into(), [4; 32]).unwrap();
         let state = super::LeaderState {
-            rewards: 300,
+            claimable_rewards: 300,
             ..state
         };
         let op1 = super::LeaderClaimOp {
@@ -146,21 +146,21 @@ mod tests {
         };
         let (state, bal) = state.claim(&op1).unwrap();
         assert_eq!(bal, 100);
-        assert_eq!(state.rewards, 200);
+        assert_eq!(state.claimable_rewards, 200);
         let op2 = super::LeaderClaimOp {
             rewards_root: state.claimable_vouchers_root,
             voucher_nullifier: [2; 32],
         };
         let (state, bal) = state.claim(&op2).unwrap();
         assert_eq!(bal, 100);
-        assert_eq!(state.rewards, 100);
+        assert_eq!(state.claimable_rewards, 100);
         let op3 = super::LeaderClaimOp {
             rewards_root: state.claimable_vouchers_root,
             voucher_nullifier: [3; 32],
         };
         let (state, bal) = state.claim(&op3).unwrap();
         assert_eq!(bal, 100);
-        assert_eq!(state.rewards, 0);
+        assert_eq!(state.claimable_rewards, 0);
     }
 
     #[test]
