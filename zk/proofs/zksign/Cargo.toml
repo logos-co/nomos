@@ -7,8 +7,8 @@ version           = "0.1.0"
 [dependencies]
 circuits-prover   = { workspace = true }
 circuits-utils    = { workspace = true }
-groth16           = { workspace = true, features = ["deser"] }
-serde             = { version = "1.0", features = ["derive"] }
+groth16           = { features = ["deser"], workspace = true }
+serde             = { features = ["derive"], version = "1.0" }
 serde_json        = { workspace = true }
 thiserror         = { workspace = true }
 witness-generator = { workspace = true }
