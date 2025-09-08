@@ -24,7 +24,7 @@ rand                     = { workspace = true }
 serde                    = { default-features = false, version = "1.0" }
 services-utils           = { workspace = true }
 subnetworks-assignations = { workspace = true }
-tokio                    = { default-features = false, version = "1" }
+tokio                    = { default-features = false, version = "1", features = ["test-util"] }
 tokio-stream             = { default-features = false, version = "0.1.15" }
 tracing                  = { workspace = true }
 

@@ -39,7 +39,6 @@ tracing-futures        = { default-features = false, version = "0.2" }
 utoipa                 = { optional = true, workspace = true }
 
 [dev-dependencies]
-kzgrs-backend = { workspace = true }
 nomos-network = { features = ["mock"], workspace = true }
 nomos-storage = { features = ["rocksdb-backend"], workspace = true }
 tempfile      = { default-features = false, version = "3" }

@@ -47,7 +47,7 @@ use nomos_network::{backends::libp2p::Libp2pConfig, config::NetworkConfig};
 use nomos_node::{
     api::backend::AxumBackendSettings,
     config::{blend::BlendConfig, mempool::MempoolConfig},
-    BlobInfo, Config, HeaderId, RocksBackendSettings,
+    Config, HeaderId, RocksBackendSettings,
 };
 use nomos_time::{
     backends::{ntp::async_client::NTPClientSettings, NtpTimeBackendSettings},
@@ -55,15 +55,14 @@ use nomos_time::{
 };
 use nomos_tracing::logging::local::FileConfig;
 use nomos_tracing_service::LoggerLayer;
-use nomos_utils::math::NonNegativeF64;
+use nomos_utils::{math::NonNegativeF64, net::get_available_tcp_port};
 use reqwest::Url;
 use tempfile::NamedTempFile;
 use tokio::time::error::Elapsed;
 
 use super::{create_tempdir, persist_tempdir, CLIENT};
 use crate::{
-    adjust_timeout, get_available_port, nodes::LOGS_PREFIX, topology::configs::GeneralConfig,
-    IS_DEBUG_TRACING,
+    adjust_timeout, nodes::LOGS_PREFIX, topology::configs::GeneralConfig, IS_DEBUG_TRACING,
 };
 
 const BIN_PATH: &str = "../target/debug/nomos-node";
@@ -187,7 +186,7 @@ impl Validator {
         }
     }
 
-    pub async fn get_block(&self, id: HeaderId) -> Option<Block<SignedMantleTx, BlobInfo>> {
+    pub async fn get_block(&self, id: HeaderId) -> Option<Block<SignedMantleTx>> {
         CLIENT
             .post(format!("http://{}{}", self.addr, STORAGE_BLOCK))
             .header("Content-Type", "application/json")
@@ -195,7 +194,7 @@ impl Validator {
             .send()
             .await
             .unwrap()
-            .json::<Option<Block<SignedMantleTx, BlobInfo>>>()
+            .json::<Option<Block<SignedMantleTx>>>()
             .await
             .unwrap()
     }
@@ -362,7 +361,7 @@ impl Validator {
 #[must_use]
 #[expect(clippy::too_many_lines, reason = "TODO: Address this at some point.")]
 pub fn create_validator_config(config: GeneralConfig) -> Config {
-    let testing_http_address = format!("127.0.0.1:{}", get_available_port())
+    let testing_http_address = format!("127.0.0.1:{}", get_available_tcp_port().unwrap())
         .parse()
         .unwrap();
 
@@ -415,7 +414,6 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
             genesis_id: HeaderId::from([0; 32]),
             genesis_state: config.consensus_config.genesis_state,
             transaction_selector_settings: (),
-            blob_selector_settings: (),
             network_adapter_settings:
                 chain_service::network::adapters::libp2p::LibP2pAdapterSettings {
                     topic: String::from(nomos_node::CONSENSUS_TOPIC),

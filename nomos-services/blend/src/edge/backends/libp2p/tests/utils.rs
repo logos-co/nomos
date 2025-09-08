@@ -1,6 +1,5 @@
 use core::num::NonZeroUsize;
 
-use futures::stream::{pending, Pending};
 use libp2p::PeerId;
 use nomos_blend_scheduling::membership::Membership;
 use nomos_utils::blake_rng::BlakeRng;
@@ -13,20 +12,21 @@ use crate::{
 };
 
 pub struct TestSwarm {
-    pub swarm: BlendSwarm<Pending<Membership<PeerId>>, BlakeRng>,
+    pub swarm: BlendSwarm<BlakeRng>,
     pub command_sender: mpsc::Sender<Command>,
 }
 
-#[derive(Default)]
 pub struct SwarmBuilder {
-    membership: Option<Membership<PeerId>>,
+    membership: Membership<PeerId>,
     replication_factor: Option<NonZeroUsize>,
 }
 
 impl SwarmBuilder {
-    pub fn with_membership(mut self, membership: Membership<PeerId>) -> Self {
-        self.membership = Some(membership);
-        self
+    pub fn new(membership: Membership<PeerId>) -> Self {
+        Self {
+            membership,
+            replication_factor: None,
+        }
     }
 
     pub fn with_replication_factor(mut self, replication_factor: usize) -> Self {
@@ -42,7 +42,6 @@ impl SwarmBuilder {
             command_receiver,
             3u64.try_into().unwrap(),
             BlakeRng::from_entropy(),
-            pending(),
             PROTOCOL_NAME,
             self.replication_factor
                 .unwrap_or_else(|| 1usize.try_into().unwrap()),

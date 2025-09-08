@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 
 use nomos_core::sdp::{FinalizedBlockEvent, FinalizedBlockEventUpdate, ProviderId};
 use nomos_libp2p::{ed25519, Multiaddr};
+use serial_test::serial;
 use tests::{
     nodes::executor::Executor,
     secret_key_to_provider_id,
@@ -9,6 +10,7 @@ use tests::{
 };
 
 #[tokio::test]
+#[serial]
 async fn test_update_get_membership_http() {
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let executor = &topology.executors()[0];
@@ -75,6 +77,9 @@ async fn send_provider_update(
         })
         .await
         .unwrap();
+
+    // Wait for update to propagate
+    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
 }
 
 async fn verify_session_zero_membership(executor: &Executor) {

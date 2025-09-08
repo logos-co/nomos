@@ -65,7 +65,7 @@ where
                         })
                         .collect::<Vec<_>>()
                 })
-                .map(move |nodes| Membership::new(&nodes, Some(&signing_public_key))),
+                .map(move |nodes| Membership::new(&nodes, &signing_public_key)),
         ))
     }
 }

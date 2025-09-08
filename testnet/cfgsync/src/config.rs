@@ -10,9 +10,10 @@ use nomos_core::sdp::{Locator, ServiceType};
 use nomos_libp2p::{ed25519, multiaddr, Multiaddr, PeerId};
 use nomos_membership::{backends::mock::MockMembershipBackendSettings, MembershipServiceSettings};
 use nomos_tracing_service::{LoggerLayer, MetricsLayer, TracingLayer, TracingSettings};
+use nomos_utils::net::get_available_udp_port;
 use rand::{thread_rng, Rng as _};
 use tests::{
-    get_available_port, secret_key_to_provider_id,
+    secret_key_to_provider_id,
     topology::configs::{
         api::GeneralApiConfig,
         blend::create_blend_configs,
@@ -85,7 +86,7 @@ pub fn create_node_configs(
     let mut ports = vec![];
     for id in &mut ids {
         thread_rng().fill(id);
-        ports.push(get_available_port());
+        ports.push(get_available_udp_port().unwrap());
     }
 
     let consensus_configs = create_consensus_configs(&ids, consensus_params);

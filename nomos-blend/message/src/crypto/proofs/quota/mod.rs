@@ -1,14 +1,8 @@
-use core::array::from_ref;
-
-use groth16::Fr;
 use nomos_core::crypto::ZkHash;
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 
-use crate::crypto::{
-    proofs::quota::inputs::{PrivateInputs, PublicInputs},
-    pseudo_random_sized_bytes,
-};
+use crate::crypto::proofs::quota::inputs::{PrivateInputs, PublicInputs};
 
 pub mod inputs;
 
