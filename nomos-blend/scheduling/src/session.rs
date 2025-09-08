@@ -6,7 +6,7 @@ use std::{
 };
 
 use futures::Stream;
-use tokio::time::{sleep, Sleep};
+use tokio::time::{Sleep, sleep};
 
 pub enum SessionEvent<Session> {
     NewSession(Session),
@@ -66,11 +66,11 @@ impl<Session> Stream for SessionEventStream<Session> {
         }
 
         // Check if the transition period has expired.
-        if let Some(timer) = &mut self.transition_period_timer {
-            if timer.as_mut().poll(cx).is_ready() {
-                self.transition_period_timer = None;
-                return Poll::Ready(Some(SessionEvent::TransitionPeriodExpired));
-            }
+        if let Some(timer) = &mut self.transition_period_timer
+            && timer.as_mut().poll(cx).is_ready()
+        {
+            self.transition_period_timer = None;
+            return Poll::Ready(Some(SessionEvent::TransitionPeriodExpired));
         }
 
         Poll::Pending
@@ -80,7 +80,7 @@ impl<Session> Stream for SessionEventStream<Session> {
 #[cfg(test)]
 mod tests {
     use futures::StreamExt as _;
-    use tokio::time::{interval, Instant};
+    use tokio::time::{Instant, interval};
     use tokio_stream::wrappers::IntervalStream;
 
     use super::*;

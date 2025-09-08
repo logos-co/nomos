@@ -16,18 +16,18 @@ macro_rules! log_error {
 use std::{collections::HashMap, time::Duration};
 
 use nomos_libp2p::{
+    Multiaddr, PeerId, Swarm, SwarmEvent,
     behaviour::BehaviourEvent,
     libp2p::{kad::QueryId, swarm::ConnectionId},
-    Multiaddr, PeerId, Swarm, SwarmEvent,
 };
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio_stream::StreamExt as _;
 
 use super::{
-    command::{Command, Dial, NetworkCommand},
     Libp2pConfig, Message,
+    command::{Command, Dial, NetworkCommand},
 };
-use crate::backends::libp2p::{swarm::kademlia::PendingQueryData, Libp2pInfo};
+use crate::backends::libp2p::{Libp2pInfo, swarm::kademlia::PendingQueryData};
 
 mod chainsync;
 mod gossipsub;
@@ -221,10 +221,10 @@ impl SwarmHandler {
     }
 
     fn complete_connect(&mut self, connection_id: ConnectionId, peer_id: PeerId) {
-        if let Some(dial) = self.pending_dials.remove(&connection_id) {
-            if let Err(e) = dial.result_sender.send(Ok(peer_id)) {
-                tracing::warn!("failed to send the Ok result of dialing: {e:?}");
-            }
+        if let Some(dial) = self.pending_dials.remove(&connection_id)
+            && let Err(e) = dial.result_sender.send(Ok(peer_id))
+        {
+            tracing::warn!("failed to send the Ok result of dialing: {e:?}");
         }
     }
 
@@ -262,7 +262,7 @@ const fn exp_backoff(retry: usize) -> Duration {
 mod tests {
     use std::{net::Ipv4Addr, sync::Once, time::Instant};
 
-    use nomos_libp2p::{protocol_name::ProtocolName, Protocol};
+    use nomos_libp2p::{Protocol, protocol_name::ProtocolName};
     use nomos_utils::net::get_available_udp_port;
     use tracing_subscriber::EnvFilter;
 

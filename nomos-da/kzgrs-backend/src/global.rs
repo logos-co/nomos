@@ -2,7 +2,7 @@ use std::sync::LazyLock;
 
 // Reexport global parameters loading from file.
 pub use kzgrs::global_parameters_from_file;
-use kzgrs::{global_parameters_from_randomness, GlobalParameters};
+use kzgrs::{GlobalParameters, global_parameters_from_randomness};
 
 pub static GLOBAL_PARAMETERS: LazyLock<GlobalParameters> = LazyLock::new(|| {
     println!("WARNING: Global parameters are randomly generated. Use for development only.");

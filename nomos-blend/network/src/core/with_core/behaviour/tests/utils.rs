@@ -2,8 +2,8 @@ use core::{fmt::Debug, num::NonZeroUsize, ops::RangeInclusive, time::Duration};
 use std::collections::{HashMap, VecDeque};
 
 use async_trait::async_trait;
-use futures::{select, Stream, StreamExt as _};
-use libp2p::{identity::Keypair, Multiaddr, PeerId, Swarm};
+use futures::{Stream, StreamExt as _, select};
+use libp2p::{Multiaddr, PeerId, Swarm, identity::Keypair};
 use libp2p_swarm_test::SwarmExt as _;
 use nomos_blend_message::crypto::Ed25519PrivateKey;
 use nomos_blend_scheduling::membership::{Membership, Node};
@@ -12,7 +12,7 @@ use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
 
 use crate::core::{
-    tests::utils::{TestSwarm, PROTOCOL_NAME},
+    tests::utils::{PROTOCOL_NAME, TestSwarm},
     with_core::behaviour::{Behaviour, Event, IntervalStreamProvider},
 };
 
@@ -132,10 +132,8 @@ impl SwarmExt for Swarm<Behaviour<IntervalProvider>> {
         self.connect(other).await;
         select! {
             swarm_event = self.select_next_some() => {
-                if let SwarmEvent::Behaviour(Event::OutboundConnectionUpgradeSucceeded(peer_id)) = swarm_event {
-                    if peer_id == *other.local_peer_id() {
-                        return;
-                    }
+                if let SwarmEvent::Behaviour(Event::OutboundConnectionUpgradeSucceeded(peer_id)) = swarm_event && peer_id == *other.local_peer_id() {
+                    return;
                 }
             }
             // Drive other swarm to keep polling

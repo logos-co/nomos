@@ -2,7 +2,7 @@ use std::{collections::HashMap, marker::PhantomData, num::NonZeroUsize, path::Pa
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use rocksdb::{Direction, Error, IteratorMode, Options, DB};
+use rocksdb::{DB, Direction, Error, IteratorMode, Options};
 use serde::{Deserialize, Serialize};
 
 use super::{StorageBackend, StorageSerde, StorageTransaction};
@@ -198,10 +198,10 @@ where
                     values.push(Bytes::from(value.to_vec()));
 
                     // Stop if we reach the limit
-                    if let Some(limit) = limit {
-                        if values.len() == limit.get() {
-                            break;
-                        }
+                    if let Some(limit) = limit
+                        && values.len() == limit.get()
+                    {
+                        break;
                     }
                 }
                 Err(e) => return Err(e), // Return the error if one occurs
@@ -239,8 +239,8 @@ mod test {
     use super::{super::testing::NoStorageSerde, *};
 
     #[tokio::test]
-    async fn test_store_load_remove(
-    ) -> Result<(), <RocksBackend<NoStorageSerde> as StorageBackend>::Error> {
+    async fn test_store_load_remove()
+    -> Result<(), <RocksBackend<NoStorageSerde> as StorageBackend>::Error> {
         let temp_path = TempDir::new().unwrap();
         let sled_settings = RocksBackendSettings {
             db_path: temp_path.path().to_path_buf(),
@@ -273,20 +273,24 @@ mod test {
         let prefix = b"foo/";
 
         // No data yet in the backend
-        assert!(backend
-            .load_prefix(prefix, None, None, None)
-            .await
-            .unwrap()
-            .is_empty());
+        assert!(
+            backend
+                .load_prefix(prefix, None, None, None)
+                .await
+                .unwrap()
+                .is_empty()
+        );
 
         // No data with the prefix
         backend.store("boo/0".into(), "boo0".into()).await.unwrap();
         backend.store("zoo/0".into(), "zoo0".into()).await.unwrap();
-        assert!(backend
-            .load_prefix(prefix, None, None, None)
-            .await
-            .unwrap()
-            .is_empty());
+        assert!(
+            backend
+                .load_prefix(prefix, None, None, None)
+                .await
+                .unwrap()
+                .is_empty()
+        );
 
         // Two data with the prefix
         // (Inserting in mixed order to test the sorted scan).
@@ -374,8 +378,8 @@ mod test {
     }
 
     #[tokio::test]
-    async fn test_transaction(
-    ) -> Result<(), <RocksBackend<NoStorageSerde> as StorageBackend>::Error> {
+    async fn test_transaction()
+    -> Result<(), <RocksBackend<NoStorageSerde> as StorageBackend>::Error> {
         let temp_path = TempDir::new().unwrap();
 
         let sled_settings = RocksBackendSettings {
@@ -400,8 +404,8 @@ mod test {
     }
 
     #[tokio::test]
-    async fn test_multi_readers_single_writer(
-    ) -> Result<(), <RocksBackend<NoStorageSerde> as StorageBackend>::Error> {
+    async fn test_multi_readers_single_writer()
+    -> Result<(), <RocksBackend<NoStorageSerde> as StorageBackend>::Error> {
         use tokio::sync::mpsc::channel;
 
         let temp_path = TempDir::new().unwrap();

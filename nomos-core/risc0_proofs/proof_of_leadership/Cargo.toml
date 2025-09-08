@@ -1,5 +1,5 @@
 [package]
-edition = "2021"
+edition = "2024"
 license = "MIT or Apache-2.0"
 name    = "proof_of_leadership"
 version = "0.1.0"

@@ -3,34 +3,34 @@ use core::{
     ops::{Deref, RangeInclusive},
 };
 use std::{
-    collections::{hash_map::Entry, HashMap, HashSet},
+    collections::{HashMap, HashSet, hash_map::Entry},
     time::Duration,
 };
 
 use futures::{Stream, StreamExt as _};
 use libp2p::{
-    swarm::{dial_opts::PeerCondition, ConnectionId},
     Multiaddr, PeerId, Swarm, SwarmBuilder,
+    swarm::{ConnectionId, dial_opts::PeerCondition},
 };
 use nomos_blend_network::{
+    EncapsulatedMessageWithValidatedPublicHeader,
     core::{
+        NetworkBehaviourEvent,
         with_core::behaviour::{
             Event as CoreToCoreEvent, IntervalStreamProvider, NegotiatedPeerState,
         },
         with_edge::behaviour::Event as CoreToEdgeEvent,
-        NetworkBehaviourEvent,
     },
-    EncapsulatedMessageWithValidatedPublicHeader,
 };
-use nomos_blend_scheduling::{membership::Membership, EncapsulatedMessage};
+use nomos_blend_scheduling::{EncapsulatedMessage, membership::Membership};
 use nomos_libp2p::{DialOpts, SwarmEvent};
 use rand::RngCore;
 use tokio::sync::{broadcast, mpsc};
 
 use crate::core::{
     backends::libp2p::{
+        LOG_TARGET, Libp2pBlendBackendSettings,
         behaviour::{BlendBehaviour, BlendBehaviourEvent},
-        Libp2pBlendBackendSettings, LOG_TARGET,
     },
     settings::BlendConfig,
 };

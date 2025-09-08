@@ -14,11 +14,11 @@ use nomos_core::{
     sdp::{Locator, ProviderId},
 };
 use overwatch::{
-    services::{
-        state::{NoOperator, NoState},
-        AsServiceId, ServiceCore, ServiceData,
-    },
     DynError, OpaqueServiceResourcesHandle,
+    services::{
+        AsServiceId, ServiceCore, ServiceData,
+        state::{NoOperator, NoState},
+    },
 };
 use serde::{Deserialize, Serialize};
 use services_utils::wait_until_services_are_ready;
@@ -84,7 +84,6 @@ impl<Backend, Sdp, RuntimeServiceId> ServiceCore<RuntimeServiceId>
 where
     Backend: MembershipBackend + Send + Sync + 'static,
     Backend::Settings: Clone,
-
     RuntimeServiceId: AsServiceId<Self>
         + AsServiceId<Sdp::SdpService>
         + Clone
@@ -242,10 +241,10 @@ where
                 // The list of all providers for each updated service type is sent to
                 // appropriate subscribers per service type
                 for (service_type, snapshot) in snapshot {
-                    if let Some(tx) = self.subscribe_channels.get(&service_type) {
-                        if tx.send(snapshot).is_err() {
-                            tracing::error!("Error sending membership update");
-                        }
+                    if let Some(tx) = self.subscribe_channels.get(&service_type)
+                        && tx.send(snapshot).is_err()
+                    {
+                        tracing::error!("Error sending membership update");
                     }
                 }
             }

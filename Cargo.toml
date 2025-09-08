@@ -286,4 +286,5 @@ unsafe_code                                  = { level = "allow" }
 variant_size_differences                     = { level = "allow" }
 
 [workspace.package]
+edition = "2024"
 license = "MIT or Apache-2.0"
