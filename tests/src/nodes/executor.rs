@@ -54,11 +54,12 @@ use nomos_da_verifier::{
 use nomos_executor::{api::backend::AxumBackendSettings, config::Config};
 use nomos_http_api_common::paths::{
     CL_METRICS, CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_BLACKLISTED_PEERS, DA_BLOCK_PEER,
-    DA_GET_MEMBERSHIP, DA_GET_SHARES_COMMITMENTS, DA_MONITOR_STATS, DA_UNBLOCK_PEER, STORAGE_BLOCK,
-    UPDATE_MEMBERSHIP,
+    DA_GET_MEMBERSHIP, DA_GET_SHARES_COMMITMENTS, DA_HISTORIC_SAMPLING, DA_MONITOR_STATS,
+    DA_UNBLOCK_PEER, STORAGE_BLOCK, UPDATE_MEMBERSHIP,
 };
 use nomos_network::{backends::libp2p::Libp2pConfig, config::NetworkConfig};
 use nomos_node::{
+    api::testing::handlers::HistoricSamplingRequest,
     config::{blend::BlendConfig, mempool::MempoolConfig},
     BlobInfo, RocksBackendSettings,
 };
@@ -74,13 +75,13 @@ use tempfile::NamedTempFile;
 
 use super::{create_tempdir, persist_tempdir, CLIENT};
 use crate::{
-    adjust_timeout, get_available_port, nodes::LOGS_PREFIX, topology::configs::GeneralConfig,
+    adjust_timeout, get_available_port,
+    nodes::{DA_GET_TESTING_ENDPOINT_ERROR, LOGS_PREFIX},
+    topology::configs::GeneralConfig,
     IS_DEBUG_TRACING,
 };
 
 const BIN_PATH: &str = "../target/debug/nomos-executor";
-const DA_GET_TESTING_ENDPOINT_ERROR: &str =
-    "Failed to connect to testing endpoint. The binary was likely built without the 'testing' feature. Try: cargo build --workspace --all-features";
 
 pub struct Executor {
     addr: SocketAddr,
@@ -332,6 +333,34 @@ impl Executor {
 
         let response = response.unwrap();
         response.error_for_status()?.json().await
+    }
+
+    pub async fn da_historic_sampling(
+        &self,
+        session_id: SessionNumber,
+        block_id: HeaderId,
+        blob_ids: Vec<BlobId>,
+    ) -> Result<bool, reqwest::Error> {
+        let request = HistoricSamplingRequest {
+            session_id,
+            block_id,
+            blob_ids,
+        };
+
+        let response = CLIENT
+            .post(format!(
+                "http://{}{}",
+                self.testing_http_addr, DA_HISTORIC_SAMPLING
+            ))
+            .json(&request)
+            .send()
+            .await?;
+
+        response.error_for_status_ref()?;
+
+        // Parse the boolean response
+        let success: bool = response.json().await?;
+        Ok(success)
     }
 }
 

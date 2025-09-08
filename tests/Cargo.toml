@@ -87,3 +87,7 @@ path = "src/tests/membership/api.rs"
 [[test]]
 name = "test_membership_disperse"
 path = "src/tests/membership/disperse.rs"
+
+[[test]]
+name = "test_da_historic_sampling"
+path = "src/tests/da/historic_sampling.rs"
