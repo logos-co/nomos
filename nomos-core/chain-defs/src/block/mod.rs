@@ -1,16 +1,17 @@
 use ::serde::{de::DeserializeOwned, Deserialize, Serialize};
 use bytes::Bytes;
-use poseidon2::Fr;
+use groth16::Fr;
 
-use crate::{header::Header, mantle::Transaction, wire};
+use crate::{header::Header, mantle::Transaction};
 
-mod serialization;
+mod wire;
+
 pub type TxHash = [u8; 32];
 pub type BlockNumber = u64;
 pub type SessionNumber = u64;
 
 /// A block proposal
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Proposal {
     pub header: Header,
     pub references: References,
@@ -75,7 +76,6 @@ impl<Tx> Block<Tx> {
         self.transactions
     }
 
-    /// Convert Block to Proposal for network transmission
     #[must_use]
     pub fn to_proposal(&self) -> Proposal
     where
@@ -105,18 +105,18 @@ impl<Tx> Block<Tx> {
 }
 
 impl<Tx: Clone + Eq + Serialize + DeserializeOwned> TryFrom<Bytes> for Block<Tx> {
-    type Error = wire::Error;
+    type Error = crate::wire::Error;
 
     fn try_from(bytes: Bytes) -> Result<Self, Self::Error> {
-        wire::deserialize(&bytes)
+        crate::wire::deserialize(&bytes)
     }
 }
 
 impl<Tx: Clone + Eq + Serialize + DeserializeOwned> TryFrom<Block<Tx>> for Bytes {
-    type Error = wire::Error;
+    type Error = crate::wire::Error;
 
     fn try_from(block: Block<Tx>) -> Result<Self, Self::Error> {
-        let serialized = wire::serialize(&block)?;
+        let serialized = crate::wire::serialize(&block)?;
         Ok(serialized.into())
     }
 }
