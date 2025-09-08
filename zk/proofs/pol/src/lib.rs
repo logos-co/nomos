@@ -128,6 +128,7 @@ pub fn verify(proof: &PoLProof, public_inputs: &PolVerifierInput) -> Result<bool
     groth16::groth16_verify(verification_key::POL_VK.as_ref(), proof, &inputs)
 }
 
+#[expect(clippy::too_long_first_doc_paragraph, reason = "we need it")]
 /// :warning: There may be dragons
 /// The [following constants](https://www.notion.so/nomos-tech/Proof-of-Leadership-Specification-21c261aa09df819ba5b6d95d0fe3066d?source=copy_link#256261aa09df800fbc88e5aae5ea7e06)
 /// Use the str representation instead of the hex representation from the
@@ -188,8 +189,6 @@ pub fn compute_lottery_values(total_stake: u64) -> (BigUint, BigUint) {
 #[cfg(test)]
 mod tests {
     use std::str::FromStr as _;
-
-    use num_bigint::BigUint;
 
     use super::*;
 
