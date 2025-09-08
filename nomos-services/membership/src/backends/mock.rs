@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeSet, HashMap, HashSet},
+    collections::{BTreeSet, HashMap},
     str,
 };
 
@@ -15,16 +15,14 @@ use crate::{backends::NewSesssion, MembershipProviders};
 #[derive(Debug, Clone)]
 struct SessionState {
     session_number: SessionNumber,
-    membership: HashSet<ProviderId>,
-    locators: HashMap<ProviderId, BTreeSet<Locator>>,
+    providers: HashMap<ProviderId, BTreeSet<Locator>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MockMembershipBackendSettings {
     pub session_sizes: HashMap<ServiceType, u32>,
-    // Initial state for each service type
-    pub session_zero_memberships: HashMap<ServiceType, HashSet<ProviderId>>,
-    pub session_zero_locators: HashMap<ServiceType, HashMap<ProviderId, BTreeSet<Locator>>>,
+    // Initial state for each service type - combines membership and locators
+    pub session_zero_providers: HashMap<ServiceType, HashMap<ProviderId, BTreeSet<Locator>>>,
 }
 
 pub struct MockMembershipBackend {
@@ -42,24 +40,16 @@ impl MembershipBackend for MockMembershipBackend {
         let mut active_sessions = HashMap::new();
         let mut forming_sessions = HashMap::new();
 
-        // Initialize sessions for all configured service types
         for service_type in settings.session_sizes.keys() {
-            let members = settings
-                .session_zero_memberships
-                .get(service_type)
-                .cloned()
-                .unwrap_or_default();
-
-            let locators = settings
-                .session_zero_locators
+            let providers = settings
+                .session_zero_providers
                 .get(service_type)
                 .cloned()
                 .unwrap_or_default();
 
             let session_0 = SessionState {
                 session_number: 0,
-                membership: members,
-                locators,
+                providers,
             };
 
             active_sessions.insert(*service_type, session_0.clone());
@@ -153,31 +143,25 @@ impl SessionState {
     fn apply_update(&mut self, update: &FinalizedBlockEventUpdate) {
         match update.state {
             nomos_core::sdp::FinalizedDeclarationState::Active => {
-                self.membership.insert(update.provider_id);
-                self.locators
+                self.providers
                     .insert(update.provider_id, update.locators.clone());
             }
             nomos_core::sdp::FinalizedDeclarationState::Inactive
             | nomos_core::sdp::FinalizedDeclarationState::Withdrawn => {
-                self.membership.remove(&update.provider_id);
-                self.locators.remove(&update.provider_id);
+                self.providers.remove(&update.provider_id);
             }
         }
     }
 
     fn to_snapshot(&self) -> MembershipProviders {
-        let providers = self
-            .membership
-            .iter()
-            .map(|pid| (*pid, self.locators.get(pid).cloned().unwrap_or_default()))
-            .collect();
+        let providers = self.providers.clone();
         (self.session_number, providers)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{BTreeSet, HashMap, HashSet};
+    use std::collections::{BTreeSet, HashMap};
 
     use multiaddr::multiaddr;
     use nomos_core::sdp::{
@@ -226,20 +210,12 @@ mod tests {
         let p1 = pid(1);
         let p1_locs = locs::<2>(1);
 
-        let mut session0_membership: HashMap<ServiceType, HashSet<ProviderId>> = HashMap::new();
-        session0_membership.insert(service, HashSet::from([p1]));
-
-        let mut session0_locators = HashMap::new();
-        session0_locators.insert(service, HashMap::new());
-        session0_locators
-            .get_mut(&service)
-            .unwrap()
-            .insert(p1, p1_locs.clone());
+        let mut session0_providers = HashMap::new();
+        session0_providers.insert(service, HashMap::from([(p1, p1_locs.clone())]));
 
         let settings = MockMembershipBackendSettings {
             session_sizes: HashMap::from([(service, 3)]),
-            session_zero_memberships: session0_membership,
-            session_zero_locators: session0_locators,
+            session_zero_providers: session0_providers,
         };
 
         let backend = MockMembershipBackend::init(settings);
@@ -259,23 +235,13 @@ mod tests {
         let p1 = pid(1);
         let p1_locs = locs::<2>(1);
 
-        let mut session0_membership: HashMap<ServiceType, HashSet<ProviderId>> = HashMap::new();
-        session0_membership.insert(service, HashSet::from([p1]));
+        let mut session0_providers = HashMap::new();
+        session0_providers.insert(service, HashMap::from([(p1, p1_locs.clone())]));
 
-        let mut session0_locators = HashMap::new();
-        session0_locators.insert(service, HashMap::new());
-        session0_locators
-            .get_mut(&service)
-            .unwrap()
-            .insert(p1, p1_locs.clone());
-
-        // Small session size for easy boundary testing
         let settings = MockMembershipBackendSettings {
             session_sizes: HashMap::from([(service, 3)]),
-            session_zero_memberships: session0_membership,
-            session_zero_locators: session0_locators,
+            session_zero_providers: session0_providers,
         };
-
         let mut backend = MockMembershipBackend::init(settings);
 
         // Forming session 1 updates across blocks 1..2 (still session 0 time)
@@ -340,14 +306,10 @@ mod tests {
         let p2 = pid(2);
         let p2_locs = locs::<2>(10);
 
-        // Session 0 membership: P1 in DA, P2 in BlendNetwork
-        let mut session0_memberships = HashMap::new();
-        session0_memberships.insert(service_da, HashSet::from([p1]));
-        session0_memberships.insert(service_mp, HashSet::from([p2]));
-
-        let mut session0_locators = HashMap::new();
-        session0_locators.insert(service_da, HashMap::from([(p1, p1_locs.clone())]));
-        session0_locators.insert(service_mp, HashMap::from([(p2, p2_locs.clone())]));
+        // Session 0 providers: P1 in DA, P2 in BlendNetwork
+        let mut session0_providers = HashMap::new();
+        session0_providers.insert(service_da, HashMap::from([(p1, p1_locs.clone())]));
+        session0_providers.insert(service_mp, HashMap::from([(p2, p2_locs.clone())]));
 
         // Different session sizes: DA=3 blocks, BlendNetwork=5 blocks
         let settings = MockMembershipBackendSettings {
@@ -355,10 +317,8 @@ mod tests {
                 (service_da, 3), // DA sessions: 0-2, 3-5, 6-8...
                 (service_mp, 5), // MP sessions: 0-4, 5-9, 10-14...
             ]),
-            session_zero_memberships: session0_memberships,
-            session_zero_locators: session0_locators,
+            session_zero_providers: session0_providers,
         };
-
         let mut backend = MockMembershipBackend::init(settings);
 
         // Add new providers to forming sessions

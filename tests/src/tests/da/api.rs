@@ -104,14 +104,14 @@ async fn test_block_peer() {
         .config()
         .membership
         .backend
-        .session_zero_memberships
+        .session_zero_providers
         .get(&nomos_core::sdp::ServiceType::DataAvailability)
         .expect("Expected data availability membership");
     assert!(!membership.is_empty());
 
     // take second peer ID from the membership set
     let existing_provider_id = *membership
-        .iter()
+        .keys()
         .nth(1)
         .expect("Expected at least two provider IDs in the membership set");
 

@@ -345,6 +345,5 @@ membership:
   backend:
     session_sizes:
       DA: 4320  # DataAvailability - 4320 blocks per session
-    session_zero_memberships: {}
-    session_zero_locators: {}
+    session_zero_providers: {}
 sdp:
