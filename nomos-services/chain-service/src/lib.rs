@@ -762,6 +762,7 @@ where
                         }
                     }
 
+                    // TODO: we maybe can keep existing orphan downloading logic but convert Block to Proposal
                     Some(block) = orphan_downloader.next(), if orphan_downloader.should_poll() => {
                         let header_id= block.header().id();
                         info!("Processing block from orphan downloader: {header_id:?}");
