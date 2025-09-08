@@ -822,14 +822,14 @@ pub mod tests {
 
         let (_, balance) = ledger_state
             .clone()
-            .try_apply_tx::<(), MainnetGasConstants>(tx)
+            .try_apply_tx::<(), MainnetGasConstants>(&locked_notes, tx)
             .unwrap();
         assert_eq!(balance, -1);
 
         let tx = create_tx(&[&input_utxo], vec![output_note]);
         assert_eq!(
             ledger_state
-                .try_apply_tx::<(), MainnetGasConstants>(tx)
+                .try_apply_tx::<(), MainnetGasConstants>(&locked_notes, tx)
                 .unwrap()
                 .1,
             0

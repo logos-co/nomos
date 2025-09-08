@@ -645,8 +645,8 @@ mod tests {
                 cryptarchia_state.latest_commitments(),
                 tx,
             )
+            .unwrap()
             .0;
-        assert!(result.is_ok());
 
         assert!(result.channels.channels.contains_key(&channel1));
         assert!(result.channels.channels.contains_key(&channel2));
@@ -692,7 +692,8 @@ mod tests {
                 cryptarchia_state.latest_commitments(),
                 declare_tx,
             )
-            .unwrap();
+            .unwrap()
+            .0;
 
         assert!(ledger_state.sdp.get_declaration(&declaration_id).is_ok());
         assert!(ledger_state
@@ -721,7 +722,8 @@ mod tests {
                 cryptarchia_state.latest_commitments(),
                 active_tx,
             )
-            .unwrap();
+            .unwrap()
+            .0;
 
         let declaration = ledger_state.sdp.get_declaration(&declaration_id).unwrap();
         assert_eq!(declaration.active, 1);
@@ -763,7 +765,8 @@ mod tests {
                 cryptarchia_state.latest_commitments(),
                 withdraw_tx,
             )
-            .unwrap();
+            .unwrap()
+            .0;
 
         let declaration = ledger_state.sdp.get_declaration(&declaration_id).unwrap();
         assert!(!ledger_state

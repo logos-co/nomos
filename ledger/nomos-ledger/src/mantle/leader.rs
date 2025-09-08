@@ -206,10 +206,10 @@ mod tests {
             }
         );
         let state = state
-            .try_apply_header(5.into(), Fr::from(5u64).into())
+            .try_apply_header(4.into(), Fr::from(5u64).into())
             .unwrap();
-        assert_eq!(state.epoch, 5.into());
-        assert_eq!(state.n_claimable_vouchers, 5);
+        assert_eq!(state.epoch, 4.into());
+        assert_eq!(state.n_claimable_vouchers, 4);
     }
 
     #[test]
