@@ -199,7 +199,7 @@ mod tests {
             MantleTx, SignedMantleTx, Transaction as _,
         },
         proofs::zksig::DummyZkSignature,
-        sdp::{ProviderId, ServiceType, ZkPublicKey},
+        sdp::{state::ActiveStateError, ProviderId, ServiceType, ZkPublicKey},
     };
     use num_bigint::BigUint;
 
@@ -713,6 +713,22 @@ mod tests {
                 msg_hash: withdraw_tx_hash.0,
             },
         )))];
+
+        // Withdrawing a note that is still locked should not be allowed.
+        let invalid_ledger_state = ledger_state.clone().try_apply_tx::<MainnetGasConstants>(
+            3,
+            &test_config,
+            cryptarchia_state.latest_commitments(),
+            withdraw_tx.clone(),
+        );
+        assert!(matches!(
+            invalid_ledger_state,
+            Err(Error::Sdp(SdpLedgerError::SdpStateError(
+                DeclarationStateError::Active(ActiveStateError::WithdrawalWhileLocked)
+            )))
+        ));
+
+        // Withdrawing after lock period is allowed.
         let ledger_state = ledger_state
             .try_apply_tx::<MainnetGasConstants>(
                 11,
