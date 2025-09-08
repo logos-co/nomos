@@ -129,7 +129,6 @@ mod tests {
 
     use super::*;
 
-    #[expect(clippy::too_many_lines, reason = "For the sake of the test let it be")]
     #[test]
     fn test_full_flow() {
         let chain_data = PoCChainInputsData {
