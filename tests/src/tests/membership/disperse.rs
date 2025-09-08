@@ -6,11 +6,11 @@ use nomos_core::{
     da::BlobId,
     sdp::{FinalizedBlockEvent, FinalizedBlockEventUpdate, ProviderId},
 };
+use nomos_utils::net::get_available_udp_port;
 use rand::{thread_rng, Rng as _};
 use serial_test::serial;
 use tests::{
     common::da::{disseminate_with_metadata, wait_for_blob_onchain, APP_ID},
-    get_available_port,
     nodes::{executor::Executor, validator::Validator},
     topology::{
         configs::membership::{create_membership_configs, GeneralMembershipConfig},
@@ -45,7 +45,7 @@ fn generate_test_ids_and_ports(n_participants: usize) -> (Vec<[u8; 32]>, Vec<u16
 
     for id in &mut ids {
         thread_rng().fill(id);
-        ports.push(get_available_port());
+        ports.push(get_available_udp_port().unwrap());
     }
 
     (ids, ports)
