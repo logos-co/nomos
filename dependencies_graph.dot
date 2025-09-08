@@ -49,6 +49,7 @@ digraph {
     47 [ label = "circuits-verifier" shape = box]
     48 [ label = "witness-generator" shape = box]
     49 [ label = "pol" shape = box]
+    50 [ label = "poq" shape = box]
     0 -> 1 [ style = dotted]
     2 -> 3 [ ]
     3 -> 0 [ ]
@@ -120,5 +121,6 @@ digraph {
     49 -> 45 [ ]
     49 -> 4 [ ]
     49 -> 48 [ ]
+    50 -> 49 [ ]
 }
 

@@ -41,13 +41,13 @@ pub enum ProveError {
 /// This function generates a proof for the given set of inputs.
 ///
 /// # Arguments
-/// - `inputs`: A reference to `PolWitnessInputs`, which contains the necessary
+/// - `inputs`: A reference to `PoQWitnessInputs`, which contains the necessary
 ///   data to generate the witness and construct the proof.
 ///
 /// # Returns
-/// - `Ok((PoLProof, PolVerifierInput))`: On success, returns a tuple containing
-///   the generated proof (`PoLProof`) and the corresponding public inputs
-///   (`PolVerifierInput`).
+/// - `Ok((PoQProof, PoQVerifierInput))`: On success, returns a tuple containing
+///   the generated proof (`PoQProof`) and the corresponding public inputs
+///   (`PoQVerifierInput`).
 /// - `Err(ProveError)`: On failure, returns an error of type `ProveError`,
 ///   which can occur due to I/O errors or JSON (de)serialization errors.
 ///
@@ -77,8 +77,8 @@ pub fn prove(inputs: &PoQWitnessInputs) -> Result<(PoQProof, PoQVerifierInput), 
 ///
 /// # Arguments
 ///
-/// - `proof`: A reference to the proof (`PoLProof`) that needs verification.
-/// - `public_inputs`: A reference to `PolVerifierInput`, which contains the
+/// - `proof`: A reference to the proof (`PoQProof`) that needs verification.
+/// - `public_inputs`: A reference to `PoQVerifierInput`, which contains the
 ///   public inputs against which the proof is verified.
 ///
 /// # Returns
@@ -105,7 +105,6 @@ mod tests {
 
     use super::*;
 
-    #[expect(clippy::too_many_lines, reason = "For the sake of the test let it be")]
     #[test]
     fn test_core_node_full_flow() {
         let blend_data = PoQBlendInputsData {
