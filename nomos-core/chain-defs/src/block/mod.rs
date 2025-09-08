@@ -2,7 +2,7 @@ use ::serde::{de::DeserializeOwned, Deserialize, Serialize};
 use bytes::Bytes;
 use poseidon2::Fr;
 
-use crate::{header::Header, wire};
+use crate::{header::Header, mantle::Transaction, wire};
 
 mod serialization;
 pub type TxHash = [u8; 32];
@@ -76,12 +76,21 @@ impl<Tx> Block<Tx> {
     }
 
     /// Convert Block to Proposal for network transmission
-    /// TODO: Implement
     #[must_use]
-    pub fn to_proposal(&self) -> Proposal {
+    pub fn to_proposal(&self) -> Proposal
+    where
+        Tx: Transaction,
+        Tx::Hash: Into<Fr>,
+    {
+        let mempool_transactions: Vec<Fr> = self
+            .transactions
+            .iter()
+            .map(|tx| tx.hash().into())
+            .collect();
+
         let references = References {
             service_reward: None,
-            mempool_transactions: Vec::new(),
+            mempool_transactions,
         };
 
         // SAFETY: Temporary dummy signature
