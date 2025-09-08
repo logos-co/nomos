@@ -4,8 +4,10 @@ use chain_service::CryptarchiaInfo;
 use common_http_client::Error;
 use executor_http_client::ExecutorHttpClient;
 use futures::StreamExt as _;
-use nomos_core::da::BlobId;
-use nomos_node::DispersedBlobInfo as _;
+use nomos_core::{
+    da::BlobId,
+    mantle::{AuthenticatedMantleTx as _, Op},
+};
 use reqwest::Url;
 
 use crate::{adjust_timeout, nodes::executor::Executor};
@@ -33,7 +35,18 @@ pub async fn wait_for_blob_onchain(executor: &Executor, blob_id: BlobId) {
         while !onchain {
             let CryptarchiaInfo { tip, .. } = executor.consensus_info().await;
             if let Some(block) = executor.get_block(tip).await {
-                if block.blobs().any(|blob| blob.blob_id() == blob_id) {
+                if block
+                    .transactions()
+                    .flat_map(|tx| tx.mantle_tx().ops.iter())
+                    .filter_map(|op| {
+                        if let Op::ChannelBlob(op) = op {
+                            Some(op.blob)
+                        } else {
+                            None
+                        }
+                    })
+                    .any(|blob| blob == blob_id)
+                {
                     onchain = true;
                 }
             }

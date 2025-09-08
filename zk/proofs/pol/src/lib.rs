@@ -28,6 +28,7 @@
 
 mod chain_inputs;
 mod inputs;
+mod lottery;
 mod proving_key;
 mod verification_key;
 mod wallet_inputs;
@@ -42,6 +43,7 @@ use thiserror::Error;
 pub use wallet_inputs::{PolWalletInputs, PolWalletInputsData};
 pub use witness::Witness;
 
+pub use crate::lottery::{P, compute_lottery_values};
 use crate::{
     inputs::{PolVerifierInput, PolVerifierInputJson},
     proving_key::POL_PROVING_KEY_PATH,

@@ -23,7 +23,7 @@ use nomos_core::{
         BlobId, DaVerifier as CoreDaVerifier,
     },
     header::HeaderId,
-    mantle::{SignedMantleTx, Transaction},
+    mantle::{AuthenticatedMantleTx, SignedMantleTx, Transaction},
 };
 use nomos_da_messages::http::da::{
     DASharesCommitmentsRequest, DaSamplingRequest, GetSharesRequest,
@@ -79,7 +79,14 @@ pub async fn cl_metrics<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServ
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
 ) -> Response
 where
-    Tx: Transaction + Clone + Debug + Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
+    Tx: AuthenticatedMantleTx
+        + Clone
+        + Debug
+        + Serialize
+        + for<'de> Deserialize<'de>
+        + Send
+        + Sync
+        + 'static,
     <Tx as Transaction>::Hash:
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     SamplingNetworkAdapter:
@@ -113,7 +120,14 @@ pub async fn cl_status<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServi
     Json(items): Json<Vec<<Tx as Transaction>::Hash>>,
 ) -> Response
 where
-    Tx: Transaction + Clone + Debug + Serialize + DeserializeOwned + Send + Sync + 'static,
+    Tx: AuthenticatedMantleTx
+        + Clone
+        + Debug
+        + Serialize
+        + DeserializeOwned
+        + Send
+        + Sync
+        + 'static,
     <Tx as Transaction>::Hash: Serialize + DeserializeOwned + Ord + Debug + Send + Sync + 'static,
     SamplingNetworkAdapter:
         nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
@@ -159,7 +173,15 @@ pub async fn cryptarchia_info<
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
 ) -> Response
 where
-    Tx: Transaction + Clone + Eq + Debug + Serialize + DeserializeOwned + Send + Sync + 'static,
+    Tx: AuthenticatedMantleTx
+        + Clone
+        + Eq
+        + Debug
+        + Serialize
+        + DeserializeOwned
+        + Send
+        + Sync
+        + 'static,
     <Tx as Transaction>::Hash:
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     SS: StorageSerde + Send + Sync + 'static,
@@ -223,7 +245,15 @@ pub async fn cryptarchia_headers<
     Query(query): Query<CryptarchiaInfoQuery>,
 ) -> Response
 where
-    Tx: Transaction + Eq + Clone + Debug + Serialize + DeserializeOwned + Send + Sync + 'static,
+    Tx: AuthenticatedMantleTx
+        + Eq
+        + Clone
+        + Debug
+        + Serialize
+        + DeserializeOwned
+        + Send
+        + Sync
+        + 'static,
     <Tx as Transaction>::Hash:
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     SS: StorageSerde + Send + Sync + 'static,
@@ -818,7 +848,14 @@ pub async fn add_tx<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceI
     Json(tx): Json<Tx>,
 ) -> Response
 where
-    Tx: Transaction + Clone + Debug + Serialize + DeserializeOwned + Send + Sync + 'static,
+    Tx: AuthenticatedMantleTx
+        + Clone
+        + Debug
+        + Serialize
+        + DeserializeOwned
+        + Send
+        + Sync
+        + 'static,
     <Tx as Transaction>::Hash:
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     SamplingNetworkAdapter:

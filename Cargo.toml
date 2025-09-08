@@ -53,6 +53,7 @@ members = [
   "zk/poseidon2",
   "zk/proofs/poc",
   "zk/proofs/pol",
+  "zk/proofs/poq",
   "zk/proofs/zksign",
 ]
 resolver = "2"
@@ -106,6 +107,7 @@ nomos-utils              = { default-features = false, path = "./nomos-utils" }
 nomos_proof_statements   = { default-features = false, path = "./nomos-core/proof_statements" }
 poc                      = { default-features = false, path = "./zk/proofs/poc" }
 pol                      = { default-features = false, path = "./zk/proofs/pol" }
+poq                      = { default-features = false, path = "zk/proofs/poq" }
 poseidon2                = { default-features = false, path = "./zk/poseidon2" }
 services-utils           = { default-features = false, path = "./nomos-services/utils" }
 subnetworks-assignations = { default-features = false, path = "./nomos-da/network/subnetworks-assignations" }

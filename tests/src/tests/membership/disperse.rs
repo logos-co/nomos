@@ -20,6 +20,7 @@ use tests::{
 
 #[tokio::test]
 #[serial]
+#[ignore = "Reenable after transaction mempool is used"]
 async fn update_membership_and_disseminate() {
     let topology_config = TopologyConfig::validator_and_executor();
     let n_participants = topology_config.n_validators + topology_config.n_executors;

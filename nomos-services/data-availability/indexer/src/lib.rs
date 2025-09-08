@@ -266,18 +266,6 @@ where
     TimeBackend::Settings: Clone + Send + Sync,
 {
     #[instrument(skip_all)]
-    async fn handle_new_block(
-        storage_adapter: &DaStorage,
-        block: Block<ClPool::Item, DaPool::Item>,
-    ) -> Result<(), DynError> {
-        for info in block.blobs() {
-            info_with_id!(info.blob_id().as_ref(), "HandleNewBlock");
-            storage_adapter.add_index(info).await?;
-        }
-        Ok(())
-    }
-
-    #[instrument(skip_all)]
     async fn handle_da_msg(
         storage_adapter: &DaStorage,
         msg: DaMsg<Share, DaPool::Item>,
