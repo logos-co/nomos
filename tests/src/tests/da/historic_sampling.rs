@@ -13,6 +13,7 @@ async fn test_historical_sampling_across_sessions() {
     let executor = &topology.executors()[0];
 
     // Disseminate some blobs in session 0
+    tokio::time::sleep(Duration::from_secs(15)).await;
     let blob_ids = disseminate_blobs_in_session_zero(executor).await;
 
     // Blocks 1-4: Complete session 0 and form session 1 on ALL nodes
