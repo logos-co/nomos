@@ -2,10 +2,10 @@ use std::{path::PathBuf, sync::LazyLock};
 
 use circuits_utils::find_binary;
 
-use crate::{PolWitnessInputs, inputs::PolInputsJson};
+use crate::{PoCWitnessInputs, inputs::PoCInputsJson};
 
-const BINARY_NAME: &str = "pol";
-const BINARY_ENV_VAR: &str = "NOMOS_POL";
+const BINARY_NAME: &str = "poc";
+const BINARY_ENV_VAR: &str = "NOMOS_POC";
 
 static BINARY: LazyLock<PathBuf> = LazyLock::new(|| {
     find_binary(BINARY_NAME, BINARY_ENV_VAR).unwrap_or_else(|error_message| {
@@ -34,9 +34,9 @@ impl AsRef<[u8]> for Witness {
     }
 }
 
-pub fn generate_witness(inputs: &PolWitnessInputs) -> Result<Witness, std::io::Error> {
-    let pol_inputs_json: PolInputsJson = inputs.into();
+pub fn generate_witness(inputs: &PoCWitnessInputs) -> Result<Witness, std::io::Error> {
+    let poc_inputs_json: PoCInputsJson = inputs.into();
     let str_inputs: String =
-        serde_json::to_string(&pol_inputs_json).expect("Failed to serialize inputs");
+        serde_json::to_string(&poc_inputs_json).expect("Failed to serialize inputs");
     witness_generator::generate_witness(&str_inputs, BINARY.as_path()).map(Witness)
 }
