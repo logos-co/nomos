@@ -87,8 +87,9 @@ mod tests {
 
     #[tokio::test]
     async fn yield_two_events_alternately() {
-        let session_duration = Duration::from_millis(100);
-        let transition_period = Duration::from_millis(10);
+        let session_duration = Duration::from_secs(1);
+        let transition_period = Duration::from_millis(100);
+        let time_tolerance = Duration::from_millis(50);
 
         let mut stream = SessionEventStream::new(
             Box::pin(IntervalStream::new(interval(session_duration))),
@@ -113,7 +114,7 @@ mod tests {
         ));
         let elapsed = start_time.elapsed();
         assert!(
-            elapsed.abs_diff(transition_period) <= tolerance,
+            elapsed.abs_diff(transition_period) <= time_tolerance,
             "elapsed:{elapsed:?}, expected:{transition_period:?}",
         );
 
@@ -125,7 +126,7 @@ mod tests {
         ));
         let elapsed = start_time.elapsed();
         assert!(
-            elapsed.abs_diff(session_duration - transition_period) <= tolerance,
+            elapsed.abs_diff(session_duration - transition_period) <= time_tolerance,
             "elapsed:{elapsed:?}, expected:{:?}",
             session_duration - transition_period
         );
@@ -138,15 +139,16 @@ mod tests {
         ));
         let elapsed = start_time.elapsed();
         assert!(
-            elapsed.abs_diff(transition_period) <= tolerance,
+            elapsed.abs_diff(transition_period) <= time_tolerance,
             "elapsed:{elapsed:?}, expected:{transition_period:?}",
         );
     }
 
     #[tokio::test]
     async fn transition_period_shorter_than_session() {
-        let session_duration = Duration::from_millis(10);
-        let transition_period = Duration::from_millis(20);
+        let session_duration = Duration::from_millis(500);
+        let transition_period = Duration::from_millis(600);
+        let time_tolerance = Duration::from_millis(50);
 
         let mut stream = SessionEventStream::new(
             Box::pin(IntervalStream::new(interval(session_duration))),
@@ -160,8 +162,7 @@ mod tests {
             Some(SessionEvent::NewSession(_))
         ));
         let elapsed = start_time.elapsed();
-        let tolerance = Duration::from_millis(5);
-        assert!(elapsed <= tolerance, "elapsed:{elapsed:?}");
+        assert!(elapsed <= time_tolerance, "elapsed:{elapsed:?}");
 
         // NewSession should be emitted again after session_duration.
         let start_time = Instant::now();
@@ -171,7 +172,7 @@ mod tests {
         ));
         let elapsed = start_time.elapsed();
         assert!(
-            elapsed.abs_diff(session_duration) <= tolerance,
+            elapsed.abs_diff(session_duration) <= time_tolerance,
             "elapsed:{elapsed:?}, expected:{session_duration:?}",
         );
     }
