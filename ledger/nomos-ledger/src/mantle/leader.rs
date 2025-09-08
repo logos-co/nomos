@@ -41,6 +41,12 @@ pub enum Error {
     InvalidEpoch { current: Epoch, incoming: Epoch },
 }
 
+impl Default for LeaderState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LeaderState {
     #[must_use]
     pub fn new() -> Self {
@@ -54,7 +60,6 @@ impl LeaderState {
         }
     }
 
-    #[must_use]
     pub fn try_apply_header(self, epoch: Epoch, voucher_cm: VoucherCm) -> Result<Self, Error> {
         Ok(self.update_epoch_state(epoch)?.add_voucher(voucher_cm))
     }
@@ -119,5 +124,80 @@ impl LeaderState {
             },
             Balance::from(reward_amount),
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_reward_amounts() {
+        let state = super::LeaderState::new();
+        let state = state.try_apply_header(1.into(), [1; 32]).unwrap();
+        let state = state.try_apply_header(1.into(), [2; 32]).unwrap();
+        let state = state.try_apply_header(1.into(), [3; 32]).unwrap();
+        let state = state.try_apply_header(2.into(), [4; 32]).unwrap();
+        let state = super::LeaderState {
+            rewards: 300,
+            ..state
+        };
+        let op1 = super::LeaderClaimOp {
+            rewards_root: state.claimable_vouchers_root,
+            voucher_nullifier: [1; 32],
+        };
+        let (state, bal) = state.claim(&op1).unwrap();
+        assert_eq!(bal, 100);
+        assert_eq!(state.rewards, 200);
+        let op2 = super::LeaderClaimOp {
+            rewards_root: state.claimable_vouchers_root,
+            voucher_nullifier: [2; 32],
+        };
+        let (state, bal) = state.claim(&op2).unwrap();
+        assert_eq!(bal, 100);
+        assert_eq!(state.rewards, 100);
+        let op3 = super::LeaderClaimOp {
+            rewards_root: state.claimable_vouchers_root,
+            voucher_nullifier: [3; 32],
+        };
+        let (state, bal) = state.claim(&op3).unwrap();
+        assert_eq!(bal, 100);
+        assert_eq!(state.rewards, 0);
+    }
+
+    #[test]
+    fn test_epoch_transition() {
+        let state = super::LeaderState::new();
+        let state = state.try_apply_header(1.into(), [1; 32]).unwrap();
+        assert_eq!(state.epoch, 1.into());
+        assert_eq!(state.n_claimable_vouchers, 0);
+        let state = state.try_apply_header(2.into(), [2; 32]).unwrap();
+        assert_eq!(state.epoch, 2.into());
+        assert_eq!(state.n_claimable_vouchers, 1);
+        let state = state.try_apply_header(2.into(), [3; 32]).unwrap();
+        assert_eq!(state.epoch, 1.into());
+        assert_eq!(state.n_claimable_vouchers, 2);
+        let state = state.try_apply_header(3.into(), [4; 32]).unwrap();
+        assert_eq!(state.epoch, 3.into());
+        assert_eq!(state.n_claimable_vouchers, 3);
+        let err = state.try_apply_header(2.into(), [5; 32]).unwrap_err();
+        assert_eq!(
+            err,
+            super::Error::InvalidEpoch {
+                current: 3.into(),
+                incoming: 2.into()
+            }
+        );
+    }
+
+    #[test]
+    fn test_cannot_claim_reward_twice() {
+        let state = super::LeaderState::new();
+        let op = super::LeaderClaimOp {
+            voucher_nullifier: [0; 32],
+            rewards_root: state.claimable_vouchers_root,
+        };
+        let (state, balance) = state.claim(&op).unwrap();
+        assert_eq!(balance, 100);
+        let err = state.claim(&op).unwrap_err();
+        assert_eq!(err, super::Error::DuplicatedVoucherNullifier);
     }
 }

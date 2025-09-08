@@ -202,7 +202,7 @@ impl LedgerState {
                     self.block_number,
                     config,
                     self.cryptarchia_ledger.latest_commitments(),
-                    tx,
+                    &tx,
                 )?;
 
             let total_balance = balance
@@ -332,6 +332,7 @@ mod tests {
                 genesis_id,
                 Slot::from(1u64),
                 &proof,
+                VoucherCm::default(),
                 std::iter::once(&tx),
             )
             .unwrap();

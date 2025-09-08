@@ -8,7 +8,7 @@ use ed25519::signature::Verifier as _;
 use nomos_core::{
     block::BlockNumber,
     mantle::{
-        ops::{channel::ChannelId, leader_claim::VoucherCm, Op, OpProof},
+        ops::{leader_claim::VoucherCm, Op, OpProof},
         AuthenticatedMantleTx, GasConstants, NoteId,
     },
     proofs::zksig::{self, ZkSignatureProof as _},
