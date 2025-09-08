@@ -24,6 +24,9 @@ tokio              = { default-features = false, version = "1" }
 tokio-stream       = { default-features = false, version = "0.1" }
 tracing            = { default-features = false, version = "0.1" }
 
+[dev-dependencies]
+nomos-utils = { workspace = true }
+
 [features]
 ntp       = ["dep:sntpc", "dep:thiserror", "tokio/net"]
 serde     = ["cryptarchia-engine/serde", "dep:cfg_eval", "dep:nomos-utils", "dep:serde", "dep:serde_with"]

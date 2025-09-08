@@ -263,6 +263,7 @@ mod tests {
     use std::{net::Ipv4Addr, sync::Once, time::Instant};
 
     use nomos_libp2p::{protocol_name::ProtocolName, Protocol};
+    use nomos_utils::net::get_available_udp_port;
     use tracing_subscriber::EnvFilter;
 
     use super::*;
@@ -314,7 +315,7 @@ mod tests {
         let (pubsub_events_tx, _) = broadcast::channel(10);
         let (chainsync_events_tx, _) = broadcast::channel(10);
 
-        let config = create_libp2p_config(vec![], 8000);
+        let config = create_libp2p_config(vec![], get_available_udp_port().unwrap());
         let mut bootstrap_node = SwarmHandler::new(
             config,
             tx1.clone(),
@@ -367,7 +368,10 @@ mod tests {
             let (pubsub_events_tx, _) = broadcast::channel(10);
             let (chainsync_events_tx, _) = broadcast::channel(10);
 
-            let config = create_libp2p_config(vec![bootstrap_addr.clone()], 8000 + i as u16);
+            let config = create_libp2p_config(
+                vec![bootstrap_addr.clone()],
+                get_available_udp_port().unwrap(),
+            );
             let mut handler = SwarmHandler::new(
                 config,
                 tx.clone(),

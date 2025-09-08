@@ -3,22 +3,9 @@ pub mod common;
 pub mod nodes;
 pub mod topology;
 
-use std::{
-    env,
-    net::TcpListener,
-    ops::Mul as _,
-    sync::{
-        atomic::{AtomicU16, Ordering},
-        LazyLock,
-    },
-    time::Duration,
-};
+use std::{env, ops::Mul as _, sync::LazyLock, time::Duration};
 
 use nomos_libp2p::{multiaddr, Multiaddr, PeerId};
-use rand::{thread_rng, Rng as _};
-
-static NET_PORT: LazyLock<AtomicU16> =
-    LazyLock::new(|| AtomicU16::new(thread_rng().gen_range(8000..10000)));
 
 static IS_SLOW_TEST_ENV: LazyLock<bool> =
     LazyLock::new(|| env::var("SLOW_TEST_ENV").is_ok_and(|s| s == "true"));
@@ -39,15 +26,6 @@ pub static GLOBAL_PARAMS_PATH: LazyLock<String> = LazyLock::new(|| {
 pub static IS_DEBUG_TRACING: LazyLock<bool> = LazyLock::new(|| {
     env::var("NOMOS_TESTS_TRACING").is_ok_and(|val| val.eq_ignore_ascii_case("true"))
 });
-
-pub fn get_available_port() -> u16 {
-    loop {
-        let port = NET_PORT.fetch_add(1, Ordering::SeqCst);
-        if TcpListener::bind(("127.0.0.1", port)).is_ok() {
-            return port;
-        }
-    }
-}
 
 /// In slow test environments like Codecov, use 2x timeout.
 #[must_use]

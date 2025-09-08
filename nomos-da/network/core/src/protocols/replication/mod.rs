@@ -14,9 +14,10 @@ mod test {
     use kzgrs_backend::testutils;
     use libp2p::{
         identity::{Keypair, PublicKey},
+        multiaddr::multiaddr,
         quic,
         swarm::SwarmEvent,
-        Multiaddr, PeerId, Swarm,
+        PeerId, Swarm,
     };
     use libp2p_swarm_test::SwarmExt as _;
     use log::info;
@@ -35,6 +36,7 @@ mod test {
         common::Share,
         replication::{ReplicationRequest, ReplicationResponseId},
     };
+    use nomos_utils::net::get_available_udp_port;
     use tokio::sync::mpsc;
     use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 
@@ -171,12 +173,20 @@ mod test {
         let (done_2_tx, mut done_2_rx) = mpsc::channel::<()>(1);
         let (done_3_tx, mut done_3_rx) = mpsc::channel::<()>(1);
 
-        let addr1: Multiaddr = "/ip4/127.0.0.1/udp/5054/quic-v1".parse().unwrap();
-        let addr3: Multiaddr = "/ip4/127.0.0.1/udp/5055/quic-v1".parse().unwrap();
-        let addr1_ = addr1.clone();
-        let addr3_ = addr3.clone();
+        let addr1 = multiaddr!(
+            Ip4([127, 0, 0, 1]),
+            Udp(get_available_udp_port().unwrap()),
+            QuicV1
+        );
+        let addr3 = multiaddr!(
+            Ip4([127, 0, 0, 1]),
+            Udp(get_available_udp_port().unwrap()),
+            QuicV1
+        );
+        swarm_1.listen_on(addr1.clone()).unwrap();
+        swarm_3.listen_on(addr3.clone()).unwrap();
+
         let task_1 = async move {
-            swarm_1.listen_on(addr1).unwrap();
             wait_for_incoming_connection(&mut swarm_1, peer_id2).await;
 
             (0..10usize).for_each(|i| swarm_1.behaviour_mut().send_message(&get_message(i)));
@@ -187,8 +197,8 @@ mod test {
             swarm_1.loop_on_next().await;
         };
         let task_2 = async move {
-            assert_eq!(swarm_2.dial_and_wait(addr1_).await, peer_id1);
-            assert_eq!(swarm_2.dial_and_wait(addr3_).await, peer_id3);
+            assert_eq!(swarm_2.dial_and_wait(addr1).await, peer_id1);
+            assert_eq!(swarm_2.dial_and_wait(addr3).await, peer_id3);
 
             wait_for_messages(&mut swarm_2, 0..20).await;
 
@@ -196,7 +206,6 @@ mod test {
             swarm_2.loop_on_next().await;
         };
         let task_3 = async move {
-            swarm_3.listen_on(addr3).unwrap();
             wait_for_incoming_connection(&mut swarm_3, peer_id2).await;
             wait_for_messages(&mut swarm_3, 0..10).await;
 
@@ -237,12 +246,17 @@ mod test {
         let mut swarm_2 = get_swarm(k2, neighbours);
 
         let msg_count = 10usize;
-        let addr: Multiaddr = "/ip4/127.0.0.1/udp/5053/quic-v1".parse().unwrap();
-        let addr2 = addr.clone();
+
+        let addr = multiaddr!(
+            Ip4([127, 0, 0, 1]),
+            Udp(get_available_udp_port().unwrap()),
+            QuicV1
+        );
+        swarm_1.listen_on(addr.clone()).unwrap();
+
         // future that listens for messages and collects `msg_count` of them, then
         // returns them
         let task_1 = async move {
-            swarm_1.listen_on(addr.clone()).unwrap();
             wait_for_incoming_connection(&mut swarm_1, peer_id2).await;
             swarm_1
                 .filter_map(|event| async {
@@ -264,7 +278,7 @@ mod test {
         let (sender, mut receiver) = mpsc::channel::<()>(10);
         let (terminate_sender, mut terminate_receiver) = tokio::sync::oneshot::channel::<()>();
         let task_2 = async move {
-            swarm_2.dial_and_wait(addr2).await;
+            swarm_2.dial_and_wait(addr).await;
             let mut i = 0usize;
             loop {
                 tokio::select! {
@@ -345,7 +359,11 @@ mod test {
             mantle_tx: base_mantle_tx,
         };
 
-        let addr1: Multiaddr = "/ip4/127.0.0.1/udp/5056/quic-v1".parse().unwrap();
+        let addr1 = multiaddr!(
+            Ip4([127, 0, 0, 1]),
+            Udp(get_available_udp_port().unwrap()),
+            QuicV1
+        );
         swarm1.listen_on(addr1.clone()).unwrap();
 
         let task1 = async move {
