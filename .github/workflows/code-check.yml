@@ -234,7 +234,7 @@ jobs:
         uses: actions/upload-artifact@6027e3dd177782cd8ab9af838c04fd81a07f1d47 # Version 4.6.2
         if: failure()
         with:
-          name: integration-test-artifacts
+          name: integration-test-artifacts-${{ runner.os }}-${{ github.sha }}
           include-hidden-files: true
           path: tests/.tmp*
   
