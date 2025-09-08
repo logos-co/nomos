@@ -150,6 +150,10 @@ where
     SamplingStorage: DaStorageAdapter<RuntimeServiceId, Share = DaShare> + Send + Sync,
     ShareVerifier: VerifierBackend<DaShare = DaShare> + Send + Sync + Clone + 'static,
 {
+    #[expect(
+        clippy::needless_pass_by_ref_mut,
+        reason = "FuturesUnordered needs to be send and sync"
+    )]
     #[instrument(skip_all)]
     async fn handle_service_message(
         msg: <Self as ServiceData>::Message,
@@ -200,6 +204,43 @@ where
                             sampling_continuations.push(continuation);
                         } else {
                             sampler.handle_sampling_error(blob_id).await;
+                        }
+
+                        if let Ok(Some(commitments)) =
+                            storage_adapter.get_commitments(blob_id).await
+                        {
+                            // Handle inline, no need to wait for commitments over network
+                            info_with_id!(blob_id, "Got commitments from storage");
+                            sampler.add_commitments(&blob_id, commitments);
+
+                            if let Err(e) = network_adapter.start_sampling(blob_id).await {
+                                sampler.handle_sampling_error(blob_id).await;
+                                error_with_id!(blob_id, "Error starting sampling: {e}");
+                            }
+                        } else {
+                            // Need network fetch - use async path
+                            let (tx, rx) = oneshot::channel();
+
+                            if let Some(future) = Self::request_commitments_from_network(
+                                network_adapter,
+                                commitments_wait_duration,
+                                blob_id,
+                                tx,
+                            )
+                            .await
+                            {
+                                long_tasks.push(future);
+
+                                let continuation = async move {
+                                    let commitments = rx.await.unwrap_or(None);
+                                    (blob_id, commitments)
+                                }
+                                .boxed();
+
+                                sampling_continuations.push(continuation);
+                            } else {
+                                sampler.handle_sampling_error(blob_id).await;
+                            }
                         }
                     }
                 }
