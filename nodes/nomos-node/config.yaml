@@ -310,7 +310,7 @@ cryptarchia:
         locked_notes: {}
       leaders:
         epoch: 0
-        claimable_vouchers_root: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        claimable_vouchers_root: "0000000000000000000000000000000000000000000000000000000000000000"
         n_claimable_vouchers: 0
         nfs: []
         claimable_rewards: 0
