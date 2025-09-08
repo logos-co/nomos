@@ -4,7 +4,7 @@ use circuits_utils::find_binary;
 
 use crate::{PoCWitnessInputs, inputs::PoCInputsJson};
 
-const BINARY_NAME: &str = "poc";
+const BINARY_NAME: &str = "proof_of_claim";
 const BINARY_ENV_VAR: &str = "NOMOS_POC";
 
 static BINARY: LazyLock<PathBuf> = LazyLock::new(|| {
