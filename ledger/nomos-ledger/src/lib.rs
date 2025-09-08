@@ -257,8 +257,8 @@ mod tests {
     use groth16::Fr;
     use nomos_core::{
         mantle::{
-            gas::MainnetGasConstants, keys::PublicKey, ledger::Tx as LedgerTx, GasCost, MantleTx,
-            Note, SignedMantleTx, Transaction as _,
+            gas::MainnetGasConstants, keys::PublicKey, ledger::Tx as LedgerTx, GasCost as _,
+            MantleTx, Note, SignedMantleTx, Transaction as _,
         },
         proofs::zksig::DummyZkSignature,
     };
@@ -307,8 +307,7 @@ mod tests {
     #[test]
     fn test_ledger_try_update_with_transaction() {
         let (ledger, genesis_id, utxo) = create_test_ledger();
-
-        let output_note = Note::new(1, PublicKey::new(BigUint::from(1u8).into()));
+        let mut output_note = Note::new(1, PublicKey::new(BigUint::from(1u8).into()));
         let pk = BigUint::from(0u8).into();
         // determine fees
         let tx = create_tx(vec![utxo.id()], vec![output_note], vec![pk]);
