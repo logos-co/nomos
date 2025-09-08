@@ -40,6 +40,7 @@ members = [
   "nomos-services/time",
   "nomos-services/tracing",
   "nomos-services/utils",
+  "nomos-services/wallet",
   "nomos-tracing",
   "nomos-utils",
   "testnet/cfgsync",
