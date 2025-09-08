@@ -3,7 +3,8 @@ use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::{P, compute_lottery_values};
+use crate::lottery::{P, compute_lottery_values};
+
 /// Public inputs of the POL cirmcom circuit with circom specific types.
 #[derive(Copy, Clone)]
 pub struct PolChainInputs {
