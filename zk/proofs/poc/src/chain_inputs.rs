@@ -1,14 +1,5 @@
-use std::{
-    ops::{Deref as _, Div as _},
-    str::FromStr as _,
-    sync::LazyLock,
-};
-
 use groth16::{Fr, Groth16Input, Groth16InputDeser};
-use num_bigint::BigUint;
-use num_traits::CheckedSub as _;
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 
 #[derive(Copy, Clone)]
 pub struct PoCChainInputs {
@@ -42,13 +33,12 @@ impl From<&PoCChainInputs> for PoCChainInputsJson {
 }
 
 impl From<PoCChainInputsData> for PoCChainInputs {
-
     fn from(
         PoCChainInputsData {
             voucher_root,
             mantle_tx_hash,
         }: PoCChainInputsData,
-    ) -> &PoCChainInputs {
+    ) -> Self {
         Self {
             voucher_root: voucher_root.into(),
             mantle_tx_hash: mantle_tx_hash.into(),

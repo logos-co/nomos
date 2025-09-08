@@ -1,5 +1,4 @@
 use groth16::{Field as _, Fr, Groth16Input, Groth16InputDeser};
-use num_bigint::BigUint;
 use serde::Serialize;
 
 #[derive(Clone)]
@@ -32,7 +31,10 @@ impl From<&PoCWalletInputs> for PoCWalletInputsJson {
         Self {
             secret_voucher: secret_voucher.into(),
             voucher_merkle_path: voucher_merkle_path.iter().map(Into::into).collect(),
-            voucher_merkle_path_selectors: voucher_merkle_path_selectors.iter().map(Into::into).collect(),
+            voucher_merkle_path_selectors: voucher_merkle_path_selectors
+                .iter()
+                .map(Into::into)
+                .collect(),
         }
     }
 }

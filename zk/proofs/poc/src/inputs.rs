@@ -16,6 +16,7 @@ pub struct PoCWitnessInputs {
 }
 
 impl PoCWitnessInputs {
+    #[must_use]
     pub fn from_chain_and_wallet_data(
         chain: PoCChainInputsData,
         wallet: PoCWalletInputsData,
@@ -64,18 +65,16 @@ pub struct PoCVerifierInput {
     mantle_tx_hash: Groth16Input,
 }
 
-impl From<PoCVerifierInputJson> for PoCVerifierInput {
-    fn from(value: PoCVerifierInputJson) -> Self {
-        let [
-            voucher_nullifier,
-            voucher_root,
-            mantle_tx_hash,
-        ] = value.0;
-        Self {
-            voucher_nullifier: voucher_nullifier.into(),
-            voucher_root: voucher_root.into(),
-            mantle_tx_hash: mantle_tx_hash.into(),
-        }
+impl TryFrom<PoCVerifierInputJson> for PoCVerifierInput {
+    type Error = <Groth16Input as TryFrom<Groth16InputDeser>>::Error;
+
+    fn try_from(value: PoCVerifierInputJson) -> Result<Self, Self::Error> {
+        let [voucher_nullifier, voucher_root, mantle_tx_hash] = value.0;
+        Ok(Self {
+            voucher_nullifier: voucher_nullifier.try_into()?,
+            voucher_root: voucher_root.try_into()?,
+            mantle_tx_hash: mantle_tx_hash.try_into()?,
+        })
     }
 }
 

@@ -136,15 +136,15 @@ mod tests {
             voucher_root: BigUint::from_str(
                 "16128370659585010675011771178833344032000886669733757231936455548689048492407",
             )
-                .unwrap()
-                .into(),
+            .unwrap()
+            .into(),
             mantle_tx_hash: BigUint::from_str(
                 "2782986857467528388935427084192832749498469459298277895337277564155580291177",
             )
-                .unwrap()
-                .into(),
+            .unwrap()
+            .into(),
         };
-        let wallet_data = PolWalletInputsData {
+        let wallet_data = PoCWalletInputsData {
             secret_voucher: BigUint::from_str(
                 "10793085795916138527223861035816627613642352747244105816111835772186196906919",
             )
@@ -182,44 +182,14 @@ mod tests {
                 "21650400238100003290282358382136900504079655201999300087947502008158506393413",
                 "8615723691683063849101742194005806906280276935520755598556283394140430378432",
                 "13611761874585758178104581413575288298270490680357070096453835734452221864585",
-                "3170260668713674390668153320356339569410757856799668969439405488227024544476"
+                "3170260668713674390668153320356339569410757856799668969439405488227024544476",
             ]
             .into_iter()
             .map(|value| BigUint::from_str(value).unwrap().into())
             .collect(),
             voucher_merkle_path_selectors: [
-                "0",
-                "1",
-                "0",
-                "0",
-                "0",
-                "0",
-                "0",
-                "1",
-                "1",
-                "0",
-                "1",
-                "0",
-                "1",
-                "0",
-                "0",
-                "0",
-                "1",
-                "0",
-                "1",
-                "0",
-                "0",
-                "0",
-                "0",
-                "0",
-                "0",
-                "0",
-                "0",
-                "0",
-                "1",
-                "0",
-                "0",
-                "0"
+                "0", "1", "0", "0", "0", "0", "0", "1", "1", "0", "1", "0", "1", "0", "0", "0",
+                "1", "0", "1", "0", "0", "0", "0", "0", "0", "0", "0", "0", "1", "0", "0", "0",
             ]
             .into_iter()
             .map(|s| match s {
@@ -229,8 +199,7 @@ mod tests {
             })
             .collect(),
         };
-        let witness_inputs =
-            PoCWitnessInputs::from_chain_and_wallet_data(chain_data, wallet_data);
+        let witness_inputs = PoCWitnessInputs::from_chain_and_wallet_data(chain_data, wallet_data);
 
         let (proof, inputs) = prove(&witness_inputs).unwrap();
         assert!(verify(&proof, &inputs).unwrap());
