@@ -25,6 +25,7 @@ use network::NetworkAdapter;
 pub use nomos_blend_service::ServiceComponents as BlendServiceComponents;
 use nomos_core::{
     block::{Block, Proposal},
+    crypto::ZkHash,
     da::{self},
     header::{Header, HeaderId},
     mantle::{
@@ -93,6 +94,8 @@ pub enum Error {
     Consensus(#[from] cryptarchia_engine::Error<HeaderId>),
     #[error("Storage error: {0}")]
     Storage(String),
+    #[error("Block reconstruction error: {0}")]
+    BlockReconstruction(String),
 }
 
 #[derive(Clone)]
@@ -1574,23 +1577,192 @@ where
 async fn reconstruct_block_from_proposal<Payload, Item, Key>(
     proposal: Proposal,
     mempool: OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>,
-) -> Result<Block<Item>, DynError>
+) -> Result<Block<Item>, Error>
 where
-    Key: Send + Eq + Hash,
+    Key: Send + Eq + Hash + From<ZkHash> + Debug,
     Payload: Send,
     Item: Clone + Transaction<Hash = Key>,
 {
-    let mempool_contents = get_mempool_contents(mempool).await?;
+    let tx_map: HashMap<Key, Item> = get_mempool_contents(mempool)
+        .await
+        .map_err(|e| Error::BlockReconstruction(format!("Failed to get mempool contents: {e}")))?
+        .map(|tx| (tx.hash(), tx))
+        .collect();
 
-    let _tx_map: HashMap<Key, Item> = mempool_contents.map(|tx| (tx.hash(), tx)).collect();
+    let mut reconstructed_transactions = Vec::new();
+    let mut missing_transactions = Vec::new();
 
-    let reconstructed_transactions = Vec::new();
-    for _tx_ref in &proposal.references().mempool_transactions {
-        // TODO: Convert Fr to TxHash and select transaction
-        tracing::warn!("Transaction reference lookup not fully implemented yet");
+    for tx_ref in &proposal.references().mempool_transactions {
+        let tx_hash = Key::from(*tx_ref);
+
+        match tx_map.get(&tx_hash) {
+            Some(transaction) => {
+                reconstructed_transactions.push(transaction.clone());
+            }
+            None => {
+                missing_transactions.push(tx_hash);
+            }
+        }
+    }
+
+    if !missing_transactions.is_empty() {
+        return Err(Error::BlockReconstruction(format!(
+            "Failed to reconstruct block: {missing_transactions:?} transactions not found in mempool",
+        )));
     }
 
     let header = proposal.header().clone();
 
     Ok(Block::new(header, reconstructed_transactions))
+}
+
+#[cfg(test)]
+mod tests {
+    use ed25519_dalek::{Signer as _, SigningKey};
+    use nomos_core::block::References;
+
+    use super::*;
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct MockTransaction {
+        hash: TxHash,
+        data: Vec<u8>,
+    }
+
+    impl Transaction for MockTransaction {
+        const HASHER: nomos_core::mantle::TransactionHasher<Self> = |tx| tx.hash;
+        type Hash = TxHash;
+
+        fn as_signing_frs(&self) -> Vec<groth16::Fr> {
+            vec![]
+        }
+    }
+
+    impl MockTransaction {
+        fn new(hash: TxHash, data: Vec<u8>) -> Self {
+            Self { hash, data }
+        }
+    }
+
+    fn make_test_proof() -> Risc0LeaderProof {
+        let public_inputs = nomos_proof_statements::leadership::LeaderPublic::new(
+            num_bigint::BigUint::from(1u8).into(),
+            num_bigint::BigUint::from(2u8).into(),
+            [3u8; 32],
+            [4u8; 32],
+            0u64,
+            0.05f64,
+            1000u64,
+        );
+
+        let private_inputs = nomos_proof_statements::leadership::LeaderPrivate {
+            value: 100,
+            note_id: num_bigint::BigUint::from(5u8).into(),
+            sk: num_bigint::BigUint::from(6u8).into(),
+        };
+
+        Risc0LeaderProof::prove(
+            public_inputs,
+            &private_inputs,
+            risc0_zkvm::default_prover().as_ref(),
+        )
+        .expect("Proof generation should succeed")
+    }
+
+    fn create_proposal(tx_refs: Vec<ZkHash>) -> Proposal {
+        let mock_header = Header::new(
+            [0; 32].into(),
+            [0; 32].into(),
+            Slot::from(1u64),
+            make_test_proof(),
+        );
+
+        let references = References {
+            service_reward: None,
+            mempool_transactions: tx_refs,
+        };
+
+        Proposal {
+            header: mock_header,
+            references,
+            signature: {
+                let signing_key = SigningKey::from_bytes(&[1u8; 32]);
+                signing_key.sign(b"mock message")
+            },
+        }
+    }
+
+    fn setup_mock_mempool(
+        transactions: Vec<MockTransaction>,
+    ) -> OutboundRelay<MempoolMsg<HeaderId, (), MockTransaction, TxHash>> {
+        let (mempool_tx, mut mempool_rx) = mpsc::channel(10);
+        let mempool_relay = OutboundRelay::new(mempool_tx);
+
+        tokio::spawn(async move {
+            while let Some(msg) = mempool_rx.recv().await {
+                if let MempoolMsg::View { reply_channel, .. } = msg {
+                    let iter: Box<dyn Iterator<Item = MockTransaction> + Send> =
+                        Box::new(transactions.clone().into_iter());
+                    reply_channel.send(iter).unwrap_or(());
+                }
+            }
+        });
+
+        mempool_relay
+    }
+
+    #[tokio::test]
+    async fn reconstruct_block_from_proposal_success() {
+        let tx1_hash = TxHash::from(ZkHash::from(100u64));
+        let tx2_hash = TxHash::from(ZkHash::from(200u64));
+
+        let tx1 = MockTransaction::new(tx1_hash, vec![1, 2, 3]);
+        let tx2 = MockTransaction::new(tx2_hash, vec![4, 5, 6]);
+
+        let proposal = create_proposal(vec![ZkHash::from(100u64), ZkHash::from(200u64)]);
+        let mempool_relay = setup_mock_mempool(vec![tx1.clone(), tx2.clone()]);
+
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        let result =
+            reconstruct_block_from_proposal::<(), MockTransaction, TxHash>(proposal, mempool_relay)
+                .await;
+
+        let reconstructed_block = result.unwrap();
+        let reconstructed_txs: Vec<_> = reconstructed_block.transactions().collect();
+        assert_eq!(reconstructed_txs.len(), 2);
+
+        assert!(reconstructed_txs.contains(&&tx1));
+        assert!(reconstructed_txs.contains(&&tx2));
+    }
+
+    #[tokio::test]
+    async fn reconstruct_block_from_proposal_missing_transaction() {
+        let tx1_hash = TxHash::from(ZkHash::from(100u64));
+        let tx1 = MockTransaction::new(tx1_hash, vec![1, 2, 3]);
+
+        let proposal = create_proposal(vec![ZkHash::from(100u64), ZkHash::from(200u64)]);
+
+        let mempool_relay = setup_mock_mempool(vec![tx1]);
+        let result =
+            reconstruct_block_from_proposal::<(), MockTransaction, TxHash>(proposal, mempool_relay)
+                .await;
+
+        let error = result.unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("transactions not found in mempool"));
+    }
+
+    #[tokio::test]
+    async fn reconstruct_block_from_proposal_empty_references() {
+        let proposal = create_proposal(vec![]);
+
+        let mempool_relay = setup_mock_mempool(vec![]);
+        let result =
+            reconstruct_block_from_proposal::<(), MockTransaction, TxHash>(proposal, mempool_relay)
+                .await;
+
+        let reconstructed_block = result.unwrap();
+        assert_eq!(reconstructed_block.transactions().len(), 0);
+    }
 }
