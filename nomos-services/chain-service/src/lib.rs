@@ -161,6 +161,7 @@ impl Cryptarchia {
         } else if requested_epoch == state.next_epoch_state().epoch() {
             Some(state.next_epoch_state())
         } else {
+            dbg!((state.epoch_state().epoch(), requested_epoch));
             None
         }
     }
@@ -991,6 +992,7 @@ where
             ConsensusMsg::Info { tx } => {
                 let info = CryptarchiaInfo {
                     tip: cryptarchia.tip(),
+                    lib: cryptarchia.lib(),
                     slot: cryptarchia
                         .ledger
                         .state(&cryptarchia.tip())
@@ -1036,6 +1038,11 @@ where
 
                 tx.send(res)
                     .unwrap_or_else(|_| error!("could not send blocks through channel"));
+            }
+            ConsensusMsg::GetLedgerState { block_id, tx } => {
+                let ledger_state = cryptarchia.ledger.state(&block_id).cloned();
+                tx.send(ledger_state)
+                    .unwrap_or_else(|_| error!("could not send ledger state through channel"));
             }
         }
     }
@@ -1612,6 +1619,10 @@ pub enum ConsensusMsg<Block> {
         to: Option<HeaderId>,
         tx: oneshot::Sender<Vec<HeaderId>>,
     },
+    GetLedgerState {
+        block_id: HeaderId,
+        tx: oneshot::Sender<Option<LedgerState>>,
+    },
 }
 
 #[serde_as]
@@ -1619,6 +1630,7 @@ pub enum ConsensusMsg<Block> {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct CryptarchiaInfo {
     pub tip: HeaderId,
+    pub lib: HeaderId,
     pub slot: Slot,
     pub height: u64,
     pub mode: cryptarchia_engine::State,

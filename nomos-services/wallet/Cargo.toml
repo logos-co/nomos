@@ -10,6 +10,7 @@ thiserror = "1.0"
 tokio = { version = "1", features = ["sync"] }
 
 chain-service = { workspace = true }
+kzgrs-backend = { workspace = true }
 nomos-core    = { workspace = true }
 nomos-ledger  = { workspace = true, features = ["serde"] }
 overwatch     = { workspace = true }

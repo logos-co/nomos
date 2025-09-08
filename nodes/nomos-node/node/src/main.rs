@@ -69,6 +69,16 @@ async fn main() -> Result<()> {
             system_sig: (),
             sdp: (),
             membership: config.membership,
+            wallet: wallet::WalletServiceSettings {
+                known_keys: {
+                    let mut keys = std::collections::HashSet::new();
+                    let sample_key = nomos_core::mantle::keys::PublicKey::from(
+                        num_bigint::BigUint::from(12345u64),
+                    );
+                    keys.insert(sample_key);
+                    keys
+                },
+            },
             #[cfg(feature = "testing")]
             testing_http: config.testing_http,
         },
@@ -116,4 +126,25 @@ async fn get_services_to_start(
     }
 
     Ok(service_ids)
+}
+
+#[cfg(test)]
+mod tests {
+    use nomos_core::mantle::{keys::PublicKey, Note, TxHash, Utxo};
+    use num_bigint::BigUint;
+
+    #[test]
+    fn test_blah() {
+        let utxo = Utxo {
+            tx_hash: TxHash::from(BigUint::from(0u64)),
+            output_index: 0,
+            note: Note {
+                value: 1,
+                pk: PublicKey::from(BigUint::from(0u64)),
+            },
+        };
+
+        println!("{}", &serde_yaml::to_string(&(utxo.id(), utxo)).unwrap());
+        panic!()
+    }
 }
