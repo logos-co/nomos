@@ -81,7 +81,7 @@ where
                 .filter_map(|(provider_id, locators)| {
                     // TODO: Support multiple multiaddrs in the membership.
                     let locator = locators.first()?;
-                    match peer_id_from_provider_id(&provider_id.0) {
+                    match peer_id_from_provider_id(provider_id.0.as_bytes()) {
                         Ok(peer_id) => Some((peer_id, locator.0.clone())),
                         Err(err) => {
                             tracing::warn!(

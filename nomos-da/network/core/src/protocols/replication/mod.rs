@@ -351,7 +351,7 @@ mod test {
         };
 
         let base_signed_tx = SignedMantleTx {
-            ops_profs: Vec::new(),
+            ops_proofs: Vec::new(),
             ledger_tx_proof: DummyZkSignature::prove(ZkSignaturePublic {
                 msg_hash: base_mantle_tx.hash().into(),
                 pks: vec![],

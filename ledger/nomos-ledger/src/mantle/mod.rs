@@ -9,6 +9,7 @@ use nomos_core::{
         ops::{channel::ChannelId, Op, OpProof},
         AuthenticatedMantleTx, GasConstants,
     },
+    proofs::zksig::{self, ZkSignatureProof as _},
     sdp::state::DeclarationStateError,
 };
 use sdp::SdpLedgerError;
@@ -107,42 +108,61 @@ impl LedgerState {
                 (Op::ChannelSetKeys(op), Some(OpProof::Ed25519Sig(sig))) => {
                     self.channels = self.channels.set_keys(op.channel, op, sig, &tx_hash)?;
                 }
-                (Op::SDPDeclare(op), Some(OpProof::Ed25519Sig(_sig))) => {
-                    // WIP TODO: Verify proofs.
+                (
+                    Op::SDPDeclare(op),
+                    Some(OpProof::ZkAndEd25519Sigs {
+                        zk_sig,
+                        ed25519_sig,
+                    }),
+                ) => {
+                    if !zk_sig.verify(&zksig::ZkSignaturePublic {
+                        pks: vec![op.locked_note_id.0, op.zk_id.0],
+                        msg_hash: tx_hash.0,
+                    }) {
+                        return Err(Error::InvalidSignature);
+                    }
+                    op.provider_id
+                        .0
+                        .verify(tx_hash.as_signing_bytes().as_ref(), ed25519_sig)
+                        .map_err(|_| Error::InvalidSignature)?;
                     let locked_notes = self.locked_notes.lock(
                         utxo_tree,
                         &config.min_stake,
                         op.service_type,
                         &op.locked_note_id,
                     )?;
-                    self.sdp = self.sdp.apply_declare_msg(
-                        current_block_number,
-                        op.service_type,
-                        &op.locked_note_id,
-                        &op.declaration_id(),
-                    )?;
+                    self.sdp = self.sdp.apply_declare_msg(current_block_number, op)?;
                     self.locked_notes = locked_notes;
                 }
-                (Op::SDPActive(op), Some(OpProof::Ed25519Sig(_sig))) => {
-                    // WIP TODO: Verify proofs.
+                (Op::SDPActive(op), Some(OpProof::ZkSig(sig))) => {
+                    let declaration = self.sdp.get_declaration(&op.declaration_id)?;
+                    if !sig.verify(&zksig::ZkSignaturePublic {
+                        pks: vec![declaration.locked_note_id.0, declaration.zk_id.0],
+                        msg_hash: tx_hash.0,
+                    }) {
+                        return Err(Error::InvalidSignature);
+                    }
                     self.sdp = self.sdp.apply_active_msg(
                         current_block_number,
                         &config.service_params,
-                        &op.declaration_id,
-                        op.nonce,
+                        op,
                     )?;
                 }
-                (Op::SDPWithdraw(op), Some(OpProof::Ed25519Sig(_sig))) => {
-                    // WIP TODO: Verify proofs.
+                (Op::SDPWithdraw(op), Some(OpProof::ZkSig(sig))) => {
                     let declaration = self.sdp.get_declaration(&op.declaration_id)?;
+                    if !sig.verify(&zksig::ZkSignaturePublic {
+                        pks: vec![declaration.locked_note_id.0, declaration.zk_id.0],
+                        msg_hash: tx_hash.0,
+                    }) {
+                        return Err(Error::InvalidSignature);
+                    }
                     let locked_notes = self
                         .locked_notes
                         .unlock(declaration.service_type, &declaration.locked_note_id)?;
                     self.sdp = self.sdp.apply_withdrawn_msg(
                         current_block_number,
                         &config.service_params,
-                        &op.declaration_id,
-                        op.nonce,
+                        op,
                     )?;
                     self.locked_notes = locked_notes;
                 }
@@ -163,11 +183,16 @@ mod tests {
         mantle::{
             gas::MainnetGasConstants,
             ledger::Tx as LedgerTx,
-            ops::channel::{blob::BlobOp, inscribe::InscriptionOp, set_keys::SetKeysOp, MsgId},
+            ops::{
+                channel::{blob::BlobOp, inscribe::InscriptionOp, set_keys::SetKeysOp, MsgId},
+                sdp::{SDPActiveOp, SDPDeclareOp, SDPWithdrawOp},
+            },
             MantleTx, SignedMantleTx, Transaction as _,
         },
         proofs::zksig::DummyZkSignature,
+        sdp::{ProviderId, ServiceType, ZkPublicKey},
     };
+    use num_bigint::BigUint;
 
     use super::*;
     use crate::cryptarchia::tests::{config, genesis_state, utxo};
@@ -192,13 +217,11 @@ mod tests {
         };
 
         SignedMantleTx {
-            ops_profs: vec![None; mantle_tx.ops.len()],
-            ledger_tx_proof: DummyZkSignature::prove(
-                nomos_core::proofs::zksig::ZkSignaturePublic {
-                    pks: vec![],
-                    msg_hash: mantle_tx.hash().into(),
-                },
-            ),
+            ops_proofs: vec![None; mantle_tx.ops.len()],
+            ledger_tx_proof: DummyZkSignature::prove(zksig::ZkSignaturePublic {
+                pks: vec![],
+                msg_hash: mantle_tx.hash().into(),
+            }),
             mantle_tx,
         }
     }
@@ -210,7 +233,7 @@ mod tests {
     fn create_multi_signed_tx(ops: Vec<Op>, signing_keys: Vec<&SigningKey>) -> SignedMantleTx {
         let mut tx = create_test_tx_with_ops(ops);
         let tx_hash = tx.hash();
-        tx.ops_profs = signing_keys
+        tx.ops_proofs = signing_keys
             .into_iter()
             .map(|key| {
                 Some(OpProof::Ed25519Sig(
@@ -372,7 +395,7 @@ mod tests {
 
         let op = Op::ChannelBlob(blob_op);
         let mut tx = create_test_tx_with_ops(vec![op]);
-        tx.ops_profs = vec![None]; // Missing proof
+        tx.ops_proofs = vec![None]; // Missing proof
 
         let result = ledger_state.try_apply_tx::<MainnetGasConstants>(
             0,
@@ -595,5 +618,107 @@ mod tests {
             new_state.channels.channels.get(&channel1).unwrap().tip,
             blob_op2.id()
         );
+    }
+
+    #[test]
+    fn test_sdp_withdraw_operation() {
+        // First, declare a service to activate.
+        let utxo = utxo();
+        let cryptarchia_state = genesis_state(&[utxo]);
+        let test_config = config();
+        let ledger_state = LedgerState::new();
+        let (signing_key, verifying_key) = create_test_keys();
+
+        let declare_op = SDPDeclareOp {
+            service_type: ServiceType::BlendNetwork,
+            locked_note_id: utxo.id(),
+            zk_id: ZkPublicKey(BigUint::from(0u8).into()),
+            provider_id: ProviderId(verifying_key),
+            locators: [].into(),
+        };
+
+        let declaration_id = declare_op.declaration_id();
+        let mut declare_tx = create_test_tx_with_ops(vec![Op::SDPDeclare(declare_op.clone())]);
+        let declare_tx_hash = declare_tx.hash();
+
+        declare_tx.ops_proofs = vec![Some(OpProof::ZkAndEd25519Sigs {
+            zk_sig: DummyZkSignature::prove(zksig::ZkSignaturePublic {
+                pks: vec![declare_op.locked_note_id.0, declare_op.zk_id.0],
+                msg_hash: declare_tx_hash.0,
+            }),
+            ed25519_sig: signing_key.sign(declare_tx_hash.as_signing_bytes().as_ref()),
+        })];
+
+        let ledger_state = ledger_state
+            .try_apply_tx::<MainnetGasConstants>(
+                0,
+                &test_config,
+                cryptarchia_state.latest_commitments(),
+                declare_tx,
+            )
+            .unwrap();
+
+        assert!(ledger_state.sdp.get_declaration(&declaration_id).is_ok());
+        assert!(ledger_state
+            .locked_notes
+            .contains(&declare_op.locked_note_id));
+
+        // Apply the active operation.
+        let active_op = SDPActiveOp {
+            declaration_id,
+            nonce: 1,
+            metadata: None,
+        };
+        let mut active_tx = create_test_tx_with_ops(vec![Op::SDPActive(active_op)]);
+        let active_tx_hash = active_tx.hash();
+        active_tx.ops_proofs = vec![Some(OpProof::ZkSig(DummyZkSignature::prove(
+            zksig::ZkSignaturePublic {
+                pks: vec![declare_op.locked_note_id.0, declare_op.zk_id.0],
+                msg_hash: active_tx_hash.0,
+            },
+        )))];
+
+        let ledger_state = ledger_state
+            .try_apply_tx::<MainnetGasConstants>(
+                1,
+                &test_config,
+                cryptarchia_state.latest_commitments(),
+                active_tx,
+            )
+            .unwrap();
+
+        let declaration = ledger_state.sdp.get_declaration(&declaration_id).unwrap();
+        assert_eq!(declaration.active, 1);
+        assert_eq!(declaration.nonce, 1);
+
+        // Apply the withdraw operation.
+        let withdraw_op = SDPWithdrawOp {
+            declaration_id,
+            nonce: 2,
+        };
+        let mut withdraw_tx = create_test_tx_with_ops(vec![Op::SDPWithdraw(withdraw_op)]);
+        let withdraw_tx_hash = withdraw_tx.hash();
+        withdraw_tx.ops_proofs = vec![Some(OpProof::ZkSig(DummyZkSignature::prove(
+            zksig::ZkSignaturePublic {
+                pks: vec![declare_op.locked_note_id.0, declare_op.zk_id.0],
+                msg_hash: withdraw_tx_hash.0,
+            },
+        )))];
+        let ledger_state = ledger_state
+            .try_apply_tx::<MainnetGasConstants>(
+                11,
+                &test_config,
+                cryptarchia_state.latest_commitments(),
+                withdraw_tx,
+            )
+            .unwrap();
+
+        let declaration = ledger_state.sdp.get_declaration(&declaration_id).unwrap();
+        assert!(!ledger_state
+            .locked_notes
+            .contains(&declare_op.locked_note_id));
+        assert_eq!(declaration.active, 1);
+        assert_eq!(declaration.withdrawn, Some(11));
+        assert_eq!(declaration.nonce, 2);
     }
 }

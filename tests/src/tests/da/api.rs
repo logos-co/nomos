@@ -116,7 +116,7 @@ async fn test_block_peer() {
         .nth(1)
         .expect("Expected at least two provider IDs in the membership set");
 
-    let existing_peer_id = peer_id_from_provider_id(&existing_provider_id.0)
+    let existing_peer_id = peer_id_from_provider_id(existing_provider_id.0.as_bytes())
         .expect("Failed to convert provider ID to PeerId");
 
     // try block/unblock peer id combinations

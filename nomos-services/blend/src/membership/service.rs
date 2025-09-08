@@ -107,14 +107,14 @@ fn node_from_provider<NodeId>(
 where
     NodeId: node_id::TryFrom,
 {
-    let provider_id = provider_id.0;
+    let provider_id = provider_id.0.as_bytes();
     let address = locators.first()?.0.clone();
-    let id = NodeId::try_from_provider_id(&provider_id)
+    let id = NodeId::try_from_provider_id(provider_id)
         .map_err(|e| {
             warn!("Failed to decode provider_id to node ID: {e:?}");
         })
         .ok()?;
-    let public_key = provider_id
+    let public_key = (*provider_id)
         .try_into()
         .map_err(|e| {
             warn!("Failed to decode provider_id to public_key: {e:?}");

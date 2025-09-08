@@ -203,7 +203,10 @@ mod tests {
     use num_bigint::BigUint;
 
     use super::*;
-    use crate::{mantle::NoteId, sdp::ServiceType};
+    use crate::{
+        mantle::NoteId,
+        sdp::{ServiceType, ZkPublicKey},
+    };
 
     const fn default_service_params() -> ServiceParameters {
         ServiceParameters {
@@ -221,6 +224,7 @@ mod tests {
             0,
             ServiceType::BlendNetwork,
             NoteId(BigUint::from(0u8).into()),
+            ZkPublicKey(BigUint::from(0u8).into()),
         );
 
         let inactive_state =
@@ -239,6 +243,7 @@ mod tests {
             100,
             ServiceType::BlendNetwork,
             NoteId(BigUint::from(0u8).into()),
+            ZkPublicKey(BigUint::from(0u8).into()),
         );
         declaration_state.active = 110;
 
@@ -259,6 +264,7 @@ mod tests {
             100,
             ServiceType::BlendNetwork,
             NoteId(BigUint::from(0u8).into()),
+            ZkPublicKey(BigUint::from(0u8).into()),
         );
 
         let active_state =
@@ -274,6 +280,7 @@ mod tests {
             100,
             ServiceType::BlendNetwork,
             NoteId(BigUint::from(0u8).into()),
+            ZkPublicKey(BigUint::from(0u8).into()),
         );
         declaration_state.active = 110;
 
@@ -294,6 +301,7 @@ mod tests {
             100,
             ServiceType::BlendNetwork,
             NoteId(BigUint::from(0u8).into()),
+            ZkPublicKey(BigUint::from(0u8).into()),
         );
         declaration_state.active = 111;
         declaration_state.withdrawn = Some(121);
@@ -315,6 +323,7 @@ mod tests {
             3,
             ServiceType::BlendNetwork,
             NoteId(BigUint::from(0u8).into()),
+            ZkPublicKey(BigUint::from(0u8).into()),
         );
 
         // Provider created in block 3, trying to convert to state in block 2.
@@ -338,6 +347,7 @@ mod tests {
             0,
             ServiceType::BlendNetwork,
             NoteId(BigUint::from(0u8).into()),
+            ZkPublicKey(BigUint::from(0u8).into()),
         );
 
         let active_state =
@@ -359,6 +369,7 @@ mod tests {
             0,
             ServiceType::BlendNetwork,
             NoteId(BigUint::from(0u8).into()),
+            ZkPublicKey(BigUint::from(0u8).into()),
         );
 
         let active_state =
@@ -381,6 +392,7 @@ mod tests {
             0,
             ServiceType::BlendNetwork,
             NoteId(BigUint::from(0u8).into()),
+            ZkPublicKey(BigUint::from(0u8).into()),
         );
 
         let active_state =
@@ -415,6 +427,7 @@ mod tests {
             0,
             ServiceType::BlendNetwork,
             NoteId(BigUint::from(0u8).into()),
+            ZkPublicKey(BigUint::from(0u8).into()),
         );
         let active_withdrawal =
             TransientDeclarationState::try_from_state(0, &mut declaration_state, &service_params)
@@ -435,6 +448,7 @@ mod tests {
             0,
             ServiceType::BlendNetwork,
             NoteId(BigUint::from(0u8).into()),
+            ZkPublicKey(BigUint::from(0u8).into()),
         );
 
         // Try to make inactive state then withdraw.
@@ -454,6 +468,7 @@ mod tests {
             0,
             ServiceType::BlendNetwork,
             NoteId(BigUint::from(0u8).into()),
+            ZkPublicKey(BigUint::from(0u8).into()),
         );
 
         // Try to make inactive state active again and then withdraw.
@@ -475,6 +490,7 @@ mod tests {
             0,
             ServiceType::BlendNetwork,
             NoteId(BigUint::from(0u8).into()),
+            ZkPublicKey(BigUint::from(0u8).into()),
         );
 
         let active_state =
@@ -504,6 +520,7 @@ mod tests {
             0,
             ServiceType::BlendNetwork,
             NoteId(BigUint::from(0u8).into()),
+            ZkPublicKey(BigUint::from(0u8).into()),
         );
 
         let inactive_state =
@@ -526,6 +543,7 @@ mod tests {
             0,
             ServiceType::BlendNetwork,
             NoteId(BigUint::from(0u8).into()),
+            ZkPublicKey(BigUint::from(0u8).into()),
         );
 
         let active_state =

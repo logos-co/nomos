@@ -10,6 +10,7 @@ groth16       = { path = "../../zk/groth16", default-features = false, features 
 num-bigint    = { version = "0.4", default-features = false }
 poseidon2     = { path = "../../zk/poseidon2", default-features = false }
 serde         = { features = ["derive"], version = "1.0" }
+serde_with    = { version = "3.14.0", default-features = false, features = ["alloc", "macros"] }
 
 [lints.clippy]
 
