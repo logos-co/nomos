@@ -655,17 +655,17 @@ where
                     }
 
                     Some(proposal) = incoming_proposals.next() => {
+                        if cryptarchia.has_block(&proposal.header().id()) {
+                            info!(target: LOG_TARGET, "Block {:?} already processed, ignoring", proposal.header().id());
+                            continue;
+                        }
+
                         match reconstruct_block_from_proposal(
                             proposal.clone(),
                             relays.cl_mempool_relay().clone()
                         ).await {
                             Ok(block) => {
                                 Self::log_received_block(&block);
-
-                                if cryptarchia.has_block(&block.header().id()) {
-                                    info!(target: LOG_TARGET, "Block {:?} already processed, ignoring", block.header().id());
-                                    continue;
-                                }
 
                                  // Process the received block and update the cryptarchia state.
                                 match Self::process_block_and_update_state(
