@@ -6,6 +6,7 @@ use tests::{
     nodes::executor::Executor,
     topology::{Topology, TopologyConfig},
 };
+use tokio::time::Duration;
 
 #[tokio::test]
 async fn test_historical_sampling_across_sessions() {
@@ -31,7 +32,7 @@ async fn test_historical_sampling_across_sessions() {
     // todo: add more complex cases with multiple sessions
 
     // Wait for propagation
-    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+    tokio::time::sleep(Duration::from_secs(5)).await;
 
     test_sampling_scenarios(executor, &blob_ids).await;
 }
