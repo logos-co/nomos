@@ -6,7 +6,7 @@ use nomos_core::mantle::SignedMantleTx;
 use nomos_executor::{
     config::Config as ExecutorConfig, NomosExecutor, NomosExecutorServiceSettings, RuntimeServiceId,
 };
-use nomos_mempool::tx::settings::TxMempoolSettings;
+use nomos_mempool::{processor::tx::SignedTxProcessorSettings, tx::settings::TxMempoolSettings};
 use nomos_node::{
     config::BlendArgs, CryptarchiaArgs, HttpArgs, LogArgs, MempoolAdapterSettings, NetworkArgs,
     Transaction, CL_TOPIC,
@@ -84,7 +84,9 @@ async fn main() -> Result<()> {
                     topic: String::from(CL_TOPIC),
                     id: <SignedMantleTx as Transaction>::hash,
                 },
-                processor: (),
+                processor: SignedTxProcessorSettings {
+                    trigger_sampling_delay: config.mempool.trigger_sampling_delay,
+                },
                 recovery_path: config.mempool.cl_pool_recovery_path,
                 trigger_sampling_delay: Duration::from_secs(5),
             },

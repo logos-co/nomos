@@ -78,7 +78,6 @@ async fn disseminate_retrieve_reconstruct() {
             .await
             .unwrap();
 
-        wait_for_blob_onchain(executor, blob_id).await;
         wait_for_shares_number(executor, blob_id, num_subnets).await;
 
         let share_commitments = executor.get_commitments(blob_id).await.unwrap();

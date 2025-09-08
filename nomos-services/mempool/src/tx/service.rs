@@ -224,20 +224,7 @@ where
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
 
-        let mut trigger_sampling_tasks = FuturesUnordered::new();
-        let trigger_sampling_delay = self
-            .service_resources_handle
-            .settings_handle
-            .notifier()
-            .get_updated_settings()
-            .trigger_sampling_delay;
-
-        wait_until_services_are_ready!(
-            &self.service_resources_handle.overwatch_handle,
-            Some(Duration::from_secs(60)),
-            NetworkService<_, _>
-        )
-        .await?;
+        let mut processor_tasks = FuturesUnordered::new();
 
         let processor = Processor::new(
             self.service_resources_handle
@@ -248,6 +235,13 @@ where
             sampling_relay,
         );
 
+        wait_until_services_are_ready!(
+            &self.service_resources_handle.overwatch_handle,
+            Some(Duration::from_secs(60)),
+            NetworkService<_, _>
+        )
+        .await?;
+
         loop {
             tokio::select! {
                 // Queue for relay messages
@@ -255,13 +249,14 @@ where
                     self.handle_mempool_message(relay_msg, network_service_relay.clone());
                 }
                 Some((key, item)) = network_items.next() => {
-                    if let Err(e) = processor.process(
-                        &mut trigger_sampling_tasks,
-                        trigger_sampling_delay,
-                        &item
-                    ).await {
-                        tracing::debug!("could not process item from network due to: {e:?}");
-                        continue;
+                    match processor.process(&item).await {
+                        Ok(new_tasks) => {
+                            processor_tasks.extend(new_tasks);
+                        }
+                        Err(e) => {
+                            tracing::debug!("could not process item from network due to: {e:?}");
+                            continue;
+                        }
                     }
                     if let Err(e) = self.pool.add_item(key, item) {
                         tracing::debug!("could not add item to the pool due to: {e}");
@@ -270,9 +265,9 @@ where
                     tracing::info!(counter.tx_mempool_pending_items = self.pool.pending_item_count());
                     self.service_resources_handle.state_updater.update(Some(self.pool.save().into()));
                 }
-                Some(result) = trigger_sampling_tasks.next() => {
+                Some(result) = processor_tasks.next() => {
                     if let Err(e) = result {
-                        tracing::error!("coulnd not trigger sampling due to {e}");
+                        tracing::error!("coulnd not complete processor task: {e}");
                     }
                 },
             }

@@ -1,12 +1,12 @@
 pub mod noop;
 pub mod tx;
 
-use std::{error::Error, time::Duration};
+use std::error::Error;
 
-use futures::{future::BoxFuture, stream::FuturesUnordered};
+use futures::future::BoxFuture;
 use overwatch::services::{relay::OutboundRelay, ServiceData};
 
-pub type SamplingFutureResult<Error> = BoxFuture<'static, Result<(), Error>>;
+pub type ProcessorTask<Error> = BoxFuture<'static, Result<(), Error>>;
 
 #[async_trait::async_trait]
 pub trait PayloadProcessor {
@@ -24,8 +24,6 @@ pub trait PayloadProcessor {
     /// Executes required procedures before adding payload to the pool.
     async fn process(
         &self,
-        trigger_sampling_tasks: &mut FuturesUnordered<SamplingFutureResult<Self::Error>>,
-        trigger_sampling_delay: Duration,
         payload: &Self::Payload,
-    ) -> Result<(), Vec<Self::Error>>;
+    ) -> Result<Vec<ProcessorTask<Self::Error>>, Vec<Self::Error>>;
 }

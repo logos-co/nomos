@@ -1,9 +1,8 @@
-use std::{convert::Infallible, marker::PhantomData, time::Duration};
+use std::{convert::Infallible, marker::PhantomData};
 
-use futures::stream::FuturesUnordered;
 use overwatch::services::{relay::OutboundRelay, ServiceData};
 
-use super::{PayloadProcessor, SamplingFutureResult};
+use super::{PayloadProcessor, ProcessorTask};
 
 pub type NoOpPayloadProcessor<Service, Payload> = PhantomData<(Service, Payload)>;
 
@@ -28,10 +27,8 @@ where
 
     async fn process(
         &self,
-        _: &mut FuturesUnordered<SamplingFutureResult<Self::Error>>,
-        _: Duration,
         _: &Self::Payload,
-    ) -> Result<(), Vec<Self::Error>> {
-        Ok(())
+    ) -> Result<Vec<ProcessorTask<Self::Error>>, Vec<Self::Error>> {
+        Ok(vec![])
     }
 }
