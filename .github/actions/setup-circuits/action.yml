@@ -42,6 +42,8 @@ runs:
       env:
         POL_PROVING_KEY_PATH: ${{ github.workspace }}/zk/proofs/pol/src/proving_key/pol.zkey
         POQ_PROVING_KEY_PATH: ${{ github.workspace }}/zk/proofs/poq/src/proving_key/poq.zkey
+        ZKSIGN_PROVING_KEY_PATH: ${{ github.workspace }}/zk/proofs/zksign/src/proving_key/zksign.zkey
       run: |
         echo "NOMOS_POL_PROVING_KEY_PATH=$POL_PROVING_KEY_PATH" >> "$GITHUB_ENV"
         echo "NOMOS_POQ_PROVING_KEY_PATH=$POQ_PROVING_KEY_PATH" >> "$GITHUB_ENV"
+        echo "NOMOS_ZKSIGN_PROVING_KEY_PATH=$ZKSIGN_PROVING_KEY_PATH" >> "$GITHUB_ENV"
