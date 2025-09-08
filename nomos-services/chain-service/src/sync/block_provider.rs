@@ -9,9 +9,9 @@ use std::{
 use bytes::Bytes;
 use cryptarchia_engine::{Branch, Slot};
 use cryptarchia_sync::{BlocksResponse, ProviderResponse};
-use futures::{future, stream, stream::BoxStream, StreamExt as _, TryStreamExt as _};
+use futures::{StreamExt as _, TryStreamExt as _, future, stream, stream::BoxStream};
 use nomos_core::{block::Block, header::HeaderId, wire};
-use nomos_storage::{api::chain::StorageChainApi, backends::StorageBackend, StorageMsg};
+use nomos_storage::{StorageMsg, api::chain::StorageChainApi, backends::StorageBackend};
 use overwatch::DynError;
 use serde::Serialize;
 use thiserror::Error;
@@ -227,12 +227,11 @@ where
         known_blocks: &HashSet<HeaderId>,
         target_info: &BlockInfo,
     ) -> Result<BlockInfo, GetBlocksError> {
-        if target_info.location == BlockLocation::Engine {
-            if let Some(start_info) =
+        if target_info.location == BlockLocation::Engine
+            && let Some(start_info) =
                 Self::find_optimal_start_block_from_engine(cryptarchia, known_blocks, target_info)?
-            {
-                return Ok(start_info);
-            }
+        {
+            return Ok(start_info);
         }
 
         self.find_optimal_start_block_from_storage(known_blocks)
@@ -279,10 +278,10 @@ where
         // Check if the genesis block is stored as immutable
         let maybe_genesis = self.find_immutable_genesis_block().await;
 
-        if let Ok(Some(genesis_block_id)) = &maybe_genesis {
-            if !known_blocks.contains(&genesis_block_id.id) {
-                return Ok(None);
-            }
+        if let Ok(Some(genesis_block_id)) = &maybe_genesis
+            && !known_blocks.contains(&genesis_block_id.id)
+        {
+            return Ok(None);
         }
 
         maybe_genesis
@@ -388,10 +387,10 @@ where
             .scan_immutable_block_ids(start_block_slot..=target_block_slot, limit)
             .await?;
 
-        if let Some(last_id) = storage_path.last() {
-            if *last_id == target_block {
-                return Ok(storage_path);
-            }
+        if let Some(last_id) = storage_path.last()
+            && *last_id == target_block
+        {
+            return Ok(storage_path);
         }
 
         let Some(remaining_limit) = NonZeroUsize::new(limit.get() - storage_path.len()) else {
@@ -545,11 +544,11 @@ mod tests {
     use nomos_core::{header::Header, mantle::SignedMantleTx};
     use nomos_proof_statements::leadership::{LeaderPrivate, LeaderPublic};
     use nomos_storage::{
-        backends::{
-            rocksdb::{RocksBackend, RocksBackendSettings},
-            StorageSerde,
-        },
         StorageService,
+        backends::{
+            StorageSerde,
+            rocksdb::{RocksBackend, RocksBackendSettings},
+        },
     };
     use num_bigint::BigUint;
     use overwatch::{derive_services, overwatch::OverwatchRunner};

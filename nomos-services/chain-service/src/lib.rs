@@ -31,30 +31,30 @@ use nomos_core::{
     },
     header::{Header, HeaderId},
     mantle::{
-        gas::MainnetGasConstants, AuthenticatedMantleTx, Op, SignedMantleTx, Transaction, TxHash,
-        TxSelect,
+        AuthenticatedMantleTx, Op, SignedMantleTx, Transaction, TxHash, TxSelect,
+        gas::MainnetGasConstants,
     },
     proofs::leader_proof::Risc0LeaderProof,
 };
 use nomos_da_sampling::{
-    backend::DaSamplingServiceBackend, DaSamplingService, DaSamplingServiceMsg,
+    DaSamplingService, DaSamplingServiceMsg, backend::DaSamplingServiceBackend,
 };
 use nomos_ledger::LedgerState;
 use nomos_mempool::{
-    backend::RecoverableMempool, network::NetworkAdapter as MempoolAdapter, DaMempoolService,
-    MempoolMsg, TxMempoolService,
+    DaMempoolService, MempoolMsg, TxMempoolService, backend::RecoverableMempool,
+    network::NetworkAdapter as MempoolAdapter,
 };
-use nomos_network::{message::ChainSyncEvent, NetworkService};
-use nomos_storage::{api::chain::StorageChainApi, backends::StorageBackend, StorageService};
+use nomos_network::{NetworkService, message::ChainSyncEvent};
+use nomos_storage::{StorageService, api::chain::StorageChainApi, backends::StorageBackend};
 use nomos_time::{SlotTick, TimeService, TimeServiceMessage};
 use overwatch::{
-    services::{relay::OutboundRelay, state::StateUpdater, AsServiceId, ServiceCore, ServiceData},
     DynError, OpaqueServiceResourcesHandle,
+    services::{AsServiceId, ServiceCore, ServiceData, relay::OutboundRelay, state::StateUpdater},
 };
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_with::serde_as;
 use services_utils::{
-    overwatch::{recovery::backends::FileBackendSettings, JsonFileBackend, RecoveryOperator},
+    overwatch::{JsonFileBackend, RecoveryOperator, recovery::backends::FileBackendSettings},
     wait_until_services_are_ready,
 };
 use thiserror::Error;
@@ -62,7 +62,7 @@ use tokio::{
     sync::{broadcast, mpsc, oneshot},
     time::Instant,
 };
-use tracing::{debug, error, info, instrument, span, Level};
+use tracing::{Level, debug, error, info, instrument, span};
 use tracing_futures::Instrument as _;
 
 use crate::{
@@ -71,7 +71,7 @@ use crate::{
     leadership::Leader,
     relays::CryptarchiaConsensusRelays,
     states::CryptarchiaConsensusState,
-    storage::{adapters::StorageAdapter, StorageAdapter as _},
+    storage::{StorageAdapter as _, adapters::StorageAdapter},
     sync::{block_provider::BlockProvider, orphan_handler::OrphanBlocksDownloader},
 };
 pub use crate::{
@@ -295,20 +295,20 @@ pub struct CryptarchiaConsensus<
 }
 
 impl<
-        NetAdapter,
-        BlendService,
-        ClPool,
-        ClPoolAdapter,
-        DaPool,
-        DaPoolAdapter,
-        TxS,
-        Storage,
-        SamplingBackend,
-        SamplingNetworkAdapter,
-        SamplingStorage,
-        TimeBackend,
-        RuntimeServiceId,
-    > ServiceData
+    NetAdapter,
+    BlendService,
+    ClPool,
+    ClPoolAdapter,
+    DaPool,
+    DaPoolAdapter,
+    TxS,
+    Storage,
+    SamplingBackend,
+    SamplingNetworkAdapter,
+    SamplingStorage,
+    TimeBackend,
+    RuntimeServiceId,
+> ServiceData
     for CryptarchiaConsensus<
         NetAdapter,
         BlendService,
@@ -370,20 +370,20 @@ where
 
 #[async_trait::async_trait]
 impl<
-        NetAdapter,
-        BlendService,
-        ClPool,
-        ClPoolAdapter,
-        DaPool,
-        DaPoolAdapter,
-        TxS,
-        Storage,
-        SamplingBackend,
-        SamplingNetworkAdapter,
-        SamplingStorage,
-        TimeBackend,
-        RuntimeServiceId,
-    > ServiceCore<RuntimeServiceId>
+    NetAdapter,
+    BlendService,
+    ClPool,
+    ClPoolAdapter,
+    DaPool,
+    DaPoolAdapter,
+    TxS,
+    Storage,
+    SamplingBackend,
+    SamplingNetworkAdapter,
+    SamplingStorage,
+    TimeBackend,
+    RuntimeServiceId,
+> ServiceCore<RuntimeServiceId>
     for CryptarchiaConsensus<
         NetAdapter,
         BlendService,
@@ -672,8 +672,10 @@ where
                     error!("Failed to shutdown overwatch: {shutdown_err:?}");
                 }
 
-                error!("Initial Block Download did not complete successfully: {e}. Common causes: unresponsive initial peers, \
-                network issues, or incorrect peer addresses. Consider retrying with different bootstrap peers.");
+                error!(
+                    "Initial Block Download did not complete successfully: {e}. Common causes: unresponsive initial peers, \
+                network issues, or incorrect peer addresses. Consider retrying with different bootstrap peers."
+                );
 
                 return Err(DynError::from(format!(
                     "Initial Block Download failed: {e:?}"
@@ -870,20 +872,20 @@ where
 }
 
 impl<
-        NetAdapter,
-        BlendService,
-        ClPool,
-        ClPoolAdapter,
-        DaPool,
-        DaPoolAdapter,
-        TxS,
-        Storage,
-        SamplingBackend,
-        SamplingNetworkAdapter,
-        SamplingStorage,
-        TimeBackend,
-        RuntimeServiceId,
-    >
+    NetAdapter,
+    BlendService,
+    ClPool,
+    ClPoolAdapter,
+    DaPool,
+    DaPoolAdapter,
+    TxS,
+    Storage,
+    SamplingBackend,
+    SamplingNetworkAdapter,
+    SamplingStorage,
+    TimeBackend,
+    RuntimeServiceId,
+>
     CryptarchiaConsensus<
         NetAdapter,
         BlendService,
@@ -1206,7 +1208,7 @@ where
                     })))
                     .collect::<Vec<_>>();
                 let content_id = [0; 32].into(); // TODO: calculate the actual content id
-                                                 // TODO: this should probably be a proposal or be transformed into a proposal
+                // TODO: this should probably be a proposal or be transformed into a proposal
                 let block = Block::new(Header::new(parent, content_id, slot, proof), txs);
                 debug!("proposed block with id {:?}", block.header().id());
                 output = Some(block);
@@ -1223,7 +1225,7 @@ where
         block: &Block<ClPool::Item>,
         sampled_blobs_ids: &BTreeSet<DaPool::Key>,
     ) -> bool {
-        let validated_blobs = block
+        block
             .transactions()
             .flat_map(|tx| tx.mantle_tx().ops.iter())
             .filter_map(|op| {
@@ -1233,8 +1235,7 @@ where
                     None
                 }
             })
-            .all(|blob| sampled_blobs_ids.contains(&blob));
-        validated_blobs
+            .all(|blob| sampled_blobs_ids.contains(&blob))
     }
 
     fn log_received_block(block: &Block<ClPool::Item>) {

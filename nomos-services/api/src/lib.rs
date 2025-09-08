@@ -1,12 +1,12 @@
-use std::{fmt::Display, future::Future, sync::OnceLock, time::Duration};
+use std::{fmt::Display, sync::OnceLock, time::Duration};
 
 use overwatch::{
+    DynError, OpaqueServiceResourcesHandle,
     overwatch::handle::OverwatchHandle,
     services::{
-        state::{NoOperator, NoState},
         AsServiceId, ServiceCore, ServiceData,
+        state::{NoOperator, NoState},
     },
-    DynError, OpaqueServiceResourcesHandle,
 };
 
 pub mod http;

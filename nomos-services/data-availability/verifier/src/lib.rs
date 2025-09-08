@@ -12,26 +12,26 @@ use std::{
 };
 
 use backend::{
+    TxVerifierBackend, VerifierBackend,
     trigger::{MempoolPublishTrigger, MempoolPublishTriggerConfig},
     tx::mock::MockTxVerifier,
-    TxVerifierBackend, VerifierBackend,
 };
 use mempool::{DaMempoolAdapter, MempoolAdapterError};
 use network::NetworkAdapter;
 use nomos_core::da::blob::Share;
 use nomos_da_network_core::swarm::DispersalValidationError;
 use nomos_da_network_service::{
-    membership::MembershipAdapter, storage::MembershipStorageAdapter, NetworkService,
+    NetworkService, membership::MembershipAdapter, storage::MembershipStorageAdapter,
 };
 use nomos_mempool::backend::MempoolError;
 use nomos_storage::StorageService;
 use nomos_tracing::{error_with_id, info_with_id};
 use overwatch::{
-    services::{
-        state::{NoOperator, NoState},
-        AsServiceId, ServiceCore, ServiceData,
-    },
     DynError, OpaqueServiceResourcesHandle,
+    services::{
+        AsServiceId, ServiceCore, ServiceData,
+        state::{NoOperator, NoState},
+    },
 };
 use serde::{Deserialize, Serialize};
 use services_utils::wait_until_services_are_ready;
@@ -204,7 +204,7 @@ where
                 match mempool_adapter.post_tx(blob_id, tx).await {
                     Ok(()) | Err(MempoolAdapterError::Mempool(MempoolError::ExistingItem)) => {}
                     Err(err) => return Err(Box::new(err)),
-                };
+                }
             }
         }
         Ok(())
@@ -450,7 +450,7 @@ where
                                         error!("Error replying attestation {err:?}");
                                     }
                                 },
-                            };
+                            }
                         },
                         DaVerifierMsg::VerifyShare {commitments,  light_share, reply_channel } => {
                             match share_verifier.verify(&commitments, &light_share) {
