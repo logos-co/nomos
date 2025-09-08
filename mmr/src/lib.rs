@@ -21,6 +21,7 @@ const EMPTY_VALUE: [u8; 32] = [0; 32];
 #[derive(Debug, Clone)]
 pub struct MerkleMountainRange<T, Hash, const MAX_HEIGHT: u8 = 32> {
     roots: StackSync<Root>,
+    #[cfg_attr(feature = "serde", serde(skip))]
     _hash: std::marker::PhantomData<(T, Hash)>,
 }
 
