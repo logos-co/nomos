@@ -33,15 +33,15 @@ mod verification_key;
 mod wallet_inputs;
 mod witness;
 
+pub use chain_inputs::{PolChainInputs, PolChainInputsData};
+use groth16::{Groth16Input, Groth16InputDeser, Groth16Proof, Groth16ProofJsonDeser};
+pub use inputs::PolWitnessInputs;
+use num_bigint::BigUint;
+use num_traits::CheckedSub as _;
 use std::error::Error;
 use std::ops::{Deref as _, Div as _};
 use std::str::FromStr as _;
 use std::sync::LazyLock;
-use num_bigint::BigUint;
-use num_traits::CheckedSub as _;
-pub use chain_inputs::{PolChainInputs, PolChainInputsData};
-use groth16::{Groth16Input, Groth16InputDeser, Groth16Proof, Groth16ProofJsonDeser};
-pub use inputs::PolWitnessInputs;
 use thiserror::Error;
 pub use wallet_inputs::{PolWalletInputs, PolWalletInputsData};
 pub use witness::Witness;
@@ -137,7 +137,7 @@ pub static P: LazyLock<BigUint> = LazyLock::new(|| {
     BigUint::from_str(
         "21888242871839275222246405745257275088548364400416034343698204186575808495617",
     )
-        .expect("P constant should parse")
+    .expect("P constant should parse")
 });
 
 /// :warning: There may be dragons
@@ -154,7 +154,7 @@ static T0_CONSTANT: LazyLock<BigUint> = LazyLock::new(|| {
     BigUint::from_str(
         "1122720085251457488657939587576977282954863756865979276605118041105190793706",
     )
-        .expect("Constant should parse")
+    .expect("Constant should parse")
 });
 
 /// :warning: There may be dragons

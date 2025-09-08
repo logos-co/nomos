@@ -108,7 +108,11 @@ mod tests {
     #[test]
     fn test_core_node_full_flow() {
         let blend_data = PoQBlendInputsData {
-            core_sk: BigUint::from_str("1243521580971984283788546765456513336982050553762882229075935649697333325415").unwrap().into(),
+            core_sk: BigUint::from_str(
+                "1243521580971984283788546765456513336982050553762882229075935649697333325415",
+            )
+            .unwrap()
+            .into(),
             core_path: [
                 "14899354077986736739893995913719886357387091560190878664812754607128166085688",
                 "18606458877798528803522665189020473031731274309972616431619932638856992022642",
@@ -129,54 +133,48 @@ mod tests {
                 "11113236096797589774647296616340634497336316099228449321581674554865115603805",
                 "10117351169456678271158862702073261719904636287781586065834347442240061583409",
                 "9737899159212679054927276862640128286163323312842892492410575747364227953442",
-                "19758074506928063291541911127739980494480523814953836282436151351969048070295"
+                "19758074506928063291541911127739980494480523814953836282436151351969048070295",
             ]
-                .into_iter()
-                .map(|value| BigUint::from_str(value).unwrap().into())
-                .collect(),
+            .into_iter()
+            .map(|value| BigUint::from_str(value).unwrap().into())
+            .collect(),
             core_path_selectors: [
-                "0",
-                "1",
-                "1",
-                "0",
-                "0",
-                "1",
-                "0",
-                "0",
-                "0",
-                "0",
-                "0",
-                "1",
-                "1",
-                "0",
-                "0",
-                "0",
-                "1",
-                "1",
-                "0",
-                "1"
+                "0", "1", "1", "0", "0", "1", "0", "0", "0", "0", "0", "1", "1", "0", "0", "0",
+                "1", "1", "0", "1",
             ]
             .into_iter()
             .map(|s| match s {
-            "1" => true,
-            "0" => false,
-            _ => panic!("Invalid value for aged_selector"),
+                "1" => true,
+                "0" => false,
+                _ => panic!("Invalid value for aged_selector"),
             })
             .collect(),
         };
         let chain_data = PoQChainInputsData {
             session: 156,
-            core_root: BigUint::from_str("9407511899939699317053206744500804221057879384131298307373363884365510557105").unwrap().into(),
-            pol_ledger_aged: BigUint::from_str("801456473606247514536554589505313817337641017798795001180932230529383426690").unwrap().into(),
-            pol_epoch_nonce: BigUint::from_str("20362738684904188164173875375066172826647102735682033630054721962986517191370").unwrap().into(),
+            core_root: BigUint::from_str(
+                "9407511899939699317053206744500804221057879384131298307373363884365510557105",
+            )
+            .unwrap()
+            .into(),
+            pol_ledger_aged: BigUint::from_str(
+                "801456473606247514536554589505313817337641017798795001180932230529383426690",
+            )
+            .unwrap()
+            .into(),
+            pol_epoch_nonce: BigUint::from_str(
+                "20362738684904188164173875375066172826647102735682033630054721962986517191370",
+            )
+            .unwrap()
+            .into(),
             total_stake: 5000,
         };
         let common_data = PoQCommonInputsData {
             core_quota: 15,
             leader_quota: 10,
             message_key: (
-            BigUint::from(123_456u32).into(),
-            BigUint::from(654_321u32).into(),
+                BigUint::from(123_456u32).into(),
+                BigUint::from(654_321u32).into(),
             ),
             selector: false,
             index: 5,
@@ -186,7 +184,8 @@ mod tests {
             chain_data.try_into().unwrap(),
             common_data.into(),
             blend_data.into(),
-        ).unwrap();
+        )
+        .unwrap();
 
         let (proof, inputs) = prove(&witness_inputs).unwrap();
         assert!(verify(&proof, &inputs).unwrap());
@@ -197,9 +196,21 @@ mod tests {
     fn test_leader_full_flow() {
         let chain_data = PoQChainInputsData {
             session: 156,
-            core_root: BigUint::from_str("17245194574930318657496521067216150592363395809120624186030395110066629172713").unwrap().into(),
-            pol_ledger_aged: BigUint::from_str("17581935479122551526433577018368482282522536639998670867733467740527259140329").unwrap().into(),
-            pol_epoch_nonce: BigUint::from_str("9382732013368295937351288539099763302405932183641949806829062531873227185366").unwrap().into(),
+            core_root: BigUint::from_str(
+                "17245194574930318657496521067216150592363395809120624186030395110066629172713",
+            )
+            .unwrap()
+            .into(),
+            pol_ledger_aged: BigUint::from_str(
+                "17581935479122551526433577018368482282522536639998670867733467740527259140329",
+            )
+            .unwrap()
+            .into(),
+            pol_epoch_nonce: BigUint::from_str(
+                "9382732013368295937351288539099763302405932183641949806829062531873227185366",
+            )
+            .unwrap()
+            .into(),
             total_stake: 5000,
         };
         let common_data = PoQCommonInputsData {
@@ -215,7 +226,11 @@ mod tests {
         let wallet_data = PoQWalletInputsData {
             slot: 1_435_614_687,
             note_value: 50,
-            transaction_hash: BigUint::from_str("21065390439947646370948402545392395624652238557579612986928505993617830869524").unwrap().into(),
+            transaction_hash: BigUint::from_str(
+                "21065390439947646370948402545392395624652238557579612986928505993617830869524",
+            )
+            .unwrap()
+            .into(),
             output_number: 3506,
             aged_path: [
                 "2218358205308212141931945899317666000432964577322903237648485745402888847967",
@@ -249,53 +264,27 @@ mod tests {
                 "2136353293329823258567770315498134955710818333210321541917969621904409717131",
                 "5310543577034093841892557861575792884793139299755351003030223024176419280107",
                 "21747458428476877224711823467723636681057586022768686574197662332758613613498",
-                "8523041650921295793627158825653387488901664707012069522898470811981302567340"
+                "8523041650921295793627158825653387488901664707012069522898470811981302567340",
             ]
-                .into_iter()
-                .map(|value| BigUint::from_str(value).unwrap().into())
-                .collect(),
+            .into_iter()
+            .map(|value| BigUint::from_str(value).unwrap().into())
+            .collect(),
             aged_selector: [
-                "0",
-                "0",
-                "0",
-                "1",
-                "0",
-                "1",
-                "1",
-                "1",
-                "1",
-                "1",
-                "0",
-                "0",
-                "1",
-                "0",
-                "0",
-                "0",
-                "0",
-                "0",
-                "0",
-                "0",
-                "0",
-                "0",
-                "1",
-                "0",
-                "0",
-                "1",
-                "1",
-                "1",
-                "1",
-                "0",
-                "1",
-                "0"
+                "0", "0", "0", "1", "0", "1", "1", "1", "1", "1", "0", "0", "1", "0", "0", "0",
+                "0", "0", "0", "0", "0", "0", "1", "0", "0", "1", "1", "1", "1", "0", "1", "0",
             ]
-                .into_iter()
-                .map(|s| match s {
-                    "1" => true,
-                    "0" => false,
-                    _ => panic!("Invalid value for aged_selector"),
-                })
-                .collect(),
-            slot_secret: BigUint::from_str("11655913402027048895646069993354304406314627095091592937310845919792361208019").unwrap().into(),
+            .into_iter()
+            .map(|s| match s {
+                "1" => true,
+                "0" => false,
+                _ => panic!("Invalid value for aged_selector"),
+            })
+            .collect(),
+            slot_secret: BigUint::from_str(
+                "11655913402027048895646069993354304406314627095091592937310845919792361208019",
+            )
+            .unwrap()
+            .into(),
             slot_secret_path: [
                 "1276120730862379103568680287024849622659106941167142009296375284364505879979",
                 "6040124932443060917708591604627257324690365592745233307351729924038351160518",
@@ -321,19 +310,16 @@ mod tests {
                 "7594650904121954414605190560064348064953515402861831165749364688623757438244",
                 "13188524944690805646642525246906048450030345871450736009516816718154511831906",
                 "20243856991878165897844306391610201420569555531169451154959328927811612817300",
-                "6626885023949379643405388705846136814114027966345062400099364565966780572769"
+                "6626885023949379643405388705846136814114027966345062400099364565966780572769",
             ]
-                .into_iter()
-                .map(|value| BigUint::from_str(value).unwrap().into())
-                .collect(),
+            .into_iter()
+            .map(|value| BigUint::from_str(value).unwrap().into())
+            .collect(),
             starting_slot: 1_403_099_973,
         };
 
-        let witness_inputs = PoQWitnessInputs::from_leader_data(
-            chain_data,
-            common_data,
-            wallet_data,
-        ).unwrap();
+        let witness_inputs =
+            PoQWitnessInputs::from_leader_data(chain_data, common_data, wallet_data).unwrap();
 
         let (proof, inputs) = prove(&witness_inputs).unwrap();
         assert!(verify(&proof, &inputs).unwrap());

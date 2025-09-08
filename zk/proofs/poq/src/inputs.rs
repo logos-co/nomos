@@ -1,7 +1,13 @@
 use groth16::{Field as _, Fr, Groth16Input, Groth16InputDeser};
 use serde::{Deserialize, Serialize};
 
-use crate::{blend_inputs::{PoQBlendInputs, PoQBlendInputsJson, PoQBlendInputsData}, chain_inputs::{PoQChainInputs, PoQChainInputsJson}, common_inputs::{PoQCommonInputs, PoQCommonInputsJson}, wallet_inputs::{PoQWalletInputs, PoQWalletInputsJson, PoQWalletInputsData}, PoQChainInputsData, PoQCommonInputsData};
+use crate::{
+    PoQChainInputsData, PoQCommonInputsData,
+    blend_inputs::{PoQBlendInputs, PoQBlendInputsData, PoQBlendInputsJson},
+    chain_inputs::{PoQChainInputs, PoQChainInputsJson},
+    common_inputs::{PoQCommonInputs, PoQCommonInputsJson},
+    wallet_inputs::{PoQWalletInputs, PoQWalletInputsData, PoQWalletInputsJson},
+};
 
 #[derive(Clone, Serialize)]
 #[serde(into = "PoQInputsJson", rename_all = "snake_case")]
@@ -13,20 +19,21 @@ pub struct PoQWitnessInputs {
 }
 
 impl PoQWitnessInputs {
-
     pub fn from_leader_data(
         chain: PoQChainInputsData,
         common: PoQCommonInputsData,
         wallet: PoQWalletInputsData,
     ) -> Result<Self, <PoQChainInputs as TryFrom<PoQChainInputsData>>::Error> {
-        Ok(Self { chain: chain.try_into()?,
+        Ok(Self {
+            chain: chain.try_into()?,
             common: common.into(),
-            blend: PoQBlendInputs::from( PoQBlendInputsData {
+            blend: PoQBlendInputs::from(PoQBlendInputsData {
                 core_sk: Fr::ZERO,
                 core_path: vec![Fr::ZERO; 20],
                 core_path_selectors: vec![false; 20],
-            } ),
-            wallet: wallet.into() })
+            }),
+            wallet: wallet.into(),
+        })
     }
 
     pub fn from_core_node_data(
@@ -39,16 +46,17 @@ impl PoQWitnessInputs {
             common,
             blend,
             wallet: PoQWalletInputs::from(PoQWalletInputsData {
-            slot: 2,
-            note_value: 0,
-            transaction_hash: Fr::ZERO,
-            output_number: 0,
-            aged_path: vec![Fr::ZERO; 32],
-            aged_selector: vec![false; 32],
-            slot_secret: Fr::ZERO,
-            slot_secret_path: vec![Fr::ZERO; 25],
-            starting_slot: 1,
-        } ), })
+                slot: 2,
+                note_value: 0,
+                transaction_hash: Fr::ZERO,
+                output_number: 0,
+                aged_path: vec![Fr::ZERO; 32],
+                aged_selector: vec![false; 32],
+                slot_secret: Fr::ZERO,
+                slot_secret_path: vec![Fr::ZERO; 25],
+                starting_slot: 1,
+            }),
+        })
     }
 }
 
@@ -108,17 +116,17 @@ impl TryFrom<PoQVerifierInputJson> for PoQVerifierInput {
 
     fn try_from(value: PoQVerifierInputJson) -> Result<Self, Self::Error> {
         let [
-        key_nullifier,
-        session,
-        core_quota,
-        leader_quota,
-        core_root,
-        k_part_one,
-        k_part_two,
-        pol_epoch_nonce,
-        pol_t0,
-        pol_t1,
-        pol_ledger_aged,
+            key_nullifier,
+            session,
+            core_quota,
+            leader_quota,
+            core_root,
+            k_part_one,
+            k_part_two,
+            pol_epoch_nonce,
+            pol_t0,
+            pol_t1,
+            pol_ledger_aged,
         ] = value.0;
         Ok(Self {
             key_nullifier: key_nullifier.try_into()?,

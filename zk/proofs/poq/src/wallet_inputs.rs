@@ -12,9 +12,8 @@ pub struct PoQWalletInputs {
     pol_note_tx_hash: Groth16Input,
     pol_note_output_number: Groth16Input,
     pol_sk_starting_slot: Groth16Input,
-    pol_note_value: Groth16Input
+    pol_note_value: Groth16Input,
 }
-
 
 pub struct PoQWalletInputsData {
     pub slot: u64,
@@ -60,7 +59,7 @@ impl From<&PoQWalletInputs> for PoQWalletInputsJson {
             pol_note_tx_hash,
             pol_note_output_number,
             pol_sk_starting_slot,
-            pol_note_value
+            pol_note_value,
         }: &PoQWalletInputs,
     ) -> Self {
         Self {
@@ -88,7 +87,7 @@ impl From<PoQWalletInputsData> for PoQWalletInputs {
             aged_selector,
             slot_secret,
             slot_secret_path,
-            starting_slot, 
+            starting_slot,
         }: PoQWalletInputsData,
     ) -> Self {
         Self {

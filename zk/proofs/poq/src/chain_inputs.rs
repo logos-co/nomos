@@ -1,8 +1,8 @@
 use groth16::{Fr, Groth16Input, Groth16InputDeser};
 use num_bigint::BigUint;
+use pol::{P, compute_lottery_values};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use pol::{compute_lottery_values, P};
 
 #[derive(Copy, Clone)]
 pub struct PoQChainInputs {

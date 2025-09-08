@@ -40,7 +40,7 @@ impl From<&PoQCommonInputs> for PoQCommonInputsJson {
             key_part_one,
             key_part_two,
             selector,
-            index
+            index,
         }: &PoQCommonInputs,
     ) -> Self {
         Self {

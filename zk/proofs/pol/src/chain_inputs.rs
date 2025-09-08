@@ -1,8 +1,8 @@
+use crate::{P, compute_lottery_values};
 use groth16::{Fr, Groth16Input, Groth16InputDeser};
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use crate::{compute_lottery_values, P};
 
 /// Public inputs of the POL cirmcom circuit with circom specific types.
 #[derive(Copy, Clone)]
