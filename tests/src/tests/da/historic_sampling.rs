@@ -51,9 +51,6 @@ async fn disseminate_blobs_in_session_zero(executor: &Executor) -> Vec<BlobId> {
             wait_for_blob_onchain(executor, blob_id).await;
         }
 
-        // sleep couple of seconds
-        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-
         verify_share_replication(executor, blob_id).await;
     }
 
