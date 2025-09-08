@@ -31,8 +31,8 @@ use nomos_core::{
     },
     header::{Header, HeaderId},
     mantle::{
-        gas::MainnetGasConstants, AuthenticatedMantleTx, Op, SignedMantleTx, Transaction, TxHash,
-        TxSelect,
+        gas::MainnetGasConstants, ops::leader_claim::VoucherCm, AuthenticatedMantleTx, Op,
+        SignedMantleTx, Transaction, TxHash, TxSelect,
     },
     proofs::leader_proof::Risc0LeaderProof,
 };
@@ -148,7 +148,7 @@ impl Cryptarchia {
             parent,
             slot,
             header.leader_proof(),
-            [0; 32], // TODO: add the new voucher commitment here
+            VoucherCm::default(), // TODO: add the new voucher commitment here
             std::iter::empty::<&SignedMantleTx>(),
         )?;
         let (consensus, pruned_blocks) = self.consensus.receive_block(id, parent, slot)?;

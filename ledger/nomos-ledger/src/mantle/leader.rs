@@ -28,7 +28,7 @@ pub struct LeaderState {
     claimable_rewards: Value,
     // Merkle tree of vouchers, vouchers can only be claimed with a delay
     // of one epoch.
-    vouchers: MerkleMountainRange<VoucherCm, nomos_core::crypto::Hasher>,
+    vouchers: MerkleMountainRange<VoucherCm, nomos_core::crypto::ZkHasher>,
 }
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
@@ -52,7 +52,7 @@ impl LeaderState {
     pub fn new() -> Self {
         Self {
             epoch: 0.into(),
-            claimable_vouchers_root: [0; 32],
+            claimable_vouchers_root: RewardsRoot::default(),
             n_claimable_vouchers: 0,
             nfs: rpds::HashTrieSetSync::new_sync(),
             claimable_rewards: 0,
@@ -73,7 +73,7 @@ impl LeaderState {
             }),
             Ordering::Greater => {
                 self.epoch = epoch;
-                self.claimable_vouchers_root = self.vouchers.frontier_root();
+                self.claimable_vouchers_root = self.vouchers.frontier_root().into();
                 self.n_claimable_vouchers = self.vouchers.len() as u64;
                 // TODO: increase rewards, what about epoch jumps?
                 Ok(self)
@@ -129,34 +129,46 @@ impl LeaderState {
 
 #[cfg(test)]
 mod tests {
+    use groth16::{Field as _, Fr};
+    use nomos_core::mantle::TxHash;
+
+    use super::*;
+
     #[test]
     fn test_reward_amounts() {
-        let state = super::LeaderState::new();
-        let state = state.try_apply_header(1.into(), [1; 32]).unwrap();
-        let state = state.try_apply_header(1.into(), [2; 32]).unwrap();
-        let state = state.try_apply_header(1.into(), [3; 32]).unwrap();
-        let state = state.try_apply_header(2.into(), [4; 32]).unwrap();
-        let state = super::LeaderState {
+        let state = LeaderState::new();
+        let state = state.try_apply_header(1.into(), Fr::ZERO.into()).unwrap();
+        let state = state.try_apply_header(1.into(), Fr::ONE.into()).unwrap();
+        let state = state
+            .try_apply_header(1.into(), Fr::from(2u64).into())
+            .unwrap();
+        let state = state
+            .try_apply_header(2.into(), Fr::from(3u64).into())
+            .unwrap();
+        let state = LeaderState {
             claimable_rewards: 300,
             ..state
         };
-        let op1 = super::LeaderClaimOp {
+        let op1 = LeaderClaimOp {
             rewards_root: state.claimable_vouchers_root,
-            voucher_nullifier: [1; 32],
+            voucher_nullifier: Fr::ZERO.into(),
+            mantle_tx_hash: TxHash::default(),
         };
         let (state, bal) = state.claim(&op1).unwrap();
         assert_eq!(bal, 100);
         assert_eq!(state.claimable_rewards, 200);
-        let op2 = super::LeaderClaimOp {
+        let op2 = LeaderClaimOp {
             rewards_root: state.claimable_vouchers_root,
-            voucher_nullifier: [2; 32],
+            voucher_nullifier: Fr::ONE.into(),
+            mantle_tx_hash: TxHash::default(),
         };
         let (state, bal) = state.claim(&op2).unwrap();
         assert_eq!(bal, 100);
         assert_eq!(state.claimable_rewards, 100);
-        let op3 = super::LeaderClaimOp {
+        let op3 = LeaderClaimOp {
             rewards_root: state.claimable_vouchers_root,
-            voucher_nullifier: [3; 32],
+            voucher_nullifier: Fr::from(2u64).into(),
+            mantle_tx_hash: TxHash::default(),
         };
         let (state, bal) = state.claim(&op3).unwrap();
         assert_eq!(bal, 100);
@@ -165,39 +177,52 @@ mod tests {
 
     #[test]
     fn test_epoch_transition() {
-        let state = super::LeaderState::new();
-        let state = state.try_apply_header(1.into(), [1; 32]).unwrap();
+        let state = LeaderState::new();
+        let state = state.try_apply_header(1.into(), Fr::ZERO.into()).unwrap();
         assert_eq!(state.epoch, 1.into());
         assert_eq!(state.n_claimable_vouchers, 0);
-        let state = state.try_apply_header(2.into(), [2; 32]).unwrap();
+        let state = state.try_apply_header(2.into(), Fr::ONE.into()).unwrap();
         assert_eq!(state.epoch, 2.into());
         assert_eq!(state.n_claimable_vouchers, 1);
-        let state = state.try_apply_header(2.into(), [3; 32]).unwrap();
-        assert_eq!(state.epoch, 1.into());
-        assert_eq!(state.n_claimable_vouchers, 2);
-        let state = state.try_apply_header(3.into(), [4; 32]).unwrap();
+        let state = state
+            .try_apply_header(2.into(), Fr::from(2u64).into())
+            .unwrap();
+        assert_eq!(state.epoch, 2.into());
+        assert_eq!(state.n_claimable_vouchers, 1);
+        let state = state
+            .try_apply_header(3.into(), Fr::from(3u64).into())
+            .unwrap();
         assert_eq!(state.epoch, 3.into());
         assert_eq!(state.n_claimable_vouchers, 3);
-        let err = state.try_apply_header(2.into(), [5; 32]).unwrap_err();
+        let err = state
+            .clone()
+            .try_apply_header(2.into(), Fr::from(4u64).into())
+            .unwrap_err();
         assert_eq!(
             err,
-            super::Error::InvalidEpoch {
+            Error::InvalidEpoch {
                 current: 3.into(),
                 incoming: 2.into()
             }
         );
+        let state = state
+            .try_apply_header(5.into(), Fr::from(5u64).into())
+            .unwrap();
+        assert_eq!(state.epoch, 5.into());
+        assert_eq!(state.n_claimable_vouchers, 5);
     }
 
     #[test]
     fn test_cannot_claim_reward_twice() {
-        let state = super::LeaderState::new();
-        let op = super::LeaderClaimOp {
-            voucher_nullifier: [0; 32],
+        let state = LeaderState::new();
+        let op = LeaderClaimOp {
+            voucher_nullifier: Fr::ZERO.into(),
             rewards_root: state.claimable_vouchers_root,
+            mantle_tx_hash: TxHash::default(),
         };
         let (state, balance) = state.claim(&op).unwrap();
-        assert_eq!(balance, 100);
+        assert_eq!(balance, 0);
         let err = state.claim(&op).unwrap_err();
-        assert_eq!(err, super::Error::DuplicatedVoucherNullifier);
+        assert_eq!(err, Error::DuplicatedVoucherNullifier);
     }
 }
