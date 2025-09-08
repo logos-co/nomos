@@ -1,5 +1,6 @@
 pub mod backends;
 pub mod network;
+mod processor;
 pub mod settings;
 
 use std::{
@@ -21,6 +22,7 @@ use nomos_blend_scheduling::{
     membership::Membership,
     message_blend::crypto::CryptographicProcessor,
     message_scheduler::{round_info::RoundInfo, MessageScheduler},
+    session::SessionEvent,
 };
 use nomos_core::wire;
 use nomos_network::NetworkService;
@@ -37,7 +39,10 @@ use serde::{Deserialize, Serialize};
 use services_utils::wait_until_services_are_ready;
 
 use crate::{
-    core::settings::BlendConfig,
+    core::{
+        processor::{CoreCryptographicProcessor, Error},
+        settings::BlendConfig,
+    },
     membership,
     message::{NetworkMessage, ProcessedMessage, ServiceMessage},
     settings::constant_session_stream,
@@ -119,7 +124,6 @@ where
         } = self;
 
         let blend_config = settings_handle.notifier().get_updated_settings();
-        let minimum_network_size = blend_config.minimum_network_size;
 
         let network_relay = overwatch_handle.relay::<NetworkService<_, _>>().await?;
         let network_adapter = Network::new(network_relay);
@@ -143,13 +147,14 @@ where
         .await
         .expect("The current session must be ready");
 
-        let session_stream = session_stream.fork();
+        let mut session_stream = session_stream.fork();
 
-        let mut cryptographic_processor = CryptographicProcessor::new(
-            blend_config.crypto.clone(),
+        let mut crypto_processor = CoreCryptographicProcessor::try_new_with_core_condition_check(
             current_membership.clone(),
-            BlakeRng::from_entropy(),
-        );
+            blend_config.minimum_network_size,
+            &blend_config.crypto,
+        )
+        .expect("The initial membership should satisfy the core node condition");
 
         // Yields once every randomly-scheduled release round.
         let (initial_session_info, session_info_stream) =
@@ -165,8 +170,8 @@ where
         let mut backend = <Backend as BlendBackend<NodeId, BlakeRng, RuntimeServiceId>>::new(
             blend_config.clone(),
             overwatch_handle.clone(),
-            current_membership.clone(),
-            session_stream.boxed(),
+            current_membership,
+            session_stream.clone().boxed(),
             BlakeRng::from_entropy(),
         );
 
@@ -193,19 +198,56 @@ where
 
         loop {
             tokio::select! {
-                // Core blend service is supposed to be used only through the proxy service. As an additional protection, if it is used directly with a network that is too small, the service will simply not accept any incoming messages to be blended.
-                // TODO: Remove the `if` by shutting down this service if new membership is small.
-                Some(local_data_message) = inbound_relay.next(), if current_membership.size() >= minimum_network_size.get() as usize => {
-                    handle_local_data_message(local_data_message, &mut cryptographic_processor, &backend, &mut message_scheduler).await;
+                Some(local_data_message) = inbound_relay.next() => {
+                    handle_local_data_message(local_data_message, &mut crypto_processor, &backend, &mut message_scheduler).await;
                 }
                 Some(incoming_message) = blend_messages.next() => {
-                    handle_incoming_blend_message(incoming_message, &mut message_scheduler, &cryptographic_processor);
+                    handle_incoming_blend_message(incoming_message, &mut message_scheduler, &crypto_processor);
                 }
                 Some(round_info) = message_scheduler.next() => {
-                    handle_release_round(round_info, &mut cryptographic_processor, &mut rng, &backend, &network_adapter).await;
+                    handle_release_round(round_info, &mut crypto_processor, &mut rng, &backend, &network_adapter).await;
+                }
+                Some(session_event) = session_stream.next() => {
+                    match handle_session_event(session_event, crypto_processor, &blend_config) {
+                        Ok(new_crypto_processor) => crypto_processor = new_crypto_processor,
+                        Err(e) => {
+                            tracing::error!(
+                                target: LOG_TARGET,
+                                "Terminating the '{}' service as the new membership does not satisfy the core node condition: {e:?}",
+                                <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
+                            );
+                            return Err(e.into());
+                        },
+                    }
                 }
             }
         }
+    }
+}
+
+/// Handles a [`SessionEvent`].
+///
+/// It consumes the previous cryptographic processor and creates a new one
+/// on a new session with its new membership.
+/// It ignores the transition period expiration event and returns the previous
+/// cryptographic processor as is.
+fn handle_session_event<NodeId, BackendSettings>(
+    event: SessionEvent<Membership<NodeId>>,
+    cryptographic_processor: CoreCryptographicProcessor<NodeId>,
+    settings: &BlendConfig<BackendSettings, NodeId>,
+) -> Result<CoreCryptographicProcessor<NodeId>, Error>
+where
+    NodeId: Eq + Hash + Send,
+{
+    match event {
+        SessionEvent::NewSession(membership) => Ok(
+            CoreCryptographicProcessor::try_new_with_core_condition_check(
+                membership,
+                settings.minimum_network_size,
+                &settings.crypto,
+            )?,
+        ),
+        SessionEvent::TransitionPeriodExpired => Ok(cryptographic_processor),
     }
 }
 
