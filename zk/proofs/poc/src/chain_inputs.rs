@@ -10,21 +10,15 @@ use num_traits::CheckedSub as _;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-/// Public inputs of the POL cirmcom circuit with circom specific types.
+/// Public inputs of the Proof of Claim circom circuit with circom specific types.
 #[derive(Copy, Clone)]
-pub struct PolChainInputs {
-    slot_number: Groth16Input,
-    epoch_nonce: Groth16Input,
-    lottery_0: Groth16Input,
-    lottery_1: Groth16Input,
-    aged_root: Groth16Input,
-    latest_root: Groth16Input,
-    leader_pk1: Groth16Input,
-    leader_pk2: Groth16Input,
+pub struct PoCChainInputs {
+    voucher_root: Groth16Input,
+    mantle_tx_hash: Groth16Input,
 }
 
-/// Public inputs of the POL cirmcom circuit to be provided by the chain.
-pub struct PolChainInputsData {
+/// Public inputs of the POC circom circuit to be provided by the chain.
+pub struct PoCChainInputsData {
     pub slot_number: u64,
     pub epoch_nonce: u64,
     pub total_stake: u64,

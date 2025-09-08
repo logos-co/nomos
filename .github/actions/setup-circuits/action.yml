@@ -40,8 +40,6 @@ runs:
     - name: Setup .zkeys paths
       shell: bash
       env:
-        POL_PROVING_KEY_PATH: ${{ github.workspace }}/zk/proofs/pol/src/proving_key/pol.zkey
         POC_PROVING_KEY_PATH: ${{ github.workspace }}/zk/proofs/poc/src/proving_key/proof_of_claim.zkey
       run: |
-        echo "NOMOS_POL_PROVING_KEY_PATH=$POL_PROVING_KEY_PATH" >> "$GITHUB_ENV"
         echo "NOMOS_POC_PROVING_KEY_PATH=$POC_PROVING_KEY_PATH" >> "$GITHUB_ENV"
