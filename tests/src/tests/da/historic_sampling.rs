@@ -8,6 +8,7 @@ use tests::{
 };
 use tokio::time::Duration;
 
+#[ignore = "Reenable after transaction mempool is used"]
 #[tokio::test]
 async fn test_historical_sampling_across_sessions() {
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
