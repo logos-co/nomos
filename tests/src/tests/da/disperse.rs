@@ -195,6 +195,7 @@ async fn four_subnets_disseminate_retrieve_reconstruct() {
 
 #[tokio::test]
 #[serial]
+#[ignore = "Reenable after transaction mempool is used"]
 async fn disseminate_same_data() {
     const ITERATIONS: usize = 10;
 

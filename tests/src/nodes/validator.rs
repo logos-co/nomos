@@ -52,7 +52,7 @@ use nomos_network::{backends::libp2p::Libp2pConfig, config::NetworkConfig};
 use nomos_node::{
     api::{backend::AxumBackendSettings, testing::handlers::HistoricSamplingRequest},
     config::{blend::BlendConfig, mempool::MempoolConfig},
-    BlobInfo, Config, HeaderId, RocksBackendSettings,
+    Config, HeaderId, RocksBackendSettings,
 };
 use nomos_time::{
     backends::{ntp::async_client::NTPClientSettings, NtpTimeBackendSettings},
@@ -191,7 +191,7 @@ impl Validator {
         }
     }
 
-    pub async fn get_block(&self, id: HeaderId) -> Option<Block<SignedMantleTx, BlobInfo>> {
+    pub async fn get_block(&self, id: HeaderId) -> Option<Block<SignedMantleTx>> {
         CLIENT
             .post(format!("http://{}{}", self.addr, STORAGE_BLOCK))
             .header("Content-Type", "application/json")
@@ -199,7 +199,7 @@ impl Validator {
             .send()
             .await
             .unwrap()
-            .json::<Option<Block<SignedMantleTx, BlobInfo>>>()
+            .json::<Option<Block<SignedMantleTx>>>()
             .await
             .unwrap()
     }
@@ -447,7 +447,6 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
             genesis_id: HeaderId::from([0; 32]),
             genesis_state: config.consensus_config.genesis_state,
             transaction_selector_settings: (),
-            blob_selector_settings: (),
             network_adapter_settings:
                 chain_service::network::adapters::libp2p::LibP2pAdapterSettings {
                     topic: String::from(nomos_node::CONSENSUS_TOPIC),
