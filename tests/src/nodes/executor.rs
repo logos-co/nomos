@@ -230,9 +230,12 @@ impl Executor {
     }
 
     pub async fn consensus_info(&self) -> CryptarchiaInfo {
-        let res = self.get(CRYPTARCHIA_INFO).await;
-        println!("{res:?}");
-        res.unwrap().json().await.unwrap()
+        self.get(CRYPTARCHIA_INFO)
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap()
     }
 
     pub async fn get_block(&self, id: HeaderId) -> Option<Block<SignedMantleTx>> {

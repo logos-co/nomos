@@ -13,21 +13,18 @@ use num_bigint::BigUint;
 
 use super::DaWalletAdapter;
 
-pub struct MockWalletAdapter {
-    last_msg_id: MsgId,
-}
+pub struct MockWalletAdapter;
 
 impl DaWalletAdapter for MockWalletAdapter {
     type Error = Infallible;
 
     fn new() -> Self {
-        Self {
-            last_msg_id: MsgId::root(),
-        }
+        Self {}
     }
 
     fn blob_tx(
         &self,
+        parent_msg_id: MsgId,
         blob: BlobId,
         blob_size: usize,
         signer: Ed25519PublicKey,
@@ -47,7 +44,7 @@ impl DaWalletAdapter for MockWalletAdapter {
             blob,
             blob_size: blob_size as u64,
             da_storage_gas_price: 3000,
-            parent: self.last_msg_id,
+            parent: parent_msg_id,
             signer,
         };
 
@@ -59,7 +56,7 @@ impl DaWalletAdapter for MockWalletAdapter {
         };
 
         Ok(SignedMantleTx {
-            ops_proofs: Vec::new(),
+            ops_proofs: vec![None],
             ledger_tx_proof: DummyZkSignature::prove(ZkSignaturePublic {
                 msg_hash: mantle_tx.hash().into(),
                 pks: vec![],

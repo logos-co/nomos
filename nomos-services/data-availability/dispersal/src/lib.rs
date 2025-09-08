@@ -157,7 +157,7 @@ where
             .await?;
         let network_adapter = NetworkAdapter::new(network_relay);
         let wallet_adapter = WalletAdapter::new();
-        let backend = Backend::init(backend_settings, network_adapter, wallet_adapter);
+        let mut backend = Backend::init(backend_settings, network_adapter, wallet_adapter);
         let mut inbound_relay = service_resources_handle.inbound_relay;
 
         service_resources_handle.status_updater.notify_ready();

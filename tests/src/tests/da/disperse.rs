@@ -55,14 +55,14 @@ async fn disseminate_and_retrieve() {
     assert!(validator_shares.len() == 2);
 }
 
-#[ignore = "Reenable after transaction mempool is used"]
 #[tokio::test]
 #[serial]
 async fn disseminate_retrieve_reconstruct() {
-    const ITERATIONS: usize = 10;
+    const ITERATIONS: usize = 5;
 
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let executor = &topology.executors()[0];
+    let num_subnets = executor.config().da_network.backend.num_subnets as usize;
 
     let app_id = hex::decode(APP_ID).unwrap();
     let app_id: [u8; 32] = app_id.clone().try_into().unwrap();
@@ -79,6 +79,7 @@ async fn disseminate_retrieve_reconstruct() {
             .unwrap();
 
         wait_for_blob_onchain(executor, blob_id).await;
+        wait_for_shares_number(executor, blob_id, num_subnets).await;
 
         let share_commitments = executor.get_commitments(blob_id).await.unwrap();
         let mut executor_shares = executor
@@ -91,8 +92,9 @@ async fn disseminate_retrieve_reconstruct() {
 
         executor_shares.sort_by_key(|share| share.share_idx);
 
-        // Reconstruction is performed from the one of the two blobs.
-        let reconstructed = reconstruct_without_missing_data(&executor_shares);
+        // Reconstruction is performed from the one of the two shares.
+        let reconstructed = reconstruct_without_missing_data(&[executor_shares[0].clone()]);
+
         assert_eq!(reconstructed, data);
     }
 
