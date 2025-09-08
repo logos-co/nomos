@@ -98,17 +98,17 @@ impl From<PoQWitnessInputs> for PoQInputsJson {
 pub struct PoQVerifierInputJson([Groth16InputDeser; 11]);
 
 pub struct PoQVerifierInput {
-    key_nullifier: Groth16Input,
-    session: Groth16Input,
-    core_quota: Groth16Input,
-    leader_quota: Groth16Input,
-    core_root: Groth16Input,
-    k_part_one: Groth16Input,
-    k_part_two: Groth16Input,
-    pol_epoch_nonce: Groth16Input,
-    pol_t0: Groth16Input,
-    pol_t1: Groth16Input,
-    pol_ledger_aged: Groth16Input,
+    pub key_nullifier: Groth16Input,
+    pub session: Groth16Input,
+    pub core_quota: Groth16Input,
+    pub leader_quota: Groth16Input,
+    pub core_root: Groth16Input,
+    pub k_part_one: Groth16Input,
+    pub k_part_two: Groth16Input,
+    pub pol_epoch_nonce: Groth16Input,
+    pub pol_t0: Groth16Input,
+    pub pol_t1: Groth16Input,
+    pub pol_ledger_aged: Groth16Input,
 }
 
 impl TryFrom<PoQVerifierInputJson> for PoQVerifierInput {
