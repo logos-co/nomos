@@ -260,7 +260,7 @@ where
     ShareVerifier::DaShare: Debug + Send + Sync + 'static,
     ShareVerifier::Error: Error + Send + Sync + 'static,
     <ShareVerifier::DaShare as Share>::BlobId:
-        Clone + Debug + AsRef<[u8]> + Debug + Hash + Eq + Send + Sync + 'static,
+        Clone + Debug + AsRef<[u8]> + Hash + Eq + Send + Sync + 'static,
     <ShareVerifier::DaShare as Share>::LightShare: Debug + Send + Sync + 'static,
     <ShareVerifier::DaShare as Share>::SharesCommitments: Debug + Send + Sync + 'static,
     TxVerifier: TxVerifierBackend<BlobId = <ShareVerifier::DaShare as Share>::BlobId> + Send + Sync,
