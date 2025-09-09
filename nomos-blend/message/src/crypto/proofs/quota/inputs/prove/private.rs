@@ -1,6 +1,6 @@
 use groth16::Fr;
 
-/// Private inputs for all types of Proof of Quota. Spec: https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#215261aa09df81a18576f67b910d34d4.
+/// Private inputs for all types of Proof of Quota. Spec: <https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#215261aa09df81a18576f67b910d34d4>.
 #[non_exhaustive]
 pub struct Inputs {
     pub key_index: u64,
@@ -34,7 +34,24 @@ impl Inputs {
     }
 }
 
-pub(crate) enum ProofType {
+#[cfg(test)]
+impl Default for Inputs {
+    fn default() -> Self {
+        use groth16::Field as _;
+
+        Self {
+            key_index: u64::MIN,
+            proof_type: ProofType::CoreQuota(ProofOfCoreQuotaInputs {
+                core_path: vec![],
+                core_path_selectors: vec![],
+                core_sk: Fr::ZERO,
+            }),
+            selector: false,
+        }
+    }
+}
+
+pub enum ProofType {
     CoreQuota(ProofOfCoreQuotaInputs),
     LeadershipQuota(ProofOfLeadershipQuotaInputs),
 }

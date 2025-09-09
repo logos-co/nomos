@@ -1,10 +1,10 @@
-use nomos_core::crypto::ZkHash;
+use groth16::Fr;
 use serde::{Deserialize, Serialize};
 
 use crate::{
     crypto::{
         keys::Ed25519PublicKey,
-        proofs::quota::{inputs::VerifyInputs, ProofOfQuota},
+        proofs::quota::{inputs::prove::PublicInputs, ProofOfQuota},
         signatures::Signature,
     },
     Error,
@@ -24,11 +24,11 @@ pub struct PublicHeader {
 impl PublicHeader {
     pub const fn new(
         signing_pubkey: Ed25519PublicKey,
-        proof_of_quota: ProofOfQuota,
+        proof_of_quota: &ProofOfQuota,
         signature: Signature,
     ) -> Self {
         Self {
-            proof_of_quota,
+            proof_of_quota: *proof_of_quota,
             signature,
             signing_pubkey,
             version: LATEST_BLEND_MESSAGE_VERSION,
@@ -43,13 +43,10 @@ impl PublicHeader {
         }
     }
 
-    pub fn verify_proof_of_quota(
-        &self,
-        verification_inputs: &VerifyInputs,
-    ) -> Result<ZkHash, Error> {
+    pub fn verify_proof_of_quota(&self, verification_inputs: &PublicInputs) -> Result<Fr, Error> {
         self.proof_of_quota
-            .verify(verification_inputs)
-            .map_err(|_| Error::ProofOfQuotaVerificationFailed)
+            .verify(*verification_inputs)
+            .map_err(|()| Error::ProofOfQuotaVerificationFailed)
     }
 
     pub const fn signing_pubkey(&self) -> &Ed25519PublicKey {

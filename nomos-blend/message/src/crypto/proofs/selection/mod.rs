@@ -52,7 +52,6 @@ impl ProofOfSelection {
     }
 
     // TODO: Implement actual verification logic.
-    #[must_use]
     pub fn verify(self, key_nullifier: &ZkHash) -> Result<(), ()> {
         let hashed_secret_randomness = {
             let mut hasher = ZkHasher::new();
