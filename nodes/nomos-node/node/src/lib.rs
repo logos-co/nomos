@@ -227,6 +227,8 @@ type StorageService = nomos_storage::StorageService<RocksBackend<Wire>, RuntimeS
 
 type SystemSigService = SystemSig<RuntimeServiceId>;
 
+pub(crate) type WalletService = nomos_wallet::WalletService<CryptarchiaService, RuntimeServiceId>;
+
 #[cfg(feature = "testing")]
 type TestingApiService<RuntimeServiceId> =
     nomos_api::ApiService<api::testing::backend::TestAxumBackend, RuntimeServiceId>;
@@ -251,6 +253,7 @@ pub struct Nomos {
     http: ApiService,
     storage: StorageService,
     system_sig: SystemSigService,
+    wallet: WalletService,
     #[cfg(feature = "testing")]
     testing_http: TestingApiService<RuntimeServiceId>,
 }

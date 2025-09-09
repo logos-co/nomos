@@ -1,0 +1,17 @@
+[package]
+edition = "2021"
+license = { workspace = true }
+name    = "wallet"
+version = "0.1.0"
+
+[lints]
+workspace = true
+
+[dependencies]
+nomos-core = { workspace = true }
+nomos-ledger = { workspace = true }
+num-bigint = { version = "0.4", default-features = false }
+thiserror = "1"
+
+[features]
+default = []

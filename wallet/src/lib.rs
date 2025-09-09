@@ -8,7 +8,9 @@ use nomos_core::{
 };
 use nomos_ledger::LedgerState;
 
-use crate::WalletError;
+pub use error::WalletError;
+
+pub mod error;
 
 pub struct WalletBlock {
     pub id: HeaderId,

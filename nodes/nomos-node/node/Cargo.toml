@@ -47,7 +47,7 @@ nomos-tracing            = { workspace = true }
 nomos-tracing-service    = { workspace = true }
 num-bigint               = { version = "0.4", default-features = false }
 overwatch                = { workspace = true }
-wallet                   = { workspace = true }
+nomos-wallet             = { workspace = true }
 serde                    = { default-features = false, version = "1" }
 serde_yaml               = "0.9"
 services-utils           = { workspace = true }

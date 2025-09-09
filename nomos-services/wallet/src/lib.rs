@@ -1,6 +1,3 @@
-pub mod error;
-pub mod wallet;
-
 use std::collections::HashSet;
 
 use async_trait::async_trait;
@@ -10,6 +7,7 @@ use nomos_core::{
     header::HeaderId,
     mantle::{keys::PublicKey, Utxo, Value},
 };
+use wallet::{Wallet, WalletBlock, WalletError};
 use overwatch::{
     services::{
         state::{NoOperator, NoState},
@@ -18,9 +16,6 @@ use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
 };
 use tokio::sync::oneshot;
-
-use error::WalletError;
-use wallet::Wallet;
 
 #[derive(Debug)]
 pub enum WalletMsg {
@@ -167,7 +162,7 @@ where
                     Self::handle_wallet_message(msg, &mut wallet).await;
                 }
                 Ok(block) = block_receiver.recv() => {
-                    let wallet_block = wallet::WalletBlock::from(block);
+                    let wallet_block = WalletBlock::from(block);
                     match wallet.apply_block(&wallet_block) {
                         Ok(()) => {
                             eprintln!("Applied block {:?} to wallet", wallet_block.id);
