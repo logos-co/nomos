@@ -109,10 +109,9 @@ where
     ///
     /// It returns the first [`Session`] and the initialized
     /// [`SessionEventStream`].
-    ///
-    /// It returns an error if the first session is not yielded within a short
-    /// time.
-    pub async fn initialize(
+    /// It returns an error if the first session is not yielded within the
+    /// configured timeout.
+    pub async fn await_first_ready(
         self,
     ) -> Result<(Session, SessionEventStream<Stream>), FirstReadyStreamError> {
         let (first_session, remaining_stream) = self.stream.first().await?;

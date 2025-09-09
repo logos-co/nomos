@@ -139,7 +139,7 @@ where
             blend_config.time.session_duration(),
             blend_config.time.session_transition_period(),
         )
-        .initialize()
+        .await_first_ready()
         .await
         .expect("The current session must be ready");
 

@@ -185,7 +185,7 @@ where
     RuntimeServiceId: Clone,
 {
     let (membership, mut session_stream) = session_stream
-        .initialize()
+        .await_first_ready()
         .await
         .expect("The current session must be ready");
 

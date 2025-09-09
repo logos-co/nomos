@@ -143,7 +143,7 @@ where
             settings.time.session_duration(),
             settings.time.session_transition_period(),
         )
-        .initialize()
+        .await_first_ready()
         .await
         .expect("The current session must be ready");
 
