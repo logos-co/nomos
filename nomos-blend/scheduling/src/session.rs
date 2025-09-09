@@ -8,6 +8,50 @@ use std::{
 use futures::StreamExt as _;
 use tokio::time::{sleep, timeout, Sleep};
 
+/// A staging type that initializes a [`SessionEventStream`] by consuming
+/// the first [`Session`] from the underlying stream, expected to be yielded
+/// within a short timeout.
+pub struct UninitializedSessionEventStream<Stream> {
+    stream: FirstReadyStream<Stream>,
+    transition_period: Duration,
+}
+
+impl<Stream> UninitializedSessionEventStream<Stream> {
+    #[must_use]
+    pub const fn new(
+        session_stream: Stream,
+        first_ready_timeout: Duration,
+        transition_period: Duration,
+    ) -> Self {
+        Self {
+            stream: FirstReadyStream::new(session_stream, first_ready_timeout),
+            transition_period,
+        }
+    }
+}
+
+impl<Stream, Session> UninitializedSessionEventStream<Stream>
+where
+    Stream: futures::Stream<Item = Session> + Unpin,
+{
+    /// Initializes a [`SessionEventStream`] by consuming the first [`Session`]
+    /// from the underlying stream.
+    ///
+    /// It returns the first [`Session`] and the initialized
+    /// [`SessionEventStream`].
+    /// It returns an error if the first session is not yielded within the
+    /// configured timeout.
+    pub async fn await_first_ready(
+        self,
+    ) -> Result<(Session, SessionEventStream<Stream>), FirstReadyStreamError> {
+        let (first_session, remaining_stream) = self.stream.first().await?;
+        Ok((
+            first_session,
+            SessionEventStream::new(remaining_stream, self.transition_period),
+        ))
+    }
+}
+
 #[derive(Clone)]
 pub enum SessionEvent<Session> {
     NewSession(Session),
@@ -75,50 +119,6 @@ where
         }
 
         Poll::Pending
-    }
-}
-
-/// A staging type that initializes a [`SessionEventStream`] by consuming
-/// the first [`Session`] from the underlying stream, expected to be yielded
-/// within a short timeout.
-pub struct UninitializedSessionEventStream<Stream> {
-    stream: FirstReadyStream<Stream>,
-    transition_period: Duration,
-}
-
-impl<Stream> UninitializedSessionEventStream<Stream> {
-    #[must_use]
-    pub const fn new(
-        session_stream: Stream,
-        first_ready_timeout: Duration,
-        transition_period: Duration,
-    ) -> Self {
-        Self {
-            stream: FirstReadyStream::new(session_stream, first_ready_timeout),
-            transition_period,
-        }
-    }
-}
-
-impl<Stream, Session> UninitializedSessionEventStream<Stream>
-where
-    Stream: futures::Stream<Item = Session> + Unpin,
-{
-    /// Initializes a [`SessionEventStream`] by consuming the first [`Session`]
-    /// from the underlying stream.
-    ///
-    /// It returns the first [`Session`] and the initialized
-    /// [`SessionEventStream`].
-    /// It returns an error if the first session is not yielded within the
-    /// configured timeout.
-    pub async fn await_first_ready(
-        self,
-    ) -> Result<(Session, SessionEventStream<Stream>), FirstReadyStreamError> {
-        let (first_session, remaining_stream) = self.stream.first().await?;
-        Ok((
-            first_session,
-            SessionEventStream::new(remaining_stream, self.transition_period),
-        ))
     }
 }
 
