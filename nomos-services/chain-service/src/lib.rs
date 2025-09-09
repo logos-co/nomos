@@ -10,7 +10,7 @@ mod sync;
 
 use core::fmt::Debug;
 use std::{
-    collections::{BTreeSet, HashMap, HashSet},
+    collections::{BTreeSet, HashSet},
     fmt::Display,
     hash::Hash,
     path::PathBuf,
@@ -19,13 +19,13 @@ use std::{
 
 use cryptarchia_engine::{PrunedBlocks, Slot};
 use cryptarchia_sync::{GetTipResponse, ProviderResponse};
+use ed25519_dalek::SigningKey;
 use futures::{StreamExt as _, TryFutureExt as _};
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
 pub use nomos_blend_service::ServiceComponents as BlendServiceComponents;
 use nomos_core::{
     block::{Block, Proposal},
-    crypto::ZkHash,
     da::{self},
     header::{Header, HeaderId},
     mantle::{
@@ -92,10 +92,10 @@ pub enum Error {
     Ledger(#[from] nomos_ledger::LedgerError<HeaderId>),
     #[error("Consensus error: {0}")]
     Consensus(#[from] cryptarchia_engine::Error<HeaderId>),
+    #[error("Proposal error: {0}")]
+    Proposal(String),
     #[error("Storage error: {0}")]
     Storage(String),
-    #[error("Block reconstruction error: {0}")]
-    BlockReconstruction(String),
 }
 
 #[derive(Clone)]
@@ -740,7 +740,9 @@ where
                                         cryptarchia = new_cryptarchia;
                                         storage_blocks_to_remove = new_storage_blocks_to_remove;
 
-                                        blend_adapter.publish_proposal(block.to_proposal()).await;
+                                        if let Err(e) = sign_and_broadcast(block, &blend_adapter).await {
+                                            error!(target: LOG_TARGET, "Failed broadcast proposal: {:?}", e);
+                                        }
                                     }
                                     Err(e) => {
                                         error!(target: LOG_TARGET, "Error processing local block: {:?}", e);
@@ -1515,18 +1517,42 @@ async fn get_mempool_contents<Payload, Item, Key>(
 where
     Key: Send,
     Payload: Send,
+    Item: Send,
 {
-    let (reply_channel, rx) = oneshot::channel();
-
+    let (reply_channel, receiver) = oneshot::channel();
     mempool
         .send(MempoolMsg::View {
             ancestor_hint: [0; 32].into(),
             reply_channel,
         })
         .await
-        .unwrap_or_else(|(e, _)| eprintln!("Could not get transactions from mempool {e}"));
+        .unwrap_or_else(|(e, _)| error!("Could not get transactions from mempool {e}"));
 
-    rx.await
+    receiver.await
+}
+
+async fn get_transactions_by_hashes<Payload, Item, Key>(
+    mempool: OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>,
+    hashes: Vec<Key>,
+) -> Result<Vec<Item>, oneshot::error::RecvError>
+where
+    Key: Send,
+    Payload: Send,
+    Item: Send,
+{
+    let (reply_channel, receiver) = oneshot::channel();
+
+    mempool
+        .send(MempoolMsg::GetTransactionsByHashes {
+            hashes,
+            reply_channel,
+        })
+        .await
+        .unwrap_or_else(|(e, _)| {
+            error!("Could not get transactions by hashes from mempool {e}");
+        });
+
+    receiver.await
 }
 
 async fn mark_in_block<Payload, Item, Key>(
@@ -1536,6 +1562,7 @@ async fn mark_in_block<Payload, Item, Key>(
 ) where
     Key: Send,
     Payload: Send,
+    Item: Send,
 {
     mempool
         .send(MempoolMsg::MarkInBlock {
@@ -1574,53 +1601,94 @@ where
     receiver.await.map_err(|error| Box::new(error) as DynError)
 }
 
+async fn sign_and_broadcast<BlendService, Item>(
+    block: Block<Item>,
+    blend_adapter: &BlendAdapter<BlendService>,
+) -> Result<(), Error>
+where
+    Item: Transaction<Hash = TxHash> + Clone,
+    BlendService: ServiceData<
+            Message = nomos_blend_service::message::ServiceMessage<BlendService::BroadcastSettings>,
+        > + nomos_blend_service::ServiceComponents
+        + Sync,
+    <BlendService as ServiceData>::Message: Send,
+    BlendService::BroadcastSettings: Clone + Sync,
+{
+    // TODO: Use correct derived one time key
+    let signing_key = SigningKey::generate(&mut rand::thread_rng());
+    let proposal = block
+        .to_proposal(&signing_key)
+        .map_err(|e| Error::Proposal(format!("Failed to create proposal from block: {e}")))?;
+
+    blend_adapter.publish_proposal(proposal).await;
+
+    Ok(())
+}
+
 /// Reconstruct a Block from a Proposal by looking up transactions from mempool
-async fn reconstruct_block_from_proposal<Payload, Item, Key>(
+async fn reconstruct_block_from_proposal<Payload, Item>(
     proposal: Proposal,
-    mempool: OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>,
+    mempool: OutboundRelay<MempoolMsg<HeaderId, Payload, Item, TxHash>>,
 ) -> Result<Block<Item>, Error>
 where
-    Key: Send + Eq + Hash + From<ZkHash> + Debug,
     Payload: Send,
-    Item: Clone + Transaction<Hash = Key>,
+    Item: Clone + Transaction<Hash = TxHash> + Send,
 {
-    let tx_map: HashMap<Key, Item> = get_mempool_contents(mempool)
-        .await
-        .map_err(|e| Error::BlockReconstruction(format!("Failed to get mempool contents: {e}")))?
-        .map(|tx| (tx.hash(), tx))
-        .collect();
-
-    let mut reconstructed_transactions = Vec::new();
-    let mut missing_transactions = Vec::new();
-
-    for tx_ref in &proposal.references().mempool_transactions {
-        let tx_hash = Key::from(*tx_ref);
-
-        match tx_map.get(&tx_hash) {
-            Some(transaction) => {
-                reconstructed_transactions.push(transaction.clone());
-            }
-            None => {
-                missing_transactions.push(tx_hash);
-            }
-        }
+    if !proposal.header().is_valid_bedrock_version() {
+        return Err(Error::Proposal(format!(
+            "Invalid header version: expected all fields = 0x01, got {:?}",
+            proposal.header().version()
+        )));
     }
 
-    if !missing_transactions.is_empty() {
-        return Err(Error::BlockReconstruction(format!(
+    if proposal.references().mempool_transactions.len() > 1024 {
+        return Err(Error::Proposal(
+            "Too many transaction references (max 1024)".into(),
+        ));
+    }
+
+    // TODO: the rest of validations should probably go to
+    // process_block_and_update_state
+
+    let needed_hashes: Vec<TxHash> = proposal
+        .references()
+        .mempool_transactions
+        .iter()
+        .map(|tx_ref| TxHash::from(*tx_ref))
+        .collect();
+
+    let reconstructed_transactions = get_transactions_by_hashes(mempool, needed_hashes.clone())
+        .await
+        .map_err(|e| Error::Proposal(format!("Failed to get transactions by hashes: {e}")))?;
+
+    if reconstructed_transactions.len() != needed_hashes.len() {
+        let missing_transactions: Vec<TxHash> = needed_hashes
+            .into_iter()
+            .filter(|hash| {
+                !reconstructed_transactions
+                    .iter()
+                    .any(|tx| tx.hash() == *hash)
+            })
+            .collect();
+
+        return Err(Error::Proposal(format!(
             "Failed to reconstruct block: {missing_transactions:?} transactions not found in mempool",
         )));
     }
 
     let header = proposal.header().clone();
+    let service_reward = proposal.references().service_reward;
 
-    Ok(Block::new(header, reconstructed_transactions))
+    Ok(match service_reward {
+        Some(reward) => Block::new_with_service_reward(header, reconstructed_transactions, reward),
+        None => Block::new(header, reconstructed_transactions),
+    })
 }
 
 #[cfg(test)]
 mod tests {
-    use ed25519_dalek::{Signer as _, SigningKey};
-    use nomos_core::block::References;
+    use ed25519_dalek::Signer as _;
+    use nomos_core::{block::References, crypto::ZkHash};
 
     use super::*;
 
@@ -1701,10 +1769,18 @@ mod tests {
 
         tokio::spawn(async move {
             while let Some(msg) = mempool_rx.recv().await {
-                if let MempoolMsg::View { reply_channel, .. } = msg {
-                    let iter: Box<dyn Iterator<Item = MockTransaction> + Send> =
-                        Box::new(transactions.clone().into_iter());
-                    reply_channel.send(iter).unwrap_or(());
+                if let MempoolMsg::GetTransactionsByHashes {
+                    hashes,
+                    reply_channel,
+                } = msg
+                {
+                    let result: Vec<MockTransaction> = hashes
+                        .into_iter()
+                        .filter_map(|hash| {
+                            transactions.iter().find(|tx| tx.hash() == hash).cloned()
+                        })
+                        .collect();
+                    reply_channel.send(result).unwrap_or(());
                 }
             }
         });
@@ -1725,8 +1801,7 @@ mod tests {
 
         tokio::time::sleep(Duration::from_millis(10)).await;
         let result =
-            reconstruct_block_from_proposal::<(), MockTransaction, TxHash>(proposal, mempool_relay)
-                .await;
+            reconstruct_block_from_proposal::<(), MockTransaction>(proposal, mempool_relay).await;
 
         let reconstructed_block = result.unwrap();
         let reconstructed_txs: Vec<_> = reconstructed_block.transactions().collect();
@@ -1745,8 +1820,7 @@ mod tests {
 
         let mempool_relay = setup_mock_mempool(vec![tx1]);
         let result =
-            reconstruct_block_from_proposal::<(), MockTransaction, TxHash>(proposal, mempool_relay)
-                .await;
+            reconstruct_block_from_proposal::<(), MockTransaction>(proposal, mempool_relay).await;
 
         let error = result.unwrap_err();
         assert!(error
@@ -1760,8 +1834,7 @@ mod tests {
 
         let mempool_relay = setup_mock_mempool(vec![]);
         let result =
-            reconstruct_block_from_proposal::<(), MockTransaction, TxHash>(proposal, mempool_relay)
-                .await;
+            reconstruct_block_from_proposal::<(), MockTransaction>(proposal, mempool_relay).await;
 
         let reconstructed_block = result.unwrap();
         assert_eq!(reconstructed_block.transactions().len(), 0);

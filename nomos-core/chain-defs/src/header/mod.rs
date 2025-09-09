@@ -20,7 +20,36 @@ pub struct ContentId([u8; 32]);
 pub struct Nonce([u8; 32]);
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Version {
+    pub proposal_version: u8,
+    pub cryptarchia_version: u8,
+    pub mantle_version: u8,
+}
+
+impl Default for Version {
+    fn default() -> Self {
+        Self {
+            proposal_version: BEDROCK_VERSION,
+            cryptarchia_version: BEDROCK_VERSION,
+            mantle_version: BEDROCK_VERSION,
+        }
+    }
+}
+
+impl Version {
+    #[must_use]
+    pub const fn to_bytes(&self) -> [u8; 3] {
+        [
+            self.proposal_version,
+            self.cryptarchia_version,
+            self.mantle_version,
+        ]
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Header {
+    version: Version,
     parent_block: HeaderId,
     slot: Slot,
     block_root: ContentId,
@@ -29,13 +58,25 @@ pub struct Header {
 
 impl Header {
     #[must_use]
+    pub const fn version(&self) -> &Version {
+        &self.version
+    }
+
+    #[must_use]
+    pub const fn is_valid_bedrock_version(&self) -> bool {
+        self.version.proposal_version == BEDROCK_VERSION
+            && self.version.cryptarchia_version == BEDROCK_VERSION
+            && self.version.mantle_version == BEDROCK_VERSION
+    }
+
+    #[must_use]
     pub const fn parent(&self) -> HeaderId {
         self.parent_block
     }
 
     fn update_hasher(&self, h: &mut Hasher) {
         h.update(b"BLOCK_ID_V1");
-        h.update([BEDROCK_VERSION]);
+        h.update(self.version.to_bytes());
         h.update(self.parent_block.0);
         h.update(self.slot.to_le_bytes());
         h.update(self.block_root.0);
@@ -63,13 +104,31 @@ impl Header {
     }
 
     #[must_use]
-    pub const fn new(
+    pub fn new(
         parent_block: HeaderId,
         block_root: ContentId,
         slot: Slot,
         proof_of_leadership: Risc0LeaderProof,
     ) -> Self {
         Self {
+            version: Version::default(),
+            parent_block,
+            slot,
+            block_root,
+            proof_of_leadership,
+        }
+    }
+
+    #[must_use]
+    pub const fn new_with_version(
+        version: Version,
+        parent_block: HeaderId,
+        block_root: ContentId,
+        slot: Slot,
+        proof_of_leadership: Risc0LeaderProof,
+    ) -> Self {
+        Self {
+            version,
             parent_block,
             slot,
             block_root,

@@ -12,6 +12,7 @@ async-trait            = "0.1"
 bytes                  = { workspace = true }
 cryptarchia-engine     = { workspace = true }
 cryptarchia-sync       = { workspace = true }
+ed25519-dalek          = { default-features = false, features = ["serde"], version = "2.2.0" }
 futures                = { default-features = false, version = "0.3" }
 groth16                = { workspace = true }
 nomos-blend-service    = { workspace = true }

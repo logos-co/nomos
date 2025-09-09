@@ -1,36 +1,46 @@
-use ark_ff::{BigInteger as _, PrimeField as _};
-use groth16::Fr;
-use num_bigint::BigUint;
-use serde::{Deserializer, Serializer};
+use groth16::{serde::serde_fr, Fr};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::block::References;
+use crate::{
+    block::{Block, References},
+    header::Header,
+};
 
 #[derive(serde::Serialize, serde::Deserialize)]
-struct WireData {
-    service_reward: Option<Vec<u8>>,
-    mempool_transactions: Vec<Vec<u8>>,
+#[serde(transparent)]
+struct SerializableFr(#[serde(with = "serde_fr")] Fr);
+
+impl From<Fr> for SerializableFr {
+    fn from(fr: Fr) -> Self {
+        Self(fr)
+    }
 }
 
-impl serde::Serialize for References {
+impl From<SerializableFr> for Fr {
+    fn from(serializable: SerializableFr) -> Self {
+        serializable.0
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct WireReferences {
+    service_reward: Option<SerializableFr>,
+    mempool_transactions: Vec<SerializableFr>,
+}
+
+impl Serialize for References {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        let service_reward = self.service_reward.as_ref().map(|fr| {
-            let big_int = fr.into_bigint();
-            big_int.to_bytes_le()
-        });
-
+        let service_reward = self.service_reward.map(SerializableFr::from);
         let mempool_transactions = self
             .mempool_transactions
             .iter()
-            .map(|fr| {
-                let big_int = fr.into_bigint();
-                big_int.to_bytes_le()
-            })
+            .map(|fr| SerializableFr::from(*fr))
             .collect();
 
-        let wire = WireData {
+        let wire = WireReferences {
             service_reward,
             mempool_transactions,
         };
@@ -39,25 +49,18 @@ impl serde::Serialize for References {
     }
 }
 
-impl<'de> serde::Deserialize<'de> for References {
+impl<'de> Deserialize<'de> for References {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        let wire: WireData = WireData::deserialize(deserializer)?;
+        let wire: WireReferences = WireReferences::deserialize(deserializer)?;
 
-        let service_reward = wire.service_reward.map(|bytes| {
-            let big_int = BigUint::from_bytes_le(&bytes);
-            Fr::from(big_int)
-        });
-
+        let service_reward = wire.service_reward.map(Fr::from);
         let mempool_transactions = wire
             .mempool_transactions
             .into_iter()
-            .map(|bytes| {
-                let big_int = BigUint::from_bytes_le(&bytes);
-                Fr::from(big_int)
-            })
+            .map(Fr::from)
             .collect();
 
         Ok(Self {
@@ -67,13 +70,54 @@ impl<'de> serde::Deserialize<'de> for References {
     }
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+struct WireBlock<Tx> {
+    header: Header,
+    transactions: Vec<Tx>,
+    service_reward: Option<SerializableFr>,
+}
+
+impl<Tx: Serialize + Clone> Serialize for Block<Tx> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let service_reward = self.service_reward.map(SerializableFr::from);
+
+        let wire = WireBlock {
+            header: self.header.clone(),
+            transactions: self.transactions.clone(),
+            service_reward,
+        };
+
+        wire.serialize(serializer)
+    }
+}
+
+impl<'de, Tx: Deserialize<'de>> Deserialize<'de> for Block<Tx> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire: WireBlock<Tx> = WireBlock::deserialize(deserializer)?;
+
+        let service_reward = wire.service_reward.map(Fr::from);
+
+        Ok(Self {
+            header: wire.header,
+            transactions: wire.transactions,
+            service_reward,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Fr;
-    use crate::block::References;
+    use crate::block::{Block, References};
 
     #[test]
-    fn test_references_wire_serialization() {
+    fn test_references_serialization() {
         let service_reward = Some(Fr::from(42u64));
         let mempool_transactions = vec![Fr::from(123u64), Fr::from(456u64), Fr::from(789u64)];
 
@@ -98,5 +142,58 @@ mod tests {
         assert_eq!(deserialized.mempool_transactions[0], Fr::from(123u64));
         assert_eq!(deserialized.mempool_transactions[1], Fr::from(456u64));
         assert_eq!(deserialized.mempool_transactions[2], Fr::from(789u64));
+    }
+
+    // This is not very nice but will be gone after Risc0 is not used anymore
+    fn make_test_proof() -> crate::proofs::leader_proof::Risc0LeaderProof {
+        let public_inputs = nomos_proof_statements::leadership::LeaderPublic::new(
+            num_bigint::BigUint::from(1u8).into(),
+            num_bigint::BigUint::from(2u8).into(),
+            [3u8; 32],
+            [4u8; 32],
+            0u64,
+            0.05f64,
+            1000u64,
+        );
+
+        let private_inputs = nomos_proof_statements::leadership::LeaderPrivate {
+            value: 100,
+            note_id: num_bigint::BigUint::from(5u8).into(),
+            sk: num_bigint::BigUint::from(6u8).into(),
+        };
+
+        crate::proofs::leader_proof::Risc0LeaderProof::prove(
+            public_inputs,
+            &private_inputs,
+            risc0_zkvm::default_prover().as_ref(),
+        )
+        .expect("Proof generation should succeed")
+    }
+
+    #[test]
+    fn test_block_serialization() {
+        use cryptarchia_engine::Slot;
+
+        use crate::header::{ContentId, Header};
+
+        let header = Header::new(
+            [0u8; 32].into(),
+            ContentId::from([1u8; 32]),
+            Slot::from(42u64),
+            make_test_proof(),
+        );
+
+        let transactions = vec!["tx1".to_owned(), "tx2".to_owned()];
+        let service_reward = Fr::from(123u64);
+
+        let block = Block::new_with_service_reward(header, transactions, service_reward);
+
+        let wire_bytes = crate::wire::serialize(&block).expect("Failed to serialize block");
+        let deserialized: Block<String> =
+            crate::wire::deserialize(&wire_bytes).expect("Failed to deserialize block");
+
+        assert_eq!(block.service_reward, deserialized.service_reward);
+        assert_eq!(block.transactions, deserialized.transactions);
+        assert_eq!(deserialized.service_reward.unwrap(), Fr::from(123u64));
     }
 }

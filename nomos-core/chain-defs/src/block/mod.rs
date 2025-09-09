@@ -1,5 +1,6 @@
 use ::serde::{de::DeserializeOwned, Deserialize, Serialize};
 use bytes::Bytes;
+use ed25519_dalek::{ed25519::signature::Signer as _, SigningKey};
 use groth16::Fr;
 
 use crate::{header::Header, mantle::Transaction};
@@ -9,6 +10,12 @@ mod wire;
 pub type TxHash = [u8; 32];
 pub type BlockNumber = u64;
 pub type SessionNumber = u64;
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("Failed to serialize: {0}")]
+    Serialisation(#[from] crate::wire::Error),
+}
 
 /// A block proposal
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -25,14 +32,11 @@ pub struct References {
 }
 
 /// A block
-#[expect(
-    clippy::unsafe_derive_deserialize,
-    reason = "Temporary dummy signature"
-)]
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub struct Block<Tx> {
     header: Header,
     transactions: Vec<Tx>,
+    pub service_reward: Option<Fr>,
 }
 
 impl Proposal {
@@ -58,6 +62,20 @@ impl<Tx> Block<Tx> {
         Self {
             header,
             transactions,
+            service_reward: None,
+        }
+    }
+
+    #[must_use]
+    pub const fn new_with_service_reward(
+        header: Header,
+        transactions: Vec<Tx>,
+        service_reward: Fr,
+    ) -> Self {
+        Self {
+            header,
+            transactions,
+            service_reward: Some(service_reward),
         }
     }
 
@@ -76,8 +94,7 @@ impl<Tx> Block<Tx> {
         self.transactions
     }
 
-    #[must_use]
-    pub fn to_proposal(&self) -> Proposal
+    pub fn to_proposal(&self, signing_key: &SigningKey) -> Result<Proposal, Error>
     where
         Tx: Transaction,
         Tx::Hash: Into<Fr>,
@@ -89,18 +106,18 @@ impl<Tx> Block<Tx> {
             .collect();
 
         let references = References {
-            service_reward: None,
+            service_reward: self.service_reward,
             mempool_transactions,
         };
 
-        // SAFETY: Temporary dummy signature
-        let signature = unsafe { std::mem::zeroed() };
+        let header_bytes = crate::wire::serialize(&self.header)?;
+        let signature = signing_key.sign(&header_bytes);
 
-        Proposal {
+        Ok(Proposal {
             header: self.header.clone(),
             references,
             signature,
-        }
+        })
     }
 }
 
