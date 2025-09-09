@@ -5,7 +5,7 @@ use std::{
 
 use nomos_core::{
     block::Block,
-    da::{self, blob::info::DispersedBlobInfo},
+    da,
     header::HeaderId,
     mantle::{AuthenticatedMantleTx, TxHash, TxSelect},
 };
@@ -13,7 +13,7 @@ use nomos_da_sampling::{backend::DaSamplingServiceBackend, DaSamplingService};
 use nomos_mempool::{
     backend::{MemPool, RecoverableMempool},
     network::NetworkAdapter as MempoolAdapter,
-    DaMempoolService, TxMempoolService,
+    TxMempoolService,
 };
 use nomos_network::{message::BackendNetworkMsg, NetworkService};
 use nomos_storage::{
@@ -141,8 +141,6 @@ where
         SamplingNetworkAdapter,
         SamplingStorage,
         TimeBackend,
-        DaPool,
-        DaPoolAdapter,
     >(
         service_resources_handle: &OpaqueServiceResourcesHandle<
             CryptarchiaConsensus<
@@ -150,8 +148,6 @@ where
                 BlendService,
                 ClPool,
                 ClPoolAdapter,
-                DaPool,
-                DaPoolAdapter,
                 TxS,
                 Storage,
                 SamplingBackend,
@@ -166,13 +162,6 @@ where
     where
         ClPool::Key: Send,
         TxS::Settings: Sync,
-        DaPool: RecoverableMempool<BlockId = HeaderId, Key = SamplingBackend::BlobId>,
-        DaPool::BlockId: Debug,
-        DaPool::Item: Debug + Serialize + DeserializeOwned + Eq + Clone + Send + Sync + 'static,
-        DaPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-        DaPool::Settings: Clone,
-        DaPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = DaPool::Key>,
-        DaPoolAdapter::Payload: DispersedBlobInfo + Into<DaPool::Item> + Debug,
         NetworkAdapter::Settings: Sync + Send,
         BlendService: nomos_blend_service::ServiceComponents,
         BlendService::BroadcastSettings: Send + Sync,
@@ -196,16 +185,6 @@ where
                     SamplingNetworkAdapter,
                     SamplingStorage,
                     ClPool,
-                    RuntimeServiceId,
-                >,
-            >
-            + AsServiceId<
-                DaMempoolService<
-                    DaPoolAdapter,
-                    DaPool,
-                    SamplingBackend,
-                    SamplingNetworkAdapter,
-                    SamplingStorage,
                     RuntimeServiceId,
                 >,
             >

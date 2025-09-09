@@ -545,7 +545,6 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
         },
         mempool: MempoolConfig {
             cl_pool_recovery_path: "./recovery/cl_mempool.json".into(),
-            da_pool_recovery_path: "./recovery/da_mempool.json".into(),
             trigger_sampling_delay: adjust_timeout(Duration::from_secs(5)),
         },
         membership: config.membership_config.service_settings,
