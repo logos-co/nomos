@@ -1,4 +1,4 @@
-use std::{fmt::Display, future::Future, sync::OnceLock, time::Duration};
+use std::fmt::Display;
 
 use overwatch::{
     overwatch::handle::OverwatchHandle,
@@ -10,10 +10,6 @@ use overwatch::{
 };
 
 pub mod http;
-
-static HTTP_REQUEST_TIMEOUT: OnceLock<Duration> = OnceLock::new();
-
-const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// A simple abstraction so that we can easily
 /// change the underlying http server
@@ -60,8 +56,6 @@ pub trait Backend<RuntimeServiceId> {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ApiServiceSettings<S> {
     pub backend_settings: S,
-    #[serde(default)]
-    pub request_timeout: Option<Duration>,
 }
 
 pub struct ApiService<B: Backend<RuntimeServiceId>, RuntimeServiceId> {
@@ -94,10 +88,6 @@ where
             .notifier()
             .get_updated_settings();
 
-        if let Some(timeout) = &settings.request_timeout {
-            let _ = HTTP_REQUEST_TIMEOUT.set(*timeout);
-        }
-
         Ok(Self {
             service_resources_handle,
             settings,
@@ -124,24 +114,4 @@ where
 
         Ok(())
     }
-}
-
-pub(crate) async fn wait_with_timeout<T, F, E>(
-    future: F,
-    timeout_error: impl Into<Box<dyn std::error::Error + Send + Sync>>,
-) -> Result<T, DynError>
-where
-    F: Future<Output = Result<T, E>>,
-    E: Into<Box<dyn std::error::Error + Send + Sync>>,
-{
-    let request_timeout = HTTP_REQUEST_TIMEOUT
-        .get()
-        .unwrap_or(&DEFAULT_REQUEST_TIMEOUT);
-
-    tokio::time::timeout(*request_timeout, future)
-        .await
-        .map_or_else(
-            |_| Err(timeout_error.into()),
-            |result| result.map_err(Into::into),
-        )
 }

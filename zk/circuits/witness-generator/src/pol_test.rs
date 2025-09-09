@@ -2,7 +2,7 @@
 mod tests {
     use std::{fs::read_to_string, io::Write as _, path::PathBuf, sync::LazyLock};
 
-    use circuits_utils::find_binary;
+    use circuits_utils::find_file;
     use tempfile::NamedTempFile;
 
     use crate::{generate_witness, generate_witness_from_paths};
@@ -11,7 +11,7 @@ mod tests {
     const BINARY_ENV_VAR: &str = "NOMOS_POL";
 
     static BINARY: LazyLock<PathBuf> = LazyLock::new(|| {
-        find_binary(BINARY_NAME, BINARY_ENV_VAR).unwrap_or_else(|error_message| {
+        find_file(BINARY_NAME, BINARY_ENV_VAR).unwrap_or_else(|error_message| {
             panic!("Could not find the required '{BINARY_NAME}' binary: {error_message}");
         })
     });

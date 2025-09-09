@@ -8,4 +8,7 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
-serde = { default-features = false, features = ["alloc", "derive"], version = "1.0" }
+governor       = { default-features = false, version = "0.6" }
+serde          = { default-features = false, features = ["alloc", "derive"], version = "1.0" }
+serde_with     = { workspace = true, features = ["macros"] }
+tower_governor = { default-features = false, features = ["axum"], version = "0.3" }

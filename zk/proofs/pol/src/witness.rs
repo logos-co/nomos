@@ -1,6 +1,6 @@
 use std::{path::PathBuf, sync::LazyLock};
 
-use circuits_utils::find_binary;
+use circuits_utils::find_file;
 
 use crate::{PolWitnessInputs, inputs::PolInputsJson};
 
@@ -8,7 +8,7 @@ const BINARY_NAME: &str = "pol";
 const BINARY_ENV_VAR: &str = "NOMOS_POL";
 
 static BINARY: LazyLock<PathBuf> = LazyLock::new(|| {
-    find_binary(BINARY_NAME, BINARY_ENV_VAR).unwrap_or_else(|error_message| {
+    find_file(BINARY_NAME, BINARY_ENV_VAR).unwrap_or_else(|error_message| {
         panic!("Could not find the required '{BINARY_NAME}' binary: {error_message}");
     })
 });
