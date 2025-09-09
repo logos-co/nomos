@@ -1,15 +1,12 @@
 use nomos_core::header;
 
-use crate::{
-    api::StorageBackendApi,
-    backends::{rocksdb::RocksBackend, StorageSerde},
-};
+use crate::{api::StorageBackendApi, backends::rocksdb::RocksBackend};
 
 pub mod blocks;
 pub mod da;
 pub mod utils;
 
-impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackendApi for RocksBackend<SerdeOp> {}
+impl StorageBackendApi for RocksBackend {}
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

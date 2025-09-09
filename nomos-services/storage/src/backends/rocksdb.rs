@@ -1,11 +1,11 @@
-use std::{collections::HashMap, marker::PhantomData, num::NonZeroUsize, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, num::NonZeroUsize, path::PathBuf, sync::Arc};
 
 use async_trait::async_trait;
 use bytes::Bytes;
 use rocksdb::{Direction, Error, IteratorMode, Options, DB};
 use serde::{Deserialize, Serialize};
 
-use super::{StorageBackend, StorageSerde, StorageTransaction};
+use super::{StorageBackend, StorageTransaction};
 
 /// Rocks backend setting
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -39,12 +39,11 @@ impl StorageTransaction for Transaction {
 }
 
 /// Rocks storage backend
-pub struct RocksBackend<SerdeOp> {
+pub struct RocksBackend {
     rocks: Arc<DB>,
-    _serde_op: PhantomData<SerdeOp>,
 }
 
-impl<SerdeOp> RocksBackend<SerdeOp> {
+impl RocksBackend {
     pub fn txn(
         &self,
         executor: impl FnOnce(&DB) -> Result<Option<Bytes>, Error> + Send + Sync + 'static,
@@ -56,21 +55,17 @@ impl<SerdeOp> RocksBackend<SerdeOp> {
     }
 }
 
-impl<SerdeOp> core::fmt::Debug for RocksBackend<SerdeOp> {
+impl core::fmt::Debug for RocksBackend {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         format!("RocksBackend {{ rocks: {:?} }}", self.rocks).fmt(f)
     }
 }
 
 #[async_trait]
-impl<SerdeOp> StorageBackend for RocksBackend<SerdeOp>
-where
-    SerdeOp: StorageSerde + Send + Sync + 'static,
-{
+impl StorageBackend for RocksBackend {
     type Settings = RocksBackendSettings;
     type Error = Error;
     type Transaction = Transaction;
-    type SerdeOperator = SerdeOp;
 
     fn new(config: Self::Settings) -> Result<Self, <Self as StorageBackend>::Error> {
         let RocksBackendSettings {
@@ -106,7 +101,6 @@ where
 
         Ok(Self {
             rocks: Arc::new(db),
-            _serde_op: PhantomData,
         })
     }
 
@@ -236,11 +230,10 @@ where
 mod test {
     use tempfile::TempDir;
 
-    use super::{super::testing::NoStorageSerde, *};
+    use super::*;
 
     #[tokio::test]
-    async fn test_store_load_remove(
-    ) -> Result<(), <RocksBackend<NoStorageSerde> as StorageBackend>::Error> {
+    async fn test_store_load_remove() -> Result<(), <RocksBackend as StorageBackend>::Error> {
         let temp_path = TempDir::new().unwrap();
         let sled_settings = RocksBackendSettings {
             db_path: temp_path.path().to_path_buf(),
@@ -250,7 +243,7 @@ mod test {
         let key = "foo";
         let value = "bar";
 
-        let mut db: RocksBackend<NoStorageSerde> = RocksBackend::new(sled_settings)?;
+        let mut db: RocksBackend = RocksBackend::new(sled_settings)?;
         db.store(key.as_bytes().into(), value.as_bytes().into())
             .await?;
         let load_value = db.load(key.as_bytes()).await?;
@@ -263,7 +256,7 @@ mod test {
 
     #[tokio::test]
     async fn test_load_prefix() {
-        let mut backend = RocksBackend::<NoStorageSerde>::new(RocksBackendSettings {
+        let mut backend = RocksBackend::new(RocksBackendSettings {
             db_path: TempDir::new().unwrap().path().to_path_buf(),
             read_only: false,
             column_family: None,
@@ -300,7 +293,7 @@ mod test {
 
     #[tokio::test]
     async fn test_load_prefix_range_limit() {
-        let mut backend = RocksBackend::<NoStorageSerde>::new(RocksBackendSettings {
+        let mut backend = RocksBackend::new(RocksBackendSettings {
             db_path: TempDir::new().unwrap().path().to_path_buf(),
             read_only: false,
             column_family: None,
@@ -374,8 +367,7 @@ mod test {
     }
 
     #[tokio::test]
-    async fn test_transaction(
-    ) -> Result<(), <RocksBackend<NoStorageSerde> as StorageBackend>::Error> {
+    async fn test_transaction() -> Result<(), <RocksBackend as StorageBackend>::Error> {
         let temp_path = TempDir::new().unwrap();
 
         let sled_settings = RocksBackendSettings {
@@ -384,7 +376,7 @@ mod test {
             column_family: None,
         };
 
-        let mut db: RocksBackend<NoStorageSerde> = RocksBackend::new(sled_settings)?;
+        let mut db: RocksBackend = RocksBackend::new(sled_settings)?;
         let txn = db.txn(|db| {
             let key = "foo";
             let value = "bar";
@@ -401,7 +393,7 @@ mod test {
 
     #[tokio::test]
     async fn test_multi_readers_single_writer(
-    ) -> Result<(), <RocksBackend<NoStorageSerde> as StorageBackend>::Error> {
+    ) -> Result<(), <RocksBackend as StorageBackend>::Error> {
         use tokio::sync::mpsc::channel;
 
         let temp_path = TempDir::new().unwrap();
@@ -414,7 +406,7 @@ mod test {
         let key = "foo";
         let value = "bar";
 
-        let mut db: RocksBackend<NoStorageSerde> = RocksBackend::new(sled_settings)?;
+        let mut db: RocksBackend = RocksBackend::new(sled_settings)?;
 
         let (tx, mut rx) = channel(5);
         // now let us spawn a few readers
@@ -432,8 +424,7 @@ mod test {
                         };
                         let key = "foo";
 
-                        let mut db: RocksBackend<NoStorageSerde> =
-                            RocksBackend::new(sled_settings).unwrap();
+                        let mut db: RocksBackend = RocksBackend::new(sled_settings).unwrap();
 
                         while db.load(key.as_bytes()).await.unwrap().is_none() {
                             tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;

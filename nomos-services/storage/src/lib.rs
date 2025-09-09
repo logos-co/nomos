@@ -8,7 +8,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use backends::{StorageBackend, StorageSerde as _, StorageTransaction};
+use backends::{SerdeOp, StorageBackend, StorageTransaction};
 use bytes::Bytes;
 use overwatch::{
     services::{
@@ -81,7 +81,7 @@ impl<Backend: StorageBackend> StorageReplyReceiver<Option<Bytes>, Backend> {
         self,
     ) -> Result<Option<Output>, tokio::sync::oneshot::error::RecvError>
     where
-        Output: DeserializeOwned,
+        Output: Serialize + DeserializeOwned,
     {
         self.channel
             .await
@@ -89,7 +89,7 @@ impl<Backend: StorageBackend> StorageReplyReceiver<Option<Bytes>, Backend> {
             // in infallible.
             .map(|maybe_bytes| {
                 maybe_bytes.map(|bytes| {
-                    Backend::SerdeOperator::deserialize(bytes)
+                    <Output as SerdeOp>::deserialize(&bytes)
                         .expect("Recovery from storage should never fail")
                 })
             })
@@ -105,9 +105,12 @@ impl<Backend: StorageBackend> StorageMsg<Backend> {
         )
     }
 
-    pub fn new_store_message<V: Serialize>(key: Bytes, value: V) -> Self {
-        let value = Backend::SerdeOperator::serialize(value);
-        Self::Store { key, value }
+    pub fn new_store_message<V: Serialize + DeserializeOwned>(
+        key: Bytes,
+        value: &V,
+    ) -> Result<Self, nomos_core::codec::Error> {
+        let value = <V as SerdeOp>::serialize(value)?;
+        Ok(Self::Store { key, value })
     }
 
     pub fn new_remove_message(key: Bytes) -> (Self, StorageReplyReceiver<Option<Bytes>, Backend>) {

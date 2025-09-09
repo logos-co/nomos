@@ -3,9 +3,7 @@ use std::{fmt::Debug, hash::Hash, marker::PhantomData, path::PathBuf};
 use futures::try_join;
 use nomos_core::{da::blob::Share, mantle::SignedMantleTx};
 use nomos_storage::{
-    api::da::DaConverter,
-    backends::{rocksdb::RocksBackend, StorageSerde},
-    StorageMsg, StorageService,
+    api::da::DaConverter, backends::rocksdb::RocksBackend, StorageMsg, StorageService,
 };
 use overwatch::{
     services::{relay::OutboundRelay, ServiceData},
@@ -15,28 +13,24 @@ use serde::{Deserialize, Serialize};
 
 use crate::storage::DaStorageAdapter;
 
-pub struct RocksAdapter<B, S, Converter>
-where
-    S: StorageSerde + Send + Sync + 'static,
-{
-    storage_relay: OutboundRelay<StorageMsg<RocksBackend<S>>>,
+pub struct RocksAdapter<B, Converter> {
+    storage_relay: OutboundRelay<StorageMsg<RocksBackend>>,
     _share: PhantomData<B>,
     _converter: PhantomData<Converter>,
 }
 
 #[async_trait::async_trait]
-impl<B, S, Converter, RuntimeServiceId> DaStorageAdapter<RuntimeServiceId>
-    for RocksAdapter<B, S, Converter>
+impl<B, Converter, RuntimeServiceId> DaStorageAdapter<RuntimeServiceId>
+    for RocksAdapter<B, Converter>
 where
     B: Share + Clone + Send + Sync + 'static,
     B::BlobId: Clone + Send + Sync + 'static,
     B::ShareIndex: Eq + Hash + Send + Sync + 'static,
     B::LightShare: Send + Sync + 'static,
     B::SharesCommitments: Send + Sync + 'static,
-    S: StorageSerde + Send + Sync + 'static,
-    Converter: DaConverter<RocksBackend<S>, Share = B, Tx = SignedMantleTx> + Send + Sync + 'static,
+    Converter: DaConverter<RocksBackend, Share = B, Tx = SignedMantleTx> + Send + Sync + 'static,
 {
-    type Backend = RocksBackend<S>;
+    type Backend = RocksBackend;
     type Share = B;
     type Settings = RocksAdapterSettings;
     type Tx = SignedMantleTx;

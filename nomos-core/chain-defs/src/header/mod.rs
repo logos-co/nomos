@@ -130,8 +130,11 @@ pub enum Error {
 #[test]
 fn test_serde() {
     assert_eq!(
-        crate::wire::deserialize::<HeaderId>(&crate::wire::serialize(&HeaderId([0; 32])).unwrap())
-            .unwrap(),
+        <HeaderId as crate::codec::SerdeOp>::deserialize::<HeaderId>(
+            &<HeaderId as crate::codec::SerdeOp>::serialize(&HeaderId([0; 32]))
+                .expect("HeaderId should be able to be serialized")
+        )
+        .unwrap(),
         HeaderId([0; 32])
     );
 }
