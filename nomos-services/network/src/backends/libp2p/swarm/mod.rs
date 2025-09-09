@@ -285,8 +285,8 @@ mod tests {
     use std::{net::Ipv4Addr, sync::Once, time::Instant};
 
     use nomos_libp2p::{protocol_name::ProtocolName, Protocol};
-    use rand::rngs::OsRng;
     use nomos_utils::net::get_available_udp_port;
+    use rand::rngs::OsRng;
     use tracing_subscriber::EnvFilter;
 
     use super::*;
