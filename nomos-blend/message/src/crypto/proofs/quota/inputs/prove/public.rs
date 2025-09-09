@@ -1,7 +1,8 @@
-use groth16::{Field as _, Fr};
+use groth16::Fr;
 
 use crate::crypto::keys::Ed25519PublicKey;
 
+#[derive(Clone, Copy)]
 pub struct Inputs {
     pub session: u64,
     pub core_root: Fr,
@@ -16,6 +17,8 @@ pub struct Inputs {
 #[cfg(test)]
 impl Default for Inputs {
     fn default() -> Self {
+        use groth16::Field as _;
+
         use crate::crypto::keys::Ed25519PrivateKey;
 
         Self {

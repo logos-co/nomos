@@ -9,6 +9,15 @@ pub struct Inputs {
     pub key_nullifier: Fr,
 }
 
+impl Inputs {
+    #[must_use] pub const fn from_prove_inputs_and_nullifier(prove_inputs: PublicInputs, key_nullifier: Fr) -> Self {
+        Self {
+            prove_inputs,
+            key_nullifier,
+        }
+    }
+}
+
 impl From<Inputs> for PoQVerifierInput {
     fn from(value: Inputs) -> Self {
         let (signing_key_first_half, signing_key_second_half) =
@@ -26,5 +35,17 @@ impl From<Inputs> for PoQVerifierInput {
             total_stake: value.prove_inputs.total_stake,
         }
         .into()
+    }
+}
+
+#[cfg(test)]
+impl Default for Inputs {
+    fn default() -> Self {
+        use groth16::Field as _;
+
+        Self {
+            key_nullifier: Fr::ZERO,
+            prove_inputs: PublicInputs::default(),
+        }
     }
 }

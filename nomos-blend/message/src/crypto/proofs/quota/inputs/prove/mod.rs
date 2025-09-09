@@ -1,4 +1,3 @@
-pub mod private;
 use groth16::{Field as _, Fr};
 use num_bigint::BigUint;
 use poq::{
@@ -6,13 +5,14 @@ use poq::{
     PoQWalletInputsData, PoQWitnessInputs,
 };
 
-pub use self::private::Inputs as PrivateInputs;
 use crate::crypto::proofs::quota::inputs::{
     prove::private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs, ProofType},
     split_ephemeral_signing_key,
 };
+
+pub mod private;
 pub mod public;
-pub use self::public::Inputs as PublicInputs;
+pub use self::{private::Inputs as PrivateInputs, public::Inputs as PublicInputs};
 
 pub struct Inputs {
     pub public: PublicInputs,
