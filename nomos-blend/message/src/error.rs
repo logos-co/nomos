@@ -8,10 +8,14 @@ pub enum Error {
     PayloadTooLarge,
     #[error("Proof of selection verification failed")]
     ProofOfSelectionVerificationFailed,
+    #[error("Proof of quota verification failed")]
+    ProofOfQuotaVerificationFailed,
     #[error("Deserialization failed")]
     DeserializationFailed,
     #[error("Invalid payload length")]
     InvalidPayloadLength,
     #[error("Signature verification failed")]
     SignatureVerificationFailed,
+    #[error("No proof of quota left")]
+    NoProofOfQuotasLeft,
 }

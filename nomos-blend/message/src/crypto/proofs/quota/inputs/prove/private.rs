@@ -1,0 +1,70 @@
+use groth16::Fr;
+
+/// Private inputs for all types of Proof of Quota. Spec: https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#215261aa09df81a18576f67b910d34d4.
+#[non_exhaustive]
+pub struct Inputs {
+    pub key_index: u64,
+    pub selector: bool,
+    pub proof_type: ProofType,
+}
+
+impl Inputs {
+    #[must_use]
+    pub fn new_proof_of_core_quota_inputs(
+        key_index: u64,
+        proof_of_core_quota_inputs: ProofOfCoreQuotaInputs,
+    ) -> Self {
+        Self {
+            key_index,
+            selector: false,
+            proof_type: proof_of_core_quota_inputs.into(),
+        }
+    }
+
+    #[must_use]
+    pub fn new_proof_of_leadership_quota_inputs(
+        key_index: u64,
+        proof_of_leadership_quota_inputs: ProofOfLeadershipQuotaInputs,
+    ) -> Self {
+        Self {
+            key_index,
+            selector: true,
+            proof_type: proof_of_leadership_quota_inputs.into(),
+        }
+    }
+}
+
+pub(crate) enum ProofType {
+    CoreQuota(ProofOfCoreQuotaInputs),
+    LeadershipQuota(ProofOfLeadershipQuotaInputs),
+}
+
+impl From<ProofOfCoreQuotaInputs> for ProofType {
+    fn from(value: ProofOfCoreQuotaInputs) -> Self {
+        Self::CoreQuota(value)
+    }
+}
+
+impl From<ProofOfLeadershipQuotaInputs> for ProofType {
+    fn from(value: ProofOfLeadershipQuotaInputs) -> Self {
+        Self::LeadershipQuota(value)
+    }
+}
+
+pub struct ProofOfCoreQuotaInputs {
+    pub core_sk: Fr,
+    pub core_path: Vec<Fr>,
+    pub core_path_selectors: Vec<bool>,
+}
+
+pub struct ProofOfLeadershipQuotaInputs {
+    pub slot: u64,
+    pub note_value: u64,
+    pub transaction_hash: Fr,
+    pub output_number: u64,
+    pub aged_path: Vec<Fr>,
+    pub aged_selector: Vec<bool>,
+    pub slot_secret: Fr,
+    pub slot_secret_path: Vec<Fr>,
+    pub starting_slot: u64,
+}

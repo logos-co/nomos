@@ -1,8 +1,8 @@
-use blake2::{digest::Digest as _, Blake2b512};
 use ed25519_dalek::{ed25519::signature::Signer as _, Verifier as _};
-use nomos_utils::blake_rng::{BlakeRng, RngCore as _, SeedableRng as _};
+use nomos_utils::blake_rng::{BlakeRng, SeedableRng as _};
 use serde::{Deserialize, Serialize};
-use serde_big_array::BigArray;
+
+use crate::crypto::{pseudo_random_bytes, signatures::Signature};
 
 pub const KEY_SIZE: usize = 32;
 
@@ -64,7 +64,7 @@ impl Ed25519PublicKey {
 
     #[must_use]
     pub fn verify_signature(&self, body: &[u8], signature: &Signature) -> bool {
-        self.0.verify(body, &signature.0).is_ok()
+        self.0.verify(body, signature.as_ref()).is_ok()
     }
 }
 
@@ -82,23 +82,6 @@ impl TryFrom<[u8; KEY_SIZE]> for Ed25519PublicKey {
             ed25519_dalek::VerifyingKey::from_bytes(&key)
                 .map_err(|_| "Invalid Ed25519 public key".to_owned())?,
         ))
-    }
-}
-
-pub const SIGNATURE_SIZE: usize = 64;
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-pub struct Signature(ed25519_dalek::Signature);
-
-impl From<ed25519_dalek::Signature> for Signature {
-    fn from(sig: ed25519_dalek::Signature) -> Self {
-        Self(sig)
-    }
-}
-
-impl From<[u8; SIGNATURE_SIZE]> for Signature {
-    fn from(bytes: [u8; SIGNATURE_SIZE]) -> Self {
-        ed25519_dalek::Signature::from_bytes(&bytes).into()
     }
 }
 
@@ -150,87 +133,4 @@ impl SharedKey {
         assert_eq!(a.len(), b.len());
         a.iter_mut().zip(b.iter()).for_each(|(x1, &x2)| *x1 ^= x2);
     }
-}
-
-pub const PROOF_OF_QUOTA_SIZE: usize = 160;
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Hash, PartialEq, Eq)]
-pub struct ProofOfQuota(#[serde(with = "BigArray")] [u8; PROOF_OF_QUOTA_SIZE]);
-
-impl ProofOfQuota {
-    // TODO: Remove this once the actual proof of quota is implemented.
-    #[must_use]
-    pub const fn dummy() -> Self {
-        Self([6u8; PROOF_OF_QUOTA_SIZE])
-    }
-}
-
-impl From<[u8; PROOF_OF_QUOTA_SIZE]> for ProofOfQuota {
-    fn from(bytes: [u8; PROOF_OF_QUOTA_SIZE]) -> Self {
-        Self(bytes)
-    }
-}
-
-pub const PROOF_OF_SELECTION_SIZE: usize = 32;
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ProofOfSelection([u8; PROOF_OF_SELECTION_SIZE]);
-
-impl ProofOfSelection {
-    // TODO: Implement actual verification logic.
-    #[must_use]
-    pub fn verify(&self) -> bool {
-        self == &Self::dummy()
-    }
-
-    // TODO: Remove this once the actual proof of selection is implemented.
-    #[must_use]
-    pub const fn dummy() -> Self {
-        Self([7u8; PROOF_OF_SELECTION_SIZE])
-    }
-}
-
-impl From<[u8; PROOF_OF_SELECTION_SIZE]> for ProofOfSelection {
-    fn from(bytes: [u8; PROOF_OF_SELECTION_SIZE]) -> Self {
-        Self(bytes)
-    }
-}
-
-/// Generates random bytes of the constant size using [`BlakeRng`].
-#[must_use]
-pub fn random_sized_bytes<const SIZE: usize>() -> [u8; SIZE] {
-    let mut buf = [0u8; SIZE];
-    BlakeRng::from_entropy().fill_bytes(&mut buf);
-    buf
-}
-
-/// Generates pseudo-random bytes of the constant size
-/// using [`BlakeRng`] cipher with a key derived from the input key.
-#[must_use]
-pub fn pseudo_random_sized_bytes<const SIZE: usize>(key: &[u8]) -> [u8; SIZE] {
-    let mut buf = [0u8; SIZE];
-    blake_random_bytes(&mut buf, key);
-    buf
-}
-
-/// Generates pseudo-random bytes of the given size
-/// using [`BlakeRng`] cipher with a key derived from the input key.
-#[must_use]
-pub fn pseudo_random_bytes(key: &[u8], size: usize) -> Vec<u8> {
-    let mut buf = vec![0u8; size];
-    blake_random_bytes(&mut buf, key);
-    buf
-}
-
-fn blake_random_bytes(buf: &mut [u8], key: &[u8]) {
-    let mut cipher = BlakeRng::from_seed(blake2b512(key).into());
-    cipher.fill_bytes(buf);
-}
-
-const HASH_SIZE: usize = 64; // Size of the hash output for Blake2b-512
-
-fn blake2b512(input: &[u8]) -> [u8; HASH_SIZE] {
-    let mut hasher = Blake2b512::new();
-    hasher.update(input);
-    hasher.finalize().into()
 }
