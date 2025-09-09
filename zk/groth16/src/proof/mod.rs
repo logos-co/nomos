@@ -15,6 +15,7 @@ use crate::protocol::Protocol;
 #[cfg(feature = "deser")]
 use crate::utils::{JsonG1, JsonG2, StringifiedG1, StringifiedG2};
 
+#[derive(Clone, Copy)]
 pub struct Proof<E: Pairing> {
     pi_a: E::G1Affine,
     pi_b: E::G2Affine,
