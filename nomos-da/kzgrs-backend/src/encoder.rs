@@ -262,8 +262,8 @@ pub mod test {
     use ark_poly::{EvaluationDomain as _, GeneralEvaluationDomain};
     use itertools::izip;
     use kzgrs::{
-        common::bytes_to_polynomial_unchecked, decode, FieldElement, PolynomialEvaluationDomain,
-        BYTES_PER_FIELD_ELEMENT,
+        common::bytes_to_polynomial_unchecked, decode_unchecked, FieldElement,
+        PolynomialEvaluationDomain, BYTES_PER_FIELD_ELEMENT,
     };
     use nomos_core::da::DaEncoder as _;
     use rand::RngCore as _;
@@ -355,7 +355,7 @@ pub mod test {
                 assert_eq!(c1, c2);
             }
             let points: Vec<_> = evals.evals.iter().copied().map(Some).collect();
-            let poly_2 = decode(r1.len(), &points, domain);
+            let poly_2 = decode_unchecked(r1.len(), &points, domain);
             let (poly_1, _) = bytes_to_polynomial_unchecked::<BYTES_PER_FIELD_ELEMENT>(
                 r1.as_bytes().as_ref(),
                 domain,
