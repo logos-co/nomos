@@ -10,20 +10,17 @@ mod witness;
 use std::error::Error;
 
 pub use blend_inputs::{PoQBlendInputs, PoQBlendInputsData};
-pub use chain_inputs::{PoQChainInputs, PoQChainInputsData};
+pub use chain_inputs::{PoQChainInputs, PoQChainInputsData, PoQInputsFromDataError};
 pub use common_inputs::{PoQCommonInputs, PoQCommonInputsData};
 use groth16::{
     CompressedGroth16Proof, Groth16Input, Groth16InputDeser, Groth16Proof, Groth16ProofJsonDeser,
 };
-pub use inputs::PoQWitnessInputs;
+pub use inputs::{PoQVerifierInput, PoQVerifierInputData, PoQWitnessInputs};
 use thiserror::Error;
 pub use wallet_inputs::{PoQWalletInputs, PoQWalletInputsData};
 pub use witness::Witness;
 
-use crate::{
-    inputs::{PoQVerifierInput, PoQVerifierInputJson},
-    proving_key::POQ_PROVING_KEY_PATH,
-};
+use crate::{inputs::PoQVerifierInputJson, proving_key::POQ_PROVING_KEY_PATH};
 
 pub type PoQProof = CompressedGroth16Proof;
 
