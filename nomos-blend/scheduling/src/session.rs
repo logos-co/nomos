@@ -88,9 +88,13 @@ pub struct UninitializedSessionEventStream<Stream> {
 
 impl<Stream> UninitializedSessionEventStream<Stream> {
     #[must_use]
-    pub const fn new(session_stream: Stream, transition_period: Duration) -> Self {
+    pub const fn new(
+        session_stream: Stream,
+        first_ready_timeout: Duration,
+        transition_period: Duration,
+    ) -> Self {
         Self {
-            stream: FirstReadyStream::new(session_stream, Duration::from_secs(1)),
+            stream: FirstReadyStream::new(session_stream, first_ready_timeout),
             transition_period,
         }
     }

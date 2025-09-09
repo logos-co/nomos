@@ -66,6 +66,8 @@ impl TimingSettings {
     }
 }
 
+pub(crate) const FIRST_SESSION_READY_TIMEOUT: Duration = Duration::from_secs(1);
+
 /// A stream that repeatedly yields the same membership at fixed intervals.
 /// The first item is yielded immediately.
 // TODO: Replace with SDP membership stream.
@@ -79,6 +81,7 @@ where
 {
     UninitializedSessionEventStream::new(
         Box::pin(IntervalStream::new(interval(session_duration)).map(move |_| membership.clone())),
+        FIRST_SESSION_READY_TIMEOUT,
         session_transition_period,
     )
 }

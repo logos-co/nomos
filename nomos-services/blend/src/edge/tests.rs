@@ -16,7 +16,7 @@ use tokio_stream::wrappers::ReceiverStream;
 
 use crate::{
     edge::{backends::BlendBackend, handlers::Error, run, settings::BlendConfig},
-    settings::TimingSettings,
+    settings::{TimingSettings, FIRST_SESSION_READY_TIMEOUT},
     test_utils::membership::{key, membership},
 };
 
@@ -168,6 +168,7 @@ async fn spawn_run(
         run::<TestBackend, _, _>(
             UninitializedSessionEventStream::new(
                 ReceiverStream::new(session_receiver),
+                FIRST_SESSION_READY_TIMEOUT,
                 // Set 0 for the session transition period since
                 // [`SessionEvent::TransitionPeriodExpired`] will be ignored anyway.
                 Duration::ZERO,
