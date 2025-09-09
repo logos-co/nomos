@@ -10,7 +10,7 @@ use bytes::Bytes;
 use cryptarchia_engine::{Branch, Slot};
 use cryptarchia_sync::{BlocksResponse, ProviderResponse};
 use futures::{future, stream, stream::BoxStream, StreamExt as _, TryStreamExt as _};
-use nomos_core::{block::Block, header::HeaderId, wire};
+use nomos_core::{block::Block, codec::SerdeOp, header::HeaderId};
 use nomos_storage::{api::chain::StorageChainApi, backends::StorageBackend, StorageMsg};
 use overwatch::DynError;
 use serde::Serialize;
@@ -153,9 +153,7 @@ where
                         .map_err(DynError::from)?
                         .ok_or_else(|| DynError::from(GetBlocksError::BlockNotFound(id)))?;
 
-                    Ok::<_, DynError>(Bytes::from(
-                        wire::serialize(&block).expect("Block must be serialized"),
-                    ))
+                    <() as SerdeOp>::serialize(&block).map_err(DynError::from)
                 }
             })
             .map_err(DynError::from)
@@ -545,15 +543,11 @@ mod tests {
     use nomos_core::{header::Header, mantle::SignedMantleTx};
     use nomos_proof_statements::leadership::{LeaderPrivate, LeaderPublic};
     use nomos_storage::{
-        backends::{
-            rocksdb::{RocksBackend, RocksBackendSettings},
-            StorageSerde,
-        },
+        backends::rocksdb::{RocksBackend, RocksBackendSettings},
         StorageService,
     };
     use num_bigint::BigUint;
     use overwatch::{derive_services, overwatch::OverwatchRunner};
-    use serde::de::DeserializeOwned;
     use tempfile::TempDir;
     use tokio::{runtime::Handle, sync::mpsc};
 
@@ -663,32 +657,18 @@ mod tests {
         );
     }
 
-    pub struct Wire;
-
-    impl StorageSerde for Wire {
-        type Error = wire::Error;
-
-        fn serialize<T: Serialize>(value: T) -> Bytes {
-            wire::serialize(&value).unwrap().into()
-        }
-
-        fn deserialize<T: DeserializeOwned>(buff: Bytes) -> Result<T, Self::Error> {
-            wire::deserialize(&buff)
-        }
-    }
-
     #[derive_services]
     pub struct TestServices {
-        pub storage: StorageService<RocksBackend<Wire>, RuntimeServiceId>,
+        pub storage: StorageService<RocksBackend, RuntimeServiceId>,
     }
 
     #[expect(dead_code, reason = "Fix in a separate PR")]
     struct TestEnv {
         service: overwatch::overwatch::Overwatch<RuntimeServiceId>,
-        storage_relay: StorageRelay<RocksBackend<Wire>>,
+        storage_relay: StorageRelay<RocksBackend>,
         cryptarchia: cryptarchia_engine::Cryptarchia<HeaderId>,
         proof: nomos_core::proofs::leader_proof::Risc0LeaderProof,
-        provider: BlockProvider<RocksBackend<Wire>, SignedMantleTx>,
+        provider: BlockProvider<RocksBackend, SignedMantleTx>,
     }
 
     impl TestEnv {
@@ -709,7 +689,7 @@ mod tests {
 
         async fn setup_storage() -> (
             overwatch::overwatch::Overwatch<RuntimeServiceId>,
-            StorageRelay<RocksBackend<Wire>>,
+            StorageRelay<RocksBackend>,
         ) {
             let temp_path = TempDir::new().unwrap();
             let service = OverwatchRunner::<TestServices>::run(
@@ -733,7 +713,7 @@ mod tests {
 
             let storage_relay = service
                 .handle()
-                .relay::<StorageService<RocksBackend<Wire>, RuntimeServiceId>>()
+                .relay::<StorageService<RocksBackend, RuntimeServiceId>>()
                 .await
                 .expect("Relay connection with StorageService should succeed");
 
@@ -880,7 +860,7 @@ mod tests {
             if let Some(ProviderResponse::Available(mut stream)) = rx.recv().await {
                 while let Some(res) = &stream.next().await {
                     if let Ok(bytes) = &res {
-                        let block: Block<SignedMantleTx> = wire::deserialize(bytes).unwrap();
+                        let block: Block<()> = <Block<()> as SerdeOp>::deserialize(bytes).unwrap();
                         blocks.push(block.header().id());
                     } else {
                         break;

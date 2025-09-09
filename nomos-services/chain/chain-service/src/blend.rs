@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use nomos_blend_service::message::{NetworkMessage, ServiceMessage};
-use nomos_core::{block::Block, wire};
+use nomos_core::{block::Block, codec::SerdeOp};
 use overwatch::services::{relay::OutboundRelay, ServiceData};
 use serde::Serialize;
 use tracing::error;
@@ -43,12 +43,16 @@ where
 {
     pub async fn publish_block<Tx>(&self, block: Block<Tx>)
     where
-        Tx: Clone + Eq + Serialize + Send,
+        Tx: Clone + Eq + Serialize + for<'de> serde::Deserialize<'de> + Send,
     {
         if let Err((e, _)) = self
             .relay
             .send(ServiceMessage::Blend(NetworkMessage {
-                message: wire::serialize(&crate::messages::NetworkMessage::Block(block)).unwrap(),
+                message: <crate::messages::NetworkMessage<Tx> as SerdeOp>::serialize(
+                    &crate::messages::NetworkMessage::Block(block),
+                )
+                .expect("NetworkMessage should be able to be serialized")
+                .to_vec(),
                 broadcast_settings: self.broadcast_settings.clone(),
             }))
             .await

@@ -184,7 +184,7 @@ mod tests {
     use serde_json::json;
 
     use super::{channel::blob::BlobOp, Op};
-    use crate::wire;
+    use crate::codec;
 
     // nothing special, just some valid bytes
     static VK: LazyLock<ed25519_dalek::VerifyingKey> = LazyLock::new(|| {
@@ -242,9 +242,10 @@ mod tests {
         };
         let op = Op::ChannelBlob(blob_op);
 
-        let serialized = wire::serialize(&op).unwrap();
-        assert_eq!(serialized, expected_bincode);
-        let deserialized = wire::deserialize::<Op>(&serialized).unwrap();
+        let serialized =
+            <Op as codec::SerdeOp>::serialize(&op).expect("Op should be able to be serialized");
+        assert_eq!(serialized.to_vec(), expected_bincode);
+        let deserialized: Op = <Op as codec::SerdeOp>::deserialize(&serialized).unwrap();
         assert_eq!(deserialized, op);
     }
 }

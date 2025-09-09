@@ -34,10 +34,7 @@ use nomos_da_verifier::{
     DaVerifierService,
 };
 use nomos_libp2p::PeerId;
-use nomos_storage::{
-    api::da::DaConverter,
-    backends::{rocksdb::RocksBackend, StorageSerde},
-};
+use nomos_storage::{api::da::DaConverter, backends::rocksdb::RocksBackend};
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId, DynError};
 use serde::{de::DeserializeOwned, Serialize};
 use subnetworks_assignations::MembershipHandler;
@@ -47,14 +44,13 @@ pub type DaVerifier<
     Blob,
     NetworkAdapter,
     VerifierBackend,
-    StorageSerializer,
     DaStorageConverter,
     VerifierMempoolAdapter,
     RuntimeServiceId,
 > = DaVerifierService<
     VerifierBackend,
     NetworkAdapter,
-    VerifierStorageAdapter<Blob, StorageSerializer, DaStorageConverter>,
+    VerifierStorageAdapter<Blob, DaStorageConverter>,
     VerifierMempoolAdapter,
     RuntimeServiceId,
 >;
@@ -82,7 +78,6 @@ pub async fn add_share<
     DaShare,
     VerifierNetwork,
     ShareVerifier,
-    SerdeOp,
     DaStorageConverter,
     VerifierMempoolAdapter,
     RuntimeServiceId,
@@ -102,11 +97,8 @@ where
     ShareVerifier: VerifierBackend + CoreDaVerifier<DaShare = DaShare>,
     <ShareVerifier as VerifierBackend>::Settings: Clone,
     <ShareVerifier as CoreDaVerifier>::Error: Error,
-    SerdeOp: StorageSerde + Send + Sync + 'static,
-    DaStorageConverter: DaConverter<RocksBackend<SerdeOp>, Share = DaShare, Tx = SignedMantleTx>
-        + Send
-        + Sync
-        + 'static,
+    DaStorageConverter:
+        DaConverter<RocksBackend, Share = DaShare, Tx = SignedMantleTx> + Send + Sync + 'static,
     VerifierMempoolAdapter: DaMempoolAdapter,
     RuntimeServiceId: Debug
         + Sync
@@ -116,7 +108,6 @@ where
                 DaShare,
                 VerifierNetwork,
                 ShareVerifier,
-                SerdeOp,
                 DaStorageConverter,
                 VerifierMempoolAdapter,
                 RuntimeServiceId,
