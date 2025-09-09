@@ -19,10 +19,7 @@ use nomos_api::http::{
     storage::StorageAdapter,
 };
 use nomos_core::{
-    da::{
-        blob::{LightShare, Share},
-        BlobId, DaVerifier as CoreDaVerifier,
-    },
+    da::{blob::Share, BlobId, DaVerifier as CoreDaVerifier},
     header::HeaderId,
     mantle::{AuthenticatedMantleTx, SignedMantleTx, Transaction},
 };

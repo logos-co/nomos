@@ -49,7 +49,6 @@ async fn main() -> Result<()> {
                     trigger_sampling_delay: config.mempool.trigger_sampling_delay,
                 },
                 recovery_path: config.mempool.cl_pool_recovery_path,
-                trigger_sampling_delay: config.mempool.trigger_sampling_delay,
             },
             da_network: config.da_network,
             da_sampling: config.da_sampling,

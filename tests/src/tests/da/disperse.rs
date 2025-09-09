@@ -58,7 +58,7 @@ async fn disseminate_and_retrieve() {
 #[tokio::test]
 #[serial]
 async fn disseminate_retrieve_reconstruct() {
-    const ITERATIONS: usize = 5;
+    const ITERATIONS: usize = 150;
 
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let executor = &topology.executors()[0];
@@ -67,11 +67,11 @@ async fn disseminate_retrieve_reconstruct() {
     let app_id = hex::decode(APP_ID).unwrap();
     let app_id: [u8; 32] = app_id.clone().try_into().unwrap();
 
-    let data = [1u8; 31 * ITERATIONS];
+    let data = [1u8; 31 * 5 * ITERATIONS];
 
     for i in 0..ITERATIONS {
-        let data_size = 31 * (i + 1);
-        println!("disseminating {data_size} bytes");
+        let data_size = 31 * 5 * (i + 1);
+        println!("disseminating {data_size} bytes, iteration {i}");
         let data = &data[..data_size]; // test increasing size data
         let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, Index::from(i as u64));
         let blob_id = disseminate_with_metadata(executor, data, metadata)

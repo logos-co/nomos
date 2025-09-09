@@ -91,6 +91,10 @@ where
             .filter_map(|event| async move {
                 match event {
                     Ok((_blob_id, _)) if _blob_id == blob_id => Some(()),
+                    Err(e) => {
+                        tracing::error!("Error dispersing in dispersal stream: {e}");
+                        None
+                    }
                     _ => None,
                 }
             })
@@ -182,6 +186,7 @@ where
                 };
                 blob_op.id()
             });
+        tracing::debug!("Dispersing {blob_id:?} transaction");
         let tx = handler
             .disperse_tx(
                 parent_msg_id,
@@ -191,7 +196,9 @@ where
                 Ed25519PublicKey::from_bytes(&[0u8; 32])?, // TODO: pass key from config
             )
             .await?;
+        tracing::debug!("Dispersing {blob_id:?} shares");
         handler.disperse_shares(encoded_data).await?;
+        tracing::debug!("Dispersal of {blob_id:?} successful");
         self.last_dispersed_tx = Some(tx);
         Ok(())
     }

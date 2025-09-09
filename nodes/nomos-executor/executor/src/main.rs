@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use clap::Parser;
 use color_eyre::eyre::{eyre, Result};
 use nomos_core::mantle::SignedMantleTx;
@@ -88,7 +86,6 @@ async fn main() -> Result<()> {
                     trigger_sampling_delay: config.mempool.trigger_sampling_delay,
                 },
                 recovery_path: config.mempool.cl_pool_recovery_path,
-                trigger_sampling_delay: Duration::from_secs(5),
             },
             da_dispersal: config.da_dispersal,
             da_network: config.da_network,

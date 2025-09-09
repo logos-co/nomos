@@ -7,7 +7,6 @@ use libp2p::{
     swarm::{DialError, SwarmEvent},
     Multiaddr, PeerId, Swarm, SwarmBuilder, TransportError,
 };
-use log::debug;
 use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId};
 use subnetworks_assignations::MembershipHandler;
 use tokio::{
@@ -15,6 +14,7 @@ use tokio::{
     time::interval,
 };
 use tokio_stream::wrappers::{IntervalStream, UnboundedReceiverStream};
+use tracing::debug;
 
 use super::DispersalValidatorEvent;
 use crate::{
