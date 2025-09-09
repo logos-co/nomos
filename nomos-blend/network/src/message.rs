@@ -5,6 +5,7 @@ use nomos_blend_scheduling::EncapsulatedMessage;
 
 /// An encapsulated message whose public header as been validated according to
 /// the Blend specification.
+// TODO: Replace with new first-class `UnwrappedEncapsulatedMessage` type.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EncapsulatedMessageWithValidatedPublicHeader(EncapsulatedMessage);
 
