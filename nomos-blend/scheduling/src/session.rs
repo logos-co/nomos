@@ -106,7 +106,7 @@ where
     /// It returns the first [`Session`] and the initialized
     /// [`SessionEventStream`].
     ///
-    /// It returns an error if the first session is not yieled within a short
+    /// It returns an error if the first session is not yielded within a short
     /// time.
     pub async fn initialize(
         self,
