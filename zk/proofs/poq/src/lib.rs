@@ -221,10 +221,10 @@ mod tests {
                 BigUint::from(654_321u32).into(),
             ),
             selector: true,
-            index: 1,
+            index: 2,
         };
         let wallet_data = PoQWalletInputsData {
-            slot: 1_435_614_687,
+            slot: 1_413_348_269,
             note_value: 50,
             transaction_hash: BigUint::from_str(
                 "8397461881232315868093150419720505672395990758415052842372134661984990944103",
