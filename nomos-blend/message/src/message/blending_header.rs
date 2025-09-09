@@ -12,7 +12,7 @@ use crate::crypto::{
 
 /// A blending header that is fully decapsulated.
 /// This must be encapsulated when being sent to the blend network.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct BlendingHeader {
     pub signing_pubkey: Ed25519PublicKey,
     pub proof_of_quota: ProofOfQuota,
