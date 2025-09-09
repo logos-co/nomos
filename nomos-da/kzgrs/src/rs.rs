@@ -8,10 +8,8 @@ use ark_poly::{
 };
 use num_traits::Zero as _;
 
-/// Extend a polynomial over some factor `polynomial.len()*factor` and return
+/// Extend a polynomial with the provided domain (size) and return
 /// the original points plus the extra ones.
-///
-/// `factor` need to be `>1`
 #[must_use]
 pub fn encode(
     polynomial: &DensePolynomial<Fr>,
@@ -27,7 +25,7 @@ pub fn encode(
 /// `domain` need to be the same domain of the original `evaluations` and
 /// `polynomial` used for encoding.
 #[must_use]
-pub fn decode(
+pub fn decode_unchecked(
     original_chunks_len: usize,
     points: &[Option<Fr>],
     domain: GeneralEvaluationDomain<Fr>,
@@ -101,7 +99,7 @@ mod test {
 
     use crate::{
         common::bytes_to_polynomial,
-        rs::{decode, encode, points_to_bytes},
+        rs::{decode_unchecked, encode, points_to_bytes},
     };
 
     const COEFFICIENTS_SIZE: usize = 32;
@@ -119,17 +117,17 @@ mod test {
         let encoded = encode(&poly, *DOMAIN);
         let mut encoded: Vec<Option<Fr>> = encoded.evals.into_iter().map(Some).collect();
 
-        let decoded = decode(10, &encoded, *DOMAIN);
+        let decoded = decode_unchecked(10, &encoded, *DOMAIN);
         let decoded_bytes = points_to_bytes::<31>(&decoded.evals);
         assert_eq!(decoded_bytes, bytes);
 
         // check with missing pieces
-
         for i in (1..encoded.len()).step_by(2) {
             encoded[i] = None;
         }
 
-        let decoded_bytes = points_to_bytes::<31>(&decoded.evals);
+        let decoded_missing = decode_unchecked(10, &encoded, *DOMAIN);
+        let decoded_bytes = points_to_bytes::<31>(&decoded_missing.evals);
         assert_eq!(decoded_bytes, bytes);
     }
 }

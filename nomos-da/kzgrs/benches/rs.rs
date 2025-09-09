@@ -3,7 +3,7 @@ use ark_poly::{EvaluationDomain as _, GeneralEvaluationDomain};
 use divan::{Bencher, black_box, counter::BytesCount};
 use kzgrs::{
     common::bytes_to_polynomial,
-    rs::{decode, encode},
+    rs::{decode_unchecked, encode},
 };
 use rand::{RngCore as _, thread_rng};
 
@@ -46,7 +46,7 @@ fn rs_decode(bencher: Bencher, size: usize) {
                 let missing_data: Vec<_> = std::iter::repeat_n(None, size)
                     .chain(buff.evals[size..].iter().copied().map(Some))
                     .collect();
-                decode(size, &missing_data, domain)
+                decode_unchecked(size, &missing_data, domain)
             })
         });
 }
