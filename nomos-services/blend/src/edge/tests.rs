@@ -17,14 +17,14 @@ use tokio_stream::wrappers::ReceiverStream;
 use crate::{
     edge::{backends::BlendBackend, handlers::Error, run, settings::BlendConfig},
     settings::TimingSettings,
-    test_utils::membership::{key, membership, NodeId},
+    test_utils::membership::{key, membership},
 };
 
 /// [`run`] forwards messages to the core nodes in the updated membership.
 #[test_log::test(tokio::test)]
 async fn run_with_session_transition() {
-    let local_node = 99;
-    let mut core_node = 0;
+    let local_node = NodeId(99);
+    let mut core_node = NodeId(0);
     let minimal_network_size = 1;
     let (_, session_sender, msg_sender, mut node_id_receiver) = spawn_run(
         local_node,
@@ -41,7 +41,7 @@ async fn run_with_session_transition() {
     );
 
     // Send a new session with another core node 1.
-    core_node = 1;
+    core_node = NodeId(1);
     session_sender
         .send(SessionEvent::NewSession(membership(
             &[core_node],
@@ -62,8 +62,8 @@ async fn run_with_session_transition() {
 /// [`run`] ignores [`SessionEvent::TransitionPeriodExpired`].
 #[test_log::test(tokio::test)]
 async fn run_ignores_transition_period_expired() {
-    let local_node = 99;
-    let core_node = 0;
+    let local_node = NodeId(99);
+    let core_node = NodeId(0);
     let minimal_network_size = 1;
     let (_, session_sender, msg_sender, mut node_id_receiver) = spawn_run(
         local_node,
@@ -93,8 +93,8 @@ async fn run_ignores_transition_period_expired() {
     expected = "The initial membership should satisfy the edge node condition: NetworkIsTooSmall"
 )]
 async fn run_panics_with_small_initial_membership() {
-    let local_node = 99;
-    let core_nodes = [0];
+    let local_node = NodeId(99);
+    let core_nodes = [NodeId(0)];
     let minimal_network_size = 2;
     let (join_handle, _, _, _) = spawn_run(
         local_node,
@@ -112,7 +112,7 @@ async fn run_panics_with_small_initial_membership() {
     expected = "The initial membership should satisfy the edge node condition: LocalIsCoreNode"
 )]
 async fn run_panics_with_local_is_core_in_initial_membership() {
-    let local_node = 99;
+    let local_node = NodeId(99);
     let core_nodes = [local_node];
     let minimal_network_size = 1;
     let (join_handle, _, _, _) = spawn_run(
@@ -129,8 +129,8 @@ async fn run_panics_with_local_is_core_in_initial_membership() {
 /// size.
 #[test_log::test(tokio::test)]
 async fn run_fails_if_new_membership_is_small() {
-    let local_node = 99;
-    let core_node = 0;
+    let local_node = NodeId(99);
+    let core_node = NodeId(0);
     let minimal_network_size = 1;
     let (join_handle, session_sender, _, _) = spawn_run(
         local_node,
@@ -153,8 +153,8 @@ async fn run_fails_if_new_membership_is_small() {
 /// [`run`] fails if the local node is not edge in a new membership.
 #[test_log::test(tokio::test)]
 async fn run_fails_if_local_is_core_in_new_membership() {
-    let local_node = 99;
-    let core_node = 0;
+    let local_node = NodeId(99);
+    let core_node = NodeId(0);
     let minimal_network_size = 1;
     let (join_handle, session_sender, _, _) = spawn_run(
         local_node,
@@ -182,7 +182,7 @@ async fn run_fails_if_local_is_core_in_new_membership() {
 #[test_log::test(tokio::test)]
 #[should_panic(expected = "Session stream should yield the first event immediately")]
 async fn run_panics_if_session_stream_is_not_immediate() {
-    let local_node = 99;
+    let local_node = NodeId(99);
     let minimal_network_size = 1;
     // Do not provide the initial membership, so the session stream does not yield
     // immediately.
@@ -302,4 +302,13 @@ where
 fn overwatch_handle() -> OverwatchHandle<usize> {
     let (sender, _) = mpsc::channel::<OverwatchCommand<usize>>(1);
     OverwatchHandle::new(tokio::runtime::Handle::current(), sender)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+struct NodeId(u8);
+
+impl From<NodeId> for [u8; 32] {
+    fn from(id: NodeId) -> Self {
+        [id.0; 32]
+    }
 }

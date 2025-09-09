@@ -139,7 +139,7 @@ mod tests {
     use tokio_stream::wrappers::ReceiverStream;
 
     use super::*;
-    use crate::test_utils::membership::{membership, NodeId};
+    use crate::test_utils::membership::membership;
 
     #[tokio::test]
     async fn session_info_stream() {
@@ -153,7 +153,10 @@ mod tests {
 
         // Feed a new session event.
         session_sender
-            .send(SessionEvent::NewSession(membership(&[0], 0)))
+            .send(SessionEvent::NewSession(membership(
+                &[NodeId(0)],
+                NodeId(0),
+            )))
             .await
             .unwrap();
         // Expect a new session info with session number 0.
@@ -174,7 +177,10 @@ mod tests {
 
         // Feed a new session event with a bigger membership.
         session_sender
-            .send(SessionEvent::NewSession(membership(&[0, 1], 0)))
+            .send(SessionEvent::NewSession(membership(
+                &[NodeId(0), NodeId(1)],
+                NodeId(0),
+            )))
             .await
             .unwrap();
         // Expect a new session info with session number 1.
@@ -228,6 +234,15 @@ mod tests {
             },
             membership: vec![],
             minimum_network_size: NonZeroU64::new(1).unwrap(),
+        }
+    }
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+    struct NodeId(u8);
+
+    impl From<NodeId> for [u8; 32] {
+        fn from(id: NodeId) -> Self {
+            [id.0; 32]
         }
     }
 }
