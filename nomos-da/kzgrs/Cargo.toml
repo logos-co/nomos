@@ -27,22 +27,6 @@ divan = { default-features = false, version = "0.1" }
 rand  = { default-features = false, features = ["std"], version = "0.8.5" }
 rayon = "1.10"
 
-[[bench]]
-harness = false
-name    = "kzg"
-
-[[bench]]
-harness = false
-name    = "fft"
-
-[[bench]]
-harness = false
-name    = "fk20"
-
-[[bench]]
-harness = false
-name    = "rs"
-
 [features]
 default = ["single"]
 parallel = [
@@ -58,3 +42,19 @@ parallel = [
   "dep:rayon",
 ]
 single = []
+
+[[bench]]
+harness = false
+name    = "kzg"
+
+[[bench]]
+harness = false
+name    = "fft"
+
+[[bench]]
+harness = false
+name    = "fk20"
+
+[[bench]]
+harness = false
+name    = "rs"

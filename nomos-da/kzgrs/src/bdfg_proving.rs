@@ -2,7 +2,7 @@ use std::{io::Cursor, ops::Mul as _};
 
 use ark_bls12_381::{Fr, G1Projective};
 use ark_ec::CurveGroup as _;
-use ark_ff::{Field as _, PrimeField as _};
+use ark_ff::PrimeField as _;
 use ark_poly::EvaluationDomain as _;
 use ark_poly_commit::kzg10::Commitment as KzgCommitment;
 use ark_serialize::CanonicalSerialize as _;
@@ -233,16 +233,7 @@ pub fn verify_column(
 }
 
 fn compute_h_roots(h: Fr, size: usize) -> Vec<Fr> {
-    {
-        #[cfg(feature = "parallel")]
-        {
-            (0..size as u64).into_par_iter()
-        }
-        #[cfg(not(feature = "parallel"))]
-        {
-            0..size as u64
-        }
-    }
-    .map(|i| h.pow([i]))
-    .collect()
+    std::iter::successors(Some(Fr::from(1)), |x| Some(h * x))
+        .take(size)
+        .collect()
 }
