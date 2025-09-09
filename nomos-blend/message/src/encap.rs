@@ -416,6 +416,10 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPrivateHeader<ENCAPSULATION_C
         } = self.first().try_deserialize()?;
         let poq_nullifier = proof_of_quota
             // TODO: Add the decapsulated public key to the set of public inputs to verify the proof
+            // TODO: Introduce a `ProofGenerator` trait that can be mocked to skip actual PoQ
+            // generation.
+            // TODO: Introduce a `ProofVerifier` trait that can be mocked to skip actual PoQ
+            // verification.
             .verify(&VerifyInputs {
                 signing_key: signing_pubkey,
             })
