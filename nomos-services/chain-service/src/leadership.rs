@@ -44,11 +44,9 @@ impl Leader {
     ) -> Option<Risc0LeaderProof> {
         for utxo in &self.utxos {
             let Some(_aged_witness) = aged_tree.witness(&utxo.id()) else {
-                println!("leader: skipping utxo since it's not aged: {}");
                 continue;
             };
             let Some(_latest_witness) = latest_tree.witness(&utxo.id()) else {
-                println!("skipping utxo since it's not in latest");
                 continue;
             };
 

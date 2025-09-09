@@ -43,6 +43,7 @@ nomos-tracing            = { workspace = true }
 nomos-tracing-service    = { workspace = true }
 nomos-utils              = { workspace = true }
 num-bigint               = { version = "0.4", default-features = false }
+wallet                   = { workspace = true }
 rand                     = { workspace = true }
 rand_core                = { version = "^0.9" }
 reqwest                  = { workspace = true, features = ["json"] }

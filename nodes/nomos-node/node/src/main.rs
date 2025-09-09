@@ -69,16 +69,7 @@ async fn main() -> Result<()> {
             system_sig: (),
             sdp: (),
             membership: config.membership,
-            wallet: wallet::WalletServiceSettings {
-                known_keys: {
-                    let mut keys = std::collections::HashSet::new();
-                    let sample_key = nomos_core::mantle::keys::PublicKey::from(
-                        num_bigint::BigUint::from(12345u64),
-                    );
-                    keys.insert(sample_key);
-                    keys
-                },
-            },
+            wallet: config.wallet,
             #[cfg(feature = "testing")]
             testing_http: config.testing_http,
         },
@@ -140,7 +131,7 @@ mod tests {
             output_index: 0,
             note: Note {
                 value: 1,
-                pk: PublicKey::from(BigUint::from(0u64)),
+                pk: PublicKey::from(BigUint::from(1234u64)),
             },
         };
 

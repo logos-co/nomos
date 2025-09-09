@@ -167,9 +167,12 @@ cryptarchia:
     cryptarchia_ledger:
       utxos:
         0:
-          - "03b2d3b8a925adcb25eb686b92db7f21a75f0e0f7c93da95b383f0fd35279e48"
-          - value: 1
-            pk: "0000000000000000000000000000000000000000000000000000000000000000"
+          - 43cf2ab23e09036421231d523bc98b14d2f9cdf6dc6eb86d589b8fc79dac8304
+          - tx_hash: "0000000000000000000000000000000000000000000000000000000000000000"
+            output_index: 0
+            note:
+              value: 1
+              pk: "0000000000000000000000000000000000000000000000000000000000000000"
       nonce:
         [
           0,
@@ -245,9 +248,12 @@ cryptarchia:
           ]
         utxos:
           0:
-            - "03b2d3b8a925adcb25eb686b92db7f21a75f0e0f7c93da95b383f0fd35279e48"
-            - value: 1
-              pk: "0000000000000000000000000000000000000000000000000000000000000000"
+            - 43cf2ab23e09036421231d523bc98b14d2f9cdf6dc6eb86d589b8fc79dac8304
+            - tx_hash: "0000000000000000000000000000000000000000000000000000000000000000"
+              output_index: 0
+              note:
+                value: 1
+                pk: "0000000000000000000000000000000000000000000000000000000000000000"
         total_stake: 1
       epoch_state:
         epoch: 0
@@ -288,16 +294,19 @@ cryptarchia:
           ]
         utxos:
           0:
-            - "03b2d3b8a925adcb25eb686b92db7f21a75f0e0f7c93da95b383f0fd35279e48"
-            - value: 1
-              pk: "0000000000000000000000000000000000000000000000000000000000000000"
+            - 43cf2ab23e09036421231d523bc98b14d2f9cdf6dc6eb86d589b8fc79dac8304
+            - tx_hash: "0000000000000000000000000000000000000000000000000000000000000000"
+              output_index: 0
+              note:
+                value: 1
+                pk: "0000000000000000000000000000000000000000000000000000000000000000"
         total_stake: 1
     mantle_ledger:
       channels:
         channels: {}
   time:
-    slot_duration: [2, 0]
-    chain_start_time: [2025, 41, 9, 38, 29, 993653000, 0, 0, 0]
+    slot_duration: [1, 0]
+    chain_start_time: [2025, 248, 0, 0, 0, 0, 0, 0, 0]
   leader_config:
     utxos:
       - tx_hash: "0000000000000000000000000000000000000000000000000000000000000000"
@@ -337,4 +346,8 @@ membership:
     session_size_blocks: 4320
     session_zero_membership: {}
     session_zero_locators_mapping: {}
+wallet:
+  known_keys:
+    - d204000000000000000000000000000000000000000000000000000000000000 # PublicKey::from(BigUint::from(1234))
+    - 0000000000000000000000000000000000000000000000000000000000000000 # PublicKey::from(BigUint::from(0))
 sdp:

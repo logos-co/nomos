@@ -6,6 +6,7 @@ version = "0.1.0"
 
 [dependencies]
 async-trait = "0.1"
+serde = { version = "1.0", features = ["derive"] }
 thiserror = "1.0"
 tokio = { version = "1", features = ["sync"] }
 

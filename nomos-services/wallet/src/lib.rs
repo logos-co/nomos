@@ -10,7 +10,6 @@ use nomos_core::{
     header::HeaderId,
     mantle::{keys::PublicKey, Utxo, Value},
 };
-use nomos_ledger::LedgerState;
 use overwatch::{
     services::{
         state::{NoOperator, NoState},
@@ -38,7 +37,7 @@ pub enum WalletMsg {
     },
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct WalletServiceSettings {
     pub known_keys: HashSet<PublicKey>,
 }
@@ -154,7 +153,7 @@ where
             .map_err(|e| format!("Failed to receive LIB ledger state: {:?}", e))?
             .unwrap_or_else(|| {
                 eprintln!("Warning: LIB ledger state not found, using empty state");
-                LedgerState::from_utxos([])
+                nomos_ledger::LedgerState::from_utxos([])
             });
 
         let mut wallet = Wallet::from_lib(settings.known_keys.clone(), lib, lib_ledger);

@@ -243,6 +243,7 @@ pub struct Config {
     pub time: <TimeService as ServiceData>::Settings,
     pub storage: <StorageService as ServiceData>::Settings,
     pub mempool: MempoolConfig,
+    pub wallet: <crate::WalletService as ServiceData>::Settings,
 
     #[cfg(feature = "testing")]
     pub testing_http: <ApiService as ServiceData>::Settings,

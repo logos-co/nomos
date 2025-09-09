@@ -540,7 +540,7 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
         },
         membership: config.membership_config.service_settings,
         sdp: (),
-
+        wallet: config.wallet,
         testing_http: nomos_api::ApiServiceSettings {
             backend_settings: AxumBackendSettings {
                 address: testing_http_address,
