@@ -63,7 +63,7 @@ impl WalletState {
     ) -> Option<Vec<Utxo>> {
         let mut utxos: Vec<Utxo> = pks
             .into_iter()
-            .flat_map(|pk| self.pk_index.get(&pk))
+            .filter_map(|pk| self.pk_index.get(&pk))
             .flatten()
             .map(|id| self.utxos[id])
             .collect();
@@ -180,7 +180,7 @@ impl Wallet {
         let wallet_state = WalletState::from_ledger(&known_keys, ledger);
 
         Self {
-            known_keys: known_keys.into_iter().collect(),
+            known_keys,
             wallet_states: [(lib, wallet_state)].into(),
         }
     }
