@@ -33,11 +33,9 @@ pub static P: LazyLock<BigUint> = LazyLock::new(|| {
 /// use to choose the unsigned type.
 static T0_CONSTANT: LazyLock<BigUint> = LazyLock::new(|| {
     // t0 constant :
-    // 0x27b6fe27507ca57ca369280400c79b5d2f58ff94d87cb0fbfc8294eb69eb1ea
-    BigUint::from_str(
-        "1122720085251457488657939587576977282954863756865979276605118041105190793706",
-    )
-    .expect("Constant should parse")
+    // 0x1a3fb997fd58374772808c13d1c2ddacb5ab3ea77413f86fd6e0d3d978e5438
+    BigUint::from_str("742045396809522939187358549782292151710936178017104456892987098557433402424")
+        .expect("Constant should parse")
 });
 
 /// :warning: There may be dragons
@@ -50,8 +48,8 @@ static T0_CONSTANT: LazyLock<BigUint> = LazyLock::new(|| {
 /// use to choose the unsigned type.
 static T1_CONSTANT: LazyLock<BigUint> = LazyLock::new(|| {
     // t1 constant:
-    // -0x104bfd09ebdd0a57772289d0973489b62662a4dc6f09da8b4af3c5cfb1dcdd
-    BigUint::from_str("28794005923809446652337194229268641024881242442862297438215833784455126237")
+    // -0x71e790b41991052e30c93934b5612412e7958837bac8b1c524c24d84cc7d0
+    BigUint::from_str("12578245182819753845500458967814210649280216108646614591991817029251024848")
         .expect("Constant should parse")
 });
 
