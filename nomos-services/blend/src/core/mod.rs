@@ -173,6 +173,9 @@ where
         // Yields new messages received via Blend peers.
         let mut blend_messages = backend.listen_to_incoming_messages();
 
+        // Rng for releasing messages.
+        let mut rng = BlakeRng::from_entropy();
+
         wait_until_services_are_ready!(
             &overwatch_handle,
             Some(Duration::from_secs(60)),
@@ -188,7 +191,6 @@ where
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
 
-        let mut rng = BlakeRng::from_entropy();
         loop {
             tokio::select! {
                 // Core blend service is supposed to be used only through the proxy service. As an additional protection, if it is used directly with a network that is too small, the service will simply not accept any incoming messages to be blended.
