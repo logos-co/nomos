@@ -48,15 +48,6 @@ impl ProofOfQuota {
     }
 
     pub fn verify(self, public_inputs: PublicInputs) -> Result<Fr, Error> {
-        // TODO: Remove this later on.
-        #[cfg(test)]
-        {
-            use groth16::Field as _;
-            if self == Self::always_valid() {
-                return Ok(Fr::ZERO);
-            }
-        }
-
         let verifier_input =
             VerifyInputs::from_prove_inputs_and_nullifier(public_inputs, self.key_nullifier);
         let is_proof_valid = matches!(verify(&self.proof, &verifier_input.into()), Ok(true));
@@ -65,12 +56,6 @@ impl ProofOfQuota {
         } else {
             Err(Error::InvalidProof)
         }
-    }
-
-    #[cfg(test)]
-    #[must_use]
-    pub fn always_valid() -> Self {
-        Self::new(PublicInputs::default(), PrivateInputs::default()).unwrap()
     }
 }
 

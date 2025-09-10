@@ -1,12 +1,7 @@
-use groth16::Fr;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    crypto::{
-        keys::Ed25519PublicKey,
-        proofs::quota::{inputs::prove::PublicInputs, ProofOfQuota},
-        signatures::Signature,
-    },
+    crypto::{keys::Ed25519PublicKey, proofs::quota::ProofOfQuota, signatures::Signature},
     Error,
 };
 
@@ -43,18 +38,21 @@ impl PublicHeader {
         }
     }
 
-    pub fn verify_proof_of_quota(&self, verification_inputs: &PublicInputs) -> Result<Fr, Error> {
-        self.proof_of_quota
-            .verify(*verification_inputs)
-            .map_err(|_| Error::ProofOfQuotaVerificationFailed)
-    }
-
     pub const fn signing_pubkey(&self) -> &Ed25519PublicKey {
         &self.signing_pubkey
     }
 
     pub const fn signature(&self) -> &Signature {
         &self.signature
+    }
+
+    pub fn into_components(self) -> (u8, Ed25519PublicKey, ProofOfQuota, Signature) {
+        (
+            self.version,
+            self.signing_pubkey,
+            self.proof_of_quota,
+            self.signature,
+        )
     }
 
     #[cfg(any(test, feature = "unsafe-test-functions"))]
