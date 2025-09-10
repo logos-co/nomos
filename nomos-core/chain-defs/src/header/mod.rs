@@ -1,5 +1,6 @@
 use blake2::Digest as _;
 use cryptarchia_engine::Slot;
+use ed25519_dalek::Signer as _;
 use serde::{Deserialize, Serialize};
 
 pub const BEDROCK_VERSION: u8 = 1;
@@ -101,6 +102,14 @@ impl Header {
     #[must_use]
     pub const fn slot(&self) -> Slot {
         self.slot
+    }
+
+    pub fn sign(
+        &self,
+        signing_key: &ed25519_dalek::SigningKey,
+    ) -> Result<ed25519_dalek::Signature, crate::block::Error> {
+        let header_bytes = crate::wire::serialize(self)?;
+        Ok(signing_key.sign(&header_bytes))
     }
 
     #[must_use]

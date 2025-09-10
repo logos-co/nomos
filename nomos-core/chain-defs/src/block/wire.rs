@@ -73,8 +73,9 @@ impl<'de> Deserialize<'de> for References {
 #[derive(serde::Serialize, serde::Deserialize)]
 struct WireBlock<Tx> {
     header: Header,
-    transactions: Vec<Tx>,
+    signature: ed25519_dalek::Signature,
     service_reward: Option<SerializableFr>,
+    transactions: Vec<Tx>,
 }
 
 impl<Tx: Serialize + Clone> Serialize for Block<Tx> {
@@ -86,8 +87,9 @@ impl<Tx: Serialize + Clone> Serialize for Block<Tx> {
 
         let wire = WireBlock {
             header: self.header.clone(),
-            transactions: self.transactions.clone(),
+            signature: self.signature,
             service_reward,
+            transactions: self.transactions.clone(),
         };
 
         wire.serialize(serializer)
@@ -105,14 +107,17 @@ impl<'de, Tx: Deserialize<'de>> Deserialize<'de> for Block<Tx> {
 
         Ok(Self {
             header: wire.header,
-            transactions: wire.transactions,
+            signature: wire.signature,
             service_reward,
+            transactions: wire.transactions,
         })
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use ed25519_dalek::SigningKey;
+
     use super::Fr;
     use crate::block::{Block, References};
 
@@ -186,7 +191,12 @@ mod tests {
         let transactions = vec!["tx1".to_owned(), "tx2".to_owned()];
         let service_reward = Fr::from(123u64);
 
-        let block = Block::new_with_service_reward(header, transactions, service_reward);
+        let signing_key = SigningKey::from_bytes(&[1u8; 32]);
+        let signature = header
+            .sign(&signing_key)
+            .expect("Header signing should work in test");
+
+        let block = Block::new(header, transactions, Some(service_reward), signature);
 
         let wire_bytes = crate::wire::serialize(&block).expect("Failed to serialize block");
         let deserialized: Block<String> =

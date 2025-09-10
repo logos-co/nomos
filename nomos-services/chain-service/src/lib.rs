@@ -92,8 +92,10 @@ pub enum Error {
     Ledger(#[from] nomos_ledger::LedgerError<HeaderId>),
     #[error("Consensus error: {0}")]
     Consensus(#[from] cryptarchia_engine::Error<HeaderId>),
-    #[error("Proposal error: {0}")]
-    Proposal(String),
+    #[error("Serialization error: {0}")]
+    Serialisation(#[from] nomos_core::wire::Error),
+    #[error("Invalid block: {0}")]
+    InvalidBlock(String),
     #[error("Storage error: {0}")]
     Storage(String),
 }
@@ -764,32 +766,48 @@ where
                         }
                     }
 
-                    // TODO: we maybe can keep existing orphan downloading logic but convert Block to Proposal
                     Some(block) = orphan_downloader.next(), if orphan_downloader.should_poll() => {
-                        let header_id= block.header().id();
+                        let header_id = block.header().id();
                         info!("Processing block from orphan downloader: {header_id:?}");
 
                         if cryptarchia.has_block(&block.header().id()) {
                             continue;
                         }
 
-                        match Self::process_block_and_update_state(
-                            cryptarchia.clone(),
-                            &leader,
-                            block.clone(),
-                            &storage_blocks_to_remove,
-                            &relays,
-                            &self.block_subscription_sender,
-                            &self.service_resources_handle.state_updater
-                        ).await {
-                            Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
-                                cryptarchia = new_cryptarchia;
-                                storage_blocks_to_remove = new_storage_blocks_to_remove;
+                        match block.validate() {
+                            Ok(()) => {
+                                Self::log_received_block(&block);
 
-                                info!(counter.consensus_processed_blocks = 1);
+                                match Self::process_block_and_update_state(
+                                    cryptarchia.clone(),
+                                    &leader,
+                                    block,
+                                    &storage_blocks_to_remove,
+                                    &relays,
+                                    &self.block_subscription_sender,
+                                    &self.service_resources_handle.state_updater
+                                ).await {
+                                    Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
+                                        cryptarchia = new_cryptarchia;
+                                        storage_blocks_to_remove = new_storage_blocks_to_remove;
+
+                                        orphan_downloader.remove_orphan(&header_id);
+                                        info!(counter.consensus_processed_blocks = 1);
+                                    }
+                                    Err(Error::Ledger(nomos_ledger::LedgerError::ParentNotFound(parent))
+                                        | Error::Consensus(cryptarchia_engine::Error::ParentMissing(parent))) => {
+
+                                        orphan_downloader.enqueue_orphan(header_id, cryptarchia.tip(), cryptarchia.lib());
+                                        error!(target: LOG_TARGET, "Orphan block with parent {:?} not in ledger state", parent);
+                                    }
+                                    Err(e) => {
+                                        error!(target: LOG_TARGET, "Error processing orphan block: {e:?}");
+                                        orphan_downloader.cancel_active_download();
+                                    }
+                                }
                             }
                             Err(e) => {
-                                error!(target: LOG_TARGET, "Error processing orphan downloader block: {e:?}");
+                                error!(target: LOG_TARGET, "Failed to validate orphan block: {e:?}");
                                 orphan_downloader.cancel_active_download();
                             }
                         }
@@ -1139,7 +1157,15 @@ where
                     .collect::<Vec<_>>();
                 let content_id = [0; 32].into(); // TODO: calculate the actual content id
                                                  // TODO: this should probably be a proposal or be transformed into a proposal
-                let block = Block::new(Header::new(parent, content_id, slot, proof), txs);
+                                                 // TODO: Use correct derived one time key
+                let dummy_signing_key = SigningKey::from_bytes(&[1u8; 32]);
+                let header = Header::new(parent, content_id, slot, proof);
+
+                let Ok(signature) = header.sign(&dummy_signing_key) else {
+                    error!("Failed to sign header during block proposal");
+                    return None;
+                };
+                let block = Block::new(header, txs, None, signature);
                 debug!("proposed block with id {:?}", block.header().id());
                 output = Some(block);
             }
@@ -1615,10 +1641,10 @@ where
     BlendService::BroadcastSettings: Clone + Sync,
 {
     // TODO: Use correct derived one time key
-    let signing_key = SigningKey::generate(&mut rand::thread_rng());
+    let signing_key = SigningKey::from_bytes(&rand::random::<[u8; 32]>());
     let proposal = block
         .to_proposal(&signing_key)
-        .map_err(|e| Error::Proposal(format!("Failed to create proposal from block: {e}")))?;
+        .map_err(|e| Error::InvalidBlock(format!("Failed to create proposal from block: {e}")))?;
 
     blend_adapter.publish_proposal(proposal).await;
 
@@ -1634,22 +1660,6 @@ where
     Payload: Send,
     Item: Clone + Transaction<Hash = TxHash> + Send,
 {
-    if !proposal.header().is_valid_bedrock_version() {
-        return Err(Error::Proposal(format!(
-            "Invalid header version: expected all fields = 0x01, got {:?}",
-            proposal.header().version()
-        )));
-    }
-
-    if proposal.references().mempool_transactions.len() > 1024 {
-        return Err(Error::Proposal(
-            "Too many transaction references (max 1024)".into(),
-        ));
-    }
-
-    // TODO: the rest of validations should probably go to
-    // process_block_and_update_state
-
     let needed_hashes: Vec<TxHash> = proposal
         .references()
         .mempool_transactions
@@ -1659,7 +1669,7 @@ where
 
     let reconstructed_transactions = get_transactions_by_hashes(mempool, needed_hashes.clone())
         .await
-        .map_err(|e| Error::Proposal(format!("Failed to get transactions by hashes: {e}")))?;
+        .map_err(|e| Error::InvalidBlock(format!("Failed to get transactions by hashes: {e}")))?;
 
     if reconstructed_transactions.len() != needed_hashes.len() {
         let missing_transactions: Vec<TxHash> = needed_hashes
@@ -1671,18 +1681,26 @@ where
             })
             .collect();
 
-        return Err(Error::Proposal(format!(
+        return Err(Error::InvalidBlock(format!(
             "Failed to reconstruct block: {missing_transactions:?} transactions not found in mempool",
         )));
     }
 
     let header = proposal.header().clone();
     let service_reward = proposal.references().service_reward;
+    let signature = *proposal.signature();
 
-    Ok(match service_reward {
-        Some(reward) => Block::new_with_service_reward(header, reconstructed_transactions, reward),
-        None => Block::new(header, reconstructed_transactions),
-    })
+    let block = Block::new(
+        header,
+        reconstructed_transactions,
+        service_reward,
+        signature,
+    );
+    block
+        .validate()
+        .map_err(|e| Error::InvalidBlock(format!("Reconstructed block is invalid: {e}")))?;
+
+    Ok(block)
 }
 
 #[cfg(test)]

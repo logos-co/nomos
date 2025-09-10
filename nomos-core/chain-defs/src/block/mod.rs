@@ -1,6 +1,6 @@
 use ::serde::{de::DeserializeOwned, Deserialize, Serialize};
 use bytes::Bytes;
-use ed25519_dalek::{ed25519::signature::Signer as _, SigningKey};
+use ed25519_dalek::SigningKey;
 use groth16::Fr;
 
 use crate::{header::Header, mantle::Transaction};
@@ -11,10 +11,12 @@ pub type TxHash = [u8; 32];
 pub type BlockNumber = u64;
 pub type SessionNumber = u64;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Clone, Debug, thiserror::Error)]
 pub enum Error {
     #[error("Failed to serialize: {0}")]
     Serialisation(#[from] crate::wire::Error),
+    #[error("Signing error: {0}")]
+    Signing(String),
 }
 
 /// A block proposal
@@ -35,8 +37,9 @@ pub struct References {
 #[derive(Clone, Debug)]
 pub struct Block<Tx> {
     header: Header,
+    signature: ed25519_dalek::Signature,
+    service_reward: Option<Fr>,
     transactions: Vec<Tx>,
-    pub service_reward: Option<Fr>,
 }
 
 impl Proposal {
@@ -58,24 +61,17 @@ impl Proposal {
 
 impl<Tx> Block<Tx> {
     #[must_use]
-    pub const fn new(header: Header, transactions: Vec<Tx>) -> Self {
-        Self {
-            header,
-            transactions,
-            service_reward: None,
-        }
-    }
-
-    #[must_use]
-    pub const fn new_with_service_reward(
+    pub const fn new(
         header: Header,
         transactions: Vec<Tx>,
-        service_reward: Fr,
+        service_reward: Option<Fr>,
+        signature: ed25519_dalek::Signature,
     ) -> Self {
         Self {
             header,
+            signature,
+            service_reward,
             transactions,
-            service_reward: Some(service_reward),
         }
     }
 
@@ -94,6 +90,37 @@ impl<Tx> Block<Tx> {
         self.transactions
     }
 
+    #[must_use]
+    pub const fn service_reward(&self) -> Option<Fr> {
+        self.service_reward
+    }
+
+    #[must_use]
+    pub const fn signature(&self) -> &ed25519_dalek::Signature {
+        &self.signature
+    }
+
+    /// Basic validation
+    pub fn validate(&self) -> Result<(), Error>
+    where
+        Tx: Transaction,
+        Tx::Hash: Into<Fr>,
+    {
+        if !self.header.is_valid_bedrock_version() {
+            return Err(Error::Signing("Invalid header version".to_owned()));
+        }
+
+        if self.transactions.len() > 1024 {
+            return Err(Error::Signing(
+                "Too many transactions (max 1024)".to_owned(),
+            ));
+        }
+
+        // TODO: validate signature?
+
+        Ok(())
+    }
+
     pub fn to_proposal(&self, signing_key: &SigningKey) -> Result<Proposal, Error>
     where
         Tx: Transaction,
@@ -110,8 +137,7 @@ impl<Tx> Block<Tx> {
             mempool_transactions,
         };
 
-        let header_bytes = crate::wire::serialize(&self.header)?;
-        let signature = signing_key.sign(&header_bytes);
+        let signature = self.header.sign(signing_key)?;
 
         Ok(Proposal {
             header: self.header.clone(),
