@@ -29,6 +29,7 @@ pub struct ProofOfQuota {
 pub enum Error {
     InvalidInput(PoQInputsFromDataError),
     ProofGeneration(ProveError),
+    InvalidProof,
 }
 
 impl ProofOfQuota {
@@ -47,7 +48,7 @@ impl ProofOfQuota {
         })
     }
 
-    pub fn verify(self, public_inputs: PublicInputs) -> Result<ZkHash, ()> {
+    pub fn verify(self, public_inputs: PublicInputs) -> Result<ZkHash, Error> {
         let verifier_input =
             VerifyInputs::from_prove_inputs_and_nullifier(public_inputs, self.key_nullifier);
         let is_proof_valid = matches!(verify(&self.proof, &verifier_input.into()), Ok(true));
@@ -57,7 +58,7 @@ impl ProofOfQuota {
         if is_proof_valid {
             Ok(self.key_nullifier)
         } else {
-            Err(())
+            Err(Error::InvalidProof)
         }
     }
 
