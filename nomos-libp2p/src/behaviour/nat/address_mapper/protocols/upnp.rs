@@ -43,7 +43,7 @@ impl UpnpProtocol {
                 // Request the same port as the local address
                 mapped_port,
                 local_address,
-                settings.lease_duration,
+                settings.lease_duration.as_secs() as u32,
                 "libp2p UPnP mapping",
             )
             .await?;

@@ -96,11 +96,9 @@ where
         let (command_tx, command_rx) = tokio::sync::mpsc::unbounded_channel();
         let state_machine = StateMachine::new(command_tx);
 
-        let autonat_client_tick_interval = Duration::from_millis(
-            nat_config
-                .autonat
-                .retest_successful_external_addresses_interval_millisecs,
-        );
+        let autonat_client_tick_interval = nat_config
+            .autonat
+            .retest_successful_external_addresses_interval;
 
         Self {
             autonat_client_behaviour,

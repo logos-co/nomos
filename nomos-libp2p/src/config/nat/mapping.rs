@@ -7,10 +7,7 @@ use nomos_utils::{
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
-const GW_RECV_TIMEOUT_SEC: u64 = 1;
-const LEASE_LIFETIME_SECS: u32 = 7200; // 2 hours
 const DEFAULT_RENEWAL_DELAY_FRACTION: f64 = 0.8;
-const DEFAULT_RETRY_INTERVAL_SEC: u64 = 30;
 
 #[serde_as]
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -19,7 +16,7 @@ pub struct Settings {
     #[serde_as(as = "MinimalBoundedDuration<1, SECOND>")]
     pub timeout: Duration,
     #[serde(default = "default_lifetime")]
-    pub lease_duration: u32,
+    pub lease_duration: Duration,
     #[serde(default = "default_max_retries")]
     pub max_retries: u32,
     #[serde(default = "default_renewal_delay_fraction")]
@@ -29,11 +26,11 @@ pub struct Settings {
 }
 
 const fn default_timeout() -> Duration {
-    Duration::from_secs(GW_RECV_TIMEOUT_SEC)
+    Duration::from_secs(1)
 }
 
-const fn default_lifetime() -> u32 {
-    LEASE_LIFETIME_SECS
+const fn default_lifetime() -> Duration {
+    Duration::from_secs(7200) // 2 hours
 }
 
 const fn default_max_retries() -> u32 {
@@ -45,7 +42,7 @@ fn default_renewal_delay_fraction() -> PositiveF64 {
 }
 
 const fn default_retry_interval() -> Duration {
-    Duration::from_secs(DEFAULT_RETRY_INTERVAL_SEC)
+    Duration::from_secs(30)
 }
 
 impl Default for Settings {

@@ -72,7 +72,13 @@ impl NatPmp {
             .await
             .map_err(|e| AddressMapperError::PortMappingFailed(e.to_string()))?;
 
-        Self::send_map_request(&nat_pmp, protocol, port, settings.lease_duration).await?;
+        Self::send_map_request(
+            &nat_pmp,
+            protocol,
+            port,
+            settings.lease_duration.as_secs() as u32,
+        )
+        .await?;
 
         let public_port = timeout(
             settings.timeout,

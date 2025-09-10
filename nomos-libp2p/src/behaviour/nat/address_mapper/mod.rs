@@ -281,11 +281,11 @@ impl State {
 
     fn active(
         local_address: Multiaddr,
-        lease_duration: u32,
+        lease_duration: Duration,
         renewal_delay_fraction: PositiveF64,
     ) -> Self {
         let renewal_delay =
-            Duration::from_secs_f64(f64::from(lease_duration) * renewal_delay_fraction.get());
+            Duration::from_secs_f64(lease_duration.as_secs_f64() * renewal_delay_fraction.get());
 
         Self::Active(ActiveState {
             local_address,
@@ -515,7 +515,7 @@ mod tests {
         MockMapper::reset_mapping_attempts_count();
 
         let settings = NatMappingSettings {
-            lease_duration: 2,
+            lease_duration: Duration::from_secs(2),
             ..Default::default()
         };
 

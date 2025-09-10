@@ -19,12 +19,12 @@ pub struct Settings {
     /// The interval at which we will retest successful external addresses.
     /// This is used to ensure that the external address is still valid and
     /// reachable.
-    #[serde(default = "default_restest_interval_millisecs")]
-    pub retest_successful_external_addresses_interval_millisecs: u64,
+    #[serde(default = "default_retest_interval")]
+    pub retest_successful_external_addresses_interval: Duration,
 }
 
-const fn default_restest_interval_millisecs() -> u64 {
-    60_000 // 1 minute
+const fn default_retest_interval() -> Duration {
+    Duration::from_secs(60)
 }
 
 impl Settings {
