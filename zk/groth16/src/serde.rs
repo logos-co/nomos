@@ -13,7 +13,8 @@ pub mod serde_fr {
             let hex = hex::encode(bytes); // Convert `Fr` to hex representation
             serializer.serialize_str(&hex)
         } else {
-            serializer.serialize_bytes(&bytes)
+            let sized_bytes: [u8; 32] = bytes.try_into().expect("Fr's bytes length is not 32");
+            serializer.serialize_bytes(&sized_bytes)
         }
     }
 
@@ -26,8 +27,8 @@ pub mod serde_fr {
             let bytes = hex::decode(hex_str).map_err(serde::de::Error::custom)?;
             Ok(BigUint::from_bytes_le(&bytes).into()) // Parse from hex    
         } else {
-            let bytes = Vec::<u8>::deserialize(deserializer)?;
-            Ok(BigUint::from_bytes_le(&bytes).into())
+            let sized_bytes = <[u8; 32]>::deserialize(deserializer)?;
+            Ok(BigUint::from_bytes_le(&sized_bytes).into())
         }
     }
 
