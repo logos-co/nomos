@@ -46,17 +46,6 @@ impl<E: Pairing> From<&Proof<E>> for ark_groth16::Proof<E> {
     }
 }
 
-impl<E: Pairing> From<ark_groth16::Proof<E>> for Proof<E> {
-    fn from(value: ark_groth16::Proof<E>) -> Self {
-        let ark_groth16::Proof { a, b, c } = value;
-        Self {
-            pi_a: a,
-            pi_b: b,
-            pi_c: c,
-        }
-    }
-}
-
 #[cfg(feature = "deser")]
 impl TryFrom<ProofJsonDeser> for Proof<Bn254> {
     type Error = FromJsonError;
