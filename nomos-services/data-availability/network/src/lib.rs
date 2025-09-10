@@ -130,6 +130,9 @@ pub struct NetworkConfig<
     pub membership: Membership,
     pub api_adapter_settings: ApiAdapterSettings,
     pub subnet_refresh_interval: Duration,
+    // Number of connected subnetworks that the node requires to have in order to operate
+    // correctly.
+    pub subnet_threshold: usize,
 }
 
 impl<
@@ -367,6 +370,13 @@ where
                 e
             })?;
 
+        let subnet_threshold = self
+            .service_resources_handle
+            .settings_handle
+            .notifier()
+            .get_updated_settings()
+            .subnet_threshold;
+
         status_updater.notify_ready();
         tracing::info!(
             "Service '{}' is ready.",
@@ -390,7 +400,7 @@ where
                     let connected_subnetworks = stats.values()
                         .filter(|stats| stats.inbound > 0 || stats.outbound > 0)
                         .count();
-                    if connected_subnetworks < membership.last_subnetwork_id() as usize {
+                    if connected_subnetworks < subnet_threshold {
                         backend.update_status(ConnectionStatus::InsufficientSubnetworkConnections);
                     } else {
                         backend.update_status(ConnectionStatus::Ready);
@@ -600,6 +610,7 @@ where
             membership: self.membership.clone(),
             api_adapter_settings: self.api_adapter_settings.clone(),
             subnet_refresh_interval: self.subnet_refresh_interval,
+            subnet_threshold: self.subnet_threshold,
         }
     }
 }
