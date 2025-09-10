@@ -1,12 +1,12 @@
-use nomos_core::crypto::ZkHash;
+use groth16::Fr;
 
 pub enum SecretKey {
-    Core(ZkHash),
-    PoL(u64),
+    Core(Fr),
+    PoL(Fr),
 }
 
 pub struct ProofOfSelectionInputs {
     pub secret_key: SecretKey,
-    pub ephemeral_key_index: usize,
+    pub ephemeral_key_index: u64,
     pub session_number: u64,
 }

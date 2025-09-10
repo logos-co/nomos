@@ -10,10 +10,10 @@ fn split_ephemeral_signing_key(
 ) -> (HalfEphemeralSigningKey, HalfEphemeralSigningKey) {
     let key_bytes = key.as_bytes();
     (
-        key_bytes[0..KEY_SIZE]
+        key_bytes[0..(KEY_SIZE / 2)]
             .try_into()
             .expect("Ephemeral signing key must be exactly 32 bytes long."),
-        key_bytes[KEY_SIZE..]
+        key_bytes[(KEY_SIZE / 2)..]
             .try_into()
             .expect("Ephemeral signing key must be exactly 32 bytes long."),
     )

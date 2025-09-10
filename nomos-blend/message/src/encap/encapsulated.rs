@@ -54,14 +54,14 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
             |(part, signing_key, proof_of_quota), (i, input)| {
                 (
                     part.encapsulate(
-                        &input.ephemeral_encryption_key,
+                        input.ephemeral_encryption_key(),
                         &signing_key,
                         &proof_of_quota,
-                        input.proof_of_selection.clone(),
+                        *input.proof_of_selection(),
                         i == 0,
                     ),
-                    input.ephemeral_signing_key.clone(),
-                    input.proof_of_quota,
+                    input.ephemeral_signing_key().clone(),
+                    *input.proof_of_quota(),
                 )
             },
         );
@@ -255,7 +255,7 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPrivateHeader<ENCAPSULATION_C
         Self(
             inputs
                 .iter()
-                .map(|input| Some(&input.ephemeral_encryption_key))
+                .map(|input| Some(input.ephemeral_encryption_key()))
                 .chain(repeat_n(None, inputs.num_empty_slots()))
                 .rev()
                 .map(|rng_key| {
@@ -271,10 +271,10 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPrivateHeader<ENCAPSULATION_C
                             inputs
                                 .iter()
                                 .take_while_inclusive(|&input| {
-                                    &input.ephemeral_encryption_key != rng_key
+                                    input.ephemeral_encryption_key() != rng_key
                                 })
                                 .for_each(|input| {
-                                    header.encapsulate(&input.ephemeral_encryption_key);
+                                    header.encapsulate(input.ephemeral_encryption_key());
                                 });
                             header
                         },

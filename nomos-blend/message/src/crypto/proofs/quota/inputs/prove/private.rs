@@ -56,22 +56,16 @@ pub enum ProofType {
     LeadershipQuota(ProofOfLeadershipQuotaInputs),
 }
 
-impl From<ProofOfCoreQuotaInputs> for ProofType {
-    fn from(value: ProofOfCoreQuotaInputs) -> Self {
-        Self::CoreQuota(value)
-    }
-}
-
-impl From<ProofOfLeadershipQuotaInputs> for ProofType {
-    fn from(value: ProofOfLeadershipQuotaInputs) -> Self {
-        Self::LeadershipQuota(value)
-    }
-}
-
 pub struct ProofOfCoreQuotaInputs {
     pub core_sk: Fr,
     pub core_path: Vec<Fr>,
     pub core_path_selectors: Vec<bool>,
+}
+
+impl From<ProofOfCoreQuotaInputs> for ProofType {
+    fn from(value: ProofOfCoreQuotaInputs) -> Self {
+        Self::CoreQuota(value)
+    }
 }
 
 pub struct ProofOfLeadershipQuotaInputs {
@@ -84,4 +78,10 @@ pub struct ProofOfLeadershipQuotaInputs {
     pub slot_secret: Fr,
     pub slot_secret_path: Vec<Fr>,
     pub starting_slot: u64,
+}
+
+impl From<ProofOfLeadershipQuotaInputs> for ProofType {
+    fn from(value: ProofOfLeadershipQuotaInputs) -> Self {
+        Self::LeadershipQuota(value)
+    }
 }

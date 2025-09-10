@@ -1,19 +1,25 @@
-use groth16::{serde::serde_fr, Fr};
-use nomos_core::crypto::{ZkHash, ZkHasher};
+use ::serde::{Deserialize, Serialize};
+use groth16::Fr;
+use nomos_core::crypto::ZkHasher;
 use num_bigint::BigUint;
-use serde::{Deserialize, Serialize};
 
 use crate::crypto::proofs::selection::inputs::{ProofOfSelectionInputs, SecretKey};
 
 pub mod inputs;
+mod serde;
 
 const DOMAIN_SEPARATION_TAG: [u8; 23] = *b"SELECTION_RANDOMNESS_V1";
 pub const PROOF_OF_SELECTION_SIZE: usize = size_of::<ProofOfSelection>();
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug)]
+pub enum Error {
+    InvalidProof,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProofOfSelection {
-    #[serde(with = "serde_fr")]
-    secret_selection_randomness: ZkHash,
+    #[serde(with = "self::serde::selection_randomness_serde")]
+    secret_selection_randomness: Fr,
 }
 
 impl ProofOfSelection {
@@ -33,7 +39,7 @@ impl ProofOfSelection {
         let secret_key = match secret_key {
             SecretKey::Core(core_sk) => core_sk,
             // TODO: Change this logic
-            SecretKey::PoL(_) => ZkHash::default(),
+            SecretKey::PoL(pol_note_sk) => pol_note_sk,
         };
         let secret_selection_randomness = {
             let mut hasher = ZkHasher::new();
@@ -51,40 +57,32 @@ impl ProofOfSelection {
         }
     }
 
-    // TODO: Implement actual verification logic.
-    pub fn verify(self, key_nullifier: &ZkHash) -> Result<(), ()> {
-        let hashed_secret_randomness = {
-            let mut hasher = ZkHasher::new();
-            hasher.update(&[self.secret_selection_randomness]);
-            hasher.finalize()
-        };
-        // TODO: Remove check with dummy
-        if &hashed_secret_randomness == key_nullifier || self == Self::dummy() {
-            Ok(())
-        } else {
-            Err(())
-        }
+    pub fn verify(self, _key_nullifier: &Fr) -> Result<(), Error> {
+        todo!("Implement actual verification logic.")
     }
 
     // TODO: Remove this once the actual proof of selection is implemented.
     #[must_use]
-    pub fn dummy() -> Self {
+    #[cfg(test)]
+    pub const fn dummy() -> Self {
+        use groth16::Field as _;
+
         Self {
-            secret_selection_randomness: ZkHash::default(),
+            secret_selection_randomness: Fr::ZERO,
         }
     }
 }
 
-impl From<ZkHash> for ProofOfSelection {
-    fn from(hash: ZkHash) -> Self {
+impl From<Fr> for ProofOfSelection {
+    fn from(secret_selection_randomness: Fr) -> Self {
         Self {
-            secret_selection_randomness: hash,
+            secret_selection_randomness,
         }
     }
 }
 
-impl AsRef<ZkHash> for ProofOfSelection {
-    fn as_ref(&self) -> &ZkHash {
+impl AsRef<Fr> for ProofOfSelection {
+    fn as_ref(&self) -> &Fr {
         &self.secret_selection_randomness
     }
 }

@@ -1,26 +1,3 @@
-use groth16::Fr;
-use poq::PoQProof;
-use serde::{Deserialize, Serialize};
-
-use crate::crypto::proofs::quota::ProofOfQuota;
-
-#[derive(Serialize, Deserialize)]
-struct ProofOfQuotaSerde {
-    #[serde(with = "input_serde")]
-    key_nullifier: Fr,
-    #[serde(with = "proof_serde")]
-    proof: PoQProof,
-}
-
-impl From<ProofOfQuotaSerde> for ProofOfQuota {
-    fn from(value: ProofOfQuotaSerde) -> Self {
-        Self {
-            key_nullifier: value.key_nullifier,
-            proof: value.proof,
-        }
-    }
-}
-
 pub(super) mod input_serde {
     use groth16::Fr;
     use serde::{Deserializer, Serializer};
@@ -40,7 +17,6 @@ pub(super) mod input_serde {
     }
 }
 
-// TODO: Implement proper serialization later.
 pub(super) mod proof_serde {
     use poq::PoQProof;
     use serde::{Deserializer, Serializer};

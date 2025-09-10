@@ -14,7 +14,7 @@ pub mod private;
 pub mod public;
 pub use self::{private::Inputs as PrivateInputs, public::Inputs as PublicInputs};
 
-pub struct Inputs {
+pub(crate) struct Inputs {
     pub public: PublicInputs,
     pub private: PrivateInputs,
 }
