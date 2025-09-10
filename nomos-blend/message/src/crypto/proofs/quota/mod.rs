@@ -53,7 +53,7 @@ impl ProofOfQuota {
         let is_proof_valid = matches!(verify(&self.proof, &verifier_input.into()), Ok(true));
         #[cfg(test)]
         // TODO: Remove this later on.
-        let is_proof_valid = is_proof_valid && self == Self::dummy();
+        let is_proof_valid = is_proof_valid && self == Self::always_valid();
         if is_proof_valid {
             Ok(self.key_nullifier)
         } else {
@@ -63,7 +63,7 @@ impl ProofOfQuota {
 
     #[cfg(test)]
     #[must_use]
-    pub fn dummy() -> Self {
+    pub fn always_valid() -> Self {
         Self::new(PublicInputs::default(), PrivateInputs::default()).unwrap()
     }
 }
