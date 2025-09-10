@@ -24,6 +24,7 @@ pub struct Proof<E: Pairing> {
     pub pi_c: E::G1Affine,
 }
 
+#[derive(Clone, Debug)]
 pub struct CompressedProof<
     const G1_COMPRESSED_SIZE: usize,
     const G2_COMPRESSED_SIZE: usize,
