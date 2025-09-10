@@ -18,20 +18,24 @@ pub(super) mod input {
 }
 
 pub(super) mod proof {
+    use nomos_utils::serde::deserialize_bytes_array;
     use poq::PoQProof;
-    use serde::{Deserializer, Serializer};
+    use serde::{de::Error as _, Deserializer, Serialize, Serializer};
 
-    pub fn serialize<S>(_proof: &PoQProof, _serializer: S) -> Result<S::Ok, S::Error>
+    use crate::crypto::proofs::quota::{KEY_NULLIFIER_SIZE, PROOF_OF_QUOTA_SIZE};
+
+    pub fn serialize<S>(proof: &PoQProof, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        todo!("Implement proper serialization later.")
+        [&proof.pi_a[..], &proof.pi_b[..], &proof.pi_c[..]].serialize(serializer)
     }
 
-    pub fn deserialize<'de, D>(_deserializer: D) -> Result<PoQProof, D::Error>
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<PoQProof, D::Error>
     where
         D: Deserializer<'de>,
     {
-        todo!("Implement proper serialization later.")
+        let concatenated = deserialize_bytes_array::<PROOF_OF_QUOTA_SIZE, D>(deserializer)?;
+        // TODO: Resume from here
     }
 }
