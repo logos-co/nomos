@@ -13,7 +13,10 @@ use nomos_da_sampling::{
 };
 use nomos_da_verifier::{backend::kzgrs::KzgrsDaVerifier, mempool::kzgrs::KzgrsMempoolAdapter};
 use nomos_libp2p::PeerId;
-use nomos_membership::{adapters::sdp::LedgerSdpAdapter, backends::mock::MockMembershipBackend};
+use nomos_membership::{
+    adapters::{sdp::ledger::LedgerSdpAdapter, storage::memory::InMemoryStorageAdapter},
+    backends::mock::MockMembershipBackend,
+};
 use nomos_mempool::backend::mockpool::MockPool;
 use nomos_sdp::backends::mock::MockSdpBackend;
 use nomos_storage::backends::rocksdb::RocksBackend;
@@ -123,13 +126,13 @@ pub type MembershipService<RuntimeServiceId> = nomos_membership::MembershipServi
     RuntimeServiceId,
 >;
 
-pub type MembershipBackend = MockMembershipBackend;
+pub type MembershipBackend = MockMembershipBackend<InMemoryStorageAdapter>;
 
 pub type MembershipSdp<RuntimeServiceId> =
     LedgerSdpAdapter<MockSdpBackend, Metadata, RuntimeServiceId>;
 
 pub type DaMembershipAdapter<RuntimeServiceId> = MembershipServiceAdapter<
-    MockMembershipBackend,
+    MembershipBackend,
     LedgerSdpAdapter<MockSdpBackend, Metadata, RuntimeServiceId>,
     RuntimeServiceId,
 >;

@@ -10,7 +10,9 @@ use nomos_core::{
 use serde::{Deserialize, Serialize};
 
 use super::{MembershipBackend, MembershipBackendError};
-use crate::{backends::NewSesssion, MembershipProviders};
+use crate::{
+    adapters::storage::MembershipStorageAdapter, backends::NewSesssion, MembershipProviders,
+};
 
 #[derive(Debug, Clone)]
 struct SessionState {
@@ -21,11 +23,11 @@ struct SessionState {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MockMembershipBackendSettings {
     pub session_sizes: HashMap<ServiceType, u32>,
-    // Initial state for each service type - combines membership and locators
     pub session_zero_providers: HashMap<ServiceType, HashMap<ProviderId, BTreeSet<Locator>>>,
 }
 
-pub struct MockMembershipBackend {
+pub struct MockMembershipBackend<S: MembershipStorageAdapter> {
+    storage: S,
     active_sessions: HashMap<ServiceType, SessionState>,
     forming_sessions: HashMap<ServiceType, SessionState>,
     latest_block_number: BlockNumber,
@@ -33,10 +35,11 @@ pub struct MockMembershipBackend {
 }
 
 #[async_trait::async_trait]
-impl MembershipBackend for MockMembershipBackend {
+impl<S: MembershipStorageAdapter> MembershipBackend for MockMembershipBackend<S> {
     type Settings = MockMembershipBackendSettings;
+    type StorageAdapter = S;
 
-    fn init(settings: MockMembershipBackendSettings) -> Self {
+    fn init(settings: Self::Settings, storage_adapter: Self::StorageAdapter) -> Self {
         let mut active_sessions = HashMap::new();
         let mut forming_sessions = HashMap::new();
 
@@ -64,6 +67,7 @@ impl MembershipBackend for MockMembershipBackend {
             forming_sessions,
             latest_block_number: 0,
             session_sizes: settings.session_sizes,
+            storage: storage_adapter,
         }
     }
 
@@ -84,7 +88,7 @@ impl MembershipBackend for MockMembershipBackend {
             return Err(MembershipBackendError::BlockFromPast);
         }
 
-        // Apply updates to forming sessions of relevant service types
+        // Apply updates to forming sessions
         for event_update in update.updates {
             if let Some(forming_session) = self.forming_sessions.get_mut(&event_update.service_type)
             {
@@ -93,6 +97,12 @@ impl MembershipBackend for MockMembershipBackend {
         }
 
         self.latest_block_number = block_number;
+
+        // Persist latest block
+        self.storage
+            .save_latest_block(block_number)
+            .await
+            .map_err(|e| MembershipBackendError::Other(e.into()))?;
 
         // Check which services complete their sessions at this block
         let mut completed_sessions = HashMap::new();
@@ -109,6 +119,16 @@ impl MembershipBackend for MockMembershipBackend {
                     // Get snapshot before promoting
                     completed_sessions.insert(*service_type, promoted_session.to_snapshot());
 
+                    // Persist the new active session
+                    self.storage
+                        .save_session_snapshot(
+                            *service_type,
+                            promoted_session.session_number,
+                            &promoted_session.providers,
+                        )
+                        .await
+                        .map_err(|e| MembershipBackendError::Other(e.into()))?;
+
                     // Promote forming to active
                     self.active_sessions
                         .insert(*service_type, promoted_session.clone());
@@ -116,7 +136,28 @@ impl MembershipBackend for MockMembershipBackend {
                     // Start new forming session with incremented session number
                     let mut new_forming = promoted_session;
                     new_forming.session_number = next_session + 1;
+
+                    // Persist new forming session
+                    self.storage
+                        .save_forming_session(
+                            *service_type,
+                            new_forming.session_number,
+                            &new_forming.providers,
+                        )
+                        .await
+                        .map_err(|e| MembershipBackendError::Other(e.into()))?;
+
                     self.forming_sessions.insert(*service_type, new_forming);
+                } else {
+                    // Just persist the updated forming session
+                    self.storage
+                        .save_forming_session(
+                            *service_type,
+                            forming_session.session_number,
+                            &forming_session.providers,
+                        )
+                        .await
+                        .map_err(|e| MembershipBackendError::Other(e.into()))?;
                 }
             }
         }
@@ -154,8 +195,7 @@ impl SessionState {
     }
 
     fn to_snapshot(&self) -> MembershipProviders {
-        let providers = self.providers.clone();
-        (self.session_number, providers)
+        (self.session_number, self.providers.clone())
     }
 }
 
@@ -170,6 +210,7 @@ mod tests {
     };
 
     use super::{MembershipBackend as _, MockMembershipBackend, MockMembershipBackendSettings};
+    use crate::adapters::storage::memory::InMemoryStorageAdapter;
 
     fn pid(seed: u8) -> ProviderId {
         let mut b = [1u8; 32];
@@ -204,6 +245,8 @@ mod tests {
 
     #[tokio::test]
     async fn init_returns_seeded_session_zero() {
+        let storage = InMemoryStorageAdapter::new();
+
         let service = ServiceType::DataAvailability;
 
         // Seed session 0 with P1 and its locators
@@ -218,7 +261,7 @@ mod tests {
             session_zero_providers: session0_providers,
         };
 
-        let backend = MockMembershipBackend::init(settings);
+        let backend = MockMembershipBackend::init(settings, storage);
 
         // Active snapshot is seeded session 0
         let (sid, providers) = backend.get_latest_providers(service).await.unwrap();
@@ -229,6 +272,7 @@ mod tests {
 
     #[tokio::test]
     async fn forming_promotes_on_last_block_of_session() {
+        let storage = InMemoryStorageAdapter::new();
         let service = ServiceType::DataAvailability;
 
         // Session 0: P1 active
@@ -242,7 +286,7 @@ mod tests {
             session_sizes: HashMap::from([(service, 3)]),
             session_zero_providers: session0_providers,
         };
-        let mut backend = MockMembershipBackend::init(settings);
+        let mut backend = MockMembershipBackend::init(settings, storage);
 
         // Forming session 1 updates across blocks 1..2 (still session 0 time)
         let p2 = pid(2);
@@ -297,6 +341,7 @@ mod tests {
 
     #[tokio::test]
     async fn multiple_service_types_with_different_session_sizes() {
+        let storage = InMemoryStorageAdapter::new();
         let service_da = ServiceType::DataAvailability;
         let service_mp = ServiceType::BlendNetwork;
 
@@ -319,7 +364,7 @@ mod tests {
             ]),
             session_zero_providers: session0_providers,
         };
-        let mut backend = MockMembershipBackend::init(settings);
+        let mut backend = MockMembershipBackend::init(settings, storage);
 
         // Add new providers to forming sessions
         let p3 = pid(3);

@@ -14,7 +14,7 @@ pub struct MembershipServiceAdapter<Backend, SdpAdapter, RuntimeServiceId>
 where
     Backend: nomos_membership::backends::MembershipBackend,
     Backend::Settings: Clone,
-    SdpAdapter: nomos_membership::adapters::SdpAdapter,
+    SdpAdapter: nomos_membership::adapters::sdp::SdpAdapter,
 {
     relay: OutboundRelay<
         <MembershipService<Backend, SdpAdapter, RuntimeServiceId> as ServiceData>::Message,
@@ -25,7 +25,7 @@ where
 impl<Backend, SdpAdapter, RuntimeServiceId>
     MembershipServiceAdapter<Backend, SdpAdapter, RuntimeServiceId>
 where
-    SdpAdapter: nomos_membership::adapters::SdpAdapter + Send + Sync + 'static,
+    SdpAdapter: nomos_membership::adapters::sdp::SdpAdapter + Send + Sync + 'static,
     Backend: nomos_membership::backends::MembershipBackend + Send + Sync + 'static,
     Backend::Settings: Clone,
     RuntimeServiceId: Send + Sync + 'static,
@@ -57,7 +57,7 @@ where
 impl<Backend, SdpAdapter, RuntimeServiceId> MembershipAdapter
     for MembershipServiceAdapter<Backend, SdpAdapter, RuntimeServiceId>
 where
-    SdpAdapter: nomos_membership::adapters::SdpAdapter + Send + Sync + 'static,
+    SdpAdapter: nomos_membership::adapters::sdp::SdpAdapter + Send + Sync + 'static,
     Backend: nomos_membership::backends::MembershipBackend + Send + Sync + 'static,
     Backend::Settings: Clone,
     RuntimeServiceId: Send + Sync + 'static,

@@ -5,7 +5,6 @@ use std::{
     time::Duration,
 };
 
-use adapters::SdpAdapter;
 use async_trait::async_trait;
 use backends::{MembershipBackend, MembershipBackendError};
 use futures::{Stream, StreamExt as _};
@@ -24,6 +23,11 @@ use serde::{Deserialize, Serialize};
 use services_utils::wait_until_services_are_ready;
 use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
+
+use crate::adapters::{
+    sdp::{SdpAdapter, SdpAdapterError},
+    storage::memory::InMemoryStorageAdapter,
+};
 
 pub mod adapters;
 pub mod backends;
@@ -82,7 +86,7 @@ where
 impl<Backend, Sdp, RuntimeServiceId> ServiceCore<RuntimeServiceId>
     for MembershipService<Backend, Sdp, RuntimeServiceId>
 where
-    Backend: MembershipBackend + Send + Sync + 'static,
+    Backend: MembershipBackend<StorageAdapter = InMemoryStorageAdapter> + Send + Sync + 'static,
     Backend::Settings: Clone,
 
     RuntimeServiceId: AsServiceId<Self>
@@ -107,8 +111,10 @@ where
             .notifier()
             .get_updated_settings();
 
+        let storage_adapter = InMemoryStorageAdapter::new();
+
         Ok(Self {
-            backend: Backend::init(backend_settings),
+            backend: Backend::init(backend_settings, storage_adapter),
             service_resources_handle,
             subscribe_channels: HashMap::new(),
         })
@@ -126,7 +132,7 @@ where
             .finalized_blocks_stream()
             .await
             .map_err(|e| match e {
-                adapters::SdpAdapterError::Other(error) => error,
+                SdpAdapterError::Other(error) => error,
             })?;
 
         self.service_resources_handle.status_updater.notify_ready();
