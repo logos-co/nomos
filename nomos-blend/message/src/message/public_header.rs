@@ -46,7 +46,7 @@ impl PublicHeader {
     pub fn verify_proof_of_quota(&self, verification_inputs: &PublicInputs) -> Result<Fr, Error> {
         self.proof_of_quota
             .verify(*verification_inputs)
-            .map_err(|()| Error::ProofOfQuotaVerificationFailed)
+            .map_err(|_| Error::ProofOfQuotaVerificationFailed)
     }
 
     pub const fn signing_pubkey(&self) -> &Ed25519PublicKey {
