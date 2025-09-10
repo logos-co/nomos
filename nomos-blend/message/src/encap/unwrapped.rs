@@ -6,6 +6,7 @@ use crate::{
     encap::{
         decapsulated::{DecapsulatedMessage, DecapsulationOutput, PartDecapsulationOutput},
         encapsulated::{EncapsulatedMessage, EncapsulatedPart},
+        ProofsVerifier,
     },
     Error,
 };
@@ -40,17 +41,21 @@ impl<const ENCAPSULATION_COUNT: usize> UnwrappedEncapsulatedMessage<ENCAPSULATIO
     ///
     /// If not, [`Error::DeserializationFailed`] or
     /// [`Error::ProofOfSelectionVerificationFailed`] will be returned.
-    pub fn decapsulate(
+    pub fn decapsulate<Verifier>(
         self,
         private_key: &X25519PrivateKey,
-    ) -> Result<DecapsulationOutput<ENCAPSULATION_COUNT>, Error> {
+        verifier: &Verifier,
+    ) -> Result<DecapsulationOutput<ENCAPSULATION_COUNT>, Error>
+    where
+        Verifier: ProofsVerifier,
+    {
         // Derive the shared key.
         let shared_key = private_key.derive_shared_key(&self.signing_public_key.derive_x25519());
 
         // Decapsulate the encapsulated part.
         match self
             .encapsulated_part
-            .decapsulate(&shared_key, &self.public_inputs)?
+            .decapsulate(&shared_key, &self.public_inputs, verifier)?
         {
             PartDecapsulationOutput::Incompleted((encapsulated_part, public_header)) => {
                 Ok(DecapsulationOutput::Incompleted(
