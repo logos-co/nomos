@@ -1,7 +1,7 @@
 #[cfg(feature = "deser")]
 pub mod deserialize;
 
-use std::{io::Cursor, marker::PhantomData};
+use std::marker::PhantomData;
 
 #[cfg(feature = "deser")]
 use ark_bn254::Bn254;
@@ -76,16 +76,16 @@ impl<const G1_COMPRESSED_SIZE: usize, const G2_COMPRESSED_SIZE: usize, E: Pairin
     type Error = SerializationError;
     fn try_from(value: &Proof<E>) -> Result<Self, SerializationError> {
         let Proof { pi_a, pi_b, pi_c } = value;
-        let mut a = Cursor::new([0u8; G1_COMPRESSED_SIZE]);
-        let mut b = Cursor::new([0u8; G2_COMPRESSED_SIZE]);
-        let mut c = Cursor::new([0u8; G1_COMPRESSED_SIZE]);
-        pi_a.serialize_compressed(&mut a)?;
-        pi_b.serialize_compressed(&mut b)?;
-        pi_c.serialize_compressed(&mut c)?;
+        let mut a = [0u8; G1_COMPRESSED_SIZE];
+        let mut b = [0u8; G2_COMPRESSED_SIZE];
+        let mut c = [0u8; G1_COMPRESSED_SIZE];
+        pi_a.serialize_compressed(a.as_mut_slice())?;
+        pi_b.serialize_compressed(b.as_mut_slice())?;
+        pi_c.serialize_compressed(c.as_mut_slice())?;
         Ok(Self {
-            pi_a: a.into_inner(),
-            pi_b: b.into_inner(),
-            pi_c: c.into_inner(),
+            pi_a: a,
+            pi_b: b,
+            pi_c: c,
             _pairing: PhantomData,
         })
     }
