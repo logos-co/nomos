@@ -92,7 +92,7 @@ fn generate_inputs(
                 EncapsulationInput::new(
                     Ed25519PrivateKey::generate(),
                     &recipient_signing_key.public_key(),
-                    ProofOfQuota::dummy(),
+                    ProofOfQuota::always_valid(),
                     ProofOfSelection::dummy(),
                 )
             })
