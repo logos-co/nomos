@@ -337,12 +337,12 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPrivateHeader<ENCAPSULATION_C
             signature,
             signing_pubkey,
         } = self.first().try_deserialize()?;
-        let poq_nullifier = proof_of_quota
+        let _poq_nullifier = proof_of_quota
             .verify(*poq_verification_inputs)
             .map_err(|_| Error::ProofOfQuotaVerificationFailed)?;
-        proof_of_selection
-            .verify(&poq_nullifier)
-            .map_err(|_| Error::ProofOfSelectionVerificationFailed)?;
+        if !proof_of_selection.verify() {
+            return Err(Error::ProofOfSelectionVerificationFailed);
+        }
 
         // Build a new public header with the values in the first blending header.
         let public_header = PublicHeader::new(signing_pubkey, &proof_of_quota, signature);

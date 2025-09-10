@@ -58,16 +58,16 @@ impl EncapsulationInput {
     /// are converted into encryptions keys.
     #[must_use]
     pub fn new(
-        signing_key: Ed25519PrivateKey,
+        ephemeral_signing_key: Ed25519PrivateKey,
         blend_node_signing_key: &Ed25519PublicKey,
         proof_of_quota: ProofOfQuota,
         proof_of_selection: ProofOfSelection,
     ) -> Self {
-        let ephemeral_encryption_key = signing_key
+        let ephemeral_encryption_key = ephemeral_signing_key
             .derive_x25519()
             .derive_shared_key(&blend_node_signing_key.derive_x25519());
         Self {
-            ephemeral_signing_key: signing_key,
+            ephemeral_signing_key,
             ephemeral_encryption_key,
             proof_of_quota,
             proof_of_selection,
