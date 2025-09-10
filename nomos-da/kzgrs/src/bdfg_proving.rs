@@ -10,6 +10,8 @@ use blake2::{
     digest::{Update as _, VariableOutput as _},
     Blake2bVar,
 };
+#[cfg(feature = "parallel")]
+use rayon::iter::{IntoParallelIterator as _, ParallelIterator as _};
 
 use super::{kzg, Commitment, Evaluations, GlobalParameters, PolynomialEvaluationDomain, Proof};
 use crate::fk20::{fk20_batch_generate_elements_proofs, Toeplitz1Cache};
@@ -103,7 +105,6 @@ pub fn compute_combined_polynomial(
             }
             #[cfg(feature = "parallel")]
             {
-                use rayon::iter::IntoParallelIterator as _;
                 (0..domain.size()).into_par_iter()
             }
         }
