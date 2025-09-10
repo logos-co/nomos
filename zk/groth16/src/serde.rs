@@ -2,7 +2,7 @@ pub mod serde_fr {
     use ark_bn254::Fr;
     use ark_ff::{PrimeField as _, biginteger::BigInteger as _};
     use num_bigint::BigUint;
-    use serde::{Deserialize as _, Deserializer, Serializer};
+    use serde::{Deserialize as _, Deserializer, Serialize as _, Serializer};
 
     pub fn serialize<S>(item: &Fr, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -14,7 +14,7 @@ pub mod serde_fr {
             serializer.serialize_str(&hex)
         } else {
             let sized_bytes: [u8; 32] = bytes.try_into().expect("Fr's bytes length is not 32");
-            serializer.serialize_bytes(&sized_bytes)
+            sized_bytes.serialize(serializer)
         }
     }
 
