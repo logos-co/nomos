@@ -36,7 +36,9 @@ mod witness;
 use std::error::Error;
 
 pub use chain_inputs::{PoCChainInputs, PoCChainInputsData};
-use groth16::{Groth16Input, Groth16InputDeser, Groth16Proof, Groth16ProofJsonDeser};
+use groth16::{
+    CompressedGroth16Proof, Groth16Input, Groth16InputDeser, Groth16Proof, Groth16ProofJsonDeser,
+};
 pub use inputs::PoCWitnessInputs;
 use thiserror::Error;
 pub use wallet_inputs::{PoCWalletInputs, PoCWalletInputsData};
@@ -47,7 +49,7 @@ use crate::{
     proving_key::POC_PROVING_KEY_PATH,
 };
 
-pub type PoCProof = Groth16Proof;
+pub type PoCProof = CompressedGroth16Proof;
 
 #[derive(Debug, Error)]
 pub enum ProveError {
@@ -88,8 +90,9 @@ pub fn prove(inputs: &PoCWitnessInputs) -> Result<(PoCProof, PoCVerifierInput), 
     let proof: Groth16ProofJsonDeser = serde_json::from_slice(&proof).map_err(ProveError::Json)?;
     let verifier_inputs: PoCVerifierInputJson =
         serde_json::from_slice(&verifier_inputs).map_err(ProveError::Json)?;
+    let proof: Groth16Proof = proof.try_into().map_err(ProveError::Groth16JsonProof)?;
     Ok((
-        proof.try_into().map_err(ProveError::Groth16JsonProof)?,
+        CompressedGroth16Proof::try_from(&proof).unwrap(),
         verifier_inputs
             .try_into()
             .map_err(ProveError::Groth16JsonInput)?,
@@ -118,7 +121,11 @@ pub fn prove(inputs: &PoCWitnessInputs) -> Result<(PoCProof, PoCVerifierInput), 
 ///   underlying verification process fails.
 pub fn verify(proof: &PoCProof, public_inputs: &PoCVerifierInput) -> Result<bool, impl Error> {
     let inputs = public_inputs.to_inputs();
-    groth16::groth16_verify(verification_key::POC_VK.as_ref(), proof, &inputs)
+    groth16::groth16_verify(
+        verification_key::POC_VK.as_ref(),
+        &Groth16Proof::try_from(proof).unwrap(),
+        &inputs,
+    )
 }
 
 #[cfg(test)]

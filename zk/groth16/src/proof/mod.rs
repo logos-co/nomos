@@ -4,7 +4,7 @@ pub mod deserialize;
 #[cfg(feature = "deser")]
 use ark_bn254::Bn254;
 use ark_ec::pairing::Pairing;
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, SerializationError};
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize as _, SerializationError};
 
 #[cfg(feature = "deser")]
 use crate::from_json_error::FromJsonError;
@@ -64,7 +64,6 @@ impl TryFrom<ProofJsonDeser> for Proof<Bn254> {
 }
 
 impl<E: Pairing> TryFrom<&Proof<E>> for CompressedProof {
-
     type Error = SerializationError;
     fn try_from(value: &Proof<E>) -> Result<Self, SerializationError> {
         let Proof { pi_a, pi_b, pi_c } = value;
@@ -74,7 +73,7 @@ impl<E: Pairing> TryFrom<&Proof<E>> for CompressedProof {
         pi_a.serialize_compressed(&mut a)?;
         pi_b.serialize_compressed(&mut b)?;
         pi_c.serialize_compressed(&mut c)?;
-        Ok( CompressedProof {
+        Ok(Self {
             pi_a: a,
             pi_b: b,
             pi_c: c,
@@ -83,14 +82,13 @@ impl<E: Pairing> TryFrom<&Proof<E>> for CompressedProof {
 }
 
 impl<E: Pairing> TryFrom<&CompressedProof> for Proof<E> {
-
     type Error = SerializationError;
     fn try_from(value: &CompressedProof) -> Result<Self, SerializationError> {
         let CompressedProof { pi_a, pi_b, pi_c } = value;
         let a = <E::G1Affine as CanonicalDeserialize>::deserialize_compressed(&pi_a[..])?;
         let b = <E::G2Affine as CanonicalDeserialize>::deserialize_compressed(&pi_b[..])?;
         let c = <E::G1Affine as CanonicalDeserialize>::deserialize_compressed(&pi_c[..])?;
-        Ok( Proof {
+        Ok(Self {
             pi_a: a,
             pi_b: b,
             pi_c: c,

@@ -18,6 +18,7 @@ pub use ark_ff::Field;
 pub use verifier::groth16_verify;
 
 pub type Groth16Proof = proof::Proof<Bn254>;
+pub type CompressedGroth16Proof = proof::CompressedProof;
 #[cfg(feature = "deser")]
 pub type Groth16ProofJsonDeser = proof::ProofJsonDeser;
 pub type Groth16VerificationKey = verification_key::VerificationKey<Bn254>;
