@@ -1,6 +1,5 @@
 use ::serde::{Deserialize, Serialize};
 use groth16::Fr;
-use nomos_core::crypto::ZkHash;
 use poq::{
     prove, verify, PoQInputsFromDataError, PoQProof, PoQVerifierInput, PoQWitnessInputs, ProveError,
 };
@@ -13,8 +12,8 @@ use crate::crypto::proofs::quota::inputs::{
 pub mod inputs;
 mod serde;
 
-const KEY_NULLIFIER_SIZE: usize = size_of::<ZkHash>();
-const PROOF_CIRCUIT_SIZE: usize = 128;
+const KEY_NULLIFIER_SIZE: usize = size_of::<Fr>();
+const PROOF_CIRCUIT_SIZE: usize = size_of::<PoQProof>();
 pub const PROOF_OF_QUOTA_SIZE: usize = KEY_NULLIFIER_SIZE.checked_add(PROOF_CIRCUIT_SIZE).unwrap();
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
@@ -48,7 +47,7 @@ impl ProofOfQuota {
         })
     }
 
-    pub fn verify(self, public_inputs: PublicInputs) -> Result<ZkHash, Error> {
+    pub fn verify(self, public_inputs: PublicInputs) -> Result<Fr, Error> {
         let verifier_input =
             VerifyInputs::from_prove_inputs_and_nullifier(public_inputs, self.key_nullifier);
         let is_proof_valid = matches!(verify(&self.proof, &verifier_input.into()), Ok(true));

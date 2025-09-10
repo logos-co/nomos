@@ -29,7 +29,7 @@ impl Default for Inputs {
             pol_ledger_aged: Fr::ZERO,
             session: u64::default(),
             signing_key: Ed25519PrivateKey::generate().public_key(),
-            total_stake: u64::default(),
+            total_stake: 1,
         }
     }
 }
