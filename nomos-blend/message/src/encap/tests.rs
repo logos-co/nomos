@@ -25,7 +25,7 @@ impl ProofsVerifier for NeverFailingProofsVerifier {
     fn verify_proof_of_quota(
         &self,
         _proof: ProofOfQuota,
-        _inputs: PublicInputs,
+        _inputs: &PublicInputs,
     ) -> Result<Self::ProofOfQuotaVerificationOutput, Self::Error> {
         Ok(())
     }
@@ -47,9 +47,9 @@ fn encapsulate_and_decapsulate() {
 
     // We can decapsulate with the correct private key.
     let DecapsulationOutput::Incompleted(msg) = msg
-        .verify_and_unwrap_public_header(PublicInputs::default(), &verifier)
+        .verify_and_unwrap_public_header(&PublicInputs::default(), &verifier)
         .unwrap()
-        .decapsulate(blend_node_enc_keys.last().unwrap())
+        .decapsulate(blend_node_enc_keys.last().unwrap(), &verifier)
         .unwrap()
     else {
         panic!("Expected an incompleted message");
@@ -59,15 +59,15 @@ fn encapsulate_and_decapsulate() {
     // which we already used for the first decapsulation.
     assert!(msg
         .clone()
-        .verify_and_unwrap_public_header(PublicInputs::default(), &verifier)
+        .verify_and_unwrap_public_header(&PublicInputs::default(), &verifier)
         .is_err());
 
     // We can decapsulate with the correct private key
     // and the fully-decapsulated payload is correct.
     let DecapsulationOutput::Completed(decapsulated_message) = msg
-        .verify_and_unwrap_public_header(PublicInputs::default(), &verifier)
+        .verify_and_unwrap_public_header(&PublicInputs::default(), &verifier)
         .unwrap()
-        .decapsulate(blend_node_enc_keys.first().unwrap())
+        .decapsulate(blend_node_enc_keys.first().unwrap(), &verifier)
         .unwrap()
     else {
         panic!("Expected an incompleted message");
