@@ -17,6 +17,7 @@ use crate::{
     encap::{
         decapsulated::{PartDecapsulationOutput, PrivateHeaderDecapsulationOutput},
         unwrapped::UnwrappedEncapsulatedMessage,
+        ProofsVerifier,
     },
     input::EncapsulationInputs,
     message::{BlendingHeader, Payload, PublicHeader},
@@ -90,20 +91,26 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
         }
     }
 
-    pub fn verify_and_unwrap_public_header(
+    pub fn verify_and_unwrap_public_header<Verifier>(
         self,
         poq_verification_input: PublicInputs,
-    ) -> Result<UnwrappedEncapsulatedMessage<ENCAPSULATION_COUNT>, Error> {
+        verifier: &Verifier,
+    ) -> Result<UnwrappedEncapsulatedMessage<ENCAPSULATION_COUNT>, Error>
+    where
+        Verifier: ProofsVerifier,
+    {
         self.public_header.verify_signature(&signing_body(
             &self.encapsulated_part.private_header,
             &self.encapsulated_part.payload,
         ))?;
-        let _ = self
-            .public_header
-            .verify_proof_of_quota(&poq_verification_input)?;
+        let (_, signing_pubkey, proof_of_quota, _) = self.public_header.into_components();
+        let _ = verifier
+            .verify_proof_of_quota(proof_of_quota, poq_verification_input)
+            .map_err(|_| Error::ProofOfQuotaVerificationFailed)?;
+        // TODO: Add PoSel (already implemented on a different branch)
         Ok(UnwrappedEncapsulatedMessage::new(
             &poq_verification_input,
-            *self.public_header.signing_pubkey(),
+            signing_pubkey,
             self.encapsulated_part,
         ))
     }
