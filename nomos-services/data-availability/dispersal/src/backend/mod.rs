@@ -20,5 +20,5 @@ pub trait DispersalBackend {
         wallet_adapter: Self::WalletAdapter,
     ) -> Self;
 
-    async fn process_dispersal(&self, data: Vec<u8>) -> Result<Self::BlobId, DynError>;
+    async fn process_dispersal(&mut self, data: Vec<u8>) -> Result<Self::BlobId, DynError>;
 }

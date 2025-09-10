@@ -10,7 +10,7 @@ use std::{
     time::Duration,
 };
 
-use futures::StreamExt as _;
+use futures::{stream::FuturesUnordered, StreamExt as _};
 use nomos_da_sampling::backend::kzgrs::KzgrsSamplingBackend;
 use nomos_network::{message::BackendNetworkMsg, NetworkService};
 use overwatch::{
@@ -158,6 +158,7 @@ where
     Processor: PayloadProcessor<Payload = NetworkAdapter::Payload> + Send,
     Processor::Settings: Clone + Send + Sync,
     Processor::DaSamplingService: ServiceData,
+    Processor::Error: Send + Sync,
     <<Processor as PayloadProcessor>::DaSamplingService as ServiceData>::Message: Send + 'static,
     RecoveryBackend: RecoveryBackendTrait + Send,
     RuntimeServiceId: Display
@@ -223,12 +224,7 @@ where
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
 
-        wait_until_services_are_ready!(
-            &self.service_resources_handle.overwatch_handle,
-            Some(Duration::from_secs(60)),
-            NetworkService<_, _>
-        )
-        .await?;
+        let mut processor_tasks = FuturesUnordered::new();
 
         let processor = Processor::new(
             self.service_resources_handle
@@ -239,6 +235,13 @@ where
             sampling_relay,
         );
 
+        wait_until_services_are_ready!(
+            &self.service_resources_handle.overwatch_handle,
+            Some(Duration::from_secs(60)),
+            NetworkService<_, _>
+        )
+        .await?;
+
         loop {
             tokio::select! {
                 // Queue for relay messages
@@ -246,9 +249,14 @@ where
                     self.handle_mempool_message(relay_msg, network_service_relay.clone());
                 }
                 Some((key, item)) = network_items.next() => {
-                    if let Err(e) =processor.process(&item).await {
-                        tracing::debug!("could not process item from network due to: {e:?}");
-                        continue;
+                    match processor.process(&item).await {
+                        Ok(new_tasks) => {
+                            processor_tasks.extend(new_tasks);
+                        }
+                        Err(e) => {
+                            tracing::debug!("could not process item from network due to: {e:?}");
+                            continue;
+                        }
                     }
                     if let Err(e) = self.pool.add_item(key, item) {
                         tracing::debug!("could not add item to the pool due to: {e}");
@@ -257,6 +265,11 @@ where
                     tracing::info!(counter.tx_mempool_pending_items = self.pool.pending_item_count());
                     self.service_resources_handle.state_updater.update(Some(self.pool.save().into()));
                 }
+                Some(result) = processor_tasks.next() => {
+                    if let Err(e) = result {
+                        tracing::error!("coulnd not complete processor task: {e}");
+                    }
+                },
             }
         }
     }
@@ -272,6 +285,7 @@ where
     NetworkAdapter::Settings: Clone + Send + 'static,
     Processor: PayloadProcessor<Payload = NetworkAdapter::Payload>,
     Processor::Settings: Clone,
+    Processor::Error: Send + Sync,
     RecoveryBackend: RecoveryBackendTrait,
     RuntimeServiceId: 'static,
 {

@@ -65,13 +65,12 @@ pub async fn wait_for_shares_number(executor: &Executor, blob_id: BlobId, num_sh
     let shares_fut = async {
         let mut got_shares = 0;
         while got_shares < num_shares {
-            got_shares = executor
+            let shares_result = executor
                 .get_shares(blob_id, [].into(), [].into(), true)
-                .await
-                .unwrap()
-                .collect::<Vec<_>>()
-                .await
-                .len();
+                .await;
+            if let Ok(shares_stream) = shares_result {
+                got_shares = shares_stream.collect::<Vec<_>>().await.len();
+            }
             tokio::time::sleep(Duration::from_millis(200)).await;
         }
     };
