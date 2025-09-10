@@ -98,6 +98,8 @@ da_dispersal:
       with_cache: false
       global_params_path: /tmp
     dispersal_timeout: [20, 0]
+    retry_cooldown: [5, 0]
+    retry_limit: 2
 da_indexer:
   storage:
     blob_storage_directory: ./

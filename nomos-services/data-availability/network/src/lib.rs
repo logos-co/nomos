@@ -13,12 +13,14 @@ use std::{
 };
 
 use async_trait::async_trait;
-use backends::NetworkBackend;
+use backends::{ConnectionStatus, NetworkBackend};
 use futures::{stream::select, Stream};
 use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};
 use libp2p::{Multiaddr, PeerId};
 use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId};
-use nomos_da_network_core::{addressbook::AddressBookHandler as _, SubnetworkId};
+use nomos_da_network_core::{
+    addressbook::AddressBookHandler as _, swarm::BalancerStats, SubnetworkId,
+};
 use overwatch::{
     services::{
         state::{NoOperator, ServiceState},
@@ -35,7 +37,7 @@ use tokio::sync::{
     oneshot,
 };
 use tokio_stream::{
-    wrappers::{IntervalStream, ReceiverStream},
+    wrappers::{IntervalStream, ReceiverStream, UnboundedReceiverStream},
     StreamExt as _,
 };
 
@@ -163,6 +165,7 @@ pub struct NetworkService<
     api_adapter: ApiAdapter,
     phantom: PhantomData<MembershipServiceAdapter>,
     subnet_refresh_sender: Sender<()>,
+    balancer_stats_stream: UnboundedReceiverStream<BalancerStats>,
 }
 
 pub struct NetworkState<
@@ -297,6 +300,8 @@ where
         let refresh_ticker = IntervalStream::new(interval).map(|_| ());
         let refresh_signal = ReceiverStream::new(refresh_rx);
         let subnet_refresh_signal = select(refresh_ticker, refresh_signal);
+        let (balancer_stats_sender, balancer_stats_receiver) = mpsc::unbounded_channel();
+        let balancer_stats_stream = UnboundedReceiverStream::new(balancer_stats_receiver);
 
         Ok(Self {
             backend: <Backend as NetworkBackend<RuntimeServiceId>>::new(
@@ -305,6 +310,7 @@ where
                 membership.clone(),
                 addressbook.clone(),
                 subnet_refresh_signal,
+                balancer_stats_sender,
             ),
             service_resources_handle,
             membership,
@@ -312,6 +318,7 @@ where
             api_adapter,
             phantom: PhantomData,
             subnet_refresh_sender,
+            balancer_stats_stream,
         })
     }
 
@@ -329,6 +336,7 @@ where
             ref api_adapter,
             ref addressbook,
             ref subnet_refresh_sender,
+            ref mut balancer_stats_stream,
             ..
         } = self;
 
@@ -377,6 +385,16 @@ where
                     );
                     Self::handle_membership_update(session_id, providers, &membership_storage).await;
                     let _ = subnet_refresh_sender.send(()).await;
+                }
+                Some(stats) = balancer_stats_stream.next() => {
+                    let connected_subnetworks = stats.values()
+                        .filter(|stats| stats.inbound > 0 || stats.outbound > 0)
+                        .count();
+                    if connected_subnetworks < membership.last_subnetwork_id() as usize {
+                        backend.update_status(ConnectionStatus::InsufficientSubnetworkConnections);
+                    } else {
+                        backend.update_status(ConnectionStatus::Ready);
+                    }
                 }
             }
         }

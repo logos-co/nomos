@@ -528,6 +528,8 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                     global_params_path: config.da_config.global_params_path,
                 },
                 dispersal_timeout: Duration::from_secs(20),
+                retry_cooldown: Duration::from_secs(3),
+                retry_limit: 2,
             },
         },
         time: TimeServiceSettings {

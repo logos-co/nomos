@@ -14,9 +14,11 @@ use serde::{ser::SerializeSeq as _, Deserialize, Deserializer, Serialize, Serial
 
 #[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize, Hash)]
 pub struct Chunk(pub Vec<u8>);
+#[derive(Clone)]
 pub struct Row(pub Vec<Chunk>);
 #[derive(Debug, Clone, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub struct Column(pub Vec<Chunk>);
+#[derive(Clone)]
 pub struct ChunksMatrix(pub Vec<Row>);
 pub type ShareIndex = u16;
 
