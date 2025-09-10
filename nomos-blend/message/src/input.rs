@@ -134,7 +134,7 @@ mod tests {
                         Ed25519PrivateKey::generate(),
                         &recipient_signing_pubkey,
                         ProofOfQuota::always_valid(),
-                        ProofOfSelection::dummy(),
+                        ProofOfSelection::always_valid(),
                     )
                 })
                 .collect::<Vec<_>>()

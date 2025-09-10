@@ -1,5 +1,6 @@
 use core::iter::repeat_n;
 
+use groth16::Fr;
 use itertools::Itertools as _;
 use nomos_core::wire;
 use serde::{Deserialize, Serialize};
@@ -9,7 +10,7 @@ use crate::{
         keys::{Ed25519PrivateKey, Ed25519PublicKey, SharedKey},
         proofs::{
             quota::{inputs::prove::PublicInputs, ProofOfQuota},
-            selection::ProofOfSelection,
+            selection::{inputs::VerifyInputs as ProofOfSelectionVerifyInputs, ProofOfSelection},
         },
         random_sized_bytes,
         signatures::Signature,
@@ -129,6 +130,45 @@ pub struct EncapsulatedPart<const ENCAPSULATION_COUNT: usize> {
     payload: EncapsulatedPayload,
 }
 
+#[derive(Clone, Copy)]
+pub struct PoSelVerificationInputs {
+    pub expected_index: u64,
+    pub total_count: u64,
+}
+
+impl PoSelVerificationInputs {
+    const fn to_posel_inputs(self, key_nullifier: Fr) -> ProofOfSelectionVerifyInputs {
+        ProofOfSelectionVerifyInputs {
+            expected_index: self.expected_index,
+            total_count: self.total_count,
+            key_nullifier,
+        }
+    }
+}
+
+#[cfg(test)]
+impl Default for PoSelVerificationInputs {
+    fn default() -> Self {
+        Self {
+            expected_index: u64::MIN,
+            total_count: u64::MIN,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+#[cfg_attr(test, derive(Default))]
+pub struct ProofsVerificationInput {
+    poq: PublicInputs,
+    posel: PoSelVerificationInputs,
+}
+
+impl ProofsVerificationInput {
+    pub(super) const fn new(poq: &PublicInputs, posel: PoSelVerificationInputs) -> Self {
+        Self { poq: *poq, posel }
+    }
+}
+
 impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPart<ENCAPSULATION_COUNT> {
     /// Initializes the encapsulated part as preparation for actual
     /// encapsulations.
@@ -178,11 +218,11 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPart<ENCAPSULATION_COUNT> {
     pub(super) fn decapsulate(
         self,
         key: &SharedKey,
-        poq_verification_input: &PublicInputs,
+        proofs_verification_input: &ProofsVerificationInput,
     ) -> Result<PartDecapsulationOutput<ENCAPSULATION_COUNT>, Error> {
         match self
             .private_header
-            .decapsulate(key, poq_verification_input)?
+            .decapsulate(key, proofs_verification_input)?
         {
             PrivateHeaderDecapsulationOutput::Incompleted((private_header, public_header)) => {
                 let payload = self.payload.decapsulate(key);
@@ -319,7 +359,7 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPrivateHeader<ENCAPSULATION_C
     fn decapsulate(
         mut self,
         key: &SharedKey,
-        poq_verification_inputs: &PublicInputs,
+        proofs_verification_inputs: &ProofsVerificationInput,
     ) -> Result<PrivateHeaderDecapsulationOutput<ENCAPSULATION_COUNT>, Error> {
         // Decrypt all blending headers
         self.0.iter_mut().for_each(|header| {
@@ -337,12 +377,16 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPrivateHeader<ENCAPSULATION_C
             signature,
             signing_pubkey,
         } = self.first().try_deserialize()?;
-        let _poq_nullifier = proof_of_quota
-            .verify(*poq_verification_inputs)
+        let poq_nullifier = proof_of_quota
+            .verify(proofs_verification_inputs.poq)
             .map_err(|_| Error::ProofOfQuotaVerificationFailed)?;
-        if !proof_of_selection.verify() {
-            return Err(Error::ProofOfSelectionVerificationFailed);
-        }
+        proof_of_selection
+            .verify(
+                proofs_verification_inputs
+                    .posel
+                    .to_posel_inputs(poq_nullifier),
+            )
+            .map_err(|_| Error::ProofOfSelectionVerificationFailed)?;
 
         // Build a new public header with the values in the first blending header.
         let public_header = PublicHeader::new(signing_pubkey, &proof_of_quota, signature);

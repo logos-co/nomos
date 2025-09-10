@@ -6,7 +6,10 @@ use crate::{
             selection::ProofOfSelection,
         },
     },
-    encap::{decapsulated::DecapsulationOutput, encapsulated::EncapsulatedMessage},
+    encap::{
+        decapsulated::DecapsulationOutput,
+        encapsulated::{EncapsulatedMessage, PoSelVerificationInputs},
+    },
     input::{EncapsulationInput, EncapsulationInputs},
     message::payload::MAX_PAYLOAD_BODY_SIZE,
     Error, PayloadType,
@@ -31,7 +34,10 @@ fn encapsulate_and_decapsulate() {
     let DecapsulationOutput::Incompleted(msg) = msg
         .verify_and_unwrap_public_header(PublicInputs::default())
         .unwrap()
-        .decapsulate(blend_node_enc_keys.last().unwrap())
+        .decapsulate(
+            blend_node_enc_keys.last().unwrap(),
+            PoSelVerificationInputs::default(),
+        )
         .unwrap()
     else {
         panic!("Expected an incompleted message");
@@ -49,7 +55,10 @@ fn encapsulate_and_decapsulate() {
     let DecapsulationOutput::Completed(decapsulated_message) = msg
         .verify_and_unwrap_public_header(PublicInputs::default())
         .unwrap()
-        .decapsulate(blend_node_enc_keys.first().unwrap())
+        .decapsulate(
+            blend_node_enc_keys.first().unwrap(),
+            PoSelVerificationInputs::default(),
+        )
         .unwrap()
     else {
         panic!("Expected an incompleted message");
@@ -93,7 +102,7 @@ fn generate_inputs(
                     Ed25519PrivateKey::generate(),
                     &recipient_signing_key.public_key(),
                     ProofOfQuota::always_valid(),
-                    ProofOfSelection::dummy(),
+                    ProofOfSelection::always_valid(),
                 )
             })
             .collect::<Vec<_>>()

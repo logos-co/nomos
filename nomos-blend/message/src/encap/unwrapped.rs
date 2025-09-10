@@ -5,7 +5,9 @@ use crate::{
     },
     encap::{
         decapsulated::{DecapsulatedMessage, DecapsulationOutput, PartDecapsulationOutput},
-        encapsulated::{EncapsulatedMessage, EncapsulatedPart},
+        encapsulated::{
+            EncapsulatedMessage, EncapsulatedPart, PoSelVerificationInputs, ProofsVerificationInput,
+        },
     },
     Error,
 };
@@ -43,15 +45,16 @@ impl<const ENCAPSULATION_COUNT: usize> UnwrappedEncapsulatedMessage<ENCAPSULATIO
     pub fn decapsulate(
         self,
         private_key: &X25519PrivateKey,
+        posel_verification_inputs: PoSelVerificationInputs,
     ) -> Result<DecapsulationOutput<ENCAPSULATION_COUNT>, Error> {
         // Derive the shared key.
         let shared_key = private_key.derive_shared_key(&self.signing_public_key.derive_x25519());
 
         // Decapsulate the encapsulated part.
-        match self
-            .encapsulated_part
-            .decapsulate(&shared_key, &self.public_inputs)?
-        {
+        match self.encapsulated_part.decapsulate(
+            &shared_key,
+            &ProofsVerificationInput::new(&self.public_inputs, posel_verification_inputs),
+        )? {
             PartDecapsulationOutput::Incompleted((encapsulated_part, public_header)) => {
                 Ok(DecapsulationOutput::Incompleted(
                     EncapsulatedMessage::from_components(public_header, encapsulated_part),
