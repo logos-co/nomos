@@ -21,4 +21,5 @@ tokio-stream   = { default-features = false, version = "0.1" }
 tracing        = { workspace = true }
 
 [dev-dependencies]
-multiaddr = { default-features = false, version = "0.18" }
+ed25519-dalek = { default-features = false, version = "2.0.0" }
+multiaddr     = { default-features = false, version = "0.18" }
