@@ -8,19 +8,20 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
-ark-ff        = "0.4"
-ark-poly      = "0.4.2"
-ark-serialize = "0.4.2"
+ark-ff        = "0.5.0"
+ark-poly      = "0.5.0"
+ark-serialize = "0.5.0"
+ark-std	      = { version = "0.5.0" }
 blake2        = { default-features = false, version = "0.10" }
-itertools     = { default-features = false, version = "0.12" }
+itertools     = { default-features = false, version = "0.14" }
 kzgrs         = { workspace = true }
 nomos-core    = { workspace = true }
 rand          = { default-features = false, features = ["std"], workspace = true }
-rayon         = { optional = true, version = "1.10.0" }
+rayon         = { optional = true, version = "1.11.0" }
 serde         = { default-features = false, version = "1.0" }
 
 [dev-dependencies]
-ark-bls12-381 = { default-features = false, version = "0.4.0" }
+ark-bls12-381 = { default-features = false, version = "0.5.0" }
 divan         = { default-features = false, version = "0.1" }
 
 [features]

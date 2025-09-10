@@ -2,9 +2,9 @@ use std::{borrow::Cow, ops::Mul as _};
 
 use ark_bls12_381::{Fr, G1Affine, G1Projective};
 use ark_ec::CurveGroup as _;
-use ark_ff::Field as _;
 use ark_poly::{EvaluationDomain as _, GeneralEvaluationDomain};
 use num_traits::Zero as _;
+use ark_ec::AdditiveGroup;
 
 use crate::{GlobalParameters, Polynomial, Proof};
 
@@ -106,6 +106,7 @@ mod test {
     use ark_poly::{univariate::DensePolynomial, EvaluationDomain as _, GeneralEvaluationDomain};
     use ark_poly_commit::kzg10::KZG10;
     use rand::SeedableRng as _;
+  
 
     use crate::{
         common::bytes_to_polynomial,
@@ -115,7 +116,7 @@ mod test {
     };
 
     static GLOBAL_PARAMETERS: LazyLock<GlobalParameters> = LazyLock::new(|| {
-        let mut rng = rand::rngs::StdRng::seed_from_u64(1987);
+        let mut rng = ark_std::rand::rngs::StdRng::seed_from_u64(1987);
         KZG10::<Bls12_381, DensePolynomial<Fr>>::setup(4096, true, &mut rng).unwrap()
     });
 
