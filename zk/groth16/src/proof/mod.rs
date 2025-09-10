@@ -8,6 +8,7 @@ use ark_bn254::Bn254;
 use ark_ec::pairing::Pairing;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize as _, SerializationError};
 use generic_array::{ArrayLength, GenericArray};
+use generic_array::typenum::Unsigned;
 
 #[cfg(feature = "deser")]
 use crate::from_json_error::FromJsonError;
@@ -30,6 +31,7 @@ pub trait CompressSize: Pairing {
     type G2CompressedSize: ArrayLength;
 }
 
+
 #[derive(Clone, Debug)]
 pub struct CompressedProof<E: CompressSize> {
     pub pi_a: GenericArray<u8, E::G1CompressedSize>,
@@ -38,12 +40,53 @@ pub struct CompressedProof<E: CompressSize> {
     _pairing: PhantomData<E>,
 }
 
+
 impl<E: CompressSize> CompressedProof<E> {
     pub const fn new(
         pi_a: GenericArray<u8, E::G1CompressedSize>,
         pi_b: GenericArray<u8, E::G2CompressedSize>,
         pi_c: GenericArray<u8, E::G1CompressedSize>,
     ) -> Self {
+        Self {
+            pi_a,
+            pi_b,
+            pi_c,
+            _pairing: PhantomData,
+        }
+    }
+}
+
+impl CompressedProof<Bn254> {
+
+/// Total size = G1 + G2 + G1 at the type level.
+    pub fn to_bytes(
+        &self,
+    ) -> [u8; 128]
+    {
+        let mut bytes = [0u8; 128];
+        let g1 = <Bn254 as CompressSize>::G1CompressedSize::to_usize();
+        let g2 = <Bn254 as CompressSize>::G2CompressedSize::to_usize();
+
+        bytes[..g1].copy_from_slice(&self.pi_a);
+        bytes[g1..g1 + g2].copy_from_slice(&self.pi_b);
+        bytes[g1 + g2..].copy_from_slice(&self.pi_c);
+
+        bytes
+    }
+
+    /// Type-level length bound: accepts exactly G1 + G2 + G1 bytes.
+    pub fn from_bytes(bytes: &[u8; 128]) -> Self {
+        let g1 = <Bn254 as CompressSize>::G1CompressedSize::to_usize();
+        let g2 = <Bn254 as CompressSize>::G2CompressedSize::to_usize();
+
+        let mut pi_a = GenericArray::default();
+        let mut pi_b = GenericArray::default();
+        let mut pi_c = GenericArray::default();
+
+        pi_a.copy_from_slice(&bytes[..g1]);
+        pi_b.copy_from_slice(&bytes[g1..g1 + g2]);
+        pi_c.copy_from_slice(&bytes[g1 + g2..]);
+
         Self {
             pi_a,
             pi_b,
