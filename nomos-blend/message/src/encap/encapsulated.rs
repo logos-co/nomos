@@ -93,7 +93,7 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
 
     pub fn verify_and_unwrap_public_header<Verifier>(
         self,
-        poq_verification_input: PublicInputs,
+        poq_verification_input: &PublicInputs,
         verifier: &Verifier,
     ) -> Result<UnwrappedEncapsulatedMessage<ENCAPSULATION_COUNT>, Error>
     where
@@ -109,7 +109,7 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
             .map_err(|_| Error::ProofOfQuotaVerificationFailed)?;
         // TODO: Add PoSel (already implemented on a different branch)
         Ok(UnwrappedEncapsulatedMessage::new(
-            &poq_verification_input,
+            poq_verification_input,
             signing_pubkey,
             self.encapsulated_part,
         ))
@@ -182,14 +182,18 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPart<ENCAPSULATION_COUNT> {
     }
 
     /// Decapsulate a layer.
-    pub(super) fn decapsulate(
+    pub(super) fn decapsulate<Verifier>(
         self,
         key: &SharedKey,
         poq_verification_input: &PublicInputs,
-    ) -> Result<PartDecapsulationOutput<ENCAPSULATION_COUNT>, Error> {
+        verifier: &Verifier,
+    ) -> Result<PartDecapsulationOutput<ENCAPSULATION_COUNT>, Error>
+    where
+        Verifier: ProofsVerifier,
+    {
         match self
             .private_header
-            .decapsulate(key, poq_verification_input)?
+            .decapsulate(key, poq_verification_input, verifier)?
         {
             PrivateHeaderDecapsulationOutput::Incompleted((private_header, public_header)) => {
                 let payload = self.payload.decapsulate(key);
@@ -323,11 +327,15 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPrivateHeader<ENCAPSULATION_C
         self
     }
 
-    fn decapsulate(
+    fn decapsulate<Verifier>(
         mut self,
         key: &SharedKey,
         poq_verification_inputs: &PublicInputs,
-    ) -> Result<PrivateHeaderDecapsulationOutput<ENCAPSULATION_COUNT>, Error> {
+        verifier: &Verifier,
+    ) -> Result<PrivateHeaderDecapsulationOutput<ENCAPSULATION_COUNT>, Error>
+    where
+        Verifier: ProofsVerifier,
+    {
         // Decrypt all blending headers
         self.0.iter_mut().for_each(|header| {
             header.decapsulate(key);
@@ -344,8 +352,8 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPrivateHeader<ENCAPSULATION_C
             signature,
             signing_pubkey,
         } = self.first().try_deserialize()?;
-        let _poq_nullifier = proof_of_quota
-            .verify(*poq_verification_inputs)
+        let _ = verifier
+            .verify_proof_of_quota(proof_of_quota, poq_verification_inputs)
             .map_err(|_| Error::ProofOfQuotaVerificationFailed)?;
         if !proof_of_selection.verify() {
             return Err(Error::ProofOfSelectionVerificationFailed);

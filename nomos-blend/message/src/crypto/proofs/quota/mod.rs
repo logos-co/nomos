@@ -32,10 +32,10 @@ pub enum Error {
 }
 
 impl ProofOfQuota {
-    pub fn new(public_inputs: PublicInputs, private_inputs: PrivateInputs) -> Result<Self, Error> {
+    pub fn new(public_inputs: &PublicInputs, private_inputs: PrivateInputs) -> Result<Self, Error> {
         let witness_inputs: PoQWitnessInputs = Inputs {
             private: private_inputs,
-            public: public_inputs,
+            public: *public_inputs,
         }
         .try_into()
         .map_err(Error::InvalidInput)?;
@@ -47,9 +47,9 @@ impl ProofOfQuota {
         })
     }
 
-    pub fn verify(self, public_inputs: PublicInputs) -> Result<Fr, Error> {
+    pub(super) fn verify(self, public_inputs: &PublicInputs) -> Result<Fr, Error> {
         let verifier_input =
-            VerifyInputs::from_prove_inputs_and_nullifier(public_inputs, self.key_nullifier);
+            VerifyInputs::from_prove_inputs_and_nullifier(*public_inputs, self.key_nullifier);
         let is_proof_valid = matches!(verify(&self.proof, &verifier_input.into()), Ok(true));
         if is_proof_valid {
             Ok(self.key_nullifier)
