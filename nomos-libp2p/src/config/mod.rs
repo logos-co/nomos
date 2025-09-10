@@ -56,9 +56,8 @@ pub struct SwarmConfig {
     pub chain_sync_config: cryptarchia_sync::Config,
 
     /// Nat config
-    /// When the value is None, NAT is disabled.
     #[serde(default)]
-    pub nat_config: Option<nat::Settings>,
+    pub nat_config: nat::Settings,
 }
 
 impl Default for SwarmConfig {
@@ -72,7 +71,7 @@ impl Default for SwarmConfig {
             kademlia_config: kademlia::Settings::default(),
             identify_config: identify::Settings::default(),
             chain_sync_config: cryptarchia_sync::Config::default(),
-            nat_config: Some(nat::Settings::default()),
+            nat_config: nat::Settings::default(),
         }
     }
 }

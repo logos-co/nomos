@@ -35,13 +35,13 @@ use crate::{
 
 type Task = BoxFuture<'static, Multiaddr>;
 
-pub struct InnerNatBehaviour<R, Mapper, Detector>
+pub struct InnerNatBehaviour<Rng, Mapper, Detector>
 where
-    R: RngCore + 'static,
+    Rng: RngCore + 'static,
 {
     /// `AutoNAT` client behaviour which is used to confirm if addresses of our
     /// node are indeed publicly reachable.
-    autonat_client_behaviour: autonat::v2::client::Behaviour<R>,
+    autonat_client_behaviour: autonat::v2::client::Behaviour<Rng>,
     /// The address mapper behaviour is used to map the node's addresses at the
     /// default gateway using one of the protocols: `PCP`, `NAT-PMP`,
     /// `UPNP-IGD`.
@@ -66,10 +66,10 @@ where
     local_address: Option<Multiaddr>,
 }
 
-pub type NatBehaviour<R> = InnerNatBehaviour<R, ProtocolManager, SystemGatewayDetector>;
+pub type NatBehaviour<Rng> = InnerNatBehaviour<Rng, ProtocolManager, SystemGatewayDetector>;
 
-impl<R: RngCore + 'static> NatBehaviour<R> {
-    pub fn new(rng: R, nat_config: NatSettings) -> Self {
+impl<Rng: RngCore + 'static> NatBehaviour<Rng> {
+    pub fn new(rng: Rng, nat_config: &NatSettings) -> Self {
         let address_mapper_behaviour =
             AddressMapperBehaviour::<ProtocolManager>::new(nat_config.mapping);
 
@@ -80,13 +80,13 @@ impl<R: RngCore + 'static> NatBehaviour<R> {
     }
 }
 
-impl<R, Mapper, Detector> InnerNatBehaviour<R, Mapper, Detector>
+impl<Rng, Mapper, Detector> InnerNatBehaviour<Rng, Mapper, Detector>
 where
-    R: RngCore + 'static,
+    Rng: RngCore + 'static,
 {
     fn create(
-        rng: R,
-        nat_config: NatSettings,
+        rng: Rng,
+        nat_config: &NatSettings,
         address_mapper_behaviour: AddressMapperBehaviour<Mapper>,
         gateway_monitor: GatewayMonitor<Detector>,
     ) -> Self {
@@ -113,9 +113,9 @@ where
     }
 }
 
-impl<R, Mapper, Detector> NetworkBehaviour for InnerNatBehaviour<R, Mapper, Detector>
+impl<Rng, Mapper, Detector> NetworkBehaviour for InnerNatBehaviour<Rng, Mapper, Detector>
 where
-    R: RngCore + 'static,
+    Rng: RngCore + 'static,
     Mapper: NatMapper + 'static,
     Detector: GatewayDetector + 'static,
 {

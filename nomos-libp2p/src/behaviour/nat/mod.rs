@@ -25,7 +25,7 @@ use crate::{
 
 /// This behaviour is responsible for confirming that the addresses of the node
 /// are publicly reachable.
-pub struct Behaviour<R: RngCore + 'static> {
+pub struct Behaviour<Rng: RngCore + 'static> {
     /// The static public listen address is passed through this variable to
     /// the `poll()` method. Unused if the node is not configured with a static
     /// public IP address.
@@ -33,28 +33,33 @@ pub struct Behaviour<R: RngCore + 'static> {
     /// Provides dynamic NAT-status detection, NAT-status improvement (via
     /// address mapping on the NAT-box), and periodic maintenance capabilities.
     /// Disabled if the node is configured with a static public IP address.
-    inner_behaviour: Toggle<NatBehaviour<R>>,
+    inner_behaviour: Toggle<NatBehaviour<Rng>>,
 }
 
-impl<R: RngCore + 'static> Behaviour<R> {
-    pub fn new(rng: R, nat_config: Option<NatSettings>) -> Self {
-        let inner_behaviour =
-            Toggle::from(nat_config.map(|config| InnerNatBehaviour::new(rng, config)));
+impl<Rng: RngCore + 'static> Behaviour<Rng> {
+    pub fn new(rng: Rng, nat_config: &NatSettings) -> Self {
+        let static_listen_addr = nat_config.static_external_address.clone();
+
+        let inner_behaviour = if static_listen_addr.is_some() {
+            Toggle::from(None)
+        } else {
+            Toggle::from(Some(InnerNatBehaviour::new(rng, nat_config)))
+        };
 
         Self {
-            static_listen_addr: None,
+            static_listen_addr,
             inner_behaviour,
         }
     }
 }
 
-impl<R: RngCore + 'static> NetworkBehaviour for Behaviour<R> {
+impl<Rng: RngCore + 'static> NetworkBehaviour for Behaviour<Rng> {
     type ConnectionHandler = ToggleConnectionHandler<
-        <autonat::v2::client::Behaviour as NetworkBehaviour>::ConnectionHandler,
+        <autonat::v2::client::Behaviour<Rng> as NetworkBehaviour>::ConnectionHandler,
     >;
 
     type ToSwarm = Either<
-        <autonat::v2::client::Behaviour as NetworkBehaviour>::ToSwarm,
+        <autonat::v2::client::Behaviour<Rng> as NetworkBehaviour>::ToSwarm,
         address_mapper::Event,
     >;
 
@@ -175,7 +180,7 @@ mod tests {
             let mut settings = NatSettings::default();
             settings.autonat.probe_interval_millisecs = Some(10);
 
-            let nat = Behaviour::new(OsRng, Some(settings));
+            let nat = Behaviour::new(OsRng, &settings);
             let identify =
                 identify::Behaviour::new(identify::Config::new("/unittest".into(), public_key));
             Self { nat, identify }
@@ -260,5 +265,33 @@ mod tests {
         let (client_result, server_result) = tokio::join!(client_task, server_task);
         client_result.expect("No timeout");
         server_result.expect("No timeout");
+    }
+
+    #[test]
+    fn test_static_address() {
+        let addr: Multiaddr = "/ip4/192.0.2.1/udp/8080/quic-v1".parse().unwrap();
+        let settings = NatSettings {
+            static_external_address: Some(addr.clone()),
+            ..Default::default()
+        };
+
+        let mut behavior = Behaviour::new(OsRng, &settings);
+
+        let waker = std::task::Waker::noop();
+        let mut cx = Context::from_waker(waker);
+
+        match behavior.poll(&mut cx) {
+            Poll::Ready(ToSwarm::ExternalAddrConfirmed(confirmed_addr)) => {
+                assert_eq!(confirmed_addr, addr);
+            }
+            other => panic!("Expected ExternalAddrConfirmed, got: {other:?}"),
+        }
+
+        match behavior.poll(&mut cx) {
+            Poll::Pending => {}
+            other @ Poll::Ready(_) => {
+                panic!("Expected Pending after static address consumed, got: {other:?}")
+            }
+        }
     }
 }

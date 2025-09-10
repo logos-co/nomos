@@ -28,7 +28,7 @@ pub(crate) struct BehaviourConfig {
     pub gossipsub_config: libp2p::gossipsub::Config,
     pub kademlia_config: KademliaSettings,
     pub identify_config: IdentifySettings,
-    pub nat_config: Option<NatSettings>,
+    pub nat_config: NatSettings,
     pub protocol_name: ProtocolName,
     pub public_key: identity::PublicKey,
     pub chain_sync_config: cryptarchia_sync::Config,
@@ -43,19 +43,19 @@ pub enum BehaviourError {
 }
 
 #[derive(NetworkBehaviour)]
-pub struct Behaviour<R: Clone + Send + RngCore + 'static> {
+pub struct Behaviour<Rng: Clone + Send + RngCore + 'static> {
     pub(crate) gossipsub: libp2p::gossipsub::Behaviour,
     // todo: support persistent store if needed
     pub(crate) kademlia: kad::Behaviour<kad::store::MemoryStore>,
     pub(crate) identify: identify::Behaviour,
     pub(crate) chain_sync: cryptarchia_sync::Behaviour,
     // The spec makes it mandatory to run an autonat server for a public node.
-    pub(crate) autonat_server: autonat::v2::server::Behaviour<R>,
-    pub(crate) nat: nat::Behaviour<R>,
+    pub(crate) autonat_server: autonat::v2::server::Behaviour<Rng>,
+    pub(crate) nat: nat::Behaviour<Rng>,
 }
 
-impl<R: Clone + Send + RngCore + 'static> Behaviour<R> {
-    pub(crate) fn new(config: BehaviourConfig, rng: R) -> Result<Self, Box<dyn Error>> {
+impl<Rng: Clone + Send + RngCore + 'static> Behaviour<Rng> {
+    pub(crate) fn new(config: BehaviourConfig, rng: Rng) -> Result<Self, Box<dyn Error>> {
         let BehaviourConfig {
             gossipsub_config,
             kademlia_config,
@@ -87,7 +87,7 @@ impl<R: Clone + Send + RngCore + 'static> Behaviour<R> {
         );
 
         let autonat_server = autonat::v2::server::Behaviour::new(rng.clone());
-        let nat = nat::Behaviour::new(rng, nat_config);
+        let nat = nat::Behaviour::new(rng, &nat_config);
 
         let chain_sync = cryptarchia_sync::Behaviour::new(chain_sync_config);
 
