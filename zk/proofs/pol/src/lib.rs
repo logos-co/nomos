@@ -40,16 +40,13 @@ pub use chain_inputs::{PolChainInputs, PolChainInputsData};
 use groth16::{
     CompressedGroth16Proof, Groth16Input, Groth16InputDeser, Groth16Proof, Groth16ProofJsonDeser,
 };
-pub use inputs::PolWitnessInputs;
+pub use inputs::{PolVerifierInput, PolWitnessInputs};
 use thiserror::Error;
 pub use wallet_inputs::{PolWalletInputs, PolWalletInputsData};
 pub use witness::Witness;
 
 pub use crate::lottery::{P, compute_lottery_values};
-use crate::{
-    inputs::{PolVerifierInput, PolVerifierInputJson},
-    proving_key::POL_PROVING_KEY_PATH,
-};
+use crate::{inputs::PolVerifierInputJson, proving_key::POL_PROVING_KEY_PATH};
 
 pub type PoLProof = CompressedGroth16Proof;
 
@@ -138,6 +135,7 @@ pub fn verify(proof: &PoLProof, public_inputs: &PolVerifierInput) -> Result<bool
 mod tests {
     use std::str::FromStr as _;
 
+    use groth16::Fr;
     use num_bigint::BigUint;
 
     use super::*;
@@ -147,7 +145,7 @@ mod tests {
     fn test_full_flow() {
         let chain_data = PolChainInputsData {
             slot_number: 156,
-            epoch_nonce: 51654,
+            epoch_nonce: Fr::from(51654u64),
             total_stake: 5000,
             aged_root: BigUint::from_str(
                 "13222315389447979533409058900399666127736845705057482510556088917353766377342",
@@ -305,8 +303,7 @@ mod tests {
             .collect(),
             starting_slot: 16,
         };
-        let witness_inputs =
-            PolWitnessInputs::from_chain_and_wallet_data(chain_data, wallet_data).unwrap();
+        let witness_inputs = PolWitnessInputs::from_chain_and_wallet_data(chain_data, wallet_data);
 
         let (proof, inputs) = prove(&witness_inputs).unwrap();
         assert!(verify(&proof, &inputs).unwrap());

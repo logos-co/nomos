@@ -17,10 +17,11 @@ use crate::protocol::Protocol;
 #[cfg(feature = "deser")]
 use crate::utils::{JsonG1, JsonG2, StringifiedG1, StringifiedG2};
 
+#[derive(Clone, Debug)]
 pub struct Proof<E: Pairing> {
-    pi_a: E::G1Affine,
-    pi_b: E::G2Affine,
-    pi_c: E::G1Affine,
+    pub pi_a: E::G1Affine,
+    pub pi_b: E::G2Affine,
+    pub pi_c: E::G1Affine,
 }
 
 pub struct CompressedProof<
@@ -44,6 +45,18 @@ impl<E: Pairing> From<&Proof<E>> for ark_groth16::Proof<E> {
         }
     }
 }
+
+impl<E: Pairing> From<ark_groth16::Proof<E>> for Proof<E> {
+    fn from(value: ark_groth16::Proof<E>) -> Self {
+        let ark_groth16::Proof { a, b, c } = value;
+        Self {
+            pi_a: a,
+            pi_b: b,
+            pi_c: c,
+        }
+    }
+}
+
 #[cfg(feature = "deser")]
 impl TryFrom<ProofJsonDeser> for Proof<Bn254> {
     type Error = FromJsonError;
