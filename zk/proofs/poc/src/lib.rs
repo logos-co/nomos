@@ -33,6 +33,7 @@ mod verification_key;
 mod wallet_inputs;
 mod witness;
 
+use core::fmt::Debug;
 use std::error::Error;
 
 pub use chain_inputs::{PoCChainInputs, PoCChainInputsData};
@@ -99,6 +100,12 @@ pub fn prove(inputs: &PoCWitnessInputs) -> Result<(PoCProof, PoCVerifierInput), 
     ))
 }
 
+#[derive(Debug)]
+pub enum VerifyError {
+    Expansion,
+    ProofVerify(Box<dyn Error>),
+}
+
 ///
 /// This function verifies a proof against a set of public inputs.
 ///
@@ -119,13 +126,11 @@ pub fn prove(inputs: &PoCWitnessInputs) -> Result<(PoCProof, PoCVerifierInput), 
 ///
 /// - Returns an error if there is an issue with the verification key or the
 ///   underlying verification process fails.
-pub fn verify(proof: &PoCProof, public_inputs: &PoCVerifierInput) -> Result<bool, impl Error> {
+pub fn verify(proof: &PoCProof, public_inputs: &PoCVerifierInput) -> Result<bool, VerifyError> {
     let inputs = public_inputs.to_inputs();
-    groth16::groth16_verify(
-        verification_key::POC_VK.as_ref(),
-        &Groth16Proof::try_from(proof).unwrap(),
-        &inputs,
-    )
+    let expanded_proof = Groth16Proof::try_from(proof).map_err(|_| VerifyError::Expansion)?;
+    groth16::groth16_verify(verification_key::POC_VK.as_ref(), &expanded_proof, &inputs)
+        .map_err(|e| VerifyError::ProofVerify(Box::new(e)))
 }
 
 #[cfg(test)]

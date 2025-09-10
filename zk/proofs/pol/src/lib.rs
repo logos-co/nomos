@@ -101,6 +101,12 @@ pub fn prove(inputs: &PolWitnessInputs) -> Result<(PoLProof, PolVerifierInput), 
     ))
 }
 
+#[derive(Debug)]
+pub enum VerifyError {
+    Expansion,
+    ProofVerify(Box<dyn Error>),
+}
+
 ///
 /// This function verifies a proof against a set of public inputs.
 ///
@@ -121,13 +127,11 @@ pub fn prove(inputs: &PolWitnessInputs) -> Result<(PoLProof, PolVerifierInput), 
 ///
 /// - Returns an error if there is an issue with the verification key or the
 ///   underlying verification process fails.
-pub fn verify(proof: &PoLProof, public_inputs: &PolVerifierInput) -> Result<bool, impl Error> {
+pub fn verify(proof: &PoLProof, public_inputs: &PolVerifierInput) -> Result<bool, VerifyError> {
     let inputs = public_inputs.to_inputs();
-    groth16::groth16_verify(
-        verification_key::POL_VK.as_ref(),
-        &Groth16Proof::try_from(proof).unwrap(),
-        &inputs,
-    )
+    let expanded_proof = Groth16Proof::try_from(proof).map_err(|_| VerifyError::Expansion)?;
+    groth16::groth16_verify(verification_key::POL_VK.as_ref(), &expanded_proof, &inputs)
+        .map_err(|e| VerifyError::ProofVerify(Box::new(e)))
 }
 
 #[cfg(test)]

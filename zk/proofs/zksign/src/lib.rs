@@ -73,6 +73,12 @@ pub fn prove(
     ))
 }
 
+#[derive(Debug)]
+pub enum VerifyError {
+    Expansion,
+    ProofVerify(Box<dyn Error>),
+}
+
 ///
 /// This function verifies a proof against a set of public inputs.
 ///
@@ -96,12 +102,14 @@ pub fn prove(
 pub fn verify(
     proof: &ZkSignProof,
     public_inputs: &ZkSignVerifierInputs,
-) -> Result<bool, impl Error> {
+) -> Result<bool, VerifyError> {
+    let expanded_proof = Groth16Proof::try_from(proof).map_err(|_| VerifyError::Expansion)?;
     groth16::groth16_verify(
         verification_key::ZKSIGN_VK.as_ref(),
-        &Groth16Proof::try_from(proof).unwrap(),
+        &expanded_proof,
         &public_inputs.as_inputs(),
     )
+    .map_err(|e| VerifyError::ProofVerify(Box::new(e)))
 }
 
 #[cfg(test)]
