@@ -4,6 +4,7 @@ pub mod deserialize;
 #[cfg(feature = "deser")]
 use ark_bn254::Bn254;
 use ark_ec::pairing::Pairing;
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, SerializationError};
 
 #[cfg(feature = "deser")]
 use crate::from_json_error::FromJsonError;
@@ -18,6 +19,12 @@ pub struct Proof<E: Pairing> {
     pi_a: E::G1Affine,
     pi_b: E::G2Affine,
     pi_c: E::G1Affine,
+}
+
+pub struct CompressedProof {
+    pi_a: Vec<u8>,
+    pi_b: Vec<u8>,
+    pi_c: Vec<u8>,
 }
 
 impl<E: Pairing> From<&Proof<E>> for ark_groth16::Proof<E> {
@@ -53,5 +60,40 @@ impl TryFrom<ProofJsonDeser> for Proof<Bn254> {
             .map_err(Self::Error::G1PointConversionError)?;
 
         Ok(Self { pi_a, pi_b, pi_c })
+    }
+}
+
+impl<E: Pairing> TryFrom<&Proof<E>> for CompressedProof {
+
+    type Error = SerializationError;
+    fn try_from(value: &Proof<E>) -> Result<Self, SerializationError> {
+        let Proof { pi_a, pi_b, pi_c } = value;
+        let mut a = Vec::new();
+        let mut b = Vec::new();
+        let mut c = Vec::new();
+        pi_a.serialize_compressed(&mut a)?;
+        pi_b.serialize_compressed(&mut b)?;
+        pi_c.serialize_compressed(&mut c)?;
+        Ok( CompressedProof {
+            pi_a: a,
+            pi_b: b,
+            pi_c: c,
+        })
+    }
+}
+
+impl<E: Pairing> TryFrom<&CompressedProof> for Proof<E> {
+
+    type Error = SerializationError;
+    fn try_from(value: &CompressedProof) -> Result<Self, SerializationError> {
+        let CompressedProof { pi_a, pi_b, pi_c } = value;
+        let a = <E::G1Affine as CanonicalDeserialize>::deserialize_compressed(&pi_a[..])?;
+        let b = <E::G2Affine as CanonicalDeserialize>::deserialize_compressed(&pi_b[..])?;
+        let c = <E::G1Affine as CanonicalDeserialize>::deserialize_compressed(&pi_c[..])?;
+        Ok( Proof {
+            pi_a: a,
+            pi_b: b,
+            pi_c: c,
+        })
     }
 }
