@@ -1,3 +1,4 @@
+pub mod merkle;
 pub mod select;
 
 macro_rules! display_hex_bytes_newtype {

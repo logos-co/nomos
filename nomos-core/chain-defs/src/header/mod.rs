@@ -1,3 +1,4 @@
+use ark_ff::{biginteger::BigInteger as _, PrimeField as _};
 use blake2::Digest as _;
 use cryptarchia_engine::Slot;
 use serde::{Deserialize, Serialize};
@@ -6,7 +7,7 @@ pub const BEDROCK_VERSION: u8 = 1;
 
 use crate::{
     crypto::Hasher,
-    proofs::leader_proof::{LeaderProof, Risc0LeaderProof},
+    proofs::leader_proof::{Groth16LeaderProof, LeaderProof},
     utils::{display_hex_bytes_newtype, serde_bytes_newtype},
 };
 
@@ -24,7 +25,7 @@ pub struct Header {
     parent_block: HeaderId,
     slot: Slot,
     block_root: ContentId,
-    proof_of_leadership: Risc0LeaderProof,
+    proof_of_leadership: Groth16LeaderProof,
 }
 
 impl Header {
@@ -39,10 +40,15 @@ impl Header {
         h.update(self.parent_block.0);
         h.update(self.slot.to_le_bytes());
         h.update(self.block_root.0);
-        // TODO: add leader voucher
-        h.update(self.proof_of_leadership.entropy()); // TODO: blake2b to Fr
-                                                      // TODO: serialize proof
-                                                      // TODO: add leader key
+        h.update(self.proof_of_leadership.voucher_cm().to_bytes());
+        h.update(
+            self.proof_of_leadership
+                .entropy()
+                .into_bigint()
+                .to_bytes_le(),
+        );
+        h.update(self.proof_of_leadership.proof().to_bytes());
+        h.update(self.proof_of_leadership.leader_key().to_bytes());
     }
 
     #[must_use]
@@ -67,7 +73,7 @@ impl Header {
         parent_block: HeaderId,
         block_root: ContentId,
         slot: Slot,
-        proof_of_leadership: Risc0LeaderProof,
+        proof_of_leadership: Groth16LeaderProof,
     ) -> Self {
         Self {
             parent_block,

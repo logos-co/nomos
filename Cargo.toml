@@ -1,6 +1,6 @@
 [workspace]
 # Make sure any excluded crates are still clipped in our CI. Also, make sure they use the same Clippy and rustc lints we specify in this file down below.
-exclude = ["nomos-core/proof_statements", "nomos-core/risc0_proofs"]
+exclude = ["nomos-core/risc0_proofs"]
 members = [
   "consensus/cryptarchia-engine",
   "consensus/cryptarchia-sync",
@@ -109,7 +109,6 @@ nomos-tracing            = { default-features = false, path = "./nomos-tracing" 
 nomos-tracing-service    = { default-features = false, path = "./nomos-services/tracing" }
 nomos-utils              = { default-features = false, path = "./nomos-utils" }
 nomos-wallet             = { default-features = false, path = "./nomos-services/wallet" }
-nomos_proof_statements   = { default-features = false, path = "./nomos-core/proof_statements" }
 poc                      = { default-features = false, path = "./zk/proofs/poc" }
 pol                      = { default-features = false, path = "./zk/proofs/pol" }
 poq                      = { default-features = false, path = "zk/proofs/poq" }

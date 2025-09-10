@@ -33,7 +33,7 @@ use nomos_core::{
         gas::MainnetGasConstants, ops::leader_claim::VoucherCm, AuthenticatedMantleTx, Op,
         SignedMantleTx, Transaction, TxHash, TxSelect,
     },
-    proofs::leader_proof::Risc0LeaderProof,
+    proofs::leader_proof::Groth16LeaderProof,
 };
 use nomos_da_sampling::{
     backend::DaSamplingServiceBackend, DaSamplingService, DaSamplingServiceMsg,
@@ -556,6 +556,8 @@ where
             .settings_handle
             .notifier()
             .get_updated_settings();
+
+        // TODO: check active slot coeff is exactly 1/30
 
         // These are blocks that have been pruned by the cryptarchia engine but have not
         // yet been deleted from the storage layer.
@@ -1223,7 +1225,7 @@ where
     async fn propose_block(
         parent: HeaderId,
         slot: Slot,
-        proof: Risc0LeaderProof,
+        proof: Groth16LeaderProof,
         tx_selector: TxS,
         relays: &CryptarchiaConsensusRelays<
             BlendService,
@@ -1392,7 +1394,6 @@ where
         let leader = Leader::new(
             self.initial_state.lib_leader_utxos.clone(),
             leader_config.sk,
-            ledger_config,
         );
 
         let blocks =

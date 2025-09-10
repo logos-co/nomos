@@ -8,20 +8,18 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
-cryptarchia-engine     = { workspace = true }
-crypto-bigint          = "0.5"
-ed25519                = { default-features = false, version = "2.2.3" }
-groth16                = { workspace = true }
-mmr                    = { features = ["serde"], workspace = true }
-nomos-core             = { workspace = true }
-nomos-utils            = { features = ["serde"], optional = true, workspace = true }
-nomos_proof_statements = { workspace = true }
-num-bigint             = { default-features = false, version = "0.4" }
-rand                   = { workspace = true }
-rpds                   = { default-features = false, version = "1.1.1" }
-serde                  = { default-features = false, features = ["derive"], optional = true, version = "1.0" }
-thiserror              = "1"
-utxotree               = { workspace = true }
+cryptarchia-engine = { workspace = true }
+ed25519            = { default-features = false, version = "2.2.3" }
+groth16            = { workspace = true }
+mmr                = { features = ["serde"], workspace = true }
+nomos-core         = { workspace = true }
+nomos-utils        = { features = ["serde"], optional = true, workspace = true }
+num-bigint         = { version = "0.4", default-features = false }
+rand               = { workspace = true }
+rpds               = { default-features = false, version = "1.1.1" }
+serde              = { default-features = false, features = ["derive"], optional = true, version = "1.0" }
+thiserror          = "1"
+utxotree           = { workspace = true }
 
 [dev-dependencies]
 ed25519-dalek = { default-features = false, version = "2.0.0" }
