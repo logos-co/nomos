@@ -14,6 +14,6 @@ pub trait ProofsVerifier {
     fn verify_proof_of_quota(
         &self,
         proof: ProofOfQuota,
-        inputs: PublicInputs,
+        inputs: &PublicInputs,
     ) -> Result<Self::ProofOfQuotaVerificationOutput, Self::Error>;
 }
