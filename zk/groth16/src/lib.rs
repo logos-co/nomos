@@ -21,11 +21,13 @@ use ark_ff::{BigInteger as _, PrimeField};
 use num_bigint::BigUint;
 pub use verifier::groth16_verify;
 
-const BN254_G1_COMPRESSED_SIZE: usize = 32;
-const BN254_G2_COMPRESSED_SIZE: usize = 64;
+impl proof::CompressSize for Bn254 {
+    type G1CompressedSize = generic_array::typenum::U32;
+    type G2CompressedSize = generic_array::typenum::U64;
+}
+
 pub type Groth16Proof = proof::Proof<Bn254>;
-pub type CompressedGroth16Proof =
-    proof::CompressedProof<BN254_G1_COMPRESSED_SIZE, BN254_G2_COMPRESSED_SIZE, Bn254>;
+pub type CompressedGroth16Proof = proof::CompressedProof<Bn254>;
 #[cfg(feature = "deser")]
 pub type Groth16ProofJsonDeser = proof::ProofJsonDeser;
 pub type Groth16VerificationKey = verification_key::VerificationKey<Bn254>;
