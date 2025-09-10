@@ -133,7 +133,7 @@ mod tests {
                     EncapsulationInput::new(
                         Ed25519PrivateKey::generate(),
                         &recipient_signing_pubkey,
-                        ProofOfQuota::always_valid(),
+                        ProofOfQuota::from([0u8; _]),
                         ProofOfSelection::dummy(),
                     )
                 })

@@ -46,7 +46,7 @@ impl PublicHeader {
         &self.signature
     }
 
-    pub fn into_components(self) -> (u8, Ed25519PublicKey, ProofOfQuota, Signature) {
+    pub const fn into_components(self) -> (u8, Ed25519PublicKey, ProofOfQuota, Signature) {
         (
             self.version,
             self.signing_pubkey,
