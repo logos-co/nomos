@@ -1,4 +1,4 @@
-pub(super) mod input_serde {
+pub(super) mod input {
     use groth16::Fr;
     use serde::{Deserializer, Serializer};
 
@@ -17,7 +17,7 @@ pub(super) mod input_serde {
     }
 }
 
-pub(super) mod proof_serde {
+pub(super) mod proof {
     use poq::PoQProof;
     use serde::{Deserializer, Serializer};
 
