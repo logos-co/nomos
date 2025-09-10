@@ -89,6 +89,7 @@ da_network:
   subnet_refresh_interval:
     secs: 30
     nanos: 0
+  subnet_threshold: 2048
 da_indexer:
   storage:
     blob_storage_directory: ./

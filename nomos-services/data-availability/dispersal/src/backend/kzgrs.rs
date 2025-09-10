@@ -296,6 +296,7 @@ where
                     retry_limit
                 );
             }
+            let _ = sender.send(Err("Retry limit reached".into()));
             None
         }))
     }
