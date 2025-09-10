@@ -1,3 +1,5 @@
+use core::convert::Infallible;
+
 use crate::{
     crypto::{
         keys::{Ed25519PrivateKey, X25519PrivateKey},
@@ -6,7 +8,7 @@ use crate::{
             selection::ProofOfSelection,
         },
     },
-    encap::{decapsulated::DecapsulationOutput, encapsulated::EncapsulatedMessage},
+    encap::{decapsulated::DecapsulationOutput, encapsulated::EncapsulatedMessage, ProofsVerifier},
     input::{EncapsulationInput, EncapsulationInputs},
     message::payload::MAX_PAYLOAD_BODY_SIZE,
     Error, PayloadType,
@@ -14,9 +16,25 @@ use crate::{
 
 const ENCAPSULATION_COUNT: usize = 3;
 
+struct NeverFailingProofsVerifier;
+
+impl ProofsVerifier for NeverFailingProofsVerifier {
+    type Error = Infallible;
+    type ProofOfQuotaVerificationOutput = ();
+
+    fn verify_proof_of_quota(
+        &self,
+        _proof: ProofOfQuota,
+        _inputs: PublicInputs,
+    ) -> Result<Self::ProofOfQuotaVerificationOutput, Self::Error> {
+        Ok(())
+    }
+}
+
 #[test]
 fn encapsulate_and_decapsulate() {
     const PAYLOAD_BODY: &[u8] = b"hello";
+    let verifier = NeverFailingProofsVerifier;
 
     let (inputs, blend_node_enc_keys) = generate_inputs(2).unwrap();
     let msg =
@@ -29,7 +47,7 @@ fn encapsulate_and_decapsulate() {
 
     // We can decapsulate with the correct private key.
     let DecapsulationOutput::Incompleted(msg) = msg
-        .verify_and_unwrap_public_header(PublicInputs::default())
+        .verify_and_unwrap_public_header(PublicInputs::default(), &verifier)
         .unwrap()
         .decapsulate(blend_node_enc_keys.last().unwrap())
         .unwrap()
@@ -41,13 +59,13 @@ fn encapsulate_and_decapsulate() {
     // which we already used for the first decapsulation.
     assert!(msg
         .clone()
-        .verify_and_unwrap_public_header(PublicInputs::default())
+        .verify_and_unwrap_public_header(PublicInputs::default(), &verifier)
         .is_err());
 
     // We can decapsulate with the correct private key
     // and the fully-decapsulated payload is correct.
     let DecapsulationOutput::Completed(decapsulated_message) = msg
-        .verify_and_unwrap_public_header(PublicInputs::default())
+        .verify_and_unwrap_public_header(PublicInputs::default(), &verifier)
         .unwrap()
         .decapsulate(blend_node_enc_keys.first().unwrap())
         .unwrap()
