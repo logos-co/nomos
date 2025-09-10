@@ -305,7 +305,10 @@ mod tests {
     use std::{collections::HashMap, iter::empty, num::NonZero};
 
     use cryptarchia_engine::{EpochConfig, Slot};
-    use nomos_core::sdp::{MinStake, ServiceParameters};
+    use nomos_core::{
+        block::Proposal,
+        sdp::{MinStake, ServiceParameters},
+    };
     use nomos_ledger::LedgerState;
     use nomos_network::{backends::NetworkBackend, message::ChainSyncEvent, NetworkService};
     use overwatch::{
@@ -716,6 +719,7 @@ mod tests {
         type Settings = ();
         type PeerId = NodeId;
         type Block = Block;
+        type Proposal = Proposal;
 
         async fn new(
             _settings: Self::Settings,
@@ -726,7 +730,7 @@ mod tests {
             unimplemented!()
         }
 
-        async fn blocks_stream(&self) -> Result<BoxedStream<Self::Block>, DynError> {
+        async fn proposals_stream(&self) -> Result<BoxedStream<Self::Proposal>, DynError> {
             unimplemented!()
         }
 

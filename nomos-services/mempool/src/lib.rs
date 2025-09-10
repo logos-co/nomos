@@ -20,6 +20,14 @@ pub enum MempoolMsg<BlockId, Payload, Item, Key> {
         ancestor_hint: BlockId,
         reply_channel: Sender<Box<dyn Iterator<Item = Item> + Send>>,
     },
+    /// Get specific transactions from mempool by their hashes
+    ///
+    /// Returns transactions in the same order as the input hashes.
+    /// If a transaction is not found, it will be omitted from the result.
+    GetTransactionsByHashes {
+        hashes: Vec<Key>,
+        reply_channel: Sender<Vec<Item>>,
+    },
     Prune {
         ids: Vec<Key>,
     },
@@ -52,6 +60,12 @@ where
         match self {
             Self::View { ancestor_hint, .. } => {
                 write!(f, "MempoolMsg::View {{ ancestor_hint: {ancestor_hint:?}}}")
+            }
+            Self::GetTransactionsByHashes { hashes, .. } => {
+                write!(
+                    f,
+                    "MempoolMsg::GetTransactionsByHashes{{hashes: {hashes:?}}}"
+                )
             }
             Self::Add { payload, .. } => write!(f, "MempoolMsg::Add{{payload: {payload:?}}}"),
             Self::Prune { ids } => write!(f, "MempoolMsg::Prune{{ids: {ids:?}}}"),

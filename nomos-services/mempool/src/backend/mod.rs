@@ -36,6 +36,9 @@ pub trait MemPool {
     /// available.
     fn view(&self, ancestor_hint: Self::BlockId) -> Box<dyn Iterator<Item = Self::Item> + Send>;
 
+    /// Get a specific item by its key
+    fn get_item(&self, key: &Self::Key) -> Option<&Self::Item>;
+
     /// Record that a set of items were included in a block
     fn mark_in_block(&mut self, items: &[Self::Key], block: Self::BlockId);
 
