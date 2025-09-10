@@ -18,9 +18,9 @@ pub const PROOF_OF_QUOTA_SIZE: usize = KEY_NULLIFIER_SIZE.checked_add(PROOF_CIRC
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 pub struct ProofOfQuota {
-    #[serde(with = "self::serde::input_serde")]
+    #[serde(with = "self::serde::input")]
     key_nullifier: Fr,
-    #[serde(with = "self::serde::proof_serde")]
+    #[serde(with = "self::serde::proof")]
     proof: PoQProof,
 }
 
@@ -48,12 +48,18 @@ impl ProofOfQuota {
     }
 
     pub fn verify(self, public_inputs: PublicInputs) -> Result<Fr, Error> {
+        // TODO: Remove this later on.
+        #[cfg(test)]
+        {
+            use groth16::Field as _;
+            if self == Self::always_valid() {
+                return Ok(Fr::ZERO);
+            }
+        }
+
         let verifier_input =
             VerifyInputs::from_prove_inputs_and_nullifier(public_inputs, self.key_nullifier);
         let is_proof_valid = matches!(verify(&self.proof, &verifier_input.into()), Ok(true));
-        #[cfg(test)]
-        // TODO: Remove this later on.
-        let is_proof_valid = is_proof_valid && self == Self::always_valid();
         if is_proof_valid {
             Ok(self.key_nullifier)
         } else {
