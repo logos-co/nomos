@@ -121,7 +121,7 @@ impl<S: MembershipStorageAdapter> MembershipBackend for MockMembershipBackend<S>
 
                     // Persist the new active session
                     self.storage
-                        .save_session_snapshot(
+                        .save_active_session(
                             *service_type,
                             promoted_session.session_number,
                             &promoted_session.providers,

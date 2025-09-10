@@ -9,8 +9,7 @@ use crate::adapters::storage::MembershipStorageAdapter;
 
 #[derive(Debug, Clone)]
 pub struct InMemoryStorageAdapter {
-    session_snapshots:
-        HashMap<(ServiceType, SessionNumber), HashMap<ProviderId, BTreeSet<Locator>>>,
+    active_sessions: HashMap<ServiceType, (SessionNumber, HashMap<ProviderId, BTreeSet<Locator>>)>,
     forming_sessions: HashMap<ServiceType, (SessionNumber, HashMap<ProviderId, BTreeSet<Locator>>)>,
     latest_block: Option<BlockNumber>,
 }
@@ -19,7 +18,7 @@ impl InMemoryStorageAdapter {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            session_snapshots: HashMap::new(),
+            active_sessions: HashMap::new(),
             forming_sessions: HashMap::new(),
             latest_block: None,
         }
@@ -30,26 +29,22 @@ impl InMemoryStorageAdapter {
 impl MembershipStorageAdapter for InMemoryStorageAdapter {
     type Error = std::convert::Infallible;
 
-    async fn save_session_snapshot(
+    async fn save_active_session(
         &mut self,
         service_type: ServiceType,
         session_id: SessionNumber,
         providers: &HashMap<ProviderId, BTreeSet<Locator>>,
     ) -> Result<(), Self::Error> {
-        self.session_snapshots
-            .insert((service_type, session_id), providers.clone());
+        self.active_sessions
+            .insert(service_type, (session_id, providers.clone()));
         Ok(())
     }
 
-    async fn load_session_snapshot(
+    async fn load_active_session(
         &mut self,
         service_type: ServiceType,
-        session_id: SessionNumber,
-    ) -> Result<Option<HashMap<ProviderId, BTreeSet<Locator>>>, Self::Error> {
-        Ok(self
-            .session_snapshots
-            .get(&(service_type, session_id))
-            .cloned())
+    ) -> Result<Option<(SessionNumber, HashMap<ProviderId, BTreeSet<Locator>>)>, Self::Error> {
+        Ok(self.active_sessions.get(&service_type).cloned())
     }
 
     async fn save_latest_block(&mut self, block_number: BlockNumber) -> Result<(), Self::Error> {
