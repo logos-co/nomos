@@ -21,12 +21,12 @@ struct SessionState {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MockMembershipBackendSettings {
+pub struct MembershipBackendSettings {
     pub session_sizes: HashMap<ServiceType, u32>,
     pub session_zero_providers: HashMap<ServiceType, HashMap<ProviderId, BTreeSet<Locator>>>,
 }
 
-pub struct MockMembershipBackend<S: MembershipStorageAdapter> {
+pub struct PersistentMembershipBackend<S: MembershipStorageAdapter> {
     storage: S,
     active_sessions: HashMap<ServiceType, SessionState>,
     forming_sessions: HashMap<ServiceType, SessionState>,
@@ -35,8 +35,8 @@ pub struct MockMembershipBackend<S: MembershipStorageAdapter> {
 }
 
 #[async_trait::async_trait]
-impl<S: MembershipStorageAdapter> MembershipBackend for MockMembershipBackend<S> {
-    type Settings = MockMembershipBackendSettings;
+impl<S: MembershipStorageAdapter> MembershipBackend for PersistentMembershipBackend<S> {
+    type Settings = MembershipBackendSettings;
     type StorageAdapter = S;
 
     fn init(settings: Self::Settings, storage_adapter: Self::StorageAdapter) -> Self {
@@ -209,7 +209,7 @@ mod tests {
         ProviderId, ServiceType,
     };
 
-    use super::{MembershipBackend as _, MockMembershipBackend, MockMembershipBackendSettings};
+    use super::{MembershipBackend as _, MembershipBackendSettings, PersistentMembershipBackend};
     use crate::adapters::storage::memory::InMemoryStorageAdapter;
 
     fn pid(seed: u8) -> ProviderId {
@@ -261,12 +261,12 @@ mod tests {
         let mut session0_providers = HashMap::new();
         session0_providers.insert(service, HashMap::from([(p1, p1_locs.clone())]));
 
-        let settings = MockMembershipBackendSettings {
+        let settings = MembershipBackendSettings {
             session_sizes: HashMap::from([(service, 3)]),
             session_zero_providers: session0_providers,
         };
 
-        let backend = MockMembershipBackend::init(settings, storage);
+        let backend = PersistentMembershipBackend::init(settings, storage);
 
         // Active snapshot is seeded session 0
         let (sid, providers) = backend.get_latest_providers(service).await.unwrap();
@@ -287,11 +287,11 @@ mod tests {
         let mut session0_providers = HashMap::new();
         session0_providers.insert(service, HashMap::from([(p1, p1_locs.clone())]));
 
-        let settings = MockMembershipBackendSettings {
+        let settings = MembershipBackendSettings {
             session_sizes: HashMap::from([(service, 3)]),
             session_zero_providers: session0_providers,
         };
-        let mut backend = MockMembershipBackend::init(settings, storage);
+        let mut backend = PersistentMembershipBackend::init(settings, storage);
 
         // Forming session 1 updates across blocks 1..2 (still session 0 time)
         let p2 = pid(2);
@@ -362,14 +362,14 @@ mod tests {
         session0_providers.insert(service_mp, HashMap::from([(p2, p2_locs.clone())]));
 
         // Different session sizes: DA=3 blocks, BlendNetwork=5 blocks
-        let settings = MockMembershipBackendSettings {
+        let settings = MembershipBackendSettings {
             session_sizes: HashMap::from([
                 (service_da, 3), // DA sessions: 0-2, 3-5, 6-8...
                 (service_mp, 5), // MP sessions: 0-4, 5-9, 10-14...
             ]),
             session_zero_providers: session0_providers,
         };
-        let mut backend = MockMembershipBackend::init(settings, storage);
+        let mut backend = PersistentMembershipBackend::init(settings, storage);
 
         // Add new providers to forming sessions
         let p3 = pid(3);

@@ -7,7 +7,7 @@ use thiserror::Error;
 
 use crate::{adapters::storage::MembershipStorageAdapter, MembershipProviders};
 
-pub mod mock;
+pub mod membership;
 
 #[derive(Debug, Error)]
 pub enum MembershipBackendError {

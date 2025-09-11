@@ -14,7 +14,7 @@ use nomos_da_sampling::{
 use nomos_da_verifier::{backend::kzgrs::KzgrsDaVerifier, mempool::kzgrs::KzgrsMempoolAdapter};
 use nomos_libp2p::PeerId;
 use nomos_membership::{
-    adapters::sdp::ledger::LedgerSdpAdapter, backends::mock::MockMembershipBackend,
+    adapters::sdp::ledger::LedgerSdpAdapter, backends::membership::PersistentMembershipBackend,
 };
 use nomos_mempool::backend::mockpool::MockPool;
 use nomos_sdp::backends::mock::MockSdpBackend;
@@ -126,7 +126,7 @@ pub type MembershipStorageGeneric<RuntimeServiceId> =
     >;
 
 pub type MembershipBackend<RuntimeServiceId> =
-    MockMembershipBackend<MembershipStorageGeneric<RuntimeServiceId>>;
+    PersistentMembershipBackend<MembershipStorageGeneric<RuntimeServiceId>>;
 
 pub type MembershipService<RuntimeServiceId> = nomos_membership::MembershipService<
     MembershipBackend<RuntimeServiceId>,

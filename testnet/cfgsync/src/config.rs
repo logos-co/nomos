@@ -8,7 +8,9 @@ use std::{
 use nomos_blend_scheduling::membership::Node;
 use nomos_core::sdp::{Locator, ServiceType};
 use nomos_libp2p::{ed25519, multiaddr, Multiaddr, PeerId};
-use nomos_membership::{backends::mock::MockMembershipBackendSettings, MembershipServiceSettings};
+use nomos_membership::{
+    backends::membership::MembershipBackendSettings, MembershipServiceSettings,
+};
 use nomos_tracing_service::{LoggerLayer, MetricsLayer, TracingLayer, TracingSettings};
 use nomos_utils::net::get_available_udp_port;
 use rand::{thread_rng, Rng as _};
@@ -238,7 +240,7 @@ pub fn create_membership_configs(ids: &[[u8; 32]], hosts: &[Host]) -> Vec<Genera
         providers.insert(provider_id, locs);
     }
 
-    let mock_backend_settings = MockMembershipBackendSettings {
+    let mock_backend_settings = MembershipBackendSettings {
         session_sizes: HashMap::from([(ServiceType::DataAvailability, 4)]),
         session_zero_providers: HashMap::from([(ServiceType::DataAvailability, providers)]),
     };
