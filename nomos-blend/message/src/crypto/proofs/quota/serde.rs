@@ -1,28 +1,20 @@
 pub(super) mod input {
-    use ark_ff::{biginteger::BigInteger as _, PrimeField as _};
+    use groth16::{fr_from_bytes, fr_to_bytes};
     use nomos_core::crypto::ZkHash;
-    use num_bigint::BigUint;
-    use serde::{ser::Error, Deserialize as _, Deserializer, Serialize as _, Serializer};
-
-    use crate::crypto::proofs::quota::KEY_NULLIFIER_SIZE;
+    use serde::{de::Error, Deserialize, Deserializer, Serialize as _, Serializer};
 
     pub fn serialize<S>(input: &ZkHash, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        let key_nullifier_bytes = <[u8; KEY_NULLIFIER_SIZE]>::try_from(
-            input.into_bigint().to_bytes_le(),
-        )
-        .map_err(|e| S::Error::custom(format!("Key nullifier serialization error: {e:?}.")))?;
-
-        key_nullifier_bytes.serialize(serializer)
+        fr_to_bytes(*input).serialize(serializer)
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<ZkHash, D::Error>
     where
         D: Deserializer<'de>,
     {
-        <[u8; 32]>::deserialize(deserializer).map(|bytes| BigUint::from_bytes_le(&bytes[..]).into())
+        fr_from_bytes(&Deserialize::deserialize(deserializer)?).map_err(Error::custom)
     }
 }
 
