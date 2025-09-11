@@ -86,7 +86,7 @@ async fn handle_save_active_session<Backend: StorageBackend + StorageMembershipA
     backend
         .save_active_session(service_type, session_id, &providers)
         .await
-        .map_err(|e| StorageServiceError::BackendError(e.into()))
+        .map_err(StorageServiceError::BackendError)
 }
 
 async fn handle_load_active_session<Backend: StorageBackend + StorageMembershipApi>(
@@ -97,7 +97,7 @@ async fn handle_load_active_session<Backend: StorageBackend + StorageMembershipA
     let result = backend
         .load_active_session(service_type)
         .await
-        .map_err(|e| StorageServiceError::BackendError(e.into()))?;
+        .map_err(StorageServiceError::BackendError)?;
 
     if response_tx.send(result).is_err() {
         return Err(StorageServiceError::ReplyError {
@@ -114,7 +114,7 @@ async fn handle_save_latest_block<Backend: StorageBackend + StorageMembershipApi
     backend
         .save_latest_block(block_number)
         .await
-        .map_err(|e| StorageServiceError::BackendError(e.into()))
+        .map_err(StorageServiceError::BackendError)
 }
 
 async fn handle_load_latest_block<Backend: StorageBackend + StorageMembershipApi>(
@@ -124,7 +124,7 @@ async fn handle_load_latest_block<Backend: StorageBackend + StorageMembershipApi
     let result = backend
         .load_latest_block()
         .await
-        .map_err(|e| StorageServiceError::BackendError(e.into()))?;
+        .map_err(StorageServiceError::BackendError)?;
 
     if response_tx.send(result).is_err() {
         return Err(StorageServiceError::ReplyError {
@@ -143,7 +143,7 @@ async fn handle_save_forming_session<Backend: StorageBackend + StorageMembership
     backend
         .save_forming_session(service_type, session_id, &providers)
         .await
-        .map_err(|e| StorageServiceError::BackendError(e.into()))
+        .map_err(StorageServiceError::BackendError)
 }
 
 async fn handle_load_forming_session<Backend: StorageBackend + StorageMembershipApi>(
@@ -154,7 +154,7 @@ async fn handle_load_forming_session<Backend: StorageBackend + StorageMembership
     let result = backend
         .load_forming_session(service_type)
         .await
-        .map_err(|e| StorageServiceError::BackendError(e.into()))?;
+        .map_err(StorageServiceError::BackendError)?;
 
     if response_tx.send(result).is_err() {
         return Err(StorageServiceError::ReplyError {

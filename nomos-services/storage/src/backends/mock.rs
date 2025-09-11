@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     marker::PhantomData,
     num::NonZeroUsize,
     ops::RangeInclusive,
@@ -10,7 +10,11 @@ use bytes::Bytes;
 use cryptarchia_engine::Slot;
 use libp2p_identity::PeerId;
 use multiaddr::Multiaddr;
-use nomos_core::{block::SessionNumber, header::HeaderId};
+use nomos_core::{
+    block::{BlockNumber, SessionNumber},
+    header::HeaderId,
+    sdp::{Locator, ProviderId, ServiceType},
+};
 use overwatch::DynError;
 use thiserror::Error;
 

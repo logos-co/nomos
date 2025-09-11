@@ -5,7 +5,7 @@ use nomos_core::{
     block::{BlockNumber, SessionNumber},
     sdp::{Locator, ProviderId, ServiceType},
 };
-use rocksdb::Error;
+use overwatch::DynError;
 use tracing::{debug, error};
 
 use crate::{
@@ -19,14 +19,12 @@ pub const MEMBERSHIP_LATEST_BLOCK_KEY: &str = "membership/latest_block";
 
 #[async_trait]
 impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageMembershipApi for RocksBackend<SerdeOp> {
-    type Error = Error;
-
     async fn save_active_session(
         &mut self,
         service_type: ServiceType,
         session_id: SessionNumber,
         providers: &HashMap<ProviderId, BTreeSet<Locator>>,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<(), DynError> {
         let service_bytes = SerdeOp::serialize(service_type);
         let key = key_bytes(MEMBERSHIP_ACTIVE_SESSION_PREFIX, service_bytes);
 
@@ -43,7 +41,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageMembershipApi for Roc
             }
             Err(e) => {
                 error!("Failed to store active session: {:?}", e);
-                Err(e)
+                Err(e.into())
             }
         }
     }
@@ -51,7 +49,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageMembershipApi for Roc
     async fn load_active_session(
         &mut self,
         service_type: ServiceType,
-    ) -> Result<Option<(SessionNumber, HashMap<ProviderId, BTreeSet<Locator>>)>, Self::Error> {
+    ) -> Result<Option<(SessionNumber, HashMap<ProviderId, BTreeSet<Locator>>)>, DynError> {
         let service_bytes = SerdeOp::serialize(service_type);
         let key = key_bytes(MEMBERSHIP_ACTIVE_SESSION_PREFIX, service_bytes);
 
@@ -82,7 +80,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageMembershipApi for Roc
         )
     }
 
-    async fn save_latest_block(&mut self, block_number: BlockNumber) -> Result<(), Self::Error> {
+    async fn save_latest_block(&mut self, block_number: BlockNumber) -> Result<(), DynError> {
         let block_bytes = block_number.to_be_bytes();
 
         match self
@@ -98,12 +96,12 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageMembershipApi for Roc
             }
             Err(e) => {
                 error!("Failed to store latest block: {:?}", e);
-                Err(e)
+                Err(e.into())
             }
         }
     }
 
-    async fn load_latest_block(&mut self) -> Result<Option<BlockNumber>, Self::Error> {
+    async fn load_latest_block(&mut self) -> Result<Option<BlockNumber>, DynError> {
         let data = self.load(MEMBERSHIP_LATEST_BLOCK_KEY.as_bytes()).await?;
 
         match data {
@@ -130,7 +128,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageMembershipApi for Roc
         service_type: ServiceType,
         session_id: SessionNumber,
         providers: &HashMap<ProviderId, BTreeSet<Locator>>,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<(), DynError> {
         let service_bytes = SerdeOp::serialize(service_type);
         let key = key_bytes(MEMBERSHIP_FORMING_SESSION_PREFIX, service_bytes);
 
@@ -147,7 +145,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageMembershipApi for Roc
             }
             Err(e) => {
                 error!("Failed to store forming session: {:?}", e);
-                Err(e)
+                Err(e.into())
             }
         }
     }
@@ -155,7 +153,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageMembershipApi for Roc
     async fn load_forming_session(
         &mut self,
         service_type: ServiceType,
-    ) -> Result<Option<(SessionNumber, HashMap<ProviderId, BTreeSet<Locator>>)>, Self::Error> {
+    ) -> Result<Option<(SessionNumber, HashMap<ProviderId, BTreeSet<Locator>>)>, DynError> {
         let service_bytes = SerdeOp::serialize(service_type);
         let key = key_bytes(MEMBERSHIP_FORMING_SESSION_PREFIX, service_bytes);
 
