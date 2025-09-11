@@ -1,6 +1,6 @@
 pub mod error;
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 
 pub use error::WalletError;
 use nomos_core::{
@@ -31,25 +31,27 @@ impl<Tx: AuthenticatedMantleTx> From<Block<Tx>> for WalletBlock {
 
 #[derive(Clone)]
 struct WalletState {
-    utxos: BTreeMap<NoteId, Utxo>,
-    pk_index: HashMap<PublicKey, BTreeSet<NoteId>>,
+    utxos: rpds::HashTrieMapSync<NoteId, Utxo>,
+    pk_index: rpds::HashTrieMapSync<PublicKey, rpds::HashTrieSetSync<NoteId>>,
 }
 
 impl WalletState {
     pub fn from_ledger(known_keys: &HashSet<PublicKey>, ledger: &LedgerState) -> Self {
-        let utxos: BTreeMap<NoteId, Utxo> = ledger
-            .latest_commitments()
-            .utxos()
-            .iter()
-            .map(|(_, (utxo, _))| *utxo)
-            .filter(|utxo| known_keys.contains(&utxo.note.pk))
-            .map(|utxo| (utxo.id(), utxo))
-            .collect();
+        let mut utxos = rpds::HashTrieMapSync::new_sync();
+        let mut pk_index = rpds::HashTrieMapSync::new_sync();
 
-        let mut pk_index: HashMap<PublicKey, BTreeSet<NoteId>> = HashMap::new();
+        for (_, (utxo, _)) in ledger.latest_commitments().utxos().iter() {
+            if known_keys.contains(&utxo.note.pk) {
+                let note_id = utxo.id();
+                utxos = utxos.insert(note_id, *utxo);
 
-        for (id, utxo) in &utxos {
-            pk_index.entry(utxo.note.pk).or_default().insert(*id);
+                let note_set = pk_index
+                    .get(&utxo.note.pk)
+                    .cloned()
+                    .unwrap_or_else(rpds::HashTrieSetSync::new_sync)
+                    .insert(note_id);
+                pk_index = pk_index.insert(utxo.note.pk, note_set);
+            }
         }
 
         Self { utxos, pk_index }
@@ -133,15 +135,17 @@ impl WalletState {
         for ledger_tx in &block.ledger_txs {
             // Remove spent UTXOs (inputs)
             for spent_id in &ledger_tx.inputs {
-                if let Some(utxo) = utxos.remove(spent_id) {
-                    let note_ids = pk_index
-                        .get_mut(&utxo.note.pk)
-                        .expect("pk_index missing entry for utxo");
+                if let Some(utxo) = utxos.get(spent_id) {
+                    let pk = utxo.note.pk;
+                    utxos = utxos.remove(spent_id);
 
-                    note_ids.remove(spent_id);
-
-                    if note_ids.is_empty() {
-                        pk_index.remove(&utxo.note.pk);
+                    if let Some(note_set) = pk_index.get(&pk) {
+                        let updated_set = note_set.remove(spent_id);
+                        if updated_set.is_empty() {
+                            pk_index = pk_index.remove(&pk);
+                        } else {
+                            pk_index = pk_index.insert(pk, updated_set);
+                        }
                     }
                 }
             }
@@ -150,8 +154,14 @@ impl WalletState {
             for utxo in ledger_tx.utxos() {
                 if known_keys.contains(&utxo.note.pk) {
                     let note_id = utxo.id();
-                    utxos.insert(note_id, utxo);
-                    pk_index.entry(utxo.note.pk).or_default().insert(note_id);
+                    utxos = utxos.insert(note_id, utxo);
+
+                    let note_set = pk_index
+                        .get(&utxo.note.pk)
+                        .cloned()
+                        .unwrap_or_else(rpds::HashTrieSetSync::new_sync)
+                        .insert(note_id);
+                    pk_index = pk_index.insert(utxo.note.pk, note_set);
                 }
             }
         }
