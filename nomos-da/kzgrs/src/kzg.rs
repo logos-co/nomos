@@ -73,7 +73,7 @@ pub fn verify_element_proof(
     let qap = Bls12_381::multi_miller_loop(
         [commitment_check_g1, proof.w.into()],
         [
-            global_parameters.h, /* This could be precomputed and included in the global
+            global_parameters.h.neg(), /* This could be precomputed and included in the global
                                   * parameter instead */
             proof_check_g2.into(),
         ],
