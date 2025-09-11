@@ -1,3 +1,5 @@
+pub mod error;
+
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use nomos_core::{
@@ -10,15 +12,13 @@ use nomos_ledger::LedgerState;
 
 pub use error::WalletError;
 
-pub mod error;
-
 pub struct WalletBlock {
     pub id: HeaderId,
     pub parent: HeaderId,
     pub ledger_txs: Vec<LedgerTx>,
 }
 
-impl<Tx: AuthenticatedMantleTx + Clone + Eq> From<Block<Tx>> for WalletBlock {
+impl<Tx: AuthenticatedMantleTx> From<Block<Tx>> for WalletBlock {
     fn from(block: Block<Tx>) -> Self {
         Self {
             id: block.header().id(),
@@ -38,16 +38,15 @@ struct WalletState {
 }
 
 impl WalletState {
-    pub fn from_ledger(known_keys: &HashSet<PublicKey>, ledger: LedgerState) -> Self {
-        let utxos = BTreeMap::from_iter(
-            ledger
-                .latest_commitments()
-                .utxos()
-                .iter()
-                .map(|(_, (utxo, _))| *utxo)
-                .filter(|utxo| known_keys.contains(&utxo.note.pk))
-                .map(|utxo| (utxo.id(), utxo)),
-        );
+    pub fn from_ledger(known_keys: &HashSet<PublicKey>, ledger: &LedgerState) -> Self {
+        let utxos: BTreeMap<NoteId, Utxo> = ledger
+            .latest_commitments()
+            .utxos()
+            .iter()
+            .map(|(_, (utxo, _))| *utxo)
+            .filter(|utxo| known_keys.contains(&utxo.note.pk))
+            .map(|utxo| (utxo.id(), utxo))
+            .collect();
 
         let mut pk_index: HashMap<PublicKey, BTreeSet<NoteId>> = HashMap::new();
 
@@ -175,7 +174,7 @@ impl Wallet {
     pub fn from_lib(
         known_keys: impl IntoIterator<Item = PublicKey>,
         lib: HeaderId,
-        ledger: LedgerState,
+        ledger: &LedgerState,
     ) -> Self {
         let known_keys: HashSet<PublicKey> = known_keys.into_iter().collect();
 
@@ -243,19 +242,19 @@ mod tests {
             Utxo::new(tx_hash(0), 2, Note::new(4, alice)),
         ]);
 
-        let wallet = Wallet::from_lib([], genesis, ledger.clone());
+        let wallet = Wallet::from_lib([], genesis, &ledger);
         assert_eq!(wallet.balance(genesis, alice).unwrap(), None);
         assert_eq!(wallet.balance(genesis, bob).unwrap(), None);
 
-        let wallet = Wallet::from_lib([alice], genesis, ledger.clone());
+        let wallet = Wallet::from_lib([alice], genesis, &ledger);
         assert_eq!(wallet.balance(genesis, alice).unwrap(), Some(104));
         assert_eq!(wallet.balance(genesis, bob).unwrap(), None);
 
-        let wallet = Wallet::from_lib([bob], genesis, ledger.clone());
+        let wallet = Wallet::from_lib([bob], genesis, &ledger);
         assert_eq!(wallet.balance(genesis, alice).unwrap(), None);
         assert_eq!(wallet.balance(genesis, bob).unwrap(), Some(20));
 
-        let wallet = Wallet::from_lib([alice, bob], genesis, ledger);
+        let wallet = Wallet::from_lib([alice, bob], genesis, &ledger);
         assert_eq!(wallet.balance(genesis, alice).unwrap(), Some(104));
         assert_eq!(wallet.balance(genesis, bob).unwrap(), Some(20));
     }
@@ -269,7 +268,7 @@ mod tests {
 
         let genesis_ledger = LedgerState::from_utxos([]);
 
-        let mut wallet = Wallet::from_lib([alice, bob], genesis, genesis_ledger);
+        let mut wallet = Wallet::from_lib([alice, bob], genesis, &genesis_ledger);
 
         // Create WalletBlock for block 1 (builds on genesis)
         // This creates two UTXOs for alice
@@ -328,7 +327,7 @@ mod tests {
 
         let genesis = HeaderId::from([0u8; 32]);
 
-        let wallet = Wallet::from_lib([alice_1, alice_2, bob], genesis, ledger);
+        let wallet = Wallet::from_lib([alice_1, alice_2, bob], genesis, &ledger);
 
         // requesting 2 NMO from alices keys
         assert_eq!(
