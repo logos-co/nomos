@@ -25,17 +25,32 @@ pub struct Proof<E: Pairing> {
     pub pi_c: E::G1Affine,
 }
 
-#[derive(Clone, Debug)]
 pub trait CompressSize: Pairing {
     type G1CompressedSize: ArrayLength;
     type G2CompressedSize: ArrayLength;
 }
 
+#[derive(Clone, Debug)]
 pub struct CompressedProof<E: CompressSize> {
     pub pi_a: GenericArray<u8, E::G1CompressedSize>,
     pub pi_b: GenericArray<u8, E::G2CompressedSize>,
     pub pi_c: GenericArray<u8, E::G1CompressedSize>,
     _pairing: PhantomData<E>,
+}
+
+impl<E: CompressSize> CompressedProof<E> {
+    pub const fn new(
+        pi_a: GenericArray<u8, E::G1CompressedSize>,
+        pi_b: GenericArray<u8, E::G2CompressedSize>,
+        pi_c: GenericArray<u8, E::G1CompressedSize>,
+    ) -> Self {
+        Self {
+            pi_a,
+            pi_b,
+            pi_c,
+            _pairing: PhantomData,
+        }
+    }
 }
 
 impl<E: Pairing> From<&Proof<E>> for ark_groth16::Proof<E> {
