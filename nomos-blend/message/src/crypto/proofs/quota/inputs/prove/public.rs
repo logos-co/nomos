@@ -3,7 +3,7 @@ use nomos_core::crypto::ZkHash;
 use crate::crypto::keys::Ed25519PublicKey;
 
 /// Public inputs for all types of Proof of Quota. Spec: <https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#25a261aa09df80ce943dce35dd5403ac>.
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct Inputs {
     pub session: u64,
     pub core_root: ZkHash,
