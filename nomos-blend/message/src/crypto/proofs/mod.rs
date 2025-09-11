@@ -1,4 +1,4 @@
-use groth16::Fr;
+use nomos_core::crypto::ZkHash;
 
 use crate::crypto::proofs::quota::{inputs::prove::PublicInputs, ProofOfQuota};
 
@@ -13,13 +13,12 @@ pub struct ProofsVerifier;
 
 impl crate::encap::ProofsVerifier for ProofsVerifier {
     type Error = Error;
-    type ProofOfQuotaVerificationOutput = Fr;
 
     fn verify_proof_of_quota(
         &self,
         proof: ProofOfQuota,
         inputs: &PublicInputs,
-    ) -> Result<Self::ProofOfQuotaVerificationOutput, Self::Error> {
+    ) -> Result<ZkHash, Self::Error> {
         proof.verify(inputs).map_err(Error::ProofOfQuota)
     }
 }
