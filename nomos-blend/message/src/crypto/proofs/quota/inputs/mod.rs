@@ -5,6 +5,7 @@ pub mod verify;
 pub use self::verify::Inputs as VerifyInputs;
 
 type HalfEphemeralSigningKey = [u8; KEY_SIZE / 2];
+
 fn split_ephemeral_signing_key(
     key: Ed25519PublicKey,
 ) -> (HalfEphemeralSigningKey, HalfEphemeralSigningKey) {

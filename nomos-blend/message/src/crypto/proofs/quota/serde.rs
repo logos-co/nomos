@@ -1,4 +1,4 @@
-pub(super) mod input {
+pub(super) mod key_nullifier {
     use groth16::{fr_from_bytes, fr_to_bytes};
     use nomos_core::crypto::ZkHash;
     use serde::{de::Error, Deserialize, Deserializer, Serialize as _, Serializer};
