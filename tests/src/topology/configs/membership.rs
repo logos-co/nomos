@@ -70,22 +70,22 @@ pub fn create_membership_configs(
 }
 
 #[must_use]
-pub fn create_empty_membership_configs(n_participants: usize) -> Vec<GeneralMembershipConfig> {
-    let mut membership_configs = vec![];
+pub fn create_empty_da_membership_configs(
+    ids: &[[u8; 32]],
+    blend_ports: &[u16],
+) -> Vec<GeneralMembershipConfig> {
+    // Use dummy DA ports since we will anyway remove DA config soon.
+    let dummy_da_ports = vec![0; ids.len()];
+    let mut configs = create_membership_configs(ids, &dummy_da_ports, blend_ports);
 
-    for _ in 0..n_participants {
-        membership_configs.push(GeneralMembershipConfig {
-            service_settings: MembershipServiceSettings {
-                backend: MockMembershipBackendSettings {
-                    session_sizes: HashMap::from([
-                        (ServiceType::DataAvailability, 4),
-                        (ServiceType::BlendNetwork, 10),
-                    ]),
-                    session_zero_providers: HashMap::new(),
-                },
-            },
-        });
+    // Remove DA config
+    for config in &mut configs {
+        config
+            .service_settings
+            .backend
+            .session_zero_providers
+            .remove(&ServiceType::DataAvailability);
     }
 
-    membership_configs
+    configs
 }

@@ -22,7 +22,7 @@ use crate::{
         blend::create_blend_configs,
         bootstrap::create_bootstrap_configs,
         consensus::{create_consensus_configs, ConsensusParams},
-        membership::{create_empty_membership_configs, create_membership_configs},
+        membership::{create_empty_da_membership_configs, create_membership_configs},
         time::default_time_config,
     },
 };
@@ -175,7 +175,7 @@ impl Topology {
         let network_configs = create_network_configs(ids, &config.network_params);
         let blend_configs = create_blend_configs(ids, blend_ports);
         let api_configs = create_api_configs(ids);
-        let membership_configs = create_empty_membership_configs(n_participants);
+        let membership_configs = create_empty_da_membership_configs(ids, blend_ports);
         let tracing_configs = create_tracing_configs(ids);
         let time_config = default_time_config();
 
