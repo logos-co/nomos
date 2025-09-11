@@ -82,6 +82,15 @@ static NOMOS_NOTE_ID_V1: LazyLock<Fr> =
 
 impl Utxo {
     #[must_use]
+    pub const fn new(tx_hash: TxHash, output_index: usize, note: Note) -> Self {
+        Self {
+            tx_hash,
+            output_index,
+            note,
+        }
+    }
+
+    #[must_use]
     pub fn id(&self) -> NoteId {
         // constants and structure as defined in the Mantle spec:
         // https://www.notion.so/Mantle-Specification-21c261aa09df810c8820fab1d78b53d9
