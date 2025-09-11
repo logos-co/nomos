@@ -70,9 +70,18 @@ pub fn verify_element_proof(
     let v = element;
     let commitment_check_g1 = commitment.0 + global_parameters.powers_of_g[0].mul(v).neg();
     let proof_check_g2 = global_parameters.beta_h + global_parameters.h.mul(u).neg();
-    let lhs = Bls12_381::pairing(commitment_check_g1, global_parameters.h);
-    let rhs = Bls12_381::pairing(proof.w, proof_check_g2);
-    lhs == rhs
+    let qap = Bls12_381::multi_miller_loop(
+        [commitment_check_g1, proof.w.into()],
+        [
+            global_parameters.h, /* This could be precomputed and included in the global
+                                  * parameter instead */
+            proof_check_g2.into(),
+        ],
+    );
+
+    let test = Bls12_381::final_exponentiation(qap).unwrap();
+
+    test.is_zero()
 }
 
 #[cfg(test)]

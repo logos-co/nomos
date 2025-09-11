@@ -84,7 +84,7 @@ nomos-da-network-core    = { path = "./nomos-da/network/core" }
 nomos-da-network-service = { path = "./nomos-services/data-availability/network" }
 nomos-da-sampling        = { path = "./nomos-services/data-availability/sampling" }
 nomos-da-verifier        = { path = "./nomos-services/data-availability/verifier" }
-nomos-executor           = { path = "./nodes/nomos-executor/executor", default-features = false }
+nomos-executor           = { default-features = false, path = "./nodes/nomos-executor/executor" }
 nomos-http-api-common    = { path = "./nodes/api-common" }
 nomos-ledger             = { path = "./ledger/nomos-ledger" }
 nomos-libp2p             = { path = "./nomos-libp2p" }
@@ -92,7 +92,7 @@ nomos-mantle-core        = { path = "./nomos-mantle" }
 nomos-membership         = { path = "./nomos-services/membership" }
 nomos-mempool            = { path = "./nomos-services/mempool" }
 nomos-network            = { path = "./nomos-services/network" }
-nomos-node               = { path = "./nodes/nomos-node/node", default-features = false }
+nomos-node               = { default-features = false, path = "./nodes/nomos-node/node" }
 nomos-sdp                = { path = "./nomos-services/sdp" }
 nomos-storage            = { path = "./nomos-services/storage" }
 nomos-system-sig         = { path = "./nomos-services/system-sig" }
@@ -111,7 +111,7 @@ witness-generator-core   = { path = "./zk/circuits/witness_generators/core" }
 # External
 blake2            = "0.10"
 bytes             = "1.3"
-cached            = { version = "0.55.1", default-features = false }
+cached            = { default-features = false, version = "0.55.1" }
 fork_stream       = "0.1.0"
 libp2p            = "0.55"
 libp2p-stream     = "0.3.0-alpha"

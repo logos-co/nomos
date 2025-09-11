@@ -20,7 +20,7 @@ blst            = "0.3.11"
 num-bigint      = "0.4.4"
 num-traits      = "0.2.18"
 rand            = "0.8.5"
-rayon           = { version = "1.10", optional = true }
+rayon           = { optional = true, version = "1.10" }
 thiserror       = "1.0.58"
 
 [dev-dependencies]

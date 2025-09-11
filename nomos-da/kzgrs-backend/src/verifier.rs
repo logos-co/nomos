@@ -1,7 +1,6 @@
-use ark_bls12_381::Bls12_381;
-use ark_ff::{Field, PrimeField as _};
+use ark_ff::PrimeField as _;
 use ark_poly::EvaluationDomain as _;
-use kzgrs::{FieldElement, GlobalParameters, PolynomialEvaluationDomain};
+use kzgrs::{FieldElement, GlobalParameters, PolynomialEvaluationDomain, Proof};
 
 use crate::common::{
     share::{DaLightShare, DaSharesCommitments},
@@ -52,7 +51,8 @@ impl DaVerifier {
         let columns: Vec<Vec<FieldElement>> = shares
             .iter()
             .map(|share| {
-                share.column
+                share
+                    .column
                     .iter()
                     .map(|Chunk(b)| FieldElement::from_le_bytes_mod_order(b))
                     .collect::<Vec<FieldElement>>()
@@ -61,10 +61,19 @@ impl DaVerifier {
         let rows_domain = PolynomialEvaluationDomain::new(rows_domain_size)
             .expect("Domain should be able to build");
         kzgrs::bdfg_proving::verify_multiple_columns(
-            &shares.iter().map(|share| share.share_idx as usize).collect(),
+            &shares
+                .iter()
+                .map(|share| share.share_idx as usize)
+                .collect::<Vec<usize>>(),
             &columns,
-            &commitmentss.iter().map(|commits| &commits.rows_commitments).collect(),
-            &shares.iter().map(|share| share.combined_column_proof).collect(),
+            &commitmentss
+                .iter()
+                .map(|commits| &commits.rows_commitments)
+                .collect(),
+            &shares
+                .iter()
+                .map(|share| share.combined_column_proof)
+                .collect::<Vec<Proof>>(),
             rows_domain,
             &self.global_parameters,
         )
@@ -79,11 +88,11 @@ mod test {
     use nomos_core::da::{blob::Share as _, DaEncoder as _};
 
     use crate::{
+        common::share::{DaLightShare, DaSharesCommitments},
         encoder::{test::rand_data, DaEncoder, DaEncoderParams},
         global::GLOBAL_PARAMETERS,
         verifier::DaVerifier,
     };
-    use crate::common::share::{DaLightShare, DaSharesCommitments};
 
     #[test]
     fn test_verify() {
@@ -166,10 +175,7 @@ mod test {
         let footer = "=".repeat(header.len());
         println!("{header}",);
         println!("  - iterations        : {iters:>20}");
-        println!(
-            "  - sample elements   : {:>20}",
-            len
-        );
+        println!("  - sample elements   : {len:>20}",);
         println!("  - cycles total      : {cycles_diff:>20}");
         println!("  - cycles per run    : {cycles_per_run:>20}");
         println!("{footer}\n");
@@ -180,10 +186,14 @@ mod test {
         clippy::undocumented_unsafe_blocks,
         reason = "This test is just to measure cpu and should be run manually"
     )]
-    fn bench_batch_verify_cycles(iters: u64, max_batch_size: usize, configuration: &utils::Configuration) {
+    fn bench_batch_verify_cycles(
+        iters: u64,
+        max_batch_size: usize,
+        configuration: &utils::Configuration,
+    ) {
         let domain_size = 2048usize;
         let encoder = DaEncoder::new(DaEncoderParams::default_with(domain_size));
-        let mut shares : Vec<DaLightShare> = vec![];
+        let mut shares: Vec<DaLightShare> = vec![];
         let mut commitmentss: Vec<DaSharesCommitments> = vec![];
         let verifier = DaVerifier::new(GLOBAL_PARAMETERS.clone());
         for _ in 0..max_batch_size {
@@ -191,14 +201,18 @@ mod test {
             let encoded_data = encoder.encode(&data).unwrap();
             let share = encoded_data.iter().next().unwrap();
             let (light_share, commitments) = share.into_share_and_commitments();
-            (&mut shares).append(&mut vec![light_share]);
-            (&mut commitmentss).append(&mut vec![commitments]);
+            shares.append(&mut vec![light_share]);
+            commitmentss.append(&mut vec![commitments]);
         }
 
         for batch_size in (10..201).step_by(10) {
             let t0 = unsafe { core::arch::x86_64::_rdtsc() };
             for _ in 0..iters {
-                black_box(verifier.batch_verify(&shares[0..batch_size], &commitmentss[0..batch_size], domain_size));
+                black_box(verifier.batch_verify(
+                    &shares[0..batch_size],
+                    &commitmentss[0..batch_size],
+                    domain_size,
+                ));
             }
             let t1 = unsafe { core::arch::x86_64::_rdtsc() };
 
@@ -210,12 +224,9 @@ mod test {
                 configuration.label
             );
             let footer = "=".repeat(header.len());
-            println!("{header}", );
+            println!("{header}",);
             println!("  - iterations        : {iters:>20}");
-            println!(
-                "  - sample elements   : {:>20}",
-                shares[0].column.len()
-            );
+            println!("  - sample elements   : {:>20}", shares[0].column.len());
             println!("  - batch size        : {batch_size:>20}");
             println!("  - cycles total      : {cycles_diff:>20}");
             println!("  - cycles per run    : {cycles_per_run:>20}");
@@ -258,7 +269,7 @@ mod test {
         ];
 
         for configuration in &configurations {
-            bench_batch_verify_cycles(iters,200, configuration);
+            bench_batch_verify_cycles(iters, 200, configuration);
         }
     }
 }
