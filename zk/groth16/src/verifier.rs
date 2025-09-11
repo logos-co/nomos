@@ -1,10 +1,13 @@
-use std::error::Error;
-use std::ops::{Mul as _, Neg};
-use ark_ec::{pairing::Pairing, CurveGroup, VariableBaseMSM};
-use ark_ff::{One, Field, UniformRand};
-use ark_std::rand::thread_rng;
-use ark_bn254::{Bn254, Fr, G1Projective, G1Affine, G2Affine, G2Projective};
+use std::{
+    error::Error,
+    ops::{Mul as _, Neg as _},
+};
+
+use ark_bn254::{Bn254, Fr, G1Affine, G1Projective};
+use ark_ec::{CurveGroup as _, VariableBaseMSM as _, pairing::Pairing};
+use ark_ff::{One as _, UniformRand as _};
 use ark_groth16::{Groth16, r1cs_to_qap::LibsnarkReduction};
+use ark_std::rand::thread_rng;
 
 use crate::{proof::Proof, verification_key::PreparedVerificationKey};
 
@@ -17,33 +20,34 @@ pub fn groth16_verify<E: Pairing>(
     Groth16::<E, LibsnarkReduction>::verify_proof(vk.as_ref(), &proof, public_inputs)
 }
 
+#[must_use]
 pub fn groth16_batch_verify(
     vk: &PreparedVerificationKey<Bn254>,
-    proofs: &Vec<Proof<Bn254>>,
-    public_inputs: &Vec<Vec<Fr>>,
+    proofs: &[Proof<Bn254>],
+    public_inputs: &[Vec<Fr>],
 ) -> bool {
-
     let mut rng = thread_rng();
     let r = Fr::rand(&mut rng);
     let r_roots = compute_r_powers(r, proofs.len());
-    let r_sum : Fr = r_roots
-        .iter()
-        .sum();
+    let r_sum: Fr = r_roots.iter().sum();
 
-    let pis_c : Vec<G1Affine> = proofs
-        .iter()
-        .map(|proof| {
-            proof.pi_c
-        })
+    let pis_c: Vec<G1Affine> = proofs.iter().map(|proof| proof.pi_c).collect();
+
+    let batched_pi_c = G1Projective::msm(&pis_c, &r_roots).unwrap().into_affine();
+
+    let batched_public_inputs: Vec<Fr> = std::iter::once(r_sum)
+        .chain((0..public_inputs[0].len()).map(|i| {
+            r_roots
+                .iter()
+                .zip(public_inputs.iter())
+                .map(|(r, pi)| *r * pi[i])
+                .sum()
+        }))
         .collect();
 
-    let batched_pi_c = G1Projective::msm(&pis_c,&r_roots).unwrap().into_affine();
-
-    let batched_public_inputs : Vec<Fr> = std::iter::once(r_sum)
-        .chain((0..public_inputs[0].len()).map(|i| r_roots.iter().zip(public_inputs.iter()).map(|(r, pi)| *r * pi[i]).sum()))
-        .collect();
-
-    let batched_ic = G1Projective::msm(&vk.vk.vk.gamma_abc_g1,&batched_public_inputs).unwrap().into_affine();
+    let batched_ic = G1Projective::msm(&vk.vk.vk.gamma_abc_g1, &batched_public_inputs)
+        .unwrap()
+        .into_affine();
 
     let mut g1_terms: Vec<_> = Vec::with_capacity(proofs.len() + 3);
     let mut g2_terms: Vec<_> = Vec::with_capacity(proofs.len() + 3);
@@ -59,24 +63,15 @@ pub fn groth16_batch_verify(
     g1_terms.push(batched_pi_c);
     g2_terms.push(vk.vk.delta_g2_neg_pc.clone());
 
-    let qap = Bn254::multi_miller_loop(g1_terms,g2_terms);
+    let qap = Bn254::multi_miller_loop(g1_terms, g2_terms);
 
     let test = Bn254::final_exponentiation(qap).unwrap();
     test.0.is_one()
 }
 
-fn compute_r_powers(h: Fr, size: usize) -> Vec<Fr> {
-    {
-        #[cfg(feature = "parallel")]
-        {
-            (0..size as u64).into_par_iter()
-        }
-        #[cfg(not(feature = "parallel"))]
-        {
-            0..size as u64
-        }
-    }
-        .map(|i| h.pow([i]))
+fn compute_r_powers(r: Fr, size: usize) -> Vec<Fr> {
+    std::iter::successors(Some(Fr::from(1)), |x| Some(r * x))
+        .take(size)
         .collect()
 }
 
