@@ -9,6 +9,7 @@ use crate::crypto::proofs::quota::inputs::{prove::PublicInputs, split_ephemeral_
 /// It includes the inputs used to generate the proof (which must be fetched
 /// from the verifier's context), and the proof key nullifier, which is part of
 /// the Proof of Quota that is included in a Blend header.
+#[derive(Debug, Clone, Copy)]
 pub struct Inputs {
     pub prove_inputs: PublicInputs,
     pub key_nullifier: ZkHash,

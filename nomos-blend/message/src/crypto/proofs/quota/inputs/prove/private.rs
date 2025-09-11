@@ -1,6 +1,7 @@
 use nomos_core::crypto::ZkHash;
 
 /// Private inputs for all types of Proof of Quota. Spec: <https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#215261aa09df81a18576f67b910d34d4>.
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct Inputs {
     pub key_index: u64,
@@ -34,11 +35,13 @@ impl Inputs {
     }
 }
 
+#[derive(Debug, Clone)]
 pub enum ProofType {
     CoreQuota(ProofOfCoreQuotaInputs),
     LeadershipQuota(ProofOfLeadershipQuotaInputs),
 }
 
+#[derive(Debug, Clone)]
 pub struct ProofOfCoreQuotaInputs {
     pub core_sk: ZkHash,
     pub core_path: Vec<ZkHash>,
@@ -51,6 +54,7 @@ impl From<ProofOfCoreQuotaInputs> for ProofType {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct ProofOfLeadershipQuotaInputs {
     pub slot: u64,
     pub note_value: u64,
