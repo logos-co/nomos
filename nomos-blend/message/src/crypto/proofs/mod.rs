@@ -9,6 +9,7 @@ pub enum Error {
     ProofOfQuota(quota::Error),
 }
 
+/// Verifier that actually verifies the validity of Blend-related proofs.
 pub struct ProofsVerifier;
 
 impl crate::encap::ProofsVerifier for ProofsVerifier {

@@ -4,6 +4,11 @@ use poq::{PoQVerifierInput, PoQVerifierInputData};
 
 use crate::crypto::proofs::quota::inputs::{prove::PublicInputs, split_ephemeral_signing_key};
 
+/// Set of inputs required to verify a Proof of Quota.
+///
+/// It includes the inputs used to generate the proof (which must be fetched
+/// from the verifier's context), and the proof key nullifier, which is part of
+/// the Proof of Quota that is included in a Blend header.
 pub struct Inputs {
     pub prove_inputs: PublicInputs,
     pub key_nullifier: ZkHash,

@@ -9,9 +9,11 @@ pub mod unwrapped;
 #[cfg(test)]
 mod tests;
 
+/// A set of methods to call on a Blend message to verify its proofs.
 pub trait ProofsVerifier {
     type Error;
 
+    /// Proof of Quota verification logic.
     fn verify_proof_of_quota(
         &self,
         proof: ProofOfQuota,

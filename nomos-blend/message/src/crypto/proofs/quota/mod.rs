@@ -18,9 +18,10 @@ const KEY_NULLIFIER_SIZE: usize = size_of::<ZkHash>();
 const PROOF_CIRCUIT_SIZE: usize = size_of::<PoQProof>();
 pub const PROOF_OF_QUOTA_SIZE: usize = KEY_NULLIFIER_SIZE.checked_add(PROOF_CIRCUIT_SIZE).unwrap();
 
+/// A Proof of Quota as described in the Blend v1 spec: <https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#26a261aa09df80f4b119f900fbb36f3f>.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 pub struct ProofOfQuota {
-    #[serde(with = "self::serde::input")]
+    #[serde(with = "self::serde::key_nullifier")]
     key_nullifier: ZkHash,
     #[serde(with = "self::serde::proof")]
     proof: PoQProof,
@@ -34,6 +35,8 @@ pub enum Error {
 }
 
 impl ProofOfQuota {
+    /// Generate a new Proof of Quota with the provided public and private
+    /// inputs.
     pub fn new(public_inputs: &PublicInputs, private_inputs: PrivateInputs) -> Result<Self, Error> {
         let witness_inputs: PoQWitnessInputs = Inputs {
             private: private_inputs,
@@ -49,6 +52,10 @@ impl ProofOfQuota {
         })
     }
 
+    /// Verify a Proof of Quota with the provided inputs.
+    ///
+    /// The key nullifier required to verify the proof is taken from the proof
+    /// itself and is not contained in the passed inputs.
     pub(super) fn verify(self, public_inputs: &PublicInputs) -> Result<ZkHash, Error> {
         let verifier_input =
             VerifyInputs::from_prove_inputs_and_nullifier(*public_inputs, self.key_nullifier);
