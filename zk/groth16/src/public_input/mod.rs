@@ -62,6 +62,7 @@ impl From<&Input<Bn254>> for InputDeser {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "deser")]
     use ark_ff::Field as _;
 
     use super::*;
