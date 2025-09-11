@@ -13,10 +13,10 @@ ark-serialize = { default-features = false, version = "0.4.2" }
 ark-std       = { default-features = false, version = "0.4.0" }
 hex           = { default-features = false, features = ["alloc"], optional = true, version = "0.4" }
 num-bigint    = { default-features = false, optional = true, version = "0.4" }
+rand          = { default-features = false, features = ["std", "std_rng"], version = "0.8.5" }
 serde         = { default-features = false, features = ["derive"], optional = true, version = "1.0" }
 serde_json    = { default-features = false, features = ["alloc"], optional = true, version = "1.0" }
 thiserror     = { default-features = false, optional = true, version = "2.0" }
-rand            = { default-features = false, features = ["std", "std_rng"], version = "0.8.5" }
 
 [dev-dependencies]
 serde_json = { default-features = false, features = ["alloc"], version = "1.0" }
