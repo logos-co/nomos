@@ -1,21 +1,19 @@
 pub mod serde_fr {
     use ark_bn254::Fr;
-    use num_bigint::BigUint;
     use serde::{Deserialize as _, Deserializer, Serialize as _, Serializer};
 
-    use crate::{fr_from_bytes, fr_to_bytes};
+    use crate::{FrBytes, fr_from_bytes, fr_to_bytes};
 
     pub fn serialize<S>(item: &Fr, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        let bytes = fr_to_bytes(item.clone());
+        let bytes = fr_to_bytes(item);
         if serializer.is_human_readable() {
             let hex = hex::encode(bytes); // Convert `Fr` to hex representation
             serializer.serialize_str(&hex)
         } else {
-            let sized_bytes: [u8; 32] = bytes.try_into().expect("Fr's bytes length is not 32");
-            sized_bytes.serialize(serializer)
+            bytes.serialize(serializer)
         }
     }
 
@@ -25,8 +23,13 @@ pub mod serde_fr {
     {
         if deserializer.is_human_readable() {
             let hex_str = String::deserialize(deserializer)?;
-            let bytes = hex::decode(hex_str).map_err(serde::de::Error::custom)?;
-            Ok(BigUint::from_bytes_le(&bytes).into()) // Parse from hex    
+            let bytes: FrBytes = hex::decode(hex_str)
+                .map_err(serde::de::Error::custom)?
+                .try_into()
+                .map_err(|b: Vec<u8>| {
+                    serde::de::Error::custom(format!("Bytes length is not 32, got: {:?}", b.len()))
+                })?;
+            Ok(fr_from_bytes(&bytes).map_err(serde::de::Error::custom)?) // Parse from hex
         } else {
             let sized_bytes = <[u8; 32]>::deserialize(deserializer)?;
             Ok(fr_from_bytes(&sized_bytes).map_err(serde::de::Error::custom)?)

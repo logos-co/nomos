@@ -9,7 +9,7 @@ network:
     host: 0.0.0.0
     port: 3000
     node_key: ea1e1dcc31612bd20987f017f0ca435cd2a59a4bd9fd6e14883b4803ae3b803d
-    initial_peers: []
+    initial_peers: [ ]
 blend:
   backend:
     listening_address: /ip4/127.0.0.1/udp/3001/quic-v1
@@ -33,7 +33,7 @@ blend:
     # 21,600 blocks * 30s per block * 1s per round = 648,000 rounds
     rounds_per_session: 648000
     rounds_per_interval: 30
-    round_duration: [1, 0]
+    round_duration: [ 1, 0 ]
     # Defined in the spec
     rounds_per_observation_window: 30
     rounds_per_session_transition_period: 30
@@ -98,8 +98,8 @@ da_dispersal:
       num_columns: 2
       with_cache: false
       global_params_path: /tmp
-    dispersal_timeout: [20, 0]
-    retry_cooldown: [5, 0]
+    dispersal_timeout: [ 20, 0 ]
+    retry_cooldown: [ 5, 0 ]
     retry_limit: 2
 da_indexer:
   storage:
@@ -118,9 +118,9 @@ da_verifier:
     blob_storage_directory: ./
   mempool_trigger_settings:
     publish_threshold: 0.8
-    share_duration: [5, 0]
-    prune_duration: [30, 0]
-    prune_interval: [5, 0]
+    share_duration: [ 5, 0 ]
+    prune_duration: [ 30, 0 ]
+    prune_interval: [ 5, 0 ]
 da_sampling:
   share_verifier_settings:
     sk: 67cee9fdc9c5160671b40da60b17153558496a12fb57804c1e64ef51f5a29dca
@@ -142,26 +142,26 @@ da_sampling:
   storage_adapter_settings:
     blob_storage_directory: ./
   commitments_wait_duration:
-    secs: 2 
+    secs: 2
     nanos: 0
 http:
   backend_settings:
     address: 127.0.0.1:8722
-    cors_origins: []
+    cors_origins: [ ]
 time:
   backend_settings:
     slot_config:
       slot_duration: "2.0"
-      chain_start_time: [2025, 41, 9, 38, 29, 993653000, 0, 0, 0]
+      chain_start_time: [ 2025, 41, 9, 38, 29, 993653000, 0, 0, 0 ]
     epoch_config:
       epoch_stake_distribution_stabilization: 3
       epoch_period_nonce_buffer: 3
       epoch_period_nonce_stabilization: 4
     base_period_length: 11
-    update_interval: [16, 0]
+    update_interval: [ 16, 0 ]
     ntp_server: pool.ntp.org
     ntp_client_settings:
-      timeout: [5, 0]
+      timeout: [ 5, 0 ]
       listening_interface: 0.0.0.0
 cryptarchia:
   transaction_selector_settings: null
@@ -324,22 +324,22 @@ cryptarchia:
         total_stake: 1
     mantle_ledger:
       channels:
-        channels: {}
+        channels: { }
       sdp:
-        declarations: {}
+        declarations: { }
       locked_notes:
-        locked_notes: {}
+        locked_notes: { }
       leaders:
         epoch: 0
         claimable_vouchers_root: "0000000000000000000000000000000000000000000000000000000000000000"
         n_claimable_vouchers: 0
-        nfs: []
+        nfs: [ ]
         claimable_rewards: 0
         vouchers:
-          roots: []
+          roots: [ ]
   time:
-    slot_duration: [2, 0]
-    chain_start_time: [2025, 41, 9, 38, 29, 993653000, 0, 0, 0]
+    slot_duration: [ 2, 0 ]
+    chain_start_time: [ 2025, 41, 9, 38, 29, 993653000, 0, 0, 0 ]
   leader_config:
     utxos:
       - tx_hash: "0000000000000000000000000000000000000000000000000000000000000000"
@@ -347,20 +347,20 @@ cryptarchia:
         note:
           value: 1
           pk: "0000000000000000000000000000000000000000000000000000000000000000"
-    sk: 3cf3335017304dcfce45124a0633829f
+    sk: 3cf3335017304dcfce45124a0633829f00000000000000000000000000000000
   network_adapter_settings:
     topic: /cryptarchia/proto
   blend_broadcast_settings:
     topic: /cryptarchia/proto
   recovery_file: ./recovery/cryptarchia.json
   bootstrap:
-    prolonged_bootstrap_period: [86400, 0]
+    prolonged_bootstrap_period: [ 86400, 0 ]
     force_bootstrap: false
     offline_grace_period:
-      grace_period: [1200, 0]
-      state_recording_interval: [60, 0]
+      grace_period: [ 1200, 0 ]
+      state_recording_interval: [ 60, 0 ]
     ibd:
-      peers: []
+      peers: [ ]
   sync:
     orphan:
       max_orphan_cache_size: 5
@@ -377,5 +377,5 @@ membership:
   backend:
     session_sizes:
       DA: 4320  # DataAvailability - 4320 blocks per session
-    session_zero_providers: {}
+    session_zero_providers: { }
 sdp:

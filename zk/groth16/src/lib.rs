@@ -39,8 +39,9 @@ pub type Groth16InputDeser = public_input::InputDeser;
 pub type FrBytes = [u8; 32];
 
 #[must_use]
-pub fn fr_to_bytes(fr: Fr) -> FrBytes {
-    fr.into_bigint()
+pub fn fr_to_bytes(fr: &Fr) -> FrBytes {
+    (*fr)
+        .into_bigint()
         .to_bytes_le()
         .try_into()
         .expect("Bn254 Fr to bytes should fit in 32 bytes")
@@ -74,7 +75,7 @@ mod tests {
     #[test]
     fn fr_to_from_bytes() {
         let value: Fr = BigUint::from(1_234_567_890_123_456_789u64).into();
-        let bytes = fr_to_bytes(value);
+        let bytes = fr_to_bytes(&value);
         let value2 = fr_from_bytes(&bytes).unwrap();
         assert_eq!(value, value2);
     }
