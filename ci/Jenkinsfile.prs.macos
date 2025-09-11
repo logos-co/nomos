@@ -25,7 +25,7 @@ pipeline {
         axes {
           axis {
             name 'FEATURES'
-            values 'libp2p,bincode'
+            values 'libp2p'
           }
         }
         stages {

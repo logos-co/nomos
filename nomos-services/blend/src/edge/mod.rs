@@ -37,7 +37,7 @@ use tracing::{debug, error, info};
 use crate::{
     edge::handlers::{Error, MessageHandler},
     membership,
-    message::ServiceMessage,
+    message::{NetworkMessage, ServiceMessage},
     settings::FIRST_SESSION_READY_TIMEOUT,
 };
 
