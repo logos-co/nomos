@@ -19,11 +19,9 @@ pub enum MempoolAdapterError {
 #[async_trait::async_trait]
 pub trait DaMempoolAdapter {
     type MempoolService: ServiceData;
-    type BlobId;
     type Tx;
 
     fn new(outbound_relay: OutboundRelay<<Self::MempoolService as ServiceData>::Message>) -> Self;
 
-    async fn post_tx(&self, blob_id: Self::BlobId, tx: Self::Tx)
-        -> Result<(), MempoolAdapterError>;
+    async fn post_tx(&self, tx: Self::Tx) -> Result<(), MempoolAdapterError>;
 }

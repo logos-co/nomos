@@ -1,4 +1,5 @@
 use libp2p::{allow_block_list::BlockedPeers, connection_limits::ConnectionLimits, PeerId};
+use nomos_blend_scheduling::membership::Membership;
 use nomos_libp2p::NetworkBehaviour;
 
 use crate::core::{backends::libp2p::Libp2pBlendBackendSettings, settings::BlendConfig};
@@ -12,10 +13,17 @@ pub struct BlendBehaviour<ObservationWindowProvider> {
 
 impl<ObservationWindowProvider> BlendBehaviour<ObservationWindowProvider>
 where
-    ObservationWindowProvider: for<'c> From<&'c BlendConfig<Libp2pBlendBackendSettings, PeerId>>,
+    ObservationWindowProvider: for<'c> From<(
+        &'c BlendConfig<Libp2pBlendBackendSettings, PeerId>,
+        &'c Membership<PeerId>,
+    )>,
 {
-    pub fn new(config: &BlendConfig<Libp2pBlendBackendSettings, PeerId>) -> Self {
-        let observation_window_interval_provider = ObservationWindowProvider::from(config);
+    pub fn new(
+        config: &BlendConfig<Libp2pBlendBackendSettings, PeerId>,
+        current_membership: Membership<PeerId>,
+    ) -> Self {
+        let observation_window_interval_provider =
+            ObservationWindowProvider::from((config, &current_membership));
         let minimum_core_healthy_peering_degree =
             *config.backend.core_peering_degree.start() as usize;
         let maximum_core_peering_degree = *config.backend.core_peering_degree.end() as usize;
@@ -27,14 +35,16 @@ where
                     with_core: nomos_blend_network::core::with_core::behaviour::Config {
                         peering_degree: minimum_core_healthy_peering_degree
                             ..=maximum_core_peering_degree,
+                        minimum_network_size: config.minimum_network_size.try_into().unwrap(),
                     },
                     with_edge: nomos_blend_network::core::with_edge::behaviour::Config {
                         connection_timeout: config.backend.edge_node_connection_timeout,
                         max_incoming_connections: maximum_edge_incoming_connections,
+                        minimum_network_size: config.minimum_network_size.try_into().unwrap(),
                     },
                 },
                 observation_window_interval_provider,
-                Some(config.membership()),
+                Some(current_membership),
                 config.backend.peer_id(),
                 config.backend.protocol_name.clone().into_inner(),
             ),

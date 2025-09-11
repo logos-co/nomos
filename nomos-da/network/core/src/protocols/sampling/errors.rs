@@ -184,3 +184,11 @@ impl Clone for SamplingError {
         }
     }
 }
+
+#[derive(Error, Debug, Clone)]
+pub enum HistoricSamplingError {
+    #[error("Historic sampling failed")]
+    SamplingFailed,
+    #[error("Internal server error: {0}")]
+    InternalServerError(String),
+}

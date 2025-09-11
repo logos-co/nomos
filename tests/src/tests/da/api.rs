@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, time::Duration};
 
 use common_http_client::CommonHttpClient;
 use futures_util::stream::StreamExt as _;
@@ -8,16 +8,23 @@ use nomos_da_network_service::membership::adapters::service::peer_id_from_provid
 use nomos_libp2p::ed25519;
 use rand::{rngs::OsRng, RngCore as _};
 use reqwest::Url;
+use serial_test::serial;
 use tests::{
-    common::da::{disseminate_with_metadata, wait_for_blob_onchain, APP_ID},
+    adjust_timeout,
+    common::da::{disseminate_with_metadata, wait_for_blob_onchain, APP_ID, DA_TESTS_TIMEOUT},
+    nodes::validator::{create_validator_config, Validator},
     secret_key_to_peer_id,
-    topology::{Topology, TopologyConfig},
+    topology::{configs::create_general_configs, Topology, TopologyConfig},
 };
 
 #[tokio::test]
+#[serial]
 async fn test_get_share_data() {
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let executor = &topology.executors()[0];
+
+    // Wait for nodes to initialise
+    tokio::time::sleep(Duration::from_secs(5)).await;
 
     let data = [1u8; 31];
     let app_id = hex::decode(APP_ID).unwrap();
@@ -30,6 +37,9 @@ async fn test_get_share_data() {
 
     wait_for_blob_onchain(executor, blob_id).await;
 
+    // Wait for transactions to be stored
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
     let executor_shares = executor
         .get_shares(blob_id, HashSet::new(), HashSet::new(), true)
         .await
@@ -41,6 +51,49 @@ async fn test_get_share_data() {
 }
 
 #[tokio::test]
+#[serial]
+#[ignore = "Reenable after transaction mempool is used"]
+async fn test_get_commitments_from_peers() {
+    let interconnected_topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
+    let validator = &interconnected_topology.validators()[0];
+    let executor = &interconnected_topology.executors()[0];
+
+    // Wait for nodes to initialise
+    tokio::time::sleep(Duration::from_secs(5)).await;
+
+    // Create independent node that only knows about membership of
+    // `interconnected_topology` nodes. This validator will not receive any data
+    // from the previous two, so it will need to query the DA network over the
+    // sampling protocol for the share commitments.
+    let lone_general_config = create_general_configs(1).into_iter().next().unwrap();
+    let mut lone_validator_config = create_validator_config(lone_general_config);
+    lone_validator_config.membership = validator.config().membership.clone();
+    let lone_validator = Validator::spawn(lone_validator_config).await.unwrap();
+
+    let data = [1u8; 31];
+    let app_id = hex::decode(APP_ID).unwrap();
+    let app_id: [u8; 32] = app_id.clone().try_into().unwrap();
+    let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, 0u64.into());
+
+    let blob_id = disseminate_with_metadata(executor, &data, metadata)
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    lone_validator.get_commitments(blob_id).await.unwrap();
+
+    let timeout = adjust_timeout(Duration::from_secs(DA_TESTS_TIMEOUT));
+    assert!(
+        (tokio::time::timeout(timeout, async {
+            lone_validator.get_commitments(blob_id).await
+        })
+        .await)
+            .is_ok(),
+        "timed out waiting for share commitments"
+    );
+}
+
+#[tokio::test]
+#[serial]
 async fn test_block_peer() {
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let executor = &topology.executors()[0];
@@ -52,18 +105,18 @@ async fn test_block_peer() {
         .config()
         .membership
         .backend
-        .session_zero_membership
+        .session_zero_providers
         .get(&nomos_core::sdp::ServiceType::DataAvailability)
         .expect("Expected data availability membership");
     assert!(!membership.is_empty());
 
     // take second peer ID from the membership set
     let existing_provider_id = *membership
-        .iter()
+        .keys()
         .nth(1)
         .expect("Expected at least two provider IDs in the membership set");
 
-    let existing_peer_id = peer_id_from_provider_id(&existing_provider_id.0)
+    let existing_peer_id = peer_id_from_provider_id(existing_provider_id.0.as_bytes())
         .expect("Failed to convert provider ID to PeerId");
 
     // try block/unblock peer id combinations
@@ -104,10 +157,14 @@ async fn test_block_peer() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_get_shares() {
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let executor = &topology.executors()[0];
     let num_subnets = executor.config().da_network.backend.num_subnets as usize;
+
+    // Wait for nodes to initialise
+    tokio::time::sleep(Duration::from_secs(5)).await;
 
     let data = [1u8; 31];
     let app_id = hex::decode(APP_ID).unwrap();
@@ -119,6 +176,9 @@ async fn test_get_shares() {
         .unwrap();
 
     wait_for_blob_onchain(executor, blob_id).await;
+
+    // Wait for transactions to be stored
+    tokio::time::sleep(Duration::from_secs(2)).await;
 
     let exec_url = Url::parse(&format!(
         "http://{}",

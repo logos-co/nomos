@@ -1,12 +1,7 @@
 mod settings;
 mod swarm;
 
-use std::pin::Pin;
-
-use futures::{
-    future::{AbortHandle, Abortable},
-    Stream,
-};
+use futures::future::{AbortHandle, Abortable};
 use libp2p::PeerId;
 use nomos_blend_scheduling::{membership::Membership, EncapsulatedMessage};
 use overwatch::overwatch::OverwatchHandle;
@@ -36,8 +31,7 @@ impl<RuntimeServiceId> BlendBackend<PeerId, RuntimeServiceId> for Libp2pBlendBac
     fn new<Rng>(
         settings: Self::Settings,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
-        session_stream: Pin<Box<dyn Stream<Item = Membership<PeerId>> + Send>>,
-        current_membership: Option<Membership<PeerId>>,
+        membership: Membership<PeerId>,
         rng: Rng,
     ) -> Self
     where
@@ -46,8 +40,7 @@ impl<RuntimeServiceId> BlendBackend<PeerId, RuntimeServiceId> for Libp2pBlendBac
         let (swarm_command_sender, swarm_command_receiver) = mpsc::channel(CHANNEL_SIZE);
         let swarm = BlendSwarm::new(
             &settings,
-            session_stream,
-            current_membership,
+            membership,
             rng,
             swarm_command_receiver,
             settings.protocol_name.clone().into_inner(),
@@ -64,8 +57,8 @@ impl<RuntimeServiceId> BlendBackend<PeerId, RuntimeServiceId> for Libp2pBlendBac
         }
     }
 
-    fn shutdown(&mut self) {
-        self.swarm_task_abort_handle.abort();
+    fn shutdown(self) {
+        drop(self);
     }
 
     async fn send(&self, msg: EncapsulatedMessage) {
@@ -76,5 +69,11 @@ impl<RuntimeServiceId> BlendBackend<PeerId, RuntimeServiceId> for Libp2pBlendBac
         {
             tracing::error!(target: LOG_TARGET, "Failed to send command to Swarm: {e}");
         }
+    }
+}
+
+impl Drop for Libp2pBlendBackend {
+    fn drop(&mut self) {
+        self.swarm_task_abort_handle.abort();
     }
 }

@@ -4,18 +4,22 @@ pub mod storage;
 pub mod verifier;
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeSet, HashMap, HashSet},
     fmt::{Debug, Display},
     marker::PhantomData,
     time::Duration,
 };
 
 use backend::{DaSamplingServiceBackend, SamplingState};
-use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};
+use futures::{future::BoxFuture, stream::FuturesUnordered, FutureExt as _, Stream};
+use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
 use network::NetworkAdapter;
-use nomos_core::da::BlobId;
+use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId};
 use nomos_da_network_core::protocols::sampling::errors::SamplingError;
-use nomos_da_network_service::{backends::libp2p::common::SamplingEvent, NetworkService};
+use nomos_da_network_service::{
+    backends::libp2p::common::{CommitmentsEvent, HistoricSamplingEvent, SamplingEvent},
+    NetworkService,
+};
 use nomos_storage::StorageService;
 use nomos_tracing::{error_with_id, info_with_id};
 use overwatch::{
@@ -34,6 +38,14 @@ use tokio_stream::StreamExt as _;
 use tracing::{error, instrument};
 use verifier::{kzgrs::KzgrsDaVerifier, VerifierBackend};
 
+const HISTORICAL_SAMPLING_TIMEOUT: Duration = Duration::from_secs(30);
+
+struct PendingTasks<'a> {
+    long_tasks: &'a mut FuturesUnordered<BoxFuture<'static, ()>>,
+    sampling_continuations:
+        &'a mut FuturesUnordered<BoxFuture<'static, (BlobId, Option<DaSharesCommitments>)>>,
+}
+
 pub type DaSamplingService<SamplingBackend, SamplingNetwork, SamplingStorage, RuntimeServiceId> =
     GenericDaSamplingService<
         SamplingBackend,
@@ -48,11 +60,21 @@ pub enum DaSamplingServiceMsg<BlobId> {
     TriggerSampling {
         blob_id: BlobId,
     },
+    GetCommitments {
+        blob_id: BlobId,
+        response_sender: oneshot::Sender<Option<DaSharesCommitments>>,
+    },
     GetValidatedBlobs {
         reply_channel: oneshot::Sender<BTreeSet<BlobId>>,
     },
     MarkInBlock {
         blobs_id: Vec<BlobId>,
+    },
+    RequestHistoricSampling {
+        session_id: SessionNumber,
+        block_id: HeaderId,
+        blob_ids: HashSet<BlobId>,
+        reply_channel: oneshot::Sender<bool>,
     },
 }
 
@@ -60,6 +82,7 @@ pub enum DaSamplingServiceMsg<BlobId> {
 pub struct DaSamplingServiceSettings<BackendSettings, ShareVerifierSettings> {
     pub sampling_settings: BackendSettings,
     pub share_verifier_settings: ShareVerifierSettings,
+    pub commitments_wait_duration: Duration,
 }
 
 pub struct GenericDaSamplingService<
@@ -123,9 +146,9 @@ where
             SharesCommitments = DaSharesCommitments,
         > + Send,
     SamplingBackend::Settings: Clone,
-    SamplingNetwork: NetworkAdapter<RuntimeServiceId> + Send + Sync,
+    SamplingNetwork: NetworkAdapter<RuntimeServiceId> + Send + Sync + 'static,
     SamplingStorage: DaStorageAdapter<RuntimeServiceId, Share = DaShare> + Send + Sync,
-    ShareVerifier: VerifierBackend<DaShare = DaShare> + Send + Sync,
+    ShareVerifier: VerifierBackend<DaShare = DaShare> + Send + Sync + Clone + 'static,
 {
     #[instrument(skip_all)]
     async fn handle_service_message(
@@ -133,27 +156,68 @@ where
         network_adapter: &mut SamplingNetwork,
         storage_adapter: &SamplingStorage,
         sampler: &mut SamplingBackend,
+        commitments_wait_duration: Duration,
+        share_verifier: &ShareVerifier,
+        tasks: &mut PendingTasks<'_>,
     ) {
+        let (long_tasks, sampling_continuations) =
+            (&mut tasks.long_tasks, &mut tasks.sampling_continuations);
+
         match msg {
             DaSamplingServiceMsg::TriggerSampling { blob_id } => {
                 if matches!(sampler.init_sampling(blob_id).await, SamplingState::Init) {
                     info_with_id!(blob_id, "InitSampling");
-                    if let Some(commitments) =
-                        Self::request_commitments(storage_adapter, network_adapter, blob_id).await
-                    {
-                        info_with_id!(blob_id, "Got commitments");
-                        sampler.add_commitments(&blob_id, commitments);
-                    } else {
-                        error_with_id!(blob_id, "Error getting commitments");
-                        sampler.handle_sampling_error(blob_id).await;
-                        return;
-                    }
 
-                    if let Err(e) = network_adapter.start_sampling(blob_id).await {
-                        // we can short circuit the failure from the beginning
-                        sampler.handle_sampling_error(blob_id).await;
-                        error_with_id!(blob_id, "Error sampling for BlobId: {blob_id:?}: {e}");
+                    if let Ok(Some(commitments)) = storage_adapter.get_commitments(blob_id).await {
+                        // Handle inline, no need to wait for commitments over network
+                        info_with_id!(blob_id, "Got commitments from storage");
+                        sampler.add_commitments(&blob_id, commitments);
+
+                        if let Err(e) = network_adapter.start_sampling(blob_id).await {
+                            sampler.handle_sampling_error(blob_id).await;
+                            error_with_id!(blob_id, "Error starting sampling: {e}");
+                        }
+                    } else {
+                        // Need network fetch - use async path
+                        let (tx, rx) = oneshot::channel();
+
+                        if let Some(future) = Self::request_commitments_from_network(
+                            network_adapter,
+                            commitments_wait_duration,
+                            blob_id,
+                            tx,
+                        )
+                        .await
+                        {
+                            long_tasks.push(future);
+
+                            let continuation = async move {
+                                let commitments = rx.await.unwrap_or(None);
+                                (blob_id, commitments)
+                            }
+                            .boxed();
+
+                            sampling_continuations.push(continuation);
+                        } else {
+                            sampler.handle_sampling_error(blob_id).await;
+                        }
                     }
+                }
+            }
+            DaSamplingServiceMsg::GetCommitments {
+                blob_id,
+                response_sender,
+            } => {
+                if let Some(future) = Self::request_commitments(
+                    storage_adapter,
+                    network_adapter,
+                    commitments_wait_duration,
+                    blob_id,
+                    response_sender,
+                )
+                .await
+                {
+                    long_tasks.push(future);
                 }
             }
             DaSamplingServiceMsg::GetValidatedBlobs { reply_channel } => {
@@ -164,6 +228,26 @@ where
             }
             DaSamplingServiceMsg::MarkInBlock { blobs_id } => {
                 sampler.mark_completed(&blobs_id).await;
+            }
+            DaSamplingServiceMsg::RequestHistoricSampling {
+                session_id,
+                block_id,
+                blob_ids,
+                reply_channel,
+            } => {
+                if let Some(future) = Self::request_and_wait_historic_sampling(
+                    network_adapter,
+                    share_verifier,
+                    session_id,
+                    block_id,
+                    blob_ids,
+                    reply_channel,
+                    HISTORICAL_SAMPLING_TIMEOUT,
+                )
+                .await
+                {
+                    long_tasks.push(future);
+                }
             }
         }
     }
@@ -229,22 +313,223 @@ where
         }
     }
 
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "nested error check when writing into response sender"
+    )]
+    async fn handle_commitments_message(
+        storage_adapter: &SamplingStorage,
+        commitments_message: CommitmentsEvent,
+    ) {
+        match commitments_message {
+            CommitmentsEvent::CommitmentsSuccess { .. } => {
+                // Handled on demand with `wait_commitments`, this stream
+                // handler ignores such messages.
+            }
+            CommitmentsEvent::CommitmentsRequest {
+                blob_id,
+                response_sender,
+            } => {
+                if let Ok(commitments) = storage_adapter.get_commitments(blob_id).await {
+                    if let Err(err) = response_sender.send(commitments).await {
+                        tracing::error!("Couldn't send commitments response: {err:?}");
+                    }
+                }
+            }
+            CommitmentsEvent::CommitmentsError { error } => match error.blob_id() {
+                Some(blob_id) => {
+                    error_with_id!(blob_id, "Commitments response error: {error}");
+                }
+                None => {
+                    tracing::error!("Commitments response error: {error}");
+                }
+            },
+        }
+    }
+
+    async fn request_commitments_from_network(
+        network_adapter: &SamplingNetwork,
+        wait_duration: Duration,
+        blob_id: BlobId,
+        result_sender: oneshot::Sender<Option<DaSharesCommitments>>,
+    ) -> Option<BoxFuture<'static, ()>> {
+        let Ok(stream) = network_adapter.listen_to_commitments_messages().await else {
+            tracing::error!("Error subscribing to commitments stream");
+            let _ = result_sender.send(None);
+            return None;
+        };
+
+        if network_adapter.request_commitments(blob_id).await.is_err() {
+            let _ = result_sender.send(None);
+            return None;
+        }
+
+        let future = async move {
+            let _ = tokio::time::timeout(wait_duration, async move {
+                let mut stream = stream;
+                while let Some(message) = stream.next().await {
+                    if let CommitmentsEvent::CommitmentsSuccess {
+                        blob_id: received_blob_id,
+                        commitments,
+                    } = message
+                    {
+                        if received_blob_id == blob_id {
+                            let _ = result_sender.send(Some(*commitments));
+                            return;
+                        }
+                    }
+                }
+                let _ = result_sender.send(None);
+            })
+            .await;
+        }
+        .boxed();
+
+        Some(future)
+    }
+
     async fn request_commitments(
         storage_adapter: &SamplingStorage,
         network_adapter: &SamplingNetwork,
-        blob_id: SamplingBackend::BlobId,
-    ) -> Option<DaSharesCommitments> {
-        // First try to get from storage which most of the time should be the case
+        wait_duration: Duration,
+        blob_id: BlobId,
+        result_sender: oneshot::Sender<Option<DaSharesCommitments>>,
+    ) -> Option<BoxFuture<'static, ()>> {
         if let Ok(Some(commitments)) = storage_adapter.get_commitments(blob_id).await {
-            return Some(commitments);
+            let _ = result_sender.send(Some(commitments));
+            return None;
         }
 
-        // Fall back to API request
-        network_adapter
-            .get_commitments(blob_id)
+        Self::request_commitments_from_network(
+            network_adapter,
+            wait_duration,
+            blob_id,
+            result_sender,
+        )
+        .await
+    }
+
+    async fn request_and_wait_historic_sampling(
+        network_adapter: &SamplingNetwork,
+        verifier: &ShareVerifier,
+        session_id: SessionNumber,
+        block_id: HeaderId,
+        blob_ids: HashSet<BlobId>,
+        reply_channel: oneshot::Sender<bool>,
+        timeout: Duration,
+    ) -> Option<BoxFuture<'static, ()>> {
+        let Ok(historic_stream) = network_adapter.listen_to_historic_sampling_messages().await
+        else {
+            if let Err(e) = reply_channel.send(false) {
+                tracing::error!("Failed to send historic sampling response: {}", e);
+            }
+            return None;
+        };
+
+        if network_adapter
+            .request_historic_sampling(session_id, block_id, blob_ids.clone())
             .await
-            .ok()
-            .flatten()
+            .is_err()
+        {
+            if let Err(e) = reply_channel.send(false) {
+                tracing::error!("Failed to send historic sampling response: {}", e);
+            }
+            return None;
+        }
+
+        let verifier = verifier.clone();
+        Some(
+            async move {
+                let result = Self::wait_for_historic_response(
+                    historic_stream,
+                    timeout,
+                    block_id,
+                    blob_ids,
+                    verifier,
+                )
+                .await;
+
+                if let Err(e) = reply_channel.send(result) {
+                    tracing::error!("Failed to send historic sampling result: {}", e);
+                }
+            }
+            .boxed(),
+        )
+    }
+
+    #[inline]
+    async fn wait_for_historic_response(
+        mut stream: impl Stream<Item = HistoricSamplingEvent> + Send + Unpin,
+        timeout: Duration,
+        target_block_id: HeaderId,
+        expected_blob_ids: HashSet<BlobId>,
+        verifier: ShareVerifier,
+    ) -> bool {
+        tokio::time::timeout(timeout, async move {
+            while let Some(event) = stream.next().await {
+                match event {
+                    HistoricSamplingEvent::HistoricSamplingSuccess {
+                        block_id,
+                        shares,
+                        commitments,
+                    } if block_id == target_block_id => {
+                        return Self::verify_historic_sampling(
+                            &expected_blob_ids,
+                            &shares,
+                            &commitments,
+                            &verifier,
+                        );
+                    }
+                    HistoricSamplingEvent::HistoricSamplingError { block_id, .. }
+                        if block_id == target_block_id =>
+                    {
+                        return false;
+                    }
+                    _ => (),
+                }
+            }
+            false
+        })
+        .await
+        .unwrap_or(false)
+    }
+
+    #[inline]
+    fn verify_historic_sampling(
+        expected_blob_ids: &HashSet<BlobId>,
+        shares: &HashMap<BlobId, Vec<DaLightShare>>,
+        commitments: &HashMap<BlobId, DaSharesCommitments>,
+        verifier: &ShareVerifier,
+    ) -> bool {
+        // Check counts match
+        if shares.len() != expected_blob_ids.len() || commitments.len() != expected_blob_ids.len() {
+            return false;
+        }
+
+        // Check all expected blobs are present
+        if !expected_blob_ids
+            .iter()
+            .all(|b| shares.contains_key(b) && commitments.contains_key(b))
+        {
+            return false;
+        }
+
+        // Verify all shares
+        // TODO: maybe spawn blocking so it yields while it verifies on a separate
+        // thread
+        for (blob_id, blob_shares) in shares {
+            let Some(blob_commitments) = commitments.get(blob_id) else {
+                return false;
+            };
+
+            for share in blob_shares {
+                if verifier.verify(blob_commitments, share).is_err() {
+                    return false;
+                }
+            }
+        }
+
+        true
     }
 }
 
@@ -285,11 +570,11 @@ where
             SharesCommitments = DaSharesCommitments,
         > + Send,
     SamplingBackend::Settings: Clone + Send + Sync,
-    SamplingNetwork: NetworkAdapter<RuntimeServiceId> + Send + Sync,
+    SamplingNetwork: NetworkAdapter<RuntimeServiceId> + Send + Sync + 'static,
     SamplingNetwork::Settings: Send + Sync,
     SamplingNetwork::Membership: MembershipHandler + Clone + 'static,
     SamplingStorage: DaStorageAdapter<RuntimeServiceId, Share = DaShare> + Send + Sync,
-    ShareVerifier: VerifierBackend<DaShare = DaShare> + Send + Sync,
+    ShareVerifier: VerifierBackend<DaShare = DaShare> + Send + Sync + Clone + 'static,
     ShareVerifier::Settings: Clone + Send + Sync,
     RuntimeServiceId: AsServiceId<Self>
         + AsServiceId<
@@ -323,6 +608,7 @@ where
         let DaSamplingServiceSettings {
             sampling_settings,
             share_verifier_settings,
+            commitments_wait_duration,
         } = service_resources_handle
             .settings_handle
             .notifier()
@@ -334,6 +620,8 @@ where
             .await?;
         let mut network_adapter = SamplingNetwork::new(network_relay).await;
         let mut sampling_message_stream = network_adapter.listen_to_sampling_messages().await?;
+        let mut commitments_message_stream =
+            network_adapter.listen_to_commitments_messages().await?;
 
         let storage_relay = service_resources_handle
             .overwatch_handle
@@ -359,19 +647,63 @@ where
         )
         .await?;
 
+        let mut long_tasks: FuturesUnordered<BoxFuture<'static, ()>> = FuturesUnordered::new();
+        let mut sampling_continuations: FuturesUnordered<
+            BoxFuture<'static, (BlobId, Option<DaSharesCommitments>)>,
+        > = FuturesUnordered::new();
+
         loop {
             tokio::select! {
-                Some(service_message) = service_resources_handle.inbound_relay.recv() => {
-                    Self::handle_service_message(service_message, &mut network_adapter,  &storage_adapter,  &mut sampler).await;
-                }
-                Some(sampling_message) = sampling_message_stream.next() => {
-                    Self::handle_sampling_message(sampling_message, &mut sampler, &storage_adapter, &share_verifier).await;
-                }
-                // cleanup not on time samples
-                _ = next_prune_tick.tick() => {
-                    sampler.prune();
-                }
+                    Some(service_message) = service_resources_handle.inbound_relay.recv() => {
+                        Self::handle_service_message(
+                            service_message,
+                            &mut network_adapter,
+                            &storage_adapter,
+                            &mut sampler,
+                            commitments_wait_duration,
+                            &share_verifier,
+                            &mut PendingTasks {
+                                long_tasks: &mut long_tasks,
+                                sampling_continuations: &mut sampling_continuations,
+                            }
+                        ).await;
+                    }
+                    Some(sampling_message) = sampling_message_stream.next() => {
+                        Self::handle_sampling_message(
+                            sampling_message,
+                            &mut sampler,
+                            &storage_adapter,
+                            &share_verifier
+                        ).await;
+                    }
+                    Some(commitments_message) = commitments_message_stream.next() => {
+                        Self::handle_commitments_message(
+                            &storage_adapter,
+                            commitments_message
+                        ).await;
+                    }
+                    // Handle completed sampling continuations
+                    Some((blob_id, commitments)) = sampling_continuations.next() => {
+                        if let Some(commitments) = commitments {
+                            info_with_id!(blob_id, "Got commitments for triggered sampling");
+                            sampler.add_commitments(&blob_id, commitments);
 
+                            if let Err(e) = network_adapter.start_sampling(blob_id).await {
+                                sampler.handle_sampling_error(blob_id).await;
+                                error_with_id!(blob_id, "Error starting sampling: {e}");
+                            }
+                        } else {
+                            error_with_id!(blob_id, "Failed to get commitments for triggered sampling");
+                            sampler.handle_sampling_error(blob_id).await;
+                        }
+                    }
+                    // Process completed long tasks (they just run to completion)
+                    Some(()) = long_tasks.next() => {}
+
+                    // cleanup not on time samples
+                    _ = next_prune_tick.tick() => {
+                        sampler.prune();
+                    }
             }
         }
     }

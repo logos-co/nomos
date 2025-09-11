@@ -8,8 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::{leadership::Leader, Cryptarchia, CryptarchiaSettings, Error};
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct CryptarchiaConsensusState<TxS, BxS, NodeId, NetworkAdapterSettings, BlendAdapterSettings>
-{
+pub struct CryptarchiaConsensusState<TxS, NodeId, NetworkAdapterSettings, BlendAdapterSettings> {
     pub tip: HeaderId,
     pub lib: HeaderId,
     pub lib_ledger_state: LedgerState,
@@ -22,17 +21,11 @@ pub struct CryptarchiaConsensusState<TxS, BxS, NodeId, NetworkAdapterSettings, B
     /// Last engine state and timestamp for offline grace period tracking
     pub last_engine_state: Option<LastEngineState>,
     // Only neededed for the service state trait
-    _markers: PhantomData<(
-        TxS,
-        BxS,
-        NodeId,
-        NetworkAdapterSettings,
-        BlendAdapterSettings,
-    )>,
+    _markers: PhantomData<(TxS, NodeId, NetworkAdapterSettings, BlendAdapterSettings)>,
 }
 
-impl<TxS, BxS, NodeId, NetworkAdapterSettings, BlendAdapterSettings>
-    CryptarchiaConsensusState<TxS, BxS, NodeId, NetworkAdapterSettings, BlendAdapterSettings>
+impl<TxS, NodeId, NetworkAdapterSettings, BlendAdapterSettings>
+    CryptarchiaConsensusState<TxS, NodeId, NetworkAdapterSettings, BlendAdapterSettings>
 {
     /// Re-create the [`CryptarchiaConsensusState`]
     /// given the cryptarchia engine, ledger state, and the leader details.
@@ -70,13 +63,12 @@ impl<TxS, BxS, NodeId, NetworkAdapterSettings, BlendAdapterSettings>
     }
 }
 
-impl<TxS, BxS, NodeId, NetworkAdapterSettings, BlendAdapterSettings> ServiceState
-    for CryptarchiaConsensusState<TxS, BxS, NodeId, NetworkAdapterSettings, BlendAdapterSettings>
+impl<TxS, NodeId, NetworkAdapterSettings, BlendAdapterSettings> ServiceState
+    for CryptarchiaConsensusState<TxS, NodeId, NetworkAdapterSettings, BlendAdapterSettings>
 where
     NodeId: Clone + Eq + Hash,
 {
-    type Settings =
-        CryptarchiaSettings<TxS, BxS, NodeId, NetworkAdapterSettings, BlendAdapterSettings>;
+    type Settings = CryptarchiaSettings<TxS, NodeId, NetworkAdapterSettings, BlendAdapterSettings>;
     type Error = Error;
 
     fn from_settings(
@@ -108,6 +100,9 @@ mod tests {
     use std::num::NonZero;
 
     use cryptarchia_engine::State::Bootstrapping;
+    use groth16::Fr;
+    use nomos_core::sdp::{MinStake, ServiceParameters};
+    use num_bigint::BigUint;
 
     use super::*;
 
@@ -127,6 +122,16 @@ mod tests {
                 epoch_period_nonce_stabilization: 1.try_into().unwrap(),
             },
             consensus_config: cryptarchia_engine_config,
+            service_params: ServiceParameters {
+                lock_period: 10,
+                inactivity_period: 20,
+                retention_period: 100,
+                timestamp: 0,
+            },
+            min_stake: MinStake {
+                threshold: 1,
+                timestamp: 0,
+            },
         };
 
         let (cryptarchia_engine, pruned_blocks) = {
@@ -191,7 +196,7 @@ mod tests {
         );
 
         // Empty leader utxos.
-        let leader = Leader::new(vec![], [0; 16].into(), ledger_config);
+        let leader = Leader::new(vec![], Fr::from(BigUint::from(1u8)).into(), ledger_config);
 
         // Build [`CryptarchiaConsensusState`] with the pruned blocks.
         let pruned_stale_blocks = pruned_blocks
@@ -199,7 +204,7 @@ mod tests {
             .copied()
             .collect::<HashSet<_>>();
         let recovery_state =
-            CryptarchiaConsensusState::<(), (), (), (), ()>::from_cryptarchia_and_unpruned_blocks(
+            CryptarchiaConsensusState::<(), (), (), ()>::from_cryptarchia_and_unpruned_blocks(
                 &Cryptarchia {
                     ledger: ledger_state,
                     consensus: cryptarchia_engine.clone(),

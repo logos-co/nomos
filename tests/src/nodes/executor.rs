@@ -20,7 +20,7 @@ use nomos_blend_service::{
     settings::TimingSettings,
 };
 use nomos_core::{
-    block::{Block, BlockNumber},
+    block::{Block, SessionNumber},
     da::BlobId,
     header::HeaderId,
     mantle::SignedMantleTx,
@@ -54,12 +54,14 @@ use nomos_da_verifier::{
 use nomos_executor::{api::backend::AxumBackendSettings, config::Config};
 use nomos_http_api_common::paths::{
     CL_METRICS, CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_BLACKLISTED_PEERS, DA_BLOCK_PEER,
-    DA_GET_MEMBERSHIP, DA_MONITOR_STATS, DA_UNBLOCK_PEER, STORAGE_BLOCK, UPDATE_MEMBERSHIP,
+    DA_GET_MEMBERSHIP, DA_GET_SHARES_COMMITMENTS, DA_HISTORIC_SAMPLING, DA_MONITOR_STATS,
+    DA_UNBLOCK_PEER, STORAGE_BLOCK, UPDATE_MEMBERSHIP,
 };
 use nomos_network::{backends::libp2p::Libp2pConfig, config::NetworkConfig};
 use nomos_node::{
+    api::testing::handlers::HistoricSamplingRequest,
     config::{blend::BlendConfig, mempool::MempoolConfig},
-    BlobInfo, RocksBackendSettings,
+    RocksBackendSettings,
 };
 use nomos_time::{
     backends::{ntp::async_client::NTPClientSettings, NtpTimeBackendSettings},
@@ -67,19 +69,19 @@ use nomos_time::{
 };
 use nomos_tracing::logging::local::FileConfig;
 use nomos_tracing_service::LoggerLayer;
-use nomos_utils::math::NonNegativeF64;
+use nomos_utils::{math::NonNegativeF64, net::get_available_tcp_port};
 use reqwest::Url;
 use tempfile::NamedTempFile;
 
 use super::{create_tempdir, persist_tempdir, CLIENT};
 use crate::{
-    adjust_timeout, get_available_port, nodes::LOGS_PREFIX, topology::configs::GeneralConfig,
+    adjust_timeout,
+    nodes::{DA_GET_TESTING_ENDPOINT_ERROR, LOGS_PREFIX},
+    topology::configs::GeneralConfig,
     IS_DEBUG_TRACING,
 };
 
 const BIN_PATH: &str = "../target/debug/nomos-executor";
-const DA_GET_TESTING_ENDPOINT_ERROR: &str =
-    "Failed to connect to testing endpoint. The binary was likely built without the 'testing' feature. Try: cargo build --workspace --all-features";
 
 pub struct Executor {
     addr: SocketAddr,
@@ -228,12 +230,15 @@ impl Executor {
     }
 
     pub async fn consensus_info(&self) -> CryptarchiaInfo {
-        let res = self.get(CRYPTARCHIA_INFO).await;
-        println!("{res:?}");
-        res.unwrap().json().await.unwrap()
+        self.get(CRYPTARCHIA_INFO)
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap()
     }
 
-    pub async fn get_block(&self, id: HeaderId) -> Option<Block<SignedMantleTx, BlobInfo>> {
+    pub async fn get_block(&self, id: HeaderId) -> Option<Block<SignedMantleTx>> {
         CLIENT
             .post(format!("http://{}{}", self.addr, STORAGE_BLOCK))
             .header("Content-Type", "application/json")
@@ -241,7 +246,7 @@ impl Executor {
             .send()
             .await
             .unwrap()
-            .json::<Option<Block<SignedMantleTx, BlobInfo>>>()
+            .json::<Option<Block<SignedMantleTx>>>()
             .await
             .unwrap()
     }
@@ -264,12 +269,28 @@ impl Executor {
             .await
     }
 
-    pub async fn get_commitments(
+    pub async fn get_commitments(&self, blob_id: BlobId) -> Option<DaSharesCommitments> {
+        CLIENT
+            .post(format!("http://{}{}", self.addr, DA_GET_SHARES_COMMITMENTS))
+            .header("Content-Type", "application/json")
+            .body(serde_json::to_string(&blob_id).unwrap())
+            .send()
+            .await
+            .unwrap()
+            .json::<Option<DaSharesCommitments>>()
+            .await
+            .unwrap()
+    }
+
+    pub async fn get_storage_commitments(
         &self,
         blob_id: BlobId,
     ) -> Result<Option<DaSharesCommitments>, common_http_client::Error> {
         self.http_client
-            .get_commitments::<DaShare>(Url::from_str(&format!("http://{}", self.addr))?, blob_id)
+            .get_storage_commitments::<DaShare>(
+                Url::from_str(&format!("http://{}", self.addr))?,
+                blob_id,
+            )
             .await
     }
 
@@ -299,7 +320,7 @@ impl Executor {
 
     pub async fn da_get_membership(
         &self,
-        block_number: BlockNumber,
+        session_id: SessionNumber,
     ) -> Result<MembershipResponse, reqwest::Error> {
         let response = CLIENT
             .post(format!(
@@ -307,7 +328,7 @@ impl Executor {
                 self.testing_http_addr, DA_GET_MEMBERSHIP
             ))
             .header("Content-Type", "application/json")
-            .body(serde_json::to_string(&block_number).unwrap())
+            .body(serde_json::to_string(&session_id).unwrap())
             .send()
             .await;
 
@@ -316,12 +337,40 @@ impl Executor {
         let response = response.unwrap();
         response.error_for_status()?.json().await
     }
+
+    pub async fn da_historic_sampling(
+        &self,
+        session_id: SessionNumber,
+        block_id: HeaderId,
+        blob_ids: Vec<BlobId>,
+    ) -> Result<bool, reqwest::Error> {
+        let request = HistoricSamplingRequest {
+            session_id,
+            block_id,
+            blob_ids,
+        };
+
+        let response = CLIENT
+            .post(format!(
+                "http://{}{}",
+                self.testing_http_addr, DA_HISTORIC_SAMPLING
+            ))
+            .json(&request)
+            .send()
+            .await?;
+
+        response.error_for_status_ref()?;
+
+        // Parse the boolean response
+        let success: bool = response.json().await?;
+        Ok(success)
+    }
 }
 
 #[must_use]
 #[expect(clippy::too_many_lines, reason = "TODO: Address this at some point.")]
 pub fn create_executor_config(config: GeneralConfig) -> Config {
-    let testing_http_address = format!("127.0.0.1:{}", get_available_port())
+    let testing_http_address = format!("127.0.0.1:{}", get_available_tcp_port().unwrap())
         .parse()
         .unwrap();
 
@@ -347,6 +396,8 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                     .expect("Rounds per session cannot be zero."),
                 rounds_per_observation_window: NonZeroU64::try_from(30u64)
                     .expect("Rounds per observation window cannot be zero."),
+                rounds_per_session_transition_period: NonZeroU64::try_from(30u64)
+                    .expect("Rounds per session transition period cannot be zero."),
             },
             scheduler: SchedulerSettingsExt {
                 cover: CoverTrafficSettingsExt {
@@ -361,6 +412,9 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                 },
             },
             membership: config.blend_config.membership,
+            minimum_network_size: 1
+                .try_into()
+                .expect("Minimum Blend network size cannot be zero."),
         }),
         cryptarchia: CryptarchiaSettings {
             leader_config: config.consensus_config.leader_config,
@@ -368,7 +422,6 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
             genesis_id: HeaderId::from([0; 32]),
             genesis_state: config.consensus_config.genesis_state,
             transaction_selector_settings: (),
-            blob_selector_settings: (),
             network_adapter_settings:
                 chain_service::network::adapters::libp2p::LibP2pAdapterSettings {
                     topic: String::from(nomos_node::CONSENSUS_TOPIC),
@@ -443,9 +496,11 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
         http: nomos_api::ApiServiceSettings {
             backend_settings: AxumBackendSettings {
                 address: config.api_config.address,
-                cors_origins: vec![],
+                rate_limit_per_second: 10000,
+                rate_limit_burst: 10000,
+                max_concurrent_requests: 1000,
+                ..Default::default()
             },
-            request_timeout: None,
         },
         da_sampling: DaSamplingServiceSettings {
             sampling_settings: KzgrsSamplingBackendSettings {
@@ -458,6 +513,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                 global_params_path: config.da_config.global_params_path.clone(),
                 domain_size: config.da_config.num_subnets as usize,
             },
+            commitments_wait_duration: Duration::from_secs(1),
         },
         storage: RocksBackendSettings {
             db_path: "./db".into(),
@@ -492,7 +548,6 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
         },
         mempool: MempoolConfig {
             cl_pool_recovery_path: "./recovery/cl_mempool.json".into(),
-            da_pool_recovery_path: "./recovery/da_mempool.json".into(),
             trigger_sampling_delay: adjust_timeout(Duration::from_secs(5)),
         },
         membership: config.membership_config.service_settings,
@@ -501,9 +556,11 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
         testing_http: nomos_api::ApiServiceSettings {
             backend_settings: AxumBackendSettings {
                 address: testing_http_address,
-                cors_origins: vec![],
+                rate_limit_per_second: 10000,
+                rate_limit_burst: 10000,
+                max_concurrent_requests: 1000,
+                ..Default::default()
             },
-            request_timeout: None,
         },
     }
 }

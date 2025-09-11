@@ -12,6 +12,19 @@ impl BlendConfig {
         Self(core)
     }
 
+    fn proxy(&self) -> <BlendService as ServiceData>::Settings {
+        nomos_blend_service::settings::Settings {
+            crypto: self.0.crypto.clone(),
+            time: self.0.time.clone(),
+            membership: self.0.membership.clone(),
+            minimal_network_size: self.0.minimum_network_size,
+        }
+    }
+
+    fn core(&self) -> <BlendCoreService as ServiceData>::Settings {
+        self.0.clone()
+    }
+
     fn edge(&self) -> <BlendEdgeService as ServiceData>::Settings {
         nomos_blend_service::edge::settings::BlendConfig {
             backend: nomos_blend_service::edge::backends::libp2p::Libp2pBlendBackendSettings {
@@ -21,10 +34,15 @@ impl BlendConfig {
                     .try_into()
                     .expect("Max dial attempts per peer per message cannot be zero."),
                 protocol_name: self.0.backend.protocol_name.clone(),
+                // TODO: Allow for edge service settings to be included here.
+                replication_factor: 4
+                    .try_into()
+                    .expect("Edge message replication factor cannot be zero."),
             },
             crypto: self.0.crypto.clone(),
             time: self.0.time.clone(),
             membership: self.0.membership.clone(),
+            minimum_network_size: self.0.minimum_network_size,
         }
     }
 
@@ -41,7 +59,6 @@ impl From<BlendConfig>
     )
 {
     fn from(config: BlendConfig) -> Self {
-        let edge = config.edge();
-        ((), config.0, edge)
+        (config.proxy(), config.core(), config.edge())
     }
 }

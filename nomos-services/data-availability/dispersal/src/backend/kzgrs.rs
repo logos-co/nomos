@@ -8,7 +8,10 @@ use kzgrs_backend::{
 };
 use nomos_core::{
     da::{BlobId, DaDispersal, DaEncoder},
-    mantle::ops::channel::Ed25519PublicKey,
+    mantle::{
+        ops::channel::{Ed25519PublicKey, MsgId},
+        AuthenticatedMantleTx as _, Op, SignedMantleTx,
+    },
 };
 use nomos_tracing::info_with_id;
 use nomos_utils::bounded_duration::{MinimalBoundedDuration, NANO};
@@ -52,6 +55,7 @@ pub struct DispersalKZGRSBackend<NetworkAdapter, WalletAdapter> {
     network_adapter: Arc<NetworkAdapter>,
     wallet_adapter: Arc<WalletAdapter>,
     encoder: Arc<encoder::DaEncoder>,
+    last_dispersed_tx: Option<SignedMantleTx>,
 }
 
 pub struct DispersalHandler<NetworkAdapter, WalletAdapter> {
@@ -87,6 +91,10 @@ where
             .filter_map(|event| async move {
                 match event {
                     Ok((_blob_id, _)) if _blob_id == blob_id => Some(()),
+                    Err(e) => {
+                        tracing::error!("Error dispersing in dispersal stream: {e}");
+                        None
+                    }
                     _ => None,
                 }
             })
@@ -101,16 +109,17 @@ where
 
     async fn disperse_tx(
         &self,
+        parent_msg_id: MsgId,
         blob_id: BlobId,
         num_columns: usize,
         original_size: usize,
         signer: Ed25519PublicKey,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<SignedMantleTx, Self::Error> {
         let wallet_adapter = self.wallet_adapter.as_ref();
         let network_adapter = self.network_adapter.as_ref();
 
         let tx = wallet_adapter
-            .blob_tx(blob_id, original_size, signer)
+            .blob_tx(parent_msg_id, blob_id, original_size, signer)
             .map_err(Box::new)?;
         let responses_stream = network_adapter.dispersal_events_stream().await?;
         for subnetwork_id in 0..num_columns {
@@ -132,7 +141,7 @@ where
         tokio::time::timeout(self.timeout, valid_responses)
             .await
             .map_err(|e| Box::new(e) as DynError)?;
-        Ok(())
+        Ok(tx)
     }
 }
 
@@ -156,7 +165,7 @@ where
     }
 
     async fn disperse(
-        &self,
+        &mut self,
         encoded_data: <encoder::DaEncoder as DaEncoder>::EncodedData,
         original_size: usize,
     ) -> Result<(), DynError> {
@@ -168,15 +177,30 @@ where
             wallet_adapter: Arc::clone(&self.wallet_adapter),
             timeout: self.settings.dispersal_timeout,
         };
-        let () = handler
+        let parent_msg_id = self
+            .last_dispersed_tx
+            .as_ref()
+            .map_or_else(MsgId::root, |tx| {
+                let Some((Op::ChannelBlob(blob_op), _)) = tx.ops_with_proof().next() else {
+                    panic!("Previously sent transaction should have a blob operation");
+                };
+                blob_op.id()
+            });
+        tracing::debug!("Dispersing {blob_id:?} transaction");
+        let tx = handler
             .disperse_tx(
+                parent_msg_id,
                 blob_id,
                 num_columns,
                 original_size,
                 Ed25519PublicKey::from_bytes(&[0u8; 32])?, // TODO: pass key from config
             )
             .await?;
-        handler.disperse_shares(encoded_data).await
+        tracing::debug!("Dispersing {blob_id:?} shares");
+        handler.disperse_shares(encoded_data).await?;
+        tracing::debug!("Dispersal of {blob_id:?} successful");
+        self.last_dispersed_tx = Some(tx);
+        Ok(())
     }
 }
 
@@ -216,11 +240,12 @@ where
             network_adapter: Arc::new(network_adapter),
             wallet_adapter: Arc::new(wallet_adapter),
             encoder: Arc::new(encoder),
+            last_dispersed_tx: None,
         }
     }
 
     #[instrument(skip_all)]
-    async fn process_dispersal(&self, data: Vec<u8>) -> Result<Self::BlobId, DynError> {
+    async fn process_dispersal(&mut self, data: Vec<u8>) -> Result<Self::BlobId, DynError> {
         let original_size = data.len();
         let (blob_id, encoded_data) = self.encode(data).await?;
         info_with_id!(blob_id.as_ref(), "ProcessDispersal");

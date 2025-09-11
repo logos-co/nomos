@@ -1,4 +1,4 @@
-use core::time::Duration;
+use core::{num::NonZeroUsize, time::Duration};
 use std::collections::{HashSet, VecDeque};
 
 use async_trait::async_trait;
@@ -15,11 +15,12 @@ pub struct BehaviourBuilder {
     core_peer_ids: Vec<PeerId>,
     max_incoming_connections: Option<usize>,
     timeout: Option<Duration>,
+    minimum_network_size: Option<NonZeroUsize>,
 }
 
 impl BehaviourBuilder {
-    pub fn with_core_peer_membership(mut self, edge_peer_id: PeerId) -> Self {
-        self.core_peer_ids.push(edge_peer_id);
+    pub fn with_core_peer_membership(mut self, core_peer_id: PeerId) -> Self {
+        self.core_peer_ids.push(core_peer_id);
         self
     }
 
@@ -33,11 +34,16 @@ impl BehaviourBuilder {
         self
     }
 
+    pub fn with_minimum_network_size(mut self, minimum_network_size: usize) -> Self {
+        self.minimum_network_size = Some(minimum_network_size.try_into().unwrap());
+        self
+    }
+
     pub fn build(self) -> Behaviour {
         let current_membership = if self.core_peer_ids.is_empty() {
             None
         } else {
-            Some(Membership::new(
+            Some(Membership::new_without_local(
                 self.core_peer_ids
                     .into_iter()
                     .map(|edge_peer_id| Node {
@@ -47,7 +53,6 @@ impl BehaviourBuilder {
                     })
                     .collect::<Vec<_>>()
                     .as_ref(),
-                None,
             ))
         };
         Behaviour {
@@ -58,6 +63,9 @@ impl BehaviourBuilder {
             upgraded_edge_peers: HashSet::new(),
             max_incoming_connections: self.max_incoming_connections.unwrap_or(100),
             protocol_name: PROTOCOL_NAME,
+            minimum_network_size: self
+                .minimum_network_size
+                .unwrap_or_else(|| 1usize.try_into().unwrap()),
         }
     }
 }

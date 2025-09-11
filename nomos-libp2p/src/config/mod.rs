@@ -1,6 +1,10 @@
 pub use identify::Settings as IdentifySettings;
 pub use kademlia::Settings as KademliaSettings;
 use libp2p::identity::ed25519;
+pub use nat::{
+    autonat_client::Settings as AutonatClientSettings, gateway::Settings as GatewaySettings,
+    mapping::Settings as NatMappingSettings, Settings as NatSettings,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::protocol_name::ProtocolName;
@@ -8,17 +12,19 @@ use crate::protocol_name::ProtocolName;
 mod gossipsub;
 mod identify;
 mod kademlia;
+mod nat;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SwarmConfig {
-    // Listening IPv4 address
+    /// Listening IPv4 address
     pub host: std::net::Ipv4Addr,
-    // TCP listening port. Use 0 for random
+    /// UDP/QUIC listening port. Use 0 for random.
     pub port: u16,
-    // Secp256k1 private key in Hex format (`0x123...abc`). Default random
+    /// Ed25519 private key in hex format. Default: random.
     #[serde(with = "secret_key_serde", default = "ed25519::SecretKey::generate")]
     pub node_key: ed25519::SecretKey,
-    // Gossipsub config
+
+    /// Gossipsub config
     #[serde(
         with = "gossipsub::ConfigDef",
         default = "libp2p::gossipsub::Config::default"
@@ -26,31 +32,32 @@ pub struct SwarmConfig {
     pub gossipsub_config: libp2p::gossipsub::Config,
 
     /// Protocol name env for Kademlia and Identify protocol names.
-    /// This is used to determine the protocol names for Kademlia and Identify.
     ///
-    /// Allowed values are:
+    /// Allowed values:
     /// - `mainnet`
     /// - `testnet`
     /// - `unittest`
     /// - `integration`
     ///
-    /// Default is `unittest`.
+    /// Default: `unittest`
     #[serde(default)]
     pub protocol_name_env: ProtocolName,
 
-    /// Kademlia config
-    /// Note: Kademlia requires identify or another identity protocol to be
-    /// enabled.
+    /// Kademlia config (required; Identify must be enabled too)
     #[serde(default)]
     pub kademlia_config: kademlia::Settings,
 
-    /// Identify config
+    /// Identify config (required)
     #[serde(default)]
     pub identify_config: identify::Settings,
 
     /// Chain sync config
     #[serde(default)]
     pub chain_sync_config: cryptarchia_sync::Config,
+
+    /// Nat config
+    #[serde(default)]
+    pub nat_config: nat::Settings,
 }
 
 impl Default for SwarmConfig {
@@ -64,6 +71,7 @@ impl Default for SwarmConfig {
             kademlia_config: kademlia::Settings::default(),
             identify_config: identify::Settings::default(),
             chain_sync_config: cryptarchia_sync::Config::default(),
+            nat_config: nat::Settings::default(),
         }
     }
 }
@@ -102,7 +110,7 @@ mod tests {
         let serialized = serde_json::to_string(&config).unwrap();
         println!("{serialized}");
 
-        let deserialized: SwarmConfig = serde_json::from_str(serialized.as_str()).unwrap();
+        let deserialized: SwarmConfig = serde_json::from_str(&serialized).unwrap();
         assert_eq!(deserialized.host, config.host);
         assert_eq!(deserialized.port, config.port);
         assert_eq!(deserialized.node_key.as_ref(), config.node_key.as_ref());

@@ -5,6 +5,7 @@
 
 use std::{
     error::Error,
+    io,
     net::Ipv4Addr,
     pin::Pin,
     task::{Context, Poll},
@@ -14,39 +15,30 @@ use std::{
 use libp2p::{
     identity::ed25519,
     swarm::{dial_opts::DialOpts, ConnectionId, DialError, SwarmEvent},
-    Multiaddr, PeerId,
+    Multiaddr, PeerId, TransportError,
 };
-use multiaddr::{multiaddr, Protocol};
+use multiaddr::multiaddr;
+use rand::RngCore;
 
-use crate::{
+use crate::behaviour::BehaviourConfig;
+pub use crate::{
     behaviour::{Behaviour, BehaviourEvent},
     SwarmConfig,
 };
-
-#[derive(thiserror::Error, Debug)]
-pub enum SwarmError {
-    #[error("duplicate dialing")]
-    DuplicateDialing,
-
-    #[error("no known peers")]
-    NoKnownPeers,
-}
 
 /// How long to keep a connection alive once it is idling.
 const IDLE_CONN_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// Wraps [`libp2p::Swarm`], and config it for use within Nomos.
-pub struct Swarm {
+pub struct Swarm<R: Clone + Send + RngCore + 'static> {
     // A core libp2p swarm
-    pub(crate) swarm: libp2p::Swarm<Behaviour>,
+    pub(crate) swarm: libp2p::Swarm<Behaviour<R>>,
 }
 
-impl Swarm {
+impl<R: Clone + Send + RngCore + 'static> Swarm<R> {
     /// Builds a [`Swarm`] configured for use with Nomos on top of a tokio
     /// executor.
-    //
-    // TODO: define error types
-    pub fn build(config: SwarmConfig) -> Result<Self, Box<dyn Error>> {
+    pub fn build(config: SwarmConfig, rng: R) -> Result<Self, Box<dyn Error>> {
         let keypair =
             libp2p::identity::Keypair::from(ed25519::Keypair::from(config.node_key.clone()));
         let peer_id = PeerId::from(keypair.public());
@@ -57,42 +49,46 @@ impl Swarm {
             kademlia_config,
             identify_config,
             chain_sync_config,
+            nat_config,
+            protocol_name_env,
+            host,
+            port,
             ..
         } = config;
 
-        let mut swarm = libp2p::SwarmBuilder::with_existing_identity(keypair)
+        let swarm = libp2p::SwarmBuilder::with_existing_identity(keypair)
             .with_tokio()
             .with_quic()
             .with_dns()?
-            .with_behaviour(|keypair| {
+            .with_behaviour(move |keypair| {
                 Behaviour::new(
-                    gossipsub_config,
-                    &kademlia_config,
-                    &identify_config,
-                    chain_sync_config,
-                    config.protocol_name_env,
-                    keypair.public(),
+                    BehaviourConfig {
+                        gossipsub_config,
+                        kademlia_config: kademlia_config.clone(),
+                        identify_config,
+                        nat_config,
+                        protocol_name: protocol_name_env,
+                        public_key: keypair.public(),
+                        chain_sync_config,
+                    },
+                    rng,
                 )
                 .expect("Behaviour should not fail to set up.")
             })?
             .with_swarm_config(|c| c.with_idle_connection_timeout(IDLE_CONN_TIMEOUT))
             .build();
 
-        let listen_addr = multiaddr(config.host, config.port);
-        swarm.listen_on(listen_addr.clone())?;
+        let nomos_swarm = {
+            let listen_addr = multiaddr(host, port);
+            let mut s = Self { swarm };
+            // We start listening on the provided address, which triggers the Identify flow,
+            // which in turn triggers our NAT traversal state machine.
+            s.start_listening_on(listen_addr.clone())
+                .map_err(|e| format!("Failed to listen on {listen_addr}: {e}"))?;
+            Ok::<_, Box<dyn Error>>(s)
+        }?;
 
-        // if kademlia is not in client mode then it is operating in a
-        // server mode
-        if !kademlia_config.client_mode {
-            // libp2p2-kad server mode is implicitly enabled
-            // by adding external addressess
-            // <https://github.com/libp2p/rust-libp2p/blob/master/protocols/kad/CHANGELOG.md#0440>
-            let external_addr = listen_addr.with(Protocol::P2p(peer_id));
-            swarm.add_external_address(external_addr.clone());
-            tracing::info!("Added external address: {}", external_addr);
-        }
-
-        Ok(Self { swarm })
+        Ok(nomos_swarm)
     }
 
     /// Initiates a connection attempt to a peer
@@ -105,14 +101,19 @@ impl Swarm {
         Ok(connection_id)
     }
 
+    pub fn start_listening_on(&mut self, addr: Multiaddr) -> Result<(), TransportError<io::Error>> {
+        self.swarm.listen_on(addr)?;
+        Ok(())
+    }
+
     /// Returns a reference to the underlying [`libp2p::Swarm`]
-    pub const fn swarm(&self) -> &libp2p::Swarm<Behaviour> {
+    pub const fn swarm(&self) -> &libp2p::Swarm<Behaviour<R>> {
         &self.swarm
     }
 }
 
-impl futures::Stream for Swarm {
-    type Item = SwarmEvent<BehaviourEvent>;
+impl<R: Clone + Send + RngCore + 'static> futures::Stream for Swarm<R> {
+    type Item = SwarmEvent<BehaviourEvent<R>>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         Pin::new(&mut self.swarm).poll_next(cx)

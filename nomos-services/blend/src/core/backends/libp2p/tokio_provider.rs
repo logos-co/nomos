@@ -3,6 +3,7 @@ use std::hash::Hash;
 
 use futures::StreamExt as _;
 use nomos_blend_network::core::with_core::behaviour::IntervalStreamProvider;
+use nomos_blend_scheduling::membership::Membership;
 use nomos_utils::math::NonNegativeF64;
 use tokio_stream::wrappers::IntervalStream;
 
@@ -53,16 +54,25 @@ impl IntervalStreamProvider for ObservationWindowTokioIntervalProvider {
     }
 }
 
-impl<NodeId> From<&BlendConfig<Libp2pBlendBackendSettings, NodeId>>
-    for ObservationWindowTokioIntervalProvider
+impl<NodeId>
+    From<(
+        &BlendConfig<Libp2pBlendBackendSettings, NodeId>,
+        &Membership<NodeId>,
+    )> for ObservationWindowTokioIntervalProvider
 where
     NodeId: Clone + Eq + Hash,
 {
-    fn from(config: &BlendConfig<Libp2pBlendBackendSettings, NodeId>) -> Self {
+    fn from(
+        (config, membership): (
+            &BlendConfig<Libp2pBlendBackendSettings, NodeId>,
+            &Membership<NodeId>,
+        ),
+    ) -> Self {
         Self {
             blending_ops_per_message: config.crypto.num_blend_layers,
             maximal_delay_rounds: config.scheduler.delayer.maximum_release_delay_in_rounds,
-            membership_size: NonZeroU64::try_from(config.membership().size() as u64)
+            // TODO: Replace with a session stream: https://github.com/logos-co/nomos/issues/1533
+            membership_size: NonZeroU64::try_from(membership.size() as u64)
                 .expect("Membership size cannot be zero."),
             minimum_messages_coefficient: config.backend.minimum_messages_coefficient,
             normalization_constant: config.backend.normalization_constant,

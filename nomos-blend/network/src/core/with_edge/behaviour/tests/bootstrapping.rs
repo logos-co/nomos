@@ -134,6 +134,38 @@ async fn incoming_connection_with_maximum_peering_degree() {
 }
 
 #[test(tokio::test)]
+async fn incoming_connection_network_too_small() {
+    let mut edge_swarm = TestSwarm::new(|_| StreamBehaviour::new());
+    let mut core_swarm = TestSwarm::new(|_| {
+        BehaviourBuilder::default()
+            // Add random peer to membership so the swarm is considered edge node.
+            .with_core_peer_membership(PeerId::random())
+            // One remote and one local node. So `3` is the minimum value that is larger than the
+            // used membership.
+            .with_minimum_network_size(3)
+            .build()
+    });
+
+    core_swarm.listen().with_memory_addr_external().await;
+
+    // Then we perform the dial.
+    edge_swarm.connect(&mut core_swarm).await;
+
+    loop {
+        select! {
+            _ = edge_swarm.select_next_some() => {}
+            core_swarm_event = core_swarm.select_next_some() => {
+                if let SwarmEvent::ConnectionClosed { peer_id, endpoint, .. } = core_swarm_event {
+                    assert_eq!(peer_id, *edge_swarm.local_peer_id());
+                    assert!(endpoint.is_listener());
+                    break;
+                }
+            }
+        }
+    }
+}
+
+#[test(tokio::test)]
 async fn concurrent_incoming_connection_and_maximum_peering_degree_reached() {
     let mut listening_swarm = TestSwarm::new(|_| {
         BehaviourBuilder::default()

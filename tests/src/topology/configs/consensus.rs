@@ -4,6 +4,7 @@ use chain_service::LeaderConfig;
 use cryptarchia_engine::EpochConfig;
 use nomos_core::mantle::{keys::SecretKey, Note, Utxo};
 use nomos_ledger::LedgerState;
+use num_bigint::BigUint;
 
 #[derive(Clone)]
 pub struct ConsensusParams {
@@ -47,15 +48,15 @@ pub fn create_consensus_configs(
         .map(|&id| {
             let mut sk = [0; 16];
             sk.copy_from_slice(&id[0..16]);
-            SecretKey::from(sk)
+            SecretKey::from(BigUint::from_bytes_le(&sk))
         })
         .collect::<Vec<_>>();
 
     let utxos = sks
         .iter()
         .map(|_| Utxo {
-            note: Note::new(1, [0; 32].into()), // TODO: replace with proper public key
-            tx_hash: [0; 32].into(),
+            note: Note::new(1, BigUint::from(0u8).into()), // TODO: replace with proper public key
+            tx_hash: BigUint::from(0u8).into(),
             output_index: 0,
         })
         .collect::<Vec<_>>();
@@ -69,6 +70,16 @@ pub fn create_consensus_configs(
         consensus_config: cryptarchia_engine::Config {
             security_param: consensus_params.security_param,
             active_slot_coeff: consensus_params.active_slot_coeff,
+        },
+        service_params: nomos_core::sdp::ServiceParameters {
+            lock_period: 10,
+            inactivity_period: 20,
+            retention_period: 100,
+            timestamp: 0,
+        },
+        min_stake: nomos_core::sdp::MinStake {
+            threshold: 1,
+            timestamp: 0,
         },
     };
 

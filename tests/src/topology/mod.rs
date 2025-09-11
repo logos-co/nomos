@@ -9,10 +9,10 @@ use configs::{
     GeneralConfig,
 };
 use nomos_da_network_core::swarm::DAConnectionPolicySettings;
+use nomos_utils::net::get_available_udp_port;
 use rand::{thread_rng, Rng as _};
 
 use crate::{
-    get_available_port,
     nodes::{
         executor::{create_executor_config, Executor},
         validator::{create_validator_config, Validator},
@@ -120,7 +120,7 @@ impl Topology {
         let mut ports = vec![];
         for id in &mut ids {
             thread_rng().fill(id);
-            ports.push(get_available_port());
+            ports.push(get_available_udp_port().unwrap());
         }
 
         let consensus_configs = create_consensus_configs(&ids, &config.consensus_params);

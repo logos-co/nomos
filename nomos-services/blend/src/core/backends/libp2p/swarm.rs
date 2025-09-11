@@ -1,5 +1,5 @@
 use core::{
-    num::NonZeroU64,
+    num::{NonZeroU64, NonZeroUsize},
     ops::{Deref, RangeInclusive},
 };
 use std::{
@@ -22,7 +22,7 @@ use nomos_blend_network::{
     },
     EncapsulatedMessageWithValidatedPublicHeader,
 };
-use nomos_blend_scheduling::{membership::Membership, EncapsulatedMessage};
+use nomos_blend_scheduling::{membership::Membership, session::SessionEvent, EncapsulatedMessage};
 use nomos_libp2p::{DialOpts, SwarmEvent};
 use rand::RngCore;
 use tokio::sync::{broadcast, mpsc};
@@ -71,29 +71,34 @@ where
     rng: Rng,
     max_dial_attempts_per_connection: NonZeroU64,
     ongoing_dials: HashMap<PeerId, DialAttempt>,
+    minimum_network_size: NonZeroUsize,
 }
 
 impl<SessionStream, Rng, ObservationWindowProvider>
     BlendSwarm<SessionStream, Rng, ObservationWindowProvider>
 where
+    SessionStream: Stream<Item = SessionEvent<Membership<PeerId>>> + Unpin,
     Rng: RngCore,
     ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
-        + for<'c> From<&'c BlendConfig<Libp2pBlendBackendSettings, PeerId>>
-        + 'static,
+        + for<'c> From<(
+            &'c BlendConfig<Libp2pBlendBackendSettings, PeerId>,
+            &'c Membership<PeerId>,
+        )> + 'static,
 {
     pub(super) fn new(
         config: BlendConfig<Libp2pBlendBackendSettings, PeerId>,
+        current_membership: Membership<PeerId>,
         session_stream: SessionStream,
         rng: Rng,
         swarm_messages_receiver: mpsc::Receiver<BlendSwarmMessage>,
         incoming_message_sender: broadcast::Sender<EncapsulatedMessageWithValidatedPublicHeader>,
+        minimum_network_size: NonZeroUsize,
     ) -> Self {
-        let membership = config.membership();
         let keypair = config.backend.keypair();
         let mut swarm = SwarmBuilder::with_existing_identity(keypair)
             .with_tokio()
             .with_quic()
-            .with_behaviour(|_| BlendBehaviour::new(&config))
+            .with_behaviour(|_| BlendBehaviour::new(&config, current_membership.clone()))
             .expect("Blend Behaviour should be built")
             .with_swarm_config(|cfg| {
                 // The idle timeout starts ticking once there are no active streams on a
@@ -114,12 +119,13 @@ where
             swarm_messages_receiver,
             incoming_message_sender,
             session_stream,
-            latest_session_info: membership,
+            latest_session_info: current_membership,
             rng,
             max_dial_attempts_per_connection: config.backend.max_dial_attempts_per_peer,
             ongoing_dials: HashMap::with_capacity(
                 *config.backend.core_peering_degree.start() as usize
             ),
+            minimum_network_size,
         };
 
         self_instance.check_and_dial_new_peers_except(None);
@@ -227,6 +233,11 @@ where
     /// Dial new peers, if necessary, to maintain the peering degree.
     /// We aim to have at least the peering degree number of "healthy" peers.
     fn check_and_dial_new_peers_except(&mut self, except: Option<PeerId>) {
+        let membership_size = self.latest_session_info.size();
+        if self.latest_session_info.size() < self.minimum_network_size.get() {
+            tracing::warn!(target: LOG_TARGET, "Not dialing any peers because set of core nodes is smaller than the minimum network size. {membership_size} < {}", self.minimum_network_size.get());
+            return;
+        }
         let num_new_conns_needed = self
             .minimum_healthy_peering_degree()
             .saturating_sub(self.num_healthy_peers());
@@ -323,6 +334,7 @@ where
     }
 
     #[cfg(test)]
+    #[expect(clippy::too_many_arguments, reason = "Test-only constructor.")]
     pub fn new_test<BehaviourConstructor>(
         behaviour_constructor: BehaviourConstructor,
         swarm_messages_receiver: mpsc::Receiver<BlendSwarmMessage>,
@@ -331,6 +343,7 @@ where
         latest_session_info: Membership<PeerId>,
         rng: Rng,
         max_dial_attempts_per_connection: NonZeroU64,
+        minimum_network_size: NonZeroUsize,
     ) -> Self
     where
         BehaviourConstructor:
@@ -347,6 +360,7 @@ where
             session_stream,
             swarm: memory_test_swarm(Duration::from_secs(1), behaviour_constructor),
             swarm_messages_receiver,
+            minimum_network_size,
         }
     }
 }
@@ -472,7 +486,7 @@ impl<SessionStream, Rng, ObservationWindowProvider>
     BlendSwarm<SessionStream, Rng, ObservationWindowProvider>
 where
     Rng: RngCore,
-    SessionStream: Stream<Item = Membership<PeerId>> + Unpin,
+    SessionStream: Stream<Item = SessionEvent<Membership<PeerId>>> + Unpin,
     ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
         + 'static,
 {
@@ -503,9 +517,17 @@ where
                 self.handle_event(event);
                 predicate_matched
             }
-            Some(new_session_info) = self.session_stream.next() => {
-                self.latest_session_info = new_session_info;
-                // TODO: Perform the session transition logic
+            Some(event) = self.session_stream.next() => {
+                match event {
+                    SessionEvent::NewSession(membership) => {
+                        self.latest_session_info = membership.clone();
+                        self.swarm.behaviour_mut().blend.with_core_mut().start_new_session(membership.clone());
+                        self.swarm.behaviour_mut().blend.with_edge_mut().start_new_session(membership);
+                    },
+                    SessionEvent::TransitionPeriodExpired => {
+                        self.swarm.behaviour_mut().blend.with_core_mut().finish_session_transition();
+                    },
+                }
                 false
             }
         }

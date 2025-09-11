@@ -1,17 +1,20 @@
 pub mod channel;
 pub(crate) mod internal;
-mod leader_claim;
+pub mod leader_claim;
 pub mod native;
 pub mod opcode;
 pub mod sdp;
 mod serde_;
 mod wire;
 
+use bytes::Bytes;
 use channel::{
     blob::{BlobOp, DA_COLUMNS, DA_ELEMENT_SIZE},
     inscribe::InscriptionOp,
     set_keys::SetKeysOp,
 };
+use groth16::Fr;
+use num_bigint::BigUint;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::{
@@ -26,9 +29,12 @@ use super::{
         sdp::{SDPActiveOp, SDPDeclareOp, SDPWithdrawOp},
     },
 };
-use crate::mantle::ops::{
-    internal::{OpDe, OpSer},
-    wire::OpWireVisitor,
+use crate::{
+    mantle::ops::{
+        internal::{OpDe, OpSer},
+        wire::OpWireVisitor,
+    },
+    proofs::zksig,
 };
 
 /// Core set of supported Mantle operations.
@@ -57,6 +63,11 @@ pub enum Op {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OpProof {
     Ed25519Sig(ed25519::Signature),
+    ZkSig(zksig::DummyZkSignature),
+    ZkAndEd25519Sigs {
+        zk_sig: zksig::DummyZkSignature,
+        ed25519_sig: ed25519::Signature,
+    },
 }
 
 /// Delegates serialization through the [`OpInternal`] representation.
@@ -110,14 +121,28 @@ impl Op {
     }
 
     #[must_use]
-    pub fn as_sign_bytes(&self) -> bytes::Bytes {
-        let mut buff = bytes::BytesMut::new();
-        buff.extend_from_slice(&[self.opcode()]);
-        // TODO: add ops payload
-        if let Self::ChannelBlob(blob_op) = self {
-            buff.extend_from_slice(&blob_op.as_sign_bytes());
+    pub fn payload_bytes(&self) -> Bytes {
+        match self {
+            Self::ChannelInscribe(channel_inscribre) => channel_inscribre.payload_bytes(),
+            Self::ChannelBlob(channel_blob) => channel_blob.payload_bytes(),
+            Self::ChannelSetKeys(channel_keys) => channel_keys.payload_bytes(),
+            Self::Native(native) => native.payload_bytes(),
+            Self::SDPDeclare(sdp_declare) => sdp_declare.payload_bytes(),
+            Self::SDPWithdraw(sdp_withdraw) => sdp_withdraw.payload_bytes(),
+            Self::SDPActive(sdp_active) => sdp_active.payload_bytes(),
+            Self::LeaderClaim(leader_claim) => leader_claim.payload_bytes(),
         }
-        buff.freeze()
+    }
+
+    #[must_use]
+    pub fn as_signing_fr(&self) -> Vec<Fr> {
+        let mut buff = Vec::new();
+        buff.push(BigUint::from(self.opcode()).into());
+
+        for chunk in self.payload_bytes().chunks(31) {
+            buff.push(BigUint::from_bytes_le(chunk).into());
+        }
+        buff
     }
 
     #[must_use]

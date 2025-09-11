@@ -1,5 +1,6 @@
-use futures::channel::oneshot;
-use libp2p::PeerId;
+use std::pin::Pin;
+
+use futures::{channel::oneshot, Future};
 use log::{debug, error};
 use nomos_da_messages::replication::ReplicationRequest;
 use subnetworks_assignations::MembershipHandler;
@@ -8,21 +9,23 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::{
     maintenance::monitor::{ConnectionMonitor, ConnectionMonitorBehaviour},
     protocols::{
-        dispersal::validator::behaviour::DispersalEvent,
-        replication::behaviour::{ReplicationBehaviour, ReplicationEvent},
+        dispersal::validator::behaviour::DispersalEvent, replication::behaviour::ReplicationEvent,
         sampling::SamplingEvent,
     },
     swarm::{DispersalValidationError, DispersalValidatorEvent},
-    SubnetworkId,
 };
 
-pub async fn handle_validator_dispersal_event<Membership>(
+pub type ValidationTask =
+    Pin<Box<dyn Future<Output = (Result<(), DispersalValidationError>, DispersalEvent)> + Send>>;
+
+pub fn handle_validator_dispersal_event(
     validation_events_sender: &UnboundedSender<DispersalValidatorEvent>,
-    replication_behaviour: &mut ReplicationBehaviour<Membership>,
     event: DispersalEvent,
-) where
-    Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>,
-{
+) -> Option<ValidationTask> {
+    if matches!(event, DispersalEvent::DispersalError { .. }) {
+        return None;
+    }
+
     let (sender, receiver) = oneshot::channel();
     let validation_event = DispersalValidatorEvent {
         event: event.clone(),
@@ -31,32 +34,22 @@ pub async fn handle_validator_dispersal_event<Membership>(
 
     if let Err(e) = validation_events_sender.send(validation_event) {
         error!("Error sending blob to validation: {e:?}");
+        return None;
     }
 
-    let Ok(validation_result) = receiver.await else {
-        error!("Error receiving dispersal validation result");
-        return;
+    let validation_future = async move {
+        let result = (receiver.await).unwrap_or_else(|_| {
+            error!("Dispersal validation channel closed unexpectedly.");
+            Err(DispersalValidationError)
+        });
+
+        (result, event)
     };
 
-    // Do not replicate if validation fails.
-    if matches!(validation_result, Err(DispersalValidationError)) {
-        error!("Error validating dispersal event: {event:?}");
-        return;
-    }
-
-    // Send message for replication
-    match event {
-        DispersalEvent::IncomingShare(share) => {
-            replication_behaviour.send_message(&ReplicationRequest::from(*share));
-        }
-        DispersalEvent::IncomingTx(signed_mantle_tx) => {
-            replication_behaviour.send_message(&ReplicationRequest::from(*signed_mantle_tx.1));
-        }
-        DispersalEvent::DispersalError { .. } => {} // Do not replicate errors.
-    }
+    Some(Box::pin(validation_future))
 }
 
-pub async fn handle_sampling_event(
+pub fn handle_sampling_event(
     sampling_events_sender: &UnboundedSender<SamplingEvent>,
     event: SamplingEvent,
 ) {
@@ -65,7 +58,7 @@ pub async fn handle_sampling_event(
     }
 }
 
-pub async fn handle_replication_event<Membership>(
+pub fn handle_replication_event<Membership>(
     validation_events_sender: &UnboundedSender<DispersalValidatorEvent>,
     membership: &Membership,
     peer_id: &<Membership as MembershipHandler>::Id,

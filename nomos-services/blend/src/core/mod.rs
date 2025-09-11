@@ -1,16 +1,19 @@
 pub mod backends;
 pub mod network;
+mod processor;
 pub mod settings;
 
 use std::{
     fmt::{Debug, Display},
     future::Future,
     hash::Hash,
+    marker::PhantomData,
     time::Duration,
 };
 
 use async_trait::async_trait;
 use backends::BlendBackend;
+use fork_stream::StreamExt as _;
 use futures::{future::join_all, StreamExt as _};
 use network::NetworkAdapter;
 use nomos_blend_message::{crypto::random_sized_bytes, encap::DecapsulationOutput, PayloadType};
@@ -19,10 +22,11 @@ use nomos_blend_scheduling::{
     membership::Membership,
     message_blend::crypto::CryptographicProcessor,
     message_scheduler::{round_info::RoundInfo, MessageScheduler},
-    UninitializedMessageScheduler,
+    session::SessionEvent,
 };
 use nomos_core::wire;
 use nomos_network::NetworkService;
+use nomos_utils::blake_rng::BlakeRng;
 use overwatch::{
     services::{
         state::{NoOperator, NoState},
@@ -31,16 +35,20 @@ use overwatch::{
     OpaqueServiceResourcesHandle,
 };
 use rand::{seq::SliceRandom as _, RngCore, SeedableRng as _};
-use rand_chacha::ChaCha12Rng;
 use serde::{Deserialize, Serialize};
 use services_utils::wait_until_services_are_ready;
-use tokio::time::interval;
-use tokio_stream::wrappers::IntervalStream;
 
 use crate::{
-    core::settings::BlendConfig,
+    core::{
+        processor::{CoreCryptographicProcessor, Error},
+        settings::BlendConfig,
+    },
+    membership,
     message::{NetworkMessage, ProcessedMessage, ServiceMessage},
+    settings::constant_session_stream,
 };
+
+pub(super) mod service_components;
 
 const LOG_TARGET: &str = "blend::service::core";
 
@@ -51,20 +59,19 @@ const LOG_TARGET: &str = "blend::service::core";
 /// independent of each other. For example, the blend backend can use the
 /// libp2p network stack, while the network adapter can use the other network
 /// backend.
-pub struct BlendService<Backend, NodeId, Network, RuntimeServiceId>
+pub struct BlendService<Backend, NodeId, Network, MembershipAdapter, RuntimeServiceId>
 where
-    Backend: BlendBackend<NodeId, ChaCha12Rng, RuntimeServiceId>,
+    Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId>,
     Network: NetworkAdapter<RuntimeServiceId>,
 {
-    backend: Backend,
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-    membership: Membership<NodeId>,
+    _phantom: PhantomData<(Backend, MembershipAdapter)>,
 }
 
-impl<Backend, NodeId, Network, RuntimeServiceId> ServiceData
-    for BlendService<Backend, NodeId, Network, RuntimeServiceId>
+impl<Backend, NodeId, Network, MembershipAdapter, RuntimeServiceId> ServiceData
+    for BlendService<Backend, NodeId, Network, MembershipAdapter, RuntimeServiceId>
 where
-    Backend: BlendBackend<NodeId, ChaCha12Rng, RuntimeServiceId>,
+    Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId>,
     Network: NetworkAdapter<RuntimeServiceId>,
 {
     type Settings = BlendConfig<Backend::Settings, NodeId>;
@@ -74,13 +81,17 @@ where
 }
 
 #[async_trait]
-impl<Backend, NodeId, Network, RuntimeServiceId> ServiceCore<RuntimeServiceId>
-    for BlendService<Backend, NodeId, Network, RuntimeServiceId>
+impl<Backend, NodeId, Network, MembershipAdapter, RuntimeServiceId> ServiceCore<RuntimeServiceId>
+    for BlendService<Backend, NodeId, Network, MembershipAdapter, RuntimeServiceId>
 where
-    Backend: BlendBackend<NodeId, ChaCha12Rng, RuntimeServiceId> + Send + Sync,
-    NodeId: Clone + Eq + Hash + Send + Sync + 'static,
+    Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId> + Send + Sync,
+    NodeId: Clone + Send + Eq + Hash + Sync + 'static,
     Network: NetworkAdapter<RuntimeServiceId, BroadcastSettings: Unpin> + Send + Sync,
+    MembershipAdapter: membership::Adapter + Send,
+    membership::ServiceMessage<MembershipAdapter>: Send + Sync + 'static,
+    <MembershipAdapter as membership::Adapter>::Error: Send + Sync + 'static,
     RuntimeServiceId: AsServiceId<NetworkService<Network::Backend, RuntimeServiceId>>
+        + AsServiceId<<MembershipAdapter as membership::Adapter>::Service>
         + AsServiceId<Self>
         + Clone
         + Debug
@@ -93,21 +104,9 @@ where
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
         _initial_state: Self::State,
     ) -> Result<Self, overwatch::DynError> {
-        let settings_reader = service_resources_handle.settings_handle.notifier();
-        let blend_config = settings_reader.get_updated_settings();
-        let membership = blend_config.membership();
         Ok(Self {
-            backend: <Backend as BlendBackend<NodeId, ChaCha12Rng, RuntimeServiceId>>::new(
-                settings_reader.get_updated_settings(),
-                service_resources_handle.overwatch_handle.clone(),
-                Box::pin(
-                    IntervalStream::new(interval(blend_config.time.session_duration()))
-                        .map(move |_| membership.clone()),
-                ),
-                ChaCha12Rng::from_entropy(),
-            ),
             service_resources_handle,
-            membership: blend_config.membership(),
+            _phantom: PhantomData,
         })
     }
 
@@ -121,36 +120,74 @@ where
                     ref status_updater,
                     ..
                 },
-            ref mut backend,
-            ref membership,
+            ..
         } = self;
+
         let blend_config = settings_handle.notifier().get_updated_settings();
-        let mut rng = ChaCha12Rng::from_entropy();
-        let mut cryptographic_processor = CryptographicProcessor::new(
-            blend_config.crypto.clone(),
-            membership.clone(),
-            rng.clone(),
-        );
+
         let network_relay = overwatch_handle.relay::<NetworkService<_, _>>().await?;
         let network_adapter = Network::new(network_relay);
 
-        // Incoming streams
+        let _membership_stream = MembershipAdapter::new(
+            overwatch_handle
+                .relay::<<MembershipAdapter as membership::Adapter>::Service>()
+                .await?,
+            blend_config.crypto.signing_private_key.public_key(),
+        )
+        .subscribe()
+        .await
+        .expect("Membership service should be ready");
+        // TODO: Use membership_stream once the membership/SDP services are ready to provide the real membership: https://github.com/logos-co/nomos/issues/1532
+        let (current_membership, session_stream) = constant_session_stream(
+            initial_membership(&blend_config),
+            blend_config.time.session_duration(),
+            blend_config.time.session_transition_period(),
+        )
+        .await_first_ready()
+        .await
+        .expect("The current session must be ready");
+
+        let mut session_stream = session_stream.fork();
+
+        let mut crypto_processor = CoreCryptographicProcessor::try_new_with_core_condition_check(
+            current_membership.clone(),
+            blend_config.minimum_network_size,
+            &blend_config.crypto,
+        )
+        .expect("The initial membership should satisfy the core node condition");
 
         // Yields once every randomly-scheduled release round.
-        let mut message_scheduler = UninitializedMessageScheduler::<
-            _,
-            _,
-            ProcessedMessage<Network::BroadcastSettings>,
-        >::new(
-            blend_config.session_stream(),
-            blend_config.scheduler_settings(),
-            rng.clone(),
-        )
-        .wait_next_session_start()
-        .await;
+        let (initial_session_info, session_info_stream) =
+            blend_config.session_info_stream(&current_membership, session_stream.clone());
+        let mut message_scheduler =
+            MessageScheduler::<_, _, ProcessedMessage<Network::BroadcastSettings>>::new(
+                session_info_stream,
+                initial_session_info,
+                BlakeRng::from_entropy(),
+                blend_config.scheduler_settings(),
+            );
+
+        let mut backend = <Backend as BlendBackend<NodeId, BlakeRng, RuntimeServiceId>>::new(
+            blend_config.clone(),
+            overwatch_handle.clone(),
+            current_membership,
+            session_stream.clone().boxed(),
+            BlakeRng::from_entropy(),
+        );
 
         // Yields new messages received via Blend peers.
         let mut blend_messages = backend.listen_to_incoming_messages();
+
+        // Rng for releasing messages.
+        let mut rng = BlakeRng::from_entropy();
+
+        wait_until_services_are_ready!(
+            &overwatch_handle,
+            Some(Duration::from_secs(60)),
+            NetworkService<_, _>,
+            <MembershipAdapter as membership::Adapter>::Service
+        )
+        .await?;
 
         status_updater.notify_ready();
         tracing::info!(
@@ -159,26 +196,58 @@ where
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
 
-        wait_until_services_are_ready!(
-            &self.service_resources_handle.overwatch_handle,
-            Some(Duration::from_secs(60)),
-            NetworkService<_, _>
-        )
-        .await?;
-
         loop {
             tokio::select! {
                 Some(local_data_message) = inbound_relay.next() => {
-                    handle_local_data_message(local_data_message, &mut cryptographic_processor, backend, &mut message_scheduler).await;
+                    handle_local_data_message(local_data_message, &mut crypto_processor, &backend, &mut message_scheduler).await;
                 }
                 Some(incoming_message) = blend_messages.next() => {
-                    handle_incoming_blend_message(incoming_message, &mut message_scheduler, &cryptographic_processor);
+                    handle_incoming_blend_message(incoming_message, &mut message_scheduler, &crypto_processor);
                 }
                 Some(round_info) = message_scheduler.next() => {
-                    handle_release_round(round_info, &mut cryptographic_processor, &mut rng, backend, &network_adapter).await;
+                    handle_release_round(round_info, &mut crypto_processor, &mut rng, &backend, &network_adapter).await;
+                }
+                Some(session_event) = session_stream.next() => {
+                    match handle_session_event(session_event, crypto_processor, &blend_config) {
+                        Ok(new_crypto_processor) => crypto_processor = new_crypto_processor,
+                        Err(e) => {
+                            tracing::error!(
+                                target: LOG_TARGET,
+                                "Terminating the '{}' service as the new membership does not satisfy the core node condition: {e:?}",
+                                <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
+                            );
+                            return Err(e.into());
+                        },
+                    }
                 }
             }
         }
+    }
+}
+
+/// Handles a [`SessionEvent`].
+///
+/// It consumes the previous cryptographic processor and creates a new one
+/// on a new session with its new membership.
+/// It ignores the transition period expiration event and returns the previous
+/// cryptographic processor as is.
+fn handle_session_event<NodeId, BackendSettings>(
+    event: SessionEvent<Membership<NodeId>>,
+    cryptographic_processor: CoreCryptographicProcessor<NodeId>,
+    settings: &BlendConfig<BackendSettings, NodeId>,
+) -> Result<CoreCryptographicProcessor<NodeId>, Error>
+where
+    NodeId: Eq + Hash + Send,
+{
+    match event {
+        SessionEvent::NewSession(membership) => Ok(
+            CoreCryptographicProcessor::try_new_with_core_condition_check(
+                membership,
+                settings.minimum_network_size,
+                &settings.crypto,
+            )?,
+        ),
+        SessionEvent::TransitionPeriodExpired => Ok(cryptographic_processor),
     }
 }
 
@@ -205,7 +274,7 @@ async fn handle_local_data_message<
 ) where
     NodeId: Eq + Hash + Send,
     Rng: RngCore + Send,
-    Backend: BlendBackend<NodeId, ChaCha12Rng, RuntimeServiceId> + Sync,
+    Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId> + Sync,
     BroadcastSettings: Serialize,
 {
     let ServiceMessage::Blend(message_payload) = local_data_message;
@@ -286,7 +355,7 @@ async fn handle_release_round<NodeId, Rng, Backend, NetAdapter, RuntimeServiceId
 ) where
     NodeId: Eq + Hash,
     Rng: RngCore + Send,
-    Backend: BlendBackend<NodeId, ChaCha12Rng, RuntimeServiceId> + Sync,
+    Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId> + Sync,
     NetAdapter: NetworkAdapter<RuntimeServiceId> + Sync,
 {
     let mut processed_messages_relay_futures = processed_messages
@@ -320,14 +389,13 @@ async fn handle_release_round<NodeId, Rng, Backend, NetAdapter, RuntimeServiceId
     tracing::debug!(target: LOG_TARGET, "Sent out {total_message_count} processed and/or cover messages at this release window.");
 }
 
-impl<Backend, NodeId, Network, RuntimeServiceId> Drop
-    for BlendService<Backend, NodeId, Network, RuntimeServiceId>
+// TODO: Remove this and use the membership service stream instead: https://github.com/logos-co/nomos/issues/1532
+fn initial_membership<BackendSettings, NodeId>(
+    settings: &BlendConfig<BackendSettings, NodeId>,
+) -> Membership<NodeId>
 where
-    Backend: BlendBackend<NodeId, ChaCha12Rng, RuntimeServiceId>,
-    Network: NetworkAdapter<RuntimeServiceId>,
+    NodeId: Clone + Eq + Hash,
 {
-    fn drop(&mut self) {
-        tracing::info!(target: LOG_TARGET, "Shutting down Blend backend");
-        self.backend.shutdown();
-    }
+    let local_signing_pubkey = settings.crypto.signing_private_key.public_key();
+    Membership::new(&settings.membership, &local_signing_pubkey)
 }

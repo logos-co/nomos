@@ -1,13 +1,15 @@
 pub mod adapters;
 
-use std::pin::Pin;
+use std::{collections::HashSet, pin::Pin};
 
 use futures::Stream;
-use kzgrs_backend::common::share::DaSharesCommitments;
-use nomos_core::da::BlobId;
+use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId};
 use nomos_da_network_service::{
     api::ApiAdapter,
-    backends::{libp2p::common::SamplingEvent, NetworkBackend},
+    backends::{
+        libp2p::common::{CommitmentsEvent, HistoricSamplingEvent, SamplingEvent},
+        NetworkBackend,
+    },
     NetworkService,
 };
 use overwatch::{
@@ -39,12 +41,25 @@ pub trait NetworkAdapter<RuntimeServiceId> {
     ) -> Self;
 
     async fn start_sampling(&mut self, blob_id: BlobId) -> Result<(), DynError>;
+
+    async fn request_historic_sampling(
+        &self,
+        session_id: SessionNumber,
+        block_id: HeaderId,
+        blob_ids: HashSet<BlobId>,
+    ) -> Result<(), DynError>;
+
     async fn listen_to_sampling_messages(
         &self,
     ) -> Result<Pin<Box<dyn Stream<Item = SamplingEvent> + Send>>, DynError>;
 
-    async fn get_commitments(
+    async fn request_commitments(&self, blob_id: BlobId) -> Result<(), DynError>;
+
+    async fn listen_to_commitments_messages(
         &self,
-        blob_id: BlobId,
-    ) -> Result<Option<DaSharesCommitments>, DynError>;
+    ) -> Result<Pin<Box<dyn Stream<Item = CommitmentsEvent> + Send>>, DynError>;
+
+    async fn listen_to_historic_sampling_messages(
+        &self,
+    ) -> Result<Pin<Box<dyn Stream<Item = HistoricSamplingEvent> + Send>>, DynError>;
 }

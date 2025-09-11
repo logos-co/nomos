@@ -36,6 +36,7 @@ blend:
     round_duration: [1, 0]
     # Defined in the spec
     rounds_per_observation_window: 30
+    rounds_per_session_transition_period: 30
   scheduler:
     intervals_for_safety_buffer: 100
     message_frequency_per_round: 1.0
@@ -48,6 +49,7 @@ blend:
     - id: 12D3KooWA5LkQcuefjUBTktxCXUQ4rx4PcqRY1tgbSpV9eZDHWir
       address: /ip4/127.0.0.1/udp/8721/quic-v1
       public_key: 92f041e26306548444400e88eefa622dc125a45f3e3119a04ba1ffe4946dd4e6
+  minimum_network_size: 1
 da_network:
   backend:
     node_key: ea1e1dcc31612bd20987f017f0ca435cd2a59a4bd9fd6e14883b4803ae3b803d
@@ -127,6 +129,9 @@ da_sampling:
   network_adapter_settings: null
   storage_adapter_settings:
     blob_storage_directory: ./
+  commitments_wait_duration:
+    secs: 2 
+    nanos: 0
 http:
   backend_settings:
     address: 127.0.0.1:8722
@@ -157,8 +162,17 @@ cryptarchia:
     consensus_config:
       security_param: 10
       active_slot_coeff: 0.9
+    service_params:
+      lock_period: 10
+      inactivity_period: 20
+      retention_period: 100
+      timestamp: 0
+    min_stake:
+      threshold: 1
+      timestamp: 0
   genesis_id: 0x0000000000000000000000000000000000000000000000000000000000000000
   genesis_state:
+    block_number: 0
     cryptarchia_ledger:
       utxos:
         0:
@@ -290,6 +304,18 @@ cryptarchia:
     mantle_ledger:
       channels:
         channels: {}
+      sdp:
+        declarations: {}
+      locked_notes:
+        locked_notes: {}
+      leaders:
+        epoch: 0
+        claimable_vouchers_root: "0000000000000000000000000000000000000000000000000000000000000000"
+        n_claimable_vouchers: 0
+        nfs: []
+        claimable_rewards: 0
+        vouchers:
+          roots: []
   time:
     slot_duration: [2, 0]
     chain_start_time: [2025, 41, 9, 38, 29, 993653000, 0, 0, 0]
@@ -323,13 +349,12 @@ storage:
   column_family: blocks
 mempool:
   cl_pool_recovery_path: ./recovery/cl_mempool.json
-  da_pool_recovery_path: ./recovery/da_mempool.json
   trigger_sampling_delay:
     secs: 5
     nanos: 0
 membership:
   backend:
-    session_size_blocks: 4320
-    session_zero_membership: {}
-    session_zero_locators_mapping: {}
+    session_sizes:
+      DA: 4320  # DataAvailability - 4320 blocks per session
+    session_zero_providers: {}
 sdp:

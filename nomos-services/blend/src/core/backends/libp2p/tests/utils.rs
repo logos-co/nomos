@@ -19,7 +19,10 @@ use nomos_blend_network::{
     },
     EncapsulatedMessageWithValidatedPublicHeader,
 };
-use nomos_blend_scheduling::membership::{Membership, Node};
+use nomos_blend_scheduling::{
+    membership::{Membership, Node},
+    session::SessionEvent,
+};
 use nomos_libp2p::{Protocol, SwarmEvent};
 use nomos_utils::blake_rng::BlakeRng;
 use rand::SeedableRng as _;
@@ -38,7 +41,11 @@ use crate::{
 };
 
 pub struct TestSwarm {
-    pub swarm: BlendSwarm<Pending<Membership<PeerId>>, BlakeRng, TestObservationWindowProvider>,
+    pub swarm: BlendSwarm<
+        Pending<SessionEvent<Membership<PeerId>>>,
+        BlakeRng,
+        TestObservationWindowProvider,
+    >,
     pub swarm_message_sender: mpsc::Sender<BlendSwarmMessage>,
     pub incoming_message_receiver:
         broadcast::Receiver<EncapsulatedMessageWithValidatedPublicHeader>,
@@ -58,7 +65,11 @@ impl SwarmBuilder {
 
     pub fn with_empty_membership(mut self) -> Self {
         assert!(self.membership.is_none());
-        self.membership = Some(Membership::new(&[], None));
+        self.membership = Some(Membership::new_without_local(&[Node {
+            address: Multiaddr::empty(),
+            id: PeerId::random(),
+            public_key: Ed25519PrivateKey::generate().public_key(),
+        }]));
         self
     }
 
@@ -78,9 +89,10 @@ impl SwarmBuilder {
             incoming_message_sender,
             pending(),
             self.membership
-                .unwrap_or_else(|| Membership::new(&[], None)),
+                .unwrap_or_else(|| Membership::new_without_local(&[])),
             BlakeRng::from_entropy(),
             3u64.try_into().unwrap(),
+            1usize.try_into().unwrap(),
         );
 
         TestSwarm {
@@ -114,7 +126,11 @@ impl BlendBehaviourBuilder {
 
     pub fn with_empty_membership(mut self) -> Self {
         assert!(self.membership.is_none());
-        self.membership = Some(Membership::new(&[], None));
+        self.membership = Some(Membership::new_without_local(&[Node {
+            address: Multiaddr::empty(),
+            id: PeerId::random(),
+            public_key: Ed25519PrivateKey::generate().public_key(),
+        }]));
         self
     }
 
@@ -137,10 +153,12 @@ impl BlendBehaviourBuilder {
                 &Config {
                     with_core: CoreToCoreConfig {
                         peering_degree: 1..=100,
+                        minimum_network_size: 1.try_into().unwrap(),
                     },
                     with_edge: CoreToEdgeConfig {
                         connection_timeout: Duration::from_secs(1),
                         max_incoming_connections: 300,
+                        minimum_network_size: 1.try_into().unwrap(),
                     },
                 },
                 TestObservationWindowProvider {

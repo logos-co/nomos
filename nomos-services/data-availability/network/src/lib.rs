@@ -17,7 +17,7 @@ use backends::NetworkBackend;
 use futures::{stream::select, Stream};
 use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};
 use libp2p::{Multiaddr, PeerId};
-use nomos_core::{block::BlockNumber, da::BlobId, header::HeaderId};
+use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId};
 use nomos_da_network_core::{addressbook::AddressBookHandler as _, SubnetworkId};
 use overwatch::{
     services::{
@@ -66,15 +66,15 @@ where
         sender: oneshot::Sender<Pin<Box<dyn Stream<Item = Backend::NetworkEvent> + Send>>>,
     },
     GetMembership {
-        block_number: BlockNumber,
+        session_id: SessionNumber,
         sender: oneshot::Sender<MembershipResponse>,
     },
     GetCommitments {
         blob_id: BlobId,
         sender: oneshot::Sender<Option<Commitments>>,
     },
-    RequestHistoricSample {
-        block_number: BlockNumber,
+    RequestHistoricSampling {
+        session_id: SessionNumber,
         block_id: HeaderId,
         blob_ids: HashSet<BlobId>,
     },
@@ -91,10 +91,10 @@ where
             Self::Subscribe { kind, .. } => {
                 write!(fmt, "DaNetworkMsg::Subscribe{{ kind: {kind:?}}}")
             }
-            Self::GetMembership { block_number, .. } => {
+            Self::GetMembership { session_id, .. } => {
                 write!(
                     fmt,
-                    "DaNetworkMsg::SubnetworksAtBlock{{ block_number: {block_number} }}"
+                    "DaNetworkMsg::GetMembership{{ session_id: {session_id} }}"
                 )
             }
             Self::GetCommitments { blob_id, .. } => {
@@ -103,14 +103,14 @@ where
                     "DaNetworkMsg::GetCommitments{{ blob_id: {blob_id:?} }}"
                 )
             }
-            Self::RequestHistoricSample {
-                block_number,
+            Self::RequestHistoricSampling {
+                session_id,
                 blob_ids,
                 block_id,
             } => {
                 write!(
                     fmt,
-                    "DaNetworkMsg::RequestHistoricSample{{ block_number: {block_number}, blob_ids: {blob_ids:?}, block_id: {block_id} }}"
+                    "DaNetworkMsg::RequestHistoricSample{{ session_id: {session_id}, blob_ids: {blob_ids:?}, block_id: {block_id} }}"
                 )
             }
         }
@@ -353,10 +353,11 @@ where
         )
         .await?;
 
-        let mut stream = membership_service_adapter.subscribe().await.map_err(|e| {
-            tracing::error!("Failed to subscribe to membership service: {e}");
-            e
-        })?;
+        let mut membership_updates_stream =
+            membership_service_adapter.subscribe().await.map_err(|e| {
+                tracing::error!("Failed to subscribe to membership service: {e}");
+                e
+            })?;
 
         status_updater.notify_ready();
         tracing::info!(
@@ -369,12 +370,12 @@ where
                 Some(msg) = inbound_relay.recv() => {
                     Self::handle_network_service_message(msg, backend, &membership_storage, api_adapter, addressbook).await;
                 }
-                Some((block_number, providers)) = stream.next() => {
+                Some((session_id, providers)) = membership_updates_stream.next() => {
                     tracing::debug!(
-                        "Received membership update for block {}: {:?}",
-                        block_number, providers
+                        "Received membership update for session {}: {:?}",
+                        session_id, providers
                     );
-                    Self::handle_membership_update(block_number, providers, &membership_storage).await;
+                    Self::handle_membership_update(session_id, providers, &membership_storage).await;
                     let _ = subnet_refresh_sender.send(()).await;
                 }
             }
@@ -462,18 +463,15 @@ where
                         "client hung up before a subscription handle could be established"
                     );
                 }),
-            DaNetworkMsg::GetMembership {
-                block_number,
-                sender,
-            } => {
+            DaNetworkMsg::GetMembership { session_id, sender } => {
                 // todo: handle errors properly when the usage of this function is known
                 // now we are just logging and returning an empty assignations
                 if let Some(membership) = membership_storage
-                    .get_historic_membership(block_number)
+                    .get_historic_membership(session_id)
                     .await
                     .unwrap_or_else(|e| {
                         tracing::error!(
-                            "Failed to get historic membership for block {block_number}: {e}"
+                            "Failed to get historic membership for session {session_id}: {e}"
                         );
                         None
                     })
@@ -498,7 +496,7 @@ where
                                 );
                             });
                 } else {
-                    tracing::warn!("No membership found for block number {block_number}");
+                    tracing::warn!("No membership found for session {session_id}");
                     sender.send(MembershipResponse{
                                 assignations: SubnetworkAssignations::default(),
                                 addressbook: AddressBookSnapshot::default(),
@@ -514,15 +512,15 @@ where
                     tracing::error!("Failed to request commitments: {e}");
                 }
             }
-            DaNetworkMsg::RequestHistoricSample {
-                block_number,
+            DaNetworkMsg::RequestHistoricSampling {
+                session_id,
                 blob_ids,
                 block_id,
             } => {
                 Self::handle_historic_sample_request(
                     backend,
                     membership_storage,
-                    block_number,
+                    session_id,
                     block_id,
                     blob_ids,
                 )
@@ -532,39 +530,38 @@ where
     }
 
     async fn handle_membership_update(
-        block_number: BlockNumber,
+        session_id: SessionNumber,
         update: HashMap<Membership::Id, Multiaddr>,
         storage: &MembershipStorage<StorageAdapter, Membership, DaAddressbook>,
     ) {
         storage
-            .update(block_number, update)
+            .update(session_id, update)
             .await
             .unwrap_or_else(|e| {
-                tracing::error!("Failed to update membership at block {block_number}: {e}");
+                tracing::error!("Failed to update membership for session {session_id}: {e}");
             });
     }
     async fn handle_historic_sample_request(
         backend: &Backend,
         membership_storage: &MembershipStorage<StorageAdapter, Membership, AddressBook>,
-        block_number: u64,
+        session_id: SessionNumber,
         block_id: HeaderId,
         blob_ids: HashSet<[u8; 32]>,
     ) {
         let membership = membership_storage
-            .get_historic_membership(block_number)
+            .get_historic_membership(session_id)
             .await
             .unwrap_or_else(|e| {
-                tracing::error!("Failed to get historic membership for block {block_number}: {e}");
+                tracing::error!("Failed to get historic membership for session {session_id}: {e}");
                 None
             });
 
         if let Some(membership) = membership {
             let membership = SharedMembershipHandler::new(membership);
-            let send =
-                backend.start_historic_sampling(block_number, block_id, blob_ids, membership);
+            let send = backend.start_historic_sampling(session_id, block_id, blob_ids, membership);
             send.await;
         } else {
-            tracing::error!("No membership found for block number {block_number}");
+            tracing::error!("No membership found for session {session_id}");
         }
     }
 }

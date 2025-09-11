@@ -6,7 +6,7 @@ use std::{
 
 use blake2::{digest::Update as BlakeUpdate, Blake2b512, Digest as _};
 use multiaddr::Multiaddr;
-use nomos_core::block::BlockNumber;
+use nomos_core::block::SessionNumber;
 use nomos_utils::blake_rng::BlakeRng;
 use overwatch::{
     services::{relay::OutboundRelay, ServiceData},
@@ -28,12 +28,12 @@ pub trait MembershipStorageAdapter<Id, NetworkId> {
 
     async fn store(
         &self,
-        block_number: BlockNumber,
+        session_id: SessionNumber,
         assignations: Assignations<Id, NetworkId>,
     ) -> Result<(), DynError>;
     async fn get(
         &self,
-        block_number: BlockNumber,
+        session_id: SessionNumber,
     ) -> Result<Option<Assignations<Id, NetworkId>>, DynError>;
 
     async fn store_addresses(&self, ids: HashMap<Id, Multiaddr>) -> Result<(), DynError>;
@@ -73,11 +73,11 @@ where
 
     pub async fn update(
         &self,
-        block_number: BlockNumber,
+        session_id: SessionNumber,
         new_members: AddressBookSnapshot<Membership::Id>,
     ) -> Result<(), DynError> {
         let mut hasher = Blake2b512::default();
-        BlakeUpdate::update(&mut hasher, block_number.to_le_bytes().as_slice());
+        BlakeUpdate::update(&mut hasher, session_id.to_le_bytes().as_slice());
         let seed: [u8; 64] = hasher.finalize().into();
 
         let update: HashSet<Membership::Id> = new_members.keys().copied().collect();
@@ -93,7 +93,7 @@ where
             (updated_membership, assignations)
         };
 
-        tracing::debug!("Updating membership at block {block_number} with {assignations:?}");
+        tracing::debug!("Updating membership at session {session_id} with {assignations:?}");
 
         // update in-memory latest membership
         self.membership_handler.update(updated_membership);
@@ -101,23 +101,23 @@ where
 
         // update membership storage
         self.membership_adapter
-            .store(block_number, assignations)
+            .store(session_id, assignations)
             .await?;
         self.membership_adapter.store_addresses(new_members).await
     }
 
     pub async fn get_historic_membership(
         &self,
-        block_number: BlockNumber,
+        session_id: SessionNumber,
     ) -> Result<Option<Membership>, DynError> {
         let mut membership = None;
 
-        if let Some(assignations) = self.membership_adapter.get(block_number).await? {
+        if let Some(assignations) = self.membership_adapter.get(session_id).await? {
             membership = Some(self.membership_handler.membership().init(assignations));
         }
 
         if membership.is_none() {
-            tracing::debug!("No membership found for block {block_number}");
+            tracing::debug!("No membership found for session {session_id}");
             return Ok(None);
         }
 
