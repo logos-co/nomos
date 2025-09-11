@@ -88,7 +88,7 @@ async fn core_redial_different_peer_after_redial_limit() {
     let (membership_entry, _) = listening_swarm
         .listen_and_return_membership_entry(None)
         .await;
-    let membership = Membership::new(from_ref(&membership_entry), None);
+    let membership = Membership::new_without_local(from_ref(&membership_entry));
     let listening_peer_id = membership_entry.id;
 
     // Build dialing swarm with the listening info of the listening swarm.

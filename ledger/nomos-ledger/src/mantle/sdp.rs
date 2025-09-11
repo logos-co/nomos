@@ -1,5 +1,6 @@
 use nomos_core::{
     block::BlockNumber,
+    mantle::ops::sdp::{SDPActiveOp, SDPDeclareOp, SDPWithdrawOp},
     sdp::{
         state::{DeclarationStateError, TransientDeclarationState},
         DeclarationId, DeclarationState, Nonce, ServiceParameters,
@@ -45,15 +46,17 @@ impl SdpLedger {
     pub fn apply_declare_msg(
         mut self,
         block_number: BlockNumber,
-        id: &DeclarationId,
+        op: &SDPDeclareOp,
     ) -> Result<Self, Error> {
-        if self.declarations.contains_key(id) {
-            return Err(SdpLedgerError::SdpDuplicateDeclaration(*id).into());
+        let declaration_id = op.declaration_id();
+        if self.declarations.contains_key(&declaration_id) {
+            return Err(SdpLedgerError::SdpDuplicateDeclaration(declaration_id).into());
         }
 
-        self.declarations = self
-            .declarations
-            .insert(*id, DeclarationState::new(block_number));
+        self.declarations = self.declarations.insert(
+            declaration_id,
+            DeclarationState::new(block_number, op.service_type, op.locked_note_id, op.zk_id),
+        );
 
         Ok(self)
     }
@@ -62,21 +65,20 @@ impl SdpLedger {
         mut self,
         block_number: BlockNumber,
         service_params: &ServiceParameters,
-        id: &DeclarationId,
-        nonce: Nonce,
+        op: &SDPActiveOp,
     ) -> Result<Self, Error> {
-        let Some(current_state) = self.declarations.get_mut(id) else {
-            return Err(SdpLedgerError::SdpDeclarationNotFound(*id).into());
+        let Some(current_state) = self.declarations.get_mut(&op.declaration_id) else {
+            return Err(SdpLedgerError::SdpDeclarationNotFound(op.declaration_id).into());
         };
 
-        if nonce != current_state.nonce + 1 {
-            return Err(SdpLedgerError::SdpInvalidNonce(nonce).into());
+        if op.nonce <= current_state.nonce {
+            return Err(SdpLedgerError::SdpInvalidNonce(op.nonce).into());
         }
 
         TransientDeclarationState::try_from_state(block_number, current_state, service_params)?
             .try_into_active(block_number)?;
 
-        current_state.nonce = nonce;
+        current_state.nonce = op.nonce;
 
         Ok(self)
     }
@@ -85,22 +87,27 @@ impl SdpLedger {
         mut self,
         block_number: BlockNumber,
         service_params: &ServiceParameters,
-        id: &DeclarationId,
-        nonce: Nonce,
+        op: &SDPWithdrawOp,
     ) -> Result<Self, Error> {
-        let Some(current_state) = self.declarations.get_mut(id) else {
-            return Err(SdpLedgerError::SdpDeclarationNotFound(*id).into());
+        let Some(current_state) = self.declarations.get_mut(&op.declaration_id) else {
+            return Err(SdpLedgerError::SdpDeclarationNotFound(op.declaration_id).into());
         };
 
-        if nonce != current_state.nonce + 1 {
-            return Err(SdpLedgerError::SdpInvalidNonce(nonce).into());
+        if op.nonce <= current_state.nonce {
+            return Err(SdpLedgerError::SdpInvalidNonce(op.nonce).into());
         }
 
         TransientDeclarationState::try_from_state(block_number, current_state, service_params)?
             .try_into_withdrawn(block_number, service_params)?;
 
-        current_state.nonce = nonce;
+        current_state.nonce = op.nonce;
 
         Ok(self)
+    }
+
+    pub fn get_declaration(&self, id: &DeclarationId) -> Result<&DeclarationState, Error> {
+        self.declarations
+            .get(id)
+            .ok_or_else(|| SdpLedgerError::SdpDeclarationNotFound(*id).into())
     }
 }

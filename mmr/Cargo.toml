@@ -5,20 +5,21 @@ name              = "mmr"
 version           = "0.1.0"
 
 [dependencies]
-digest = "0.10.7"
-rpds   = "1.1.1"
-serde  = { features = ["derive"], optional = true, version = "1" }
+ark-ff    = { default-features = false, features = ["std"], version = "0.4" }
+groth16   = { workspace = true }
+poseidon2 = { workspace = true }
+rpds      = { default-features = false, version = "1.1.1" }
+serde     = { default-features = false, features = ["derive"], optional = true, version = "1" }
 
 [dev-dependencies]
-blake2         = "0.10.5"
-proptest       = "1.0"
+proptest       = { default-features = false, features = ["std"], version = "1.0" }
 proptest-macro = "0.2"
 
 [lints]
 workspace = true
 
 [features]
-serde = ["dep:serde", "rpds/serde"]
+serde = ["dep:serde", "groth16/deser", "rpds/serde"]
 
 [package.metadata.cargo-machete]
 # False positives.

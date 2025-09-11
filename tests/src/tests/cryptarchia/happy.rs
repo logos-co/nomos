@@ -1,6 +1,7 @@
 use std::{collections::HashSet, time::Duration};
 
 use futures::stream::{self, StreamExt as _};
+use serial_test::serial;
 use tests::{
     adjust_timeout,
     topology::{Topology, TopologyConfig},
@@ -66,6 +67,7 @@ async fn happy_test(topology: &Topology) {
 }
 
 #[tokio::test]
+#[serial]
 async fn two_nodes_happy() {
     let topology = Topology::spawn(TopologyConfig::two_validators()).await;
     happy_test(&topology).await;

@@ -43,7 +43,7 @@ impl BehaviourBuilder {
         let current_membership = if self.core_peer_ids.is_empty() {
             None
         } else {
-            Some(Membership::new(
+            Some(Membership::new_without_local(
                 self.core_peer_ids
                     .into_iter()
                     .map(|edge_peer_id| Node {
@@ -53,7 +53,6 @@ impl BehaviourBuilder {
                     })
                     .collect::<Vec<_>>()
                     .as_ref(),
-                None,
             ))
         };
         Behaviour {

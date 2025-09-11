@@ -15,7 +15,7 @@ pub fn groth16_verify<E: Pairing>(
     vk: &PreparedVerificationKey<E>,
     proof: &Proof<E>,
     public_inputs: &[E::ScalarField],
-) -> Result<bool, impl Error> {
+) -> Result<bool, impl Error + use<E>> {
     let proof: ark_groth16::Proof<E> = proof.into();
     Groth16::<E, LibsnarkReduction>::verify_proof(vk.as_ref(), &proof, public_inputs)
 }
@@ -83,7 +83,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        Groth16Proof, Groth16ProofJsonDeser, Groth16PublicInput, Groth16PublicInputDeser,
+        Groth16Input, Groth16InputDeser, Groth16Proof, Groth16ProofJsonDeser,
         Groth16VerificationKey, Groth16VerificationKeyJsonDeser,
     };
 
@@ -274,14 +274,14 @@ mod tests {
                 .unwrap()
                 .try_into()
                 .unwrap();
-        let pi: Vec<_> = serde_json::from_value::<Vec<Groth16PublicInputDeser>>(PI.deref().clone())
+        let pi: Vec<_> = serde_json::from_value::<Vec<Groth16InputDeser>>(PI.deref().clone())
             .unwrap()
             .into_iter()
-            .map(TryInto::<Groth16PublicInput>::try_into)
+            .map(TryInto::<Groth16Input>::try_into)
             .collect::<Result<Vec<_>, _>>()
             .unwrap()
             .into_iter()
-            .map(Groth16PublicInput::into_inner)
+            .map(Groth16Input::into_inner)
             .collect();
         let pvk = vk.into_prepared();
         assert!(groth16_verify(&pvk, &proof, &pi).is_ok());

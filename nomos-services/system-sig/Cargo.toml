@@ -11,4 +11,4 @@ workspace = true
 async-ctrlc = "1.2"
 async-trait = "0.1"
 overwatch   = { workspace = true }
-tracing     = "0.1"
+tracing     = { default-features = false, version = "0.1" }

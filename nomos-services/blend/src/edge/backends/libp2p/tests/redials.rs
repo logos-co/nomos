@@ -24,18 +24,15 @@ async fn edge_redial_same_peer() {
     let empty_multiaddr: Multiaddr = Protocol::Memory(0).into();
 
     // Configure swarm with an unreachable member.
-    let EdgeTestSwarm { mut swarm, .. } = EdgeSwarmBuilder::default()
-        .with_membership(Membership::new(
-            from_ref(&Node {
-                address: empty_multiaddr.clone(),
-                id: random_peer_id,
-                public_key: Ed25519PrivateKey::generate().public_key(),
-            }),
-            None,
-        ))
+    let EdgeTestSwarm { mut swarm, .. } =
+        EdgeSwarmBuilder::new(Membership::new_without_local(from_ref(&Node {
+            address: empty_multiaddr.clone(),
+            id: random_peer_id,
+            public_key: Ed25519PrivateKey::generate().public_key(),
+        })))
         .build();
     let message = TestEncapsulatedMessage::new(b"test-payload");
-    swarm.send_message(message.clone());
+    swarm.send_message(&message);
 
     let dial_attempt_1_record = swarm
         .pending_dials()
@@ -134,29 +131,24 @@ async fn edge_redial_different_peer_after_redial_limit() {
         core_swarm.listen_and_return_membership_entry(None).await;
 
     // We include both the core and the unreachable swarm in the membership.
-    let edge_membership = Membership::new(
-        &[
-            core_swarm_membership_entry,
-            Node {
-                address: empty_multiaddr,
-                id: random_peer_id,
-                public_key: Ed25519PrivateKey::generate().public_key(),
-            },
-        ],
-        None,
-    );
+    let edge_membership = Membership::new_without_local(&[
+        core_swarm_membership_entry,
+        Node {
+            address: empty_multiaddr,
+            id: random_peer_id,
+            public_key: Ed25519PrivateKey::generate().public_key(),
+        },
+    ]);
     let EdgeTestSwarm {
         swarm: mut edge_swarm,
         ..
-    } = EdgeSwarmBuilder::default()
-        .with_membership(edge_membership)
-        .build();
+    } = EdgeSwarmBuilder::new(edge_membership).build();
 
     let message = TestEncapsulatedMessage::new(b"test-payload");
 
     // We instruct the swarm to try to dial the unreachable swarm first by excluding
     // the core swarm from the initial set of recipients.
-    edge_swarm.send_message_to_anyone_except(*core_swarm.local_peer_id(), message.clone());
+    edge_swarm.send_message_to_anyone_except(*core_swarm.local_peer_id(), &message);
 
     spawn(async move { core_swarm.run().await });
     spawn(async move { edge_swarm.run().await });

@@ -7,7 +7,7 @@ use futures::{
 use kzgrs_backend::common::share::DaShare;
 use libp2p::PeerId;
 use log::error;
-use nomos_core::{block::BlockNumber, da::BlobId, header::HeaderId, mantle::SignedMantleTx};
+use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId, mantle::SignedMantleTx};
 use nomos_da_network_core::{
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
     protocols::dispersal::executor::behaviour::DispersalExecutorEvent,
@@ -24,7 +24,9 @@ use overwatch::{overwatch::handle::OverwatchHandle, services::state::NoState};
 use serde::{Deserialize, Serialize};
 use subnetworks_assignations::MembershipHandler;
 use tokio::sync::{broadcast, mpsc::UnboundedSender, oneshot};
-use tokio_stream::wrappers::{BroadcastStream, UnboundedReceiverStream};
+use tokio_stream::wrappers::{
+    errors::BroadcastStreamRecvError, BroadcastStream, UnboundedReceiverStream,
+};
 use tracing::instrument;
 
 use super::common::{CommitmentsEvent, VerificationEvent};
@@ -33,7 +35,7 @@ use crate::{
         libp2p::common::{
             handle_balancer_command, handle_historic_sample_request, handle_monitor_command,
             handle_sample_request, handle_validator_events_stream, DaNetworkBackendSettings,
-            SamplingEvent, BROADCAST_CHANNEL_SIZE,
+            HistoricSamplingEvent, SamplingEvent, BROADCAST_CHANNEL_SIZE,
         },
         NetworkBackend,
     },
@@ -72,6 +74,7 @@ pub enum DaNetworkEventKind {
     Commitments,
     Verifying,
     Dispersal,
+    HistoricSampling,
 }
 
 /// DA network incoming events
@@ -81,6 +84,7 @@ pub enum DaNetworkEvent {
     Commitments(CommitmentsEvent),
     Verifying(VerificationEvent),
     Dispersal(DispersalExecutorEvent),
+    HistoricSampling(HistoricSamplingEvent),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -108,6 +112,7 @@ where
     commitments_broadcast_receiver: broadcast::Receiver<CommitmentsEvent>,
     verifying_broadcast_receiver: broadcast::Receiver<VerificationEvent>,
     dispersal_broadcast_receiver: broadcast::Receiver<DispersalExecutorEvent>,
+    historic_sampling_broadcast_receiver: broadcast::Receiver<HistoricSamplingEvent>,
     dispersal_shares_sender: UnboundedSender<(Membership::NetworkId, DaShare)>,
     dispersal_tx_sender: UnboundedSender<(Membership::NetworkId, SignedMantleTx)>,
     balancer_command_sender: UnboundedSender<ConnectionBalancerCommand<BalancerStats>>,
@@ -190,6 +195,8 @@ where
             broadcast::channel(BROADCAST_CHANNEL_SIZE);
         let (dispersal_broadcast_sender, dispersal_broadcast_receiver) =
             broadcast::channel(BROADCAST_CHANNEL_SIZE);
+        let (historic_sampling_broadcast_sender, historic_sampling_broadcast_receiver) =
+            broadcast::channel(BROADCAST_CHANNEL_SIZE);
 
         let (verifier_replies_task_abort_handle, verifier_replies_task_abort_registration) =
             AbortHandle::new_pair();
@@ -199,6 +206,7 @@ where
                 sampling_broadcast_sender,
                 commitments_broadcast_sender,
                 verifying_broadcast_sender,
+                historic_sampling_broadcast_sender,
             ),
             verifier_replies_task_abort_registration,
         ));
@@ -224,6 +232,7 @@ where
             commitments_broadcast_receiver,
             verifying_broadcast_receiver,
             dispersal_broadcast_receiver,
+            historic_sampling_broadcast_receiver,
             dispersal_shares_sender,
             dispersal_tx_sender,
             balancer_command_sender,
@@ -297,30 +306,35 @@ where
         match event {
             DaNetworkEventKind::Sampling => Box::pin(
                 BroadcastStream::new(self.sampling_broadcast_receiver.resubscribe())
-                    .filter_map(|event| async { event.ok() })
+                    .filter_map(handle_stream_event)
                     .map(Self::NetworkEvent::Sampling),
             ),
             DaNetworkEventKind::Commitments => Box::pin(
                 BroadcastStream::new(self.commitments_broadcast_receiver.resubscribe())
-                    .filter_map(|event| async { event.ok() })
+                    .filter_map(handle_stream_event)
                     .map(Self::NetworkEvent::Commitments),
             ),
             DaNetworkEventKind::Verifying => Box::pin(
                 BroadcastStream::new(self.verifying_broadcast_receiver.resubscribe())
-                    .filter_map(|event| async { event.ok() })
+                    .filter_map(handle_stream_event)
                     .map(Self::NetworkEvent::Verifying),
             ),
             DaNetworkEventKind::Dispersal => Box::pin(
                 BroadcastStream::new(self.dispersal_broadcast_receiver.resubscribe())
-                    .filter_map(|event| async { event.ok() })
+                    .filter_map(handle_stream_event)
                     .map(Self::NetworkEvent::Dispersal),
+            ),
+            DaNetworkEventKind::HistoricSampling => Box::pin(
+                BroadcastStream::new(self.historic_sampling_broadcast_receiver.resubscribe())
+                    .filter_map(handle_stream_event)
+                    .map(Self::NetworkEvent::HistoricSampling),
             ),
         }
     }
 
     async fn start_historic_sampling(
         &self,
-        block_number: BlockNumber,
+        session_id: SessionNumber,
         block_id: HeaderId,
         blob_ids: HashSet<BlobId>,
         membership: Self::HistoricMembership,
@@ -328,7 +342,7 @@ where
         handle_historic_sample_request(
             &self.historic_sample_request_channel,
             blob_ids,
-            block_number,
+            session_id,
             block_id,
             membership,
         )
@@ -345,4 +359,12 @@ async fn handle_executor_dispersal_events_stream(
             error!("Error forwarding internal dispersal executor event: {e}");
         }
     }
+}
+
+async fn handle_stream_event<Event>(
+    event: Result<Event, BroadcastStreamRecvError>,
+) -> Option<Event> {
+    event
+        .inspect_err(|err| tracing::error!("Stream event broadcast error: {err:?}"))
+        .ok()
 }

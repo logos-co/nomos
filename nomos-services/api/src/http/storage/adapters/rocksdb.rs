@@ -8,11 +8,7 @@ use std::{
 
 use bytes::Bytes;
 use futures::{stream, Stream, StreamExt as _};
-use nomos_core::{
-    block::Block,
-    da::blob::{LightShare, Share},
-    header::HeaderId,
-};
+use nomos_core::{block::Block, da::blob::Share, header::HeaderId};
 use nomos_storage::{
     api::da::DaConverter,
     backends::{rocksdb::RocksBackend, StorageSerde},
@@ -25,7 +21,7 @@ use overwatch::{
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::sync::oneshot;
 
-use crate::{http::storage::StorageAdapter, wait_with_timeout};
+use crate::http::storage::StorageAdapter;
 
 pub struct RocksAdapter<StorageOp, RuntimeServiceId>
 where
@@ -151,11 +147,7 @@ where
             .await
             .map_err(|(e, _)| e)?;
 
-        let result = wait_with_timeout(
-            reply_rcv,
-            "Timeout while waiting for light share".to_owned(),
-        )
-        .await?;
+        let result = reply_rcv.await.map_err(|e| Box::new(e) as DynError)?;
 
         result
             .map(|data| Converter::share_from_storage(data))
@@ -179,12 +171,7 @@ where
         DaShare: Share + 'static,
         DaShare::BlobId: Clone + Send + Sync + 'static,
         DaShare::ShareIndex: DeserializeOwned + Hash + Eq + Send + Sync + 'static,
-        DaShare::LightShare: LightShare<ShareIndex = DaShare::ShareIndex>
-            + Serialize
-            + DeserializeOwned
-            + Send
-            + Sync
-            + 'static,
+        DaShare::LightShare: Serialize + DeserializeOwned + Send + Sync + 'static,
         Converter: DaConverter<RocksBackend<StorageOp>, Share = DaShare> + Send + Sync + 'static,
         RuntimeServiceId: Debug
             + Sync
@@ -230,11 +217,7 @@ where
             .await
             .map_err(|(e, _)| e)?;
 
-        let result = wait_with_timeout(
-            reply_rcv,
-            "Timeout while waiting for shared commitments".to_owned(),
-        )
-        .await?;
+        let result = reply_rcv.await.map_err(|e| Box::new(e) as DynError)?;
 
         result
             .map(|data| {
@@ -249,7 +232,7 @@ where
             <StorageService<RocksBackend<StorageOp>, RuntimeServiceId> as ServiceData>::Message,
         >,
         id: HeaderId,
-    ) -> Result<Option<Block<Tx, kzgrs_backend::dispersal::BlobInfo>>, crate::http::DynError>
+    ) -> Result<Option<Block<Tx>>, crate::http::DynError>
     where
         Tx: Serialize + DeserializeOwned + Clone + Eq,
     {
@@ -257,10 +240,9 @@ where
         let (msg, receiver) = StorageMsg::new_load_message(Bytes::copy_from_slice(&key));
         storage_relay.send(msg).await.map_err(|(e, _)| e)?;
 
-        wait_with_timeout(
-            receiver.recv(),
-            "Timeout while waiting for block".to_owned(),
-        )
-        .await
+        receiver
+            .recv()
+            .await
+            .map_err(|e| Box::new(e) as crate::http::DynError)
     }
 }

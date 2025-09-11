@@ -1,3 +1,4 @@
+use bytes::{Bytes, BytesMut};
 use serde::{Deserialize, Serialize};
 
 use super::{ChannelId, Ed25519PublicKey, MsgId};
@@ -17,10 +18,17 @@ impl InscriptionOp {
     #[must_use]
     pub fn id(&self) -> MsgId {
         let mut hasher = Hasher::new();
-        hasher.update(self.channel_id.as_ref());
-        hasher.update(&self.inscription);
-        hasher.update(self.parent.as_ref());
-        hasher.update(self.signer.as_ref());
+        hasher.update(self.payload_bytes());
         MsgId(hasher.finalize().into())
+    }
+
+    #[must_use]
+    pub fn payload_bytes(&self) -> Bytes {
+        let mut buff = BytesMut::new();
+        buff.extend_from_slice(self.channel_id.as_ref());
+        buff.extend_from_slice(&self.inscription);
+        buff.extend_from_slice(self.parent.as_ref());
+        buff.extend_from_slice(self.signer.as_ref());
+        buff.freeze()
     }
 }

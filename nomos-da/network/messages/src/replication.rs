@@ -1,3 +1,4 @@
+use blake2::Digest as _;
 use nomos_core::{
     da::BlobId,
     mantle::{SignedMantleTx, Transaction as _},
@@ -55,8 +56,9 @@ impl From<(BlobId, SubnetworkId)> for ReplicationResponseId {
 
 impl From<&SignedMantleTx> for ReplicationResponseId {
     fn from(tx: &SignedMantleTx) -> Self {
-        let mut id = [0; 34];
-        id[..32].copy_from_slice(&tx.hash().0);
-        Self(id)
+        let bytes = tx.hash().as_signing_bytes();
+        let mut hasher = blake2::Blake2b::default();
+        hasher.update(&bytes);
+        Self(hasher.finalize().into())
     }
 }

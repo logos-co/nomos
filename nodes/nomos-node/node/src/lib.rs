@@ -7,13 +7,15 @@ use color_eyre::eyre::Result;
 use generic_services::VerifierMempoolAdapter;
 use kzgrs_backend::common::share::DaShare;
 pub use kzgrs_backend::dispersal::BlobInfo;
-pub use nomos_blend_service::core::{
-    backends::libp2p::Libp2pBlendBackend as BlendBackend,
-    network::libp2p::Libp2pAdapter as BlendNetworkAdapter,
+pub use nomos_blend_service::{
+    core::{
+        backends::libp2p::Libp2pBlendBackend as BlendBackend,
+        network::libp2p::Libp2pAdapter as BlendNetworkAdapter,
+    },
+    membership::service::Adapter as BlendMembershipAdapter,
 };
 use nomos_core::mantle::SignedMantleTx;
 pub use nomos_core::{
-    da::blob::{info::DispersedBlobInfo, select::FillSize as FillSizeWithBlobs},
     header::HeaderId,
     mantle::{select::FillSize as FillSizeWithTx, Transaction},
     wire,
@@ -35,11 +37,8 @@ use nomos_da_verifier::{
     storage::adapters::rocksdb::RocksAdapter as VerifierStorageAdapter,
 };
 use nomos_libp2p::PeerId;
-pub use nomos_mempool::{
-    da::settings::DaMempoolSettings,
-    network::adapters::libp2p::{
-        Libp2pAdapter as MempoolNetworkAdapter, Settings as MempoolAdapterSettings,
-    },
+pub use nomos_mempool::network::adapters::libp2p::{
+    Libp2pAdapter as MempoolNetworkAdapter, Settings as MempoolAdapterSettings,
 };
 pub use nomos_network::backends::libp2p::Libp2p as NetworkBackend;
 pub use nomos_storage::backends::{
@@ -95,6 +94,7 @@ pub(crate) type BlendCoreService = nomos_blend_service::core::BlendService<
     BlendBackend,
     PeerId,
     BlendNetworkAdapter<RuntimeServiceId>,
+    BlendMembershipAdapter<MembershipService<RuntimeServiceId>, PeerId>,
     RuntimeServiceId,
 >;
 
@@ -104,6 +104,7 @@ pub(crate) type BlendEdgeService = nomos_blend_service::edge::BlendService<
     <BlendNetworkAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<
         RuntimeServiceId,
     >>::BroadcastSettings,
+    BlendMembershipAdapter<MembershipService<RuntimeServiceId>, PeerId>,
     RuntimeServiceId,
 >;
 
@@ -161,9 +162,6 @@ pub(crate) type DaNetworkAdapter = nomos_da_sampling::network::adapters::validat
     RuntimeServiceId,
 >;
 
-pub(crate) type DaMempoolService =
-    generic_services::DaMempoolService<DaNetworkAdapter, RuntimeServiceId>;
-
 pub(crate) type CryptarchiaService = generic_services::CryptarchiaService<
     nomos_da_sampling::network::adapters::validator::Libp2pAdapter<
         NomosDaMembership,
@@ -183,11 +181,9 @@ pub(crate) type ApiStorageAdapter<StorageOp, RuntimeServiceId> =
 pub(crate) type ApiService = nomos_api::ApiService<
     AxumBackend<
         DaShare,
-        BlobInfo,
         NomosDaMembership,
         DaMembershipAdapter<RuntimeServiceId>,
         DaMembershipStorage,
-        BlobInfo,
         KzgrsDaVerifier,
         VerifierNetworkAdapter<
             NomosDaMembership,
@@ -237,7 +233,6 @@ pub struct Nomos {
     da_verifier: DaVerifierService,
     da_sampling: DaSamplingService,
     da_network: DaNetworkService,
-    da_mempool: DaMempoolService,
     cl_mempool: ClMempoolService,
     cryptarchia: CryptarchiaService,
     membership: MembershipService<RuntimeServiceId>,

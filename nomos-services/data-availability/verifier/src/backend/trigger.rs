@@ -29,6 +29,12 @@ pub struct MempoolPublishTriggerConfig {
     pub prune_interval: Duration,
 }
 
+#[derive(Copy, Clone, Debug)]
+pub enum ShareEvent {
+    Share,
+    Transaction { assignations: u16 },
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShareState {
     Complete,
@@ -58,11 +64,11 @@ impl<Id: Clone + Hash + Eq> MempoolPublishTrigger<Id> {
         }
     }
 
-    pub fn update(&mut self, blob_id: Id, assignations: u16) -> ShareState {
+    pub fn record(&mut self, blob_id: Id, event: ShareEvent) -> ShareState {
         let entry = self.received.entry(blob_id).or_insert_with(|| ShareEntry {
             count: 0,
+            assignations: u16::MAX,
             created_at: Instant::now(),
-            assignations,
             expired: false,
         });
 
@@ -70,7 +76,14 @@ impl<Id: Clone + Hash + Eq> MempoolPublishTrigger<Id> {
             return ShareState::Expired;
         }
 
-        entry.count += 1;
+        match event {
+            ShareEvent::Share => {
+                entry.count += 1;
+            }
+            ShareEvent::Transaction { assignations } => {
+                entry.assignations = assignations;
+            }
+        }
 
         if entry.count >= entry.assignations {
             ShareState::Complete
@@ -138,26 +151,31 @@ mod tests {
     #[test]
     fn test_update_reaches_complete() {
         let mut trigger = MempoolPublishTrigger::new(test_config());
-        let assignations = 3;
 
         assert_eq!(
-            trigger.update(BLOB_ID, assignations),
+            trigger.record(BLOB_ID, ShareEvent::Transaction { assignations: 2 }),
+            ShareState::Incomplete
+        );
+        assert_eq!(trigger.get_count(&BLOB_ID), Some(0));
+
+        assert_eq!(
+            trigger.record(BLOB_ID, ShareEvent::Share),
             ShareState::Incomplete
         );
         assert_eq!(trigger.get_count(&BLOB_ID), Some(1));
 
         assert_eq!(
-            trigger.update(BLOB_ID, assignations),
-            ShareState::Incomplete
+            trigger.record(BLOB_ID, ShareEvent::Share),
+            ShareState::Complete
         );
         assert_eq!(trigger.get_count(&BLOB_ID), Some(2));
 
-        assert_eq!(trigger.update(BLOB_ID, assignations), ShareState::Complete);
-        assert_eq!(trigger.get_count(&BLOB_ID), Some(3));
-
         // Additional updates should still report Complete
-        assert_eq!(trigger.update(BLOB_ID, assignations), ShareState::Complete);
-        assert_eq!(trigger.get_count(&BLOB_ID), Some(4));
+        assert_eq!(
+            trigger.record(BLOB_ID, ShareEvent::Share),
+            ShareState::Complete
+        );
+        assert_eq!(trigger.get_count(&BLOB_ID), Some(3));
     }
 
     #[test]
@@ -166,8 +184,9 @@ mod tests {
         let now = Instant::now();
 
         // 6 out of 10 shares received (60%).
+        trigger.record(BLOB_ID, ShareEvent::Transaction { assignations: 10 });
         for _ in 0..6 {
-            trigger.update(BLOB_ID, 10);
+            trigger.record(BLOB_ID, ShareEvent::Share);
         }
 
         let later = now.checked_add(Duration::from_secs(6)).unwrap();
@@ -183,8 +202,9 @@ mod tests {
         let now = Instant::now();
 
         // 4 out of 10 shares received (40%), which is < 50% threshold.
+        trigger.record(BLOB_ID, ShareEvent::Transaction { assignations: 10 });
         for _ in 0..4 {
-            trigger.update(BLOB_ID, 10);
+            trigger.record(BLOB_ID, ShareEvent::Share);
         }
 
         let later = now.checked_add(test_config().share_duration).unwrap();
@@ -199,7 +219,8 @@ mod tests {
         let mut trigger = MempoolPublishTrigger::new(test_config());
         let now = Instant::now();
 
-        trigger.update(BLOB_ID, 10);
+        trigger.record(BLOB_ID, ShareEvent::Transaction { assignations: 10 });
+        trigger.record(BLOB_ID, ShareEvent::Share);
         assert_eq!(trigger.len(), 1);
 
         let later = now.checked_add(Duration::from_secs(11)).unwrap();
@@ -213,20 +234,25 @@ mod tests {
     fn test_update_on_expired_entry() {
         let now = Instant::now();
         let mut trigger = MempoolPublishTrigger::new(test_config());
-        trigger.update(BLOB_ID, 10);
+        trigger.record(BLOB_ID, ShareEvent::Transaction { assignations: 10 });
+        trigger.record(BLOB_ID, ShareEvent::Share);
 
         let later = now.checked_add(Duration::from_secs(6)).unwrap();
         let _ = trigger.prune(later);
 
-        assert_eq!(trigger.update(BLOB_ID, 10), ShareState::Expired);
+        assert_eq!(
+            trigger.record(BLOB_ID, ShareEvent::Share),
+            ShareState::Expired
+        );
     }
 
     #[test]
     fn test_prune_publish_is_once() {
         let now = Instant::now();
         let mut trigger = MempoolPublishTrigger::new(test_config());
+        trigger.record(BLOB_ID, ShareEvent::Transaction { assignations: 10 });
         for _ in 0..5 {
-            trigger.update(BLOB_ID, 10);
+            trigger.record(BLOB_ID, ShareEvent::Share);
         }
 
         let later = now.checked_add(Duration::from_secs(6)).unwrap();

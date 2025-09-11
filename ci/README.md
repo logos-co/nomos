@@ -19,8 +19,14 @@ Two most important places in this file are `environment` and `stages`.
 
 ## ci/Jenkinsfile.prs.macos
 
-Same as in `Jenkinsfile.prs.macos` the only difference is that instead of Docker image, macos is using `shell.nix` to build a shell with all dependencies. The steps defined here should be identical or similar to what's defined in linux file, just instead of running those commands straight in `sh`, use `nix.shell('command')` wrapper.
+Same as in `Jenkinsfile.prs.linux`. The only difference is that instead of Docker image, macos is using `flake.nix` to build a shell with all dependencies. The steps defined here should be identical or similar to what's defined in linux file, just instead of running those commands straight in `sh`, use `nix.develop('command')` wrapper.
 
-## shell.nix
+## flake.nix
 
-Configuration file for the Nix package manager. It defines the build dependencies for `macos` target and can be used to manage and update the dependencies similarly to Dockerfile.
+Top-level Nix flake for reproducible dev tooling and environments. It pins dependencies and defines the project's development environment(s) via devShells, providing build/tooling dependencies across supported systems. Use it to manage and update dependencies similarly to a Dockerfile.
+
+#### Run
+To run the development environment defined in `flake.nix`, use the following command:
+```bash
+nix develop
+```

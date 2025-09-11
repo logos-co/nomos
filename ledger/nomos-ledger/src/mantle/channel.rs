@@ -8,7 +8,24 @@ use nomos_core::mantle::{
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use super::Error;
+#[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
+pub enum Error {
+    #[error("Invalid parent {parent:?} for channel {channel_id:?}, expected {actual:?}")]
+    InvalidParent {
+        channel_id: ChannelId,
+        parent: [u8; 32],
+        actual: [u8; 32],
+    },
+    #[error("Unauthorized signer {signer:?} for channel {channel_id:?}")]
+    UnauthorizedSigner {
+        channel_id: ChannelId,
+        signer: String,
+    },
+    #[error("Invalid signature")]
+    InvalidSignature,
+    #[error("Invalid keys for channel {channel_id:?}")]
+    EmptyKeys { channel_id: ChannelId },
+}
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -84,7 +101,10 @@ impl Channels {
         }
 
         if let Some(channel) = self.channels.get_mut(&channel_id) {
-            if channel.keys[0].verify(tx_hash.as_ref(), sig).is_err() {
+            if channel.keys[0]
+                .verify(tx_hash.as_signing_bytes().as_ref(), sig)
+                .is_err()
+            {
                 return Err(Error::InvalidSignature);
             }
             channel.keys = op.keys.clone().into();

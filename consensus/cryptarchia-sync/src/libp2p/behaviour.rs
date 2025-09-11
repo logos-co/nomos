@@ -30,7 +30,7 @@ use crate::{
 };
 
 /// Cryptarchia networking protocol for synchronizing blocks.
-const SYNC_PROTOCOL_ID: &str = "/nomos/cryptarchia/sync/0.1.0";
+const SYNC_PROTOCOL_ID: &str = "/nomos/cryptarchia/sync/1.0.0";
 
 pub const SYNC_PROTOCOL: StreamProtocol = StreamProtocol::new(SYNC_PROTOCOL_ID);
 

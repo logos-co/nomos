@@ -1,4 +1,8 @@
-use std::{collections::HashSet, fmt::Debug, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Debug,
+    time::Duration,
+};
 
 use futures::{
     channel::oneshot::{Receiver, Sender},
@@ -8,14 +12,16 @@ use kzgrs_backend::common::{
     share::{DaLightShare, DaShare, DaSharesCommitments},
     ShareIndex,
 };
-use nomos_core::{block::BlockNumber, da::BlobId, header::HeaderId, mantle::SignedMantleTx};
+use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId, mantle::SignedMantleTx};
 use nomos_da_messages::common::Share;
 use nomos_da_network_core::{
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
     protocols::{
         dispersal::validator::behaviour::DispersalEvent,
         sampling::{
-            self, errors::SamplingError, BehaviourSampleReq, BehaviourSampleRes, SubnetsConfig,
+            self,
+            errors::{HistoricSamplingError, SamplingError},
+            BehaviourSampleReq, BehaviourSampleRes, SubnetsConfig,
         },
     },
     swarm::{
@@ -116,6 +122,19 @@ impl CommitmentsEvent {
 }
 
 #[derive(Debug, Clone)]
+pub enum HistoricSamplingEvent {
+    HistoricSamplingSuccess {
+        block_id: HeaderId,
+        shares: HashMap<BlobId, Vec<DaLightShare>>,
+        commitments: HashMap<BlobId, DaSharesCommitments>,
+    },
+    HistoricSamplingError {
+        block_id: HeaderId,
+        error: HistoricSamplingError,
+    },
+}
+
+#[derive(Debug, Clone)]
 pub enum VerificationEvent {
     Tx {
         // Number of subnetwork assignations that the node is assigned to at the moment of
@@ -164,6 +183,7 @@ pub(crate) async fn handle_validator_events_stream(
     sampling_broadcast_sender: broadcast::Sender<SamplingEvent>,
     commitments_broadcast_sender: broadcast::Sender<CommitmentsEvent>,
     validation_broadcast_sender: broadcast::Sender<VerificationEvent>,
+    historic_sample_broadcast_sender: broadcast::Sender<HistoricSamplingEvent>,
 ) {
     let ValidatorEventsStream {
         mut sampling_events_receiver,
@@ -175,7 +195,7 @@ pub(crate) async fn handle_validator_events_stream(
         // safe set: https://docs.rs/tokio/latest/tokio/macro.select.html#cancellation-safety
         tokio::select! {
             Some(sampling_event) = StreamExt::next(&mut sampling_events_receiver) => {
-                handle_sampling_event(&sampling_broadcast_sender, &commitments_broadcast_sender, sampling_event).await;
+                handle_sampling_event(&sampling_broadcast_sender, &commitments_broadcast_sender, &historic_sample_broadcast_sender, sampling_event).await;
             }
             Some(dispersal_event) = StreamExt::next(&mut validation_events_receiver) => {
                 handle_dispersal_event(&validation_broadcast_sender, dispersal_event).await;
@@ -222,6 +242,10 @@ async fn handle_dispersal_event(
     }
 }
 
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "Channel responses need to be checked"
+)]
 async fn handle_incoming_share_with_response(
     validation_broadcast_sender: &broadcast::Sender<VerificationEvent>,
     behaviour_sender: Sender<DispersalValidationResult>,
@@ -231,7 +255,9 @@ async fn handle_incoming_share_with_response(
         mpsc::channel::<DispersalValidationResult>(BROADCAST_CHANNEL_SIZE);
     if let Err(error) = validation_broadcast_sender.send((share.data, Some(service_sender)).into())
     {
-        let _ = behaviour_sender.send(Err(DispersalValidationError));
+        if let Err(error) = behaviour_sender.send(Err(DispersalValidationError)) {
+            error!("Error in internal response sender of share validation error: {error:?}");
+        }
         error!(
             "Error in internal broadcast of validation for blob: {:?}",
             error.0
@@ -242,9 +268,15 @@ async fn handle_incoming_share_with_response(
         .recv()
         .await
         .unwrap_or(Err(DispersalValidationError));
-    let _ = behaviour_sender.send(validation_response);
+    if let Err(error) = behaviour_sender.send(validation_response) {
+        error!("Error in internal response sender of share validation success: {error:?}");
+    }
 }
 
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "Channel responses need to be checked"
+)]
 async fn handle_incoming_tx_with_response(
     validation_broadcast_sender: &broadcast::Sender<VerificationEvent>,
     behaviour_sender: Sender<DispersalValidationResult>,
@@ -256,7 +288,9 @@ async fn handle_incoming_tx_with_response(
     if let Err(error) =
         validation_broadcast_sender.send((assignations, tx, Some(service_sender)).into())
     {
-        let _ = behaviour_sender.send(Err(DispersalValidationError));
+        if let Err(error) = behaviour_sender.send(Err(DispersalValidationError)) {
+            error!("Error in internal response sender of share validation error: {error:?}",);
+        }
         error!(
             "Error in internal broadcast of validation for blob: {:?}",
             error.0
@@ -267,12 +301,15 @@ async fn handle_incoming_tx_with_response(
         .recv()
         .await
         .unwrap_or(Err(DispersalValidationError));
-    let _ = behaviour_sender.send(validation_response);
+    if let Err(error) = behaviour_sender.send(validation_response) {
+        error!("Error in internal response sender of share validation success: {error:?}");
+    }
 }
 
 async fn handle_sampling_event(
     sampling_broadcast_sender: &broadcast::Sender<SamplingEvent>,
     commitments_broadcast_sender: &broadcast::Sender<CommitmentsEvent>,
+    historic_sample_broadcast_sender: &broadcast::Sender<HistoricSamplingEvent>,
     sampling_event: sampling::SamplingEvent,
 ) {
     match sampling_event {
@@ -320,10 +357,48 @@ async fn handle_sampling_event(
                 error,
             );
         }
-        sampling::SamplingEvent::HistoricSamplingSuccess { .. } => todo!(),
-        sampling::SamplingEvent::HistoricSamplingError { .. } => {
-            todo!("Handle historic sampling error");
+        sampling::SamplingEvent::HistoricSamplingSuccess {
+            block_id,
+            shares,
+            commitments,
+        } => handle_historic_sample_success(
+            block_id,
+            shares,
+            commitments,
+            historic_sample_broadcast_sender,
+        ),
+        sampling::SamplingEvent::HistoricSamplingError { block_id, error } => {
+            handle_historic_sample_error(block_id, error, historic_sample_broadcast_sender);
         }
+    }
+}
+
+fn handle_historic_sample_success(
+    block_id: HeaderId,
+    shares: HashMap<BlobId, Vec<DaLightShare>>,
+    commitments: HashMap<BlobId, DaSharesCommitments>,
+    historic_sample_broadcast_sender: &broadcast::Sender<HistoricSamplingEvent>,
+) {
+    if let Err(e) =
+        historic_sample_broadcast_sender.send(HistoricSamplingEvent::HistoricSamplingSuccess {
+            block_id,
+            shares,
+            commitments,
+        })
+    {
+        error!("Error in internal broadcast of historic sampling success: {e:?}");
+    }
+}
+
+fn handle_historic_sample_error(
+    block_id: HeaderId,
+    error: HistoricSamplingError,
+    historic_sample_broadcast_sender: &broadcast::Sender<HistoricSamplingEvent>,
+) {
+    if let Err(e) = historic_sample_broadcast_sender
+        .send(HistoricSamplingEvent::HistoricSamplingError { block_id, error })
+    {
+        error!("Error in internal broadcast of historic sampling error: {e:?}");
     }
 }
 
@@ -466,14 +541,14 @@ pub(crate) async fn handle_sample_request(
 pub(crate) async fn handle_historic_sample_request<Membership>(
     historic_sample_request_channel: &UnboundedSender<SampleArgs<Membership>>,
     blob_ids: HashSet<BlobId>,
-    block_number: BlockNumber,
+    session_id: SessionNumber,
     block_id: HeaderId,
     membership: Membership,
 ) {
-    if let Err(SendError((blob_id, block_number, block_id, _))) =
-        historic_sample_request_channel.send((blob_ids, block_number, block_id, membership))
+    if let Err(SendError((blob_id, session_id, block_id, _))) =
+        historic_sample_request_channel.send((blob_ids, session_id, block_id, membership))
     {
-        error!("Error requesting historic sample for blob_id: {blob_id:?}, block_number: {block_number:?}, block_id: {block_id:?}");
+        error!("Error requesting historic sample for blob_id: {blob_id:?}, session_id: {session_id:?}, block_id: {block_id:?}");
     }
 }
 

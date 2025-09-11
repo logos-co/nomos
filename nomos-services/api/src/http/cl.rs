@@ -1,7 +1,10 @@
 use core::fmt::Debug;
 use std::fmt::Display;
 
-use nomos_core::{header::HeaderId, mantle::Transaction};
+use nomos_core::{
+    header::HeaderId,
+    mantle::{AuthenticatedMantleTx, Transaction},
+};
 use nomos_mempool::{
     backend::mockpool::MockPool, network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
     tx::service::openapi::Status, MempoolMetrics, MempoolMsg, TxMempoolService,
@@ -9,8 +12,6 @@ use nomos_mempool::{
 use overwatch::services::AsServiceId;
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
-
-use crate::wait_with_timeout;
 
 pub type ClMempoolService<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId> =
     TxMempoolService<
@@ -25,7 +26,14 @@ pub async fn cl_mempool_metrics<Tx, SamplingNetworkAdapter, SamplingStorage, Run
     handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
 ) -> Result<MempoolMetrics, super::DynError>
 where
-    Tx: Transaction + Clone + Debug + Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
+    Tx: AuthenticatedMantleTx
+        + Clone
+        + Debug
+        + Serialize
+        + for<'de> Deserialize<'de>
+        + Send
+        + Sync
+        + 'static,
     <Tx as Transaction>::Hash:
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     SamplingNetworkAdapter:
@@ -46,11 +54,7 @@ where
         .await
         .map_err(|(e, _)| e)?;
 
-    wait_with_timeout(
-        receiver,
-        "Timeout while waiting for cl_mempool_metrics".to_owned(),
-    )
-    .await
+    receiver.await.map_err(|e| Box::new(e) as super::DynError)
 }
 
 pub async fn cl_mempool_status<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>(
@@ -58,7 +62,14 @@ pub async fn cl_mempool_status<Tx, SamplingNetworkAdapter, SamplingStorage, Runt
     items: Vec<<Tx as Transaction>::Hash>,
 ) -> Result<Vec<Status<HeaderId>>, super::DynError>
 where
-    Tx: Transaction + Clone + Debug + Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
+    Tx: AuthenticatedMantleTx
+        + Clone
+        + Debug
+        + Serialize
+        + for<'de> Deserialize<'de>
+        + Send
+        + Sync
+        + 'static,
     <Tx as Transaction>::Hash:
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     SamplingNetworkAdapter:
@@ -80,9 +91,5 @@ where
         .await
         .map_err(|(e, _)| e)?;
 
-    wait_with_timeout(
-        receiver,
-        "Timeout while waiting for cl_mempool_status".to_owned(),
-    )
-    .await
+    receiver.await.map_err(|e| Box::new(e) as super::DynError)
 }

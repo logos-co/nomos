@@ -4,8 +4,10 @@ use chain_service::CryptarchiaInfo;
 use common_http_client::Error;
 use executor_http_client::ExecutorHttpClient;
 use futures::StreamExt as _;
-use nomos_core::da::BlobId;
-use nomos_node::DispersedBlobInfo as _;
+use nomos_core::{
+    da::BlobId,
+    mantle::{AuthenticatedMantleTx as _, Op},
+};
 use reqwest::Url;
 
 use crate::{adjust_timeout, nodes::executor::Executor};
@@ -33,7 +35,18 @@ pub async fn wait_for_blob_onchain(executor: &Executor, blob_id: BlobId) {
         while !onchain {
             let CryptarchiaInfo { tip, .. } = executor.consensus_info().await;
             if let Some(block) = executor.get_block(tip).await {
-                if block.blobs().any(|blob| blob.blob_id() == blob_id) {
+                if block
+                    .transactions()
+                    .flat_map(|tx| tx.mantle_tx().ops.iter())
+                    .filter_map(|op| {
+                        if let Op::ChannelBlob(op) = op {
+                            Some(op.blob)
+                        } else {
+                            None
+                        }
+                    })
+                    .any(|blob| blob == blob_id)
+                {
                     onchain = true;
                 }
             }
@@ -52,13 +65,12 @@ pub async fn wait_for_shares_number(executor: &Executor, blob_id: BlobId, num_sh
     let shares_fut = async {
         let mut got_shares = 0;
         while got_shares < num_shares {
-            got_shares = executor
+            let shares_result = executor
                 .get_shares(blob_id, [].into(), [].into(), true)
-                .await
-                .unwrap()
-                .collect::<Vec<_>>()
-                .await
-                .len();
+                .await;
+            if let Ok(shares_stream) = shares_result {
+                got_shares = shares_stream.collect::<Vec<_>>().await.len();
+            }
             tokio::time::sleep(Duration::from_millis(200)).await;
         }
     };

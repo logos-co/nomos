@@ -15,9 +15,9 @@ pub const DA_MONITOR_STATS: &str = "/da/monitor-stats";
 pub const NETWORK_INFO: &str = "/network/info";
 pub const STORAGE_BLOCK: &str = "/storage/block";
 pub const MEMPOOL_ADD_TX: &str = "/mempool/add/tx";
-pub const MEMPOOL_ADD_BLOB_INFO: &str = "/mempool/add/blobinfo";
 pub const DISPERSE_DATA: &str = "/disperse-data";
 
 // testing paths
 pub const UPDATE_MEMBERSHIP: &str = "/test/membership/update";
-pub const DA_GET_MEMBERSHIP: &str = "/test/da/membership/get";
+pub const DA_GET_MEMBERSHIP: &str = "/test/da/membership";
+pub const DA_HISTORIC_SAMPLING: &str = "/test/da/historic-sampling";

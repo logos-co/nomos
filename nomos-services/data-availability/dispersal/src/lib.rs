@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use services_utils::wait_until_services_are_ready;
 use subnetworks_assignations::MembershipHandler;
 use tokio::sync::oneshot;
-use tracing::error;
+use tracing::{debug, error};
 
 use crate::{adapters::network::DispersalNetworkAdapter, backend::DispersalBackend};
 
@@ -117,7 +117,7 @@ where
         + Send
         + Sync,
     Backend::Settings: Clone + Send + Sync,
-    Backend::BlobId: Serialize,
+    Backend::BlobId: Debug + Serialize,
     NetworkAdapter: DispersalNetworkAdapter<SubnetworkId = Membership::NetworkId> + Send,
     <NetworkAdapter::NetworkService as ServiceData>::Message: 'static,
     WalletAdapter: DaWalletAdapter + Send,
@@ -157,7 +157,7 @@ where
             .await?;
         let network_adapter = NetworkAdapter::new(network_relay);
         let wallet_adapter = WalletAdapter::new();
-        let backend = Backend::init(backend_settings, network_adapter, wallet_adapter);
+        let mut backend = Backend::init(backend_settings, network_adapter, wallet_adapter);
         let mut inbound_relay = service_resources_handle.inbound_relay;
 
         service_resources_handle.status_updater.notify_ready();
@@ -180,6 +180,7 @@ where
                     reply_channel,
                 } => {
                     let response = backend.process_dispersal(data).await;
+                    debug!("Dispersal response: {response:?}");
                     if let Err(Err(e)) = reply_channel.send(response) {
                         error!("Error forwarding dispersal response: {e}");
                     }
