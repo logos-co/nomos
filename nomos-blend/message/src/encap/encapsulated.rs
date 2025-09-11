@@ -99,17 +99,17 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
     where
         Verifier: ProofsVerifier,
     {
+        // Verify signature according to the Blend spec: <https://www.notion.so/nomos-tech/Blend-Protocol-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81859cebf5e3d2a5cd8f>.
         self.public_header.verify_signature(&signing_body(
             &self.encapsulated_part.private_header,
             &self.encapsulated_part.payload,
         ))?;
         let (_, signing_pubkey, proof_of_quota, _) = self.public_header.into_components();
+        // Verify the Proof of Quota according to the Blend spec: <https://www.notion.so/nomos-tech/Blend-Protocol-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81b593ddce00cffd24a8>.
         let _ = verifier
             .verify_proof_of_quota(proof_of_quota, poq_verification_input)
             .map_err(|_| Error::ProofOfQuotaVerificationFailed)?;
-        // TODO: Add PoSel (already implemented on a different branch)
         Ok(UnwrappedEncapsulatedMessage::new(
-            poq_verification_input,
             signing_pubkey,
             self.encapsulated_part,
         ))
@@ -182,19 +182,11 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPart<ENCAPSULATION_COUNT> {
     }
 
     /// Decapsulate a layer.
-    pub(super) fn decapsulate<Verifier>(
+    pub(super) fn decapsulate(
         self,
         key: &SharedKey,
-        poq_verification_input: &PublicInputs,
-        verifier: &Verifier,
-    ) -> Result<PartDecapsulationOutput<ENCAPSULATION_COUNT>, Error>
-    where
-        Verifier: ProofsVerifier,
-    {
-        match self
-            .private_header
-            .decapsulate(key, poq_verification_input, verifier)?
-        {
+    ) -> Result<PartDecapsulationOutput<ENCAPSULATION_COUNT>, Error> {
+        match self.private_header.decapsulate(key)? {
             PrivateHeaderDecapsulationOutput::Incompleted((private_header, public_header)) => {
                 let payload = self.payload.decapsulate(key);
                 verify_reconstructed_public_header(&public_header, &private_header, &payload)?;
@@ -327,15 +319,10 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPrivateHeader<ENCAPSULATION_C
         self
     }
 
-    fn decapsulate<Verifier>(
+    fn decapsulate(
         mut self,
         key: &SharedKey,
-        poq_verification_inputs: &PublicInputs,
-        verifier: &Verifier,
-    ) -> Result<PrivateHeaderDecapsulationOutput<ENCAPSULATION_COUNT>, Error>
-    where
-        Verifier: ProofsVerifier,
-    {
+    ) -> Result<PrivateHeaderDecapsulationOutput<ENCAPSULATION_COUNT>, Error> {
         // Decrypt all blending headers
         self.0.iter_mut().for_each(|header| {
             header.decapsulate(key);
@@ -352,9 +339,7 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPrivateHeader<ENCAPSULATION_C
             signature,
             signing_pubkey,
         } = self.first().try_deserialize()?;
-        let _ = verifier
-            .verify_proof_of_quota(proof_of_quota, poq_verification_inputs)
-            .map_err(|_| Error::ProofOfQuotaVerificationFailed)?;
+        // Verify PoSel according to the Blend spec: <https://www.notion.so/nomos-tech/Blend-Protocol-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81dd8cbedc8af4649a6a>.
         if !proof_of_selection.verify() {
             return Err(Error::ProofOfSelectionVerificationFailed);
         }
