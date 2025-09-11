@@ -24,6 +24,9 @@ serde_json = { default-features = false, features = ["alloc"], version = "1.0" }
 [lints]
 workspace = true
 
+[package.metadata.cargo-machete]
+ignored = ["rand"]
+
 [features]
 default = []
 deser   = ["dep:hex", "dep:num-bigint", "dep:serde", "dep:serde_json", "dep:thiserror"]
