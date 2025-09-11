@@ -50,7 +50,7 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
                 // a random signing key, and proof of quota.
                 EncapsulatedPart::initialize(inputs, payload_type, payload_body)?,
                 Ed25519PrivateKey::generate(),
-                ProofOfQuota::from(random_sized_bytes()),
+                ProofOfQuota::from_bytes_unchecked(random_sized_bytes()),
             ),
             |(part, signing_key, proof_of_quota), (i, input)| {
                 (
