@@ -18,6 +18,8 @@ const PROOF_CIRCUIT_SIZE: usize = size_of::<PoQProof>();
 pub const PROOF_OF_QUOTA_SIZE: usize = KEY_NULLIFIER_SIZE.checked_add(PROOF_CIRCUIT_SIZE).unwrap();
 
 /// A Proof of Quota as described in the Blend v1 spec: <https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#26a261aa09df80f4b119f900fbb36f3f>.
+// TODO: To avoid proofs being misused, remove the `Clone` and `Copy` derives, so once a proof is
+// verified it cannot be (mis)used anymore.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 pub struct ProofOfQuota {
     #[serde(with = "groth16::serde::serde_fr")]
