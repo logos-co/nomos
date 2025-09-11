@@ -1,6 +1,7 @@
 use std::{
     collections::VecDeque,
     convert::Infallible,
+    fmt::Debug,
     task::{Context, Poll, Waker},
 };
 
@@ -85,7 +86,9 @@ where
     fn record_event(&mut self, event: ConnectionEvent) {
         self.balancer.record_event(event);
         if let Some(stats_sender) = &self.stats_sender {
-            let _ = stats_sender.send(self.balancer.stats());
+            if let Err(err) = stats_sender.send(self.balancer.stats()) {
+                tracing::error!("Error while sending response to a channel: {err:?}");
+            }
         }
         if let Some(waker) = self.waker.take() {
             waker.wake();
@@ -102,6 +105,7 @@ where
 impl<Balancer, Addressbook> NetworkBehaviour for ConnectionBalancerBehaviour<Balancer, Addressbook>
 where
     Balancer: ConnectionBalancer + 'static,
+    Balancer::Stats: Debug,
     Addressbook: AddressBookHandler<Id = PeerId> + 'static,
 {
     type ConnectionHandler = dummy::ConnectionHandler;
@@ -165,7 +169,9 @@ where
             match cmd {
                 ConnectionBalancerCommand::Stats(response) => {
                     let stats = self.balancer.stats();
-                    let _ = response.send(stats);
+                    if let Err(err) = response.send(stats) {
+                        tracing::error!("Error while sending response to a channel: {err:?}");
+                    }
                 }
             }
 
