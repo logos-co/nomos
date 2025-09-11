@@ -1,4 +1,4 @@
-use groth16::Fr;
+use nomos_core::crypto::ZkHash;
 use num_bigint::BigUint;
 use poq::{PoQVerifierInput, PoQVerifierInputData};
 
@@ -6,11 +6,15 @@ use crate::crypto::proofs::quota::inputs::{prove::PublicInputs, split_ephemeral_
 
 pub struct Inputs {
     pub prove_inputs: PublicInputs,
-    pub key_nullifier: Fr,
+    pub key_nullifier: ZkHash,
 }
 
 impl Inputs {
-    #[must_use] pub const fn from_prove_inputs_and_nullifier(prove_inputs: PublicInputs, key_nullifier: Fr) -> Self {
+    #[must_use]
+    pub const fn from_prove_inputs_and_nullifier(
+        prove_inputs: PublicInputs,
+        key_nullifier: ZkHash,
+    ) -> Self {
         Self {
             prove_inputs,
             key_nullifier,
@@ -44,7 +48,7 @@ impl Default for Inputs {
         use groth16::Field as _;
 
         Self {
-            key_nullifier: Fr::ZERO,
+            key_nullifier: ZkHash::ZERO,
             prove_inputs: PublicInputs::default(),
         }
     }
