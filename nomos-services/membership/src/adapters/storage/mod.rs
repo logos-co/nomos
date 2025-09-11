@@ -1,5 +1,5 @@
-pub mod rocksdb;
 pub mod memory;
+pub mod rocksdb;
 
 use std::collections::{BTreeSet, HashMap};
 
