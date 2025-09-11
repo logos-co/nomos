@@ -12,11 +12,11 @@ ark-groth16   = { default-features = false, features = ["std"], version = "0.4" 
 ark-serialize = { default-features = false, version = "0.4.2" }
 ark-std       = { default-features = false, version = "0.4.0" }
 hex           = { default-features = false, features = ["alloc"], optional = true, version = "0.4" }
-num-bigint    = { default-features = false, optional = true, version = "0.4" }
 rand          = { default-features = false, features = ["std", "std_rng"], version = "0.8.5" }
+num-bigint    = { default-features = false, version = "0.4" }
 serde         = { default-features = false, features = ["derive"], optional = true, version = "1.0" }
 serde_json    = { default-features = false, features = ["alloc"], optional = true, version = "1.0" }
-thiserror     = { default-features = false, optional = true, version = "2.0" }
+thiserror     = { default-features = false, version = "2.0" }
 
 [dev-dependencies]
 serde_json = { default-features = false, features = ["alloc"], version = "1.0" }
@@ -29,4 +29,4 @@ ignored = ["rand"]
 
 [features]
 default = []
-deser   = ["dep:hex", "dep:num-bigint", "dep:serde", "dep:serde_json", "dep:thiserror"]
+deser   = ["dep:hex", "dep:serde", "dep:serde_json"]
