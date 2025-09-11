@@ -8,24 +8,23 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
-axum                   = { default-features = false, features = ["http1", "http2", "json", "tokio"], version = "0.7.5" }
-clap                   = { default-features = false, version = "4" }
-nomos-blend-scheduling = { workspace = true }
-nomos-core             = { workspace = true }
-nomos-da-network-core  = { workspace = true }
-nomos-executor         = { workspace = true }
-nomos-libp2p           = { workspace = true }
-nomos-membership       = { workspace = true }
-nomos-node             = { workspace = true }
-nomos-tracing-service  = { workspace = true }
-nomos-utils            = { workspace = true }
-rand                   = { workspace = true }
-reqwest                = { workspace = true }
-serde                  = { default-features = false, version = "1" }
-serde_json             = { default-features = false, version = "1.0" }
-serde_path_to_error    = "0.1"
-serde_with             = { workspace = true }
-serde_yaml             = "0.9"
-tests                  = { workspace = true }
-tokio                  = { default-features = false, features = ["macros", "net", "rt-multi-thread"], version = "1" }
-tracing                = { workspace = true }
+axum                  = { default-features = false, features = ["http1", "http2", "json", "tokio"], version = "0.7.5" }
+clap                  = { default-features = false, version = "4" }
+nomos-core            = { workspace = true }
+nomos-da-network-core = { workspace = true }
+nomos-executor        = { workspace = true }
+nomos-libp2p          = { workspace = true }
+nomos-membership      = { workspace = true }
+nomos-node            = { workspace = true }
+nomos-tracing-service = { workspace = true }
+nomos-utils           = { workspace = true }
+rand                  = { workspace = true }
+reqwest               = { workspace = true }
+serde                 = { default-features = false, version = "1" }
+serde_json            = { default-features = false, version = "1.0" }
+serde_path_to_error   = "0.1"
+serde_with            = { workspace = true }
+serde_yaml            = "0.9"
+tests                 = { workspace = true }
+tokio                 = { default-features = false, features = ["macros", "net", "rt-multi-thread"], version = "1" }
+tracing               = { workspace = true }
