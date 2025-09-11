@@ -1,13 +1,13 @@
-use groth16::Fr;
+use nomos_core::crypto::ZkHash;
 
 use crate::crypto::keys::Ed25519PublicKey;
 
 #[derive(Clone, Copy)]
 pub struct Inputs {
     pub session: u64,
-    pub core_root: Fr,
-    pub pol_ledger_aged: Fr,
-    pub pol_epoch_nonce: Fr,
+    pub core_root: ZkHash,
+    pub pol_ledger_aged: ZkHash,
+    pub pol_epoch_nonce: ZkHash,
     pub core_quota: u64,
     pub leader_quota: u64,
     pub total_stake: u64,
@@ -23,10 +23,10 @@ impl Default for Inputs {
 
         Self {
             core_quota: u64::default(),
-            core_root: Fr::ZERO,
+            core_root: ZkHash::ZERO,
             leader_quota: u64::default(),
-            pol_epoch_nonce: Fr::ZERO,
-            pol_ledger_aged: Fr::ZERO,
+            pol_epoch_nonce: ZkHash::ZERO,
+            pol_ledger_aged: ZkHash::ZERO,
             session: u64::default(),
             signing_key: Ed25519PrivateKey::generate().public_key(),
             total_stake: 1,
