@@ -74,7 +74,7 @@ pub fn verify_element_proof(
         [commitment_check_g1, proof.w.into()],
         [
             global_parameters.h.neg(), /* This could be precomputed and included in the global
-                                  * parameter instead */
+                                        * parameter instead */
             proof_check_g2.into(),
         ],
     );
