@@ -47,6 +47,9 @@ impl MembershipBackend for MockMembershipBackend {
                 .cloned()
                 .unwrap_or_default();
 
+            // The session number starts with 0 regardless of the actual current session
+            // number, since this session state will be replaced once the block
+            // for a new session arrives.
             let session_0 = SessionState {
                 session_number: 0,
                 providers,
@@ -55,6 +58,9 @@ impl MembershipBackend for MockMembershipBackend {
             active_sessions.insert(*service_type, session_0.clone());
 
             let mut session_1 = session_0;
+            // Set the next session number to 1 regardless of the actual next session
+            // number, since it will be updated once the block for the next
+            // session arrives.
             session_1.session_number = 1;
             forming_sessions.insert(*service_type, session_1);
         }
@@ -103,8 +109,10 @@ impl MembershipBackend for MockMembershipBackend {
             if let Some(forming_session) = self.forming_sessions.get(service_type) {
                 // Check if forming session should be promoted
                 if forming_session.session_number <= next_session {
-                    // Clone forming session to promote it
-                    let promoted_session = forming_session.clone();
+                    // Clone forming session to promote it,
+                    // and set its session number to next_session if it was smaller.
+                    let mut promoted_session = forming_session.clone();
+                    promoted_session.session_number = next_session;
 
                     // Get snapshot before promoting
                     completed_sessions.insert(*service_type, promoted_session.to_snapshot());
@@ -298,6 +306,63 @@ mod tests {
         let (sid_a2, prov_a2) = backend.get_latest_providers(service).await.unwrap();
         assert_eq!(sid_a2, 1);
         assert_eq!(prov_a2, *prov_promoted);
+    }
+
+    /// The forming session should promote even if the first received block
+    /// number is larger than expected.
+    /// This can happen since the first block supplied will be not always be
+    /// the block 1.
+    #[tokio::test]
+    async fn forming_promotes_on_large_first_block_number() {
+        let service = ServiceType::DataAvailability;
+
+        // Session 0: P1 active
+        let p1 = pid(1);
+        let p1_locs = locs::<2>(1);
+
+        let mut session0_providers = HashMap::new();
+        session0_providers.insert(service, HashMap::from([(p1, p1_locs.clone())]));
+
+        let settings = MockMembershipBackendSettings {
+            session_sizes: HashMap::from([(service, 3)]),
+            session_zero_providers: session0_providers,
+        };
+        let mut backend = MockMembershipBackend::init(settings);
+
+        // Forming session 1 updates across blocks 1..2 (still session 0 time)
+        let p2 = pid(2);
+        let p2_locs = locs::<3>(10);
+
+        // Block 8 (not 1): activate P2
+        let ev = FinalizedBlockEvent {
+            block_number: 8,
+            updates: vec![update(
+                service,
+                p2,
+                FinalizedDeclarationState::Active,
+                p2_locs.clone(),
+            )],
+        };
+
+        // For block=8, block+1=9 -> 9/3==3 => forming_session_id==1 <= 3
+        // -> promote now.
+        let promoted = backend
+            .update(ev)
+            .await
+            .unwrap()
+            .expect("Promotion should occur at the end of session 0");
+
+        // The returned snapshot should have the actual session number 3.
+        let (sid_promoted, prov_promoted) = promoted.get(&service).unwrap();
+        assert_eq!(*sid_promoted, 3);
+        assert_eq!(prov_promoted.len(), 2);
+        assert_eq!(prov_promoted.get(&p1).unwrap(), &p1_locs);
+        assert_eq!(prov_promoted.get(&p2).unwrap(), &p2_locs);
+
+        // And get_latest_providers must match the new active snapshot
+        let (sid, prov) = backend.get_latest_providers(service).await.unwrap();
+        assert_eq!(sid, 3);
+        assert_eq!(prov, *prov_promoted);
     }
 
     #[tokio::test]
