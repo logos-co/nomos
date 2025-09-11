@@ -1,14 +1,21 @@
 pub(super) mod input {
-    use ark_ff::biginteger::BigInteger as _;
+    use ark_ff::{biginteger::BigInteger as _, PrimeField as _};
     use nomos_core::crypto::ZkHash;
     use num_bigint::BigUint;
-    use serde::{Deserialize as _, Deserializer, Serialize as _, Serializer};
+    use serde::{ser::Error, Deserialize as _, Deserializer, Serialize as _, Serializer};
+
+    use crate::crypto::proofs::quota::KEY_NULLIFIER_SIZE;
 
     pub fn serialize<S>(input: &ZkHash, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        input.0.to_bytes_le().serialize(serializer)
+        let key_nullifier_bytes = <[u8; KEY_NULLIFIER_SIZE]>::try_from(
+            input.into_bigint().to_bytes_le(),
+        )
+        .map_err(|e| S::Error::custom(format!("Key nullifier serialization error: {e:?}.")))?;
+
+        key_nullifier_bytes.serialize(serializer)
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<ZkHash, D::Error>
@@ -59,5 +66,22 @@ pub(super) mod proof {
         D: Deserializer<'de>,
     {
         Ok(SerializationHelper::deserialize(deserializer)?.into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use nomos_core::wire;
+
+    use crate::crypto::{proofs::quota::ProofOfQuota, random_sized_bytes};
+
+    #[test]
+    fn serialize_deserialize() {
+        let proof = ProofOfQuota::from(random_sized_bytes());
+
+        let serialized_proof = wire::serialize(&proof).unwrap();
+        let deserialized_proof: ProofOfQuota = wire::deserialize(&serialized_proof[..]).unwrap();
+
+        assert!(proof == deserialized_proof);
     }
 }
