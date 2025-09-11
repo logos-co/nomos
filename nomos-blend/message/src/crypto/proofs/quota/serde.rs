@@ -58,7 +58,6 @@ pub(super) mod proof {
     where
         D: Deserializer<'de>,
     {
-        let serialization_helper = SerializationHelper::deserialize(deserializer)?;
-        Ok(serialization_helper.into())
+        Ok(SerializationHelper::deserialize(deserializer)?.into())
     }
 }
