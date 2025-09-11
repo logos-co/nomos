@@ -37,7 +37,7 @@ impl BlendingHeader {
             // because a public key cannot always be successfully derived from random bytes.
             // TODO: This will be changed once we have zerocopy serde.
             signing_pubkey: Ed25519PrivateKey::from(r1).public_key(),
-            proof_of_quota: ProofOfQuota::from(r2),
+            proof_of_quota: ProofOfQuota::from_bytes_unchecked(r2),
             signature: Signature::from(r3),
             proof_of_selection: ProofOfSelection::from(r4),
             is_last: false,

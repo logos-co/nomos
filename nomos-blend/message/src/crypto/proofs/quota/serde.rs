@@ -65,11 +65,11 @@ pub(super) mod proof {
 mod tests {
     use nomos_core::wire;
 
-    use crate::crypto::{proofs::quota::ProofOfQuota, random_sized_bytes};
+    use crate::crypto::proofs::quota::ProofOfQuota;
 
     #[test]
     fn serialize_deserialize() {
-        let proof = ProofOfQuota::from(random_sized_bytes());
+        let proof = ProofOfQuota::from_bytes_unchecked([0; _]);
 
         let serialized_proof = wire::serialize(&proof).unwrap();
         let deserialized_proof: ProofOfQuota = wire::deserialize(&serialized_proof[..]).unwrap();
