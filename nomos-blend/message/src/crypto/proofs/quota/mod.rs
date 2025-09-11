@@ -1,10 +1,9 @@
 use ::serde::{Deserialize, Serialize};
-use groth16::{BN254_G1_COMPRESSED_SIZE, BN254_G2_COMPRESSED_SIZE};
-use nomos_core::crypto::ZkHash;
-use num_bigint::BigUint;
-use poq::{
-    prove, verify, PoQInputsFromDataError, PoQProof, PoQVerifierInput, PoQWitnessInputs, ProveError,
+use groth16::{
+    fr_from_bytes, fr_from_bytes_unchecked, BN254_G1_COMPRESSED_SIZE, BN254_G2_COMPRESSED_SIZE,
 };
+use nomos_core::crypto::ZkHash;
+use poq::{prove, verify, PoQProof, PoQVerifierInput, PoQWitnessInputs, ProveError};
 
 use crate::crypto::proofs::quota::inputs::{
     prove::{Inputs, PrivateInputs, PublicInputs},
@@ -27,9 +26,8 @@ pub struct ProofOfQuota {
     proof: PoQProof,
 }
 
-#[derive(Debug)]
 pub enum Error {
-    InvalidInput(PoQInputsFromDataError),
+    InvalidInput(Box<dyn core::error::Error>),
     ProofGeneration(ProveError),
     InvalidProof,
 }
@@ -43,13 +41,25 @@ impl ProofOfQuota {
             public: *public_inputs,
         }
         .try_into()
-        .map_err(Error::InvalidInput)?;
+        .map_err(|e| Error::InvalidInput(Box::new(e)))?;
         let (proof, PoQVerifierInput { key_nullifier, .. }) =
             prove(&witness_inputs).map_err(Error::ProofGeneration)?;
         Ok(Self {
             key_nullifier: key_nullifier.into_inner(),
             proof,
         })
+    }
+
+    #[must_use]
+    pub fn from_bytes_unchecked(bytes: [u8; PROOF_OF_QUOTA_SIZE]) -> Self {
+        let (key_nullifier_bytes, proof_circuit_bytes) = bytes.split_at(KEY_NULLIFIER_SIZE);
+        let key_nullifier = fr_from_bytes_unchecked(key_nullifier_bytes.try_into().unwrap());
+        let (pi_a, pi_b, pi_c) = split_proof_components(proof_circuit_bytes.try_into().unwrap());
+
+        Self {
+            key_nullifier,
+            proof: PoQProof::from_components(pi_a, pi_b, pi_c),
+        }
     }
 
     /// Verify a Proof of Quota with the provided inputs.
@@ -66,43 +76,61 @@ impl ProofOfQuota {
             Err(Error::InvalidProof)
         }
     }
+
+    #[cfg(test)]
+    #[must_use]
+    pub fn dummy() -> Self {
+        Self::from_bytes_unchecked([0u8; _])
+    }
 }
 
-#[expect(
-    clippy::fallible_impl_from,
-    reason = "We have a fixed-size input, so this will never actually panic."
-)]
-impl From<[u8; PROOF_OF_QUOTA_SIZE]> for ProofOfQuota {
-    fn from(value: [u8; PROOF_OF_QUOTA_SIZE]) -> Self {
-        const FIRST_POINT_END_INDEX: usize = BN254_G1_COMPRESSED_SIZE;
-        const SECOND_POINT_END_INDEX: usize = FIRST_POINT_END_INDEX
-            .checked_add(BN254_G2_COMPRESSED_SIZE)
-            .expect("Index overflow");
-        const THIRD_POINT_END_INDEX: usize = SECOND_POINT_END_INDEX
-            .checked_add(BN254_G1_COMPRESSED_SIZE)
-            .expect("Index overflow");
+fn split_proof_components(
+    bytes: [u8; PROOF_CIRCUIT_SIZE],
+) -> (
+    [u8; BN254_G1_COMPRESSED_SIZE],
+    [u8; BN254_G2_COMPRESSED_SIZE],
+    [u8; BN254_G1_COMPRESSED_SIZE],
+) {
+    const FIRST_POINT_END_INDEX: usize = BN254_G1_COMPRESSED_SIZE;
+    const SECOND_POINT_END_INDEX: usize = FIRST_POINT_END_INDEX
+        .checked_add(BN254_G2_COMPRESSED_SIZE)
+        .expect("Second index overflow");
+    const THIRD_POINT_END_INDEX: usize = SECOND_POINT_END_INDEX
+        .checked_add(BN254_G1_COMPRESSED_SIZE)
+        .expect("Third index overflow");
 
-        let (key_nullifier, compressed_proof) = value.split_at(KEY_NULLIFIER_SIZE);
+    (
+        bytes
+            .get(..FIRST_POINT_END_INDEX)
+            .unwrap()
+            .try_into()
+            .unwrap(),
+        bytes
+            .get(FIRST_POINT_END_INDEX..SECOND_POINT_END_INDEX)
+            .unwrap()
+            .try_into()
+            .unwrap(),
+        bytes
+            .get(SECOND_POINT_END_INDEX..THIRD_POINT_END_INDEX)
+            .unwrap()
+            .try_into()
+            .unwrap(),
+    )
+}
 
-        Self {
-            key_nullifier: BigUint::from_bytes_be(key_nullifier).into(),
-            proof: PoQProof::from_components(
-                compressed_proof
-                    .get(..FIRST_POINT_END_INDEX)
-                    .unwrap()
-                    .try_into()
-                    .unwrap(),
-                compressed_proof
-                    .get(FIRST_POINT_END_INDEX..SECOND_POINT_END_INDEX)
-                    .unwrap()
-                    .try_into()
-                    .unwrap(),
-                compressed_proof
-                    .get(SECOND_POINT_END_INDEX..THIRD_POINT_END_INDEX)
-                    .unwrap()
-                    .try_into()
-                    .unwrap(),
-            ),
-        }
+impl TryFrom<[u8; PROOF_OF_QUOTA_SIZE]> for ProofOfQuota {
+    type Error = Error;
+
+    fn try_from(value: [u8; PROOF_OF_QUOTA_SIZE]) -> Result<Self, Self::Error> {
+        let (key_nullifier_bytes, proof_circuit_bytes) = value.split_at(KEY_NULLIFIER_SIZE);
+
+        let key_nullifier = fr_from_bytes(key_nullifier_bytes.try_into().unwrap())
+            .map_err(|e| Error::InvalidInput(Box::new(e)))?;
+        let (pi_a, pi_b, pi_c) = split_proof_components(proof_circuit_bytes.try_into().unwrap());
+
+        Ok(Self {
+            key_nullifier,
+            proof: PoQProof::from_components(pi_a, pi_b, pi_c),
+        })
     }
 }
