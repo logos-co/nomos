@@ -1,20 +1,14 @@
 use crate::{
-    crypto::{
-        keys::{Ed25519PublicKey, X25519PrivateKey},
-        proofs::quota::inputs::prove::PublicInputs,
-    },
+    crypto::keys::{Ed25519PublicKey, X25519PrivateKey},
     encap::{
         decapsulated::{DecapsulatedMessage, DecapsulationOutput, PartDecapsulationOutput},
         encapsulated::{EncapsulatedMessage, EncapsulatedPart},
-        ProofsVerifier,
     },
     Error,
 };
 
 /// A Blend message whose public header has been verified.
 pub struct UnwrappedEncapsulatedMessage<const ENCAPSULATION_COUNT: usize> {
-    /// The inputs used to verify the public header Proof of Quota.
-    public_inputs: PublicInputs,
     /// The public key that signed the Blend message and whose validity has been
     /// verified.
     signing_public_key: Ed25519PublicKey,
@@ -24,12 +18,10 @@ pub struct UnwrappedEncapsulatedMessage<const ENCAPSULATION_COUNT: usize> {
 
 impl<const ENCAPSULATION_COUNT: usize> UnwrappedEncapsulatedMessage<ENCAPSULATION_COUNT> {
     pub(super) const fn new(
-        public_inputs: &PublicInputs,
         signing_public_key: Ed25519PublicKey,
         encapsulated_part: EncapsulatedPart<ENCAPSULATION_COUNT>,
     ) -> Self {
         Self {
-            public_inputs: *public_inputs,
             signing_public_key,
             encapsulated_part,
         }
@@ -45,22 +37,15 @@ impl<const ENCAPSULATION_COUNT: usize> UnwrappedEncapsulatedMessage<ENCAPSULATIO
     ///
     /// If not, [`Error::DeserializationFailed`] or
     /// [`Error::ProofOfSelectionVerificationFailed`] will be returned.
-    pub fn decapsulate<Verifier>(
+    pub fn decapsulate(
         self,
         private_key: &X25519PrivateKey,
-        verifier: &Verifier,
-    ) -> Result<DecapsulationOutput<ENCAPSULATION_COUNT>, Error>
-    where
-        Verifier: ProofsVerifier,
-    {
+    ) -> Result<DecapsulationOutput<ENCAPSULATION_COUNT>, Error> {
         // Derive the shared key.
         let shared_key = private_key.derive_shared_key(&self.signing_public_key.derive_x25519());
 
         // Decapsulate the encapsulated part.
-        match self
-            .encapsulated_part
-            .decapsulate(&shared_key, &self.public_inputs, verifier)?
-        {
+        match self.encapsulated_part.decapsulate(&shared_key)? {
             PartDecapsulationOutput::Incompleted((encapsulated_part, public_header)) => {
                 Ok(DecapsulationOutput::Incompleted(
                     EncapsulatedMessage::from_components(public_header, encapsulated_part),
