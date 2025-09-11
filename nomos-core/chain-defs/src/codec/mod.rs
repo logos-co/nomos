@@ -1,12 +1,10 @@
 //! Serializer for wire formats.
 // TODO: we're using bincode for now, but might need strong guarantees about
 // the underlying format in the future for standardization.
-#[cfg(feature = "bincode")]
 pub(crate) mod bincode;
 pub mod errors;
 use std::error::Error as StdError;
 
-#[cfg(feature = "bincode")]
 use bincode::{deserialize, serialize, serialized_size};
 use bytes::Bytes;
 pub use errors::Error;
@@ -24,7 +22,6 @@ pub trait SerdeOp {
     fn serialized_size<T: Serialize>(value: &T) -> Result<u64>;
 }
 
-#[cfg(feature = "bincode")]
 impl<S> SerdeOp for S
 where
     S: Serialize + DeserializeOwned,
@@ -44,7 +41,7 @@ where
     }
 }
 
-#[cfg(all(test, feature = "bincode"))]
+#[cfg(test)]
 mod tests {
 
     use super::*;
