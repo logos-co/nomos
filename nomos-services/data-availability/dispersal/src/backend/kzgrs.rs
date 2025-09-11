@@ -162,9 +162,9 @@ where
 
 impl<NetworkAdapter, WalletAdapter> DispersalKZGRSBackend<NetworkAdapter, WalletAdapter>
 where
-    NetworkAdapter: DispersalNetworkAdapter + Send + Sync,
+    NetworkAdapter: DispersalNetworkAdapter + Send + Sync + 'static,
     NetworkAdapter::SubnetworkId: From<u16> + Send + Sync,
-    WalletAdapter: DaWalletAdapter + Send + Sync,
+    WalletAdapter: DaWalletAdapter + Send + Sync + 'static,
     WalletAdapter::Error: Error + Send + Sync + 'static,
 {
     async fn encode(
@@ -202,6 +202,57 @@ where
         handler.disperse_shares(encoded_data).await?;
         tracing::debug!("Dispersal of {blob_id:?} successful");
         Ok(tx)
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Dispersal tasks requires multiple arguments"
+    )]
+    fn create_dispersal_task(
+        handler: DispersalHandler<NetworkAdapter, WalletAdapter>,
+        parent_msg_id: MsgId,
+        encoded_data: EncodedData,
+        original_size: usize,
+        sender: oneshot::Sender<Result<BlobId, DynError>>,
+        blob_id: BlobId,
+        retry_limit: usize,
+        retry_cooldown: Duration,
+    ) -> DispersalTask {
+        Box::pin(async move {
+            for attempt in 0..=retry_limit {
+                match Self::disperse(
+                    handler.clone(),
+                    parent_msg_id,
+                    encoded_data.clone(),
+                    original_size,
+                )
+                .await
+                {
+                    Ok(tx) => {
+                        let _ = sender.send(Ok(blob_id));
+                        return Some(tx);
+                    }
+                    Err(retry_err) => {
+                        if !matches!(
+                            retry_err.downcast_ref::<ProcessingError>(),
+                            Some(ProcessingError::InsufficientSubnetworkConnections)
+                        ) {
+                            let _ = sender.send(Err(retry_err));
+                            return None;
+                        }
+                    }
+                }
+
+                tokio::time::sleep(retry_cooldown).await;
+                tracing::warn!(
+                    "Retrying dispersal, attempt {}/{}...",
+                    attempt + 1,
+                    retry_limit
+                );
+            }
+            let _ = sender.send(Err("Retry limit reached".into()));
+            None
+        })
     }
 }
 
@@ -261,43 +312,17 @@ where
             timeout: self.settings.dispersal_timeout,
         };
 
-        let retry_limit = self.settings.retry_limit;
-        let retry_cooldown = self.settings.retry_cooldown;
+        let dispersal_task = Self::create_dispersal_task(
+            handler,
+            parent_msg_id,
+            encoded_data,
+            original_size,
+            sender,
+            blob_id,
+            self.settings.retry_limit,
+            self.settings.retry_cooldown,
+        );
 
-        Ok(Box::pin(async move {
-            for attempt in 0..=retry_limit {
-                match Self::disperse(
-                    handler.clone(),
-                    parent_msg_id,
-                    encoded_data.clone(),
-                    original_size,
-                )
-                .await
-                {
-                    Ok(tx) => {
-                        let _ = sender.send(Ok(blob_id));
-                        return Some(tx);
-                    }
-                    Err(retry_err) => {
-                        if !matches!(
-                            retry_err.downcast_ref::<ProcessingError>(),
-                            Some(ProcessingError::InsufficientSubnetworkConnections)
-                        ) {
-                            let _ = sender.send(Err(retry_err));
-                            return None;
-                        }
-                    }
-                }
-
-                tokio::time::sleep(retry_cooldown).await;
-                tracing::warn!(
-                    "Retrying dispersal, attempt {}/{}...",
-                    attempt + 1,
-                    retry_limit
-                );
-            }
-            let _ = sender.send(Err("Retry limit reached".into()));
-            None
-        }))
+        Ok(dispersal_task)
     }
 }
