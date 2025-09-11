@@ -177,7 +177,6 @@ impl Wallet {
         ledger: &LedgerState,
     ) -> Self {
         let known_keys: HashSet<PublicKey> = known_keys.into_iter().collect();
-
         let wallet_state = WalletState::from_ledger(&known_keys, ledger);
 
         Self {
@@ -270,8 +269,8 @@ mod tests {
 
         let mut wallet = Wallet::from_lib([alice, bob], genesis, &genesis_ledger);
 
-        // Create WalletBlock for block 1 (builds on genesis)
-        // This creates two UTXOs for alice
+        // Block 1
+        // - alice is minted 104 NMO in two notes (100 NMO and 4 NMO)
         let tx1 = LedgerTx {
             inputs: vec![],
             outputs: vec![Note::new(100, alice), Note::new(4, alice)],
@@ -285,29 +284,33 @@ mod tests {
 
         wallet.apply_block(&block_1).unwrap();
 
-        // Create WalletBlock for block 2 (builds on block 1)
-        // This simulates spending alice's 100 NMO utxo and creating a 20 NMO utxo for bob
-        // We need to get the actual UTXO ID from the first transaction
-        let utxo_100 = tx1.utxo_by_index(0).unwrap();
+        // Block 2
+        //  - alice spends 100 NMO utxo, sending 20 NMO to bob and returning 80 to herself
+        let utxos_100 = wallet
+            .utxos_for_amount(block_1.id, 100, [alice])
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(utxos_100, vec![tx1.utxo_by_index(0).unwrap()]);
 
         let block_2 = WalletBlock {
             id: HeaderId::from([2; 32]),
             parent: block_1.id,
             ledger_txs: vec![LedgerTx {
-                inputs: vec![utxo_100.id()],
-                outputs: vec![Note::new(20, bob)],
+                inputs: utxos_100.iter().map(Utxo::id).collect(),
+                outputs: vec![Note::new(20, bob), Note::new(80, alice)],
             }],
         };
-
         wallet.apply_block(&block_2).unwrap();
 
+        // Query the balance of for each pk at different points in the blockchain
         assert_eq!(wallet.balance(genesis, alice).unwrap(), None);
         assert_eq!(wallet.balance(genesis, bob).unwrap(), None);
 
         assert_eq!(wallet.balance(block_1.id, alice).unwrap(), Some(104));
         assert_eq!(wallet.balance(block_1.id, bob).unwrap(), None);
 
-        assert_eq!(wallet.balance(block_2.id, alice).unwrap(), Some(4));
+        assert_eq!(wallet.balance(block_2.id, alice).unwrap(), Some(84));
         assert_eq!(wallet.balance(block_2.id, bob).unwrap(), Some(20));
     }
 
@@ -365,47 +368,4 @@ mod tests {
             ])
         );
     }
-
-    // #[test]
-    // fn test_utxos_for_amount_respects_spent_unconfirmed() {
-    //     let alice = PublicKey::from([0u8; 32]);
-
-    //     let ledger = LedgerState::from_utxos([
-    //         Utxo::new(tx_hash(0), 0, Note::new(4, alice)),
-    //         Utxo::new(tx_hash(0), 1, Note::new(3, alice)),
-    //     ]);
-
-    //     let genesis = HeaderId::from([0u8; 32]);
-
-    //     let mut wallet = Wallet::new(genesis, ledger, [alice]);
-
-    //     assert_eq!(
-    //         wallet.utxos_for_amount(genesis, 1, [alice]).unwrap(),
-    //         Some(vec![Utxo::new(tx_hash(0), 1, Note::new(3, alice))])
-    //     );
-
-    //     wallet.mark_spent_unconfirmed(Utxo::new(tx_hash(0), 1, Note::new(3, alice)).id());
-    //     assert!(false);
-    // }
-
-    // #[test]
-    // fn test_spent_unconfirmed_cleared_after_expiry() {
-    //     let alice = PublicKey::from([0u8; 32]);
-
-    //     let ledger = LedgerState::from_utxos([
-    //         Utxo::new(tx_hash(0), 0, Note::new(4, alice)),
-    //         Utxo::new(tx_hash(0), 1, Note::new(3, alice)),
-    //     ]);
-
-    //     let genesis = HeaderId::from([0u8; 32]);
-
-    //     let mut wallet = Wallet::new(genesis, ledger, [alice]);
-
-    //     panic!();
-    // }
-
-    // #[test]
-    // fn test_balance_takes_into_account_unspent_unconfirmed_notes() {
-    //     panic!();
-    // }
 }
