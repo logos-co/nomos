@@ -1,0 +1,20 @@
+[package]
+name = "chain-service-defs"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+cryptarchia-engine = { workspace = true }
+nomos-core         = { workspace = true }
+utoipa             = { optional = true, workspace = true }
+serde              = { default-features = false, version = "1" }
+serde_with         = { workspace = true }
+tokio              = { default-features = false, version = "1" }
+
+[features]
+default = []
+openapi = ["dep:utoipa"]
