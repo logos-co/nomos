@@ -1,14 +1,15 @@
 pub mod serde_fr {
     use ark_bn254::Fr;
-    use ark_ff::{PrimeField as _, biginteger::BigInteger as _};
     use num_bigint::BigUint;
     use serde::{Deserialize as _, Deserializer, Serialize as _, Serializer};
+
+    use crate::{fr_from_bytes, fr_to_bytes};
 
     pub fn serialize<S>(item: &Fr, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        let bytes = item.into_bigint().to_bytes_le();
+        let bytes = fr_to_bytes(item.clone());
         if serializer.is_human_readable() {
             let hex = hex::encode(bytes); // Convert `Fr` to hex representation
             serializer.serialize_str(&hex)
@@ -28,7 +29,7 @@ pub mod serde_fr {
             Ok(BigUint::from_bytes_le(&bytes).into()) // Parse from hex    
         } else {
             let sized_bytes = <[u8; 32]>::deserialize(deserializer)?;
-            Ok(BigUint::from_bytes_le(&sized_bytes).into())
+            Ok(fr_from_bytes(&sized_bytes).map_err(serde::de::Error::custom)?)
         }
     }
 
