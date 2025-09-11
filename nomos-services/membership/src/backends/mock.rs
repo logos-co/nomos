@@ -102,7 +102,7 @@ impl<S: MembershipStorageAdapter> MembershipBackend for MockMembershipBackend<S>
         self.storage
             .save_latest_block(block_number)
             .await
-            .map_err(|e| MembershipBackendError::Other(e.into()))?;
+            .map_err(MembershipBackendError::Other)?;
 
         // Check which services complete their sessions at this block
         let mut completed_sessions = HashMap::new();
@@ -127,7 +127,7 @@ impl<S: MembershipStorageAdapter> MembershipBackend for MockMembershipBackend<S>
                             &promoted_session.providers,
                         )
                         .await
-                        .map_err(|e| MembershipBackendError::Other(e.into()))?;
+                        .map_err(MembershipBackendError::Other)?;
 
                     // Promote forming to active
                     self.active_sessions
@@ -145,7 +145,7 @@ impl<S: MembershipStorageAdapter> MembershipBackend for MockMembershipBackend<S>
                             &new_forming.providers,
                         )
                         .await
-                        .map_err(|e| MembershipBackendError::Other(e.into()))?;
+                        .map_err(MembershipBackendError::Other)?;
 
                     self.forming_sessions.insert(*service_type, new_forming);
                 } else {
@@ -157,7 +157,7 @@ impl<S: MembershipStorageAdapter> MembershipBackend for MockMembershipBackend<S>
                             &forming_session.providers,
                         )
                         .await
-                        .map_err(|e| MembershipBackendError::Other(e.into()))?;
+                        .map_err(MembershipBackendError::Other)?;
                 }
             }
         }
@@ -250,7 +250,7 @@ mod tests {
 
     #[tokio::test]
     async fn init_returns_seeded_session_zero() {
-        let storage = InMemoryStorageAdapter::new();
+        let storage = InMemoryStorageAdapter::new_for_testing();
 
         let service = ServiceType::DataAvailability;
 
@@ -277,7 +277,7 @@ mod tests {
 
     #[tokio::test]
     async fn forming_promotes_on_last_block_of_session() {
-        let storage = InMemoryStorageAdapter::new();
+        let storage = InMemoryStorageAdapter::new_for_testing();
         let service = ServiceType::DataAvailability;
 
         // Session 0: P1 active
@@ -346,7 +346,7 @@ mod tests {
 
     #[tokio::test]
     async fn multiple_service_types_with_different_session_sizes() {
-        let storage = InMemoryStorageAdapter::new();
+        let storage = InMemoryStorageAdapter::new_for_testing();
         let service_da = ServiceType::DataAvailability;
         let service_mp = ServiceType::BlendNetwork;
 

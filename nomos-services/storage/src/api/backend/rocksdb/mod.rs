@@ -7,6 +7,7 @@ use crate::{
 
 pub mod blocks;
 pub mod da;
+pub mod membership;
 pub mod utils;
 
 impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackendApi for RocksBackend<SerdeOp> {}

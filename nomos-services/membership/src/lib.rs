@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeSet, HashMap},
     fmt::{Debug, Display},
+    marker::PhantomData,
     pin::Pin,
     time::Duration,
 };
@@ -26,7 +27,7 @@ use tokio_stream::wrappers::BroadcastStream;
 
 use crate::adapters::{
     sdp::{SdpAdapter, SdpAdapterError},
-    storage::memory::InMemoryStorageAdapter,
+    storage::MembershipStorageAdapter,
 };
 
 pub mod adapters;
@@ -57,20 +58,21 @@ pub enum MembershipMessage {
     },
 }
 
-pub struct MembershipService<Backend, Sdp, RuntimeServiceId>
+pub struct MembershipService<Backend, Sdp, StorageAdapter, RuntimeServiceId>
 where
     Backend: MembershipBackend,
     Sdp: SdpAdapter,
     Backend::Settings: Clone,
 {
-    backend: Backend,
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     subscribe_channels:
         HashMap<nomos_core::sdp::ServiceType, broadcast::Sender<MembershipProviders>>,
+
+    phantom: PhantomData<Backend>,
 }
 
-impl<Backend, Sdp, RuntimeServiceId> ServiceData
-    for MembershipService<Backend, Sdp, RuntimeServiceId>
+impl<Backend, Sdp, StorageAdapter, RuntimeServiceId> ServiceData
+    for MembershipService<Backend, Sdp, StorageAdapter, RuntimeServiceId>
 where
     Backend: MembershipBackend,
     Sdp: SdpAdapter,
@@ -83,14 +85,15 @@ where
 }
 
 #[async_trait]
-impl<Backend, Sdp, RuntimeServiceId> ServiceCore<RuntimeServiceId>
-    for MembershipService<Backend, Sdp, RuntimeServiceId>
+impl<Backend, Sdp, StorageAdapter, RuntimeServiceId> ServiceCore<RuntimeServiceId>
+    for MembershipService<Backend, Sdp, StorageAdapter, RuntimeServiceId>
 where
-    Backend: MembershipBackend<StorageAdapter = InMemoryStorageAdapter> + Send + Sync + 'static,
+    Backend: MembershipBackend<StorageAdapter = StorageAdapter> + Send + Sync + 'static,
     Backend::Settings: Clone,
-
+    StorageAdapter: MembershipStorageAdapter + Send + Sync + 'static,
     RuntimeServiceId: AsServiceId<Self>
         + AsServiceId<Sdp::SdpService>
+        + AsServiceId<StorageAdapter::StorageService>
         + Clone
         + Display
         + Send
@@ -104,23 +107,32 @@ where
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
         _initial_state: Self::State,
     ) -> Result<Self, DynError> {
-        let MembershipServiceSettings {
-            backend: backend_settings,
-        } = service_resources_handle
-            .settings_handle
-            .notifier()
-            .get_updated_settings();
-
-        let storage_adapter = InMemoryStorageAdapter::new();
-
         Ok(Self {
-            backend: Backend::init(backend_settings, storage_adapter),
             service_resources_handle,
             subscribe_channels: HashMap::new(),
+            phantom: PhantomData,
         })
     }
 
     async fn run(mut self) -> Result<(), DynError> {
+        let MembershipServiceSettings {
+            backend: backend_settings,
+        } = self
+            .service_resources_handle
+            .settings_handle
+            .notifier()
+            .get_updated_settings();
+
+        let storage_service_relay = self
+            .service_resources_handle
+            .overwatch_handle
+            .relay::<StorageAdapter::StorageService>()
+            .await?;
+
+        let storage_adapter = StorageAdapter::new(storage_service_relay);
+
+        let mut backend = Backend::init(backend_settings, storage_adapter);
+
         let sdp_relay = self
             .service_resources_handle
             .overwatch_handle
@@ -151,19 +163,20 @@ where
         loop {
             tokio::select! {
                 Some(msg) = self.service_resources_handle.inbound_relay.recv()  => {
-                    self.handle_message(msg).await;
+                    self.handle_message(&mut backend,msg).await;
                 }
                 Some(sdp_msg) = sdp_stream.next() => {
-                     self.handle_sdp_update(sdp_msg).await;
+                     self.handle_sdp_update(&mut backend, sdp_msg).await;
                 },
             }
         }
     }
 }
 
-impl<Backend, Sdp, RuntimeServiceId> MembershipService<Backend, Sdp, RuntimeServiceId>
+impl<Backend, Sdp, StorageAdapter, RuntimeServiceId>
+    MembershipService<Backend, Sdp, StorageAdapter, RuntimeServiceId>
 where
-    Backend: MembershipBackend,
+    Backend: MembershipBackend + Send + Sync + 'static,
     Sdp: SdpAdapter,
     Backend::Settings: Clone,
 {
@@ -171,7 +184,7 @@ where
         clippy::cognitive_complexity,
         reason = "TODO: Address this at some point"
     )]
-    async fn handle_message(&mut self, msg: MembershipMessage) {
+    async fn handle_message(&mut self, backend: &mut Backend, msg: MembershipMessage) {
         match msg {
             MembershipMessage::Subscribe {
                 service_type,
@@ -186,7 +199,7 @@ where
                     });
 
                 let stream = make_pin_broadcast_stream(tx.subscribe());
-                let providers = self.backend.get_latest_providers(service_type).await;
+                let providers = backend.get_latest_providers(service_type).await;
 
                 if let Ok((session_id, providers)) = providers {
                     if !providers.is_empty() && tx.send((session_id, providers)).is_err() {
@@ -230,13 +243,17 @@ where
                     block_number,
                     update_event
                 );
-                self.handle_sdp_update(update_event).await;
+                self.handle_sdp_update(backend, update_event).await;
             }
         }
     }
 
-    async fn handle_sdp_update(&mut self, sdp_msg: nomos_core::sdp::FinalizedBlockEvent) {
-        match self.backend.update(sdp_msg).await {
+    async fn handle_sdp_update(
+        &self,
+        backend: &mut Backend,
+        sdp_msg: nomos_core::sdp::FinalizedBlockEvent,
+    ) {
+        match backend.update(sdp_msg).await {
             Ok(snapshot) => {
                 if snapshot.is_none() {
                     // no new sessions

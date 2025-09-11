@@ -11,10 +11,13 @@ use cryptarchia_engine::Slot;
 use libp2p_identity::PeerId;
 use multiaddr::Multiaddr;
 use nomos_core::{block::SessionNumber, header::HeaderId};
+use overwatch::DynError;
 use thiserror::Error;
 
 use super::{StorageBackend, StorageSerde, StorageTransaction};
-use crate::api::{chain::StorageChainApi, da::StorageDaApi, StorageBackendApi};
+use crate::api::{
+    chain::StorageChainApi, da::StorageDaApi, membership::StorageMembershipApi, StorageBackendApi,
+};
 
 #[derive(Debug, Error)]
 #[error("Errors in MockStorage should not happen")]
@@ -254,3 +257,46 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for MockStorage
 
 #[async_trait]
 impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackendApi for MockStorage<SerdeOp> {}
+
+#[async_trait]
+impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageMembershipApi for MockStorage<SerdeOp> {
+    async fn save_active_session(
+        &mut self,
+        _service_type: ServiceType,
+        _session_id: SessionNumber,
+        _providers: &HashMap<ProviderId, BTreeSet<Locator>>,
+    ) -> Result<(), DynError> {
+        unimplemented!()
+    }
+
+    async fn load_active_session(
+        &mut self,
+        _service_type: ServiceType,
+    ) -> Result<Option<(SessionNumber, HashMap<ProviderId, BTreeSet<Locator>>)>, DynError> {
+        unimplemented!()
+    }
+
+    async fn save_latest_block(&mut self, _block_number: BlockNumber) -> Result<(), DynError> {
+        unimplemented!()
+    }
+
+    async fn load_latest_block(&mut self) -> Result<Option<BlockNumber>, DynError> {
+        unimplemented!()
+    }
+
+    async fn save_forming_session(
+        &mut self,
+        _service_type: ServiceType,
+        _session_id: SessionNumber,
+        _providers: &HashMap<ProviderId, BTreeSet<Locator>>,
+    ) -> Result<(), DynError> {
+        unimplemented!()
+    }
+
+    async fn load_forming_session(
+        &mut self,
+        _service_type: ServiceType,
+    ) -> Result<Option<(SessionNumber, HashMap<ProviderId, BTreeSet<Locator>>)>, DynError> {
+        unimplemented!()
+    }
+}

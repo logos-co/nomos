@@ -12,7 +12,7 @@ pub struct MembershipUpdateRequest {
     pub update_event: FinalizedBlockEvent,
 }
 
-pub async fn update_membership_handler<Backend, Sdp, RuntimeServiceId>(
+pub async fn update_membership_handler<Backend, Sdp, StorageAdapter, RuntimeServiceId>(
     handle: OverwatchHandle<RuntimeServiceId>,
     payload: MembershipUpdateRequest,
 ) -> Result<(), DynError>
@@ -25,7 +25,9 @@ where
         + Debug
         + Display
         + 'static
-        + overwatch::services::AsServiceId<MembershipService<Backend, Sdp, RuntimeServiceId>>,
+        + overwatch::services::AsServiceId<
+            MembershipService<Backend, Sdp, StorageAdapter, RuntimeServiceId>,
+        >,
 {
     let relay = handle.relay().await?;
 
