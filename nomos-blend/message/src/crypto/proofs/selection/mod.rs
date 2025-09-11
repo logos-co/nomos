@@ -1,26 +1,94 @@
-use serde::{Deserialize, Serialize};
+use ::serde::{Deserialize, Serialize};
+use groth16::fr_from_bytes;
+use nomos_core::crypto::{ZkHash, ZkHasher};
+use num_bigint::BigUint;
 
-pub const PROOF_OF_SELECTION_SIZE: usize = 32;
+use crate::crypto::{
+    blake2b512, proofs::selection::inputs::VerifyInputs, pseudo_random_sized_bytes,
+};
+
+pub mod inputs;
+mod serde;
+
+pub const PROOF_OF_SELECTION_SIZE: usize = size_of::<ProofOfSelection>();
+const DOMAIN_SEPARATION_TAG: [u8; 9] = *b"BlendNode";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ProofOfSelection([u8; PROOF_OF_SELECTION_SIZE]);
+pub struct ProofOfSelection {
+    #[serde(with = "self::serde::selection_randomness")]
+    selection_randomness: ZkHash,
+}
+
+pub enum Error {
+    IndexMismatch { expected: u64, provided: u64 },
+    Overflow,
+    KeyNullifierMismatch { expected: ZkHash, provided: ZkHash },
+    InvalidInput(Box<dyn core::error::Error>),
+}
 
 impl ProofOfSelection {
-    // TODO: Implement actual verification logic.
     #[must_use]
-    pub fn verify(&self) -> bool {
-        self == &Self::dummy()
+    pub const fn new(selection_randomness: ZkHash) -> Self {
+        Self {
+            selection_randomness,
+        }
     }
 
-    // TODO: Remove this once the actual proof of selection is implemented.
-    #[must_use]
-    pub const fn dummy() -> Self {
-        Self([7u8; PROOF_OF_SELECTION_SIZE])
+    pub fn verify(
+        self,
+        VerifyInputs {
+            expected_node_index: expected_index,
+            key_nullifier,
+            total_membership_size: total_count,
+        }: VerifyInputs,
+    ) -> Result<(), Error> {
+        // Condition 1: https://www.notion.so/nomos-tech/Blend-Protocol-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df819991e6f9455ff7ec92
+        let selection_randomness_bytes = {
+            let selection_randomness_bigint: BigUint = self.selection_randomness.into();
+            selection_randomness_bigint.to_bytes_be()
+        };
+        let selection_randomness_blake_hash =
+            blake2b512(&[&DOMAIN_SEPARATION_TAG[..], &selection_randomness_bytes[..]].concat());
+        let pseudo_random_output: u64 = {
+            let pseudo_random_output_bytes =
+                pseudo_random_sized_bytes::<8>(&selection_randomness_blake_hash);
+            let pseudo_random_biguint = BigUint::from_bytes_be(&pseudo_random_output_bytes[..]);
+            pseudo_random_biguint
+                .try_into()
+                .map_err(|_| Error::Overflow)?
+        };
+        let final_index = pseudo_random_output % total_count;
+        if final_index != expected_index {
+            return Err(Error::IndexMismatch {
+                expected: expected_index,
+                provided: final_index,
+            });
+        }
+
+        // Condition 2: https://www.notion.so/nomos-tech/Blend-Protocol-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df814da8e8ec1f1fcf4fe6
+        let selection_randomness_zk_hash = {
+            let mut hasher = ZkHasher::new();
+            hasher.update(&[self.selection_randomness]);
+            hasher.finalize()
+        };
+        if selection_randomness_zk_hash != key_nullifier {
+            return Err(Error::KeyNullifierMismatch {
+                expected: key_nullifier,
+                provided: selection_randomness_zk_hash,
+            });
+        }
+
+        Ok(())
     }
 }
 
-impl From<[u8; PROOF_OF_SELECTION_SIZE]> for ProofOfSelection {
-    fn from(bytes: [u8; PROOF_OF_SELECTION_SIZE]) -> Self {
-        Self(bytes)
+impl TryFrom<[u8; PROOF_OF_SELECTION_SIZE]> for ProofOfSelection {
+    type Error = Error;
+
+    fn try_from(value: [u8; PROOF_OF_SELECTION_SIZE]) -> Result<Self, Self::Error> {
+        Ok(Self {
+            selection_randomness: fr_from_bytes(&value)
+                .map_err(|e| Error::InvalidInput(Box::new(e)))?,
+        })
     }
 }
