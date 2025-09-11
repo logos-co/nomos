@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use libp2p_identity::PeerId;
 use multiaddr::Multiaddr;
-use nomos_core::{block::BlockNumber, da::BlobId};
+use nomos_core::{block::SessionNumber, da::BlobId};
 use rocksdb::Error;
 use tracing::{debug, error};
 
@@ -143,25 +143,22 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBacken
 
     async fn store_assignations(
         &mut self,
-        block_number: BlockNumber,
+        sesion_id: SessionNumber,
         assignations: HashMap<Self::NetworkId, HashSet<Self::Id>>,
     ) -> Result<(), Self::Error> {
-        let block_bytes = block_number.to_be_bytes();
-        let assignations_key = key_bytes(DA_ASSIGNATIONS_PREFIX, block_bytes);
+        let session_bytes = sesion_id.to_be_bytes();
+        let assignations_key = key_bytes(DA_ASSIGNATIONS_PREFIX, session_bytes);
         let serialized_assignations = SerdeOp::serialize(assignations);
 
         match self.store(assignations_key, serialized_assignations).await {
             Ok(()) => {
-                debug!(
-                    "Successfully stored assignations for block {}",
-                    block_number
-                );
+                debug!("Successfully stored assignations for session {}", sesion_id);
                 Ok(())
             }
             Err(e) => {
                 error!(
-                    "Failed to store assignations for block {}: {:?}",
-                    block_number, e
+                    "Failed to store assignations for session {}: {:?}",
+                    sesion_id, e
                 );
                 Err(e)
             }
@@ -170,35 +167,32 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBacken
 
     async fn get_assignations(
         &mut self,
-        block_number: BlockNumber,
-    ) -> Result<HashMap<Self::NetworkId, HashSet<Self::Id>>, Self::Error> {
-        let block_bytes = block_number.to_be_bytes();
-        let assignations_key = key_bytes(DA_ASSIGNATIONS_PREFIX, block_bytes);
-
+        sesion_id: SessionNumber,
+    ) -> Result<Option<HashMap<Self::NetworkId, HashSet<Self::Id>>>, Self::Error> {
+        let session_bytes = sesion_id.to_be_bytes();
+        let assignations_key = key_bytes(DA_ASSIGNATIONS_PREFIX, session_bytes);
         let assignations_bytes = self.load(&assignations_key).await?;
 
         assignations_bytes.map_or_else(
             || {
-                debug!("No membership data found for block {}", block_number);
-                Ok(HashMap::new())
+                debug!("No membership data found for session {}", sesion_id);
+                Ok(None)
             },
-            |assignations_data| {
-                let assignations = SerdeOp::deserialize::<
-                    HashMap<Self::NetworkId, HashSet<Self::Id>>,
-                >(assignations_data)
-                .unwrap_or_else(|e| {
+            |assignations_data| match SerdeOp::deserialize::<
+                HashMap<Self::NetworkId, HashSet<Self::Id>>,
+            >(assignations_data)
+            {
+                Ok(assignations) => {
+                    debug!("Successfully loaded assignations for session {}", sesion_id);
+                    Ok(Some(assignations))
+                }
+                Err(e) => {
                     error!(
-                        "Failed to deserialize assignations for block {}: {:?}",
-                        block_number, e
+                        "Failed to deserialize assignations for session {}: {:?}",
+                        sesion_id, e
                     );
-                    HashMap::new()
-                });
-
-                debug!(
-                    "Successfully loaded assignations and addressbook for block {}",
-                    block_number
-                );
-                Ok(assignations)
+                    Ok(None)
+                }
             },
         )
     }
