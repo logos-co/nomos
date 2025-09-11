@@ -8,10 +8,10 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
-nomos-core = { workspace = true }
+nomos-core   = { workspace = true }
 nomos-ledger = { workspace = true }
-num-bigint = { version = "0.4", default-features = false }
-thiserror = { workspace = true }
+num-bigint   = { version = "0.4", default-features = false }
+thiserror    = { workspace = true }
 
 [features]
 default = []
