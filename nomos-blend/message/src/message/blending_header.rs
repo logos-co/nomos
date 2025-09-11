@@ -39,7 +39,7 @@ impl BlendingHeader {
             signing_pubkey: Ed25519PrivateKey::from(r1).public_key(),
             proof_of_quota: ProofOfQuota::from_bytes_unchecked(r2),
             signature: Signature::from(r3),
-            proof_of_selection: ProofOfSelection::from(r4),
+            proof_of_selection: ProofOfSelection::from_bytes_unchecked(r4),
             is_last: false,
         }
     }

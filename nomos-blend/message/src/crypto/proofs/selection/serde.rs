@@ -7,7 +7,7 @@ pub(super) mod selection_randomness {
     where
         S: Serializer,
     {
-        fr_to_bytes(*input).serialize(serializer)
+        fr_to_bytes(input).serialize(serializer)
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<ZkHash, D::Error>
@@ -26,9 +26,7 @@ mod tests {
 
     #[test]
     fn serialize_deserialize() {
-        let Ok(proof) = ProofOfSelection::try_from([0; _]) else {
-            panic!("Proof of selection test value should never fail.");
-        };
+        let proof = ProofOfSelection::from_bytes_unchecked([0; _]);
 
         let serialized_proof = wire::serialize(&proof).unwrap();
         let deserialized_proof: ProofOfSelection =

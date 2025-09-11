@@ -7,7 +7,7 @@ pub(super) mod key_nullifier {
     where
         S: Serializer,
     {
-        fr_to_bytes(*input).serialize(serializer)
+        fr_to_bytes(input).serialize(serializer)
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<ZkHash, D::Error>
