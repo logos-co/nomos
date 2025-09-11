@@ -20,8 +20,10 @@ use nomos_libp2p::{
     libp2p::{kad::QueryId, swarm::ConnectionId},
     Multiaddr, PeerId, Swarm, SwarmEvent,
 };
+use rand::RngCore;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio_stream::StreamExt as _;
+use tracing::info;
 
 use super::{
     command::{Command, Dial, NetworkCommand},
@@ -40,8 +42,8 @@ pub use kademlia::DiscoveryCommand;
 
 use crate::message::ChainSyncEvent;
 
-pub struct SwarmHandler {
-    pub swarm: Swarm,
+pub struct SwarmHandler<R: Clone + Send + RngCore + 'static> {
+    pub swarm: Swarm<R>,
     pub pending_dials: HashMap<ConnectionId, Dial>,
     pub commands_tx: mpsc::Sender<Command>,
     pub commands_rx: mpsc::Receiver<Command>,
@@ -56,15 +58,16 @@ const BACKOFF: u64 = 5;
 // TODO: make this configurable
 const MAX_RETRY: usize = 3;
 
-impl SwarmHandler {
+impl<R: Clone + Send + RngCore + 'static> SwarmHandler<R> {
     pub fn new(
         config: Libp2pConfig,
         commands_tx: mpsc::Sender<Command>,
         commands_rx: mpsc::Receiver<Command>,
         pubsub_events_tx: broadcast::Sender<Message>,
         chainsync_events_tx: broadcast::Sender<ChainSyncEvent>,
+        rng: R,
     ) -> Self {
-        let swarm = Swarm::build(config.inner).unwrap();
+        let swarm = Swarm::build(config.inner, rng).unwrap();
 
         // Keep the dialing history since swarm.connect doesn't return the result
         // synchronously
@@ -82,14 +85,6 @@ impl SwarmHandler {
     }
 
     pub async fn run(&mut self, initial_peers: Vec<Multiaddr>) {
-        let local_peer_id = *self.swarm.swarm().local_peer_id();
-        let local_addr = self.swarm.swarm().listeners().next().cloned();
-
-        // add local address to kademlia
-        if let Some(addr) = local_addr {
-            self.swarm.kademlia_add_address(local_peer_id, addr);
-        }
-
         self.bootstrap_kad_from_peers(&initial_peers);
 
         for initial_peer in &initial_peers {
@@ -114,20 +109,37 @@ impl SwarmHandler {
         }
     }
 
-    fn handle_event(&mut self, event: SwarmEvent<BehaviourEvent>) {
+    fn handle_event(&mut self, event: SwarmEvent<BehaviourEvent<R>>) {
         match event {
-            SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(event)) => {
+            SwarmEvent::Behaviour(behaviour_event) => {
+                self.handle_behaviour_event(behaviour_event);
+            }
+            _ => {
+                self.handle_swarm_event(event);
+            }
+        }
+    }
+
+    fn handle_behaviour_event(&mut self, behaviour_event: BehaviourEvent<R>) {
+        match behaviour_event {
+            BehaviourEvent::Gossipsub(event) => {
                 self.handle_gossipsub_event(event);
             }
-            SwarmEvent::Behaviour(BehaviourEvent::Identify(event)) => {
+            BehaviourEvent::Identify(event) => {
                 self.handle_identify_event(event);
             }
-            SwarmEvent::Behaviour(BehaviourEvent::Kademlia(event)) => {
+            BehaviourEvent::Kademlia(event) => {
                 self.handle_kademlia_event(event);
             }
-            SwarmEvent::Behaviour(BehaviourEvent::ChainSync(event)) => {
+            BehaviourEvent::ChainSync(event) => {
                 self.handle_chainsync_event(event);
             }
+            BehaviourEvent::AutonatServer(_) | BehaviourEvent::Nat(_) => {}
+        }
+    }
+
+    fn handle_swarm_event(&mut self, event: SwarmEvent<BehaviourEvent<R>>) {
+        match event {
             SwarmEvent::ConnectionEstablished {
                 peer_id,
                 connection_id,
@@ -160,8 +172,18 @@ impl SwarmHandler {
                 );
                 self.retry_connect(connection_id);
             }
+            SwarmEvent::ExternalAddrConfirmed { address } => {
+                self.handle_external_addr_confirmed(&address);
+            }
             _ => {}
         }
+    }
+
+    fn handle_external_addr_confirmed(&mut self, address: &Multiaddr) {
+        let local_peer_id = *self.swarm.swarm().local_peer_id();
+        self.swarm
+            .kademlia_add_address(local_peer_id, address.clone());
+        info!("Added confirmed external address to Kademlia: {address}");
     }
 
     fn handle_command(&mut self, command: Command) {
@@ -264,6 +286,7 @@ mod tests {
 
     use nomos_libp2p::{protocol_name::ProtocolName, Protocol};
     use nomos_utils::net::get_available_udp_port;
+    use rand::rngs::OsRng;
     use tracing_subscriber::EnvFilter;
 
     use super::*;
@@ -278,22 +301,38 @@ mod tests {
         });
     }
 
-    fn create_swarm_config(port: u16) -> nomos_libp2p::SwarmConfig {
+    fn create_swarm_config(port: u16, is_boot: bool) -> nomos_libp2p::SwarmConfig {
         nomos_libp2p::SwarmConfig {
             host: Ipv4Addr::LOCALHOST,
             port,
             node_key: nomos_libp2p::ed25519::SecretKey::generate(),
             gossipsub_config: nomos_libp2p::gossipsub::Config::default(),
-            kademlia_config: nomos_libp2p::KademliaSettings::default(),
+            // Use a tighter bootstrap interval for the first node if requested,
+            // otherwise fall back to defaults.
+            kademlia_config: if is_boot {
+                nomos_libp2p::KademliaSettings {
+                    periodic_bootstrap_interval_secs: Some(1),
+                    ..Default::default()
+                }
+            } else {
+                nomos_libp2p::KademliaSettings::default()
+            },
             identify_config: nomos_libp2p::IdentifySettings::default(),
             chain_sync_config: cryptarchia_sync::Config::default(),
+            nat_config: nomos_libp2p::NatSettings {
+                autonat: nomos_libp2p::AutonatClientSettings {
+                    probe_interval_millisecs: Some(1000),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
             protocol_name_env: ProtocolName::Unittest,
         }
     }
 
     fn create_libp2p_config(initial_peers: Vec<Multiaddr>, port: u16) -> Libp2pConfig {
         Libp2pConfig {
-            inner: create_swarm_config(port),
+            inner: create_swarm_config(port, !initial_peers.is_empty()),
             initial_peers,
         }
     }
@@ -322,6 +361,7 @@ mod tests {
             rx1,
             pubsub_events_tx,
             chainsync_events_tx,
+            OsRng,
         );
 
         let bootstrap_node_peer_id = *bootstrap_node.swarm.swarm().local_peer_id();
@@ -345,7 +385,7 @@ mod tests {
             "Bootstrap node has no listening addresses"
         );
 
-        tracing::info!(
+        info!(
             "Bootstrap node listening on: {:?}",
             bootstrap_info.listen_addresses
         );
@@ -355,7 +395,7 @@ mod tests {
             .clone()
             .with(Protocol::P2p(bootstrap_node_peer_id));
 
-        tracing::info!("Using bootstrap address: {}", bootstrap_addr);
+        info!("Using bootstrap address: {}", bootstrap_addr);
 
         let bootstrap_addr = bootstrap_addr.clone();
 
@@ -378,10 +418,11 @@ mod tests {
                 rx,
                 pubsub_events_tx,
                 chainsync_events_tx,
+                OsRng,
             );
 
             let peer_id = *handler.swarm.swarm().local_peer_id();
-            tracing::info!("Starting node {} with peer ID: {}", i, peer_id);
+            info!("Starting node {} with peer ID: {}", i, peer_id);
 
             let bootstrap_addr = bootstrap_addr.clone();
             let task = tokio::spawn(async move {
@@ -420,7 +461,7 @@ mod tests {
                 if routing_table.len() >= NODE_COUNT - 1 {
                     // This node's routing table is fully populated, mark for removal
                     indices_to_remove.push(idx);
-                    tracing::info!(
+                    info!(
                         "Node has complete routing table with {} entries",
                         routing_table.len()
                     );

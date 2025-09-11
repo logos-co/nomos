@@ -1,7 +1,10 @@
 use std::{collections::HashSet, fmt::Debug};
 
-use cryptarchia_sync::{BoxedStream, ChainSyncError, GetTipResponse, HeaderId, SerialisedBlock};
-use nomos_libp2p::PeerId;
+use nomos_libp2p::{
+    cryptarchia_sync::{BoxedStream, ChainSyncError, GetTipResponse, HeaderId, SerialisedBlock},
+    PeerId,
+};
+use rand::RngCore;
 use tokio::sync::oneshot;
 
 use crate::{backends::libp2p::swarm::SwarmHandler, message::ChainSyncEvent};
@@ -48,7 +51,7 @@ impl Debug for ChainSyncCommand {
     }
 }
 
-impl SwarmHandler {
+impl<R: Clone + Send + RngCore + 'static> SwarmHandler<R> {
     pub(super) fn handle_chainsync_command(&self, command: ChainSyncCommand) {
         match command {
             ChainSyncCommand::RequestTip { peer, reply_sender } => {
