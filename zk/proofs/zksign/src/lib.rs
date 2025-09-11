@@ -7,7 +7,9 @@ mod witness;
 
 use std::error::Error;
 
-use groth16::{Groth16Input, Groth16InputDeser, Groth16Proof, Groth16ProofJsonDeser};
+use groth16::{
+    CompressedGroth16Proof, Groth16Input, Groth16InputDeser, Groth16Proof, Groth16ProofJsonDeser,
+};
 pub use inputs::ZkSignWitnessInputs;
 pub use private::{PrivateKeysTryFromError, ZkSignPrivateKeysData};
 pub use public::ZkSignVerifierInputs;
@@ -17,7 +19,7 @@ use crate::{
     public::{ZkSignVerifierInputsJson, ZkSignVerifierInputsJsonTryFromError},
 };
 
-pub type ZkSignProof = Groth16Proof;
+pub type ZkSignProof = CompressedGroth16Proof;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProveError {
@@ -62,12 +64,19 @@ pub fn prove(
     let proof: Groth16ProofJsonDeser = serde_json::from_slice(&proof).map_err(ProveError::Json)?;
     let verifier_inputs: ZkSignVerifierInputsJson =
         serde_json::from_slice(&verifier_inputs).map_err(ProveError::Json)?;
+    let proof: Groth16Proof = proof.try_into().map_err(ProveError::Groth16JsonProof)?;
     Ok((
-        proof.try_into().map_err(ProveError::Groth16JsonProof)?,
+        CompressedGroth16Proof::try_from(&proof).unwrap(),
         verifier_inputs
             .try_into()
             .map_err(ProveError::VerifierInputsJson)?,
     ))
+}
+
+#[derive(Debug)]
+pub enum VerifyError {
+    Expansion,
+    ProofVerify(Box<dyn Error>),
 }
 
 ///
@@ -93,12 +102,14 @@ pub fn prove(
 pub fn verify(
     proof: &ZkSignProof,
     public_inputs: &ZkSignVerifierInputs,
-) -> Result<bool, impl Error> {
+) -> Result<bool, VerifyError> {
+    let expanded_proof = Groth16Proof::try_from(proof).map_err(|_| VerifyError::Expansion)?;
     groth16::groth16_verify(
         verification_key::ZKSIGN_VK.as_ref(),
-        proof,
+        &expanded_proof,
         &public_inputs.as_inputs(),
     )
+    .map_err(|e| VerifyError::ProofVerify(Box::new(e)))
 }
 
 #[cfg(test)]

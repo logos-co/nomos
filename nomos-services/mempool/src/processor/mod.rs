@@ -3,7 +3,10 @@ pub mod tx;
 
 use std::error::Error;
 
+use futures::future::BoxFuture;
 use overwatch::services::{relay::OutboundRelay, ServiceData};
+
+pub type ProcessorTask<Error> = BoxFuture<'static, Result<(), Error>>;
 
 #[async_trait::async_trait]
 pub trait PayloadProcessor {
@@ -19,5 +22,8 @@ pub trait PayloadProcessor {
     ) -> Self;
 
     /// Executes required procedures before adding payload to the pool.
-    async fn process(&self, payload: &Self::Payload) -> Result<(), Vec<Self::Error>>;
+    async fn process(
+        &self,
+        payload: &Self::Payload,
+    ) -> Result<Vec<ProcessorTask<Self::Error>>, Vec<Self::Error>>;
 }

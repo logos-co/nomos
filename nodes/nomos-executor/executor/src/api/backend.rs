@@ -41,15 +41,13 @@ pub use nomos_http_api_common::settings::AxumBackendSettings;
 use nomos_http_api_common::{paths, utils::create_rate_limit_layer};
 use nomos_libp2p::PeerId;
 use nomos_mempool::{
-    backend::mockpool::MockPool, tx::service::openapi::Status, DaMempoolService, MempoolMetrics,
-    TxMempoolService,
+    backend::mockpool::MockPool, tx::service::openapi::Status, MempoolMetrics, TxMempoolService,
 };
 use nomos_node::{
     api::handlers::{
-        add_blob_info, add_share, add_tx, balancer_stats, blacklisted_peers, block, block_peer,
-        cl_metrics, cl_status, cryptarchia_headers, cryptarchia_info, da_get_commitments,
-        da_get_light_share, da_get_shares, da_get_storage_commitments, libp2p_info, monitor_stats,
-        unblock_peer,
+        add_share, add_tx, balancer_stats, blacklisted_peers, block, block_peer, cl_metrics,
+        cl_status, cryptarchia_headers, cryptarchia_info, da_get_commitments, da_get_light_share,
+        da_get_shares, da_get_storage_commitments, libp2p_info, monitor_stats, unblock_peer,
     },
     RocksBackend,
 };
@@ -362,20 +360,6 @@ where
             >,
         >
         + AsServiceId<
-            DaMempoolService<
-                nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
-                    DaVerifiedBlobInfo,
-                    DaVerifiedBlobInfo::BlobId,
-                    RuntimeServiceId,
-                >,
-                MockPool<HeaderId, DaVerifiedBlobInfo, DaVerifiedBlobInfo::BlobId>,
-                SamplingBackend,
-                SamplingNetworkAdapter,
-                SamplingStorage,
-                RuntimeServiceId,
-            >,
-        >
-        + AsServiceId<
             DaDispersal<DispersalBackend, DispersalNetworkAdapter, Membership, RuntimeServiceId>,
         >
         + AsServiceId<
@@ -413,7 +397,6 @@ where
             nomos_network::NetworkService<_, _>,
             DaStorageService<_, _>,
             TxMempoolService<_, _, _, _, _>,
-            DaMempoolService<_, _, _, _, _, _>,
             DaDispersal<_, _, _, _>
         )
         .await
@@ -541,18 +524,6 @@ where
                 paths::MEMPOOL_ADD_TX,
                 routing::post(
                     add_tx::<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>,
-                ),
-            )
-            .route(
-                paths::MEMPOOL_ADD_BLOB_INFO,
-                routing::post(
-                    add_blob_info::<
-                        DaVerifiedBlobInfo,
-                        SamplingBackend,
-                        SamplingNetworkAdapter,
-                        SamplingStorage,
-                        RuntimeServiceId,
-                    >,
                 ),
             )
             .route(

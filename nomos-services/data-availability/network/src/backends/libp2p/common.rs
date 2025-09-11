@@ -242,6 +242,10 @@ async fn handle_dispersal_event(
     }
 }
 
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "Channel responses need to be checked"
+)]
 async fn handle_incoming_share_with_response(
     validation_broadcast_sender: &broadcast::Sender<VerificationEvent>,
     behaviour_sender: Sender<DispersalValidationResult>,
@@ -251,7 +255,9 @@ async fn handle_incoming_share_with_response(
         mpsc::channel::<DispersalValidationResult>(BROADCAST_CHANNEL_SIZE);
     if let Err(error) = validation_broadcast_sender.send((share.data, Some(service_sender)).into())
     {
-        let _ = behaviour_sender.send(Err(DispersalValidationError));
+        if let Err(error) = behaviour_sender.send(Err(DispersalValidationError)) {
+            error!("Error in internal response sender of share validation error: {error:?}");
+        }
         error!(
             "Error in internal broadcast of validation for blob: {:?}",
             error.0
@@ -262,9 +268,15 @@ async fn handle_incoming_share_with_response(
         .recv()
         .await
         .unwrap_or(Err(DispersalValidationError));
-    let _ = behaviour_sender.send(validation_response);
+    if let Err(error) = behaviour_sender.send(validation_response) {
+        error!("Error in internal response sender of share validation success: {error:?}");
+    }
 }
 
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "Channel responses need to be checked"
+)]
 async fn handle_incoming_tx_with_response(
     validation_broadcast_sender: &broadcast::Sender<VerificationEvent>,
     behaviour_sender: Sender<DispersalValidationResult>,
@@ -276,7 +288,9 @@ async fn handle_incoming_tx_with_response(
     if let Err(error) =
         validation_broadcast_sender.send((assignations, tx, Some(service_sender)).into())
     {
-        let _ = behaviour_sender.send(Err(DispersalValidationError));
+        if let Err(error) = behaviour_sender.send(Err(DispersalValidationError)) {
+            error!("Error in internal response sender of share validation error: {error:?}",);
+        }
         error!(
             "Error in internal broadcast of validation for blob: {:?}",
             error.0
@@ -287,7 +301,9 @@ async fn handle_incoming_tx_with_response(
         .recv()
         .await
         .unwrap_or(Err(DispersalValidationError));
-    let _ = behaviour_sender.send(validation_response);
+    if let Err(error) = behaviour_sender.send(validation_response) {
+        error!("Error in internal response sender of share validation success: {error:?}");
+    }
 }
 
 async fn handle_sampling_event(

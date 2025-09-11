@@ -418,6 +418,7 @@ where
         let members = self.membership.members_of(&subnetwork_id);
         let peers: Vec<_> = members
             .iter()
+            .filter(|peer_id| self.connected_peers.contains_key(peer_id))
             .filter(|peer_id| !self.pending_peer_open_stream_requests.contains(peer_id))
             .collect();
 

@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeSet, HashMap, HashSet},
+    collections::{BTreeSet, HashMap},
     str,
 };
 
@@ -12,53 +12,59 @@ use serde::{Deserialize, Serialize};
 use super::{MembershipBackend, MembershipBackendError};
 use crate::{backends::NewSesssion, MembershipProviders};
 
-type MockMembershipEntry = HashMap<ServiceType, HashSet<ProviderId>>;
+#[derive(Debug, Clone)]
+struct SessionState {
+    session_number: SessionNumber,
+    providers: HashMap<ProviderId, BTreeSet<Locator>>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MockMembershipBackendSettings {
-    pub session_size_blocks: u32,
-    pub session_zero_membership: MockMembershipEntry,
-    pub session_zero_locators_mapping: HashMap<ServiceType, HashMap<ProviderId, BTreeSet<Locator>>>,
+    pub session_sizes: HashMap<ServiceType, u32>,
+    // Initial state for each service type - combines membership and locators
+    pub session_zero_providers: HashMap<ServiceType, HashMap<ProviderId, BTreeSet<Locator>>>,
 }
 
 pub struct MockMembershipBackend {
-    // Only store the latest completed session
-    active_session_id: SessionNumber,
-    active_session_membership: MockMembershipEntry,
-    active_session_locators: HashMap<ServiceType, HashMap<ProviderId, BTreeSet<Locator>>>,
-
-    // Current session state
+    active_sessions: HashMap<ServiceType, SessionState>,
+    forming_sessions: HashMap<ServiceType, SessionState>,
     latest_block_number: BlockNumber,
-    session_size: u32,
-
-    // In-flight session being formed
-    forming_session_id: SessionNumber,
-    forming_session_updates: MockMembershipEntry,
-    forming_session_locators: HashMap<ServiceType, HashMap<ProviderId, BTreeSet<Locator>>>,
+    session_sizes: HashMap<ServiceType, u32>,
 }
 
 #[async_trait::async_trait]
 impl MembershipBackend for MockMembershipBackend {
     type Settings = MockMembershipBackendSettings;
-    fn init(settings: MockMembershipBackendSettings) -> Self {
-        Self {
-            active_session_id: 0,
-            active_session_membership: settings.session_zero_membership.clone(),
-            active_session_locators: settings.session_zero_locators_mapping.clone(),
-            latest_block_number: 0,
-            session_size: settings.session_size_blocks,
-            // Start forming session 1 immediately as session 0 is seeded
-            forming_session_id: 1,
-            forming_session_updates: settings.session_zero_membership,
-            forming_session_locators: settings.session_zero_locators_mapping,
-        }
-    }
 
-    async fn get_latest_providers(
-        &self,
-        service_type: ServiceType,
-    ) -> Result<MembershipProviders, MembershipBackendError> {
-        Ok(self.get_active_session_snapshot(service_type))
+    fn init(settings: MockMembershipBackendSettings) -> Self {
+        let mut active_sessions = HashMap::new();
+        let mut forming_sessions = HashMap::new();
+
+        for service_type in settings.session_sizes.keys() {
+            let providers = settings
+                .session_zero_providers
+                .get(service_type)
+                .cloned()
+                .unwrap_or_default();
+
+            let session_0 = SessionState {
+                session_number: 0,
+                providers,
+            };
+
+            active_sessions.insert(*service_type, session_0.clone());
+
+            let mut session_1 = session_0;
+            session_1.session_number = 1;
+            forming_sessions.insert(*service_type, session_1);
+        }
+
+        Self {
+            active_sessions,
+            forming_sessions,
+            latest_block_number: 0,
+            session_sizes: settings.session_sizes,
+        }
     }
 
     async fn update(
@@ -78,107 +84,84 @@ impl MembershipBackend for MockMembershipBackend {
             return Err(MembershipBackendError::BlockFromPast);
         }
 
-        // Apply updates to forming session
-        for FinalizedBlockEventUpdate {
-            service_type,
-            provider_id,
-            state,
-            locators,
-        } in update.updates
-        {
-            let service_data = self
-                .forming_session_updates
-                .entry(service_type)
-                .or_default();
-
-            match state {
-                nomos_core::sdp::FinalizedDeclarationState::Active => {
-                    self.forming_session_locators
-                        .entry(service_type)
-                        .or_default()
-                        .insert(provider_id, locators);
-
-                    service_data.insert(provider_id);
-                }
-                nomos_core::sdp::FinalizedDeclarationState::Inactive
-                | nomos_core::sdp::FinalizedDeclarationState::Withdrawn => {
-                    service_data.remove(&provider_id);
-                    self.forming_session_locators
-                        .entry(service_type)
-                        .or_default()
-                        .remove(&provider_id);
-                }
+        // Apply updates to forming sessions of relevant service types
+        for event_update in update.updates {
+            if let Some(forming_session) = self.forming_sessions.get_mut(&event_update.service_type)
+            {
+                forming_session.apply_update(&event_update);
             }
         }
 
         self.latest_block_number = block_number;
 
-        let next_session_id = self.block_to_session(block_number + 1);
+        // Check which services complete their sessions at this block
+        let mut completed_sessions = HashMap::new();
 
-        // Check if forming session is complete
-        if self.forming_session_id <= next_session_id {
-            // Move forming session to active
-            self.active_session_id = self.forming_session_id;
-            self.active_session_membership = self.forming_session_updates.clone();
-            self.active_session_locators = self.forming_session_locators.clone();
+        for (service_type, session_size) in &self.session_sizes {
+            let next_session = (block_number + 1) / BlockNumber::from(*session_size);
 
-            // Prepare result
-            let result = self
-                .active_session_membership
-                .keys()
-                .map(|service_type| {
-                    (
-                        *service_type,
-                        self.get_active_session_snapshot(*service_type),
-                    )
-                })
-                .collect();
+            if let Some(forming_session) = self.forming_sessions.get(service_type) {
+                // Check if forming session should be promoted
+                if forming_session.session_number <= next_session {
+                    // Clone forming session to promote it
+                    let promoted_session = forming_session.clone();
 
-            // Start next session
-            self.forming_session_id += 1;
-            self.forming_session_updates = self.active_session_membership.clone();
-            self.forming_session_locators = self.active_session_locators.clone();
+                    // Get snapshot before promoting
+                    completed_sessions.insert(*service_type, promoted_session.to_snapshot());
 
-            Ok(Some(result))
-        } else {
-            // Session still forming
-            Ok(None)
+                    // Promote forming to active
+                    self.active_sessions
+                        .insert(*service_type, promoted_session.clone());
+
+                    // Start new forming session with incremented session number
+                    let mut new_forming = promoted_session;
+                    new_forming.session_number = next_session + 1;
+                    self.forming_sessions.insert(*service_type, new_forming);
+                }
+            }
         }
+
+        Ok(if completed_sessions.is_empty() {
+            None
+        } else {
+            Some(completed_sessions)
+        })
+    }
+
+    async fn get_latest_providers(
+        &self,
+        service_type: ServiceType,
+    ) -> Result<MembershipProviders, MembershipBackendError> {
+        Ok(self
+            .active_sessions
+            .get(&service_type)
+            .map_or_else(|| (0, HashMap::new()), SessionState::to_snapshot))
     }
 }
 
-impl MockMembershipBackend {
-    const fn block_to_session(&self, block_number: BlockNumber) -> SessionNumber {
-        block_number / (self.session_size as BlockNumber)
+impl SessionState {
+    fn apply_update(&mut self, update: &FinalizedBlockEventUpdate) {
+        match update.state {
+            nomos_core::sdp::FinalizedDeclarationState::Active => {
+                self.providers
+                    .insert(update.provider_id, update.locators.clone());
+            }
+            nomos_core::sdp::FinalizedDeclarationState::Inactive
+            | nomos_core::sdp::FinalizedDeclarationState::Withdrawn => {
+                self.providers.remove(&update.provider_id);
+            }
+        }
     }
 
-    fn get_active_session_snapshot(&self, service_type: ServiceType) -> MembershipProviders {
-        let snapshot = self
-            .active_session_membership
-            .get(&service_type)
-            .map(|providers| {
-                providers
-                    .iter()
-                    .map(|pid| {
-                        let locs = self
-                            .active_session_locators
-                            .get(&service_type)
-                            .and_then(|m| m.get(pid))
-                            .cloned()
-                            .unwrap_or_default();
-                        (*pid, locs)
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        (self.active_session_id, snapshot)
+    fn to_snapshot(&self) -> MembershipProviders {
+        let providers = self.providers.clone();
+        (self.session_number, providers)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{BTreeSet, HashMap, HashSet};
+    use std::collections::{BTreeSet, HashMap};
 
     use multiaddr::multiaddr;
     use nomos_core::sdp::{
@@ -189,9 +172,14 @@ mod tests {
     use super::{MembershipBackend as _, MockMembershipBackend, MockMembershipBackendSettings};
 
     fn pid(seed: u8) -> ProviderId {
-        let mut b = [1u8; 32];
-        b[0] = seed;
-        ProviderId::try_from(b).unwrap()
+        use ed25519_dalek::SigningKey;
+
+        // Create a deterministic signing key from seed
+        let secret_bytes = [seed; 32];
+        let signing_key = SigningKey::from_bytes(&secret_bytes);
+        let verifying_key = signing_key.verifying_key();
+
+        ProviderId(verifying_key)
     }
 
     fn locator(seed: u8) -> Locator {
@@ -227,20 +215,12 @@ mod tests {
         let p1 = pid(1);
         let p1_locs = locs::<2>(1);
 
-        let mut session0_membership: HashMap<ServiceType, HashSet<ProviderId>> = HashMap::new();
-        session0_membership.insert(service, HashSet::from([p1]));
-
-        let mut session0_locators = HashMap::new();
-        session0_locators.insert(service, HashMap::new());
-        session0_locators
-            .get_mut(&service)
-            .unwrap()
-            .insert(p1, p1_locs.clone());
+        let mut session0_providers = HashMap::new();
+        session0_providers.insert(service, HashMap::from([(p1, p1_locs.clone())]));
 
         let settings = MockMembershipBackendSettings {
-            session_size_blocks: 3,
-            session_zero_membership: session0_membership,
-            session_zero_locators_mapping: session0_locators,
+            session_sizes: HashMap::from([(service, 3)]),
+            session_zero_providers: session0_providers,
         };
 
         let backend = MockMembershipBackend::init(settings);
@@ -260,23 +240,13 @@ mod tests {
         let p1 = pid(1);
         let p1_locs = locs::<2>(1);
 
-        let mut session0_membership: HashMap<ServiceType, HashSet<ProviderId>> = HashMap::new();
-        session0_membership.insert(service, HashSet::from([p1]));
+        let mut session0_providers = HashMap::new();
+        session0_providers.insert(service, HashMap::from([(p1, p1_locs.clone())]));
 
-        let mut session0_locators = HashMap::new();
-        session0_locators.insert(service, HashMap::new());
-        session0_locators
-            .get_mut(&service)
-            .unwrap()
-            .insert(p1, p1_locs.clone());
-
-        // Small session size for easy boundary testing
         let settings = MockMembershipBackendSettings {
-            session_size_blocks: 3, // blocks 0,1,2 => session 0; 3,4,5 => session 1; etc.
-            session_zero_membership: session0_membership,
-            session_zero_locators_mapping: session0_locators,
+            session_sizes: HashMap::from([(service, 3)]),
+            session_zero_providers: session0_providers,
         };
-
         let mut backend = MockMembershipBackend::init(settings);
 
         // Forming session 1 updates across blocks 1..2 (still session 0 time)
@@ -328,5 +298,102 @@ mod tests {
         let (sid_a2, prov_a2) = backend.get_latest_providers(service).await.unwrap();
         assert_eq!(sid_a2, 1);
         assert_eq!(prov_a2, *prov_promoted);
+    }
+
+    #[tokio::test]
+    async fn multiple_service_types_with_different_session_sizes() {
+        let service_da = ServiceType::DataAvailability;
+        let service_mp = ServiceType::BlendNetwork;
+
+        // Set up initial providers
+        let p1 = pid(1);
+        let p1_locs = locs::<2>(1);
+        let p2 = pid(2);
+        let p2_locs = locs::<2>(10);
+
+        // Session 0 providers: P1 in DA, P2 in BlendNetwork
+        let mut session0_providers = HashMap::new();
+        session0_providers.insert(service_da, HashMap::from([(p1, p1_locs.clone())]));
+        session0_providers.insert(service_mp, HashMap::from([(p2, p2_locs.clone())]));
+
+        // Different session sizes: DA=3 blocks, BlendNetwork=5 blocks
+        let settings = MockMembershipBackendSettings {
+            session_sizes: HashMap::from([
+                (service_da, 3), // DA sessions: 0-2, 3-5, 6-8...
+                (service_mp, 5), // MP sessions: 0-4, 5-9, 10-14...
+            ]),
+            session_zero_providers: session0_providers,
+        };
+        let mut backend = MockMembershipBackend::init(settings);
+
+        // Add new providers to forming sessions
+        let p3 = pid(3);
+        let p3_locs = locs::<2>(20);
+        let p4 = pid(4);
+        let p4_locs = locs::<2>(30);
+
+        // Block 1: Add P3 to DA, P4 to Blend Network (both in forming)
+        let ev1 = FinalizedBlockEvent {
+            block_number: 1,
+            updates: vec![
+                update(
+                    service_da,
+                    p3,
+                    FinalizedDeclarationState::Active,
+                    p3_locs.clone(),
+                ),
+                update(
+                    service_mp,
+                    p4,
+                    FinalizedDeclarationState::Active,
+                    p4_locs.clone(),
+                ),
+            ],
+        };
+        backend.update(ev1).await.unwrap();
+
+        // Block 2: DA should promote after this (end of session 0), Blend Network
+        // should not
+        let ev2 = FinalizedBlockEvent {
+            block_number: 2,
+            updates: vec![],
+        };
+        let result2 = backend.update(ev2).await.unwrap();
+
+        // Only DA should have promoted
+        let promoted = result2.expect("DA should promote at block 2");
+        assert_eq!(promoted.len(), 1);
+        assert!(promoted.contains_key(&service_da));
+        assert!(!promoted.contains_key(&service_mp));
+
+        // DA should now be in session 1 with P3
+        let (da_sid, da_providers) = promoted.get(&service_da).unwrap();
+        assert_eq!(*da_sid, 1);
+        assert!(da_providers.contains_key(&p3));
+        assert!(da_providers.contains_key(&p1)); // P1 is not withdrawn
+
+        // Blend Network should still be in session 0
+        let (mp_sid, mp_providers) = backend.get_latest_providers(service_mp).await.unwrap();
+        assert_eq!(mp_sid, 0);
+        assert!(mp_providers.contains_key(&p2)); // Still has original
+        assert!(!mp_providers.contains_key(&p4)); // P4 still in forming
+
+        // Block 4: Blend Network should promote after this (end of session 0)
+        let ev3 = FinalizedBlockEvent {
+            block_number: 4,
+            updates: vec![],
+        };
+        let result3 = backend.update(ev3).await.unwrap();
+
+        // Only Blend Network should promote
+        let promoted = result3.expect("Blend Network should promote at block 4");
+        assert_eq!(promoted.len(), 1);
+        assert!(promoted.contains_key(&service_mp));
+
+        // Blend Network should now be in session 1 with P4
+        let (mp_sid, mp_providers) = promoted.get(&service_mp).unwrap();
+        assert_eq!(*mp_sid, 1);
+        assert!(mp_providers.contains_key(&p4));
+        assert!(mp_providers.contains_key(&p2)); // P2 still there
     }
 }

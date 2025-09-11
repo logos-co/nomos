@@ -12,7 +12,9 @@ use std::error::Error;
 pub use blend_inputs::{PoQBlendInputs, PoQBlendInputsData};
 pub use chain_inputs::{PoQChainInputs, PoQChainInputsData};
 pub use common_inputs::{PoQCommonInputs, PoQCommonInputsData};
-use groth16::{Groth16Input, Groth16InputDeser, Groth16Proof, Groth16ProofJsonDeser};
+use groth16::{
+    CompressedGroth16Proof, Groth16Input, Groth16InputDeser, Groth16Proof, Groth16ProofJsonDeser,
+};
 pub use inputs::PoQWitnessInputs;
 use thiserror::Error;
 pub use wallet_inputs::{PoQWalletInputs, PoQWalletInputsData};
@@ -23,7 +25,7 @@ use crate::{
     proving_key::POQ_PROVING_KEY_PATH,
 };
 
-pub type PoQProof = Groth16Proof;
+pub type PoQProof = CompressedGroth16Proof;
 
 #[derive(Debug, Error)]
 pub enum ProveError {
@@ -64,12 +66,19 @@ pub fn prove(inputs: &PoQWitnessInputs) -> Result<(PoQProof, PoQVerifierInput), 
     let proof: Groth16ProofJsonDeser = serde_json::from_slice(&proof).map_err(ProveError::Json)?;
     let verifier_inputs: PoQVerifierInputJson =
         serde_json::from_slice(&verifier_inputs).map_err(ProveError::Json)?;
+    let proof: Groth16Proof = proof.try_into().map_err(ProveError::Groth16JsonProof)?;
     Ok((
-        proof.try_into().map_err(ProveError::Groth16JsonProof)?,
+        CompressedGroth16Proof::try_from(&proof).unwrap(),
         verifier_inputs
             .try_into()
             .map_err(ProveError::Groth16JsonInput)?,
     ))
+}
+
+#[derive(Debug)]
+pub enum VerifyError {
+    Expansion,
+    ProofVerify(Box<dyn Error>),
 }
 
 ///
@@ -92,9 +101,11 @@ pub fn prove(inputs: &PoQWitnessInputs) -> Result<(PoQProof, PoQVerifierInput), 
 ///
 /// - Returns an error if there is an issue with the verification key or the
 ///   underlying verification process fails.
-pub fn verify(proof: &PoQProof, public_inputs: &PoQVerifierInput) -> Result<bool, impl Error> {
+pub fn verify(proof: &PoQProof, public_inputs: &PoQVerifierInput) -> Result<bool, VerifyError> {
     let inputs = public_inputs.to_inputs();
-    groth16::groth16_verify(verification_key::POQ_VK.as_ref(), proof, &inputs)
+    let expanded_proof = Groth16Proof::try_from(proof).map_err(|_| VerifyError::Expansion)?;
+    groth16::groth16_verify(verification_key::POQ_VK.as_ref(), &expanded_proof, &inputs)
+        .map_err(|e| VerifyError::ProofVerify(Box::new(e)))
 }
 
 #[cfg(test)]

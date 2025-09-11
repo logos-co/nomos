@@ -1,13 +1,13 @@
 use clap::Parser;
 use color_eyre::eyre::{eyre, Result};
-use nomos_core::{da::blob::info::DispersedBlobInfo, mantle::SignedMantleTx};
+use nomos_core::mantle::SignedMantleTx;
 use nomos_executor::{
     config::Config as ExecutorConfig, NomosExecutor, NomosExecutorServiceSettings, RuntimeServiceId,
 };
-use nomos_mempool::tx::settings::TxMempoolSettings;
+use nomos_mempool::{processor::tx::SignedTxProcessorSettings, tx::settings::TxMempoolSettings};
 use nomos_node::{
-    config::BlendArgs, BlobInfo, CryptarchiaArgs, DaMempoolSettings, HttpArgs, LogArgs,
-    MempoolAdapterSettings, NetworkArgs, Transaction, CL_TOPIC, DA_TOPIC,
+    config::BlendArgs, CryptarchiaArgs, HttpArgs, LogArgs, MempoolAdapterSettings, NetworkArgs,
+    Transaction, CL_TOPIC,
 };
 use overwatch::overwatch::{Error as OverwatchError, Overwatch, OverwatchRunner};
 
@@ -82,17 +82,10 @@ async fn main() -> Result<()> {
                     topic: String::from(CL_TOPIC),
                     id: <SignedMantleTx as Transaction>::hash,
                 },
-                processor: (),
-                recovery_path: config.mempool.cl_pool_recovery_path,
-            },
-            da_mempool: DaMempoolSettings {
-                pool: (),
-                network_adapter: MempoolAdapterSettings {
-                    topic: String::from(DA_TOPIC),
-                    id: <BlobInfo as DispersedBlobInfo>::blob_id,
+                processor: SignedTxProcessorSettings {
+                    trigger_sampling_delay: config.mempool.trigger_sampling_delay,
                 },
-                recovery_path: config.mempool.da_pool_recovery_path,
-                trigger_sampling_delay: config.mempool.trigger_sampling_delay,
+                recovery_path: config.mempool.cl_pool_recovery_path,
             },
             da_dispersal: config.da_dispersal,
             da_network: config.da_network,

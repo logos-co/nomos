@@ -16,7 +16,6 @@ pub use nomos_blend_service::{
 };
 use nomos_core::mantle::SignedMantleTx;
 pub use nomos_core::{
-    da::blob::{info::DispersedBlobInfo, select::FillSize as FillSizeWithBlobs},
     header::HeaderId,
     mantle::{select::FillSize as FillSizeWithTx, Transaction},
     wire,
@@ -38,11 +37,8 @@ use nomos_da_verifier::{
     storage::adapters::rocksdb::RocksAdapter as VerifierStorageAdapter,
 };
 use nomos_libp2p::PeerId;
-pub use nomos_mempool::{
-    da::settings::DaMempoolSettings,
-    network::adapters::libp2p::{
-        Libp2pAdapter as MempoolNetworkAdapter, Settings as MempoolAdapterSettings,
-    },
+pub use nomos_mempool::network::adapters::libp2p::{
+    Libp2pAdapter as MempoolNetworkAdapter, Settings as MempoolAdapterSettings,
 };
 pub use nomos_network::backends::libp2p::Libp2p as NetworkBackend;
 pub use nomos_storage::backends::{
@@ -166,9 +162,6 @@ pub(crate) type DaNetworkAdapter = nomos_da_sampling::network::adapters::validat
     RuntimeServiceId,
 >;
 
-pub(crate) type DaMempoolService =
-    generic_services::DaMempoolService<DaNetworkAdapter, RuntimeServiceId>;
-
 pub(crate) type CryptarchiaService = generic_services::CryptarchiaService<
     nomos_da_sampling::network::adapters::validator::Libp2pAdapter<
         NomosDaMembership,
@@ -188,11 +181,9 @@ pub(crate) type ApiStorageAdapter<StorageOp, RuntimeServiceId> =
 pub(crate) type ApiService = nomos_api::ApiService<
     AxumBackend<
         DaShare,
-        BlobInfo,
         NomosDaMembership,
         DaMembershipAdapter<RuntimeServiceId>,
         DaMembershipStorage,
-        BlobInfo,
         KzgrsDaVerifier,
         VerifierNetworkAdapter<
             NomosDaMembership,
@@ -242,7 +233,6 @@ pub struct Nomos {
     da_verifier: DaVerifierService,
     da_sampling: DaSamplingService,
     da_network: DaNetworkService,
-    da_mempool: DaMempoolService,
     cl_mempool: ClMempoolService,
     cryptarchia: CryptarchiaService,
     membership: MembershipService<RuntimeServiceId>,

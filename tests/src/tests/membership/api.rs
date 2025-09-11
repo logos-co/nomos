@@ -43,10 +43,10 @@ fn get_initial_provider_id(executor: &Executor) -> &ProviderId {
         .config()
         .membership
         .backend
-        .session_zero_membership
+        .session_zero_providers
         .get(&nomos_core::sdp::ServiceType::DataAvailability)
         .expect("Expected data availability membership")
-        .iter()
+        .keys()
         .next()
         .expect("Expected at least one provider ID")
 }

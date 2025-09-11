@@ -260,6 +260,7 @@ impl<M: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static> Netw
             }
             Poll::Ready(Some(Err(error))) => {
                 debug!("Error on dispersal stream {error:?}");
+                cx.waker().wake_by_ref();
             }
             _ => {}
         }

@@ -24,7 +24,9 @@ use overwatch::{overwatch::handle::OverwatchHandle, services::state::NoState};
 use serde::{Deserialize, Serialize};
 use subnetworks_assignations::MembershipHandler;
 use tokio::sync::{broadcast, mpsc::UnboundedSender, oneshot};
-use tokio_stream::wrappers::{BroadcastStream, UnboundedReceiverStream};
+use tokio_stream::wrappers::{
+    errors::BroadcastStreamRecvError, BroadcastStream, UnboundedReceiverStream,
+};
 use tracing::instrument;
 
 use super::common::{CommitmentsEvent, VerificationEvent};
@@ -304,27 +306,27 @@ where
         match event {
             DaNetworkEventKind::Sampling => Box::pin(
                 BroadcastStream::new(self.sampling_broadcast_receiver.resubscribe())
-                    .filter_map(|event| async { event.ok() })
+                    .filter_map(handle_stream_event)
                     .map(Self::NetworkEvent::Sampling),
             ),
             DaNetworkEventKind::Commitments => Box::pin(
                 BroadcastStream::new(self.commitments_broadcast_receiver.resubscribe())
-                    .filter_map(|event| async { event.ok() })
+                    .filter_map(handle_stream_event)
                     .map(Self::NetworkEvent::Commitments),
             ),
             DaNetworkEventKind::Verifying => Box::pin(
                 BroadcastStream::new(self.verifying_broadcast_receiver.resubscribe())
-                    .filter_map(|event| async { event.ok() })
+                    .filter_map(handle_stream_event)
                     .map(Self::NetworkEvent::Verifying),
             ),
             DaNetworkEventKind::Dispersal => Box::pin(
                 BroadcastStream::new(self.dispersal_broadcast_receiver.resubscribe())
-                    .filter_map(|event| async { event.ok() })
+                    .filter_map(handle_stream_event)
                     .map(Self::NetworkEvent::Dispersal),
             ),
             DaNetworkEventKind::HistoricSampling => Box::pin(
                 BroadcastStream::new(self.historic_sampling_broadcast_receiver.resubscribe())
-                    .filter_map(|event| async { event.ok() })
+                    .filter_map(handle_stream_event)
                     .map(Self::NetworkEvent::HistoricSampling),
             ),
         }
@@ -357,4 +359,12 @@ async fn handle_executor_dispersal_events_stream(
             error!("Error forwarding internal dispersal executor event: {e}");
         }
     }
+}
+
+async fn handle_stream_event<Event>(
+    event: Result<Event, BroadcastStreamRecvError>,
+) -> Option<Event> {
+    event
+        .inspect_err(|err| tracing::error!("Stream event broadcast error: {err:?}"))
+        .ok()
 }

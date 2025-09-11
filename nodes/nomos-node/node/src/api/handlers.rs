@@ -19,10 +19,7 @@ use nomos_api::http::{
     storage::StorageAdapter,
 };
 use nomos_core::{
-    da::{
-        blob::{info::DispersedBlobInfo, Share},
-        BlobId, DaVerifier as CoreDaVerifier,
-    },
+    da::{blob::Share, BlobId, DaVerifier as CoreDaVerifier},
     header::HeaderId,
     mantle::{AuthenticatedMantleTx, SignedMantleTx, Transaction},
 };
@@ -38,7 +35,7 @@ use nomos_http_api_common::paths;
 use nomos_libp2p::PeerId;
 use nomos_mempool::{
     backend::mockpool::MockPool, network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
-    DaMempoolService, TxMempoolService,
+    TxMempoolService,
 };
 use nomos_network::backends::libp2p::Libp2p as Libp2pNetworkBackend;
 use nomos_storage::{
@@ -886,62 +883,4 @@ where
         <Tx as Transaction>::Hash,
         RuntimeServiceId,
     >(&handle, tx, Transaction::hash))
-}
-
-#[utoipa::path(
-    post,
-    path = paths::MEMPOOL_ADD_BLOB_INFO,
-    responses(
-        (status = 200, description = "Add blob info to the mempool"),
-        (status = 500, description = "Internal server error", body = String),
-    )
-)]
-pub async fn add_blob_info<B, SamplingBackend, SamplingAdapter, SamplingStorage, RuntimeServiceId>(
-    State(handle): State<OverwatchHandle<RuntimeServiceId>>,
-    Json(blob_info): Json<B>,
-) -> Response
-where
-    B: DispersedBlobInfo
-        + Clone
-        + Debug
-        + Hash
-        + Serialize
-        + DeserializeOwned
-        + Send
-        + Sync
-        + 'static,
-    <B as DispersedBlobInfo>::BlobId:
-        Ord + Clone + Debug + Hash + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
-    SamplingBackend:
-        DaSamplingServiceBackend<BlobId = <B as DispersedBlobInfo>::BlobId> + Send + 'static,
-    SamplingBackend::Settings: Clone,
-    SamplingBackend::Share: Debug + 'static,
-    SamplingBackend::BlobId: Debug + 'static,
-    SamplingAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + 'static,
-    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
-    RuntimeServiceId: Debug
-        + Sync
-        + Display
-        + 'static
-        + AsServiceId<
-            DaMempoolService<
-                MempoolNetworkAdapter<B, <B as DispersedBlobInfo>::BlobId, RuntimeServiceId>,
-                MockPool<HeaderId, B, <B as DispersedBlobInfo>::BlobId>,
-                SamplingBackend,
-                SamplingAdapter,
-                SamplingStorage,
-                RuntimeServiceId,
-            >,
-        >,
-{
-    make_request_and_return_response!(mempool::add_blob_info::<
-        Libp2pNetworkBackend,
-        MempoolNetworkAdapter<B, <B as DispersedBlobInfo>::BlobId, RuntimeServiceId>,
-        B,
-        <B as DispersedBlobInfo>::BlobId,
-        SamplingBackend,
-        SamplingAdapter,
-        SamplingStorage,
-        RuntimeServiceId,
-    >(&handle, blob_info, DispersedBlobInfo::blob_id))
 }

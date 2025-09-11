@@ -2,7 +2,7 @@ use std::{convert::Infallible, marker::PhantomData};
 
 use overwatch::services::{relay::OutboundRelay, ServiceData};
 
-use super::PayloadProcessor;
+use super::{PayloadProcessor, ProcessorTask};
 
 pub type NoOpPayloadProcessor<Service, Payload> = PhantomData<(Service, Payload)>;
 
@@ -25,7 +25,10 @@ where
         Self
     }
 
-    async fn process(&self, _: &Self::Payload) -> Result<(), Vec<Self::Error>> {
-        Ok(())
+    async fn process(
+        &self,
+        _: &Self::Payload,
+    ) -> Result<Vec<ProcessorTask<Self::Error>>, Vec<Self::Error>> {
+        Ok(vec![])
     }
 }

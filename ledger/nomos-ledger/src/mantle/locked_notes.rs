@@ -55,14 +55,14 @@ impl LockedNotes {
         service_type: ServiceType,
         note_id: &NoteId,
     ) -> Result<Self, Error> {
-        let Some((note, _)) = utxo_tree.utxos().get(note_id) else {
+        let Some((utxo, _)) = utxo_tree.utxos().get(note_id) else {
             return Err(Error::NoteDoesNotExist(*note_id));
         };
 
-        if note.value < min_stake.threshold {
+        if utxo.note.value < min_stake.threshold {
             return Err(Error::NoteInsufficientValue {
                 note_id: *note_id,
-                value: note.value,
+                value: utxo.note.value,
             });
         }
 

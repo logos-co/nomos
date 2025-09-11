@@ -1,23 +1,28 @@
-use std::error::Error;
+use std::{error::Error, time::Duration};
 
-use futures::{stream::FuturesUnordered, StreamExt};
 use nomos_core::{
     da::BlobId,
     mantle::{ops::Op, tx::SignedMantleTx},
 };
 use nomos_da_sampling::DaSamplingServiceMsg;
 use overwatch::services::{relay::OutboundRelay, ServiceData};
+use serde::{Deserialize, Serialize};
 
-use super::PayloadProcessor;
+use super::{PayloadProcessor, ProcessorTask};
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SignedTxProcessorSettings {
+    pub trigger_sampling_delay: Duration,
+}
 
 #[derive(thiserror::Error, Debug)]
 pub enum SignedTxProcessorError {
     #[error("Error from sampling relay {0}")]
-    Sampling(Box<dyn Error + Send>),
+    Sampling(Box<dyn Error + Send + Sync>),
 }
 
 impl SignedTxProcessorError {
-    fn sampling_error(err: impl Error + Send + 'static) -> Self {
+    fn sampling_error(err: impl Error + Send + Sync + 'static) -> Self {
         Self::Sampling(Box::new(err))
     }
 }
@@ -27,6 +32,7 @@ where
     SamplingService: ServiceData,
 {
     sampling_relay: OutboundRelay<<SamplingService as ServiceData>::Message>,
+    settings: SignedTxProcessorSettings,
 }
 
 #[async_trait::async_trait]
@@ -35,53 +41,51 @@ where
     SamplingService: ServiceData<Message = DaSamplingServiceMsg<BlobId>> + Send + Sync,
 {
     type Payload = SignedMantleTx;
-    type Settings = ();
+    type Settings = SignedTxProcessorSettings;
     type Error = SignedTxProcessorError;
 
     type DaSamplingService = SamplingService;
 
     fn new(
-        (): Self::Settings,
+        settings: Self::Settings,
         sampling_relay: OutboundRelay<<Self::DaSamplingService as ServiceData>::Message>,
     ) -> Self {
-        Self { sampling_relay }
+        Self {
+            sampling_relay,
+            settings,
+        }
     }
 
-    async fn process(&self, payload: &Self::Payload) -> Result<(), Vec<Self::Error>> {
-        let all_futures: FuturesUnordered<_> = payload
+    async fn process(
+        &self,
+        payload: &Self::Payload,
+    ) -> Result<Vec<ProcessorTask<Self::Error>>, Vec<Self::Error>> {
+        let tasks = payload
             .mantle_tx
             .ops
             .iter()
             .filter_map(|op| {
                 if let Op::ChannelBlob(blob_op) = op {
-                    Some(async {
-                        self.sampling_relay
-                            .send(DaSamplingServiceMsg::TriggerSampling {
-                                blob_id: blob_op.blob,
-                            })
-                            .await
-                            .map_err(|(e, _)| SignedTxProcessorError::sampling_error(e))
-                    })
+                    Some(blob_op)
                 } else {
                     None
                 }
             })
-            .collect();
+            .map(|blob_op| {
+                let sampling_relay = self.sampling_relay.clone();
+                let trigger_sampling_delay = self.settings.trigger_sampling_delay;
+                let blob_id = blob_op.blob;
 
-        // In this case errors are about sending the `TriggerSampling` message to the DA
-        // Sampling Service. These errors do not represent the result of
-        // sampling itself, but might indicate that sending the message to
-        // sampling service failed.
-        let errors: Vec<SignedTxProcessorError> = StreamExt::collect::<Vec<_>>(all_futures)
-            .await
-            .into_iter()
-            .filter_map(Result::err)
-            .collect();
+                Box::pin(async move {
+                    tokio::time::sleep(trigger_sampling_delay).await;
+                    sampling_relay
+                        .send(DaSamplingServiceMsg::TriggerSampling { blob_id })
+                        .await
+                        .map_err(|(e, _)| SignedTxProcessorError::sampling_error(e))
+                }) as ProcessorTask<Self::Error>
+            })
+            .collect::<Vec<_>>();
 
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(errors)
-        }
+        Ok(tasks)
     }
 }

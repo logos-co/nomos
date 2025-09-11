@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use multiaddr::Multiaddr;
-use nomos_core::block::BlockNumber;
+use nomos_core::block::SessionNumber;
 use overwatch::DynError;
 use tokio::sync::oneshot::Sender;
 
@@ -53,11 +53,11 @@ pub enum DaApiRequest<Backend: StorageBackend> {
         shared_commitments: <Backend as StorageDaApi>::Commitments,
     },
     GetAssignations {
-        block_number: BlockNumber,
+        session_id: SessionNumber,
         response_tx: Sender<Option<AssignationsMap<Backend>>>,
     },
     StoreAssignations {
-        block_number: BlockNumber,
+        session_id: SessionNumber,
         assignations: AssignationsMap<Backend>,
     },
     StoreAddresses {
@@ -111,13 +111,13 @@ where
                 response_tx,
             } => handle_get_blob_light_shares(backend, blob_id, response_tx).await,
             Self::StoreAssignations {
-                block_number,
+                session_id,
                 assignations,
-            } => handle_store_assignations(backend, block_number, assignations).await,
+            } => handle_store_assignations(backend, session_id, assignations).await,
             Self::GetAssignations {
-                block_number,
+                session_id,
                 response_tx,
-            } => handle_get_assignations(backend, block_number, response_tx).await,
+            } => handle_get_assignations(backend, session_id, response_tx).await,
             Self::StoreAddresses { ids } => handle_store_addresses(backend, ids).await,
             Self::GetAddress { id, response_tx } => {
                 handle_get_address(backend, id, response_tx).await
@@ -234,11 +234,11 @@ async fn handle_store_shared_commitments<Backend: StorageBackend>(
 
 async fn handle_store_assignations<Backend: StorageBackend>(
     backend: &mut Backend,
-    block_number: BlockNumber,
+    session_id: SessionNumber,
     assignations: AssignationsMap<Backend>,
 ) -> Result<(), StorageServiceError> {
     backend
-        .store_assignations(block_number, assignations)
+        .store_assignations(session_id, assignations)
         .await
         .map_err(|e| StorageServiceError::BackendError(e.into()))
 }
@@ -257,15 +257,15 @@ async fn handle_store_tx<Backend: StorageBackend>(
 
 async fn handle_get_assignations<Backend: StorageBackend>(
     backend: &mut Backend,
-    block_number: BlockNumber,
+    session_id: SessionNumber,
     response_tx: Sender<Option<AssignationsResponse<Backend>>>,
 ) -> Result<(), StorageServiceError> {
     let result = backend
-        .get_assignations(block_number)
+        .get_assignations(session_id)
         .await
         .map_err(|e| StorageServiceError::BackendError(e.into()))?;
 
-    if response_tx.send(Some(result)).is_err() {
+    if response_tx.send(result).is_err() {
         return Err(StorageServiceError::ReplyError {
             message: "Failed to send reply for get assignations request".to_owned(),
         });
@@ -412,12 +412,12 @@ impl<Backend: StorageBackend> StorageMsg<Backend> {
 
     #[must_use]
     pub const fn get_assignations_request(
-        block_number: BlockNumber,
+        session_id: SessionNumber,
         response_tx: Sender<Option<AssignationsResponse<Backend>>>,
     ) -> Self {
         Self::Api {
             request: StorageApiRequest::Da(DaApiRequest::GetAssignations {
-                block_number,
+                session_id,
                 response_tx,
             }),
         }
@@ -425,12 +425,12 @@ impl<Backend: StorageBackend> StorageMsg<Backend> {
 
     #[must_use]
     pub const fn store_assignations_request(
-        block_number: BlockNumber,
+        session_id: SessionNumber,
         assignations: AssignationsMap<Backend>,
     ) -> Self {
         Self::Api {
             request: StorageApiRequest::Da(DaApiRequest::StoreAssignations {
-                block_number,
+                session_id,
                 assignations,
             }),
         }

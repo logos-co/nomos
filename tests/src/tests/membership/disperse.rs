@@ -1,10 +1,13 @@
-use std::{collections::HashSet, time::Duration};
+use std::{
+    collections::{BTreeSet, HashMap},
+    time::Duration,
+};
 
 use futures::StreamExt as _;
 use kzgrs_backend::dispersal::Index;
 use nomos_core::{
     da::BlobId,
-    sdp::{FinalizedBlockEvent, FinalizedBlockEventUpdate, ProviderId},
+    sdp::{FinalizedBlockEvent, FinalizedBlockEventUpdate, Locator, ProviderId},
 };
 use nomos_utils::net::get_available_udp_port;
 use rand::{thread_rng, Rng as _};
@@ -20,7 +23,6 @@ use tests::{
 
 #[tokio::test]
 #[serial]
-#[ignore = "Reenable after transaction mempool is used"]
 async fn update_membership_and_disseminate() {
     let topology_config = TopologyConfig::validator_and_executor();
     let n_participants = topology_config.n_validators + topology_config.n_executors;
@@ -55,15 +57,14 @@ fn generate_test_ids_and_ports(n_participants: usize) -> (Vec<[u8; 32]>, Vec<u16
 fn create_finalized_block_event(
     membership_config: &GeneralMembershipConfig,
 ) -> FinalizedBlockEvent {
-    let non_zero_membership = membership_config
+    let providers = membership_config
         .service_settings
         .backend
-        .session_zero_membership
+        .session_zero_providers
         .get(&nomos_core::sdp::ServiceType::DataAvailability)
-        .expect("Expected data availability membership");
+        .expect("Expected data availability providers");
 
-    let finalized_block_event_updates =
-        create_block_event_updates(membership_config, non_zero_membership);
+    let finalized_block_event_updates = create_block_event_updates(providers);
 
     FinalizedBlockEvent {
         block_number: 1,
@@ -72,28 +73,15 @@ fn create_finalized_block_event(
 }
 
 fn create_block_event_updates(
-    membership_config: &GeneralMembershipConfig,
-    providers: &HashSet<ProviderId>,
+    providers: &HashMap<ProviderId, BTreeSet<Locator>>,
 ) -> Vec<FinalizedBlockEventUpdate> {
     providers
         .iter()
-        .map(|provider| {
-            let locators = membership_config
-                .service_settings
-                .backend
-                .session_zero_locators_mapping
-                .get(&nomos_core::sdp::ServiceType::DataAvailability)
-                .expect("Expected data availability service type")
-                .get(provider)
-                .expect("Expected locators for provider")
-                .clone();
-
-            FinalizedBlockEventUpdate {
-                service_type: nomos_core::sdp::ServiceType::DataAvailability,
-                provider_id: *provider,
-                state: nomos_core::sdp::FinalizedDeclarationState::Active,
-                locators,
-            }
+        .map(|(provider_id, locators)| FinalizedBlockEventUpdate {
+            service_type: nomos_core::sdp::ServiceType::DataAvailability,
+            provider_id: *provider_id,
+            state: nomos_core::sdp::FinalizedDeclarationState::Active,
+            locators: locators.clone(),
         })
         .collect()
 }
