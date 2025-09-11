@@ -63,6 +63,8 @@ fn encapsulate_and_decapsulate() {
     assert!(msg
         .clone()
         .verify_and_unwrap_public_header(&PublicInputs::default(), &verifier)
+        .unwrap()
+        .decapsulate(blend_node_enc_keys.last().unwrap(), &verifier)
         .is_err());
 
     // We can decapsulate with the correct private key
