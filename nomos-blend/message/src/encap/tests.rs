@@ -1,5 +1,7 @@
 use core::convert::Infallible;
 
+use nomos_core::crypto::ZkHash;
+
 use crate::{
     crypto::{
         keys::{Ed25519PrivateKey, X25519PrivateKey},
@@ -20,14 +22,15 @@ struct NeverFailingProofsVerifier;
 
 impl ProofsVerifier for NeverFailingProofsVerifier {
     type Error = Infallible;
-    type ProofOfQuotaVerificationOutput = ();
 
     fn verify_proof_of_quota(
         &self,
         _proof: ProofOfQuota,
         _inputs: &PublicInputs,
-    ) -> Result<Self::ProofOfQuotaVerificationOutput, Self::Error> {
-        Ok(())
+    ) -> Result<ZkHash, Self::Error> {
+        use groth16::Field as _;
+
+        Ok(ZkHash::ZERO)
     }
 }
 

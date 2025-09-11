@@ -1,4 +1,4 @@
-use groth16::Fr;
+use nomos_core::crypto::ZkHash;
 
 /// Private inputs for all types of Proof of Quota. Spec: <https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#215261aa09df81a18576f67b910d34d4>.
 #[non_exhaustive]
@@ -44,7 +44,7 @@ impl Default for Inputs {
             proof_type: ProofType::CoreQuota(ProofOfCoreQuotaInputs {
                 core_path: vec![],
                 core_path_selectors: vec![],
-                core_sk: Fr::ZERO,
+                core_sk: ZkHash::ZERO,
             }),
             selector: false,
         }
@@ -57,8 +57,8 @@ pub enum ProofType {
 }
 
 pub struct ProofOfCoreQuotaInputs {
-    pub core_sk: Fr,
-    pub core_path: Vec<Fr>,
+    pub core_sk: ZkHash,
+    pub core_path: Vec<ZkHash>,
     pub core_path_selectors: Vec<bool>,
 }
 
@@ -71,12 +71,12 @@ impl From<ProofOfCoreQuotaInputs> for ProofType {
 pub struct ProofOfLeadershipQuotaInputs {
     pub slot: u64,
     pub note_value: u64,
-    pub transaction_hash: Fr,
+    pub transaction_hash: ZkHash,
     pub output_number: u64,
-    pub aged_path: Vec<Fr>,
+    pub aged_path: Vec<ZkHash>,
     pub aged_selector: Vec<bool>,
-    pub slot_secret: Fr,
-    pub slot_secret_path: Vec<Fr>,
+    pub slot_secret: ZkHash,
+    pub slot_secret_path: Vec<ZkHash>,
     pub starting_slot: u64,
 }
 
