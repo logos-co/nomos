@@ -11,10 +11,14 @@ use crate::{
     Error,
 };
 
+/// A Blend message whose public header has been verified.
 pub struct UnwrappedEncapsulatedMessage<const ENCAPSULATION_COUNT: usize> {
+    /// The inputs used to verify the public header Proof of Quota.
     public_inputs: PublicInputs,
+    /// The public key that signed the Blend message and whose validity has been
+    /// verified.
     signing_public_key: Ed25519PublicKey,
-    /// Encapsulated parts
+    /// The remaining, unverified, encapsulated message component.
     encapsulated_part: EncapsulatedPart<ENCAPSULATION_COUNT>,
 }
 
