@@ -115,7 +115,7 @@ fn generate_inputs(
                 EncapsulationInput::new(
                     Ed25519PrivateKey::generate(),
                     &recipient_signing_key.public_key(),
-                    ProofOfQuota::from([0u8; _]),
+                    ProofOfQuota::dummy(),
                     ProofOfSelection::dummy(),
                 )
             })
