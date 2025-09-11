@@ -1,6 +1,7 @@
 #[cfg(all(target_arch = "x86_64", feature = "deser"))]
 use std::{hint::black_box, ops::Deref as _, sync::LazyLock};
 
+#[cfg(all(target_arch = "x86_64", feature = "deser"))]
 use groth16::groth16_batch_verify;
 #[cfg(all(target_arch = "x86_64", feature = "deser"))]
 use groth16::{
