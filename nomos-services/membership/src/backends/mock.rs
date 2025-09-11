@@ -172,9 +172,14 @@ mod tests {
     use super::{MembershipBackend as _, MockMembershipBackend, MockMembershipBackendSettings};
 
     fn pid(seed: u8) -> ProviderId {
-        let mut b = [1u8; 32];
-        b[0] = seed;
-        ProviderId::try_from(b).unwrap()
+        use ed25519_dalek::SigningKey;
+
+        // Create a deterministic signing key from seed
+        let secret_bytes = [seed; 32];
+        let signing_key = SigningKey::from_bytes(&secret_bytes);
+        let verifying_key = signing_key.verifying_key();
+
+        ProviderId(verifying_key)
     }
 
     fn locator(seed: u8) -> Locator {
