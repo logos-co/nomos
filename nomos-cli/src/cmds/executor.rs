@@ -3,11 +3,13 @@ use std::{path::PathBuf, sync::mpsc::Sender};
 use clap::Args;
 use executor_http_client::{BasicAuthCredentials, ExecutorHttpClient};
 use kzgrs_backend::{dispersal::Metadata, encoder::DaEncoderParams};
-use nomos_core::da::BlobId;
+use nomos_core::{da::BlobId, mantle::ops::channel::ChannelId};
 use reqwest::Url;
 
 #[derive(Args, Debug)]
 pub struct Disseminate {
+    #[clap(short, long)]
+    pub channel_id: String,
     /// Text to disseminate.
     #[clap(short, long, required_unless_present("file"))]
     pub data: Option<String>,
@@ -58,6 +60,9 @@ impl Disseminate {
             );
         }
 
+        let channel_id: [u8; 32] = hex::decode(&self.channel_id)?
+            .try_into()
+            .map_err(|_| "Invalid app_id")?;
         let app_id: [u8; 32] = hex::decode(&self.app_id)?
             .try_into()
             .map_err(|_| "Invalid app_id")?;
@@ -65,7 +70,14 @@ impl Disseminate {
 
         let (res_sender, res_receiver) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
-            disperse_data(&res_sender, &client, self.addr.clone(), bytes, metadata);
+            disperse_data(
+                &res_sender,
+                &client,
+                self.addr.clone(),
+                channel_id.into(),
+                bytes,
+                metadata,
+            );
         });
 
         match res_receiver.recv() {
@@ -92,11 +104,12 @@ async fn disperse_data(
     res_sender: &Sender<Result<BlobId, String>>,
     client: &ExecutorHttpClient,
     base_url: Url,
+    channel_id: ChannelId,
     bytes: Vec<u8>,
     metadata: Metadata,
 ) {
     let res = client
-        .publish_blob(base_url, bytes, metadata)
+        .publish_blob(base_url, channel_id, bytes, metadata)
         .await
         .map_err(|err| format!("Failed to publish blob: {err:?}"));
     res_sender.send(res).unwrap();

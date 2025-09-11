@@ -24,6 +24,7 @@ impl DaWalletAdapter for MockWalletAdapter {
 
     fn blob_tx(
         &self,
+        channel_id: ChannelId,
         parent_msg_id: MsgId,
         blob: BlobId,
         blob_size: usize,
@@ -40,7 +41,7 @@ impl DaWalletAdapter for MockWalletAdapter {
         };
 
         let blob_op = BlobOp {
-            channel: ChannelId::from([0; 32]),
+            channel: channel_id,
             blob,
             blob_size: blob_size as u64,
             da_storage_gas_price: 3000,

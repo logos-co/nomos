@@ -3,7 +3,7 @@ pub mod mock;
 use nomos_core::{
     da::BlobId,
     mantle::{
-        ops::channel::{Ed25519PublicKey, MsgId},
+        ops::channel::{ChannelId, Ed25519PublicKey, MsgId},
         SignedMantleTx,
     },
 };
@@ -17,6 +17,7 @@ pub trait DaWalletAdapter {
 
     fn blob_tx(
         &self,
+        channel_id: ChannelId,
         parent_msg_id: MsgId,
         blob_id: BlobId,
         blob_size: usize,

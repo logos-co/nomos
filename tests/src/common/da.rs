@@ -24,7 +24,9 @@ pub async fn disseminate_with_metadata(
     let client = ExecutorHttpClient::new(None);
     let exec_url = Url::parse(&format!("http://{backend_address}")).unwrap();
 
-    client.publish_blob(exec_url, data.to_vec(), metadata).await
+    client
+        .publish_blob(exec_url, [0u8; 32].into(), data.to_vec(), metadata)
+        .await
 }
 
 /// `wait_for_blob_onchain` tracks the latest chain updates, if new blocks

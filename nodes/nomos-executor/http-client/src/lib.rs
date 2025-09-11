@@ -2,7 +2,10 @@ use std::{collections::HashSet, hash::Hash};
 
 pub use common_http_client::{BasicAuthCredentials, CommonHttpClient, Error};
 use futures::Stream;
-use nomos_core::da::{blob::Share, BlobId};
+use nomos_core::{
+    da::{blob::Share, BlobId},
+    mantle::ops::channel::ChannelId,
+};
 use nomos_http_api_common::{paths, types::DispersalRequest};
 use reqwest::Url;
 use serde::{de::DeserializeOwned, Serialize};
@@ -24,13 +27,18 @@ impl ExecutorHttpClient {
     pub async fn publish_blob<Metadata>(
         &self,
         base_url: Url,
+        channel_id: ChannelId,
         data: Vec<u8>,
         metadata: Metadata,
     ) -> Result<BlobId, Error>
     where
         Metadata: Serialize + Send + Sync,
     {
-        let req = DispersalRequest { data, metadata };
+        let req = DispersalRequest {
+            channel_id,
+            data,
+            metadata,
+        };
         let path = paths::DISPERSE_DATA.trim_start_matches('/');
         let request_url = base_url.join(path).map_err(Error::Url)?;
 

@@ -10,7 +10,7 @@ use nomos_core::{
     block::SessionNumber,
     da::{blob::Share, DaVerifier as CoreDaVerifier},
     header::HeaderId,
-    mantle::SignedMantleTx,
+    mantle::{ops::channel::ChannelId, SignedMantleTx},
 };
 use nomos_da_dispersal::{
     adapters::network::DispersalNetworkAdapter, backend::DispersalBackend, DaDispersalMsg,
@@ -171,6 +171,7 @@ where
 
 pub async fn disperse_data<Backend, NetworkAdapter, Membership, RuntimeServiceId>(
     handle: &OverwatchHandle<RuntimeServiceId>,
+    channel_id: ChannelId,
     data: Vec<u8>,
 ) -> Result<Backend::BlobId, DynError>
 where
@@ -193,6 +194,7 @@ where
     let (sender, receiver) = oneshot::channel();
     relay
         .send(DaDispersalMsg::Disperse {
+            channel_id,
             data,
             reply_channel: sender,
         })
