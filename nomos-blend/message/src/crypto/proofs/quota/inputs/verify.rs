@@ -41,15 +41,3 @@ impl From<Inputs> for PoQVerifierInput {
         .into()
     }
 }
-
-#[cfg(test)]
-impl Default for Inputs {
-    fn default() -> Self {
-        use groth16::Field as _;
-
-        Self {
-            key_nullifier: ZkHash::ZERO,
-            prove_inputs: PublicInputs::default(),
-        }
-    }
-}
