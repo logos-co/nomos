@@ -182,19 +182,18 @@ impl StorageDaApi for RocksBackend {
             },
             |assignations_data| {
                 let assignations =
-                    <HashMap<Self::NetworkId, HashSet<Self::Id>> as SerdeOp>::deserialize(&assignations_data)
-                        .unwrap_or_else(|e| {
-                            error!(
-                                "Failed to deserialize assignations for session {}: {:?}",
-                                sesion_id, e
-                            );
-                            HashMap::new()
-                        });
+                    <HashMap<Self::NetworkId, HashSet<Self::Id>> as SerdeOp>::deserialize(
+                        &assignations_data,
+                    )
+                    .unwrap_or_else(|e| {
+                        error!(
+                            "Failed to deserialize assignations for session {}: {:?}",
+                            sesion_id, e
+                        );
+                        HashMap::new()
+                    });
 
-                debug!(
-                    "Successfully loaded assignations for session {}",
-                    sesion_id
-                );
+                debug!("Successfully loaded assignations for session {}", sesion_id);
                 Ok(Some(assignations))
             },
         )
