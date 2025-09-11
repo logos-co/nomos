@@ -1,12 +1,10 @@
 use groth16::{Fr, Groth16Input, Groth16InputDeser};
-use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 
-use crate::lottery::{P, compute_lottery_values};
+use crate::lottery::compute_lottery_values;
 
 /// Public inputs of the POL cirmcom circuit with circom specific types.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct PolChainInputs {
     slot_number: Groth16Input,
     epoch_nonce: Groth16Input,
@@ -19,9 +17,10 @@ pub struct PolChainInputs {
 }
 
 /// Public inputs of the POL cirmcom circuit to be provided by the chain.
+#[derive(Clone, Debug)]
 pub struct PolChainInputsData {
     pub slot_number: u64,
-    pub epoch_nonce: u64,
+    pub epoch_nonce: Fr,
     pub total_stake: u64,
     pub aged_root: Fr,
     pub latest_root: Fr,
@@ -101,18 +100,8 @@ impl From<&PolChainInputs> for PolChainInputsJson {
     }
 }
 
-#[derive(Debug, Error)]
-pub enum PolInputsFromDataError {
-    #[error("Slot number is greater than P")]
-    SlotGreaterThanP,
-    #[error("Epoch nonce is greater than P")]
-    EpochGreaterThanP,
-}
-
-impl TryFrom<PolChainInputsData> for PolChainInputs {
-    type Error = PolInputsFromDataError;
-
-    fn try_from(
+impl From<PolChainInputsData> for PolChainInputs {
+    fn from(
         PolChainInputsData {
             slot_number,
             epoch_nonce,
@@ -121,27 +110,20 @@ impl TryFrom<PolChainInputsData> for PolChainInputs {
             latest_root,
             leader_pk: (pk1, pk2),
         }: PolChainInputsData,
-    ) -> Result<Self, Self::Error> {
-        let slot_number = BigUint::from(slot_number);
-        if slot_number > *P {
-            return Err(PolInputsFromDataError::SlotGreaterThanP);
-        }
-        let epoch_nonce = BigUint::from(epoch_nonce);
-        if epoch_nonce > *P {
-            return Err(PolInputsFromDataError::EpochGreaterThanP);
-        }
+    ) -> Self {
+        let slot_number = Fr::from(slot_number);
 
         let (lottery_0, lottery_1) = compute_lottery_values(total_stake);
 
-        Ok(Self {
-            slot_number: Groth16Input::new(slot_number.into()),
-            epoch_nonce: Groth16Input::new(epoch_nonce.into()),
+        Self {
+            slot_number: Groth16Input::new(slot_number),
+            epoch_nonce: Groth16Input::new(epoch_nonce),
             lottery_0: Groth16Input::new(lottery_0.into()),
             lottery_1: Groth16Input::new(lottery_1.into()),
             aged_root: aged_root.into(),
             latest_root: latest_root.into(),
             leader_pk1: pk1.into(),
             leader_pk2: pk2.into(),
-        })
+        }
     }
 }

@@ -8,7 +8,7 @@ use crate::{
 };
 
 /// The inputs to the circuit prover.
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Debug)]
 #[serde(into = "PolInputsJson", rename_all = "snake_case")]
 pub struct PolWitnessInputs {
     pub wallet: PolWalletInputs,
@@ -16,14 +16,15 @@ pub struct PolWitnessInputs {
 }
 
 impl PolWitnessInputs {
+    #[must_use]
     pub fn from_chain_and_wallet_data(
         chain: PolChainInputsData,
         wallet: PolWalletInputsData,
-    ) -> Result<Self, <PolChainInputs as TryFrom<PolChainInputsData>>::Error> {
-        Ok(Self {
+    ) -> Self {
+        Self {
             wallet: wallet.into(),
-            chain: chain.try_into()?,
-        })
+            chain: chain.into(),
+        }
     }
 }
 
@@ -59,15 +60,15 @@ pub struct PolVerifierInputJson([Groth16InputDeser; 9]);
 /// Public inputs of the POL verifier circuit as returned by the prover.
 /// This inputs are the ones that need to be fed into the verifier.
 pub struct PolVerifierInput {
-    entropy_contribution: Groth16Input,
-    slot_number: Groth16Input,
-    epoch_nonce: Groth16Input,
-    lottery_0: Groth16Input,
-    lottery_1: Groth16Input,
-    aged_root: Groth16Input,
-    latest_root: Groth16Input,
-    leader_pk1: Groth16Input,
-    leader_pk2: Groth16Input,
+    pub entropy_contribution: Groth16Input,
+    pub slot_number: Groth16Input,
+    pub epoch_nonce: Groth16Input,
+    pub lottery_0: Groth16Input,
+    pub lottery_1: Groth16Input,
+    pub aged_root: Groth16Input,
+    pub latest_root: Groth16Input,
+    pub leader_pk1: Groth16Input,
+    pub leader_pk2: Groth16Input,
 }
 
 impl TryFrom<PolVerifierInputJson> for PolVerifierInput {
@@ -113,5 +114,29 @@ impl PolVerifierInput {
             self.leader_pk1.into_inner(),
             self.leader_pk2.into_inner(),
         ]
+    }
+
+    #[must_use]
+    pub fn new(
+        entropy_contribution: Fr,
+        slot_number: u64,
+        epoch_nonce: Fr,
+        aged_root: Fr,
+        latest_root: Fr,
+        total_stake: u64,
+        leader_pk: (Fr, Fr),
+    ) -> Self {
+        let (lottery_0, lottery_1) = crate::lottery::compute_lottery_values(total_stake);
+        Self {
+            entropy_contribution: entropy_contribution.into(),
+            slot_number: Fr::from(slot_number).into(),
+            epoch_nonce: epoch_nonce.into(),
+            lottery_0: Fr::from(lottery_0).into(),
+            lottery_1: Fr::from(lottery_1).into(),
+            aged_root: aged_root.into(),
+            latest_root: latest_root.into(),
+            leader_pk1: leader_pk.0.into(),
+            leader_pk2: leader_pk.1.into(),
+        }
     }
 }
