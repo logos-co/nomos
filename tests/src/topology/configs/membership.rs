@@ -69,6 +69,9 @@ pub fn create_membership_configs(
     ids.iter().map(|_| config.clone()).collect()
 }
 
+/// Create membership configs without DA providers.
+/// Blend providers should be included because the Blend service expects to have
+/// the initial membership at startup.
 #[must_use]
 pub fn create_empty_da_membership_configs(
     ids: &[[u8; 32]],
