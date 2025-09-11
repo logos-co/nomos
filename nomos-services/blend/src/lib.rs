@@ -2,10 +2,12 @@ use std::{
     fmt::{Debug, Display},
     hash::Hash,
     marker::PhantomData,
+    time::Duration,
 };
 
 use async_trait::async_trait;
 use futures::StreamExt as _;
+use nomos_blend_scheduling::session::UninitializedSessionEventStream;
 use nomos_network::NetworkService;
 use overwatch::{
     services::{
@@ -14,6 +16,7 @@ use overwatch::{
     },
     DynError, OpaqueServiceResourcesHandle,
 };
+use services_utils::wait_until_services_are_ready;
 use tracing::{debug, error, info};
 
 use crate::{
@@ -25,7 +28,7 @@ use crate::{
     },
     instance::{Instance, Mode},
     membership::Adapter as _,
-    settings::{constant_session_stream, Settings},
+    settings::{Settings, FIRST_SESSION_READY_TIMEOUT},
 };
 
 pub mod core;
@@ -59,7 +62,7 @@ where
     CoreService: ServiceData + CoreServiceComponents<RuntimeServiceId>,
     EdgeService: ServiceData,
 {
-    type Settings = Settings<CoreService::NodeId>;
+    type Settings = Settings;
     type State = NoState<Self::Settings>;
     type StateOperator = NoOperator<Self::State>;
     type Message = CoreService::Message;
@@ -83,8 +86,8 @@ where
         + 'static,
     EdgeService:
         ServiceData<Message = CoreService::Message> + edge::ServiceComponents + Send + 'static,
-    EdgeService::MembershipAdapter: membership::Adapter + Send,
-    <EdgeService::MembershipAdapter as membership::Adapter>::Error: Send + Sync + 'static,
+    EdgeService::MembershipAdapter:
+        membership::Adapter<NodeId = CoreService::NodeId, Error: Send + Sync + 'static> + Send,
     membership::ServiceMessage<EdgeService::MembershipAdapter>: Send + Sync + 'static,
     RuntimeServiceId: AsServiceId<Self>
         + AsServiceId<CoreService>
@@ -128,7 +131,14 @@ where
         let settings = settings_handle.notifier().get_updated_settings();
         let minimal_network_size = settings.minimal_network_size.get() as usize;
 
-        let _membership_stream = <MembershipAdapter<EdgeService> as membership::Adapter>::new(
+        wait_until_services_are_ready!(
+            &overwatch_handle,
+            Some(Duration::from_secs(30)),
+            MembershipService<EdgeService>
+        )
+        .await?;
+
+        let membership_stream = <MembershipAdapter<EdgeService> as membership::Adapter>::new(
             overwatch_handle
                 .relay::<MembershipService<EdgeService>>()
                 .await?,
@@ -136,16 +146,21 @@ where
         )
         .subscribe()
         .await?;
-        // TODO: Use membership_stream once the membership/SDP services are ready to provide the real membership: https://github.com/logos-co/nomos/issues/1532
 
-        let (membership, mut session_stream) = constant_session_stream(
-            settings.membership(),
-            settings.time.session_duration(),
+        let (membership, mut session_stream) = UninitializedSessionEventStream::new(
+            membership_stream,
+            FIRST_SESSION_READY_TIMEOUT,
             settings.time.session_transition_period(),
         )
         .await_first_ready()
         .await
         .expect("The current session must be ready");
+
+        info!(
+            target: LOG_TARGET,
+            "The current membership is ready: {} nodes.",
+            membership.size()
+        );
 
         let mut instance = Instance::<CoreService, EdgeService, RuntimeServiceId>::new(
             Mode::choose(&membership, minimal_network_size),

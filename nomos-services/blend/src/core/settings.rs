@@ -2,10 +2,8 @@ use std::num::NonZeroU64;
 
 use futures::{Stream, StreamExt as _};
 use nomos_blend_scheduling::{
-    membership::{Membership, Node},
-    message_blend::CryptographicProcessorSettings,
-    message_scheduler::session_info::SessionInfo,
-    session::SessionEvent,
+    membership::Membership, message_blend::CryptographicProcessorSettings,
+    message_scheduler::session_info::SessionInfo, session::SessionEvent,
 };
 use nomos_utils::math::NonNegativeF64;
 use serde::{Deserialize, Serialize};
@@ -13,13 +11,11 @@ use serde::{Deserialize, Serialize};
 use crate::settings::TimingSettings;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct BlendConfig<BackendSettings, NodeId> {
+pub struct BlendConfig<BackendSettings> {
     pub backend: BackendSettings,
     pub crypto: CryptographicProcessorSettings,
     pub scheduler: SchedulerSettingsExt,
     pub time: TimingSettings,
-    // TODO: Remove this and use the membership service stream instead: https://github.com/logos-co/nomos/issues/1532
-    pub membership: Vec<Node<NodeId>>,
     pub minimum_network_size: NonZeroU64,
 }
 
@@ -71,14 +67,14 @@ pub struct MessageDelayerSettingsExt {
     pub maximum_release_delay_in_rounds: NonZeroU64,
 }
 
-impl<BackendSettings, NodeId> BlendConfig<BackendSettings, NodeId> {
+impl<BackendSettings> BlendConfig<BackendSettings> {
     /// Builds a stream of [`SessionInfo`] by wrapping a stream of
     /// [`SessionEvent`].
     ///
     /// For each [`SessionEvent::NewSession`] event received, the stream
     /// constructs a new [`SessionInfo`] based on the new membership.
     /// [`SessionEvent::TransitionPeriodExpired`] events are ignored.
-    pub(super) fn session_info_stream(
+    pub(super) fn session_info_stream<NodeId>(
         &self,
         initial_session: &Membership<NodeId>,
         session_event_stream: impl Stream<Item = SessionEvent<Membership<NodeId>>> + Send + 'static,
@@ -197,10 +193,7 @@ mod tests {
             .is_none());
     }
 
-    fn settings(
-        message_frequency_per_round: f64,
-        rounds_per_session: u64,
-    ) -> BlendConfig<(), NodeId> {
+    fn settings(message_frequency_per_round: f64, rounds_per_session: u64) -> BlendConfig<()> {
         BlendConfig {
             backend: (),
             crypto: CryptographicProcessorSettings {
@@ -227,7 +220,6 @@ mod tests {
                 rounds_per_observation_window: NonZeroU64::new(1).unwrap(),
                 rounds_per_session_transition_period: NonZeroU64::new(1).unwrap(),
             },
-            membership: vec![],
             minimum_network_size: NonZeroU64::new(1).unwrap(),
         }
     }

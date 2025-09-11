@@ -436,7 +436,6 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                         .expect("Maximum release delay between rounds cannot be zero."),
                 },
             },
-            membership: config.blend_config.membership,
             minimum_network_size: 1
                 .try_into()
                 .expect("Minimum Blend network size cannot be zero."),

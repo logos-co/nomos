@@ -56,7 +56,7 @@ impl IntervalStreamProvider for ObservationWindowTokioIntervalProvider {
 
 impl<NodeId>
     From<(
-        &BlendConfig<Libp2pBlendBackendSettings, NodeId>,
+        &BlendConfig<Libp2pBlendBackendSettings>,
         &Membership<NodeId>,
     )> for ObservationWindowTokioIntervalProvider
 where
@@ -64,7 +64,7 @@ where
 {
     fn from(
         (config, membership): (
-            &BlendConfig<Libp2pBlendBackendSettings, NodeId>,
+            &BlendConfig<Libp2pBlendBackendSettings>,
             &Membership<NodeId>,
         ),
     ) -> Self {

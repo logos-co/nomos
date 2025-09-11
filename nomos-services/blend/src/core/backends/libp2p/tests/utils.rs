@@ -186,8 +186,8 @@ pub struct TestObservationWindowProvider {
     clippy::fallible_impl_from,
     reason = "We need this `From` impl to fulfill the behaviour requirements, but for tests we are actually expect it not to use it."
 )]
-impl<Settings, NodeId> From<&BlendConfig<Settings, NodeId>> for TestObservationWindowProvider {
-    fn from(_: &BlendConfig<Settings, NodeId>) -> Self {
+impl<Settings> From<&BlendConfig<Settings>> for TestObservationWindowProvider {
+    fn from(_: &BlendConfig<Settings>) -> Self {
         panic!("This function should never be called in tests since we are hard-coding expected values for the test observation window provider.");
     }
 }

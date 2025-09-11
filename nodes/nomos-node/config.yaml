@@ -42,13 +42,6 @@ blend:
     message_frequency_per_round: 1.0
     redundancy_parameter: 0
     maximum_release_delay_in_rounds: 3
-  membership:
-    - id: 12D3KooWKD62Q1nAAMHeV2Cx3rNNMzjgHkTT2edFMzHZ5ur7sGnh
-      address: /ip4/127.0.0.1/udp/8720/quic-v1
-      public_key: cd81cab2112a1cf8e6d986d53c0ab6c740e3a82dc04e0a6497f62727969fa5fd
-    - id: 12D3KooWA5LkQcuefjUBTktxCXUQ4rx4PcqRY1tgbSpV9eZDHWir
-      address: /ip4/127.0.0.1/udp/8721/quic-v1
-      public_key: 92f041e26306548444400e88eefa622dc125a45f3e3119a04ba1ffe4946dd4e6
   minimum_network_size: 1
 da_network:
   backend:

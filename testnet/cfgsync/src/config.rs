@@ -5,9 +5,8 @@ use std::{
     time::Duration,
 };
 
-use nomos_blend_scheduling::membership::Node;
 use nomos_core::sdp::{Locator, ServiceType};
-use nomos_libp2p::{ed25519, multiaddr, Multiaddr, PeerId};
+use nomos_libp2p::{ed25519, multiaddr, Multiaddr};
 use nomos_membership::{backends::mock::MockMembershipBackendSettings, MembershipServiceSettings};
 use nomos_tracing_service::{LoggerLayer, MetricsLayer, TracingLayer, TracingSettings};
 use nomos_utils::net::get_available_udp_port;
@@ -94,7 +93,14 @@ pub fn create_node_configs(
     let da_configs = create_da_configs(&ids, da_params, &ports);
     let network_configs = create_network_configs(&ids, &NetworkParams::default());
     let membership_configs = create_membership_configs(&ids, &hosts);
-    let blend_configs = create_blend_configs(&ids);
+    let blend_configs = create_blend_configs(
+        &ids,
+        hosts
+            .iter()
+            .map(|h| h.blend_port)
+            .collect::<Vec<_>>()
+            .as_slice(),
+    );
     let api_configs = ids
         .iter()
         .map(|_| GeneralApiConfig {
@@ -105,8 +111,6 @@ pub fn create_node_configs(
 
     // Rebuild DA address lists.
     let host_network_init_peers = update_network_init_peers(&hosts);
-    let host_blend_membership =
-        update_blend_membership(hosts.clone(), blend_configs[0].membership.clone());
 
     for (i, host) in hosts.into_iter().enumerate() {
         let consensus_config = consensus_configs[i].clone();
@@ -131,12 +135,6 @@ pub fn create_node_configs(
             .initial_peers
             .clone_from(&host_network_init_peers);
 
-        // Blend config.
-        let mut blend_config = blend_configs[i].clone();
-        blend_config.backend.listening_address =
-            Multiaddr::from_str(&format!("/ip4/0.0.0.0/udp/{}/quic-v1", host.blend_port)).unwrap();
-        blend_config.membership.clone_from(&host_blend_membership);
-
         // Tracing config.
         let tracing_config =
             update_tracing_identifier(tracing_settings.clone(), host.identifier.clone());
@@ -151,7 +149,7 @@ pub fn create_node_configs(
                 bootstrapping_config: bootstrap_configs[i].clone(),
                 da_config,
                 network_config,
-                blend_config,
+                blend_config: blend_configs[i].clone(),
                 api_config,
                 tracing_config,
                 time_config,
@@ -167,19 +165,6 @@ fn update_network_init_peers(hosts: &[Host]) -> Vec<Multiaddr> {
     hosts
         .iter()
         .map(|h| multiaddr(h.ip, h.network_port))
-        .collect()
-}
-
-fn update_blend_membership(hosts: Vec<Host>, membership: Vec<Node<PeerId>>) -> Vec<Node<PeerId>> {
-    membership
-        .into_iter()
-        .zip(hosts)
-        .map(|(mut node, host)| {
-            node.address =
-                Multiaddr::from_str(&format!("/ip4/{}/udp/{}/quic-v1", host.ip, host.blend_port))
-                    .unwrap();
-            node
-        })
         .collect()
 }
 
@@ -226,21 +211,39 @@ pub fn create_membership_configs(ids: &[[u8; 32]], hosts: &[Host]) -> Vec<Genera
             .expect("Failed to generate secret key from bytes");
         let provider_id = secret_key_to_provider_id(node_key.clone());
 
-        let listening_address = Multiaddr::from_str(&format!(
+        let da_listening_address = Multiaddr::from_str(&format!(
             "/ip4/{}/udp/{}/quic-v1",
             hosts[i].ip, hosts[i].da_network_port,
         ))
-        .expect("Failed to create multiaddr");
+        .expect("Failed to create multiaddr for DA");
+        let blend_listening_address = Multiaddr::from_str(&format!(
+            "/ip4/{}/udp/{}/quic-v1",
+            hosts[i].ip, hosts[i].blend_port,
+        ))
+        .expect("Failed to create multiaddr for Blend");
 
-        let mut locs = BTreeSet::new();
-        locs.insert(Locator::new(listening_address));
-
-        providers.insert(provider_id, locs);
+        providers
+            .entry(ServiceType::DataAvailability)
+            .or_insert_with(HashMap::new)
+            .insert(
+                provider_id,
+                BTreeSet::from([Locator::new(da_listening_address)]),
+            );
+        providers
+            .entry(ServiceType::BlendNetwork)
+            .or_insert_with(HashMap::new)
+            .insert(
+                provider_id,
+                BTreeSet::from([Locator::new(blend_listening_address)]),
+            );
     }
 
     let mock_backend_settings = MockMembershipBackendSettings {
-        session_sizes: HashMap::from([(ServiceType::DataAvailability, 4)]),
-        session_zero_providers: HashMap::from([(ServiceType::DataAvailability, providers)]),
+        session_sizes: HashMap::from([
+            (ServiceType::DataAvailability, 4),
+            (ServiceType::BlendNetwork, 10),
+        ]),
+        session_zero_providers: providers,
     };
 
     let config = GeneralMembershipConfig {

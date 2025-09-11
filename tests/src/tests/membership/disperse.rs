@@ -27,10 +27,11 @@ async fn update_membership_and_disseminate() {
     let topology_config = TopologyConfig::validator_and_executor();
     let n_participants = topology_config.n_validators + topology_config.n_executors;
 
-    let (ids, ports) = generate_test_ids_and_ports(n_participants);
-    let topology = Topology::spawn_with_empty_membership(topology_config, &ids, &ports).await;
+    let (ids, da_ports, blend_ports) = generate_test_ids_and_ports(n_participants);
+    let topology =
+        Topology::spawn_with_empty_membership(topology_config, &ids, &da_ports, &blend_ports).await;
 
-    let membership_config = create_membership_configs(&ids, &ports)[0].clone();
+    let membership_config = create_membership_configs(&ids, &da_ports, &blend_ports)[0].clone();
     let finalize_block_event = create_finalized_block_event(&membership_config);
 
     update_all_validators(&topology, &finalize_block_event).await;
@@ -42,16 +43,18 @@ async fn update_membership_and_disseminate() {
     perform_dissemination_tests(&topology.executors()[0]).await;
 }
 
-fn generate_test_ids_and_ports(n_participants: usize) -> (Vec<[u8; 32]>, Vec<u16>) {
+fn generate_test_ids_and_ports(n_participants: usize) -> (Vec<[u8; 32]>, Vec<u16>, Vec<u16>) {
     let mut ids = vec![[0; 32]; n_participants];
-    let mut ports = vec![];
+    let mut da_ports = vec![];
+    let mut blend_ports = vec![];
 
     for id in &mut ids {
         thread_rng().fill(id);
-        ports.push(get_available_udp_port().unwrap());
+        da_ports.push(get_available_udp_port().unwrap());
+        blend_ports.push(get_available_udp_port().unwrap());
     }
 
-    (ids, ports)
+    (ids, da_ports, blend_ports)
 }
 
 fn create_finalized_block_event(
