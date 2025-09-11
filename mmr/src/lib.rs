@@ -235,6 +235,7 @@ mod test {
         assert_eq!(mmr.frontier_root(), root(&padded_leaves(elems, 8)));
     }
 
+    #[ignore = "very slow"]
     #[property_test]
     fn test_frontier_root_16(elems: Vec<[u8; 32]>) {
         let mut mmr = <MerkleMountainRange<TestFr, ZkHasher, 16>>::new();
