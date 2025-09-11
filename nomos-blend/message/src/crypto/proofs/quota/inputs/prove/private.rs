@@ -34,23 +34,6 @@ impl Inputs {
     }
 }
 
-#[cfg(test)]
-impl Default for Inputs {
-    fn default() -> Self {
-        use groth16::Field as _;
-
-        Self {
-            key_index: u64::MIN,
-            proof_type: ProofType::CoreQuota(ProofOfCoreQuotaInputs {
-                core_path: vec![],
-                core_path_selectors: vec![],
-                core_sk: ZkHash::ZERO,
-            }),
-            selector: false,
-        }
-    }
-}
-
 pub enum ProofType {
     CoreQuota(ProofOfCoreQuotaInputs),
     LeadershipQuota(ProofOfLeadershipQuotaInputs),
