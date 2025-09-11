@@ -10,7 +10,7 @@ use bytes::Bytes;
 use cryptarchia_engine::Slot;
 use libp2p_identity::PeerId;
 use multiaddr::Multiaddr;
-use nomos_core::{block::BlockNumber, header::HeaderId};
+use nomos_core::{block::SessionNumber, header::HeaderId};
 use thiserror::Error;
 
 use super::{StorageBackend, StorageSerde, StorageTransaction};
@@ -211,7 +211,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for MockStorage
 
     async fn store_assignations(
         &mut self,
-        _block_number: BlockNumber,
+        _session_id: SessionNumber,
         _assignations: HashMap<Self::NetworkId, HashSet<Self::Id>>,
     ) -> Result<(), Self::Error> {
         unimplemented!()
@@ -219,8 +219,8 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for MockStorage
 
     async fn get_assignations(
         &mut self,
-        _block_number: BlockNumber,
-    ) -> Result<HashMap<Self::NetworkId, HashSet<Self::Id>>, Self::Error> {
+        _session_id: SessionNumber,
+    ) -> Result<Option<HashMap<Self::NetworkId, HashSet<Self::Id>>>, Self::Error> {
         unimplemented!()
     }
 
