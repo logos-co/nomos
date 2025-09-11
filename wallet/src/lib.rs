@@ -2,15 +2,13 @@ pub mod error;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
+pub use error::WalletError;
 use nomos_core::{
     block::Block,
     header::HeaderId,
-    mantle::ledger::Tx as LedgerTx,
-    mantle::{keys::PublicKey, AuthenticatedMantleTx, NoteId, Utxo, Value},
+    mantle::{keys::PublicKey, ledger::Tx as LedgerTx, AuthenticatedMantleTx, NoteId, Utxo, Value},
 };
 use nomos_ledger::LedgerState;
-
-pub use error::WalletError;
 
 pub struct WalletBlock {
     pub id: HeaderId,
@@ -89,16 +87,15 @@ impl WalletState {
             // We may have smaller notes that are redundant.
             //
             // e.g. Suppose we hold notes valued [3 NMO, 4 NMO] and we asked for 4 NMO
-            //      then, since we sort the notes by value, we would have first
-            //      added the 3 NMO note and then then 4 NMO note to the selected utxos list.
+            //      then, since we sort the notes by value, we would have first added
+            //      the 3 NMO note and then then 4 NMO note to the selected utxos list.
             //
             //      The 4 NMO note alone would have satisfied the request, the 3 NMO note is
             //      redundant and would be returned as change in a transaction.
             //
-            // To resolve this, we remove as many of the smallest notes as we can while still
-            // keep us above the requested amount.
+            // To resolve this, we remove as many of the smallest notes as we can while
+            // still keep us above the requested amount.
 
-            // Remove redundant small notes from the beginning while maintaining enough value
             let mut skip_count = 0;
             let mut temp_amount = selected_amount;
 
@@ -111,7 +108,6 @@ impl WalletState {
                 }
             }
 
-            // Remove the redundant notes from the beginning
             selected_utxos.drain(..skip_count);
 
             Some(selected_utxos)
@@ -285,7 +281,7 @@ mod tests {
         wallet.apply_block(&block_1).unwrap();
 
         // Block 2
-        //  - alice spends 100 NMO utxo, sending 20 NMO to bob and returning 80 to herself
+        //  - alice spends 100 NMO utxo, sending 20 NMO to bob and 80 to herself
         let utxos_100 = wallet
             .utxos_for_amount(block_1.id, 100, [alice])
             .unwrap()
@@ -357,7 +353,7 @@ mod tests {
         );
 
         // requesting 5 NMO from alices keys
-        // returns two UTXO's 3 & 4 NMO despite there existing a note of exactly 5 NMO available for alice
+        // returns 2 notes despite a note of exactly 5 NMO available to alice
         assert_eq!(
             wallet
                 .utxos_for_amount(genesis, 5, [alice_1, alice_2])
