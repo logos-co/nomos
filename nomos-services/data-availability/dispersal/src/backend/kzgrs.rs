@@ -10,19 +10,21 @@ use nomos_core::{
     da::{BlobId, DaDispersal, DaEncoder},
     mantle::{
         ops::channel::{Ed25519PublicKey, MsgId},
-        AuthenticatedMantleTx as _, Op, SignedMantleTx,
+        SignedMantleTx,
     },
 };
+use nomos_da_network_service::backends::ProcessingError;
 use nomos_tracing::info_with_id;
 use nomos_utils::bounded_duration::{MinimalBoundedDuration, NANO};
 use overwatch::DynError;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
+use tokio::sync::oneshot;
 use tracing::instrument;
 
 use crate::{
     adapters::{network::DispersalNetworkAdapter, wallet::DaWalletAdapter},
-    backend::DispersalBackend,
+    backend::{DispersalBackend, DispersalTask},
 };
 
 #[serde_as]
@@ -48,20 +50,33 @@ pub struct DispersalKZGRSBackendSettings {
     pub encoder_settings: EncoderSettings,
     #[serde_as(as = "MinimalBoundedDuration<1, NANO>")]
     pub dispersal_timeout: Duration,
+    #[serde_as(as = "MinimalBoundedDuration<1, NANO>")]
+    pub retry_cooldown: Duration,
+    pub retry_limit: usize,
 }
 
+#[derive(Clone)]
 pub struct DispersalKZGRSBackend<NetworkAdapter, WalletAdapter> {
     settings: DispersalKZGRSBackendSettings,
     network_adapter: Arc<NetworkAdapter>,
     wallet_adapter: Arc<WalletAdapter>,
     encoder: Arc<encoder::DaEncoder>,
-    last_dispersed_tx: Option<SignedMantleTx>,
 }
 
 pub struct DispersalHandler<NetworkAdapter, WalletAdapter> {
     network_adapter: Arc<NetworkAdapter>,
     wallet_adapter: Arc<WalletAdapter>,
     timeout: Duration,
+}
+
+impl<NetworkAdapter, WalletAdapter> Clone for DispersalHandler<NetworkAdapter, WalletAdapter> {
+    fn clone(&self) -> Self {
+        Self {
+            network_adapter: Arc::clone(&self.network_adapter),
+            wallet_adapter: Arc::clone(&self.wallet_adapter),
+            timeout: self.timeout,
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -147,9 +162,9 @@ where
 
 impl<NetworkAdapter, WalletAdapter> DispersalKZGRSBackend<NetworkAdapter, WalletAdapter>
 where
-    NetworkAdapter: DispersalNetworkAdapter + Send + Sync,
+    NetworkAdapter: DispersalNetworkAdapter + Send + Sync + 'static,
     NetworkAdapter::SubnetworkId: From<u16> + Send + Sync,
-    WalletAdapter: DaWalletAdapter + Send + Sync,
+    WalletAdapter: DaWalletAdapter + Send + Sync + 'static,
     WalletAdapter::Error: Error + Send + Sync + 'static,
 {
     async fn encode(
@@ -165,27 +180,14 @@ where
     }
 
     async fn disperse(
-        &mut self,
+        handler: DispersalHandler<NetworkAdapter, WalletAdapter>,
+        parent_msg_id: MsgId,
         encoded_data: <encoder::DaEncoder as DaEncoder>::EncodedData,
         original_size: usize,
-    ) -> Result<(), DynError> {
+    ) -> Result<SignedMantleTx, DynError> {
         let blob_id = build_blob_id(&encoded_data.row_commitments);
         let num_columns = encoded_data.combined_column_proofs.len();
 
-        let handler = DispersalHandler {
-            network_adapter: Arc::clone(&self.network_adapter),
-            wallet_adapter: Arc::clone(&self.wallet_adapter),
-            timeout: self.settings.dispersal_timeout,
-        };
-        let parent_msg_id = self
-            .last_dispersed_tx
-            .as_ref()
-            .map_or_else(MsgId::root, |tx| {
-                let Some((Op::ChannelBlob(blob_op), _)) = tx.ops_with_proof().next() else {
-                    panic!("Previously sent transaction should have a blob operation");
-                };
-                blob_op.id()
-            });
         tracing::debug!("Dispersing {blob_id:?} transaction");
         let tx = handler
             .disperse_tx(
@@ -199,8 +201,58 @@ where
         tracing::debug!("Dispersing {blob_id:?} shares");
         handler.disperse_shares(encoded_data).await?;
         tracing::debug!("Dispersal of {blob_id:?} successful");
-        self.last_dispersed_tx = Some(tx);
-        Ok(())
+        Ok(tx)
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Dispersal tasks requires multiple arguments"
+    )]
+    fn create_dispersal_task(
+        handler: DispersalHandler<NetworkAdapter, WalletAdapter>,
+        parent_msg_id: MsgId,
+        encoded_data: EncodedData,
+        original_size: usize,
+        sender: oneshot::Sender<Result<BlobId, DynError>>,
+        blob_id: BlobId,
+        retry_limit: usize,
+        retry_cooldown: Duration,
+    ) -> DispersalTask {
+        Box::pin(async move {
+            for attempt in 0..=retry_limit {
+                match Self::disperse(
+                    handler.clone(),
+                    parent_msg_id,
+                    encoded_data.clone(),
+                    original_size,
+                )
+                .await
+                {
+                    Ok(tx) => {
+                        let _ = sender.send(Ok(blob_id));
+                        return Some(tx);
+                    }
+                    Err(retry_err) => {
+                        if !matches!(
+                            retry_err.downcast_ref::<ProcessingError>(),
+                            Some(ProcessingError::InsufficientSubnetworkConnections)
+                        ) {
+                            let _ = sender.send(Err(retry_err));
+                            return None;
+                        }
+                    }
+                }
+
+                tokio::time::sleep(retry_cooldown).await;
+                tracing::warn!(
+                    "Retrying dispersal, attempt {}/{}...",
+                    attempt + 1,
+                    retry_limit
+                );
+            }
+            let _ = sender.send(Err("Retry limit reached".into()));
+            None
+        })
     }
 }
 
@@ -208,9 +260,9 @@ where
 impl<NetworkAdapter, WalletAdapter> DispersalBackend
     for DispersalKZGRSBackend<NetworkAdapter, WalletAdapter>
 where
-    NetworkAdapter: DispersalNetworkAdapter + Send + Sync,
+    NetworkAdapter: DispersalNetworkAdapter + Send + Sync + 'static,
     NetworkAdapter::SubnetworkId: From<u16> + Send + Sync,
-    WalletAdapter: DaWalletAdapter + Send + Sync,
+    WalletAdapter: DaWalletAdapter + Send + Sync + 'static,
     WalletAdapter::Error: Error + Send + Sync + 'static,
 {
     type Settings = DispersalKZGRSBackendSettings;
@@ -240,16 +292,37 @@ where
             network_adapter: Arc::new(network_adapter),
             wallet_adapter: Arc::new(wallet_adapter),
             encoder: Arc::new(encoder),
-            last_dispersed_tx: None,
         }
     }
 
     #[instrument(skip_all)]
-    async fn process_dispersal(&mut self, data: Vec<u8>) -> Result<Self::BlobId, DynError> {
+    async fn process_dispersal(
+        &self,
+        parent_msg_id: MsgId,
+        data: Vec<u8>,
+        sender: oneshot::Sender<Result<Self::BlobId, DynError>>,
+    ) -> Result<DispersalTask, DynError> {
         let original_size = data.len();
         let (blob_id, encoded_data) = self.encode(data).await?;
         info_with_id!(blob_id.as_ref(), "ProcessDispersal");
-        self.disperse(encoded_data, original_size).await?;
-        Ok(blob_id)
+
+        let handler = DispersalHandler {
+            network_adapter: Arc::clone(&self.network_adapter),
+            wallet_adapter: Arc::clone(&self.wallet_adapter),
+            timeout: self.settings.dispersal_timeout,
+        };
+
+        let dispersal_task = Self::create_dispersal_task(
+            handler,
+            parent_msg_id,
+            encoded_data,
+            original_size,
+            sender,
+            blob_id,
+            self.settings.retry_limit,
+            self.settings.retry_cooldown,
+        );
+
+        Ok(dispersal_task)
     }
 }

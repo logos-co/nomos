@@ -31,7 +31,7 @@ use crate::{
             DaNetworkBackendSettings, HistoricSamplingEvent, SamplingEvent, VerificationEvent,
             BROADCAST_CHANNEL_SIZE,
         },
-        NetworkBackend,
+        ConnectionStatus, NetworkBackend,
     },
     membership::handler::{DaMembershipHandler, SharedMembershipHandler},
     DaAddressbook,
@@ -79,6 +79,7 @@ pub enum DaNetworkEvent {
 /// It forwards network messages to the corresponding subscription
 /// channels/streams
 pub struct DaNetworkValidatorBackend<Membership> {
+    connection_status: ConnectionStatus,
     task_abort_handle: AbortHandle,
     replies_task_abort_handle: AbortHandle,
     shares_request_channel: UnboundedSender<BlobId>,
@@ -121,6 +122,7 @@ where
         membership: Self::Membership,
         addressbook: Self::Addressbook,
         subnet_refresh_signal: impl Stream<Item = ()> + Send + 'static,
+        balancer_stats_sender: UnboundedSender<BalancerStats>,
     ) -> Self {
         let keypair =
             libp2p::identity::Keypair::from(ed25519::Keypair::from(config.node_key.clone()));
@@ -137,6 +139,7 @@ where
                 subnets_settings: config.subnets_settings,
             },
             subnet_refresh_signal,
+            balancer_stats_sender,
         );
         let address = config.listening_address;
         // put swarm to listen at the specified configuration address
@@ -181,6 +184,7 @@ where
         ));
 
         Self {
+            connection_status: ConnectionStatus::InsufficientSubnetworkConnections,
             task_abort_handle,
             replies_task_abort_handle,
             shares_request_channel,
@@ -233,6 +237,10 @@ where
                 handle_balancer_command(&self.balancer_command_sender, response_sender).await;
             }
         }
+    }
+
+    fn update_status(&mut self, status: ConnectionStatus) {
+        self.connection_status = status;
     }
 
     async fn subscribe(

@@ -27,7 +27,10 @@ use super::{
 use crate::{
     addressbook::AddressBookHandler,
     behaviour::validator::{ValidatorBehaviour, ValidatorBehaviourEvent},
-    maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
+    maintenance::{
+        balancer::{ConnectionBalancer as Balancer, ConnectionBalancerCommand},
+        monitor::ConnectionMonitorCommand,
+    },
     protocols::{
         dispersal::validator::behaviour::DispersalEvent,
         replication::behaviour::{ReplicationConfig, ReplicationEvent},
@@ -112,6 +115,7 @@ where
             subnets_settings: subnets_config,
         }: SwarmSettings,
         refresh_signal: impl futures::Stream<Item = ()> + Send + 'static,
+        balancer_stats_sender: UnboundedSender<<ConnectionBalancer<Membership> as Balancer>::Stats>,
     ) -> (Self, ValidatorEventsStream) {
         let (sampling_events_sender, sampling_events_receiver) = unbounded_channel();
         let (validation_events_sender, validation_events_receiver) = unbounded_channel();
@@ -150,6 +154,7 @@ where
                     replication_config,
                     subnets_config,
                     refresh_signal,
+                    balancer_stats_sender,
                 ),
                 sampling_events_sender,
                 validation_events_sender,
@@ -172,6 +177,7 @@ where
         replication_config: ReplicationConfig,
         subnets_config: SubnetsConfig,
         refresh_signal: impl futures::Stream<Item = ()> + Send + 'static,
+        balancer_stats_sender: UnboundedSender<<ConnectionBalancer<Membership> as Balancer>::Stats>,
     ) -> ValidatorSwarmType<Membership, HistoricMembership, Addressbook> {
         SwarmBuilder::with_existing_identity(key)
             .with_tokio()
@@ -187,6 +193,7 @@ where
                     replication_config,
                     subnets_config,
                     refresh_signal,
+                    balancer_stats_sender,
                 )
             })
             .expect("Validator behaviour should build")

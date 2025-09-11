@@ -4,7 +4,13 @@ use std::{
     time::Duration,
 };
 
-use adapters::wallet::{mock::MockWalletAdapter, DaWalletAdapter};
+use adapters::{
+    storage::{mock::MockDispersalStorageAdapter, DispersalStorageAdapter},
+    wallet::{mock::MockWalletAdapter, DaWalletAdapter},
+};
+use backend::DispersalTask;
+use futures::{stream::FuturesUnordered, StreamExt as _};
+use nomos_core::mantle::{ops::channel::MsgId, AuthenticatedMantleTx as _, Op};
 use nomos_da_network_core::{PeerId, SubnetworkId};
 use overwatch::{
     services::{
@@ -14,10 +20,11 @@ use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
 };
 use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
 use services_utils::wait_until_services_are_ready;
 use subnetworks_assignations::MembershipHandler;
 use tokio::sync::oneshot;
-use tracing::{debug, error};
+use tracing::error;
 
 use crate::{adapters::network::DispersalNetworkAdapter, backend::DispersalBackend};
 
@@ -32,6 +39,7 @@ pub enum DaDispersalMsg<B: DispersalBackend> {
     },
 }
 
+#[serde_as]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DispersalServiceSettings<BackendSettings> {
     pub backend: BackendSettings,
@@ -42,6 +50,7 @@ pub type DispersalService<Backend, NetworkAdapter, Membership, RuntimeServiceId>
         Backend,
         NetworkAdapter,
         MockWalletAdapter,
+        MockDispersalStorageAdapter,
         Membership,
         RuntimeServiceId,
     >;
@@ -50,6 +59,7 @@ pub struct GenericDispersalService<
     Backend,
     NetworkAdapter,
     WalletAdapter,
+    StorageAdapter,
     Membership,
     RuntimeServiceId,
 > where
@@ -64,16 +74,19 @@ pub struct GenericDispersalService<
     Backend::Settings: Clone,
     NetworkAdapter: DispersalNetworkAdapter,
     WalletAdapter: DaWalletAdapter,
+    StorageAdapter: DispersalStorageAdapter,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     _backend: PhantomData<Backend>,
 }
 
-impl<Backend, NetworkAdapter, WalletAdapter, Membership, RuntimeServiceId> ServiceData
+impl<Backend, NetworkAdapter, WalletAdapter, StorageAdapter, Membership, RuntimeServiceId>
+    ServiceData
     for GenericDispersalService<
         Backend,
         NetworkAdapter,
         WalletAdapter,
+        StorageAdapter,
         Membership,
         RuntimeServiceId,
     >
@@ -89,6 +102,7 @@ where
     Backend::Settings: Clone,
     NetworkAdapter: DispersalNetworkAdapter,
     WalletAdapter: DaWalletAdapter,
+    StorageAdapter: DispersalStorageAdapter,
 {
     type Settings = DispersalServiceSettings<Backend::Settings>;
     type State = NoState<Self::Settings>;
@@ -97,12 +111,13 @@ where
 }
 
 #[async_trait::async_trait]
-impl<Backend, NetworkAdapter, WalletAdapter, Membership, RuntimeServiceId>
+impl<Backend, NetworkAdapter, WalletAdapter, StorageAdapter, Membership, RuntimeServiceId>
     ServiceCore<RuntimeServiceId>
     for GenericDispersalService<
         Backend,
         NetworkAdapter,
         WalletAdapter,
+        StorageAdapter,
         Membership,
         RuntimeServiceId,
     >
@@ -121,6 +136,7 @@ where
     NetworkAdapter: DispersalNetworkAdapter<SubnetworkId = Membership::NetworkId> + Send,
     <NetworkAdapter::NetworkService as ServiceData>::Message: 'static,
     WalletAdapter: DaWalletAdapter + Send,
+    StorageAdapter: DispersalStorageAdapter + Send,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -157,8 +173,10 @@ where
             .await?;
         let network_adapter = NetworkAdapter::new(network_relay);
         let wallet_adapter = WalletAdapter::new();
-        let mut backend = Backend::init(backend_settings, network_adapter, wallet_adapter);
+        let mut storage_adapter = StorageAdapter::new();
+        let backend = Backend::init(backend_settings, network_adapter, wallet_adapter);
         let mut inbound_relay = service_resources_handle.inbound_relay;
+        let mut disperse_tasks: FuturesUnordered<DispersalTask> = FuturesUnordered::new();
 
         service_resources_handle.status_updater.notify_ready();
         tracing::info!(
@@ -173,21 +191,39 @@ where
         )
         .await?;
 
-        while let Some(dispersal_msg) = inbound_relay.recv().await {
-            match dispersal_msg {
-                DaDispersalMsg::Disperse {
-                    data,
-                    reply_channel,
-                } => {
-                    let response = backend.process_dispersal(data).await;
-                    debug!("Dispersal response: {response:?}");
-                    if let Err(Err(e)) = reply_channel.send(response) {
-                        error!("Error forwarding dispersal response: {e}");
+        loop {
+            tokio::select! {
+                Some(dispersal_msg) = inbound_relay.recv() => {
+                    let DaDispersalMsg::Disperse {
+                        data,
+                        reply_channel,
+                    } = dispersal_msg;
+                    let last_tx = storage_adapter.last_tx();
+                    let parent_msg_id = last_tx.as_ref().map_or_else(MsgId::root, |tx| {
+                        let Some((Op::ChannelBlob(blob_op), _)) = tx.ops_with_proof().next() else {
+                            panic!("Previously sent transaction should have a blob operation");
+                        };
+                        blob_op.id()
+                    });
+                    match backend.process_dispersal(
+                        parent_msg_id,
+                        data,
+                        reply_channel,
+                    )
+                    .await {
+                        Ok(task) => disperse_tasks.push(task),
+                        Err(e) => error!("Error while processing dispersal: {e}"),
+                    }
+                }
+                Some(dispersal_result) = disperse_tasks.next() => {
+                    if let Some(tx) = dispersal_result {
+                        tracing::info!("Dispersal retry successful");
+                        let _ =storage_adapter.store_tx(tx);
+                    } else {
+                        tracing::error!("Dispersal failed after all retry attempts");
                     }
                 }
             }
         }
-
-        Ok(())
     }
 }

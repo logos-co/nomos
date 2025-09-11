@@ -2,12 +2,12 @@ use cryptarchia_engine::{Epoch, Slot};
 use groth16::Fr;
 use nomos_core::{
     crypto::{Digest as _, Hasher, ZkHasher},
-    mantle::{gas::GasConstants, AuthenticatedMantleTx, Note, NoteId, Utxo, Value},
+    mantle::{gas::GasConstants, AuthenticatedMantleTx, NoteId, Utxo, Value},
     proofs::{leader_proof, zksig::ZkSignatureProof as _},
 };
 use nomos_proof_statements::{leadership::LeaderPublic, zksig::ZkSignaturePublic};
 
-pub type UtxoTree = utxotree::UtxoTree<NoteId, Note, ZkHasher>;
+pub type UtxoTree = utxotree::UtxoTree<NoteId, Utxo, ZkHasher>;
 use super::{Balance, Config, LedgerError};
 use crate::mantle::locked_notes::LockedNotes;
 
@@ -202,15 +202,15 @@ impl LedgerState {
             if locked_notes.contains(input) {
                 return Err(LedgerError::LockedNote(*input));
             }
-            let note;
-            (self.utxos, note) = self
+            let utxo;
+            (self.utxos, utxo) = self
                 .utxos
                 .remove(input)
                 .map_err(|_| LedgerError::InvalidNote(*input))?;
             balance = balance
-                .checked_add(note.value.into())
+                .checked_add(utxo.note.value.into())
                 .ok_or(LedgerError::Overflow)?;
-            pks.push(note.pk.into());
+            pks.push(utxo.note.pk.into());
         }
 
         if !tx.ledger_tx_proof().verify(&ZkSignaturePublic {
@@ -221,14 +221,13 @@ impl LedgerState {
         }
 
         for utxo in ledger_tx.utxos() {
-            let note = utxo.note;
-            if note.value == 0 {
+            if utxo.note.value == 0 {
                 return Err(LedgerError::ZeroValueNote);
             }
             balance = balance
-                .checked_sub(note.value.into())
+                .checked_sub(utxo.note.value.into())
                 .ok_or(LedgerError::Overflow)?;
-            self.utxos = self.utxos.insert(utxo.id(), note).0;
+            self.utxos = self.utxos.insert(utxo.id(), utxo).0;
         }
 
         Ok((self, balance))
@@ -276,12 +275,12 @@ impl LedgerState {
     pub fn from_utxos(utxos: impl IntoIterator<Item = Utxo>) -> Self {
         let utxos = utxos
             .into_iter()
-            .map(|utxo| (utxo.id(), utxo.note))
+            .map(|utxo| (utxo.id(), utxo))
             .collect::<UtxoTree>();
         let total_stake = utxos
             .utxos()
             .iter()
-            .map(|(_, (note, _))| note.value)
+            .map(|(_, (utxo, _))| utxo.note.value)
             .sum::<Value>();
         Self {
             utxos: utxos.clone(),
@@ -326,7 +325,7 @@ pub mod tests {
     use nomos_core::{
         mantle::{
             gas::MainnetGasConstants, ledger::Tx as LedgerTx, ops::leader_claim::VoucherCm,
-            GasCost as _, MantleTx, SignedMantleTx, Transaction as _,
+            GasCost as _, MantleTx, Note, SignedMantleTx, Transaction as _,
         },
         proofs::zksig::DummyZkSignature,
     };
@@ -459,7 +458,7 @@ pub mod tests {
         let total_stake = utxos.iter().map(|u| u.note.value).sum();
         let utxos = utxos
             .iter()
-            .map(|utxo| (utxo.id(), utxo.note))
+            .map(|utxo| (utxo.id(), *utxo))
             .collect::<UtxoTree>();
         LedgerState {
             utxos: utxos.clone(),
@@ -508,7 +507,7 @@ pub mod tests {
         // spendable commitments and test epoch snapshotting is by doing this
         // manually
         let mut block_state = ledger.states[&id].clone().cryptarchia_ledger;
-        block_state.utxos = block_state.utxos.insert(utxo_add.id(), utxo_add.note).0;
+        block_state.utxos = block_state.utxos.insert(utxo_add.id(), utxo_add).0;
         ledger.states.insert(id, full_ledger_state(block_state));
         id
     }

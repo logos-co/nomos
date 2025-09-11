@@ -91,6 +91,7 @@ da_network:
   subnet_refresh_interval:
     secs: 30
     nanos: 0
+  subnet_threshold: 2048
 da_dispersal:
   backend:
     encoder_settings:
@@ -98,6 +99,8 @@ da_dispersal:
       with_cache: false
       global_params_path: /tmp
     dispersal_timeout: [20, 0]
+    retry_cooldown: [5, 0]
+    retry_limit: 2
 da_indexer:
   storage:
     blob_storage_directory: ./
@@ -185,9 +188,12 @@ cryptarchia:
     cryptarchia_ledger:
       utxos:
         0:
-          - "03b2d3b8a925adcb25eb686b92db7f21a75f0e0f7c93da95b383f0fd35279e48"
-          - value: 1
-            pk: "0000000000000000000000000000000000000000000000000000000000000000"
+          - 43cf2ab23e09036421231d523bc98b14d2f9cdf6dc6eb86d589b8fc79dac8304
+          - tx_hash: "0000000000000000000000000000000000000000000000000000000000000000"
+            output_index: 0
+            note:
+              value: 1
+              pk: "0000000000000000000000000000000000000000000000000000000000000000"
       nonce:
         [
           0,
@@ -263,9 +269,12 @@ cryptarchia:
           ]
         utxos:
           0:
-            - "03b2d3b8a925adcb25eb686b92db7f21a75f0e0f7c93da95b383f0fd35279e48"
-            - value: 1
-              pk: "0000000000000000000000000000000000000000000000000000000000000000"
+            - 43cf2ab23e09036421231d523bc98b14d2f9cdf6dc6eb86d589b8fc79dac8304
+            - tx_hash: "0000000000000000000000000000000000000000000000000000000000000000"
+              output_index: 0
+              note:
+                value: 1
+                pk: "0000000000000000000000000000000000000000000000000000000000000000"
         total_stake: 1
       epoch_state:
         epoch: 0
@@ -306,9 +315,12 @@ cryptarchia:
           ]
         utxos:
           0:
-            - "03b2d3b8a925adcb25eb686b92db7f21a75f0e0f7c93da95b383f0fd35279e48"
-            - value: 1
-              pk: "0000000000000000000000000000000000000000000000000000000000000000"
+            - 43cf2ab23e09036421231d523bc98b14d2f9cdf6dc6eb86d589b8fc79dac8304
+            - tx_hash: "0000000000000000000000000000000000000000000000000000000000000000"
+              output_index: 0
+              note:
+                value: 1
+                pk: "0000000000000000000000000000000000000000000000000000000000000000"
         total_stake: 1
     mantle_ledger:
       channels:

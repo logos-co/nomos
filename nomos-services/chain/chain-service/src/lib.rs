@@ -17,6 +17,7 @@ use std::{
     time::Duration,
 };
 
+pub use chain_service_defs::{ConsensusMsg, CryptarchiaInfo};
 use cryptarchia_engine::{PrunedBlocks, Slot};
 use cryptarchia_sync::{GetTipResponse, ProviderResponse};
 use futures::{StreamExt as _, TryFutureExt as _};
@@ -49,7 +50,6 @@ use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use serde_with::serde_as;
 use services_utils::{
     overwatch::{recovery::backends::FileBackendSettings, JsonFileBackend, RecoveryOperator},
     wait_until_services_are_ready,
@@ -1470,31 +1470,6 @@ where
 
         (cryptarchia, storage_blocks_to_remove)
     }
-}
-
-#[derive(Debug)]
-pub enum ConsensusMsg<Block> {
-    Info {
-        tx: oneshot::Sender<CryptarchiaInfo>,
-    },
-    BlockSubscribe {
-        sender: oneshot::Sender<broadcast::Receiver<Block>>,
-    },
-    GetHeaders {
-        from: Option<HeaderId>,
-        to: Option<HeaderId>,
-        tx: oneshot::Sender<Vec<HeaderId>>,
-    },
-}
-
-#[serde_as]
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct CryptarchiaInfo {
-    pub tip: HeaderId,
-    pub slot: Slot,
-    pub height: u64,
-    pub mode: cryptarchia_engine::State,
 }
 
 async fn get_mempool_contents<Payload, Item, Key>(
