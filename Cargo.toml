@@ -46,6 +46,7 @@ members = [
   "testnet/cfgsync",
   "tests",
   "utxotree",
+  "wallet",
   "zk/circuits/prover",
   "zk/circuits/utils",
   "zk/circuits/verifier",
