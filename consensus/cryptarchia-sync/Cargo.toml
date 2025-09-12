@@ -5,7 +5,7 @@ name              = "cryptarchia-sync"
 version           = "0.1.0"
 
 [dependencies]
-bytes              = { workspace = true }
+bytes              = { workspace = true, features = ["serde"] }
 cryptarchia-engine = { workspace = true }
 futures            = { default-features = false, version = "0.3" }
 libp2p             = { optional = true, workspace = true }

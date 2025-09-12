@@ -196,7 +196,7 @@ mod tests {
         );
 
         // Empty leader utxos.
-        let leader = Leader::new(vec![], Fr::from(BigUint::from(1u8)).into(), ledger_config);
+        let leader = Leader::new(vec![], Fr::from(BigUint::from(1u8)).into());
 
         // Build [`CryptarchiaConsensusState`] with the pruned blocks.
         let pruned_stale_blocks = pruned_blocks

@@ -1,3 +1,4 @@
+use ark_ff::{BigInteger as _, PrimeField as _};
 use bytes::{Bytes, BytesMut};
 use groth16::serde::serde_fr;
 use poseidon2::{Fr, ZkHash};
@@ -94,5 +95,17 @@ impl From<VoucherNullifier> for Fr {
 impl From<VoucherCm> for Fr {
     fn from(value: VoucherCm) -> Self {
         value.0
+    }
+}
+
+impl VoucherCm {
+    #[must_use]
+    pub fn to_bytes(&self) -> [u8; 32] {
+        let bytes_vec = self.0.into_bigint().to_bytes_le();
+        let mut bytes = [0u8; 32];
+        debug_assert!(bytes_vec.len() <= 32);
+        let len = bytes_vec.len().min(32);
+        bytes[..len].copy_from_slice(&bytes_vec[..len]);
+        bytes
     }
 }
