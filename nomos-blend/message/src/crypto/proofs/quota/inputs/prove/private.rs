@@ -34,8 +34,9 @@ impl Inputs {
         }
     }
 
-    /// Return the right `sk` for a Proof of Quota depending on the proof type, as per the spec: https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#25a261aa09df80e0a410f708190ac802.
-    pub fn get_secret_selection_randomness_sk(&self) -> ZkHash {
+    /// Return the right `sk` for a Proof of Quota depending on the proof type, as per the spec: <https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#25a261aa09df80e0a410f708190ac802>.
+    #[must_use]
+    pub const fn get_secret_selection_randomness_sk(&self) -> ZkHash {
         match self.proof_type {
             ProofType::CoreQuota(ProofOfCoreQuotaInputs { core_sk, .. }) => core_sk,
             ProofType::LeadershipQuota(ProofOfLeadershipQuotaInputs { pol_secret_key, .. }) => {

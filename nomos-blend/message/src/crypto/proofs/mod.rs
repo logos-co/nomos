@@ -24,7 +24,7 @@ impl crate::encap::ProofsVerifier for ProofsVerifier {
     type Error = Error;
 
     fn new() -> Self {
-        ProofsVerifier
+        Self
     }
 
     fn verify_proof_of_quota(
