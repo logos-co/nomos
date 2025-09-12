@@ -73,6 +73,8 @@ pub(crate) type BlendEdgeService = nomos_blend_service::edge::BlendService<
 pub(crate) type BlendService =
     nomos_blend_service::BlendService<BlendCoreService, BlendEdgeService, RuntimeServiceId>;
 
+pub(crate) type BlockBroadcastService = broadcast_service::BlockBroadcastService<RuntimeServiceId>;
+
 pub(crate) type DaDispersalService = DispersalService<
     DispersalKZGRSBackend<
         DispersalNetworkAdapter<
@@ -243,6 +245,7 @@ pub struct NomosExecutor {
     sdp: SdpService<RuntimeServiceId>,
     cl_mempool: ClMempoolService,
     cryptarchia: CryptarchiaService,
+    block_broadcast: BlockBroadcastService,
     time: TimeService,
     http: ApiService,
     storage: StorageService,

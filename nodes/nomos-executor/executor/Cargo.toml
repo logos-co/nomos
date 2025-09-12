@@ -19,6 +19,7 @@ workspace = true
 [dependencies]
 async-trait              = "0.1"
 axum                     = { default-features = false, features = ["http1", "http2", "json", "query", "tokio"], version = "0.7.5" }
+broadcast-service        = { workspace = true }
 clap                     = { default-features = false, features = ["derive"], version = "4.5.13" }
 color-eyre               = { default-features = false, version = "0.6.0" }
 futures                  = { default-features = false, version = "0.3" }

@@ -1,0 +1,15 @@
+[package]
+edition = "2024"
+license = { workspace = true }
+name    = "broadcast-service"
+version = "0.1.0"
+
+[lints]
+workspace = true
+
+[dependencies]
+async-trait = "0.1"
+nomos-core  = { workspace = true }
+overwatch   = { workspace = true }
+tokio       = { default-features = false, version = "1" }
+tracing     = { workspace = true }
