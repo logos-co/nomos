@@ -14,6 +14,8 @@ use crate::crypto::proofs::quota::inputs::{
 
 pub mod inputs;
 mod serde;
+#[cfg(test)]
+mod tests;
 
 const KEY_NULLIFIER_SIZE: usize = size_of::<ZkHash>();
 const PROOF_CIRCUIT_SIZE: usize = size_of::<PoQProof>();
@@ -107,6 +109,24 @@ impl ProofOfQuota {
     pub fn dummy() -> Self {
         Self::from_bytes_unchecked([0u8; _])
     }
+}
+
+const DOMAIN_SEPARATION_TAG: [u8; 23] = *b"SELECTION_RANDOMNESS_V1";
+static DOMAIN_SEPARATION_TAG_FR: LazyLock<ZkHash> = LazyLock::new(|| {
+    fr_from_slice(&DOMAIN_SEPARATION_TAG[..])
+        .expect("DST for secret selection randomness calculation must be correct.")
+});
+fn generate_secret_selection_randomness(sk: ZkHash, key_index: u64, session: u64) -> ZkHash {
+    let hash_input = [
+        *DOMAIN_SEPARATION_TAG_FR,
+        sk,
+        key_index.into(),
+        session.into(),
+    ];
+
+    let mut hasher = ZkHasher::new();
+    hasher.update(&hash_input);
+    hasher.finalize()
 }
 
 fn split_proof_components<G1Compressed, G2Compressed>(

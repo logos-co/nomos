@@ -93,9 +93,9 @@ where
             .iter()
             .enumerate()
             // Filter out excluded peers.
-            .filter(|(_, node_id)| exclude_peers.contains(node_id))
+            .filter(|(_, node_id)| !exclude_peers.contains(node_id))
             // Filter out local node, if the local node is a core node.
-            .filter(|(index, _)| self.local_node_index == Some(*index))
+            .filter(|(index, _)| self.local_node_index != Some(*index))
             // Discard index after it's used.
             .map(|(_, node)| node)
             .choose_multiple(rng, amount)
@@ -151,8 +151,12 @@ mod tests {
 
         assert_eq!(membership.size(), 3);
         assert_eq!(
-            membership.core_nodes.keys().copied().collect::<Vec<_>>(),
-            vec![1, 2, 3]
+            membership
+                .core_nodes
+                .keys()
+                .copied()
+                .collect::<HashSet<_>>(),
+            HashSet::from([1, 2, 3])
         );
         assert_eq!(membership.node_indices, vec![1, 2, 3]);
         assert_eq!(membership.local_node_index, Some(1));
@@ -168,8 +172,12 @@ mod tests {
 
         assert_eq!(membership.size(), 3);
         assert_eq!(
-            membership.core_nodes.keys().copied().collect::<Vec<_>>(),
-            vec![1, 2, 3]
+            membership
+                .core_nodes
+                .keys()
+                .copied()
+                .collect::<HashSet<_>>(),
+            HashSet::from([1, 2, 3])
         );
         assert_eq!(membership.node_indices, vec![1, 2, 3]);
         assert!(membership.local_node_index.is_none());

@@ -53,6 +53,8 @@ impl ProofOfSelection {
         }
     }
 
+    /// Returns the index the Proof of Selection refers to, for the provided
+    /// membership size.
     pub fn expected_index(&self, membership_size: usize) -> Result<usize, Error> {
         // Condition 1: https://www.notion.so/nomos-tech/Blend-Protocol-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df819991e6f9455ff7ec92
         let selection_randomness_bytes = fr_to_bytes(&self.selection_randomness);
