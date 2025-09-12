@@ -23,6 +23,7 @@ use nomos_core::crypto::ZkHash;
 use tokio::{
     spawn,
     sync::mpsc::{channel, Receiver, Sender},
+    task::spawn_blocking,
 };
 
 #[derive(Clone)]
@@ -132,7 +133,7 @@ fn start(
     session_info: SessionInfo,
 ) -> AbortHandle {
     let session_info_clone = session_info.clone();
-    let core_proofs_task = spawn(async move {
+    let core_proofs_task = spawn_blocking(async move || {
         for core_key_index in 0..total_core_proofs {
             let ephemeral_signing_key = Ed25519PrivateKey::generate();
             let Ok((proof_of_quota, secret_selection_randomness)) = ProofOfQuota::new(
@@ -169,7 +170,7 @@ fn start(
         }
     });
 
-    let leadership_proofs_task = spawn(async move {
+    let leadership_proofs_task = spawn_blocking(async move || {
         for leadership_key_index in 0..total_leadership_proofs {
             let ephemeral_signing_key = Ed25519PrivateKey::generate();
             let Ok((proof_of_quota, secret_selection_randomness)) = ProofOfQuota::new(
