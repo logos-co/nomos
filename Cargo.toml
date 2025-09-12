@@ -41,6 +41,7 @@ members = [
   "nomos-services/time",
   "nomos-services/tracing",
   "nomos-services/utils",
+  "nomos-services/wallet",
   "nomos-tracing",
   "nomos-utils",
   "testnet/cfgsync",
@@ -107,6 +108,7 @@ nomos-time               = { default-features = false, path = "./nomos-services/
 nomos-tracing            = { default-features = false, path = "./nomos-tracing" }
 nomos-tracing-service    = { default-features = false, path = "./nomos-services/tracing" }
 nomos-utils              = { default-features = false, path = "./nomos-utils" }
+nomos-wallet             = { default-features = false, path = "./nomos-services/wallet" }
 nomos_proof_statements   = { default-features = false, path = "./nomos-core/proof_statements" }
 poc                      = { default-features = false, path = "./zk/proofs/poc" }
 pol                      = { default-features = false, path = "./zk/proofs/pol" }
@@ -116,6 +118,7 @@ services-utils           = { default-features = false, path = "./nomos-services/
 subnetworks-assignations = { default-features = false, path = "./nomos-da/network/subnetworks-assignations" }
 tests                    = { default-features = false, path = "./tests" }
 utxotree                 = { default-features = false, path = "./utxotree" }
+wallet                   = { default-features = false, path = "./wallet" }
 witness-generator        = { default-features = false, path = "zk/circuits/witness-generator" }
 zksign                   = { default-features = false, path = "./zk/proofs/zksign" }
 

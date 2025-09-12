@@ -1,0 +1,29 @@
+[package]
+edition = "2021"
+license = { workspace = true }
+name    = "nomos-wallet"
+version = "0.1.0"
+
+[dependencies]
+async-trait = "0.1"
+bytes       = "1.0"
+serde       = { version = "1.0", features = ["derive"] }
+thiserror   = "1.0"
+tokio       = { version = "1", features = ["sync"] }
+
+chain-service      = { workspace = true }
+cryptarchia-engine = { workspace = true }
+kzgrs-backend      = { workspace = true }
+nomos-core         = { workspace = true }
+nomos-ledger       = { workspace = true, features = ["serde"] }
+nomos-storage      = { workspace = true, features = ["mock"] }
+overwatch          = { workspace = true }
+wallet             = { workspace = true }
+
+[dev-dependencies]
+bincode    = "1.3"
+num-bigint = { version = "0.4", default-features = false }
+tokio-test = "0.4"
+
+[lints]
+workspace = true
