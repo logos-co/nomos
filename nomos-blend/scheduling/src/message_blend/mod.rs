@@ -7,7 +7,7 @@ use futures::{
     stream::{AbortHandle, Abortable},
 };
 use nomos_blend_message::crypto::{
-    keys::Ed25519PrivateKey,
+    keys::{Ed25519PrivateKey, Ed25519PublicKey},
     proofs::{
         quota::{
             inputs::prove::{

@@ -1,12 +1,23 @@
-use core::{num::NonZeroUsize, time::Duration};
+use core::{convert::Infallible, num::NonZeroUsize, time::Duration, u64};
 use std::collections::{HashSet, VecDeque};
 
 use async_trait::async_trait;
+use groth16::Field as _;
 use libp2p::{Multiaddr, PeerId, Stream, Swarm};
 use libp2p_stream::Behaviour as StreamBehaviour;
 use libp2p_swarm_test::SwarmExt as _;
-use nomos_blend_message::crypto::Ed25519PrivateKey;
+use nomos_blend_message::{
+    crypto::{
+        keys::Ed25519PrivateKey,
+        proofs::{
+            quota::{inputs::prove::PublicInputs, ProofOfQuota},
+            selection::{inputs::VerifyInputs, ProofOfSelection},
+        },
+    },
+    encap::{self, encapsulated::PoQVerificationInputMinusSigningKey, ProofsVerifier},
+};
 use nomos_blend_scheduling::membership::{Membership, Node};
+use nomos_core::crypto::ZkHash;
 
 use crate::core::{tests::utils::PROTOCOL_NAME, with_edge::behaviour::Behaviour};
 
@@ -71,13 +82,25 @@ impl BehaviourBuilder {
 }
 
 #[async_trait]
-pub trait StreamBehaviourExt: libp2p_swarm_test::SwarmExt {
-    async fn connect_and_upgrade_to_blend(&mut self, other: &mut Swarm<Behaviour>) -> Stream;
+pub trait StreamBehaviourExt<ProofsVerifier>: libp2p_swarm_test::SwarmExt
+where
+    ProofsVerifier: encap::ProofsVerifier + 'static,
+{
+    async fn connect_and_upgrade_to_blend(
+        &mut self,
+        other: &mut Swarm<Behaviour<ProofsVerifier>>,
+    ) -> Stream;
 }
 
 #[async_trait]
-impl StreamBehaviourExt for Swarm<StreamBehaviour> {
-    async fn connect_and_upgrade_to_blend(&mut self, other: &mut Swarm<Behaviour>) -> Stream {
+impl<ProofsVerifier> StreamBehaviourExt<ProofsVerifier> for Swarm<StreamBehaviour>
+where
+    ProofsVerifier: encap::ProofsVerifier + 'static,
+{
+    async fn connect_and_upgrade_to_blend(
+        &mut self,
+        other: &mut Swarm<Behaviour<ProofsVerifier>>,
+    ) -> Stream {
         // We connect and return the stream preventing it from being dropped so the
         // blend node does not close the connection with an EOF error.
         self.connect(other).await;
@@ -86,5 +109,43 @@ impl StreamBehaviourExt for Swarm<StreamBehaviour> {
             .open_stream(*other.local_peer_id(), PROTOCOL_NAME)
             .await
             .unwrap()
+    }
+}
+
+pub struct AlwaysTrueVerifier;
+
+impl ProofsVerifier for AlwaysTrueVerifier {
+    type Error = Infallible;
+
+    fn new() -> Self {
+        Self
+    }
+
+    fn verify_proof_of_quota(
+        &self,
+        _: ProofOfQuota,
+        _: &PublicInputs,
+    ) -> Result<ZkHash, Self::Error> {
+        Ok(ZkHash::ZERO)
+    }
+
+    fn verify_proof_of_selection(
+        &self,
+        _: ProofOfSelection,
+        _: &VerifyInputs,
+    ) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+pub fn default_poq_verification_inputs() -> PoQVerificationInputMinusSigningKey {
+    PoQVerificationInputMinusSigningKey {
+        session: u64::MIN,
+        core_root: ZkHash::ZERO,
+        pol_ledger_aged: ZkHash::ZERO,
+        pol_epoch_nonce: ZkHash::ZERO,
+        core_quota: u64::MIN,
+        leader_quota: u64::MIN,
+        total_stake: u64::MIN,
     }
 }

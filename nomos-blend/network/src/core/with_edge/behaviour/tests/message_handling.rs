@@ -16,7 +16,6 @@ use crate::{
             Event,
         },
     },
-    message::ValidateMessagePublicHeader as _,
     send_msg,
 };
 
@@ -43,7 +42,7 @@ async fn receive_valid_message() {
             _ = edge_swarm.select_next_some() => {}
             core_swarm_event = core_swarm.select_next_some() => {
                 if let SwarmEvent::Behaviour(Event::Message(received_message)) = core_swarm_event {
-                    assert_eq!(received_message, message.clone().validate_public_header().unwrap());
+                    assert_eq!(received_message, message.clone().un validate_public_header().unwrap());
                     break;
                 }
             }
