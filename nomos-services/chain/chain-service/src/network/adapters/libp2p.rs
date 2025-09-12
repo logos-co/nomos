@@ -2,7 +2,7 @@ use std::{collections::HashSet, fmt::Debug, hash::Hash, marker::PhantomData};
 
 use cryptarchia_sync::GetTipResponse;
 use futures::{future::select_ok, FutureExt as _, TryStreamExt as _};
-use nomos_core::{block::Block, header::HeaderId, wire};
+use nomos_core::{block::Block, codec::SerdeOp, header::HeaderId};
 use nomos_network::{
     backends::libp2p::{
         ChainSyncCommand, Command, DiscoveryCommand, Libp2p, NetworkCommand, PeerId,
@@ -136,7 +136,7 @@ where
         }
         let stream = receiver.await.map_err(Box::new)?;
         Ok(Box::new(stream.filter_map(|message| match message {
-            Ok(message) => wire::deserialize(&message.data).map_or_else(
+            Ok(message) => <NetworkMessage<Tx> as SerdeOp>::deserialize(&message.data).map_or_else(
                 |_| {
                     tracing::debug!("unrecognized gossipsub message");
                     None
@@ -220,7 +220,7 @@ where
         let stream = stream.map_err(|e| Box::new(e) as DynError).map(|result| {
             let block = result?;
             let block: Self::Block =
-                wire::deserialize(&block).map_err(|e| Box::new(e) as DynError)?;
+                <Block<Tx> as SerdeOp>::deserialize(&block).map_err(|e| Box::new(e) as DynError)?;
             Ok((block.header().id(), block))
         });
 

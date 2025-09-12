@@ -10,7 +10,7 @@ use nomos_blend_message::{
     input::{EncapsulationInput, EncapsulationInputs as InternalEncapsulationInputs},
     Error, PayloadType,
 };
-use nomos_core::wire;
+use nomos_core::codec::SerdeOp;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 
@@ -149,9 +149,11 @@ where
 
 #[must_use]
 pub fn serialize_encapsulated_message(message: &EncapsulatedMessage) -> Vec<u8> {
-    wire::serialize(&message).expect("EncapsulatedMessage should be serializable")
+    <EncapsulatedMessage as SerdeOp>::serialize(message)
+        .expect("EncapsulatedMessage should be serializable")
+        .to_vec()
 }
 
 pub fn deserialize_encapsulated_message(message: &[u8]) -> Result<EncapsulatedMessage, Error> {
-    wire::deserialize(message).map_err(|_| Error::DeserializationFailed)
+    <EncapsulatedMessage as SerdeOp>::deserialize(message).map_err(|_| Error::DeserializationFailed)
 }

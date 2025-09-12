@@ -40,7 +40,7 @@ use nomos_node::{
         VerifierMempoolAdapter,
     },
     BlobInfo, DaNetworkApiAdapter, NetworkBackend, NomosDaMembership, RocksBackend, SystemSig,
-    Wire, MB16,
+    MB16,
 };
 use nomos_time::backends::NtpTimeBackend;
 use overwatch::derive_services;
@@ -159,8 +159,8 @@ pub(crate) type CryptarchiaService = nomos_node::generic_services::CryptarchiaSe
 
 pub(crate) type TimeService = nomos_node::generic_services::TimeService<RuntimeServiceId>;
 
-pub(crate) type ApiStorageAdapter<StorageOp, RuntimeServiceId> =
-    nomos_api::http::storage::adapters::rocksdb::RocksAdapter<StorageOp, RuntimeServiceId>;
+pub(crate) type ApiStorageAdapter<RuntimeServiceId> =
+    nomos_api::http::storage::adapters::rocksdb::RocksAdapter<RuntimeServiceId>;
 
 pub(crate) type ApiService = nomos_api::ApiService<
     AxumBackend<
@@ -178,9 +178,8 @@ pub(crate) type ApiService = nomos_api::ApiService<
             DaNetworkApiAdapter,
             RuntimeServiceId,
         >,
-        VerifierStorageAdapter<DaShare, Wire, DaStorageConverter>,
+        VerifierStorageAdapter<DaShare, DaStorageConverter>,
         SignedMantleTx,
-        Wire,
         DaStorageConverter,
         DispersalKZGRSBackend<
             DispersalNetworkAdapter<
@@ -208,18 +207,17 @@ pub(crate) type ApiService = nomos_api::ApiService<
             DaNetworkApiAdapter,
             RuntimeServiceId,
         >,
-        SamplingStorageAdapter<DaShare, Wire, DaStorageConverter>,
+        SamplingStorageAdapter<DaShare, DaStorageConverter>,
         VerifierMempoolAdapter<DaNetworkAdapter, RuntimeServiceId>,
         NtpTimeBackend,
         DaNetworkApiAdapter,
-        ApiStorageAdapter<Wire, RuntimeServiceId>,
+        ApiStorageAdapter<RuntimeServiceId>,
         MB16,
     >,
     RuntimeServiceId,
 >;
 
-pub(crate) type StorageService =
-    nomos_storage::StorageService<RocksBackend<Wire>, RuntimeServiceId>;
+pub(crate) type StorageService = nomos_storage::StorageService<RocksBackend, RuntimeServiceId>;
 
 pub(crate) type SystemSigService = SystemSig<RuntimeServiceId>;
 

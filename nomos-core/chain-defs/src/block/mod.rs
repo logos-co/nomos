@@ -2,7 +2,7 @@ use ::serde::{de::DeserializeOwned, Deserialize, Serialize};
 use bytes::Bytes;
 use poseidon2::Fr;
 
-use crate::{header::Header, wire};
+use crate::{codec::SerdeOp, header::Header};
 pub type TxHash = [u8; 32];
 pub type BlockNumber = u64;
 pub type SessionNumber = u64;
@@ -71,18 +71,17 @@ impl<Tx> Block<Tx> {
 }
 
 impl<Tx: Clone + Eq + Serialize + DeserializeOwned> TryFrom<Bytes> for Block<Tx> {
-    type Error = wire::Error;
+    type Error = crate::codec::Error;
 
     fn try_from(bytes: Bytes) -> Result<Self, Self::Error> {
-        wire::deserialize(&bytes)
+        <Self as SerdeOp>::deserialize(&bytes)
     }
 }
 
 impl<Tx: Clone + Eq + Serialize + DeserializeOwned> TryFrom<Block<Tx>> for Bytes {
-    type Error = wire::Error;
+    type Error = crate::codec::Error;
 
     fn try_from(block: Block<Tx>) -> Result<Self, Self::Error> {
-        let serialized = wire::serialize(&block)?;
-        Ok(serialized.into())
+        <Block<Tx> as SerdeOp>::serialize(&block)
     }
 }

@@ -9,7 +9,7 @@ use futures::Stream;
 use nomos_core::{block::Block, da::blob::Share, header::HeaderId};
 use nomos_storage::{
     api::da::DaConverter,
-    backends::{rocksdb::RocksBackend, StorageBackend, StorageSerde},
+    backends::{rocksdb::RocksBackend, StorageBackend},
     StorageService,
 };
 use overwatch::services::{relay::OutboundRelay, AsServiceId, ServiceData};
@@ -18,15 +18,12 @@ use serde::{de::DeserializeOwned, Serialize};
 pub mod adapters;
 
 #[async_trait::async_trait]
-pub trait StorageAdapter<StorageOp, RuntimeServiceId>
-where
-    StorageOp: StorageSerde + Send + Sync + 'static,
-{
+pub trait StorageAdapter<RuntimeServiceId> {
     type Backend: StorageBackend + Send + Sync + 'static;
 
     async fn get_light_share<Converter, DaShare>(
         storage_relay: OutboundRelay<
-            <StorageService<RocksBackend<StorageOp>, RuntimeServiceId> as ServiceData>::Message,
+            <StorageService<RocksBackend, RuntimeServiceId> as ServiceData>::Message,
         >,
         blob_id: <DaShare as Share>::BlobId,
         share_idx: <DaShare as Share>::ShareIndex,
@@ -36,11 +33,11 @@ where
         <DaShare as Share>::BlobId: Send + Sync + 'static,
         <DaShare as Share>::ShareIndex: Send + Sync + 'static,
         <DaShare as Share>::LightShare: DeserializeOwned + Send + Sync + 'static,
-        Converter: DaConverter<RocksBackend<StorageOp>, Share = DaShare> + Send + Sync + 'static;
+        Converter: DaConverter<RocksBackend, Share = DaShare> + Send + Sync + 'static;
 
     async fn get_shares<Converter, DaShare>(
         storage_relay: OutboundRelay<
-            <StorageService<RocksBackend<StorageOp>, RuntimeServiceId> as ServiceData>::Message,
+            <StorageService<RocksBackend, RuntimeServiceId> as ServiceData>::Message,
         >,
         blob_id: DaShare::BlobId,
         requested_shares: HashSet<DaShare::ShareIndex>,
@@ -55,15 +52,13 @@ where
         DaShare::BlobId: Clone + Send + Sync + 'static,
         DaShare::ShareIndex: DeserializeOwned + Hash + Eq + Send + Sync + 'static,
         DaShare::LightShare: Serialize + DeserializeOwned + Send + Sync + 'static,
-        Converter: DaConverter<RocksBackend<StorageOp>, Share = DaShare> + Send + Sync + 'static,
-        RuntimeServiceId: Debug
-            + Sync
-            + Display
-            + AsServiceId<StorageService<RocksBackend<StorageOp>, RuntimeServiceId>>;
+        Converter: DaConverter<RocksBackend, Share = DaShare> + Send + Sync + 'static,
+        RuntimeServiceId:
+            Debug + Sync + Display + AsServiceId<StorageService<RocksBackend, RuntimeServiceId>>;
 
     async fn get_shared_commitments<Converter, DaShare>(
         storage_relay: OutboundRelay<
-            <StorageService<RocksBackend<StorageOp>, RuntimeServiceId> as ServiceData>::Message,
+            <StorageService<RocksBackend, RuntimeServiceId> as ServiceData>::Message,
         >,
         blob_id: <DaShare as Share>::BlobId,
     ) -> Result<Option<<DaShare as Share>::SharesCommitments>, super::DynError>
@@ -71,14 +66,14 @@ where
         DaShare: Share,
         <DaShare as Share>::BlobId: Send + Sync + 'static,
         <DaShare as Share>::SharesCommitments: DeserializeOwned + Send + Sync + 'static,
-        Converter: DaConverter<RocksBackend<StorageOp>, Share = DaShare> + Send + Sync + 'static;
+        Converter: DaConverter<RocksBackend, Share = DaShare> + Send + Sync + 'static;
 
     async fn get_block<Tx>(
         storage_relay: OutboundRelay<
-            <StorageService<RocksBackend<StorageOp>, RuntimeServiceId> as ServiceData>::Message,
+            <StorageService<RocksBackend, RuntimeServiceId> as ServiceData>::Message,
         >,
         id: HeaderId,
     ) -> Result<Option<Block<Tx>>, crate::http::DynError>
     where
-        Tx: Serialize + DeserializeOwned + Clone + Eq;
+        Tx: Serialize + DeserializeOwned + Clone + Eq + 'static;
 }

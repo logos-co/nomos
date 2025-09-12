@@ -24,7 +24,7 @@ use nomos_blend_scheduling::{
     message_scheduler::{round_info::RoundInfo, MessageScheduler},
     session::{SessionEvent, UninitializedSessionEventStream},
 };
-use nomos_core::wire;
+use nomos_core::codec::SerdeOp;
 use nomos_network::NetworkService;
 use nomos_utils::blake_rng::BlakeRng;
 use overwatch::{
@@ -281,13 +281,14 @@ async fn handle_local_data_message<
     NodeId: Eq + Hash + Send,
     Rng: RngCore + Send,
     Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId> + Sync,
-    BroadcastSettings: Serialize,
+    BroadcastSettings: Serialize + for<'de> Deserialize<'de> + Send,
 {
     let ServiceMessage::Blend(message_payload) = local_data_message;
 
-    let Ok(serialized_data_message) = wire::serialize(&message_payload).inspect_err(|_| tracing::error!(target: LOG_TARGET, "Message from internal service failed to be serialized.")) else {
-        return;
-    };
+    let serialized_data_message =
+        <NetworkMessage<BroadcastSettings> as SerdeOp>::serialize(&message_payload)
+            .expect("NetworkMessage should be able to be serialized")
+            .to_vec();
 
     let Ok(wrapped_message) = cryptographic_processor
         .encapsulate_data_payload(&serialized_data_message)
@@ -308,7 +309,7 @@ fn handle_incoming_blend_message<Rng, NodeId, SessionClock, BroadcastSettings>(
     scheduler: &mut MessageScheduler<SessionClock, Rng, ProcessedMessage<BroadcastSettings>>,
     cryptographic_processor: &CryptographicProcessor<NodeId, Rng>,
 ) where
-    BroadcastSettings: for<'de> Deserialize<'de>,
+    BroadcastSettings: Serialize + for<'de> Deserialize<'de> + Send,
 {
     let Ok(decapsulated_message) = cryptographic_processor.decapsulate_message(validated_encapsulated_message.into_inner()).inspect_err(|e| {
         tracing::debug!(target: LOG_TARGET, "Failed to decapsulate received message with error {e:?}");
@@ -324,9 +325,9 @@ fn handle_incoming_blend_message<Rng, NodeId, SessionClock, BroadcastSettings>(
                 (PayloadType::Data, serialized_data_message) => {
                     tracing::debug!(target: LOG_TARGET, "Processing a fully decapsulated data message.");
                     if let Ok(deserialized_network_message) =
-                        wire::deserialize::<NetworkMessage<BroadcastSettings>>(
-                            serialized_data_message.as_ref(),
-                        )
+                        <NetworkMessage<BroadcastSettings> as SerdeOp>::deserialize::<
+                            NetworkMessage<BroadcastSettings>,
+                        >(&serialized_data_message)
                     {
                         scheduler.schedule_message(deserialized_network_message.into());
                     } else {

@@ -1,7 +1,7 @@
 use std::iter::repeat_n;
 
 use itertools::Itertools as _;
-use nomos_core::wire;
+use nomos_core::codec::SerdeOp;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
@@ -474,14 +474,18 @@ impl EncapsulatedBlendingHeader {
     /// Build a [`EncapsulatedBlendingHeader`] by serializing a
     /// [`BlendingHeader`] without any encapsulation.
     fn initialize(header: &BlendingHeader) -> Self {
-        Self(wire::serialize(header).expect("BlendingHeader should be able to be serialized"))
+        Self(
+            <BlendingHeader as SerdeOp>::serialize(header)
+                .expect("BlendingHeader should be able to be serialized")
+                .to_vec(),
+        )
     }
 
     /// Try to deserialize into a [`BlendingHeader`].
     /// If there is no encapsulation left, and if the bytes are valid,
     /// the deserialization will succeed.
     fn try_deserialize(&self) -> Result<BlendingHeader, Error> {
-        wire::deserialize(&self.0).map_err(|_| Error::DeserializationFailed)
+        <BlendingHeader as SerdeOp>::deserialize(&self.0).map_err(|_| Error::DeserializationFailed)
     }
 
     /// Add a layer of encapsulation.
@@ -508,14 +512,18 @@ impl EncapsulatedPayload {
     /// Build a [`EncapsulatedPayload`] by serializing a [`Payload`]
     /// without any encapsulation.
     fn initialize(payload: &Payload) -> Self {
-        Self(wire::serialize(payload).expect("Payload should be able to be serialized"))
+        Self(
+            <Payload as SerdeOp>::serialize(payload)
+                .expect("Payload should be able to be serialized")
+                .to_vec(),
+        )
     }
 
     /// Try to deserialize into a [`Payload`].
     /// If there is no encapsulation left, and if the bytes are valid,
     /// the deserialization will succeed.
     fn try_deserialize(&self) -> Result<Payload, Error> {
-        wire::deserialize(&self.0).map_err(|_| Error::DeserializationFailed)
+        <Payload as SerdeOp>::deserialize(&self.0).map_err(|_| Error::DeserializationFailed)
     }
 
     /// Add a layer of encapsulation.
