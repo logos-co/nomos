@@ -1,7 +1,7 @@
 [package]
-edition = "2021"
+edition = "2024"
 license = { workspace = true }
-name    = "nomos-sdp"
+name    = "broadcast-service"
 version = "0.1.0"
 
 [lints]
@@ -9,11 +9,7 @@ workspace = true
 
 [dependencies]
 async-trait  = "0.1"
-broadcast-service = { workspace = true }
-futures      = { default-features = false, version = "0.3" }
-nomos-core   = { workspace = true }
 overwatch    = { workspace = true }
-thiserror    = "1"
 tokio        = { default-features = false, version = "1" }
 tokio-stream = { default-features = false, version = "0.1" }
 tracing      = { workspace = true }
