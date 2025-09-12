@@ -82,6 +82,7 @@ fn witness_input_for_proof_type(
             slot_secret_path,
             starting_slot,
             transaction_hash,
+            ..
         }) => {
             let wallet_input_data = PoQWalletInputsData {
                 aged_path,

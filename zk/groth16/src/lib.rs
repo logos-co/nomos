@@ -58,6 +58,10 @@ pub struct FrFromBytesError {
 }
 
 pub fn fr_from_bytes(fr: &FrBytes) -> Result<Fr, impl Error + use<>> {
+    fr_from_slice(&fr[..])
+}
+
+pub fn fr_from_slice(fr: &[u8]) -> Result<Fr, impl Error + use<>> {
     let n = BigUint::from_bytes_le(fr);
     if n > <Fr as PrimeField>::MODULUS.into() {
         return Err(FrFromBytesError {

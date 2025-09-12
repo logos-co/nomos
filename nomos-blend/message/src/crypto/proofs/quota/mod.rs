@@ -1,7 +1,9 @@
+use std::sync::LazyLock;
+
 use ::serde::{Deserialize, Serialize};
 use generic_array::{ArrayLength, GenericArray};
-use groth16::{fr_from_bytes_unchecked, Bn254, CompressSize};
-use nomos_core::crypto::ZkHash;
+use groth16::{fr_from_bytes_unchecked, fr_from_slice, Bn254, CompressSize};
+use nomos_core::crypto::{ZkHash, ZkHasher};
 use poq::{prove, verify, PoQProof, PoQVerifierInput, PoQWitnessInputs, ProveError};
 use thiserror::Error;
 
@@ -40,8 +42,14 @@ pub enum Error {
 
 impl ProofOfQuota {
     /// Generate a new Proof of Quota with the provided public and private
-    /// inputs.
-    pub fn new(public_inputs: &PublicInputs, private_inputs: PrivateInputs) -> Result<Self, Error> {
+    /// inputs, along with the secret selection randomness for the Proof of
+    /// Selection associated to this Proof of Quota.
+    pub fn new(
+        public_inputs: &PublicInputs,
+        private_inputs: PrivateInputs,
+    ) -> Result<(Self, ZkHash), Error> {
+        let key_index = private_inputs.key_index;
+        let secret_selection_randomness_sk = private_inputs.get_secret_selection_randomness_sk();
         let witness_inputs: PoQWitnessInputs = Inputs {
             private: private_inputs,
             public: *public_inputs,
@@ -50,10 +58,18 @@ impl ProofOfQuota {
         .map_err(|e| Error::InvalidInput(Box::new(e)))?;
         let (proof, PoQVerifierInput { key_nullifier, .. }) =
             prove(&witness_inputs).map_err(Error::ProofGeneration)?;
-        Ok(Self {
-            key_nullifier: key_nullifier.into_inner(),
-            proof,
-        })
+        let secret_selection_randomness = generate_secret_selection_randomness(
+            secret_selection_randomness_sk,
+            key_index,
+            public_inputs.session,
+        );
+        Ok((
+            Self {
+                key_nullifier: key_nullifier.into_inner(),
+                proof,
+            },
+            secret_selection_randomness,
+        ))
     }
 
     #[must_use]

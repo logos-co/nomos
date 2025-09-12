@@ -8,8 +8,8 @@ use crate::{
     crypto::{
         keys::{Ed25519PrivateKey, Ed25519PublicKey, SharedKey},
         proofs::{
-            quota::{inputs::prove::PublicInputs, ProofOfQuota},
-            selection::{inputs::VerifyInputs, ProofOfSelection},
+            quota::{self, inputs::prove::PublicInputs, ProofOfQuota},
+            selection::{self, inputs::VerifyInputs, ProofOfSelection},
         },
         random_sized_bytes,
         signatures::Signature,
@@ -108,7 +108,7 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
         // Verify the Proof of Quota according to the Blend spec: <https://www.notion.so/nomos-tech/Blend-Protocol-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81b593ddce00cffd24a8>.
         let key_nullifier = verifier
             .verify_proof_of_quota(proof_of_quota, poq_verification_input)
-            .map_err(|_| Error::ProofOfQuotaVerificationFailed)?;
+            .map_err(|_| Error::ProofOfQuotaVerificationFailed(quota::Error::InvalidProof))?;
         Ok(UnwrappedEncapsulatedMessage::new(
             key_nullifier,
             signing_pubkey,
@@ -356,7 +356,9 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPrivateHeader<ENCAPSULATION_C
         // Verify PoSel according to the Blend spec: <https://www.notion.so/nomos-tech/Blend-Protocol-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81dd8cbedc8af4649a6a>.
         verifier
             .verify_proof_of_selection(proof_of_selection, posel_verification_input)
-            .map_err(|_| Error::ProofOfSelectionVerificationFailed)?;
+            .map_err(|_| {
+                Error::ProofOfSelectionVerificationFailed(selection::Error::Verification)
+            })?;
 
         // Build a new public header with the values in the first blending header.
         let public_header = PublicHeader::new(signing_pubkey, &proof_of_quota, signature);

@@ -153,34 +153,80 @@ where
         ))
     }
 
+    // TODO: Think about optimizing this by, e.g., using less encapsulations if
+    // there are less than 3 proofs available, or use a proof from a different pool
+    // if needed (core proof for leadership message or leadership proof for
+    // cover message, since the protocol does not enforce that).
     async fn encapsulate_payload(
         &mut self,
         payload_type: PayloadType,
         payload: &[u8],
     ) -> Result<EncapsulatedMessage, Error> {
-        // Retrieve the non-ephemeral signing keys of the blend nodes
-        let blend_node_signing_keys = self
-            .membership
-            .choose_remote_nodes(&mut self.rng, self.settings.num_blend_layers as usize)
-            .map(|node| node.public_key)
-            .collect::<Vec<_>>();
+        let (first_layer_proof, second_layer_proof, third_layer_proof) = match payload_type {
+            PayloadType::Cover => (
+                self.proofs_generator.get_next_core_proof().await,
+                self.proofs_generator.get_next_core_proof().await,
+                self.proofs_generator.get_next_core_proof().await,
+            ),
+            PayloadType::Data => (
+                self.proofs_generator.get_next_leadership_proof().await,
+                self.proofs_generator.get_next_leadership_proof().await,
+                self.proofs_generator.get_next_leadership_proof().await,
+            ),
+        };
+        let (Some(first_layer_proof), Some(second_layer_proof), Some(third_layer_proof)) =
+            (first_layer_proof, second_layer_proof, third_layer_proof)
+        else {
+            return Err(Error::NoMoreProofOfQuotas);
+        };
+
+        let membership_size = self.membership.size();
+        let (first_node_index, second_node_index, third_node_index) = (
+            first_layer_proof
+                .proof_of_selection
+                .expected_index(membership_size)
+                .expect("First node index should exist."),
+            second_layer_proof
+                .proof_of_selection
+                .expected_index(membership_size)
+                .expect("Second node index should exist."),
+            third_layer_proof
+                .proof_of_selection
+                .expected_index(membership_size)
+                .expect("Third node index should exist."),
+        );
+        let (first_node_signing_key, second_node_signing_key, third_node_signing_key) = (
+            self.membership
+                .get_node_at(first_node_index)
+                .expect("First node should exist.")
+                .public_key,
+            self.membership
+                .get_node_at(second_node_index)
+                .expect("Second node should exist.")
+                .public_key,
+            self.membership
+                .get_node_at(third_node_index)
+                .expect("Third node should exist.")
+                .public_key,
+        );
 
         let inputs = EncapsulationInputs::new(
-            blend_node_signing_keys
-                .iter()
-                .map(|blend_node_signing_key| {
-                    // Generate an ephemeral signing key for each
-                    // encapsulation.
-                    let ephemeral_signing_key = Ed25519PrivateKey::generate();
-                    EncapsulationInput::new(
-                        ephemeral_signing_key,
-                        blend_node_signing_key,
-                        ProofOfQuota::dummy(),
-                        ProofOfSelection::dummy(),
-                    )
-                })
-                .collect::<Vec<_>>()
-                .into_boxed_slice(),
+            [
+                (first_layer_proof, first_node_signing_key),
+                (second_layer_proof, second_node_signing_key),
+                (third_layer_proof, third_node_signing_key),
+            ]
+            .into_iter()
+            .map(|(proof, receiver_non_ephemeral_signing_key)| {
+                EncapsulationInput::new(
+                    proof.ephemeral_signing_key,
+                    receiver_non_ephemeral_signing_key,
+                    proof.proof_of_quota,
+                    proof.proof_of_selection,
+                )
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice(),
         )?;
 
         EncapsulatedMessage::new(&inputs, payload_type, payload)

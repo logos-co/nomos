@@ -20,4 +20,6 @@ pub enum Error {
     SignatureVerificationFailed,
     #[error("Node is not a core node")]
     NotCoreNodeReceiver,
+    #[error("Node has generated the maximum number of allowed Proof of Quota this session")]
+    NoMoreProofOfQuotas,
 }
