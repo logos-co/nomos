@@ -1,7 +1,7 @@
 use core::iter::repeat_n;
 
 use itertools::Itertools as _;
-use nomos_core::codec::SerdeOp;
+use nomos_core::{codec::SerdeOp, crypto::ZkHash};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -33,6 +33,17 @@ pub struct EncapsulatedMessage<const ENCAPSULATION_COUNT: usize> {
     public_header: PublicHeader,
     /// Encapsulated parts
     encapsulated_part: EncapsulatedPart<ENCAPSULATION_COUNT>,
+}
+
+#[derive(Clone, Copy)]
+pub struct PoQVerificationInputMinusSigningKey {
+    pub session: u64,
+    pub core_root: ZkHash,
+    pub pol_ledger_aged: ZkHash,
+    pub pol_epoch_nonce: ZkHash,
+    pub core_quota: u64,
+    pub leader_quota: u64,
+    pub total_stake: u64,
 }
 
 impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> {
@@ -93,7 +104,15 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
 
     pub fn verify_and_unwrap_public_header<Verifier>(
         self,
-        poq_verification_input: &PublicInputs,
+        PoQVerificationInputMinusSigningKey {
+            core_quota,
+            core_root,
+            leader_quota,
+            pol_epoch_nonce,
+            pol_ledger_aged,
+            session,
+            total_stake,
+        }: &PoQVerificationInputMinusSigningKey,
         verifier: &Verifier,
     ) -> Result<UnwrappedEncapsulatedMessage<ENCAPSULATION_COUNT>, Error>
     where
@@ -107,7 +126,19 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
         let (_, signing_pubkey, proof_of_quota, _) = self.public_header.into_components();
         // Verify the Proof of Quota according to the Blend spec: <https://www.notion.so/nomos-tech/Blend-Protocol-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81b593ddce00cffd24a8>.
         let key_nullifier = verifier
-            .verify_proof_of_quota(proof_of_quota, poq_verification_input)
+            .verify_proof_of_quota(
+                proof_of_quota,
+                &PublicInputs {
+                    core_quota: *core_quota,
+                    core_root: *core_root,
+                    leader_quota: *leader_quota,
+                    pol_epoch_nonce: *pol_epoch_nonce,
+                    pol_ledger_aged: *pol_ledger_aged,
+                    session: *session,
+                    signing_key: signing_pubkey,
+                    total_stake: *total_stake,
+                },
+            )
             .map_err(|_| Error::ProofOfQuotaVerificationFailed(quota::Error::InvalidProof))?;
         Ok(UnwrappedEncapsulatedMessage::new(
             key_nullifier,

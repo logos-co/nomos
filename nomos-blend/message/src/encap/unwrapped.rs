@@ -14,6 +14,7 @@ use crate::{
 };
 
 /// A Blend message whose public header has been verified.
+#[derive(Debug)]
 pub struct UnwrappedEncapsulatedMessage<const ENCAPSULATION_COUNT: usize> {
     /// Key nullifier as returned by the verified `PoQ` of the unwrapped public
     /// header.
