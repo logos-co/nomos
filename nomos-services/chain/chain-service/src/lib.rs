@@ -546,7 +546,7 @@ where
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
 
-        // TODO: Don't wait for blend, mempool, and sampling: https://github.com/logos-co/nomos/issues/1656
+        // TODO: Don't wait for blend and mempool: https://github.com/logos-co/nomos/issues/1656
         wait_until_services_are_ready!(
             &self.service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
@@ -578,8 +578,7 @@ where
                         cryptarchia,
                         leader,
                         block,
-                        // TODO: Perform some of postponed blob validations after IBD is done
-                        //       and online mode starts: https://github.com/logos-co/nomos/issues/1662
+                        // TODO: Enable this at some point: https://github.com/logos-co/nomos/issues/1675
                         &SkipBlobValidation,
                         &storage_blocks_to_remove,
                         relays,
@@ -705,7 +704,7 @@ where
                     }
 
                     Some(SlotTick { slot, .. }) = slot_timer.next() => {
-                        // TODO: Skip this until IBD is done and online mode is activated.
+                        // TODO: Don't propose blocks until IBD is done and online mode is activated.
                         //       Until then, mempool, DA, blend service will not be ready: https://github.com/logos-co/nomos/issues/1656
                         let parent = cryptarchia.tip();
                         let aged_tree = cryptarchia.tip_state().aged_commitments();
@@ -733,7 +732,8 @@ where
                                     cryptarchia.clone(),
                                     &leader,
                                     block.clone(),
-                                    &SkipBlobValidation, // Skip as a proposer
+                                    // Skip this since the block was already built with valid blobs.
+                                    &SkipBlobValidation,
                                     &storage_blocks_to_remove,
                                     &relays,
                                     &self.block_subscription_sender,
