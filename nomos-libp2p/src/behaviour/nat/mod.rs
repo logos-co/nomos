@@ -38,17 +38,18 @@ pub struct Behaviour<Rng: RngCore + 'static> {
 
 impl<Rng: RngCore + 'static> Behaviour<Rng> {
     pub fn new(rng: Rng, nat_config: &NatSettings) -> Self {
-        let static_listen_addr = nat_config.static_external_address.clone();
-
-        let inner_behaviour = if static_listen_addr.is_some() {
-            Toggle::from(None)
-        } else {
-            Toggle::from(Some(InnerNatBehaviour::new(rng, nat_config)))
-        };
-
-        Self {
-            static_listen_addr,
-            inner_behaviour,
+        match nat_config {
+            NatSettings::Static { external_address } => Self {
+                static_listen_addr: Some(external_address.clone()),
+                inner_behaviour: Toggle::from(None),
+            },
+            NatSettings::Traversal(traversal_settings) => Self {
+                static_listen_addr: None,
+                inner_behaviour: Toggle::from(Some(InnerNatBehaviour::new(
+                    rng,
+                    traversal_settings,
+                ))),
+            },
         }
     }
 }
@@ -168,6 +169,7 @@ mod tests {
     use tracing_subscriber::{fmt::TestWriter, EnvFilter};
 
     use super::*;
+    use crate::config::AutonatClientSettings;
 
     #[derive(NetworkBehaviour)]
     pub struct Client {
@@ -177,8 +179,13 @@ mod tests {
 
     impl Client {
         pub fn new(public_key: identity::PublicKey) -> Self {
-            let mut settings = NatSettings::default();
-            settings.autonat.probe_interval_millisecs = Some(10);
+            let settings = NatSettings::Traversal(crate::config::TraversalSettings {
+                autonat: AutonatClientSettings {
+                    probe_interval_millisecs: Some(10),
+                    ..Default::default()
+                },
+                ..Default::default()
+            });
 
             let nat = Behaviour::new(OsRng, &settings);
             let identify =
@@ -270,9 +277,8 @@ mod tests {
     #[test]
     fn test_static_address() {
         let addr: Multiaddr = "/ip4/192.0.2.1/udp/8080/quic-v1".parse().unwrap();
-        let settings = NatSettings {
-            static_external_address: Some(addr.clone()),
-            ..Default::default()
+        let settings = NatSettings::Static {
+            external_address: addr.clone(),
         };
 
         let mut behavior = Behaviour::new(OsRng, &settings);

@@ -319,13 +319,13 @@ mod tests {
             },
             identify_config: nomos_libp2p::IdentifySettings::default(),
             chain_sync_config: cryptarchia_sync::Config::default(),
-            nat_config: nomos_libp2p::NatSettings {
+            nat_config: nomos_libp2p::NatSettings::Traversal(nomos_libp2p::TraversalSettings {
                 autonat: nomos_libp2p::AutonatClientSettings {
                     probe_interval_millisecs: Some(1000),
                     ..Default::default()
                 },
                 ..Default::default()
-            },
+            }),
             protocol_name_env: ProtocolName::Unittest,
         }
     }
