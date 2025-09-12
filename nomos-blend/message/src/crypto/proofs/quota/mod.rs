@@ -1,8 +1,11 @@
+use std::sync::LazyLock;
+
 use ::serde::{Deserialize, Serialize};
 use groth16::{
-    fr_from_bytes, fr_from_bytes_unchecked, BN254_G1_COMPRESSED_SIZE, BN254_G2_COMPRESSED_SIZE,
+    fr_from_bytes, fr_from_bytes_unchecked, fr_from_slice, BN254_G1_COMPRESSED_SIZE,
+    BN254_G2_COMPRESSED_SIZE,
 };
-use nomos_core::crypto::ZkHash;
+use nomos_core::crypto::{ZkHash, ZkHasher};
 use poq::{prove, verify, PoQProof, PoQVerifierInput, PoQWitnessInputs, ProveError};
 
 use crate::crypto::proofs::quota::inputs::{
@@ -37,8 +40,14 @@ pub enum Error {
 
 impl ProofOfQuota {
     /// Generate a new Proof of Quota with the provided public and private
-    /// inputs.
-    pub fn new(public_inputs: &PublicInputs, private_inputs: PrivateInputs) -> Result<Self, Error> {
+    /// inputs, along with the secret selection randomness for the Proof of
+    /// Selection associated to this Proof of Quota.
+    pub fn new(
+        public_inputs: &PublicInputs,
+        private_inputs: PrivateInputs,
+    ) -> Result<(Self, ZkHash), Error> {
+        let key_index = private_inputs.key_index;
+        let secret_selection_randomness_sk = private_inputs.get_secret_selection_randomness_sk();
         let witness_inputs: PoQWitnessInputs = Inputs {
             private: private_inputs,
             public: *public_inputs,
@@ -47,10 +56,18 @@ impl ProofOfQuota {
         .map_err(|e| Error::InvalidInput(Box::new(e)))?;
         let (proof, PoQVerifierInput { key_nullifier, .. }) =
             prove(&witness_inputs).map_err(Error::ProofGeneration)?;
-        Ok(Self {
-            key_nullifier: key_nullifier.into_inner(),
-            proof,
-        })
+        let secret_selection_randomness = generate_secret_selection_randomness(
+            secret_selection_randomness_sk,
+            key_index,
+            public_inputs.session,
+        );
+        Ok((
+            Self {
+                key_nullifier: key_nullifier.into_inner(),
+                proof,
+            },
+            secret_selection_randomness,
+        ))
     }
 
     #[must_use]
@@ -85,6 +102,24 @@ impl ProofOfQuota {
     pub fn dummy() -> Self {
         Self::from_bytes_unchecked([0u8; _])
     }
+}
+
+const DOMAIN_SEPARATION_TAG: [u8; 23] = *b"SELECTION_RANDOMNESS_V1";
+static DOMAIN_SEPARATION_TAG_FR: LazyLock<ZkHash> = LazyLock::new(|| {
+    fr_from_slice(&DOMAIN_SEPARATION_TAG[..])
+        .expect("DST for secret selection randomness calculation must be correct.")
+});
+fn generate_secret_selection_randomness(sk: ZkHash, key_index: u64, session: u64) -> ZkHash {
+    let hash_input = [
+        *DOMAIN_SEPARATION_TAG_FR,
+        sk,
+        ZkHash::from(key_index),
+        ZkHash::from(session),
+    ];
+
+    let mut hasher = ZkHasher::new();
+    hasher.update(&hash_input);
+    hasher.finalize()
 }
 
 fn split_proof_components(

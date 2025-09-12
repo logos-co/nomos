@@ -88,6 +88,7 @@ fn inputs_data_for_proof_type(proof_type: ProofType) -> (PoQBlendInputsData, PoQ
             slot_secret_path,
             starting_slot,
             transaction_hash,
+            ..
         }) => (
             PoQBlendInputsData {
                 core_path: vec![Fr::ZERO; 20],

@@ -33,6 +33,16 @@ impl Inputs {
             proof_type: proof_of_leadership_quota_inputs.into(),
         }
     }
+
+    /// Return the right `sk` for a Proof of Quota depending on the proof type, as per the spec: https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#25a261aa09df80e0a410f708190ac802.
+    pub fn get_secret_selection_randomness_sk(&self) -> ZkHash {
+        match self.proof_type {
+            ProofType::CoreQuota(ProofOfCoreQuotaInputs { core_sk, .. }) => core_sk,
+            ProofType::LeadershipQuota(ProofOfLeadershipQuotaInputs { pol_secret_key, .. }) => {
+                pol_secret_key
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -65,6 +75,7 @@ pub struct ProofOfLeadershipQuotaInputs {
     pub slot_secret: ZkHash,
     pub slot_secret_path: Vec<ZkHash>,
     pub starting_slot: u64,
+    pub pol_secret_key: ZkHash,
 }
 
 impl From<ProofOfLeadershipQuotaInputs> for ProofType {
