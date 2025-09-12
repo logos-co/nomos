@@ -1,6 +1,7 @@
 use std::fmt::Display;
 
 use async_trait::async_trait;
+use nomos_core::header::HeaderId;
 use overwatch::{
     OpaqueServiceResourcesHandle,
     services::{
@@ -13,42 +14,46 @@ use tracing::{error, info};
 
 const BROADCAST_CHANNEL_SIZE: usize = 128;
 
-pub struct BlockBroadcastService<Block, RuntimeServiceId> {
-    service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-    new_blocks: broadcast::Sender<Block>,
+#[derive(Clone, Debug)]
+pub struct BlockInfo {
+    pub height: u64,
+    pub header_id: HeaderId,
 }
 
 #[derive(Debug)]
-pub enum BlockBroadcastMsg<Block> {
-    BroadcastNewBlock(Block),
-    SubscribeToNewBlocks {
-        result_sender: oneshot::Sender<broadcast::Receiver<Block>>,
+pub enum BlockBroadcastMsg {
+    BroadcastFinalizedBlock(BlockInfo),
+    SubscribeToFinalizedBlocks {
+        result_sender: oneshot::Sender<broadcast::Receiver<BlockInfo>>,
     },
 }
 
-impl<Block, RuntimeServiceId> ServiceData for BlockBroadcastService<Block, RuntimeServiceId> {
+pub struct BlockBroadcastService<RuntimeServiceId> {
+    service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
+    finalized_blocks: broadcast::Sender<BlockInfo>,
+}
+
+impl<RuntimeServiceId> ServiceData for BlockBroadcastService<RuntimeServiceId> {
     type Settings = ();
     type State = NoState<Self::Settings>;
     type StateOperator = NoOperator<Self::State>;
-    type Message = BlockBroadcastMsg<Block>;
+    type Message = BlockBroadcastMsg;
 }
 
 #[async_trait]
-impl<Block, RuntimeServiceId> ServiceCore<RuntimeServiceId>
-    for BlockBroadcastService<Block, RuntimeServiceId>
+impl<RuntimeServiceId> ServiceCore<RuntimeServiceId> for BlockBroadcastService<RuntimeServiceId>
 where
-    Block: Clone + Send,
     RuntimeServiceId: AsServiceId<Self> + Clone + Display + Send + Sync + 'static,
 {
     fn init(
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
         _initial_state: Self::State,
     ) -> Result<Self, overwatch::DynError> {
-        let (new_blocks, _) = broadcast::channel(BROADCAST_CHANNEL_SIZE);
+        let (finalized_blocks, _) = broadcast::channel(BROADCAST_CHANNEL_SIZE);
 
         Ok(Self {
             service_resources_handle,
-            new_blocks,
+            finalized_blocks,
         })
     }
 
@@ -61,13 +66,16 @@ where
 
         while let Some(msg) = self.service_resources_handle.inbound_relay.recv().await {
             match msg {
-                BlockBroadcastMsg::BroadcastNewBlock(block) => {
-                    if let Err(err) = self.new_blocks.send(block) {
+                BlockBroadcastMsg::BroadcastFinalizedBlock(block) => {
+                    if let Err(err) = self.finalized_blocks.send(block) {
                         error!("Could not send to new blocks channel: {err}");
                     }
                 }
-                BlockBroadcastMsg::SubscribeToNewBlocks { result_sender } => {
-                    if let Err(err) = result_sender.send(self.new_blocks.subscribe()) {
+                BlockBroadcastMsg::SubscribeToFinalizedBlocks { result_sender } => {
+                    // TODO: This naively broadcast what was sent from the chain service. In case
+                    // of LIB branch change (might happend during bootstrapping), blocks should be
+                    // rebroadcasted from the last common header_id.
+                    if let Err(err) = result_sender.send(self.finalized_blocks.subscribe()) {
                         error!("Could not subscribe to new blocks channel: {err:?}");
                     }
                 }

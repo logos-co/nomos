@@ -36,7 +36,7 @@ use crate::{
 type NetworkRelay<NetworkBackend, RuntimeServiceId> =
     OutboundRelay<BackendNetworkMsg<NetworkBackend, RuntimeServiceId>>;
 type BlendRelay<BlendService> = OutboundRelay<<BlendService as ServiceData>::Message>;
-pub type BroadcastRelay<Tx> = OutboundRelay<BlockBroadcastMsg<Block<Tx>>>;
+pub type BroadcastRelay = OutboundRelay<BlockBroadcastMsg>;
 type ClMempoolRelay<ClPool, ClPoolAdapter, RuntimeServiceId> = MempoolRelay<
     <ClPoolAdapter as MempoolAdapter<RuntimeServiceId>>::Payload,
     <ClPool as MemPool>::Item,
@@ -68,7 +68,7 @@ pub struct CryptarchiaConsensusRelays<
         RuntimeServiceId,
     >,
     blend_relay: BlendRelay<BlendService>,
-    broadcast_relay: BroadcastRelay<ClPool::Item>,
+    broadcast_relay: BroadcastRelay,
     cl_mempool_relay: ClMempoolRelay<ClPool, ClPoolAdapter, RuntimeServiceId>,
     storage_adapter: StorageAdapter<Storage, TxS::Tx, RuntimeServiceId>,
     sampling_relay: SamplingRelay<SamplingBackend::BlobId>,
@@ -121,7 +121,7 @@ where
             RuntimeServiceId,
         >,
         blend_relay: BlendRelay<BlendService>,
-        broadcast_relay: BroadcastRelay<ClPool::Item>,
+        broadcast_relay: BroadcastRelay,
         cl_mempool_relay: ClMempoolRelay<ClPool, ClPoolAdapter, RuntimeServiceId>,
         sampling_relay: SamplingRelay<SamplingBackend::BlobId>,
         storage_relay: StorageRelay<Storage>,
@@ -184,7 +184,7 @@ where
             + 'static
             + AsServiceId<NetworkService<NetworkAdapter::Backend, RuntimeServiceId>>
             + AsServiceId<BlendService>
-            + AsServiceId<BlockBroadcastService<Block<ClPool::Item>, RuntimeServiceId>>
+            + AsServiceId<BlockBroadcastService<RuntimeServiceId>>
             + AsServiceId<
                 TxMempoolService<
                     ClPoolAdapter,
@@ -222,7 +222,7 @@ where
 
         let broadcast_relay = service_resources_handle
             .overwatch_handle
-            .relay::<BlockBroadcastService<_, _>>()
+            .relay::<BlockBroadcastService<_>>()
             .await
             .expect(
                 "Relay connection with broadcast_service::BlockBroadcastService should
@@ -278,7 +278,7 @@ where
         &self.blend_relay
     }
 
-    pub const fn broadcast_relay(&self) -> &BroadcastRelay<ClPool::Item> {
+    pub const fn broadcast_relay(&self) -> &BroadcastRelay {
         &self.broadcast_relay
     }
 

@@ -9,7 +9,6 @@ workspace = true
 
 [dependencies]
 async-trait  = "0.1"
-broadcast-service = { workspace = true }
 futures      = { default-features = false, version = "0.3" }
 nomos-core   = { workspace = true }
 overwatch    = { workspace = true }

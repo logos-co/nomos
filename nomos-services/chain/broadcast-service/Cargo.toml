@@ -8,8 +8,8 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
-async-trait  = "0.1"
-overwatch    = { workspace = true }
-tokio        = { default-features = false, version = "1" }
-tokio-stream = { default-features = false, version = "0.1" }
-tracing      = { workspace = true }
+async-trait = "0.1"
+nomos-core  = { workspace = true }
+overwatch   = { workspace = true }
+tokio       = { default-features = false, version = "1" }
+tracing     = { workspace = true }

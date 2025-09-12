@@ -10,7 +10,7 @@ use nomos_blend_service::{
     },
     membership::service::Adapter as BlendMembershipAdapter,
 };
-use nomos_core::{block::Block, mantle::SignedMantleTx};
+use nomos_core::mantle::SignedMantleTx;
 use nomos_da_dispersal::{
     adapters::{
         network::libp2p::Libp2pNetworkAdapter as DispersalNetworkAdapter,
@@ -73,8 +73,7 @@ pub(crate) type BlendEdgeService = nomos_blend_service::edge::BlendService<
 pub(crate) type BlendService =
     nomos_blend_service::BlendService<BlendCoreService, BlendEdgeService, RuntimeServiceId>;
 
-pub(crate) type BlockBroadcastService =
-    broadcast_service::BlockBroadcastService<Block<SignedMantleTx>, RuntimeServiceId>;
+pub(crate) type BlockBroadcastService = broadcast_service::BlockBroadcastService<RuntimeServiceId>;
 
 pub(crate) type DaDispersalService = DispersalService<
     DispersalKZGRSBackend<

@@ -17,7 +17,7 @@ use std::{
     time::Duration,
 };
 
-use broadcast_service::{BlockBroadcastMsg, BlockBroadcastService};
+use broadcast_service::{BlockBroadcastMsg, BlockBroadcastService, BlockInfo};
 use cryptarchia_engine::{PrunedBlocks, Slot};
 use cryptarchia_sync::{GetTipResponse, ProviderResponse};
 use futures::{StreamExt as _, TryFutureExt as _};
@@ -451,7 +451,7 @@ where
         + AsServiceId<Self>
         + AsServiceId<NetworkService<NetAdapter::Backend, RuntimeServiceId>>
         + AsServiceId<BlendService>
-        + AsServiceId<BlockBroadcastService<Block<ClPool::Item>, RuntimeServiceId>>
+        + AsServiceId<BlockBroadcastService<RuntimeServiceId>>
         + AsServiceId<
             TxMempoolService<
                 ClPoolAdapter,
@@ -1059,8 +1059,10 @@ where
         // TODO: filter on time?
         let header = block.header();
         let id = header.id();
+        let prev_lib = cryptarchia.lib();
 
         let (cryptarchia, pruned_blocks) = cryptarchia.try_apply_header(header)?;
+        let new_lib = cryptarchia.lib();
 
         // remove included content from mempool
         mark_in_block(
@@ -1089,8 +1091,20 @@ where
             .await
             .map_err(|e| Error::Storage(format!("Failed to store immutable block ids: {e}")))?;
 
-        if let Err(e) = broadcast_new_block(relays.broadcast_relay(), block).await {
-            error!("Could not notify block to services {e}");
+        if prev_lib != new_lib {
+            let height = cryptarchia
+                .consensus
+                .branches()
+                .get(&cryptarchia.tip())
+                .expect("tip branch not available")
+                .length();
+            let block_info = BlockInfo {
+                height,
+                header_id: new_lib,
+            };
+            if let Err(e) = broadcast_finalized_block(relays.broadcast_relay(), block_info).await {
+                error!("Could not notify block to services {e}");
+            }
         }
 
         Ok((cryptarchia, pruned_blocks))
@@ -1532,15 +1546,12 @@ where
     receiver.await.map_err(|error| Box::new(error) as DynError)
 }
 
-async fn broadcast_new_block<Tx>(
-    broadcast_relay: &BroadcastRelay<Tx>,
-    block: Block<Tx>,
-) -> Result<(), DynError>
-where
-    Tx: Send,
-{
+async fn broadcast_finalized_block(
+    broadcast_relay: &BroadcastRelay,
+    block_info: BlockInfo,
+) -> Result<(), DynError> {
     broadcast_relay
-        .send(BlockBroadcastMsg::BroadcastNewBlock(block))
+        .send(BlockBroadcastMsg::BroadcastFinalizedBlock(block_info))
         .await
         .map_err(|(error, _)| Box::new(error) as DynError)
 }
