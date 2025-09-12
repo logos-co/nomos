@@ -1,3 +1,5 @@
+use core::fmt::Debug;
+
 use ::serde::{Deserialize, Serialize};
 use groth16::{fr_from_bytes, fr_from_bytes_unchecked, fr_to_bytes};
 use nomos_core::crypto::{ZkHash, ZkHasher};

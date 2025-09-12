@@ -16,6 +16,8 @@ mod tests;
 pub trait ProofsVerifier {
     type Error;
 
+    fn new() -> Self;
+
     /// Proof of Quota verification logic.
     fn verify_proof_of_quota(
         &self,

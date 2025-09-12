@@ -26,6 +26,10 @@ struct NeverFailingProofsVerifier;
 impl ProofsVerifier for NeverFailingProofsVerifier {
     type Error = Infallible;
 
+    fn new() -> Self {
+        NeverFailingProofsVerifier
+    }
+
     fn verify_proof_of_quota(
         &self,
         _proof: ProofOfQuota,

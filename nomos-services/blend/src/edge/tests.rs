@@ -204,7 +204,7 @@ fn settings(
             rounds_per_session_transition_period: NonZeroU64::new(1).unwrap(),
         },
         crypto: CryptographicProcessorSettings {
-            signing_private_key: key(local_id).0,
+            non_ephemeral_signing_key: key(local_id).0,
             num_blend_layers: 1,
         },
         backend: msg_sender,

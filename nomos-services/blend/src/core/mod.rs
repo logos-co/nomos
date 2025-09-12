@@ -20,7 +20,7 @@ use nomos_blend_message::{crypto::random_sized_bytes, encap::DecapsulationOutput
 use nomos_blend_network::EncapsulatedMessageWithValidatedPublicHeader;
 use nomos_blend_scheduling::{
     membership::Membership,
-    message_blend::crypto::CryptographicProcessor,
+    message_blend::crypto::SessionBoundCryptographicProcessor,
     message_scheduler::{round_info::RoundInfo, MessageScheduler},
     session::{SessionEvent, UninitializedSessionEventStream},
 };
@@ -140,7 +140,7 @@ where
             overwatch_handle
                 .relay::<<MembershipAdapter as membership::Adapter>::Service>()
                 .await?,
-            blend_config.crypto.signing_private_key.public_key(),
+            blend_config.crypto.non_ephemeral_signing_key.public_key(),
         )
         .subscribe()
         .await
@@ -274,7 +274,7 @@ async fn handle_local_data_message<
     RuntimeServiceId,
 >(
     local_data_message: ServiceMessage<BroadcastSettings>,
-    cryptographic_processor: &mut CryptographicProcessor<NodeId, Rng>,
+    cryptographic_processor: &mut SessionBoundCryptographicProcessor<NodeId, Rng>,
     backend: &Backend,
     scheduler: &mut MessageScheduler<SessionClock, Rng, ProcessedMessage<BroadcastSettings>>,
 ) where
@@ -307,7 +307,7 @@ async fn handle_local_data_message<
 fn handle_incoming_blend_message<Rng, NodeId, SessionClock, BroadcastSettings>(
     validated_encapsulated_message: EncapsulatedMessageWithValidatedPublicHeader,
     scheduler: &mut MessageScheduler<SessionClock, Rng, ProcessedMessage<BroadcastSettings>>,
-    cryptographic_processor: &CryptographicProcessor<NodeId, Rng>,
+    cryptographic_processor: &SessionBoundCryptographicProcessor<NodeId, Rng>,
 ) where
     BroadcastSettings: Serialize + for<'de> Deserialize<'de> + Send,
 {
@@ -355,7 +355,7 @@ async fn handle_release_round<NodeId, Rng, Backend, NetAdapter, RuntimeServiceId
         cover_message_generation_flag,
         processed_messages,
     }: RoundInfo<ProcessedMessage<NetAdapter::BroadcastSettings>>,
-    cryptographic_processor: &mut CryptographicProcessor<NodeId, Rng>,
+    cryptographic_processor: &mut SessionBoundCryptographicProcessor<NodeId, Rng>,
     rng: &mut Rng,
     backend: &Backend,
     network_adapter: &NetAdapter,
