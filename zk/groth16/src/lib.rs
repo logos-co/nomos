@@ -21,8 +21,8 @@ use ark_ff::{BigInteger as _, PrimeField};
 use num_bigint::BigUint;
 pub use verifier::groth16_verify;
 
-const BN254_G1_COMPRESSED_SIZE: usize = 32;
-const BN254_G2_COMPRESSED_SIZE: usize = 64;
+pub const BN254_G1_COMPRESSED_SIZE: usize = 32;
+pub const BN254_G2_COMPRESSED_SIZE: usize = 64;
 pub type Groth16Proof = proof::Proof<Bn254>;
 pub type CompressedGroth16Proof =
     proof::CompressedProof<BN254_G1_COMPRESSED_SIZE, BN254_G2_COMPRESSED_SIZE, Bn254>;
@@ -54,7 +54,7 @@ pub struct FrFromBytesError {
     pub modulus: String,
 }
 
-pub fn fr_from_bytes(fr: &FrBytes) -> Result<Fr, impl Error> {
+pub fn fr_from_bytes(fr: &FrBytes) -> Result<Fr, impl Error + use<>> {
     let n = BigUint::from_bytes_le(fr);
     if n > <Fr as PrimeField>::MODULUS.into() {
         return Err(FrFromBytesError {
@@ -63,6 +63,13 @@ pub fn fr_from_bytes(fr: &FrBytes) -> Result<Fr, impl Error> {
         });
     }
     Ok(n.into())
+}
+
+/// To be used only in cases where a random or pseudo-random `Fr` value is
+/// needed.
+#[must_use]
+pub fn fr_from_bytes_unchecked(fr: &FrBytes) -> Fr {
+    BigUint::from_bytes_le(fr).into()
 }
 
 #[cfg(test)]

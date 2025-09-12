@@ -17,23 +17,36 @@ use crate::protocol::Protocol;
 #[cfg(feature = "deser")]
 use crate::utils::{JsonG1, JsonG2, StringifiedG1, StringifiedG2};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Proof<E: Pairing> {
     pub pi_a: E::G1Affine,
     pub pi_b: E::G2Affine,
     pub pi_c: E::G1Affine,
 }
 
-#[derive(Clone, Debug)]
-pub struct CompressedProof<
-    const G1_COMPRESSED_SIZE: usize,
-    const G2_COMPRESSED_SIZE: usize,
-    E: Pairing,
-> {
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct CompressedProof<const G1_COMPRESSED_SIZE: usize, const G2_COMPRESSED_SIZE: usize, E> {
     pub pi_a: [u8; G1_COMPRESSED_SIZE],
     pub pi_b: [u8; G2_COMPRESSED_SIZE],
     pub pi_c: [u8; G1_COMPRESSED_SIZE],
     _pairing: PhantomData<E>,
+}
+
+impl<const G1_COMPRESSED_SIZE: usize, const G2_COMPRESSED_SIZE: usize, E>
+    CompressedProof<G1_COMPRESSED_SIZE, G2_COMPRESSED_SIZE, E>
+{
+    pub const fn from_components(
+        pi_a: [u8; G1_COMPRESSED_SIZE],
+        pi_b: [u8; G2_COMPRESSED_SIZE],
+        pi_c: [u8; G1_COMPRESSED_SIZE],
+    ) -> Self {
+        Self {
+            pi_a,
+            pi_b,
+            pi_c,
+            _pairing: PhantomData,
+        }
+    }
 }
 
 impl<E: Pairing> From<&Proof<E>> for ark_groth16::Proof<E> {
