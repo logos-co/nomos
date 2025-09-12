@@ -61,11 +61,9 @@ impl ProofOfSelection {
                 .try_into()
                 .map_err(|_| Error::Overflow)?
         };
-        Ok(
-            (pseudo_random_output % u64::try_from(membership_size).map_err(|_| Error::Overflow)?)
-                .try_into()
-                .map_err(|_| Error::Overflow)?,
-        )
+        (pseudo_random_output % u64::try_from(membership_size).map_err(|_| Error::Overflow)?)
+            .try_into()
+            .map_err(|_| Error::Overflow)
     }
 
     pub(super) fn verify(

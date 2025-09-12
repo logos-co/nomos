@@ -111,16 +111,19 @@ where
         self.core_nodes.contains_key(node_id)
     }
 
+    #[must_use]
     pub fn get_node_at(&self, index: usize) -> Option<&Node<NodeId>> {
         self.core_nodes.get(self.node_indices.get(index)?)
     }
 }
 
 impl<NodeId> Membership<NodeId> {
+    #[must_use]
     pub const fn local_index(&self) -> Option<usize> {
         self.local_node_index
     }
 
+    #[must_use]
     pub const fn contains_local(&self) -> bool {
         self.local_node_index.is_some()
     }
@@ -180,12 +183,7 @@ mod tests {
         let membership = Membership::<u32>::new(&[], &local_key);
 
         assert_eq!(membership.size(), 0);
-        assert!(membership
-            .core_nodes
-            .keys()
-            .copied()
-            .collect::<Vec<_>>()
-            .is_empty(),);
+        assert!(membership.core_nodes.keys().next().is_none());
         assert!(membership.node_indices.is_empty());
         assert!(membership.local_node_index.is_none());
         assert!(!membership.contains_local());
