@@ -15,6 +15,8 @@ use crate::crypto::proofs::quota::inputs::{
 
 pub mod inputs;
 mod serde;
+#[cfg(test)]
+mod tests;
 
 const KEY_NULLIFIER_SIZE: usize = size_of::<ZkHash>();
 const PROOF_CIRCUIT_SIZE: usize = size_of::<PoQProof>();
@@ -113,8 +115,8 @@ fn generate_secret_selection_randomness(sk: ZkHash, key_index: u64, session: u64
     let hash_input = [
         *DOMAIN_SEPARATION_TAG_FR,
         sk,
-        ZkHash::from(key_index),
-        ZkHash::from(session),
+        key_index.into(),
+        session.into(),
     ];
 
     let mut hasher = ZkHasher::new();

@@ -30,11 +30,11 @@ pub type EncapsulationInputs = InternalEncapsulationInputs<ENCAPSULATION_COUNT>;
 pub type DecapsulationOutput = InternalDecapsulationOutput<ENCAPSULATION_COUNT>;
 pub type UnwrappedEncapsulatedMessage = InternalUnwrappedEncapsulatedMessage<ENCAPSULATION_COUNT>;
 
-/// [`CryptographicProcessor`] is responsible for wrapping and unwrapping
+/// [`SessionCryptographicProcessor`] is responsible for wrapping and unwrapping
 /// messages for the message indistinguishability.
 ///
 /// Each instance is meant to be used during a single session.
-pub struct SessionBoundCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier> {
+pub struct SessionCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier> {
     settings: CryptographicProcessorSettings,
     /// The non-ephemeral encryption key (NEK) for decapsulating messages.
     non_ephemeral_encryption_key: X25519PrivateKey,
@@ -57,7 +57,7 @@ pub struct CryptographicProcessorSettings {
 }
 
 impl<NodeId, ProofsGenerator, ProofsVerifier>
-    SessionBoundCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
+    SessionCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
 where
     ProofsGenerator: ProofsGeneratorTrait,
     ProofsVerifier: encap::ProofsVerifier,
@@ -82,7 +82,7 @@ where
 }
 
 impl<NodeId, ProofsGenerator, ProofsVerifier>
-    SessionBoundCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
+    SessionCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
 where
     ProofsVerifier: encap::ProofsVerifier,
 {
@@ -90,13 +90,13 @@ where
         &self,
         message: UnwrappedEncapsulatedMessage,
     ) -> Result<DecapsulationOutput, Error> {
-        let Some(local_core_index) = self.membership.local_index() else {
+        let Some(local_node_index) = self.membership.local_index() else {
             return Err(Error::NotCoreNodeReceiver);
         };
         message.decapsulate(
             &self.non_ephemeral_encryption_key,
             &MissingProofOfSelectionVerificationInputs {
-                expected_node_index: local_core_index as u64,
+                expected_node_index: local_node_index as u64,
                 total_membership_size: self.membership.size() as u64,
             },
             &self.proofs_verifier,
@@ -105,7 +105,7 @@ where
 }
 
 impl<NodeId, ProofsGenerator, ProofsVerifier>
-    SessionBoundCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
+    SessionCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
 where
     NodeId: Eq + Hash,
     ProofsGenerator: ProofsGeneratorTrait,
@@ -174,6 +174,7 @@ where
         let membership_size = self.membership.size();
         let proofs_and_signing_keys = proofs
             .into_iter()
+            // Collect remote (or local) index info for each PoSel.
             .map(|proof| {
                 let expected_index = proof
                     .proof_of_selection
@@ -181,6 +182,7 @@ where
                     .expect("Node index should exist.");
                 (proof, expected_index)
             })
+            // Map retrieved index to the node's public key.
             .map(|(proof, node_index)| {
                 (
                     proof,

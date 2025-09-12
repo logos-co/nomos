@@ -6,12 +6,12 @@ use std::{
 
 use nomos_blend_scheduling::{
     membership::Membership,
-    message_blend::{crypto::SessionBoundCryptographicProcessor, CryptographicProcessorSettings},
+    message_blend::{crypto::SessionCryptographicProcessor, CryptographicProcessorSettings},
 };
 use nomos_utils::blake_rng::BlakeRng;
 use rand::SeedableRng as _;
 
-pub struct CoreCryptographicProcessor<NodeId>(SessionBoundCryptographicProcessor<NodeId, BlakeRng>);
+pub struct CoreCryptographicProcessor<NodeId>(SessionCryptographicProcessor<NodeId, BlakeRng>);
 
 impl<NodeId> CoreCryptographicProcessor<NodeId> {
     pub fn try_new_with_core_condition_check(
@@ -32,7 +32,7 @@ impl<NodeId> CoreCryptographicProcessor<NodeId> {
     }
 
     fn new(membership: Membership<NodeId>, settings: CryptographicProcessorSettings) -> Self {
-        Self(SessionBoundCryptographicProcessor::new(
+        Self(SessionCryptographicProcessor::new(
             settings,
             membership,
             BlakeRng::from_entropy(),
@@ -41,7 +41,7 @@ impl<NodeId> CoreCryptographicProcessor<NodeId> {
 }
 
 impl<NodeId> Deref for CoreCryptographicProcessor<NodeId> {
-    type Target = SessionBoundCryptographicProcessor<NodeId, BlakeRng>;
+    type Target = SessionCryptographicProcessor<NodeId, BlakeRng>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
