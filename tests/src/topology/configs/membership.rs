@@ -5,14 +5,16 @@ use std::{
 
 use nomos_core::sdp::{Locator, ServiceType};
 use nomos_libp2p::{ed25519, Multiaddr};
-use nomos_membership::{backends::mock::MockMembershipBackendSettings, MembershipServiceSettings};
+use nomos_membership::{
+    backends::membership::MembershipBackendSettings, MembershipServiceSettings,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::secret_key_to_provider_id;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GeneralMembershipConfig {
-    pub service_settings: MembershipServiceSettings<MockMembershipBackendSettings>,
+    pub service_settings: MembershipServiceSettings<MembershipBackendSettings>,
 }
 
 #[must_use]
@@ -52,7 +54,7 @@ pub fn create_membership_configs(
             );
     }
 
-    let mock_backend_settings = MockMembershipBackendSettings {
+    let mock_backend_settings = MembershipBackendSettings {
         session_sizes: HashMap::from([
             (ServiceType::DataAvailability, 4),
             (ServiceType::BlendNetwork, 10),

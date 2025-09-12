@@ -13,7 +13,8 @@ use nomos_core::{
 use nomos_da_sampling::backend::DaSamplingServiceBackend;
 use nomos_libp2p::PeerId;
 use nomos_membership::{
-    adapters::sdp::LedgerSdpAdapter, backends::mock::MockMembershipBackend, MembershipService,
+    adapters::sdp::ledger::LedgerSdpAdapter, backends::membership::PersistentMembershipBackend,
+    MembershipService,
 };
 use nomos_mempool::{
     backend::mockpool::MockPool, network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
@@ -37,7 +38,7 @@ pub type Cryptarchia<
     const SIZE: usize,
 > = CryptarchiaConsensus<
     ConsensusNetworkAdapter<Tx, RuntimeServiceId>,
-    BlendService<RuntimeServiceId>,
+    BlendService<RuntimeServiceId, SS>,
     MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
     MempoolNetworkAdapter<Tx, <Tx as Transaction>::Hash, RuntimeServiceId>,
     FillSizeWithTx<SIZE, Tx>,
@@ -49,32 +50,40 @@ pub type Cryptarchia<
     RuntimeServiceId,
 >;
 
-type BlendService<RuntimeServiceId> = nomos_blend_service::BlendService<
+type BlendService<RuntimeServiceId, SerdeOp> = nomos_blend_service::BlendService<
     nomos_blend_service::core::BlendService<
         nomos_blend_service::core::backends::libp2p::Libp2pBlendBackend,
         PeerId,
         nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
-        BlendMembershipAdapter<RuntimeServiceId>,
+        BlendMembershipAdapter<RuntimeServiceId, SerdeOp>,
         RuntimeServiceId,
     >,
     nomos_blend_service::edge::BlendService<
         nomos_blend_service::edge::backends::libp2p::Libp2pBlendBackend,
         PeerId,
         <nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<RuntimeServiceId>>::BroadcastSettings,
-        BlendMembershipAdapter<RuntimeServiceId>,
+        BlendMembershipAdapter<RuntimeServiceId, SerdeOp>,
         RuntimeServiceId
     >,
     RuntimeServiceId,
 >;
 
-type BlendMembershipAdapter<RuntimeServiceId> = nomos_blend_service::membership::service::Adapter<
-    MembershipService<
-        MockMembershipBackend,
-        LedgerSdpAdapter<MockSdpBackend, Metadata, RuntimeServiceId>,
+pub type DaMembershipStorage<RuntimeServiceId, SerdeOp> =
+    nomos_membership::adapters::storage::rocksdb::MembershipRocksAdapter<
+        RocksBackend<SerdeOp>,
         RuntimeServiceId,
-    >,
-    PeerId,
->;
+    >;
+
+type BlendMembershipAdapter<RuntimeServiceId, SerdeOp> =
+    nomos_blend_service::membership::service::Adapter<
+        MembershipService<
+            PersistentMembershipBackend<DaMembershipStorage<RuntimeServiceId, SerdeOp>>,
+            LedgerSdpAdapter<MockSdpBackend, Metadata, RuntimeServiceId>,
+            DaMembershipStorage<RuntimeServiceId, SerdeOp>,
+            RuntimeServiceId,
+        >,
+        PeerId,
+    >;
 
 pub async fn cryptarchia_info<
     Tx,

@@ -5,9 +5,9 @@ use nomos_core::sdp::{FinalizedBlockEvent, ServiceType};
 use overwatch::DynError;
 use thiserror::Error;
 
-use crate::MembershipProviders;
+use crate::{adapters::storage::MembershipStorageAdapter, MembershipProviders};
 
-pub mod mock;
+pub mod membership;
 
 #[derive(Debug, Error)]
 pub enum MembershipBackendError {
@@ -23,8 +23,9 @@ pub type NewSesssion = Option<HashMap<ServiceType, MembershipProviders>>;
 #[async_trait]
 pub trait MembershipBackend {
     type Settings: Send + Sync;
+    type StorageAdapter: MembershipStorageAdapter;
 
-    fn init(settings: Self::Settings) -> Self;
+    fn init(settings: Self::Settings, storage_adapter: Self::StorageAdapter) -> Self;
 
     async fn get_latest_providers(
         &self,
