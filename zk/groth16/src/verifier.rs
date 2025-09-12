@@ -1,7 +1,13 @@
-use std::error::Error;
+use std::{
+    error::Error,
+    ops::{Mul as _, Neg as _},
+};
 
-use ark_ec::pairing::Pairing;
+use ark_bn254::{Bn254, Fr, G1Affine, G1Projective};
+use ark_ec::{CurveGroup as _, VariableBaseMSM as _, pairing::Pairing};
+use ark_ff::{One as _, UniformRand as _};
 use ark_groth16::{Groth16, r1cs_to_qap::LibsnarkReduction};
+use ark_std::rand::thread_rng;
 
 use crate::{proof::Proof, verification_key::PreparedVerificationKey};
 
@@ -12,6 +18,61 @@ pub fn groth16_verify<E: Pairing>(
 ) -> Result<bool, impl Error + use<E>> {
     let proof: ark_groth16::Proof<E> = proof.into();
     Groth16::<E, LibsnarkReduction>::verify_proof(vk.as_ref(), &proof, public_inputs)
+}
+
+#[must_use]
+pub fn groth16_batch_verify(
+    vk: &PreparedVerificationKey<Bn254>,
+    proofs: &[Proof<Bn254>],
+    public_inputs: &[Vec<Fr>],
+) -> bool {
+    let mut rng = thread_rng();
+    let r = Fr::rand(&mut rng);
+    let r_roots = compute_r_powers(r, proofs.len());
+    let r_sum: Fr = r_roots.iter().sum();
+
+    let pis_c: Vec<G1Affine> = proofs.iter().map(|proof| proof.pi_c).collect();
+
+    let batched_pi_c = G1Projective::msm(&pis_c, &r_roots).unwrap().into_affine();
+
+    let batched_public_inputs: Vec<Fr> = std::iter::once(r_sum)
+        .chain((0..public_inputs[0].len()).map(|i| {
+            r_roots
+                .iter()
+                .zip(public_inputs.iter())
+                .map(|(r, pi)| *r * pi[i])
+                .sum()
+        }))
+        .collect();
+
+    let batched_ic = G1Projective::msm(&vk.vk.vk.gamma_abc_g1, &batched_public_inputs)
+        .unwrap()
+        .into_affine();
+
+    let mut g1_terms: Vec<_> = Vec::with_capacity(proofs.len() + 3);
+    let mut g2_terms: Vec<_> = Vec::with_capacity(proofs.len() + 3);
+
+    for (i, proof) in proofs.iter().enumerate() {
+        g1_terms.push(proof.pi_a.mul(r_roots[i]).into_affine());
+        g2_terms.push(proof.pi_b.into());
+    }
+    g1_terms.push(vk.vk.vk.alpha_g1.mul(r_sum).neg().into());
+    g2_terms.push(vk.vk.vk.beta_g2.into());
+    g1_terms.push(batched_ic);
+    g2_terms.push(vk.vk.gamma_g2_neg_pc.clone());
+    g1_terms.push(batched_pi_c);
+    g2_terms.push(vk.vk.delta_g2_neg_pc.clone());
+
+    let qap = Bn254::multi_miller_loop(g1_terms, g2_terms);
+
+    let test = Bn254::final_exponentiation(qap).unwrap();
+    test.0.is_one()
+}
+
+fn compute_r_powers(r: Fr, size: usize) -> Vec<Fr> {
+    std::iter::successors(Some(Fr::from(1)), |x| Some(r * x))
+        .take(size)
+        .collect()
 }
 
 #[cfg(all(test, feature = "deser"))]

@@ -12,15 +12,13 @@ pub mod serde;
 pub(crate) mod utils;
 mod verification_key;
 mod verifier;
-
 use std::error::Error;
 
 pub use ark_bn254::{Bn254, Fr};
 pub use ark_ff::Field;
 use ark_ff::{BigInteger as _, PrimeField};
 use num_bigint::BigUint;
-pub use verifier::groth16_verify;
-
+pub use verifier::{groth16_batch_verify, groth16_verify};
 const BN254_G1_COMPRESSED_SIZE: usize = 32;
 const BN254_G2_COMPRESSED_SIZE: usize = 64;
 pub type Groth16Proof = proof::Proof<Bn254>;
