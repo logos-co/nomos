@@ -38,7 +38,7 @@ use crate::{
     edge::handlers::{Error, MessageHandler},
     membership,
     message::ServiceMessage,
-    settings::constant_session_stream,
+    settings::FIRST_SESSION_READY_TIMEOUT,
 };
 
 const LOG_TARGET: &str = "blend::service::edge";
@@ -58,7 +58,7 @@ where
     Backend: BlendBackend<NodeId, RuntimeServiceId>,
     NodeId: Clone,
 {
-    type Settings = BlendConfig<Backend::Settings, NodeId>;
+    type Settings = BlendConfig<Backend::Settings>;
     type State = NoState<Self::Settings>;
     type StateOperator = NoOperator<Self::State>;
     type Message = ServiceMessage<BroadcastSettings>;
@@ -72,9 +72,8 @@ where
     Backend: BlendBackend<NodeId, RuntimeServiceId> + Send + Sync,
     NodeId: Clone + Eq + Hash + Send + Sync + 'static,
     BroadcastSettings: Serialize + Send,
-    MembershipAdapter: membership::Adapter + Send,
+    MembershipAdapter: membership::Adapter<NodeId = NodeId, Error: Send + Sync + 'static> + Send,
     membership::ServiceMessage<MembershipAdapter>: Send + Sync + 'static,
-    <MembershipAdapter as membership::Adapter>::Error: Send + Sync + 'static,
     RuntimeServiceId: AsServiceId<<MembershipAdapter as membership::Adapter>::Service>
         + AsServiceId<Self>
         + Display
@@ -108,28 +107,6 @@ where
         } = self;
 
         let settings = settings_handle.notifier().get_updated_settings();
-        let membership = settings.membership();
-
-        let _membership_stream = MembershipAdapter::new(
-            overwatch_handle
-                .relay::<<MembershipAdapter as membership::Adapter>::Service>()
-                .await?,
-            settings.crypto.signing_private_key.public_key(),
-        )
-        .subscribe()
-        .await?;
-        // TODO: Use membership_stream once the membership/SDP services are ready to provide the real membership: https://github.com/logos-co/nomos/issues/1532
-
-        let session_stream = constant_session_stream(
-            membership.clone(),
-            settings.time.session_duration(),
-            settings.time.session_transition_period(),
-        );
-
-        let messages_to_blend = inbound_relay.map(|ServiceMessage::Blend(message)| {
-            wire::serialize(&message)
-                .expect("Message from internal services should not fail to serialize")
-        });
 
         wait_until_services_are_ready!(
             &overwatch_handle,
@@ -138,8 +115,28 @@ where
         )
         .await?;
 
+        let membership_stream = MembershipAdapter::new(
+            overwatch_handle
+                .relay::<<MembershipAdapter as membership::Adapter>::Service>()
+                .await?,
+            settings.crypto.signing_private_key.public_key(),
+        )
+        .subscribe()
+        .await?;
+
+        let uninitialized_session_stream = UninitializedSessionEventStream::new(
+            membership_stream,
+            FIRST_SESSION_READY_TIMEOUT,
+            settings.time.session_transition_period(),
+        );
+
+        let messages_to_blend = inbound_relay.map(|ServiceMessage::Blend(message)| {
+            wire::serialize(&message)
+                .expect("Message from internal services should not fail to serialize")
+        });
+
         run::<Backend, _, _>(
-            session_stream,
+            uninitialized_session_stream,
             messages_to_blend,
             &settings,
             &overwatch_handle,
@@ -189,6 +186,12 @@ where
         .await
         .expect("The current session must be ready");
 
+    info!(
+        target: LOG_TARGET,
+        "The current membership is ready: {} nodes.",
+        membership.size()
+    );
+
     let mut message_handler =
         MessageHandler::<Backend, NodeId, RuntimeServiceId>::try_new_with_edge_condition_check(
             settings,
@@ -234,4 +237,4 @@ where
 }
 
 type Settings<Backend, NodeId, RuntimeServiceId> =
-    BlendConfig<<Backend as BlendBackend<NodeId, RuntimeServiceId>>::Settings, NodeId>;
+    BlendConfig<<Backend as BlendBackend<NodeId, RuntimeServiceId>>::Settings>;

@@ -18,7 +18,11 @@ pub struct GeneralMembershipConfig {
 }
 
 #[must_use]
-pub fn create_membership_configs(ids: &[[u8; 32]], ports: &[u16]) -> Vec<GeneralMembershipConfig> {
+pub fn create_membership_configs(
+    ids: &[[u8; 32]],
+    da_ports: &[u16],
+    blend_ports: &[u16],
+) -> Vec<GeneralMembershipConfig> {
     let mut providers = HashMap::new();
 
     for (i, id) in ids.iter().enumerate() {
@@ -27,19 +31,35 @@ pub fn create_membership_configs(ids: &[[u8; 32]], ports: &[u16]) -> Vec<General
             .expect("Failed to generate secret key from bytes");
         let provider_id = secret_key_to_provider_id(node_key.clone());
 
-        let listening_address =
-            Multiaddr::from_str(&format!("/ip4/127.0.0.1/udp/{}/quic-v1", ports[i]))
-                .expect("Failed to create multiaddr");
+        let da_listening_address =
+            Multiaddr::from_str(&format!("/ip4/127.0.0.1/udp/{}/quic-v1", da_ports[i]))
+                .expect("Failed to create multiaddr for DA");
+        let blend_listening_address =
+            Multiaddr::from_str(&format!("/ip4/127.0.0.1/udp/{}/quic-v1", blend_ports[i]))
+                .expect("Failed to create multiaddr for Blend");
 
-        let mut locs = BTreeSet::new();
-        locs.insert(Locator::new(listening_address));
-
-        providers.insert(provider_id, locs);
+        providers
+            .entry(ServiceType::DataAvailability)
+            .or_insert_with(HashMap::new)
+            .insert(
+                provider_id,
+                BTreeSet::from([Locator::new(da_listening_address)]),
+            );
+        providers
+            .entry(ServiceType::BlendNetwork)
+            .or_insert_with(HashMap::new)
+            .insert(
+                provider_id,
+                BTreeSet::from([Locator::new(blend_listening_address)]),
+            );
     }
 
     let mock_backend_settings = MembershipBackendSettings {
-        session_sizes: HashMap::from([(ServiceType::DataAvailability, 4)]),
-        session_zero_providers: HashMap::from([(ServiceType::DataAvailability, providers)]),
+        session_sizes: HashMap::from([
+            (ServiceType::DataAvailability, 4),
+            (ServiceType::BlendNetwork, 10),
+        ]),
+        session_zero_providers: providers,
     };
 
     let config = GeneralMembershipConfig {
@@ -51,20 +71,26 @@ pub fn create_membership_configs(ids: &[[u8; 32]], ports: &[u16]) -> Vec<General
     ids.iter().map(|_| config.clone()).collect()
 }
 
+/// Create membership configs without DA providers.
+/// Blend providers should be included because the Blend service expects to have
+/// the initial membership at startup.
 #[must_use]
-pub fn create_empty_membership_configs(n_participants: usize) -> Vec<GeneralMembershipConfig> {
-    let mut membership_configs = vec![];
+pub fn create_empty_da_membership_configs(
+    ids: &[[u8; 32]],
+    blend_ports: &[u16],
+) -> Vec<GeneralMembershipConfig> {
+    // Use dummy DA ports since we will anyway remove DA config soon.
+    let dummy_da_ports = vec![0; ids.len()];
+    let mut configs = create_membership_configs(ids, &dummy_da_ports, blend_ports);
 
-    for _ in 0..n_participants {
-        membership_configs.push(GeneralMembershipConfig {
-            service_settings: MembershipServiceSettings {
-                backend: MembershipBackendSettings {
-                    session_sizes: HashMap::from([(ServiceType::DataAvailability, 4)]),
-                    session_zero_providers: HashMap::new(),
-                },
-            },
-        });
+    // Remove DA config
+    for config in &mut configs {
+        config
+            .service_settings
+            .backend
+            .session_zero_providers
+            .remove(&ServiceType::DataAvailability);
     }
 
-    membership_configs
+    configs
 }

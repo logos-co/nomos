@@ -10,7 +10,10 @@ use adapters::{
 };
 use backend::DispersalTask;
 use futures::{stream::FuturesUnordered, StreamExt as _};
-use nomos_core::mantle::{ops::channel::MsgId, AuthenticatedMantleTx as _, Op};
+use nomos_core::mantle::{
+    ops::channel::{ChannelId, MsgId},
+    AuthenticatedMantleTx as _, Op,
+};
 use nomos_da_network_core::{PeerId, SubnetworkId};
 use overwatch::{
     services::{
@@ -34,6 +37,7 @@ pub mod backend;
 #[derive(Debug)]
 pub enum DaDispersalMsg<B: DispersalBackend> {
     Disperse {
+        channel_id: ChannelId,
         data: Vec<u8>,
         reply_channel: oneshot::Sender<Result<B::BlobId, DynError>>,
     },
@@ -195,10 +199,11 @@ where
             tokio::select! {
                 Some(dispersal_msg) = inbound_relay.recv() => {
                     let DaDispersalMsg::Disperse {
+                        channel_id,
                         data,
                         reply_channel,
                     } = dispersal_msg;
-                    let last_tx = storage_adapter.last_tx();
+                    let last_tx = storage_adapter.last_tx(&channel_id);
                     let parent_msg_id = last_tx.as_ref().map_or_else(MsgId::root, |tx| {
                         let Some((Op::ChannelBlob(blob_op), _)) = tx.ops_with_proof().next() else {
                             panic!("Previously sent transaction should have a blob operation");
@@ -206,6 +211,7 @@ where
                         blob_op.id()
                     });
                     match backend.process_dispersal(
+                        channel_id,
                         parent_msg_id,
                         data,
                         reply_channel,
@@ -216,9 +222,9 @@ where
                     }
                 }
                 Some(dispersal_result) = disperse_tasks.next() => {
-                    if let Some(tx) = dispersal_result {
+                    if let (channel_id, Some(tx)) = dispersal_result {
                         tracing::info!("Dispersal retry successful");
-                        let _ =storage_adapter.store_tx(tx);
+                        let _ =storage_adapter.store_tx(channel_id, tx);
                     } else {
                         tracing::error!("Dispersal failed after all retry attempts");
                     }

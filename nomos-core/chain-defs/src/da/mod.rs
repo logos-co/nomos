@@ -3,7 +3,7 @@ pub mod blob;
 use blob::Share;
 
 use crate::mantle::{
-    ops::channel::{Ed25519PublicKey, MsgId},
+    ops::channel::{ChannelId, Ed25519PublicKey, MsgId},
     SignedMantleTx,
 };
 
@@ -35,6 +35,7 @@ pub trait DaDispersal {
     async fn disperse_shares(&self, encoded_data: Self::EncodedData) -> Result<(), Self::Error>;
     async fn disperse_tx(
         &self,
+        channel_id: ChannelId,
         parent_msg_id: MsgId,
         blob_id: BlobId,
         num_columns: usize,

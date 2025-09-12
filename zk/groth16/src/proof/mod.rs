@@ -7,6 +7,7 @@ use std::marker::PhantomData;
 use ark_bn254::Bn254;
 use ark_ec::pairing::Pairing;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize as _, SerializationError};
+use generic_array::{ArrayLength, GenericArray};
 
 #[cfg(feature = "deser")]
 use crate::from_json_error::FromJsonError;
@@ -24,16 +25,32 @@ pub struct Proof<E: Pairing> {
     pub pi_c: E::G1Affine,
 }
 
+pub trait CompressSize: Pairing {
+    type G1CompressedSize: ArrayLength;
+    type G2CompressedSize: ArrayLength;
+}
+
 #[derive(Clone, Debug)]
-pub struct CompressedProof<
-    const G1_COMPRESSED_SIZE: usize,
-    const G2_COMPRESSED_SIZE: usize,
-    E: Pairing,
-> {
-    pub pi_a: [u8; G1_COMPRESSED_SIZE],
-    pub pi_b: [u8; G2_COMPRESSED_SIZE],
-    pub pi_c: [u8; G1_COMPRESSED_SIZE],
+pub struct CompressedProof<E: CompressSize> {
+    pub pi_a: GenericArray<u8, E::G1CompressedSize>,
+    pub pi_b: GenericArray<u8, E::G2CompressedSize>,
+    pub pi_c: GenericArray<u8, E::G1CompressedSize>,
     _pairing: PhantomData<E>,
+}
+
+impl<E: CompressSize> CompressedProof<E> {
+    pub const fn new(
+        pi_a: GenericArray<u8, E::G1CompressedSize>,
+        pi_b: GenericArray<u8, E::G2CompressedSize>,
+        pi_c: GenericArray<u8, E::G1CompressedSize>,
+    ) -> Self {
+        Self {
+            pi_a,
+            pi_b,
+            pi_c,
+            _pairing: PhantomData,
+        }
+    }
 }
 
 impl<E: Pairing> From<&Proof<E>> for ark_groth16::Proof<E> {
@@ -73,15 +90,13 @@ impl TryFrom<ProofJsonDeser> for Proof<Bn254> {
     }
 }
 
-impl<const G1_COMPRESSED_SIZE: usize, const G2_COMPRESSED_SIZE: usize, E: Pairing>
-    TryFrom<&Proof<E>> for CompressedProof<G1_COMPRESSED_SIZE, G2_COMPRESSED_SIZE, E>
-{
+impl<E: Pairing + CompressSize> TryFrom<&Proof<E>> for CompressedProof<E> {
     type Error = SerializationError;
     fn try_from(value: &Proof<E>) -> Result<Self, SerializationError> {
         let Proof { pi_a, pi_b, pi_c } = value;
-        let mut a = [0u8; G1_COMPRESSED_SIZE];
-        let mut b = [0u8; G2_COMPRESSED_SIZE];
-        let mut c = [0u8; G1_COMPRESSED_SIZE];
+        let mut a = GenericArray::default();
+        let mut b = GenericArray::default();
+        let mut c = GenericArray::default();
         pi_a.serialize_compressed(a.as_mut_slice())?;
         pi_b.serialize_compressed(b.as_mut_slice())?;
         pi_c.serialize_compressed(c.as_mut_slice())?;
@@ -94,13 +109,9 @@ impl<const G1_COMPRESSED_SIZE: usize, const G2_COMPRESSED_SIZE: usize, E: Pairin
     }
 }
 
-impl<const G1_COMPRESSED_SIZE: usize, const G2_COMPRESSED_SIZE: usize, E: Pairing>
-    TryFrom<&CompressedProof<G1_COMPRESSED_SIZE, G2_COMPRESSED_SIZE, E>> for Proof<E>
-{
+impl<E: Pairing + CompressSize> TryFrom<&CompressedProof<E>> for Proof<E> {
     type Error = SerializationError;
-    fn try_from(
-        value: &CompressedProof<G1_COMPRESSED_SIZE, G2_COMPRESSED_SIZE, E>,
-    ) -> Result<Self, SerializationError> {
+    fn try_from(value: &CompressedProof<E>) -> Result<Self, SerializationError> {
         let CompressedProof {
             pi_a, pi_b, pi_c, ..
         } = value;

@@ -54,7 +54,7 @@ where
     type Settings = Libp2pBlendBackendSettings;
 
     fn new(
-        config: BlendConfig<Self::Settings, PeerId>,
+        config: BlendConfig<Self::Settings>,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
         current_membership: Membership<PeerId>,
         session_stream: Pin<Box<dyn Stream<Item = SessionEvent<Membership<PeerId>>> + Send>>,

@@ -194,9 +194,8 @@ fn settings(
     local_id: NodeId,
     minimum_network_size: u64,
     msg_sender: NodeIdSender,
-) -> BlendConfig<NodeIdSender, NodeId> {
+) -> BlendConfig<NodeIdSender> {
     BlendConfig {
-        membership: Vec::new(),
         time: TimingSettings {
             rounds_per_session: NonZeroU64::new(1).unwrap(),
             rounds_per_interval: NonZeroU64::new(1).unwrap(),

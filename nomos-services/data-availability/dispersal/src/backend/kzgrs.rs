@@ -9,7 +9,7 @@ use kzgrs_backend::{
 use nomos_core::{
     da::{BlobId, DaDispersal, DaEncoder},
     mantle::{
-        ops::channel::{Ed25519PublicKey, MsgId},
+        ops::channel::{ChannelId, Ed25519PublicKey, MsgId},
         SignedMantleTx,
     },
 };
@@ -124,6 +124,7 @@ where
 
     async fn disperse_tx(
         &self,
+        channel_id: ChannelId,
         parent_msg_id: MsgId,
         blob_id: BlobId,
         num_columns: usize,
@@ -134,7 +135,7 @@ where
         let network_adapter = self.network_adapter.as_ref();
 
         let tx = wallet_adapter
-            .blob_tx(parent_msg_id, blob_id, original_size, signer)
+            .blob_tx(channel_id, parent_msg_id, blob_id, original_size, signer)
             .map_err(Box::new)?;
         let responses_stream = network_adapter.dispersal_events_stream().await?;
         for subnetwork_id in 0..num_columns {
@@ -181,6 +182,7 @@ where
 
     async fn disperse(
         handler: DispersalHandler<NetworkAdapter, WalletAdapter>,
+        channel_id: ChannelId,
         parent_msg_id: MsgId,
         encoded_data: <encoder::DaEncoder as DaEncoder>::EncodedData,
         original_size: usize,
@@ -191,6 +193,7 @@ where
         tracing::debug!("Dispersing {blob_id:?} transaction");
         let tx = handler
             .disperse_tx(
+                channel_id,
                 parent_msg_id,
                 blob_id,
                 num_columns,
@@ -210,6 +213,7 @@ where
     )]
     fn create_dispersal_task(
         handler: DispersalHandler<NetworkAdapter, WalletAdapter>,
+        channel_id: ChannelId,
         parent_msg_id: MsgId,
         encoded_data: EncodedData,
         original_size: usize,
@@ -222,6 +226,7 @@ where
             for attempt in 0..=retry_limit {
                 match Self::disperse(
                     handler.clone(),
+                    channel_id,
                     parent_msg_id,
                     encoded_data.clone(),
                     original_size,
@@ -230,7 +235,7 @@ where
                 {
                     Ok(tx) => {
                         let _ = sender.send(Ok(blob_id));
-                        return Some(tx);
+                        return (channel_id, Some(tx));
                     }
                     Err(retry_err) => {
                         if !matches!(
@@ -238,7 +243,7 @@ where
                             Some(ProcessingError::InsufficientSubnetworkConnections)
                         ) {
                             let _ = sender.send(Err(retry_err));
-                            return None;
+                            return (channel_id, None);
                         }
                     }
                 }
@@ -251,7 +256,7 @@ where
                 );
             }
             let _ = sender.send(Err("Retry limit reached".into()));
-            None
+            (channel_id, None)
         })
     }
 }
@@ -298,6 +303,7 @@ where
     #[instrument(skip_all)]
     async fn process_dispersal(
         &self,
+        channel_id: ChannelId,
         parent_msg_id: MsgId,
         data: Vec<u8>,
         sender: oneshot::Sender<Result<Self::BlobId, DynError>>,
@@ -314,6 +320,7 @@ where
 
         let dispersal_task = Self::create_dispersal_task(
             handler,
+            channel_id,
             parent_msg_id,
             encoded_data,
             original_size,

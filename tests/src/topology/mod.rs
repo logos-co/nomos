@@ -22,7 +22,7 @@ use crate::{
         blend::create_blend_configs,
         bootstrap::create_bootstrap_configs,
         consensus::{create_consensus_configs, ConsensusParams},
-        membership::{create_empty_membership_configs, create_membership_configs},
+        membership::{create_empty_da_membership_configs, create_membership_configs},
         time::default_time_config,
     },
 };
@@ -117,18 +117,20 @@ impl Topology {
         // * coin nonce
         // * libp2p node key
         let mut ids = vec![[0; 32]; n_participants];
-        let mut ports = vec![];
+        let mut da_ports = vec![];
+        let mut blend_ports = vec![];
         for id in &mut ids {
             thread_rng().fill(id);
-            ports.push(get_available_udp_port().unwrap());
+            da_ports.push(get_available_udp_port().unwrap());
+            blend_ports.push(get_available_udp_port().unwrap());
         }
 
         let consensus_configs = create_consensus_configs(&ids, &config.consensus_params);
         let bootstrapping_config = create_bootstrap_configs(&ids, Duration::from_secs(30));
-        let da_configs = create_da_configs(&ids, &config.da_params, &ports);
-        let membership_configs = create_membership_configs(ids.as_slice(), &ports);
+        let da_configs = create_da_configs(&ids, &config.da_params, &da_ports);
+        let membership_configs = create_membership_configs(ids.as_slice(), &da_ports, &blend_ports);
         let network_configs = create_network_configs(&ids, &config.network_params);
-        let blend_configs = create_blend_configs(&ids);
+        let blend_configs = create_blend_configs(&ids, &blend_ports);
         let api_configs = create_api_configs(&ids);
         let tracing_configs = create_tracing_configs(&ids);
         let time_config = default_time_config();
@@ -162,17 +164,18 @@ impl Topology {
     pub async fn spawn_with_empty_membership(
         config: TopologyConfig,
         ids: &[[u8; 32]],
-        ports: &[u16],
+        da_ports: &[u16],
+        blend_ports: &[u16],
     ) -> Self {
         let n_participants = config.n_validators + config.n_executors;
 
         let consensus_configs = create_consensus_configs(ids, &config.consensus_params);
         let bootstrapping_config = create_bootstrap_configs(ids, Duration::from_secs(60));
-        let da_configs = create_da_configs(ids, &config.da_params, ports);
+        let da_configs = create_da_configs(ids, &config.da_params, da_ports);
         let network_configs = create_network_configs(ids, &config.network_params);
-        let blend_configs = create_blend_configs(ids);
+        let blend_configs = create_blend_configs(ids, blend_ports);
         let api_configs = create_api_configs(ids);
-        let membership_configs = create_empty_membership_configs(n_participants);
+        let membership_configs = create_empty_da_membership_configs(ids, blend_ports);
         let tracing_configs = create_tracing_configs(ids);
         let time_config = default_time_config();
 

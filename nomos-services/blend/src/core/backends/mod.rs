@@ -16,7 +16,7 @@ pub trait BlendBackend<NodeId, Rng, RuntimeServiceId> {
     type Settings: Clone + Debug + Send + Sync + 'static;
 
     fn new(
-        service_config: BlendConfig<Self::Settings, NodeId>,
+        service_config: BlendConfig<Self::Settings>,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
         current_membership: Membership<NodeId>,
         session_stream: Pin<Box<dyn Stream<Item = SessionEvent<Membership<NodeId>>> + Send>>,

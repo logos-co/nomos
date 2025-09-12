@@ -81,12 +81,12 @@ where
     Rng: RngCore,
     ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
         + for<'c> From<(
-            &'c BlendConfig<Libp2pBlendBackendSettings, PeerId>,
+            &'c BlendConfig<Libp2pBlendBackendSettings>,
             &'c Membership<PeerId>,
         )> + 'static,
 {
     pub(super) fn new(
-        config: BlendConfig<Libp2pBlendBackendSettings, PeerId>,
+        config: BlendConfig<Libp2pBlendBackendSettings>,
         current_membership: Membership<PeerId>,
         session_stream: SessionStream,
         rng: Rng,

@@ -14,12 +14,12 @@ pub struct BlendBehaviour<ObservationWindowProvider> {
 impl<ObservationWindowProvider> BlendBehaviour<ObservationWindowProvider>
 where
     ObservationWindowProvider: for<'c> From<(
-        &'c BlendConfig<Libp2pBlendBackendSettings, PeerId>,
+        &'c BlendConfig<Libp2pBlendBackendSettings>,
         &'c Membership<PeerId>,
     )>,
 {
     pub fn new(
-        config: &BlendConfig<Libp2pBlendBackendSettings, PeerId>,
+        config: &BlendConfig<Libp2pBlendBackendSettings>,
         current_membership: Membership<PeerId>,
     ) -> Self {
         let observation_window_interval_provider =

@@ -9,6 +9,7 @@ workspace = true
 
 [dependencies]
 governor       = { default-features = false, version = "0.6" }
+nomos-core     = { workspace = true }
 serde          = { default-features = false, features = ["alloc", "derive"], version = "1.0" }
-serde_with     = { workspace = true, features = ["macros"] }
+serde_with     = { features = ["macros"], workspace = true }
 tower_governor = { default-features = false, features = ["axum"], version = "0.3" }

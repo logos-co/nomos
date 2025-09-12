@@ -1,33 +1,13 @@
-use std::{hash::Hash, num::NonZeroU64, time::Duration};
+use std::{num::NonZeroU64, time::Duration};
 
-use futures::{Stream, StreamExt as _};
-use nomos_blend_scheduling::{
-    membership::{Membership, Node},
-    message_blend::CryptographicProcessorSettings,
-    session::UninitializedSessionEventStream,
-};
+use nomos_blend_scheduling::message_blend::CryptographicProcessorSettings;
 use serde::{Deserialize, Serialize};
-use tokio::time::interval;
-use tokio_stream::wrappers::IntervalStream;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct Settings<NodeId> {
+pub struct Settings {
     pub crypto: CryptographicProcessorSettings,
     pub time: TimingSettings,
     pub minimal_network_size: NonZeroU64,
-    // TODO: Replace with SDP membership stream.
-    //       We keep this for now since the membership service returns nothing.
-    pub membership: Vec<Node<NodeId>>,
-}
-
-impl<NodeId> Settings<NodeId>
-where
-    NodeId: Eq + Hash + Clone,
-{
-    pub(crate) fn membership(&self) -> Membership<NodeId> {
-        let local_signing_pubkey = self.crypto.signing_private_key.public_key();
-        Membership::new(&self.membership, &local_signing_pubkey)
-    }
 }
 
 #[serde_with::serde_as]
@@ -67,21 +47,3 @@ impl TimingSettings {
 }
 
 pub(crate) const FIRST_SESSION_READY_TIMEOUT: Duration = Duration::from_secs(1);
-
-/// A stream that repeatedly yields the same membership at fixed intervals.
-/// The first item is yielded immediately.
-// TODO: Replace with SDP membership stream.
-pub(crate) fn constant_session_stream<NodeId>(
-    membership: Membership<NodeId>,
-    session_duration: Duration,
-    session_transition_period: Duration,
-) -> UninitializedSessionEventStream<impl Stream<Item = Membership<NodeId>> + Unpin>
-where
-    NodeId: Clone + Send + Sync + 'static,
-{
-    UninitializedSessionEventStream::new(
-        Box::pin(IntervalStream::new(interval(session_duration)).map(move |_| membership.clone())),
-        FIRST_SESSION_READY_TIMEOUT,
-        session_transition_period,
-    )
-}
