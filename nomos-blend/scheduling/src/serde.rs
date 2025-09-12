@@ -1,9 +1,9 @@
-use nomos_blend_message::crypto::KEY_SIZE;
+use nomos_blend_message::crypto::keys::KEY_SIZE;
 use serde::{de::Error as _, Deserialize as _, Deserializer};
 
 /// [`Ed25519PrivateKey`] <> Hex string hex/deserialization
 pub mod ed25519_privkey_hex {
-    use nomos_blend_message::crypto::Ed25519PrivateKey;
+    use nomos_blend_message::crypto::keys::Ed25519PrivateKey;
     use serde::{Deserializer, Serialize as _, Serializer};
 
     use crate::serde::deserialize_hex_to_key;
@@ -25,7 +25,7 @@ pub mod ed25519_privkey_hex {
 
 /// [`Ed25519PublicKey`] <> Hex string serialization/deserialization
 pub mod ed25519_pubkey_hex {
-    use nomos_blend_message::crypto::Ed25519PublicKey;
+    use nomos_blend_message::crypto::keys::Ed25519PublicKey;
     use serde::{de::Error as _, Deserializer, Serialize as _, Serializer};
 
     use crate::serde::deserialize_hex_to_key;

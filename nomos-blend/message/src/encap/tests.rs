@@ -26,6 +26,10 @@ struct NeverFailingProofsVerifier;
 impl ProofsVerifier for NeverFailingProofsVerifier {
     type Error = Infallible;
 
+    fn new() -> Self {
+        Self
+    }
+
     fn verify_proof_of_quota(
         &self,
         _proof: ProofOfQuota,
@@ -108,7 +112,7 @@ fn encapsulate_and_decapsulate() {
 #[test]
 fn payload_too_long() {
     let (inputs, _) = generate_inputs(1).unwrap();
-    assert_eq!(
+    assert!(matches!(
         EncapsulatedMessage::<ENCAPSULATION_COUNT>::new(
             &inputs,
             PayloadType::Data,
@@ -116,7 +120,7 @@ fn payload_too_long() {
         )
         .err(),
         Some(Error::PayloadTooLarge)
-    );
+    ));
 }
 
 fn generate_inputs(

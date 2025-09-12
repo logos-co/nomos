@@ -119,7 +119,7 @@ where
             overwatch_handle
                 .relay::<<MembershipAdapter as membership::Adapter>::Service>()
                 .await?,
-            settings.crypto.signing_private_key.public_key(),
+            settings.crypto.non_ephemeral_signing_key.public_key(),
         )
         .subscribe()
         .await?;
