@@ -28,6 +28,7 @@ pub struct ProofOfQuota {
     proof: PoQProof,
 }
 
+#[derive(Debug)]
 pub enum Error {
     InvalidInput(Box<dyn core::error::Error>),
     ProofGeneration(ProveError),

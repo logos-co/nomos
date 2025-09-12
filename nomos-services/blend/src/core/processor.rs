@@ -6,12 +6,12 @@ use std::{
 
 use nomos_blend_scheduling::{
     membership::Membership,
-    message_blend::{crypto::CryptographicProcessor, CryptographicProcessorSettings},
+    message_blend::{crypto::SessionBoundCryptographicProcessor, CryptographicProcessorSettings},
 };
 use nomos_utils::blake_rng::BlakeRng;
 use rand::SeedableRng as _;
 
-pub struct CoreCryptographicProcessor<NodeId>(CryptographicProcessor<NodeId, BlakeRng>);
+pub struct CoreCryptographicProcessor<NodeId>(SessionBoundCryptographicProcessor<NodeId, BlakeRng>);
 
 impl<NodeId> CoreCryptographicProcessor<NodeId> {
     pub fn try_new_with_core_condition_check(
@@ -32,7 +32,7 @@ impl<NodeId> CoreCryptographicProcessor<NodeId> {
     }
 
     fn new(membership: Membership<NodeId>, settings: CryptographicProcessorSettings) -> Self {
-        Self(CryptographicProcessor::new(
+        Self(SessionBoundCryptographicProcessor::new(
             settings,
             membership,
             BlakeRng::from_entropy(),
@@ -41,7 +41,7 @@ impl<NodeId> CoreCryptographicProcessor<NodeId> {
 }
 
 impl<NodeId> Deref for CoreCryptographicProcessor<NodeId> {
-    type Target = CryptographicProcessor<NodeId, BlakeRng>;
+    type Target = SessionBoundCryptographicProcessor<NodeId, BlakeRng>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -105,7 +105,7 @@ mod tests {
 
     fn settings(local_id: NodeId) -> CryptographicProcessorSettings {
         CryptographicProcessorSettings {
-            signing_private_key: key(local_id).0,
+            non_ephemeral_signing_key: key(local_id).0,
             num_blend_layers: 1,
         }
     }
