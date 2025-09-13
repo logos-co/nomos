@@ -1,3 +1,4 @@
+pub mod api;
 mod blend;
 mod bootstrap;
 mod leadership;

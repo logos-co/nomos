@@ -1,9 +1,9 @@
 use std::collections::HashSet;
 
 use async_trait::async_trait;
-use chain_service::{
-    storage::{adapters::storage::StorageAdapter, StorageAdapter as StorageAdapterTrait},
-    ConsensusMsg, CryptarchiaInfo,
+use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
+use chain_service::storage::{
+    adapters::storage::StorageAdapter, StorageAdapter as StorageAdapterTrait,
 };
 use nomos_core::{
     block::Block,
@@ -41,20 +41,13 @@ pub struct WalletServiceSettings {
     pub known_keys: HashSet<PublicKey>,
 }
 
-pub struct WalletService<CryptarchiaService, Storage, RuntimeServiceId>
-where
-    CryptarchiaService: ServiceData,
-    Storage: StorageBackend + Send + Sync + 'static,
-{
+pub struct WalletService<Cryptarchia, Storage, RuntimeServiceId> {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     _storage: std::marker::PhantomData<Storage>,
 }
 
-impl<CryptarchiaService, Storage, RuntimeServiceId> ServiceData
-    for WalletService<CryptarchiaService, Storage, RuntimeServiceId>
-where
-    CryptarchiaService: ServiceData,
-    Storage: StorageBackend + Send + Sync + 'static,
+impl<Cryptarchia, Storage, RuntimeServiceId> ServiceData
+    for WalletService<Cryptarchia, Storage, RuntimeServiceId>
 {
     type Settings = WalletServiceSettings;
     type State = NoState<Self::Settings>;
@@ -63,16 +56,15 @@ where
 }
 
 #[async_trait]
-impl<CryptarchiaService, Storage, RuntimeServiceId> ServiceCore<RuntimeServiceId>
-    for WalletService<CryptarchiaService, Storage, RuntimeServiceId>
+impl<Cryptarchia, Storage, RuntimeServiceId> ServiceCore<RuntimeServiceId>
+    for WalletService<Cryptarchia, Storage, RuntimeServiceId>
 where
-    CryptarchiaService: ServiceData + Send + 'static,
-    CryptarchiaService::Message: From<ConsensusMsg> + Send,
+    Cryptarchia: CryptarchiaServiceData,
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as nomos_storage::api::chain::StorageChainApi>::Block:
         TryFrom<Block<SignedMantleTx>> + TryInto<Block<SignedMantleTx>>,
     RuntimeServiceId: AsServiceId<Self>
-        + AsServiceId<CryptarchiaService>
+        + AsServiceId<Cryptarchia>
         + AsServiceId<nomos_storage::StorageService<Storage, RuntimeServiceId>>
         + std::fmt::Debug
         + std::fmt::Display
@@ -92,7 +84,7 @@ where
 
     async fn run(mut self) -> Result<(), DynError> {
         let Self {
-            service_resources_handle,
+            mut service_resources_handle,
             ..
         } = self;
 
@@ -101,32 +93,23 @@ where
             .notifier()
             .get_updated_settings();
 
-        let status_updater = service_resources_handle.status_updater;
-        let mut inbound_relay = service_resources_handle.inbound_relay;
-
-        let chain_relay = service_resources_handle
-            .overwatch_handle
-            .relay::<CryptarchiaService>()
-            .await?;
         let storage_relay = service_resources_handle
             .overwatch_handle
             .relay::<nomos_storage::StorageService<Storage, RuntimeServiceId>>()
             .await?;
 
+        // Create the API wrapper for cleaner communication
+        let cryptarchia_api = CryptarchiaServiceApi::<Cryptarchia, RuntimeServiceId>::new::<Self>(
+            &service_resources_handle,
+        )
+        .await?;
+
         // Create StorageAdapter for cleaner block operations
         let storage_adapter =
             StorageAdapter::<Storage, SignedMantleTx, RuntimeServiceId>::new(storage_relay).await;
 
-        // Query chain service for current state
-        let (info_tx, info_rx) = oneshot::channel();
-        chain_relay
-            .send(ConsensusMsg::Info { tx: info_tx }.into())
-            .await
-            .map_err(|e| format!("Failed to query chain info: {:?}", e.0))?;
-
-        let chain_info: CryptarchiaInfo = info_rx
-            .await
-            .map_err(|e| format!("Failed to receive chain info: {:?}", e))?;
+        // Query chain service for current state using the API
+        let chain_info = cryptarchia_api.info().await?;
 
         eprintln!(
             "Wallet connecting to chain at tip: {:?}, lib: {:?}, slot: {:?}",
@@ -149,21 +132,8 @@ where
         // new blocks before we start bootstrapping, B_tip+1 and later blocks will remain
         // in the channel buffered until we are finished processing up to B_tip.
 
-        // Subscribe to block updates
-        let (new_block_subscription_tx, new_block_subscription_rx) = oneshot::channel();
-        chain_relay
-            .send(
-                ConsensusMsg::NewBlockSubscribe {
-                    sender: new_block_subscription_tx,
-                }
-                .into(),
-            )
-            .await
-            .map_err(|e| format!("Failed to subscribe to blocks: {:?}", e.0))?;
-
-        let mut new_block_receiver = new_block_subscription_rx
-            .await
-            .map_err(|e| format!("Failed to receive block subscription: {:?}", e))?;
+        // Subscribe to block updates using the API
+        let mut new_block_receiver = cryptarchia_api.subscribe_new_blocks().await?;
 
         // Initialize wallet from LIB and LIB LedgerState
         let lib = chain_info.lib;
@@ -175,23 +145,10 @@ where
 
         let mut wallet = Wallet::from_lib(settings.known_keys.clone(), lib, &lib_ledger);
 
-        // Request headers from LIB to tip to sync wallet state
-        let (headers_tx, headers_rx) = oneshot::channel();
-        chain_relay
-            .send(
-                ConsensusMsg::GetHeaders {
-                    from: Some(lib),
-                    to: Some(chain_info.tip),
-                    tx: headers_tx,
-                }
-                .into(),
-            )
-            .await
-            .map_err(|e| format!("Failed to request headers: {:?}", e.0))?;
-
-        let headers = headers_rx
-            .await
-            .map_err(|e| format!("Failed to receive headers: {:?}", e))?;
+        // Request headers from LIB to tip to sync wallet state using the API
+        let headers = cryptarchia_api
+            .get_headers(Some(lib), Some(chain_info.tip))
+            .await?;
 
         eprintln!("Received {} headers from LIB to tip", headers.len());
 
@@ -219,12 +176,12 @@ where
             }
         }
 
-        status_updater.notify_ready();
+        service_resources_handle.status_updater.notify_ready();
         eprintln!("Wallet service is ready and subscribed to blocks");
 
         loop {
             tokio::select! {
-                Some(msg) = inbound_relay.recv() => {
+                Some(msg) = service_resources_handle.inbound_relay.recv() => {
                     Self::handle_wallet_message(msg, &mut wallet).await;
                 }
                 Ok(header_id) = new_block_receiver.recv() => {
@@ -279,6 +236,7 @@ where
 mod tests {
     use super::*;
     use bytes::Bytes;
+    use chain_service::{ConsensusMsg, CryptarchiaInfo};
     use cryptarchia_engine::Slot;
     use nomos_core::mantle::{Note, TxHash, Utxo as CoreUtxo};
     use nomos_ledger::LedgerState;
