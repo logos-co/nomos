@@ -182,7 +182,7 @@ where
         loop {
             tokio::select! {
                 Some(msg) = service_resources_handle.inbound_relay.recv() => {
-                    Self::handle_wallet_message(msg, &mut wallet).await;
+                    Self::handle_wallet_message(msg, &wallet);
                 }
                 Ok(header_id) = new_block_receiver.recv() => {
                     let Some(block) = storage_adapter.get_block(&header_id).await else {
@@ -209,7 +209,7 @@ where
     CryptarchiaService: ServiceData,
     Storage: StorageBackend + Send + Sync + 'static,
 {
-    async fn handle_wallet_message(msg: WalletMsg, wallet: &mut Wallet) {
+    fn handle_wallet_message(msg: WalletMsg, wallet: &Wallet) {
         match msg {
             WalletMsg::GetBalance { tip, pk, tx } => {
                 let result = wallet.balance(tip, pk);
@@ -340,19 +340,15 @@ mod tests {
     pub struct TestRuntimeServiceId;
 
     impl AsServiceId<MockCryptarchiaService> for TestRuntimeServiceId {
-        const SERVICE_ID: Self = TestRuntimeServiceId;
+        const SERVICE_ID: Self = Self;
     }
-    impl AsServiceId<GenericStorageService<MockStorage<TestSerde>, TestRuntimeServiceId>>
+    impl AsServiceId<GenericStorageService<MockStorage<TestSerde>, Self>> for TestRuntimeServiceId {
+        const SERVICE_ID: Self = Self;
+    }
+    impl AsServiceId<WalletService<MockCryptarchiaService, MockStorage<TestSerde>, Self>>
         for TestRuntimeServiceId
     {
-        const SERVICE_ID: Self = TestRuntimeServiceId;
-    }
-    impl
-        AsServiceId<
-            WalletService<MockCryptarchiaService, MockStorage<TestSerde>, TestRuntimeServiceId>,
-        > for TestRuntimeServiceId
-    {
-        const SERVICE_ID: Self = TestRuntimeServiceId;
+        const SERVICE_ID: Self = Self;
     }
 
     // Helper functions
