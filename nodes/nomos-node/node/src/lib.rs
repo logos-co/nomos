@@ -161,6 +161,9 @@ pub(crate) type CryptarchiaService = generic_services::CryptarchiaService<
 
 pub(crate) type TimeService = generic_services::TimeService<RuntimeServiceId>;
 
+pub(crate) type WalletService =
+    nomos_wallet::WalletService<CryptarchiaService, RocksBackend, RuntimeServiceId>;
+
 pub(crate) type ApiStorageAdapter<RuntimeServiceId> =
     nomos_api::http::storage::adapters::rocksdb::RocksAdapter<RuntimeServiceId>;
 
@@ -227,6 +230,7 @@ pub struct Nomos {
     http: ApiService,
     storage: StorageService,
     system_sig: SystemSigService,
+    wallet: WalletService,
     #[cfg(feature = "testing")]
     testing_http: TestingApiService<RuntimeServiceId>,
 }

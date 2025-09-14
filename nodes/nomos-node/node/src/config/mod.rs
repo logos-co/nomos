@@ -21,7 +21,7 @@ use crate::{
     config::mempool::MempoolConfig,
     generic_services::{MembershipService, SdpService},
     ApiService, CryptarchiaService, DaNetworkService, DaSamplingService, DaVerifierService,
-    NetworkService, RuntimeServiceId, StorageService, TimeService,
+    NetworkService, RuntimeServiceId, StorageService, TimeService, WalletService,
 };
 
 pub mod blend;
@@ -243,6 +243,7 @@ pub struct Config {
     pub time: <TimeService as ServiceData>::Settings,
     pub storage: <StorageService as ServiceData>::Settings,
     pub mempool: MempoolConfig,
+    pub wallet: <WalletService as ServiceData>::Settings,
 
     #[cfg(feature = "testing")]
     pub testing_http: <ApiService as ServiceData>::Settings,
