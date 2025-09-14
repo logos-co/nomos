@@ -138,10 +138,12 @@ where
         // Initialize wallet from LIB and LIB LedgerState
         let lib = chain_info.lib;
 
-        // TODO: GetLedgerState variant was removed from ConsensusMsg
-        // Need to refactor wallet initialization to work without directly fetching ledger state
-        // For now, create an empty ledger state as a placeholder
-        let lib_ledger = nomos_ledger::LedgerState::from_utxos([]);
+        // Fetch the ledger state at LIB using the API
+        let lib_ledger = cryptarchia_api
+            .get_ledger_state(lib)
+            .await
+            .map_err(|e| format!("Failed to get LIB ledger state: {}", e))?
+            .ok_or_else(|| "Critical error: LIB ledger state not found - cannot initialize wallet without valid LIB state".to_string())?;
 
         let mut wallet = Wallet::from_lib(settings.known_keys.clone(), lib, &lib_ledger);
 

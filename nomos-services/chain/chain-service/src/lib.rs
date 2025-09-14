@@ -111,6 +111,10 @@ pub enum ConsensusMsg {
         to: Option<HeaderId>,
         tx: oneshot::Sender<Vec<HeaderId>>,
     },
+    GetLedgerState {
+        block_id: HeaderId,
+        tx: oneshot::Sender<Option<LedgerState>>,
+    },
 }
 
 #[serde_as]
@@ -966,6 +970,12 @@ where
 
                 tx.send(res)
                     .unwrap_or_else(|_| error!("could not send blocks through channel"));
+            }
+            ConsensusMsg::GetLedgerState { block_id, tx } => {
+                let ledger_state = cryptarchia.ledger.state(&block_id).cloned();
+                tx.send(ledger_state).unwrap_or_else(|_| {
+                    error!("Could not send ledger state through channel");
+                });
             }
         }
     }

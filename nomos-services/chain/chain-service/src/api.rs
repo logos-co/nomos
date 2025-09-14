@@ -98,4 +98,20 @@ where
     pub async fn get_headers_from_tip(&self, to: HeaderId) -> Result<Vec<HeaderId>, String> {
         self.get_headers(None, Some(to)).await
     }
+
+    /// Get the ledger state at a specific block
+    pub async fn get_ledger_state(
+        &self,
+        block_id: HeaderId,
+    ) -> Result<Option<nomos_ledger::LedgerState>, String> {
+        let (tx, rx) = oneshot::channel();
+
+        self.relay
+            .send(ConsensusMsg::GetLedgerState { block_id, tx })
+            .await
+            .map_err(|_| "Failed to send ledger state request")?;
+
+        rx.await
+            .map_err(|e| format!("Failed to receive ledger state response: {e:?}"))
+    }
 }
