@@ -44,7 +44,7 @@ where
     }
 
     /// Get the current consensus info including LIB, tip, slot, height, and mode
-    pub async fn info(&self) -> Result<CryptarchiaInfo, String> {
+    pub async fn info(&self) -> Result<CryptarchiaInfo, DynError> {
         let (tx, rx) = oneshot::channel();
 
         self.relay
@@ -52,12 +52,11 @@ where
             .await
             .map_err(|_| "Failed to send info request")?;
 
-        rx.await
-            .map_err(|e| format!("Failed to receive info response: {e:?}"))
+        Ok(rx.await?)
     }
 
     /// Subscribe to new blocks
-    pub async fn subscribe_new_blocks(&self) -> Result<broadcast::Receiver<HeaderId>, String> {
+    pub async fn subscribe_new_blocks(&self) -> Result<broadcast::Receiver<HeaderId>, DynError> {
         let (sender, receiver) = oneshot::channel();
 
         self.relay
@@ -65,9 +64,7 @@ where
             .await
             .map_err(|_| "Failed to send block subscription request")?;
 
-        receiver
-            .await
-            .map_err(|e| format!("Failed to receive block subscription: {e:?}"))
+        Ok(receiver.await?)
     }
 
     /// Get headers in the range from `from` to `to`
@@ -77,7 +74,7 @@ where
         &self,
         from: Option<HeaderId>,
         to: Option<HeaderId>,
-    ) -> Result<Vec<HeaderId>, String> {
+    ) -> Result<Vec<HeaderId>, DynError> {
         let (tx, rx) = oneshot::channel();
 
         self.relay
@@ -85,17 +82,16 @@ where
             .await
             .map_err(|_| "Failed to send headers request")?;
 
-        rx.await
-            .map_err(|e| format!("Failed to receive headers response: {e:?}"))
+        Ok(rx.await?)
     }
 
     /// Get all headers from a specific block to LIB
-    pub async fn get_headers_to_lib(&self, from: HeaderId) -> Result<Vec<HeaderId>, String> {
+    pub async fn get_headers_to_lib(&self, from: HeaderId) -> Result<Vec<HeaderId>, DynError> {
         self.get_headers(Some(from), None).await
     }
 
     /// Get all headers from tip to a specific block
-    pub async fn get_headers_from_tip(&self, to: HeaderId) -> Result<Vec<HeaderId>, String> {
+    pub async fn get_headers_from_tip(&self, to: HeaderId) -> Result<Vec<HeaderId>, DynError> {
         self.get_headers(None, Some(to)).await
     }
 
@@ -103,7 +99,7 @@ where
     pub async fn get_ledger_state(
         &self,
         block_id: HeaderId,
-    ) -> Result<Option<nomos_ledger::LedgerState>, String> {
+    ) -> Result<Option<nomos_ledger::LedgerState>, DynError> {
         let (tx, rx) = oneshot::channel();
 
         self.relay
@@ -111,7 +107,6 @@ where
             .await
             .map_err(|_| "Failed to send ledger state request")?;
 
-        rx.await
-            .map_err(|e| format!("Failed to receive ledger state response: {e:?}"))
+        Ok(rx.await?)
     }
 }

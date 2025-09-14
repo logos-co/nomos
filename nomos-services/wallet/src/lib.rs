@@ -19,7 +19,27 @@ use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
 };
 use tokio::sync::oneshot;
+use tracing::{debug, error, info, trace};
 use wallet::{Wallet, WalletBlock, WalletError};
+
+#[derive(Debug, thiserror::Error)]
+pub enum WalletServiceError {
+    #[error("Critical error: LIB ledger state not found - cannot initialize wallet without valid LIB state")]
+    LibLedgerStateNotFound,
+
+    #[error("Failed to apply historical block {block_id} to wallet: {source}")]
+    HistoricalBlockApplicationFailed {
+        block_id: HeaderId,
+        #[source]
+        source: WalletError,
+    },
+
+    #[error("Block {block_id} not found in storage during wallet sync")]
+    BlockNotFoundInStorage { block_id: HeaderId },
+
+    #[error("Cryptarchia API error: {0}")]
+    CryptarchiaApi(#[from] DynError),
+}
 
 #[derive(Debug)]
 pub enum WalletMsg {
@@ -111,9 +131,11 @@ where
         // Query chain service for current state using the API
         let chain_info = cryptarchia_api.info().await?;
 
-        eprintln!(
-            "Wallet connecting to chain at tip: {:?}, lib: {:?}, slot: {:?}",
-            chain_info.tip, chain_info.lib, chain_info.slot
+        info!(
+            tip = ?chain_info.tip,
+            lib = ?chain_info.lib,
+            slot = ?chain_info.slot,
+            "Wallet connecting to chain"
         );
 
         // IMPORTANT: subscribe for new blocks *before* we sync from lib.
@@ -141,9 +163,8 @@ where
         // Fetch the ledger state at LIB using the API
         let lib_ledger = cryptarchia_api
             .get_ledger_state(lib)
-            .await
-            .map_err(|e| format!("Failed to get LIB ledger state: {}", e))?
-            .ok_or_else(|| "Critical error: LIB ledger state not found - cannot initialize wallet without valid LIB state".to_string())?;
+            .await?
+            .ok_or(WalletServiceError::LibLedgerStateNotFound)?;
 
         let mut wallet = Wallet::from_lib(settings.known_keys.clone(), lib, &lib_ledger);
 
@@ -152,7 +173,10 @@ where
             .get_headers(Some(lib), Some(chain_info.tip))
             .await?;
 
-        eprintln!("Received {} headers from LIB to tip", headers.len());
+        debug!(
+            header_count = headers.len(),
+            "Received headers from LIB to tip"
+        );
 
         // Fetch and apply blocks for each header to sync wallet state
         for header_id in headers {
@@ -165,21 +189,31 @@ where
                     let wallet_block = WalletBlock::from(block);
                     match wallet.apply_block(&wallet_block) {
                         Ok(()) => {
-                            eprintln!("Applied historical block {header_id} to wallet");
+                            trace!(block_id = ?header_id, "Applied historical block to wallet");
                         }
                         Err(e) => {
-                            panic!("Failed to apply historical block {header_id} to wallet: {e:?}");
+                            let service_error =
+                                WalletServiceError::HistoricalBlockApplicationFailed {
+                                    block_id: header_id,
+                                    source: e,
+                                };
+                            error!(error = %service_error, "Failed to apply historical block to wallet");
+                            return Err(service_error.into());
                         }
                     }
                 }
                 None => {
-                    panic!("Block {header_id} not found in storage");
+                    let service_error = WalletServiceError::BlockNotFoundInStorage {
+                        block_id: header_id,
+                    };
+                    error!(error = %service_error, "Block not found in storage during wallet sync");
+                    return Err(service_error.into());
                 }
             }
         }
 
         service_resources_handle.status_updater.notify_ready();
-        eprintln!("Wallet service is ready and subscribed to blocks");
+        info!("Wallet service is ready and subscribed to blocks");
 
         loop {
             tokio::select! {
@@ -193,10 +227,10 @@ where
                     let wallet_block = WalletBlock::from(block);
                     match wallet.apply_block(&wallet_block) {
                         Ok(()) => {
-                            eprintln!("Applied block {:?} to wallet", wallet_block.id);
+                            trace!(block_id = ?wallet_block.id, "Applied block to wallet");
                         }
                         Err(e) => {
-                            eprintln!("Failed to apply block to wallet: {e:?}");
+                            error!(error = ?e, "Failed to apply block to wallet");
                         }
                     }
                 }
@@ -216,7 +250,7 @@ where
             WalletMsg::GetBalance { tip, pk, tx } => {
                 let result = wallet.balance(tip, pk);
                 if tx.send(result).is_err() {
-                    eprintln!("Failed to send balance response");
+                    error!("Failed to send balance response");
                 }
             }
             WalletMsg::GetUtxosForAmount {
@@ -227,7 +261,7 @@ where
             } => {
                 let result = wallet.utxos_for_amount(tip, amount, pks);
                 if tx.send(result).is_err() {
-                    eprintln!("Failed to send UTXOs response");
+                    error!("Failed to send UTXOs response");
                 }
             }
         }
