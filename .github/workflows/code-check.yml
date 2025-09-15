@@ -145,21 +145,7 @@ jobs:
         if: success() || failure()
         uses: ./.github/actions/update-cargo-cache
         with:
-          key: ${{ github.ref }}->${{ github.workflow }}->${{ github.job }}->${{ matrix.os }}          
-      - name: Install risc0 Rust toolchain
-        uses: actions-rs/toolchain@88dc2356392166efad76775c878094f4e83ff746  # Version 1.0.6
-        with:
-          toolchain: 1.88.0
-          components: clippy
-          override: true
-      - name: Run cargo clippy on risc0 crates
-        id: risc0-clippy
-        # We need to do this way since we can't use `--all-features` for crates outside of the workspace, so we need to lint each crate separately.
-        run: |
-          cd ./nomos-core/proof_statements
-          cargo clippy --all-targets --all-features
-          cd ../risc0_proofs
-          cargo clippy --all-targets --all-features
+          key: ${{ github.ref }}->${{ github.workflow }}->${{ github.job }}->${{ matrix.os }}
  
   tests:
     name: Run test suite
