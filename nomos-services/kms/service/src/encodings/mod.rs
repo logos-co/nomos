@@ -14,8 +14,8 @@ pub use kind::EncodingKind;
 ///
 /// # Consistency
 ///
-/// Due to the `#[derive(SimpleEncoding)]` macro and [`EncodingKind`], variants require the same
-/// name as the wrapped type. To use a different name:
+/// Due to the `#[derive(SimpleEncoding)]` macro and [`EncodingKind`], variants
+/// require the same name as the wrapped type. To use a different name:
 /// - Implement [`Encoding`], [`TryFrom`], and [`Into`] traits manually.
 /// - Match the variant in [`EncodingKind`]'s [`From<&EncodingFormat>`].
 /// - Adjust the [`Display`] implementation in [`EncodingKind`].
