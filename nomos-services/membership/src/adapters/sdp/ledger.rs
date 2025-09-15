@@ -32,7 +32,7 @@ where
         }
     }
 
-    async fn finalized_blocks_stream(&self) -> Result<FinalizedBlockUpdateStream, SdpAdapterError> {
+    async fn lib_blocks_stream(&self) -> Result<FinalizedBlockUpdateStream, SdpAdapterError> {
         let (sender, receiver) = oneshot::channel();
 
         self.relay
@@ -42,6 +42,8 @@ where
             .await
             .map_err(|(e, _)| SdpAdapterError::Other(Box::new(e)))?;
 
-        Ok(receiver.await?)
+        Ok(receiver
+            .await
+            .map_err(|e| SdpAdapterError::Other(Box::new(e)))?)
     }
 }

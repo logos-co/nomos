@@ -140,12 +140,9 @@ where
             .await?;
 
         let sdp_adapter = Sdp::new(sdp_relay);
-        let mut sdp_stream = sdp_adapter
-            .finalized_blocks_stream()
-            .await
-            .map_err(|e| match e {
-                SdpAdapterError::Other(error) => error,
-            })?;
+        let mut sdp_stream = sdp_adapter.lib_blocks_stream().await.map_err(|e| match e {
+            SdpAdapterError::Other(error) => error,
+        })?;
 
         self.service_resources_handle.status_updater.notify_ready();
         tracing::info!(
