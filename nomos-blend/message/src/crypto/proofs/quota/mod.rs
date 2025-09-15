@@ -104,6 +104,10 @@ impl ProofOfQuota {
         }
     }
 
+    pub const fn key_nullifier(&self) -> ZkHash {
+        self.key_nullifier
+    }
+
     #[cfg(test)]
     #[must_use]
     pub fn dummy() -> Self {
@@ -116,6 +120,7 @@ static DOMAIN_SEPARATION_TAG_FR: LazyLock<ZkHash> = LazyLock::new(|| {
     fr_from_slice(&DOMAIN_SEPARATION_TAG[..])
         .expect("DST for secret selection randomness calculation must be correct.")
 });
+// As per Proof of Quota v1 spec: <https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#215261aa09df81adb8ccd1448c9afd68>.
 fn generate_secret_selection_randomness(sk: ZkHash, key_index: u64, session: u64) -> ZkHash {
     let hash_input = [
         *DOMAIN_SEPARATION_TAG_FR,

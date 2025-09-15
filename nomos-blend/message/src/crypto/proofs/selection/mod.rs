@@ -81,7 +81,6 @@ impl ProofOfSelection {
             total_membership_size,
         }: &VerifyInputs,
     ) -> Result<(), Error> {
-        // Condition 1: https://www.notion.so/nomos-tech/Blend-Protocol-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df819991e6f9455ff7ec92
         let final_index = self.expected_index(*total_membership_size as usize)?;
         if final_index != *expected_node_index as usize {
             return Err(Error::IndexMismatch {

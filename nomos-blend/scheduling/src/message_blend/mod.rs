@@ -26,9 +26,13 @@ use tokio::{
     task::spawn_blocking,
 };
 
+/// Information about the ongoing session required to build PoQs and
+/// PoSels.
 #[derive(Clone)]
 pub struct SessionInfo {
+    /// Public session info.
     pub public: PublicInfo,
+    /// Private session info.
     pub private: PrivateInfo,
 }
 
@@ -60,20 +64,34 @@ pub struct PrivateInfo {
     pub pol_secret_key: ZkHash,
 }
 
+/// A single proof to be attached to one layer of a Blend message.
 pub struct BlendProof {
+    /// PoQ
     proof_of_quota: ProofOfQuota,
+    /// PoSel
     proof_of_selection: ProofOfSelection,
+    /// Ephemeral key used to sign the message layer's payload.
     ephemeral_signing_key: Ed25519PrivateKey,
 }
 
+/// A trait to generate core and leadership PoQs.
 #[async_trait]
 pub trait ProofsGenerator: Sized {
+    /// Initialize the proof generator with the current session information.
     fn new(session_info: SessionInfo) -> Self;
 
+    /// Get or generate the next core PoQ, if the maximum allowance has not been
+    /// reached.
     async fn get_next_core_proof(&mut self) -> Option<BlendProof>;
+    /// Get or generate the next leadership PoQ, if the maximum allowance has
+    /// not been reached.
     async fn get_next_leadership_proof(&mut self) -> Option<BlendProof>;
 }
 
+/// An implementor of `ProofsGenerator` that interacts with the actual proofs
+/// types and their underlying Circom circuits.
+///
+/// Core and leadership proofs are generated in parallel in two different Tokio tasks. The task is spawned when the proof creator is instantiated, as suggested by the Blend v1 spec <https://www.notion.so/nomos-tech/Blend-Protocol-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81d2853ee0bd41e2ae1b>.
 pub struct RealProofsGenerator {
     remaining_core_quota_proofs: u64,
     remaining_leadership_quota_proofs: u64,
@@ -106,15 +124,13 @@ impl ProofsGenerator for RealProofsGenerator {
     }
 
     async fn get_next_core_proof(&mut self) -> Option<BlendProof> {
-        let new_remaining_core_quota = self.remaining_core_quota_proofs.checked_sub(1)?;
-        self.remaining_core_quota_proofs = new_remaining_core_quota;
+        self.remaining_core_quota_proofs = self.remaining_core_quota_proofs.checked_sub(1)?;
         self.core_proofs_receiver.recv().await
     }
 
     async fn get_next_leadership_proof(&mut self) -> Option<BlendProof> {
-        let new_remaining_leadership_quota =
+        self.remaining_leadership_quota_proofs =
             self.remaining_leadership_quota_proofs.checked_sub(1)?;
-        self.remaining_leadership_quota_proofs = new_remaining_leadership_quota;
         self.leadership_proofs_receiver.recv().await
     }
 }
@@ -125,6 +141,9 @@ impl Drop for RealProofsGenerator {
     }
 }
 
+// Start the two tasks to generate core and leadership proofs. It internally
+// uses `spawn_blocking` since we run a loop until all necessary proofs have
+// been pre-computed, so that the rest of the session can proceed smoothly.
 fn start(
     total_core_proofs: u64,
     total_leadership_proofs: u64,

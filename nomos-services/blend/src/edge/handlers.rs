@@ -1,7 +1,7 @@
 use std::{hash::Hash, marker::PhantomData};
 
 use nomos_blend_scheduling::{
-    membership::Membership, message_blend::crypto::SessionCryptographicProcessor,
+    membership::Membership, message_blend::crypto::CryptographicProcessor,
 };
 use nomos_utils::blake_rng::BlakeRng;
 use overwatch::overwatch::OverwatchHandle;
@@ -10,7 +10,7 @@ use rand::SeedableRng as _;
 use crate::edge::{backends::BlendBackend, Settings, LOG_TARGET};
 
 pub struct MessageHandler<Backend, NodeId, RuntimeServiceId> {
-    cryptographic_processor: SessionCryptographicProcessor<NodeId, BlakeRng>,
+    cryptographic_processor: CryptographicProcessor<NodeId, BlakeRng>,
     backend: Backend,
     _phantom: PhantomData<RuntimeServiceId>,
 }
@@ -48,7 +48,7 @@ where
         membership: Membership<NodeId>,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
     ) -> Self {
-        let cryptographic_processor = SessionCryptographicProcessor::new(
+        let cryptographic_processor = CryptographicProcessor::new(
             settings.crypto.clone(),
             membership.clone(),
             BlakeRng::from_entropy(),

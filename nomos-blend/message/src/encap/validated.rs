@@ -1,7 +1,5 @@
 use core::ops::Deref;
 
-use nomos_core::crypto::ZkHash;
-
 use crate::{
     crypto::{keys::X25519PrivateKey, proofs::selection::inputs::VerifyInputs},
     encap::{
@@ -21,27 +19,20 @@ pub struct MissingProofOfSelectionVerificationInputs {
     pub total_membership_size: u64,
 }
 
-/// An encapsulated Blend message whose public header has been verified but not
-/// unwrapped.
+/// An incoming encapsulated Blend message whose public header has been
+/// verified.
 #[derive(Debug, PartialEq, Eq)]
-pub struct IncomingEncapsulatedMessageWithValidatedPublicHeader<const ENCAPSULATION_COUNT: usize> {
-    /// Key nullifier as returned by the verified `PoQ` of the verified public
-    /// header.
-    key_nullifier: ZkHash,
-    encapsulated_message: EncapsulatedMessage<ENCAPSULATION_COUNT>,
-}
+pub struct IncomingEncapsulatedMessageWithValidatedPublicHeader<const ENCAPSULATION_COUNT: usize>(
+    EncapsulatedMessage<ENCAPSULATION_COUNT>,
+);
 
 impl<const ENCAPSULATION_COUNT: usize>
     IncomingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>
 {
-    pub(super) const fn from_components(
+    pub(super) const fn from_message(
         encapsulated_message: EncapsulatedMessage<ENCAPSULATION_COUNT>,
-        key_nullifier: ZkHash,
     ) -> Self {
-        Self {
-            key_nullifier,
-            encapsulated_message,
-        }
+        Self(encapsulated_message)
     }
 
     /// Decapsulates the message using the provided key.
@@ -66,18 +57,18 @@ impl<const ENCAPSULATION_COUNT: usize>
     where
         Verifier: ProofsVerifier,
     {
-        let (public_header, encapsulated_part) = self.encapsulated_message.into_components();
+        let (public_header, encapsulated_part) = self.0.into_components();
+        let (_, signing_key, verified_proof_of_quota, _) = public_header.into_components();
 
         // Derive the shared key.
-        let shared_key =
-            private_key.derive_shared_key(&public_header.signing_pubkey().derive_x25519());
+        let shared_key = private_key.derive_shared_key(&signing_key.derive_x25519());
 
         // Decapsulate the encapsulated part.
         match encapsulated_part.decapsulate(
             &shared_key,
             &VerifyInputs {
                 expected_node_index: *expected_node_index,
-                key_nullifier: self.key_nullifier,
+                key_nullifier: verified_proof_of_quota.key_nullifier(),
                 total_membership_size: *total_membership_size,
             },
             verifier,
@@ -102,8 +93,8 @@ impl<const ENCAPSULATION_COUNT: usize>
     IncomingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>
 {
     #[must_use]
-    pub fn into_components(self) -> (EncapsulatedMessage<ENCAPSULATION_COUNT>, ZkHash) {
-        (self.encapsulated_message, self.key_nullifier)
+    pub fn into_inner(self) -> EncapsulatedMessage<ENCAPSULATION_COUNT> {
+        self.0
     }
 }
 
@@ -113,36 +104,15 @@ impl<const ENCAPSULATION_COUNT: usize> Deref
     type Target = EncapsulatedMessage<ENCAPSULATION_COUNT>;
 
     fn deref(&self) -> &Self::Target {
-        &self.encapsulated_message
+        &self.0
     }
 }
 
+/// An outgoing encapsulated Blend message whose public header has been
+/// verified.
 pub struct OutgoingEncapsulatedMessageWithValidatedPublicHeader<const ENCAPSULATION_COUNT: usize>(
     IncomingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>,
 );
-
-impl<const ENCAPSULATION_COUNT: usize>
-    OutgoingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>
-{
-    #[cfg(any(test, feature = "unsafe-test-functions"))]
-    #[must_use]
-    /// Wraps an `EncapsulatedMessage` into a
-    /// `EncapsulatedMessageWithValidatedPublicHeader` using a zero key
-    /// nullifier.
-    ///
-    /// This function should not be used in production, and should only be used
-    /// for tests.
-    pub const fn from_encapsulated_message_unchecked(
-        encapsulated_message: EncapsulatedMessage<ENCAPSULATION_COUNT>,
-    ) -> Self {
-        use groth16::Field as _;
-
-        Self(IncomingEncapsulatedMessageWithValidatedPublicHeader {
-            encapsulated_message,
-            key_nullifier: ZkHash::ZERO,
-        })
-    }
-}
 
 impl<const ENCAPSULATION_COUNT: usize>
     From<IncomingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>>
@@ -161,6 +131,6 @@ impl<const ENCAPSULATION_COUNT: usize> Deref
     type Target = EncapsulatedMessage<ENCAPSULATION_COUNT>;
 
     fn deref(&self) -> &Self::Target {
-        &self.0.encapsulated_message
+        &self.0 .0
     }
 }

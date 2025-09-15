@@ -125,7 +125,12 @@ pub struct Behaviour<ProofsVerifier, ObservationWindowClockProvider> {
     /// States for processing messages from the old session
     /// before the transition period has passed.
     old_session: Option<OldSession<ProofsVerifier>>,
+    /// The public inputs to use when verifying incoming messages' PoQs. They
+    /// are updated on every session change.
     session_poq_verification_inputs: PoQVerificationInputMinusSigningKey,
+    /// Verifier of the incoming messages' PoQs that uses the
+    /// `session_poq_verification_inputs` public inputs for verification. This
+    /// is set on initialization and does not change across sessions.
     poq_verifier: ProofsVerifier,
 }
 
@@ -272,20 +277,6 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
             }
         }
         self.forward_validated_message_and_maybe_exclude(message, Some(except.0))
-    }
-
-    #[cfg(test)]
-    pub fn force_forward_unvalidated_message(
-        &mut self,
-        message: EncapsulatedMessage,
-        except: (PeerId, ConnectionId),
-    ) -> Result<(), Error> {
-        self.forward_validated_message(
-            &OutgoingEncapsulatedMessageWithValidatedPublicHeader::from_encapsulated_message_unchecked(
-                message,
-            ),
-            except,
-        )
     }
 
     #[must_use]

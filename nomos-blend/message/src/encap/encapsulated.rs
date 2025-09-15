@@ -35,6 +35,9 @@ pub struct EncapsulatedMessage<const ENCAPSULATION_COUNT: usize> {
     encapsulated_part: EncapsulatedPart<ENCAPSULATION_COUNT>,
 }
 
+/// The inputs required to verify a Proof of Quota, without the signing key,
+/// which is retrieved from the public header of the message layer being
+/// veified.
 #[derive(Clone, Copy)]
 #[cfg_attr(test, derive(Default))]
 pub struct PoQVerificationInputMinusSigningKey {
@@ -103,12 +106,13 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
         }
     }
 
+    /// Consume the message to return its components.
     #[must_use]
     pub fn into_components(self) -> (PublicHeader, EncapsulatedPart<ENCAPSULATION_COUNT>) {
         (self.public_header, self.encapsulated_part)
     }
 
-    /// Verify the message public header without unwrapping it.
+    /// Verify the message public header.
     pub fn verify_public_header<Verifier>(
         self,
         PoQVerificationInputMinusSigningKey {
@@ -130,7 +134,7 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
             &self.encapsulated_part.private_header,
             &self.encapsulated_part.payload,
         ))?;
-        let (_, signing_pubkey, proof_of_quota, signature) = self.public_header.into_components();
+        let (_, signing_key, proof_of_quota, signature) = self.public_header.into_components();
         // Verify the Proof of Quota according to the Blend spec: <https://www.notion.so/nomos-tech/Blend-Protocol-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81b593ddce00cffd24a8>.
         let key_nullifier = verifier
             .verify_proof_of_quota(
@@ -142,15 +146,17 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
                     pol_epoch_nonce: *pol_epoch_nonce,
                     pol_ledger_aged: *pol_ledger_aged,
                     session: *session,
-                    signing_key: signing_pubkey,
+                    // Signing key taken from the public header after the signature has been
+                    // successfully verified.
+                    signing_key,
                     total_stake: *total_stake,
                 },
             )
             .map_err(|_| Error::ProofOfQuotaVerificationFailed(quota::Error::InvalidProof))?;
         Ok(
-            IncomingEncapsulatedMessageWithValidatedPublicHeader::from_components(
+            IncomingEncapsulatedMessageWithValidatedPublicHeader::from_message(
                 Self::from_components(
-                    PublicHeader::new(signing_pubkey, &proof_of_quota, signature),
+                    PublicHeader::new(signing_key, &proof_of_quota, signature),
                     self.encapsulated_part,
                 ),
                 key_nullifier,
