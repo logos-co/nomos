@@ -136,7 +136,7 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
         ))?;
         let (_, signing_key, proof_of_quota, signature) = self.public_header.into_components();
         // Verify the Proof of Quota according to the Blend spec: <https://www.notion.so/nomos-tech/Blend-Protocol-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81b593ddce00cffd24a8>.
-        let key_nullifier = verifier
+        verifier
             .verify_proof_of_quota(
                 proof_of_quota,
                 &PublicInputs {
@@ -159,7 +159,6 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
                     PublicHeader::new(signing_key, &proof_of_quota, signature),
                     self.encapsulated_part,
                 ),
-                key_nullifier,
             ),
         )
     }

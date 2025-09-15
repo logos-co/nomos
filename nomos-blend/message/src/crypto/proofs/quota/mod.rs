@@ -104,6 +104,7 @@ impl ProofOfQuota {
         }
     }
 
+    #[must_use]
     pub const fn key_nullifier(&self) -> ZkHash {
         self.key_nullifier
     }

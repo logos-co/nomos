@@ -26,8 +26,8 @@ use tokio::{
     task::spawn_blocking,
 };
 
-/// Information about the ongoing session required to build PoQs and
-/// PoSels.
+/// Information about the ongoing session required to build `PoQ`s and
+/// `PoSel`s.
 #[derive(Clone)]
 pub struct SessionInfo {
     /// Public session info.
@@ -66,24 +66,24 @@ pub struct PrivateInfo {
 
 /// A single proof to be attached to one layer of a Blend message.
 pub struct BlendProof {
-    /// PoQ
+    /// `PoQ`
     proof_of_quota: ProofOfQuota,
-    /// PoSel
+    /// `PoSel`
     proof_of_selection: ProofOfSelection,
     /// Ephemeral key used to sign the message layer's payload.
     ephemeral_signing_key: Ed25519PrivateKey,
 }
 
-/// A trait to generate core and leadership PoQs.
+/// A trait to generate core and leadership `PoQs`.
 #[async_trait]
 pub trait ProofsGenerator: Sized {
     /// Initialize the proof generator with the current session information.
     fn new(session_info: SessionInfo) -> Self;
 
-    /// Get or generate the next core PoQ, if the maximum allowance has not been
-    /// reached.
+    /// Get or generate the next core `PoQ`, if the maximum allowance has not
+    /// been reached.
     async fn get_next_core_proof(&mut self) -> Option<BlendProof>;
-    /// Get or generate the next leadership PoQ, if the maximum allowance has
+    /// Get or generate the next leadership `PoQ`, if the maximum allowance has
     /// not been reached.
     async fn get_next_leadership_proof(&mut self) -> Option<BlendProof>;
 }

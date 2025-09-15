@@ -1,5 +1,3 @@
-use core::ops::Deref;
-
 use crate::{
     crypto::{keys::X25519PrivateKey, proofs::selection::inputs::VerifyInputs},
     encap::{
@@ -7,7 +5,7 @@ use crate::{
         encapsulated::EncapsulatedMessage,
         ProofsVerifier,
     },
-    Error,
+    Error, MessageIdentifier,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -21,7 +19,10 @@ pub struct MissingProofOfSelectionVerificationInputs {
 
 /// An incoming encapsulated Blend message whose public header has been
 /// verified.
-#[derive(Debug, PartialEq, Eq)]
+///
+/// It can be decapsulated, but before being sent out as-is, it needs to be
+/// converted into its outgoing variant.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IncomingEncapsulatedMessageWithValidatedPublicHeader<const ENCAPSULATION_COUNT: usize>(
     EncapsulatedMessage<ENCAPSULATION_COUNT>,
 );
@@ -33,6 +34,11 @@ impl<const ENCAPSULATION_COUNT: usize>
         encapsulated_message: EncapsulatedMessage<ENCAPSULATION_COUNT>,
     ) -> Self {
         Self(encapsulated_message)
+    }
+
+    #[must_use]
+    pub const fn id(&self) -> MessageIdentifier {
+        self.0.id()
     }
 
     /// Decapsulates the message using the provided key.
@@ -98,21 +104,25 @@ impl<const ENCAPSULATION_COUNT: usize>
     }
 }
 
-impl<const ENCAPSULATION_COUNT: usize> Deref
-    for IncomingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>
-{
-    type Target = EncapsulatedMessage<ENCAPSULATION_COUNT>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
 /// An outgoing encapsulated Blend message whose public header has been
 /// verified.
+///
+/// This message type does not offer any operations since it is only meant to be
+/// used for outgoing messages that need serialization, hence it is used in
+/// places where an `EncapsulatedMessage` is expected.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutgoingEncapsulatedMessageWithValidatedPublicHeader<const ENCAPSULATION_COUNT: usize>(
     IncomingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>,
 );
+
+impl<const ENCAPSULATION_COUNT: usize>
+    OutgoingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>
+{
+    #[must_use]
+    pub const fn id(&self) -> MessageIdentifier {
+        self.0 .0.id()
+    }
+}
 
 impl<const ENCAPSULATION_COUNT: usize>
     From<IncomingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>>
@@ -125,12 +135,10 @@ impl<const ENCAPSULATION_COUNT: usize>
     }
 }
 
-impl<const ENCAPSULATION_COUNT: usize> Deref
+impl<const ENCAPSULATION_COUNT: usize> AsRef<EncapsulatedMessage<ENCAPSULATION_COUNT>>
     for OutgoingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>
 {
-    type Target = EncapsulatedMessage<ENCAPSULATION_COUNT>;
-
-    fn deref(&self) -> &Self::Target {
+    fn as_ref(&self) -> &EncapsulatedMessage<ENCAPSULATION_COUNT> {
         &self.0 .0
     }
 }

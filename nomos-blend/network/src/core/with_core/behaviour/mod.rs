@@ -125,10 +125,10 @@ pub struct Behaviour<ProofsVerifier, ObservationWindowClockProvider> {
     /// States for processing messages from the old session
     /// before the transition period has passed.
     old_session: Option<OldSession<ProofsVerifier>>,
-    /// The public inputs to use when verifying incoming messages' PoQs. They
+    /// The public inputs to use when verifying incoming messages' `PoQ`s. They
     /// are updated on every session change.
     session_poq_verification_inputs: PoQVerificationInputMinusSigningKey,
-    /// Verifier of the incoming messages' PoQs that uses the
+    /// Verifier of the incoming messages' `PoQ`s that uses the
     /// `session_poq_verification_inputs` public inputs for verification. This
     /// is set on initialization and does not change across sessions.
     poq_verifier: ProofsVerifier,
@@ -374,7 +374,7 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
     ) -> Result<(), Error> {
         let message_id = message.id();
 
-        let serialized_message = serialize_encapsulated_message(message);
+        let serialized_message = serialize_encapsulated_message(message.as_ref());
         let mut at_least_one_receiver = false;
         self.negotiated_peers
             .iter()
