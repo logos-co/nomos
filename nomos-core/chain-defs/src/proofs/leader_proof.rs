@@ -1,4 +1,4 @@
-use ark_ff::{BigInteger as _, Field as _, PrimeField as _};
+use ark_ff::{Field as _, PrimeField as _};
 use generic_array::GenericArray;
 use groth16::{fr_from_bytes, serde::serde_fr, Fr};
 use num_bigint::BigUint;
@@ -148,13 +148,11 @@ impl LeaderPublic {
 
     #[must_use]
     pub fn check_winning(&self, value: u64, note_id: Fr, sk: Fr) -> bool {
-        let threshold = Self::phi_approx(&BigUint::from(value), &self.scaled_phi_approx());
-        let threshold_bytes = threshold.to_bytes_le();
-        let threshold = BigUint::from_bytes_le(&threshold_bytes);
-        let ticket = Self::ticket(note_id, sk, self.epoch_nonce, Fr::from(self.slot));
-        let ticket_bytes = ticket.into_bigint().to_bytes_le();
-        let ticket_bigint = BigUint::from_bytes_le(&ticket_bytes);
-        ticket_bigint < threshold
+        let (t0, t1) = self.scaled_phi_approx();
+        let threshold =
+            Self::phi_approx(&Fr::from(value), &(Fr::from(t0), Fr::from(t1))).into_bigint();
+        let ticket = Self::ticket(note_id, sk, self.epoch_nonce, Fr::from(self.slot)).into_bigint();
+        ticket < threshold
     }
 
     fn scaled_phi_approx(&self) -> (BigUint, BigUint) {
@@ -164,9 +162,9 @@ impl LeaderPublic {
         (t0, t1)
     }
 
-    fn phi_approx(stake: &BigUint, approx: &(BigUint, BigUint)) -> BigUint {
+    fn phi_approx(stake: &Fr, approx: &(Fr, Fr)) -> Fr {
         // stake * (t0 - t1 * stake)
-        stake * (&approx.0 - (&approx.1 * stake))
+        *stake * (approx.0 - (approx.1 * *stake))
     }
 
     fn ticket(note_id: Fr, sk: Fr, epoch_nonce: Fr, slot: Fr) -> Fr {
