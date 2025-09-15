@@ -25,6 +25,7 @@ wallet             = { workspace = true }
 bincode    = "1.3"
 num-bigint = { version = "0.4", default-features = false }
 tokio-test = "0.4"
+nomos-utils = { workspace = true }
 
 [lints]
 workspace = true
