@@ -13,7 +13,7 @@ use crate::{
     Error,
 };
 
-/// A Blend message whose public header has been verified.
+/// A Blend message whose public header has been verified and unwrapped.
 #[derive(Debug)]
 pub struct UnwrappedEncapsulatedMessage<const ENCAPSULATION_COUNT: usize> {
     /// Key nullifier as returned by the verified `PoQ` of the unwrapped public

@@ -8,6 +8,7 @@ use crate::crypto::proofs::{
 pub mod decapsulated;
 pub mod encapsulated;
 pub mod unwrapped;
+pub mod validated;
 
 #[cfg(test)]
 mod tests;

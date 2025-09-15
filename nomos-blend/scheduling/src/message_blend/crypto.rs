@@ -11,6 +11,7 @@ use nomos_blend_message::{
             MissingProofOfSelectionVerificationInputs,
             UnwrappedEncapsulatedMessage as InternalUnwrappedEncapsulatedMessage,
         },
+        validated::ValidatedEncapsulatedMessage as InternalValidatedEncapsulatedMessage,
     },
     input::{EncapsulationInput, EncapsulationInputs as InternalEncapsulationInputs},
     Error, PayloadType,
@@ -29,6 +30,7 @@ pub type EncapsulatedMessage = InternalEncapsulatedMessage<ENCAPSULATION_COUNT>;
 pub type EncapsulationInputs = InternalEncapsulationInputs<ENCAPSULATION_COUNT>;
 pub type DecapsulationOutput = InternalDecapsulationOutput<ENCAPSULATION_COUNT>;
 pub type UnwrappedEncapsulatedMessage = InternalUnwrappedEncapsulatedMessage<ENCAPSULATION_COUNT>;
+pub type ValidatedEncapsulatedMessage = InternalValidatedEncapsulatedMessage<ENCAPSULATION_COUNT>;
 
 /// [`SessionCryptographicProcessor`] is responsible for wrapping and unwrapping
 /// messages for the message indistinguishability.

@@ -20,8 +20,6 @@ impl Default for Inputs {
     fn default() -> Self {
         use groth16::Field as _;
 
-        use crate::crypto::keys::Ed25519PrivateKey;
-
         Self {
             core_quota: u64::default(),
             core_root: ZkHash::ZERO,

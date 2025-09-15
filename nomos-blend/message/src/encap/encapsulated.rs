@@ -17,6 +17,7 @@ use crate::{
     encap::{
         decapsulated::{PartDecapsulationOutput, PrivateHeaderDecapsulationOutput},
         unwrapped::UnwrappedEncapsulatedMessage,
+        validated::ValidatedEncapsulatedMessage,
         ProofsVerifier,
     },
     input::EncapsulationInputs,
@@ -36,6 +37,7 @@ pub struct EncapsulatedMessage<const ENCAPSULATION_COUNT: usize> {
 }
 
 #[derive(Clone, Copy)]
+#[cfg_attr(test, derive(Default))]
 pub struct PoQVerificationInputMinusSigningKey {
     pub session: u64,
     pub core_root: ZkHash,
@@ -102,7 +104,27 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
         }
     }
 
+    /// Verify the message public header and unwrap it if successful.
     pub fn verify_and_unwrap_public_header<Verifier>(
+        self,
+        poq_verification_input_minus_signing_key: &PoQVerificationInputMinusSigningKey,
+        verifier: &Verifier,
+    ) -> Result<UnwrappedEncapsulatedMessage<ENCAPSULATION_COUNT>, Error>
+    where
+        Verifier: ProofsVerifier,
+    {
+        let validated_message =
+            self.verify_public_header(poq_verification_input_minus_signing_key, verifier)?;
+        let (encapsulated_message, key_nullifier) = validated_message.into_components();
+        Ok(UnwrappedEncapsulatedMessage::new(
+            key_nullifier,
+            *encapsulated_message.public_header.signing_pubkey(),
+            encapsulated_message.encapsulated_part,
+        ))
+    }
+
+    /// Verify the message public header without unwrapping it.
+    pub fn verify_public_header<Verifier>(
         self,
         PoQVerificationInputMinusSigningKey {
             core_quota,
@@ -114,7 +136,7 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
             total_stake,
         }: &PoQVerificationInputMinusSigningKey,
         verifier: &Verifier,
-    ) -> Result<UnwrappedEncapsulatedMessage<ENCAPSULATION_COUNT>, Error>
+    ) -> Result<ValidatedEncapsulatedMessage<ENCAPSULATION_COUNT>, Error>
     where
         Verifier: ProofsVerifier,
     {
@@ -123,7 +145,7 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
             &self.encapsulated_part.private_header,
             &self.encapsulated_part.payload,
         ))?;
-        let (_, signing_pubkey, proof_of_quota, _) = self.public_header.into_components();
+        let (_, signing_pubkey, proof_of_quota, signature) = self.public_header.into_components();
         // Verify the Proof of Quota according to the Blend spec: <https://www.notion.so/nomos-tech/Blend-Protocol-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81b593ddce00cffd24a8>.
         let key_nullifier = verifier
             .verify_proof_of_quota(
@@ -140,10 +162,12 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
                 },
             )
             .map_err(|_| Error::ProofOfQuotaVerificationFailed(quota::Error::InvalidProof))?;
-        Ok(UnwrappedEncapsulatedMessage::new(
+        Ok(ValidatedEncapsulatedMessage::from_components(
+            Self::from_components(
+                PublicHeader::new(signing_pubkey, &proof_of_quota, signature),
+                self.encapsulated_part,
+            ),
             key_nullifier,
-            signing_pubkey,
-            self.encapsulated_part,
         ))
     }
 
