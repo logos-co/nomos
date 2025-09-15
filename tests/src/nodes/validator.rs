@@ -49,7 +49,6 @@ use nomos_http_api_common::paths::{
 };
 use nomos_mempool::MempoolMetrics;
 use nomos_network::{backends::libp2p::Libp2pConfig, config::NetworkConfig};
-use nomos_wallet::WalletServiceSettings;
 use nomos_node::{
     api::{backend::AxumBackendSettings, testing::handlers::HistoricSamplingRequest},
     config::{blend::BlendConfig, mempool::MempoolConfig},
@@ -62,6 +61,7 @@ use nomos_time::{
 use nomos_tracing::logging::local::FileConfig;
 use nomos_tracing_service::LoggerLayer;
 use nomos_utils::{math::NonNegativeF64, net::get_available_tcp_port};
+use nomos_wallet::WalletServiceSettings;
 use reqwest::Url;
 use tempfile::NamedTempFile;
 use tokio::time::error::Elapsed;

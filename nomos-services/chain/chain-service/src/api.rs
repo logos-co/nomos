@@ -1,10 +1,11 @@
-use crate::{ConsensusMsg, CryptarchiaInfo, LibUpdate};
 use nomos_core::header::HeaderId;
 use overwatch::{
     services::{relay::OutboundRelay, AsServiceId, ServiceData},
     DynError, OpaqueServiceResourcesHandle,
 };
 use tokio::sync::{broadcast, oneshot};
+
+use crate::{ConsensusMsg, CryptarchiaInfo, LibUpdate};
 
 pub trait CryptarchiaServiceData: ServiceData<Message = ConsensusMsg> + Send + 'static {}
 impl<T> CryptarchiaServiceData for T where T: ServiceData<Message = ConsensusMsg> + Send + 'static {}
@@ -43,7 +44,8 @@ where
         })
     }
 
-    /// Get the current consensus info including LIB, tip, slot, height, and mode
+    /// Get the current consensus info including LIB, tip, slot, height, and
+    /// mode
     pub async fn info(&self) -> Result<CryptarchiaInfo, DynError> {
         let (tx, rx) = oneshot::channel();
 

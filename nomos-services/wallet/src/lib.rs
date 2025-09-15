@@ -149,16 +149,17 @@ where
         // after we subscribed.
         //
         // If syncing from LIB takes some time, there may be a gap between the blocks
-        // we observed when we first bootstrap from LIB and from when we start subscribing
-        // to new blocks.
+        // we observed when we first bootstrap from LIB and from when we start
+        // subscribing to new blocks.
         //
         // LIB <- B_1 <- B_2 <- .. <- B_tip <- B_tip+1
         // --------------------------------
         //    synced during bootstrapping
         //
-        // B_tip+1 may have been produced while we were bootstrapping. If we subscribe to
-        // new blocks before we start bootstrapping, B_tip+1 and later blocks will remain
-        // in the channel buffered until we are finished processing up to B_tip.
+        // B_tip+1 may have been produced while we were bootstrapping. If we subscribe
+        // to new blocks before we start bootstrapping, B_tip+1 and later blocks
+        // will remain in the channel buffered until we are finished processing
+        // up to B_tip.
 
         // Subscribe to block updates using the API
         let mut new_block_receiver = cryptarchia_api.subscribe_new_blocks().await?;
@@ -299,9 +300,10 @@ where
             return;
         };
 
-        // TAI: there may be a race condition here where the caller knows a more recent tip than the wallet.
-        // In that case, we will have received a LedgerState for the tip
-        // from Cryptarchia, but we would be missing the WalletState for that tip.
+        // TAI: there may be a race condition here where the caller knows a more recent
+        // tip than the wallet. In that case, we will have received a
+        // LedgerState for the tip from Cryptarchia, but we would be missing the
+        // WalletState for that tip.
         //
         // Currently the way we deal with that is to just return an error but that's
         // not ideal.
@@ -345,7 +347,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::{collections::HashMap, sync::Arc};
+
     use bytes::Bytes;
     use chain_service::{ConsensusMsg, CryptarchiaInfo};
     use cryptarchia_engine::Slot;
@@ -357,8 +360,9 @@ mod tests {
     };
     use num_bigint::BigUint;
     use serde::de::DeserializeOwned;
-    use std::{collections::HashMap, sync::Arc};
     use tokio::sync::broadcast;
+
+    use super::*;
 
     // Test serialization operator
     pub struct TestSerde;
@@ -517,15 +521,16 @@ mod tests {
 
         let _mock_service = MockCryptarchiaService::new(lib, tip);
 
-        // This test validates that missing LIB state should cause wallet initialization to fail
-        // In a real scenario:
+        // This test validates that missing LIB state should cause wallet initialization
+        // to fail In a real scenario:
         // 1. WalletService calls ConsensusMsg::GetLedgerState
         // 2. Chain service returns None (LIB state not found)
         // 3. WalletService should return error and fail to start
         // 4. Service should not continue running with empty/default state
 
-        // The corrected implementation now returns an error instead of defaulting to empty state
-        // TODO: Add integration test that verifies service fails to start when chain returns None for LIB state
+        // The corrected implementation now returns an error instead of defaulting to
+        // empty state TODO: Add integration test that verifies service fails to
+        // start when chain returns None for LIB state
 
         // For now, verify that with valid LIB state, wallet works correctly:
         let valid_ledger =
@@ -553,10 +558,10 @@ mod tests {
     async fn test_wallet_bootstrapping_race_condition_simulation() {
         // Test the race condition between block subscription and historical sync
         // This simulates the scenario where blocks arrive during bootstrapping
-        let alice = pk(1);
+        let _alice = pk(1);
         let lib = HeaderId::from([1; 32]);
         let tip = HeaderId::from([2; 32]);
-        let new_tip = HeaderId::from([3; 32]);
+        let _new_tip = HeaderId::from([3; 32]);
 
         let mock_service = MockCryptarchiaService::new(lib, tip);
 
@@ -581,8 +586,8 @@ mod tests {
         // - Verifying correct processing order
     }
 
-    // TODO: Add integration tests that actually simulate the full service lifecycle
-    // These would test:
+    // TODO: Add integration tests that actually simulate the full service
+    // lifecycle These would test:
     // 1. Complete WalletService initialization with mock dependencies
     // 2. End-to-end block synchronization from LIB to tip
     // 3. Real-time block processing with concurrent subscriptions

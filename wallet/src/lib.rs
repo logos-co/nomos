@@ -233,9 +233,9 @@ impl Wallet {
 
     /// Prune wallet states for blocks that have been pruned from the chain.
     ///
-    /// This removes wallet states for blocks that are no longer part of the chain
-    /// after LIB advancement. Both stale blocks (from abandoned forks) and
-    /// immutable blocks (before the new LIB) are removed.
+    /// This removes wallet states for blocks that are no longer part of the
+    /// chain after LIB advancement. Both stale blocks (from abandoned
+    /// forks) and immutable blocks (before the new LIB) are removed.
     pub fn prune_states(&mut self, pruned_blocks: impl IntoIterator<Item = HeaderId>) {
         let mut removed_count = 0;
 
