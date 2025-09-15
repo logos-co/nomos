@@ -223,6 +223,29 @@ impl Wallet {
             .get(&tip)
             .ok_or(WalletError::UnknownBlock)
     }
+
+    /// Prune wallet states for blocks that have been pruned from the chain.
+    ///
+    /// This removes wallet states for blocks that are no longer part of the chain
+    /// after LIB advancement. Both stale blocks (from abandoned forks) and
+    /// immutable blocks (before the new LIB) are removed.
+    pub fn prune_states(&mut self, pruned_blocks: impl IntoIterator<Item = HeaderId>) {
+        let mut removed_count = 0;
+
+        for block_id in pruned_blocks {
+            if self.wallet_states.remove(&block_id).is_some() {
+                removed_count += 1;
+            }
+        }
+
+        if removed_count > 0 {
+            tracing::debug!(
+                removed_states = removed_count,
+                remaining_states = self.wallet_states.len(),
+                "Pruned wallet states for pruned blocks"
+            );
+        }
+    }
 }
 
 #[cfg(test)]

@@ -1,9 +1,12 @@
 use std::collections::HashSet;
 
 use async_trait::async_trait;
-use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 use chain_service::storage::{
     adapters::storage::StorageAdapter, StorageAdapter as StorageAdapterTrait,
+};
+use chain_service::{
+    api::{CryptarchiaServiceApi, CryptarchiaServiceData},
+    LibUpdate,
 };
 use nomos_core::{
     block::Block,
@@ -157,6 +160,9 @@ where
         // Subscribe to block updates using the API
         let mut new_block_receiver = cryptarchia_api.subscribe_new_blocks().await?;
 
+        // Subscribe to LIB updates for wallet state pruning
+        let mut lib_receiver = cryptarchia_api.subscribe_lib_updates().await?;
+
         // Initialize wallet from LIB and LIB LedgerState
         let lib = chain_info.lib;
 
@@ -234,6 +240,9 @@ where
                         }
                     }
                 }
+                Ok(lib_update) = lib_receiver.recv() => {
+                    Self::handle_lib_update(lib_update, &mut wallet);
+                }
             }
         }
     }
@@ -265,6 +274,23 @@ where
                 }
             }
         }
+    }
+
+    fn handle_lib_update(lib_update: LibUpdate, wallet: &mut Wallet) {
+        debug!(
+            new_lib = ?lib_update.new_lib,
+            stale_blocks_count = lib_update.pruned_blocks.stale_blocks.len(),
+            immutable_blocks_count = lib_update.pruned_blocks.immutable_blocks.len(),
+            "Received LIB update"
+        );
+
+        // Prune wallet states for all blocks that were pruned from the chain
+        let pruned_blocks = lib_update
+            .pruned_blocks
+            .stale_blocks
+            .into_iter()
+            .chain(lib_update.pruned_blocks.immutable_blocks.into_values());
+        wallet.prune_states(pruned_blocks);
     }
 }
 
