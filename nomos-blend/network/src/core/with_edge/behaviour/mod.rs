@@ -20,7 +20,7 @@ use libp2p::{
 use nomos_blend_message::encap::{self, encapsulated::PoQVerificationInputMinusSigningKey};
 use nomos_blend_scheduling::{
     deserialize_encapsulated_message, membership::Membership,
-    message_blend::crypto::UnwrappedEncapsulatedMessage,
+    message_blend::crypto::EncapsulatedMessageWithValidatedPublicHeader,
 };
 
 use crate::core::with_edge::behaviour::handler::{ConnectionHandler, FromBehaviour, ToBehaviour};
@@ -36,7 +36,7 @@ const LOG_TARGET: &str = "blend::network::core::edge::behaviour";
 pub enum Event {
     /// A message received from one of the edge peers, after its public header
     /// has been verified.
-    Message(UnwrappedEncapsulatedMessage),
+    Message(EncapsulatedMessageWithValidatedPublicHeader),
 }
 
 #[derive(Debug)]
@@ -166,10 +166,7 @@ where
         };
 
         let Ok(validated_message) = deserialized_encapsulated_message
-            .verify_and_unwrap_public_header(
-                &self.session_poq_verification_inputs,
-                &self.poq_verifier,
-            )
+            .verify_public_header(&self.session_poq_verification_inputs, &self.poq_verifier)
         else {
             tracing::trace!(target: LOG_TARGET, "Failed to validate public header of received message. Ignoring...");
             return;

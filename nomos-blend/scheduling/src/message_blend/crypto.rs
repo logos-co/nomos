@@ -6,11 +6,10 @@ use nomos_blend_message::{
     encap::{
         decapsulated::DecapsulationOutput as InternalDecapsulationOutput,
         encapsulated::EncapsulatedMessage as InternalEncapsulatedMessage,
-        unwrapped::{
+        validated::{
+            EncapsulatedMessageWithValidatedPublicHeader as InternalEncapsulatedMessageWithValidatedPublicHeader,
             MissingProofOfSelectionVerificationInputs,
-            UnwrappedEncapsulatedMessage as InternalUnwrappedEncapsulatedMessage,
         },
-        validated::EncapsulatedMessageWithValidatedPublicHeader as InternalEncapsulatedMessageWithValidatedPublicHeader,
         ProofsVerifier as ProofsVerifierTrait,
     },
     input::{EncapsulationInput, EncapsulationInputs as InternalEncapsulationInputs},
@@ -29,7 +28,6 @@ const ENCAPSULATION_COUNT: usize = 3;
 pub type EncapsulatedMessage = InternalEncapsulatedMessage<ENCAPSULATION_COUNT>;
 pub type EncapsulationInputs = InternalEncapsulationInputs<ENCAPSULATION_COUNT>;
 pub type DecapsulationOutput = InternalDecapsulationOutput<ENCAPSULATION_COUNT>;
-pub type UnwrappedEncapsulatedMessage = InternalUnwrappedEncapsulatedMessage<ENCAPSULATION_COUNT>;
 pub type EncapsulatedMessageWithValidatedPublicHeader =
     InternalEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>;
 
@@ -91,7 +89,7 @@ where
 {
     pub fn decapsulate_message(
         &self,
-        message: UnwrappedEncapsulatedMessage,
+        message: EncapsulatedMessageWithValidatedPublicHeader,
     ) -> Result<DecapsulationOutput, Error> {
         let Some(local_node_index) = self.membership.local_index() else {
             return Err(Error::NotCoreNodeReceiver);

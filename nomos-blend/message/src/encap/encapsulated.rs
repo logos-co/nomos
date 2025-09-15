@@ -16,7 +16,6 @@ use crate::{
     },
     encap::{
         decapsulated::{PartDecapsulationOutput, PrivateHeaderDecapsulationOutput},
-        unwrapped::UnwrappedEncapsulatedMessage,
         validated::EncapsulatedMessageWithValidatedPublicHeader,
         ProofsVerifier,
     },
@@ -28,7 +27,7 @@ use crate::{
 pub type MessageIdentifier = Ed25519PublicKey;
 
 /// An encapsulated message that is sent to the blend network.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct EncapsulatedMessage<const ENCAPSULATION_COUNT: usize> {
     /// A public header that is not encapsulated.
     public_header: PublicHeader,
@@ -104,23 +103,9 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
         }
     }
 
-    /// Verify the message public header and unwrap it if successful.
-    pub fn verify_and_unwrap_public_header<Verifier>(
-        self,
-        poq_verification_input_minus_signing_key: &PoQVerificationInputMinusSigningKey,
-        verifier: &Verifier,
-    ) -> Result<UnwrappedEncapsulatedMessage<ENCAPSULATION_COUNT>, Error>
-    where
-        Verifier: ProofsVerifier,
-    {
-        let validated_message =
-            self.verify_public_header(poq_verification_input_minus_signing_key, verifier)?;
-        let (encapsulated_message, key_nullifier) = validated_message.into_components();
-        Ok(UnwrappedEncapsulatedMessage::new(
-            key_nullifier,
-            *encapsulated_message.public_header.signing_pubkey(),
-            encapsulated_message.encapsulated_part,
-        ))
+    #[must_use]
+    pub fn into_components(self) -> (PublicHeader, EncapsulatedPart<ENCAPSULATION_COUNT>) {
+        (self.public_header, self.encapsulated_part)
     }
 
     /// Verify the message public header without unwrapping it.

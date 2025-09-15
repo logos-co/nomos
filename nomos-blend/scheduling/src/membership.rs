@@ -46,9 +46,10 @@ where
         let mut node_indices = Vec::with_capacity(nodes.len());
         let mut local_node_index = None;
         for (index, node) in nodes.iter().enumerate() {
-            core_nodes
-                .insert(node.id.clone(), node.clone())
-                .expect("Membership info contained a duplicate node.");
+            assert!(
+                core_nodes.insert(node.id.clone(), node.clone()).is_none(),
+                "Membership info contained a duplicate node."
+            );
             node_indices.push(node.id.clone());
             if node.public_key == *local_public_key {
                 local_node_index = Some(index);

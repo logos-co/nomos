@@ -67,7 +67,7 @@ fn encapsulate_and_decapsulate() {
 
     // We can decapsulate with the correct private key.
     let DecapsulationOutput::Incompleted(msg) = msg
-        .verify_and_unwrap_public_header(&PoQVerificationInputMinusSigningKey::default(), &verifier)
+        .verify_public_header(&PoQVerificationInputMinusSigningKey::default(), &verifier)
         .unwrap()
         .decapsulate(
             blend_node_enc_keys.last().unwrap(),
@@ -83,7 +83,7 @@ fn encapsulate_and_decapsulate() {
     // which we already used for the first decapsulation.
     assert!(msg
         .clone()
-        .verify_and_unwrap_public_header(&PoQVerificationInputMinusSigningKey::default(), &verifier)
+        .verify_public_header(&PoQVerificationInputMinusSigningKey::default(), &verifier)
         .unwrap()
         .decapsulate(
             blend_node_enc_keys.last().unwrap(),
@@ -95,7 +95,7 @@ fn encapsulate_and_decapsulate() {
     // We can decapsulate with the correct private key
     // and the fully-decapsulated payload is correct.
     let DecapsulationOutput::Completed(decapsulated_message) = msg
-        .verify_and_unwrap_public_header(&PoQVerificationInputMinusSigningKey::default(), &verifier)
+        .verify_public_header(&PoQVerificationInputMinusSigningKey::default(), &verifier)
         .unwrap()
         .decapsulate(
             blend_node_enc_keys.first().unwrap(),

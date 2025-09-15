@@ -14,7 +14,8 @@ use nomos_blend_message::{
     MessageIdentifier,
 };
 use nomos_blend_scheduling::{
-    deserialize_encapsulated_message, message_blend::crypto::EncapsulatedMessageWithValidatedPublicHeader,
+    deserialize_encapsulated_message,
+    message_blend::crypto::EncapsulatedMessageWithValidatedPublicHeader,
     serialize_encapsulated_message,
 };
 
@@ -215,7 +216,7 @@ where
 
         // Verify the message public header
         let validated_message = deserialized_encapsulated_message
-            .verify_and_unwrap_public_header(&self.poq_verification_inputs, &self.poq_verifier)
+            .verify_public_header(&self.poq_verification_inputs, &self.poq_verifier)
             .map_err(|_| Error::InvalidMessage)?;
 
         // Notify the swarm about the received message, so that it can be further

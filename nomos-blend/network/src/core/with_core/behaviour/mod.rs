@@ -22,11 +22,8 @@ use nomos_blend_message::{
     MessageIdentifier,
 };
 use nomos_blend_scheduling::{
-    deserialize_encapsulated_message,
-    membership::Membership,
-    message_blend::crypto::{
-        EncapsulatedMessageWithValidatedPublicHeader, UnwrappedEncapsulatedMessage,
-    },
+    deserialize_encapsulated_message, membership::Membership,
+    message_blend::crypto::EncapsulatedMessageWithValidatedPublicHeader,
     serialize_encapsulated_message, EncapsulatedMessage,
 };
 
@@ -163,8 +160,11 @@ impl NegotiatedPeerState {
 #[derive(Debug)]
 pub enum Event {
     /// A message received from one of the core peers, after its public header
-    /// has been verified and unwrapped.
-    Message(Box<UnwrappedEncapsulatedMessage>, (PeerId, ConnectionId)),
+    /// has been verified.
+    Message(
+        Box<EncapsulatedMessageWithValidatedPublicHeader>,
+        (PeerId, ConnectionId),
+    ),
     /// A peer on a given connection has been detected as unhealthy.
     UnhealthyPeer(PeerId),
     /// A peer on a given connection that was previously unhealthy has returned
@@ -854,10 +854,7 @@ where
         };
         // Verify the message public header, or else mark the peer as malicious: https://www.notion.so/nomos-tech/Blend-Protocol-Version-1-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81859cebf5e3d2a5cd8f.
         let Ok(validated_message) = deserialized_encapsulated_message
-            .verify_and_unwrap_public_header(
-                &self.session_poq_verification_inputs,
-                &self.poq_verifier,
-            )
+            .verify_public_header(&self.session_poq_verification_inputs, &self.poq_verifier)
         else {
             tracing::debug!(target: LOG_TARGET, "Neighbor sent us a message with an invalid public header. Marking it as spammy.");
             self.close_spammy_connection(
