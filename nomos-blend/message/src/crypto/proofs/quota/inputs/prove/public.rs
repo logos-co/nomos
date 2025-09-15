@@ -29,7 +29,7 @@ impl Default for Inputs {
             pol_epoch_nonce: ZkHash::ZERO,
             pol_ledger_aged: ZkHash::ZERO,
             session: u64::default(),
-            signing_key: Ed25519PrivateKey::generate().public_key(),
+            signing_key: [0; _].try_into().unwrap(),
             total_stake: 1,
         }
     }
