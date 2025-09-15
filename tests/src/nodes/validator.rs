@@ -49,6 +49,7 @@ use nomos_http_api_common::paths::{
 };
 use nomos_mempool::MempoolMetrics;
 use nomos_network::{backends::libp2p::Libp2pConfig, config::NetworkConfig};
+use nomos_wallet::WalletServiceSettings;
 use nomos_node::{
     api::{backend::AxumBackendSettings, testing::handlers::HistoricSamplingRequest},
     config::{blend::BlendConfig, mempool::MempoolConfig},
@@ -572,7 +573,9 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
         },
         membership: config.membership_config.service_settings,
         sdp: (),
-
+        wallet: WalletServiceSettings {
+            known_keys: HashSet::new(),
+        },
         testing_http: nomos_api::ApiServiceSettings {
             backend_settings: AxumBackendSettings {
                 address: testing_http_address,
