@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::encodings::{Encoding, EncodingFormat};
+use crate::encodings::EncodingFormat;
 
 /// # Consistency
 

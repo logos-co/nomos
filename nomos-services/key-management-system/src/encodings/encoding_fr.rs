@@ -2,13 +2,19 @@ use key_management_system_macros::SimpleEncoding;
 
 use crate::encodings::{Encoding, EncodingFormat, EncodingKind};
 
-type Inner = bytes::Bytes;
+type Inner = groth16::Fr;
 
-/// An encoding of arbitrary bytes.
+/// An encoding of a [`groth16::Fr`].
 #[derive(SimpleEncoding)]
-pub struct Bytes(Inner);
+pub struct Fr(Inner);
 
-impl From<Inner> for Bytes {
+impl Fr {
+    pub fn inner(&self) -> &Inner {
+        &self.0
+    }
+}
+
+impl From<Inner> for Fr {
     fn from(value: Inner) -> Self {
         Self(value)
     }
