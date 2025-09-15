@@ -1,5 +1,6 @@
 use ark_ff::{BigInteger as _, Field as _, PrimeField as _};
-use groth16::{serde::serde_fr, Fr};
+use generic_array::GenericArray;
+use groth16::{fr_from_bytes, serde::serde_fr, Fr};
 use num_bigint::BigUint;
 use poseidon2::{Digest as _, Poseidon2Bn254Hasher};
 use serde::{Deserialize, Serialize};
@@ -37,9 +38,9 @@ impl Groth16LeaderProof {
             );
             (
                 groth16::CompressedGroth16Proof::new(
-                    [0; 32].into(),
-                    [0; 64].into(),
-                    [0; 32].into(),
+                    GenericArray::default(),
+                    GenericArray::default(),
+                    GenericArray::default(),
                 ),
                 Fr::ZERO,
             )
@@ -86,15 +87,7 @@ impl LeaderProof for Groth16LeaderProof {
             );
             return true;
         }
-        let leader_pk_bytes = self.leader_key.as_bytes();
-        let leader_pk = (
-            Fr::from(u128::from_le_bytes(
-                leader_pk_bytes[0..16].try_into().unwrap(),
-            )),
-            Fr::from(u128::from_le_bytes(
-                leader_pk_bytes[16..32].try_into().unwrap(),
-            )),
-        );
+        let leader_pk = ed25519_pk_to_fr_tuple(self.leader_key());
         pol::verify(
             &self.proof,
             &pol::PolVerifierInput::new(
@@ -199,21 +192,14 @@ impl LeaderPrivate {
         leader_pk: &ed25519_dalek::VerifyingKey,
     ) -> Self {
         let public_key = *leader_pk;
-        let (pk_1, pk_2) = (
-            Fr::from(u128::from_le_bytes(
-                public_key.as_bytes()[0..16].try_into().unwrap(),
-            )),
-            Fr::from(u128::from_le_bytes(
-                public_key.as_bytes()[16..32].try_into().unwrap(),
-            )),
-        );
+        let leader_pk = ed25519_pk_to_fr_tuple(leader_pk);
         let chain = pol::PolChainInputsData {
             slot_number: public.slot,
             epoch_nonce: public.epoch_nonce,
             total_stake: public.total_stake,
             aged_root: public.aged_root,
             latest_root: public.latest_root,
-            leader_pk: (pk_1, pk_2),
+            leader_pk,
         };
         let wallet = pol::PolWalletInputsData {
             note_value: note.note.value,
@@ -261,4 +247,13 @@ mod proof_serde {
             .map_err(|_| serde::de::Error::custom("Expected exactly 128 bytes"))?;
         Ok(pol::PoLProof::from_bytes(&proof_array))
     }
+}
+
+fn ed25519_pk_to_fr_tuple(pk: &ed25519_dalek::VerifyingKey) -> (Fr, Fr) {
+    let pk_bytes = pk.as_bytes();
+    // Convert each half of the public key to Fr so that they alwasy fit
+    (
+        fr_from_bytes(&pk_bytes[0..16]).unwrap(),
+        fr_from_bytes(&pk_bytes[16..32]).unwrap(),
+    )
 }
