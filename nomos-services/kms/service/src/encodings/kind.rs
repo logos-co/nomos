@@ -3,18 +3,16 @@ use std::fmt::Display;
 use crate::encodings::{Encoding, EncodingFormat};
 
 /// # Consistency
-///
-
 
 /// Represents an encoding kind provided by the KMS crate.
 ///
 /// # Consistency
-/// 
+///
 /// Each variant corresponds directly to a variant in [`EncodingFormat`].
 /// The variant names must match exactly with those in [`EncodingFormat`] for
 /// consistency, as this is relied upon by the [`Display`] implementation and
-/// conversion logic. 
-/// 
+/// conversion logic.
+///
 /// To know more, read [`EncodingFormat`]'s `Consistency` section.
 ///
 /// # Display

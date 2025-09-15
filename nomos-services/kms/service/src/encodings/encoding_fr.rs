@@ -1,4 +1,4 @@
-use kms_macros::SimpleEncoding;
+use key_management_system_macros::SimpleEncoding;
 
 use crate::encodings::{Encoding, EncodingFormat, EncodingKind};
 

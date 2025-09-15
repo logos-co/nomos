@@ -2,18 +2,22 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{DeriveInput, parse_macro_input};
 
-/// The `SimpleEncoding` macro implements `Encoding`, [`From`] and [`TryFrom`] for tuple structs with exactly one field (e.g.: `struct MyType(T);`).
+/// The `SimpleEncoding` macro implements `Encoding`, [`From`] and [`TryFrom`]
+/// for tuple structs with exactly one field (e.g.: `struct MyType(T);`).
 ///
 /// # Provides
 ///
 /// - Implements the `Encoding` trait for the struct.
-/// - Implements `From<Self>` for `EncodingFormat`, wrapping the struct in the corresponding enum variant.
-/// - Implements `TryFrom<EncodingFormat>` for `Self`, extracting the struct from the enum or returning an error if the variant does not match.
+/// - Implements `From<Self>` for `EncodingFormat`, wrapping the struct in the
+///   corresponding enum variant.
+/// - Implements `TryFrom<EncodingFormat>` for `Self`, extracting the struct
+///   from the enum or returning an error if the variant does not match.
 ///
 /// # Limitations
 ///
 /// - Only works for single-field tuple structs.
-/// - The struct's name must match the corresponding `EncodingFormat` enum variant.
+/// - The struct's name must match the corresponding `EncodingFormat` enum
+///   variant.
 /// - The single field is treated as the wrapped type.
 #[proc_macro_derive(SimpleEncoding)]
 pub fn derive_simple_encoding(input: TokenStream) -> TokenStream {
