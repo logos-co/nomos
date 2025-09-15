@@ -5,7 +5,7 @@ use test_log::test;
 use tokio::select;
 
 use crate::core::{
-    tests::utils::{TestEncapsulatedMessage, TestSwarm},
+    tests::utils::{default_poq_verification_inputs, TestEncapsulatedMessage, TestSwarm},
     with_core::{
         behaviour::{
             tests::utils::{build_memberships, BehaviourBuilder, SwarmExt as _},
@@ -29,10 +29,10 @@ async fn publish_message() {
     let memberships = build_memberships(&[&dialer, &listener]);
     dialer
         .behaviour_mut()
-        .start_new_session(memberships[0].clone());
+        .start_new_session(memberships[0].clone(), default_poq_verification_inputs());
     listener
         .behaviour_mut()
-        .start_new_session(memberships[1].clone());
+        .start_new_session(memberships[1].clone(), default_poq_verification_inputs());
 
     // Send a message but expect [`Error::NoPeers`]
     // because we haven't establish connections for the new session.
@@ -98,13 +98,13 @@ async fn forward_message() {
     let memberships = build_memberships(&[&sender, &forwarder, &receiver1, &receiver2]);
     forwarder
         .behaviour_mut()
-        .start_new_session(memberships[1].clone());
+        .start_new_session(memberships[1].clone(), default_poq_verification_inputs());
     receiver1
         .behaviour_mut()
-        .start_new_session(memberships[2].clone());
+        .start_new_session(memberships[2].clone(), default_poq_verification_inputs());
     receiver2
         .behaviour_mut()
-        .start_new_session(memberships[3].clone());
+        .start_new_session(memberships[3].clone(), default_poq_verification_inputs());
     forwarder
         .connect_and_wait_for_outbound_upgrade(&mut receiver2)
         .await;
@@ -145,7 +145,7 @@ async fn forward_message() {
     // Also, connect the sender to the forwarder for the new session.
     sender
         .behaviour_mut()
-        .start_new_session(memberships[0].clone());
+        .start_new_session(memberships[0].clone(), default_poq_verification_inputs());
     sender
         .connect_and_wait_for_outbound_upgrade(&mut forwarder)
         .await;
@@ -194,10 +194,10 @@ async fn finish_session_transition() {
     let memberships = build_memberships(&[&dialer, &listener]);
     dialer
         .behaviour_mut()
-        .start_new_session(memberships[0].clone());
+        .start_new_session(memberships[0].clone(), default_poq_verification_inputs());
     listener
         .behaviour_mut()
-        .start_new_session(memberships[1].clone());
+        .start_new_session(memberships[1].clone(), default_poq_verification_inputs());
 
     // Finish the transition period
     dialer.behaviour_mut().finish_session_transition();

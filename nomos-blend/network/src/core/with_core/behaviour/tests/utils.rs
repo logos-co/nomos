@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use futures::{select, Stream, StreamExt as _};
 use libp2p::{identity::Keypair, Multiaddr, PeerId, Swarm};
 use libp2p_swarm_test::SwarmExt as _;
-use nomos_blend_message::{crypto::keys::Ed25519PrivateKey, encap};
+use nomos_blend_message::encap;
 use nomos_blend_scheduling::membership::{Membership, Node};
 use nomos_libp2p::{NetworkBehaviour, SwarmEvent};
 use tokio::time::interval;
@@ -112,7 +112,7 @@ impl BehaviourBuilder {
                 .minimum_network_size
                 .unwrap_or_else(|| 1usize.try_into().unwrap()),
             old_session: None,
-            poq_verification_inputs: default_poq_verification_inputs(),
+            session_poq_verification_inputs: default_poq_verification_inputs(),
             poq_verifier: AlwaysTrueVerifier,
         }
     }
@@ -157,7 +157,7 @@ pub fn build_memberships<Behaviour: NetworkBehaviour>(
         .map(|swarm| Node {
             id: *swarm.local_peer_id(),
             address: Multiaddr::empty(),
-            public_key: Ed25519PrivateKey::generate().public_key(),
+            public_key: [0; _].try_into().unwrap(),
         })
         .collect::<Vec<_>>();
     nodes

@@ -2,19 +2,14 @@ use core::{num::NonZeroUsize, time::Duration};
 use std::collections::{HashSet, VecDeque};
 
 use async_trait::async_trait;
-use groth16::Field as _;
 use libp2p::{Multiaddr, PeerId, Stream, Swarm};
 use libp2p_stream::Behaviour as StreamBehaviour;
 use libp2p_swarm_test::SwarmExt as _;
-use nomos_blend_message::{
-    crypto::keys::Ed25519PrivateKey,
-    encap::{self, encapsulated::PoQVerificationInputMinusSigningKey},
-};
+use nomos_blend_message::encap;
 use nomos_blend_scheduling::membership::{Membership, Node};
-use nomos_core::crypto::ZkHash;
 
 use crate::core::{
-    tests::utils::{AlwaysTrueVerifier, PROTOCOL_NAME},
+    tests::utils::{default_poq_verification_inputs, AlwaysTrueVerifier, PROTOCOL_NAME},
     with_edge::behaviour::Behaviour,
 };
 
@@ -57,7 +52,7 @@ impl BehaviourBuilder {
                     .map(|edge_peer_id| Node {
                         address: Multiaddr::empty(),
                         id: edge_peer_id,
-                        public_key: Ed25519PrivateKey::generate().public_key(),
+                        public_key: [0; _].try_into().unwrap(),
                     })
                     .collect::<Vec<_>>()
                     .as_ref(),
@@ -74,7 +69,7 @@ impl BehaviourBuilder {
             minimum_network_size: self
                 .minimum_network_size
                 .unwrap_or_else(|| 1usize.try_into().unwrap()),
-            poq_verification_inputs: default_poq_verification_inputs(),
+            session_poq_verification_inputs: default_poq_verification_inputs(),
             poq_verifier: AlwaysTrueVerifier,
         }
     }
@@ -108,17 +103,5 @@ where
             .open_stream(*other.local_peer_id(), PROTOCOL_NAME)
             .await
             .unwrap()
-    }
-}
-
-pub fn default_poq_verification_inputs() -> PoQVerificationInputMinusSigningKey {
-    PoQVerificationInputMinusSigningKey {
-        session: u64::MIN,
-        core_root: ZkHash::ZERO,
-        pol_ledger_aged: ZkHash::ZERO,
-        pol_epoch_nonce: ZkHash::ZERO,
-        core_quota: u64::MIN,
-        leader_quota: u64::MIN,
-        total_stake: u64::MIN,
     }
 }

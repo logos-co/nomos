@@ -17,7 +17,7 @@ use crate::{
     encap::{
         decapsulated::{PartDecapsulationOutput, PrivateHeaderDecapsulationOutput},
         unwrapped::UnwrappedEncapsulatedMessage,
-        validated::ValidatedEncapsulatedMessage,
+        validated::EncapsulatedMessageWithValidatedPublicHeader,
         ProofsVerifier,
     },
     input::EncapsulationInputs,
@@ -136,7 +136,7 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
             total_stake,
         }: &PoQVerificationInputMinusSigningKey,
         verifier: &Verifier,
-    ) -> Result<ValidatedEncapsulatedMessage<ENCAPSULATION_COUNT>, Error>
+    ) -> Result<EncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>, Error>
     where
         Verifier: ProofsVerifier,
     {
@@ -162,13 +162,15 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
                 },
             )
             .map_err(|_| Error::ProofOfQuotaVerificationFailed(quota::Error::InvalidProof))?;
-        Ok(ValidatedEncapsulatedMessage::from_components(
-            Self::from_components(
-                PublicHeader::new(signing_pubkey, &proof_of_quota, signature),
-                self.encapsulated_part,
+        Ok(
+            EncapsulatedMessageWithValidatedPublicHeader::from_components(
+                Self::from_components(
+                    PublicHeader::new(signing_pubkey, &proof_of_quota, signature),
+                    self.encapsulated_part,
+                ),
+                key_nullifier,
             ),
-            key_nullifier,
-        ))
+        )
     }
 
     #[must_use]

@@ -46,7 +46,9 @@ where
         let mut node_indices = Vec::with_capacity(nodes.len());
         let mut local_node_index = None;
         for (index, node) in nodes.iter().enumerate() {
-            core_nodes.insert(node.id.clone(), node.clone());
+            core_nodes
+                .insert(node.id.clone(), node.clone())
+                .expect("Membership info contained a duplicate node.");
             node_indices.push(node.id.clone());
             if node.public_key == *local_public_key {
                 local_node_index = Some(index);
@@ -63,9 +65,7 @@ where
     #[cfg(feature = "unsafe-test-functions")]
     #[must_use]
     pub fn new_without_local(nodes: &[Node<NodeId>]) -> Self {
-        use nomos_blend_message::crypto::keys::Ed25519PrivateKey;
-
-        Self::new(nodes, &Ed25519PrivateKey::generate().public_key())
+        Self::new(nodes, &[0; _].try_into().unwrap())
     }
 }
 

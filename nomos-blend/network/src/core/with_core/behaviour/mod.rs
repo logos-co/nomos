@@ -24,7 +24,9 @@ use nomos_blend_message::{
 use nomos_blend_scheduling::{
     deserialize_encapsulated_message,
     membership::Membership,
-    message_blend::crypto::{UnwrappedEncapsulatedMessage, ValidatedEncapsulatedMessage},
+    message_blend::crypto::{
+        EncapsulatedMessageWithValidatedPublicHeader, UnwrappedEncapsulatedMessage,
+    },
     serialize_encapsulated_message, EncapsulatedMessage,
 };
 
@@ -122,7 +124,7 @@ pub struct Behaviour<ProofsVerifier, ObservationWindowClockProvider> {
     /// States for processing messages from the old session
     /// before the transition period has passed.
     old_session: Option<OldSession<ProofsVerifier>>,
-    poq_verification_inputs: PoQVerificationInputMinusSigningKey,
+    session_poq_verification_inputs: PoQVerificationInputMinusSigningKey,
     poq_verifier: ProofsVerifier,
 }
 
@@ -161,7 +163,7 @@ impl NegotiatedPeerState {
 #[derive(Debug)]
 pub enum Event {
     /// A message received from one of the core peers, after its public header
-    /// has been verified.
+    /// has been verified and unwrapped.
     Message(Box<UnwrappedEncapsulatedMessage>, (PeerId, ConnectionId)),
     /// A peer on a given connection has been detected as unhealthy.
     UnhealthyPeer(PeerId),
@@ -190,7 +192,7 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
         current_membership: Option<Membership<PeerId>>,
         local_peer_id: PeerId,
         protocol_name: StreamProtocol,
-        poq_verification_inputs: PoQVerificationInputMinusSigningKey,
+        current_poq_verification_inputs: PoQVerificationInputMinusSigningKey,
         poq_verifier: ProofsVerifier,
     ) -> Self {
         Self {
@@ -211,7 +213,7 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
             protocol_name,
             minimum_network_size: config.minimum_network_size,
             old_session: None,
-            poq_verification_inputs,
+            session_poq_verification_inputs: current_poq_verification_inputs,
             poq_verifier,
         }
     }
@@ -237,7 +239,7 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
     /// assumed to have been properly formed.
     pub fn publish_validated_message(
         &mut self,
-        message: &ValidatedEncapsulatedMessage,
+        message: &EncapsulatedMessageWithValidatedPublicHeader,
     ) -> Result<(), Error> {
         self.forward_validated_message_and_maybe_exclude(message, None)?;
         Ok(())
@@ -257,7 +259,7 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
     /// the blend protocol.
     pub fn forward_validated_message(
         &mut self,
-        message: &ValidatedEncapsulatedMessage,
+        message: &EncapsulatedMessageWithValidatedPublicHeader,
         except: (PeerId, ConnectionId),
     ) -> Result<(), Error> {
         if let Some(old_session) = &mut self.old_session {
@@ -275,7 +277,9 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
         except: (PeerId, ConnectionId),
     ) -> Result<(), Error> {
         self.forward_validated_message(
-            &ValidatedEncapsulatedMessage::from_encapsulated_message_unchecked(message),
+            &EncapsulatedMessageWithValidatedPublicHeader::from_encapsulated_message_unchecked(
+                message,
+            ),
             except,
         )
     }
@@ -370,7 +374,7 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
     /// message.
     fn forward_validated_message_and_maybe_exclude(
         &mut self,
-        message: &ValidatedEncapsulatedMessage,
+        message: &EncapsulatedMessageWithValidatedPublicHeader,
         excluded_peer: Option<PeerId>,
     ) -> Result<(), Error> {
         let message_id = message.id();
@@ -757,9 +761,17 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
 where
     ProofsVerifier: Clone,
 {
-    pub fn start_new_session(&mut self, new_membership: Membership<PeerId>) {
+    pub fn start_new_session(
+        &mut self,
+        new_membership: Membership<PeerId>,
+        new_poq_verification_inputs: PoQVerificationInputMinusSigningKey,
+    ) {
         self.connections_waiting_upgrade.clear();
         self.current_membership = Some(new_membership);
+        let (old_poq_verification_inputs, new_poq_verification_inputs) = (
+            self.session_poq_verification_inputs,
+            new_poq_verification_inputs,
+        );
 
         self.stop_old_session();
         self.old_session = Some(OldSession::new(
@@ -768,9 +780,10 @@ where
                 .map(|(peer_id, details)| (peer_id, details.connection_id))
                 .collect(),
             mem::take(&mut self.exchanged_message_identifiers),
-            self.poq_verification_inputs,
+            old_poq_verification_inputs,
             self.poq_verifier.clone(),
         ));
+        self.session_poq_verification_inputs = new_poq_verification_inputs;
     }
 }
 
@@ -788,7 +801,7 @@ where
         message: EncapsulatedMessage,
     ) -> Result<(), Error> {
         let validated_message = message
-            .verify_public_header(&self.poq_verification_inputs, &self.poq_verifier)
+            .verify_public_header(&self.session_poq_verification_inputs, &self.poq_verifier)
             .map_err(|_| Error::InvalidMessage)?;
         self.forward_validated_message_and_maybe_exclude(&validated_message, None)?;
         Ok(())
@@ -841,7 +854,10 @@ where
         };
         // Verify the message public header, or else mark the peer as malicious: https://www.notion.so/nomos-tech/Blend-Protocol-Version-1-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81859cebf5e3d2a5cd8f.
         let Ok(validated_message) = deserialized_encapsulated_message
-            .verify_and_unwrap_public_header(&self.poq_verification_inputs, &self.poq_verifier)
+            .verify_and_unwrap_public_header(
+                &self.session_poq_verification_inputs,
+                &self.poq_verifier,
+            )
         else {
             tracing::debug!(target: LOG_TARGET, "Neighbor sent us a message with an invalid public header. Marking it as spammy.");
             self.close_spammy_connection(

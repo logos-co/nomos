@@ -4,14 +4,14 @@ use derivative::Derivative;
 use nomos_blend_message::{
     crypto::keys::{Ed25519PrivateKey, X25519PrivateKey},
     encap::{
-        self,
         decapsulated::DecapsulationOutput as InternalDecapsulationOutput,
         encapsulated::EncapsulatedMessage as InternalEncapsulatedMessage,
         unwrapped::{
             MissingProofOfSelectionVerificationInputs,
             UnwrappedEncapsulatedMessage as InternalUnwrappedEncapsulatedMessage,
         },
-        validated::ValidatedEncapsulatedMessage as InternalValidatedEncapsulatedMessage,
+        validated::EncapsulatedMessageWithValidatedPublicHeader as InternalEncapsulatedMessageWithValidatedPublicHeader,
+        ProofsVerifier as ProofsVerifierTrait,
     },
     input::{EncapsulationInput, EncapsulationInputs as InternalEncapsulationInputs},
     Error, PayloadType,
@@ -30,7 +30,8 @@ pub type EncapsulatedMessage = InternalEncapsulatedMessage<ENCAPSULATION_COUNT>;
 pub type EncapsulationInputs = InternalEncapsulationInputs<ENCAPSULATION_COUNT>;
 pub type DecapsulationOutput = InternalDecapsulationOutput<ENCAPSULATION_COUNT>;
 pub type UnwrappedEncapsulatedMessage = InternalUnwrappedEncapsulatedMessage<ENCAPSULATION_COUNT>;
-pub type ValidatedEncapsulatedMessage = InternalValidatedEncapsulatedMessage<ENCAPSULATION_COUNT>;
+pub type EncapsulatedMessageWithValidatedPublicHeader =
+    InternalEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>;
 
 /// [`SessionCryptographicProcessor`] is responsible for wrapping and unwrapping
 /// messages for the message indistinguishability.
@@ -62,7 +63,7 @@ impl<NodeId, ProofsGenerator, ProofsVerifier>
     SessionCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
 where
     ProofsGenerator: ProofsGeneratorTrait,
-    ProofsVerifier: encap::ProofsVerifier,
+    ProofsVerifier: ProofsVerifierTrait,
 {
     #[must_use]
     pub fn new(
@@ -86,7 +87,7 @@ where
 impl<NodeId, ProofsGenerator, ProofsVerifier>
     SessionCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
 where
-    ProofsVerifier: encap::ProofsVerifier,
+    ProofsVerifier: ProofsVerifierTrait,
 {
     pub fn decapsulate_message(
         &self,
@@ -155,15 +156,17 @@ where
     ) -> Result<EncapsulatedMessage, Error> {
         let mut proofs = Vec::with_capacity(self.settings.num_blend_layers as usize);
 
-        for _ in 0..self.settings.num_blend_layers {
-            match payload_type {
-                PayloadType::Cover => {
+        match payload_type {
+            PayloadType::Cover => {
+                for _ in 0..self.settings.num_blend_layers {
                     let Some(proof) = self.proofs_generator.get_next_core_proof().await else {
                         return Err(Error::NoMoreProofOfQuotas);
                     };
                     proofs.push(proof);
                 }
-                PayloadType::Data => {
+            }
+            PayloadType::Data => {
+                for _ in 0..self.settings.num_blend_layers {
                     let Some(proof) = self.proofs_generator.get_next_leadership_proof().await
                     else {
                         return Err(Error::NoMoreProofOfQuotas);
@@ -184,7 +187,7 @@ where
                     .expect("Node index should exist.");
                 (proof, expected_index)
             })
-            // Map retrieved index to the node's public key.
+            // Map retrieved indices to the nodes' public keys.
             .map(|(proof, node_index)| {
                 (
                     proof,

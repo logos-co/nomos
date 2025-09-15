@@ -61,7 +61,7 @@ pub struct Behaviour<ProofsVerifier> {
     max_incoming_connections: usize,
     protocol_name: StreamProtocol,
     minimum_network_size: NonZeroUsize,
-    poq_verification_inputs: PoQVerificationInputMinusSigningKey,
+    session_poq_verification_inputs: PoQVerificationInputMinusSigningKey,
     poq_verifier: ProofsVerifier,
 }
 
@@ -71,7 +71,7 @@ impl<ProofsVerifier> Behaviour<ProofsVerifier> {
         config: &Config,
         current_membership: Option<Membership<PeerId>>,
         protocol_name: StreamProtocol,
-        poq_verification_inputs: PoQVerificationInputMinusSigningKey,
+        current_poq_verification_inputs: PoQVerificationInputMinusSigningKey,
         poq_verifier: ProofsVerifier,
     ) -> Self {
         Self {
@@ -83,12 +83,16 @@ impl<ProofsVerifier> Behaviour<ProofsVerifier> {
             max_incoming_connections: config.max_incoming_connections,
             protocol_name,
             minimum_network_size: config.minimum_network_size,
-            poq_verification_inputs,
+            session_poq_verification_inputs: current_poq_verification_inputs,
             poq_verifier,
         }
     }
 
-    pub fn start_new_session(&mut self, new_membership: Membership<PeerId>) {
+    pub fn start_new_session(
+        &mut self,
+        new_membership: Membership<PeerId>,
+        new_poq_verification_inputs: PoQVerificationInputMinusSigningKey,
+    ) {
         self.current_membership = Some(new_membership);
         // Close all the connections without waiting for the transition period,
         // so that edge nodes can retry with the new membership.
@@ -96,6 +100,7 @@ impl<ProofsVerifier> Behaviour<ProofsVerifier> {
         for conn in &peers {
             self.close_substream(*conn);
         }
+        self.session_poq_verification_inputs = new_poq_verification_inputs;
     }
 
     fn try_wake(&mut self) {
@@ -161,7 +166,10 @@ where
         };
 
         let Ok(validated_message) = deserialized_encapsulated_message
-            .verify_and_unwrap_public_header(&self.poq_verification_inputs, &self.poq_verifier)
+            .verify_and_unwrap_public_header(
+                &self.session_poq_verification_inputs,
+                &self.poq_verifier,
+            )
         else {
             tracing::trace!(target: LOG_TARGET, "Failed to validate public header of received message. Ignoring...");
             return;
