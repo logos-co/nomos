@@ -1,0 +1,14 @@
+[package]
+name = "kms"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+
+[dependencies]
+bytes = { workspace = true}
+groth16 = { workspace = true }
+kms-macros = { workspace = true}
+thiserror = { workspace = true }
+
+[lints]
+workspace = true
