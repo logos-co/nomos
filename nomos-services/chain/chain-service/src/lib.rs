@@ -145,6 +145,16 @@ pub struct PrunedBlocksInfo {
     pub immutable_blocks: BTreeMap<Slot, HeaderId>,
 }
 
+impl PrunedBlocksInfo {
+    /// Returns an iterator over all pruned blocks, both stale and immutable.
+    pub fn all(&self) -> impl Iterator<Item = HeaderId> + '_ {
+        self.stale_blocks
+            .iter()
+            .chain(self.immutable_blocks.values())
+            .copied()
+    }
+}
+
 #[derive(Clone)]
 struct Cryptarchia {
     ledger: nomos_ledger::Ledger<HeaderId>,
@@ -1015,6 +1025,10 @@ where
     #[expect(
         clippy::type_complexity,
         reason = "CryptarchiaConsensusState and CryptarchiaConsensusRelays amount of generics."
+    )]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "This function does too much, need to deal with this at some point"
     )]
     async fn process_block_and_update_state(
         cryptarchia: Cryptarchia,

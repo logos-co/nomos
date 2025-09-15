@@ -1,13 +1,9 @@
 use std::collections::HashSet;
 
 use async_trait::async_trait;
-use chain_service::storage::{
-    adapters::storage::StorageAdapter, StorageAdapter as StorageAdapterTrait,
-};
-use chain_service::{
-    api::{CryptarchiaServiceApi, CryptarchiaServiceData},
-    LibUpdate,
-};
+use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
+use chain_service::storage::{adapters::storage::StorageAdapter, StorageAdapter as _};
+use chain_service::LibUpdate;
 use nomos_core::{
     block::Block,
     header::HeaderId,
@@ -27,8 +23,11 @@ use wallet::{Wallet, WalletBlock, WalletError};
 
 #[derive(Debug, thiserror::Error)]
 pub enum WalletServiceError {
-    #[error("Critical error: LIB ledger state not found - cannot initialize wallet without valid LIB state")]
-    LibLedgerStateNotFound,
+    #[error("Ledger state corresponding to block {0} not found")]
+    LedgerStateNotFound(HeaderId),
+
+    #[error("Wallet state corresponding to block {0} not found")]
+    WalletStateNotFound(HeaderId),
 
     #[error("Failed to apply historical block {block_id} to wallet: {source}")]
     HistoricalBlockApplicationFailed {
@@ -56,6 +55,10 @@ pub enum WalletMsg {
         amount: Value,
         pks: Vec<PublicKey>,
         tx: oneshot::Sender<Result<Option<Vec<Utxo>>, WalletError>>,
+    },
+    GetLeaderAgedNotes {
+        tip: HeaderId,
+        tx: oneshot::Sender<Result<Vec<Utxo>, WalletServiceError>>,
     },
 }
 
@@ -170,7 +173,7 @@ where
         let lib_ledger = cryptarchia_api
             .get_ledger_state(lib)
             .await?
-            .ok_or(WalletServiceError::LibLedgerStateNotFound)?;
+            .ok_or(WalletServiceError::LedgerStateNotFound(lib))?;
 
         let mut wallet = Wallet::from_lib(settings.known_keys.clone(), lib, &lib_ledger);
 
@@ -190,31 +193,27 @@ where
                 // We already have state at LIB by bootstrapping from LedgerState
                 continue;
             }
-            match storage_adapter.get_block(&header_id).await {
-                Some(block) => {
-                    let wallet_block = WalletBlock::from(block);
-                    match wallet.apply_block(&wallet_block) {
-                        Ok(()) => {
-                            trace!(block_id = ?header_id, "Applied historical block to wallet");
-                        }
-                        Err(e) => {
-                            let service_error =
-                                WalletServiceError::HistoricalBlockApplicationFailed {
-                                    block_id: header_id,
-                                    source: e,
-                                };
-                            error!(error = %service_error, "Failed to apply historical block to wallet");
-                            return Err(service_error.into());
-                        }
+            if let Some(block) = storage_adapter.get_block(&header_id).await {
+                let wallet_block = WalletBlock::from(block);
+                match wallet.apply_block(&wallet_block) {
+                    Ok(()) => {
+                        trace!(block_id = ?header_id, "Applied historical block to wallet");
+                    }
+                    Err(e) => {
+                        let service_error = WalletServiceError::HistoricalBlockApplicationFailed {
+                            block_id: header_id,
+                            source: e,
+                        };
+                        error!(error = %service_error, "Failed to apply historical block to wallet");
+                        return Err(service_error.into());
                     }
                 }
-                None => {
-                    let service_error = WalletServiceError::BlockNotFoundInStorage {
-                        block_id: header_id,
-                    };
-                    error!(error = %service_error, "Block not found in storage during wallet sync");
-                    return Err(service_error.into());
-                }
+            } else {
+                let service_error = WalletServiceError::BlockNotFoundInStorage {
+                    block_id: header_id,
+                };
+                error!(error = %service_error, "Block not found in storage during wallet sync");
+                return Err(service_error.into());
             }
         }
 
@@ -224,7 +223,7 @@ where
         loop {
             tokio::select! {
                 Some(msg) = service_resources_handle.inbound_relay.recv() => {
-                    Self::handle_wallet_message(msg, &wallet);
+                    Self::handle_wallet_message(msg, &wallet, &cryptarchia_api).await;
                 }
                 Ok(header_id) = new_block_receiver.recv() => {
                     let Some(block) = storage_adapter.get_block(&header_id).await else {
@@ -241,25 +240,29 @@ where
                     }
                 }
                 Ok(lib_update) = lib_receiver.recv() => {
-                    Self::handle_lib_update(lib_update, &mut wallet);
+                    Self::handle_lib_update(&lib_update, &mut wallet);
                 }
             }
         }
     }
 }
 
-impl<CryptarchiaService, Storage, RuntimeServiceId>
-    WalletService<CryptarchiaService, Storage, RuntimeServiceId>
+impl<Cryptarchia, Storage, RuntimeServiceId> WalletService<Cryptarchia, Storage, RuntimeServiceId>
 where
-    CryptarchiaService: ServiceData,
+    Cryptarchia: CryptarchiaServiceData + Send + 'static,
     Storage: StorageBackend + Send + Sync + 'static,
+    RuntimeServiceId: AsServiceId<Cryptarchia> + std::fmt::Debug + std::fmt::Display + Sync,
 {
-    fn handle_wallet_message(msg: WalletMsg, wallet: &Wallet) {
+    async fn handle_wallet_message(
+        msg: WalletMsg,
+        wallet: &Wallet,
+        cryptarchia_api: &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
+    ) {
         match msg {
             WalletMsg::GetBalance { tip, pk, tx } => {
-                let result = wallet.balance(tip, pk);
-                if tx.send(result).is_err() {
-                    error!("Failed to send balance response");
+                let balance = wallet.balance(tip, pk);
+                if tx.send(balance).is_err() {
+                    error!("Failed to respond to GetBalance");
                 }
             }
             WalletMsg::GetUtxosForAmount {
@@ -268,15 +271,67 @@ where
                 pks,
                 tx,
             } => {
-                let result = wallet.utxos_for_amount(tip, amount, pks);
-                if tx.send(result).is_err() {
-                    error!("Failed to send UTXOs response");
+                let utxos = wallet.utxos_for_amount(tip, amount, pks);
+                if tx.send(utxos).is_err() {
+                    error!("Failed to respond to GetUtxosForAmount");
                 }
+            }
+            WalletMsg::GetLeaderAgedNotes { tip, tx } => {
+                Self::get_leader_aged_notes(tip, tx, wallet, cryptarchia_api).await;
             }
         }
     }
 
-    fn handle_lib_update(lib_update: LibUpdate, wallet: &mut Wallet) {
+    async fn get_leader_aged_notes(
+        tip: HeaderId,
+        tx: oneshot::Sender<Result<Vec<Utxo>, WalletServiceError>>,
+        wallet: &Wallet,
+        cryptarchia_api: &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
+    ) {
+        // Get the ledger state at the specified tip
+        let Ok(Some(ledger_state)) = cryptarchia_api.get_ledger_state(tip).await else {
+            if tx
+                .send(Err(WalletServiceError::LedgerStateNotFound(tip)))
+                .is_err()
+            {
+                error!("Failed to respond to GetLeaderAgedNotes");
+            }
+            return;
+        };
+
+        // TAI: there may be a race condition here where the caller knows a more recent tip than the wallet.
+        // In that case, we will have received a LedgerState for the tip
+        // from Cryptarchia, but we would be missing the WalletState for that tip.
+        //
+        // Currently the way we deal with that is to just return an error but that's
+        // not ideal.
+        //
+        // To resolve, we could trigger an immediate sync here to ensure that the
+        // wallet is in sync with the caller and Cryptarchia.
+        let Ok(wallet_state) = wallet.wallet_state_at(tip) else {
+            if tx
+                .send(Err(WalletServiceError::WalletStateNotFound(tip)))
+                .is_err()
+            {
+                error!("Failed to respond to GetLeaderAgedNotes");
+            }
+            return;
+        };
+
+        let aged_utxos = ledger_state.epoch_state().utxos.utxos();
+        let eligible_utxos: Vec<Utxo> = wallet_state
+            .utxos
+            .iter()
+            .filter(|(note_id, _)| aged_utxos.contains_key(note_id))
+            .map(|(_, utxo)| *utxo)
+            .collect();
+
+        if tx.send(Ok(eligible_utxos)).is_err() {
+            error!("Failed to respond to GetLeaderAgedNotes");
+        }
+    }
+
+    fn handle_lib_update(lib_update: &LibUpdate, wallet: &mut Wallet) {
         debug!(
             new_lib = ?lib_update.new_lib,
             stale_blocks_count = lib_update.pruned_blocks.stale_blocks.len(),
@@ -284,13 +339,7 @@ where
             "Received LIB update"
         );
 
-        // Prune wallet states for all blocks that were pruned from the chain
-        let pruned_blocks = lib_update
-            .pruned_blocks
-            .stale_blocks
-            .into_iter()
-            .chain(lib_update.pruned_blocks.immutable_blocks.into_values());
-        wallet.prune_states(pruned_blocks);
+        wallet.prune_states(lib_update.pruned_blocks.all());
     }
 }
 
