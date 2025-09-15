@@ -86,33 +86,7 @@ impl WalletState {
         if selected_amount < amount {
             None
         } else {
-            // We may have smaller notes that are redundant.
-            //
-            // e.g. Suppose we hold notes valued [3 NMO, 4 NMO] and we asked for 4 NMO
-            //      then, since we sort the notes by value, we would have first added
-            //      the 3 NMO note and then then 4 NMO note to the selected utxos list.
-            //
-            //      The 4 NMO note alone would have satisfied the request, the 3 NMO note is
-            //      redundant and would be returned as change in a transaction.
-            //
-            // To resolve this, we remove as many of the smallest notes as we can while
-            // still keep us above the requested amount.
-
-            let mut skip_count = 0;
-            let mut temp_amount = selected_amount;
-
-            for utxo in &selected_utxos {
-                if temp_amount - utxo.note.value >= amount {
-                    temp_amount -= utxo.note.value;
-                    skip_count += 1;
-                } else {
-                    break;
-                }
-            }
-
-            selected_utxos.drain(..skip_count);
-
-            Some(selected_utxos)
+            Some(Self::remove_redundant_utxos(amount, selected_utxos))
         }
     }
 
@@ -167,6 +141,38 @@ impl WalletState {
         }
 
         Self { utxos, pk_index }
+    }
+
+    /// Removes Utxos that do not contribute to meeting the `amount` threshold.
+    ///
+    /// As an example, suppose we hold notes valued [3 NMO, 4 NMO] and we asked
+    /// for 4 NMO then, since we sort the notes by value, we would have
+    /// first added the 3 NMO note and then then 4 NMO note to the selected
+    /// utxos list.
+    ///
+    /// The 4 NMO note alone would have satisfied the request, the 3 NMO note is
+    /// redundant and would be returned as change in a transaction.
+    ///
+    /// To resolve this, we remove as many of the smallest notes as we can while
+    /// still keep us above the requested amount.
+    fn remove_redundant_utxos(amount: Value, mut sorted_utxos: Vec<Utxo>) -> Vec<Utxo> {
+        debug_assert!(sorted_utxos.is_sorted_by_key(|utxo| utxo.note.value));
+
+        let mut skip_count = 0;
+        let mut temp_amount: Value = sorted_utxos.iter().map(|u| u.note.value).sum();
+
+        for utxo in &sorted_utxos {
+            if temp_amount - utxo.note.value >= amount {
+                temp_amount -= utxo.note.value;
+                skip_count += 1;
+            } else {
+                break;
+            }
+        }
+
+        sorted_utxos.drain(..skip_count);
+
+        sorted_utxos
     }
 }
 
