@@ -10,11 +10,11 @@ use crate::{
         encapsulated::{EncapsulatedMessage, EncapsulatedPart},
         ProofsVerifier,
     },
-    Error,
+    Error, MessageIdentifier,
 };
 
 /// A Blend message whose public header has been verified and unwrapped.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct UnwrappedEncapsulatedMessage<const ENCAPSULATION_COUNT: usize> {
     /// Key nullifier as returned by the verified `PoQ` of the unwrapped public
     /// header.
@@ -46,6 +46,11 @@ impl<const ENCAPSULATION_COUNT: usize> UnwrappedEncapsulatedMessage<ENCAPSULATIO
             signing_public_key,
             encapsulated_part,
         }
+    }
+
+    #[must_use]
+    pub const fn id(&self) -> MessageIdentifier {
+        self.signing_public_key
     }
 
     /// Decapsulates the message using the provided key.

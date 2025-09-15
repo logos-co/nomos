@@ -1,4 +1,4 @@
-use core::{convert::Infallible, num::NonZeroUsize, time::Duration, u64};
+use core::{num::NonZeroUsize, time::Duration};
 use std::collections::{HashSet, VecDeque};
 
 use async_trait::async_trait;
@@ -7,19 +7,16 @@ use libp2p::{Multiaddr, PeerId, Stream, Swarm};
 use libp2p_stream::Behaviour as StreamBehaviour;
 use libp2p_swarm_test::SwarmExt as _;
 use nomos_blend_message::{
-    crypto::{
-        keys::Ed25519PrivateKey,
-        proofs::{
-            quota::{inputs::prove::PublicInputs, ProofOfQuota},
-            selection::{inputs::VerifyInputs, ProofOfSelection},
-        },
-    },
-    encap::{self, encapsulated::PoQVerificationInputMinusSigningKey, ProofsVerifier},
+    crypto::keys::Ed25519PrivateKey,
+    encap::{self, encapsulated::PoQVerificationInputMinusSigningKey},
 };
 use nomos_blend_scheduling::membership::{Membership, Node};
 use nomos_core::crypto::ZkHash;
 
-use crate::core::{tests::utils::PROTOCOL_NAME, with_edge::behaviour::Behaviour};
+use crate::core::{
+    tests::utils::{AlwaysTrueVerifier, PROTOCOL_NAME},
+    with_edge::behaviour::Behaviour,
+};
 
 #[derive(Default)]
 pub struct BehaviourBuilder {
@@ -50,7 +47,7 @@ impl BehaviourBuilder {
         self
     }
 
-    pub fn build(self) -> Behaviour {
+    pub fn build(self) -> Behaviour<AlwaysTrueVerifier> {
         let current_membership = if self.core_peer_ids.is_empty() {
             None
         } else {
@@ -77,6 +74,8 @@ impl BehaviourBuilder {
             minimum_network_size: self
                 .minimum_network_size
                 .unwrap_or_else(|| 1usize.try_into().unwrap()),
+            poq_verification_inputs: default_poq_verification_inputs(),
+            poq_verifier: AlwaysTrueVerifier,
         }
     }
 }
@@ -95,7 +94,7 @@ where
 #[async_trait]
 impl<ProofsVerifier> StreamBehaviourExt<ProofsVerifier> for Swarm<StreamBehaviour>
 where
-    ProofsVerifier: encap::ProofsVerifier + 'static,
+    ProofsVerifier: encap::ProofsVerifier + Send + 'static,
 {
     async fn connect_and_upgrade_to_blend(
         &mut self,
@@ -109,32 +108,6 @@ where
             .open_stream(*other.local_peer_id(), PROTOCOL_NAME)
             .await
             .unwrap()
-    }
-}
-
-pub struct AlwaysTrueVerifier;
-
-impl ProofsVerifier for AlwaysTrueVerifier {
-    type Error = Infallible;
-
-    fn new() -> Self {
-        Self
-    }
-
-    fn verify_proof_of_quota(
-        &self,
-        _: ProofOfQuota,
-        _: &PublicInputs,
-    ) -> Result<ZkHash, Self::Error> {
-        Ok(ZkHash::ZERO)
-    }
-
-    fn verify_proof_of_selection(
-        &self,
-        _: ProofOfSelection,
-        _: &VerifyInputs,
-    ) -> Result<(), Self::Error> {
-        Ok(())
     }
 }
 

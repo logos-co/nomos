@@ -5,6 +5,7 @@ use nomos_core::crypto::ZkHash;
 use crate::encap::encapsulated::EncapsulatedMessage;
 
 /// An encapsulated Blend message whose public header has been verified.
+#[derive(Debug)]
 pub struct ValidatedEncapsulatedMessage<const ENCAPSULATION_COUNT: usize> {
     encapsulated_message: EncapsulatedMessage<ENCAPSULATION_COUNT>,
     key_nullifier: ZkHash,
@@ -18,6 +19,19 @@ impl<const ENCAPSULATION_COUNT: usize> ValidatedEncapsulatedMessage<ENCAPSULATIO
         Self {
             encapsulated_message,
             key_nullifier,
+        }
+    }
+
+    #[cfg(any(test, feature = "unsafe-test-functions"))]
+    #[must_use]
+    pub const fn from_encapsulated_message_unchecked(
+        encapsulated_message: EncapsulatedMessage<ENCAPSULATION_COUNT>,
+    ) -> Self {
+        use groth16::Field as _;
+
+        Self {
+            encapsulated_message,
+            key_nullifier: ZkHash::ZERO,
         }
     }
 }

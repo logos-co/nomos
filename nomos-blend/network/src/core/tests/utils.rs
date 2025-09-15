@@ -1,20 +1,31 @@
 use core::{
+    convert::Infallible,
     fmt::Debug,
     iter::repeat_with,
     ops::{Deref, DerefMut},
 };
 
+use groth16::Field as _;
 use libp2p::{
     identity::{ed25519::PublicKey, Keypair},
     PeerId, StreamProtocol, Swarm,
 };
 use libp2p_swarm_test::SwarmExt as _;
 use nomos_blend_message::{
-    crypto::{Ed25519PrivateKey, ProofOfQuota, ProofOfSelection, Signature, SIGNATURE_SIZE},
+    crypto::{
+        keys::Ed25519PrivateKey,
+        proofs::{
+            quota::{inputs::prove::PublicInputs, ProofOfQuota},
+            selection::{inputs::VerifyInputs, ProofOfSelection},
+        },
+        signatures::{Signature, SIGNATURE_SIZE},
+    },
+    encap::{encapsulated::PoQVerificationInputMinusSigningKey, ProofsVerifier},
     input::EncapsulationInput,
     PayloadType,
 };
 use nomos_blend_scheduling::{message_blend::crypto::EncapsulationInputs, EncapsulatedMessage};
+use nomos_core::crypto::ZkHash;
 use nomos_libp2p::NetworkBehaviour;
 
 pub const PROTOCOL_NAME: StreamProtocol = StreamProtocol::new("/blend/core-behaviour/test");
@@ -85,8 +96,8 @@ fn generate_valid_inputs() -> EncapsulationInputs {
                 EncapsulationInput::new(
                     Ed25519PrivateKey::generate(),
                     &recipient_signing_pubkey,
-                    ProofOfQuota::dummy(),
-                    ProofOfSelection::dummy(),
+                    ProofOfQuota::from_bytes_unchecked([0; _]),
+                    ProofOfSelection::from_bytes_unchecked([0; _]),
                 )
             })
             .collect::<Vec<_>>()
@@ -120,5 +131,44 @@ impl Deref for TestEncapsulatedMessage {
 impl DerefMut for TestEncapsulatedMessage {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct AlwaysTrueVerifier;
+
+impl ProofsVerifier for AlwaysTrueVerifier {
+    type Error = Infallible;
+
+    fn new() -> Self {
+        Self
+    }
+
+    fn verify_proof_of_quota(
+        &self,
+        _: ProofOfQuota,
+        _: &PublicInputs,
+    ) -> Result<ZkHash, Self::Error> {
+        Ok(ZkHash::ZERO)
+    }
+
+    fn verify_proof_of_selection(
+        &self,
+        _: ProofOfSelection,
+        _: &VerifyInputs,
+    ) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+pub fn default_poq_verification_inputs() -> PoQVerificationInputMinusSigningKey {
+    PoQVerificationInputMinusSigningKey {
+        core_quota: 0,
+        core_root: ZkHash::ZERO,
+        leader_quota: 0,
+        pol_epoch_nonce: ZkHash::ZERO,
+        pol_ledger_aged: ZkHash::ZERO,
+        session: 0,
+        total_stake: 0,
     }
 }

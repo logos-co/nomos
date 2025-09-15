@@ -14,8 +14,7 @@ use nomos_blend_message::{
     MessageIdentifier,
 };
 use nomos_blend_scheduling::{
-    deserialize_encapsulated_message,
-    message_blend::{crypto::ValidatedEncapsulatedMessage, SessionInfo},
+    deserialize_encapsulated_message, message_blend::crypto::ValidatedEncapsulatedMessage,
     serialize_encapsulated_message,
 };
 
@@ -31,8 +30,8 @@ pub struct OldSession<ProofsVerifier> {
     exchanged_message_identifiers: HashMap<PeerId, HashSet<MessageIdentifier>>,
     events: VecDeque<ToSwarm<Event, Either<FromBehaviour, Infallible>>>,
     waker: Option<Waker>,
-    session_info: SessionInfo,
-    verifier: ProofsVerifier,
+    poq_verification_inputs: PoQVerificationInputMinusSigningKey,
+    poq_verifier: ProofsVerifier,
 }
 
 impl<ProofsVerifier> OldSession<ProofsVerifier> {
@@ -40,16 +39,16 @@ impl<ProofsVerifier> OldSession<ProofsVerifier> {
     pub const fn new(
         negotiated_peers: HashMap<PeerId, ConnectionId>,
         exchanged_message_identifiers: HashMap<PeerId, HashSet<MessageIdentifier>>,
-        session_info: SessionInfo,
-        verifier: ProofsVerifier,
+        poq_verification_inputs: PoQVerificationInputMinusSigningKey,
+        poq_verifier: ProofsVerifier,
     ) -> Self {
         Self {
             negotiated_peers,
             exchanged_message_identifiers,
             events: VecDeque::new(),
             waker: None,
-            session_info,
-            verifier,
+            poq_verification_inputs,
+            poq_verifier,
         }
     }
 
@@ -103,7 +102,7 @@ impl<ProofsVerifier> OldSession<ProofsVerifier> {
             .iter()
             .filter(|(&peer_id, _)| peer_id != except.0)
             .for_each(|(&peer_id, &connection_id)| {
-                if Self::check_and_update_message_cache(
+                if check_and_update_message_cache(
                     &mut self.exchanged_message_identifiers,
                     &message_id,
                     peer_id,
@@ -124,22 +123,6 @@ impl<ProofsVerifier> OldSession<ProofsVerifier> {
             Ok(true)
         } else {
             Err(Error::NoPeers)
-        }
-    }
-
-    fn check_and_update_message_cache(
-        exchanged_message_identifiers: &mut HashMap<PeerId, HashSet<MessageIdentifier>>,
-        message_id: &MessageIdentifier,
-        peer_id: PeerId,
-    ) -> Result<(), Error> {
-        if exchanged_message_identifiers
-            .entry(peer_id)
-            .or_default()
-            .insert(*message_id)
-        {
-            Ok(())
-        } else {
-            Err(Error::MessageAlreadyExchanged)
         }
     }
 
@@ -180,6 +163,22 @@ impl<ProofsVerifier> OldSession<ProofsVerifier> {
     }
 }
 
+fn check_and_update_message_cache(
+    exchanged_message_identifiers: &mut HashMap<PeerId, HashSet<MessageIdentifier>>,
+    message_id: &MessageIdentifier,
+    peer_id: PeerId,
+) -> Result<(), Error> {
+    if exchanged_message_identifiers
+        .entry(peer_id)
+        .or_default()
+        .insert(*message_id)
+    {
+        Ok(())
+    } else {
+        Err(Error::MessageAlreadyExchanged)
+    }
+}
+
 impl<ProofsVerifier> OldSession<ProofsVerifier>
 where
     ProofsVerifier: encap::ProofsVerifier,
@@ -208,7 +207,7 @@ where
         let message_identifier = deserialized_encapsulated_message.id();
 
         // Add the message to the set of exchanged message identifiers.
-        Self::check_and_update_message_cache(
+        check_and_update_message_cache(
             &mut self.exchanged_message_identifiers,
             &message_identifier,
             from_peer_id,
@@ -216,18 +215,7 @@ where
 
         // Verify the message public header
         let validated_message = deserialized_encapsulated_message
-            .verify_and_unwrap_public_header(
-                &PoQVerificationInputMinusSigningKey {
-                    core_quota: self.session_info.public.core_quota,
-                    core_root: self.session_info.public.core_root,
-                    leader_quota: self.session_info.public.leader_quota,
-                    pol_epoch_nonce: self.session_info.public.pol_epoch_nonce,
-                    pol_ledger_aged: self.session_info.public.pol_ledger_aged,
-                    session: self.session_info.public.session,
-                    total_stake: self.session_info.public.total_stake,
-                },
-                &self.verifier,
-            )
+            .verify_and_unwrap_public_header(&self.poq_verification_inputs, &self.poq_verifier)
             .map_err(|_| Error::InvalidMessage)?;
 
         // Notify the swarm about the received message, so that it can be further

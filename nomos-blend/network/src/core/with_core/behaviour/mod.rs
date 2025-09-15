@@ -24,10 +24,7 @@ use nomos_blend_message::{
 use nomos_blend_scheduling::{
     deserialize_encapsulated_message,
     membership::Membership,
-    message_blend::{
-        crypto::{UnwrappedEncapsulatedMessage, ValidatedEncapsulatedMessage},
-        SessionInfo,
-    },
+    message_blend::crypto::{UnwrappedEncapsulatedMessage, ValidatedEncapsulatedMessage},
     serialize_encapsulated_message, EncapsulatedMessage,
 };
 
@@ -125,8 +122,8 @@ pub struct Behaviour<ProofsVerifier, ObservationWindowClockProvider> {
     /// States for processing messages from the old session
     /// before the transition period has passed.
     old_session: Option<OldSession<ProofsVerifier>>,
-    session_info: SessionInfo,
-    verifier: ProofsVerifier,
+    poq_verification_inputs: PoQVerificationInputMinusSigningKey,
+    poq_verifier: ProofsVerifier,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
@@ -193,8 +190,8 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
         current_membership: Option<Membership<PeerId>>,
         local_peer_id: PeerId,
         protocol_name: StreamProtocol,
-        session_info: SessionInfo,
-        verifier: ProofsVerifier,
+        poq_verification_inputs: PoQVerificationInputMinusSigningKey,
+        poq_verifier: ProofsVerifier,
     ) -> Self {
         Self {
             negotiated_peers: HashMap::with_capacity(*config.peering_degree.end()),
@@ -214,8 +211,8 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
             protocol_name,
             minimum_network_size: config.minimum_network_size,
             old_session: None,
-            session_info,
-            verifier,
+            poq_verification_inputs,
+            poq_verifier,
         }
     }
 
@@ -269,6 +266,18 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
             }
         }
         self.forward_validated_message_and_maybe_exclude(message, Some(except.0))
+    }
+
+    #[cfg(test)]
+    pub fn force_forward_unvalidated_message(
+        &mut self,
+        message: EncapsulatedMessage,
+        except: (PeerId, ConnectionId),
+    ) -> Result<(), Error> {
+        self.forward_validated_message(
+            &ValidatedEncapsulatedMessage::from_encapsulated_message_unchecked(message),
+            except,
+        )
     }
 
     #[must_use]
@@ -759,8 +768,8 @@ where
                 .map(|(peer_id, details)| (peer_id, details.connection_id))
                 .collect(),
             mem::take(&mut self.exchanged_message_identifiers),
-            self.session_info.clone(),
-            self.verifier.clone(),
+            self.poq_verification_inputs,
+            self.poq_verifier.clone(),
         ));
     }
 }
@@ -779,18 +788,7 @@ where
         message: EncapsulatedMessage,
     ) -> Result<(), Error> {
         let validated_message = message
-            .verify_public_header(
-                &PoQVerificationInputMinusSigningKey {
-                    core_quota: self.session_info.public.core_quota,
-                    core_root: self.session_info.public.core_root,
-                    leader_quota: self.session_info.public.leader_quota,
-                    pol_epoch_nonce: self.session_info.public.pol_epoch_nonce,
-                    pol_ledger_aged: self.session_info.public.pol_ledger_aged,
-                    session: self.session_info.public.session,
-                    total_stake: self.session_info.public.total_stake,
-                },
-                &self.verifier,
-            )
+            .verify_public_header(&self.poq_verification_inputs, &self.poq_verifier)
             .map_err(|_| Error::InvalidMessage)?;
         self.forward_validated_message_and_maybe_exclude(&validated_message, None)?;
         Ok(())
@@ -843,18 +841,7 @@ where
         };
         // Verify the message public header, or else mark the peer as malicious: https://www.notion.so/nomos-tech/Blend-Protocol-Version-1-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81859cebf5e3d2a5cd8f.
         let Ok(validated_message) = deserialized_encapsulated_message
-            .verify_and_unwrap_public_header(
-                &PoQVerificationInputMinusSigningKey {
-                    core_quota: self.session_info.public.core_quota,
-                    core_root: self.session_info.public.core_root,
-                    leader_quota: self.session_info.public.leader_quota,
-                    pol_epoch_nonce: self.session_info.public.pol_epoch_nonce,
-                    pol_ledger_aged: self.session_info.public.pol_ledger_aged,
-                    session: self.session_info.public.session,
-                    total_stake: self.session_info.public.total_stake,
-                },
-                &self.verifier,
-            )
+            .verify_and_unwrap_public_header(&self.poq_verification_inputs, &self.poq_verifier)
         else {
             tracing::debug!(target: LOG_TARGET, "Neighbor sent us a message with an invalid public header. Marking it as spammy.");
             self.close_spammy_connection(
