@@ -13,8 +13,7 @@ use channel::{
     inscribe::InscriptionOp,
     set_keys::SetKeysOp,
 };
-use groth16::Fr;
-use num_bigint::BigUint;
+use groth16::{fr_from_bytes, Fr};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::{
@@ -137,10 +136,10 @@ impl Op {
     #[must_use]
     pub fn as_signing_fr(&self) -> Vec<Fr> {
         let mut buff = Vec::new();
-        buff.push(BigUint::from(self.opcode()).into());
+        buff.push(fr_from_bytes(&[self.opcode()]).expect("single byte fits in Fr"));
 
         for chunk in self.payload_bytes().chunks(31) {
-            buff.push(BigUint::from_bytes_le(chunk).into());
+            buff.push(fr_from_bytes(chunk).expect("31 bytes fit in Fr"));
         }
         buff
     }

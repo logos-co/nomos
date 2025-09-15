@@ -1,5 +1,5 @@
 use cryptarchia_engine::{Epoch, Slot};
-use groth16::Fr;
+use groth16::{fr_from_bytes, fr_to_bytes, Fr};
 use nomos_core::{
     crypto::{Digest as _, Hasher, ZkHasher},
     mantle::{gas::GasConstants, AuthenticatedMantleTx, NoteId, Utxo, Value},
@@ -161,7 +161,9 @@ impl LedgerState {
         LeaderProof: leader_proof::LeaderProof,
     {
         assert_eq!(config.epoch(slot), self.epoch_state.epoch);
-        let epoch_nonce_fr: Fr = num_bigint::BigUint::from_bytes_le(&self.epoch_state.nonce).into();
+        // TODO: horrible conversion hack to make it always fit, switch to native Fr
+        let epoch_nonce_fr =
+            fr_from_bytes(&self.epoch_state.nonce[..31]).expect("31 bytes fit in Fr");
         let public_inputs = LeaderPublic::new(
             self.aged_commitments().root(),
             self.latest_commitments().root(),
@@ -185,13 +187,7 @@ impl LedgerState {
     where
         LeaderProof: leader_proof::LeaderProof,
     {
-        // Convert Fr to [u8; 32] via BigUint
-        let entropy_biguint: num_bigint::BigUint = proof.entropy().into();
-        let mut entropy_bytes = entropy_biguint.to_bytes_le();
-        entropy_bytes.resize(32, 0); // pad with zeros to ensure 32 bytes
-        let entropy_bytes: [u8; 32] = entropy_bytes
-            .try_into()
-            .map_err(|_| LedgerError::<Id>::InvalidProof)?;
+        let entropy_bytes = fr_to_bytes(&proof.entropy());
         Ok(self
             .update_epoch_state(slot, config)?
             .try_apply_proof(slot, proof, config)?
@@ -420,8 +416,9 @@ pub mod tests {
     pub fn generate_proof(ledger_state: &LedgerState, utxo: &Utxo, slot: Slot) -> DummyProof {
         let latest_tree = ledger_state.latest_commitments();
         let aged_tree = ledger_state.aged_commitments();
-
-        let epoch_nonce_fr: Fr = BigUint::from_bytes_le(&ledger_state.epoch_state.nonce).into();
+        // TODO: horrible conversion hack to make it always fit, switch to native Fr
+        let epoch_nonce_fr =
+            fr_from_bytes(&ledger_state.epoch_state.nonce[..31]).expect("31 bytes fit in Fr");
         DummyProof {
             public: LeaderPublic::new(
                 if aged_tree.contains(&utxo.id()) {
@@ -666,7 +663,9 @@ pub mod tests {
         let (ledger, genesis) = ledger(&[utxo]);
         let ledger_state = ledger.state(&genesis).unwrap().clone().cryptarchia_ledger;
         let slot = Slot::genesis() + 1;
-        let epoch_nonce_fr: Fr = BigUint::from_bytes_le(&ledger_state.epoch_state.nonce).into();
+        // TODO: horrible conversion hack to make it always fit, switch to native Fr
+        let epoch_nonce_fr =
+            fr_from_bytes(&ledger_state.epoch_state.nonce[..31]).expect("31 bytes fit in Fr");
         let proof = DummyProof {
             public: LeaderPublic {
                 aged_root: Fr::from(0u8), // Invalid aged root
@@ -691,7 +690,9 @@ pub mod tests {
         let (ledger, genesis) = ledger(&[utxo]);
         let ledger_state = ledger.state(&genesis).unwrap().clone().cryptarchia_ledger;
         let slot = Slot::genesis() + 1;
-        let epoch_nonce_fr: Fr = BigUint::from_bytes_le(&ledger_state.epoch_state.nonce).into();
+        // TODO: horrible conversion hack to make it always fit, switch to native Fr
+        let epoch_nonce_fr =
+            fr_from_bytes(&ledger_state.epoch_state.nonce[..31]).expect("31 bytes fit in Fr");
         let proof = DummyProof {
             public: LeaderPublic {
                 aged_root: ledger_state.aged_commitments().root(),
