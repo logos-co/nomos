@@ -32,7 +32,6 @@ members = [
   "nomos-services/data-availability/verifier",
   "nomos-services/key-management-system",
   "nomos-services/key-management-system-macros",
-  "nomos-services/kms/service",
   "nomos-services/membership",
   "nomos-services/mempool",
   "nomos-services/network",
@@ -78,7 +77,6 @@ executor-http-client         = { default-features = false, path = "./nodes/nomos
 groth16                      = { default-features = false, path = "./zk/groth16" }
 key-management-system        = { default-features = false, path = "./nomos-services/key-management-system" }
 key-management-system-macros = { default-features = false, path = "./nomos-services/key-management-system-macros" }
-kms                          = { default-features = false, path = "./nomos-services/kms/service" }
 kzgrs                        = { default-features = false, path = "./nomos-da/kzgrs" }
 kzgrs-backend                = { default-features = false, path = "./nomos-da/kzgrs-backend" }
 mmr                          = { default-features = false, path = "./mmr" }

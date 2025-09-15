@@ -27,7 +27,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl KMSBackend for PreloadKMSBackend {
-        type SupportedKeyTypes = SupportedKeyTypes;
+        type SupportedKey = SupportedKeyTypes;
         type KeyId = String;
         type Settings = PreloadKMSBackendSettings;
 
@@ -43,7 +43,7 @@ mod tests {
         fn register(
             &mut self,
             key_id: Self::KeyId,
-            key_type: Self::SupportedKeyTypes,
+            key_type: Self::SupportedKey,
         ) -> Result<Self::KeyId, DynError> {
             let key = self
                 .keys

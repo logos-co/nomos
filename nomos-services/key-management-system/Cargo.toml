@@ -11,6 +11,8 @@ workspace = true
 async-trait   = "0.1"
 bytes         = { workspace = true }
 ed25519-dalek = { default-features = false, features = ["serde", "zeroize"], version = "2" }
+groth16       = {workspace = true}
+key-management-system-macros = { workspace = true}
 log           = "0.4.22"
 overwatch     = { workspace = true }
 serde         = { default-features = false, features = ["derive"], version = "1" }

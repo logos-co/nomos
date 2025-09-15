@@ -1,13 +1,12 @@
-use crate::{
-    encodings::{Encoding, EncodingAdapter},
-    keys::KeyError,
-};
+use crate::encodings::{Encoding, EncodingAdapter, EncodingError};
 
 /// A key that can be used within the Key Management Service.
 pub trait SecuredKey {
     type Encoding: Encoding;
+    type Error;
 
-    fn sign(&self, data: Self::Encoding) -> Result<Self::Encoding, KeyError>;
+    fn sign(&self, data: Self::Encoding) -> Result<Self::Encoding, Self::Error>;
+    fn as_pk(&self) -> Self::Encoding;
 }
 
 /// A trait for keys that can sign data in an alternative encoding to their
@@ -40,7 +39,7 @@ where
     AdaptedEncoding: Encoding,
     Self::Encoding: EncodingAdapter<AdaptedEncoding>,
 {
-    fn sign_adapted(&self, data: AdaptedEncoding) -> Result<AdaptedEncoding, KeyError>;
+    fn sign_adapted(&self, data: AdaptedEncoding) -> Result<AdaptedEncoding, Self::Error>;
 }
 
 /// Automatically implements [`SecuredKeyAdapter`] for any [`SecuredKey`] whose
@@ -48,10 +47,10 @@ where
 impl<Key, AdaptedEncoding> SecuredKeyAdapter<AdaptedEncoding> for Key
 where
     AdaptedEncoding: Encoding,
-    Key: SecuredKey<Encoding: EncodingAdapter<AdaptedEncoding>>,
+    Key: SecuredKey<Encoding: EncodingAdapter<AdaptedEncoding>, Error: From<EncodingError>>,
 {
-    fn sign_adapted(&self, data: AdaptedEncoding) -> Result<AdaptedEncoding, KeyError> {
-        let payload = Self::Encoding::try_from(data).map_err(KeyError::from)?;
+    fn sign_adapted(&self, data: AdaptedEncoding) -> Result<AdaptedEncoding, Self::Error> {
+        let payload = Self::Encoding::try_from(data).map_err(Self::Error::from)?;
         self.sign(payload).map(Self::Encoding::into)
     }
 }
