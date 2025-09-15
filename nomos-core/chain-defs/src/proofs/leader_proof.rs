@@ -165,25 +165,9 @@ impl LeaderPublic {
     }
 
     fn scaled_phi_approx(&self) -> (BigUint, BigUint) {
-        // constants from https://www.notion.so/nomos-tech/Proof-of-Leadership-Specification-21c261aa09df819ba5b6d95d0fe3066d?d=22a261aa09df8043bc55001ccb53e28c#22a261aa09df8035ac70fde79304b0c3
-        let t0_c = BigUint::parse_bytes(
-            b"1a3fb997fd58374772808c13d1c2ddacb5ab3ea77413f86fd6e0d3d978e5438",
-            16,
-        )
-        .unwrap();
-        let t1_c = BigUint::parse_bytes(
-            b"71e790b41991052e30c93934b5612412e7958837bac8b1c524c24d84cc7d0",
-            16,
-        )
-        .unwrap();
-        let p = BigUint::parse_bytes(
-            b"30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001",
-            16,
-        )
-        .unwrap();
-        let t0 = &t0_c / &BigUint::from(self.total_stake);
+        let t0 = &*pol::T0_CONSTANT / &BigUint::from(self.total_stake);
         let total_stake_sq = &BigUint::from(self.total_stake) * &BigUint::from(self.total_stake);
-        let t1 = &p - (&t1_c / &total_stake_sq);
+        let t1 = &*pol::P - (&*pol::T1_CONSTANT / &total_stake_sq);
         (t0, t1)
     }
 

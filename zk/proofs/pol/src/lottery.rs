@@ -16,7 +16,7 @@ pub static P: LazyLock<BigUint> = LazyLock::new(|| {
 });
 
 /// From [Proof of Leadership spec](https://www.notion.so/nomos-tech/Proof-of-Leadership-Specification-21c261aa09df819ba5b6d95d0fe3066d?source=copy_link#256261aa09df800fbc88e5aae5ea7e06)
-static T0_CONSTANT: LazyLock<BigUint> = LazyLock::new(|| {
+pub static T0_CONSTANT: LazyLock<BigUint> = LazyLock::new(|| {
     BigUint::from_str_radix(
         "1a3fb997fd58374772808c13d1c2ddacb5ab3ea77413f86fd6e0d3d978e5438",
         16,
@@ -25,7 +25,7 @@ static T0_CONSTANT: LazyLock<BigUint> = LazyLock::new(|| {
 });
 
 /// From [Proof of Leadership spec](https://www.notion.so/nomos-tech/Proof-of-Leadership-Specification-21c261aa09df819ba5b6d95d0fe3066d?source=copy_link#256261aa09df800fbc88e5aae5ea7e06)
-static T1_CONSTANT: LazyLock<BigUint> = LazyLock::new(|| {
+pub static T1_CONSTANT: LazyLock<BigUint> = LazyLock::new(|| {
     BigUint::from_str_radix(
         "71e790b41991052e30c93934b5612412e7958837bac8b1c524c24d84cc7d0",
         16,
