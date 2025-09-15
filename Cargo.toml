@@ -1,6 +1,5 @@
 [workspace]
 # Make sure any excluded crates are still clipped in our CI. Also, make sure they use the same Clippy and rustc lints we specify in this file down below.
-exclude = ["nomos-core/risc0_proofs"]
 members = [
   "consensus/cryptarchia-engine",
   "consensus/cryptarchia-sync",
