@@ -11,7 +11,7 @@ mod sync;
 
 use core::fmt::Debug;
 use std::{
-    collections::{BTreeSet, HashSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     fmt::Display,
     hash::Hash,
     path::PathBuf,
@@ -106,6 +106,9 @@ pub enum ConsensusMsg {
     NewBlockSubscribe {
         sender: oneshot::Sender<broadcast::Receiver<HeaderId>>,
     },
+    LibSubscribe {
+        sender: oneshot::Sender<broadcast::Receiver<LibUpdate>>,
+    },
     GetHeaders {
         from: Option<HeaderId>,
         to: Option<HeaderId>,
@@ -126,6 +129,20 @@ pub struct CryptarchiaInfo {
     pub slot: Slot,
     pub height: u64,
     pub mode: cryptarchia_engine::State,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct LibUpdate {
+    pub new_lib: HeaderId,
+    pub pruned_blocks: PrunedBlocksInfo,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PrunedBlocksInfo {
+    pub stale_blocks: Vec<HeaderId>,
+    pub immutable_blocks: BTreeMap<Slot, HeaderId>,
 }
 
 #[derive(Clone)]
@@ -314,6 +331,7 @@ pub struct CryptarchiaConsensus<
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     new_block_subscription_sender: broadcast::Sender<HeaderId>,
+    lib_subscription_sender: broadcast::Sender<LibUpdate>,
     initial_state: <Self as ServiceData>::State,
 }
 
@@ -487,9 +505,12 @@ where
         initial_state: Self::State,
     ) -> Result<Self, DynError> {
         let (new_block_subscription_sender, _) = broadcast::channel(16);
+        let (lib_subscription_sender, _) = broadcast::channel(16);
+
         Ok(Self {
             service_resources_handle,
             new_block_subscription_sender,
+            lib_subscription_sender,
             initial_state,
         })
     }
@@ -606,6 +627,7 @@ where
                 let cryptarchia_clone = cryptarchia.clone();
                 let storage_blocks_to_remove_clone = storage_blocks_to_remove.clone();
                 let new_block_subscription_sender = &self.new_block_subscription_sender;
+                let lib_subscription_sender = &self.lib_subscription_sender;
                 async move {
                     Self::process_block_and_update_state(
                         cryptarchia,
@@ -614,6 +636,7 @@ where
                         &storage_blocks_to_remove,
                         relays,
                         new_block_subscription_sender,
+                        lib_subscription_sender,
                         state_updater,
                     )
                     .await
@@ -700,6 +723,7 @@ where
                             &storage_blocks_to_remove,
                             &relays,
                             &self.new_block_subscription_sender,
+                            &self.lib_subscription_sender,
                             &self.service_resources_handle.state_updater
                         ).await {
                             Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
@@ -753,6 +777,7 @@ where
                                     &storage_blocks_to_remove,
                                     &relays,
                                     &self.new_block_subscription_sender,
+                                    &self.lib_subscription_sender,
                                     &self.service_resources_handle.state_updater,
                                 )
                                 .await {
@@ -773,7 +798,7 @@ where
                     }
 
                     Some(msg) = self.service_resources_handle.inbound_relay.next() => {
-                        Self::process_message(&cryptarchia, &self.new_block_subscription_sender, msg);
+                        Self::process_message(&cryptarchia, &self.new_block_subscription_sender, &self.lib_subscription_sender, msg);
                     }
 
                     Some(event) = chainsync_events.next() => {
@@ -799,6 +824,7 @@ where
                             &storage_blocks_to_remove,
                             &relays,
                             &self.new_block_subscription_sender,
+                            &self.lib_subscription_sender,
                             &self.service_resources_handle.state_updater
                         ).await {
                             Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
@@ -916,6 +942,7 @@ where
     fn process_message(
         cryptarchia: &Cryptarchia,
         new_block_channel: &broadcast::Sender<HeaderId>,
+        lib_channel: &broadcast::Sender<LibUpdate>,
         msg: ConsensusMsg,
     ) {
         match msg {
@@ -946,6 +973,11 @@ where
                     .unwrap_or_else(|_| {
                         error!("Could not subscribe to new block channel");
                     });
+            }
+            ConsensusMsg::LibSubscribe { sender } => {
+                sender.send(lib_channel.subscribe()).unwrap_or_else(|_| {
+                    error!("Could not subscribe to LIB updates channel");
+                });
             }
             ConsensusMsg::GetHeaders { from, to, tx } => {
                 // default to tip block if not present
@@ -1000,6 +1032,7 @@ where
             RuntimeServiceId,
         >,
         new_block_subscription_sender: &broadcast::Sender<HeaderId>,
+        lib_subscription_sender: &broadcast::Sender<LibUpdate>,
         state_updater: &StateUpdater<
             Option<
                 CryptarchiaConsensusState<
@@ -1011,8 +1044,14 @@ where
             >,
         >,
     ) -> Result<(Cryptarchia, HashSet<HeaderId>), Error> {
-        let (cryptarchia, pruned_blocks) =
-            Self::process_block(cryptarchia, block, relays, new_block_subscription_sender).await?;
+        let (cryptarchia, pruned_blocks) = Self::process_block(
+            cryptarchia,
+            block,
+            relays,
+            new_block_subscription_sender,
+            lib_subscription_sender,
+        )
+        .await?;
 
         let storage_blocks_to_remove = Self::delete_pruned_blocks_from_storage(
             pruned_blocks.stale_blocks().copied(),
@@ -1079,6 +1118,7 @@ where
             RuntimeServiceId,
         >,
         new_block_subscription_sender: &broadcast::Sender<HeaderId>,
+        lib_broadcaster: &broadcast::Sender<LibUpdate>,
     ) -> Result<(Cryptarchia, PrunedBlocks<HeaderId>), Error> {
         debug!("received proposal {:?}", block);
 
@@ -1146,6 +1186,18 @@ where
             };
             if let Err(e) = broadcast_finalized_block(relays.broadcast_relay(), block_info).await {
                 error!("Could not notify block to services {e}");
+            }
+
+            let lib_update = LibUpdate {
+                new_lib: cryptarchia.lib(),
+                pruned_blocks: PrunedBlocksInfo {
+                    stale_blocks: pruned_blocks.stale_blocks().copied().collect(),
+                    immutable_blocks: pruned_blocks.immutable_blocks().clone(),
+                },
+            };
+
+            if let Err(e) = lib_broadcaster.send(lib_update) {
+                error!("Could not notify LIB update to services: {e}");
             }
         }
 
@@ -1343,6 +1395,7 @@ where
                 block,
                 relays,
                 &self.new_block_subscription_sender,
+                &self.lib_subscription_sender,
             )
             .await
             {

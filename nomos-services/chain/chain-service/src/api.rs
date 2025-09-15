@@ -1,4 +1,4 @@
-use crate::{ConsensusMsg, CryptarchiaInfo};
+use crate::{ConsensusMsg, CryptarchiaInfo, LibUpdate};
 use nomos_core::header::HeaderId;
 use overwatch::{
     services::{relay::OutboundRelay, AsServiceId, ServiceData},
@@ -63,6 +63,18 @@ where
             .send(ConsensusMsg::NewBlockSubscribe { sender })
             .await
             .map_err(|_| "Failed to send block subscription request")?;
+
+        Ok(receiver.await?)
+    }
+
+    /// Subscribe to LIB (Last Immutable Block) updates
+    pub async fn subscribe_lib_updates(&self) -> Result<broadcast::Receiver<LibUpdate>, DynError> {
+        let (sender, receiver) = oneshot::channel();
+
+        self.relay
+            .send(ConsensusMsg::LibSubscribe { sender })
+            .await
+            .map_err(|_| "Failed to send LIB subscription request")?;
 
         Ok(receiver.await?)
     }
