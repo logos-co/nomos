@@ -3,7 +3,6 @@ pub mod deserialize;
 
 use std::marker::PhantomData;
 
-#[cfg(feature = "deser")]
 use ark_bn254::Bn254;
 use ark_ec::pairing::Pairing;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize as _, SerializationError};
