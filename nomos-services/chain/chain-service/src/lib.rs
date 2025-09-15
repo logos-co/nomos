@@ -1095,8 +1095,8 @@ where
             let height = cryptarchia
                 .consensus
                 .branches()
-                .get(&cryptarchia.tip())
-                .expect("tip branch not available")
+                .get(&cryptarchia.lib())
+                .expect("LIB branch not available")
                 .length();
             let block_info = BlockInfo {
                 height,
