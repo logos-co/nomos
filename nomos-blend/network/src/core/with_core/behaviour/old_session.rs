@@ -15,7 +15,7 @@ use nomos_blend_message::{
 };
 use nomos_blend_scheduling::{
     deserialize_encapsulated_message,
-    message_blend::crypto::EncapsulatedMessageWithValidatedPublicHeader,
+    message_blend::crypto::OutgoingEncapsulatedMessageWithValidatedPublicHeader,
     serialize_encapsulated_message,
 };
 
@@ -89,7 +89,7 @@ impl<ProofsVerifier> OldSession<ProofsVerifier> {
     ///   the [`except`] connection.
     pub fn forward_validated_message(
         &mut self,
-        message: &EncapsulatedMessageWithValidatedPublicHeader,
+        message: &OutgoingEncapsulatedMessageWithValidatedPublicHeader,
         except: &(PeerId, ConnectionId),
     ) -> Result<bool, Error> {
         if !self.is_negotiated(except) {

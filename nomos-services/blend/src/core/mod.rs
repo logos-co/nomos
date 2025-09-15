@@ -17,7 +17,6 @@ use fork_stream::StreamExt as _;
 use futures::{future::join_all, StreamExt as _};
 use network::NetworkAdapter;
 use nomos_blend_message::{crypto::random_sized_bytes, encap::DecapsulationOutput, PayloadType};
-use nomos_blend_network::EncapsulatedMessageWithValidatedPublicHeader;
 use nomos_blend_scheduling::{
     membership::Membership,
     message_blend::crypto::SessionCryptographicProcessor,

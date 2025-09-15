@@ -22,8 +22,12 @@ use nomos_blend_message::{
     MessageIdentifier,
 };
 use nomos_blend_scheduling::{
-    deserialize_encapsulated_message, membership::Membership,
-    message_blend::crypto::EncapsulatedMessageWithValidatedPublicHeader,
+    deserialize_encapsulated_message,
+    membership::Membership,
+    message_blend::crypto::{
+        IncomingEncapsulatedMessageWithValidatedPublicHeader,
+        OutgoingEncapsulatedMessageWithValidatedPublicHeader,
+    },
     serialize_encapsulated_message, EncapsulatedMessage,
 };
 
@@ -162,7 +166,7 @@ pub enum Event {
     /// A message received from one of the core peers, after its public header
     /// has been verified.
     Message(
-        Box<EncapsulatedMessageWithValidatedPublicHeader>,
+        Box<IncomingEncapsulatedMessageWithValidatedPublicHeader>,
         (PeerId, ConnectionId),
     ),
     /// A peer on a given connection has been detected as unhealthy.
@@ -239,7 +243,7 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
     /// assumed to have been properly formed.
     pub fn publish_validated_message(
         &mut self,
-        message: &EncapsulatedMessageWithValidatedPublicHeader,
+        message: &OutgoingEncapsulatedMessageWithValidatedPublicHeader,
     ) -> Result<(), Error> {
         self.forward_validated_message_and_maybe_exclude(message, None)?;
         Ok(())
@@ -259,7 +263,7 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
     /// the blend protocol.
     pub fn forward_validated_message(
         &mut self,
-        message: &EncapsulatedMessageWithValidatedPublicHeader,
+        message: &OutgoingEncapsulatedMessageWithValidatedPublicHeader,
         except: (PeerId, ConnectionId),
     ) -> Result<(), Error> {
         if let Some(old_session) = &mut self.old_session {
@@ -277,7 +281,7 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
         except: (PeerId, ConnectionId),
     ) -> Result<(), Error> {
         self.forward_validated_message(
-            &EncapsulatedMessageWithValidatedPublicHeader::from_encapsulated_message_unchecked(
+            &OutgoingEncapsulatedMessageWithValidatedPublicHeader::from_encapsulated_message_unchecked(
                 message,
             ),
             except,
@@ -374,7 +378,7 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
     /// message.
     fn forward_validated_message_and_maybe_exclude(
         &mut self,
-        message: &EncapsulatedMessageWithValidatedPublicHeader,
+        message: &OutgoingEncapsulatedMessageWithValidatedPublicHeader,
         excluded_peer: Option<PeerId>,
     ) -> Result<(), Error> {
         let message_id = message.id();
@@ -803,7 +807,7 @@ where
         let validated_message = message
             .verify_public_header(&self.session_poq_verification_inputs, &self.poq_verifier)
             .map_err(|_| Error::InvalidMessage)?;
-        self.forward_validated_message_and_maybe_exclude(&validated_message, None)?;
+        self.forward_validated_message_and_maybe_exclude(&validated_message.into(), None)?;
         Ok(())
     }
 

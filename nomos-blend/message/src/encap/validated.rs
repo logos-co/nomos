@@ -24,7 +24,7 @@ pub struct MissingProofOfSelectionVerificationInputs {
 /// An encapsulated Blend message whose public header has been verified but not
 /// unwrapped.
 #[derive(Debug, PartialEq, Eq)]
-pub struct EncapsulatedMessageWithValidatedPublicHeader<const ENCAPSULATION_COUNT: usize> {
+pub struct IncomingEncapsulatedMessageWithValidatedPublicHeader<const ENCAPSULATION_COUNT: usize> {
     /// Key nullifier as returned by the verified `PoQ` of the verified public
     /// header.
     key_nullifier: ZkHash,
@@ -32,7 +32,7 @@ pub struct EncapsulatedMessageWithValidatedPublicHeader<const ENCAPSULATION_COUN
 }
 
 impl<const ENCAPSULATION_COUNT: usize>
-    EncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>
+    IncomingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>
 {
     pub(super) const fn from_components(
         encapsulated_message: EncapsulatedMessage<ENCAPSULATION_COUNT>,
@@ -96,7 +96,34 @@ impl<const ENCAPSULATION_COUNT: usize>
             }
         }
     }
+}
 
+impl<const ENCAPSULATION_COUNT: usize>
+    IncomingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>
+{
+    #[must_use]
+    pub fn into_components(self) -> (EncapsulatedMessage<ENCAPSULATION_COUNT>, ZkHash) {
+        (self.encapsulated_message, self.key_nullifier)
+    }
+}
+
+impl<const ENCAPSULATION_COUNT: usize> Deref
+    for IncomingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>
+{
+    type Target = EncapsulatedMessage<ENCAPSULATION_COUNT>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.encapsulated_message
+    }
+}
+
+pub struct OutgoingEncapsulatedMessageWithValidatedPublicHeader<const ENCAPSULATION_COUNT: usize>(
+    IncomingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>,
+);
+
+impl<const ENCAPSULATION_COUNT: usize>
+    OutgoingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>
+{
     #[cfg(any(test, feature = "unsafe-test-functions"))]
     #[must_use]
     /// Wraps an `EncapsulatedMessage` into a
@@ -110,28 +137,30 @@ impl<const ENCAPSULATION_COUNT: usize>
     ) -> Self {
         use groth16::Field as _;
 
-        Self {
+        Self(IncomingEncapsulatedMessageWithValidatedPublicHeader {
             encapsulated_message,
             key_nullifier: ZkHash::ZERO,
-        }
+        })
     }
 }
 
 impl<const ENCAPSULATION_COUNT: usize>
-    EncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>
+    From<IncomingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>>
+    for OutgoingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>
 {
-    #[must_use]
-    pub fn into_components(self) -> (EncapsulatedMessage<ENCAPSULATION_COUNT>, ZkHash) {
-        (self.encapsulated_message, self.key_nullifier)
+    fn from(
+        value: IncomingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>,
+    ) -> Self {
+        Self(value)
     }
 }
 
 impl<const ENCAPSULATION_COUNT: usize> Deref
-    for EncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>
+    for OutgoingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>
 {
     type Target = EncapsulatedMessage<ENCAPSULATION_COUNT>;
 
     fn deref(&self) -> &Self::Target {
-        &self.encapsulated_message
+        &self.0.encapsulated_message
     }
 }

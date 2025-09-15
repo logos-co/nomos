@@ -7,8 +7,9 @@ use nomos_blend_message::{
         decapsulated::DecapsulationOutput as InternalDecapsulationOutput,
         encapsulated::EncapsulatedMessage as InternalEncapsulatedMessage,
         validated::{
-            EncapsulatedMessageWithValidatedPublicHeader as InternalEncapsulatedMessageWithValidatedPublicHeader,
+            IncomingEncapsulatedMessageWithValidatedPublicHeader as InternalIncomingEncapsulatedMessageWithValidatedPublicHeader,
             MissingProofOfSelectionVerificationInputs,
+            OutgoingEncapsulatedMessageWithValidatedPublicHeader as InternalOutgoingEncapsulatedMessageWithValidatedPublicHeader,
         },
         ProofsVerifier as ProofsVerifierTrait,
     },
@@ -28,8 +29,10 @@ const ENCAPSULATION_COUNT: usize = 3;
 pub type EncapsulatedMessage = InternalEncapsulatedMessage<ENCAPSULATION_COUNT>;
 pub type EncapsulationInputs = InternalEncapsulationInputs<ENCAPSULATION_COUNT>;
 pub type DecapsulationOutput = InternalDecapsulationOutput<ENCAPSULATION_COUNT>;
-pub type EncapsulatedMessageWithValidatedPublicHeader =
-    InternalEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>;
+pub type IncomingEncapsulatedMessageWithValidatedPublicHeader =
+    InternalIncomingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>;
+pub type OutgoingEncapsulatedMessageWithValidatedPublicHeader =
+    InternalOutgoingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>;
 
 /// [`SessionCryptographicProcessor`] is responsible for wrapping and unwrapping
 /// messages for the message indistinguishability.
@@ -89,7 +92,7 @@ where
 {
     pub fn decapsulate_message(
         &self,
-        message: EncapsulatedMessageWithValidatedPublicHeader,
+        message: IncomingEncapsulatedMessageWithValidatedPublicHeader,
     ) -> Result<DecapsulationOutput, Error> {
         let Some(local_node_index) = self.membership.local_index() else {
             return Err(Error::NotCoreNodeReceiver);

@@ -20,7 +20,7 @@ use libp2p::{
 use nomos_blend_message::encap::{self, encapsulated::PoQVerificationInputMinusSigningKey};
 use nomos_blend_scheduling::{
     deserialize_encapsulated_message, membership::Membership,
-    message_blend::crypto::EncapsulatedMessageWithValidatedPublicHeader,
+    message_blend::crypto::IncomingEncapsulatedMessageWithValidatedPublicHeader,
 };
 
 use crate::core::with_edge::behaviour::handler::{ConnectionHandler, FromBehaviour, ToBehaviour};
@@ -36,7 +36,7 @@ const LOG_TARGET: &str = "blend::network::core::edge::behaviour";
 pub enum Event {
     /// A message received from one of the edge peers, after its public header
     /// has been verified.
-    Message(EncapsulatedMessageWithValidatedPublicHeader),
+    Message(IncomingEncapsulatedMessageWithValidatedPublicHeader),
 }
 
 #[derive(Debug)]
