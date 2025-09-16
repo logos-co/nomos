@@ -1,8 +1,11 @@
 use groth16::{Field as _, Fr, Groth16Input, Groth16InputDeser};
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
-use crate::chain_inputs::PoQInputsFromDataError;
-use crate::chain_inputs::PoQInputsFromDataError::{CoreQuotaLessThan20Bits, LeaderQuotaLessThan20Bits};
+
+use crate::chain_inputs::{
+    PoQInputsFromDataError,
+    PoQInputsFromDataError::{CoreQuotaLessThan20Bits, LeaderQuotaLessThan20Bits},
+};
 
 #[derive(Copy, Clone)]
 pub struct PoQCommonInputs {
