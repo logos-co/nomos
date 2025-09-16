@@ -38,14 +38,14 @@ impl PoQWitnessInputs {
     }
 
     pub fn from_core_node_data(
-        chain: PoQChainInputs,
-        common: PoQCommonInputs,
-        blend: PoQBlendInputs,
+        chain: PoQChainInputsData,
+        common: PoQCommonInputsData,
+        blend: PoQBlendInputsData,
     ) -> Result<Self, <PoQChainInputs as TryFrom<PoQChainInputsData>>::Error> {
         Ok(Self {
-            chain,
-            common,
-            blend,
+            chain: chain.try_into()?,
+            common: common.into(),
+            blend: blend.into(),
             wallet: PoQWalletInputs::from(PoQWalletInputsData {
                 slot: 2,
                 note_value: 0,
