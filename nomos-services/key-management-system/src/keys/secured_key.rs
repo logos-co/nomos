@@ -3,10 +3,12 @@
     reason = "SecureKeyAdapter is only referenced via a blanket impl. The compiler treats it as unused, but it isn’t. This annotation will be removed once the trait is used directly."
 )]
 
+use zeroize::ZeroizeOnDrop;
+
 use crate::encodings::{EncodingFormat, EncodingFormatAdapter};
 
 /// A key that can be used within the Key Management Service.
-pub trait SecuredKey {
+pub trait SecuredKey: ZeroizeOnDrop {
     type EncodingFormat: EncodingFormat;
     type Error;
 
