@@ -12,7 +12,7 @@ use crate::{
     },
     encap::{
         decapsulated::DecapsulationOutput, encapsulated::EncapsulatedMessage,
-        unwrapped::MissingProofOfSelectionVerificationInputs, ProofsVerifier,
+        unwrapped::RequiredProofOfSelectionVerificationInputs, ProofsVerifier,
     },
     input::{EncapsulationInput, EncapsulationInputs},
     message::payload::MAX_PAYLOAD_BODY_SIZE,
@@ -65,7 +65,7 @@ fn encapsulate_and_decapsulate() {
         .unwrap()
         .decapsulate(
             blend_node_enc_keys.last().unwrap(),
-            &MissingProofOfSelectionVerificationInputs::default(),
+            &RequiredProofOfSelectionVerificationInputs::default(),
             &verifier,
         )
         .unwrap()
@@ -81,7 +81,7 @@ fn encapsulate_and_decapsulate() {
         .unwrap()
         .decapsulate(
             blend_node_enc_keys.last().unwrap(),
-            &MissingProofOfSelectionVerificationInputs::default(),
+            &RequiredProofOfSelectionVerificationInputs::default(),
             &verifier,
         )
         .is_err());
@@ -93,7 +93,7 @@ fn encapsulate_and_decapsulate() {
         .unwrap()
         .decapsulate(
             blend_node_enc_keys.first().unwrap(),
-            &MissingProofOfSelectionVerificationInputs::default(),
+            &RequiredProofOfSelectionVerificationInputs::default(),
             &verifier,
         )
         .unwrap()

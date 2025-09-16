@@ -29,7 +29,7 @@ pub struct UnwrappedEncapsulatedMessage<const ENCAPSULATION_COUNT: usize> {
 #[cfg_attr(test, derive(Default))]
 /// Required inputs to verify a `PoSel` proof, minus the key nullifier that is
 /// retrieved from the verified `PoQ` of the outer Blend layer.
-pub struct MissingProofOfSelectionVerificationInputs {
+pub struct RequiredProofOfSelectionVerificationInputs {
     pub expected_node_index: u64,
     pub total_membership_size: u64,
 }
@@ -60,10 +60,10 @@ impl<const ENCAPSULATION_COUNT: usize> UnwrappedEncapsulatedMessage<ENCAPSULATIO
     pub fn decapsulate<Verifier>(
         self,
         private_key: &X25519PrivateKey,
-        MissingProofOfSelectionVerificationInputs {
+        RequiredProofOfSelectionVerificationInputs {
             expected_node_index,
             total_membership_size,
-        }: &MissingProofOfSelectionVerificationInputs,
+        }: &RequiredProofOfSelectionVerificationInputs,
         verifier: &Verifier,
     ) -> Result<DecapsulationOutput<ENCAPSULATION_COUNT>, Error>
     where
