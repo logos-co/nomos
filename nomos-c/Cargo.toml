@@ -1,0 +1,14 @@
+[package]
+edition           = "2024"
+license.workspace = true
+name              = "nomos-c"
+version           = "0.1.0"
+
+[dependencies]
+nomos-node = { workspace = true }
+
+[lib]
+crate-type = ["cdylib"]
+
+[lints]
+workspace = true
