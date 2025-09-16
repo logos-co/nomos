@@ -35,6 +35,7 @@ pub enum Error {
     KeyNullifierMismatch { expected: ZkHash, provided: ZkHash },
     #[error("Invalid input: {0}.")]
     InvalidInput(Box<dyn core::error::Error>),
+    #[error("Proof of Selection verification failed.")]
     Verification,
 }
 

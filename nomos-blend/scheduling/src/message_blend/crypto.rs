@@ -8,8 +8,8 @@ use nomos_blend_message::{
         encapsulated::EncapsulatedMessage as InternalEncapsulatedMessage,
         validated::{
             IncomingEncapsulatedMessageWithValidatedPublicHeader as InternalIncomingEncapsulatedMessageWithValidatedPublicHeader,
-            MissingProofOfSelectionVerificationInputs,
             OutgoingEncapsulatedMessageWithValidatedPublicHeader as InternalOutgoingEncapsulatedMessageWithValidatedPublicHeader,
+            RequiredProofOfSelectionVerificationInputs,
         },
         ProofsVerifier as ProofsVerifierTrait,
     },
@@ -99,7 +99,7 @@ where
         };
         message.decapsulate(
             &self.non_ephemeral_encryption_key,
-            &MissingProofOfSelectionVerificationInputs {
+            &RequiredProofOfSelectionVerificationInputs {
                 expected_node_index: local_node_index as u64,
                 total_membership_size: self.membership.size() as u64,
             },

@@ -13,7 +13,7 @@ use crate::{
     encap::{
         decapsulated::DecapsulationOutput,
         encapsulated::{EncapsulatedMessage, PoQVerificationInputMinusSigningKey},
-        unwrapped::RequiredProofOfSelectionVerificationInputs,
+        validated::RequiredProofOfSelectionVerificationInputs,
         ProofsVerifier,
     },
     input::{EncapsulationInput, EncapsulationInputs},
