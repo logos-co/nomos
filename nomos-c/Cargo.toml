@@ -5,7 +5,13 @@ name              = "nomos-c"
 version           = "0.1.0"
 
 [dependencies]
-nomos-node = { workspace = true }
+nomos-node = { workspace = true, features = ["tracing"] }
+overwatch  = { workspace = true }
+serde_yaml = { workspace = true }
+tokio      = { default-features = false, workspace = true, features = ["rt-multi-thread"] }
+
+[build-dependencies]
+cbindgen = "0.29"
 
 [lib]
 crate-type = ["cdylib"]

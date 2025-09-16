@@ -135,8 +135,10 @@ reqwest           = { default-features = false, version = "0.12" }
 risc0-zkvm        = { default-features = false, version = "2.3.2" }
 serde_json        = { default-features = false, version = "1.0" }
 serde_with        = { default-features = false, version = "3.14.0" }
+serde_yaml        = { version = "0.9.33" }
 tempfile          = { default-features = false, version = "3" }
 thiserror         = { default-features = false, version = "2.0" }
+tokio             = { default-features = false, version = "1" }
 tracing           = { default-features = false, version = "0.1" }
 utoipa            = { default-features = false, version = "4.0" }
 utoipa-swagger-ui = { default-features = false, version = "7.0" }
