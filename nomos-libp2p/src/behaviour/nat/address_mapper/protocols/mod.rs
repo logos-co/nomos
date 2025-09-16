@@ -6,7 +6,7 @@ use crate::{
         errors::AddressMapperError,
         protocols::{nat_pmp::NatPmp, pcp::PcpProtocol},
     },
-    config::NatMappingSettings,
+    NatMappingSettings,
 };
 
 mod nat_pmp;

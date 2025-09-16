@@ -36,6 +36,7 @@ async fn main() -> Result<()> {
             blend: blend_config,
             blend_core: blend_core_config,
             blend_edge: blend_edge_config,
+            block_broadcast: (),
             #[cfg(feature = "tracing")]
             tracing: config.tracing,
             http: config.http,

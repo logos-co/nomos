@@ -111,6 +111,8 @@ pub(crate) type BlendEdgeService = nomos_blend_service::edge::BlendService<
 pub(crate) type BlendService =
     nomos_blend_service::BlendService<BlendCoreService, BlendEdgeService, RuntimeServiceId>;
 
+pub(crate) type BlockBroadcastService = broadcast_service::BlockBroadcastService<RuntimeServiceId>;
+
 pub(crate) type DaVerifierService = generic_services::DaVerifierService<
     VerifierNetworkAdapter<
         NomosDaMembership,
@@ -235,6 +237,7 @@ pub struct Nomos {
     da_network: DaNetworkService,
     cl_mempool: ClMempoolService,
     cryptarchia: CryptarchiaService,
+    block_broadcast: BlockBroadcastService,
     membership: MembershipService<RuntimeServiceId>,
     sdp: SdpService<RuntimeServiceId>,
     time: TimeService,

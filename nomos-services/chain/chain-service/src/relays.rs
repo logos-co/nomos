@@ -3,6 +3,7 @@ use std::{
     hash::Hash,
 };
 
+use broadcast_service::{BlockBroadcastMsg, BlockBroadcastService};
 use nomos_core::{
     block::Block,
     da,
@@ -35,6 +36,7 @@ use crate::{
 type NetworkRelay<NetworkBackend, RuntimeServiceId> =
     OutboundRelay<BackendNetworkMsg<NetworkBackend, RuntimeServiceId>>;
 type BlendRelay<BlendService> = OutboundRelay<<BlendService as ServiceData>::Message>;
+pub type BroadcastRelay = OutboundRelay<BlockBroadcastMsg>;
 type ClMempoolRelay<ClPool, ClPoolAdapter, RuntimeServiceId> = MempoolRelay<
     <ClPoolAdapter as MempoolAdapter<RuntimeServiceId>>::Payload,
     <ClPool as MemPool>::Item,
@@ -66,6 +68,7 @@ pub struct CryptarchiaConsensusRelays<
         RuntimeServiceId,
     >,
     blend_relay: BlendRelay<BlendService>,
+    broadcast_relay: BroadcastRelay,
     cl_mempool_relay: ClMempoolRelay<ClPool, ClPoolAdapter, RuntimeServiceId>,
     storage_adapter: StorageAdapter<Storage, TxS::Tx, RuntimeServiceId>,
     sampling_relay: SamplingRelay<SamplingBackend::BlobId>,
@@ -118,6 +121,7 @@ where
             RuntimeServiceId,
         >,
         blend_relay: BlendRelay<BlendService>,
+        broadcast_relay: BroadcastRelay,
         cl_mempool_relay: ClMempoolRelay<ClPool, ClPoolAdapter, RuntimeServiceId>,
         sampling_relay: SamplingRelay<SamplingBackend::BlobId>,
         storage_relay: StorageRelay<Storage>,
@@ -128,6 +132,7 @@ where
         Self {
             network_relay,
             blend_relay,
+            broadcast_relay,
             cl_mempool_relay,
             storage_adapter,
             sampling_relay,
@@ -179,6 +184,7 @@ where
             + 'static
             + AsServiceId<NetworkService<NetworkAdapter::Backend, RuntimeServiceId>>
             + AsServiceId<BlendService>
+            + AsServiceId<BlockBroadcastService<RuntimeServiceId>>
             + AsServiceId<
                 TxMempoolService<
                     ClPoolAdapter,
@@ -214,6 +220,15 @@ where
         succeed",
             );
 
+        let broadcast_relay = service_resources_handle
+            .overwatch_handle
+            .relay::<BlockBroadcastService<_>>()
+            .await
+            .expect(
+                "Relay connection with broadcast_service::BlockBroadcastService should
+        succeed",
+            );
+
         let cl_mempool_relay = service_resources_handle
             .overwatch_handle
             .relay::<TxMempoolService<_, _, _, _, _>>()
@@ -241,6 +256,7 @@ where
         Self::new(
             network_relay,
             blend_relay,
+            broadcast_relay,
             cl_mempool_relay,
             sampling_relay,
             storage_relay,
@@ -260,6 +276,10 @@ where
 
     pub const fn blend_relay(&self) -> &BlendRelay<BlendService> {
         &self.blend_relay
+    }
+
+    pub const fn broadcast_relay(&self) -> &BroadcastRelay {
+        &self.broadcast_relay
     }
 
     pub const fn cl_mempool_relay(

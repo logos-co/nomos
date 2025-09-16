@@ -25,8 +25,8 @@ members = [
   "nomos-libp2p",
   "nomos-services/api",
   "nomos-services/blend",
+  "nomos-services/chain/broadcast-service",
   "nomos-services/chain/chain-service",
-  "nomos-services/chain/chain-service-defs",
   "nomos-services/data-availability/dispersal",
   "nomos-services/data-availability/network",
   "nomos-services/data-availability/sampling",
@@ -61,10 +61,10 @@ resolver = "2"
 
 [workspace.dependencies]
 # Internal
+broadcast-service        = { default-features = false, path = "./nomos-services/chain/broadcast-service" }
 bundler                  = { default-features = false, path = "./nomos-bundler" }
 cfgsync                  = { default-features = false, path = "./testnet/cfgsync" }
 chain-service            = { default-features = false, path = "./nomos-services/chain/chain-service" }
-chain-service-defs       = { default-features = false, path = "./nomos-services/chain/chain-service-defs" }
 circuits-prover          = { default-features = false, path = "./zk/circuits/prover" }
 circuits-utils           = { default-features = false, path = "./zk/circuits/utils" }
 circuits-verifier        = { default-features = false, path = "./zk/circuits/verifier" }

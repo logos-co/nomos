@@ -17,7 +17,7 @@ use std::{
     time::Duration,
 };
 
-pub use chain_service_defs::{ConsensusMsg, CryptarchiaInfo};
+use broadcast_service::{BlockBroadcastMsg, BlockBroadcastService, BlockInfo};
 use cryptarchia_engine::{PrunedBlocks, Slot};
 use cryptarchia_sync::{GetTipResponse, ProviderResponse};
 use futures::{StreamExt as _, TryFutureExt as _};
@@ -49,14 +49,16 @@ use overwatch::{
     services::{relay::OutboundRelay, state::StateUpdater, AsServiceId, ServiceCore, ServiceData},
     DynError, OpaqueServiceResourcesHandle,
 };
+use relays::BroadcastRelay;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde_with::serde_as;
 use services_utils::{
     overwatch::{recovery::backends::FileBackendSettings, JsonFileBackend, RecoveryOperator},
     wait_until_services_are_ready,
 };
 use thiserror::Error;
 use tokio::{
-    sync::{broadcast, mpsc, oneshot},
+    sync::{mpsc, oneshot},
     time::Instant,
 };
 use tracing::{debug, error, info, instrument, span, Level};
@@ -93,6 +95,28 @@ pub enum Error {
     Consensus(#[from] cryptarchia_engine::Error<HeaderId>),
     #[error("Storage error: {0}")]
     Storage(String),
+}
+
+#[derive(Debug)]
+pub enum ConsensusMsg {
+    Info {
+        tx: oneshot::Sender<CryptarchiaInfo>,
+    },
+    GetHeaders {
+        from: Option<HeaderId>,
+        to: Option<HeaderId>,
+        tx: oneshot::Sender<Vec<HeaderId>>,
+    },
+}
+
+#[serde_as]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct CryptarchiaInfo {
+    pub tip: HeaderId,
+    pub slot: Slot,
+    pub height: u64,
+    pub mode: cryptarchia_engine::State,
 }
 
 #[derive(Clone)]
@@ -280,7 +304,6 @@ pub struct CryptarchiaConsensus<
     TimeBackend::Settings: Clone + Send + Sync,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-    block_subscription_sender: broadcast::Sender<Block<ClPool::Item>>,
     initial_state: <Self as ServiceData>::State,
 }
 
@@ -344,7 +367,7 @@ where
         BlendService::BroadcastSettings,
     >;
     type StateOperator = RecoveryOperator<JsonFileBackend<Self::State, Self::Settings>>;
-    type Message = ConsensusMsg<Block<ClPool::Item>>;
+    type Message = ConsensusMsg;
 }
 
 #[async_trait::async_trait]
@@ -428,6 +451,7 @@ where
         + AsServiceId<Self>
         + AsServiceId<NetworkService<NetAdapter::Backend, RuntimeServiceId>>
         + AsServiceId<BlendService>
+        + AsServiceId<BlockBroadcastService<RuntimeServiceId>>
         + AsServiceId<
             TxMempoolService<
                 ClPoolAdapter,
@@ -452,11 +476,8 @@ where
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
         initial_state: Self::State,
     ) -> Result<Self, DynError> {
-        let (block_subscription_sender, _) = broadcast::channel(16);
-
         Ok(Self {
             service_resources_handle,
-            block_subscription_sender,
             initial_state,
         })
     }
@@ -569,7 +590,6 @@ where
             |cryptarchia, storage_blocks_to_remove, block| {
                 let leader = &leader;
                 let relays = &relays;
-                let block_subscription_sender = &self.block_subscription_sender;
                 let state_updater = &self.service_resources_handle.state_updater;
                 let cryptarchia_clone = cryptarchia.clone();
                 let storage_blocks_to_remove_clone = storage_blocks_to_remove.clone();
@@ -580,7 +600,6 @@ where
                         block,
                         &storage_blocks_to_remove,
                         relays,
-                        block_subscription_sender,
                         state_updater,
                     )
                     .await
@@ -666,7 +685,6 @@ where
                             block.clone(),
                             &storage_blocks_to_remove,
                             &relays,
-                            &self.block_subscription_sender,
                             &self.service_resources_handle.state_updater
                         ).await {
                             Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
@@ -719,7 +737,6 @@ where
                                     block.clone(),
                                     &storage_blocks_to_remove,
                                     &relays,
-                                    &self.block_subscription_sender,
                                     &self.service_resources_handle.state_updater,
                                 )
                                 .await {
@@ -740,7 +757,7 @@ where
                     }
 
                     Some(msg) = self.service_resources_handle.inbound_relay.next() => {
-                        Self::process_message(&cryptarchia, &self.block_subscription_sender, msg);
+                        Self::process_message(&cryptarchia, msg);
                     }
 
                     Some(event) = chainsync_events.next() => {
@@ -765,7 +782,6 @@ where
                             block.clone(),
                             &storage_blocks_to_remove,
                             &relays,
-                            &self.block_subscription_sender,
                             &self.service_resources_handle.state_updater
                         ).await {
                             Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
@@ -880,11 +896,7 @@ where
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
 {
-    fn process_message(
-        cryptarchia: &Cryptarchia,
-        block_channel: &broadcast::Sender<Block<ClPool::Item>>,
-        msg: ConsensusMsg<Block<ClPool::Item>>,
-    ) {
+    fn process_message(cryptarchia: &Cryptarchia, msg: ConsensusMsg) {
         match msg {
             ConsensusMsg::Info { tx } => {
                 let info = CryptarchiaInfo {
@@ -904,11 +916,6 @@ where
                 };
                 tx.send(info).unwrap_or_else(|e| {
                     error!("Could not send consensus info through channel: {:?}", e);
-                });
-            }
-            ConsensusMsg::BlockSubscribe { sender } => {
-                sender.send(block_channel.subscribe()).unwrap_or_else(|_| {
-                    error!("Could not subscribe to block subscription channel");
                 });
             }
             ConsensusMsg::GetHeaders { from, to, tx } => {
@@ -957,7 +964,6 @@ where
             TxS,
             RuntimeServiceId,
         >,
-        block_subscription_sender: &broadcast::Sender<Block<ClPool::Item>>,
         state_updater: &StateUpdater<
             Option<
                 CryptarchiaConsensusState<
@@ -969,8 +975,7 @@ where
             >,
         >,
     ) -> Result<(Cryptarchia, HashSet<HeaderId>), Error> {
-        let (cryptarchia, pruned_blocks) =
-            Self::process_block(cryptarchia, block, relays, block_subscription_sender).await?;
+        let (cryptarchia, pruned_blocks) = Self::process_block(cryptarchia, block, relays).await?;
 
         let storage_blocks_to_remove = Self::delete_pruned_blocks_from_storage(
             pruned_blocks.stale_blocks().copied(),
@@ -1036,7 +1041,6 @@ where
             TxS,
             RuntimeServiceId,
         >,
-        block_broadcaster: &broadcast::Sender<Block<ClPool::Item>>,
     ) -> Result<(Cryptarchia, PrunedBlocks<HeaderId>), Error> {
         debug!("received proposal {:?}", block);
 
@@ -1055,8 +1059,10 @@ where
         // TODO: filter on time?
         let header = block.header();
         let id = header.id();
+        let prev_lib = cryptarchia.lib();
 
         let (cryptarchia, pruned_blocks) = cryptarchia.try_apply_header(header)?;
+        let new_lib = cryptarchia.lib();
 
         // remove included content from mempool
         mark_in_block(
@@ -1085,8 +1091,20 @@ where
             .await
             .map_err(|e| Error::Storage(format!("Failed to store immutable block ids: {e}")))?;
 
-        if let Err(e) = block_broadcaster.send(block) {
-            error!("Could not notify block to services {e}");
+        if prev_lib != new_lib {
+            let height = cryptarchia
+                .consensus
+                .branches()
+                .get(&cryptarchia.lib())
+                .expect("LIB branch not available")
+                .length();
+            let block_info = BlockInfo {
+                height,
+                header_id: new_lib,
+            };
+            if let Err(e) = broadcast_finalized_block(relays.broadcast_relay(), block_info).await {
+                error!("Could not notify block to services {e}");
+            }
         }
 
         Ok((cryptarchia, pruned_blocks))
@@ -1233,8 +1251,6 @@ where
     /// * `ledger_config` - The ledger configuration.
     /// * `relays` - The relays object containing all the necessary relays for
     ///   the consensus.
-    /// * `block_subscription_sender` - The broadcast channel to send the blocks
-    ///   to the services.
     async fn initialize_cryptarchia(
         &self,
         genesis_id: HeaderId,
@@ -1280,14 +1296,7 @@ where
 
         let mut pruned_blocks = PrunedBlocks::new();
         for block in blocks {
-            match Self::process_block(
-                cryptarchia.clone(),
-                block,
-                relays,
-                &self.block_subscription_sender,
-            )
-            .await
-            {
+            match Self::process_block(cryptarchia.clone(), block, relays).await {
                 Ok((new_cryptarchia, new_pruned_blocks)) => {
                     cryptarchia = new_cryptarchia;
                     pruned_blocks.extend(&new_pruned_blocks);
@@ -1535,4 +1544,14 @@ where
         .await
         .map_err(|(error, _)| Box::new(error) as DynError)?;
     receiver.await.map_err(|error| Box::new(error) as DynError)
+}
+
+async fn broadcast_finalized_block(
+    broadcast_relay: &BroadcastRelay,
+    block_info: BlockInfo,
+) -> Result<(), DynError> {
+    broadcast_relay
+        .send(BlockBroadcastMsg::BroadcastFinalizedBlock(block_info))
+        .await
+        .map_err(|(error, _)| Box::new(error) as DynError)
 }
