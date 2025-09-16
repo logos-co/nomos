@@ -1,6 +1,6 @@
 mod backend;
-mod keys;
 mod encodings;
+mod keys;
 
 use std::{
     fmt::{Debug, Display, Formatter},
@@ -17,17 +17,18 @@ use overwatch::{
 };
 use tokio::sync::oneshot;
 
-use crate::backend::KMSBackend;
-use crate::keys::secured_key::SecuredKey;
+use crate::{backend::KMSBackend, keys::secured_key::SecuredKey};
 
 // TODO: Use [`AsyncFnMut`](https://doc.rust-lang.org/stable/std/ops/trait.AsyncFnMut.html#tymethod.async_call_mut) once it is stabilized.
 pub type KMSOperator<Encoding, Error> = Box<
     dyn FnMut(
-            &mut dyn SecuredKey<Encoding=Encoding, Error=Error>,
+            &mut dyn SecuredKey<Encoding = Encoding, Error = Error>,
         ) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send + Sync>>
         + Send
         + Sync,
 >;
+pub type KMSOperatorKey<Key> =
+    KMSOperator<<Key as SecuredKey>::Encoding, <Key as SecuredKey>::Error>;
 
 pub enum KMSMessage<Backend>
 where
@@ -49,7 +50,10 @@ where
     },
     Execute {
         key_id: Backend::KeyId,
-        operator: KMSOperator<<Backend::SupportedKey as SecuredKey>::Encoding, Backend::Error>,
+        operator: KMSOperator<
+            <Backend::SupportedKey as SecuredKey>::Encoding,
+            <Backend::SupportedKey as SecuredKey>::Error,
+        >,
     },
 }
 

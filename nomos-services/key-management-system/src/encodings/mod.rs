@@ -1,12 +1,10 @@
 mod encoding;
 mod encoding_bytes;
-mod encoding_fr;
 mod errors;
 mod kind;
 
 pub use encoding::{Encoding, EncodingAdapter};
 pub use encoding_bytes::Bytes;
-pub use encoding_fr::Fr;
 pub use errors::EncodingError;
 pub use kind::EncodingKind;
 
@@ -21,7 +19,6 @@ pub use kind::EncodingKind;
 /// - Adjust the [`Display`] implementation in [`EncodingKind`].
 pub enum EncodingFormat {
     Bytes(Bytes),
-    Fr(Fr),
 }
 
 impl Encoding for EncodingFormat {}
@@ -29,11 +26,5 @@ impl Encoding for EncodingFormat {}
 impl From<bytes::Bytes> for EncodingFormat {
     fn from(value: bytes::Bytes) -> Self {
         Self::Bytes(value.into())
-    }
-}
-
-impl From<groth16::Fr> for EncodingFormat {
-    fn from(value: groth16::Fr) -> Self {
-        Self::Fr(value.into())
     }
 }

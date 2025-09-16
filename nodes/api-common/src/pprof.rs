@@ -1,11 +1,12 @@
 use std::time::Duration;
 
 use axum::{
+    Router,
     body::Body,
     extract::Query,
-    http::{header, StatusCode},
+    http::{StatusCode, header},
     response::{IntoResponse as _, Response},
-    routing, Router,
+    routing,
 };
 use pprof::protos::Message as _;
 use serde::Deserialize;

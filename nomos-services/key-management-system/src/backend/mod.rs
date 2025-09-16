@@ -1,8 +1,7 @@
 #[cfg(feature = "preload")]
 pub mod preload;
 
-use crate::keys::secured_key::SecuredKey;
-use crate::KMSOperator;
+use crate::{KMSOperatorKey, keys::secured_key::SecuredKey};
 
 #[async_trait::async_trait]
 pub trait KMSBackend {
@@ -19,9 +18,20 @@ pub trait KMSBackend {
         key_scheme: Self::SupportedKey,
     ) -> Result<Self::KeyId, Self::Error>;
 
-    fn public_key(&self, key_id: Self::KeyId) -> Result<<Self::SupportedKey as SecuredKey>::Encoding, Self::Error>;
+    fn public_key(
+        &self,
+        key_id: Self::KeyId,
+    ) -> Result<<Self::SupportedKey as SecuredKey>::Encoding, Self::Error>;
 
-    fn sign(&self, key_id: Self::KeyId, data: <Self::SupportedKey as SecuredKey>::Encoding) -> Result<<Self::SupportedKey as SecuredKey>::Encoding, Self::Error>;
+    fn sign(
+        &self,
+        key_id: Self::KeyId,
+        data: <Self::SupportedKey as SecuredKey>::Encoding,
+    ) -> Result<<Self::SupportedKey as SecuredKey>::Encoding, Self::Error>;
 
-    async fn execute(&mut self, key_id: Self::KeyId, mut operator: KMSOperator<<Self::SupportedKey as SecuredKey>::Encoding, Self::Error>) -> Result<(), Self::Error>;
+    async fn execute(
+        &mut self,
+        key_id: Self::KeyId,
+        operator: KMSOperatorKey<Self::SupportedKey>,
+    ) -> Result<(), Self::Error>;
 }
