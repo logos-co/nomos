@@ -8,6 +8,7 @@ use std::{
     time::Duration,
 };
 
+use broadcast_service::BlockInfo;
 use chain_service::{CryptarchiaInfo, CryptarchiaSettings, OrphanConfig, SyncConfig};
 use common_http_client::CommonHttpClient;
 use cryptarchia_engine::time::SlotConfig;
@@ -364,6 +365,14 @@ impl Executor {
         // Parse the boolean response
         let success: bool = response.json().await?;
         Ok(success)
+    }
+
+    pub async fn get_lib_stream(
+        &self,
+    ) -> Result<impl Stream<Item = BlockInfo>, common_http_client::Error> {
+        self.http_client
+            .get_lib_stream(Url::from_str(&format!("http://{}", self.addr))?)
+            .await
     }
 }
 
