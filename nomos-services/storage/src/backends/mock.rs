@@ -17,8 +17,10 @@ use nomos_core::{
 use overwatch::DynError;
 use thiserror::Error;
 
-use super::{StorageBackend, StorageSerde, StorageTransaction};
-use crate::api::{chain::StorageChainApi, da::StorageDaApi, StorageBackendApi};
+use super::{StorageBackend, StorageTransaction};
+use crate::api::{
+    chain::StorageChainApi, da::StorageDaApi, membership::StorageMembershipApi, StorageBackendApi,
+};
 
 #[derive(Debug, Error)]
 #[error("Errors in MockStorage should not happen")]
