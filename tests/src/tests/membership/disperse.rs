@@ -31,6 +31,7 @@ async fn update_membership_and_disseminate() {
     let topology =
         Topology::spawn_with_empty_membership(topology_config, &ids, &da_ports, &blend_ports).await;
 
+    // Create a new membership with DA nodes.
     let membership_config = create_membership_configs(
         ids.iter()
             .zip(&da_ports)
