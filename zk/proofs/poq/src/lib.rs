@@ -193,7 +193,7 @@ mod tests {
 
         let witness_inputs = PoQWitnessInputs::from_core_node_data(
             chain_data.try_into().unwrap(),
-            common_data.into(),
+            common_data.try_into().unwrap(),
             blend_data.into(),
         )
         .unwrap();
