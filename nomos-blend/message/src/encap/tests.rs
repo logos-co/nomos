@@ -7,10 +7,13 @@ use crate::{
         keys::{Ed25519PrivateKey, X25519PrivateKey},
         proofs::{
             quota::{inputs::prove::PublicInputs, ProofOfQuota},
-            selection::ProofOfSelection,
+            selection::{inputs::VerifyInputs, ProofOfSelection},
         },
     },
-    encap::{decapsulated::DecapsulationOutput, encapsulated::EncapsulatedMessage, ProofsVerifier},
+    encap::{
+        decapsulated::DecapsulationOutput, encapsulated::EncapsulatedMessage,
+        unwrapped::RequiredProofOfSelectionVerificationInputs, ProofsVerifier,
+    },
     input::{EncapsulationInput, EncapsulationInputs},
     message::payload::MAX_PAYLOAD_BODY_SIZE,
     Error, PayloadType,
@@ -32,6 +35,14 @@ impl ProofsVerifier for NeverFailingProofsVerifier {
 
         Ok(ZkHash::ZERO)
     }
+
+    fn verify_proof_of_selection(
+        &self,
+        _proof: ProofOfSelection,
+        _inputs: &VerifyInputs,
+    ) -> Result<(), Self::Error> {
+        Ok(())
+    }
 }
 
 #[test]
@@ -52,7 +63,11 @@ fn encapsulate_and_decapsulate() {
     let DecapsulationOutput::Incompleted(msg) = msg
         .verify_and_unwrap_public_header(&PublicInputs::default(), &verifier)
         .unwrap()
-        .decapsulate(blend_node_enc_keys.last().unwrap())
+        .decapsulate(
+            blend_node_enc_keys.last().unwrap(),
+            &RequiredProofOfSelectionVerificationInputs::default(),
+            &verifier,
+        )
         .unwrap()
     else {
         panic!("Expected an incompleted message");
@@ -64,7 +79,11 @@ fn encapsulate_and_decapsulate() {
         .clone()
         .verify_and_unwrap_public_header(&PublicInputs::default(), &verifier)
         .unwrap()
-        .decapsulate(blend_node_enc_keys.last().unwrap())
+        .decapsulate(
+            blend_node_enc_keys.last().unwrap(),
+            &RequiredProofOfSelectionVerificationInputs::default(),
+            &verifier,
+        )
         .is_err());
 
     // We can decapsulate with the correct private key
@@ -72,7 +91,11 @@ fn encapsulate_and_decapsulate() {
     let DecapsulationOutput::Completed(decapsulated_message) = msg
         .verify_and_unwrap_public_header(&PublicInputs::default(), &verifier)
         .unwrap()
-        .decapsulate(blend_node_enc_keys.first().unwrap())
+        .decapsulate(
+            blend_node_enc_keys.first().unwrap(),
+            &RequiredProofOfSelectionVerificationInputs::default(),
+            &verifier,
+        )
         .unwrap()
     else {
         panic!("Expected an incompleted message");
