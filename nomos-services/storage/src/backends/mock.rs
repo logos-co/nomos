@@ -1,6 +1,5 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
-    marker::PhantomData,
     num::NonZeroUsize,
     ops::RangeInclusive,
 };
@@ -19,9 +18,7 @@ use overwatch::DynError;
 use thiserror::Error;
 
 use super::{StorageBackend, StorageSerde, StorageTransaction};
-use crate::api::{
-    chain::StorageChainApi, da::StorageDaApi, membership::StorageMembershipApi, StorageBackendApi,
-};
+use crate::api::{chain::StorageChainApi, da::StorageDaApi, StorageBackendApi};
 
 #[derive(Debug, Error)]
 #[error("Errors in MockStorage should not happen")]
@@ -35,28 +32,25 @@ impl StorageTransaction for MockStorageTransaction {
 }
 
 //
-pub struct MockStorage<SerdeOp> {
+pub struct MockStorage {
     inner: HashMap<Bytes, Bytes>,
-    _serde_op: PhantomData<SerdeOp>,
 }
 
-impl<SerdeOp> core::fmt::Debug for MockStorage<SerdeOp> {
+impl core::fmt::Debug for MockStorage {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         format!("MockStorage {{ inner: {:?} }}", self.inner).fmt(f)
     }
 }
 
 #[async_trait]
-impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for MockStorage<SerdeOp> {
+impl StorageBackend for MockStorage {
     type Settings = ();
     type Error = MockStorageError;
     type Transaction = MockStorageTransaction;
-    type SerdeOperator = SerdeOp;
 
     fn new(_config: Self::Settings) -> Result<Self, <Self as StorageBackend>::Error> {
         Ok(Self {
             inner: HashMap::new(),
-            _serde_op: PhantomData,
         })
     }
 
@@ -110,7 +104,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for MockStora
 }
 
 #[async_trait]
-impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageChainApi for MockStorage<SerdeOp> {
+impl StorageChainApi for MockStorage {
     type Error = MockStorageError;
     type Block = Bytes;
 
@@ -160,7 +154,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageChainApi for MockStor
 }
 
 #[async_trait]
-impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for MockStorage<SerdeOp> {
+impl StorageDaApi for MockStorage {
     type Error = MockStorageError;
     type BlobId = [u8; 32];
     type Share = Bytes;
@@ -260,10 +254,10 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for MockStorage
 }
 
 #[async_trait]
-impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackendApi for MockStorage<SerdeOp> {}
+impl StorageBackendApi for MockStorage {}
 
 #[async_trait]
-impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageMembershipApi for MockStorage<SerdeOp> {
+impl StorageMembershipApi for MockStorage {
     async fn save_active_session(
         &mut self,
         _service_type: ServiceType,

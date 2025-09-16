@@ -33,7 +33,7 @@ use nomos_node::{
         self, DaMembershipAdapter, MembershipBackend, MembershipSdp, MembershipService,
         MembershipStorageGeneric,
     },
-    DaNetworkApiAdapter, NomosDaMembership, Wire,
+    DaNetworkApiAdapter, NomosDaMembership,
 };
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId, DynError};
 use services_utils::wait_until_services_are_ready;
@@ -161,7 +161,7 @@ where
                             DaNetworkApiAdapter,
                             RuntimeServiceId,
                         >,
-                        SamplingStorageAdapter<DaShare, Wire, DaStorageConverter>,
+                        SamplingStorageAdapter<DaShare, DaStorageConverter>,
                         RuntimeServiceId,
                     >,
                 ),

@@ -10,26 +10,29 @@ use tracing::{debug, error};
 
 use crate::{
     api::{backend::rocksdb::utils::key_bytes, membership::StorageMembershipApi},
-    backends::{rocksdb::RocksBackend, StorageBackend as _, StorageSerde},
+    backends::{rocksdb::RocksBackend, SerdeOp, StorageBackend as _},
 };
 
 pub const MEMBERSHIP_ACTIVE_SESSION_PREFIX: &str = "membership/active/";
 pub const MEMBERSHIP_FORMING_SESSION_PREFIX: &str = "membership/forming/";
 pub const MEMBERSHIP_LATEST_BLOCK_KEY: &str = "membership/latest_block";
 
+type MembershipProviders = (SessionNumber, HashMap<ProviderId, BTreeSet<Locator>>);
+
 #[async_trait]
-impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageMembershipApi for RocksBackend<SerdeOp> {
+impl StorageMembershipApi for RocksBackend {
     async fn save_active_session(
         &mut self,
         service_type: ServiceType,
         session_id: SessionNumber,
         providers: &HashMap<ProviderId, BTreeSet<Locator>>,
     ) -> Result<(), DynError> {
-        let service_bytes = SerdeOp::serialize(service_type);
+        let service_bytes = (service_type as u32).to_be_bytes();
         let key = key_bytes(MEMBERSHIP_ACTIVE_SESSION_PREFIX, service_bytes);
 
         let session_data = (session_id, providers);
-        let serialized_data = SerdeOp::serialize(session_data);
+        let serialized_data =
+            <()>::serialize(&session_data).expect("Serialization of session data should not fail");
 
         match self.store(key, serialized_data).await {
             Ok(()) => {
@@ -49,8 +52,8 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageMembershipApi for Roc
     async fn load_active_session(
         &mut self,
         service_type: ServiceType,
-    ) -> Result<Option<(SessionNumber, HashMap<ProviderId, BTreeSet<Locator>>)>, DynError> {
-        let service_bytes = SerdeOp::serialize(service_type);
+    ) -> Result<Option<MembershipProviders>, DynError> {
+        let service_bytes = (service_type as u32).to_be_bytes();
         let key = key_bytes(MEMBERSHIP_ACTIVE_SESSION_PREFIX, service_bytes);
 
         let data = self.load(&key).await?;
@@ -60,11 +63,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageMembershipApi for Roc
                 debug!("No active session found for service {:?}", service_type);
                 Ok(None)
             },
-            |bytes| match SerdeOp::deserialize::<(
-                SessionNumber,
-                HashMap<ProviderId, BTreeSet<Locator>>,
-            )>(bytes)
-            {
+            |bytes| match <MembershipProviders as SerdeOp>::deserialize(&bytes) {
                 Ok(session_data) => {
                     debug!(
                         "Successfully loaded active session for service {:?}",
@@ -129,11 +128,12 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageMembershipApi for Roc
         session_id: SessionNumber,
         providers: &HashMap<ProviderId, BTreeSet<Locator>>,
     ) -> Result<(), DynError> {
-        let service_bytes = SerdeOp::serialize(service_type);
+        let service_bytes = (service_type as u32).to_be_bytes();
         let key = key_bytes(MEMBERSHIP_FORMING_SESSION_PREFIX, service_bytes);
 
         let session_data = (session_id, providers);
-        let serialized_data = SerdeOp::serialize(session_data);
+        let serialized_data =
+            <()>::serialize(&session_data).expect("Serialization of session data should not fail");
 
         match self.store(key, serialized_data).await {
             Ok(()) => {
@@ -153,8 +153,8 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageMembershipApi for Roc
     async fn load_forming_session(
         &mut self,
         service_type: ServiceType,
-    ) -> Result<Option<(SessionNumber, HashMap<ProviderId, BTreeSet<Locator>>)>, DynError> {
-        let service_bytes = SerdeOp::serialize(service_type);
+    ) -> Result<Option<MembershipProviders>, DynError> {
+        let service_bytes = (service_type as u32).to_be_bytes();
         let key = key_bytes(MEMBERSHIP_FORMING_SESSION_PREFIX, service_bytes);
 
         let data = self.load(&key).await?;
@@ -164,11 +164,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageMembershipApi for Roc
                 debug!("No forming session found for service {:?}", service_type);
                 Ok(None)
             },
-            |bytes| match SerdeOp::deserialize::<(
-                SessionNumber,
-                HashMap<ProviderId, BTreeSet<Locator>>,
-            )>(bytes)
-            {
+            |bytes| match <MembershipProviders as SerdeOp>::deserialize(&bytes) {
                 Ok(session_data) => {
                     debug!(
                         "Successfully loaded forming session for service {:?}",

@@ -47,7 +47,7 @@ use crate::{
         self, DaMembershipAdapter, MembershipBackend, MembershipSdp, MembershipService,
         MembershipStorageGeneric,
     },
-    DaMembershipStorage, DaNetworkApiAdapter, NomosDaMembership, Wire,
+    DaMembershipStorage, DaNetworkApiAdapter, NomosDaMembership,
 };
 pub struct TestAxumBackend {
     settings: AxumBackendSettings,
@@ -162,7 +162,7 @@ where
                             DaNetworkApiAdapter,
                             RuntimeServiceId,
                         >,
-                        SamplingStorageAdapter<DaShare, Wire, DaStorageConverter>,
+                        SamplingStorageAdapter<DaShare, DaStorageConverter>,
                         RuntimeServiceId,
                     >,
                 ),

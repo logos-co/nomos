@@ -1,7 +1,7 @@
 use futures::channel::oneshot::Canceled;
 use libp2p::PeerId;
 use libp2p_stream::OpenStreamError;
-use nomos_core::{da::BlobId, wire};
+use nomos_core::{codec, da::BlobId};
 use nomos_da_messages::sampling;
 use thiserror::Error;
 
@@ -37,7 +37,7 @@ pub enum SamplingError {
         blob_id: BlobId,
         subnetwork_id: SubnetworkId,
         peer_id: PeerId,
-        error: wire::Error,
+        error: codec::Error,
     },
     #[error("Error sending request: {request:?}")]
     RequestChannel {
