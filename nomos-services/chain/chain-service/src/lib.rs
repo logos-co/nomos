@@ -482,6 +482,17 @@ where
 
     #[expect(clippy::too_many_lines, reason = "TODO: Address this at some point.")]
     async fn run(mut self) -> Result<(), DynError> {
+        // Wait until minimum dependencies are ready.
+        // Other dependencies will be checked later before use.
+        wait_until_services_are_ready!(
+            &self.service_resources_handle.overwatch_handle,
+            Some(Duration::from_secs(60)),
+            NetworkService<_, _>,
+            StorageService<_, _>,
+            TimeService<_, _>
+        )
+        .await?;
+
         let relays: CryptarchiaConsensusRelays<
             BlendService,
             ClPool,
@@ -559,26 +570,6 @@ where
             network_adapter.clone(),
             sync_config.orphan.max_orphan_cache_size,
         ));
-
-        // TODO: Call this after IBD is done and the chain becomes online mode: https://github.com/logos-co/nomos/issues/1656
-        self.service_resources_handle.status_updater.notify_ready();
-        info!(
-            "Service '{}' is ready.",
-            <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
-        );
-
-        // TODO: Don't wait for blend and mempool: https://github.com/logos-co/nomos/issues/1656
-        wait_until_services_are_ready!(
-            &self.service_resources_handle.overwatch_handle,
-            Some(Duration::from_secs(60)),
-            NetworkService<_, _>,
-            BlendService,
-            TxMempoolService<_, _, _, _, _>,
-            DaSamplingService<_, _, _, _>,
-            StorageService<_, _>,
-            TimeService<_, _>
-        )
-        .await?;
 
         // Run IBD (Initial Block Download).
         // TODO: Currently, we're passing a closure that processes each block.
@@ -658,7 +649,7 @@ where
             if cryptarchia.is_boostrapping() {
                 Box::new(SkipBlobValidation)
             } else {
-                // TODO: Call `notify_ready`: https://github.com/logos-co/nomos/issues/1656
+                self.set_service_ready().await?;
                 Box::new(RecentBlobValidation::new(relays.sampling_relay().clone()))
             };
 
@@ -672,7 +663,6 @@ where
                             &storage_blocks_to_remove,
                             relays.storage_adapter(),
                         ).await;
-                        // TODO: Call `notify_ready`: https://github.com/logos-co/nomos/issues/1656
                         blob_validation = Box::new(RecentBlobValidation::new(relays.sampling_relay().clone()));
                         Self::update_state(
                             &cryptarchia,
@@ -680,6 +670,7 @@ where
                             storage_blocks_to_remove.clone(),
                             &self.service_resources_handle.state_updater,
                         );
+                        self.set_service_ready().await?;
                     }
 
                     Some(block) = incoming_blocks.next() => {
@@ -722,8 +713,15 @@ where
                     }
 
                     Some(SlotTick { slot, .. }) = slot_timer.next() => {
-                        // TODO: Don't propose blocks until IBD is done and online mode is activated.
-                        //       Until then, mempool, DA, blend service will not be ready: https://github.com/logos-co/nomos/issues/1656
+                        if cryptarchia.is_boostrapping() {
+                            debug!(
+                                target: LOG_TARGET,
+                                "Skipping trying to propose a block for the slot {} until Cryptarchia becomes Online",
+                                u64::from(slot),
+                            );
+                            continue;
+                        }
+
                         let parent = cryptarchia.tip();
                         let aged_tree = cryptarchia.tip_state().aged_commitments();
                         let latest_tree = cryptarchia.tip_state().latest_commitments();
@@ -837,9 +835,7 @@ where
         // 2. It seems `span` requires a `const` string literal.
         async_loop
             .instrument(span!(Level::TRACE, CRYPTARCHIA_ID))
-            .await;
-
-        Ok(())
+            .await
     }
 }
 
@@ -909,11 +905,68 @@ where
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
-    SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
-    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
+    SamplingNetworkAdapter:
+        nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
+    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
+    RuntimeServiceId: Display
+        + Debug
+        + Send
+        + Sync
+        + 'static
+        + AsServiceId<Self>
+        + AsServiceId<NetworkService<NetAdapter::Backend, RuntimeServiceId>>
+        + AsServiceId<BlendService>
+        + AsServiceId<BlockBroadcastService<RuntimeServiceId>>
+        + AsServiceId<
+            TxMempoolService<
+                ClPoolAdapter,
+                SamplingNetworkAdapter,
+                SamplingStorage,
+                ClPool,
+                RuntimeServiceId,
+            >,
+        >
+        + AsServiceId<
+            DaSamplingService<
+                SamplingBackend,
+                SamplingNetworkAdapter,
+                SamplingStorage,
+                RuntimeServiceId,
+            >,
+        >
+        + AsServiceId<StorageService<Storage, RuntimeServiceId>>
+        + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>,
 {
+    /// Notifies Overwatch that the service is ready after ensuring all
+    /// dependent services are ready.
+    // TODO: Introduce the state machine architecture: https://github.com/logos-co/nomos/issues/1704
+    async fn set_service_ready(&self) -> Result<(), DynError> {
+        wait_until_services_are_ready!(
+            &self.service_resources_handle.overwatch_handle,
+            Some(Duration::from_secs(60)),
+            NetworkService<_, _>,
+            StorageService<_, _>,
+            TimeService<_, _>,
+            BlendService,
+            TxMempoolService<_, _, _, _, _>,
+            DaSamplingService<_, _, _, _>
+        )
+        .await
+        .inspect_err(|e| {
+            error!(target: LOG_TARGET, "Not all dependent services are ready: {e}");
+        })?;
+
+        self.service_resources_handle.status_updater.notify_ready();
+        info!(
+            target: LOG_TARGET,
+            "Service '{}' is ready.",
+            <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
+        );
+        Ok(())
+    }
+
     fn process_message(cryptarchia: &Cryptarchia, msg: ConsensusMsg) {
         match msg {
             ConsensusMsg::Info { tx } => {

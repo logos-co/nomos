@@ -89,7 +89,7 @@ pub fn create_node_configs(
     }
 
     let consensus_configs = create_consensus_configs(&ids, consensus_params);
-    let bootstrap_configs = create_bootstrap_configs(&ids, Duration::from_secs(60));
+    let bootstrap_configs = create_bootstrap_configs(&ids, Duration::from_secs(3));
     let da_configs = create_da_configs(&ids, da_params, &ports);
     let network_configs = create_network_configs(&ids, &NetworkParams::default());
     let membership_configs = create_membership_configs(&ids, &hosts);

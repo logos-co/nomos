@@ -126,7 +126,7 @@ impl Topology {
         }
 
         let consensus_configs = create_consensus_configs(&ids, &config.consensus_params);
-        let bootstrapping_config = create_bootstrap_configs(&ids, Duration::from_secs(30));
+        let bootstrapping_config = create_bootstrap_configs(&ids, Duration::from_secs(3));
         let da_configs = create_da_configs(&ids, &config.da_params, &da_ports);
         let membership_configs = create_membership_configs(ids.as_slice(), &da_ports, &blend_ports);
         let network_configs = create_network_configs(&ids, &config.network_params);
@@ -170,7 +170,7 @@ impl Topology {
         let n_participants = config.n_validators + config.n_executors;
 
         let consensus_configs = create_consensus_configs(ids, &config.consensus_params);
-        let bootstrapping_config = create_bootstrap_configs(ids, Duration::from_secs(60));
+        let bootstrapping_config = create_bootstrap_configs(ids, Duration::from_secs(3));
         let da_configs = create_da_configs(ids, &config.da_params, da_ports);
         let network_configs = create_network_configs(ids, &config.network_params);
         let blend_configs = create_blend_configs(ids, blend_ports);
