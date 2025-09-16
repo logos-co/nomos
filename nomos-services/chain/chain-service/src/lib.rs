@@ -967,7 +967,6 @@ where
         clippy::type_complexity,
         reason = "CryptarchiaConsensusState and CryptarchiaConsensusRelays amount of generics."
     )]
-    #[expect(clippy::too_many_arguments, reason = "Necessary for block processing")]
     async fn process_block_and_update_state(
         cryptarchia: Cryptarchia,
         leader: &Leader,
