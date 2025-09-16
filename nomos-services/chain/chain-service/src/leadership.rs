@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 pub struct Leader {
     utxos: Vec<Utxo>,
     sk: SecretKey,
+    #[cfg_attr(not(feature = "pol-dev-mode"), expect(dead_code))]
     config: nomos_ledger::Config,
 }
 
