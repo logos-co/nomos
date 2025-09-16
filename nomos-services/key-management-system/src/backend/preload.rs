@@ -1,3 +1,10 @@
+//! This module contains a simple test implementation of [`KMSBackend`] that
+//! uses an alternate set of keys and encodings, different from the one provided
+//! in this crate.
+//!
+//! It serves as a reference [`KMSBackend`] and demonstrates how encodings, keys
+//! and adapters interact.
+
 #[cfg(test)]
 mod errors {
     use super::*;

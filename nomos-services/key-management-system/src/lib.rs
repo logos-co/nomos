@@ -197,7 +197,7 @@ where
                     panic!("Requested public key for nonexistent KeyId");
                 };
                 if let Err(_pk_bytes) = reply_channel.send(pk_bytes) {
-                    error!("Could not reply public key to request channel");
+                    error!("Could not reply to the public key request channel");
                 }
             }
             KMSMessage::Sign {
@@ -209,7 +209,7 @@ where
                     panic!("Could not sign ")
                 };
                 if let Err(_signature) = reply_channel.send(signature) {
-                    error!("Could not reply public key to request channel");
+                    error!("Could not reply to the public key request channel");
                 }
             }
             KMSMessage::Execute { key_id, operator } => {
