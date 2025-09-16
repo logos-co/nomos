@@ -5,7 +5,7 @@ use crate::encodings::{Encoding, EncodingFormat, EncodingKind};
 type Inner = bytes::Bytes;
 
 /// An encoding of arbitrary bytes.
-#[derive(SimpleEncoding)]
+#[derive(SimpleEncoding, Clone)]
 pub struct Bytes(Inner);
 
 impl Bytes {

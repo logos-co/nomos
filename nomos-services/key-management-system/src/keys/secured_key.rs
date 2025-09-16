@@ -1,4 +1,9 @@
-use crate::encodings::{Encoding, EncodingAdapter, EncodingError};
+#![allow(
+    dead_code,
+    reason = "SecureKeyAdapter is only referenced via a blanket impl. The compiler treats it as unused, but it isn’t. This annotation will be removed once the trait is used directly."
+)]
+
+use crate::encodings::{Encoding, EncodingAdapter};
 
 /// A key that can be used within the Key Management Service.
 pub trait SecuredKey {
@@ -13,16 +18,16 @@ pub trait SecuredKey {
 /// native encoding.
 ///
 /// This trait extends [`SecuredKey`] and allows a key to accept data in an
-/// [`AdaptedEncoding`], as long as the key's native encoding implements
-/// [`EncodingAdapter<AdaptedEncoding>`].
+/// [`TargetEncoding`], as long as the key's native encoding implements
+/// [`EncodingAdapter<TargetEncoding>`].
 ///
-/// The input data in [`AdaptedEncoding`] is first converted to the key's native
+/// The input data in [`TargetEncoding`] is first converted to the key's native
 /// encoding, then signed using the key and, finally, the signature is converted
-/// back to [`AdaptedEncoding`].
+/// back to [`TargetEncoding`].
 ///
 /// # Type Parameters
 ///
-/// - `AdaptedEncoding`: The alternative encoding type, which must implement
+/// - [`TargetEncoding`]: The alternative encoding type, which must implement
 ///   [`Encoding`].
 ///
 /// # Example
@@ -34,23 +39,29 @@ pub trait SecuredKey {
 /// # Errors
 ///
 /// Returns a [`KeyError`] if the conversion or signing fails.
-pub trait SecuredKeyAdapter<AdaptedEncoding>: SecuredKey
+pub trait SecuredKeyAdapter<TargetEncoding>: SecuredKey
 where
-    AdaptedEncoding: Encoding,
-    Self::Encoding: EncodingAdapter<AdaptedEncoding>,
+    TargetEncoding: Encoding,
+    Self::Encoding: EncodingAdapter<TargetEncoding>,
 {
-    fn sign_adapted(&self, data: AdaptedEncoding) -> Result<AdaptedEncoding, Self::Error>;
+    type TargetError;
+
+    fn sign_adapted(&self, data: TargetEncoding) -> Result<TargetEncoding, Self::TargetError>;
 }
 
 /// Automatically implements [`SecuredKeyAdapter`] for any [`SecuredKey`] whose
-/// encoding supports adaptation from [`AdaptedEncoding`].
-impl<Key, AdaptedEncoding> SecuredKeyAdapter<AdaptedEncoding> for Key
+/// encoding supports adaptation from [`TargetEncoding`].
+impl<Key, TargetEncoding> SecuredKeyAdapter<TargetEncoding> for Key
 where
-    AdaptedEncoding: Encoding,
-    Key: SecuredKey<Encoding: EncodingAdapter<AdaptedEncoding>, Error: From<EncodingError>>,
+    TargetEncoding: Encoding,
+    Key: SecuredKey,
+    <Key as SecuredKey>::Encoding: EncodingAdapter<TargetEncoding>,
+    <<Key as SecuredKey>::Encoding as TryFrom<TargetEncoding>>::Error: Into<Key::Error>,
 {
-    fn sign_adapted(&self, data: AdaptedEncoding) -> Result<AdaptedEncoding, Self::Error> {
-        let payload = Self::Encoding::try_from(data).map_err(Self::Error::from)?;
+    type TargetError = Key::Error;
+
+    fn sign_adapted(&self, data: TargetEncoding) -> Result<TargetEncoding, Self::TargetError> {
+        let payload = Self::Encoding::try_from(data).map_err(Into::into)?;
         self.sign(payload).map(Self::Encoding::into)
     }
 }

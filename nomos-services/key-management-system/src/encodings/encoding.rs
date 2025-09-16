@@ -1,4 +1,7 @@
-use crate::encodings::EncodingError;
+#![allow(
+    dead_code,
+    reason = "EncodingAdapter is only referenced via a blanket impl. The compiler treats it as unused, but it isn’t. This annotation will be removed once the trait is used directly."
+)]
 
 /// Marker trait for encodings.
 ///
@@ -7,17 +10,16 @@ pub trait Encoding {}
 
 /// Marker trait for encoding adapters.
 ///
-/// Requires the ability to convert between [`Self`] and [`AdaptedEncoding`].
-pub trait EncodingAdapter<AdaptedEncoding: Encoding>:
-    Encoding + TryFrom<AdaptedEncoding, Error = EncodingError> + Into<AdaptedEncoding>
+/// Requires the ability to convert between [`Self`] and [`TargetEncoding`].
+pub trait EncodingAdapter<TargetEncoding: Encoding>:
+    Encoding + TryFrom<TargetEncoding> + Into<TargetEncoding>
 {
 }
 
 /// Auto-implement `EncodingAdapter` for `Encoding` when bounds are satisfied.
-impl<AdaptedEncoding, AdapteeEncoding> EncodingAdapter<AdapteeEncoding> for AdaptedEncoding
+impl<AdapteeEncoding, TargetEncoding> EncodingAdapter<TargetEncoding> for AdapteeEncoding
 where
-    AdaptedEncoding:
-        Encoding + TryFrom<AdapteeEncoding, Error = EncodingError> + Into<AdapteeEncoding>,
-    AdapteeEncoding: Encoding,
+    AdapteeEncoding: Encoding + TryFrom<TargetEncoding> + Into<TargetEncoding>,
+    TargetEncoding: Encoding,
 {
 }

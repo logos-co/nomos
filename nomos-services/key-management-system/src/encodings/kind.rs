@@ -3,7 +3,7 @@ use std::fmt::Display;
 use crate::encodings::EncodingFormat;
 
 /// # Consistency
-
+///
 /// Represents an encoding kind provided by the KMS crate.
 ///
 /// # Consistency
@@ -33,20 +33,18 @@ use crate::encodings::EncodingFormat;
 #[derive(Debug)]
 pub enum EncodingKind {
     Bytes,
-    Fr,
 }
 
 impl From<&EncodingFormat> for EncodingKind {
     fn from(value: &EncodingFormat) -> Self {
         match value {
             EncodingFormat::Bytes(_) => Self::Bytes,
-            EncodingFormat::Fr(_) => Self::Fr,
         }
     }
 }
 
 impl Display for EncodingKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "EncodingKind::{:?}(crate::encodings::{:?})", self, self)
+        write!(f, "EncodingKind::{self:?}(crate::encodings::{self:?})")
     }
 }

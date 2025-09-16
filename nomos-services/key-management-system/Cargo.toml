@@ -8,18 +8,17 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
-async-trait   = "0.1"
-bytes         = { workspace = true }
-ed25519-dalek = { default-features = false, features = ["serde", "zeroize"], version = "2" }
-groth16       = {workspace = true}
-key-management-system-macros = { workspace = true}
-log           = "0.4.22"
-overwatch     = { workspace = true }
-serde         = { default-features = false, features = ["derive"], version = "1" }
-thiserror     = { default-features = false, version = "2" }
-tokio         = { default-features = false, version = "1" }
-tracing       = { default-features = false, version = "0.1" }
-zeroize       = { default-features = false, features = ["zeroize_derive"], version = "1" }
+async-trait                  = "0.1"
+bytes                        = { workspace = true }
+ed25519-dalek                = { default-features = false, features = ["serde", "zeroize"], version = "2" }
+key-management-system-macros = { workspace = true }
+log                          = "0.4.22"
+overwatch                    = { workspace = true }
+serde                        = { default-features = false, features = ["derive"], version = "1" }
+thiserror                    = { default-features = false, version = "2" }
+tokio                        = { default-features = false, version = "1" }
+tracing                      = { default-features = false, version = "0.1" }
+zeroize                      = { default-features = false, features = ["zeroize_derive"], version = "1" }
 
 [dev-dependencies]
 ed25519-dalek = { default-features = false, features = ["rand_core"], version = "2" }

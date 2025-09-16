@@ -6,8 +6,6 @@ use crate::encodings::EncodingError;
 pub enum KeyError {
     #[error(transparent)]
     Encoding(EncodingError),
-    #[error("An error happened: {0}")]
-    Any(String), // TODO: Temporary debugging while implementing.
 }
 
 impl From<EncodingError> for KeyError {
