@@ -14,6 +14,7 @@ members = [
   "nomos-blend/network",
   "nomos-blend/scheduling",
   "nomos-bundler",
+  "nomos-c",
   "nomos-cli",
   "nomos-core/chain-defs",
   "nomos-da/kzgrs",
