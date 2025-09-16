@@ -2,6 +2,7 @@ use ::serde::{Deserialize, Serialize};
 use groth16::{fr_from_bytes, fr_from_bytes_unchecked, fr_to_bytes};
 use nomos_core::crypto::{ZkHash, ZkHasher};
 use num_bigint::BigUint;
+use thiserror::Error;
 
 use crate::crypto::{
     blake2b512, proofs::selection::inputs::VerifyInputs, pseudo_random_sized_bytes,
@@ -22,10 +23,15 @@ pub struct ProofOfSelection {
     selection_randomness: ZkHash,
 }
 
+#[derive(Debug, Error)]
 pub enum Error {
+    #[error("Index mismatch. Expected {expected}, provided {provided}.")]
     IndexMismatch { expected: u64, provided: u64 },
+    #[error("Overflow when verifying PoSel.")]
     Overflow,
+    #[error("Key nullifier mismatch. Expected {expected}, provided {provided}.")]
     KeyNullifierMismatch { expected: ZkHash, provided: ZkHash },
+    #[error("Invalid input: {0}.")]
     InvalidInput(Box<dyn core::error::Error>),
 }
 
