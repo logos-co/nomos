@@ -205,6 +205,11 @@ impl Wallet {
     }
 
     pub fn apply_block(&mut self, block: &WalletBlock) -> Result<(), WalletError> {
+        if self.wallet_states.contains_key(&block.id) {
+            // Already processed this block
+            return Ok(());
+        }
+
         let block_wallet_state = self
             .wallet_state_at(block.parent)?
             .apply_block(&self.known_keys, block);
