@@ -1,9 +1,9 @@
 use ::serde::{Deserialize, Serialize};
-use groth16::{
-    fr_from_bytes, fr_from_bytes_unchecked, BN254_G1_COMPRESSED_SIZE, BN254_G2_COMPRESSED_SIZE,
-};
+use generic_array::{ArrayLength, GenericArray};
+use groth16::{fr_from_bytes_unchecked, Bn254, CompressSize};
 use nomos_core::crypto::ZkHash;
 use poq::{prove, verify, PoQProof, PoQVerifierInput, PoQWitnessInputs, ProveError};
+use thiserror::Error;
 
 use crate::crypto::proofs::quota::inputs::{
     prove::{Inputs, PrivateInputs, PublicInputs},
@@ -20,15 +20,19 @@ pub const PROOF_OF_QUOTA_SIZE: usize = KEY_NULLIFIER_SIZE.checked_add(PROOF_CIRC
 /// A Proof of Quota as described in the Blend v1 spec: <https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#26a261aa09df80f4b119f900fbb36f3f>.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 pub struct ProofOfQuota {
-    #[serde(with = "self::serde::key_nullifier")]
+    #[serde(with = "groth16::serde::serde_fr")]
     key_nullifier: ZkHash,
-    #[serde(with = "self::serde::proof")]
+    #[serde(with = "self::serde::proof::SerializablePoQProof")]
     proof: PoQProof,
 }
 
+#[derive(Debug, Error)]
 pub enum Error {
-    InvalidInput(Box<dyn core::error::Error>),
-    ProofGeneration(ProveError),
+    #[error("Invalid input: {0}.")]
+    InvalidInput(#[from] Box<dyn core::error::Error>),
+    #[error("Proof generation failed: {0}.")]
+    ProofGeneration(#[from] ProveError),
+    #[error("Invalid proof")]
     InvalidProof,
 }
 
@@ -54,11 +58,14 @@ impl ProofOfQuota {
     pub fn from_bytes_unchecked(bytes: [u8; PROOF_OF_QUOTA_SIZE]) -> Self {
         let (key_nullifier_bytes, proof_circuit_bytes) = bytes.split_at(KEY_NULLIFIER_SIZE);
         let key_nullifier = fr_from_bytes_unchecked(key_nullifier_bytes.try_into().unwrap());
-        let (pi_a, pi_b, pi_c) = split_proof_components(proof_circuit_bytes.try_into().unwrap());
+        let (pi_a, pi_b, pi_c) = split_proof_components::<
+            <Bn254 as CompressSize>::G1CompressedSize,
+            <Bn254 as CompressSize>::G2CompressedSize,
+        >(proof_circuit_bytes.try_into().unwrap());
 
         Self {
             key_nullifier,
-            proof: PoQProof::from_components(pi_a, pi_b, pi_c),
+            proof: PoQProof::new(pi_a, pi_b, pi_c),
         }
     }
 
@@ -84,53 +91,49 @@ impl ProofOfQuota {
     }
 }
 
-fn split_proof_components(
+fn split_proof_components<G1Compressed, G2Compressed>(
     bytes: [u8; PROOF_CIRCUIT_SIZE],
 ) -> (
-    [u8; BN254_G1_COMPRESSED_SIZE],
-    [u8; BN254_G2_COMPRESSED_SIZE],
-    [u8; BN254_G1_COMPRESSED_SIZE],
-) {
-    const FIRST_POINT_END_INDEX: usize = BN254_G1_COMPRESSED_SIZE;
-    const SECOND_POINT_END_INDEX: usize = FIRST_POINT_END_INDEX
-        .checked_add(BN254_G2_COMPRESSED_SIZE)
+    GenericArray<u8, G1Compressed>,
+    GenericArray<u8, G2Compressed>,
+    GenericArray<u8, G1Compressed>,
+)
+where
+    G1Compressed: ArrayLength,
+    G2Compressed: ArrayLength,
+{
+    let first_point_end_index = G1Compressed::USIZE;
+    let second_point_end_index = first_point_end_index
+        .checked_add(G2Compressed::USIZE)
         .expect("Second index overflow");
-    const THIRD_POINT_END_INDEX: usize = SECOND_POINT_END_INDEX
-        .checked_add(BN254_G1_COMPRESSED_SIZE)
+    let third_point_end_index = second_point_end_index
+        .checked_add(G1Compressed::USIZE)
         .expect("Third index overflow");
 
     (
-        bytes
-            .get(..FIRST_POINT_END_INDEX)
-            .unwrap()
-            .try_into()
-            .unwrap(),
-        bytes
-            .get(FIRST_POINT_END_INDEX..SECOND_POINT_END_INDEX)
-            .unwrap()
-            .try_into()
-            .unwrap(),
-        bytes
-            .get(SECOND_POINT_END_INDEX..THIRD_POINT_END_INDEX)
-            .unwrap()
-            .try_into()
-            .unwrap(),
+        GenericArray::try_from_iter(
+            bytes
+                .get(..first_point_end_index)
+                .expect("Input byte array is not large enough for the first G1 compressed point.")
+                .iter()
+                .copied(),
+        )
+        .unwrap(),
+        GenericArray::try_from_iter(
+            bytes
+                .get(first_point_end_index..second_point_end_index)
+                .expect("Input byte array is not large enough for the first G2 compressed point.")
+                .iter()
+                .copied(),
+        )
+        .unwrap(),
+        GenericArray::try_from_iter(
+            bytes
+                .get(second_point_end_index..third_point_end_index)
+                .expect("Input byte array is not large enough for the second G1 compressed point.")
+                .iter()
+                .copied(),
+        )
+        .unwrap(),
     )
-}
-
-impl TryFrom<[u8; PROOF_OF_QUOTA_SIZE]> for ProofOfQuota {
-    type Error = Error;
-
-    fn try_from(value: [u8; PROOF_OF_QUOTA_SIZE]) -> Result<Self, Self::Error> {
-        let (key_nullifier_bytes, proof_circuit_bytes) = value.split_at(KEY_NULLIFIER_SIZE);
-
-        let key_nullifier = fr_from_bytes(key_nullifier_bytes.try_into().unwrap())
-            .map_err(|e| Error::InvalidInput(Box::new(e)))?;
-        let (pi_a, pi_b, pi_c) = split_proof_components(proof_circuit_bytes.try_into().unwrap());
-
-        Ok(Self {
-            key_nullifier,
-            proof: PoQProof::from_components(pi_a, pi_b, pi_c),
-        })
-    }
 }
