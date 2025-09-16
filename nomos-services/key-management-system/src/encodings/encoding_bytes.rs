@@ -1,7 +1,5 @@
 use key_management_system_macros::SimpleEncodingFormat;
 
-use crate::encodings::{Encoding, EncodingFormat, EncodingKind};
-
 type Inner = bytes::Bytes;
 
 /// An encoding of arbitrary bytes.
