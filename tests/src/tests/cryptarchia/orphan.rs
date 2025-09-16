@@ -7,7 +7,7 @@ use tests::{
     common::sync::wait_for_validators_mode_and_height,
     nodes::validator::{create_validator_config, Validator},
     topology::configs::{
-        create_general_configs_with_network,
+        create_general_configs_with_blend_core_subset,
         network::{Libp2pNetworkLayout, NetworkParams},
     },
 };
@@ -16,15 +16,20 @@ use tests::{
 #[serial]
 async fn test_orphan_handling() {
     let n_validators = 3;
+    let n_initial_validators = 2;
     let min_height = 5;
 
     let network_params = NetworkParams {
         libp2p_network_layout: Libp2pNetworkLayout::Full,
     };
-    let general_configs = create_general_configs_with_network(n_validators, &network_params);
+    let general_configs = create_general_configs_with_blend_core_subset(
+        n_validators,
+        n_initial_validators,
+        &network_params,
+    );
 
     let mut validators = vec![];
-    for config in general_configs.iter().take(2) {
+    for config in general_configs.iter().take(n_initial_validators) {
         let config = create_validator_config(config.clone());
         validators.push(Validator::spawn(config).await.unwrap());
     }
@@ -42,7 +47,7 @@ async fn test_orphan_handling() {
     // Start the 3rd node, should catch up via orphan block handling
     println!("Starting 3rd node ...");
 
-    let config = create_validator_config(general_configs[2].clone());
+    let config = create_validator_config(general_configs[n_initial_validators].clone());
 
     let behind_node = vec![Validator::spawn(config).await.unwrap()];
 

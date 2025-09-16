@@ -22,7 +22,7 @@ use crate::{
         blend::create_blend_configs,
         bootstrap::create_bootstrap_configs,
         consensus::{create_consensus_configs, ConsensusParams},
-        membership::{create_empty_da_membership_configs, create_membership_configs},
+        membership::{create_membership_configs, MembershipNode},
         time::default_time_config,
     },
 };
@@ -128,7 +128,18 @@ impl Topology {
         let consensus_configs = create_consensus_configs(&ids, &config.consensus_params);
         let bootstrapping_config = create_bootstrap_configs(&ids, Duration::from_secs(30));
         let da_configs = create_da_configs(&ids, &config.da_params, &da_ports);
-        let membership_configs = create_membership_configs(ids.as_slice(), &da_ports, &blend_ports);
+        let membership_configs = create_membership_configs(
+            ids.iter()
+                .zip(&da_ports)
+                .zip(&blend_ports)
+                .map(|((&id, &da_port), &blend_port)| MembershipNode {
+                    id,
+                    da_port: Some(da_port),
+                    blend_port: Some(blend_port),
+                })
+                .collect::<Vec<_>>()
+                .as_slice(),
+        );
         let network_configs = create_network_configs(&ids, &config.network_params);
         let blend_configs = create_blend_configs(&ids, &blend_ports);
         let api_configs = create_api_configs(&ids);
@@ -175,7 +186,18 @@ impl Topology {
         let network_configs = create_network_configs(ids, &config.network_params);
         let blend_configs = create_blend_configs(ids, blend_ports);
         let api_configs = create_api_configs(ids);
-        let membership_configs = create_empty_da_membership_configs(ids, blend_ports);
+        // Create membership configs without DA nodes.
+        let membership_configs = create_membership_configs(
+            ids.iter()
+                .zip(blend_ports)
+                .map(|(&id, &blend_port)| MembershipNode {
+                    id,
+                    da_port: None,
+                    blend_port: Some(blend_port),
+                })
+                .collect::<Vec<_>>()
+                .as_slice(),
+        );
         let tracing_configs = create_tracing_configs(ids);
         let time_config = default_time_config();
 
