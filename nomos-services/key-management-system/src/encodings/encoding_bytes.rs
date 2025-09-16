@@ -1,11 +1,11 @@
-use key_management_system_macros::SimpleEncoding;
+use key_management_system_macros::SimpleEncodingFormat;
 
 use crate::encodings::{Encoding, EncodingFormat, EncodingKind};
 
 type Inner = bytes::Bytes;
 
 /// An encoding of arbitrary bytes.
-#[derive(SimpleEncoding, Clone)]
+#[derive(SimpleEncodingFormat, Clone)]
 pub struct Bytes(Inner);
 
 impl Bytes {

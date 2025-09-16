@@ -2,12 +2,13 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{DeriveInput, parse_macro_input};
 
-/// The `SimpleEncoding` macro implements `Encoding`, [`From`] and [`TryFrom`]
-/// for tuple structs with exactly one field (e.g.: `struct MyType(T);`).
+/// The [`SimpleEncodingFormat`] macro implements `EncodingFormat`, [`From`] and
+/// [`TryFrom`] for tuple structs with exactly one field (e.g.: `struct
+/// MyType(T);`).
 ///
 /// # Provides
 ///
-/// - Implements the `Encoding` trait for the struct.
+/// - Implements the `EncodingFormat` trait for the struct.
 /// - Implements `From<Self>` for `EncodingFormat`, wrapping the struct in the
 ///   corresponding enum variant.
 /// - Implements `TryFrom<EncodingFormat>` for `Self`, extracting the struct
@@ -19,18 +20,17 @@ use syn::{DeriveInput, parse_macro_input};
 /// - The struct's name must match the corresponding `EncodingFormat` enum
 ///   variant.
 /// - The single field is treated as the wrapped type.
-#[proc_macro_derive(SimpleEncoding)]
+#[proc_macro_derive(SimpleEncodingFormat)]
 pub fn derive_simple_encoding(input: TokenStream) -> TokenStream {
     let input: DeriveInput = parse_macro_input!(input);
     let ty_ident = input.ident;
     let var_ident = ty_ident.clone();
-    let enum_path: syn::Path = syn::parse_quote!(EncodingFormat);
+    let enum_path: syn::Path = syn::parse_quote!(Encoding);
 
     let expanded = quote! {
-        impl Encoding for #ty_ident {}
+        impl EncodingFormat for #ty_ident {}
 
         // impl From<T> for EncodingFormat
-        // TODO: `EncodingAdapter` just requires `Into<EncodingFormat> for T`. Should we simplify?
         impl From<#ty_ident> for #enum_path {
             fn from(value: #ty_ident) -> Self {
                 Self::#var_ident(value)
