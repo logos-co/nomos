@@ -15,6 +15,9 @@ use serde::{Deserialize, Serialize};
 pub struct Leader {
     utxos: Vec<Utxo>,
     sk: SecretKey,
+    // only used in pol dev mode for active slot coeff
+    #[allow(dead_code)]
+    config: nomos_ledger::Config,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -25,8 +28,8 @@ pub struct LeaderConfig {
 }
 
 impl Leader {
-    pub const fn new(utxos: Vec<Utxo>, sk: SecretKey) -> Self {
-        Self { utxos, sk }
+    pub const fn new(utxos: Vec<Utxo>, sk: SecretKey, config: nomos_ledger::Config) -> Self {
+        Self { utxos, sk, config }
     }
 
     #[expect(
@@ -60,7 +63,17 @@ impl Leader {
                 epoch_state.total_stake(),
             );
 
-            if public_inputs.check_winning(utxo.note.value, note_id, *self.sk.as_fr()) {
+            #[cfg(feature = "pol-dev-mode")]
+            let winning = public_inputs.check_winning_dev(
+                utxo.note.value,
+                note_id,
+                *self.sk.as_fr(),
+                self.config.consensus_config.active_slot_coeff,
+            );
+            #[cfg(not(feature = "pol-dev-mode"))]
+            let winning = public_inputs.check_winning(utxo.note.value, note_id, *self.sk.as_fr());
+
+            if winning {
                 tracing::debug!(
                     "leader for slot {:?}, {:?}/{:?}",
                     slot,

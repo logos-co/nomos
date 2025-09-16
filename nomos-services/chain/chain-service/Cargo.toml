@@ -11,7 +11,6 @@ workspace = true
 async-trait         = "0.1"
 broadcast-service   = { workspace = true }
 bytes               = { workspace = true }
-chain-service-defs  = { workspace = true }
 cryptarchia-engine  = { workspace = true }
 cryptarchia-sync    = { workspace = true }
 ed25519-dalek       = { default-features = false, features = ["serde"], version = "2.2.0" }
@@ -37,6 +36,7 @@ tokio               = { default-features = false, version = "1" }
 tokio-stream        = { default-features = false, version = "0.1" }
 tracing             = { workspace = true }
 tracing-futures     = { default-features = false, version = "0.2" }
+utoipa                 = { optional = true, workspace = true }
 
 [dev-dependencies]
 nomos-network = { features = ["mock"], workspace = true }
@@ -44,6 +44,7 @@ nomos-storage = { features = ["rocksdb-backend"], workspace = true }
 tempfile      = { workspace = true }
 
 [features]
-default = []
-libp2p  = ["nomos-blend-service/libp2p", "nomos-network/libp2p"]
-openapi = ["dep:utoipa"]
+default      = []
+libp2p       = ["nomos-blend-service/libp2p", "nomos-network/libp2p"]
+openapi      = ["dep:utoipa"]
+pol-dev-mode = ["nomos-core/pol-dev-mode"]

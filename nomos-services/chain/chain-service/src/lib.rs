@@ -1394,6 +1394,7 @@ where
         let leader = Leader::new(
             self.initial_state.lib_leader_utxos.clone(),
             leader_config.sk,
+            ledger_config,
         );
 
         let blocks =
