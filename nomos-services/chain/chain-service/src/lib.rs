@@ -19,6 +19,7 @@ use std::{
 };
 
 use broadcast_service::{BlockBroadcastMsg, BlockBroadcastService, BlockInfo};
+use bytes::Bytes;
 use cryptarchia_engine::{PrunedBlocks, Slot};
 use cryptarchia_sync::{GetTipResponse, ProviderResponse};
 use futures::{StreamExt as _, TryFutureExt as _};
@@ -472,7 +473,7 @@ where
     TxS::Settings: Send + Sync + 'static,
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as StorageChainApi>::Block:
-        TryFrom<Block<ClPool::Item>> + TryInto<Block<ClPool::Item>>,
+        TryFrom<Block<ClPool::Item>> + TryInto<Block<ClPool::Item>> + Into<Bytes>,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + Send + 'static,
@@ -942,7 +943,7 @@ where
     TxS::Settings: Send + Sync + 'static,
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as StorageChainApi>::Block:
-        TryFrom<Block<ClPool::Item>> + TryInto<Block<ClPool::Item>>,
+        TryFrom<Block<ClPool::Item>> + TryInto<Block<ClPool::Item>> + Into<Bytes>,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
