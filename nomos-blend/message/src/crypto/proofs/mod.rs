@@ -1,12 +1,15 @@
 use nomos_core::crypto::ZkHash;
+use thiserror::Error;
 
 use crate::crypto::proofs::quota::{inputs::prove::PublicInputs, ProofOfQuota};
 
 pub mod quota;
 pub mod selection;
 
+#[derive(Debug, Error)]
 pub enum Error {
-    ProofOfQuota(quota::Error),
+    #[error("Invalid Proof of Quota: {0}.")]
+    ProofOfQuota(#[from] quota::Error),
 }
 
 /// Verifier that actually verifies the validity of Blend-related proofs.
