@@ -15,8 +15,6 @@ use serde::{Deserialize, Serialize};
 pub struct Leader {
     utxos: Vec<Utxo>,
     sk: SecretKey,
-    // only used in pol dev mode for active slot coeff
-    #[allow(dead_code)]
     config: nomos_ledger::Config,
 }
 
