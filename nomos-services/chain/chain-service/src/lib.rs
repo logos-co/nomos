@@ -1,4 +1,5 @@
 mod blend;
+mod blob;
 mod bootstrap;
 mod leadership;
 mod messages;
@@ -9,13 +10,7 @@ pub mod storage;
 mod sync;
 
 use core::fmt::Debug;
-use std::{
-    collections::{BTreeSet, HashSet},
-    fmt::Display,
-    hash::Hash,
-    path::PathBuf,
-    time::Duration,
-};
+use std::{collections::HashSet, fmt::Display, hash::Hash, path::PathBuf, time::Duration};
 
 use broadcast_service::{BlockBroadcastMsg, BlockBroadcastService, BlockInfo};
 use cryptarchia_engine::{PrunedBlocks, Slot};
@@ -66,6 +61,7 @@ use tracing_futures::Instrument as _;
 
 use crate::{
     blend::BlendAdapter,
+    blob::{get_sampled_blobs, BlobValidation, RecentBlobValidation, SkipBlobValidation},
     bootstrap::{ibd::InitialBlockDownload, state::choose_engine_state},
     leadership::Leader,
     relays::CryptarchiaConsensusRelays,
@@ -95,6 +91,8 @@ pub enum Error {
     Consensus(#[from] cryptarchia_engine::Error<HeaderId>),
     #[error("Storage error: {0}")]
     Storage(String),
+    #[error("Blob validation failed: {0}")]
+    BlobValidationFailed(#[from] blob::Error),
 }
 
 #[derive(Debug)]
@@ -598,6 +596,8 @@ where
                         cryptarchia,
                         leader,
                         block,
+                        // TODO: Enable this once entering DA window: https://github.com/logos-co/nomos/issues/1675
+                        &SkipBlobValidation,
                         &storage_blocks_to_remove,
                         relays,
                         state_updater,
@@ -640,7 +640,7 @@ where
             }
         };
 
-        // Start the timer for Prelonged Bootstrap Period.
+        // Start the timer for Prolonged Bootstrap Period.
         let mut prolonged_bootstrap_timer = Box::pin(tokio::time::sleep_until(
             Instant::now() + bootstrap_config.prolonged_bootstrap_period,
         ));
@@ -652,6 +652,13 @@ where
                 .state_recording_interval,
         );
 
+        let mut blob_validation: Box<dyn BlobValidation<_, _> + Send + Sync> =
+            if cryptarchia.is_boostrapping() {
+                Box::new(SkipBlobValidation)
+            } else {
+                Box::new(RecentBlobValidation::new(relays.sampling_relay().clone()))
+            };
+
         let async_loop = async {
             loop {
                 tokio::select! {
@@ -662,6 +669,7 @@ where
                             &storage_blocks_to_remove,
                             relays.storage_adapter(),
                         ).await;
+                        blob_validation = Box::new(RecentBlobValidation::new(relays.sampling_relay().clone()));
                         Self::update_state(
                             &cryptarchia,
                             &leader,
@@ -683,6 +691,7 @@ where
                             cryptarchia.clone(),
                             &leader,
                             block.clone(),
+                            blob_validation.as_ref(),
                             &storage_blocks_to_remove,
                             &relays,
                             &self.service_resources_handle.state_updater
@@ -709,6 +718,8 @@ where
                     }
 
                     Some(SlotTick { slot, .. }) = slot_timer.next() => {
+                        // TODO: Don't propose blocks until IBD is done and online mode is activated.
+                        //       Until then, mempool, DA, blend service will not be ready: https://github.com/logos-co/nomos/issues/1656
                         let parent = cryptarchia.tip();
                         let aged_tree = cryptarchia.tip_state().aged_commitments();
                         let latest_tree = cryptarchia.tip_state().latest_commitments();
@@ -735,6 +746,8 @@ where
                                     cryptarchia.clone(),
                                     &leader,
                                     block.clone(),
+                                    // Skip this since the block was already built with valid blobs.
+                                    &SkipBlobValidation,
                                     &storage_blocks_to_remove,
                                     &relays,
                                     &self.service_resources_handle.state_updater,
@@ -780,6 +793,7 @@ where
                             cryptarchia.clone(),
                             &leader,
                             block.clone(),
+                            blob_validation.as_ref(),
                             &storage_blocks_to_remove,
                             &relays,
                             &self.service_resources_handle.state_updater
@@ -953,6 +967,7 @@ where
         cryptarchia: Cryptarchia,
         leader: &Leader,
         block: Block<ClPool::Item>,
+        blob_validation: &(impl BlobValidation<SamplingBackend::BlobId, ClPool::Item> + Sync + ?Sized),
         storage_blocks_to_remove: &HashSet<HeaderId>,
         relays: &CryptarchiaConsensusRelays<
             BlendService,
@@ -975,7 +990,8 @@ where
             >,
         >,
     ) -> Result<(Cryptarchia, HashSet<HeaderId>), Error> {
-        let (cryptarchia, pruned_blocks) = Self::process_block(cryptarchia, block, relays).await?;
+        let (cryptarchia, pruned_blocks) =
+            Self::process_block(cryptarchia, block, blob_validation, relays).await?;
 
         let storage_blocks_to_remove = Self::delete_pruned_blocks_from_storage(
             pruned_blocks.stale_blocks().copied(),
@@ -1027,10 +1043,11 @@ where
     /// Try to add a [`Block`] to [`Cryptarchia`].
     /// A [`Block`] is only added if it's valid
     #[expect(clippy::allow_attributes_without_reason)]
-    #[instrument(level = "debug", skip(cryptarchia, relays))]
+    #[instrument(level = "debug", skip(cryptarchia, relays, blob_validation))]
     async fn process_block(
         cryptarchia: Cryptarchia,
         block: Block<ClPool::Item>,
+        blob_validation: &(impl BlobValidation<SamplingBackend::BlobId, ClPool::Item> + Sync + ?Sized),
         relays: &CryptarchiaConsensusRelays<
             BlendService,
             ClPool,
@@ -1044,17 +1061,7 @@ where
     ) -> Result<(Cryptarchia, PrunedBlocks<HeaderId>), Error> {
         debug!("received proposal {:?}", block);
 
-        let sampled_blobs = match get_sampled_blobs(relays.sampling_relay().clone()).await {
-            Ok(sampled_blobs) => sampled_blobs,
-            Err(error) => {
-                error!("Unable to retrieved sampled blobs: {error}");
-                return Ok((cryptarchia, PrunedBlocks::new()));
-            }
-        };
-        if !Self::validate_blocks_blobs(&block, &sampled_blobs) {
-            error!("Invalid block: {block:?}");
-            return Ok((cryptarchia, PrunedBlocks::new()));
-        }
+        blob_validation.validate(&block).await?;
 
         // TODO: filter on time?
         let header = block.header();
@@ -1130,7 +1137,8 @@ where
     ) -> Option<Block<ClPool::Item>> {
         let mut output = None;
         let txs = get_mempool_contents(relays.cl_mempool_relay().clone()).map_err(DynError::from);
-        let blobs_ids = get_sampled_blobs(relays.sampling_relay().clone());
+        let sampling_relay = relays.sampling_relay().clone();
+        let blobs_ids = get_sampled_blobs(&sampling_relay);
         match futures::try_join!(txs, blobs_ids) {
             Ok((txs, blobs)) => {
                 let txs = tx_selector
@@ -1153,24 +1161,6 @@ where
         }
 
         output
-    }
-
-    fn validate_blocks_blobs(
-        block: &Block<ClPool::Item>,
-        sampled_blobs_ids: &BTreeSet<da::BlobId>,
-    ) -> bool {
-        let validated_blobs = block
-            .transactions()
-            .flat_map(|tx| tx.mantle_tx().ops.iter())
-            .filter_map(|op| {
-                if let Op::ChannelBlob(op) = op {
-                    Some(op.blob)
-                } else {
-                    None
-                }
-            })
-            .all(|blob| sampled_blobs_ids.contains(&blob));
-        validated_blobs
     }
 
     fn log_received_block(block: &Block<ClPool::Item>) {
@@ -1296,7 +1286,8 @@ where
 
         let mut pruned_blocks = PrunedBlocks::new();
         for block in blocks {
-            match Self::process_block(cryptarchia.clone(), block, relays).await {
+            match Self::process_block(cryptarchia.clone(), block, &SkipBlobValidation, relays).await
+            {
                 Ok((new_cryptarchia, new_pruned_blocks)) => {
                     cryptarchia = new_cryptarchia;
                     pruned_blocks.extend(&new_pruned_blocks);
@@ -1528,22 +1519,6 @@ async fn mark_blob_in_block<BlobId: Debug + Send>(
     {
         error!("Error marking in block for blobs ids: {blobs_id:?}");
     }
-}
-
-async fn get_sampled_blobs<BlobId>(
-    sampling_relay: SamplingRelay<BlobId>,
-) -> Result<BTreeSet<BlobId>, DynError>
-where
-    BlobId: Send,
-{
-    let (sender, receiver) = oneshot::channel();
-    sampling_relay
-        .send(DaSamplingServiceMsg::GetValidatedBlobs {
-            reply_channel: sender,
-        })
-        .await
-        .map_err(|(error, _)| Box::new(error) as DynError)?;
-    receiver.await.map_err(|error| Box::new(error) as DynError)
 }
 
 async fn broadcast_finalized_block(
