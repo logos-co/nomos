@@ -11,6 +11,7 @@ workspace = true
 ark-ff          = { default-features = false, version = "0.4" }
 blake2          = { workspace = true }
 ed25519-dalek   = { default-features = false, features = ["rand_core"], version = "2" }
+generic-array   = { default-features = false, version = "1.2" }
 groth16         = { workspace = true }
 itertools       = { default-features = false, version = "0.14" }
 nomos-core      = { workspace = true }
