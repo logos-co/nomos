@@ -12,17 +12,24 @@ use libp2p::{
     swarm::{dial_opts::PeerCondition, ConnectionId},
     Multiaddr, PeerId, Swarm, SwarmBuilder,
 };
-use nomos_blend_network::{
-    core::{
-        with_core::behaviour::{
-            Event as CoreToCoreEvent, IntervalStreamProvider, NegotiatedPeerState,
-        },
-        with_edge::behaviour::Event as CoreToEdgeEvent,
-        NetworkBehaviourEvent,
-    },
-    EncapsulatedMessageWithValidatedPublicHeader,
+use nomos_blend_message::encap::{self, encapsulated::PoQVerificationInputMinusSigningKey};
+use nomos_blend_network::core::{
+    with_core::behaviour::{Event as CoreToCoreEvent, IntervalStreamProvider, NegotiatedPeerState},
+    with_edge::behaviour::Event as CoreToEdgeEvent,
+    NetworkBehaviourEvent,
 };
-use nomos_blend_scheduling::{membership::Membership, session::SessionEvent, EncapsulatedMessage};
+use nomos_blend_scheduling::{
+    membership::Membership,
+    message_blend::{
+        crypto::{
+            IncomingEncapsulatedMessageWithValidatedPublicHeader,
+            OutgoingEncapsulatedMessageWithValidatedPublicHeader,
+        },
+        PublicInfo, SessionInfo,
+    },
+    session::SessionEvent,
+    EncapsulatedMessage,
+};
 use nomos_libp2p::{DialOpts, SwarmEvent};
 use rand::RngCore;
 use tokio::sync::{broadcast, mpsc};
@@ -58,14 +65,16 @@ impl DialAttempt {
     }
 }
 
-pub struct BlendSwarm<SessionStream, Rng, ObservationWindowProvider>
+pub struct BlendSwarm<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider>
 where
+    ProofsVerifier: encap::ProofsVerifier + 'static,
     ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
         + 'static,
 {
-    swarm: Swarm<BlendBehaviour<ObservationWindowProvider>>,
+    swarm: Swarm<BlendBehaviour<ProofsVerifier, ObservationWindowProvider>>,
     swarm_messages_receiver: mpsc::Receiver<BlendSwarmMessage>,
-    incoming_message_sender: broadcast::Sender<EncapsulatedMessageWithValidatedPublicHeader>,
+    incoming_message_sender:
+        broadcast::Sender<IncomingEncapsulatedMessageWithValidatedPublicHeader>,
     session_stream: SessionStream,
     latest_session_info: Membership<PeerId>,
     rng: Rng,
@@ -74,11 +83,12 @@ where
     minimum_network_size: NonZeroUsize,
 }
 
-impl<SessionStream, Rng, ObservationWindowProvider>
-    BlendSwarm<SessionStream, Rng, ObservationWindowProvider>
+impl<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider>
+    BlendSwarm<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider>
 where
     SessionStream: Stream<Item = SessionEvent<Membership<PeerId>>> + Unpin,
     Rng: RngCore,
+    ProofsVerifier: encap::ProofsVerifier + Clone + 'static,
     ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
         + for<'c> From<(
             &'c BlendConfig<Libp2pBlendBackendSettings>,
@@ -91,14 +101,25 @@ where
         session_stream: SessionStream,
         rng: Rng,
         swarm_messages_receiver: mpsc::Receiver<BlendSwarmMessage>,
-        incoming_message_sender: broadcast::Sender<EncapsulatedMessageWithValidatedPublicHeader>,
+        incoming_message_sender: broadcast::Sender<
+            IncomingEncapsulatedMessageWithValidatedPublicHeader,
+        >,
         minimum_network_size: NonZeroUsize,
+        current_poq_verification_inputs: PoQVerificationInputMinusSigningKey,
+        proofs_verifier: ProofsVerifier,
     ) -> Self {
         let keypair = config.backend.keypair();
         let mut swarm = SwarmBuilder::with_existing_identity(keypair)
             .with_tokio()
             .with_quic()
-            .with_behaviour(|_| BlendBehaviour::new(&config, current_membership.clone()))
+            .with_behaviour(|_| {
+                BlendBehaviour::new(
+                    &config,
+                    current_membership.clone(),
+                    current_poq_verification_inputs,
+                    proofs_verifier,
+                )
+            })
             .expect("Blend Behaviour should be built")
             .with_swarm_config(|cfg| {
                 // The idle timeout starts ticking once there are no active streams on a
@@ -134,10 +155,11 @@ where
     }
 }
 
-impl<SessionStream, Rng, ObservationWindowProvider>
-    BlendSwarm<SessionStream, Rng, ObservationWindowProvider>
+impl<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider>
+    BlendSwarm<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider>
 where
     Rng: RngCore,
+    ProofsVerifier: encap::ProofsVerifier,
     ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
         + 'static,
 {
@@ -262,7 +284,10 @@ where
         self.check_and_dial_new_peers_except(Some(peer_id));
     }
 
-    fn handle_event(&mut self, event: SwarmEvent<BlendBehaviourEvent<ObservationWindowProvider>>) {
+    fn handle_event(
+        &mut self,
+        event: SwarmEvent<BlendBehaviourEvent<ProofsVerifier, ObservationWindowProvider>>,
+    ) {
         match event {
             SwarmEvent::Behaviour(BlendBehaviourEvent::Blend(NetworkBehaviourEvent::WithCore(
                 e,
@@ -305,7 +330,7 @@ where
         match blend_event {
             nomos_blend_network::core::with_core::behaviour::Event::Message(msg, conn) => {
                 // Forward message received from node to all other core nodes.
-                self.forward_validated_swarm_message(&msg, conn);
+                self.forward_validated_swarm_message(&(*msg).clone().into(), conn);
                 // Bubble up to service for decapsulation and delaying.
                 self.report_message_to_service(*msg);
             }
@@ -338,7 +363,9 @@ where
     pub fn new_test<BehaviourConstructor>(
         behaviour_constructor: BehaviourConstructor,
         swarm_messages_receiver: mpsc::Receiver<BlendSwarmMessage>,
-        incoming_message_sender: broadcast::Sender<EncapsulatedMessageWithValidatedPublicHeader>,
+        incoming_message_sender: broadcast::Sender<
+            IncomingEncapsulatedMessageWithValidatedPublicHeader,
+        >,
         session_stream: SessionStream,
         latest_session_info: Membership<PeerId>,
         rng: Rng,
@@ -346,8 +373,10 @@ where
         minimum_network_size: NonZeroUsize,
     ) -> Self
     where
-        BehaviourConstructor:
-            FnOnce(libp2p::identity::Keypair) -> BlendBehaviour<ObservationWindowProvider>,
+        BehaviourConstructor: FnOnce(
+            libp2p::identity::Keypair,
+        )
+            -> BlendBehaviour<ProofsVerifier, ObservationWindowProvider>,
     {
         use crate::test_utils::memory_test_swarm;
 
@@ -365,9 +394,10 @@ where
     }
 }
 
-impl<SessionStream, Rng, ObservationWindowProvider>
-    BlendSwarm<SessionStream, Rng, ObservationWindowProvider>
+impl<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider>
+    BlendSwarm<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider>
 where
+    ProofsVerifier: encap::ProofsVerifier,
     ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
         + 'static,
 {
@@ -396,7 +426,7 @@ where
 
     fn publish_validated_swarm_message(
         &mut self,
-        msg: &EncapsulatedMessageWithValidatedPublicHeader,
+        msg: &OutgoingEncapsulatedMessageWithValidatedPublicHeader,
     ) {
         if let Err(e) = self
             .swarm
@@ -414,7 +444,7 @@ where
 
     fn forward_validated_swarm_message(
         &mut self,
-        msg: &EncapsulatedMessageWithValidatedPublicHeader,
+        msg: &OutgoingEncapsulatedMessageWithValidatedPublicHeader,
         except: (PeerId, ConnectionId),
     ) {
         if let Err(e) = self
@@ -435,7 +465,7 @@ where
         clippy::cognitive_complexity,
         reason = "Tracing macros generate more code that triggers this warning."
     )]
-    fn report_message_to_service(&self, msg: EncapsulatedMessageWithValidatedPublicHeader) {
+    fn report_message_to_service(&self, msg: IncomingEncapsulatedMessageWithValidatedPublicHeader) {
         tracing::debug!("Received message from a peer: {msg:?}");
 
         if let Err(e) = self.incoming_message_sender.send(msg) {
@@ -474,7 +504,7 @@ where
         match blend_event {
             nomos_blend_network::core::with_edge::behaviour::Event::Message(msg) => {
                 // Forward message received from edge node to all the core nodes.
-                self.publish_validated_swarm_message(&msg);
+                self.publish_validated_swarm_message(&msg.clone().into());
                 // Bubble up to service for decapsulation and delaying.
                 self.report_message_to_service(msg);
             }
@@ -482,11 +512,12 @@ where
     }
 }
 
-impl<SessionStream, Rng, ObservationWindowProvider>
-    BlendSwarm<SessionStream, Rng, ObservationWindowProvider>
+impl<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider>
+    BlendSwarm<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider>
 where
     Rng: RngCore,
     SessionStream: Stream<Item = SessionEvent<Membership<PeerId>>> + Unpin,
+    ProofsVerifier: encap::ProofsVerifier + Clone,
     ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
         + 'static,
 {
@@ -505,7 +536,8 @@ where
         swarm_event_match_predicate: Predicate,
     ) -> bool
     where
-        Predicate: Fn(&SwarmEvent<BlendBehaviourEvent<ObservationWindowProvider>>) -> bool,
+        Predicate:
+            Fn(&SwarmEvent<BlendBehaviourEvent<ProofsVerifier, ObservationWindowProvider>>) -> bool,
     {
         tokio::select! {
             Some(msg) = self.swarm_messages_receiver.recv() => {
@@ -519,10 +551,11 @@ where
             }
             Some(event) = self.session_stream.next() => {
                 match event {
-                    SessionEvent::NewSession(membership) => {
+                    SessionEvent::NewSession(membership, SessionInfo { public: PublicInfo { core_quota, core_root, leader_quota, pol_epoch_nonce, pol_ledger_aged, session, total_stake }, .. }) => {
+                        let poq_verification_inputs = PoQVerificationInputMinusSigningKey { core_quota, core_root, leader_quota, pol_epoch_nonce, pol_ledger_aged, session, total_stake };
                         self.latest_session_info = membership.clone();
-                        self.swarm.behaviour_mut().blend.with_core_mut().start_new_session(membership.clone());
-                        self.swarm.behaviour_mut().blend.with_edge_mut().start_new_session(membership);
+                        self.swarm.behaviour_mut().blend.with_core_mut().start_new_session(membership.clone(), poq_verification_inputs.clone());
+                        self.swarm.behaviour_mut().blend.with_edge_mut().start_new_session(membership, poq_verification_inputs);
                     },
                     SessionEvent::TransitionPeriodExpired => {
                         self.swarm.behaviour_mut().blend.with_core_mut().finish_session_transition();
@@ -541,7 +574,8 @@ where
     #[cfg(test)]
     pub async fn poll_next_until<Predicate>(&mut self, swarm_event_match_predicate: Predicate)
     where
-        Predicate: Fn(&SwarmEvent<BlendBehaviourEvent<ObservationWindowProvider>>) -> bool + Copy,
+        Predicate: Fn(&SwarmEvent<BlendBehaviourEvent<ProofsVerifier, ObservationWindowProvider>>) -> bool
+            + Copy,
     {
         loop {
             if self.poll_next_and_match(swarm_event_match_predicate).await {
@@ -552,13 +586,14 @@ where
 }
 
 // We implement `Deref` so we are able to call swarm methods on our own swarm.
-impl<SessionStream, Rng, ObservationWindowProvider> Deref
-    for BlendSwarm<SessionStream, Rng, ObservationWindowProvider>
+impl<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider> Deref
+    for BlendSwarm<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider>
 where
+    ProofsVerifier: encap::ProofsVerifier,
     ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
         + 'static,
 {
-    type Target = Swarm<BlendBehaviour<ObservationWindowProvider>>;
+    type Target = Swarm<BlendBehaviour<ProofsVerifier, ObservationWindowProvider>>;
 
     fn deref(&self) -> &Self::Target {
         &self.swarm
@@ -568,9 +603,10 @@ where
 #[cfg(test)]
 // We implement `DerefMut` only for tests, since we do not want to give people a
 // chance to bypass our API.
-impl<SessionStream, Rng, ObservationWindowProvider> core::ops::DerefMut
-    for BlendSwarm<SessionStream, Rng, ObservationWindowProvider>
+impl<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider> core::ops::DerefMut
+    for BlendSwarm<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider>
 where
+    ProofsVerifier: encap::ProofsVerifier,
     ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
         + 'static,
 {

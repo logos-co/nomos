@@ -6,18 +6,21 @@ use futures::{
     future::join,
     stream::{AbortHandle, Abortable},
 };
-use nomos_blend_message::crypto::{
-    keys::Ed25519PrivateKey,
-    proofs::{
-        quota::{
-            inputs::prove::{
-                private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs},
-                PrivateInputs, PublicInputs,
+use nomos_blend_message::{
+    crypto::{
+        keys::Ed25519PrivateKey,
+        proofs::{
+            quota::{
+                inputs::prove::{
+                    private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs},
+                    PrivateInputs, PublicInputs,
+                },
+                ProofOfQuota,
             },
-            ProofOfQuota,
+            selection::ProofOfSelection,
         },
-        selection::ProofOfSelection,
     },
+    encap::encapsulated::PoQVerificationInputMinusSigningKey,
 };
 use nomos_core::crypto::ZkHash;
 use tokio::{
@@ -36,6 +39,12 @@ pub struct SessionInfo {
     pub private: PrivateInfo,
 }
 
+impl From<SessionInfo> for PoQVerificationInputMinusSigningKey {
+    fn from(SessionInfo { public, .. }: SessionInfo) -> Self {
+        public.into()
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct PublicInfo {
     pub session: u64,
@@ -45,6 +54,30 @@ pub struct PublicInfo {
     pub core_quota: u64,
     pub leader_quota: u64,
     pub total_stake: u64,
+}
+
+impl From<PublicInfo> for PoQVerificationInputMinusSigningKey {
+    fn from(
+        PublicInfo {
+            core_quota,
+            core_root,
+            leader_quota,
+            pol_epoch_nonce,
+            pol_ledger_aged,
+            session,
+            total_stake,
+        }: PublicInfo,
+    ) -> Self {
+        Self {
+            core_quota,
+            core_root,
+            leader_quota,
+            pol_epoch_nonce,
+            pol_ledger_aged,
+            session,
+            total_stake,
+        }
+    }
 }
 
 #[derive(Clone)]

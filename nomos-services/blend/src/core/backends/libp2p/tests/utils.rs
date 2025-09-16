@@ -10,17 +10,15 @@ use libp2p::{
     PeerId, Swarm,
 };
 use libp2p_swarm_test::SwarmExt as _;
-use nomos_blend_message::crypto::Ed25519PrivateKey;
-use nomos_blend_network::{
-    core::{
-        with_core::behaviour::{Config as CoreToCoreConfig, IntervalStreamProvider},
-        with_edge::behaviour::Config as CoreToEdgeConfig,
-        Config, NetworkBehaviour,
-    },
-    EncapsulatedMessageWithValidatedPublicHeader,
+use nomos_blend_message::crypto::keys::Ed25519PrivateKey;
+use nomos_blend_network::core::{
+    with_core::behaviour::{Config as CoreToCoreConfig, IntervalStreamProvider},
+    with_edge::behaviour::Config as CoreToEdgeConfig,
+    Config, NetworkBehaviour,
 };
 use nomos_blend_scheduling::{
     membership::{Membership, Node},
+    message_blend::crypto::IncomingEncapsulatedMessageWithValidatedPublicHeader,
     session::SessionEvent,
 };
 use nomos_libp2p::{Protocol, SwarmEvent};
@@ -35,20 +33,22 @@ use tokio_stream::wrappers::IntervalStream;
 use crate::{
     core::{
         backends::libp2p::{behaviour::BlendBehaviour, swarm::BlendSwarmMessage, BlendSwarm},
+        mock_session_info,
         settings::BlendConfig,
     },
-    test_utils::PROTOCOL_NAME,
+    test_utils::{crypto::NeverFailingProofsVerifier, PROTOCOL_NAME},
 };
 
 pub struct TestSwarm {
     pub swarm: BlendSwarm<
         Pending<SessionEvent<Membership<PeerId>>>,
         BlakeRng,
+        NeverFailingProofsVerifier,
         TestObservationWindowProvider,
     >,
     pub swarm_message_sender: mpsc::Sender<BlendSwarmMessage>,
     pub incoming_message_receiver:
-        broadcast::Receiver<EncapsulatedMessageWithValidatedPublicHeader>,
+        broadcast::Receiver<IncomingEncapsulatedMessageWithValidatedPublicHeader>,
 }
 
 #[derive(Default)]
@@ -78,7 +78,11 @@ impl SwarmBuilder {
         behaviour_constructor: BehaviourConstructor,
     ) -> TestSwarm
     where
-        BehaviourConstructor: FnOnce(Keypair) -> BlendBehaviour<TestObservationWindowProvider>,
+        BehaviourConstructor:
+            FnOnce(
+                Keypair,
+            )
+                -> BlendBehaviour<NeverFailingProofsVerifier, TestObservationWindowProvider>,
     {
         let (swarm_message_sender, swarm_message_receiver) = mpsc::channel(100);
         let (incoming_message_sender, incoming_message_receiver) = broadcast::channel(100);
@@ -143,7 +147,9 @@ impl BlendBehaviourBuilder {
         self
     }
 
-    pub fn build(self) -> BlendBehaviour<TestObservationWindowProvider> {
+    pub fn build(
+        self,
+    ) -> BlendBehaviour<NeverFailingProofsVerifier, TestObservationWindowProvider> {
         let observation_window_values = self
             .observation_window
             .unwrap_or((Duration::from_secs(1), u64::MIN..=u64::MAX));
@@ -168,6 +174,8 @@ impl BlendBehaviourBuilder {
                 self.membership,
                 self.peer_id,
                 PROTOCOL_NAME,
+                mock_session_info().into(),
+                NeverFailingProofsVerifier,
             ),
             limits: connection_limits::Behaviour::new(
                 connection_limits::ConnectionLimits::default(),
@@ -215,7 +223,7 @@ pub trait SwarmExt: libp2p_swarm_test::SwarmExt {
 }
 
 #[async_trait]
-impl SwarmExt for Swarm<BlendBehaviour<TestObservationWindowProvider>> {
+impl SwarmExt for Swarm<BlendBehaviour<NeverFailingProofsVerifier, TestObservationWindowProvider>> {
     async fn listen_and_return_membership_entry(
         &mut self,
         addr: Option<Multiaddr>,

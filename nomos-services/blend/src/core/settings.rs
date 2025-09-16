@@ -98,7 +98,7 @@ impl<BackendSettings> BlendConfig<BackendSettings> {
                 let settings = settings.clone();
                 async move {
                     match event {
-                        SessionEvent::NewSession(membership) => {
+                        SessionEvent::NewSession(membership, _) => {
                             Some(settings.scheduler.cover.session_quota(
                                 &settings.crypto,
                                 &settings.time,
@@ -138,12 +138,12 @@ impl<BackendSettings> BlendConfig<BackendSettings> {
 #[cfg(test)]
 mod tests {
     use futures::FutureExt as _;
-    use nomos_blend_message::crypto::Ed25519PrivateKey;
+    use nomos_blend_message::crypto::keys::Ed25519PrivateKey;
     use tokio::sync::mpsc;
     use tokio_stream::wrappers::ReceiverStream;
 
     use super::*;
-    use crate::test_utils::membership::membership;
+    use crate::{core::mock_session_info, test_utils::membership::membership};
 
     #[tokio::test]
     async fn session_info_stream() {
@@ -168,10 +168,10 @@ mod tests {
 
         // Feed a new session event with a bigger membership.
         session_sender
-            .send(SessionEvent::NewSession(membership(
-                &[NodeId(0), NodeId(1)],
-                NodeId(0),
-            )))
+            .send(SessionEvent::NewSession(
+                membership(&[NodeId(0), NodeId(1)], NodeId(0)),
+                mock_session_info(),
+            ))
             .await
             .unwrap();
         // Expect a new session info with session number 1.
@@ -197,7 +197,7 @@ mod tests {
         BlendConfig {
             backend: (),
             crypto: CryptographicProcessorSettings {
-                signing_private_key: Ed25519PrivateKey::generate(),
+                non_ephemeral_signing_key: Ed25519PrivateKey::generate(),
                 num_blend_layers: 1,
             },
             scheduler: SchedulerSettingsExt {

@@ -16,11 +16,19 @@ use backends::BlendBackend;
 use fork_stream::StreamExt as _;
 use futures::{future::join_all, StreamExt as _};
 use network::NetworkAdapter;
-use nomos_blend_message::{crypto::random_sized_bytes, encap::DecapsulationOutput, PayloadType};
-use nomos_blend_network::EncapsulatedMessageWithValidatedPublicHeader;
+use nomos_blend_message::{
+    crypto::random_sized_bytes,
+    encap::{decapsulated::DecapsulationOutput, ProofsVerifier as ProofsVerifierTrait},
+    PayloadType,
+};
 use nomos_blend_scheduling::{
     membership::Membership,
-    message_blend::crypto::CryptographicProcessor,
+    message_blend::{
+        crypto::{
+            IncomingEncapsulatedMessageWithValidatedPublicHeader, SessionCryptographicProcessor,
+        },
+        ProofsGenerator as ProofsGeneratorTrait, SessionInfo,
+    },
     message_scheduler::{round_info::RoundInfo, MessageScheduler},
     session::{SessionEvent, UninitializedSessionEventStream},
 };
@@ -60,19 +68,42 @@ const LOG_TARGET: &str = "blend::service::core";
 /// independent of each other. For example, the blend backend can use the
 /// libp2p network stack, while the network adapter can use the other network
 /// backend.
-pub struct BlendService<Backend, NodeId, Network, MembershipAdapter, RuntimeServiceId>
-where
-    Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId>,
+pub struct BlendService<
+    Backend,
+    NodeId,
+    Network,
+    MembershipAdapter,
+    ProofsGenerator,
+    ProofsVerifier,
+    RuntimeServiceId,
+> where
+    Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId>,
     Network: NetworkAdapter<RuntimeServiceId>,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-    _phantom: PhantomData<(Backend, MembershipAdapter)>,
+    _phantom: PhantomData<(Backend, MembershipAdapter, ProofsGenerator)>,
 }
 
-impl<Backend, NodeId, Network, MembershipAdapter, RuntimeServiceId> ServiceData
-    for BlendService<Backend, NodeId, Network, MembershipAdapter, RuntimeServiceId>
+impl<
+        Backend,
+        NodeId,
+        Network,
+        MembershipAdapter,
+        ProofsGenerator,
+        ProofsVerifier,
+        RuntimeServiceId,
+    > ServiceData
+    for BlendService<
+        Backend,
+        NodeId,
+        Network,
+        MembershipAdapter,
+        ProofsGenerator,
+        ProofsVerifier,
+        RuntimeServiceId,
+    >
 where
-    Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId>,
+    Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId>,
     Network: NetworkAdapter<RuntimeServiceId>,
 {
     type Settings = BlendConfig<Backend::Settings>;
@@ -82,14 +113,32 @@ where
 }
 
 #[async_trait]
-impl<Backend, NodeId, Network, MembershipAdapter, RuntimeServiceId> ServiceCore<RuntimeServiceId>
-    for BlendService<Backend, NodeId, Network, MembershipAdapter, RuntimeServiceId>
+impl<
+        Backend,
+        NodeId,
+        Network,
+        MembershipAdapter,
+        ProofsGenerator,
+        ProofsVerifier,
+        RuntimeServiceId,
+    > ServiceCore<RuntimeServiceId>
+    for BlendService<
+        Backend,
+        NodeId,
+        Network,
+        MembershipAdapter,
+        ProofsGenerator,
+        ProofsVerifier,
+        RuntimeServiceId,
+    >
 where
-    Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId> + Send + Sync,
+    Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId> + Send + Sync,
     NodeId: Clone + Send + Eq + Hash + Sync + 'static,
     Network: NetworkAdapter<RuntimeServiceId, BroadcastSettings: Unpin> + Send + Sync,
     MembershipAdapter: membership::Adapter<NodeId = NodeId, Error: Send + Sync + 'static> + Send,
     membership::ServiceMessage<MembershipAdapter>: Send + Sync + 'static,
+    ProofsGenerator: ProofsGeneratorTrait,
+    ProofsVerifier: ProofsVerifierTrait,
     RuntimeServiceId: AsServiceId<NetworkService<Network::Backend, RuntimeServiceId>>
         + AsServiceId<<MembershipAdapter as membership::Adapter>::Service>
         + AsServiceId<Self>
@@ -140,7 +189,7 @@ where
             overwatch_handle
                 .relay::<<MembershipAdapter as membership::Adapter>::Service>()
                 .await?,
-            blend_config.crypto.signing_private_key.public_key(),
+            blend_config.crypto.non_ephemeral_signing_key.public_key(),
         )
         .subscribe()
         .await
@@ -163,10 +212,11 @@ where
 
         let mut session_stream = session_stream.fork();
 
-        let mut crypto_processor = CoreCryptographicProcessor::try_new_with_core_condition_check(
+        let mut crypto_processor = CoreCryptographicProcessor::<_, ProofsGenerator, ProofsVerifier>::try_new_with_core_condition_check(
             current_membership.clone(),
             blend_config.minimum_network_size,
             &blend_config.crypto,
+            mock_session_info()
         )
         .expect("The initial membership should satisfy the core node condition");
 
@@ -181,13 +231,16 @@ where
                 blend_config.scheduler_settings(),
             );
 
-        let mut backend = <Backend as BlendBackend<NodeId, BlakeRng, RuntimeServiceId>>::new(
-            blend_config.clone(),
-            overwatch_handle.clone(),
-            current_membership,
-            session_stream.clone().boxed(),
-            BlakeRng::from_entropy(),
-        );
+        let mut backend =
+            <Backend as BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId>>::new(
+                blend_config.clone(),
+                overwatch_handle.clone(),
+                current_membership,
+                session_stream.clone().boxed(),
+                BlakeRng::from_entropy(),
+                mock_session_info().into(),
+                ProofsVerifier::new(),
+            );
 
         // Yields new messages received via Blend peers.
         let mut blend_messages = backend.listen_to_incoming_messages();
@@ -231,26 +284,62 @@ where
     }
 }
 
+fn mock_session_info() -> SessionInfo {
+    use groth16::Field as _;
+    use nomos_blend_scheduling::message_blend::{PrivateInfo, PublicInfo};
+    use nomos_core::crypto::ZkHash;
+
+    SessionInfo {
+        public: PublicInfo {
+            core_quota: 0,
+            core_root: ZkHash::ZERO,
+            leader_quota: 0,
+            pol_epoch_nonce: ZkHash::ZERO,
+            pol_ledger_aged: ZkHash::ZERO,
+            session: 0,
+            total_stake: 0,
+        },
+        private: PrivateInfo {
+            aged_path: vec![],
+            aged_selector: vec![],
+            core_path: vec![],
+            core_path_selectors: vec![],
+            core_sk: ZkHash::ZERO,
+            note_value: 0,
+            output_number: 0,
+            pol_secret_key: ZkHash::ZERO,
+            slot: 0,
+            slot_secret: ZkHash::ZERO,
+            slot_secret_path: vec![],
+            starting_slot: 0,
+            transaction_hash: ZkHash::ZERO,
+        },
+    }
+}
+
 /// Handles a [`SessionEvent`].
 ///
 /// It consumes the previous cryptographic processor and creates a new one
 /// on a new session with its new membership.
 /// It ignores the transition period expiration event and returns the previous
 /// cryptographic processor as is.
-fn handle_session_event<NodeId, BackendSettings>(
+fn handle_session_event<NodeId, ProofsGenerator, ProofsVerifier, BackendSettings>(
     event: SessionEvent<Membership<NodeId>>,
-    cryptographic_processor: CoreCryptographicProcessor<NodeId>,
+    cryptographic_processor: CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
     settings: &BlendConfig<BackendSettings>,
-) -> Result<CoreCryptographicProcessor<NodeId>, Error>
+) -> Result<CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>, Error>
 where
     NodeId: Eq + Hash + Send,
+    ProofsGenerator: ProofsGeneratorTrait,
+    ProofsVerifier: ProofsVerifierTrait,
 {
     match event {
-        SessionEvent::NewSession(membership) => Ok(
+        SessionEvent::NewSession(membership, session_info) => Ok(
             CoreCryptographicProcessor::try_new_with_core_condition_check(
                 membership,
                 settings.minimum_network_size,
                 &settings.crypto,
+                session_info,
             )?,
         ),
         SessionEvent::TransitionPeriodExpired => Ok(cryptographic_processor),
@@ -271,17 +360,24 @@ async fn handle_local_data_message<
     Backend,
     SessionClock,
     BroadcastSettings,
+    ProofsGenerator,
+    ProofsVerifier,
     RuntimeServiceId,
 >(
     local_data_message: ServiceMessage<BroadcastSettings>,
-    cryptographic_processor: &mut CryptographicProcessor<NodeId, Rng>,
+    cryptographic_processor: &mut SessionCryptographicProcessor<
+        NodeId,
+        ProofsGenerator,
+        ProofsVerifier,
+    >,
     backend: &Backend,
     scheduler: &mut MessageScheduler<SessionClock, Rng, ProcessedMessage<BroadcastSettings>>,
 ) where
     NodeId: Eq + Hash + Send,
     Rng: RngCore + Send,
-    Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId> + Sync,
+    Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId> + Sync,
     BroadcastSettings: Serialize + for<'de> Deserialize<'de> + Send,
+    ProofsGenerator: ProofsGeneratorTrait,
 {
     let ServiceMessage::Blend(message_payload) = local_data_message;
 
@@ -292,6 +388,7 @@ async fn handle_local_data_message<
 
     let Ok(wrapped_message) = cryptographic_processor
         .encapsulate_data_payload(&serialized_data_message)
+        .await
         .inspect_err(|e| {
             tracing::error!(target: LOG_TARGET, "Failed to wrap message: {e:?}");
         })
@@ -304,14 +401,26 @@ async fn handle_local_data_message<
 
 /// Processes an already unwrapped and validated Blend message received from
 /// a core or edge peer.
-fn handle_incoming_blend_message<Rng, NodeId, SessionClock, BroadcastSettings>(
-    validated_encapsulated_message: EncapsulatedMessageWithValidatedPublicHeader,
+fn handle_incoming_blend_message<
+    Rng,
+    NodeId,
+    SessionClock,
+    BroadcastSettings,
+    ProofsGenerator,
+    ProofsVerifier,
+>(
+    validated_encapsulated_message: IncomingEncapsulatedMessageWithValidatedPublicHeader,
     scheduler: &mut MessageScheduler<SessionClock, Rng, ProcessedMessage<BroadcastSettings>>,
-    cryptographic_processor: &CryptographicProcessor<NodeId, Rng>,
+    cryptographic_processor: &SessionCryptographicProcessor<
+        NodeId,
+        ProofsGenerator,
+        ProofsVerifier,
+    >,
 ) where
     BroadcastSettings: Serialize + for<'de> Deserialize<'de> + Send,
+    ProofsVerifier: ProofsVerifierTrait,
 {
-    let Ok(decapsulated_message) = cryptographic_processor.decapsulate_message(validated_encapsulated_message.into_inner()).inspect_err(|e| {
+    let Ok(decapsulated_message) = cryptographic_processor.decapsulate_message(validated_encapsulated_message).inspect_err(|e| {
         tracing::debug!(target: LOG_TARGET, "Failed to decapsulate received message with error {e:?}");
     }) else {
         return;
@@ -350,19 +459,32 @@ fn handle_incoming_blend_message<Rng, NodeId, SessionClock, BroadcastSettings>(
 /// using the configured network adapter. For encapsulated messages as well as
 /// the optional cover message, they are forwarded to the rest of the connected
 /// Blend peers.
-async fn handle_release_round<NodeId, Rng, Backend, NetAdapter, RuntimeServiceId>(
+async fn handle_release_round<
+    NodeId,
+    Rng,
+    Backend,
+    NetAdapter,
+    ProofsGenerator,
+    ProofsVerifier,
+    RuntimeServiceId,
+>(
     RoundInfo {
         cover_message_generation_flag,
         processed_messages,
     }: RoundInfo<ProcessedMessage<NetAdapter::BroadcastSettings>>,
-    cryptographic_processor: &mut CryptographicProcessor<NodeId, Rng>,
+    cryptographic_processor: &mut SessionCryptographicProcessor<
+        NodeId,
+        ProofsGenerator,
+        ProofsVerifier,
+    >,
     rng: &mut Rng,
     backend: &Backend,
     network_adapter: &NetAdapter,
 ) where
     NodeId: Eq + Hash,
     Rng: RngCore + Send,
-    Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId> + Sync,
+    Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId> + Sync,
+    ProofsGenerator: ProofsGeneratorTrait,
     NetAdapter: NetworkAdapter<RuntimeServiceId> + Sync,
 {
     let mut processed_messages_relay_futures = processed_messages
@@ -384,6 +506,7 @@ async fn handle_release_round<NodeId, Rng, Backend, NetAdapter, RuntimeServiceId
     if cover_message_generation_flag.is_some() {
         let cover_message = cryptographic_processor
             .encapsulate_cover_payload(&random_sized_bytes::<{ size_of::<u32>() }>())
+            .await
             .expect("Should not fail to generate new cover message");
         processed_messages_relay_futures.push(Box::new(backend.publish(cover_message)));
     }

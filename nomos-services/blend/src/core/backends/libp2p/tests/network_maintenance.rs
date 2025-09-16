@@ -1,7 +1,7 @@
 use core::time::Duration;
 
 use libp2p::core::{Endpoint, Multiaddr};
-use nomos_blend_message::crypto::Ed25519PrivateKey;
+use nomos_blend_message::crypto::keys::Ed25519PrivateKey;
 use nomos_blend_network::core::with_core::behaviour::NegotiatedPeerState;
 use nomos_blend_scheduling::membership::{Membership, Node};
 use test_log::test;
@@ -33,7 +33,7 @@ async fn on_unhealthy_peer() {
         Node {
             id: *unhealthy_swarm.local_peer_id(),
             address: Multiaddr::empty(),
-            public_key: Ed25519PrivateKey::generate().public_key(),
+            public_key: [0; _].try_into().unwrap(),
         },
     ]);
     let TestSwarm {
