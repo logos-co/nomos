@@ -5,8 +5,10 @@ use nomos_mempool::{
     network::adapters::libp2p::Settings as AdapterSettings,
     processor::tx::SignedTxProcessorSettings, tx::settings::TxMempoolSettings,
 };
-use nomos_node::{Config, Nomos, NomosServiceSettings, RuntimeServiceId, config::CliArgs};
-use overwatch::overwatch::{Error as OverwatchError, Overwatch, OverwatchRunner};
+use nomos_node::{
+    config::CliArgs, get_services_to_start, Config, Nomos, NomosServiceSettings, RuntimeServiceId,
+};
+use overwatch::overwatch::OverwatchRunner;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -79,33 +81,4 @@ async fn main() -> Result<()> {
 
     app.wait_finished().await;
     Ok(())
-}
-
-async fn get_services_to_start(
-    app: &Overwatch<RuntimeServiceId>,
-    must_blend_service_group_start: bool,
-    must_da_service_group_start: bool,
-) -> Result<Vec<RuntimeServiceId>, OverwatchError> {
-    let mut service_ids = app.handle().retrieve_service_ids().await?;
-
-    // Exclude core and edge blend services, which will be started
-    // on demand by the blend service.
-    let blend_inner_service_ids = [RuntimeServiceId::BlendCore, RuntimeServiceId::BlendEdge];
-    service_ids.retain(|value| !blend_inner_service_ids.contains(value));
-
-    if !must_blend_service_group_start {
-        service_ids.retain(|value| value != &RuntimeServiceId::Blend);
-    }
-
-    if !must_da_service_group_start {
-        let da_service_ids = [
-            RuntimeServiceId::DaVerifier,
-            RuntimeServiceId::DaSampling,
-            RuntimeServiceId::DaNetwork,
-            RuntimeServiceId::ClMempool,
-        ];
-        service_ids.retain(|value| !da_service_ids.contains(value));
-    }
-
-    Ok(service_ids)
 }
