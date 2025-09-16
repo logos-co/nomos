@@ -157,7 +157,7 @@ mod keys {
     /// backend uses [`PreloadKey`] for the actual operations.
     ///
     /// TODO: Ideally, find a way to remove this.
-    #[derive(Debug, PartialEq, Eq)]
+    #[derive(Debug, PartialEq, Eq, ZeroizeOnDrop)]
     pub enum PreloadKeyKind {
         Ed25519,
     }

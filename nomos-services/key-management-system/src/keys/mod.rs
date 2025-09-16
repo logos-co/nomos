@@ -2,6 +2,9 @@ mod ed25519;
 mod errors;
 mod secured_key;
 
+use serde::{Deserialize, Serialize};
+use zeroize::ZeroizeOnDrop;
+
 use crate::encodings::Encoding;
 pub use crate::keys::{
     ed25519::Ed25519Key,
@@ -10,10 +13,7 @@ pub use crate::keys::{
 };
 
 /// Represents a cryptographic key provided by the KMS crate.
-#[expect(
-    dead_code,
-    reason = "KMS Backend is not implemented yet. This will be removed once it is implemented."
-)]
+#[derive(Serialize, Deserialize, ZeroizeOnDrop)]
 pub enum Key {
     Ed25519(Ed25519Key),
 }
