@@ -27,7 +27,8 @@ impl StorageMembershipApi for RocksBackend {
         session_id: SessionNumber,
         providers: &HashMap<ProviderId, BTreeSet<Locator>>,
     ) -> Result<(), DynError> {
-        let service_bytes = (service_type as u32).to_be_bytes();
+        let service_bytes =
+            <()>::serialize(&service_type).expect("Serialization of ServiceType should not fail");
         let key = key_bytes(MEMBERSHIP_ACTIVE_SESSION_PREFIX, service_bytes);
 
         let session_data = (session_id, providers);
@@ -53,7 +54,8 @@ impl StorageMembershipApi for RocksBackend {
         &mut self,
         service_type: ServiceType,
     ) -> Result<Option<MembershipProviders>, DynError> {
-        let service_bytes = (service_type as u32).to_be_bytes();
+        let service_bytes =
+            <()>::serialize(&service_type).expect("Serialization of ServiceType should not fail");
         let key = key_bytes(MEMBERSHIP_ACTIVE_SESSION_PREFIX, service_bytes);
 
         let data = self.load(&key).await?;
@@ -128,7 +130,8 @@ impl StorageMembershipApi for RocksBackend {
         session_id: SessionNumber,
         providers: &HashMap<ProviderId, BTreeSet<Locator>>,
     ) -> Result<(), DynError> {
-        let service_bytes = (service_type as u32).to_be_bytes();
+        let service_bytes =
+            <()>::serialize(&service_type).expect("Serialization of ServiceType should not fail");
         let key = key_bytes(MEMBERSHIP_FORMING_SESSION_PREFIX, service_bytes);
 
         let session_data = (session_id, providers);
@@ -154,7 +157,8 @@ impl StorageMembershipApi for RocksBackend {
         &mut self,
         service_type: ServiceType,
     ) -> Result<Option<MembershipProviders>, DynError> {
-        let service_bytes = (service_type as u32).to_be_bytes();
+        let service_bytes =
+            <()>::serialize(&service_type).expect("Serialization of ServiceType should not fail");
         let key = key_bytes(MEMBERSHIP_FORMING_SESSION_PREFIX, service_bytes);
 
         let data = self.load(&key).await?;
