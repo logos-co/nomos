@@ -17,18 +17,18 @@ use overwatch::{
 };
 use tokio::sync::oneshot;
 
-use crate::{backend::KMSBackend, keys::secured_key::SecuredKey};
+use crate::{backend::KMSBackend, keys::SecuredKey};
 
 // TODO: Use [`AsyncFnMut`](https://doc.rust-lang.org/stable/std/ops/trait.AsyncFnMut.html#tymethod.async_call_mut) once it is stabilized.
 pub type KMSOperator<Encoding, Error> = Box<
     dyn FnMut(
-            &mut dyn SecuredKey<Encoding = Encoding, Error = Error>,
+            &mut dyn SecuredKey<EncodingFormat = Encoding, Error = Error>,
         ) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send + Sync>>
         + Send
         + Sync,
 >;
 pub type KMSOperatorKey<Key> =
-    KMSOperator<<Key as SecuredKey>::Encoding, <Key as SecuredKey>::Error>;
+    KMSOperator<<Key as SecuredKey>::EncodingFormat, <Key as SecuredKey>::Error>;
 
 pub enum KMSMessage<Backend>
 where
@@ -41,17 +41,17 @@ where
     },
     PublicKey {
         key_id: Backend::KeyId,
-        reply_channel: oneshot::Sender<<Backend::SupportedKey as SecuredKey>::Encoding>,
+        reply_channel: oneshot::Sender<<Backend::SupportedKey as SecuredKey>::EncodingFormat>,
     },
     Sign {
         key_id: Backend::KeyId,
-        data: <Backend::SupportedKey as SecuredKey>::Encoding,
-        reply_channel: oneshot::Sender<<Backend::SupportedKey as SecuredKey>::Encoding>,
+        data: <Backend::SupportedKey as SecuredKey>::EncodingFormat,
+        reply_channel: oneshot::Sender<<Backend::SupportedKey as SecuredKey>::EncodingFormat>,
     },
     Execute {
         key_id: Backend::KeyId,
         operator: KMSOperator<
-            <Backend::SupportedKey as SecuredKey>::Encoding,
+            <Backend::SupportedKey as SecuredKey>::EncodingFormat,
             <Backend::SupportedKey as SecuredKey>::Error,
         >,
     },
@@ -122,7 +122,7 @@ where
     Backend: KMSBackend + Send + 'static,
     Backend::KeyId: Debug + Send,
     Backend::SupportedKey: Debug + Send,
-    <Backend::SupportedKey as SecuredKey>::Encoding: Debug + Send,
+    <Backend::SupportedKey as SecuredKey>::EncodingFormat: Debug + Send,
     Backend::Settings: Clone + Send + Sync,
     Backend::Error: Debug + Send,
     RuntimeServiceId: AsServiceId<Self> + Display + Send,

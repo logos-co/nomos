@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::encodings::EncodingFormat;
+use crate::encodings::Encoding;
 
 /// # Consistency
 ///
@@ -8,12 +8,12 @@ use crate::encodings::EncodingFormat;
 ///
 /// # Consistency
 ///
-/// Each variant corresponds directly to a variant in [`EncodingFormat`].
-/// The variant names must match exactly with those in [`EncodingFormat`] for
+/// Each variant corresponds directly to a variant in [`Encoding`].
+/// The variant names must match exactly with those in [`Encoding`] for
 /// consistency, as this is relied upon by the [`Display`] implementation and
 /// conversion logic.
 ///
-/// To know more, read [`EncodingFormat`]'s `Consistency` section.
+/// To know more, read [`Encoding`]'s `Consistency` section.
 ///
 /// # Display
 ///
@@ -24,21 +24,21 @@ use crate::encodings::EncodingFormat;
 /// # Example
 ///
 /// ```
-/// use crate::encodings::{EncodingFormat, kind::EncodingKind};
+/// use crate::encodings::{Encoding, EncodingKind};
 ///
-/// let format = EncodingFormat::Bytes(vec![1, 2, 3]);
-/// let kind = EncodingKind::from(&format);
-/// assert_eq!(kind.to_string(), "EncodingKind::Bytes(crate::encodings::Bytes)");
+/// let encoding = Encoding::Bytes(vec![1, 2, 3]);
+/// let encoding_kind = EncodingKind::from(&encoding);
+/// assert_eq!(encoding_kind.to_string(), "EncodingKind::Bytes(crate::encodings::Bytes)");
 /// ```
 #[derive(Debug)]
 pub enum EncodingKind {
     Bytes,
 }
 
-impl From<&EncodingFormat> for EncodingKind {
-    fn from(value: &EncodingFormat) -> Self {
+impl From<&Encoding> for EncodingKind {
+    fn from(value: &Encoding) -> Self {
         match value {
-            EncodingFormat::Bytes(_) => Self::Bytes,
+            Encoding::Bytes(_) => Self::Bytes,
         }
     }
 }
