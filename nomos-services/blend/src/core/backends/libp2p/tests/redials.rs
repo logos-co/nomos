@@ -12,7 +12,7 @@ use crate::{
         tests::utils::{BlendBehaviourBuilder, SwarmBuilder, TestSwarm},
     },
     mock_session_info,
-    test_utils::crypto::NeverFailingProofsVerifier,
+    test_utils::crypto::MockProofsVerifier,
 };
 
 #[test(tokio::test)]
@@ -23,7 +23,7 @@ async fn core_redial_same_peer() {
     } = SwarmBuilder::default().build(|id| {
         BlendBehaviourBuilder::new(
             &id,
-            (NeverFailingProofsVerifier, mock_session_info().into()),
+            (MockProofsVerifier, mock_session_info().into()),
         )
         .build()
     });
@@ -97,7 +97,7 @@ async fn core_redial_different_peer_after_redial_limit() {
     } = SwarmBuilder::default().build(|id| {
         BlendBehaviourBuilder::new(
             &id,
-            (NeverFailingProofsVerifier, mock_session_info().into()),
+            (MockProofsVerifier, mock_session_info().into()),
         )
         .build()
     });
@@ -116,7 +116,7 @@ async fn core_redial_different_peer_after_redial_limit() {
         .build(|id| {
             BlendBehaviourBuilder::new(
                 &id,
-                (NeverFailingProofsVerifier, mock_session_info().into()),
+                (MockProofsVerifier, mock_session_info().into()),
             )
             .with_membership(membership)
             .build()

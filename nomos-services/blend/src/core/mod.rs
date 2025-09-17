@@ -52,7 +52,7 @@ use crate::{
     },
     membership,
     message::{NetworkMessage, ProcessedMessage, ServiceMessage},
-    mock_session_info, mock_session_stream,
+    mock_session_stream,
     settings::FIRST_SESSION_READY_TIMEOUT,
 };
 
@@ -222,7 +222,7 @@ where
                 current_membership.clone(),
                 blend_config.minimum_network_size,
                 &blend_config.crypto,
-                current_session_info,
+                current_session_info.clone(),
                 proofs_verifier.clone(),
             )
             .expect("The initial membership should satisfy the core node condition");
@@ -259,8 +259,8 @@ where
                     })
                     .boxed(),
                 BlakeRng::from_entropy(),
-                mock_session_info().into(),
-                ProofsVerifier::new(),
+                current_session_info.into(),
+                proofs_verifier,
             );
 
         // Yields new messages received via Blend peers.

@@ -16,7 +16,7 @@ use crate::{
         SwarmBuilder as EdgeSwarmBuilder, TestSwarm as EdgeTestSwarm,
     },
     mock_session_info,
-    test_utils::{crypto::NeverFailingProofsVerifier, TestEncapsulatedMessage},
+    test_utils::{crypto::MockProofsVerifier, TestEncapsulatedMessage},
 };
 
 #[test(tokio::test)]
@@ -126,7 +126,7 @@ async fn edge_redial_different_peer_after_redial_limit() {
         .build(|id| {
             BlendBehaviourBuilder::new(
                 &id,
-                (NeverFailingProofsVerifier, mock_session_info().into()),
+                (MockProofsVerifier, mock_session_info().into()),
             )
             .with_empty_membership()
             .build()

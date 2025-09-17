@@ -40,7 +40,7 @@ use crate::{
         backends::libp2p::{behaviour::BlendBehaviour, swarm::BlendSwarmMessage, BlendSwarm},
         settings::BlendConfig,
     },
-    test_utils::{crypto::NeverFailingProofsVerifier, PROTOCOL_NAME},
+    test_utils::{crypto::MockProofsVerifier, PROTOCOL_NAME},
 };
 
 pub type InnerSwarm<ProofsVerifier> = BlendSwarm<
@@ -238,7 +238,7 @@ pub trait SwarmExt: libp2p_swarm_test::SwarmExt {
 }
 
 #[async_trait]
-impl SwarmExt for Swarm<BlendBehaviour<NeverFailingProofsVerifier, TestObservationWindowProvider>> {
+impl SwarmExt for Swarm<BlendBehaviour<MockProofsVerifier, TestObservationWindowProvider>> {
     async fn listen_and_return_membership_entry(
         &mut self,
         addr: Option<Multiaddr>,

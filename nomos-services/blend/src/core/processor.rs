@@ -99,62 +99,14 @@ pub enum Error {
 
 #[cfg(test)]
 mod tests {
-    use async_trait::async_trait;
-    use groth16::Field as _;
-    use nomos_blend_scheduling::message_blend::{BlendProof, PrivateInfo, PublicInfo};
-    use nomos_core::crypto::ZkHash;
-
     use super::*;
-    use crate::test_utils::{
-        crypto::NeverFailingProofsVerifier,
-        membership::{key, membership},
+    use crate::{
+        mock_session_info,
+        test_utils::{
+            crypto::{MockProofsGenerator, MockProofsVerifier},
+            membership::{key, membership},
+        },
     };
-
-    fn mock_session_info() -> SessionInfo {
-        SessionInfo {
-            public: PublicInfo {
-                core_quota: 0,
-                core_root: ZkHash::ZERO,
-                leader_quota: 0,
-                pol_epoch_nonce: ZkHash::ZERO,
-                pol_ledger_aged: ZkHash::ZERO,
-                session: 0,
-                total_stake: 0,
-            },
-            private: PrivateInfo {
-                aged_path: vec![],
-                aged_selector: vec![],
-                core_path: vec![],
-                core_path_selectors: vec![],
-                core_sk: ZkHash::ZERO,
-                note_value: 0,
-                output_number: 0,
-                pol_secret_key: ZkHash::ZERO,
-                slot: 0,
-                slot_secret: ZkHash::ZERO,
-                slot_secret_path: vec![],
-                starting_slot: 0,
-                transaction_hash: ZkHash::ZERO,
-            },
-        }
-    }
-
-    struct MockProofsGenerator;
-
-    #[async_trait]
-    impl ProofsGeneratorTrait for MockProofsGenerator {
-        fn new(_session_info: SessionInfo) -> Self {
-            Self
-        }
-
-        async fn get_next_core_proof(&mut self) -> Option<BlendProof> {
-            None
-        }
-
-        async fn get_next_leadership_proof(&mut self) -> Option<BlendProof> {
-            None
-        }
-    }
 
     #[test]
     fn try_new_with_valid_membership() {
@@ -165,7 +117,7 @@ mod tests {
             NonZeroU64::new(1).unwrap(),
             &settings(local_id),
             mock_session_info(),
-            NeverFailingProofsVerifier,
+            MockProofsVerifier,
         )
         .unwrap();
     }
@@ -179,7 +131,7 @@ mod tests {
             NonZeroU64::new(2).unwrap(),
             &settings(local_id),
             mock_session_info(),
-            NeverFailingProofsVerifier
+            MockProofsVerifier
         );
         assert!(matches!(result, Err(Error::NetworkIsTooSmall(1))));
     }
@@ -193,7 +145,7 @@ mod tests {
             NonZeroU64::new(1).unwrap(),
             &settings(local_id),
             mock_session_info(),
-            NeverFailingProofsVerifier
+            MockProofsVerifier
         );
         assert!(matches!(result, Err(Error::LocalIsNotCoreNode)));
     }

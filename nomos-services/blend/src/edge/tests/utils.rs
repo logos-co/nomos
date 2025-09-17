@@ -5,19 +5,10 @@ use std::{
     time::Duration,
 };
 
-use async_trait::async_trait;
 use futures::StreamExt as _;
-use nomos_blend_message::crypto::{
-    keys::Ed25519PrivateKey,
-    proofs::{quota::ProofOfQuota, selection::ProofOfSelection},
-};
 use nomos_blend_scheduling::{
-    membership::Membership,
-    message_blend::{
-        BlendProof, ProofsGenerator, SessionCryptographicProcessorSettings, SessionInfo,
-    },
-    session::UninitializedSessionEventStream,
-    EncapsulatedMessage,
+    membership::Membership, message_blend::SessionCryptographicProcessorSettings,
+    session::UninitializedSessionEventStream, EncapsulatedMessage,
 };
 use overwatch::overwatch::{commands::OverwatchCommand, OverwatchHandle};
 use rand::{rngs::OsRng, RngCore};
@@ -28,33 +19,8 @@ use crate::{
     edge::{backends::BlendBackend, handlers::Error, run, settings::BlendConfig},
     mock_session_stream,
     settings::{TimingSettings, FIRST_SESSION_READY_TIMEOUT},
-    test_utils::membership::key,
+    test_utils::{crypto::MockProofsGenerator, membership::key},
 };
-
-pub fn mock_blend_proof() -> BlendProof {
-    BlendProof {
-        proof_of_quota: ProofOfQuota::from_bytes_unchecked([0; _]),
-        proof_of_selection: ProofOfSelection::from_bytes_unchecked([0; _]),
-        ephemeral_signing_key: Ed25519PrivateKey::generate(),
-    }
-}
-
-pub struct MockProofsGenerator;
-
-#[async_trait]
-impl ProofsGenerator for MockProofsGenerator {
-    fn new(_session_info: SessionInfo) -> Self {
-        Self
-    }
-
-    async fn get_next_core_proof(&mut self) -> Option<BlendProof> {
-        Some(mock_blend_proof())
-    }
-
-    async fn get_next_leadership_proof(&mut self) -> Option<BlendProof> {
-        Some(mock_blend_proof())
-    }
-}
 
 pub async fn spawn_run(
     local_node: NodeId,

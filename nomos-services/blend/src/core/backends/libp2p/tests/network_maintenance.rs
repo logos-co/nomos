@@ -12,7 +12,7 @@ use crate::{
         BlendBehaviourBuilder, SwarmBuilder, SwarmExt as _, TestSwarm,
     },
     mock_session_info,
-    test_utils::{crypto::NeverFailingProofsVerifier, TestEncapsulatedMessage},
+    test_utils::{crypto::MockProofsVerifier, TestEncapsulatedMessage},
 };
 
 #[test(tokio::test)]
@@ -23,7 +23,7 @@ async fn on_unhealthy_peer() {
     } = SwarmBuilder::default().build(|id| {
         BlendBehaviourBuilder::new(
             &id,
-            (NeverFailingProofsVerifier, mock_session_info().into()),
+            (MockProofsVerifier, mock_session_info().into()),
         )
         .build()
     });
@@ -34,7 +34,7 @@ async fn on_unhealthy_peer() {
     } = SwarmBuilder::default().build(|id| {
         BlendBehaviourBuilder::new(
             &id,
-            (NeverFailingProofsVerifier, mock_session_info().into()),
+            (MockProofsVerifier, mock_session_info().into()),
         )
         .build()
     });
@@ -57,7 +57,7 @@ async fn on_unhealthy_peer() {
         .build(|id| {
             BlendBehaviourBuilder::new(
                 &id,
-                (NeverFailingProofsVerifier, mock_session_info().into()),
+                (MockProofsVerifier, mock_session_info().into()),
             )
             .with_membership(membership)
             // Listening swarm expects at least one message per observation window to keep
@@ -123,7 +123,7 @@ async fn on_malicious_peer() {
     } = SwarmBuilder::default().build(|id| {
         BlendBehaviourBuilder::new(
             &id,
-            (NeverFailingProofsVerifier, mock_session_info().into()),
+            (MockProofsVerifier, mock_session_info().into()),
         )
         // We use `0` as the minimum message frequency so we know that the listening peer won't
         // be marked as unhealthy by this swarm.
@@ -137,7 +137,7 @@ async fn on_malicious_peer() {
     } = SwarmBuilder::default().build(|id| {
         BlendBehaviourBuilder::new(
             &id,
-            (NeverFailingProofsVerifier, mock_session_info().into()),
+            (MockProofsVerifier, mock_session_info().into()),
         )
         .build()
     });
@@ -160,7 +160,7 @@ async fn on_malicious_peer() {
         .build(|id| {
             BlendBehaviourBuilder::new(
                 &id,
-                (NeverFailingProofsVerifier, mock_session_info().into()),
+                (MockProofsVerifier, mock_session_info().into()),
             )
             .with_membership(membership)
             // Listening swarm expects at most one message per observation window to keep
