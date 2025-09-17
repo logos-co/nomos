@@ -32,6 +32,8 @@ mod errors {
 mod encodings {
     use std::fmt::Debug;
 
+    use nomos_utils::convert::TryFromRef;
+
     use super::*;
     use crate::encodings::{Bytes, EncodingFormat};
 
@@ -59,10 +61,10 @@ mod encodings {
 
     impl EncodingFormat for PreloadEncodingFormat {}
 
-    impl TryFrom<PreloadEncodingFormat> for Bytes {
+    impl TryFromRef<'_, PreloadEncodingFormat> for Bytes {
         type Error = errors::PreloadEncodingError; // TODO: Match with SecuredKeyAdapter::Error
 
-        fn try_from(value: PreloadEncodingFormat) -> Result<Self, Self::Error> {
+        fn try_from_ref(value: &PreloadEncodingFormat) -> Result<&Self, Self::Error> {
             match value {
                 PreloadEncodingFormat::Bytes(bytes) => Ok(bytes),
             }
@@ -97,12 +99,12 @@ mod keys {
         }
     }
 
-    impl SecuredKeyAdapter<PreloadEncodingFormat> for Ed25519Key {
+    impl SecuredKeyAdapter<'_, PreloadEncodingFormat> for Ed25519Key {
         type TargetError = PreloadKeyError;
 
         fn sign_adapted(
             &self,
-            data: PreloadEncodingFormat,
+            data: &PreloadEncodingFormat,
         ) -> Result<PreloadEncodingFormat, Self::TargetError> {
             match data {
                 PreloadEncodingFormat::Bytes(bytes) => {
@@ -134,7 +136,7 @@ mod keys {
         type EncodingFormat = PreloadEncodingFormat;
         type Error = PreloadKeyError;
 
-        fn sign(&self, data: Self::EncodingFormat) -> Result<Self::EncodingFormat, Self::Error> {
+        fn sign(&self, data: &Self::EncodingFormat) -> Result<Self::EncodingFormat, Self::Error> {
             match self {
                 Self::Ed25519(key) => key.sign_adapted(data),
             }
@@ -166,7 +168,7 @@ mod keys {
         type EncodingFormat = <PreloadKey as SecuredKey>::EncodingFormat;
         type Error = <PreloadKey as SecuredKey>::Error;
 
-        fn sign(&self, _data: Self::EncodingFormat) -> Result<Self::EncodingFormat, Self::Error> {
+        fn sign(&self, _data: &Self::EncodingFormat) -> Result<Self::EncodingFormat, Self::Error> {
             unimplemented!("Not needed.")
         }
 
@@ -251,7 +253,7 @@ mod backends {
             self.keys
                 .get(&key_id)
                 .ok_or(errors::PreloadBackendError::KeyNotRegistered(key_id))?
-                .sign(data)
+                .sign(&data)
                 .map_err(|error| DynError::from(format!("{error:?}")))
         }
 
@@ -318,7 +320,7 @@ mod tests {
 
         let data = Bytes::from("data");
         let wrapped_data = crate::encodings::Bytes::from(data);
-        let signature = key.sign(wrapped_data.clone()).unwrap();
+        let signature = key.sign(&wrapped_data).unwrap();
         let encoded_signature = PreloadEncodingFormat::Bytes(signature);
 
         let encoded_data = PreloadEncodingFormat::Bytes(wrapped_data);

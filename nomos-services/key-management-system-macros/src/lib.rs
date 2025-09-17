@@ -36,10 +36,10 @@ pub fn derive_simple_encoding(input: TokenStream) -> TokenStream {
             }
         }
 
-        // impl TryFrom<Encoding> for T
-        impl ::core::convert::TryFrom<#enum_path> for #ty_ident {
+        // impl TryFrom<&Encoding> for T
+        impl ::nomos_utils::convert::TryFromRef<'_, #enum_path> for #ty_ident {
             type Error = crate::encodings::EncodingError;
-            fn try_from(encoding: #enum_path) -> Result<Self, Self::Error> {
+            fn try_from_ref(encoding: &#enum_path) -> Result<&Self, Self::Error> {
                 if let #enum_path::#var_ident(inner) = encoding {
                     Ok(inner)
                 } else {
