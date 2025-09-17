@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::chain_inputs::{
     PoQInputsFromDataError,
-    PoQInputsFromDataError::{CoreQuotaLessThan20Bits, LeaderQuotaLessThan20Bits},
+    PoQInputsFromDataError::{CoreQuotaMoreThan20Bits, LeaderQuotaMoreThan20Bits},
 };
 
 #[derive(Copy, Clone)]
@@ -72,11 +72,11 @@ impl TryFrom<PoQCommonInputsData> for PoQCommonInputs {
     ) -> Result<Self, Self::Error> {
         let leader_quota_bits = leader_quota.checked_ilog2().map_or(0, |v| v + 1);
         if leader_quota_bits > 20 {
-            return Err(LeaderQuotaLessThan20Bits);
+            return Err(LeaderQuotaMoreThan20Bits);
         }
         let core_quota_bits = core_quota.checked_ilog2().map_or(0, |v| v + 1);
         if core_quota_bits > 20 {
-            return Err(CoreQuotaLessThan20Bits);
+            return Err(CoreQuotaMoreThan20Bits);
         }
         Ok(Self {
             core_quota: Groth16Input::new(Fr::from(BigUint::from(core_quota))),
