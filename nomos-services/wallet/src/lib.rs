@@ -1,9 +1,11 @@
 use std::collections::HashSet;
 
 use async_trait::async_trait;
-use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
-use chain_service::storage::{adapters::storage::StorageAdapter, StorageAdapter as _};
-use chain_service::LibUpdate;
+use chain_service::{
+    api::{CryptarchiaServiceApi, CryptarchiaServiceData},
+    storage::{adapters::storage::StorageAdapter, StorageAdapter as _},
+    LibUpdate,
+};
 use nomos_core::{
     block::Block,
     header::HeaderId,
