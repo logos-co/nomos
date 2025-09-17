@@ -12,7 +12,7 @@ impl SecuredKey for Ed25519Key {
     type EncodingFormat = crate::encodings::Bytes;
     type Error = KeyError;
 
-    fn sign(&self, data: Self::EncodingFormat) -> Result<Self::EncodingFormat, Self::Error> {
+    fn sign(&self, data: &Self::EncodingFormat) -> Result<Self::EncodingFormat, Self::Error> {
         let data_bytes = data.as_bytes();
         let signature_slice = self.0.sign(data_bytes).to_bytes();
         let signature_bytes = RawBytes::copy_from_slice(&signature_slice);

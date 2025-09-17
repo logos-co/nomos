@@ -22,7 +22,7 @@ impl SecuredKey for Key {
     type EncodingFormat = Encoding;
     type Error = KeyError;
 
-    fn sign(&self, data: Self::EncodingFormat) -> Result<Self::EncodingFormat, Self::Error> {
+    fn sign(&self, data: &Self::EncodingFormat) -> Result<Self::EncodingFormat, Self::Error> {
         match self {
             Self::Ed25519(key) => key.sign_adapted(data),
         }

@@ -3,6 +3,7 @@
     reason = "SecureKeyAdapter is only referenced via a blanket impl. The compiler treats it as unused, but it isn’t. This annotation will be removed once the trait is used directly."
 )]
 
+use nomos_utils::convert::TryFromRef;
 use zeroize::ZeroizeOnDrop;
 
 use crate::encodings::{EncodingFormat, EncodingFormatAdapter};
@@ -12,7 +13,7 @@ pub trait SecuredKey: ZeroizeOnDrop {
     type EncodingFormat: EncodingFormat;
     type Error;
 
-    fn sign(&self, data: Self::EncodingFormat) -> Result<Self::EncodingFormat, Self::Error>;
+    fn sign(&self, data: &Self::EncodingFormat) -> Result<Self::EncodingFormat, Self::Error>;
     fn as_pk(&self) -> Self::EncodingFormat;
 }
 
@@ -41,35 +42,36 @@ pub trait SecuredKey: ZeroizeOnDrop {
 /// # Errors
 ///
 /// Returns a [`KeyError`] if the conversion or signing fails.
-pub trait SecuredKeyAdapter<TargetEncodingFormat>: SecuredKey
+pub trait SecuredKeyAdapter<'a, TargetEncodingFormat>: SecuredKey
 where
-    TargetEncodingFormat: EncodingFormat,
-    Self::EncodingFormat: EncodingFormatAdapter<TargetEncodingFormat>,
+    TargetEncodingFormat: EncodingFormat + 'a,
+    Self::EncodingFormat: EncodingFormatAdapter<'a, TargetEncodingFormat>,
 {
     type TargetError;
 
     fn sign_adapted(
         &self,
-        data: TargetEncodingFormat,
+        data: &'a TargetEncodingFormat,
     ) -> Result<TargetEncodingFormat, Self::TargetError>;
 }
 
 /// Automatically implements [`SecuredKeyAdapter`] for any [`SecuredKey`] whose
 /// encoding supports adaptation from [`TargetEncodingFormat`].
-impl<Key, TargetEncodingFormat> SecuredKeyAdapter<TargetEncodingFormat> for Key
+impl<'a, Key, TargetEncodingFormat> SecuredKeyAdapter<'a, TargetEncodingFormat> for Key
 where
-    TargetEncodingFormat: EncodingFormat,
+    TargetEncodingFormat: EncodingFormat + 'a,
     Key: SecuredKey,
-    <Key as SecuredKey>::EncodingFormat: EncodingFormatAdapter<TargetEncodingFormat>,
-    <<Key as SecuredKey>::EncodingFormat as TryFrom<TargetEncodingFormat>>::Error: Into<Key::Error>,
+    <Key as SecuredKey>::EncodingFormat: EncodingFormatAdapter<'a, TargetEncodingFormat> + 'a,
+    <<Key as SecuredKey>::EncodingFormat as TryFromRef<'a, TargetEncodingFormat>>::Error:
+        Into<Key::Error>,
 {
     type TargetError = Key::Error;
 
     fn sign_adapted(
         &self,
-        data: TargetEncodingFormat,
+        data: &'a TargetEncodingFormat,
     ) -> Result<TargetEncodingFormat, Self::TargetError> {
-        let payload = Self::EncodingFormat::try_from(data).map_err(Into::into)?;
+        let payload = Self::EncodingFormat::try_from_ref(data).map_err(Into::into)?;
         self.sign(payload).map(Self::EncodingFormat::into)
     }
 }
