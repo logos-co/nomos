@@ -20,7 +20,7 @@ pub(super) mod selection_randomness {
 
 #[cfg(test)]
 mod tests {
-    use nomos_core::wire;
+    use nomos_core::codec::SerdeOp as _;
 
     use crate::crypto::proofs::selection::ProofOfSelection;
 
@@ -28,9 +28,8 @@ mod tests {
     fn serialize_deserialize() {
         let proof = ProofOfSelection::from_bytes_unchecked([0; _]);
 
-        let serialized_proof = wire::serialize(&proof).unwrap();
-        let deserialized_proof: ProofOfSelection =
-            wire::deserialize(&serialized_proof[..]).unwrap();
+        let serialized_proof = ProofOfSelection::serialize(&proof).unwrap();
+        let deserialized_proof = ProofOfSelection::deserialize(&serialized_proof[..]).unwrap();
 
         assert!(proof == deserialized_proof);
     }
