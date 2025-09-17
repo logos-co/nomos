@@ -1,5 +1,5 @@
 use libp2p::{allow_block_list::BlockedPeers, connection_limits::ConnectionLimits, PeerId};
-use nomos_blend_message::encap::{self, encapsulated::PoQVerificationInputMinusSigningKey};
+use nomos_blend_message::encap::encapsulated::PoQVerificationInputMinusSigningKey;
 use nomos_blend_scheduling::membership::Membership;
 use nomos_libp2p::NetworkBehaviour;
 

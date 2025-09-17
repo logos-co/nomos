@@ -20,12 +20,9 @@ use nomos_blend_network::core::{
 };
 use nomos_blend_scheduling::{
     membership::Membership,
-    message_blend::{
-        crypto::{
-            IncomingEncapsulatedMessageWithValidatedPublicHeader,
-            OutgoingEncapsulatedMessageWithValidatedPublicHeader,
-        },
-        PublicInfo, SessionInfo,
+    message_blend::crypto::{
+        IncomingEncapsulatedMessageWithValidatedPublicHeader,
+        OutgoingEncapsulatedMessageWithValidatedPublicHeader,
     },
     session::SessionEvent,
     EncapsulatedMessage,
@@ -95,6 +92,10 @@ where
             &'c Membership<PeerId>,
         )> + 'static,
 {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "TODO: Address this at some point."
+    )]
     pub(super) fn new(
         config: BlendConfig<Libp2pBlendBackendSettings>,
         current_membership: Membership<PeerId>,
@@ -551,10 +552,10 @@ where
             }
             Some(event) = self.session_stream.next() => {
                 match event {
-                    SessionEvent::NewSession(membership, SessionInfo { public: PublicInfo { core_quota, core_root, leader_quota, pol_epoch_nonce, pol_ledger_aged, session, total_stake }, .. }) => {
-                        let poq_verification_inputs = PoQVerificationInputMinusSigningKey { core_quota, core_root, leader_quota, pol_epoch_nonce, pol_ledger_aged, session, total_stake };
+                    SessionEvent::NewSession(membership, session_info) => {
+                        let poq_verification_inputs = PoQVerificationInputMinusSigningKey::from(*session_info);
                         self.latest_session_info = membership.clone();
-                        self.swarm.behaviour_mut().blend.with_core_mut().start_new_session(membership.clone(), poq_verification_inputs.clone());
+                        self.swarm.behaviour_mut().blend.with_core_mut().start_new_session(membership.clone(), poq_verification_inputs);
                         self.swarm.behaviour_mut().blend.with_edge_mut().start_new_session(membership, poq_verification_inputs);
                     },
                     SessionEvent::TransitionPeriodExpired => {

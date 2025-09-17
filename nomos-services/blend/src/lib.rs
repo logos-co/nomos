@@ -7,7 +7,9 @@ use std::{
 
 use async_trait::async_trait;
 use futures::StreamExt as _;
-use nomos_blend_scheduling::session::UninitializedSessionEventStream;
+use nomos_blend_scheduling::{
+    message_blend::SessionInfo, session::UninitializedSessionEventStream,
+};
 use nomos_network::NetworkService;
 use overwatch::{
     services::{
@@ -142,7 +144,7 @@ where
             overwatch_handle
                 .relay::<MembershipService<EdgeService>>()
                 .await?,
-            settings.crypto.signing_private_key.public_key(),
+            settings.crypto.non_ephemeral_signing_key.public_key(),
         )
         .subscribe()
         .await?;
@@ -198,3 +200,36 @@ type MembershipAdapter<EdgeService> = <EdgeService as edge::ServiceComponents>::
 
 type MembershipService<EdgeService> =
     <MembershipAdapter<EdgeService> as membership::Adapter>::Service;
+
+const fn mock_session_info() -> SessionInfo {
+    use groth16::Field as _;
+    use nomos_blend_scheduling::message_blend::{PrivateInfo, PublicInfo};
+    use nomos_core::crypto::ZkHash;
+
+    SessionInfo {
+        public: PublicInfo {
+            core_quota: 0,
+            core_root: ZkHash::ZERO,
+            leader_quota: 0,
+            pol_epoch_nonce: ZkHash::ZERO,
+            pol_ledger_aged: ZkHash::ZERO,
+            session: 0,
+            total_stake: 0,
+        },
+        private: PrivateInfo {
+            aged_path: vec![],
+            aged_selector: vec![],
+            core_path: vec![],
+            core_path_selectors: vec![],
+            core_sk: ZkHash::ZERO,
+            note_value: 0,
+            output_number: 0,
+            pol_secret_key: ZkHash::ZERO,
+            slot: 0,
+            slot_secret: ZkHash::ZERO,
+            slot_secret_path: vec![],
+            starting_slot: 0,
+            transaction_hash: ZkHash::ZERO,
+        },
+    }
+}

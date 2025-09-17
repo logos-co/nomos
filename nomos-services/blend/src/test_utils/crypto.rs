@@ -5,7 +5,7 @@ use nomos_blend_message::{
         quota::{inputs::prove::PublicInputs, ProofOfQuota},
         selection::{inputs::VerifyInputs, ProofOfSelection},
     },
-    encap::{encapsulated::PoQVerificationInputMinusSigningKey, ProofsVerifier},
+    encap::ProofsVerifier,
 };
 use nomos_core::crypto::ZkHash;
 

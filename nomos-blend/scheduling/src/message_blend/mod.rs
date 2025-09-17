@@ -100,11 +100,11 @@ pub struct PrivateInfo {
 /// A single proof to be attached to one layer of a Blend message.
 pub struct BlendProof {
     /// `PoQ`
-    proof_of_quota: ProofOfQuota,
+    pub proof_of_quota: ProofOfQuota,
     /// `PoSel`
-    proof_of_selection: ProofOfSelection,
+    pub proof_of_selection: ProofOfSelection,
     /// Ephemeral key used to sign the message layer's payload.
-    ephemeral_signing_key: Ed25519PrivateKey,
+    pub ephemeral_signing_key: Ed25519PrivateKey,
 }
 
 /// A trait to generate core and leadership `PoQs`.

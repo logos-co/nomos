@@ -140,7 +140,7 @@ where
         minimal_network_size: usize,
     ) -> Result<Self, modes::Error> {
         match event {
-            SessionEvent::NewSession(membership) => {
+            SessionEvent::NewSession(membership, _) => {
                 self.transition(
                     Mode::choose(&membership, minimal_network_size),
                     overwatch_handle,
@@ -298,7 +298,7 @@ mod tests {
     use std::time::Duration;
 
     use libp2p::Multiaddr;
-    use nomos_blend_message::crypto::{Ed25519PrivateKey, Ed25519PublicKey};
+    use nomos_blend_message::crypto::keys::{Ed25519PrivateKey, Ed25519PublicKey};
     use nomos_blend_scheduling::membership::Node;
     use nomos_network::config::NetworkConfig;
     use overwatch::{
@@ -312,7 +312,10 @@ mod tests {
     use tokio::time::sleep;
 
     use super::*;
-    use crate::modes::broadcast_tests::{TestMessage, TestNetworkAdapter, TestNetworkBackend};
+    use crate::{
+        mock_session_info,
+        modes::broadcast_tests::{TestMessage, TestNetworkAdapter, TestNetworkBackend},
+    };
 
     /// Check if the instance is initialized successfully for each mode.
     #[test]
@@ -506,7 +509,10 @@ mod tests {
             let instance = instance
                 .handle_session_event(
                     // With an empty membership smaller than the minimal size.
-                    SessionEvent::NewSession(membership(&[], local_node)),
+                    SessionEvent::NewSession(
+                        membership(&[], local_node),
+                        Box::new(mock_session_info()),
+                    ),
                     handle,
                     minimal_network_size,
                 )
@@ -528,7 +534,10 @@ mod tests {
             // Broadcast -> Edge
             let instance = instance
                 .handle_session_event(
-                    SessionEvent::NewSession(membership(&[1], local_node)),
+                    SessionEvent::NewSession(
+                        membership(&[1], local_node),
+                        Box::new(mock_session_info()),
+                    ),
                     handle,
                     minimal_network_size,
                 )
@@ -539,7 +548,10 @@ mod tests {
             // Edge -> Edge (stay)
             let instance = instance
                 .handle_session_event(
-                    SessionEvent::NewSession(membership(&[1], local_node)),
+                    SessionEvent::NewSession(
+                        membership(&[1], local_node),
+                        Box::new(mock_session_info()),
+                    ),
                     handle,
                     minimal_network_size,
                 )
@@ -550,7 +562,7 @@ mod tests {
             // Edge -> Core
             let instance = instance
                 .handle_session_event(
-                    SessionEvent::NewSession(membership(&[1], 1)),
+                    SessionEvent::NewSession(membership(&[1], 1), Box::new(mock_session_info())),
                     handle,
                     minimal_network_size,
                 )

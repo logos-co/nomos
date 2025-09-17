@@ -170,7 +170,7 @@ mod tests {
         session_sender
             .send(SessionEvent::NewSession(
                 membership(&[NodeId(0), NodeId(1)], NodeId(0)),
-                mock_session_info(),
+                Box::new(mock_session_info()),
             ))
             .await
             .unwrap();

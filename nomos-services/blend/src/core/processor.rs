@@ -8,13 +8,13 @@ use nomos_blend_message::encap::ProofsVerifier as ProofsVerifierTrait;
 use nomos_blend_scheduling::{
     membership::Membership,
     message_blend::{
-        crypto::SessionCryptographicProcessor, CryptographicProcessorSettings,
+        crypto::SenderAndReceiverCryptographicProcessor, CryptographicProcessorSettings,
         ProofsGenerator as ProofsGeneratorTrait, SessionInfo,
     },
 };
 
 pub struct CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>(
-    SessionCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
+    SenderAndReceiverCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
 );
 
 impl<NodeId, ProofsGenerator, ProofsVerifier>
@@ -46,7 +46,7 @@ where
         session_info: SessionInfo,
         settings: CryptographicProcessorSettings,
     ) -> Self {
-        Self(SessionCryptographicProcessor::new(
+        Self(SenderAndReceiverCryptographicProcessor::new(
             settings,
             membership,
             session_info,
@@ -57,7 +57,7 @@ where
 impl<NodeId, ProofsGenerator, ProofsVerifier> Deref
     for CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
 {
-    type Target = SessionCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>;
+    type Target = SenderAndReceiverCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>;
 
     fn deref(&self) -> &Self::Target {
         &self.0

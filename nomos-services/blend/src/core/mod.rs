@@ -25,9 +25,10 @@ use nomos_blend_scheduling::{
     membership::Membership,
     message_blend::{
         crypto::{
-            IncomingEncapsulatedMessageWithValidatedPublicHeader, SessionCryptographicProcessor,
+            IncomingEncapsulatedMessageWithValidatedPublicHeader,
+            SenderAndReceiverCryptographicProcessor,
         },
-        ProofsGenerator as ProofsGeneratorTrait, SessionInfo,
+        ProofsGenerator as ProofsGeneratorTrait,
     },
     message_scheduler::{round_info::RoundInfo, MessageScheduler},
     session::{SessionEvent, UninitializedSessionEventStream},
@@ -54,6 +55,7 @@ use crate::{
     },
     membership,
     message::{NetworkMessage, ProcessedMessage, ServiceMessage},
+    mock_session_info,
     settings::FIRST_SESSION_READY_TIMEOUT,
 };
 
@@ -137,8 +139,8 @@ where
     Network: NetworkAdapter<RuntimeServiceId, BroadcastSettings: Unpin> + Send + Sync,
     MembershipAdapter: membership::Adapter<NodeId = NodeId, Error: Send + Sync + 'static> + Send,
     membership::ServiceMessage<MembershipAdapter>: Send + Sync + 'static,
-    ProofsGenerator: ProofsGeneratorTrait,
-    ProofsVerifier: ProofsVerifierTrait,
+    ProofsGenerator: ProofsGeneratorTrait + Send,
+    ProofsVerifier: ProofsVerifierTrait + Send,
     RuntimeServiceId: AsServiceId<NetworkService<Network::Backend, RuntimeServiceId>>
         + AsServiceId<<MembershipAdapter as membership::Adapter>::Service>
         + AsServiceId<Self>
@@ -159,6 +161,7 @@ where
         })
     }
 
+    #[expect(clippy::too_many_lines, reason = "TODO: Address this at some point.")]
     async fn run(mut self) -> Result<(), overwatch::DynError> {
         let Self {
             service_resources_handle:
@@ -284,39 +287,6 @@ where
     }
 }
 
-fn mock_session_info() -> SessionInfo {
-    use groth16::Field as _;
-    use nomos_blend_scheduling::message_blend::{PrivateInfo, PublicInfo};
-    use nomos_core::crypto::ZkHash;
-
-    SessionInfo {
-        public: PublicInfo {
-            core_quota: 0,
-            core_root: ZkHash::ZERO,
-            leader_quota: 0,
-            pol_epoch_nonce: ZkHash::ZERO,
-            pol_ledger_aged: ZkHash::ZERO,
-            session: 0,
-            total_stake: 0,
-        },
-        private: PrivateInfo {
-            aged_path: vec![],
-            aged_selector: vec![],
-            core_path: vec![],
-            core_path_selectors: vec![],
-            core_sk: ZkHash::ZERO,
-            note_value: 0,
-            output_number: 0,
-            pol_secret_key: ZkHash::ZERO,
-            slot: 0,
-            slot_secret: ZkHash::ZERO,
-            slot_secret_path: vec![],
-            starting_slot: 0,
-            transaction_hash: ZkHash::ZERO,
-        },
-    }
-}
-
 /// Handles a [`SessionEvent`].
 ///
 /// It consumes the previous cryptographic processor and creates a new one
@@ -339,7 +309,7 @@ where
                 membership,
                 settings.minimum_network_size,
                 &settings.crypto,
-                session_info,
+                *session_info,
             )?,
         ),
         SessionEvent::TransitionPeriodExpired => Ok(cryptographic_processor),
@@ -365,7 +335,7 @@ async fn handle_local_data_message<
     RuntimeServiceId,
 >(
     local_data_message: ServiceMessage<BroadcastSettings>,
-    cryptographic_processor: &mut SessionCryptographicProcessor<
+    cryptographic_processor: &mut SenderAndReceiverCryptographicProcessor<
         NodeId,
         ProofsGenerator,
         ProofsVerifier,
@@ -411,7 +381,7 @@ fn handle_incoming_blend_message<
 >(
     validated_encapsulated_message: IncomingEncapsulatedMessageWithValidatedPublicHeader,
     scheduler: &mut MessageScheduler<SessionClock, Rng, ProcessedMessage<BroadcastSettings>>,
-    cryptographic_processor: &SessionCryptographicProcessor<
+    cryptographic_processor: &SenderAndReceiverCryptographicProcessor<
         NodeId,
         ProofsGenerator,
         ProofsVerifier,
@@ -472,7 +442,7 @@ async fn handle_release_round<
         cover_message_generation_flag,
         processed_messages,
     }: RoundInfo<ProcessedMessage<NetAdapter::BroadcastSettings>>,
-    cryptographic_processor: &mut SessionCryptographicProcessor<
+    cryptographic_processor: &mut SenderAndReceiverCryptographicProcessor<
         NodeId,
         ProofsGenerator,
         ProofsVerifier,

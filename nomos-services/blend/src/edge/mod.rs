@@ -15,8 +15,7 @@ use std::{
 use backends::BlendBackend;
 use futures::{Stream, StreamExt as _};
 use nomos_blend_scheduling::{
-    membership::Membership,
-    session::{SessionEvent, UninitializedSessionEventStream},
+    membership::Membership, message_blend::{ProofsGenerator as ProofsGeneratorTrait, SessionInfo}, session::{SessionEvent, UninitializedSessionEventStream}
 };
 use nomos_core::codec::SerdeOp;
 use overwatch::{
@@ -38,22 +37,37 @@ use crate::{
     edge::handlers::{Error, MessageHandler},
     membership,
     message::{NetworkMessage, ServiceMessage},
+    mock_session_info,
     settings::FIRST_SESSION_READY_TIMEOUT,
 };
 
 const LOG_TARGET: &str = "blend::service::edge";
 
-pub struct BlendService<Backend, NodeId, BroadcastSettings, MembershipAdapter, RuntimeServiceId>
-where
+pub struct BlendService<
+    Backend,
+    NodeId,
+    BroadcastSettings,
+    MembershipAdapter,
+    ProofsGenerator,
+    RuntimeServiceId,
+> where
     Backend: BlendBackend<NodeId, RuntimeServiceId>,
     NodeId: Clone,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-    _phantom: PhantomData<MembershipAdapter>,
+    _phantom: PhantomData<(MembershipAdapter, ProofsGenerator)>,
 }
 
-impl<Backend, NodeId, BroadcastSettings, MembershipAdapter, RuntimeServiceId> ServiceData
-    for BlendService<Backend, NodeId, BroadcastSettings, MembershipAdapter, RuntimeServiceId>
+impl<Backend, NodeId, BroadcastSettings, MembershipAdapter, ProofsGenerator, RuntimeServiceId>
+    ServiceData
+    for BlendService<
+        Backend,
+        NodeId,
+        BroadcastSettings,
+        MembershipAdapter,
+        ProofsGenerator,
+        RuntimeServiceId,
+    >
 where
     Backend: BlendBackend<NodeId, RuntimeServiceId>,
     NodeId: Clone,
@@ -65,15 +79,23 @@ where
 }
 
 #[async_trait::async_trait]
-impl<Backend, NodeId, BroadcastSettings, MembershipAdapter, RuntimeServiceId>
+impl<Backend, NodeId, BroadcastSettings, MembershipAdapter, ProofsGenerator, RuntimeServiceId>
     ServiceCore<RuntimeServiceId>
-    for BlendService<Backend, NodeId, BroadcastSettings, MembershipAdapter, RuntimeServiceId>
+    for BlendService<
+        Backend,
+        NodeId,
+        BroadcastSettings,
+        MembershipAdapter,
+        ProofsGenerator,
+        RuntimeServiceId,
+    >
 where
     Backend: BlendBackend<NodeId, RuntimeServiceId> + Send + Sync,
     NodeId: Clone + Eq + Hash + Send + Sync + 'static,
     BroadcastSettings: Serialize + DeserializeOwned + Send,
     MembershipAdapter: membership::Adapter<NodeId = NodeId, Error: Send + Sync + 'static> + Send,
     membership::ServiceMessage<MembershipAdapter>: Send + Sync + 'static,
+    ProofsGenerator: ProofsGeneratorTrait + Send,
     RuntimeServiceId: AsServiceId<<MembershipAdapter as membership::Adapter>::Service>
         + AsServiceId<Self>
         + Display
@@ -119,7 +141,7 @@ where
             overwatch_handle
                 .relay::<<MembershipAdapter as membership::Adapter>::Service>()
                 .await?,
-            settings.crypto.signing_private_key.public_key(),
+            settings.crypto.non_ephemeral_signing_key.public_key(),
         )
         .subscribe()
         .await?;
@@ -136,7 +158,7 @@ where
                 .to_vec()
         });
 
-        run::<Backend, _, _>(
+        run::<Backend, _, ProofsGenerator, _>(
             uninitialized_session_stream,
             messages_to_blend,
             &settings,
@@ -170,7 +192,7 @@ where
 /// - If the initial membership is not yielded immediately from the session
 ///   stream.
 /// - If the initial membership does not satisfy the edge node condition.
-async fn run<Backend, NodeId, RuntimeServiceId>(
+async fn run<Backend, NodeId, ProofsGenerator, RuntimeServiceId>(
     session_stream: UninitializedSessionEventStream<impl Stream<Item = Membership<NodeId>> + Unpin>,
     mut messages_to_blend: impl Stream<Item = Vec<u8>> + Send + Unpin,
     settings: &Settings<Backend, NodeId, RuntimeServiceId>,
@@ -180,6 +202,7 @@ async fn run<Backend, NodeId, RuntimeServiceId>(
 where
     Backend: BlendBackend<NodeId, RuntimeServiceId> + Sync,
     NodeId: Clone + Eq + Hash + Send + Sync + 'static,
+    ProofsGenerator: ProofsGeneratorTrait,
     RuntimeServiceId: Clone,
 {
     let (membership, mut session_stream) = session_stream
@@ -194,10 +217,11 @@ where
     );
 
     let mut message_handler =
-        MessageHandler::<Backend, NodeId, RuntimeServiceId>::try_new_with_edge_condition_check(
+        MessageHandler::<Backend, NodeId, ProofsGenerator, RuntimeServiceId>::try_new_with_edge_condition_check( 
             settings,
             membership,
             overwatch_handle.clone(),
+            mock_session_info(),
         )
         .expect("The initial membership should satisfy the edge node condition");
 
@@ -205,8 +229,8 @@ where
 
     loop {
         tokio::select! {
-            Some(SessionEvent::NewSession(membership)) = session_stream.next() => {
-                message_handler = handle_new_session(membership, settings, overwatch_handle)?;
+            Some(SessionEvent::NewSession(membership, new_session_info)) = session_stream.next() => {
+                message_handler = handle_new_session(membership, *new_session_info, settings, overwatch_handle)?;
             }
             Some(message) = messages_to_blend.next() => {
                 message_handler.handle_messages_to_blend(message).await;
@@ -219,21 +243,24 @@ where
 ///
 /// It creates a new [`MessageHandler`] if the membership satisfies all the edge
 /// node condition. Otherwise, it returns [`Error`].
-fn handle_new_session<Backend, NodeId, RuntimeServiceId>(
+fn handle_new_session<Backend, NodeId, ProofsGenerator, RuntimeServiceId>(
     membership: Membership<NodeId>,
+    session_info: SessionInfo,
     settings: &Settings<Backend, NodeId, RuntimeServiceId>,
     overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
-) -> Result<MessageHandler<Backend, NodeId, RuntimeServiceId>, Error>
+) -> Result<MessageHandler<Backend, NodeId, ProofsGenerator, RuntimeServiceId>, Error>
 where
     Backend: BlendBackend<NodeId, RuntimeServiceId>,
     NodeId: Clone + Eq + Hash + Send + 'static,
+    ProofsGenerator: ProofsGeneratorTrait,
     RuntimeServiceId: Clone,
 {
     debug!(target: LOG_TARGET, "Trying to create a new message handler");
-    MessageHandler::<Backend, NodeId, RuntimeServiceId>::try_new_with_edge_condition_check(
+    MessageHandler::<Backend, NodeId, ProofsGenerator, RuntimeServiceId>::try_new_with_edge_condition_check(
         settings,
         membership,
         overwatch_handle.clone(),
+        session_info,
     )
 }
 

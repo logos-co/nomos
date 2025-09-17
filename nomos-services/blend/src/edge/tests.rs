@@ -5,9 +5,16 @@ use std::{
     time::Duration,
 };
 
+use async_trait::async_trait;
+use nomos_blend_message::crypto::{
+    keys::Ed25519PrivateKey,
+    proofs::{quota::ProofOfQuota, selection::ProofOfSelection},
+};
 use nomos_blend_scheduling::{
-    membership::Membership, message_blend::CryptographicProcessorSettings,
-    session::UninitializedSessionEventStream, EncapsulatedMessage,
+    membership::Membership,
+    message_blend::{BlendProof, CryptographicProcessorSettings, ProofsGenerator, SessionInfo},
+    session::UninitializedSessionEventStream,
+    EncapsulatedMessage,
 };
 use overwatch::overwatch::{commands::OverwatchCommand, OverwatchHandle};
 use rand::{rngs::OsRng, RngCore};
@@ -143,6 +150,31 @@ async fn run_fails_if_local_is_core_in_new_membership() {
     ));
 }
 
+fn mock_blend_proof() -> BlendProof {
+    BlendProof {
+        proof_of_quota: ProofOfQuota::from_bytes_unchecked([0; _]),
+        proof_of_selection: ProofOfSelection::from_bytes_unchecked([0; _]),
+        ephemeral_signing_key: Ed25519PrivateKey::generate(),
+    }
+}
+
+struct MockProofsGenerator;
+
+#[async_trait]
+impl ProofsGenerator for MockProofsGenerator {
+    fn new(_session_info: SessionInfo) -> Self {
+        Self
+    }
+
+    async fn get_next_core_proof(&mut self) -> Option<BlendProof> {
+        Some(mock_blend_proof())
+    }
+
+    async fn get_next_leadership_proof(&mut self) -> Option<BlendProof> {
+        Some(mock_blend_proof())
+    }
+}
+
 async fn spawn_run(
     local_node: NodeId,
     minimal_network_size: u64,
@@ -165,7 +197,7 @@ async fn spawn_run(
     }
 
     let join_handle = tokio::spawn(async move {
-        run::<TestBackend, _, _>(
+        run::<TestBackend, _, MockProofsGenerator, _>(
             UninitializedSessionEventStream::new(
                 ReceiverStream::new(session_receiver),
                 FIRST_SESSION_READY_TIMEOUT,
@@ -204,7 +236,7 @@ fn settings(
             rounds_per_session_transition_period: NonZeroU64::new(1).unwrap(),
         },
         crypto: CryptographicProcessorSettings {
-            signing_private_key: key(local_id).0,
+            non_ephemeral_signing_key: key(local_id).0,
             num_blend_layers: 1,
         },
         backend: msg_sender,

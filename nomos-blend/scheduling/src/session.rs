@@ -58,7 +58,7 @@ where
 
 #[derive(Clone)]
 pub enum SessionEvent<Session> {
-    NewSession(Session, SessionInfo),
+    NewSession(Session, Box<SessionInfo>),
     TransitionPeriodExpired,
 }
 
@@ -139,7 +139,10 @@ where
                 // If the previous transition period timer has not been expired yet,
                 // it will be overwritten.
                 self.transition_period_timer = Some(Box::pin(sleep(self.transition_period)));
-                return Poll::Ready(Some(SessionEvent::NewSession(session, mock_session_info())));
+                return Poll::Ready(Some(SessionEvent::NewSession(
+                    session,
+                    Box::new(mock_session_info()),
+                )));
             }
             Poll::Ready(None) => return Poll::Ready(None),
             Poll::Pending => {}

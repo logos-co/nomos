@@ -1,3 +1,4 @@
+use core::ops::{Deref, DerefMut};
 use std::hash::Hash;
 
 use derivative::Derivative;
@@ -34,19 +35,6 @@ pub type IncomingEncapsulatedMessageWithValidatedPublicHeader =
 pub type OutgoingEncapsulatedMessageWithValidatedPublicHeader =
     InternalOutgoingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>;
 
-/// [`SessionCryptographicProcessor`] is responsible for wrapping and unwrapping
-/// messages for the message indistinguishability.
-///
-/// Each instance is meant to be used during a single session.
-pub struct SessionCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier> {
-    settings: CryptographicProcessorSettings,
-    /// The non-ephemeral encryption key (NEK) for decapsulating messages.
-    non_ephemeral_encryption_key: X25519PrivateKey,
-    membership: Membership<NodeId>,
-    proofs_generator: ProofsGenerator,
-    proofs_verifier: ProofsVerifier,
-}
-
 #[derive(Clone, Derivative, Serialize, Deserialize)]
 #[derivative(Debug)]
 pub struct CryptographicProcessorSettings {
@@ -60,11 +48,17 @@ pub struct CryptographicProcessorSettings {
     pub num_blend_layers: u64,
 }
 
-impl<NodeId, ProofsGenerator, ProofsVerifier>
-    SessionCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
+pub struct SenderSessionCryptographicProcessor<NodeId, ProofsGenerator> {
+    settings: CryptographicProcessorSettings,
+    /// The non-ephemeral encryption key (NEK) for decapsulating messages.
+    non_ephemeral_encryption_key: X25519PrivateKey,
+    membership: Membership<NodeId>,
+    proofs_generator: ProofsGenerator,
+}
+
+impl<NodeId, ProofsGenerator> SenderSessionCryptographicProcessor<NodeId, ProofsGenerator>
 where
     ProofsGenerator: ProofsGeneratorTrait,
-    ProofsVerifier: ProofsVerifierTrait,
 {
     #[must_use]
     pub fn new(
@@ -80,36 +74,11 @@ where
             non_ephemeral_encryption_key,
             membership,
             proofs_generator: ProofsGenerator::new(session_info),
-            proofs_verifier: ProofsVerifier::new(),
         }
     }
 }
 
-impl<NodeId, ProofsGenerator, ProofsVerifier>
-    SessionCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
-where
-    ProofsVerifier: ProofsVerifierTrait,
-{
-    pub fn decapsulate_message(
-        &self,
-        message: IncomingEncapsulatedMessageWithValidatedPublicHeader,
-    ) -> Result<DecapsulationOutput, Error> {
-        let Some(local_node_index) = self.membership.local_index() else {
-            return Err(Error::NotCoreNodeReceiver);
-        };
-        message.decapsulate(
-            &self.non_ephemeral_encryption_key,
-            &RequiredProofOfSelectionVerificationInputs {
-                expected_node_index: local_node_index as u64,
-                total_membership_size: self.membership.size() as u64,
-            },
-            &self.proofs_verifier,
-        )
-    }
-}
-
-impl<NodeId, ProofsGenerator, ProofsVerifier>
-    SessionCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
+impl<NodeId, ProofsGenerator> SenderSessionCryptographicProcessor<NodeId, ProofsGenerator>
 where
     NodeId: Eq + Hash,
     ProofsGenerator: ProofsGeneratorTrait,
@@ -215,6 +184,86 @@ where
         )?;
 
         EncapsulatedMessage::new(&inputs, payload_type, payload)
+    }
+}
+
+/// [`SessionCryptographicProcessor`] is responsible for wrapping and unwrapping
+/// messages for the message indistinguishability.
+///
+/// Each instance is meant to be used during a single session.
+pub struct SenderAndReceiverCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier> {
+    sender_processor: SenderSessionCryptographicProcessor<NodeId, ProofsGenerator>,
+    proofs_verifier: ProofsVerifier,
+}
+
+impl<NodeId, ProofsGenerator, ProofsVerifier>
+    SenderAndReceiverCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
+where
+    ProofsGenerator: ProofsGeneratorTrait,
+    ProofsVerifier: ProofsVerifierTrait,
+{
+    #[must_use]
+    pub fn new(
+        settings: CryptographicProcessorSettings,
+        membership: Membership<NodeId>,
+        session_info: SessionInfo,
+    ) -> Self {
+        SenderSessionCryptographicProcessor::new(settings, membership, session_info).into()
+    }
+}
+
+impl<NodeId, ProofsGenerator, ProofsVerifier>
+    From<SenderSessionCryptographicProcessor<NodeId, ProofsGenerator>>
+    for SenderAndReceiverCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
+where
+    ProofsVerifier: ProofsVerifierTrait,
+{
+    fn from(value: SenderSessionCryptographicProcessor<NodeId, ProofsGenerator>) -> Self {
+        Self {
+            sender_processor: value,
+            proofs_verifier: ProofsVerifier::new(),
+        }
+    }
+}
+
+impl<NodeId, ProofsGenerator, ProofsVerifier>
+    SenderAndReceiverCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
+where
+    ProofsVerifier: ProofsVerifierTrait,
+{
+    pub fn decapsulate_message(
+        &self,
+        message: IncomingEncapsulatedMessageWithValidatedPublicHeader,
+    ) -> Result<DecapsulationOutput, Error> {
+        let Some(local_node_index) = self.sender_processor.membership.local_index() else {
+            return Err(Error::NotCoreNodeReceiver);
+        };
+        message.decapsulate(
+            &self.sender_processor.non_ephemeral_encryption_key,
+            &RequiredProofOfSelectionVerificationInputs {
+                expected_node_index: local_node_index as u64,
+                total_membership_size: self.sender_processor.membership.size() as u64,
+            },
+            &self.proofs_verifier,
+        )
+    }
+}
+
+impl<NodeId, ProofsGenerator, ProofsVerifier> Deref
+    for SenderAndReceiverCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
+{
+    type Target = SenderSessionCryptographicProcessor<NodeId, ProofsGenerator>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.sender_processor
+    }
+}
+
+impl<NodeId, ProofsGenerator, ProofsVerifier> DerefMut
+    for SenderAndReceiverCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
+{
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.sender_processor
     }
 }
 
