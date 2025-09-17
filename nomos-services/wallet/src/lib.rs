@@ -173,7 +173,7 @@ where
         loop {
             tokio::select! {
                 Some(msg) = service_resources_handle.inbound_relay.recv() => {
-                    Self::handle_wallet_message(msg, &wallet, &cryptarchia_api).await;
+                    Self::handle_wallet_message(msg, &mut wallet, &storage_adapter, &cryptarchia_api).await;
                 }
                 Ok(header_id) = new_block_receiver.recv() => {
                     let Some(block) = storage_adapter.get_block(&header_id).await else {
@@ -209,7 +209,8 @@ where
 {
     async fn handle_wallet_message(
         msg: WalletMsg,
-        wallet: &Wallet,
+        wallet: &mut Wallet,
+        storage_adapter: &StorageAdapter<Storage, SignedMantleTx, RuntimeServiceId>,
         cryptarchia_api: &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
     ) {
         match msg {
@@ -231,7 +232,8 @@ where
                 }
             }
             WalletMsg::GetLeaderAgedNotes { tip, tx } => {
-                Self::get_leader_aged_notes(tip, tx, wallet, cryptarchia_api).await;
+                Self::get_leader_aged_notes(tip, tx, wallet, storage_adapter, cryptarchia_api)
+                    .await;
             }
         }
     }
@@ -239,7 +241,8 @@ where
     async fn get_leader_aged_notes(
         tip: HeaderId,
         tx: oneshot::Sender<Result<Vec<Utxo>, WalletServiceError>>,
-        wallet: &Wallet,
+        wallet: &mut Wallet,
+        storage_adapter: &StorageAdapter<Storage, SignedMantleTx, RuntimeServiceId>,
         cryptarchia_api: &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
     ) {
         // Get the ledger state at the specified tip
@@ -253,24 +256,44 @@ where
             return;
         };
 
-        // TODO: there may be a race condition here where the caller knows a more recent
-        // tip than the wallet. In that case, we will have received a
-        // LedgerState for the tip from Cryptarchia, but we would be missing the
-        // WalletState for that tip.
-        //
-        // Currently the way we deal with that is to just return an error but that's
-        // not ideal.
-        //
-        // To resolve, we could trigger an immediate sync here to ensure that the
-        // wallet is in sync with the caller and Cryptarchia.
-        let Ok(wallet_state) = wallet.wallet_state_at(tip) else {
-            if tx
-                .send(Err(WalletServiceError::WalletStateNotFound(tip)))
-                .is_err()
-            {
-                error!("Failed to respond to GetLeaderAgedNotes");
+        let wallet_state = match wallet.wallet_state_at(tip) {
+            Ok(wallet_state) => wallet_state,
+            Err(WalletError::UnknownBlock) => {
+                // There may be a race condition here where the caller knows a more recent
+                // tip than the wallet. In that case, we will have received a
+                // LedgerState for the tip from Cryptarchia, but we would be missing the
+                // WalletState for that tip.
+                //
+                // To resolve this, we do a JIT backfill to try to sync the wallet with
+                // cryptarchia. If that still can't find the corresponding wallet state
+                // after the backfill, we return an error to the caller
+                if let Err(e) =
+                    Self::backfill_missing_blocks(tip, wallet, storage_adapter, cryptarchia_api)
+                        .await
+                {
+                    error!(
+                        err = ?e,
+                        "Failed to backfill wallet while fetching aged notes"
+                    );
+
+                    if tx.send(Err(e)).is_err() {
+                        error!("Failed to respond to GetLeaderAgedNotes");
+                    }
+                    return;
+                }
+
+                let Ok(wallet_state) = wallet.wallet_state_at(tip) else {
+                    if tx
+                        .send(Err(WalletServiceError::WalletStateNotFound(tip)))
+                        .is_err()
+                    {
+                        error!("Failed to respond to GetLeaderAgedNotes");
+                    }
+                    return;
+                };
+
+                wallet_state
             }
-            return;
         };
 
         let aged_utxos = ledger_state.epoch_state().utxos.utxos();
