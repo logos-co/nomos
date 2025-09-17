@@ -1,17 +1,16 @@
 use std::{hash::Hash, marker::PhantomData};
 
-use nomos_blend_scheduling::{
-    membership::Membership,
-    message_blend::{
-        crypto::send::SessionCryptographicProcessor, ProofsGenerator as ProofsGeneratorTrait,
-        SessionInfo,
-    },
+use nomos_blend_scheduling::message_blend::{
+    crypto::send::SessionCryptographicProcessor, ProofsGenerator as ProofsGeneratorTrait,
 };
 use nomos_utils::blake_rng::BlakeRng;
 use overwatch::overwatch::OverwatchHandle;
 use rand::SeedableRng as _;
 
-use crate::edge::{backends::BlendBackend, Settings, LOG_TARGET};
+use crate::{
+    edge::{backends::BlendBackend, Settings, LOG_TARGET},
+    session::SessionInfo,
+};
 
 pub struct MessageHandler<Backend, NodeId, ProofsGenerator, RuntimeServiceId> {
     cryptographic_processor: SessionCryptographicProcessor<NodeId, ProofsGenerator>,
@@ -34,35 +33,32 @@ where
     /// 2. The local node is not a core node.
     pub fn try_new_with_edge_condition_check(
         settings: &Settings<Backend, NodeId, RuntimeServiceId>,
-        membership: Membership<NodeId>,
+        session_info: SessionInfo<NodeId>,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
-        session_info: SessionInfo,
     ) -> Result<Self, Error>
     where
         NodeId: Eq + Hash,
     {
-        if membership.size() < settings.minimum_network_size.get() as usize {
-            Err(Error::NetworkIsTooSmall(membership.size()))
-        } else if membership.contains_local() {
+        let membership_size = session_info.membership.size();
+        if membership_size < settings.minimum_network_size.get() as usize {
+            Err(Error::NetworkIsTooSmall(membership_size))
+        } else if session_info.membership.contains_local() {
             Err(Error::LocalIsCoreNode)
         } else {
-            Ok(Self::new(
-                settings,
-                membership,
-                overwatch_handle,
-                session_info,
-            ))
+            Ok(Self::new(settings, session_info, overwatch_handle))
         }
     }
 
     fn new(
         settings: &Settings<Backend, NodeId, RuntimeServiceId>,
-        membership: Membership<NodeId>,
+        SessionInfo {
+            membership,
+            poq_verification_inputs: poq_inputs,
+        }: SessionInfo<NodeId>,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
-        session_info: SessionInfo,
     ) -> Self {
         let cryptographic_processor =
-            SessionCryptographicProcessor::new(&settings.crypto, membership.clone(), session_info);
+            SessionCryptographicProcessor::new(&settings.crypto, membership.clone(), poq_inputs);
         let backend = Backend::new(
             settings.backend.clone(),
             overwatch_handle,

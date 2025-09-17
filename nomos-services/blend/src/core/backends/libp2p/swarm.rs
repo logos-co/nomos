@@ -34,9 +34,12 @@ use rand::RngCore;
 use tokio::sync::{broadcast, mpsc};
 
 use crate::core::{
-    backends::libp2p::{
-        behaviour::{BlendBehaviour, BlendBehaviourEvent},
-        Libp2pBlendBackendSettings, LOG_TARGET,
+    backends::{
+        libp2p::{
+            behaviour::{BlendBehaviour, BlendBehaviourEvent},
+            Libp2pBlendBackendSettings, LOG_TARGET,
+        },
+        SessionInfo,
     },
     settings::BlendConfig,
 };
@@ -526,8 +529,7 @@ impl<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider>
     BlendSwarm<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider>
 where
     Rng: RngCore,
-    SessionStream: Stream<Item = SessionEvent<(Membership<PeerId>, PoQVerificationInputMinusSigningKey)>>
-        + Unpin,
+    SessionStream: Stream<Item = SessionEvent<SessionInfo<PeerId>>> + Unpin,
     ProofsVerifier: ProofsVerifierTrait + Clone,
     ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
         + 'static,
@@ -562,7 +564,7 @@ where
             }
             Some(event) = self.session_stream.next() => {
                 match event {
-                    SessionEvent::NewSession((membership, poq_verification_inputs)) => {
+                    SessionEvent::NewSession(SessionInfo { membership, poq_verification_inputs }) => {
                         self.latest_session_info = membership.clone();
                         self.swarm.behaviour_mut().blend.with_core_mut().start_new_session(membership.clone(), poq_verification_inputs);
                         self.swarm.behaviour_mut().blend.with_edge_mut().start_new_session(membership, poq_verification_inputs);

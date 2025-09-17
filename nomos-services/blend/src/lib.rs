@@ -37,11 +37,12 @@ use crate::{
 
 pub mod core;
 pub mod edge;
+pub mod membership;
 pub mod message;
+pub mod session;
 pub mod settings;
 
 mod instance;
-pub mod membership;
 mod modes;
 mod service_components;
 pub use service_components::ServiceComponents;

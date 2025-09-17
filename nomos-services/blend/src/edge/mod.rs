@@ -15,7 +15,7 @@ use std::{
 use backends::BlendBackend;
 use futures::{Stream, StreamExt as _};
 use nomos_blend_scheduling::{
-    membership::Membership, message_blend::{ProofsGenerator as ProofsGeneratorTrait, SessionInfo}, session::{SessionEvent, UninitializedSessionEventStream}
+    message_blend::ProofsGenerator as ProofsGeneratorTrait, session::{SessionEvent, UninitializedSessionEventStream}
 };
 use nomos_core::codec::SerdeOp;
 use overwatch::{
@@ -34,11 +34,7 @@ use settings::BlendConfig;
 use tracing::{debug, error, info};
 
 use crate::{
-    edge::handlers::{Error, MessageHandler},
-    membership,
-    message::{NetworkMessage, ServiceMessage},
-    mock_session_stream,
-    settings::FIRST_SESSION_READY_TIMEOUT,
+    edge::handlers::{Error, MessageHandler}, membership, message::{NetworkMessage, ServiceMessage}, mock_session_stream, session::SessionInfo, settings::FIRST_SESSION_READY_TIMEOUT
 };
 
 const LOG_TARGET: &str = "blend::service::edge";
@@ -149,8 +145,10 @@ where
         // TODO: Replace with actual service usage.
         let session_info_stream = mock_session_stream();
 
+        let aggregated_session_stream = membership_stream.zip(session_info_stream).map(|(membership, poq_verification_inputs)| SessionInfo { membership, poq_verification_inputs });
+
         let uninitialized_session_stream = UninitializedSessionEventStream::new(
-            membership_stream.zip(session_info_stream),
+            aggregated_session_stream,
             FIRST_SESSION_READY_TIMEOUT,
             settings.time.session_transition_period(),
         );
@@ -196,7 +194,7 @@ where
 ///   stream.
 /// - If the initial membership does not satisfy the edge node condition.
 async fn run<Backend, NodeId, ProofsGenerator, RuntimeServiceId>(
-    session_stream: UninitializedSessionEventStream<impl Stream<Item = (Membership<NodeId>, SessionInfo)> + Unpin>,
+    session_stream: UninitializedSessionEventStream<impl Stream<Item = SessionInfo<NodeId>> + Unpin>,
     mut messages_to_blend: impl Stream<Item = Vec<u8>> + Send + Unpin,
     settings: &Settings<Backend, NodeId, RuntimeServiceId>,
     overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
@@ -208,7 +206,7 @@ where
     ProofsGenerator: ProofsGeneratorTrait,
     RuntimeServiceId: Clone,
 {
-    let ((membership, session_info), mut session_stream) = session_stream
+    let (session_info, mut session_stream) = session_stream
         .await_first_ready()
         .await
         .expect("The current session must be ready");
@@ -216,15 +214,14 @@ where
     info!(
         target: LOG_TARGET,
         "The current membership is ready: {} nodes.",
-        membership.size()
+        session_info.membership.size()
     );
 
     let mut message_handler =
         MessageHandler::<Backend, NodeId, ProofsGenerator, RuntimeServiceId>::try_new_with_edge_condition_check( 
             settings,
-            membership,
-            overwatch_handle.clone(),
             session_info,
+            overwatch_handle.clone(),
         )
         .expect("The initial membership should satisfy the edge node condition");
 
@@ -232,8 +229,8 @@ where
 
     loop {
         tokio::select! {
-            Some(SessionEvent::NewSession((membership, session_info))) = session_stream.next() => {
-                message_handler = handle_new_session(membership, session_info, settings, overwatch_handle)?;
+            Some(SessionEvent::NewSession(session_info)) = session_stream.next() => {
+                message_handler = handle_new_session(session_info, settings, overwatch_handle)?;
             }
             Some(message) = messages_to_blend.next() => {
                 message_handler.handle_messages_to_blend(message).await;
@@ -247,8 +244,7 @@ where
 /// It creates a new [`MessageHandler`] if the membership satisfies all the edge
 /// node condition. Otherwise, it returns [`Error`].
 fn handle_new_session<Backend, NodeId, ProofsGenerator, RuntimeServiceId>(
-    membership: Membership<NodeId>,
-    session_info: SessionInfo,
+    session_info: SessionInfo<NodeId>,
     settings: &Settings<Backend, NodeId, RuntimeServiceId>,
     overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
 ) -> Result<MessageHandler<Backend, NodeId, ProofsGenerator, RuntimeServiceId>, Error>
@@ -261,9 +257,8 @@ where
     debug!(target: LOG_TARGET, "Trying to create a new message handler");
     MessageHandler::<Backend, NodeId, ProofsGenerator, RuntimeServiceId>::try_new_with_edge_condition_check(
         settings,
-        membership,
-        overwatch_handle.clone(),
         session_info,
+        overwatch_handle.clone(),
     )
 }
 

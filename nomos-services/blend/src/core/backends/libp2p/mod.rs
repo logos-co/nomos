@@ -6,9 +6,8 @@ use futures::{
     Stream, StreamExt as _,
 };
 use libp2p::PeerId;
-use nomos_blend_message::encap::{self, encapsulated::PoQVerificationInputMinusSigningKey};
+use nomos_blend_message::encap::ProofsVerifier as ProofsVerifierTrait;
 use nomos_blend_scheduling::{
-    membership::Membership,
     message_blend::crypto::IncomingEncapsulatedMessageWithValidatedPublicHeader,
     EncapsulatedMessage,
 };
@@ -23,7 +22,7 @@ use crate::core::{
             swarm::{BlendSwarm, BlendSwarmMessage, SwarmParams},
             tokio_provider::ObservationWindowTokioIntervalProvider,
         },
-        BlendBackend, SessionStream,
+        BlendBackend, SessionInfo, SessionStream,
     },
     settings::BlendConfig,
 };
@@ -55,7 +54,7 @@ const CHANNEL_SIZE: usize = 64;
 impl<Rng, ProofsVerifier, RuntimeServiceId>
     BlendBackend<PeerId, Rng, ProofsVerifier, RuntimeServiceId> for Libp2pBlendBackend
 where
-    ProofsVerifier: encap::ProofsVerifier + Clone + Send + 'static,
+    ProofsVerifier: ProofsVerifierTrait + Clone + Send + 'static,
     Rng: RngCore + Clone + Send + 'static,
 {
     type Settings = Libp2pBlendBackendSettings;
@@ -63,10 +62,12 @@ where
     fn new(
         config: BlendConfig<Self::Settings>,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
-        current_membership: Membership<PeerId>,
+        SessionInfo {
+            membership: current_membership,
+            poq_verification_inputs: current_poq_verification_inputs,
+        }: SessionInfo<PeerId>,
         session_stream: SessionStream<PeerId>,
         rng: Rng,
-        current_poq_verification_inputs: PoQVerificationInputMinusSigningKey,
         proofs_verifier: ProofsVerifier,
     ) -> Self {
         let (swarm_message_sender, swarm_message_receiver) = mpsc::channel(CHANNEL_SIZE);

@@ -22,10 +22,9 @@ use nomos_blend_message::{
     PayloadType,
 };
 use nomos_blend_scheduling::{
-    membership::Membership,
     message_blend::{
         crypto::IncomingEncapsulatedMessageWithValidatedPublicHeader,
-        ProofsGenerator as ProofsGeneratorTrait, SessionInfo,
+        ProofsGenerator as ProofsGeneratorTrait,
     },
     message_scheduler::{round_info::RoundInfo, MessageScheduler},
     session::{SessionEvent, UninitializedSessionEventStream},
@@ -47,12 +46,14 @@ use tracing::info;
 
 use crate::{
     core::{
+        backends::SessionInfo,
         processor::{CoreCryptographicProcessor, Error},
         settings::BlendConfig,
     },
     membership,
     message::{NetworkMessage, ProcessedMessage, ServiceMessage},
     mock_session_stream,
+    session::SessionInfo as ProcessorSessionInfo,
     settings::FIRST_SESSION_READY_TIMEOUT,
 };
 
@@ -214,7 +215,7 @@ where
             current_membership.size()
         );
 
-        let mut session_stream = session_stream.fork();
+        let session_stream = session_stream.fork();
         let proofs_verifier = ProofsVerifier::new();
 
         let mut crypto_processor =
@@ -242,24 +243,26 @@ where
                 blend_config.scheduler_settings(),
             );
 
+        let swarm_backend_stream = session_stream.clone().map(|event| match event {
+            SessionEvent::NewSession((membership, session_info)) => {
+                SessionEvent::NewSession(SessionInfo {
+                    membership,
+                    poq_verification_inputs: session_info.into(),
+                })
+            }
+            SessionEvent::TransitionPeriodExpired => SessionEvent::TransitionPeriodExpired,
+        });
+
         let mut backend =
             <Backend as BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId>>::new(
                 blend_config.clone(),
                 overwatch_handle.clone(),
-                current_membership,
-                session_stream
-                    .clone()
-                    .map(|event| match event {
-                        SessionEvent::NewSession((membership, session_info)) => {
-                            SessionEvent::NewSession((membership, session_info.into()))
-                        }
-                        SessionEvent::TransitionPeriodExpired => {
-                            SessionEvent::TransitionPeriodExpired
-                        }
-                    })
-                    .boxed(),
+                SessionInfo {
+                    membership: current_membership,
+                    poq_verification_inputs: current_session_info.into(),
+                },
+                swarm_backend_stream.boxed(),
                 BlakeRng::from_entropy(),
-                current_session_info.into(),
                 proofs_verifier,
             );
 
@@ -276,6 +279,15 @@ where
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
 
+        let mut service_session_stream = session_stream.map(|event| match event {
+            SessionEvent::NewSession((membership, poq_verification_inputs)) => {
+                SessionEvent::NewSession(ProcessorSessionInfo {
+                    membership,
+                    poq_verification_inputs,
+                })
+            }
+            SessionEvent::TransitionPeriodExpired => SessionEvent::TransitionPeriodExpired,
+        });
         loop {
             tokio::select! {
                 Some(local_data_message) = inbound_relay.next() => {
@@ -287,7 +299,7 @@ where
                 Some(round_info) = message_scheduler.next() => {
                     handle_release_round(round_info, &mut crypto_processor, &mut rng, &backend, &network_adapter).await;
                 }
-                Some(session_event) = session_stream.next() => {
+                Some(session_event) = service_session_stream.next() => {
                     match handle_session_event(session_event, crypto_processor, &blend_config) {
                         Ok(new_crypto_processor) => crypto_processor = new_crypto_processor,
                         Err(e) => {
@@ -312,7 +324,7 @@ where
 /// It ignores the transition period expiration event and returns the previous
 /// cryptographic processor as is.
 fn handle_session_event<NodeId, ProofsGenerator, ProofsVerifier, BackendSettings>(
-    event: SessionEvent<(Membership<NodeId>, SessionInfo)>,
+    event: SessionEvent<ProcessorSessionInfo<NodeId>>,
     cryptographic_processor: CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
     settings: &BlendConfig<BackendSettings>,
 ) -> Result<CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>, Error>
@@ -322,12 +334,15 @@ where
     ProofsVerifier: ProofsVerifierTrait,
 {
     match event {
-        SessionEvent::NewSession((membership, session_info)) => Ok(
+        SessionEvent::NewSession(ProcessorSessionInfo {
+            membership,
+            poq_verification_inputs,
+        }) => Ok(
             CoreCryptographicProcessor::try_new_with_core_condition_check(
                 membership,
                 settings.minimum_network_size,
                 &settings.crypto,
-                session_info,
+                poq_verification_inputs,
                 // We move the verifier instance from the old processor instance to the new one.
                 cryptographic_processor.into_inner().take_verifier(),
             )?,

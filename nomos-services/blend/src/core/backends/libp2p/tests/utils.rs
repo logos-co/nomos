@@ -37,14 +37,17 @@ use tokio_stream::wrappers::IntervalStream;
 
 use crate::{
     core::{
-        backends::libp2p::{behaviour::BlendBehaviour, swarm::BlendSwarmMessage, BlendSwarm},
+        backends::{
+            libp2p::{behaviour::BlendBehaviour, swarm::BlendSwarmMessage, BlendSwarm},
+            SessionInfo,
+        },
         settings::BlendConfig,
     },
     test_utils::{crypto::MockProofsVerifier, PROTOCOL_NAME},
 };
 
 pub type InnerSwarm<ProofsVerifier> = BlendSwarm<
-    Pending<SessionEvent<(Membership<PeerId>, PoQVerificationInputMinusSigningKey)>>,
+    Pending<SessionEvent<SessionInfo<PeerId>>>,
     BlakeRng,
     ProofsVerifier,
     TestObservationWindowProvider,

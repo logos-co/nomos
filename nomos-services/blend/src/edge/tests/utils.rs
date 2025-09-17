@@ -18,6 +18,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use crate::{
     edge::{backends::BlendBackend, handlers::Error, run, settings::BlendConfig},
     mock_session_stream,
+    session::SessionInfo,
     settings::{TimingSettings, FIRST_SESSION_READY_TIMEOUT},
     test_utils::{crypto::MockProofsGenerator, membership::key},
 };
@@ -43,10 +44,17 @@ pub async fn spawn_run(
             .expect("channel opened");
     }
 
+    let aggregated_session_stream = ReceiverStream::new(session_receiver)
+        .zip(mock_session_stream())
+        .map(|(membership, poq_inputs)| SessionInfo {
+            membership,
+            poq_verification_inputs: poq_inputs,
+        });
+
     let join_handle = tokio::spawn(async move {
         run::<TestBackend, _, MockProofsGenerator, _>(
             UninitializedSessionEventStream::new(
-                ReceiverStream::new(session_receiver).zip(mock_session_stream()),
+                aggregated_session_stream,
                 FIRST_SESSION_READY_TIMEOUT,
                 // Set 0 for the session transition period since
                 // [`SessionEvent::TransitionPeriodExpired`] will be ignored anyway.
