@@ -98,7 +98,7 @@ pub struct PrivateInfo {
 }
 
 /// A single proof to be attached to one layer of a Blend message.
-pub struct BlendProof {
+pub struct BlendLayerProof {
     /// `PoQ`
     pub proof_of_quota: ProofOfQuota,
     /// `PoSel`
@@ -115,10 +115,10 @@ pub trait ProofsGenerator: Sized {
 
     /// Get or generate the next core `PoQ`, if the maximum allowance has not
     /// been reached.
-    async fn get_next_core_proof(&mut self) -> Option<BlendProof>;
+    async fn get_next_core_proof(&mut self) -> Option<BlendLayerProof>;
     /// Get or generate the next leadership `PoQ`, if the maximum allowance has
     /// not been reached.
-    async fn get_next_leadership_proof(&mut self) -> Option<BlendProof>;
+    async fn get_next_leadership_proof(&mut self) -> Option<BlendLayerProof>;
 }
 
 /// An implementor of `ProofsGenerator` that interacts with the actual proofs
@@ -128,8 +128,8 @@ pub trait ProofsGenerator: Sized {
 pub struct RealProofsGenerator {
     remaining_core_quota_proofs: u64,
     remaining_leadership_quota_proofs: u64,
-    core_proofs_receiver: Receiver<BlendProof>,
-    leadership_proofs_receiver: Receiver<BlendProof>,
+    core_proofs_receiver: Receiver<BlendLayerProof>,
+    leadership_proofs_receiver: Receiver<BlendLayerProof>,
     proofs_generation_task_abort_handle: AbortHandle,
 }
 
@@ -156,12 +156,12 @@ impl ProofsGenerator for RealProofsGenerator {
         }
     }
 
-    async fn get_next_core_proof(&mut self) -> Option<BlendProof> {
+    async fn get_next_core_proof(&mut self) -> Option<BlendLayerProof> {
         self.remaining_core_quota_proofs = self.remaining_core_quota_proofs.checked_sub(1)?;
         self.core_proofs_receiver.recv().await
     }
 
-    async fn get_next_leadership_proof(&mut self) -> Option<BlendProof> {
+    async fn get_next_leadership_proof(&mut self) -> Option<BlendLayerProof> {
         self.remaining_leadership_quota_proofs =
             self.remaining_leadership_quota_proofs.checked_sub(1)?;
         self.leadership_proofs_receiver.recv().await
@@ -180,8 +180,8 @@ impl Drop for RealProofsGenerator {
 fn start(
     total_core_proofs: u64,
     total_leadership_proofs: u64,
-    core_proofs_sender: Sender<BlendProof>,
-    leadership_proofs_sender: Sender<BlendProof>,
+    core_proofs_sender: Sender<BlendLayerProof>,
+    leadership_proofs_sender: Sender<BlendLayerProof>,
     session_info: SessionInfo,
 ) -> AbortHandle {
     let session_info_clone = session_info.clone();
@@ -212,7 +212,7 @@ fn start(
             };
             let proof_of_selection = ProofOfSelection::new(secret_selection_randomness);
             core_proofs_sender
-                .send(BlendProof {
+                .send(BlendLayerProof {
                     proof_of_quota,
                     proof_of_selection,
                     ephemeral_signing_key,
@@ -256,7 +256,7 @@ fn start(
             };
             let proof_of_selection = ProofOfSelection::new(secret_selection_randomness);
             leadership_proofs_sender
-                .send(BlendProof {
+                .send(BlendLayerProof {
                     proof_of_quota,
                     proof_of_selection,
                     ephemeral_signing_key,

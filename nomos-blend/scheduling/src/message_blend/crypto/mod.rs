@@ -12,8 +12,7 @@ use nomos_blend_message::{
     input::EncapsulationInputs as InternalEncapsulationInputs,
     Error,
 };
-use nomos_core::codec::SerdeOp;
-use serde::{Deserialize, Serialize};
+use nomos_core::codec::SerdeOp as _;
 
 pub mod send;
 pub use self::send::SessionCryptographicProcessor as SenderOnlySessionCryptographicProcessor;
@@ -29,7 +28,7 @@ pub type IncomingEncapsulatedMessageWithValidatedPublicHeader =
 pub type OutgoingEncapsulatedMessageWithValidatedPublicHeader =
     InternalOutgoingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>;
 
-#[derive(Clone, Derivative, Serialize, Deserialize)]
+#[derive(Clone, Derivative, serde::Serialize, serde::Deserialize)]
 #[derivative(Debug)]
 pub struct SessionCryptographicProcessorSettings {
     /// The non-ephemeral signing key (NSK) corresponding to the public key
@@ -44,11 +43,11 @@ pub struct SessionCryptographicProcessorSettings {
 
 #[must_use]
 pub fn serialize_encapsulated_message(message: &EncapsulatedMessage) -> Vec<u8> {
-    <EncapsulatedMessage as SerdeOp>::serialize(message)
+    EncapsulatedMessage::serialize(message)
         .expect("EncapsulatedMessage should be serializable")
         .to_vec()
 }
 
 pub fn deserialize_encapsulated_message(message: &[u8]) -> Result<EncapsulatedMessage, Error> {
-    <EncapsulatedMessage as SerdeOp>::deserialize(message).map_err(|_| Error::DeserializationFailed)
+    EncapsulatedMessage::deserialize(message).map_err(|_| Error::DeserializationFailed)
 }

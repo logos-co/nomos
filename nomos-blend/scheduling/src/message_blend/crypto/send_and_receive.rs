@@ -91,6 +91,8 @@ where
     }
 }
 
+// `Deref` and `DerefMut` so we can call the `encapsulate*` methods exposed by
+// the send-only processor.
 impl<NodeId, ProofsGenerator, ProofsVerifier> Deref
     for SessionCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
 {

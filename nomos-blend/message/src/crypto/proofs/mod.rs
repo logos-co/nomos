@@ -1,9 +1,12 @@
 use nomos_core::crypto::ZkHash;
 use thiserror::Error;
 
-use crate::crypto::proofs::{
-    quota::{inputs::prove::PublicInputs, ProofOfQuota},
-    selection::{inputs::VerifyInputs, ProofOfSelection},
+use crate::{
+    crypto::proofs::{
+        quota::{inputs::prove::PublicInputs, ProofOfQuota},
+        selection::{inputs::VerifyInputs, ProofOfSelection},
+    },
+    encap::ProofsVerifier,
 };
 
 pub mod quota;
@@ -21,7 +24,7 @@ pub enum Error {
 #[derive(Clone)]
 pub struct RealProofsVerifier;
 
-impl crate::encap::ProofsVerifier for RealProofsVerifier {
+impl ProofsVerifier for RealProofsVerifier {
     type Error = Error;
 
     fn new() -> Self {
