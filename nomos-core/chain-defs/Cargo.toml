@@ -9,7 +9,6 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
-anyhow             = { default-features = false, version = "1.0" }
 ark-ff             = { default-features = false, version = "0.4" }
 async-trait        = { version = "0.1" }
 bincode            = "1.3"
