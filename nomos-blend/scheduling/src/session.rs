@@ -6,11 +6,7 @@ use std::{
 };
 
 use futures::StreamExt as _;
-use groth16::Field as _;
-use nomos_core::crypto::ZkHash;
 use tokio::time::{sleep, timeout, Sleep};
-
-use crate::message_blend::{PrivateInfo, PublicInfo, SessionInfo};
 
 /// A staging type that initializes a [`SessionEventStream`] by consuming
 /// the first [`Session`] from the underlying stream, expected to be yielded
@@ -58,7 +54,7 @@ where
 
 #[derive(Clone)]
 pub enum SessionEvent<Session> {
-    NewSession(Session, Box<SessionInfo>),
+    NewSession(Session),
     TransitionPeriodExpired,
 }
 
@@ -94,37 +90,6 @@ impl<Stream> SessionEventStream<Stream> {
     }
 }
 
-// TODO: Replace this with the actual values after we get the rest of the
-// codebase to compile.
-const fn mock_session_info() -> SessionInfo {
-    SessionInfo {
-        public: PublicInfo {
-            core_quota: 0,
-            core_root: ZkHash::ZERO,
-            leader_quota: 0,
-            pol_epoch_nonce: ZkHash::ZERO,
-            pol_ledger_aged: ZkHash::ZERO,
-            session: 0,
-            total_stake: 0,
-        },
-        private: PrivateInfo {
-            aged_path: vec![],
-            aged_selector: vec![],
-            core_path: vec![],
-            core_path_selectors: vec![],
-            core_sk: ZkHash::ZERO,
-            note_value: 0,
-            output_number: 0,
-            pol_secret_key: ZkHash::ZERO,
-            slot: 0,
-            slot_secret: ZkHash::ZERO,
-            slot_secret_path: vec![],
-            starting_slot: 0,
-            transaction_hash: ZkHash::ZERO,
-        },
-    }
-}
-
 impl<Stream, Session> futures::Stream for SessionEventStream<Stream>
 where
     Stream: futures::Stream<Item = Session> + Unpin,
@@ -139,10 +104,7 @@ where
                 // If the previous transition period timer has not been expired yet,
                 // it will be overwritten.
                 self.transition_period_timer = Some(Box::pin(sleep(self.transition_period)));
-                return Poll::Ready(Some(SessionEvent::NewSession(
-                    session,
-                    Box::new(mock_session_info()),
-                )));
+                return Poll::Ready(Some(SessionEvent::NewSession(session)));
             }
             Poll::Ready(None) => return Poll::Ready(None),
             Poll::Pending => {}
@@ -224,7 +186,7 @@ mod tests {
         let start_time = Instant::now();
         assert!(matches!(
             stream.next().await,
-            Some(SessionEvent::NewSession(_, _))
+            Some(SessionEvent::NewSession(_))
         ));
         let elapsed = start_time.elapsed();
         let tolerance = Duration::from_millis(5);
@@ -246,7 +208,7 @@ mod tests {
         let start_time = Instant::now();
         assert!(matches!(
             stream.next().await,
-            Some(SessionEvent::NewSession(_, _))
+            Some(SessionEvent::NewSession(_))
         ));
         let elapsed = start_time.elapsed();
         assert!(
@@ -283,7 +245,7 @@ mod tests {
         let start_time = Instant::now();
         assert!(matches!(
             stream.next().await,
-            Some(SessionEvent::NewSession(_, _))
+            Some(SessionEvent::NewSession(_))
         ));
         let elapsed = start_time.elapsed();
         assert!(elapsed <= time_tolerance, "elapsed:{elapsed:?}");
@@ -292,7 +254,7 @@ mod tests {
         let start_time = Instant::now();
         assert!(matches!(
             stream.next().await,
-            Some(SessionEvent::NewSession(_, _))
+            Some(SessionEvent::NewSession(_))
         ));
         let elapsed = start_time.elapsed();
         assert!(

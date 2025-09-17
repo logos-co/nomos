@@ -12,7 +12,7 @@ use nomos_blend_message::crypto::{
 };
 use nomos_blend_scheduling::{
     membership::Membership,
-    message_blend::{BlendProof, CryptographicProcessorSettings, ProofsGenerator, SessionInfo},
+    message_blend::{BlendProof, SessionCryptographicProcessorSettings, ProofsGenerator, SessionInfo},
     session::UninitializedSessionEventStream,
     EncapsulatedMessage,
 };
@@ -235,7 +235,7 @@ fn settings(
             rounds_per_observation_window: NonZeroU64::new(1).unwrap(),
             rounds_per_session_transition_period: NonZeroU64::new(1).unwrap(),
         },
-        crypto: CryptographicProcessorSettings {
+        crypto: SessionCryptographicProcessorSettings {
             non_ephemeral_signing_key: key(local_id).0,
             num_blend_layers: 1,
         },

@@ -8,7 +8,7 @@ use nomos_blend_message::encap::ProofsVerifier as ProofsVerifierTrait;
 use nomos_blend_scheduling::{
     membership::Membership,
     message_blend::{
-        crypto::SenderAndReceiverCryptographicProcessor, CryptographicProcessorSettings,
+        crypto::SenderAndReceiverCryptographicProcessor, SessionCryptographicProcessorSettings,
         ProofsGenerator as ProofsGeneratorTrait, SessionInfo,
     },
 };
@@ -26,7 +26,7 @@ where
     pub fn try_new_with_core_condition_check(
         membership: Membership<NodeId>,
         minimum_network_size: NonZeroU64,
-        settings: &CryptographicProcessorSettings,
+        settings: &SessionCryptographicProcessorSettings,
         session_info: SessionInfo,
     ) -> Result<Self, Error>
     where
@@ -44,7 +44,7 @@ where
     fn new(
         membership: Membership<NodeId>,
         session_info: SessionInfo,
-        settings: CryptographicProcessorSettings,
+        settings: SessionCryptographicProcessorSettings,
     ) -> Self {
         Self(SenderAndReceiverCryptographicProcessor::new(
             settings,
@@ -178,8 +178,8 @@ mod tests {
         assert!(matches!(result, Err(Error::LocalIsNotCoreNode)));
     }
 
-    fn settings(local_id: NodeId) -> CryptographicProcessorSettings {
-        CryptographicProcessorSettings {
+    fn settings(local_id: NodeId) -> SessionCryptographicProcessorSettings {
+        SessionCryptographicProcessorSettings {
             non_ephemeral_signing_key: key(local_id).0,
             num_blend_layers: 1,
         }

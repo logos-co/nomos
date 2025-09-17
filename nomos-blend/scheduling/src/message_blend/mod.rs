@@ -1,7 +1,7 @@
 pub mod crypto;
 
 use async_trait::async_trait;
-pub use crypto::CryptographicProcessorSettings;
+pub use crypto::SessionCryptographicProcessorSettings;
 use futures::{
     future::join,
     stream::{AbortHandle, Abortable},
