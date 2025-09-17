@@ -416,8 +416,7 @@ where
                 Some(_) = opinion_stream.next() => {
                     // todo: aggregate opinions
                     // opinion_tracker.reportOpinion()
-                    // Opinion tracker will also need to subscribe to da-network or
-                    // membership service to track sessions
+                    // opinion tracker also needs to track session change and create results
                 }
             }
         }
