@@ -12,7 +12,7 @@ cached                   = { workspace = true }
 either                   = { default-features = false, version = "1.13.0" }
 fixed                    = { default-features = false, features = ["serde-str"], version = "1" }
 futures                  = { default-features = false, version = "0.3" }
-indexmap                 = { default-features = false, version = "2.2" }
+indexmap                 = { default-features = false, version = "2.2", features = ["std"] }
 kzgrs-backend            = { workspace = true }
 libp2p                   = { features = ["macros", "quic", "tokio"], workspace = true }
 libp2p-stream            = "0.3.0-alpha"
@@ -21,7 +21,7 @@ nomos-core               = { workspace = true }
 nomos-da-messages        = { workspace = true }
 nomos-utils              = { workspace = true }
 rand                     = { default-features = false, version = "0.8" }
-serde                    = { default-features = false, version = "1.0" }
+serde                    = { default-features = false, version = "1.0", features = ["derive"] }
 serde_with               = { workspace = true }
 subnetworks-assignations = { workspace = true }
 thiserror                = "1.0"
