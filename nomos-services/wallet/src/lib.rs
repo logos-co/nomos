@@ -248,12 +248,7 @@ where
     ) {
         // Get the ledger state at the specified tip
         let Ok(Some(ledger_state)) = cryptarchia_api.get_ledger_state(tip).await else {
-            if tx
-                .send(Err(WalletServiceError::LedgerStateNotFound(tip)))
-                .is_err()
-            {
-                error!("Failed to respond to GetLeaderAgedNotes");
-            }
+            Self::send_err(tx, WalletServiceError::LedgerStateNotFound(tip));
             return;
         };
 
@@ -277,19 +272,12 @@ where
                         "Failed to backfill wallet while fetching aged notes"
                     );
 
-                    if tx.send(Err(e)).is_err() {
-                        error!("Failed to respond to GetLeaderAgedNotes");
-                    }
+                    Self::send_err(tx, e);
                     return;
                 }
 
                 let Ok(wallet_state) = wallet.wallet_state_at(tip) else {
-                    if tx
-                        .send(Err(WalletServiceError::WalletStateNotFound(tip)))
-                        .is_err()
-                    {
-                        error!("Failed to respond to GetLeaderAgedNotes");
-                    }
+                    Self::send_err(tx, WalletServiceError::WalletStateNotFound(tip));
                     return;
                 };
 
@@ -351,5 +339,14 @@ where
         }
 
         Ok(())
+    }
+
+    fn send_err<T: std::fmt::Debug>(
+        tx: oneshot::Sender<Result<T, WalletServiceError>>,
+        err: WalletServiceError,
+    ) {
+        if let Err(msg) = tx.send(Err(err)) {
+            error!(msg = ?msg, "Wallet failed to send error response");
+        }
     }
 }
