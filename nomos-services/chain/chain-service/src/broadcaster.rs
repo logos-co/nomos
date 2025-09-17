@@ -12,8 +12,13 @@ use crate::{relays::BroadcastRelay, LibUpdate, PrunedBlocksInfo};
 /// A trait for broadcasting finalized blocks to other services.
 #[async_trait::async_trait]
 pub trait BlockBroadcaster {
+    /// Broadcasts newly finalized blocks to the given relay.
+    ///
+    /// It compares the `cryptarchia` provided here with the one captured when
+    /// this [`BlockBroadcaster`] was created, and identifies the newly
+    /// finalized blocks.
     async fn broadcast(
-        &self,
+        self: Box<Self>,
         cryptarchia: &Cryptarchia<HeaderId>,
         pruned_blocks: &PrunedBlocks<HeaderId>,
         relay: &BroadcastRelay,
@@ -51,7 +56,7 @@ impl OnlineBlockBroadcaster {
 impl BlockBroadcaster for OnlineBlockBroadcaster {
     /// Broadcasts the current LIB, if it is different from the previous LIB.
     async fn broadcast(
-        &self,
+        self: Box<Self>,
         cryptarchia: &Cryptarchia<HeaderId>,
         pruned_blocks: &PrunedBlocks<HeaderId>,
         relay: &BroadcastRelay,
@@ -115,7 +120,7 @@ impl BlockBroadcaster for BootstrappingBlockBroadcaster {
     /// not a descedant of the previous one), all blocks between the common
     /// ancestor (exclusive) and the current security block (inclusive).
     async fn broadcast(
-        &self,
+        self: Box<Self>,
         cryptarchia: &Cryptarchia<HeaderId>,
         _pruned_blocks: &PrunedBlocks<HeaderId>,
         relay: &BroadcastRelay,
