@@ -37,10 +37,6 @@ necessary for running and interacting with the Nomos blockchain. Key features in
     - We aim to maintain compatibility with the latest stable version of Rust.
     - [Installation Guide](https://www.rust-lang.org/tools/install)
 
-- **Risc0**
-    - Required for zero-knowledge proof functionality.
-    - [Installation Guide](https://dev.risczero.com/api/zkvm/install)
-
 ## Design Goals
 
 ### Service Architecture
