@@ -188,8 +188,7 @@ where
                         DaNetworkEvent::Sampling(_)
                         | DaNetworkEvent::Commitments(_)
                         | DaNetworkEvent::Verifying(_)
-                        | DaNetworkEvent::HistoricSampling(_)
-                        | DaNetworkEvent::Opinion(_) => None,
+                        | DaNetworkEvent::HistoricSampling(_) => None,
                         DaNetworkEvent::Dispersal(DispersalExecutorEvent::DispersalError {
                             error,
                         }) => Some(Err(Box::new(error) as DynError)),

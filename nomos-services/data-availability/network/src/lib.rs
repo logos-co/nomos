@@ -19,7 +19,8 @@ use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};
 use libp2p::{Multiaddr, PeerId};
 use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId};
 use nomos_da_network_core::{
-    addressbook::AddressBookHandler as _, swarm::BalancerStats, SubnetworkId,
+    addressbook::AddressBookHandler as _, protocols::sampling::opinions::OpinionEvent,
+    swarm::BalancerStats, SubnetworkId,
 };
 use overwatch::{
     services::{
@@ -44,7 +45,6 @@ use tokio_stream::{
 use crate::{
     addressbook::{AddressBook, AddressBookSnapshot},
     api::ApiAdapter as ApiAdapterTrait,
-    backends::libp2p::executor::DaNetworkEventKind,
     membership::{
         handler::{DaMembershipHandler, SharedMembershipHandler},
         MembershipAdapter,
@@ -170,6 +170,7 @@ pub struct NetworkService<
     phantom: PhantomData<MembershipServiceAdapter>,
     subnet_refresh_sender: Sender<()>,
     balancer_stats_stream: UnboundedReceiverStream<BalancerStats>,
+    opinion_stream: UnboundedReceiverStream<OpinionEvent>,
 }
 
 pub struct NetworkState<
@@ -306,6 +307,8 @@ where
         let subnet_refresh_signal = select(refresh_ticker, refresh_signal);
         let (balancer_stats_sender, balancer_stats_receiver) = mpsc::unbounded_channel();
         let balancer_stats_stream = UnboundedReceiverStream::new(balancer_stats_receiver);
+        let (opinion_sender, opinion_receiver) = mpsc::unbounded_channel();
+        let opinion_stream = UnboundedReceiverStream::new(opinion_receiver);
 
         Ok(Self {
             backend: <Backend as NetworkBackend<RuntimeServiceId>>::new(
@@ -315,6 +318,7 @@ where
                 addressbook.clone(),
                 subnet_refresh_signal,
                 balancer_stats_sender,
+                opinion_sender,
             ),
             service_resources_handle,
             membership,
@@ -323,6 +327,7 @@ where
             phantom: PhantomData,
             subnet_refresh_sender,
             balancer_stats_stream,
+            opinion_stream,
         })
     }
 
@@ -341,6 +346,7 @@ where
             ref addressbook,
             ref subnet_refresh_sender,
             ref mut balancer_stats_stream,
+            ref mut opinion_stream,
             ..
         } = self;
 
@@ -384,13 +390,6 @@ where
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
 
-        // todo: aggregate opinions
-        // opinion_tracker.reportOpinion()
-        // Opinion tracker will also need to subscribe to da-network or
-        // membership service to track sessions
-
-        let mut opinion_stream = backend.subscribe(Backend::EventKind::Opinion).await;
-
         loop {
             tokio::select! {
                 Some(msg) = inbound_relay.recv() => {
@@ -413,6 +412,12 @@ where
                     } else {
                         backend.update_status(ConnectionStatus::Ready);
                     }
+                }
+                Some(_) = opinion_stream.next() => {
+                    // todo: aggregate opinions
+                    // opinion_tracker.reportOpinion()
+                    // Opinion tracker will also need to subscribe to da-network or
+                    // membership service to track sessions
                 }
             }
         }

@@ -79,7 +79,6 @@ pub enum DaNetworkEventKind {
     Verifying,
     Dispersal,
     HistoricSampling,
-    Opinion,
 }
 
 /// DA network incoming events
@@ -90,7 +89,6 @@ pub enum DaNetworkEvent {
     Verifying(VerificationEvent),
     Dispersal(DispersalExecutorEvent),
     HistoricSampling(HistoricSamplingEvent),
-    Opinion(OpinionEvent),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -119,7 +117,6 @@ where
     verifying_broadcast_receiver: broadcast::Receiver<VerificationEvent>,
     dispersal_broadcast_receiver: broadcast::Receiver<DispersalExecutorEvent>,
     historic_sampling_broadcast_receiver: broadcast::Receiver<HistoricSamplingEvent>,
-    opinion_broadcast_receiver: broadcast::Receiver<OpinionEvent>,
     dispersal_shares_sender: UnboundedSender<(Membership::NetworkId, DaShare)>,
     dispersal_tx_sender: UnboundedSender<(Membership::NetworkId, SignedMantleTx)>,
     balancer_command_sender: UnboundedSender<ConnectionBalancerCommand<BalancerStats>>,
@@ -156,6 +153,7 @@ where
         addressbook: Self::Addressbook,
         subnet_refresh_signal: impl Stream<Item = ()> + Send + 'static,
         balancer_stats_sender: UnboundedSender<BalancerStats>,
+        opinion_sender: UnboundedSender<OpinionEvent>,
     ) -> Self {
         let keypair = libp2p::identity::Keypair::from(ed25519::Keypair::from(
             config.validator_settings.node_key.clone(),
@@ -207,8 +205,6 @@ where
             broadcast::channel(BROADCAST_CHANNEL_SIZE);
         let (historic_sampling_broadcast_sender, historic_sampling_broadcast_receiver) =
             broadcast::channel(BROADCAST_CHANNEL_SIZE);
-        let (opinion_broadcast_sender, opinion_broadcast_receiver) =
-            broadcast::channel(BROADCAST_CHANNEL_SIZE);
 
         let (verifier_replies_task_abort_handle, verifier_replies_task_abort_registration) =
             AbortHandle::new_pair();
@@ -219,7 +215,7 @@ where
                 commitments_broadcast_sender,
                 verifying_broadcast_sender,
                 historic_sampling_broadcast_sender,
-                opinion_broadcast_sender,
+                opinion_sender,
             ),
             verifier_replies_task_abort_registration,
         ));
@@ -247,7 +243,6 @@ where
             verifying_broadcast_receiver,
             dispersal_broadcast_receiver,
             historic_sampling_broadcast_receiver,
-            opinion_broadcast_receiver,
             dispersal_shares_sender,
             dispersal_tx_sender,
             balancer_command_sender,
@@ -362,11 +357,6 @@ where
                 BroadcastStream::new(self.historic_sampling_broadcast_receiver.resubscribe())
                     .filter_map(handle_stream_event)
                     .map(Self::NetworkEvent::HistoricSampling),
-            ),
-            DaNetworkEventKind::Opinion => Box::pin(
-                BroadcastStream::new(self.opinion_broadcast_receiver.resubscribe())
-                    .filter_map(handle_stream_event)
-                    .map(Self::NetworkEvent::Opinion),
             ),
         }
     }
