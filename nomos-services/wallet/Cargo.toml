@@ -1,0 +1,21 @@
+[package]
+edition = "2021"
+license = { workspace = true }
+name    = "nomos-wallet"
+version = "0.1.0"
+
+[dependencies]
+async-trait = "0.1"
+serde       = { version = "1.0", features = ["derive"] }
+thiserror   = "1.0"
+tokio       = { version = "1", features = ["sync"] }
+tracing     = { workspace = true }
+
+chain-service = { workspace = true }
+nomos-core    = { workspace = true }
+nomos-storage = { workspace = true, features = ["mock"] }
+overwatch     = { workspace = true }
+wallet        = { workspace = true }
+
+[lints]
+workspace = true
