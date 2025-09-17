@@ -1,7 +1,7 @@
 mod connections;
 pub mod errors;
 mod historic;
-mod opinions;
+pub mod opinions;
 mod requests;
 mod responses;
 mod streams;

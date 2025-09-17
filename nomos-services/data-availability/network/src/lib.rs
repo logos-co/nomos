@@ -44,6 +44,7 @@ use tokio_stream::{
 use crate::{
     addressbook::{AddressBook, AddressBookSnapshot},
     api::ApiAdapter as ApiAdapterTrait,
+    backends::libp2p::executor::DaNetworkEventKind,
     membership::{
         handler::{DaMembershipHandler, SharedMembershipHandler},
         MembershipAdapter,
@@ -382,6 +383,13 @@ where
             "Service '{}' is ready.",
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
+
+        // todo: aggregate opinions
+        // opinion_tracker.reportOpinion()
+        // Opinion tracker will also need to subscribe to da-network or
+        // membership service to track sessions
+
+        let mut opinion_stream = backend.subscribe(Backend::EventKind::Opinion).await;
 
         loop {
             tokio::select! {

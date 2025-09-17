@@ -8,6 +8,7 @@ use libp2p::PeerId;
 use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId};
 use nomos_da_network_core::{
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
+    protocols::sampling::opinions::OpinionEvent,
     swarm::{
         validator::{SampleArgs, SwarmSettings, ValidatorSwarm},
         BalancerStats, MonitorStats,
@@ -63,6 +64,7 @@ pub enum DaNetworkEventKind {
     Commitments,
     Verifying,
     HistoricSampling,
+    Opinion,
 }
 
 /// DA network incoming events
@@ -72,6 +74,7 @@ pub enum DaNetworkEvent {
     Commitments(CommitmentsEvent),
     Verifying(VerificationEvent),
     HistoricSampling(HistoricSamplingEvent),
+    Opinion(OpinionEvent),
 }
 
 /// DA network backend for validators
@@ -92,6 +95,7 @@ pub struct DaNetworkValidatorBackend<Membership> {
     commitments_broadcast_receiver: broadcast::Receiver<CommitmentsEvent>,
     verifying_broadcast_receiver: broadcast::Receiver<VerificationEvent>,
     historic_sampling_broadcast_receiver: broadcast::Receiver<HistoricSamplingEvent>,
+    opinion_broadcast_receiver: broadcast::Receiver<OpinionEvent>,
     _membership: PhantomData<Membership>,
 }
 
@@ -167,8 +171,9 @@ where
             broadcast::channel(BROADCAST_CHANNEL_SIZE);
         let (verifying_broadcast_sender, verifying_broadcast_receiver) =
             broadcast::channel(BROADCAST_CHANNEL_SIZE);
-
         let (historic_sampling_broadcast_sender, historic_sampling_broadcast_receiver) =
+            broadcast::channel(BROADCAST_CHANNEL_SIZE);
+        let (opinion_broadcast_sender, opinion_broadcast_receiver) =
             broadcast::channel(BROADCAST_CHANNEL_SIZE);
 
         let (replies_task_abort_handle, replies_task_abort_registration) = AbortHandle::new_pair();
@@ -179,6 +184,7 @@ where
                 commitments_broadcast_sender,
                 verifying_broadcast_sender,
                 historic_sampling_broadcast_sender,
+                opinion_broadcast_sender,
             ),
             replies_task_abort_registration,
         ));
@@ -196,6 +202,7 @@ where
             commitments_broadcast_receiver,
             verifying_broadcast_receiver,
             historic_sampling_broadcast_receiver,
+            opinion_broadcast_receiver,
             _membership: PhantomData,
         }
     }
@@ -267,6 +274,11 @@ where
                 BroadcastStream::new(self.historic_sampling_broadcast_receiver.resubscribe())
                     .filter_map(|event| async { event.ok() })
                     .map(Self::NetworkEvent::HistoricSampling),
+            ),
+            DaNetworkEventKind::Opinion => Box::pin(
+                BroadcastStream::new(self.opinion_broadcast_receiver.resubscribe())
+                    .filter_map(|event| async { event.ok() })
+                    .map(Self::NetworkEvent::Opinion),
             ),
         }
     }
