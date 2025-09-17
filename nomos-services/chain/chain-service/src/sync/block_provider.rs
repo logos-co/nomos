@@ -730,7 +730,10 @@ mod tests {
 
             for i in 0..count {
                 let slot = Slot::from(slot_offset + i as u64);
-                let block = self.build_block_with_parent(prev_header, slot);
+                let Some(block) = self.build_block_with_parent(prev_header, slot) else {
+                    error!("Failed to build block with parent");
+                    break;
+                };
                 let header_id = block.header().id();
 
                 blocks.push((block, header_id, prev_header, slot));
@@ -793,11 +796,17 @@ mod tests {
             &self,
             prev_header: HeaderId,
             slot: Slot,
-        ) -> Block<SignedMantleTx> {
-            Block::new(
-                Header::new(prev_header, [0; 32].into(), slot, self.proof.clone()),
-                vec![],
-            )
+        ) -> Option<Block<SignedMantleTx>> {
+            // TODO: Use correct derived one time key
+            let dummy_signing_key = ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]);
+            let header = Header::new(prev_header, [0; 32].into(), slot, self.proof.clone());
+
+            let Ok(signature) = header.sign(&dummy_signing_key) else {
+                error!("Failed to sign header in block provider");
+                return None;
+            };
+
+            Some(Block::new(header, vec![], None, signature))
         }
 
         async fn add_block(
