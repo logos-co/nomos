@@ -110,18 +110,18 @@ mod tests {
 
     #[test]
     fn encapsulation_count_exceeded() {
-        assert_eq!(
+        assert!(matches!(
             generate_inputs(ENCAPSULATION_COUNT + 1).err(),
             Some(Error::EncapsulationCountExceeded)
-        );
+        ));
     }
 
     #[test]
     fn empty_inputs() {
-        assert_eq!(
+        assert!(matches!(
             generate_inputs(0).err(),
             Some(Error::EmptyEncapsulationInputs)
-        );
+        ));
     }
 
     fn generate_inputs(cnt: usize) -> Result<EncapsulationInputs<ENCAPSULATION_COUNT>, Error> {

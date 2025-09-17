@@ -24,5 +24,8 @@ serde_with      = { default-features = false, features = ["alloc"], version = "3
 thiserror       = "1"
 x25519-dalek    = { default-features = false, features = ["serde", "static_secrets"], version = "2" }
 
+[dev-dependencies]
+const-hex = { default-features = false, version = "1.15.0" }
+
 [features]
 unsafe-test-functions = []

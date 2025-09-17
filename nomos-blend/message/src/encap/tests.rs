@@ -11,8 +11,10 @@ use crate::{
         },
     },
     encap::{
-        decapsulated::DecapsulationOutput, encapsulated::EncapsulatedMessage,
-        unwrapped::RequiredProofOfSelectionVerificationInputs, ProofsVerifier,
+        decapsulated::DecapsulationOutput,
+        encapsulated::{EncapsulatedMessage, PoQVerificationInputMinusSigningKey},
+        validated::RequiredProofOfSelectionVerificationInputs,
+        ProofsVerifier,
     },
     input::{EncapsulationInput, EncapsulationInputs},
     message::payload::MAX_PAYLOAD_BODY_SIZE,
@@ -25,6 +27,10 @@ struct NeverFailingProofsVerifier;
 
 impl ProofsVerifier for NeverFailingProofsVerifier {
     type Error = Infallible;
+
+    fn new() -> Self {
+        Self
+    }
 
     fn verify_proof_of_quota(
         &self,
@@ -61,7 +67,7 @@ fn encapsulate_and_decapsulate() {
 
     // We can decapsulate with the correct private key.
     let DecapsulationOutput::Incompleted(msg) = msg
-        .verify_and_unwrap_public_header(&PublicInputs::default(), &verifier)
+        .verify_public_header(&PoQVerificationInputMinusSigningKey::default(), &verifier)
         .unwrap()
         .decapsulate(
             blend_node_enc_keys.last().unwrap(),
@@ -77,7 +83,7 @@ fn encapsulate_and_decapsulate() {
     // which we already used for the first decapsulation.
     assert!(msg
         .clone()
-        .verify_and_unwrap_public_header(&PublicInputs::default(), &verifier)
+        .verify_public_header(&PoQVerificationInputMinusSigningKey::default(), &verifier)
         .unwrap()
         .decapsulate(
             blend_node_enc_keys.last().unwrap(),
@@ -89,7 +95,7 @@ fn encapsulate_and_decapsulate() {
     // We can decapsulate with the correct private key
     // and the fully-decapsulated payload is correct.
     let DecapsulationOutput::Completed(decapsulated_message) = msg
-        .verify_and_unwrap_public_header(&PublicInputs::default(), &verifier)
+        .verify_public_header(&PoQVerificationInputMinusSigningKey::default(), &verifier)
         .unwrap()
         .decapsulate(
             blend_node_enc_keys.first().unwrap(),
@@ -108,7 +114,7 @@ fn encapsulate_and_decapsulate() {
 #[test]
 fn payload_too_long() {
     let (inputs, _) = generate_inputs(1).unwrap();
-    assert_eq!(
+    assert!(matches!(
         EncapsulatedMessage::<ENCAPSULATION_COUNT>::new(
             &inputs,
             PayloadType::Data,
@@ -116,7 +122,7 @@ fn payload_too_long() {
         )
         .err(),
         Some(Error::PayloadTooLarge)
-    );
+    ));
 }
 
 fn generate_inputs(

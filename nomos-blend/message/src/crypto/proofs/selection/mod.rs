@@ -1,3 +1,5 @@
+use core::fmt::Debug;
+
 use ::serde::{Deserialize, Serialize};
 use groth16::{fr_from_bytes, fr_from_bytes_unchecked, fr_to_bytes};
 use nomos_core::crypto::{ZkHash, ZkHasher};
@@ -33,6 +35,8 @@ pub enum Error {
     KeyNullifierMismatch { expected: ZkHash, provided: ZkHash },
     #[error("Invalid input: {0}.")]
     InvalidInput(Box<dyn core::error::Error>),
+    #[error("Proof of Selection verification failed.")]
+    Verification,
 }
 
 impl ProofOfSelection {
@@ -50,14 +54,9 @@ impl ProofOfSelection {
         }
     }
 
-    pub(super) fn verify(
-        self,
-        VerifyInputs {
-            expected_node_index,
-            key_nullifier,
-            total_membership_size,
-        }: &VerifyInputs,
-    ) -> Result<(), Error> {
+    /// Returns the index the Proof of Selection refers to, for the provided
+    /// membership size.
+    pub fn expected_index(&self, membership_size: usize) -> Result<usize, Error> {
         // Condition 1: https://www.notion.so/nomos-tech/Blend-Protocol-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df819991e6f9455ff7ec92
         let selection_randomness_bytes = fr_to_bytes(&self.selection_randomness);
         let selection_randomness_blake_hash =
@@ -70,11 +69,24 @@ impl ProofOfSelection {
                 .try_into()
                 .map_err(|_| Error::Overflow)?
         };
-        let final_index = pseudo_random_output % total_membership_size;
-        if final_index != *expected_node_index {
+        (pseudo_random_output % u64::try_from(membership_size).map_err(|_| Error::Overflow)?)
+            .try_into()
+            .map_err(|_| Error::Overflow)
+    }
+
+    pub(super) fn verify(
+        self,
+        VerifyInputs {
+            expected_node_index,
+            key_nullifier,
+            total_membership_size,
+        }: &VerifyInputs,
+    ) -> Result<(), Error> {
+        let final_index = self.expected_index(*total_membership_size as usize)?;
+        if final_index != *expected_node_index as usize {
             return Err(Error::IndexMismatch {
                 expected: *expected_node_index,
-                provided: final_index,
+                provided: final_index as u64,
             });
         }
 

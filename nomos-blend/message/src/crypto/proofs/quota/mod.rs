@@ -1,7 +1,9 @@
+use std::sync::LazyLock;
+
 use ::serde::{Deserialize, Serialize};
 use generic_array::{ArrayLength, GenericArray};
-use groth16::{fr_from_bytes_unchecked, Bn254, CompressSize};
-use nomos_core::crypto::ZkHash;
+use groth16::{fr_from_bytes_unchecked, fr_from_slice, Bn254, CompressSize};
+use nomos_core::crypto::{ZkHash, ZkHasher};
 use poq::{prove, verify, PoQProof, PoQVerifierInput, PoQWitnessInputs, ProveError};
 use thiserror::Error;
 
@@ -12,6 +14,8 @@ use crate::crypto::proofs::quota::inputs::{
 
 pub mod inputs;
 mod serde;
+#[cfg(test)]
+mod tests;
 
 const KEY_NULLIFIER_SIZE: usize = size_of::<ZkHash>();
 const PROOF_CIRCUIT_SIZE: usize = size_of::<PoQProof>();
@@ -20,7 +24,7 @@ pub const PROOF_OF_QUOTA_SIZE: usize = KEY_NULLIFIER_SIZE.checked_add(PROOF_CIRC
 /// A Proof of Quota as described in the Blend v1 spec: <https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#26a261aa09df80f4b119f900fbb36f3f>.
 // TODO: To avoid proofs being misused, remove the `Clone` and `Copy` derives, so once a proof is
 // verified it cannot be (mis)used anymore.
-#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 pub struct ProofOfQuota {
     #[serde(with = "groth16::serde::serde_fr")]
     key_nullifier: ZkHash,
@@ -40,8 +44,14 @@ pub enum Error {
 
 impl ProofOfQuota {
     /// Generate a new Proof of Quota with the provided public and private
-    /// inputs.
-    pub fn new(public_inputs: &PublicInputs, private_inputs: PrivateInputs) -> Result<Self, Error> {
+    /// inputs, along with the secret selection randomness for the Proof of
+    /// Selection associated to this Proof of Quota.
+    pub fn new(
+        public_inputs: &PublicInputs,
+        private_inputs: PrivateInputs,
+    ) -> Result<(Self, ZkHash), Error> {
+        let key_index = private_inputs.key_index;
+        let secret_selection_randomness_sk = private_inputs.get_secret_selection_randomness_sk();
         let witness_inputs: PoQWitnessInputs = Inputs {
             private: private_inputs,
             public: *public_inputs,
@@ -50,10 +60,18 @@ impl ProofOfQuota {
         .map_err(|e| Error::InvalidInput(Box::new(e)))?;
         let (proof, PoQVerifierInput { key_nullifier, .. }) =
             prove(&witness_inputs).map_err(Error::ProofGeneration)?;
-        Ok(Self {
-            key_nullifier: key_nullifier.into_inner(),
-            proof,
-        })
+        let secret_selection_randomness = generate_secret_selection_randomness(
+            secret_selection_randomness_sk,
+            key_index,
+            public_inputs.session,
+        );
+        Ok((
+            Self {
+                key_nullifier: key_nullifier.into_inner(),
+                proof,
+            },
+            secret_selection_randomness,
+        ))
     }
 
     #[must_use]
@@ -86,11 +104,35 @@ impl ProofOfQuota {
         }
     }
 
+    #[must_use]
+    pub const fn key_nullifier(&self) -> ZkHash {
+        self.key_nullifier
+    }
+
     #[cfg(test)]
     #[must_use]
     pub fn dummy() -> Self {
         Self::from_bytes_unchecked([0u8; _])
     }
+}
+
+const DOMAIN_SEPARATION_TAG: [u8; 23] = *b"SELECTION_RANDOMNESS_V1";
+static DOMAIN_SEPARATION_TAG_FR: LazyLock<ZkHash> = LazyLock::new(|| {
+    fr_from_slice(&DOMAIN_SEPARATION_TAG[..])
+        .expect("DST for secret selection randomness calculation must be correct.")
+});
+// As per Proof of Quota v1 spec: <https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#215261aa09df81adb8ccd1448c9afd68>.
+fn generate_secret_selection_randomness(sk: ZkHash, key_index: u64, session: u64) -> ZkHash {
+    let hash_input = [
+        *DOMAIN_SEPARATION_TAG_FR,
+        sk,
+        key_index.into(),
+        session.into(),
+    ];
+
+    let mut hasher = ZkHasher::new();
+    hasher.update(&hash_input);
+    hasher.finalize()
 }
 
 fn split_proof_components<G1Compressed, G2Compressed>(
