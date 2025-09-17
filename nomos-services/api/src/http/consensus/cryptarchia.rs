@@ -5,6 +5,7 @@ use chain_service::{
     CryptarchiaConsensus, CryptarchiaInfo,
 };
 use kzgrs_backend::dispersal::Metadata;
+use nomos_blend_service::{RealProofsGenerator, RealProofsVerifier};
 use nomos_core::{
     da::BlobId,
     header::HeaderId,
@@ -55,6 +56,8 @@ type BlendService<RuntimeServiceId> = nomos_blend_service::BlendService<
         PeerId,
         nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
         BlendMembershipAdapter<RuntimeServiceId>,
+        RealProofsGenerator,
+        RealProofsVerifier,
         RuntimeServiceId,
     >,
     nomos_blend_service::edge::BlendService<
@@ -62,6 +65,7 @@ type BlendService<RuntimeServiceId> = nomos_blend_service::BlendService<
         PeerId,
         <nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<RuntimeServiceId>>::BroadcastSettings,
         BlendMembershipAdapter<RuntimeServiceId>,
+        RealProofsGenerator,
         RuntimeServiceId
     >,
     RuntimeServiceId,

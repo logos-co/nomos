@@ -18,9 +18,10 @@ pub enum Error {
 }
 
 /// Verifier that actually verifies the validity of Blend-related proofs.
-pub struct ProofsVerifier;
+#[derive(Clone)]
+pub struct RealProofsVerifier;
 
-impl crate::encap::ProofsVerifier for ProofsVerifier {
+impl crate::encap::ProofsVerifier for RealProofsVerifier {
     type Error = Error;
 
     fn new() -> Self {

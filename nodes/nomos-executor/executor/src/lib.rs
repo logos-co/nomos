@@ -9,6 +9,7 @@ use nomos_blend_service::{
         network::libp2p::Libp2pAdapter as BlendNetworkAdapter,
     },
     membership::service::Adapter as BlendMembershipAdapter,
+    RealProofsGenerator, RealProofsVerifier,
 };
 use nomos_core::mantle::SignedMantleTx;
 use nomos_da_dispersal::{
@@ -57,6 +58,8 @@ pub(crate) type BlendCoreService = nomos_blend_service::core::BlendService<
     PeerId,
     BlendNetworkAdapter<RuntimeServiceId>,
     BlendMembershipAdapter<MembershipService<RuntimeServiceId>, PeerId>,
+    RealProofsGenerator,
+    RealProofsVerifier,
     RuntimeServiceId,
 >;
 
@@ -67,6 +70,7 @@ pub(crate) type BlendEdgeService = nomos_blend_service::edge::BlendService<
         RuntimeServiceId,
     >>::BroadcastSettings,
     BlendMembershipAdapter<MembershipService<RuntimeServiceId>, PeerId>,
+    RealProofsGenerator,
     RuntimeServiceId,
 >;
 

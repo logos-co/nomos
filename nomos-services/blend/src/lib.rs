@@ -7,6 +7,8 @@ use std::{
 
 use async_trait::async_trait;
 use futures::StreamExt as _;
+pub use nomos_blend_message::crypto::proofs::RealProofsVerifier;
+pub use nomos_blend_scheduling::message_blend::RealProofsGenerator;
 use nomos_blend_scheduling::{
     message_blend::SessionInfo, session::UninitializedSessionEventStream,
 };

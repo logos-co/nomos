@@ -13,6 +13,7 @@ pub use nomos_blend_service::{
     },
     membership::service::Adapter as BlendMembershipAdapter,
 };
+use nomos_blend_service::{RealProofsGenerator, RealProofsVerifier};
 use nomos_core::mantle::SignedMantleTx;
 pub use nomos_core::{
     codec,
@@ -79,6 +80,8 @@ pub(crate) type BlendCoreService = nomos_blend_service::core::BlendService<
     PeerId,
     BlendNetworkAdapter<RuntimeServiceId>,
     BlendMembershipAdapter<MembershipService<RuntimeServiceId>, PeerId>,
+    RealProofsGenerator,
+    RealProofsVerifier,
     RuntimeServiceId,
 >;
 
@@ -89,6 +92,7 @@ pub(crate) type BlendEdgeService = nomos_blend_service::edge::BlendService<
         RuntimeServiceId,
     >>::BroadcastSettings,
     BlendMembershipAdapter<MembershipService<RuntimeServiceId>, PeerId>,
+    RealProofsGenerator,
     RuntimeServiceId,
 >;
 
