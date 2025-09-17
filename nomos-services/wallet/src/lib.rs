@@ -177,7 +177,8 @@ where
                 }
                 Ok(header_id) = new_block_receiver.recv() => {
                     let Some(block) = storage_adapter.get_block(&header_id).await else {
-                        panic!("missing block in storage");
+                        error!(block_id=?header_id, "Missing block in storage");
+                        continue;
                     };
                     let wallet_block = WalletBlock::from(block);
                     match wallet.apply_block(&wallet_block) {
@@ -186,7 +187,7 @@ where
                         }
                         Err(WalletError::UnknownBlock) => {
 
-                            info!(block_id = ?wallet_block.id, "Missing block in wallet, backfilling");
+                            info!(block_id = ?header_id, "Missing block in wallet, backfilling");
                             Self::backfill_missing_blocks(wallet_block.id, &mut wallet, &storage_adapter, &cryptarchia_api).await?;
                         }
                     }
