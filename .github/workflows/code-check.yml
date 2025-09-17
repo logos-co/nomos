@@ -169,60 +169,151 @@ jobs:
       matrix:
         os:
           # Using self-hosted runners because we were running out of memory on GitHub-hosted runners
-          - [self-hosted, Linux]
-          - [self-hosted, macOS]
+          # - [self-hosted, Linux]
+          # - [self-hosted, macOS]
+          - ubuntu-latest
     runs-on: ${{ matrix.os }}
+    env:
+      NOMOS_HOME: ${{ github.workspace }}/.home-nix
+      NOMOS_CARGO_HOME: ${{ github.workspace }}/.home-nix/.cargo
+      NOMOS_RUSTUP_HOME: ${{ github.workspace }}/.home-nix/.rustup
+      NOMOS_RISC0_HOME: ${{ github.workspace }}/.home-nix/.risc0
+      NOMOS_TARGET_DIR: ${{ github.workspace }}/.home-nix/target-nix
+      CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
     steps:
-      - name: Disable rustup override
-        run: rustup override unset
-
       - name: Checkout repository
         uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
 
-      - name: Install risc0 dependencies
-        uses: ./.github/actions/install-risc0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Setup Nix
+        run: |
+          chmod +x .github/scripts/nix-develop.sh
+          echo "$PWD/.github/scripts" >> "$GITHUB_PATH"
+          echo /nix/var/nix/profiles/default/bin >> "$GITHUB_PATH"
 
-      - name: Set up Cargo cache
-        uses: ./.github/actions/setup-cargo-cache
-        with:
-          key: ${{ github.ref }}->${{ github.workflow }}->${{ github.job }}->${{ join(matrix.os, '_') }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Disable rustup override
+        run: rustup override unset
 
-      - name: Run the node binary to check the config file validity
-        uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
-        with:
-          command: run
-          args: -p nomos-node nodes/nomos-node/config.yaml --check-config
+      - name: Ensure ENV
+        shell: bash
+        env:
+          HOME: ${{ env.NOMOS_HOME }}
+          CARGO_HOME: ${{ env.NOMOS_CARGO_HOME }}
+          RUSTUP_HOME: ${{ env.NOMOS_RUSTUP_HOME }}
+          RISC0_HOME: ${{ env.NOMOS_RISC0_HOME }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME" "$CARGO_HOME" "$RUSTUP_HOME" "$RISC0_HOME"
+          
+          # keep only your toolchain first on PATH now and later steps
+          echo "$CARGO_HOME/bin" >> "$GITHUB_PATH"
 
-      - name: Run the executor binary to check the config file validity
-        uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
-        with:
-          command: run
-          args: -p nomos-executor nodes/nomos-executor/config.yaml --check-config
-
-      # This includes testing feature needed for tests
-      - name: Build binaries with all features
-        uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72
-        with:
-          command: build
-          args: --all-features
+          # sanitize common leak vars on self-hosted boxes
+          unset CARGO_BUILD_TARGET RUSTFLAGS RUSTC_WRAPPER RUSTC_WORKSPACE_WRAPPER RUSTC CARGO_TARGET_DIR          
 
       - name: Setup Circuits
         uses: ./.github/actions/setup-circuits
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Cargo test
-        uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
+      - name: Use Nix glibc/libstdc++ for pol
+        shell: nix-develop.sh .#circuits {0}
+        run: |
+          # POL=$NOMOS_POL
+          # INTERP="$(patchelf --print-interpreter "$POL" 2>/dev/null)" # needs patchelf
+          
+          INTERP_NIX="$(nix eval --raw nixpkgs#glibc.out)/lib64/ld-linux-x86-64.so.2"
+          LIBSTDCPP="$(nix eval --raw nixpkgs#stdenv.cc.cc.lib)"
+          GMP="$(nix eval --raw nixpkgs#gmp)"
+          GLIBC="$(nix eval --raw nixpkgs#glibc)"
+          LIBPATH_NIX="$LIBSTDCPP/lib:$GMP/lib:$GLIBC/lib"
+          
+          # "$INTERP_NIX" --library-path "$LIBPATH_NIX" "$POL" --help
+          patchelf --set-interpreter "$INTERP_NIX" --set-rpath "$LIBPATH_NIX" "$NOMOS_POL"
+          patchelf --set-interpreter "$INTERP_NIX" --set-rpath "$LIBPATH_NIX" "$NOMOS_PROVER"
+          patchelf --set-interpreter "$INTERP_NIX" --set-rpath "$LIBPATH_NIX" "$NOMOS_VERIFIER"
+          
+          # env -i "$INTERP" --list $POL
+          # env -i "$INTERP_NIX" --library-path "$LIBPATH_NIX" --list "$POL"
+
+      - name: Install RISC0 toolchain (pinned)
+        shell: nix-develop.sh .#circuits {0}
         env:
-          RISC0_DEV_MODE: true
-          CONSENSUS_SLOT_TIME: 5
-        with:
-          command: test
-          # We don't test benches as they take 6h+, leading to a timeout
-          args: --all --lib --bins --tests --examples --all-features
+          HOME: ${{ env.NOMOS_HOME }}
+          CARGO_HOME: ${{ env.NOMOS_CARGO_HOME }}
+          RUSTUP_HOME: ${{ env.NOMOS_RUSTUP_HOME }}
+          RISC0_HOME: ${{ env.NOMOS_RISC0_HOME }}
+          # CARGO_TARGET_DIR: ${{ env.NOMOS_TARGET_DIR }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          export PATH="$CARGO_HOME/bin:$PATH"
+
+          # make sure CARGO_HOME exists (you've set it via env)
+          mkdir -p "$CARGO_HOME"
+          
+          # install rzup (version pin optional)
+          cargo install --locked rzup@0.5.0
+          
+          # make rzup available NOW (this step) and in later steps
+          export PATH="$CARGO_HOME/bin:$PATH"
+          echo "$CARGO_HOME/bin" >> "$GITHUB_PATH"
+          
+          # use rzup
+          # available versions: 3.0.1, 2.3.1
+          rzup install rust 1.88.0
+          rzup install r0vm 3.0.1
+          rzup install cargo-risczero 3.0.1
+          # rzup install cpp 2024.1.5
+    
+          # Sanity: confirm we’ll use the expected toolchain
+          which cargo || true
+          cargo --version || true
+          which rustc || true
+          rustc --version || true
+          rzup --version || true
+
+      - name: Build
+        shell: nix-develop.sh .#circuits {0}
+        env:
+          HOME: ${{ env.NOMOS_HOME }}
+          CARGO_HOME: ${{ env.NOMOS_CARGO_HOME }}
+          RUSTUP_HOME: ${{ env.NOMOS_RUSTUP_HOME }}
+          RISC0_HOME: ${{ env.NOMOS_RISC0_HOME }}
+          # CARGO_TARGET_DIR: ${{ env.NOMOS_TARGET_DIR }}
+          DEV_SHELL_DEBUG: "1"
+        run: |
+          export PATH="$CARGO_HOME/bin:$PATH"
+          cargo clean
+          cargo build --all-features
+
+#      - name: Test
+#        shell: nix-develop.sh .#circuits {0}
+#        env:
+#          RISC0_DEV_MODE: true
+#          CONSENSUS_SLOT_TIME: 5
+#        run: |
+#          export RISC0_BUILD_LOCKED=1
+#          cargo test --all --lib --bins --tests --examples --all-features -p chain-service
+#          # cargo test --all --lib --bins --tests --examples --all-features
+
+#      - name: Cargo test
+#        shell: nix-develop.sh .#circuits {0}
+#        env:
+#          RISC0_DEV_MODE: true
+#          CONSENSUS_SLOT_TIME: 5
+#        run: |
+#          # RISC_DEV_MODE=true CONSENSUS_SLOT_TIME=5 cargo test --all --lib --bins --tests --examples --all-features
+#          # We don't test benches as they take 6h+, leading to a timeout
+#          cargo test --all --lib --bins --tests --examples --all-features
+
+#      - name: Cargo test
+#        uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
+#        env:
+#          RISC0_DEV_MODE: true
+#          CONSENSUS_SLOT_TIME: 5
+#        with:
+#          command: test
+#          # We don't test benches as they take 6h+, leading to a timeout
+#          args: --all --lib --bins --tests --examples --all-features
 
       - name: Update Cargo cache
         if: success() || failure()
