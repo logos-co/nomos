@@ -4,30 +4,30 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use nomos_blend_message::encap::ProofsVerifier as ProofsVerifierTrait;
 use nomos_blend_scheduling::{
     membership::Membership,
     message_blend::{
-        crypto::SenderAndReceiverCryptographicProcessor, SessionCryptographicProcessorSettings,
-        ProofsGenerator as ProofsGeneratorTrait, SessionInfo,
+        crypto::send_and_receive::SessionCryptographicProcessor,
+        ProofsGenerator as ProofsGeneratorTrait, SessionCryptographicProcessorSettings,
+        SessionInfo,
     },
 };
 
 pub struct CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>(
-    SenderAndReceiverCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
+    SessionCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
 );
 
 impl<NodeId, ProofsGenerator, ProofsVerifier>
     CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
 where
     ProofsGenerator: ProofsGeneratorTrait,
-    ProofsVerifier: ProofsVerifierTrait,
 {
     pub fn try_new_with_core_condition_check(
         membership: Membership<NodeId>,
         minimum_network_size: NonZeroU64,
         settings: &SessionCryptographicProcessorSettings,
         session_info: SessionInfo,
+        proofs_verifier: ProofsVerifier,
     ) -> Result<Self, Error>
     where
         NodeId: Eq + Hash,
@@ -37,27 +37,44 @@ where
         } else if !membership.contains_local() {
             Err(Error::LocalIsNotCoreNode)
         } else {
-            Ok(Self::new(membership, session_info, settings.clone()))
+            Ok(Self::new(
+                membership,
+                session_info,
+                settings,
+                proofs_verifier,
+            ))
         }
     }
 
     fn new(
         membership: Membership<NodeId>,
         session_info: SessionInfo,
-        settings: SessionCryptographicProcessorSettings,
+        settings: &SessionCryptographicProcessorSettings,
+        proofs_verifier: ProofsVerifier,
     ) -> Self {
-        Self(SenderAndReceiverCryptographicProcessor::new(
+        Self(SessionCryptographicProcessor::new(
             settings,
             membership,
             session_info,
+            proofs_verifier,
         ))
+    }
+}
+
+impl<NodeId, ProofsGenerator, ProofsVerifier>
+    CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
+{
+    pub fn into_inner(
+        self,
+    ) -> SessionCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier> {
+        self.0
     }
 }
 
 impl<NodeId, ProofsGenerator, ProofsVerifier> Deref
     for CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
 {
-    type Target = SenderAndReceiverCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>;
+    type Target = SessionCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -143,11 +160,12 @@ mod tests {
     fn try_new_with_valid_membership() {
         let local_id = NodeId(1);
         let core_nodes = [NodeId(1)];
-        CoreCryptographicProcessor::<_, MockProofsGenerator, NeverFailingProofsVerifier>::try_new_with_core_condition_check(
+        CoreCryptographicProcessor::<_, MockProofsGenerator, _>::try_new_with_core_condition_check(
             membership(&core_nodes, local_id),
             NonZeroU64::new(1).unwrap(),
             &settings(local_id),
             mock_session_info(),
+            NeverFailingProofsVerifier,
         )
         .unwrap();
     }
@@ -156,11 +174,12 @@ mod tests {
     fn try_new_with_small_membership() {
         let local_id = NodeId(1);
         let core_nodes = [NodeId(1)];
-        let result = CoreCryptographicProcessor::<_, MockProofsGenerator, NeverFailingProofsVerifier>::try_new_with_core_condition_check(
+        let result = CoreCryptographicProcessor::<_, MockProofsGenerator, _>::try_new_with_core_condition_check(
             membership(&core_nodes, local_id),
             NonZeroU64::new(2).unwrap(),
             &settings(local_id),
             mock_session_info(),
+            NeverFailingProofsVerifier
         );
         assert!(matches!(result, Err(Error::NetworkIsTooSmall(1))));
     }
@@ -169,11 +188,12 @@ mod tests {
     fn try_new_with_local_node_not_core() {
         let local_id = NodeId(1);
         let core_nodes = [NodeId(2)];
-        let result = CoreCryptographicProcessor::<_, MockProofsGenerator, NeverFailingProofsVerifier>::try_new_with_core_condition_check(
+        let result = CoreCryptographicProcessor::<_, MockProofsGenerator, _>::try_new_with_core_condition_check(
             membership(&core_nodes, local_id),
             NonZeroU64::new(1).unwrap(),
             &settings(local_id),
             mock_session_info(),
+            NeverFailingProofsVerifier
         );
         assert!(matches!(result, Err(Error::LocalIsNotCoreNode)));
     }

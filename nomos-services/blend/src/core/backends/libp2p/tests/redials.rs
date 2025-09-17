@@ -6,9 +6,13 @@ use nomos_libp2p::{Protocol, SwarmEvent};
 use test_log::test;
 use tokio::{select, time::sleep};
 
-use crate::core::backends::libp2p::{
-    core_swarm_test_utils::SwarmExt as _,
-    tests::utils::{BlendBehaviourBuilder, SwarmBuilder, TestSwarm},
+use crate::{
+    core::backends::libp2p::{
+        core_swarm_test_utils::SwarmExt as _,
+        tests::utils::{BlendBehaviourBuilder, SwarmBuilder, TestSwarm},
+    },
+    mock_session_info,
+    test_utils::crypto::NeverFailingProofsVerifier,
 };
 
 #[test(tokio::test)]
@@ -16,7 +20,13 @@ async fn core_redial_same_peer() {
     let TestSwarm {
         swarm: mut dialing_swarm,
         ..
-    } = SwarmBuilder::default().build(|id| BlendBehaviourBuilder::new(&id).build());
+    } = SwarmBuilder::default().build(|id| {
+        BlendBehaviourBuilder::new(
+            &id,
+            (NeverFailingProofsVerifier, mock_session_info().into()),
+        )
+        .build()
+    });
 
     let random_peer_id = PeerId::random();
     let empty_multiaddr: Multiaddr = Protocol::Memory(0).into();
@@ -84,7 +94,13 @@ async fn core_redial_different_peer_after_redial_limit() {
     let TestSwarm {
         swarm: mut listening_swarm,
         ..
-    } = SwarmBuilder::default().build(|id| BlendBehaviourBuilder::new(&id).build());
+    } = SwarmBuilder::default().build(|id| {
+        BlendBehaviourBuilder::new(
+            &id,
+            (NeverFailingProofsVerifier, mock_session_info().into()),
+        )
+        .build()
+    });
     let (membership_entry, _) = listening_swarm
         .listen_and_return_membership_entry(None)
         .await;
@@ -98,9 +114,12 @@ async fn core_redial_different_peer_after_redial_limit() {
     } = SwarmBuilder::default()
         .with_membership(membership.clone())
         .build(|id| {
-            BlendBehaviourBuilder::new(&id)
-                .with_membership(membership)
-                .build()
+            BlendBehaviourBuilder::new(
+                &id,
+                (NeverFailingProofsVerifier, mock_session_info().into()),
+            )
+            .with_membership(membership)
+            .build()
         });
     let dialing_peer_id = *dialing_swarm.local_peer_id();
 

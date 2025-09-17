@@ -24,11 +24,8 @@ use nomos_blend_message::{
 use nomos_blend_scheduling::{
     membership::Membership,
     message_blend::{
-        crypto::{
-            IncomingEncapsulatedMessageWithValidatedPublicHeader,
-            SenderAndReceiverCryptographicProcessor,
-        },
-        ProofsGenerator as ProofsGeneratorTrait,
+        crypto::IncomingEncapsulatedMessageWithValidatedPublicHeader,
+        ProofsGenerator as ProofsGeneratorTrait, SessionInfo,
     },
     message_scheduler::{round_info::RoundInfo, MessageScheduler},
     session::{SessionEvent, UninitializedSessionEventStream},
@@ -55,7 +52,7 @@ use crate::{
     },
     membership,
     message::{NetworkMessage, ProcessedMessage, ServiceMessage},
-    mock_session_info,
+    mock_session_info, mock_session_stream,
     settings::FIRST_SESSION_READY_TIMEOUT,
 };
 
@@ -140,7 +137,7 @@ where
     MembershipAdapter: membership::Adapter<NodeId = NodeId, Error: Send + Sync + 'static> + Send,
     membership::ServiceMessage<MembershipAdapter>: Send + Sync + 'static,
     ProofsGenerator: ProofsGeneratorTrait + Send,
-    ProofsVerifier: ProofsVerifierTrait + Send,
+    ProofsVerifier: ProofsVerifierTrait + Clone + Send,
     RuntimeServiceId: AsServiceId<NetworkService<Network::Backend, RuntimeServiceId>>
         + AsServiceId<<MembershipAdapter as membership::Adapter>::Service>
         + AsServiceId<Self>
@@ -198,14 +195,18 @@ where
         .await
         .expect("Membership service should be ready");
 
-        let (current_membership, session_stream) = UninitializedSessionEventStream::new(
-            membership_stream,
-            FIRST_SESSION_READY_TIMEOUT,
-            blend_config.time.session_transition_period(),
-        )
-        .await_first_ready()
-        .await
-        .expect("The current session must be ready");
+        // TODO: Replace with actual service usage.
+        let session_info_stream = mock_session_stream();
+
+        let ((current_membership, current_session_info), session_stream) =
+            UninitializedSessionEventStream::new(
+                membership_stream.zip(session_info_stream),
+                FIRST_SESSION_READY_TIMEOUT,
+                blend_config.time.session_transition_period(),
+            )
+            .await_first_ready()
+            .await
+            .expect("The current session must be ready");
 
         info!(
             target: LOG_TARGET,
@@ -214,18 +215,25 @@ where
         );
 
         let mut session_stream = session_stream.fork();
+        let proofs_verifier = ProofsVerifier::new();
 
-        let mut crypto_processor = CoreCryptographicProcessor::<_, ProofsGenerator, ProofsVerifier>::try_new_with_core_condition_check(
-            current_membership.clone(),
-            blend_config.minimum_network_size,
-            &blend_config.crypto,
-            mock_session_info()
-        )
-        .expect("The initial membership should satisfy the core node condition");
+        let mut crypto_processor =
+            CoreCryptographicProcessor::<_, ProofsGenerator, _>::try_new_with_core_condition_check(
+                current_membership.clone(),
+                blend_config.minimum_network_size,
+                &blend_config.crypto,
+                current_session_info,
+                proofs_verifier.clone(),
+            )
+            .expect("The initial membership should satisfy the core node condition");
 
         // Yields once every randomly-scheduled release round.
+        let membership_info_stream = session_stream.clone().map(|event| match event {
+            SessionEvent::NewSession((membership, _)) => SessionEvent::NewSession(membership),
+            SessionEvent::TransitionPeriodExpired => SessionEvent::TransitionPeriodExpired,
+        });
         let (initial_session_info, session_info_stream) =
-            blend_config.session_info_stream(&current_membership, session_stream.clone());
+            blend_config.session_info_stream(&current_membership, membership_info_stream);
         let mut message_scheduler =
             MessageScheduler::<_, _, ProcessedMessage<Network::BroadcastSettings>>::new(
                 session_info_stream,
@@ -239,7 +247,17 @@ where
                 blend_config.clone(),
                 overwatch_handle.clone(),
                 current_membership,
-                session_stream.clone().boxed(),
+                session_stream
+                    .clone()
+                    .map(|event| match event {
+                        SessionEvent::NewSession((membership, session_info)) => {
+                            SessionEvent::NewSession((membership, session_info.into()))
+                        }
+                        SessionEvent::TransitionPeriodExpired => {
+                            SessionEvent::TransitionPeriodExpired
+                        }
+                    })
+                    .boxed(),
                 BlakeRng::from_entropy(),
                 mock_session_info().into(),
                 ProofsVerifier::new(),
@@ -294,7 +312,7 @@ where
 /// It ignores the transition period expiration event and returns the previous
 /// cryptographic processor as is.
 fn handle_session_event<NodeId, ProofsGenerator, ProofsVerifier, BackendSettings>(
-    event: SessionEvent<Membership<NodeId>>,
+    event: SessionEvent<(Membership<NodeId>, SessionInfo)>,
     cryptographic_processor: CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
     settings: &BlendConfig<BackendSettings>,
 ) -> Result<CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>, Error>
@@ -304,12 +322,14 @@ where
     ProofsVerifier: ProofsVerifierTrait,
 {
     match event {
-        SessionEvent::NewSession(membership, session_info) => Ok(
+        SessionEvent::NewSession((membership, session_info)) => Ok(
             CoreCryptographicProcessor::try_new_with_core_condition_check(
                 membership,
                 settings.minimum_network_size,
                 &settings.crypto,
-                *session_info,
+                session_info,
+                // We move the verifier instance from the old processor instance to the new one.
+                cryptographic_processor.into_inner().take_verifier(),
             )?,
         ),
         SessionEvent::TransitionPeriodExpired => Ok(cryptographic_processor),
@@ -335,7 +355,7 @@ async fn handle_local_data_message<
     RuntimeServiceId,
 >(
     local_data_message: ServiceMessage<BroadcastSettings>,
-    cryptographic_processor: &mut SenderAndReceiverCryptographicProcessor<
+    cryptographic_processor: &mut CoreCryptographicProcessor<
         NodeId,
         ProofsGenerator,
         ProofsVerifier,
@@ -381,11 +401,7 @@ fn handle_incoming_blend_message<
 >(
     validated_encapsulated_message: IncomingEncapsulatedMessageWithValidatedPublicHeader,
     scheduler: &mut MessageScheduler<SessionClock, Rng, ProcessedMessage<BroadcastSettings>>,
-    cryptographic_processor: &SenderAndReceiverCryptographicProcessor<
-        NodeId,
-        ProofsGenerator,
-        ProofsVerifier,
-    >,
+    cryptographic_processor: &CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
 ) where
     BroadcastSettings: Serialize + for<'de> Deserialize<'de> + Send,
     ProofsVerifier: ProofsVerifierTrait,
@@ -442,7 +458,7 @@ async fn handle_release_round<
         cover_message_generation_flag,
         processed_messages,
     }: RoundInfo<ProcessedMessage<NetAdapter::BroadcastSettings>>,
-    cryptographic_processor: &mut SenderAndReceiverCryptographicProcessor<
+    cryptographic_processor: &mut CoreCryptographicProcessor<
         NodeId,
         ProofsGenerator,
         ProofsVerifier,

@@ -9,7 +9,8 @@ use crate::{
         swarm::BlendSwarmMessage,
         tests::utils::{BlendBehaviourBuilder, SwarmBuilder, TestSwarm},
     },
-    test_utils::TestEncapsulatedMessage,
+    mock_session_info,
+    test_utils::{crypto::NeverFailingProofsVerifier, TestEncapsulatedMessage},
 };
 
 #[test(tokio::test)]
@@ -18,15 +19,33 @@ async fn core_message_propagation() {
         swarm: mut swarm_1,
         swarm_message_sender: swarm_1_message_sender,
         ..
-    } = SwarmBuilder::default().build(|id| BlendBehaviourBuilder::new(&id).build());
+    } = SwarmBuilder::default().build(|id| {
+        BlendBehaviourBuilder::new(
+            &id,
+            (NeverFailingProofsVerifier, mock_session_info().into()),
+        )
+        .build()
+    });
     let TestSwarm {
         swarm: mut swarm_2, ..
-    } = SwarmBuilder::default().build(|id| BlendBehaviourBuilder::new(&id).build());
+    } = SwarmBuilder::default().build(|id| {
+        BlendBehaviourBuilder::new(
+            &id,
+            (NeverFailingProofsVerifier, mock_session_info().into()),
+        )
+        .build()
+    });
     let TestSwarm {
         swarm: mut swarm_3,
         incoming_message_receiver: mut swarm_3_message_receiver,
         ..
-    } = SwarmBuilder::default().build(|id| BlendBehaviourBuilder::new(&id).build());
+    } = SwarmBuilder::default().build(|id| {
+        BlendBehaviourBuilder::new(
+            &id,
+            (NeverFailingProofsVerifier, mock_session_info().into()),
+        )
+        .build()
+    });
 
     let (swarm_2_address, _) = swarm_2.listen().await;
     let (swarm_3_address, _) = swarm_3.listen().await;

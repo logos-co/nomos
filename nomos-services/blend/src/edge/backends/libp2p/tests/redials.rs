@@ -15,7 +15,8 @@ use crate::{
     edge::backends::libp2p::tests::utils::{
         SwarmBuilder as EdgeSwarmBuilder, TestSwarm as EdgeTestSwarm,
     },
-    test_utils::TestEncapsulatedMessage,
+    mock_session_info,
+    test_utils::{crypto::NeverFailingProofsVerifier, TestEncapsulatedMessage},
 };
 
 #[test(tokio::test)]
@@ -123,9 +124,12 @@ async fn edge_redial_different_peer_after_redial_limit() {
     } = CoreSwarmBuilder::default()
         .with_empty_membership()
         .build(|id| {
-            BlendBehaviourBuilder::new(&id)
-                .with_empty_membership()
-                .build()
+            BlendBehaviourBuilder::new(
+                &id,
+                (NeverFailingProofsVerifier, mock_session_info().into()),
+            )
+            .with_empty_membership()
+            .build()
         });
     let (core_swarm_membership_entry, _) =
         core_swarm.listen_and_return_membership_entry(None).await;

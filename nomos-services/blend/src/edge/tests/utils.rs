@@ -6,7 +6,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures::StreamExt;
+use futures::StreamExt as _;
 use nomos_blend_message::crypto::{
     keys::Ed25519PrivateKey,
     proofs::{quota::ProofOfQuota, selection::ProofOfSelection},

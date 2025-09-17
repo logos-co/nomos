@@ -10,7 +10,7 @@ use nomos_blend_message::encap::{self, encapsulated::PoQVerificationInputMinusSi
 use nomos_blend_scheduling::{
     membership::Membership,
     message_blend::crypto::IncomingEncapsulatedMessageWithValidatedPublicHeader,
-    session::SessionEvent, EncapsulatedMessage,
+    EncapsulatedMessage,
 };
 use overwatch::overwatch::handle::OverwatchHandle;
 use rand::RngCore;
@@ -20,10 +20,10 @@ use tokio_stream::wrappers::BroadcastStream;
 use crate::core::{
     backends::{
         libp2p::{
-            swarm::{BlendSwarm, BlendSwarmMessage},
+            swarm::{BlendSwarm, BlendSwarmMessage, SwarmParams},
             tokio_provider::ObservationWindowTokioIntervalProvider,
         },
-        BlendBackend,
+        BlendBackend, SessionStream,
     },
     settings::BlendConfig,
 };
@@ -64,7 +64,7 @@ where
         config: BlendConfig<Self::Settings>,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
         current_membership: Membership<PeerId>,
-        session_stream: Pin<Box<dyn Stream<Item = SessionEvent<Membership<PeerId>>> + Send>>,
+        session_stream: SessionStream<PeerId>,
         rng: Rng,
         current_poq_verification_inputs: PoQVerificationInputMinusSigningKey,
         proofs_verifier: ProofsVerifier,
@@ -73,17 +73,18 @@ where
         let (incoming_message_sender, _) = broadcast::channel(CHANNEL_SIZE);
         let minimum_network_size = config.minimum_network_size.try_into().unwrap();
 
-        let swarm = BlendSwarm::<_, _, _, ObservationWindowTokioIntervalProvider>::new(
-            config,
-            current_membership,
-            session_stream,
-            rng,
-            swarm_message_receiver,
-            incoming_message_sender.clone(),
-            minimum_network_size,
-            current_poq_verification_inputs,
-            proofs_verifier,
-        );
+        let swarm =
+            BlendSwarm::<_, _, _, ObservationWindowTokioIntervalProvider>::new(SwarmParams {
+                config: &config,
+                current_membership,
+                current_poq_verification_inputs,
+                incoming_message_sender: incoming_message_sender.clone(),
+                minimum_network_size,
+                proofs_verifier,
+                rng,
+                session_stream,
+                swarm_message_receiver,
+            });
 
         let (swarm_task_abort_handle, swarm_task_abort_registration) = AbortHandle::new_pair();
         overwatch_handle

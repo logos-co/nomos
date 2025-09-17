@@ -12,7 +12,9 @@ use libp2p::{
     swarm::{dial_opts::PeerCondition, ConnectionId},
     Multiaddr, PeerId, Swarm, SwarmBuilder,
 };
-use nomos_blend_message::encap::{self, encapsulated::PoQVerificationInputMinusSigningKey};
+use nomos_blend_message::encap::{
+    encapsulated::PoQVerificationInputMinusSigningKey, ProofsVerifier as ProofsVerifierTrait,
+};
 use nomos_blend_network::core::{
     with_core::behaviour::{Event as CoreToCoreEvent, IntervalStreamProvider, NegotiatedPeerState},
     with_edge::behaviour::Event as CoreToEdgeEvent,
@@ -64,7 +66,7 @@ impl DialAttempt {
 
 pub struct BlendSwarm<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider>
 where
-    ProofsVerifier: encap::ProofsVerifier + 'static,
+    ProofsVerifier: ProofsVerifierTrait + 'static,
     ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
         + 'static,
 {
@@ -80,42 +82,51 @@ where
     minimum_network_size: NonZeroUsize,
 }
 
+pub struct SwarmParams<'config, SessionStream, Rng, ProofsVerifier> {
+    pub config: &'config BlendConfig<Libp2pBlendBackendSettings>,
+    pub current_membership: Membership<PeerId>,
+    pub session_stream: SessionStream,
+    pub rng: Rng,
+    pub swarm_message_receiver: mpsc::Receiver<BlendSwarmMessage>,
+    pub incoming_message_sender:
+        broadcast::Sender<IncomingEncapsulatedMessageWithValidatedPublicHeader>,
+    pub minimum_network_size: NonZeroUsize,
+    pub current_poq_verification_inputs: PoQVerificationInputMinusSigningKey,
+    pub proofs_verifier: ProofsVerifier,
+}
+
 impl<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider>
     BlendSwarm<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider>
 where
-    SessionStream: Stream<Item = SessionEvent<Membership<PeerId>>> + Unpin,
     Rng: RngCore,
-    ProofsVerifier: encap::ProofsVerifier + Clone + 'static,
+    ProofsVerifier: ProofsVerifierTrait + Clone + 'static,
     ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
         + for<'c> From<(
             &'c BlendConfig<Libp2pBlendBackendSettings>,
             &'c Membership<PeerId>,
         )> + 'static,
 {
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "TODO: Address this at some point."
-    )]
     pub(super) fn new(
-        config: BlendConfig<Libp2pBlendBackendSettings>,
-        current_membership: Membership<PeerId>,
-        session_stream: SessionStream,
-        rng: Rng,
-        swarm_messages_receiver: mpsc::Receiver<BlendSwarmMessage>,
-        incoming_message_sender: broadcast::Sender<
-            IncomingEncapsulatedMessageWithValidatedPublicHeader,
-        >,
-        minimum_network_size: NonZeroUsize,
-        current_poq_verification_inputs: PoQVerificationInputMinusSigningKey,
-        proofs_verifier: ProofsVerifier,
+        SwarmParams {
+            config,
+            current_membership,
+            session_stream,
+            rng,
+            swarm_message_receiver: swarm_messages_receiver,
+            incoming_message_sender,
+            minimum_network_size,
+            current_poq_verification_inputs,
+            proofs_verifier,
+        }: SwarmParams<SessionStream, Rng, ProofsVerifier>,
     ) -> Self {
         let keypair = config.backend.keypair();
+        let listening_address = config.backend.listening_address.clone();
         let mut swarm = SwarmBuilder::with_existing_identity(keypair)
             .with_tokio()
             .with_quic()
             .with_behaviour(|_| {
                 BlendBehaviour::new(
-                    &config,
+                    config,
                     current_membership.clone(),
                     current_poq_verification_inputs,
                     proofs_verifier,
@@ -130,11 +141,9 @@ where
             })
             .build();
 
-        swarm
-            .listen_on(config.backend.listening_address)
-            .unwrap_or_else(|e| {
-                panic!("Failed to listen on Blend network: {e:?}");
-            });
+        swarm.listen_on(listening_address).unwrap_or_else(|e| {
+            panic!("Failed to listen on Blend network: {e:?}");
+        });
 
         let mut self_instance = Self {
             swarm,
@@ -160,7 +169,7 @@ impl<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider>
     BlendSwarm<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider>
 where
     Rng: RngCore,
-    ProofsVerifier: encap::ProofsVerifier,
+    ProofsVerifier: ProofsVerifierTrait,
     ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
         + 'static,
 {
@@ -398,7 +407,7 @@ where
 impl<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider>
     BlendSwarm<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider>
 where
-    ProofsVerifier: encap::ProofsVerifier,
+    ProofsVerifier: ProofsVerifierTrait,
     ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
         + 'static,
 {
@@ -517,8 +526,9 @@ impl<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider>
     BlendSwarm<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider>
 where
     Rng: RngCore,
-    SessionStream: Stream<Item = SessionEvent<Membership<PeerId>>> + Unpin,
-    ProofsVerifier: encap::ProofsVerifier + Clone,
+    SessionStream: Stream<Item = SessionEvent<(Membership<PeerId>, PoQVerificationInputMinusSigningKey)>>
+        + Unpin,
+    ProofsVerifier: ProofsVerifierTrait + Clone,
     ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
         + 'static,
 {
@@ -552,8 +562,7 @@ where
             }
             Some(event) = self.session_stream.next() => {
                 match event {
-                    SessionEvent::NewSession(membership, session_info) => {
-                        let poq_verification_inputs = PoQVerificationInputMinusSigningKey::from(*session_info);
+                    SessionEvent::NewSession((membership, poq_verification_inputs)) => {
                         self.latest_session_info = membership.clone();
                         self.swarm.behaviour_mut().blend.with_core_mut().start_new_session(membership.clone(), poq_verification_inputs);
                         self.swarm.behaviour_mut().blend.with_edge_mut().start_new_session(membership, poq_verification_inputs);
@@ -590,7 +599,7 @@ where
 impl<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider> Deref
     for BlendSwarm<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider>
 where
-    ProofsVerifier: encap::ProofsVerifier,
+    ProofsVerifier: ProofsVerifierTrait,
     ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
         + 'static,
 {
@@ -607,7 +616,7 @@ where
 impl<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider> core::ops::DerefMut
     for BlendSwarm<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider>
 where
-    ProofsVerifier: encap::ProofsVerifier,
+    ProofsVerifier: ProofsVerifierTrait,
     ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
         + 'static,
 {

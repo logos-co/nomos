@@ -98,7 +98,7 @@ impl<BackendSettings> BlendConfig<BackendSettings> {
                 let settings = settings.clone();
                 async move {
                     match event {
-                        SessionEvent::NewSession(membership, _) => {
+                        SessionEvent::NewSession(membership) => {
                             Some(settings.scheduler.cover.session_quota(
                                 &settings.crypto,
                                 &settings.time,
@@ -143,7 +143,7 @@ mod tests {
     use tokio_stream::wrappers::ReceiverStream;
 
     use super::*;
-    use crate::{core::mock_session_info, test_utils::membership::membership};
+    use crate::test_utils::membership::membership;
 
     #[tokio::test]
     async fn session_info_stream() {
@@ -168,10 +168,10 @@ mod tests {
 
         // Feed a new session event with a bigger membership.
         session_sender
-            .send(SessionEvent::NewSession(
-                membership(&[NodeId(0), NodeId(1)], NodeId(0)),
-                Box::new(mock_session_info()),
-            ))
+            .send(SessionEvent::NewSession(membership(
+                &[NodeId(0), NodeId(1)],
+                NodeId(0),
+            )))
             .await
             .unwrap();
         // Expect a new session info with session number 1.

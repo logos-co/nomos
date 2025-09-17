@@ -62,6 +62,14 @@ where
 
 impl<NodeId, ProofsGenerator, ProofsVerifier>
     SessionCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
+{
+    pub fn take_verifier(self) -> ProofsVerifier {
+        self.proofs_verifier
+    }
+}
+
+impl<NodeId, ProofsGenerator, ProofsVerifier>
+    SessionCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
 where
     ProofsVerifier: ProofsVerifierTrait,
 {

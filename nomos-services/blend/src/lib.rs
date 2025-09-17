@@ -203,13 +203,12 @@ type MembershipAdapter<EdgeService> = <EdgeService as edge::ServiceComponents>::
 type MembershipService<EdgeService> =
     <MembershipAdapter<EdgeService> as membership::Adapter>::Service;
 
-fn mock_session_stream() -> impl Stream<Item = SessionInfo> {
-    use futures::stream::repeat;
+const fn mock_session_info() -> SessionInfo {
     use groth16::Field as _;
     use nomos_blend_scheduling::message_blend::{PrivateInfo, PublicInfo};
     use nomos_core::crypto::ZkHash;
 
-    repeat(SessionInfo {
+    SessionInfo {
         public: PublicInfo {
             core_quota: 0,
             core_root: ZkHash::ZERO,
@@ -234,5 +233,11 @@ fn mock_session_stream() -> impl Stream<Item = SessionInfo> {
             starting_slot: 0,
             transaction_hash: ZkHash::ZERO,
         },
-    })
+    }
+}
+
+fn mock_session_stream() -> impl Stream<Item = SessionInfo> {
+    use futures::stream::repeat;
+
+    repeat(mock_session_info())
 }

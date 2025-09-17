@@ -13,7 +13,8 @@ use crate::{
         swarm::Command,
         tests::utils::{SwarmBuilder as EdgeSwarmBuilder, TestSwarm as EdgeTestSwarm},
     },
-    test_utils::TestEncapsulatedMessage,
+    mock_session_info,
+    test_utils::{crypto::NeverFailingProofsVerifier, TestEncapsulatedMessage},
 };
 
 #[test(tokio::test)]
@@ -22,7 +23,13 @@ async fn edge_message_propagation() {
         swarm: mut core_swarm_1,
         incoming_message_receiver: mut core_swarm_1_incoming_message_receiver,
         ..
-    } = CoreSwarmBuilder::default().build(|id| BlendBehaviourBuilder::new(&id).build());
+    } = CoreSwarmBuilder::default().build(|id| {
+        BlendBehaviourBuilder::new(
+            &id,
+            (NeverFailingProofsVerifier, mock_session_info().into()),
+        )
+        .build()
+    });
     let (swarm_1_membership_entry, _) = core_swarm_1.listen_and_return_membership_entry(None).await;
 
     let membership = Membership::new_without_local(from_ref(&swarm_1_membership_entry));
@@ -33,9 +40,12 @@ async fn edge_message_propagation() {
     } = CoreSwarmBuilder::default()
         .with_membership(membership.clone())
         .build(|id| {
-            BlendBehaviourBuilder::new(&id)
-                .with_membership(membership)
-                .build()
+            BlendBehaviourBuilder::new(
+                &id,
+                (NeverFailingProofsVerifier, mock_session_info().into()),
+            )
+            .with_membership(membership)
+            .build()
         });
     let (swarm_2_membership_entry, _) = core_swarm_2.listen_and_return_membership_entry(None).await;
 
@@ -90,9 +100,12 @@ async fn replication_factor() {
     } = CoreSwarmBuilder::default()
         .with_empty_membership()
         .build(|id| {
-            BlendBehaviourBuilder::new(&id)
-                .with_empty_membership()
-                .build()
+            BlendBehaviourBuilder::new(
+                &id,
+                (NeverFailingProofsVerifier, mock_session_info().into()),
+            )
+            .with_empty_membership()
+            .build()
         });
     let (swarm_1_membership_entry, _) = core_swarm_1.listen_and_return_membership_entry(None).await;
 
@@ -103,9 +116,12 @@ async fn replication_factor() {
     } = CoreSwarmBuilder::default()
         .with_empty_membership()
         .build(|id| {
-            BlendBehaviourBuilder::new(&id)
-                .with_empty_membership()
-                .build()
+            BlendBehaviourBuilder::new(
+                &id,
+                (NeverFailingProofsVerifier, mock_session_info().into()),
+            )
+            .with_empty_membership()
+            .build()
         });
     let (swarm_2_membership_entry, _) = core_swarm_2.listen_and_return_membership_entry(None).await;
 
@@ -116,9 +132,12 @@ async fn replication_factor() {
     } = CoreSwarmBuilder::default()
         .with_empty_membership()
         .build(|id| {
-            BlendBehaviourBuilder::new(&id)
-                .with_empty_membership()
-                .build()
+            BlendBehaviourBuilder::new(
+                &id,
+                (NeverFailingProofsVerifier, mock_session_info().into()),
+            )
+            .with_empty_membership()
+            .build()
         });
     let (swarm_3_membership_entry, _) = core_swarm_3.listen_and_return_membership_entry(None).await;
 
