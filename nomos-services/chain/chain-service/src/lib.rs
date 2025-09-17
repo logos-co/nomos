@@ -2,6 +2,7 @@ pub mod api;
 mod blend;
 mod blob;
 mod bootstrap;
+mod broadcaster;
 mod leadership;
 mod messages;
 pub mod network;
@@ -19,7 +20,7 @@ use std::{
     time::Duration,
 };
 
-use broadcast_service::{BlockBroadcastMsg, BlockBroadcastService, BlockInfo};
+use broadcast_service::BlockBroadcastService;
 use cryptarchia_engine::{PrunedBlocks, Slot};
 use cryptarchia_sync::{GetTipResponse, ProviderResponse};
 use futures::{StreamExt as _, TryFutureExt as _};
@@ -51,7 +52,6 @@ use overwatch::{
     services::{relay::OutboundRelay, state::StateUpdater, AsServiceId, ServiceCore, ServiceData},
     DynError, OpaqueServiceResourcesHandle,
 };
-use relays::BroadcastRelay;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_with::serde_as;
 use services_utils::{
@@ -90,7 +90,7 @@ const CRYPTARCHIA_ID: &str = "Cryptarchia";
 
 pub(crate) const LOG_TARGET: &str = "cryptarchia::service";
 
-#[derive(Debug, Clone, Error)]
+#[derive(Debug, Error)]
 pub enum Error {
     #[error("Ledger error: {0}")]
     Ledger(#[from] nomos_ledger::LedgerError<HeaderId>),
@@ -100,6 +100,8 @@ pub enum Error {
     Storage(String),
     #[error("Blob validation failed: {0}")]
     BlobValidationFailed(#[from] blob::Error),
+    #[error("Block broadcaster error: {0}")]
+    BlockBroadcaster(#[from] broadcaster::Error),
 }
 
 #[derive(Debug)]
@@ -1166,10 +1168,12 @@ where
         // TODO: filter on time?
         let header = block.header();
         let id = header.id();
-        let prev_lib = cryptarchia.lib();
 
+        // Prepare the block broadcaster for other services.
+        let block_broadcaster = broadcaster::new(&cryptarchia.consensus);
+
+        // Apply the header.
         let (cryptarchia, pruned_blocks) = cryptarchia.try_apply_header(header)?;
-        let new_lib = cryptarchia.lib();
 
         // remove included content from mempool
         mark_in_block(
@@ -1202,33 +1206,15 @@ where
             error!("Could not notify new block to services {e}");
         }
 
-        if prev_lib != new_lib {
-            let height = cryptarchia
-                .consensus
-                .branches()
-                .get(&cryptarchia.lib())
-                .expect("LIB branch not available")
-                .length();
-            let block_info = BlockInfo {
-                height,
-                header_id: new_lib,
-            };
-            if let Err(e) = broadcast_finalized_block(relays.broadcast_relay(), block_info).await {
-                error!("Could not notify block to services {e}");
-            }
-
-            let lib_update = LibUpdate {
-                new_lib: cryptarchia.lib(),
-                pruned_blocks: PrunedBlocksInfo {
-                    stale_blocks: pruned_blocks.stale_blocks().copied().collect(),
-                    immutable_blocks: pruned_blocks.immutable_blocks().clone(),
-                },
-            };
-
-            if let Err(e) = lib_broadcaster.send(lib_update) {
-                error!("Could not notify LIB update to services: {e}");
-            }
-        }
+        // Broadcast newly finalized blocks to other services.
+        block_broadcaster
+            .broadcast(
+                &cryptarchia.consensus,
+                &pruned_blocks,
+                relays.broadcast_relay(),
+                lib_broadcaster,
+            )
+            .await?;
 
         Ok((cryptarchia, pruned_blocks))
     }
@@ -1643,14 +1629,4 @@ async fn mark_blob_in_block<BlobId: Debug + Send>(
     {
         error!("Error marking in block for blobs ids: {blobs_id:?}");
     }
-}
-
-async fn broadcast_finalized_block(
-    broadcast_relay: &BroadcastRelay,
-    block_info: BlockInfo,
-) -> Result<(), DynError> {
-    broadcast_relay
-        .send(BlockBroadcastMsg::BroadcastFinalizedBlock(block_info))
-        .await
-        .map_err(|(error, _)| Box::new(error) as DynError)
 }

@@ -1,9 +1,5 @@
 use std::{
-    collections::{HashSet, VecDeque},
-    fmt::Debug,
-    marker::PhantomData,
-    num::NonZeroUsize,
-    ops::RangeInclusive,
+    collections::HashSet, fmt::Debug, marker::PhantomData, num::NonZeroUsize, ops::RangeInclusive,
 };
 
 use bytes::Bytes;
@@ -318,7 +314,6 @@ where
         match start_info.location {
             BlockLocation::Engine => {
                 Self::compute_path_from_engine(cryptarchia, start_info.id, target_info.id, limit)
-                    .map(Into::into)
             }
 
             BlockLocation::Storage => {
@@ -339,38 +334,12 @@ where
         start_block: HeaderId,
         target_block: HeaderId,
         limit: NonZeroUsize,
-    ) -> Result<VecDeque<HeaderId>, GetBlocksError> {
-        let mut path = VecDeque::new();
-        let branches = cryptarchia.branches();
-
-        let mut current = target_block;
-        loop {
-            path.push_front(current);
-
-            if path.len() > limit.get() {
-                path.pop_back();
-            }
-
-            if current == start_block {
-                return Ok(path);
-            }
-
-            match branches.get(&current).map(Branch::parent) {
-                Some(parent) => {
-                    if parent == current {
-                        return Err(GetBlocksError::InvalidState(format!(
-                            "Genesis block reached before reaching start_block: {start_block:?}"
-                        )));
-                    }
-                    current = parent;
-                }
-                None => {
-                    return Err(GetBlocksError::InvalidState(format!(
-                        "Couldn't reach start_block: {start_block:?}"
-                    )));
-                }
-            }
-        }
+    ) -> Result<Vec<HeaderId>, GetBlocksError> {
+        Ok(cryptarchia
+            .blocks_in_inclusive_range(start_block, target_block, limit)
+            .map_err(|e| GetBlocksError::InvalidState(e.to_string()))?
+            .map(|branch| branch.id())
+            .collect())
     }
 
     /// Builds a list of block IDs using storage scan + engine path when needed
