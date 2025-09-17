@@ -1,5 +1,5 @@
 use cryptarchia_engine::Slot;
-use groth16::{fr_from_bytes, Fr};
+use groth16::Fr;
 use nomos_core::{
     mantle::{keys::SecretKey, ops::leader_claim::VoucherCm, Utxo},
     proofs::leader_proof::{Groth16LeaderProof, LeaderPrivate, LeaderPublic},
@@ -51,13 +51,10 @@ impl Leader {
             };
 
             let note_id: Fr = BigUint::from(1u8).into(); // placeholder for note ID, replace after mantle notes format update
-                                                         // TODO: horrible hack to convert epoch nonce to Fr, use native Fr epoch nonce
-            let epoch_nonce_fr =
-                fr_from_bytes(&epoch_state.nonce()[..31]).expect("epoch nonce fits in Fr");
             let public_inputs = LeaderPublic::new(
                 aged_tree.root(),
                 latest_tree.root(),
-                epoch_nonce_fr,
+                epoch_state.nonce,
                 slot.into(),
                 epoch_state.total_stake(),
             );

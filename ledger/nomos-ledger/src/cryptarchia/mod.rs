@@ -1,7 +1,9 @@
+use std::sync::LazyLock;
+
 use cryptarchia_engine::{Epoch, Slot};
-use groth16::{fr_from_bytes, fr_to_bytes, Fr};
+use groth16::{fr_from_bytes, Field as _, Fr};
 use nomos_core::{
-    crypto::{Digest as _, Hasher, ZkHasher},
+    crypto::{ZkDigest, ZkHasher},
     mantle::{gas::GasConstants, AuthenticatedMantleTx, NoteId, Utxo, Value},
     proofs::{
         leader_proof::{self, LeaderPublic},
@@ -20,7 +22,8 @@ pub struct EpochState {
     pub epoch: Epoch,
     // value of the ledger nonce after 'epoch_period_nonce_buffer' slots from the beginning of the
     // epoch
-    pub nonce: [u8; 32],
+    #[cfg_attr(feature = "serde", serde(with = "groth16::serde::serde_fr"))]
+    pub nonce: Fr,
     // stake distribution snapshot taken at the beginning of the epoch
     // (in practice, this is equivalent to the utxos the are spendable at the beginning of the
     // epoch)
@@ -57,7 +60,7 @@ impl EpochState {
     }
 
     #[must_use]
-    pub const fn nonce(&self) -> &[u8; 32] {
+    pub const fn nonce(&self) -> &Fr {
         &self.nonce
     }
 
@@ -75,7 +78,8 @@ pub struct LedgerState {
     // All available Unspent Transtaction Outputs (UTXOs) at the current slot
     pub utxos: UtxoTree,
     // randomness contribution
-    pub nonce: [u8; 32],
+    #[cfg_attr(feature = "serde", serde(with = "groth16::serde::serde_fr"))]
+    pub nonce: Fr,
     pub slot: Slot,
     // rolling snapshot of the state for the next epoch, used for epoch transitions
     pub next_epoch_state: EpochState,
@@ -161,13 +165,10 @@ impl LedgerState {
         LeaderProof: leader_proof::LeaderProof,
     {
         assert_eq!(config.epoch(slot), self.epoch_state.epoch);
-        // TODO: horrible conversion hack to make it always fit, switch to native Fr
-        let epoch_nonce_fr =
-            fr_from_bytes(&self.epoch_state.nonce[..31]).expect("31 bytes fit in Fr");
         let public_inputs = LeaderPublic::new(
             self.aged_commitments().root(),
             self.latest_commitments().root(),
-            epoch_nonce_fr,
+            self.epoch_state.nonce,
             slot.into(),
             self.epoch_state.total_stake,
         );
@@ -187,11 +188,10 @@ impl LedgerState {
     where
         LeaderProof: leader_proof::LeaderProof,
     {
-        let entropy_bytes = fr_to_bytes(&proof.entropy());
         Ok(self
             .update_epoch_state(slot, config)?
             .try_apply_proof(slot, proof, config)?
-            .update_nonce(entropy_bytes, slot))
+            .update_nonce(&proof.entropy(), slot))
     }
 
     pub fn try_apply_tx<Id, Constants: GasConstants>(
@@ -237,17 +237,18 @@ impl LedgerState {
         Ok((self, balance))
     }
 
-    fn update_nonce(self, contrib: [u8; 32], slot: Slot) -> Self {
+    fn update_nonce(self, contrib: &Fr, slot: Slot) -> Self {
         // constants and structure as defined in the Mantle spec:
         // https://www.notion.so/Cryptarchia-v1-Protocol-Specification-21c261aa09df810cb85eff1c76e5798c
-        const EPOCH_NONCE_V1: &[u8] = b"EPOCH_NONCE_V1";
-        let mut hasher = Hasher::new();
-        hasher.update(EPOCH_NONCE_V1);
-        hasher.update(self.nonce);
-        hasher.update(contrib);
-        hasher.update(slot.to_le_bytes());
+        static EPOCH_NONCE_V1: LazyLock<Fr> =
+            LazyLock::new(|| fr_from_bytes(b"EPOCH_NONCE_V1").unwrap());
+        let mut hasher = ZkHasher::new();
+        <ZkHasher as ZkDigest>::update(&mut hasher, &EPOCH_NONCE_V1);
+        <ZkHasher as ZkDigest>::update(&mut hasher, &self.nonce);
+        <ZkHasher as ZkDigest>::update(&mut hasher, contrib);
+        <ZkHasher as ZkDigest>::update(&mut hasher, &Fr::from(u64::from(slot)));
 
-        let nonce: [u8; 32] = hasher.finalize().into();
+        let nonce: Fr = hasher.finalize();
         Self { nonce, ..self }
     }
 
@@ -288,17 +289,17 @@ impl LedgerState {
             .sum::<Value>();
         Self {
             utxos: utxos.clone(),
-            nonce: [0; 32],
+            nonce: Fr::ZERO,
             slot: 0.into(),
             next_epoch_state: EpochState {
                 epoch: 1.into(),
-                nonce: [0; 32],
+                nonce: Fr::ZERO,
                 utxos: utxos.clone(),
                 total_stake,
             },
             epoch_state: EpochState {
                 epoch: 0.into(),
-                nonce: [0; 32],
+                nonce: Fr::ZERO,
                 utxos,
                 total_stake,
             },
@@ -326,6 +327,7 @@ pub mod tests {
 
     use cryptarchia_engine::EpochConfig;
     use nomos_core::{
+        crypto::{Digest as _, Hasher},
         mantle::{
             gas::MainnetGasConstants, ledger::Tx as LedgerTx, ops::leader_claim::VoucherCm,
             GasCost as _, MantleTx, Note, SignedMantleTx, Transaction as _,
@@ -416,9 +418,6 @@ pub mod tests {
     pub fn generate_proof(ledger_state: &LedgerState, utxo: &Utxo, slot: Slot) -> DummyProof {
         let latest_tree = ledger_state.latest_commitments();
         let aged_tree = ledger_state.aged_commitments();
-        // TODO: horrible conversion hack to make it always fit, switch to native Fr
-        let epoch_nonce_fr =
-            fr_from_bytes(&ledger_state.epoch_state.nonce[..31]).expect("31 bytes fit in Fr");
         DummyProof {
             public: LeaderPublic::new(
                 if aged_tree.contains(&utxo.id()) {
@@ -433,7 +432,7 @@ pub mod tests {
                     println!("Note not found in latest commitments, using zero root");
                     Fr::from(0u8)
                 },
-                epoch_nonce_fr,
+                ledger_state.epoch_state.nonce,
                 slot.into(),
                 ledger_state.epoch_state.total_stake,
             ),
@@ -476,17 +475,17 @@ pub mod tests {
             .collect::<UtxoTree>();
         LedgerState {
             utxos: utxos.clone(),
-            nonce: [0; 32],
+            nonce: Fr::ZERO,
             slot: 0.into(),
             next_epoch_state: EpochState {
                 epoch: 1.into(),
-                nonce: [0; 32],
+                nonce: Fr::ZERO,
                 utxos: utxos.clone(),
                 total_stake,
             },
             epoch_state: EpochState {
                 epoch: 0.into(),
-                nonce: [0; 32],
+                nonce: Fr::ZERO,
                 utxos,
                 total_stake,
             },
@@ -663,14 +662,11 @@ pub mod tests {
         let (ledger, genesis) = ledger(&[utxo]);
         let ledger_state = ledger.state(&genesis).unwrap().clone().cryptarchia_ledger;
         let slot = Slot::genesis() + 1;
-        // TODO: horrible conversion hack to make it always fit, switch to native Fr
-        let epoch_nonce_fr =
-            fr_from_bytes(&ledger_state.epoch_state.nonce[..31]).expect("31 bytes fit in Fr");
         let proof = DummyProof {
             public: LeaderPublic {
                 aged_root: Fr::from(0u8), // Invalid aged root
                 latest_root: ledger_state.latest_commitments().root(),
-                epoch_nonce: epoch_nonce_fr,
+                epoch_nonce: ledger_state.epoch_state.nonce,
                 slot: slot.into(),
                 total_stake: ledger_state.epoch_state.total_stake,
             },
@@ -690,14 +686,11 @@ pub mod tests {
         let (ledger, genesis) = ledger(&[utxo]);
         let ledger_state = ledger.state(&genesis).unwrap().clone().cryptarchia_ledger;
         let slot = Slot::genesis() + 1;
-        // TODO: horrible conversion hack to make it always fit, switch to native Fr
-        let epoch_nonce_fr =
-            fr_from_bytes(&ledger_state.epoch_state.nonce[..31]).expect("31 bytes fit in Fr");
         let proof = DummyProof {
             public: LeaderPublic {
                 aged_root: ledger_state.aged_commitments().root(),
                 latest_root: BigUint::from(1u8).into(), // Invalid latest root
-                epoch_nonce: epoch_nonce_fr,
+                epoch_nonce: ledger_state.epoch_state.nonce,
                 slot: slot.into(),
                 total_stake: ledger_state.epoch_state.total_stake,
             },
