@@ -1,7 +1,12 @@
-use std::{collections::BTreeMap, fmt::Display, num::NonZeroUsize, ops::RangeInclusive};
+use std::{
+    collections::{BTreeMap, HashMap},
+    fmt::Display,
+    num::NonZeroUsize,
+    ops::RangeInclusive,
+};
 
 use cryptarchia_engine::Slot;
-use nomos_core::header::HeaderId;
+use nomos_core::{header::HeaderId, mantle::TxHash};
 use tokio::sync::oneshot::Sender;
 
 use crate::{
@@ -35,6 +40,16 @@ pub enum ChainApiRequest<Backend: StorageBackend> {
         limit: NonZeroUsize,
         response_tx: Sender<Vec<HeaderId>>,
     },
+    StoreTransactions {
+        transactions: HashMap<TxHash, <Backend as StorageChainApi>::Tx>,
+    },
+    GetTransactions {
+        tx_hashes: Vec<TxHash>,
+        response_tx: Sender<Vec<<Backend as StorageChainApi>::Tx>>,
+    },
+    RemoveTransactions {
+        tx_hashes: Vec<TxHash>,
+    },
 }
 
 impl<Backend> StorageOperation<Backend> for ChainApiRequest<Backend>
@@ -65,6 +80,16 @@ where
                 limit,
                 response_tx,
             } => handle_scan_immutable_block_ids(backend, slot_range, limit, response_tx).await,
+            Self::StoreTransactions { transactions } => {
+                handle_store_transactions(backend, transactions).await
+            }
+            Self::GetTransactions {
+                tx_hashes,
+                response_tx,
+            } => handle_get_transactions(backend, tx_hashes, response_tx).await,
+            Self::RemoveTransactions { tx_hashes } => {
+                handle_remove_transactions(backend, tx_hashes).await
+            }
         }
     }
 }
@@ -243,4 +268,74 @@ impl<Api: StorageBackend> StorageMsg<Api> {
             }),
         }
     }
+
+    #[must_use]
+    pub const fn store_transactions_request(
+        transactions: HashMap<TxHash, <Api as StorageChainApi>::Tx>,
+    ) -> Self {
+        Self::Api {
+            request: StorageApiRequest::Chain(ChainApiRequest::StoreTransactions { transactions }),
+        }
+    }
+
+    #[must_use]
+    pub const fn get_transactions_request(
+        tx_hashes: Vec<TxHash>,
+        response_tx: Sender<Vec<<Api as StorageChainApi>::Tx>>,
+    ) -> Self {
+        Self::Api {
+            request: StorageApiRequest::Chain(ChainApiRequest::GetTransactions {
+                tx_hashes,
+                response_tx,
+            }),
+        }
+    }
+
+    #[must_use]
+    pub const fn remove_transactions_request(tx_hashes: Vec<TxHash>) -> Self {
+        Self::Api {
+            request: StorageApiRequest::Chain(ChainApiRequest::RemoveTransactions { tx_hashes }),
+        }
+    }
+}
+
+async fn handle_store_transactions<Backend: StorageBackend>(
+    backend: &mut Backend,
+    transactions: HashMap<TxHash, <Backend as StorageChainApi>::Tx>,
+) -> Result<(), StorageServiceError> {
+    backend
+        .store_transactions(transactions)
+        .await
+        .map_err(|e| StorageServiceError::BackendError(e.into()))?;
+    Ok(())
+}
+
+async fn handle_get_transactions<Backend: StorageBackend>(
+    backend: &mut Backend,
+    tx_hashes: Vec<TxHash>,
+    response_tx: Sender<Vec<<Backend as StorageChainApi>::Tx>>,
+) -> Result<(), StorageServiceError> {
+    let result = backend
+        .get_transactions(&tx_hashes)
+        .await
+        .map_err(|e| StorageServiceError::BackendError(e.into()))?;
+
+    if response_tx.send(result).is_err() {
+        return Err(StorageServiceError::ReplyError {
+            message: "Failed to send reply for get transactions batch request".to_owned(),
+        });
+    }
+
+    Ok(())
+}
+
+async fn handle_remove_transactions<Backend: StorageBackend>(
+    backend: &mut Backend,
+    tx_hashes: Vec<TxHash>,
+) -> Result<(), StorageServiceError> {
+    backend
+        .remove_transactions(&tx_hashes)
+        .await
+        .map_err(|e| StorageServiceError::BackendError(e.into()))?;
+    Ok(())
 }

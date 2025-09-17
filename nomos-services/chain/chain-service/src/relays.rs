@@ -62,6 +62,7 @@ pub struct CryptarchiaConsensusRelays<
     Storage: StorageBackend + Send + Sync + 'static,
     SamplingBackend: DaSamplingServiceBackend,
     TxS: TxSelect,
+    <TxS as TxSelect>::Tx: Eq,
 {
     network_relay: NetworkRelay<
         <NetworkAdapter as network::NetworkAdapter<RuntimeServiceId>>::Backend,
@@ -112,7 +113,9 @@ where
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as StorageChainApi>::Block:
         TryFrom<Block<ClPool::Item>> + TryInto<Block<ClPool::Item>>,
+    <Storage as StorageChainApi>::Tx: TryFrom<ClPool::Item> + TryInto<ClPool::Item>,
     TxS: TxSelect<Tx = ClPool::Item>,
+    <TxS as TxSelect>::Tx: Eq,
     TxS::Settings: Send,
 {
     pub async fn new(

@@ -1,7 +1,14 @@
-use std::{collections::BTreeMap, marker::PhantomData};
+use std::{
+    collections::{BTreeMap, HashMap},
+    marker::PhantomData,
+};
 
 use cryptarchia_engine::Slot;
-use nomos_core::{block::Block, header::HeaderId};
+use nomos_core::{
+    block::Block,
+    header::HeaderId,
+    mantle::{Transaction, TxHash},
+};
 use nomos_storage::{
     api::chain::StorageChainApi, backends::StorageBackend, StorageMsg, StorageService,
 };
@@ -20,16 +27,40 @@ where
     _tx: PhantomData<Tx>,
 }
 
+// Manual Clone implementation instead of #[derive(Clone)] to avoid unnecessary
+// trait bounds. Deriving Clone would require Storage, Tx, and RuntimeServiceId
+// to implement Clone, but we only need to clone the storage_relay field.
+impl<Storage, Tx, RuntimeServiceId> Clone for StorageAdapter<Storage, Tx, RuntimeServiceId>
+where
+    Storage: StorageBackend + Send + Sync + 'static,
+{
+    fn clone(&self) -> Self {
+        Self {
+            storage_relay: self.storage_relay.clone(),
+            _tx: PhantomData,
+        }
+    }
+}
+
 #[async_trait::async_trait]
 impl<Storage, Tx, RuntimeServiceId> StorageAdapterTrait<RuntimeServiceId>
     for StorageAdapter<Storage, Tx, RuntimeServiceId>
 where
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as StorageChainApi>::Block: TryFrom<Block<Tx>> + TryInto<Block<Tx>>,
-    Tx: Clone + Eq + Serialize + DeserializeOwned + Send + Sync + 'static,
+    <Storage as StorageChainApi>::Tx: TryFrom<Tx> + TryInto<Tx>,
+    Tx: Clone
+        + Eq
+        + Serialize
+        + DeserializeOwned
+        + Send
+        + Sync
+        + 'static
+        + Transaction<Hash = TxHash>,
 {
     type Backend = Storage;
     type Block = Block<Tx>;
+    type Tx = Tx;
 
     async fn new(
         storage_relay: OutboundRelay<
@@ -111,6 +142,65 @@ where
             .send(StorageMsg::store_immutable_block_ids_request(blocks))
             .await
             .map_err(|_| "Failed to send store_immutable_block_id request to storage relay")?;
+        Ok(())
+    }
+
+    async fn store_transactions(
+        &self,
+        transactions: Vec<Self::Tx>,
+    ) -> Result<(), overwatch::DynError> {
+        let storage_transactions: HashMap<TxHash, <Storage as StorageChainApi>::Tx> = transactions
+            .into_iter()
+            .map(|tx| {
+                let hash = tx.hash();
+                tx.try_into()
+                    .map(|storage_tx| (hash, storage_tx))
+                    .map_err(|_| "Failed to convert transaction to storage format".into())
+            })
+            .collect::<Result<HashMap<_, _>, overwatch::DynError>>()?;
+
+        self.storage_relay
+            .send(StorageMsg::store_transactions_request(storage_transactions))
+            .await
+            .map_err(|_| "Failed to send store transactions batch request")?;
+
+        Ok(())
+    }
+
+    async fn get_transactions(
+        &self,
+        tx_hashes: &[TxHash],
+    ) -> Result<Vec<Self::Tx>, overwatch::DynError> {
+        let (sender, receiver) = oneshot::channel();
+
+        self.storage_relay
+            .send(StorageMsg::get_transactions_request(
+                tx_hashes.to_vec(),
+                sender,
+            ))
+            .await
+            .unwrap();
+
+        let storage_results = receiver
+            .await
+            .map_err(|_| "Failed to receive get transactions response")?;
+
+        storage_results
+            .into_iter()
+            .map(|tx_bytes| {
+                tx_bytes
+                    .try_into()
+                    .map_err(|_| "Failed to convert storage transaction to expected format".into())
+            })
+            .collect()
+    }
+
+    async fn remove_transactions(&self, tx_hashes: &[TxHash]) -> Result<(), overwatch::DynError> {
+        self.storage_relay
+            .send(StorageMsg::remove_transactions_request(tx_hashes.to_vec()))
+            .await
+            .map_err(|_| "Failed to send remove transactions batch request")?;
+
         Ok(())
     }
 }

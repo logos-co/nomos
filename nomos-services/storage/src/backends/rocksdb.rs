@@ -139,6 +139,21 @@ impl StorageBackend for RocksBackend {
         self.rocks.get(key).map(|opt| opt.map(Into::into))
     }
 
+    async fn multi_get(
+        &mut self,
+        keys: &[&[u8]],
+    ) -> Result<Vec<Option<Bytes>>, <Self as StorageBackend>::Error> {
+        if keys.is_empty() {
+            return Ok(vec![]);
+        }
+
+        self.rocks
+            .multi_get(keys)
+            .into_iter()
+            .map(|result| result.map(|opt| opt.map(Into::into)))
+            .collect()
+    }
+
     async fn load_prefix(
         &mut self,
         prefix: &[u8],
@@ -387,6 +402,42 @@ mod test {
         });
         let result = db.execute(txn).await??;
         assert_eq!(result, Some(b"bar".as_ref().into()));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_multi_get() -> Result<(), <RocksBackend as StorageBackend>::Error> {
+        let temp_dir = TempDir::new().unwrap();
+        let mut backend = RocksBackend::new(RocksBackendSettings {
+            db_path: temp_dir.path().to_path_buf(),
+            read_only: false,
+            column_family: None,
+        })?;
+
+        let key1 = "foo1";
+        let key2 = "foo2";
+        let key3 = "nonexistent";
+        let value1 = "bar1";
+        let value2 = "bar2";
+
+        backend
+            .store(key1.as_bytes().into(), value1.as_bytes().into())
+            .await?;
+        backend
+            .store(key2.as_bytes().into(), value2.as_bytes().into())
+            .await?;
+
+        let keys = vec![key1.as_bytes(), key2.as_bytes(), key3.as_bytes()];
+        let results = backend.multi_get(&keys).await?;
+
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0], Some(value1.as_bytes().into()));
+        assert_eq!(results[1], Some(value2.as_bytes().into()));
+        assert_eq!(results[2], None);
+
+        let empty_results = backend.multi_get(&[]).await?;
+        assert!(empty_results.is_empty());
 
         Ok(())
     }

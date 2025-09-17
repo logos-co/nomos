@@ -3,9 +3,14 @@ mod bootstrap;
 mod leadership;
 mod messages;
 pub mod network;
+mod transaction_manager;
+use transaction_manager::TransactionManager;
 mod relays;
 mod states;
 pub mod storage;
+use storage::adapters::StorageAdapter;
+pub mod mempool;
+use mempool::MempoolAdapter;
 mod sync;
 
 use core::fmt::Debug;
@@ -40,7 +45,7 @@ use nomos_da_sampling::{
 };
 use nomos_ledger::LedgerState;
 use nomos_mempool::{
-    backend::RecoverableMempool, network::NetworkAdapter as MempoolAdapter, MempoolMsg,
+    backend::RecoverableMempool, network::NetworkAdapter as MempoolNetworkAdapter, MempoolMsg,
     TxMempoolService,
 };
 use nomos_network::{message::ChainSyncEvent, NetworkService};
@@ -71,7 +76,7 @@ use crate::{
     leadership::Leader,
     relays::CryptarchiaConsensusRelays,
     states::CryptarchiaConsensusState,
-    storage::{adapters::StorageAdapter, StorageAdapter as _},
+    storage::StorageAdapter as _,
     sync::{block_provider::BlockProvider, orphan_handler::OrphanBlocksDownloader},
 };
 pub use crate::{
@@ -296,7 +301,8 @@ pub struct CryptarchiaConsensus<
     ClPool::Settings: Clone,
     ClPool::Item: Clone + Eq + Debug + 'static,
     ClPool::Item: AuthenticatedMantleTx,
-    ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
+    ClPoolAdapter:
+        MempoolNetworkAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
     TxS: TxSelect<Tx = ClPool::Item>,
     TxS::Settings: Send,
     Storage: StorageBackend + Send + Sync + 'static,
@@ -347,7 +353,8 @@ where
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     ClPool::Settings: Clone,
     ClPool::Item: AuthenticatedMantleTx + Clone + Eq + Debug,
-    ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
+    ClPoolAdapter:
+        MempoolNetworkAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
     TxS: TxSelect<Tx = ClPool::Item>,
     TxS::Settings: Send,
     Storage: StorageBackend + Send + Sync + 'static,
@@ -431,7 +438,7 @@ where
         + Unpin
         + 'static,
     ClPool::Item: AuthenticatedMantleTx,
-    ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>
+    ClPoolAdapter: MempoolNetworkAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>
         + Send
         + Sync
         + 'static,
@@ -440,6 +447,7 @@ where
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as StorageChainApi>::Block:
         TryFrom<Block<ClPool::Item>> + TryInto<Block<ClPool::Item>>,
+    <Storage as StorageChainApi>::Tx: TryFrom<ClPool::Item> + TryInto<ClPool::Item>,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + Send + 'static,
@@ -546,6 +554,10 @@ where
         let mut chainsync_events = network_adapter.chainsync_events_stream().await?;
         let sync_blocks_provider: BlockProvider<_, _> =
             BlockProvider::new(relays.storage_adapter().storage_relay.clone());
+
+        let storage_adapter = relays.storage_adapter().clone();
+        let mempool_adapter = MempoolAdapter::new(relays.cl_mempool_relay().clone());
+        let transaction_manager = TransactionManager::new(storage_adapter, mempool_adapter);
 
         let mut slot_timer = {
             let (sender, receiver) = oneshot::channel();
@@ -681,10 +693,7 @@ where
                             continue;
                         }
 
-                        match reconstruct_block_from_proposal(
-                            proposal,
-                            relays.cl_mempool_relay().clone()
-                        ).await {
+                        match transaction_manager.reconstruct_block_from_proposal(proposal).await {
                             Ok(block) => {
                                 Self::log_received_block(&block);
 
@@ -696,7 +705,7 @@ where
                                     &storage_blocks_to_remove,
                                     &relays,
                                     &self.service_resources_handle.state_updater
-                                ).await {
+                                            ).await {
                                     Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
                                         cryptarchia = new_cryptarchia;
                                         storage_blocks_to_remove = new_storage_blocks_to_remove;
@@ -753,7 +762,7 @@ where
                                     &storage_blocks_to_remove,
                                     &relays,
                                     &self.service_resources_handle.state_updater,
-                                )
+                                            )
                                 .await {
                                     Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
                                         cryptarchia = new_cryptarchia;
@@ -911,7 +920,7 @@ where
         + Sync
         + 'static,
     ClPool::Item: AuthenticatedMantleTx,
-    ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>
+    ClPoolAdapter: MempoolNetworkAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>
         + Send
         + Sync
         + 'static,
@@ -920,6 +929,7 @@ where
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as StorageChainApi>::Block:
         TryFrom<Block<ClPool::Item>> + TryInto<Block<ClPool::Item>>,
+    <Storage as StorageChainApi>::Tx: TryFrom<ClPool::Item> + TryInto<ClPool::Item>,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
@@ -927,6 +937,7 @@ where
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
+    RuntimeServiceId: 'static + Send + Sync,
 {
     fn process_message(cryptarchia: &Cryptarchia, msg: ConsensusMsg) {
         match msg {
@@ -1096,6 +1107,14 @@ where
         let (cryptarchia, pruned_blocks) = cryptarchia.try_apply_header(header)?;
         let new_lib = cryptarchia.lib();
 
+        Self::store_block_transactions(
+            relays.storage_adapter(),
+            relays.cl_mempool_relay(),
+            block.transactions().cloned(),
+            id,
+        )
+        .await;
+
         // remove included content from mempool
         mark_in_block(
             relays.cl_mempool_relay().clone(),
@@ -1119,9 +1138,17 @@ where
         let immutable_blocks = pruned_blocks.immutable_blocks().clone();
         relays
             .storage_adapter()
-            .store_immutable_block_ids(immutable_blocks)
+            .store_immutable_block_ids(immutable_blocks.clone())
             .await
             .map_err(|e| Error::Storage(format!("Failed to store immutable block ids: {e}")))?;
+
+        let block_ids: Vec<HeaderId> = immutable_blocks.values().copied().collect();
+        Self::cleanup_transactions_from_immutable_blocks(
+            relays.storage_adapter(),
+            relays.cl_mempool_relay(),
+            &block_ids,
+        )
+        .await;
 
         if prev_lib != new_lib {
             let height = cryptarchia
@@ -1519,6 +1546,40 @@ where
 
         (cryptarchia, storage_blocks_to_remove)
     }
+
+    /// Store transactions from a processed block to persistent storage
+    async fn store_block_transactions(
+        storage_adapter: &StorageAdapter<Storage, TxS::Tx, RuntimeServiceId>,
+        mempool_relay: &OutboundRelay<MempoolMsg<HeaderId, ClPool::Item, ClPool::Item, TxHash>>,
+        transactions: impl Iterator<Item = ClPool::Item> + Send,
+        block_id: HeaderId,
+    ) {
+        let storage_adapter = storage_adapter.clone();
+        let mempool_adapter = MempoolAdapter::new(mempool_relay.clone());
+        let transaction_manager = TransactionManager::new(storage_adapter, mempool_adapter);
+
+        if let Err(e) = transaction_manager
+            .store_block_transactions(transactions)
+            .await
+        {
+            error!(target: LOG_TARGET, "Failed to store transactions for block {:?}: {}", block_id, e);
+        }
+    }
+
+    /// Clean up transactions from immutable blocks
+    async fn cleanup_transactions_from_immutable_blocks(
+        storage_adapter: &StorageAdapter<Storage, TxS::Tx, RuntimeServiceId>,
+        mempool_relay: &OutboundRelay<MempoolMsg<HeaderId, ClPool::Item, ClPool::Item, TxHash>>,
+        block_ids: &[HeaderId],
+    ) {
+        let storage_adapter = storage_adapter.clone();
+        let mempool_adapter = MempoolAdapter::new(mempool_relay.clone());
+        let transaction_manager = TransactionManager::new(storage_adapter, mempool_adapter);
+
+        transaction_manager
+            .cleanup_transactions_from_immutable_blocks(block_ids)
+            .await;
+    }
 }
 
 async fn get_mempool_contents<Payload, Item, Key>(
@@ -1537,30 +1598,6 @@ where
         })
         .await
         .unwrap_or_else(|(e, _)| error!("Could not get transactions from mempool {e}"));
-
-    receiver.await
-}
-
-async fn get_transactions_by_hashes<Payload, Item, Key>(
-    mempool: OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>,
-    hashes: Vec<Key>,
-) -> Result<Vec<Item>, oneshot::error::RecvError>
-where
-    Key: Send,
-    Payload: Send,
-    Item: Send,
-{
-    let (reply_channel, receiver) = oneshot::channel();
-
-    mempool
-        .send(MempoolMsg::GetTransactionsByHashes {
-            hashes,
-            reply_channel,
-        })
-        .await
-        .unwrap_or_else(|(e, _)| {
-            error!("Could not get transactions by hashes from mempool {e}");
-        });
 
     receiver.await
 }
@@ -1633,58 +1670,6 @@ where
     blend_adapter.publish_proposal(proposal).await;
 
     Ok(())
-}
-
-/// Reconstruct a Block from a Proposal by looking up transactions from mempool
-async fn reconstruct_block_from_proposal<Payload, Item>(
-    proposal: Proposal,
-    mempool: OutboundRelay<MempoolMsg<HeaderId, Payload, Item, TxHash>>,
-) -> Result<Block<Item>, Error>
-where
-    Payload: Send,
-    Item: Clone + Transaction<Hash = TxHash> + Send,
-{
-    let needed_hashes: Vec<TxHash> = proposal
-        .references()
-        .mempool_transactions
-        .iter()
-        .map(|tx_ref| TxHash::from(*tx_ref))
-        .collect();
-
-    let reconstructed_transactions = get_transactions_by_hashes(mempool, needed_hashes.clone())
-        .await
-        .map_err(|e| Error::InvalidBlock(format!("Failed to get transactions by hashes: {e}")))?;
-
-    if reconstructed_transactions.len() != needed_hashes.len() {
-        let missing_transactions: Vec<TxHash> = needed_hashes
-            .into_iter()
-            .filter(|hash| {
-                !reconstructed_transactions
-                    .iter()
-                    .any(|tx| tx.hash() == *hash)
-            })
-            .collect();
-
-        return Err(Error::InvalidBlock(format!(
-            "Failed to reconstruct block: {missing_transactions:?} transactions not found in mempool",
-        )));
-    }
-
-    let header = proposal.header().clone();
-    let service_reward = proposal.references().service_reward;
-    let signature = *proposal.signature();
-
-    let block = Block::new(
-        header,
-        reconstructed_transactions,
-        service_reward,
-        signature,
-    );
-    block
-        .validate()
-        .map_err(|e| Error::InvalidBlock(format!("Reconstructed block is invalid: {e}")))?;
-
-    Ok(block)
 }
 
 async fn broadcast_finalized_block(

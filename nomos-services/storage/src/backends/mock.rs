@@ -9,7 +9,7 @@ use bytes::Bytes;
 use cryptarchia_engine::Slot;
 use libp2p_identity::PeerId;
 use multiaddr::Multiaddr;
-use nomos_core::{block::SessionNumber, header::HeaderId};
+use nomos_core::{block::SessionNumber, header::HeaderId, mantle::TxHash};
 use thiserror::Error;
 
 use super::{StorageBackend, StorageTransaction};
@@ -102,6 +102,7 @@ impl StorageBackend for MockStorage {
 impl StorageChainApi for MockStorage {
     type Error = MockStorageError;
     type Block = Bytes;
+    type Tx = ();
 
     async fn get_block(
         &mut self,
@@ -144,6 +145,24 @@ impl StorageChainApi for MockStorage {
         _slot_range: RangeInclusive<Slot>,
         _limit: NonZeroUsize,
     ) -> Result<Vec<HeaderId>, Self::Error> {
+        unimplemented!()
+    }
+
+    async fn store_transactions(
+        &mut self,
+        _transactions: HashMap<TxHash, Self::Tx>,
+    ) -> Result<(), Self::Error> {
+        unimplemented!()
+    }
+
+    async fn get_transactions(
+        &mut self,
+        _tx_hashes: &[TxHash],
+    ) -> Result<Vec<Self::Tx>, Self::Error> {
+        unimplemented!()
+    }
+
+    async fn remove_transactions(&mut self, _tx_hashes: &[TxHash]) -> Result<(), Self::Error> {
         unimplemented!()
     }
 }
