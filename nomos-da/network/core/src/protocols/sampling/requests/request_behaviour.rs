@@ -32,7 +32,7 @@ use crate::{
     protocols::sampling::{
         connections::Connections,
         errors::SamplingError,
-        opinions::OpinionEvent,
+        opinions::{OpinionEvent, Session},
         requests::SamplingEvent,
         streams::{self, SampleStream},
         SamplingResponseStreamFuture, SubnetsConfig,
@@ -368,7 +368,7 @@ where
             SampleResponse::Share(_) | SampleResponse::Commitments(_) => {
                 self.opinion_events.push_back(OpinionEvent::Positive {
                     peer_id,
-                    session_id: None, // None for current session
+                    session: Session::Current,
                 });
             }
             SampleResponse::Error(
@@ -377,7 +377,7 @@ where
                 // Only share and commitments error variant is not found at the moment
                 self.opinion_events.push_back(OpinionEvent::Negative {
                     peer_id,
-                    session_id: None,
+                    session: Session::Current,
                 });
             }
         }
@@ -475,7 +475,7 @@ where
             | SamplingError::Deserialize { peer_id, .. } => {
                 self.opinion_events.push_back(OpinionEvent::Blacklist {
                     peer_id: *peer_id,
-                    session_id: None,
+                    session: Session::Current,
                 });
             }
 
@@ -490,7 +490,7 @@ where
             | SamplingError::MismatchSubnetwork { peer_id, .. } => {
                 self.opinion_events.push_back(OpinionEvent::Negative {
                     peer_id: *peer_id,
-                    session_id: None,
+                    session: Session::Current,
                 });
             }
 
