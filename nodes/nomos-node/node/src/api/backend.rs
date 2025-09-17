@@ -14,6 +14,7 @@ use axum::{
     },
     routing, Router,
 };
+use broadcast_service::BlockBroadcastService;
 use nomos_api::{
     http::{consensus::Cryptarchia, da::DaVerifier, storage},
     Backend,
@@ -57,8 +58,9 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use super::handlers::{
     add_share, add_tx, balancer_stats, blacklisted_peers, block, block_peer, cl_metrics, cl_status,
-    cryptarchia_headers, cryptarchia_info, da_get_commitments, da_get_light_share, da_get_shares,
-    da_get_storage_commitments, libp2p_info, monitor_stats, unblock_peer,
+    cryptarchia_headers, cryptarchia_info, cryptarchia_lib_stream, da_get_commitments,
+    da_get_light_share, da_get_shares, da_get_storage_commitments, libp2p_info, monitor_stats,
+    unblock_peer,
 };
 
 pub(crate) type DaStorageBackend = RocksBackend;
@@ -229,6 +231,7 @@ where
                 SIZE,
             >,
         >
+        + AsServiceId<BlockBroadcastService<RuntimeServiceId>>
         + AsServiceId<
             DaVerifier<
                 DaShare,
@@ -388,6 +391,10 @@ where
                         SIZE,
                     >,
                 ),
+            )
+            .route(
+                paths::CRYPTARCHIA_LIB_STREAM,
+                routing::get(cryptarchia_lib_stream::<RuntimeServiceId>),
             )
             .route(
                 paths::DA_ADD_SHARE,
