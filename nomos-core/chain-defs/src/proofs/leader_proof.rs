@@ -193,18 +193,18 @@ impl LeaderPublic {
 
         let precision = 1_000_000_000_000_000_000u128;
         let order = pol::P.clone();
-
         let neg_f_ln =
             BigUint::from((-(1.0 - active_slot_coeff).ln() * precision as f64).round() as u128);
         let neg_f_ln_sq = &neg_f_ln * &neg_f_ln;
 
         let t0 = (&order * &neg_f_ln) / (&total_stake * precision);
-        let t1 = (&order * &neg_f_ln_sq) / (&double_total_stake_sq * precision * precision);
+        let t1 =
+            ((&order * &neg_f_ln_sq) / (&double_total_stake_sq * precision * precision)) % &order;
         (t0, &order - t1)
     }
 
     fn phi_approx(stake: &Fr, approx: &(Fr, Fr)) -> Fr {
-        // stake * (t0 - t1 * stake)
+        // stake * (t0 + t1 * stake)
         *stake * (approx.0 + (approx.1 * *stake))
     }
 
