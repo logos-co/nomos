@@ -14,7 +14,7 @@ use std::{
 use async_trait::async_trait;
 use backends::BlendBackend;
 use fork_stream::StreamExt as _;
-use futures::{future::join_all, StreamExt as _};
+use futures::{future::join_all, Stream, StreamExt as _};
 use network::NetworkAdapter;
 use nomos_blend_message::{
     crypto::random_sized_bytes,
@@ -228,39 +228,39 @@ where
             )
             .expect("The initial membership should satisfy the core node condition");
 
-        // Yields once every randomly-scheduled release round.
-        let membership_info_stream = session_stream.clone().map(|event| match event {
-            SessionEvent::NewSession((membership, _)) => SessionEvent::NewSession(membership),
-            SessionEvent::TransitionPeriodExpired => SessionEvent::TransitionPeriodExpired,
-        });
-        let (initial_session_info, session_info_stream) =
+        // Yields once every randomly-scheduled release round. It takes the original
+        // (membership, session info) stream and discards session info.
+        let membership_info_stream =
+            map_stream(session_stream.clone(), |(membership, _)| membership);
+        let (initial_scheduler_session_info, scheduler_session_info_stream) =
             blend_config.session_info_stream(&current_membership, membership_info_stream);
         let mut message_scheduler =
             MessageScheduler::<_, _, ProcessedMessage<Network::BroadcastSettings>>::new(
-                session_info_stream,
-                initial_session_info,
+                scheduler_session_info_stream,
+                initial_scheduler_session_info,
                 BlakeRng::from_entropy(),
                 blend_config.scheduler_settings(),
             );
 
-        let swarm_backend_stream = session_stream.clone().map(|event| match event {
-            SessionEvent::NewSession((membership, session_info)) => {
-                SessionEvent::NewSession(SessionInfo {
+        // Maps the original (membership, session info) stream into a (membership, PoQ
+        // verification) stream, where the PoQ proving components are discarded since
+        // they are not used by the swarm.
+        let swarm_backend_stream =
+            map_stream(session_stream.clone(), |(membership, session_info)| {
+                SessionInfo {
                     membership,
                     poq_verification_inputs: session_info.into(),
-                })
-            }
-            SessionEvent::TransitionPeriodExpired => SessionEvent::TransitionPeriodExpired,
-        });
-
+                }
+            });
+        let poq_verification_info = SessionInfo {
+            membership: current_membership,
+            poq_verification_inputs: current_session_info.into(),
+        };
         let mut backend =
             <Backend as BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId>>::new(
                 blend_config.clone(),
                 overwatch_handle.clone(),
-                SessionInfo {
-                    membership: current_membership,
-                    poq_verification_inputs: current_session_info.into(),
-                },
+                poq_verification_info,
                 swarm_backend_stream.boxed(),
                 BlakeRng::from_entropy(),
                 proofs_verifier,
@@ -279,15 +279,15 @@ where
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
 
-        let mut service_session_stream = session_stream.map(|event| match event {
-            SessionEvent::NewSession((membership, poq_verification_inputs)) => {
-                SessionEvent::NewSession(ProcessorSessionInfo {
-                    membership,
-                    poq_verification_inputs,
-                })
-            }
-            SessionEvent::TransitionPeriodExpired => SessionEvent::TransitionPeriodExpired,
-        });
+        // Maps the original (membership, session info) by transforming the tuple into
+        // the required struct, nothing else.
+        let mut service_session_stream = map_stream(
+            session_stream,
+            |(membership, poq_generation_and_verification_inputs)| ProcessorSessionInfo {
+                membership,
+                poq_generation_and_verification_inputs,
+            },
+        );
         loop {
             tokio::select! {
                 Some(local_data_message) = inbound_relay.next() => {
@@ -336,7 +336,7 @@ where
     match event {
         SessionEvent::NewSession(ProcessorSessionInfo {
             membership,
-            poq_verification_inputs,
+            poq_generation_and_verification_inputs: poq_verification_inputs,
         }) => Ok(
             CoreCryptographicProcessor::try_new_with_core_condition_check(
                 membership,
@@ -518,4 +518,18 @@ async fn handle_release_round<
     // Release all messages concurrently, and wait for all of them to be sent.
     join_all(processed_messages_relay_futures).await;
     tracing::debug!(target: LOG_TARGET, "Sent out {total_message_count} processed and/or cover messages at this release window.");
+}
+
+fn map_stream<InputStream, Input, Output, MappingFn>(
+    input_stream: InputStream,
+    mapping_fn: MappingFn,
+) -> impl Stream<Item = SessionEvent<Output>>
+where
+    InputStream: Stream<Item = SessionEvent<Input>>,
+    MappingFn: FnOnce(Input) -> Output + Copy + 'static,
+{
+    input_stream.map(move |event| match event {
+        SessionEvent::NewSession(input) => SessionEvent::NewSession(mapping_fn(input)),
+        SessionEvent::TransitionPeriodExpired => SessionEvent::TransitionPeriodExpired,
+    })
 }

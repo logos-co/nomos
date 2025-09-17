@@ -1,6 +1,5 @@
 use chain_service::CryptarchiaConsensus;
 use kzgrs_backend::{common::share::DaShare, dispersal::Metadata};
-use nomos_blend_service::{RealProofsGenerator, RealProofsVerifier};
 use nomos_core::{
     header::HeaderId,
     mantle::{SignedMantleTx, Transaction},
@@ -22,7 +21,7 @@ use nomos_sdp::backends::mock::MockSdpBackend;
 use nomos_storage::backends::rocksdb::RocksBackend;
 use nomos_time::backends::NtpTimeBackend;
 
-use crate::MB16;
+use crate::{BlendProofsGenerator, BlendProofsVerifier, MB16};
 
 pub type TxMempoolService<SamplingNetworkAdapter, RuntimeServiceId> =
     nomos_mempool::TxMempoolService<
@@ -45,8 +44,8 @@ pub type BlendService<RuntimeServiceId> = nomos_blend_service::BlendService<
         PeerId,
         nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
         BlendMembershipAdapter<RuntimeServiceId>,
-        RealProofsGenerator,
-        RealProofsVerifier,
+        BlendProofsGenerator,
+        BlendProofsVerifier,
         RuntimeServiceId,
     >,
     nomos_blend_service::edge::BlendService<
@@ -54,7 +53,7 @@ pub type BlendService<RuntimeServiceId> = nomos_blend_service::BlendService<
         PeerId,
         <nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<RuntimeServiceId>>::BroadcastSettings,
         BlendMembershipAdapter<RuntimeServiceId>,
-        RealProofsGenerator,
+        BlendProofsGenerator,
         RuntimeServiceId
     >,
     RuntimeServiceId,

@@ -145,7 +145,8 @@ where
         // TODO: Replace with actual service usage.
         let session_info_stream = mock_session_stream();
 
-        let aggregated_session_stream = membership_stream.zip(session_info_stream).map(|(membership, poq_verification_inputs)| SessionInfo { membership, poq_verification_inputs });
+        // Stream combining the membership stream with the stream yielding PoQ generation and verification material.
+        let aggregated_session_stream = membership_stream.zip(session_info_stream).map(|(membership, poq_generation_and_verification_inputs)| SessionInfo { membership, poq_generation_and_verification_inputs });
 
         let uninitialized_session_stream = UninitializedSessionEventStream::new(
             aggregated_session_stream,
@@ -230,7 +231,7 @@ where
     loop {
         tokio::select! {
             Some(SessionEvent::NewSession(session_info)) = session_stream.next() => {
-                message_handler = handle_new_session(session_info, settings, overwatch_handle)?;
+              message_handler = handle_new_session(session_info, settings, overwatch_handle)?;
             }
             Some(message) = messages_to_blend.next() => {
                 message_handler.handle_messages_to_blend(message).await;

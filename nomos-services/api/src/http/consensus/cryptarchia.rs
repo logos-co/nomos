@@ -5,7 +5,6 @@ use chain_service::{
     CryptarchiaConsensus, CryptarchiaInfo,
 };
 use kzgrs_backend::dispersal::Metadata;
-use nomos_blend_service::{RealProofsGenerator, RealProofsVerifier};
 use nomos_core::{
     da::BlobId,
     header::HeaderId,
@@ -34,11 +33,13 @@ pub type Cryptarchia<
     SamplingNetworkAdapter,
     SamplingStorage,
     TimeBackend,
+    BlendProofsGenerator,
+    BlendProofsVerifier,
     RuntimeServiceId,
     const SIZE: usize,
 > = CryptarchiaConsensus<
     ConsensusNetworkAdapter<Tx, RuntimeServiceId>,
-    BlendService<RuntimeServiceId>,
+    BlendService<BlendProofsGenerator, BlendProofsVerifier, RuntimeServiceId>,
     MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
     MempoolNetworkAdapter<Tx, <Tx as Transaction>::Hash, RuntimeServiceId>,
     FillSizeWithTx<SIZE, Tx>,
@@ -50,14 +51,14 @@ pub type Cryptarchia<
     RuntimeServiceId,
 >;
 
-type BlendService<RuntimeServiceId> = nomos_blend_service::BlendService<
+type BlendService<ProofsGenerator, ProofsVerifier, RuntimeServiceId> = nomos_blend_service::BlendService<
     nomos_blend_service::core::BlendService<
         nomos_blend_service::core::backends::libp2p::Libp2pBlendBackend,
         PeerId,
         nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
         BlendMembershipAdapter<RuntimeServiceId>,
-        RealProofsGenerator,
-        RealProofsVerifier,
+        ProofsGenerator,
+        ProofsVerifier,
         RuntimeServiceId,
     >,
     nomos_blend_service::edge::BlendService<
@@ -65,7 +66,7 @@ type BlendService<RuntimeServiceId> = nomos_blend_service::BlendService<
         PeerId,
         <nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<RuntimeServiceId>>::BroadcastSettings,
         BlendMembershipAdapter<RuntimeServiceId>,
-        RealProofsGenerator,
+        ProofsVerifier,
         RuntimeServiceId
     >,
     RuntimeServiceId,

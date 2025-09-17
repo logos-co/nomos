@@ -53,7 +53,7 @@ where
         settings: &Settings<Backend, NodeId, RuntimeServiceId>,
         SessionInfo {
             membership,
-            poq_verification_inputs: poq_inputs,
+            poq_generation_and_verification_inputs: poq_inputs,
         }: SessionInfo<NodeId>,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
     ) -> Self {

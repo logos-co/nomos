@@ -2,10 +2,24 @@ pub mod api;
 pub mod config;
 pub mod generic_services;
 
+use core::convert::Infallible;
+
+use async_trait::async_trait;
 use color_eyre::eyre::Result;
 use generic_services::VerifierMempoolAdapter;
 use kzgrs_backend::common::share::DaShare;
 pub use kzgrs_backend::dispersal::BlobInfo;
+use nomos_blend_message::{
+    crypto::{
+        keys::Ed25519PrivateKey,
+        proofs::{
+            quota::{inputs::prove::PublicInputs, ProofOfQuota},
+            selection::{inputs::VerifyInputs, ProofOfSelection},
+        },
+    },
+    encap::ProofsVerifier,
+};
+use nomos_blend_scheduling::message_blend::{BlendLayerProof, ProofsGenerator, SessionInfo};
 pub use nomos_blend_service::{
     core::{
         backends::libp2p::Libp2pBlendBackend as BlendBackend,
@@ -13,13 +27,12 @@ pub use nomos_blend_service::{
     },
     membership::service::Adapter as BlendMembershipAdapter,
 };
-use nomos_blend_service::{RealProofsGenerator, RealProofsVerifier};
-use nomos_core::mantle::SignedMantleTx;
 pub use nomos_core::{
     codec,
     header::HeaderId,
     mantle::{select::FillSize as FillSizeWithTx, Transaction},
 };
+use nomos_core::{crypto::ZkHash, mantle::SignedMantleTx};
 pub use nomos_da_network_service::backends::libp2p::validator::DaNetworkValidatorBackend;
 use nomos_da_network_service::{
     api::http::HttApiAdapter, membership::handler::DaMembershipHandler, DaAddressbook,
@@ -75,13 +88,75 @@ pub(crate) type TracingService = Tracing<RuntimeServiceId>;
 
 pub(crate) type NetworkService = nomos_network::NetworkService<NetworkBackend, RuntimeServiceId>;
 
+// TODO: Replace this with the actual verifier once the verification inputs are
+// successfully fetched by the Blend service.
+#[derive(Clone)]
+pub struct MockProofsVerifier;
+
+impl ProofsVerifier for MockProofsVerifier {
+    type Error = Infallible;
+
+    fn new() -> Self {
+        Self
+    }
+
+    fn verify_proof_of_quota(
+        &self,
+        _proof: ProofOfQuota,
+        _inputs: &PublicInputs,
+    ) -> Result<ZkHash, Self::Error> {
+        use groth16::Field as _;
+
+        Ok(ZkHash::ZERO)
+    }
+
+    fn verify_proof_of_selection(
+        &self,
+        _proof: ProofOfSelection,
+        _inputs: &VerifyInputs,
+    ) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+pub struct MockProofsGenerator;
+
+#[async_trait]
+impl ProofsGenerator for MockProofsGenerator {
+    fn new(_session_info: SessionInfo) -> Self {
+        Self
+    }
+
+    /// Get or generate the next core `PoQ`, if the maximum allowance has not
+    /// been reached.
+    async fn get_next_core_proof(&mut self) -> Option<BlendLayerProof> {
+        Some(BlendLayerProof {
+            ephemeral_signing_key: Ed25519PrivateKey::generate(),
+            proof_of_quota: ProofOfQuota::from_bytes_unchecked([0; _]),
+            proof_of_selection: ProofOfSelection::from_bytes_unchecked([0; _]),
+        })
+    }
+    /// Get or generate the next leadership `PoQ`, if the maximum allowance has
+    /// not been reached.
+    async fn get_next_leadership_proof(&mut self) -> Option<BlendLayerProof> {
+        Some(BlendLayerProof {
+            ephemeral_signing_key: Ed25519PrivateKey::generate(),
+            proof_of_quota: ProofOfQuota::from_bytes_unchecked([0; _]),
+            proof_of_selection: ProofOfSelection::from_bytes_unchecked([0; _]),
+        })
+    }
+}
+
+pub type BlendProofsGenerator = MockProofsGenerator;
+pub type BlendProofsVerifier = MockProofsVerifier;
+
 pub(crate) type BlendCoreService = nomos_blend_service::core::BlendService<
     BlendBackend,
     PeerId,
     BlendNetworkAdapter<RuntimeServiceId>,
     BlendMembershipAdapter<MembershipService<RuntimeServiceId>, PeerId>,
-    RealProofsGenerator,
-    RealProofsVerifier,
+    BlendProofsGenerator,
+    BlendProofsVerifier,
     RuntimeServiceId,
 >;
 
@@ -92,7 +167,7 @@ pub(crate) type BlendEdgeService = nomos_blend_service::edge::BlendService<
         RuntimeServiceId,
     >>::BroadcastSettings,
     BlendMembershipAdapter<MembershipService<RuntimeServiceId>, PeerId>,
-    RealProofsGenerator,
+    BlendProofsGenerator,
     RuntimeServiceId,
 >;
 

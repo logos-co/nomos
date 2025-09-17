@@ -48,7 +48,7 @@ pub async fn spawn_run(
         .zip(mock_session_stream())
         .map(|(membership, poq_inputs)| SessionInfo {
             membership,
-            poq_verification_inputs: poq_inputs,
+            poq_generation_and_verification_inputs: poq_inputs,
         });
 
     let join_handle = tokio::spawn(async move {
