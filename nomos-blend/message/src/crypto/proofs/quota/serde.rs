@@ -14,7 +14,7 @@ pub(super) mod proof {
 
 #[cfg(test)]
 mod tests {
-    use nomos_core::wire;
+    use nomos_core::codec::SerdeOp as _;
 
     use crate::crypto::proofs::quota::ProofOfQuota;
 
@@ -22,8 +22,8 @@ mod tests {
     fn serialize_deserialize() {
         let proof = ProofOfQuota::from_bytes_unchecked([0; _]);
 
-        let serialized_proof = wire::serialize(&proof).unwrap();
-        let deserialized_proof: ProofOfQuota = wire::deserialize(&serialized_proof[..]).unwrap();
+        let serialized_proof = ProofOfQuota::serialize(&proof).unwrap();
+        let deserialized_proof = ProofOfQuota::deserialize(&serialized_proof[..]).unwrap();
 
         assert!(proof == deserialized_proof);
     }
