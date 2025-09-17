@@ -6,151 +6,32 @@ use std::{
 };
 
 use async_trait::async_trait;
+use futures::StreamExt;
 use nomos_blend_message::crypto::{
     keys::Ed25519PrivateKey,
     proofs::{quota::ProofOfQuota, selection::ProofOfSelection},
 };
 use nomos_blend_scheduling::{
     membership::Membership,
-    message_blend::{BlendProof, SessionCryptographicProcessorSettings, ProofsGenerator, SessionInfo},
+    message_blend::{
+        BlendProof, ProofsGenerator, SessionCryptographicProcessorSettings, SessionInfo,
+    },
     session::UninitializedSessionEventStream,
     EncapsulatedMessage,
 };
 use overwatch::overwatch::{commands::OverwatchCommand, OverwatchHandle};
 use rand::{rngs::OsRng, RngCore};
-use tokio::{sync::mpsc, task::JoinHandle, time::sleep};
+use tokio::{sync::mpsc, task::JoinHandle};
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::{
     edge::{backends::BlendBackend, handlers::Error, run, settings::BlendConfig},
+    mock_session_stream,
     settings::{TimingSettings, FIRST_SESSION_READY_TIMEOUT},
-    test_utils::membership::{key, membership},
+    test_utils::membership::key,
 };
 
-/// [`run`] forwards messages to the core nodes in the updated membership.
-#[test_log::test(tokio::test)]
-async fn run_with_session_transition() {
-    let local_node = NodeId(99);
-    let mut core_node = NodeId(0);
-    let minimal_network_size = 1;
-    let (_, session_sender, msg_sender, mut node_id_receiver) = spawn_run(
-        local_node,
-        minimal_network_size,
-        Some(membership(&[core_node], local_node)),
-    )
-    .await;
-
-    // A message should be forwarded to the core node 0.
-    msg_sender.send(vec![0]).await.expect("channel opened");
-    assert_eq!(
-        node_id_receiver.recv().await.expect("channel opened"),
-        core_node
-    );
-
-    // Send a new session with another core node 1.
-    core_node = NodeId(1);
-    session_sender
-        .send(membership(&[core_node], local_node))
-        .await
-        .expect("channel opened");
-    sleep(Duration::from_millis(100)).await;
-
-    // A message should be forwarded to the core node 1.
-    msg_sender.send(vec![0]).await.expect("channel opened");
-    assert_eq!(
-        node_id_receiver.recv().await.expect("channel opened"),
-        core_node
-    );
-}
-
-/// [`run`] panics if the initial membership is too small.
-#[test_log::test(tokio::test)]
-#[should_panic(
-    expected = "The initial membership should satisfy the edge node condition: NetworkIsTooSmall"
-)]
-async fn run_panics_with_small_initial_membership() {
-    let local_node = NodeId(99);
-    let core_nodes = [NodeId(0)];
-    let minimal_network_size = 2;
-    let (join_handle, _, _, _) = spawn_run(
-        local_node,
-        minimal_network_size,
-        Some(membership(&core_nodes, local_node)),
-    )
-    .await;
-
-    resume_panic_from(join_handle).await;
-}
-
-/// [`run`] panics if the local node is not edge in the initial membership.
-#[test_log::test(tokio::test)]
-#[should_panic(
-    expected = "The initial membership should satisfy the edge node condition: LocalIsCoreNode"
-)]
-async fn run_panics_with_local_is_core_in_initial_membership() {
-    let local_node = NodeId(99);
-    let core_nodes = [local_node];
-    let minimal_network_size = 1;
-    let (join_handle, _, _, _) = spawn_run(
-        local_node,
-        minimal_network_size,
-        Some(membership(&core_nodes, local_node)),
-    )
-    .await;
-
-    resume_panic_from(join_handle).await;
-}
-
-/// [`run`] fails if a new membership is smaller than the minimum network
-/// size.
-#[test_log::test(tokio::test)]
-async fn run_fails_if_new_membership_is_small() {
-    let local_node = NodeId(99);
-    let core_node = NodeId(0);
-    let minimal_network_size = 1;
-    let (join_handle, session_sender, _, _) = spawn_run(
-        local_node,
-        minimal_network_size,
-        Some(membership(&[core_node], local_node)),
-    )
-    .await;
-
-    // Send a new session with an empty membership (smaller than the min size).
-    session_sender
-        .send(membership(&[], local_node))
-        .await
-        .expect("channel opened");
-    assert!(matches!(
-        join_handle.await.unwrap(),
-        Err(Error::NetworkIsTooSmall(0))
-    ));
-}
-
-/// [`run`] fails if the local node is not edge in a new membership.
-#[test_log::test(tokio::test)]
-async fn run_fails_if_local_is_core_in_new_membership() {
-    let local_node = NodeId(99);
-    let core_node = NodeId(0);
-    let minimal_network_size = 1;
-    let (join_handle, session_sender, _, _) = spawn_run(
-        local_node,
-        minimal_network_size,
-        Some(membership(&[core_node], local_node)),
-    )
-    .await;
-
-    // Send a new session with a membership where the local node is core.
-    session_sender
-        .send(membership(&[local_node], local_node))
-        .await
-        .expect("channel opened");
-    assert!(matches!(
-        join_handle.await.unwrap(),
-        Err(Error::LocalIsCoreNode)
-    ));
-}
-
-fn mock_blend_proof() -> BlendProof {
+pub fn mock_blend_proof() -> BlendProof {
     BlendProof {
         proof_of_quota: ProofOfQuota::from_bytes_unchecked([0; _]),
         proof_of_selection: ProofOfSelection::from_bytes_unchecked([0; _]),
@@ -158,7 +39,7 @@ fn mock_blend_proof() -> BlendProof {
     }
 }
 
-struct MockProofsGenerator;
+pub struct MockProofsGenerator;
 
 #[async_trait]
 impl ProofsGenerator for MockProofsGenerator {
@@ -175,7 +56,7 @@ impl ProofsGenerator for MockProofsGenerator {
     }
 }
 
-async fn spawn_run(
+pub async fn spawn_run(
     local_node: NodeId,
     minimal_network_size: u64,
     initial_membership: Option<Membership<NodeId>>,
@@ -199,7 +80,7 @@ async fn spawn_run(
     let join_handle = tokio::spawn(async move {
         run::<TestBackend, _, MockProofsGenerator, _>(
             UninitializedSessionEventStream::new(
-                ReceiverStream::new(session_receiver),
+                ReceiverStream::new(session_receiver).zip(mock_session_stream()),
                 FIRST_SESSION_READY_TIMEOUT,
                 // Set 0 for the session transition period since
                 // [`SessionEvent::TransitionPeriodExpired`] will be ignored anyway.
@@ -218,11 +99,11 @@ async fn spawn_run(
 
 /// Expect the panic from the given async task,
 /// and resume the panic, so the async test can check the panic message.
-async fn resume_panic_from(join_handle: JoinHandle<Result<(), Error>>) {
+pub async fn resume_panic_from(join_handle: JoinHandle<Result<(), Error>>) {
     panic::resume_unwind(join_handle.await.unwrap_err().into_panic());
 }
 
-fn settings(
+pub fn settings(
     local_id: NodeId,
     minimum_network_size: u64,
     msg_sender: NodeIdSender,
@@ -244,9 +125,9 @@ fn settings(
     }
 }
 
-type NodeIdSender = mpsc::Sender<NodeId>;
+pub type NodeIdSender = mpsc::Sender<NodeId>;
 
-struct TestBackend {
+pub struct TestBackend {
     membership: Membership<NodeId>,
     sender: NodeIdSender,
 }
@@ -287,13 +168,13 @@ where
     }
 }
 
-fn overwatch_handle() -> OverwatchHandle<usize> {
+pub fn overwatch_handle() -> OverwatchHandle<usize> {
     let (sender, _) = mpsc::channel::<OverwatchCommand<usize>>(1);
     OverwatchHandle::new(tokio::runtime::Handle::current(), sender)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-struct NodeId(u8);
+pub struct NodeId(pub u8);
 
 impl From<NodeId> for [u8; 32] {
     fn from(id: NodeId) -> Self {

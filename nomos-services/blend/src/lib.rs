@@ -6,7 +6,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures::StreamExt as _;
+use futures::{Stream, StreamExt as _};
 pub use nomos_blend_message::crypto::proofs::RealProofsVerifier;
 pub use nomos_blend_scheduling::message_blend::RealProofsGenerator;
 use nomos_blend_scheduling::{
@@ -203,12 +203,13 @@ type MembershipAdapter<EdgeService> = <EdgeService as edge::ServiceComponents>::
 type MembershipService<EdgeService> =
     <MembershipAdapter<EdgeService> as membership::Adapter>::Service;
 
-const fn mock_session_info() -> SessionInfo {
+fn mock_session_stream() -> impl Stream<Item = SessionInfo> {
+    use futures::stream::repeat;
     use groth16::Field as _;
     use nomos_blend_scheduling::message_blend::{PrivateInfo, PublicInfo};
     use nomos_core::crypto::ZkHash;
 
-    SessionInfo {
+    repeat(SessionInfo {
         public: PublicInfo {
             core_quota: 0,
             core_root: ZkHash::ZERO,
@@ -233,5 +234,5 @@ const fn mock_session_info() -> SessionInfo {
             starting_slot: 0,
             transaction_hash: ZkHash::ZERO,
         },
-    }
+    })
 }

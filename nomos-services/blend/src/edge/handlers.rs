@@ -3,7 +3,7 @@ use std::{hash::Hash, marker::PhantomData};
 use nomos_blend_scheduling::{
     membership::Membership,
     message_blend::{
-        crypto::SenderSessionCryptographicProcessor, ProofsGenerator as ProofsGeneratorTrait,
+        crypto::send::SessionCryptographicProcessor, ProofsGenerator as ProofsGeneratorTrait,
         SessionInfo,
     },
 };
@@ -14,7 +14,7 @@ use rand::SeedableRng as _;
 use crate::edge::{backends::BlendBackend, Settings, LOG_TARGET};
 
 pub struct MessageHandler<Backend, NodeId, ProofsGenerator, RuntimeServiceId> {
-    cryptographic_processor: SenderSessionCryptographicProcessor<NodeId, ProofsGenerator>,
+    cryptographic_processor: SessionCryptographicProcessor<NodeId, ProofsGenerator>,
     backend: Backend,
     _phantom: PhantomData<RuntimeServiceId>,
 }
@@ -61,11 +61,8 @@ where
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
         session_info: SessionInfo,
     ) -> Self {
-        let cryptographic_processor = SenderSessionCryptographicProcessor::new(
-            settings.crypto.clone(),
-            membership.clone(),
-            session_info,
-        );
+        let cryptographic_processor =
+            SessionCryptographicProcessor::new(&settings.crypto, membership.clone(), session_info);
         let backend = Backend::new(
             settings.backend.clone(),
             overwatch_handle,

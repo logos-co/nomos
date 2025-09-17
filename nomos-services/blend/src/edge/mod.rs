@@ -37,7 +37,7 @@ use crate::{
     edge::handlers::{Error, MessageHandler},
     membership,
     message::{NetworkMessage, ServiceMessage},
-    mock_session_info,
+    mock_session_stream,
     settings::FIRST_SESSION_READY_TIMEOUT,
 };
 
@@ -146,8 +146,11 @@ where
         .subscribe()
         .await?;
 
+        // TODO: Replace with actual service usage.
+        let session_info_stream = mock_session_stream();
+
         let uninitialized_session_stream = UninitializedSessionEventStream::new(
-            membership_stream,
+            membership_stream.zip(session_info_stream),
             FIRST_SESSION_READY_TIMEOUT,
             settings.time.session_transition_period(),
         );
@@ -193,7 +196,7 @@ where
 ///   stream.
 /// - If the initial membership does not satisfy the edge node condition.
 async fn run<Backend, NodeId, ProofsGenerator, RuntimeServiceId>(
-    session_stream: UninitializedSessionEventStream<impl Stream<Item = Membership<NodeId>> + Unpin>,
+    session_stream: UninitializedSessionEventStream<impl Stream<Item = (Membership<NodeId>, SessionInfo)> + Unpin>,
     mut messages_to_blend: impl Stream<Item = Vec<u8>> + Send + Unpin,
     settings: &Settings<Backend, NodeId, RuntimeServiceId>,
     overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
@@ -205,7 +208,7 @@ where
     ProofsGenerator: ProofsGeneratorTrait,
     RuntimeServiceId: Clone,
 {
-    let (membership, mut session_stream) = session_stream
+    let ((membership, session_info), mut session_stream) = session_stream
         .await_first_ready()
         .await
         .expect("The current session must be ready");
@@ -221,7 +224,7 @@ where
             settings,
             membership,
             overwatch_handle.clone(),
-            mock_session_info(),
+            session_info,
         )
         .expect("The initial membership should satisfy the edge node condition");
 
@@ -229,8 +232,8 @@ where
 
     loop {
         tokio::select! {
-            Some(SessionEvent::NewSession(membership, new_session_info)) = session_stream.next() => {
-                message_handler = handle_new_session(membership, *new_session_info, settings, overwatch_handle)?;
+            Some(SessionEvent::NewSession((membership, session_info))) = session_stream.next() => {
+                message_handler = handle_new_session(membership, session_info, settings, overwatch_handle)?;
             }
             Some(message) = messages_to_blend.next() => {
                 message_handler.handle_messages_to_blend(message).await;
