@@ -1,10 +1,13 @@
+mod backend;
+mod encodings;
+mod keys;
+
 use std::{
     fmt::{Debug, Display, Formatter},
     future::Future,
     pin::Pin,
 };
 
-use bytes::Bytes;
 use log::error;
 use overwatch::{
     services::{
@@ -15,20 +18,18 @@ use overwatch::{
 };
 use tokio::sync::oneshot;
 
-use crate::{backend::KMSBackend, secure_key::SecuredKey};
-
-mod backend;
-mod keys;
-mod secure_key;
+use crate::{backend::KMSBackend, keys::SecuredKey};
 
 // TODO: Use [`AsyncFnMut`](https://doc.rust-lang.org/stable/std/ops/trait.AsyncFnMut.html#tymethod.async_call_mut) once it is stabilized.
-pub type KMSOperator = Box<
+pub type KMSOperator<Encoding, Error> = Box<
     dyn FnMut(
-            &mut dyn SecuredKey,
-        ) -> Pin<Box<dyn Future<Output = Result<(), DynError>> + Send + Sync>>
+            &mut dyn SecuredKey<EncodingFormat = Encoding, Error = Error>,
+        ) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send + Sync>>
         + Send
         + Sync,
 >;
+pub type KMSOperatorKey<Key> =
+    KMSOperator<<Key as SecuredKey>::EncodingFormat, <Key as SecuredKey>::Error>;
 
 pub enum KMSMessage<Backend>
 where
@@ -36,21 +37,24 @@ where
 {
     Register {
         key_id: Backend::KeyId,
-        key_type: Backend::SupportedKeyTypes,
+        key_type: Backend::SupportedKey,
         reply_channel: oneshot::Sender<Backend::KeyId>,
     },
     PublicKey {
         key_id: Backend::KeyId,
-        reply_channel: oneshot::Sender<Bytes>,
+        reply_channel: oneshot::Sender<<Backend::SupportedKey as SecuredKey>::EncodingFormat>,
     },
     Sign {
         key_id: Backend::KeyId,
-        data: Bytes,
-        reply_channel: oneshot::Sender<Bytes>,
+        data: <Backend::SupportedKey as SecuredKey>::EncodingFormat,
+        reply_channel: oneshot::Sender<<Backend::SupportedKey as SecuredKey>::EncodingFormat>,
     },
     Execute {
         key_id: Backend::KeyId,
-        operator: KMSOperator,
+        operator: KMSOperator<
+            <Backend::SupportedKey as SecuredKey>::EncodingFormat,
+            <Backend::SupportedKey as SecuredKey>::Error,
+        >,
     },
 }
 
@@ -58,7 +62,7 @@ impl<Backend> Debug for KMSMessage<Backend>
 where
     Backend: KMSBackend,
     Backend::KeyId: Debug,
-    Backend::SupportedKeyTypes: Debug,
+    Backend::SupportedKey: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -92,7 +96,7 @@ pub struct KMSService<Backend, RuntimeServiceId>
 where
     Backend: KMSBackend + 'static,
     Backend::KeyId: Debug,
-    Backend::SupportedKeyTypes: Debug,
+    Backend::SupportedKey: Debug,
     Backend::Settings: Clone,
 {
     backend: Backend,
@@ -103,7 +107,7 @@ impl<Backend, RuntimeServiceId> ServiceData for KMSService<Backend, RuntimeServi
 where
     Backend: KMSBackend + 'static,
     Backend::KeyId: Debug,
-    Backend::SupportedKeyTypes: Debug,
+    Backend::SupportedKey: Debug,
     Backend::Settings: Clone,
 {
     type Settings = KMSServiceSettings<Backend::Settings>;
@@ -118,8 +122,10 @@ impl<Backend, RuntimeServiceId> ServiceCore<RuntimeServiceId>
 where
     Backend: KMSBackend + Send + 'static,
     Backend::KeyId: Debug + Send,
-    Backend::SupportedKeyTypes: Debug + Send,
+    Backend::SupportedKey: Debug + Send,
+    <Backend::SupportedKey as SecuredKey>::EncodingFormat: Debug + Send,
     Backend::Settings: Clone + Send + Sync,
+    Backend::Error: Debug + Send,
     RuntimeServiceId: AsServiceId<Self> + Display + Send,
 {
     fn init(
@@ -166,8 +172,9 @@ impl<Backend, RuntimeServiceId> KMSService<Backend, RuntimeServiceId>
 where
     Backend: KMSBackend + 'static,
     Backend::KeyId: Debug,
-    Backend::SupportedKeyTypes: Debug,
+    Backend::SupportedKey: Debug,
     Backend::Settings: Clone,
+    Backend::Error: Debug,
 {
     async fn handle_kms_message(msg: KMSMessage<Backend>, backend: &mut Backend) {
         match msg {
@@ -191,7 +198,7 @@ where
                     panic!("Requested public key for nonexistent KeyId");
                 };
                 if let Err(_pk_bytes) = reply_channel.send(pk_bytes) {
-                    error!("Could not reply public key to request channel");
+                    error!("Could not reply to the public key request channel");
                 }
             }
             KMSMessage::Sign {
@@ -203,7 +210,7 @@ where
                     panic!("Could not sign ")
                 };
                 if let Err(_signature) = reply_channel.send(signature) {
-                    error!("Could not reply public key to request channel");
+                    error!("Could not reply to the public key request channel");
                 }
             }
             KMSMessage::Execute { key_id, operator } => {
