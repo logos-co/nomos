@@ -370,6 +370,12 @@ async fn handle_sampling_event(
         sampling::SamplingEvent::HistoricSamplingError { block_id, error } => {
             handle_historic_sample_error(block_id, error, historic_sample_broadcast_sender);
         }
+        sampling::SamplingEvent::Opinion(_) => {
+            // todo: aggregate opinions
+            // opinion_tracker.reportOpinion()
+            // Opinion tracker will also need to subscribe to da-network or
+            // membership service to track sessions
+        }
     }
 }
 
