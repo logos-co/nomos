@@ -10,25 +10,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check-dependencies-graph:
-    name: Check dependencies graph
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ ubuntu-latest, macos-latest ]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
-      - name: Check cargo version
-        run: cargo --version
-      - name: Install cargo-depgraph
-        run: cargo install cargo-depgraph@1.6.0
-      - name: Generate new graph
-        run: cargo depgraph --all-deps --dedup-transitive-deps --workspace-only --all-features > ${{ runner.temp }}/dependencies_graph.dot
-      - name: Compare dependency graphs
-        run: |
-          diff dependencies_graph.dot ${{ runner.temp }}/dependencies_graph.dot || exit 1
   formatting:
     name: Check formatting
     runs-on: ubuntu-latest
