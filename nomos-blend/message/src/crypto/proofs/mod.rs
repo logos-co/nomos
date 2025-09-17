@@ -23,6 +23,10 @@ pub struct ProofsVerifier;
 impl crate::encap::ProofsVerifier for ProofsVerifier {
     type Error = Error;
 
+    fn new() -> Self {
+        Self
+    }
+
     fn verify_proof_of_quota(
         &self,
         proof: ProofOfQuota,
