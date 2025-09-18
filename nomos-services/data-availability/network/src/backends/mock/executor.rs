@@ -179,4 +179,8 @@ impl MembershipHandler for MockMembership {
     ) -> subnetworks_assignations::SubnetworkAssignations<Self::NetworkId, Self::Id> {
         todo!()
     }
+
+    fn session_id(&self) -> SessionNumber {
+        todo!()
+    }
 }

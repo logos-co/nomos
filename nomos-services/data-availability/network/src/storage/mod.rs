@@ -88,7 +88,7 @@ where
             let updated_membership = self
                 .membership_handler
                 .membership()
-                .update(update, &mut rng);
+                .update(session_id, update, &mut rng);
             let assignations = updated_membership.subnetworks();
             (updated_membership, assignations)
         };
@@ -113,7 +113,11 @@ where
         let mut membership = None;
 
         if let Some(assignations) = self.membership_adapter.get(session_id).await? {
-            membership = Some(self.membership_handler.membership().init(assignations));
+            membership = Some(
+                self.membership_handler
+                    .membership()
+                    .init(session_id, assignations),
+            );
         }
 
         if membership.is_none() {
