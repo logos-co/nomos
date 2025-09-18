@@ -1,5 +1,6 @@
 use std::{collections::HashSet, hash::Hash, marker::PhantomData, time::SystemTime};
 
+use cryptarchia_engine::Length;
 use nomos_core::{header::HeaderId, mantle::Utxo};
 use nomos_ledger::LedgerState;
 use overwatch::{services::state::ServiceState, DynError};
@@ -13,7 +14,7 @@ pub struct CryptarchiaConsensusState<TxS, NodeId, NetworkAdapterSettings, BlendA
     pub lib: HeaderId,
     pub lib_ledger_state: LedgerState,
     pub lib_leader_utxos: Vec<Utxo>,
-    pub lib_block_length: u64,
+    pub lib_block_length: Length,
     /// Set of blocks that have been pruned from the engine but have not yet
     /// been deleted from the persistence layer because of some unexpected
     /// error.
@@ -80,7 +81,7 @@ where
                 lib: settings.genesis_id,
                 lib_ledger_state: settings.genesis_state.clone(),
                 lib_leader_utxos: settings.leader_config.utxos.clone(),
-                lib_block_length: 0,
+                lib_block_length: 0u64.into(),
                 storage_blocks_to_remove: HashSet::new(),
                 last_engine_state: None,
                 _markers: PhantomData,

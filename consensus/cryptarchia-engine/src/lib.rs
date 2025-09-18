@@ -8,7 +8,12 @@ pub mod config;
 pub mod time;
 
 use core::{fmt::Debug, hash::Hash};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::{
+    cmp::Ordering,
+    collections::{BTreeMap, HashMap, HashSet},
+    fmt::{self, Display, Formatter},
+    ops::{Sub, SubAssign},
+};
 
 pub use config::*;
 use thiserror::Error;
@@ -72,7 +77,12 @@ impl State {
 // paper k defines the forking depth of chain we accept without more
 // analysis s defines the length of time (unit of slots) after the fork
 // happened we will inspect for chain density
-fn maxvalid_bg<Id>(local_chain: Branch<Id>, branches: &Branches<Id>, k: u64, s: u64) -> Branch<Id>
+fn maxvalid_bg<Id>(
+    local_chain: Branch<Id>,
+    branches: &Branches<Id>,
+    k: Length,
+    s: u64,
+) -> Branch<Id>
 where
     Id: Eq + Hash + Copy,
 {
@@ -102,7 +112,7 @@ where
 
 // Implementation of the fork choice rule as defined in the Ouroboros Praos
 // paper k defines the forking depth of chain we can accept
-fn maxvalid_mc<Id>(local_chain: Branch<Id>, branches: &Branches<Id>, k: u64) -> Branch<Id>
+fn maxvalid_mc<Id>(local_chain: Branch<Id>, branches: &Branches<Id>, k: Length) -> Branch<Id>
 where
     Id: Eq + Hash + Copy,
 {
@@ -153,7 +163,7 @@ pub struct Branch<Id> {
     parent: Id,
     slot: Slot,
     // chain length
-    length: u64,
+    length: Length,
 }
 
 impl<Id: Copy> Branch<Id> {
@@ -166,7 +176,7 @@ impl<Id: Copy> Branch<Id> {
     pub const fn slot(&self) -> Slot {
         self.slot
     }
-    pub const fn length(&self) -> u64 {
+    pub const fn length(&self) -> Length {
         self.length
     }
 }
@@ -183,7 +193,7 @@ where
                 id: lib,
                 parent: lib,
                 slot: 0.into(),
-                length: 0,
+                length: 0u64.into(),
             },
         );
         let tips = HashSet::from([lib]);
@@ -208,7 +218,7 @@ where
 
         let length = parent_branch
             .length
-            .checked_add(1)
+            .checked_add(1u64.into())
             .expect("New branch height overflows.");
 
         let mut branches = self.branches.clone();
@@ -262,7 +272,7 @@ where
         self.branches.get(id)
     }
 
-    pub fn get_length_for_header(&self, header_id: &Id) -> Option<u64> {
+    pub fn get_length_for_header(&self, header_id: &Id) -> Option<Length> {
         self.get(header_id).map(|branch| branch.length)
     }
 
@@ -277,10 +287,10 @@ where
 
     // Returns the min(n, A)-th ancestor of the provided block, where A is the
     // number of ancestors of this block.
-    fn nth_ancestor(&self, branch: &Branch<Id>, mut n: u64) -> Branch<Id> {
+    fn nth_ancestor(&self, branch: &Branch<Id>, mut n: Length) -> Branch<Id> {
         let mut current = branch;
         while n > 0 {
-            n -= 1;
+            n -= 1u64;
             if let Some(parent) = self.branches.get(&current.parent) {
                 current = parent;
             } else {
@@ -321,7 +331,7 @@ where
             branches: Branches::from_lib(id),
             local_chain: Branch {
                 id,
-                length: 0,
+                length: 0u64.into(),
                 parent: id,
                 slot: 0.into(),
             },
@@ -400,7 +410,7 @@ where
     /// Calling `prune_forks(2)` will remove `b6` because it is diverged from
     /// `b2`, which is deeper than the 2nd block `b3` from the local chain tip.
     /// The `b7` is not removed since it is diverged from `b3`.
-    fn prune_stale_forks(&mut self, max_div_depth: u64) -> impl Iterator<Item = Id> + '_ {
+    fn prune_stale_forks(&mut self, max_div_depth: Length) -> impl Iterator<Item = Id> + '_ {
         #[expect(
             clippy::needless_collect,
             reason = "We need to collect since we cannot borrow both immutably (in `self.prunable_forks`) and mutably (in `self.prune_fork`) at the same time."
@@ -416,7 +426,7 @@ where
     /// the `max_div_depth`-th block from the current local chain tip.
     fn prunable_forks(
         &self,
-        max_div_depth: u64,
+        max_div_depth: Length,
     ) -> impl Iterator<Item = ForkDivergenceInfo<Id>> + '_ {
         let local_chain = self.local_chain;
         let Some(deepest_div_block) = local_chain.length.checked_sub(max_div_depth) else {
@@ -500,7 +510,7 @@ where
     }
 
     /// Calculate the depth of LIB from the local chain tip.
-    fn lib_depth(&self) -> u64 {
+    fn lib_depth(&self) -> Length {
         self.tip_branch()
             .length()
             .checked_sub(self.lib_branch().length())
@@ -583,6 +593,83 @@ where
     pub fn extend(&mut self, other: &Self) {
         self.stale_blocks.extend(other.stale_blocks.iter());
         self.immutable_blocks.extend(other.immutable_blocks.iter());
+    }
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone, Debug, Eq, PartialEq, Copy, Hash, PartialOrd, Ord)]
+pub struct Length(u64);
+
+impl Length {
+    pub fn checked_add(self, rhs: Self) -> Option<Self> {
+        self.0.checked_add(rhs.0).map(Self)
+    }
+
+    pub fn checked_sub(self, rhs: Self) -> Option<Self> {
+        self.0.checked_sub(rhs.0).map(Self)
+    }
+
+    #[must_use]
+    pub const fn abs_diff(self, rhs: Self) -> Self {
+        Self(self.0.abs_diff(rhs.0))
+    }
+}
+
+impl From<u64> for Length {
+    fn from(length: u64) -> Self {
+        Self(length)
+    }
+}
+
+impl From<Length> for u64 {
+    fn from(length: Length) -> Self {
+        length.0
+    }
+}
+
+impl From<u32> for Length {
+    fn from(length: u32) -> Self {
+        Self(length.into())
+    }
+}
+
+impl Sub<Self> for Length {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self(self.0 - rhs.0)
+    }
+}
+
+impl Sub<u64> for Length {
+    type Output = Self;
+
+    fn sub(self, rhs: u64) -> Self::Output {
+        Self(self.0 - rhs)
+    }
+}
+
+impl SubAssign<u64> for Length {
+    fn sub_assign(&mut self, rhs: u64) {
+        self.0 -= rhs;
+    }
+}
+
+impl PartialEq<u64> for Length {
+    fn eq(&self, other: &u64) -> bool {
+        self.0 == *other
+    }
+}
+
+impl PartialOrd<u64> for Length {
+    fn partial_cmp(&self, other: &u64) -> Option<Ordering> {
+        self.0.partial_cmp(other)
+    }
+}
+
+impl Display for Length {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}", self.0)
     }
 }
 

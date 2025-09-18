@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use cryptarchia_engine::Length;
 use futures::stream::{self, StreamExt as _};
 use serial_test::serial;
 use tests::{
@@ -46,7 +47,7 @@ async fn test_orphan_handling() {
 
     let behind_node = vec![Validator::spawn(config).await.unwrap()];
 
-    let mut behind_node_height = 0;
+    let mut behind_node_height = Length::from(0u64);
 
     // Most of the time late node receives an orphan block within a few seconds.
     // But sometimes it takes longer, 20 seconds seems safe.

@@ -1,6 +1,7 @@
 use std::fmt::Display;
 
 use async_trait::async_trait;
+use cryptarchia_engine::Length;
 use nomos_core::header::HeaderId;
 use overwatch::{
     OpaqueServiceResourcesHandle,
@@ -17,7 +18,7 @@ const BROADCAST_CHANNEL_SIZE: usize = 128;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlockInfo {
-    pub height: u64,
+    pub height: Length,
     pub header_id: HeaderId,
 }
 
