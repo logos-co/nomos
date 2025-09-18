@@ -11,7 +11,6 @@ use crate::crypto::{
 };
 
 pub mod inputs;
-mod serde;
 
 pub const PROOF_OF_SELECTION_SIZE: usize = size_of::<ProofOfSelection>();
 const DOMAIN_SEPARATION_TAG: [u8; 9] = *b"BlendNode";
@@ -21,7 +20,7 @@ const DOMAIN_SEPARATION_TAG: [u8; 9] = *b"BlendNode";
 // so once a proof is verified it cannot be (mis)used anymore.
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProofOfSelection {
-    #[serde(with = "self::serde::selection_randomness")]
+    #[serde(with = "groth16::serde::serde_fr")]
     selection_randomness: ZkHash,
 }
 
