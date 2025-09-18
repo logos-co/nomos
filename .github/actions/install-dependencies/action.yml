@@ -16,13 +16,6 @@ description: "Install dependencies for building and bundling Nomos."
 runs:
   using: "composite"
   steps:
-    - name: Install risc0
-      uses: ./.github/actions/install-risc0
-      with:
-        github_token: ${{ inputs.github_token }}
-        os: ${{ inputs.os }}
-        target_triple: ${{ inputs.target_triple }}
-
     - name: Setup linux system
       if: inputs.os == 'linux'
       shell: bash

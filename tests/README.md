@@ -34,7 +34,7 @@ docker-compose -f compose.debug.yml down   # compose filename needs to be the sa
 To execute the test suite with the debug feature flag, use the following command:
 
 ```bash
-RISC0_DEV_MODE=true cargo test -p tests -F debug disseminate_and_retrieve
+POL_PROOF_DEV_MODE=true cargo test -p tests -F debug disseminate_and_retrieve
 ```
 
 `-F debug`: Enables the debug feature flag for the integration tests, allowing for extra debug output or specific debug-only code paths to be enabled during the tests.

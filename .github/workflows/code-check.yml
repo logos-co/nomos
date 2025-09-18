@@ -72,7 +72,6 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Run cargo-hack
         env:
-          RISC0_SKIP_BUILD: true
           RUSTFLAGS: -D warnings
         run: cargo hack --feature-powerset --no-dev-deps check
       - name: Update Cargo cache
@@ -107,7 +106,6 @@ jobs:
         os: [ ubuntu-latest, macos-latest ]
     runs-on: ${{ matrix.os }}
     env:
-          RISC0_SKIP_BUILD: true
           RUSTFLAGS: -D warnings
     steps:
       - name: Checkout repository
@@ -145,11 +143,6 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
-
-      - name: Install risc0 dependencies
-        uses: ./.github/actions/install-risc0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Cargo cache
         uses: ./.github/actions/setup-cargo-cache

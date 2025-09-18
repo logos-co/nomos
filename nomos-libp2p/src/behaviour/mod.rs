@@ -20,9 +20,7 @@ pub mod gossipsub;
 pub mod kademlia;
 pub mod nat;
 
-// TODO: Risc0 proofs are HUGE (220 Kb) and it's the only reason we need to have
-// this limit so large. Remove this once we transition to smaller proofs.
-const DATA_LIMIT: usize = 1 << 18; // Do not serialize/deserialize more than 256 KiB
+const DATA_LIMIT: usize = 1 << 16; // Do not serialize/deserialize more than 256 KiB
 
 pub(crate) struct BehaviourConfig {
     pub gossipsub_config: libp2p::gossipsub::Config,

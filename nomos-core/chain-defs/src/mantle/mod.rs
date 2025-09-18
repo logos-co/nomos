@@ -81,8 +81,6 @@ pub trait TxSelect {
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("Risc0 failed to prove execution of the zkvm")]
-    Risc0ProofFailed(#[from] anyhow::Error),
     #[error("Invalid witness")]
     InvalidWitness,
 }
