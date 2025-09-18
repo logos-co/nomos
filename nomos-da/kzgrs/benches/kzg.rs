@@ -13,6 +13,7 @@ use rand::RngCore as _;
 use rayon::iter::IntoParallelIterator as _;
 #[cfg(feature = "parallel")]
 use rayon::iter::ParallelIterator as _;
+use kzgrs::kzg::{generate_multiple_element_proof, multiple_point_setup, MultiplePointUniversalParams};
 
 fn main() {
     divan::main();
@@ -26,6 +27,11 @@ fn main() {
 static GLOBAL_PARAMETERS: LazyLock<UniversalParams<Bls12_381>> = LazyLock::new(|| {
     let mut rng = rand::thread_rng();
     KZG10::<Bls12_381, DensePolynomial<Fr>>::setup(4096, true, &mut rng).unwrap()
+});
+
+static MULTIPLE_GLOBAL_PARAMETERS: LazyLock<MultiplePointUniversalParams<Bls12_381>> = LazyLock::new(|| {
+    let mut rng = rand::thread_rng();
+    multiple_point_setup(4096,50, true, &mut rng).unwrap()
 });
 
 fn rand_data_elements(elements_count: usize, chunk_size: usize) -> Vec<u8> {
@@ -107,6 +113,43 @@ fn compute_batch_proofs(bencher: Bencher, element_count: usize) {
                 black_box(
                     generate_element_proof(i, poly, evals, &GLOBAL_PARAMETERS, *domain).unwrap(),
                 );
+            }
+        });
+}
+
+#[divan::bench(args = [128, 256, 512, 1_024, 2_048, 4_096], sample_size = 5)]
+fn compute_single_five_points_proof(bencher: Bencher, element_count: usize) {
+    bencher
+        .with_inputs(|| {
+            let domain = GeneralEvaluationDomain::new(element_count).unwrap();
+            let data = rand_data_elements(element_count, CHUNK_SIZE);
+            (
+                bytes_to_polynomial_unchecked::<CHUNK_SIZE>(&data, domain),
+                domain,
+            )
+        })
+        .input_counter(move |_| ItemsCount::new(element_count))
+        .bench_refs(|((evals, poly), domain)| {
+                black_box(generate_multiple_element_proof(&(0..5).collect::<Vec<usize>>(), poly, *domain, &MULTIPLE_GLOBAL_PARAMETERS));
+        });
+}
+
+
+#[divan::bench(args = [128, 256, 512, 1_024], sample_size = 32)]
+fn compute_batch_thirty_two_points_proof(bencher: Bencher, element_count: usize) {
+    bencher
+        .with_inputs(|| {
+            let domain = GeneralEvaluationDomain::new(element_count).unwrap();
+            let data = rand_data_elements(element_count, CHUNK_SIZE);
+            (
+                bytes_to_polynomial_unchecked::<CHUNK_SIZE>(&data, domain),
+                domain,
+            )
+        })
+        .input_counter(move |_| ItemsCount::new(element_count))
+        .bench_refs(|((evals, poly), domain)| {
+            for i in 0..(element_count) {
+                black_box(generate_multiple_element_proof(&(i*32..i*32+32).collect::<Vec<usize>>(), poly, *domain, &MULTIPLE_GLOBAL_PARAMETERS));
             }
         });
 }
