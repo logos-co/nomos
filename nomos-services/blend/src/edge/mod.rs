@@ -15,7 +15,8 @@ use std::{
 use backends::BlendBackend;
 use futures::{Stream, StreamExt as _};
 use nomos_blend_scheduling::{
-    message_blend::ProofsGenerator as ProofsGeneratorTrait, session::{SessionEvent, UninitializedSessionEventStream}
+    message_blend::ProofsGenerator as ProofsGeneratorTrait,
+    session::{SessionEvent, UninitializedSessionEventStream},
 };
 use nomos_core::codec::SerdeOp;
 use overwatch::{
@@ -34,7 +35,12 @@ use settings::BlendConfig;
 use tracing::{debug, error, info};
 
 use crate::{
-    edge::handlers::{Error, MessageHandler}, membership, message::{NetworkMessage, ServiceMessage}, mock_session_stream, session::SessionInfo, settings::FIRST_SESSION_READY_TIMEOUT
+    edge::handlers::{Error, MessageHandler},
+    membership,
+    message::{NetworkMessage, ServiceMessage},
+    mock_session_stream,
+    session::SessionInfo,
+    settings::FIRST_SESSION_READY_TIMEOUT,
 };
 
 const LOG_TARGET: &str = "blend::service::edge";
@@ -145,8 +151,14 @@ where
         // TODO: Replace with actual service usage.
         let session_info_stream = mock_session_stream();
 
-        // Stream combining the membership stream with the stream yielding PoQ generation and verification material.
-        let aggregated_session_stream = membership_stream.zip(session_info_stream).map(|(membership, poq_generation_and_verification_inputs)| SessionInfo { membership, poq_generation_and_verification_inputs });
+        // Stream combining the membership stream with the stream yielding PoQ
+        // generation and verification material.
+        let aggregated_session_stream = membership_stream.zip(session_info_stream).map(
+            |(membership, poq_generation_and_verification_inputs)| SessionInfo {
+                membership,
+                poq_generation_and_verification_inputs,
+            },
+        );
 
         let uninitialized_session_stream = UninitializedSessionEventStream::new(
             aggregated_session_stream,
@@ -195,7 +207,9 @@ where
 ///   stream.
 /// - If the initial membership does not satisfy the edge node condition.
 async fn run<Backend, NodeId, ProofsGenerator, RuntimeServiceId>(
-    session_stream: UninitializedSessionEventStream<impl Stream<Item = SessionInfo<NodeId>> + Unpin>,
+    session_stream: UninitializedSessionEventStream<
+        impl Stream<Item = SessionInfo<NodeId>> + Unpin,
+    >,
     mut messages_to_blend: impl Stream<Item = Vec<u8>> + Send + Unpin,
     settings: &Settings<Backend, NodeId, RuntimeServiceId>,
     overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
@@ -219,7 +233,7 @@ where
     );
 
     let mut message_handler =
-        MessageHandler::<Backend, NodeId, ProofsGenerator, RuntimeServiceId>::try_new_with_edge_condition_check( 
+        MessageHandler::<Backend, NodeId, ProofsGenerator, RuntimeServiceId>::try_new_with_edge_condition_check(
             settings,
             session_info,
             overwatch_handle.clone(),

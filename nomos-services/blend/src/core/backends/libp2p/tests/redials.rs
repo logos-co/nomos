@@ -21,11 +21,7 @@ async fn core_redial_same_peer() {
         swarm: mut dialing_swarm,
         ..
     } = SwarmBuilder::default().build(|id| {
-        BlendBehaviourBuilder::new(
-            &id,
-            (MockProofsVerifier, mock_session_info().into()),
-        )
-        .build()
+        BlendBehaviourBuilder::new(&id, (MockProofsVerifier, mock_session_info().into())).build()
     });
 
     let random_peer_id = PeerId::random();
@@ -95,11 +91,7 @@ async fn core_redial_different_peer_after_redial_limit() {
         swarm: mut listening_swarm,
         ..
     } = SwarmBuilder::default().build(|id| {
-        BlendBehaviourBuilder::new(
-            &id,
-            (MockProofsVerifier, mock_session_info().into()),
-        )
-        .build()
+        BlendBehaviourBuilder::new(&id, (MockProofsVerifier, mock_session_info().into())).build()
     });
     let (membership_entry, _) = listening_swarm
         .listen_and_return_membership_entry(None)
@@ -114,12 +106,9 @@ async fn core_redial_different_peer_after_redial_limit() {
     } = SwarmBuilder::default()
         .with_membership(membership.clone())
         .build(|id| {
-            BlendBehaviourBuilder::new(
-                &id,
-                (MockProofsVerifier, mock_session_info().into()),
-            )
-            .with_membership(membership)
-            .build()
+            BlendBehaviourBuilder::new(&id, (MockProofsVerifier, mock_session_info().into()))
+                .with_membership(membership)
+                .build()
         });
     let dialing_peer_id = *dialing_swarm.local_peer_id();
 

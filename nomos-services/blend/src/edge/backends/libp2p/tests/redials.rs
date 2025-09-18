@@ -124,12 +124,9 @@ async fn edge_redial_different_peer_after_redial_limit() {
     } = CoreSwarmBuilder::default()
         .with_empty_membership()
         .build(|id| {
-            BlendBehaviourBuilder::new(
-                &id,
-                (MockProofsVerifier, mock_session_info().into()),
-            )
-            .with_empty_membership()
-            .build()
+            BlendBehaviourBuilder::new(&id, (MockProofsVerifier, mock_session_info().into()))
+                .with_empty_membership()
+                .build()
         });
     let (core_swarm_membership_entry, _) =
         core_swarm.listen_and_return_membership_entry(None).await;
