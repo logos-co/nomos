@@ -1,8 +1,10 @@
 use std::ffi::c_void;
 
 use nomos_node::RuntimeServiceId;
-use overwatch::overwatch::Overwatch;
-use tokio::runtime::Runtime;
+use overwatch::overwatch::{Overwatch, OverwatchHandle};
+use tokio::runtime::{Handle, Runtime};
+
+use crate::NomosNodeErrorCode;
 
 // Define an opaque type for the complex Overwatch type
 type NomosOverwatch = Overwatch<RuntimeServiceId>;
@@ -19,25 +21,40 @@ impl NomosNode {
     pub fn new(overwatch: NomosOverwatch, runtime: Runtime) -> Self {
         Self {
             // Box the complex types and convert to opaque pointers
-            overwatch: Box::into_raw(Box::new(overwatch)) as *mut c_void,
-            runtime: Box::into_raw(Box::new(runtime)) as *mut c_void,
+            overwatch: Box::into_raw(Box::new(overwatch)).cast::<c_void>(),
+            runtime: Box::into_raw(Box::new(runtime)).cast::<c_void>(),
         }
     }
 
     // Helper methods to safely access the inner types
-    pub unsafe fn get_overwatch(&self) -> *mut NomosOverwatch {
-        self.overwatch as *mut NomosOverwatch
+    #[must_use]
+    const fn get_overwatch_handle(&self) -> &OverwatchHandle<RuntimeServiceId> {
+        unsafe { self.overwatch.cast::<NomosOverwatch>().as_ref().unwrap() }.handle()
     }
 
-    pub unsafe fn get_runtime(&self) -> *mut Runtime {
-        self.runtime as *mut Runtime
+    #[must_use]
+    fn get_runtime_handle(&self) -> &Handle {
+        unsafe { self.runtime.cast::<Runtime>().as_ref().unwrap() }.handle()
     }
 
     // Helper to safely take ownership back
-    pub unsafe fn into_parts(self) -> (Box<NomosOverwatch>, Box<Runtime>) {
-        let overwatch = unsafe { Box::from_raw(self.overwatch as *mut NomosOverwatch) };
-        let runtime = unsafe { Box::from_raw(self.runtime as *mut Runtime) };
+    #[must_use]
+    pub fn into_parts(self) -> (Box<NomosOverwatch>, Box<Runtime>) {
+        let overwatch = unsafe { Box::from_raw(self.overwatch.cast::<NomosOverwatch>()) };
+        let runtime = unsafe { Box::from_raw(self.runtime.cast::<Runtime>()) };
         (overwatch, runtime)
+    }
+
+    fn stop(self) -> NomosNodeErrorCode {
+        let runtime_handle = self.get_runtime_handle();
+        let overwatch_handle = self.get_overwatch_handle();
+        if runtime_handle
+            .block_on(overwatch_handle.stop_all_services())
+            .is_err()
+        {
+            return NomosNodeErrorCode::StopError;
+        }
+        NomosNodeErrorCode::None
     }
 }
 
@@ -45,23 +62,26 @@ impl NomosNode {
 impl Drop for NomosNode {
     fn drop(&mut self) {
         if !self.overwatch.is_null() {
-            let _ = unsafe { Box::from_raw(self.overwatch as *mut NomosOverwatch) };
+            let _ = unsafe { Box::from_raw(self.overwatch.cast::<NomosOverwatch>()) };
         }
         if !self.runtime.is_null() {
-            let _ = unsafe { Box::from_raw(self.runtime as *mut Runtime) };
+            let _ = unsafe { Box::from_raw(self.runtime.cast::<Runtime>()) };
         }
     }
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn stop_node(node: *mut NomosNode) {
+/// # Safety
+///
+/// The caller must ensure that:
+/// - `node` is either null or a valid pointer to a `NomosNode` instance
+/// - The `NomosNode` instance was created by this library
+/// - The pointer will not be used after this function returns
+pub unsafe extern "C" fn stop_node(node: *mut NomosNode) -> NomosNodeErrorCode {
     if node.is_null() {
-        return;
+        return NomosNodeErrorCode::NullPtr;
     }
 
-    unsafe {
-        let node = Box::from_raw(node);
-        // The Drop implementation will clean up the internal pointers
-        drop(node);
-    }
+    let node = unsafe { Box::from_raw(node) };
+    node.stop()
 }
