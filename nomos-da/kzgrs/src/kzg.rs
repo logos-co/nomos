@@ -1,36 +1,38 @@
-use ark_bls12_381::{Bls12_381, Fr, G2Affine};
-use ark_ec::pairing::Pairing;
-use ark_ec::scalar_mul::fixed_base::FixedBase;
-use ark_ec::{AffineRepr, CurveGroup};
-use ark_ff::{batch_inversion, Field, PrimeField, UniformRand};
-use ark_poly::univariate::DenseOrSparsePolynomial;
-use ark_poly::{
-    univariate::DensePolynomial, DenseUVPolynomial as _, EvaluationDomain as _,
-    GeneralEvaluationDomain, Polynomial,
-};
-use ark_poly_commit::kzg10::{Commitment, Powers, Proof, UniversalParams, KZG10};
-use ark_poly_commit::Error;
-use ark_std::rand::RngCore;
-use num_bigint::BigUint;
-use num_traits::{One as _, Zero as _};
-use std::collections::BTreeMap;
 use std::{
     borrow::Cow,
+    collections::BTreeMap,
     ops::{Mul as _, Neg as _},
 };
+
+use ark_bls12_381::{Bls12_381, Fr, G2Projective};
+use ark_ec::{pairing::Pairing, scalar_mul::fixed_base::FixedBase, CurveGroup};
+use ark_ff::{Field, PrimeField, UniformRand};
+use ark_poly::{
+    univariate::{DenseOrSparsePolynomial, DensePolynomial},
+    DenseUVPolynomial as _, EvaluationDomain as _, GeneralEvaluationDomain, Polynomial,
+};
+use ark_poly_commit::{
+    kzg10::{Commitment, Powers, Proof, UniversalParams, KZG10},
+    Error,
+};
+use ark_std::rand::RngCore;
+use num_traits::{One as _, Zero as _};
 
 use crate::{common::KzgRsError, Evaluations};
 
 pub struct MultiplePointUniversalParams<E: Pairing> {
-    /// Group elements of the form `{ \beta^i G }`, where `i` ranges from 0 to `degree`.
+    /// Group elements of the form `{ \beta^i G }`, where `i` ranges from 0 to
+    /// `degree`.
     pub powers_of_g: Vec<E::G1Affine>,
-    /// Group elements of the form `{ \beta^i \gamma G }`, where `i` ranges from 0 to `degree`.
+    /// Group elements of the form `{ \beta^i \gamma G }`, where `i` ranges from
+    /// 0 to `degree`.
     pub powers_of_gamma_g: BTreeMap<usize, E::G1Affine>,
     /// The generator of G2.
     pub h: E::G2Affine,
     /// \beta times the above generator of G2.
     pub powers_of_h: Vec<E::G2Affine>,
-    /// Group elements of the form `{ \beta^i G2 }`, where `i` ranges from `0` to `-degree`.
+    /// Group elements of the form `{ \beta^i G2 }`, where `i` ranges from `0`
+    /// to `-degree`.
     pub neg_powers_of_h: BTreeMap<usize, E::G2Affine>,
     /// The generator of G2, prepared for use in pairings.
     pub prepared_h: E::G2Prepared,
@@ -198,7 +200,7 @@ pub fn generate_multiple_element_proof(
             DensePolynomial::<Fr>::from_coefficients_vec(vec![Fr::ONE]),
             |acc, poly| &acc * &poly,
         );
-    let (witness_polynomial, r) = DenseOrSparsePolynomial::from(polynomial)
+    let (witness_polynomial, _) = DenseOrSparsePolynomial::from(polynomial)
         .divide_with_q_and_r(&DenseOrSparsePolynomial::from(&x_u))
         .unwrap();
 
@@ -208,7 +210,7 @@ pub fn generate_multiple_element_proof(
             powers_of_g: global_parameters.powers_of_g.clone(),
             powers_of_gamma_g: global_parameters.powers_of_gamma_g.clone(),
             h: global_parameters.h,
-            beta_h: global_parameters.powers_of_h[0],
+            beta_h: global_parameters.powers_of_h[1],
             neg_powers_of_h: global_parameters.neg_powers_of_h.clone(),
             prepared_h: global_parameters.prepared_h.clone(),
             prepared_beta_h: global_parameters.prepared_beta_h.clone(),
@@ -310,7 +312,7 @@ pub fn verify_multiple_element_proof(
             powers_of_g: global_parameters.powers_of_g.clone(),
             powers_of_gamma_g: global_parameters.powers_of_gamma_g.clone(),
             h: global_parameters.h,
-            beta_h: global_parameters.powers_of_h[0],
+            beta_h: global_parameters.powers_of_h[1],
             neg_powers_of_h: global_parameters.neg_powers_of_h.clone(),
             prepared_h: global_parameters.prepared_h.clone(),
             prepared_beta_h: global_parameters.prepared_beta_h.clone(),
@@ -323,9 +325,7 @@ pub fn verify_multiple_element_proof(
         .iter()
         .enumerate()
         .map(|(index, &coef)| global_parameters.powers_of_h[index].mul(coef))
-        .fold(G2Affine::zero(), |acc, element| {
-            (acc + element.into_affine()).into()
-        });
+        .fold(G2Projective::zero(), |acc, element| acc + element);
 
     let commitment_check_g1 = commitment.0 + v_tau.0.neg();
     let lhs = Bls12_381::pairing(commitment_check_g1, global_parameters.h);
@@ -340,23 +340,22 @@ mod test {
     use ark_bls12_381::{Bls12_381, Fr};
     use ark_poly::{
         univariate::DensePolynomial, DenseUVPolynomial as _, EvaluationDomain as _,
-        GeneralEvaluationDomain, Polynomial,
+        GeneralEvaluationDomain,
     };
     use ark_poly_commit::kzg10::{UniversalParams, KZG10};
-    use num_bigint::BigUint;
     use rand::{thread_rng, Fill as _};
     use rayon::{
         iter::{IndexedParallelIterator as _, ParallelIterator as _},
         prelude::IntoParallelRefIterator as _,
     };
 
-    use crate::kzg::{
-        generate_multiple_element_proof, multiple_point_setup, verify_multiple_element_proof,
-        MultiplePointUniversalParams,
-    };
     use crate::{
         common::bytes_to_polynomial,
-        kzg::{commit_polynomial, generate_element_proof, verify_element_proof},
+        kzg::{
+            commit_polynomial, generate_element_proof, generate_multiple_element_proof,
+            multiple_point_setup, verify_element_proof, verify_multiple_element_proof,
+            MultiplePointUniversalParams,
+        },
     };
 
     const COEFFICIENTS_SIZE: usize = 16;
@@ -391,6 +390,19 @@ mod test {
             .map(|i| generate_element_proof(i, &poly, &eval, &GLOBAL_PARAMETERS, *DOMAIN).unwrap())
             .collect();
 
+        let multiple_commitment = commit_polynomial(
+            &poly,
+            &UniversalParams {
+                powers_of_g: MULTIPLE_GLOBAL_PARAMETERS.powers_of_g.clone(),
+                powers_of_gamma_g: MULTIPLE_GLOBAL_PARAMETERS.powers_of_gamma_g.clone(),
+                h: MULTIPLE_GLOBAL_PARAMETERS.h,
+                beta_h: MULTIPLE_GLOBAL_PARAMETERS.powers_of_h[1],
+                neg_powers_of_h: MULTIPLE_GLOBAL_PARAMETERS.neg_powers_of_h.clone(),
+                prepared_h: MULTIPLE_GLOBAL_PARAMETERS.prepared_h.clone(),
+                prepared_beta_h: MULTIPLE_GLOBAL_PARAMETERS.prepared_beta_h.clone(),
+            },
+        )
+        .unwrap();
         let proof = generate_multiple_element_proof(
             &(0..10).collect::<Vec<usize>>(),
             &poly,
@@ -398,14 +410,14 @@ mod test {
             &MULTIPLE_GLOBAL_PARAMETERS,
         )
         .unwrap();
-        let test = verify_multiple_element_proof(
+        assert!(verify_multiple_element_proof(
             &(0..10).collect::<Vec<usize>>(),
             &eval.evals,
-            &commitment,
+            &multiple_commitment,
             &proof,
             *DOMAIN,
             &MULTIPLE_GLOBAL_PARAMETERS,
-        );
+        ));
 
         eval.evals
             .par_iter()
