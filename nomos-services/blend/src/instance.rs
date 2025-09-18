@@ -619,6 +619,7 @@ mod tests {
         type BlendBackend = ();
         type NodeId = u8;
         type Rng = ();
+        type ProofsGenerator = ();
     }
 
     struct EdgeService {

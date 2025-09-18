@@ -8,6 +8,7 @@ pub trait ServiceComponents {
     type BroadcastSettings;
     /// Adapter for membership service.
     type MembershipAdapter;
+    type ProofsGenerator;
 }
 
 impl<Backend, NodeId, BroadcastSettings, MembershipAdapter, ProofsGenerator, RuntimeServiceId>
@@ -26,4 +27,5 @@ where
 {
     type BroadcastSettings = BroadcastSettings;
     type MembershipAdapter = MembershipAdapter;
+    type ProofsGenerator = ProofsGenerator;
 }

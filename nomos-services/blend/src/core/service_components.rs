@@ -13,6 +13,7 @@ pub trait ServiceComponents<RuntimeServiceId> {
     type BlendBackend;
     type NodeId;
     type Rng;
+    type ProofsGenerator;
 }
 
 impl<
@@ -41,6 +42,7 @@ where
     type BlendBackend = Backend;
     type NodeId = NodeId;
     type Rng = BlakeRng;
+    type ProofsGenerator = ProofsGenerator;
 }
 
 pub type NetworkBackendOfService<Service, RuntimeServiceId> = <<Service as ServiceComponents<

@@ -89,8 +89,12 @@ where
             NodeId: Clone + Hash + Eq + Send + Sync + 'static,
         > + Send
         + 'static,
-    EdgeService:
-        ServiceData<Message = CoreService::Message> + edge::ServiceComponents + Send + 'static,
+    EdgeService: ServiceData<Message = CoreService::Message>
+        // We tie the core and edge proofs generator to be the same type, to avoid mistakes in the
+        // node configuration where the two services use different verification logic
+        + edge::ServiceComponents<ProofsGenerator = CoreService::ProofsGenerator>
+        + Send
+        + 'static,
     EdgeService::MembershipAdapter:
         membership::Adapter<NodeId = CoreService::NodeId, Error: Send + Sync + 'static> + Send,
     membership::ServiceMessage<EdgeService::MembershipAdapter>: Send + Sync + 'static,
