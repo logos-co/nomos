@@ -511,7 +511,7 @@ impl NetworkBehaviour for Behaviour {
 mod tests {
     use std::{collections::HashSet, iter, time::Duration};
 
-    use cryptarchia_engine::Slot;
+    use cryptarchia_engine::{Length, Slot};
     use futures::StreamExt as _;
     use libp2p::{bytes::Bytes, swarm::SwarmEvent, Multiaddr, PeerId, Swarm};
     use libp2p_swarm_test::SwarmExt as _;
@@ -606,12 +606,13 @@ mod tests {
 
         tokio::spawn(async move { downloader_swarm.loop_on_next().await });
 
-        let Tip { tip, slot } = receiver.await.unwrap().unwrap() else {
+        let Tip { tip, slot, height } = receiver.await.unwrap().unwrap() else {
             panic!("Expected a tip response");
         };
 
         assert_eq!(tip, HeaderId::from([0; 32]));
         assert_eq!(slot, Slot::from(0));
+        assert_eq!(height, Length::from(0u64));
     }
 
     #[tokio::test]
@@ -751,6 +752,7 @@ mod tests {
             ProviderResponse::Available(Tip {
                 tip: HeaderId::from([0; 32]),
                 slot: Slot::from(0),
+                height: 0u64.into(),
             })
         }
 
@@ -791,6 +793,7 @@ mod tests {
             ProviderResponse::Available(Tip {
                 tip: HeaderId::from([0; 32]),
                 slot: Slot::from(0),
+                height: 0u64.into(),
             })
         }
 

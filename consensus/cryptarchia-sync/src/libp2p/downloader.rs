@@ -72,7 +72,7 @@ impl Downloader {
         })?
         .map_err(|e| ChainSyncError::from((peer_id, e)))
         .and_then(|response| match response {
-            GetTipResponse::Tip { tip, slot } => Ok(GetTipResponse::Tip { tip, slot }),
+            success @ GetTipResponse::Tip { .. } => Ok(success),
             GetTipResponse::Failure(reason) => Err(ChainSyncError {
                 peer: peer_id,
                 kind: ChainSyncErrorKind::RequestTipError(reason),
