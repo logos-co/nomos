@@ -3,25 +3,7 @@ pub mod config;
 
 use api::backend::AxumBackend;
 use kzgrs_backend::common::share::DaShare;
-use nomos_blend_message::{
-    crypto::{
-        keys::Ed25519PrivateKey,
-        proofs::{
-            quota::{inputs::prove::PublicInputs, ProofOfQuota},
-            selection::{inputs::VerifyInputs, ProofOfSelection},
-        },
-    },
-    encap::ProofsVerifier,
-};
-use nomos_blend_scheduling::message_blend::SessionInfo;
-use nomos_blend_service::{
-    core::{
-        backends::libp2p::Libp2pBlendBackend as BlendBackend,
-        network::libp2p::Libp2pAdapter as BlendNetworkAdapter,
-    },
-    membership::service::Adapter as BlendMembershipAdapter,
-};
-use nomos_core::{crypto::ZkHash, mantle::SignedMantleTx};
+use nomos_core::mantle::SignedMantleTx;
 use nomos_da_dispersal::{
     adapters::{
         network::libp2p::Libp2pNetworkAdapter as DispersalNetworkAdapter,
@@ -42,11 +24,11 @@ use nomos_da_verifier::{
     network::adapters::executor::Libp2pAdapter as VerifierNetworkAdapter,
     storage::adapters::rocksdb::RocksAdapter as VerifierStorageAdapter,
 };
-use nomos_libp2p::PeerId;
 #[cfg(feature = "tracing")]
 use nomos_node::Tracing;
 use nomos_node::{
     generic_services::{
+        blend::{BlendProofsGenerator, BlendProofsVerifier},
         DaMembershipAdapter, DaMembershipStorageGeneric, MembershipService, SdpService,
         VerifierMempoolAdapter,
     },
@@ -63,91 +45,11 @@ type DaMembershipStorage = DaMembershipStorageGeneric<RuntimeServiceId>;
 
 pub(crate) type NetworkService = nomos_network::NetworkService<NetworkBackend, RuntimeServiceId>;
 
-// TODO: Replace this with the actual verifier once the verification inputs are
-// successfully fetched by the Blend service.
-#[derive(Clone)]
-struct MockProofsVerifier;
-
-impl ProofsVerifier for MockProofsVerifier {
-    type Error = Infallible;
-
-    fn new() -> Self {
-        Self
-    }
-
-    fn verify_proof_of_quota(
-        &self,
-        _proof: ProofOfQuota,
-        _inputs: &PublicInputs,
-    ) -> Result<ZkHash, Self::Error> {
-        use groth16::Field as _;
-
-        Ok(ZkHash::ZERO)
-    }
-
-    fn verify_proof_of_selection(
-        &self,
-        _proof: ProofOfSelection,
-        _inputs: &VerifyInputs,
-    ) -> Result<(), Self::Error> {
-        Ok(())
-    }
-}
-
-struct MockProofsGenerator;
-
-#[async_trait]
-impl ProofsGenerator for MockProofsGenerator {
-    fn new(_session_info: SessionInfo) -> Self {
-        Self
-    }
-
-    /// Get or generate the next core `PoQ`, if the maximum allowance has not
-    /// been reached.
-    async fn get_next_core_proof(&mut self) -> Option<BlendLayerProof> {
-        Some(BlendLayerProof {
-            ephemeral_signing_key: Ed25519PrivateKey::generate(),
-            proof_of_quota: ProofOfQuota::from_bytes_unchecked([0; _]),
-            proof_of_selection: ProofOfSelection::from_bytes_unchecked([0; _]),
-        })
-    }
-    /// Get or generate the next leadership `PoQ`, if the maximum allowance has
-    /// not been reached.
-    async fn get_next_leadership_proof(&mut self) -> Option<BlendLayerProof> {
-        Some(BlendLayerProof {
-            ephemeral_signing_key: Ed25519PrivateKey::generate(),
-            proof_of_quota: ProofOfQuota::from_bytes_unchecked([0; _]),
-            proof_of_selection: ProofOfSelection::from_bytes_unchecked([0; _]),
-        })
-    }
-}
-
-pub type BlendProofsGenerator = MockProofsGenerator;
-pub type BlendProofsVerifier = MockProofsVerifier;
-
-pub(crate) type BlendCoreService = nomos_blend_service::core::BlendService<
-    BlendBackend,
-    PeerId,
-    BlendNetworkAdapter<RuntimeServiceId>,
-    BlendMembershipAdapter<MembershipService<RuntimeServiceId>, PeerId>,
-    BlendProofsGenerator,
-    BlendProofsVerifier,
-    RuntimeServiceId,
->;
-
-pub(crate) type BlendEdgeService = nomos_blend_service::edge::BlendService<
-    nomos_blend_service::edge::backends::libp2p::Libp2pBlendBackend,
-    PeerId,
-    <BlendNetworkAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<
-        RuntimeServiceId,
-    >>::BroadcastSettings,
-    BlendMembershipAdapter<MembershipService<RuntimeServiceId>, PeerId>,
-    BlendProofsGenerator,
-    RuntimeServiceId,
->;
-
-pub(crate) type BlendService =
-    nomos_blend_service::BlendService<BlendCoreService, BlendEdgeService, RuntimeServiceId>;
+pub(crate) type BlendCoreService =
+    nomos_node::generic_services::blend::BlendCoreService<RuntimeServiceId>;
+pub(crate) type BlendEdgeService =
+    nomos_node::generic_services::blend::BlendEdgeService<RuntimeServiceId>;
+pub(crate) type BlendService = nomos_node::generic_services::blend::BlendService<RuntimeServiceId>;
 
 pub(crate) type BlockBroadcastService = broadcast_service::BlockBroadcastService<RuntimeServiceId>;
 
@@ -290,6 +192,8 @@ pub(crate) type ApiService = nomos_api::ApiService<
         NtpTimeBackend,
         DaNetworkApiAdapter,
         ApiStorageAdapter<RuntimeServiceId>,
+        BlendProofsGenerator,
+        BlendProofsVerifier,
         MB16,
     >,
     RuntimeServiceId,

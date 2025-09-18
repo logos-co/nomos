@@ -67,7 +67,7 @@ type BlendService<ProofsGenerator, ProofsVerifier, RuntimeServiceId> = nomos_ble
         PeerId,
         <nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<RuntimeServiceId>>::BroadcastSettings,
         BlendMembershipAdapter<RuntimeServiceId>,
-        ProofsVerifier,
+        ProofsGenerator,
         RuntimeServiceId
     >,
     RuntimeServiceId,
