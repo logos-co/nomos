@@ -58,6 +58,7 @@ where
         struct HistoryAwareHelper {
             subnetwork_size: usize,
             replication_factor: usize,
+            #[serde(default)]
             session_id: SessionNumber,
         }
 
