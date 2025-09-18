@@ -15,7 +15,7 @@ use std::{
 use backends::BlendBackend;
 use futures::{Stream, StreamExt as _};
 use nomos_blend_scheduling::{
-    message_blend::ProofsGenerator as ProofsGeneratorTrait,
+    message_blend::{ProofsGenerator as ProofsGeneratorTrait, SessionInfo as PoQSessionInfo},
     session::{SessionEvent, UninitializedSessionEventStream},
 };
 use nomos_core::codec::SerdeOp;
@@ -38,7 +38,7 @@ use crate::{
     edge::handlers::{Error, MessageHandler},
     membership,
     message::{NetworkMessage, ServiceMessage},
-    mock_session_stream,
+    mock_poq_inputs_stream,
     session::SessionInfo,
     settings::FIRST_SESSION_READY_TIMEOUT,
 };
@@ -149,14 +149,24 @@ where
         .await?;
 
         // TODO: Replace with actual service usage.
-        let session_info_stream = mock_session_stream();
+        let poq_input_stream = mock_poq_inputs_stream();
 
         // Stream combining the membership stream with the stream yielding PoQ
         // generation and verification material.
-        let aggregated_session_stream = membership_stream.zip(session_info_stream).map(
-            |(membership, poq_generation_and_verification_inputs)| SessionInfo {
-                membership,
-                poq_generation_and_verification_inputs,
+        let aggregated_session_stream = membership_stream.zip(poq_input_stream).map(
+            |(membership, (poq_public_inputs, poq_private_inputs))| {
+                let local_node_index = membership.local_index();
+                let membership_size = membership.size();
+
+                SessionInfo {
+                    membership,
+                    poq_generation_and_verification_inputs: PoQSessionInfo {
+                        local_node_index,
+                        membership_size,
+                        private_inputs: poq_private_inputs,
+                        public_inputs: poq_public_inputs,
+                    },
+                }
             },
         );
 

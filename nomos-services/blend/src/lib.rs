@@ -10,7 +10,8 @@ use futures::{Stream, StreamExt as _};
 pub use nomos_blend_message::{crypto::proofs::RealProofsVerifier, encap::ProofsVerifier};
 pub use nomos_blend_scheduling::message_blend::{ProofsGenerator, RealProofsGenerator};
 use nomos_blend_scheduling::{
-    message_blend::SessionInfo, session::UninitializedSessionEventStream,
+    message_blend::{PrivateInputs, PublicInputs},
+    session::UninitializedSessionEventStream,
 };
 use nomos_network::NetworkService;
 use overwatch::{
@@ -208,13 +209,12 @@ type MembershipAdapter<EdgeService> = <EdgeService as edge::ServiceComponents>::
 type MembershipService<EdgeService> =
     <MembershipAdapter<EdgeService> as membership::Adapter>::Service;
 
-const fn mock_session_info() -> SessionInfo {
+const fn mock_poq_inputs() -> (PublicInputs, PrivateInputs) {
     use groth16::Field as _;
-    use nomos_blend_scheduling::message_blend::{PrivateInfo, PublicInfo};
     use nomos_core::crypto::ZkHash;
 
-    SessionInfo {
-        public: PublicInfo {
+    (
+        PublicInputs {
             core_quota: 0,
             core_root: ZkHash::ZERO,
             leader_quota: 0,
@@ -223,7 +223,7 @@ const fn mock_session_info() -> SessionInfo {
             session: 0,
             total_stake: 0,
         },
-        private: PrivateInfo {
+        PrivateInputs {
             aged_path: vec![],
             aged_selector: vec![],
             core_path: vec![],
@@ -238,11 +238,11 @@ const fn mock_session_info() -> SessionInfo {
             starting_slot: 0,
             transaction_hash: ZkHash::ZERO,
         },
-    }
+    )
 }
 
-fn mock_session_stream() -> impl Stream<Item = SessionInfo> {
+fn mock_poq_inputs_stream() -> impl Stream<Item = (PublicInputs, PrivateInputs)> {
     use futures::stream::repeat;
 
-    repeat(mock_session_info())
+    repeat(mock_poq_inputs())
 }

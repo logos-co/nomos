@@ -11,10 +11,8 @@ use nomos_blend_message::{
         keys::Ed25519PrivateKey,
         proofs::{
             quota::{
-                inputs::prove::{
-                    private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs},
-                    PrivateInputs, PublicInputs,
-                },
+                self,
+                inputs::prove::private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs},
                 ProofOfQuota,
             },
             selection::ProofOfSelection,
@@ -34,19 +32,23 @@ use tokio::{
 #[derive(Clone)]
 pub struct SessionInfo {
     /// Public session info.
-    pub public: PublicInfo,
+    pub public_inputs: PublicInputs,
     /// Private session info.
-    pub private: PrivateInfo,
+    pub private_inputs: PrivateInputs,
+    /// If the local node is a core node, its index.
+    pub local_node_index: Option<usize>,
+    /// Size of membership set for the current session.
+    pub membership_size: usize,
 }
 
 impl From<SessionInfo> for PoQVerificationInputMinusSigningKey {
-    fn from(SessionInfo { public, .. }: SessionInfo) -> Self {
-        public.into()
+    fn from(SessionInfo { public_inputs, .. }: SessionInfo) -> Self {
+        public_inputs.into()
     }
 }
 
 #[derive(Clone, Copy)]
-pub struct PublicInfo {
+pub struct PublicInputs {
     pub session: u64,
     pub core_root: ZkHash,
     pub pol_ledger_aged: ZkHash,
@@ -56,9 +58,9 @@ pub struct PublicInfo {
     pub total_stake: u64,
 }
 
-impl From<PublicInfo> for PoQVerificationInputMinusSigningKey {
+impl From<PublicInputs> for PoQVerificationInputMinusSigningKey {
     fn from(
-        PublicInfo {
+        PublicInputs {
             core_quota,
             core_root,
             leader_quota,
@@ -66,7 +68,7 @@ impl From<PublicInfo> for PoQVerificationInputMinusSigningKey {
             pol_ledger_aged,
             session,
             total_stake,
-        }: PublicInfo,
+        }: PublicInputs,
     ) -> Self {
         Self {
             core_quota,
@@ -81,7 +83,7 @@ impl From<PublicInfo> for PoQVerificationInputMinusSigningKey {
 }
 
 #[derive(Clone)]
-pub struct PrivateInfo {
+pub struct PrivateInputs {
     pub core_sk: ZkHash,
     pub core_path: Vec<ZkHash>,
     pub core_path_selectors: Vec<bool>,
@@ -136,8 +138,8 @@ pub struct RealProofsGenerator {
 #[async_trait]
 impl ProofsGenerator for RealProofsGenerator {
     fn new(session_info: SessionInfo) -> Self {
-        let core_quota = session_info.public.core_quota;
-        let leadership_quota = session_info.public.leader_quota;
+        let core_quota = session_info.public_inputs.core_quota;
+        let leadership_quota = session_info.public_inputs.leader_quota;
         let (core_proofs_sender, core_proofs_receiver) = channel(core_quota as usize);
         let (leadership_proofs_sender, leadership_proofs_receiver) =
             channel(leadership_quota as usize);
@@ -147,8 +149,6 @@ impl ProofsGenerator for RealProofsGenerator {
             core_proofs_receiver,
             leadership_proofs_receiver,
             proofs_generation_task_abort_handle: start(
-                session_info.public.core_quota,
-                session_info.public.leader_quota,
                 core_proofs_sender,
                 leadership_proofs_sender,
                 session_info,
@@ -178,33 +178,35 @@ impl Drop for RealProofsGenerator {
 // uses `spawn_blocking` since we run a loop until all necessary proofs have
 // been pre-computed, so that the rest of the session can proceed smoothly.
 fn start(
-    total_core_proofs: u64,
-    total_leadership_proofs: u64,
     core_proofs_sender: Sender<BlendLayerProof>,
     leadership_proofs_sender: Sender<BlendLayerProof>,
     session_info: SessionInfo,
 ) -> AbortHandle {
     let session_info_clone = session_info.clone();
+    let total_core_proofs = session_info.public_inputs.core_quota;
     let core_proofs_task = spawn_blocking(async move || {
         for core_key_index in 0..total_core_proofs {
             let ephemeral_signing_key = Ed25519PrivateKey::generate();
             let Ok((proof_of_quota, secret_selection_randomness)) = ProofOfQuota::new(
-                &PublicInputs {
-                    core_quota: session_info_clone.public.core_quota,
-                    core_root: session_info_clone.public.core_root,
-                    leader_quota: session_info_clone.public.leader_quota,
-                    pol_epoch_nonce: session_info_clone.public.pol_epoch_nonce,
-                    pol_ledger_aged: session_info_clone.public.pol_ledger_aged,
-                    session: session_info_clone.public.session,
+                &quota::inputs::prove::PublicInputs {
+                    core_quota: session_info_clone.public_inputs.core_quota,
+                    core_root: session_info_clone.public_inputs.core_root,
+                    leader_quota: session_info_clone.public_inputs.leader_quota,
+                    pol_epoch_nonce: session_info_clone.public_inputs.pol_epoch_nonce,
+                    pol_ledger_aged: session_info_clone.public_inputs.pol_ledger_aged,
+                    session: session_info_clone.public_inputs.session,
                     signing_key: ephemeral_signing_key.public_key(),
-                    total_stake: session_info_clone.public.total_stake,
+                    total_stake: session_info_clone.public_inputs.total_stake,
                 },
-                PrivateInputs::new_proof_of_core_quota_inputs(
+                quota::inputs::prove::PrivateInputs::new_proof_of_core_quota_inputs(
                     core_key_index,
                     ProofOfCoreQuotaInputs {
-                        core_path: session_info_clone.private.core_path.clone(),
-                        core_path_selectors: session_info_clone.private.core_path_selectors.clone(),
-                        core_sk: session_info_clone.private.core_sk,
+                        core_path: session_info_clone.private_inputs.core_path.clone(),
+                        core_path_selectors: session_info_clone
+                            .private_inputs
+                            .core_path_selectors
+                            .clone(),
+                        core_sk: session_info_clone.private_inputs.core_sk,
                     },
                 ),
             ) else {
@@ -222,33 +224,34 @@ fn start(
         }
     });
 
+    let total_leadership_proofs = session_info.public_inputs.leader_quota;
     let leadership_proofs_task = spawn_blocking(async move || {
         for leadership_key_index in 0..total_leadership_proofs {
             let ephemeral_signing_key = Ed25519PrivateKey::generate();
             let Ok((proof_of_quota, secret_selection_randomness)) = ProofOfQuota::new(
-                &PublicInputs {
-                    core_quota: session_info.public.core_quota,
-                    core_root: session_info.public.core_root,
-                    leader_quota: session_info.public.leader_quota,
-                    pol_epoch_nonce: session_info.public.pol_epoch_nonce,
-                    pol_ledger_aged: session_info.public.pol_ledger_aged,
-                    session: session_info.public.session,
+                &quota::inputs::prove::PublicInputs {
+                    core_quota: session_info.public_inputs.core_quota,
+                    core_root: session_info.public_inputs.core_root,
+                    leader_quota: session_info.public_inputs.leader_quota,
+                    pol_epoch_nonce: session_info.public_inputs.pol_epoch_nonce,
+                    pol_ledger_aged: session_info.public_inputs.pol_ledger_aged,
+                    session: session_info.public_inputs.session,
                     signing_key: ephemeral_signing_key.public_key(),
-                    total_stake: session_info.public.total_stake,
+                    total_stake: session_info.public_inputs.total_stake,
                 },
-                PrivateInputs::new_proof_of_leadership_quota_inputs(
+                quota::inputs::prove::PrivateInputs::new_proof_of_leadership_quota_inputs(
                     leadership_key_index,
                     ProofOfLeadershipQuotaInputs {
-                        aged_path: session_info.private.aged_path.clone(),
-                        aged_selector: session_info.private.aged_selector.clone(),
-                        note_value: session_info.private.note_value,
-                        output_number: session_info.private.output_number,
-                        pol_secret_key: session_info.private.pol_secret_key,
-                        slot: session_info.private.slot,
-                        slot_secret: session_info.private.slot_secret,
-                        slot_secret_path: session_info.private.slot_secret_path.clone(),
-                        starting_slot: session_info.private.starting_slot,
-                        transaction_hash: session_info.private.transaction_hash,
+                        aged_path: session_info.private_inputs.aged_path.clone(),
+                        aged_selector: session_info.private_inputs.aged_selector.clone(),
+                        note_value: session_info.private_inputs.note_value,
+                        output_number: session_info.private_inputs.output_number,
+                        pol_secret_key: session_info.private_inputs.pol_secret_key,
+                        slot: session_info.private_inputs.slot,
+                        slot_secret: session_info.private_inputs.slot_secret,
+                        slot_secret_path: session_info.private_inputs.slot_secret_path.clone(),
+                        starting_slot: session_info.private_inputs.starting_slot,
+                        transaction_hash: session_info.private_inputs.transaction_hash,
                     },
                 ),
             ) else {

@@ -24,7 +24,7 @@ use nomos_blend_message::{
 use nomos_blend_scheduling::{
     message_blend::{
         crypto::IncomingEncapsulatedMessageWithValidatedPublicHeader,
-        ProofsGenerator as ProofsGeneratorTrait,
+        ProofsGenerator as ProofsGeneratorTrait, SessionInfo as PoQSessionInfo,
     },
     message_scheduler::{round_info::RoundInfo, MessageScheduler},
     session::{SessionEvent, UninitializedSessionEventStream},
@@ -52,7 +52,7 @@ use crate::{
     },
     membership,
     message::{NetworkMessage, ProcessedMessage, ServiceMessage},
-    mock_session_stream,
+    mock_poq_inputs_stream,
     session::SessionInfo as ProcessorSessionInfo,
     settings::FIRST_SESSION_READY_TIMEOUT,
 };
@@ -197,17 +197,23 @@ where
         .expect("Membership service should be ready");
 
         // TODO: Replace with actual service usage.
-        let session_info_stream = mock_session_stream();
+        let poq_input_stream = mock_poq_inputs_stream();
 
-        let ((current_membership, current_session_info), session_stream) =
+        let ((current_membership, (public_poq_inputs, private_poq_inputs)), session_stream) =
             UninitializedSessionEventStream::new(
-                membership_stream.zip(session_info_stream),
+                membership_stream.zip(poq_input_stream),
                 FIRST_SESSION_READY_TIMEOUT,
                 blend_config.time.session_transition_period(),
             )
             .await_first_ready()
             .await
             .expect("The current session must be ready");
+        let current_poq_session_info = PoQSessionInfo {
+            local_node_index: current_membership.local_index(),
+            membership_size: current_membership.size(),
+            private_inputs: private_poq_inputs,
+            public_inputs: public_poq_inputs,
+        };
 
         info!(
             target: LOG_TARGET,
@@ -223,7 +229,7 @@ where
                 current_membership.clone(),
                 blend_config.minimum_network_size,
                 &blend_config.crypto,
-                current_session_info.clone(),
+                current_poq_session_info.clone(),
                 proofs_verifier.clone(),
             )
             .expect("The initial membership should satisfy the core node condition");
@@ -245,16 +251,26 @@ where
         // Maps the original (membership, session info) stream into a (membership, PoQ
         // verification) stream, where the PoQ proving components are discarded since
         // they are not used by the swarm.
-        let swarm_backend_stream =
-            map_session_event_stream(session_stream.clone(), |(membership, session_info)| {
+        let swarm_backend_stream = map_session_event_stream(
+            session_stream.clone(),
+            |(membership, (poq_public_inputs, poq_private_inputs))| {
+                let local_node_index = membership.local_index();
+                let membership_size = membership.size();
                 SessionInfo {
                     membership,
-                    poq_verification_inputs: session_info.into(),
+                    poq_verification_inputs: PoQSessionInfo {
+                        local_node_index,
+                        membership_size,
+                        private_inputs: poq_private_inputs,
+                        public_inputs: poq_public_inputs,
+                    }
+                    .into(),
                 }
-            });
+            },
+        );
         let poq_verification_info = SessionInfo {
             membership: current_membership,
-            poq_verification_inputs: current_session_info.into(),
+            poq_verification_inputs: current_poq_session_info.into(),
         };
         let mut backend =
             <Backend as BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId>>::new(
@@ -283,9 +299,18 @@ where
         // the required struct, nothing else.
         let mut service_session_stream = map_session_event_stream(
             session_stream,
-            |(membership, poq_generation_and_verification_inputs)| ProcessorSessionInfo {
-                membership,
-                poq_generation_and_verification_inputs,
+            |(membership, (poq_public_inputs, poq_private_inputs))| {
+                let local_node_index = membership.local_index();
+                let membership_size = membership.size();
+                ProcessorSessionInfo {
+                    membership,
+                    poq_generation_and_verification_inputs: PoQSessionInfo {
+                        local_node_index,
+                        membership_size,
+                        private_inputs: poq_private_inputs,
+                        public_inputs: poq_public_inputs,
+                    },
+                }
             },
         );
         loop {

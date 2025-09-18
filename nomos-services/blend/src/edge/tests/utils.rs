@@ -7,8 +7,10 @@ use std::{
 
 use futures::StreamExt as _;
 use nomos_blend_scheduling::{
-    membership::Membership, message_blend::SessionCryptographicProcessorSettings,
-    session::UninitializedSessionEventStream, EncapsulatedMessage,
+    membership::Membership,
+    message_blend::{SessionCryptographicProcessorSettings, SessionInfo as PoQSessionInfo},
+    session::UninitializedSessionEventStream,
+    EncapsulatedMessage,
 };
 use overwatch::overwatch::{commands::OverwatchCommand, OverwatchHandle};
 use rand::{rngs::OsRng, RngCore};
@@ -17,7 +19,7 @@ use tokio_stream::wrappers::ReceiverStream;
 
 use crate::{
     edge::{backends::BlendBackend, handlers::Error, run, settings::BlendConfig},
-    mock_session_stream,
+    mock_poq_inputs_stream,
     session::SessionInfo,
     settings::{TimingSettings, FIRST_SESSION_READY_TIMEOUT},
     test_utils::{crypto::MockProofsGenerator, membership::key},
@@ -45,10 +47,20 @@ pub async fn spawn_run(
     }
 
     let aggregated_session_stream = ReceiverStream::new(session_receiver)
-        .zip(mock_session_stream())
-        .map(|(membership, poq_inputs)| SessionInfo {
-            membership,
-            poq_generation_and_verification_inputs: poq_inputs,
+        .zip(mock_poq_inputs_stream())
+        .map(|(membership, (public_inputs, private_inputs))| {
+            let local_node_index = membership.local_index();
+            let membership_size = membership.size();
+
+            SessionInfo {
+                membership,
+                poq_generation_and_verification_inputs: PoQSessionInfo {
+                    local_node_index,
+                    membership_size,
+                    private_inputs,
+                    public_inputs,
+                },
+            }
         });
 
     let join_handle = tokio::spawn(async move {

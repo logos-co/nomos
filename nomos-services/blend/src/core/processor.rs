@@ -100,12 +100,9 @@ pub enum Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        mock_session_info,
-        test_utils::{
-            crypto::{MockProofsGenerator, MockProofsVerifier},
-            membership::{key, membership},
-        },
+    use crate::test_utils::{
+        crypto::{MockProofsGenerator, MockProofsVerifier},
+        membership::{key, membership, mock_session_info},
     };
 
     #[test]

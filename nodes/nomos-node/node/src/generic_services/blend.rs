@@ -7,10 +7,11 @@ use nomos_blend_message::crypto::{
         quota::{inputs::prove::PublicInputs, ProofOfQuota},
         selection::{inputs::VerifyInputs, ProofOfSelection},
     },
+    random_sized_bytes,
 };
 use nomos_blend_scheduling::message_blend::{BlendLayerProof, SessionInfo};
 use nomos_blend_service::{membership::service::Adapter, ProofsGenerator, ProofsVerifier};
-use nomos_core::crypto::ZkHash;
+use nomos_core::{codec::SerdeOp as _, crypto::ZkHash};
 use nomos_libp2p::PeerId;
 
 use crate::generic_services::MembershipService;
@@ -46,28 +47,71 @@ impl ProofsVerifier for BlendProofsVerifier {
     }
 }
 
-pub struct BlendProofsGenerator;
+pub struct BlendProofsGenerator {
+    membership_size: usize,
+    local_node_index: Option<usize>,
+}
 
 #[async_trait]
 impl ProofsGenerator for BlendProofsGenerator {
-    fn new(_session_info: SessionInfo) -> Self {
-        Self
+    fn new(
+        SessionInfo {
+            membership_size,
+            local_node_index,
+            ..
+        }: SessionInfo,
+    ) -> Self {
+        Self {
+            membership_size,
+            local_node_index,
+        }
     }
 
     async fn get_next_core_proof(&mut self) -> Option<BlendLayerProof> {
-        Some(BlendLayerProof {
-            ephemeral_signing_key: Ed25519PrivateKey::generate(),
-            proof_of_quota: ProofOfQuota::from_bytes_unchecked([0; _]),
-            proof_of_selection: ProofOfSelection::from_bytes_unchecked([0; _]),
-        })
+        Some(loop_until_valid_proof(
+            self.membership_size,
+            self.local_node_index,
+        ))
     }
 
     async fn get_next_leadership_proof(&mut self) -> Option<BlendLayerProof> {
-        Some(BlendLayerProof {
-            ephemeral_signing_key: Ed25519PrivateKey::generate(),
-            proof_of_quota: ProofOfQuota::from_bytes_unchecked([0; _]),
-            proof_of_selection: ProofOfSelection::from_bytes_unchecked([0; _]),
-        })
+        Some(loop_until_valid_proof(
+            self.membership_size,
+            self.local_node_index,
+        ))
+    }
+}
+
+fn loop_until_valid_proof(
+    membership_size: usize,
+    local_node_index: Option<usize>,
+) -> BlendLayerProof {
+    // For tests, we avoid generating proofs that are addressed to the local node
+    // itself, since in most tests there are only two nodes and those payload would
+    // fail to be propagated.
+    // This is not a precaution we need to consider in production, since there will
+    // be a minimum network size that is larger than 2.
+    loop {
+        let Ok(proof_of_quota) =
+            ProofOfQuota::deserialize(&random_sized_bytes::<{ size_of::<ProofOfQuota>() }>()[..])
+        else {
+            continue;
+        };
+        let Ok(proof_of_selection) = ProofOfSelection::deserialize::<ProofOfSelection>(
+            &random_sized_bytes::<{ size_of::<ProofOfSelection>() }>()[..],
+        ) else {
+            continue;
+        };
+        let Ok(expected_index) = proof_of_selection.expected_index(membership_size) else {
+            continue;
+        };
+        if Some(expected_index) != local_node_index {
+            return BlendLayerProof {
+                ephemeral_signing_key: Ed25519PrivateKey::generate(),
+                proof_of_quota,
+                proof_of_selection,
+            };
+        }
     }
 }
 

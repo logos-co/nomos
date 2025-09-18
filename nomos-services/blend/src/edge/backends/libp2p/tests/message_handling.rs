@@ -13,8 +13,9 @@ use crate::{
         swarm::Command,
         tests::utils::{SwarmBuilder as EdgeSwarmBuilder, TestSwarm as EdgeTestSwarm},
     },
-    mock_session_info,
-    test_utils::{crypto::MockProofsVerifier, TestEncapsulatedMessage},
+    test_utils::{
+        crypto::MockProofsVerifier, membership::mock_session_info, TestEncapsulatedMessage,
+    },
 };
 
 #[test(tokio::test)]

@@ -11,8 +11,9 @@ use crate::{
     core::backends::libp2p::tests::utils::{
         BlendBehaviourBuilder, SwarmBuilder, SwarmExt as _, TestSwarm,
     },
-    mock_session_info,
-    test_utils::{crypto::MockProofsVerifier, TestEncapsulatedMessage},
+    test_utils::{
+        crypto::MockProofsVerifier, membership::mock_session_info, TestEncapsulatedMessage,
+    },
 };
 
 #[test(tokio::test)]

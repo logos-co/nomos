@@ -11,8 +11,7 @@ use crate::{
         core_swarm_test_utils::SwarmExt as _,
         tests::utils::{BlendBehaviourBuilder, SwarmBuilder, TestSwarm},
     },
-    mock_session_info,
-    test_utils::crypto::MockProofsVerifier,
+    test_utils::{crypto::MockProofsVerifier, membership::mock_session_info},
 };
 
 #[test(tokio::test)]
