@@ -23,11 +23,8 @@ broadcast-service        = { workspace = true }
 clap                     = { default-features = false, features = ["derive"], version = "4.5.13" }
 color-eyre               = { default-features = false, version = "0.6.0" }
 futures                  = { default-features = false, version = "0.3" }
-groth16                  = { workspace = true }
 kzgrs-backend            = { workspace = true }
 nomos-api                = { workspace = true }
-nomos-blend-message      = { workspace = true }
-nomos-blend-scheduling   = { workspace = true }
 nomos-blend-service      = { workspace = true }
 nomos-core               = { workspace = true }
 nomos-da-dispersal       = { workspace = true }

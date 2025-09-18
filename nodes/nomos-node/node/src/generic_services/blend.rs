@@ -54,8 +54,6 @@ impl ProofsGenerator for BlendProofsGenerator {
         Self
     }
 
-    /// Get or generate the next core `PoQ`, if the maximum allowance has not
-    /// been reached.
     async fn get_next_core_proof(&mut self) -> Option<BlendLayerProof> {
         Some(BlendLayerProof {
             ephemeral_signing_key: Ed25519PrivateKey::generate(),
@@ -63,8 +61,7 @@ impl ProofsGenerator for BlendProofsGenerator {
             proof_of_selection: ProofOfSelection::from_bytes_unchecked([0; _]),
         })
     }
-    /// Get or generate the next leadership `PoQ`, if the maximum allowance has
-    /// not been reached.
+
     async fn get_next_leadership_proof(&mut self) -> Option<BlendLayerProof> {
         Some(BlendLayerProof {
             ephemeral_signing_key: Ed25519PrivateKey::generate(),

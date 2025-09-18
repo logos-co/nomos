@@ -231,7 +231,7 @@ where
         // Yields once every randomly-scheduled release round. It takes the original
         // (membership, session info) stream and discards session info.
         let membership_info_stream =
-            map_stream(session_stream.clone(), |(membership, _)| membership);
+            map_session_event_stream(session_stream.clone(), |(membership, _)| membership);
         let (initial_scheduler_session_info, scheduler_session_info_stream) =
             blend_config.session_info_stream(&current_membership, membership_info_stream);
         let mut message_scheduler =
@@ -246,7 +246,7 @@ where
         // verification) stream, where the PoQ proving components are discarded since
         // they are not used by the swarm.
         let swarm_backend_stream =
-            map_stream(session_stream.clone(), |(membership, session_info)| {
+            map_session_event_stream(session_stream.clone(), |(membership, session_info)| {
                 SessionInfo {
                     membership,
                     poq_verification_inputs: session_info.into(),
@@ -281,7 +281,7 @@ where
 
         // Maps the original (membership, session info) by transforming the tuple into
         // the required struct, nothing else.
-        let mut service_session_stream = map_stream(
+        let mut service_session_stream = map_session_event_stream(
             session_stream,
             |(membership, poq_generation_and_verification_inputs)| ProcessorSessionInfo {
                 membership,
@@ -520,7 +520,7 @@ async fn handle_release_round<
     tracing::debug!(target: LOG_TARGET, "Sent out {total_message_count} processed and/or cover messages at this release window.");
 }
 
-fn map_stream<InputStream, Input, Output, MappingFn>(
+fn map_session_event_stream<InputStream, Input, Output, MappingFn>(
     input_stream: InputStream,
     mapping_fn: MappingFn,
 ) -> impl Stream<Item = SessionEvent<Output>>
