@@ -1542,6 +1542,7 @@ where
                 let response = ProviderResponse::Available(GetTipResponse::Tip {
                     tip: tip.id(),
                     slot: tip.slot(),
+                    height: tip.length(),
                 });
 
                 info!("Sending tip response: {response:?}");
