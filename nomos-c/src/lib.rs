@@ -1,3 +1,6 @@
+#![allow(clippy::allow_attributes_without_reason)]
+#![allow(clippy::undocumented_unsafe_blocks)]
+
 mod api;
 
 use std::ffi::c_char;
@@ -14,6 +17,8 @@ use tokio::runtime::Runtime;
 pub enum NomosNodeErrorCode {
     None = 0x0,
     CouldNotInitialize = 0x1,
+    StopError,
+    NullPtr,
 }
 
 #[repr(C)]

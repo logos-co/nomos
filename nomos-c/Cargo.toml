@@ -1,14 +1,14 @@
 [package]
-edition           = "2024"
+edition = "2024"
 license.workspace = true
-name              = "nomos-c"
-version           = "0.1.0"
+name = "nomos-c"
+version = "0.1.0"
 
 [dependencies]
 nomos-node = { workspace = true, features = ["tracing"] }
-overwatch  = { workspace = true }
+overwatch = { workspace = true }
 serde_yaml = { workspace = true }
-tokio      = { default-features = false, workspace = true, features = ["rt-multi-thread"] }
+tokio = { default-features = false, workspace = true, features = ["rt-multi-thread"] }
 
 [build-dependencies]
 cbindgen = "0.29"
@@ -18,3 +18,4 @@ crate-type = ["staticlib"]
 
 [lints]
 workspace = true
+
