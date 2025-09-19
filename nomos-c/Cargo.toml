@@ -5,7 +5,7 @@ name              = "nomos-c"
 version           = "0.1.0"
 
 [dependencies]
-nomos-node = { default-features = false, workspace = true, features = ["tracing"] }
+nomos-node = { default-features = true, workspace = true }
 overwatch  = { workspace = true }
 serde_yaml = { default-features = false, workspace = true }
 tokio      = { default-features = false, workspace = true, features = ["rt-multi-thread"] }

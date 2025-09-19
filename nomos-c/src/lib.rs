@@ -8,11 +8,7 @@ mod api;
 use std::ffi::c_char;
 
 pub use api::{NomosNode, stop_node};
-use nomos_node::{
-    AdapterSettings, Config, Nomos, NomosServiceSettings, SignedMantleTx,
-    SignedTxProcessorSettings, Transaction, TxMempoolSettings, get_services_to_start,
-};
-use overwatch::overwatch::OverwatchRunner;
+use nomos_node::{Config, get_services_to_start, run_node_from_config};
 use tokio::runtime::Runtime;
 
 #[repr(u8)]
@@ -56,53 +52,17 @@ fn initialize_nomos_node(config_path: *const c_char) -> Result<NomosNode, NomosN
             eprintln!("Could not convert config path to string: {e}");
             NomosNodeErrorCode::CouldNotInitialize
         })?;
-    let config =
-        serde_yaml::from_reader::<_, Config>(std::fs::File::open(config_path).map_err(|e| {
-            eprintln!("Could not open config file: {e}");
-            NomosNodeErrorCode::CouldNotInitialize
-        })?)
-        .map_err(|e| {
-            eprintln!("Could not parse config file: {e}");
-            NomosNodeErrorCode::CouldNotInitialize
-        })?;
+    let config_reader = std::fs::File::open(config_path).map_err(|e| {
+        eprintln!("Could not open config file: {e}");
+        NomosNodeErrorCode::CouldNotInitialize
+    })?;
+    let config = serde_yaml::from_reader::<_, Config>(config_reader).map_err(|e| {
+        eprintln!("Could not parse config file: {e}");
+        NomosNodeErrorCode::CouldNotInitialize
+    })?;
 
-    let (blend_config, blend_core_config, blend_edge_config) = config.blend.into();
     let rt = Runtime::new().unwrap();
-    let handle = rt.handle();
-    let app = OverwatchRunner::<Nomos>::run(
-        NomosServiceSettings {
-            network: config.network,
-            blend: blend_config,
-            blend_core: blend_core_config,
-            blend_edge: blend_edge_config,
-            block_broadcast: (),
-            tracing: config.tracing,
-            http: config.http,
-            cl_mempool: TxMempoolSettings {
-                pool: (),
-                network_adapter: AdapterSettings {
-                    topic: String::from(nomos_node::CL_TOPIC),
-                    id: <SignedMantleTx as Transaction>::hash,
-                },
-                processor: SignedTxProcessorSettings {
-                    trigger_sampling_delay: config.mempool.trigger_sampling_delay,
-                },
-                recovery_path: config.mempool.cl_pool_recovery_path,
-            },
-            da_network: config.da_network,
-            da_sampling: config.da_sampling,
-            da_verifier: config.da_verifier,
-            cryptarchia: config.cryptarchia,
-            time: config.time,
-            storage: config.storage,
-            system_sig: (),
-            wallet: config.wallet,
-            sdp: (),
-            membership: config.membership,
-        },
-        Some(handle.clone()),
-    )
-    .map_err(|e| {
+    let app = run_node_from_config(config).map_err(|e| {
         eprintln!("Could not initialize overwatch: {e}");
         NomosNodeErrorCode::CouldNotInitialize
     })?;
