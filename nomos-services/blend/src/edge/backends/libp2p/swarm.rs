@@ -1,20 +1,21 @@
 use core::num::{NonZeroU64, NonZeroUsize};
 use std::{
-    collections::{hash_map::Entry, HashMap},
+    collections::{HashMap, hash_map::Entry},
     io,
     time::Duration,
 };
 
 use futures::{AsyncWriteExt as _, StreamExt as _};
 use libp2p::{
-    swarm::{dial_opts::PeerCondition, ConnectionId},
     Multiaddr, PeerId, StreamProtocol, Swarm, SwarmBuilder,
+    swarm::{ConnectionId, dial_opts::PeerCondition},
 };
 use libp2p_stream::OpenStreamError;
 use nomos_blend_network::send_msg;
 use nomos_blend_scheduling::{
+    EncapsulatedMessage,
     membership::{Membership, Node},
-    serialize_encapsulated_message, EncapsulatedMessage,
+    serialize_encapsulated_message,
 };
 use nomos_libp2p::{DialError, DialOpts, SwarmEvent};
 use rand::RngCore;
@@ -179,7 +180,9 @@ where
 
             let Entry::Vacant(empty_entry) = self.pending_dials.entry((peer_id, connection_id))
             else {
-                panic!("Dial attempt for peer {peer_id:?} and connection {connection_id:?} should not be present in storage.");
+                panic!(
+                    "Dial attempt for peer {peer_id:?} and connection {connection_id:?} should not be present in storage."
+                );
             };
             empty_entry.insert(DialAttempt {
                 address,

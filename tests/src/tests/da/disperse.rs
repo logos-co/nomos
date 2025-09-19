@@ -8,7 +8,7 @@ use serial_test::serial;
 use subnetworks_assignations::MembershipHandler as _;
 use tests::{
     common::da::{
-        disseminate_with_metadata, wait_for_blob_onchain, wait_for_shares_number, APP_ID,
+        APP_ID, disseminate_with_metadata, wait_for_blob_onchain, wait_for_shares_number,
     },
     secret_key_to_peer_id,
     topology::{Topology, TopologyConfig},

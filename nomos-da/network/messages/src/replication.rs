@@ -6,8 +6,8 @@ use nomos_core::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    common::{Share, ShareRequest},
     SubnetworkId,
+    common::{Share, ShareRequest},
 };
 
 #[repr(C)]

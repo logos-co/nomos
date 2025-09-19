@@ -4,7 +4,7 @@ pub mod tx;
 use std::error::Error;
 
 use futures::future::BoxFuture;
-use overwatch::services::{relay::OutboundRelay, ServiceData};
+use overwatch::services::{ServiceData, relay::OutboundRelay};
 
 pub type ProcessorTask<Error> = BoxFuture<'static, Result<(), Error>>;
 

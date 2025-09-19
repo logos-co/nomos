@@ -2,11 +2,11 @@ pub mod adapters;
 
 use futures::Stream;
 use nomos_da_network_service::{
-    api::ApiAdapter,
-    backends::{libp2p::common::BroadcastValidationResultSender, NetworkBackend},
     NetworkService,
+    api::ApiAdapter,
+    backends::{NetworkBackend, libp2p::common::BroadcastValidationResultSender},
 };
-use overwatch::services::{relay::OutboundRelay, ServiceData};
+use overwatch::services::{ServiceData, relay::OutboundRelay};
 use subnetworks_assignations::MembershipHandler;
 
 pub struct ValidationRequest<T> {

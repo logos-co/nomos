@@ -3,8 +3,8 @@ use std::ops::{Mul as _, Neg as _};
 use ark_bls12_381::Fr;
 use ark_ff::{BigInteger as _, Field as _, PrimeField as _};
 use ark_poly::{
-    univariate::DensePolynomial, DenseUVPolynomial as _, EvaluationDomain as _, Evaluations,
-    GeneralEvaluationDomain,
+    DenseUVPolynomial as _, EvaluationDomain as _, Evaluations, GeneralEvaluationDomain,
+    univariate::DensePolynomial,
 };
 use num_traits::Zero as _;
 
@@ -97,7 +97,7 @@ mod test {
 
     use ark_bls12_381::Fr;
     use ark_poly::{EvaluationDomain as _, GeneralEvaluationDomain};
-    use rand::{thread_rng, Fill as _};
+    use rand::{Fill as _, thread_rng};
 
     use crate::{
         common::bytes_to_polynomial,

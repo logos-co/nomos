@@ -1,7 +1,7 @@
 use core::ops::{Deref, DerefMut};
 
 use libp2p::StreamProtocol as Libp2pStreamProtocol;
-use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error};
 
 pub const MAINNET_KAD_PROTOCOL_NAME: &str = "/nomos/kad/1.0.0";
 pub const MAINNET_IDENTIFY_PROTOCOL_NAME: &str = "/nomos/identify/1.0.0";

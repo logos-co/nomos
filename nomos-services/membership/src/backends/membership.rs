@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{MembershipBackend, MembershipBackendError};
 use crate::{
-    adapters::storage::MembershipStorageAdapter, backends::NewSesssion, MembershipProviders,
+    MembershipProviders, adapters::storage::MembershipStorageAdapter, backends::NewSesssion,
 };
 
 #[derive(Debug, Clone)]
@@ -446,8 +446,8 @@ mod tests {
     use async_trait::async_trait;
     use nomos_core::block::{BlockNumber, SessionNumber};
     use overwatch::{
-        services::{relay::OutboundRelay, ServiceData},
         DynError,
+        services::{ServiceData, relay::OutboundRelay},
     };
 
     // Dummy service for testing

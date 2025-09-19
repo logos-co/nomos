@@ -13,17 +13,17 @@ use std::{
 };
 
 use libp2p::{
-    identity::ed25519,
-    swarm::{dial_opts::DialOpts, ConnectionId, DialError, SwarmEvent},
     Multiaddr, PeerId, TransportError,
+    identity::ed25519,
+    swarm::{ConnectionId, DialError, SwarmEvent, dial_opts::DialOpts},
 };
 use multiaddr::multiaddr;
 use rand::RngCore;
 
 use crate::behaviour::BehaviourConfig;
 pub use crate::{
-    behaviour::{Behaviour, BehaviourEvent},
     SwarmConfig,
+    behaviour::{Behaviour, BehaviourEvent},
 };
 
 /// How long to keep a connection alive once it is idling.

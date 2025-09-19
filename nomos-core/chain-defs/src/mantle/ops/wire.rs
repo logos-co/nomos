@@ -1,6 +1,6 @@
 use serde::de::{Error, SeqAccess, Visitor};
 
-use crate::mantle::ops::{opcode, Op};
+use crate::mantle::ops::{Op, opcode};
 
 /// Visitor for deserializing binary-encoded Mantle operations using the
 /// [`wire`](crate::codec) format. Although [`Op`] and [`OpInternal`] are

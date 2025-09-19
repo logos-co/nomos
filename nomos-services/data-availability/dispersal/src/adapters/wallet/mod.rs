@@ -3,8 +3,8 @@ pub mod mock;
 use nomos_core::{
     da::BlobId,
     mantle::{
-        ops::channel::{ChannelId, Ed25519PublicKey, MsgId},
         SignedMantleTx,
+        ops::channel::{ChannelId, Ed25519PublicKey, MsgId},
     },
 };
 

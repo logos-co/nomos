@@ -6,16 +6,16 @@ use std::{
 
 use either::Either;
 use futures::{
-    stream::{BoxStream, FuturesUnordered},
     AsyncWriteExt as _, FutureExt as _, StreamExt as _,
+    stream::{BoxStream, FuturesUnordered},
 };
 use libp2p::{
-    core::{transport::PortUse, Endpoint},
-    swarm::{
-        dial_opts::DialOpts, ConnectionDenied, ConnectionId, DialFailure, FromSwarm,
-        NetworkBehaviour, THandler, THandlerInEvent, THandlerOutEvent, ToSwarm,
-    },
     Multiaddr, PeerId,
+    core::{Endpoint, transport::PortUse},
+    swarm::{
+        ConnectionDenied, ConnectionId, DialFailure, FromSwarm, NetworkBehaviour, THandler,
+        THandlerInEvent, THandlerOutEvent, ToSwarm, dial_opts::DialOpts,
+    },
 };
 use libp2p_stream::Control;
 use nomos_core::da::BlobId;
@@ -27,17 +27,17 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::warn;
 
 use crate::{
+    SubnetworkId,
     addressbook::AddressBookHandler,
     protocol::SAMPLING_PROTOCOL,
     protocols::sampling::{
+        SamplingResponseStreamFuture, SubnetsConfig,
         connections::Connections,
         errors::SamplingError,
         opinions::{OpinionEvent, Session},
         requests::SamplingEvent,
         streams::{self, SampleStream},
-        SamplingResponseStreamFuture, SubnetsConfig,
     },
-    SubnetworkId,
 };
 
 type AttemptNumber = usize;
@@ -213,7 +213,7 @@ where
     }
 
     fn sample_commitments(&mut self, blob_id: BlobId) {
-        if let Some((_, &peer_id)) = &self.sampling_peers.iter().choose(&mut rand::thread_rng()) {
+        if let &Some((_, &peer_id)) = &self.sampling_peers.iter().choose(&mut rand::rng()) {
             let control = self.control.clone();
             let sample_request = sampling::SampleRequest::new_commitments(blob_id);
             let with_dial_task: SamplingResponseStreamFuture = async move {
@@ -252,7 +252,7 @@ where
 
     fn try_subnetwork_sample_share(&mut self, blob_id: BlobId, subnetwork_id: SubnetworkId) {
         if self.connections.should_retry(subnetwork_id) {
-            let mut rng = rand::thread_rng();
+            let mut rng = rand::rng();
             if let Some(peer_id) = self.pick_subnetwork_peer(subnetwork_id, &mut rng) {
                 let control = self.control.clone();
                 let sample_request = sampling::SampleRequest::new_share(blob_id, subnetwork_id);
@@ -276,7 +276,7 @@ where
         self.sampling_peers.clear();
         self.connections.clear();
 
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let subnets: Vec<SubnetworkId> = (0..self.membership.last_subnetwork_id())
             .choose_multiple(&mut rng, self.subnets_config.num_of_subnets);
 
@@ -628,11 +628,11 @@ where
         }
 
         // Discard stream, if still pending pushback to close later.
-        if let Some(mut stream) = self.to_close.pop_front() {
-            if stream.stream.close().poll_unpin(cx).is_pending() {
-                self.to_close.push_back(stream);
-                cx.waker().wake_by_ref();
-            }
+        if let Some(mut stream) = self.to_close.pop_front()
+            && stream.stream.close().poll_unpin(cx).is_pending()
+        {
+            self.to_close.push_back(stream);
+            cx.waker().wake_by_ref();
         }
 
         Poll::Pending

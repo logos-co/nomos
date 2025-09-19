@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use nomos_core::sdp::{FinalizedBlockEvent, FinalizedBlockEventUpdate, ProviderId};
-use nomos_libp2p::{ed25519, Multiaddr};
+use nomos_libp2p::{Multiaddr, ed25519};
 use serial_test::serial;
 use tests::{
     nodes::executor::Executor,

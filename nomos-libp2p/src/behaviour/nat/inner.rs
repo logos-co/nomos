@@ -5,17 +5,16 @@ use std::{
 
 use either::Either;
 use futures::{
-    future::{BoxFuture, Fuse, OptionFuture},
     FutureExt as _,
+    future::{BoxFuture, Fuse, OptionFuture},
 };
 use libp2p::{
-    autonat,
-    core::{transport::PortUse, Endpoint},
+    Multiaddr, PeerId, autonat,
+    core::{Endpoint, transport::PortUse},
     swarm::{
         ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent,
         THandlerOutEvent, ToSwarm,
     },
-    Multiaddr, PeerId,
 };
 use rand::RngCore;
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -24,7 +23,7 @@ use tracing::{error, info};
 use crate::{
     behaviour::nat::{
         address_mapper,
-        address_mapper::{protocols::ProtocolManager, AddressMapperBehaviour, NatMapper},
+        address_mapper::{AddressMapperBehaviour, NatMapper, protocols::ProtocolManager},
         gateway_monitor::{
             GatewayDetector, GatewayMonitor, GatewayMonitorEvent, SystemGatewayDetector,
         },

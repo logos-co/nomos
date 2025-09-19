@@ -13,11 +13,11 @@ use cryptarchia_engine::{Epoch, Slot};
 use futures::{Stream, StreamExt as _};
 use log::error;
 use overwatch::{
-    services::{
-        state::{NoOperator, NoState},
-        AsServiceId, ServiceCore, ServiceData,
-    },
     DynError, OpaqueServiceResourcesHandle,
+    services::{
+        AsServiceId, ServiceCore, ServiceData,
+        state::{NoOperator, NoState},
+    },
 };
 use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
@@ -134,7 +134,7 @@ where
                             let stream = Pin::new(Box::new(channel_stream));
                             if let Err(_e) = sender.send(stream) {
                                 error!("Error subscribing to time event: Couldn't send back a response");
-                            };
+                            }
                         }
                     }
                 }

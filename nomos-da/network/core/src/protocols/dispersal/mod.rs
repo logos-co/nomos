@@ -5,14 +5,14 @@ pub mod validator;
 pub mod test {
     use futures::StreamExt as _;
     use kzgrs::Proof;
-    use kzgrs_backend::common::{share::DaShare, Column};
+    use kzgrs_backend::common::{Column, share::DaShare};
     use libp2p::{
-        swarm::{dial_opts::DialOpts, SwarmEvent},
         PeerId, Swarm,
+        swarm::{SwarmEvent, dial_opts::DialOpts},
     };
     use libp2p_swarm_test::SwarmExt as _;
     use log::info;
-    use tracing_subscriber::{fmt::TestWriter, EnvFilter};
+    use tracing_subscriber::{EnvFilter, fmt::TestWriter};
 
     use crate::{
         protocols::dispersal::{

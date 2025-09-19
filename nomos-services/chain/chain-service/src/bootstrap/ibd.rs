@@ -1,4 +1,4 @@
-use std::{collections::HashSet, fmt::Debug, future::Future, hash::Hash, marker::PhantomData};
+use std::{collections::HashSet, fmt::Debug, hash::Hash, marker::PhantomData};
 
 use cryptarchia_sync::GetTipResponse;
 use futures::StreamExt as _;
@@ -7,9 +7,9 @@ use overwatch::DynError;
 use tracing::{debug, error};
 
 use crate::{
+    Cryptarchia, IbdConfig,
     bootstrap::download::{Delay, Download, Downloads, DownloadsOutput},
     network::NetworkAdapter,
-    Cryptarchia, IbdConfig,
 };
 
 // TODO: Replace ProcessBlock closures with a trait
@@ -307,10 +307,10 @@ mod tests {
     use cryptarchia_engine::{EpochConfig, Slot};
     use nomos_core::sdp::{MinStake, ServiceParameters};
     use nomos_ledger::LedgerState;
-    use nomos_network::{backends::NetworkBackend, message::ChainSyncEvent, NetworkService};
+    use nomos_network::{NetworkService, backends::NetworkBackend, message::ChainSyncEvent};
     use overwatch::{
         overwatch::OverwatchHandle,
-        services::{relay::OutboundRelay, ServiceData},
+        services::{ServiceData, relay::OutboundRelay},
     };
     use tokio_stream::wrappers::BroadcastStream;
 

@@ -28,29 +28,28 @@ use nomos_core::{
     sdp::FinalizedBlockEvent,
 };
 use nomos_da_dispersal::{
-    backend::kzgrs::{DispersalKZGRSBackendSettings, EncoderSettings},
     DispersalServiceSettings,
+    backend::kzgrs::{DispersalKZGRSBackendSettings, EncoderSettings},
 };
 use nomos_da_network_core::{
     protocols::sampling::SubnetsConfig,
     swarm::{BalancerStats, MonitorStats},
 };
 use nomos_da_network_service::{
+    MembershipResponse, NetworkConfig as DaNetworkConfig,
     api::http::ApiAdapterSettings,
     backends::libp2p::{
         common::DaNetworkBackendSettings, executor::DaNetworkExecutorBackendSettings,
     },
-    MembershipResponse, NetworkConfig as DaNetworkConfig,
 };
 use nomos_da_sampling::{
-    backend::kzgrs::KzgrsSamplingBackendSettings,
+    DaSamplingServiceSettings, backend::kzgrs::KzgrsSamplingBackendSettings,
     verifier::kzgrs::KzgrsDaVerifierSettings as SamplingVerifierSettings,
-    DaSamplingServiceSettings,
 };
 use nomos_da_verifier::{
+    DaVerifierServiceSettings,
     backend::{kzgrs::KzgrsDaVerifierSettings, trigger::MempoolPublishTriggerConfig},
     storage::adapters::rocksdb::RocksAdapterSettings as VerifierStorageAdapterSettings,
-    DaVerifierServiceSettings,
 };
 use nomos_executor::{api::backend::AxumBackendSettings, config::Config};
 use nomos_http_api_common::paths::{
@@ -60,13 +59,13 @@ use nomos_http_api_common::paths::{
 };
 use nomos_network::{backends::libp2p::Libp2pConfig, config::NetworkConfig};
 use nomos_node::{
+    RocksBackendSettings,
     api::testing::handlers::HistoricSamplingRequest,
     config::{blend::BlendConfig, mempool::MempoolConfig},
-    RocksBackendSettings,
 };
 use nomos_time::{
-    backends::{ntp::async_client::NTPClientSettings, NtpTimeBackendSettings},
     TimeServiceSettings,
+    backends::{NtpTimeBackendSettings, ntp::async_client::NTPClientSettings},
 };
 use nomos_tracing::logging::local::FileConfig;
 use nomos_tracing_service::LoggerLayer;
@@ -74,12 +73,11 @@ use nomos_utils::{math::NonNegativeF64, net::get_available_tcp_port};
 use reqwest::Url;
 use tempfile::NamedTempFile;
 
-use super::{create_tempdir, persist_tempdir, CLIENT};
+use super::{CLIENT, create_tempdir, persist_tempdir};
 use crate::{
-    adjust_timeout,
+    IS_DEBUG_TRACING, adjust_timeout,
     nodes::{DA_GET_TESTING_ENDPOINT_ERROR, LOGS_PREFIX},
     topology::configs::GeneralConfig,
-    IS_DEBUG_TRACING,
 };
 
 const BIN_PATH: &str = "../target/debug/nomos-executor";
@@ -95,10 +93,10 @@ pub struct Executor {
 
 impl Drop for Executor {
     fn drop(&mut self) {
-        if std::thread::panicking() {
-            if let Err(e) = persist_tempdir(&mut self.tempdir, "nomos-executor") {
-                println!("failed to persist tempdir: {e}");
-            }
+        if std::thread::panicking()
+            && let Err(e) = persist_tempdir(&mut self.tempdir, "nomos-executor")
+        {
+            println!("failed to persist tempdir: {e}");
         }
 
         if let Err(e) = self.child.kill() {

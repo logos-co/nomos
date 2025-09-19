@@ -1,5 +1,5 @@
 use std::{
-    collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque, hash_map::Entry},
     task::{Context, Poll, Waker},
     time::Duration,
 };
@@ -7,19 +7,19 @@ use std::{
 use cached::{Cached as _, TimedSizedCache};
 use either::Either;
 use futures::{
+    AsyncReadExt as _, AsyncWriteExt as _, FutureExt as _, StreamExt as _,
     future::BoxFuture,
     io::{ReadHalf, WriteHalf},
     stream::{BoxStream, FuturesUnordered},
-    AsyncReadExt as _, AsyncWriteExt as _, FutureExt as _, StreamExt as _,
 };
 use indexmap::IndexMap;
 use libp2p::{
-    core::{transport::PortUse, Endpoint},
+    Multiaddr, PeerId, Stream,
+    core::{Endpoint, transport::PortUse},
     swarm::{
         ConnectionClosed, ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, THandler,
         THandlerInEvent, THandlerOutEvent, ToSwarm,
     },
-    Multiaddr, PeerId, Stream,
 };
 use libp2p_stream::{Control, IncomingStreams, OpenStreamError};
 use log::{error, trace};
@@ -27,7 +27,7 @@ use nomos_da_messages::{
     packing::{pack_to_writer, unpack_from_reader},
     replication::{ReplicationRequest, ReplicationResponseId},
 };
-use nomos_utils::bounded_duration::{MinimalBoundedDuration, MINUTE};
+use nomos_utils::bounded_duration::{MINUTE, MinimalBoundedDuration};
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use subnetworks_assignations::MembershipHandler;
@@ -35,7 +35,7 @@ use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
-use crate::{protocol::REPLICATION_PROTOCOL, SubnetworkId};
+use crate::{SubnetworkId, protocol::REPLICATION_PROTOCOL};
 
 #[derive(Debug, Error)]
 pub enum ReplicationError {

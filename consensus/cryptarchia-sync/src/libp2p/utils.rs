@@ -1,7 +1,7 @@
 use futures::AsyncWriteExt as _;
 use libp2p::{PeerId, Stream};
 use libp2p_stream::Control;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 
 use crate::libp2p::{behaviour::SYNC_PROTOCOL, errors::ChainSyncError, packing::pack_to_writer};
 

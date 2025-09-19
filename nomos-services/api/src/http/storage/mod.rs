@@ -8,12 +8,12 @@ use bytes::Bytes;
 use futures::Stream;
 use nomos_core::{block::Block, da::blob::Share, header::HeaderId};
 use nomos_storage::{
-    api::da::DaConverter,
-    backends::{rocksdb::RocksBackend, StorageBackend},
     StorageService,
+    api::da::DaConverter,
+    backends::{StorageBackend, rocksdb::RocksBackend},
 };
-use overwatch::services::{relay::OutboundRelay, AsServiceId, ServiceData};
-use serde::{de::DeserializeOwned, Serialize};
+use overwatch::services::{AsServiceId, ServiceData, relay::OutboundRelay};
+use serde::{Serialize, de::DeserializeOwned};
 
 pub mod adapters;
 

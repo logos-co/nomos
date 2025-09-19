@@ -5,9 +5,9 @@ use nomos_core::header::HeaderId;
 use tokio::sync::oneshot::Sender;
 
 use crate::{
-    api::{chain::StorageChainApi, StorageApiRequest, StorageBackendApi, StorageOperation},
-    backends::StorageBackend,
     StorageMsg, StorageServiceError,
+    api::{StorageApiRequest, StorageBackendApi, StorageOperation, chain::StorageChainApi},
+    backends::StorageBackend,
 };
 
 pub enum ChainApiRequest<Backend: StorageBackend> {

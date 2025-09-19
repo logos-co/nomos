@@ -7,8 +7,8 @@ use futures_timer::Delay;
 use libp2p::swarm::handler::FullyNegotiatedInbound;
 
 use crate::core::with_edge::behaviour::handler::{
-    dropped::DroppedState, ready_to_receive::ReadyToReceiveState, ConnectionEvent, ConnectionState,
-    FailureReason, PollResult, StateTrait, LOG_TARGET,
+    ConnectionEvent, ConnectionState, FailureReason, LOG_TARGET, PollResult, StateTrait,
+    dropped::DroppedState, ready_to_receive::ReadyToReceiveState,
 };
 
 /// Entrypoint to start receiving a single message from an edge node.

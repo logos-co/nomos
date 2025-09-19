@@ -1,5 +1,5 @@
-use blake2::{digest::Digest as _, Blake2b512};
-use ed25519_dalek::{ed25519::signature::Signer as _, Verifier as _};
+use blake2::{Blake2b512, digest::Digest as _};
+use ed25519_dalek::{Verifier as _, ed25519::signature::Signer as _};
 use nomos_utils::blake_rng::{BlakeRng, RngCore as _, SeedableRng as _};
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;

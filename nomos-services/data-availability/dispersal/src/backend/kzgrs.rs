@@ -9,8 +9,8 @@ use kzgrs_backend::{
 use nomos_core::{
     da::{BlobId, DaDispersal, DaEncoder},
     mantle::{
-        ops::channel::{ChannelId, Ed25519PublicKey, MsgId},
         SignedMantleTx,
+        ops::channel::{ChannelId, Ed25519PublicKey, MsgId},
     },
 };
 use nomos_da_network_service::backends::ProcessingError;

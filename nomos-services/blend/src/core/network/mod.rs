@@ -3,9 +3,9 @@ pub mod libp2p;
 
 use std::fmt::Debug;
 
-use nomos_network::{backends::NetworkBackend, NetworkService};
-use overwatch::services::{relay::OutboundRelay, ServiceData};
-use serde::{de::DeserializeOwned, Serialize};
+use nomos_network::{NetworkService, backends::NetworkBackend};
+use overwatch::services::{ServiceData, relay::OutboundRelay};
+use serde::{Serialize, de::DeserializeOwned};
 
 /// A trait for communicating with the network service, which is used to
 /// broadcast fully unwrapped messages returned from the blend backend.

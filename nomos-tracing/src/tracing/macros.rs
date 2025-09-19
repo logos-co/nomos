@@ -2,9 +2,8 @@ pub mod prelude {
     use std::collections::HashMap;
 
     pub use opentelemetry::{
-        global,
+        Context, global,
         trace::{SpanContext, SpanId, TraceFlags, TraceId, TraceState},
-        Context,
     };
     pub use rand;
     pub use tracing::Span;

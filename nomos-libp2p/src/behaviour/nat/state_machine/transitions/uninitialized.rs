@@ -1,5 +1,5 @@
 use crate::behaviour::nat::state_machine::{
-    event::Event, states::Uninitialized, CommandTx, OnEvent, State,
+    CommandTx, OnEvent, State, event::Event, states::Uninitialized,
 };
 
 /// The `Uninitialized` state is the starting point of the NAT state machine. In
@@ -22,9 +22,9 @@ mod tests {
     use tokio::sync::mpsc::{error::TryRecvError, unbounded_channel};
 
     use crate::behaviour::nat::state_machine::{
-        states::{TestIfPublic, Uninitialized},
-        transitions::fixtures::{all_events, new_external_address_candidate, ADDR},
         StateMachine,
+        states::{TestIfPublic, Uninitialized},
+        transitions::fixtures::{ADDR, all_events, new_external_address_candidate},
     };
 
     #[test]

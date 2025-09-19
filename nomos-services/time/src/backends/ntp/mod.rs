@@ -9,22 +9,22 @@ use std::{
     time::Duration,
 };
 
-use cryptarchia_engine::{time::SlotConfig, EpochConfig, Slot};
+use cryptarchia_engine::{EpochConfig, Slot, time::SlotConfig};
 use futures::{Stream, StreamExt as _};
 #[cfg(feature = "serde")]
 use nomos_utils::bounded_duration::{MinimalBoundedDuration, NANO};
-use sntpc::{fraction_to_nanoseconds, NtpResult};
+use sntpc::{NtpResult, fraction_to_nanoseconds};
 use time::OffsetDateTime;
-use tokio::time::{interval, MissedTickBehavior};
+use tokio::time::{MissedTickBehavior, interval};
 use tokio_stream::wrappers::IntervalStream;
 
 use crate::{
+    EpochSlotTickStream, SlotTick,
     backends::{
+        TimeBackend,
         common::slot_timer,
         ntp::async_client::{AsyncNTPClient, NTPClientSettings},
-        TimeBackend,
     },
-    EpochSlotTickStream, SlotTick,
 };
 
 #[cfg_attr(feature = "serde", cfg_eval::cfg_eval, serde_with::serde_as)]

@@ -3,10 +3,10 @@ pub mod executor;
 pub mod validator;
 
 pub use common::{
-    balancer::BalancerStats,
-    monitor::{dto::MonitorStats, DAConnectionMonitorSettings},
-    policy::DAConnectionPolicySettings,
     ReplicationConfig,
+    balancer::BalancerStats,
+    monitor::{DAConnectionMonitorSettings, dto::MonitorStats},
+    policy::DAConnectionPolicySettings,
 };
 use futures::channel::oneshot;
 

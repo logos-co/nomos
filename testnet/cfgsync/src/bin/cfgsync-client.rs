@@ -3,7 +3,7 @@ use std::{env, fs, net::Ipv4Addr, process};
 use cfgsync::client::get_config;
 use nomos_executor::config::Config as ExecutorConfig;
 use nomos_node::Config as ValidatorConfig;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 
 fn parse_ip(ip_str: &str) -> Ipv4Addr {
     ip_str.parse().unwrap_or_else(|_| {

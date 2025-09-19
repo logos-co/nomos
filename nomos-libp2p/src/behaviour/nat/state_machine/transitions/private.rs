@@ -1,5 +1,5 @@
 use crate::behaviour::nat::state_machine::{
-    event::Event, states::Private, Command, CommandTx, OnEvent, State,
+    Command, CommandTx, OnEvent, State, event::Event, states::Private,
 };
 
 /// The `Private` state represents a state where the node's address is known,
@@ -32,12 +32,12 @@ mod tests {
 
     use super::Command;
     use crate::behaviour::nat::state_machine::{
+        StateMachine,
         states::{Private, TestIfPublic, TryMapAddress},
         transitions::fixtures::{
-            all_events, default_gateway_changed, default_gateway_changed_no_local_address,
-            local_address_changed, ADDR, ADDR_1,
+            ADDR, ADDR_1, all_events, default_gateway_changed,
+            default_gateway_changed_no_local_address, local_address_changed,
         },
-        StateMachine,
     };
 
     #[test]

@@ -3,10 +3,10 @@ use std::{collections::BTreeMap, marker::PhantomData};
 use cryptarchia_engine::Slot;
 use nomos_core::{block::Block, header::HeaderId};
 use nomos_storage::{
-    api::chain::StorageChainApi, backends::StorageBackend, StorageMsg, StorageService,
+    StorageMsg, StorageService, api::chain::StorageChainApi, backends::StorageBackend,
 };
-use overwatch::services::{relay::OutboundRelay, ServiceData};
-use serde::{de::DeserializeOwned, Serialize};
+use overwatch::services::{ServiceData, relay::OutboundRelay};
+use serde::{Serialize, de::DeserializeOwned};
 use tokio::sync::oneshot;
 
 use crate::storage::StorageAdapter as StorageAdapterTrait;

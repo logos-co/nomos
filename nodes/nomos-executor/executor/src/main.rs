@@ -1,13 +1,13 @@
 use clap::Parser;
-use color_eyre::eyre::{eyre, Result};
+use color_eyre::eyre::{Result, eyre};
 use nomos_core::mantle::SignedMantleTx;
 use nomos_executor::{
-    config::Config as ExecutorConfig, NomosExecutor, NomosExecutorServiceSettings, RuntimeServiceId,
+    NomosExecutor, NomosExecutorServiceSettings, RuntimeServiceId, config::Config as ExecutorConfig,
 };
 use nomos_mempool::{processor::tx::SignedTxProcessorSettings, tx::settings::TxMempoolSettings};
 use nomos_node::{
-    config::BlendArgs, CryptarchiaArgs, HttpArgs, LogArgs, MempoolAdapterSettings, NetworkArgs,
-    Transaction, CL_TOPIC,
+    CL_TOPIC, CryptarchiaArgs, HttpArgs, LogArgs, MempoolAdapterSettings, NetworkArgs, Transaction,
+    config::BlendArgs,
 };
 use overwatch::overwatch::{Error as OverwatchError, Overwatch, OverwatchRunner};
 

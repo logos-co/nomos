@@ -8,21 +8,22 @@ use std::{
 };
 
 use axum::{
+    Router,
     http::{
-        header::{CONTENT_TYPE, USER_AGENT},
         HeaderValue,
+        header::{CONTENT_TYPE, USER_AGENT},
     },
-    routing, Router,
+    routing,
 };
 use broadcast_service::BlockBroadcastService;
 use nomos_api::{
-    http::{consensus::Cryptarchia, da::DaVerifier, storage},
     Backend,
+    http::{consensus::Cryptarchia, da::DaVerifier, storage},
 };
 use nomos_core::{
     da::{
-        blob::{LightShare, Share},
         BlobId, DaVerifier as CoreDaVerifier,
+        blob::{LightShare, Share},
     },
     header::HeaderId,
     mantle::{AuthenticatedMantleTx, SignedMantleTx, Transaction},
@@ -32,17 +33,17 @@ use nomos_da_network_service::{
     backends::libp2p::validator::DaNetworkValidatorBackend, membership::MembershipAdapter,
     storage::MembershipStorageAdapter,
 };
-use nomos_da_sampling::{backend::DaSamplingServiceBackend, DaSamplingService};
+use nomos_da_sampling::{DaSamplingService, backend::DaSamplingServiceBackend};
 use nomos_da_verifier::{backend::VerifierBackend, mempool::DaMempoolAdapter};
 pub use nomos_http_api_common::settings::AxumBackendSettings;
 use nomos_http_api_common::{paths, utils::create_rate_limit_layer};
 use nomos_libp2p::PeerId;
 use nomos_mempool::{
-    backend::mockpool::MockPool, tx::service::openapi::Status, MempoolMetrics, TxMempoolService,
+    MempoolMetrics, TxMempoolService, backend::mockpool::MockPool, tx::service::openapi::Status,
 };
-use nomos_storage::{api::da::DaConverter, backends::rocksdb::RocksBackend, StorageService};
-use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId, DynError};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use nomos_storage::{StorageService, api::da::DaConverter, backends::rocksdb::RocksBackend};
+use overwatch::{DynError, overwatch::handle::OverwatchHandle, services::AsServiceId};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use services_utils::wait_until_services_are_ready;
 use subnetworks_assignations::MembershipHandler;
 use tokio::net::TcpListener;
@@ -118,25 +119,25 @@ struct ApiDoc;
 
 #[async_trait::async_trait]
 impl<
-        DaShare,
-        Membership,
-        DaMembershipAdapter,
-        DaMembershipStorage,
-        DaVerifierBackend,
-        DaVerifierNetwork,
-        DaVerifierStorage,
-        Tx,
-        DaStorageConverter,
-        SamplingBackend,
-        SamplingNetworkAdapter,
-        SamplingStorage,
-        VerifierMempoolAdapter,
-        TimeBackend,
-        ApiAdapter,
-        StorageAdapter,
-        const SIZE: usize,
-        RuntimeServiceId,
-    > Backend<RuntimeServiceId>
+    DaShare,
+    Membership,
+    DaMembershipAdapter,
+    DaMembershipStorage,
+    DaVerifierBackend,
+    DaVerifierNetwork,
+    DaVerifierStorage,
+    Tx,
+    DaStorageConverter,
+    SamplingBackend,
+    SamplingNetworkAdapter,
+    SamplingStorage,
+    VerifierMempoolAdapter,
+    TimeBackend,
+    ApiAdapter,
+    StorageAdapter,
+    const SIZE: usize,
+    RuntimeServiceId,
+> Backend<RuntimeServiceId>
     for AxumBackend<
         DaShare,
         Membership,

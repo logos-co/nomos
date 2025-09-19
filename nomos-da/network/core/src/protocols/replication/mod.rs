@@ -13,22 +13,22 @@ mod test {
     use futures::StreamExt as _;
     use kzgrs_backend::testutils;
     use libp2p::{
+        PeerId, Swarm,
         identity::{Keypair, PublicKey},
         multiaddr::multiaddr,
         quic,
         swarm::SwarmEvent,
-        PeerId, Swarm,
     };
     use libp2p_swarm_test::SwarmExt as _;
     use log::info;
     use nomos_core::{
         mantle::{
+            MantleTx, SignedMantleTx, Transaction as _,
             ledger::Tx as LedgerTx,
             ops::{
-                channel::{blob::BlobOp, ChannelId, Ed25519PublicKey, MsgId},
                 Op,
+                channel::{ChannelId, Ed25519PublicKey, MsgId, blob::BlobOp},
             },
-            MantleTx, SignedMantleTx, Transaction as _,
         },
         proofs::zksig::{DummyZkSignature, ZkSignaturePublic},
     };
@@ -38,7 +38,7 @@ mod test {
     };
     use nomos_utils::net::get_available_udp_port;
     use tokio::sync::mpsc;
-    use tracing_subscriber::{fmt::TestWriter, EnvFilter};
+    use tracing_subscriber::{EnvFilter, fmt::TestWriter};
 
     use crate::{
         protocols::replication::behaviour::{
@@ -100,13 +100,11 @@ mod test {
 
         while let Some(expected_message) = expected_messages.front() {
             loop {
-                if let SwarmEvent::Behaviour(ReplicationEvent::IncomingMessage {
-                    message, ..
-                }) = swarm.select_next_some().await
+                if let SwarmEvent::Behaviour(ReplicationEvent::IncomingMessage { message, .. }) =
+                    swarm.select_next_some().await
+                    && *message == *expected_message.as_ref()
                 {
-                    if *message == *expected_message.as_ref() {
-                        break;
-                    }
+                    break;
                 }
             }
 
@@ -397,13 +395,11 @@ mod test {
                 Duration::from_secs(5),
                 swarm1.wait(|event| {
                     if let SwarmEvent::Behaviour(ReplicationEvent::IncomingMessage {
-                        message,
-                        ..
+                        message, ..
                     }) = event
+                        && let ReplicationRequest::Tx(_) = message.as_ref()
                     {
-                        if let ReplicationRequest::Tx(_) = message.as_ref() {
-                            return Some(message);
-                        }
+                        return Some(message);
                     }
                     None
                 }),

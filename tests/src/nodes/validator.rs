@@ -31,18 +31,17 @@ use nomos_da_network_core::{
     swarm::{BalancerStats, DAConnectionPolicySettings, MonitorStats},
 };
 use nomos_da_network_service::{
-    api::http::ApiAdapterSettings, backends::libp2p::common::DaNetworkBackendSettings,
-    NetworkConfig as DaNetworkConfig,
+    NetworkConfig as DaNetworkConfig, api::http::ApiAdapterSettings,
+    backends::libp2p::common::DaNetworkBackendSettings,
 };
 use nomos_da_sampling::{
-    backend::kzgrs::KzgrsSamplingBackendSettings,
+    DaSamplingServiceSettings, backend::kzgrs::KzgrsSamplingBackendSettings,
     verifier::kzgrs::KzgrsDaVerifierSettings as SamplingVerifierSettings,
-    DaSamplingServiceSettings,
 };
 use nomos_da_verifier::{
+    DaVerifierServiceSettings,
     backend::{kzgrs::KzgrsDaVerifierSettings, trigger::MempoolPublishTriggerConfig},
     storage::adapters::rocksdb::RocksAdapterSettings as VerifierStorageAdapterSettings,
-    DaVerifierServiceSettings,
 };
 use nomos_http_api_common::paths::{
     CRYPTARCHIA_HEADERS, CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_GET_SHARES_COMMITMENTS,
@@ -51,13 +50,13 @@ use nomos_http_api_common::paths::{
 use nomos_mempool::MempoolMetrics;
 use nomos_network::{backends::libp2p::Libp2pConfig, config::NetworkConfig};
 use nomos_node::{
+    Config, HeaderId, RocksBackendSettings,
     api::{backend::AxumBackendSettings, testing::handlers::HistoricSamplingRequest},
     config::{blend::BlendConfig, mempool::MempoolConfig},
-    Config, HeaderId, RocksBackendSettings,
 };
 use nomos_time::{
-    backends::{ntp::async_client::NTPClientSettings, NtpTimeBackendSettings},
     TimeServiceSettings,
+    backends::{NtpTimeBackendSettings, ntp::async_client::NTPClientSettings},
 };
 use nomos_tracing::logging::local::FileConfig;
 use nomos_tracing_service::LoggerLayer;
@@ -67,9 +66,9 @@ use reqwest::Url;
 use tempfile::NamedTempFile;
 use tokio::time::error::Elapsed;
 
-use super::{create_tempdir, persist_tempdir, CLIENT};
+use super::{CLIENT, create_tempdir, persist_tempdir};
 use crate::{
-    adjust_timeout, nodes::LOGS_PREFIX, topology::configs::GeneralConfig, IS_DEBUG_TRACING,
+    IS_DEBUG_TRACING, adjust_timeout, nodes::LOGS_PREFIX, topology::configs::GeneralConfig,
 };
 
 const BIN_PATH: &str = "../target/debug/nomos-node";
@@ -90,10 +89,10 @@ pub struct Validator {
 
 impl Drop for Validator {
     fn drop(&mut self) {
-        if std::thread::panicking() {
-            if let Err(e) = persist_tempdir(&mut self.tempdir, "nomos-node") {
-                println!("failed to persist tempdir: {e}");
-            }
+        if std::thread::panicking()
+            && let Err(e) = persist_tempdir(&mut self.tempdir, "nomos-node")
+        {
+            println!("failed to persist tempdir: {e}");
         }
 
         if let Err(e) = self.child.kill() {

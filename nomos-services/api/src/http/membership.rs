@@ -2,9 +2,9 @@ use std::fmt::{Debug, Display};
 
 use nomos_core::sdp::FinalizedBlockEvent;
 use nomos_membership::{
-    adapters::sdp::SdpAdapter, backends::MembershipBackend, MembershipMessage, MembershipService,
+    MembershipMessage, MembershipService, adapters::sdp::SdpAdapter, backends::MembershipBackend,
 };
-use overwatch::{overwatch::OverwatchHandle, DynError};
+use overwatch::{DynError, overwatch::OverwatchHandle};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]

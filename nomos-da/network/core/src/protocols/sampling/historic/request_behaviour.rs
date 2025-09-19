@@ -7,18 +7,18 @@ use std::{
 
 use either::Either;
 use futures::{
+    AsyncWriteExt as _, FutureExt as _, StreamExt as _,
     future::BoxFuture,
     stream::{BoxStream, FuturesUnordered},
-    AsyncWriteExt as _, FutureExt as _, StreamExt as _,
 };
 use kzgrs_backend::common::share::{DaLightShare, DaSharesCommitments};
 use libp2p::{
-    core::{transport::PortUse, Endpoint},
-    swarm::{
-        dial_opts::DialOpts, ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, THandler,
-        THandlerInEvent, THandlerOutEvent, ToSwarm,
-    },
     Multiaddr, PeerId,
+    core::{Endpoint, transport::PortUse},
+    swarm::{
+        ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent,
+        THandlerOutEvent, ToSwarm, dial_opts::DialOpts,
+    },
 };
 use libp2p_stream::{Control, OpenStreamError};
 use nomos_core::{da::BlobId, header::HeaderId};
@@ -28,21 +28,21 @@ use subnetworks_assignations::MembershipHandler;
 use thiserror::Error;
 use tokio::{
     sync::mpsc::{self, UnboundedSender},
-    time::{sleep, Duration},
+    time::{Duration, sleep},
 };
 use tokio_stream::wrappers::{BroadcastStream, UnboundedReceiverStream};
 
 use crate::{
+    SubnetworkId,
     addressbook::AddressBookHandler,
     protocol::SAMPLING_PROTOCOL,
     protocols::sampling::{
+        SubnetsConfig,
         errors::{HistoricSamplingError, SamplingError},
         historic::HistoricSamplingEvent,
         streams::{self, SampleStream},
-        SubnetsConfig,
     },
     swarm::validator::SampleArgs,
-    SubnetworkId,
 };
 
 const MAX_PEER_RETRIES: usize = 5;
@@ -187,7 +187,7 @@ where
     fn sample_historic(&self, sample_args: SampleArgs<Membership>) {
         let (blob_ids, _, block_id, membership) = sample_args;
         let control = self.control.clone();
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let subnets: Vec<SubnetworkId> = (0..membership.last_subnetwork_id())
             .choose_multiple(&mut rng, self.subnets_config.num_of_subnets);
         let local_peer_id = self.local_peer_id;
@@ -274,7 +274,7 @@ where
     ) -> Result<HashMap<BlobId, Vec<DaLightShare>>, HistoricSamplingError> {
         // Pre-select up to MAX_PEER_RETRIES peers from the subnetwork
         let candidate_peers = {
-            let mut rng = rand::thread_rng();
+            let mut rng = rand::rng();
             Self::pick_random_subnetwork_peers(subnetwork_id, membership, local_peer_id, &mut rng)
         };
 
@@ -310,7 +310,7 @@ where
                                 }
 
                                 continue 'peers_loop; // Try next peer with
-                                                      // remaining blobs
+                                // remaining blobs
                             }
                         }
                     }
@@ -342,15 +342,14 @@ where
         // Pre-select up to MAX_PEER_RETRIES peers from a random subnet
         let candidate_peers = {
             let mut peers = Vec::new();
-            let mut rng = rand::thread_rng();
+            let mut rng = rand::rng();
 
             for _ in 0..MAX_PEER_RETRIES {
-                if let Some(subnet) = subnets.iter().choose(&mut rng) {
-                    if let Some(peer) =
+                if let Some(subnet) = subnets.iter().choose(&mut rng)
+                    && let Some(peer) =
                         Self::pick_subnetwork_peer(*subnet, membership, local_peer_id, &mut rng)
-                    {
-                        peers.push(peer);
-                    }
+                {
+                    peers.push(peer);
                 }
             }
             peers
@@ -598,18 +597,17 @@ where
         }
 
         // Handle underlying stream behaviour
-        if let Poll::Ready(ToSwarm::Dial { mut opts }) = self.stream_behaviour.poll(cx) {
-            if let Some(address) = opts
+        if let Poll::Ready(ToSwarm::Dial { mut opts }) = self.stream_behaviour.poll(cx)
+            && let Some(address) = opts
                 .get_peer_id()
                 .and_then(|peer_id: PeerId| self.addressbook.get_address(&peer_id))
-            {
-                opts = DialOpts::peer_id(opts.get_peer_id().unwrap())
-                    .addresses(vec![address])
-                    .extend_addresses_through_behaviour()
-                    .build();
-                cx.waker().wake_by_ref();
-                return Poll::Ready(ToSwarm::Dial { opts });
-            }
+        {
+            opts = DialOpts::peer_id(opts.get_peer_id().unwrap())
+                .addresses(vec![address])
+                .extend_addresses_through_behaviour()
+                .build();
+            cx.waker().wake_by_ref();
+            return Poll::Ready(ToSwarm::Dial { opts });
         }
 
         Poll::Pending

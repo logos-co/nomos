@@ -5,7 +5,7 @@ use serial_test::serial;
 use tests::{
     adjust_timeout,
     common::sync::wait_for_validators_mode_and_height,
-    nodes::validator::{create_validator_config, Validator},
+    nodes::validator::{Validator, create_validator_config},
     topology::configs::{
         create_general_configs_with_blend_core_subset,
         network::{Libp2pNetworkLayout, NetworkParams},

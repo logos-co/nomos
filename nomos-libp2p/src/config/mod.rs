@@ -2,8 +2,8 @@ pub use identify::Settings as IdentifySettings;
 pub use kademlia::Settings as KademliaSettings;
 use libp2p::identity::ed25519;
 pub use nat::{
-    autonat_client::Settings as AutonatClientSettings, gateway::Settings as GatewaySettings,
-    mapping::Settings as NatMappingSettings, Settings as NatSettings, TraversalSettings,
+    Settings as NatSettings, TraversalSettings, autonat_client::Settings as AutonatClientSettings,
+    gateway::Settings as GatewaySettings, mapping::Settings as NatMappingSettings,
 };
 use serde::{Deserialize, Serialize};
 
@@ -78,7 +78,7 @@ impl Default for SwarmConfig {
 
 pub mod secret_key_serde {
     use libp2p::identity::ed25519;
-    use serde::{de::Error as _, Deserialize as _, Deserializer, Serialize as _, Serializer};
+    use serde::{Deserialize as _, Deserializer, Serialize as _, Serializer, de::Error as _};
 
     pub fn serialize<S>(key: &ed25519::SecretKey, serializer: S) -> Result<S::Ok, S::Error>
     where

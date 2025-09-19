@@ -1,5 +1,5 @@
 [package]
-edition = "2021"
+edition = { workspace = true }
 license = { workspace = true }
 name    = "key-management-system"
 version = "0.1.0"
@@ -21,7 +21,7 @@ zeroize       = { default-features = false, features = ["zeroize_derive"], versi
 
 [dev-dependencies]
 ed25519-dalek = { default-features = false, features = ["rand_core"], version = "2" }
-rand          = { features = ["getrandom"], workspace = true }
+rand          = { version = "0.8", default-features = false, features = ["std"] }
 serde         = { default-features = false, features = ["std"], version = "1" }
 
 [features]

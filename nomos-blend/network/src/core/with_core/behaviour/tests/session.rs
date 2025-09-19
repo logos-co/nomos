@@ -8,8 +8,8 @@ use crate::core::{
     tests::utils::{TestEncapsulatedMessage, TestSwarm},
     with_core::{
         behaviour::{
-            tests::utils::{build_memberships, BehaviourBuilder, SwarmExt as _},
             Event,
+            tests::utils::{BehaviourBuilder, SwarmExt as _, build_memberships},
         },
         error::Error,
     },

@@ -1,9 +1,9 @@
 use nomos_network::{
+    NetworkService,
     backends::libp2p::{Command, Libp2p, PubSubCommand},
     message::NetworkMsg,
-    NetworkService,
 };
-use overwatch::services::{relay::OutboundRelay, ServiceData};
+use overwatch::services::{ServiceData, relay::OutboundRelay};
 use serde::{Deserialize, Serialize};
 
 use super::NetworkAdapter;

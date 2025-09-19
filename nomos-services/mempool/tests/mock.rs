@@ -9,20 +9,20 @@ use nomos_core::{
     mantle::mock::{MockTransaction, MockTxId},
 };
 use nomos_mempool::{
+    MempoolMsg, TxMempoolSettings,
     backend::mockpool::MockPool,
     network::{
-        adapters::mock::{MockAdapter, MOCK_TX_CONTENT_TOPIC},
         NetworkAdapter,
+        adapters::mock::{MOCK_TX_CONTENT_TOPIC, MockAdapter},
     },
     processor::noop::NoOpPayloadProcessor,
     tx::{service::GenericTxMempoolService, state::TxMempoolState},
-    MempoolMsg, TxMempoolSettings,
 };
 use nomos_network::{
+    NetworkService,
     backends::mock::{Mock, MockBackendMessage, MockConfig, MockMessage},
     config::NetworkConfig,
     message::NetworkMsg,
-    NetworkService,
 };
 use nomos_tracing_service::{Tracing, TracingSettings};
 use nomos_utils::noop_service::NoService;
@@ -30,7 +30,7 @@ use overwatch::overwatch::OverwatchRunner;
 use overwatch_derive::*;
 use rand::distributions::{Alphanumeric, DistString as _};
 use services_utils::{
-    overwatch::{recovery::operators::RecoveryBackend as _, JsonFileBackend},
+    overwatch::{JsonFileBackend, recovery::operators::RecoveryBackend as _},
     traits::FromSettings as _,
 };
 

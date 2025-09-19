@@ -8,35 +8,34 @@ use std::{
 use kzgrs_backend::common::share::DaSharesCommitments;
 use nomos_core::{
     block::SessionNumber,
-    da::{blob::Share, DaVerifier as CoreDaVerifier},
+    da::{DaVerifier as CoreDaVerifier, blob::Share},
     header::HeaderId,
-    mantle::{ops::channel::ChannelId, SignedMantleTx},
+    mantle::{SignedMantleTx, ops::channel::ChannelId},
 };
 use nomos_da_dispersal::{
-    adapters::network::DispersalNetworkAdapter, backend::DispersalBackend, DaDispersalMsg,
-    DispersalService,
+    DaDispersalMsg, DispersalService, adapters::network::DispersalNetworkAdapter,
+    backend::DispersalBackend,
 };
-use nomos_da_network_core::{maintenance::monitor::ConnectionMonitorCommand, SubnetworkId};
+use nomos_da_network_core::{SubnetworkId, maintenance::monitor::ConnectionMonitorCommand};
 use nomos_da_network_service::{
+    DaNetworkMsg, MembershipResponse, NetworkService,
     api::ApiAdapter as ApiAdapterTrait,
     backends::{
-        libp2p::{executor::ExecutorDaNetworkMessage, validator::DaNetworkMessage},
         NetworkBackend,
+        libp2p::{executor::ExecutorDaNetworkMessage, validator::DaNetworkMessage},
     },
-    DaNetworkMsg, MembershipResponse, NetworkService,
 };
 use nomos_da_sampling::{
-    backend::DaSamplingServiceBackend, DaSamplingService, DaSamplingServiceMsg,
+    DaSamplingService, DaSamplingServiceMsg, backend::DaSamplingServiceBackend,
 };
 use nomos_da_verifier::{
-    backend::VerifierBackend, mempool::DaMempoolAdapter,
-    storage::adapters::rocksdb::RocksAdapter as VerifierStorageAdapter, DaVerifierMsg,
-    DaVerifierService,
+    DaVerifierMsg, DaVerifierService, backend::VerifierBackend, mempool::DaMempoolAdapter,
+    storage::adapters::rocksdb::RocksAdapter as VerifierStorageAdapter,
 };
 use nomos_libp2p::PeerId;
 use nomos_storage::{api::da::DaConverter, backends::rocksdb::RocksBackend};
-use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId, DynError};
-use serde::{de::DeserializeOwned, Serialize};
+use overwatch::{DynError, overwatch::handle::OverwatchHandle, services::AsServiceId};
+use serde::{Serialize, de::DeserializeOwned};
 use subnetworks_assignations::MembershipHandler;
 use tokio::sync::oneshot;
 

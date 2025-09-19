@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use libp2p::{identity::Keypair, swarm::NetworkBehaviour, PeerId};
+use libp2p::{PeerId, identity::Keypair, swarm::NetworkBehaviour};
 use subnetworks_assignations::MembershipHandler;
 use tokio::sync::mpsc::UnboundedSender;
 

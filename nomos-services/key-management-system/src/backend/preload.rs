@@ -9,7 +9,7 @@ mod tests {
     use zeroize::ZeroizeOnDrop;
 
     use crate::{
-        backend::KMSBackend, keys::ed25519::Ed25519Key, secure_key::SecuredKey, KMSOperator,
+        KMSOperator, backend::KMSBackend, keys::ed25519::Ed25519Key, secure_key::SecuredKey,
     };
 
     pub struct PreloadKMSBackend {
@@ -129,7 +129,8 @@ mod tests {
     async fn preload_backend() {
         // Initialize a backend with a pre-generated key in the setting
         let key_id = "blend/1".to_owned();
-        let key = ed25519_dalek::SigningKey::generate(&mut OsRng);
+        let mut rng = OsRng;
+        let key = ed25519_dalek::SigningKey::generate(&mut rng);
         let mut backend = PreloadKMSBackend::new(PreloadKMSBackendSettings {
             keys: HashMap::from_iter(vec![(
                 key_id.clone(),
@@ -172,17 +173,21 @@ mod tests {
         });
 
         let key_id = "blend/not_registered".to_owned();
-        assert!(backend
-            .register(key_id.clone(), SupportedKeyTypes::Ed25519)
-            .is_err());
+        assert!(
+            backend
+                .register(key_id.clone(), SupportedKeyTypes::Ed25519)
+                .is_err()
+        );
         assert!(backend.public_key(key_id.clone()).is_err());
         assert!(backend.sign(key_id.clone(), Bytes::from("data")).is_err());
-        assert!(backend
-            .execute(
-                key_id,
-                Box::new(move |_: &mut dyn SecuredKey| Box::pin(async move { Ok(()) })),
-            )
-            .await
-            .is_err());
+        assert!(
+            backend
+                .execute(
+                    key_id,
+                    Box::new(move |_: &mut dyn SecuredKey| Box::pin(async move { Ok(()) })),
+                )
+                .await
+                .is_err()
+        );
     }
 }

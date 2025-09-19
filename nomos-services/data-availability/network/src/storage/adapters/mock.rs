@@ -4,11 +4,11 @@ use libp2p::PeerId;
 use nomos_core::block::SessionNumber;
 use nomos_da_network_core::SubnetworkId;
 use overwatch::{
-    services::{relay::OutboundRelay, state::NoState, ServiceData},
     DynError,
+    services::{ServiceData, relay::OutboundRelay, state::NoState},
 };
 
-use crate::{membership::Assignations, MembershipStorageAdapter};
+use crate::{MembershipStorageAdapter, membership::Assignations};
 
 pub struct MockStorageService;
 

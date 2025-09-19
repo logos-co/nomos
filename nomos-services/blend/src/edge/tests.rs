@@ -6,17 +6,17 @@ use std::{
 };
 
 use nomos_blend_scheduling::{
-    membership::Membership, message_blend::CryptographicProcessorSettings,
-    session::UninitializedSessionEventStream, EncapsulatedMessage,
+    EncapsulatedMessage, membership::Membership, message_blend::CryptographicProcessorSettings,
+    session::UninitializedSessionEventStream,
 };
-use overwatch::overwatch::{commands::OverwatchCommand, OverwatchHandle};
-use rand::{rngs::OsRng, RngCore};
+use overwatch::overwatch::{OverwatchHandle, commands::OverwatchCommand};
+use rand::{RngCore, rngs::OsRng};
 use tokio::{sync::mpsc, task::JoinHandle, time::sleep};
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::{
     edge::{backends::BlendBackend, handlers::Error, run, settings::BlendConfig},
-    settings::{TimingSettings, FIRST_SESSION_READY_TIMEOUT},
+    settings::{FIRST_SESSION_READY_TIMEOUT, TimingSettings},
     test_utils::membership::{key, membership},
 };
 

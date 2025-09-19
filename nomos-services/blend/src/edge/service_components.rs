@@ -1,4 +1,4 @@
-use crate::edge::{backends::BlendBackend, BlendService};
+use crate::edge::{BlendService, backends::BlendBackend};
 
 /// Exposes associated types for external modules that depend on
 /// [`BlendService`], without requiring them to specify its generic parameters.

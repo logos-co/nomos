@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use ed25519::signature::Verifier as _;
 use nomos_core::mantle::{
-    ops::channel::{set_keys::SetKeysOp, ChannelId, Ed25519PublicKey as PublicKey, MsgId},
     TxHash,
+    ops::channel::{ChannelId, Ed25519PublicKey as PublicKey, MsgId, set_keys::SetKeysOp},
 };
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};

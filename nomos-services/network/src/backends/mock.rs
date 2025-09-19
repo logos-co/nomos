@@ -7,9 +7,9 @@ use std::{
 
 use futures::{channel::oneshot, future::BoxFuture};
 use rand::{
+    SeedableRng as _,
     distributions::{Distribution as _, WeightedIndex},
     rngs::StdRng,
-    SeedableRng as _,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast::{self, Sender};

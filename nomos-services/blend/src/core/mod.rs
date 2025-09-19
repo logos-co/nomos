@@ -5,7 +5,6 @@ pub mod settings;
 
 use std::{
     fmt::{Debug, Display},
-    future::Future,
     hash::Hash,
     marker::PhantomData,
     time::Duration,
@@ -14,27 +13,27 @@ use std::{
 use async_trait::async_trait;
 use backends::BlendBackend;
 use fork_stream::StreamExt as _;
-use futures::{future::join_all, StreamExt as _};
+use futures::{StreamExt as _, future::join_all};
 use network::NetworkAdapter;
-use nomos_blend_message::{crypto::random_sized_bytes, encap::DecapsulationOutput, PayloadType};
+use nomos_blend_message::{PayloadType, crypto::random_sized_bytes, encap::DecapsulationOutput};
 use nomos_blend_network::EncapsulatedMessageWithValidatedPublicHeader;
 use nomos_blend_scheduling::{
     membership::Membership,
     message_blend::crypto::CryptographicProcessor,
-    message_scheduler::{round_info::RoundInfo, MessageScheduler},
+    message_scheduler::{MessageScheduler, round_info::RoundInfo},
     session::{SessionEvent, UninitializedSessionEventStream},
 };
 use nomos_core::codec::SerdeOp;
 use nomos_network::NetworkService;
 use nomos_utils::blake_rng::BlakeRng;
 use overwatch::{
-    services::{
-        state::{NoOperator, NoState},
-        AsServiceId, ServiceCore, ServiceData,
-    },
     OpaqueServiceResourcesHandle,
+    services::{
+        AsServiceId, ServiceCore, ServiceData,
+        state::{NoOperator, NoState},
+    },
 };
-use rand::{seq::SliceRandom as _, RngCore, SeedableRng as _};
+use rand::{RngCore, SeedableRng as _, seq::SliceRandom as _};
 use serde::{Deserialize, Serialize};
 use services_utils::wait_until_services_are_ready;
 use tracing::info;

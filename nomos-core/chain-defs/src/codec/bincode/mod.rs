@@ -1,11 +1,11 @@
 use std::sync::LazyLock;
 
 use bincode::{
+    Options as _,
     config::{
         Bounded, FixintEncoding, LittleEndian, RejectTrailing, WithOtherEndian,
         WithOtherIntEncoding, WithOtherLimit, WithOtherTrailing,
     },
-    Options as _,
 };
 
 // Type composition is cool but also makes naming types a bit awkward
@@ -31,7 +31,7 @@ pub static OPTIONS: LazyLock<BincodeOptions> = LazyLock::new(|| {
 
 // Serialization functions
 use bytes::{BufMut as _, Bytes, BytesMut};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 
 use crate::codec::{Error as WireError, Result};
 

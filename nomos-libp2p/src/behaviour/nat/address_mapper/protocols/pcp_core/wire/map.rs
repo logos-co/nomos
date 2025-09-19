@@ -1,11 +1,11 @@
 use std::net::Ipv4Addr;
 
 use zerocopy::{
-    byteorder::network_endian::{U16 as U16NE, U32 as U32NE},
     FromBytes, FromZeros as _, Immutable, IntoBytes, KnownLayout, Unaligned,
+    byteorder::network_endian::{U16 as U16NE, U32 as U32NE},
 };
 
-use super::{Ipv4MappedIpv6, PcpRequest, PcpResponse, Protocol, ResultCode, PCP_VERSION};
+use super::{Ipv4MappedIpv6, PCP_VERSION, PcpRequest, PcpResponse, Protocol, ResultCode};
 use crate::behaviour::nat::address_mapper::protocols::pcp_core::client::PcpError;
 
 pub const OPCODE_MAP: u8 = 1;

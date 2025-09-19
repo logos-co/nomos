@@ -6,12 +6,12 @@ use std::{
 };
 
 use libp2p::{
-    core::{transport::PortUse, Endpoint},
-    swarm::{
-        dummy, CloseConnection, ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour,
-        THandler, THandlerInEvent, THandlerOutEvent, ToSwarm,
-    },
     Multiaddr, PeerId,
+    core::{Endpoint, transport::PortUse},
+    swarm::{
+        CloseConnection, ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, THandler,
+        THandlerInEvent, THandlerOutEvent, ToSwarm, dummy,
+    },
 };
 use thiserror::Error;
 use tokio::sync::{
@@ -300,8 +300,8 @@ mod tests {
     use std::{collections::HashMap, task::Context, time::Duration};
 
     use libp2p::{
-        swarm::{dial_opts::DialOpts, DialError, ListenError, NetworkBehaviour as _, SwarmEvent},
         PeerId, Swarm,
+        swarm::{DialError, ListenError, NetworkBehaviour as _, SwarmEvent, dial_opts::DialOpts},
     };
     use libp2p_swarm_test::SwarmExt as _;
     use tokio::sync::oneshot;

@@ -19,7 +19,7 @@ use thiserror::Error;
 
 use super::{StorageBackend, StorageTransaction};
 use crate::api::{
-    chain::StorageChainApi, da::StorageDaApi, membership::StorageMembershipApi, StorageBackendApi,
+    StorageBackendApi, chain::StorageChainApi, da::StorageDaApi, membership::StorageMembershipApi,
 };
 
 #[derive(Debug, Error)]

@@ -8,10 +8,10 @@ use rocksdb::WriteBatch;
 
 use crate::{
     api::{
-        backend::rocksdb::{utils::key_bytes, Error},
+        backend::rocksdb::{Error, utils::key_bytes},
         chain::StorageChainApi,
     },
-    backends::{rocksdb::RocksBackend, StorageBackend as _},
+    backends::{StorageBackend as _, rocksdb::RocksBackend},
 };
 
 const IMMUTABLE_BLOCK_PREFIX: &str = "immutable_block/slot/";

@@ -10,27 +10,27 @@ use std::{
     time::Duration,
 };
 
-use futures::{stream::FuturesUnordered, StreamExt as _};
+use futures::{StreamExt as _, stream::FuturesUnordered};
 use nomos_da_sampling::backend::kzgrs::KzgrsSamplingBackend;
-use nomos_network::{message::BackendNetworkMsg, NetworkService};
+use nomos_network::{NetworkService, message::BackendNetworkMsg};
 use overwatch::{
-    services::{relay::OutboundRelay, AsServiceId, ServiceCore, ServiceData},
     OpaqueServiceResourcesHandle,
+    services::{AsServiceId, ServiceCore, ServiceData, relay::OutboundRelay},
 };
 use services_utils::{
     overwatch::{
-        recovery::operators::RecoveryBackend as RecoveryBackendTrait, JsonFileBackend,
-        RecoveryOperator,
+        JsonFileBackend, RecoveryOperator,
+        recovery::operators::RecoveryBackend as RecoveryBackendTrait,
     },
     wait_until_services_are_ready,
 };
 
 use crate::{
+    MempoolMetrics, MempoolMsg,
     backend::{MemPool, RecoverableMempool},
     network::NetworkAdapter as NetworkAdapterTrait,
-    processor::{tx::SignedTxProcessor, PayloadProcessor},
+    processor::{PayloadProcessor, tx::SignedTxProcessor},
     tx::{settings::TxMempoolSettings, state::TxMempoolState},
-    MempoolMetrics, MempoolMsg,
 };
 
 pub type DaSamplingService<SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId> =

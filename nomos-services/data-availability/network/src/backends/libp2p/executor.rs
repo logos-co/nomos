@@ -1,24 +1,24 @@
 use std::{collections::HashSet, fmt::Debug, marker::PhantomData, pin::Pin};
 
 use futures::{
-    stream::{AbortHandle, Abortable},
     Stream, StreamExt as _,
+    stream::{AbortHandle, Abortable},
 };
 use kzgrs_backend::common::share::DaShare;
 use libp2p::PeerId;
 use log::error;
 use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId, mantle::SignedMantleTx};
 use nomos_da_network_core::{
+    SubnetworkId,
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
     protocols::{
         dispersal::executor::behaviour::DispersalExecutorEvent, sampling::opinions::OpinionEvent,
     },
     swarm::{
+        BalancerStats, MonitorStats,
         executor::ExecutorSwarm,
         validator::{SampleArgs, SwarmSettings},
-        BalancerStats, MonitorStats,
     },
-    SubnetworkId,
 };
 use nomos_libp2p::ed25519;
 use nomos_tracing::info_with_id;
@@ -27,22 +27,22 @@ use serde::{Deserialize, Serialize};
 use subnetworks_assignations::MembershipHandler;
 use tokio::sync::{broadcast, mpsc::UnboundedSender, oneshot};
 use tokio_stream::wrappers::{
-    errors::BroadcastStreamRecvError, BroadcastStream, UnboundedReceiverStream,
+    BroadcastStream, UnboundedReceiverStream, errors::BroadcastStreamRecvError,
 };
 use tracing::instrument;
 
 use super::common::{CommitmentsEvent, VerificationEvent};
 use crate::{
+    DaAddressbook,
     backends::{
-        libp2p::common::{
-            handle_balancer_command, handle_historic_sample_request, handle_monitor_command,
-            handle_sample_request, handle_validator_events_stream, DaNetworkBackendSettings,
-            HistoricSamplingEvent, SamplingEvent, BROADCAST_CHANNEL_SIZE,
-        },
         ConnectionStatus, NetworkBackend, ProcessingError,
+        libp2p::common::{
+            BROADCAST_CHANNEL_SIZE, DaNetworkBackendSettings, HistoricSamplingEvent, SamplingEvent,
+            handle_balancer_command, handle_historic_sample_request, handle_monitor_command,
+            handle_sample_request, handle_validator_events_stream,
+        },
     },
     membership::handler::{DaMembershipHandler, SharedMembershipHandler},
-    DaAddressbook,
 };
 
 /// Message that the backend replies to

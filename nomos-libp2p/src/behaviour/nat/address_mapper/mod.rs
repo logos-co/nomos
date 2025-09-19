@@ -9,14 +9,14 @@ use std::{
     time::Duration,
 };
 
-use futures::{future::BoxFuture, FutureExt as _};
+use futures::{FutureExt as _, future::BoxFuture};
 use libp2p::{
-    core::{transport::PortUse, Endpoint, Multiaddr},
-    swarm::{
-        dummy::ConnectionHandler, ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour,
-        THandler, THandlerOutEvent, ToSwarm,
-    },
     PeerId,
+    core::{Endpoint, Multiaddr, transport::PortUse},
+    swarm::{
+        ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerOutEvent,
+        ToSwarm, dummy::ConnectionHandler,
+    },
 };
 use nomos_utils::math::PositiveF64;
 pub use protocols::NatMapper;

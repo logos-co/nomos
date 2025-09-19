@@ -3,9 +3,9 @@ use std::convert::Infallible;
 use nomos_core::{
     da::BlobId,
     mantle::{
-        ledger::Tx as LedgerTx,
-        ops::channel::{blob::BlobOp, ChannelId, Ed25519PublicKey, MsgId},
         MantleTx, Note, Op, SignedMantleTx, Transaction as _, Utxo,
+        ledger::Tx as LedgerTx,
+        ops::channel::{ChannelId, Ed25519PublicKey, MsgId, blob::BlobOp},
     },
     proofs::zksig::{DummyZkSignature, ZkSignaturePublic},
 };

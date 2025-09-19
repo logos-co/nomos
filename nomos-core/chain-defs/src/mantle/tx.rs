@@ -1,7 +1,7 @@
 use std::sync::LazyLock;
 
 use bytes::Bytes;
-use groth16::{fr_from_bytes, serde::serde_fr, Fr};
+use groth16::{Fr, fr_from_bytes, serde::serde_fr};
 use num_bigint::BigUint;
 use poseidon2::{Digest, ZkHash};
 use serde::{Deserialize, Serialize};
@@ -9,10 +9,10 @@ use serde::{Deserialize, Serialize};
 use crate::{
     crypto::ZkHasher,
     mantle::{
+        AuthenticatedMantleTx, Transaction, TransactionHasher,
         gas::{Gas, GasConstants, GasCost},
         ledger::Tx as LedgerTx,
         ops::{Op, OpProof},
-        AuthenticatedMantleTx, Transaction, TransactionHasher,
     },
     proofs::zksig::{DummyZkSignature as ZkSignature, ZkSignatureProof},
 };
@@ -57,7 +57,7 @@ impl TxHash {
 
     #[must_use]
     pub fn as_signing_bytes(&self) -> Bytes {
-        self.0 .0 .0.iter().flat_map(|b| b.to_le_bytes()).collect()
+        self.0.0.0.iter().flat_map(|b| b.to_le_bytes()).collect()
     }
 }
 

@@ -2,11 +2,11 @@ use multiaddr::Multiaddr;
 use upnp::UpnpProtocol;
 
 use crate::{
+    NatMappingSettings,
     behaviour::nat::address_mapper::{
         errors::AddressMapperError,
         protocols::{nat_pmp::NatPmp, pcp::PcpProtocol},
     },
-    NatMappingSettings,
 };
 
 mod nat_pmp;
@@ -51,7 +51,7 @@ impl NatMapper for ProtocolManager {
 
 #[cfg(test)]
 mod real_gateway_tests {
-    use rand::{thread_rng, Rng as _};
+    use rand::{Rng as _, thread_rng};
 
     use super::*;
 

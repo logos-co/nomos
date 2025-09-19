@@ -1,5 +1,5 @@
 [package]
-edition = "2021"
+edition = { workspace = true }
 license = { workspace = true }
 name    = "nomos-da-network-core"
 version = "0.1.0"
@@ -20,8 +20,8 @@ log                      = "0.4"
 nomos-core               = { workspace = true }
 nomos-da-messages        = { workspace = true }
 nomos-utils              = { workspace = true }
-rand                     = { default-features = false, version = "0.8" }
-serde                    = { default-features = false, version = "1.0", features = ["derive"] }
+rand                     = { default-features = false, version = "0.9" }
+serde                    = { default-features = false, version = "1.0" }
 serde_with               = { workspace = true }
 subnetworks-assignations = { workspace = true }
 thiserror                = "1.0"

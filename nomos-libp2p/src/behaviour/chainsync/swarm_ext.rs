@@ -5,7 +5,7 @@ use libp2p::PeerId;
 use rand::RngCore;
 use tokio::sync::oneshot;
 
-use crate::{behaviour::BehaviourError, Swarm};
+use crate::{Swarm, behaviour::BehaviourError};
 
 type SerialisedBlockStream = BoxedStream<Result<SerialisedBlock, ChainSyncError>>;
 

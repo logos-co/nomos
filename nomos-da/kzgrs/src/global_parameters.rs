@@ -1,8 +1,8 @@
 use std::error::Error;
 
-use ark_bls12_381::{fr::Fr, Bls12_381};
+use ark_bls12_381::{Bls12_381, fr::Fr};
 use ark_poly::polynomial::univariate::DensePolynomial;
-use ark_poly_commit::kzg10::{UniversalParams, KZG10};
+use ark_poly_commit::kzg10::{KZG10, UniversalParams};
 use ark_serialize::CanonicalDeserialize as _;
 use rand::Rng;
 

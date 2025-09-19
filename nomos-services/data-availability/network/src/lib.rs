@@ -14,20 +14,20 @@ use std::{
 
 use async_trait::async_trait;
 use backends::{ConnectionStatus, NetworkBackend};
-use futures::{stream::select, Stream};
+use futures::{Stream, stream::select};
 use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};
 use libp2p::{Multiaddr, PeerId};
 use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId};
 use nomos_da_network_core::{
-    addressbook::AddressBookHandler as _, protocols::sampling::opinions::OpinionEvent,
-    swarm::BalancerStats, SubnetworkId,
+    SubnetworkId, addressbook::AddressBookHandler as _,
+    protocols::sampling::opinions::OpinionEvent, swarm::BalancerStats,
 };
 use overwatch::{
-    services::{
-        state::{NoOperator, ServiceState},
-        AsServiceId, ServiceCore, ServiceData,
-    },
     OpaqueServiceResourcesHandle,
+    services::{
+        AsServiceId, ServiceCore, ServiceData,
+        state::{NoOperator, ServiceState},
+    },
 };
 use serde::{Deserialize, Serialize};
 use services_utils::wait_until_services_are_ready;
@@ -38,16 +38,16 @@ use tokio::sync::{
     oneshot,
 };
 use tokio_stream::{
-    wrappers::{IntervalStream, ReceiverStream, UnboundedReceiverStream},
     StreamExt as _,
+    wrappers::{IntervalStream, ReceiverStream, UnboundedReceiverStream},
 };
 
 use crate::{
     addressbook::{AddressBook, AddressBookSnapshot},
     api::ApiAdapter as ApiAdapterTrait,
     membership::{
-        handler::{DaMembershipHandler, SharedMembershipHandler},
         MembershipAdapter,
+        handler::{DaMembershipHandler, SharedMembershipHandler},
     },
 };
 
@@ -136,12 +136,8 @@ pub struct NetworkConfig<
     pub subnet_threshold: usize,
 }
 
-impl<
-        Backend: NetworkBackend<RuntimeServiceId>,
-        Membership,
-        ApiAdapterSettings,
-        RuntimeServiceId,
-    > Debug for NetworkConfig<Backend, Membership, ApiAdapterSettings, RuntimeServiceId>
+impl<Backend: NetworkBackend<RuntimeServiceId>, Membership, ApiAdapterSettings, RuntimeServiceId>
+    Debug for NetworkConfig<Backend, Membership, ApiAdapterSettings, RuntimeServiceId>
 where
     Membership: Clone + Debug,
 {
@@ -192,14 +188,8 @@ pub struct NetworkState<
     )>,
 }
 
-impl<
-        Backend,
-        Membership,
-        MembershipServiceAdapter,
-        StorageAdapter,
-        ApiAdapter,
-        RuntimeServiceId,
-    > ServiceData
+impl<Backend, Membership, MembershipServiceAdapter, StorageAdapter, ApiAdapter, RuntimeServiceId>
+    ServiceData
     for NetworkService<
         Backend,
         Membership,
@@ -227,14 +217,8 @@ where
 }
 
 #[async_trait]
-impl<
-        Backend,
-        Membership,
-        MembershipServiceAdapter,
-        StorageAdapter,
-        ApiAdapter,
-        RuntimeServiceId,
-    > ServiceCore<RuntimeServiceId>
+impl<Backend, Membership, MembershipServiceAdapter, StorageAdapter, ApiAdapter, RuntimeServiceId>
+    ServiceCore<RuntimeServiceId>
     for NetworkService<
         Backend,
         Membership,
@@ -423,14 +407,8 @@ where
     }
 }
 
-impl<
-        Backend,
-        Membership,
-        MembershipServiceAdapter,
-        StorageAdapter,
-        ApiAdapter,
-        RuntimeServiceId,
-    > Drop
+impl<Backend, Membership, MembershipServiceAdapter, StorageAdapter, ApiAdapter, RuntimeServiceId>
+    Drop
     for NetworkService<
         Backend,
         Membership,
@@ -449,14 +427,7 @@ where
     }
 }
 
-impl<
-        Backend,
-        Membership,
-        MembershipServiceAdapter,
-        StorageAdapter,
-        ApiAdapter,
-        RuntimeServiceId,
-    >
+impl<Backend, Membership, MembershipServiceAdapter, StorageAdapter, ApiAdapter, RuntimeServiceId>
     NetworkService<
         Backend,
         Membership,
@@ -606,12 +577,8 @@ where
     }
 }
 
-impl<
-        Backend: NetworkBackend<RuntimeServiceId>,
-        Membership,
-        ApiAdapterSettings,
-        RuntimeServiceId,
-    > Clone for NetworkConfig<Backend, Membership, ApiAdapterSettings, RuntimeServiceId>
+impl<Backend: NetworkBackend<RuntimeServiceId>, Membership, ApiAdapterSettings, RuntimeServiceId>
+    Clone for NetworkConfig<Backend, Membership, ApiAdapterSettings, RuntimeServiceId>
 where
     Membership: Clone,
     ApiAdapterSettings: Clone,
@@ -628,13 +595,13 @@ where
 }
 
 impl<
-        Backend: NetworkBackend<RuntimeServiceId>,
-        Membership,
-        MembershipServiceAdapter,
-        StorageAdapter,
-        ApiAdapter,
-        RuntimeServiceId,
-    > Clone
+    Backend: NetworkBackend<RuntimeServiceId>,
+    Membership,
+    MembershipServiceAdapter,
+    StorageAdapter,
+    ApiAdapter,
+    RuntimeServiceId,
+> Clone
     for NetworkState<
         Backend,
         Membership,
@@ -653,13 +620,13 @@ impl<
 }
 
 impl<
-        Backend: NetworkBackend<RuntimeServiceId>,
-        Membership,
-        MembershipServiceAdapter,
-        StorageAdapter,
-        ApiAdapter,
-        RuntimeServiceId,
-    > ServiceState
+    Backend: NetworkBackend<RuntimeServiceId>,
+    Membership,
+    MembershipServiceAdapter,
+    StorageAdapter,
+    ApiAdapter,
+    RuntimeServiceId,
+> ServiceState
     for NetworkState<
         Backend,
         Membership,

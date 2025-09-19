@@ -1,11 +1,11 @@
 use std::error::Error;
 
-use opentelemetry::{global, trace::TracerProvider as _, KeyValue};
+use opentelemetry::{KeyValue, global, trace::TracerProvider as _};
 use opentelemetry_otlp::WithExportConfig as _;
 use opentelemetry_sdk::{
+    Resource,
     propagation::TraceContextPropagator,
     trace::{BatchConfig, Sampler, Tracer},
-    Resource,
 };
 use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
 use serde::{Deserialize, Serialize};

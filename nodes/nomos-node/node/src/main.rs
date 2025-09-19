@@ -1,11 +1,11 @@
 use clap::Parser as _;
-use color_eyre::eyre::{eyre, Result};
+use color_eyre::eyre::{Result, eyre};
 use nomos_core::mantle::{SignedMantleTx, Transaction};
 use nomos_mempool::{
     network::adapters::libp2p::Settings as AdapterSettings,
     processor::tx::SignedTxProcessorSettings, tx::settings::TxMempoolSettings,
 };
-use nomos_node::{config::CliArgs, Config, Nomos, NomosServiceSettings, RuntimeServiceId};
+use nomos_node::{Config, Nomos, NomosServiceSettings, RuntimeServiceId, config::CliArgs};
 use overwatch::overwatch::{Error as OverwatchError, Overwatch, OverwatchRunner};
 
 #[tokio::main]

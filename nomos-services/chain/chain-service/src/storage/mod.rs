@@ -5,8 +5,8 @@ use std::collections::BTreeMap;
 use cryptarchia_engine::Slot;
 use futures::future::join_all;
 use nomos_core::header::HeaderId;
-use nomos_storage::{backends::StorageBackend, StorageService};
-use overwatch::services::{relay::OutboundRelay, ServiceData};
+use nomos_storage::{StorageService, backends::StorageBackend};
+use overwatch::services::{ServiceData, relay::OutboundRelay};
 
 #[async_trait::async_trait]
 pub trait StorageAdapter<RuntimeServiceId> {

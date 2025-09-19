@@ -593,7 +593,7 @@ pub mod tests {
         num::NonZero,
     };
 
-    use super::{maxvalid_bg, Cryptarchia, Error, Slot};
+    use super::{Cryptarchia, Error, Slot, maxvalid_bg};
     use crate::{Config, State};
 
     #[must_use]

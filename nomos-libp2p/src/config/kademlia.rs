@@ -1,6 +1,6 @@
 use std::{num::NonZeroUsize, time::Duration};
 
-use libp2p::{kad, StreamProtocol};
+use libp2p::{StreamProtocol, kad};
 use serde::{Deserialize, Serialize};
 
 use crate::protocol_name::ProtocolName;

@@ -4,18 +4,17 @@ pub mod protocol_name;
 mod swarm;
 
 pub use config::{
-    secret_key_serde, AutonatClientSettings, GatewaySettings, IdentifySettings, KademliaSettings,
-    NatMappingSettings, NatSettings, SwarmConfig, TraversalSettings,
+    AutonatClientSettings, GatewaySettings, IdentifySettings, KademliaSettings, NatMappingSettings,
+    NatSettings, SwarmConfig, TraversalSettings, secret_key_serde,
 };
 pub use cryptarchia_sync::{self, Event};
 pub use libp2p::{
-    self,
+    self, PeerId, SwarmBuilder, Transport,
     core::upgrade,
     gossipsub::{self, PublishError, SubscriptionError},
     identity::{self, ed25519},
-    swarm::{dial_opts::DialOpts, DialError, NetworkBehaviour, SwarmEvent},
-    PeerId, SwarmBuilder, Transport,
+    swarm::{DialError, NetworkBehaviour, SwarmEvent, dial_opts::DialOpts},
 };
-pub use multiaddr::{multiaddr, Multiaddr, Protocol};
+pub use multiaddr::{Multiaddr, Protocol, multiaddr};
 
 pub use crate::swarm::*;

@@ -30,7 +30,7 @@ pub trait StorageChainApi {
     ) -> Result<(), Self::Error>;
 
     async fn get_immutable_block_id(&mut self, slot: Slot)
-        -> Result<Option<HeaderId>, Self::Error>;
+    -> Result<Option<HeaderId>, Self::Error>;
 
     async fn scan_immutable_block_ids(
         &mut self,

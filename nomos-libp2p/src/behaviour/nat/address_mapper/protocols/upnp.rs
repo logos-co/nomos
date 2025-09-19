@@ -1,8 +1,8 @@
 use std::net::{IpAddr, SocketAddr};
 
 use igd_next::{
-    aio::{tokio::Tokio, Gateway},
     PortMappingProtocol, SearchOptions,
+    aio::{Gateway, tokio::Tokio},
 };
 use libp2p::Multiaddr;
 use multiaddr::Protocol;

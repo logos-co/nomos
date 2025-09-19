@@ -1,10 +1,10 @@
 use std::sync::LazyLock;
 
 use cryptarchia_engine::{Epoch, Slot};
-use groth16::{fr_from_bytes, Field as _, Fr};
+use groth16::{Field as _, Fr, fr_from_bytes};
 use nomos_core::{
     crypto::{ZkDigest, ZkHasher},
-    mantle::{gas::GasConstants, AuthenticatedMantleTx, NoteId, Utxo, Value},
+    mantle::{AuthenticatedMantleTx, NoteId, Utxo, Value, gas::GasConstants},
     proofs::{
         leader_proof::{self, LeaderPublic},
         zksig::{ZkSignatureProof as _, ZkSignaturePublic},
@@ -329,16 +329,16 @@ pub mod tests {
     use nomos_core::{
         crypto::{Digest as _, Hasher},
         mantle::{
-            gas::MainnetGasConstants, ledger::Tx as LedgerTx, ops::leader_claim::VoucherCm,
             GasCost as _, MantleTx, Note, SignedMantleTx, Transaction as _,
+            gas::MainnetGasConstants, ledger::Tx as LedgerTx, ops::leader_claim::VoucherCm,
         },
         proofs::zksig::DummyZkSignature,
     };
     use num_bigint::BigUint;
-    use rand::{thread_rng, RngCore as _};
+    use rand::{RngCore as _, thread_rng};
 
     use super::*;
-    use crate::{leader_proof::LeaderProof, Ledger};
+    use crate::{Ledger, leader_proof::LeaderProof};
 
     type HeaderId = [u8; 32];
 

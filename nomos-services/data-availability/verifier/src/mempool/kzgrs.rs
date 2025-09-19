@@ -6,11 +6,11 @@ use nomos_core::{
 };
 use nomos_da_sampling::backend::DaSamplingServiceBackend;
 use nomos_mempool::{
+    MempoolMsg, TxMempoolService,
     backend::{MemPool, RecoverableMempool},
     network::NetworkAdapter as MempoolAdapter,
-    MempoolMsg, TxMempoolService,
 };
-use overwatch::services::{relay::OutboundRelay, ServiceData};
+use overwatch::services::{ServiceData, relay::OutboundRelay};
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
@@ -43,13 +43,13 @@ pub struct KzgrsMempoolAdapter<
 
 #[async_trait::async_trait]
 impl<
-        ClPoolAdapter,
-        ClPool,
-        SamplingBackend,
-        SamplingNetworkAdapter,
-        SamplingStorage,
-        RuntimeServiceId,
-    > DaMempoolAdapter
+    ClPoolAdapter,
+    ClPool,
+    SamplingBackend,
+    SamplingNetworkAdapter,
+    SamplingStorage,
+    RuntimeServiceId,
+> DaMempoolAdapter
     for KzgrsMempoolAdapter<
         ClPoolAdapter,
         ClPool,

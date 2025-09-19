@@ -74,14 +74,18 @@ impl<BackendSettings> BlendConfig<BackendSettings> {
     /// For each [`SessionEvent::NewSession`] event received, the stream
     /// constructs a new [`SessionInfo`] based on the new membership.
     /// [`SessionEvent::TransitionPeriodExpired`] events are ignored.
-    pub(super) fn session_info_stream<NodeId>(
+    pub(super) fn session_info_stream<NodeId, SessionEventStream>(
         &self,
         initial_session: &Membership<NodeId>,
-        session_event_stream: impl Stream<Item = SessionEvent<Membership<NodeId>>> + Send + 'static,
-    ) -> (SessionInfo, impl Stream<Item = SessionInfo> + Unpin)
+        session_event_stream: SessionEventStream,
+    ) -> (
+        SessionInfo,
+        impl Stream<Item = SessionInfo> + Unpin + use<NodeId, SessionEventStream, BackendSettings>,
+    )
     where
         BackendSettings: Clone + Send + 'static,
         NodeId: Clone + Send + 'static,
+        SessionEventStream: Stream<Item = SessionEvent<Membership<NodeId>>> + Send + 'static,
     {
         let settings = self.clone();
         let initial_session_info = SessionInfo {
@@ -186,11 +190,13 @@ mod tests {
 
         // The stream should yield `None` if the underlying stream is closed.
         drop(session_sender);
-        assert!(stream
-            .next()
-            .now_or_never()
-            .expect("should yield immediately")
-            .is_none());
+        assert!(
+            stream
+                .next()
+                .now_or_never()
+                .expect("should yield immediately")
+                .is_none()
+        );
     }
 
     fn settings(message_frequency_per_round: f64, rounds_per_session: u64) -> BlendConfig<()> {

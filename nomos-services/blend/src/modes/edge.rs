@@ -5,7 +5,7 @@ use overwatch::{
     services::{AsServiceId, ServiceData},
 };
 
-use crate::modes::{ondemand::OnDemandServiceMode, Error};
+use crate::modes::{Error, ondemand::OnDemandServiceMode};
 
 pub struct EdgeMode<Service, RuntimeServiceId>(OnDemandServiceMode<Service, RuntimeServiceId>)
 where

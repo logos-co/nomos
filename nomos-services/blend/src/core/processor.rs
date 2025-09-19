@@ -6,7 +6,7 @@ use std::{
 
 use nomos_blend_scheduling::{
     membership::Membership,
-    message_blend::{crypto::CryptographicProcessor, CryptographicProcessorSettings},
+    message_blend::{CryptographicProcessorSettings, crypto::CryptographicProcessor},
 };
 use nomos_utils::blake_rng::BlakeRng;
 use rand::SeedableRng as _;

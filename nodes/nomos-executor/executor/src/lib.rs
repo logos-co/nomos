@@ -12,18 +12,18 @@ use nomos_blend_service::{
 };
 use nomos_core::mantle::SignedMantleTx;
 use nomos_da_dispersal::{
+    DispersalService,
     adapters::{
         network::libp2p::Libp2pNetworkAdapter as DispersalNetworkAdapter,
         wallet::mock::MockWalletAdapter as DispersalWalletAdapter,
     },
     backend::kzgrs::DispersalKZGRSBackend,
-    DispersalService,
 };
 use nomos_da_network_service::backends::libp2p::executor::DaNetworkExecutorBackend;
 use nomos_da_sampling::{
     backend::kzgrs::KzgrsSamplingBackend,
     storage::adapters::rocksdb::{
-        converter::DaStorageConverter, RocksAdapter as SamplingStorageAdapter,
+        RocksAdapter as SamplingStorageAdapter, converter::DaStorageConverter,
     },
 };
 use nomos_da_verifier::{
@@ -35,12 +35,12 @@ use nomos_libp2p::PeerId;
 #[cfg(feature = "tracing")]
 use nomos_node::Tracing;
 use nomos_node::{
+    BlobInfo, DaNetworkApiAdapter, MB16, NetworkBackend, NomosDaMembership, RocksBackend,
+    SystemSig,
     generic_services::{
         DaMembershipAdapter, DaMembershipStorageGeneric, MembershipService, SdpService,
         VerifierMempoolAdapter,
     },
-    BlobInfo, DaNetworkApiAdapter, NetworkBackend, NomosDaMembership, RocksBackend, SystemSig,
-    MB16,
 };
 use nomos_time::backends::NtpTimeBackend;
 use overwatch::derive_services;

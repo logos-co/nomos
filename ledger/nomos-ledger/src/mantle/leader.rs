@@ -3,8 +3,8 @@ use std::cmp::Ordering;
 use cryptarchia_engine::Epoch;
 use mmr::MerkleMountainRange;
 use nomos_core::mantle::{
-    ops::leader_claim::{LeaderClaimOp, RewardsRoot, VoucherCm, VoucherNullifier},
     Value,
+    ops::leader_claim::{LeaderClaimOp, RewardsRoot, VoucherCm, VoucherNullifier},
 };
 
 use crate::Balance;

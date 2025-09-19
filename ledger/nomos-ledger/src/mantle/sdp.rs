@@ -2,8 +2,8 @@ use nomos_core::{
     block::BlockNumber,
     mantle::ops::sdp::{SDPActiveOp, SDPDeclareOp, SDPWithdrawOp},
     sdp::{
-        state::{DeclarationStateError, TransientDeclarationState},
         DeclarationId, DeclarationState, Nonce, ServiceParameters,
+        state::{DeclarationStateError, TransientDeclarationState},
     },
 };
 #[cfg(feature = "serde")]

@@ -7,7 +7,7 @@ use backon::{ExponentialBuilder, Retryable as _};
 use rand::RngCore as _;
 use tokio::{
     net::UdpSocket,
-    time::{timeout, Duration},
+    time::{Duration, timeout},
 };
 use zerocopy::{Immutable, IntoBytes};
 

@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use libp2p::{
-    kad::{PeerInfo, QueryId},
     Multiaddr, PeerId, StreamProtocol,
+    kad::{PeerInfo, QueryId},
 };
 use rand::RngCore;
 

@@ -1,4 +1,4 @@
-use groth16::{serde::serde_fr, Fr};
+use groth16::{Fr, serde::serde_fr};
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 

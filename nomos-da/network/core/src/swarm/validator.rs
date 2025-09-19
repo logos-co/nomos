@@ -1,30 +1,31 @@
 use std::{collections::HashSet, io, marker::PhantomData, time::Duration};
 
 use futures::{
-    stream::{self, FuturesUnordered},
     StreamExt as _,
+    stream::{self, FuturesUnordered},
 };
 use libp2p::{
+    Multiaddr, PeerId, Swarm, SwarmBuilder, TransportError,
     core::transport::ListenerId,
     identity::Keypair,
     swarm::{DialError, SwarmEvent},
-    Multiaddr, PeerId, Swarm, SwarmBuilder, TransportError,
 };
 use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId};
 use nomos_da_messages::replication::ReplicationRequest;
 use subnetworks_assignations::MembershipHandler;
 use tokio::{
-    sync::mpsc::{unbounded_channel, UnboundedSender},
+    sync::mpsc::{UnboundedSender, unbounded_channel},
     time::interval,
 };
 use tokio_stream::wrappers::{IntervalStream, UnboundedReceiverStream};
 use tracing::debug;
 
 use super::{
-    common::handlers::{handle_validator_dispersal_event, ValidationTask},
     DispersalValidatorEvent,
+    common::handlers::{ValidationTask, handle_validator_dispersal_event},
 };
 use crate::{
+    SubnetworkId,
     addressbook::AddressBookHandler,
     behaviour::validator::{ValidatorBehaviour, ValidatorBehaviourEvent},
     maintenance::{
@@ -37,15 +38,14 @@ use crate::{
         sampling::{SamplingEvent, SubnetsConfig},
     },
     swarm::{
+        BalancerStats, ConnectionBalancer, ConnectionMonitor, DAConnectionPolicySettings,
+        MonitorStats,
         common::{
             handlers::{handle_replication_event, handle_sampling_event, monitor_event},
             monitor::{DAConnectionMonitorSettings, MonitorEvent},
             policy::DAConnectionPolicy,
         },
-        BalancerStats, ConnectionBalancer, ConnectionMonitor, DAConnectionPolicySettings,
-        MonitorStats,
     },
-    SubnetworkId,
 };
 
 pub type SampleArgs<Membership> = (HashSet<BlobId>, SessionNumber, HeaderId, Membership);

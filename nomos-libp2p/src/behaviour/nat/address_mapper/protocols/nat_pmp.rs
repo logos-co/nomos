@@ -1,7 +1,7 @@
 use std::net::Ipv4Addr;
 
 use multiaddr::{Multiaddr, Protocol as MaProto};
-use natpmp::{new_tokio_natpmp, NatpmpAsync, Protocol, Response};
+use natpmp::{NatpmpAsync, Protocol, Response, new_tokio_natpmp};
 use tokio::{net::UdpSocket, time::timeout};
 
 use crate::{

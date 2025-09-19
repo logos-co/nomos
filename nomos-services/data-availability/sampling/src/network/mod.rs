@@ -5,16 +5,16 @@ use std::{collections::HashSet, pin::Pin};
 use futures::Stream;
 use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId};
 use nomos_da_network_service::{
+    NetworkService,
     api::ApiAdapter,
     backends::{
-        libp2p::common::{CommitmentsEvent, HistoricSamplingEvent, SamplingEvent},
         NetworkBackend,
+        libp2p::common::{CommitmentsEvent, HistoricSamplingEvent, SamplingEvent},
     },
-    NetworkService,
 };
 use overwatch::{
-    services::{relay::OutboundRelay, ServiceData},
     DynError,
+    services::{ServiceData, relay::OutboundRelay},
 };
 use subnetworks_assignations::MembershipHandler;
 

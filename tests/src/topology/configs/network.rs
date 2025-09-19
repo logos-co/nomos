@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use nomos_libp2p::{ed25519, Multiaddr, SwarmConfig};
+use nomos_libp2p::{Multiaddr, SwarmConfig, ed25519};
 use nomos_utils::net::get_available_udp_port;
 
 use crate::node_address_from_port;

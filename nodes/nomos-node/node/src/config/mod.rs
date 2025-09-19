@@ -4,11 +4,11 @@ use std::{
 };
 
 use blend::BlendConfig;
-use clap::{builder::OsStr, Parser, ValueEnum};
-use color_eyre::eyre::{eyre, Result};
+use clap::{Parser, ValueEnum, builder::OsStr};
+use color_eyre::eyre::{Result, eyre};
 use hex::FromHex as _;
 use nomos_core::mantle::{Note, TxHash, Utxo};
-use nomos_libp2p::{ed25519::SecretKey, Multiaddr};
+use nomos_libp2p::{Multiaddr, ed25519::SecretKey};
 use nomos_network::backends::libp2p::Libp2p as NetworkBackend;
 use nomos_tracing::logging::{gelf::GelfConfig, local::FileConfig};
 use nomos_tracing_service::{LoggerLayer, Tracing};
@@ -18,10 +18,10 @@ use serde::{Deserialize, Serialize};
 use tracing::Level;
 
 use crate::{
-    config::mempool::MempoolConfig,
-    generic_services::{MembershipService, SdpService},
     ApiService, CryptarchiaService, DaNetworkService, DaSamplingService, DaVerifierService,
     NetworkService, RuntimeServiceId, StorageService, TimeService, WalletService,
+    config::mempool::MempoolConfig,
+    generic_services::{MembershipService, SdpService},
 };
 
 pub mod blend;

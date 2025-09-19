@@ -9,12 +9,11 @@ use serial_test::serial;
 use tests::{
     adjust_timeout,
     common::sync::{wait_for_validators_mode, wait_for_validators_mode_and_height},
-    nodes::validator::{create_validator_config, Validator},
+    nodes::validator::{Validator, create_validator_config},
     secret_key_to_peer_id,
     topology::configs::{
-        create_general_configs_with_blend_core_subset,
+        GeneralConfig, create_general_configs_with_blend_core_subset,
         network::{Libp2pNetworkLayout, NetworkParams},
-        GeneralConfig,
     },
 };
 
@@ -60,7 +59,9 @@ async fn test_ibd_behind_nodes() {
     }
 
     let minimum_height = 10;
-    println!("Waiting for initial validators to switch to online mode and reach height {minimum_height}...", );
+    println!(
+        "Waiting for initial validators to switch to online mode and reach height {minimum_height}...",
+    );
 
     wait_for_validators_mode_and_height(
         &initial_validators,
@@ -134,7 +135,9 @@ async fn test_ibd_behind_nodes() {
 fn acceptable_height_margin(general_config: &GeneralConfig, duration: Duration) -> u64 {
     let block_time = calculate_block_time(general_config);
     let margin = duration.div_duration_f64(block_time).ceil() as u64;
-    println!("Acceptable height margin:{margin} for duration {duration:?} with block time {block_time:?}");
+    println!(
+        "Acceptable height margin:{margin} for duration {duration:?} with block time {block_time:?}"
+    );
     margin
 }
 

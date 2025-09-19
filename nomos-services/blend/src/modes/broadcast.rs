@@ -73,15 +73,15 @@ where
 #[cfg(test)]
 pub mod tests {
     use futures::StreamExt as _;
-    use nomos_network::{backends::NetworkBackend, message::NetworkMsg, NetworkService};
+    use nomos_network::{NetworkService, backends::NetworkBackend, message::NetworkMsg};
     use overwatch::{
+        DynError, OpaqueServiceResourcesHandle,
         overwatch::OverwatchRunner,
         services::{
+            ServiceCore,
             relay::OutboundRelay,
             state::{NoOperator, NoState},
-            ServiceCore,
         },
-        DynError, OpaqueServiceResourcesHandle,
     };
     use tokio::sync::mpsc;
     use tokio_stream::wrappers::BroadcastStream;

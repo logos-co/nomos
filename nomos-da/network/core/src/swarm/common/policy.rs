@@ -6,8 +6,8 @@ use super::balancer::{
     ConnectionDeviation, SubnetworkConnectionPolicy, SubnetworkDeviation, SubnetworkStats,
 };
 use crate::{
-    swarm::common::monitor::{PeerHealthPolicy, PeerStats},
     SubnetworkId,
+    swarm::common::monitor::{PeerHealthPolicy, PeerStats},
 };
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

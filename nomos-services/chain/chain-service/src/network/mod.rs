@@ -5,10 +5,10 @@ use std::collections::HashSet;
 use cryptarchia_sync::GetTipResponse;
 use futures::Stream;
 use nomos_core::header::HeaderId;
-use nomos_network::{backends::NetworkBackend, message::ChainSyncEvent, NetworkService};
+use nomos_network::{NetworkService, backends::NetworkBackend, message::ChainSyncEvent};
 use overwatch::{
-    services::{relay::OutboundRelay, ServiceData},
     DynError,
+    services::{ServiceData, relay::OutboundRelay},
 };
 
 pub(crate) type BoxedStream<T> = Box<dyn Stream<Item = T> + Send + Unpin>;

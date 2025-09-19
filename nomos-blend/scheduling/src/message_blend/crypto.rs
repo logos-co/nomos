@@ -2,13 +2,13 @@ use std::hash::Hash;
 
 use derivative::Derivative;
 use nomos_blend_message::{
+    Error, PayloadType,
     crypto::{Ed25519PrivateKey, ProofOfQuota, ProofOfSelection, X25519PrivateKey},
     encap::{
         DecapsulationOutput as InternalDecapsulationOutput,
         EncapsulatedMessage as InternalEncapsulatedMessage,
     },
     input::{EncapsulationInput, EncapsulationInputs as InternalEncapsulationInputs},
-    Error, PayloadType,
 };
 use nomos_core::codec::SerdeOp;
 use rand::RngCore;

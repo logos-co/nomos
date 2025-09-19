@@ -4,12 +4,12 @@ use std::{
 };
 
 use axum::{
+    Router,
     http::{
-        header::{CONTENT_TYPE, USER_AGENT},
         HeaderValue,
+        header::{CONTENT_TYPE, USER_AGENT},
     },
     routing::post,
-    Router,
 };
 use kzgrs_backend::common::share::DaShare;
 use nomos_api::Backend;
@@ -18,7 +18,7 @@ use nomos_da_sampling::{
     backend::kzgrs::KzgrsSamplingBackend,
     network::adapters::validator::Libp2pAdapter as SamplingLibp2pAdapter,
     storage::adapters::rocksdb::{
-        converter::DaStorageConverter, RocksAdapter as SamplingStorageAdapter,
+        RocksAdapter as SamplingStorageAdapter, converter::DaStorageConverter,
     },
 };
 use nomos_http_api_common::{
@@ -27,7 +27,7 @@ use nomos_http_api_common::{
 };
 use nomos_membership::MembershipService as MembershipServiceTrait;
 pub use nomos_network::backends::libp2p::Libp2p as NetworkBackend;
-use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId, DynError};
+use overwatch::{DynError, overwatch::handle::OverwatchHandle, services::AsServiceId};
 use services_utils::wait_until_services_are_ready;
 use tokio::net::TcpListener;
 use tower::limit::ConcurrencyLimitLayer;
@@ -39,6 +39,7 @@ use tower_http::{
 };
 
 use crate::{
+    DaMembershipStorage, DaNetworkApiAdapter, NomosDaMembership,
     api::{
         backend::AxumBackendSettings,
         testing::handlers::{da_get_membership, da_historic_sampling, update_membership},
@@ -47,7 +48,6 @@ use crate::{
         self, DaMembershipAdapter, MembershipBackend, MembershipSdp, MembershipService,
         MembershipStorageGeneric,
     },
-    DaMembershipStorage, DaNetworkApiAdapter, NomosDaMembership,
 };
 pub struct TestAxumBackend {
     settings: AxumBackendSettings,

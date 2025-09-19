@@ -1,24 +1,24 @@
 use std::{collections::HashSet, fmt::Debug, hash::Hash, marker::PhantomData};
 
 use cryptarchia_sync::GetTipResponse;
-use futures::{future::select_ok, FutureExt as _, TryStreamExt as _};
+use futures::{FutureExt as _, TryStreamExt as _, future::select_ok};
 use nomos_core::{block::Block, codec::SerdeOp, header::HeaderId};
 use nomos_network::{
+    NetworkService,
     backends::libp2p::{
         ChainSyncCommand, Command, DiscoveryCommand, Libp2p, NetworkCommand, PeerId,
         PubSubCommand::Subscribe,
     },
     message::{ChainSyncEvent, NetworkMsg},
-    NetworkService,
 };
 use overwatch::{
-    services::{relay::OutboundRelay, ServiceData},
     DynError,
+    services::{ServiceData, relay::OutboundRelay},
 };
 use rand::{seq::index::sample, thread_rng};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tokio::sync::oneshot;
-use tokio_stream::{wrappers::errors::BroadcastStreamRecvError, StreamExt as _};
+use tokio_stream::{StreamExt as _, wrappers::errors::BroadcastStreamRecvError};
 use tracing::debug;
 
 use crate::{
@@ -58,7 +58,7 @@ where
             .await
         {
             tracing::error!("error subscribing to {topic}: {e}");
-        };
+        }
     }
 
     async fn get_connected_peers(

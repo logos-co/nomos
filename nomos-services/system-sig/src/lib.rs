@@ -1,12 +1,12 @@
 use std::fmt::{Debug, Display};
 
 use overwatch::{
+    DynError, OpaqueServiceResourcesHandle,
     overwatch::handle::OverwatchHandle,
     services::{
-        state::{NoOperator, NoState},
         AsServiceId, ServiceCore, ServiceData,
+        state::{NoOperator, NoState},
     },
-    DynError, OpaqueServiceResourcesHandle,
 };
 
 pub struct SystemSig<RuntimeServiceId> {

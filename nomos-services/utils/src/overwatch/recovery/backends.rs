@@ -4,10 +4,10 @@ use overwatch::services::state::ServiceState;
 
 use crate::{
     overwatch::recovery::{
+        RecoveryResult,
         errors::RecoveryError,
         operators::RecoveryBackend,
         serializer::{JsonRecoverySerializer, RecoverySerializer},
-        RecoveryResult,
     },
     traits::FromSettings,
 };

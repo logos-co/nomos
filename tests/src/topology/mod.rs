@@ -3,26 +3,26 @@ pub mod configs;
 use std::time::Duration;
 
 use configs::{
-    da::{create_da_configs, DaParams},
-    network::{create_network_configs, NetworkParams},
-    tracing::create_tracing_configs,
     GeneralConfig,
+    da::{DaParams, create_da_configs},
+    network::{NetworkParams, create_network_configs},
+    tracing::create_tracing_configs,
 };
 use nomos_da_network_core::swarm::DAConnectionPolicySettings;
 use nomos_utils::net::get_available_udp_port;
-use rand::{thread_rng, Rng as _};
+use rand::{Rng as _, thread_rng};
 
 use crate::{
     nodes::{
-        executor::{create_executor_config, Executor},
-        validator::{create_validator_config, Validator},
+        executor::{Executor, create_executor_config},
+        validator::{Validator, create_validator_config},
     },
     topology::configs::{
         api::create_api_configs,
         blend::create_blend_configs,
         bootstrap::create_bootstrap_configs,
-        consensus::{create_consensus_configs, ConsensusParams},
-        membership::{create_membership_configs, MembershipNode},
+        consensus::{ConsensusParams, create_consensus_configs},
+        membership::{MembershipNode, create_membership_configs},
         time::default_time_config,
     },
 };

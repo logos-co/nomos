@@ -3,8 +3,8 @@ use ark_poly::EvaluationDomain as _;
 use kzgrs::{FieldElement, GlobalParameters, PolynomialEvaluationDomain};
 
 use crate::common::{
-    share::{DaLightShare, DaSharesCommitments},
     Chunk,
+    share::{DaLightShare, DaSharesCommitments},
 };
 
 #[derive(Clone)]
@@ -48,10 +48,10 @@ mod test {
     #[cfg(target_arch = "x86_64")]
     use std::hint::black_box;
 
-    use nomos_core::da::{blob::Share as _, DaEncoder as _};
+    use nomos_core::da::{DaEncoder as _, blob::Share as _};
 
     use crate::{
-        encoder::{test::rand_data, DaEncoder, DaEncoderParams},
+        encoder::{DaEncoder, DaEncoderParams, test::rand_data},
         global::GLOBAL_PARAMETERS,
         verifier::DaVerifier,
     };

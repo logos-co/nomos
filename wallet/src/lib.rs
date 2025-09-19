@@ -6,7 +6,7 @@ pub use error::WalletError;
 use nomos_core::{
     block::Block,
     header::HeaderId,
-    mantle::{keys::PublicKey, ledger::Tx as LedgerTx, AuthenticatedMantleTx, NoteId, Utxo, Value},
+    mantle::{AuthenticatedMantleTx, NoteId, Utxo, Value, keys::PublicKey, ledger::Tx as LedgerTx},
 };
 use nomos_ledger::LedgerState;
 

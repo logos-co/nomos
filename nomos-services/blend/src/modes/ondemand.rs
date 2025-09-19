@@ -5,7 +5,7 @@ use std::{
 
 use overwatch::{
     overwatch::OverwatchHandle,
-    services::{relay::OutboundRelay, AsServiceId, ServiceData},
+    services::{AsServiceId, ServiceData, relay::OutboundRelay},
 };
 use services_utils::wait_until_services_are_ready;
 use tracing::{error, info};
@@ -87,12 +87,12 @@ async fn stop_service<Service, RuntimeServiceId>(
 mod tests {
     use futures::StreamExt as _;
     use overwatch::{
+        DynError, OpaqueServiceResourcesHandle,
         overwatch::OverwatchRunner,
         services::{
-            state::{NoOperator, NoState},
             ServiceCore,
+            state::{NoOperator, NoState},
         },
-        DynError, OpaqueServiceResourcesHandle,
     };
     use tokio::sync::oneshot;
     use tracing::{debug, info};

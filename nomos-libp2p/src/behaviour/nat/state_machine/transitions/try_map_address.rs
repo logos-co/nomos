@@ -1,5 +1,5 @@
 use crate::behaviour::nat::state_machine::{
-    event::Event, states::TryMapAddress, Command, CommandTx, OnEvent, State,
+    Command, CommandTx, OnEvent, State, event::Event, states::TryMapAddress,
 };
 
 /// The `TryMapAddress` state is responsible for attempting to map the address
@@ -56,12 +56,12 @@ mod tests {
 
     use super::Command;
     use crate::behaviour::nat::state_machine::{
+        StateMachine,
         states::{Private, TestIfMappedPublic, TryMapAddress},
         transitions::fixtures::{
-            all_events, default_gateway_changed, mapping_failed, mapping_failed_address_mismatch,
-            mapping_ok, mapping_ok_address_mismatch, ADDR,
+            ADDR, all_events, default_gateway_changed, mapping_failed,
+            mapping_failed_address_mismatch, mapping_ok, mapping_ok_address_mismatch,
         },
-        StateMachine,
     };
 
     #[test]

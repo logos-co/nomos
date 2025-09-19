@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 use subnetworks_assignations::MembershipHandler;
 
 use crate::{
-    maintenance::balancer::{ConnectionBalancer, ConnectionEvent},
     SubnetworkId,
+    maintenance::balancer::{ConnectionBalancer, ConnectionEvent},
 };
 
 pub type BalancerStats = HashMap<SubnetworkId, SubnetworkStats>;
@@ -99,7 +99,7 @@ where
         candidates
             .into_iter()
             .filter(|peer| !self.connected_peers.contains(peer) && *peer != self.local_peer_id)
-            .choose_multiple(&mut rand::thread_rng(), missing_count)
+            .choose_multiple(&mut rand::rng(), missing_count)
     }
 }
 

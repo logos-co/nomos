@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Display};
 
-use axum::{extract::State, response::Response, Json};
+use axum::{Json, extract::State, response::Response};
 use kzgrs_backend::dispersal::Metadata;
 use nomos_api::http::da::{self, DaDispersal};
 use nomos_da_dispersal::{adapters::network::DispersalNetworkAdapter, backend::DispersalBackend};

@@ -4,7 +4,7 @@ use std::{collections::BTreeSet, hash::Hash};
 
 use blake2::{Blake2b, Digest as _};
 use bytes::{Bytes, BytesMut};
-use groth16::{serde::serde_fr, Fr};
+use groth16::{Fr, serde::serde_fr};
 use multiaddr::Multiaddr;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -216,7 +216,7 @@ impl DeclarationMessage {
         // declaration_id = Hash(service||provider_id||zk_id||locators)
         hasher.update(service.as_bytes());
         hasher.update(self.provider_id.0);
-        for number in self.zk_id.0 .0 .0 {
+        for number in self.zk_id.0.0.0 {
             hasher.update(number.to_le_bytes());
         }
         for locator in &self.locators {
@@ -234,7 +234,7 @@ impl DeclarationMessage {
             buff.extend_from_slice(locator.0.as_ref());
         }
         buff.extend_from_slice(self.provider_id.0.as_ref());
-        buff.extend(self.zk_id.0 .0 .0.iter().flat_map(|n| n.to_le_bytes()));
+        buff.extend(self.zk_id.0.0.0.iter().flat_map(|n| n.to_le_bytes()));
         buff.freeze()
     }
 }

@@ -11,8 +11,8 @@ use libp2p::Multiaddr;
 use nomos_core::block::SessionNumber;
 use nomos_membership::backends::MembershipBackendError;
 use overwatch::{
-    services::{relay::OutboundRelay, ServiceData},
     DynError,
+    services::{ServiceData, relay::OutboundRelay},
 };
 use thiserror::Error;
 

@@ -3,11 +3,11 @@ use std::{fmt::Debug, hash::Hash, marker::PhantomData, path::PathBuf};
 use futures::try_join;
 use nomos_core::{da::blob::Share, mantle::SignedMantleTx};
 use nomos_storage::{
-    api::da::DaConverter, backends::rocksdb::RocksBackend, StorageMsg, StorageService,
+    StorageMsg, StorageService, api::da::DaConverter, backends::rocksdb::RocksBackend,
 };
 use overwatch::{
-    services::{relay::OutboundRelay, ServiceData},
     DynError,
+    services::{ServiceData, relay::OutboundRelay},
 };
 use serde::{Deserialize, Serialize};
 

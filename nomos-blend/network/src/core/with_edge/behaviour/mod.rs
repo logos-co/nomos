@@ -9,20 +9,20 @@ use std::{
 
 use either::Either;
 use libp2p::{
-    core::{transport::PortUse, Endpoint},
-    swarm::{
-        dummy::ConnectionHandler as DummyConnectionHandler, ConnectionClosed, ConnectionDenied,
-        ConnectionId, FromSwarm, NetworkBehaviour, NotifyHandler, THandler, THandlerInEvent,
-        THandlerOutEvent, ToSwarm,
-    },
     Multiaddr, PeerId, StreamProtocol,
+    core::{Endpoint, transport::PortUse},
+    swarm::{
+        ConnectionClosed, ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour,
+        NotifyHandler, THandler, THandlerInEvent, THandlerOutEvent, ToSwarm,
+        dummy::ConnectionHandler as DummyConnectionHandler,
+    },
 };
 use nomos_blend_scheduling::{deserialize_encapsulated_message, membership::Membership};
 
 use crate::{
+    EncapsulatedMessageWithValidatedPublicHeader,
     core::with_edge::behaviour::handler::{ConnectionHandler, FromBehaviour, ToBehaviour},
     message::ValidateMessagePublicHeader as _,
-    EncapsulatedMessageWithValidatedPublicHeader,
 };
 
 mod handler;

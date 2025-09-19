@@ -1,4 +1,4 @@
-use blake2::{digest::consts::U32, Blake2b, Digest as _};
+use blake2::{Blake2b, Digest as _, digest::consts::U32};
 use libp2p::gossipsub::{Message, MessageId};
 
 pub mod swarm_ext;

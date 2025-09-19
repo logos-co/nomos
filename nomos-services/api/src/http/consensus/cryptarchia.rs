@@ -1,20 +1,20 @@
 use std::fmt::{Debug, Display};
 
 use chain_service::{
-    network::adapters::libp2p::LibP2pAdapter as ConsensusNetworkAdapter, ConsensusMsg,
-    CryptarchiaConsensus, CryptarchiaInfo,
+    ConsensusMsg, CryptarchiaConsensus, CryptarchiaInfo,
+    network::adapters::libp2p::LibP2pAdapter as ConsensusNetworkAdapter,
 };
 use kzgrs_backend::dispersal::Metadata;
 use nomos_core::{
     da::BlobId,
     header::HeaderId,
-    mantle::{select::FillSize as FillSizeWithTx, AuthenticatedMantleTx, Transaction},
+    mantle::{AuthenticatedMantleTx, Transaction, select::FillSize as FillSizeWithTx},
 };
 use nomos_da_sampling::backend::DaSamplingServiceBackend;
 use nomos_libp2p::PeerId;
 use nomos_membership::{
-    adapters::sdp::ledger::LedgerSdpAdapter, backends::membership::PersistentMembershipBackend,
-    MembershipService,
+    MembershipService, adapters::sdp::ledger::LedgerSdpAdapter,
+    backends::membership::PersistentMembershipBackend,
 };
 use nomos_mempool::{
     backend::mockpool::MockPool, network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
@@ -22,7 +22,7 @@ use nomos_mempool::{
 use nomos_sdp::backends::mock::MockSdpBackend;
 use nomos_storage::backends::rocksdb::RocksBackend;
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tokio::sync::oneshot;
 
 use crate::http::DynError;

@@ -1,5 +1,5 @@
 use crate::behaviour::nat::state_machine::{
-    event::Event, states::MappedPublic, Command, CommandTx, OnEvent, State,
+    Command, CommandTx, OnEvent, State, event::Event, states::MappedPublic,
 };
 
 /// The `MappedPublic` state represents a state where the node's address is
@@ -61,14 +61,14 @@ mod tests {
 
     use super::Command;
     use crate::behaviour::nat::state_machine::{
+        StateMachine,
         states::{MappedPublic, Private, TestIfPublic, TryMapAddress},
         transitions::fixtures::{
-            all_events, autonat_failed, autonat_failed_address_mismatch, autonat_ok,
+            ADDR, all_events, autonat_failed, autonat_failed_address_mismatch, autonat_ok,
             autonat_ok_address_mismatch, default_gateway_changed,
             default_gateway_changed_no_local_address, external_address_confirmed,
-            external_address_confirmed_address_mismatch, mapping_failed, ADDR,
+            external_address_confirmed_address_mismatch, mapping_failed,
         },
-        StateMachine,
     };
 
     #[test]

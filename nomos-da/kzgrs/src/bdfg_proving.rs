@@ -7,14 +7,14 @@ use ark_poly::EvaluationDomain as _;
 use ark_poly_commit::kzg10::Commitment as KzgCommitment;
 use ark_serialize::CanonicalSerialize as _;
 use blake2::{
-    digest::{Update as _, VariableOutput as _},
     Blake2bVar,
+    digest::{Update as _, VariableOutput as _},
 };
 #[cfg(feature = "parallel")]
 use rayon::iter::{IntoParallelIterator as _, ParallelIterator as _};
 
-use super::{kzg, Commitment, Evaluations, GlobalParameters, PolynomialEvaluationDomain, Proof};
-use crate::fk20::{fk20_batch_generate_elements_proofs, Toeplitz1Cache};
+use super::{Commitment, Evaluations, GlobalParameters, PolynomialEvaluationDomain, Proof, kzg};
+use crate::fk20::{Toeplitz1Cache, fk20_batch_generate_elements_proofs};
 
 /// Generate a hash of the row commitments using the `Blake2bVar` hashing
 /// algorithm.

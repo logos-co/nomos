@@ -1,6 +1,6 @@
 use std::{convert::Infallible, marker::PhantomData};
 
-use overwatch::services::{relay::OutboundRelay, ServiceData};
+use overwatch::services::{ServiceData, relay::OutboundRelay};
 
 use super::{PayloadProcessor, ProcessorTask};
 

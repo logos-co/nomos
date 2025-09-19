@@ -1,7 +1,7 @@
 use clap::Parser as _;
 use nomos_cli::Cli;
 use nomos_tracing::logging::local::create_writer_layer;
-use tracing::{level_filters::LevelFilter, Level};
+use tracing::{Level, level_filters::LevelFilter};
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
 fn main() {

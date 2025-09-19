@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 
-use crate::overwatch::{recovery::RecoveryResult, RecoveryError};
+use crate::overwatch::{RecoveryError, recovery::RecoveryResult};
 
 pub trait RecoverySerializer {
     type State;

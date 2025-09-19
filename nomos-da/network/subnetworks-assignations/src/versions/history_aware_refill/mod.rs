@@ -8,8 +8,8 @@ use rand::RngCore;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::{
-    versions::history_aware_refill::assignations::HistoryAwareRefill, MembershipCreator,
-    MembershipHandler, SubnetworkAssignations, SubnetworkId,
+    MembershipCreator, MembershipHandler, SubnetworkAssignations, SubnetworkId,
+    versions::history_aware_refill::assignations::HistoryAwareRefill,
 };
 
 pub mod assignations;
@@ -88,13 +88,11 @@ where
     }
 
     fn members_of(&self, network_id: &Self::NetworkId) -> HashSet<Self::Id> {
-        let res = self
-            .assignations
+        self.assignations
             .get(*network_id as usize)
             .map_or_else(HashSet::new, |subnetwork| {
                 subnetwork.iter().copied().collect()
-            });
-        res
+            })
     }
 
     fn members(&self) -> HashSet<Self::Id> {

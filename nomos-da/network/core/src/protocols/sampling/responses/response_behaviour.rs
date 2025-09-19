@@ -5,20 +5,20 @@ use std::{
 
 use either::Either;
 use futures::{
+    AsyncWriteExt as _, FutureExt as _, StreamExt as _,
     channel::{
         oneshot,
         oneshot::{Receiver, Sender},
     },
     stream::FuturesUnordered,
-    AsyncWriteExt as _, FutureExt as _, StreamExt as _,
 };
 use libp2p::{
-    core::{transport::PortUse, Endpoint},
+    Multiaddr, PeerId,
+    core::{Endpoint, transport::PortUse},
     swarm::{
         ConnectionDenied, ConnectionId, DialFailure, FromSwarm, NetworkBehaviour, THandler,
         THandlerInEvent, THandlerOutEvent, ToSwarm,
     },
-    Multiaddr, PeerId,
 };
 use libp2p_stream::IncomingStreams;
 use nomos_da_messages::sampling;
@@ -26,12 +26,12 @@ use nomos_da_messages::sampling;
 use crate::{
     protocol::SAMPLING_PROTOCOL,
     protocols::sampling::{
+        BehaviourSampleReq, BehaviourSampleRes, ResponseChannel, SamplingRequestStreamFuture,
+        SubnetsConfig,
         connections::Connections,
         errors::SamplingError,
         responses::SamplingEvent,
         streams::{self, SampleStream},
-        BehaviourSampleReq, BehaviourSampleRes, ResponseChannel, SamplingRequestStreamFuture,
-        SubnetsConfig,
     },
 };
 
@@ -267,11 +267,11 @@ impl NetworkBehaviour for ResponseSamplingBehaviour {
         }
 
         // Discard stream, if still pending pushback to close later.
-        if let Some(mut stream) = self.to_close.pop_front() {
-            if stream.stream.close().poll_unpin(cx).is_pending() {
-                self.to_close.push_back(stream);
-                cx.waker().wake_by_ref();
-            }
+        if let Some(mut stream) = self.to_close.pop_front()
+            && stream.stream.close().poll_unpin(cx).is_pending()
+        {
+            self.to_close.push_back(stream);
+            cx.waker().wake_by_ref();
         }
 
         Poll::Pending

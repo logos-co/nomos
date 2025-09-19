@@ -1,12 +1,12 @@
 use futures::Stream;
 use nomos_core::codec::SerdeOp;
 use nomos_network::{
+    NetworkService,
     backends::libp2p::{Command, Libp2p, Message, PubSubCommand, TopicHash},
     message::NetworkMsg,
-    NetworkService,
 };
-use overwatch::services::{relay::OutboundRelay, ServiceData};
-use serde::{de::DeserializeOwned, Serialize};
+use overwatch::services::{ServiceData, relay::OutboundRelay};
+use serde::{Serialize, de::DeserializeOwned};
 use tokio_stream::StreamExt as _;
 
 use crate::network::NetworkAdapter;

@@ -1,7 +1,7 @@
 use std::{collections::HashSet, hash::Hash, ops::Range};
 
-use nomos_core::da::blob::{metadata::Metadata, Share};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use nomos_core::da::blob::{Share, metadata::Metadata};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 // Shared types for http requests. Probably better part of upcoming `nomos-lib`
 

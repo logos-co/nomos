@@ -6,8 +6,8 @@ use kzgrs_backend::common::share::DaShare;
 use nomos_core::{da::BlobId, mantle::SignedMantleTx};
 use nomos_da_network_core::SubnetworkId;
 use overwatch::{
-    services::{relay::OutboundRelay, ServiceData},
     DynError,
+    services::{ServiceData, relay::OutboundRelay},
 };
 
 #[async_trait::async_trait]

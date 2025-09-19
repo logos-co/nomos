@@ -6,7 +6,7 @@ use tracing::trace;
 
 use crate::{
     cover_traffic::SessionCoverTraffic,
-    message_scheduler::{round_info::RoundClock, session_info::SessionInfo, Settings, LOG_TARGET},
+    message_scheduler::{LOG_TARGET, Settings, round_info::RoundClock, session_info::SessionInfo},
     release_delayer::SessionProcessedMessageDelayer,
 };
 

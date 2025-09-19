@@ -3,17 +3,17 @@ use std::{
     hash::Hash,
 };
 
-use axum::{extract::State, response::Response, Json};
+use axum::{Json, extract::State, response::Response};
 use nomos_api::http::{
     da::{self},
     membership::{self, MembershipUpdateRequest},
 };
 use nomos_core::{block::SessionNumber, header::HeaderId};
 use nomos_da_network_service::{
-    api::ApiAdapter as ApiAdapterTrait, backends::NetworkBackend, NetworkService,
+    NetworkService, api::ApiAdapter as ApiAdapterTrait, backends::NetworkBackend,
 };
-use nomos_da_sampling::{backend::DaSamplingServiceBackend, DaSamplingService};
-use nomos_membership::{adapters::sdp::SdpAdapter, backends::MembershipBackend, MembershipService};
+use nomos_da_sampling::{DaSamplingService, backend::DaSamplingServiceBackend};
+use nomos_membership::{MembershipService, adapters::sdp::SdpAdapter, backends::MembershipBackend};
 use overwatch::{overwatch::OverwatchHandle, services::AsServiceId};
 use serde::{Deserialize, Serialize};
 use subnetworks_assignations::MembershipHandler;

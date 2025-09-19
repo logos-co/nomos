@@ -5,7 +5,7 @@ pub mod topology;
 
 use std::{env, ops::Mul as _, sync::LazyLock, time::Duration};
 
-use nomos_libp2p::{multiaddr, Multiaddr, PeerId};
+use nomos_libp2p::{Multiaddr, PeerId, multiaddr};
 
 static IS_SLOW_TEST_ENV: LazyLock<bool> =
     LazyLock::new(|| env::var("SLOW_TEST_ENV").is_ok_and(|s| s == "true"));
@@ -30,11 +30,7 @@ pub static IS_DEBUG_TRACING: LazyLock<bool> = LazyLock::new(|| {
 /// In slow test environments like Codecov, use 2x timeout.
 #[must_use]
 pub fn adjust_timeout(d: Duration) -> Duration {
-    if *IS_SLOW_TEST_ENV {
-        d.mul(2)
-    } else {
-        d
-    }
+    if *IS_SLOW_TEST_ENV { d.mul(2) } else { d }
 }
 
 fn node_address_from_port(port: u16) -> Multiaddr {

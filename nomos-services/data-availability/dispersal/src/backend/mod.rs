@@ -1,12 +1,12 @@
 pub mod kzgrs;
 
-use std::{future::Future, pin::Pin};
+use std::pin::Pin;
 
 use nomos_core::{
     da::{DaDispersal, DaEncoder},
     mantle::{
-        ops::channel::{ChannelId, MsgId},
         SignedMantleTx,
+        ops::channel::{ChannelId, MsgId},
     },
 };
 use overwatch::DynError;

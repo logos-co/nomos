@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::{
+    Op,
     channel::{blob::BlobOp, inscribe::InscriptionOp, set_keys::SetKeysOp},
     leader_claim::LeaderClaimOp,
     native::NativeOp,
@@ -9,7 +10,7 @@ use super::{
         SET_CHANNEL_KEYS,
     },
     sdp::{SDPActiveOp, SDPDeclareOp, SDPWithdrawOp},
-    serde_, Op,
+    serde_,
 };
 
 /// Core set of supported Mantle operations and their serialization behaviour.

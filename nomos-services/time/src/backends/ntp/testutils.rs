@@ -6,7 +6,7 @@ use std::{
 
 use log::info;
 use sntpc::NtpResult;
-use time::{error::ComponentRange, Date, Month, OffsetDateTime, Time};
+use time::{Date, Month, OffsetDateTime, Time, error::ComponentRange};
 use tokio::net::UdpSocket;
 
 // NTP epoch starts on Jan 1, 1900; Unix starts on Jan 1, 1970.

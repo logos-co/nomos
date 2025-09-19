@@ -1,6 +1,6 @@
 pub mod mock;
 
-use nomos_core::mantle::{ops::channel::ChannelId, SignedMantleTx};
+use nomos_core::mantle::{SignedMantleTx, ops::channel::ChannelId};
 
 pub struct DispersalStorageError;
 

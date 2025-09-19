@@ -5,7 +5,7 @@ use std::{
     task::{Context, Poll, Waker},
 };
 
-use futures::{Future, Stream, StreamExt as _};
+use futures::{Stream, StreamExt as _};
 use nomos_core::header::HeaderId;
 use overwatch::DynError;
 use tracing::error;
@@ -116,10 +116,10 @@ where
             return;
         }
 
-        if let DownloaderState::Downloading(download) = &self.state {
-            if download.orphan_block_id() == block_id {
-                return;
-            }
+        if let DownloaderState::Downloading(download) = &self.state
+            && download.orphan_block_id() == block_id
+        {
+            return;
         }
 
         if self.pending_orphans_queue.contains_key(&block_id) {
@@ -318,8 +318,8 @@ mod tests {
 
     use cryptarchia_sync::GetTipResponse;
     use futures::stream;
-    use nomos_network::{backends::mock::Mock, message::ChainSyncEvent, NetworkService};
-    use overwatch::services::{relay::OutboundRelay, ServiceData};
+    use nomos_network::{NetworkService, backends::mock::Mock, message::ChainSyncEvent};
+    use overwatch::services::{ServiceData, relay::OutboundRelay};
     use tokio::time::timeout;
 
     use super::*;
@@ -543,10 +543,12 @@ mod tests {
         }
 
         for orphan in &added_orphans {
-            assert!(downloader
-                .pending_orphans_queue
-                .iter()
-                .any(|(key, _)| *key == *orphan));
+            assert!(
+                downloader
+                    .pending_orphans_queue
+                    .iter()
+                    .any(|(key, _)| *key == *orphan)
+            );
         }
 
         let extra_orphan = [255u8; 32].into();
@@ -557,10 +559,12 @@ mod tests {
             downloader.max_pending_orphans.get()
         );
 
-        assert!(!downloader
-            .pending_orphans_queue
-            .iter()
-            .any(|(key, _)| *key == extra_orphan));
+        assert!(
+            !downloader
+                .pending_orphans_queue
+                .iter()
+                .any(|(key, _)| *key == extra_orphan)
+        );
     }
 
     #[tokio::test]
@@ -739,11 +743,13 @@ mod tests {
                 [21u8; 32].into(),
             );
 
-            assert!(!downloader
-                .as_mut()
-                .get_mut()
-                .pending_orphans_queue
-                .contains_key(&chain[4]));
+            assert!(
+                !downloader
+                    .as_mut()
+                    .get_mut()
+                    .pending_orphans_queue
+                    .contains_key(&chain[4])
+            );
 
             assert!(matches!(
                 downloader.as_mut().get_mut().state,

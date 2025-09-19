@@ -6,6 +6,7 @@ use libp2p_identity::PeerId;
 use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId};
 use nomos_da_network_core::SubnetworkId;
 use nomos_da_network_service::{
+    DaNetworkMsg, NetworkService,
     api::ApiAdapter as ApiAdapterTrait,
     backends::libp2p::{
         common::{HistoricSamplingEvent, SamplingEvent},
@@ -13,17 +14,16 @@ use nomos_da_network_service::{
             DaNetworkEvent, DaNetworkEventKind, DaNetworkMessage, DaNetworkValidatorBackend,
         },
     },
-    membership::{handler::DaMembershipHandler, MembershipAdapter},
-    DaNetworkMsg, NetworkService,
+    membership::{MembershipAdapter, handler::DaMembershipHandler},
 };
 use overwatch::{
-    services::{relay::OutboundRelay, ServiceData},
     DynError,
+    services::{ServiceData, relay::OutboundRelay},
 };
 use subnetworks_assignations::MembershipHandler;
 use tokio::sync::oneshot;
 
-use crate::network::{adapters::common::adapter_for, CommitmentsEvent, NetworkAdapter};
+use crate::network::{CommitmentsEvent, NetworkAdapter, adapters::common::adapter_for};
 
 adapter_for!(
     DaNetworkValidatorBackend,

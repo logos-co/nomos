@@ -6,8 +6,8 @@ use nomos_da_messages::{
 };
 
 use super::{
-    errors::SamplingError, BehaviourSampleReq, ResponseChannel, SampleFutureError,
-    SampleRequestFutureSuccess, SampleResponseFutureSuccess,
+    BehaviourSampleReq, ResponseChannel, SampleFutureError, SampleRequestFutureSuccess,
+    SampleResponseFutureSuccess, errors::SamplingError,
 };
 
 /// Auxiliary struct that binds a stream with the corresponding `PeerId`

@@ -1,13 +1,13 @@
 use async_trait::async_trait;
 
 use crate::{
+    StorageServiceError,
     api::{
-        chain::{requests::ChainApiRequest, StorageChainApi},
-        da::{requests::DaApiRequest, StorageDaApi},
-        membership::{requests::MembershipApiRequest, StorageMembershipApi},
+        chain::{StorageChainApi, requests::ChainApiRequest},
+        da::{StorageDaApi, requests::DaApiRequest},
+        membership::{StorageMembershipApi, requests::MembershipApiRequest},
     },
     backends::StorageBackend,
-    StorageServiceError,
 };
 
 pub mod backend;

@@ -20,15 +20,15 @@ use nomos_blend_scheduling::{
 };
 use nomos_core::codec::SerdeOp;
 use overwatch::{
+    OpaqueServiceResourcesHandle,
     overwatch::OverwatchHandle,
     services::{
+        AsServiceId, ServiceCore, ServiceData,
         resources::ServiceResourcesHandle,
         state::{NoOperator, NoState},
-        AsServiceId, ServiceCore, ServiceData,
     },
-    OpaqueServiceResourcesHandle,
 };
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 pub(crate) use service_components::ServiceComponents;
 use services_utils::wait_until_services_are_ready;
 use settings::BlendConfig;

@@ -6,13 +6,13 @@
 use std::error::Error;
 
 use cryptarchia_sync::ChainSyncError;
-use libp2p::{autonat, identify, identity, kad, swarm::NetworkBehaviour, PeerId};
+use libp2p::{PeerId, autonat, identify, identity, kad, swarm::NetworkBehaviour};
 use rand::RngCore;
 use thiserror::Error;
 
 use crate::{
-    behaviour::gossipsub::compute_message_id, protocol_name::ProtocolName, IdentifySettings,
-    KademliaSettings, NatSettings,
+    IdentifySettings, KademliaSettings, NatSettings, behaviour::gossipsub::compute_message_id,
+    protocol_name::ProtocolName,
 };
 
 pub mod chainsync;

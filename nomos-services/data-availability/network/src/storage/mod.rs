@@ -4,20 +4,20 @@ use std::{
     hash::Hash,
 };
 
-use blake2::{digest::Update as BlakeUpdate, Blake2b512, Digest as _};
+use blake2::{Blake2b512, Digest as _, digest::Update as BlakeUpdate};
 use multiaddr::Multiaddr;
 use nomos_core::block::SessionNumber;
 use nomos_utils::blake_rng::BlakeRng;
 use overwatch::{
-    services::{relay::OutboundRelay, ServiceData},
     DynError,
+    services::{ServiceData, relay::OutboundRelay},
 };
 use rand::SeedableRng as _;
 use subnetworks_assignations::{MembershipCreator, MembershipHandler};
 
 use crate::{
     addressbook::{AddressBookMut, AddressBookSnapshot},
-    membership::{handler::DaMembershipHandler, Assignations},
+    membership::{Assignations, handler::DaMembershipHandler},
 };
 
 #[async_trait::async_trait]

@@ -2,8 +2,8 @@ pub mod kzgrs;
 
 use nomos_mempool::backend::MempoolError;
 use overwatch::{
-    services::{relay::OutboundRelay, ServiceData},
     DynError,
+    services::{ServiceData, relay::OutboundRelay},
 };
 
 #[derive(thiserror::Error, Debug)]

@@ -3,8 +3,8 @@ pub mod blob;
 use blob::Share;
 
 use crate::mantle::{
-    ops::channel::{ChannelId, Ed25519PublicKey, MsgId},
     SignedMantleTx,
+    ops::channel::{ChannelId, Ed25519PublicKey, MsgId},
 };
 
 pub type BlobId = [u8; 32];

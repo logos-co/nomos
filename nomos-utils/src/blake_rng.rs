@@ -2,8 +2,9 @@ use std::iter::{Enumerate, FlatMap, Repeat};
 
 use blake2::{Blake2b512, Digest as _};
 pub use cipher::StreamCipher;
-use cipher::{inout::InOutBuf, BlockSizeUser, StreamCipherError};
-pub use rand::{CryptoRng, Error, RngCore, SeedableRng};
+use cipher::{BlockSizeUser, StreamCipherError, inout::InOutBuf};
+use rand::Error;
+pub use rand::{CryptoRng, RngCore, SeedableRng};
 
 const OUTPUT_SIZE: usize = 64;
 type Hasher = Blake2b512;

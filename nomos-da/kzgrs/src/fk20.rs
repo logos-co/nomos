@@ -103,15 +103,15 @@ mod test {
     use std::sync::LazyLock;
 
     use ark_bls12_381::{Bls12_381, Fr};
-    use ark_poly::{univariate::DensePolynomial, EvaluationDomain as _, GeneralEvaluationDomain};
+    use ark_poly::{EvaluationDomain as _, GeneralEvaluationDomain, univariate::DensePolynomial};
     use ark_poly_commit::kzg10::KZG10;
     use rand::SeedableRng as _;
 
     use crate::{
+        BYTES_PER_FIELD_ELEMENT, GlobalParameters, Proof,
         common::bytes_to_polynomial,
-        fk20::{fk20_batch_generate_elements_proofs, Toeplitz1Cache},
+        fk20::{Toeplitz1Cache, fk20_batch_generate_elements_proofs},
         kzg::generate_element_proof,
-        GlobalParameters, Proof, BYTES_PER_FIELD_ELEMENT,
     };
 
     static GLOBAL_PARAMETERS: LazyLock<GlobalParameters> = LazyLock::new(|| {

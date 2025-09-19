@@ -3,15 +3,15 @@ use std::ops::Div as _;
 use ark_ff::{BigInteger as _, PrimeField as _};
 use ark_poly::EvaluationDomain as _;
 use kzgrs::{
-    bdfg_proving, commit_polynomial, common::bytes_to_polynomial_unchecked, encode,
-    fk20::Toeplitz1Cache, Commitment, Evaluations, GlobalParameters, KzgRsError, Polynomial,
-    PolynomialEvaluationDomain, Proof, BYTES_PER_FIELD_ELEMENT,
+    BYTES_PER_FIELD_ELEMENT, Commitment, Evaluations, GlobalParameters, KzgRsError, Polynomial,
+    PolynomialEvaluationDomain, Proof, bdfg_proving, commit_polynomial,
+    common::bytes_to_polynomial_unchecked, encode, fk20::Toeplitz1Cache,
 };
 #[cfg(feature = "parallel")]
 use rayon::iter::{IntoParallelRefIterator as _, ParallelIterator as _};
 
 use crate::{
-    common::{share::DaShare, Chunk, ChunksMatrix, Row},
+    common::{Chunk, ChunksMatrix, Row, share::DaShare},
     global::GLOBAL_PARAMETERS,
 };
 
@@ -263,8 +263,8 @@ pub mod test {
     use ark_poly::{EvaluationDomain as _, GeneralEvaluationDomain};
     use itertools::izip;
     use kzgrs::{
-        common::bytes_to_polynomial_unchecked, decode, FieldElement, PolynomialEvaluationDomain,
-        BYTES_PER_FIELD_ELEMENT,
+        BYTES_PER_FIELD_ELEMENT, FieldElement, PolynomialEvaluationDomain,
+        common::bytes_to_polynomial_unchecked, decode,
     };
     use nomos_core::da::DaEncoder as _;
     use rand::RngCore as _;

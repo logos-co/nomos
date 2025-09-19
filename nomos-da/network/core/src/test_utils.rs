@@ -5,14 +5,14 @@ use std::{
 };
 
 use libp2p::{
+    PeerId, Transport as _,
     core::{transport::MemoryTransport, upgrade::Version},
     identity::Keypair,
     swarm::NetworkBehaviour,
-    PeerId, Transport as _,
 };
 use subnetworks_assignations::MembershipHandler;
 
-use crate::{addressbook::AddressBookHandler, SubnetworkId};
+use crate::{SubnetworkId, addressbook::AddressBookHandler};
 
 #[derive(Clone)]
 pub struct AllNeighbours {

@@ -5,24 +5,24 @@ use std::{
 };
 
 use axum::{
+    Json,
     body::Body,
     extract::{Query, State},
     http::StatusCode,
     response::{IntoResponse as _, Response},
-    Json,
 };
 use broadcast_service::BlockBroadcastService;
 use futures::StreamExt as _;
 use nomos_api::http::{
+    DynError,
     cl::{self, ClMempoolService},
     consensus::{self, Cryptarchia},
     da::{self, BalancerMessageFactory, DaVerifier, MonitorMessageFactory},
     libp2p, mempool,
     storage::StorageAdapter,
-    DynError,
 };
 use nomos_core::{
-    da::{blob::Share, BlobId, DaVerifier as CoreDaVerifier},
+    da::{BlobId, DaVerifier as CoreDaVerifier, blob::Share},
     header::HeaderId,
     mantle::{AuthenticatedMantleTx, SignedMantleTx, Transaction},
 };
@@ -30,20 +30,20 @@ use nomos_da_messages::http::da::{
     DASharesCommitmentsRequest, DaSamplingRequest, GetSharesRequest,
 };
 use nomos_da_network_service::{
-    api::ApiAdapter as ApiAdapterTrait, backends::NetworkBackend, NetworkService,
+    NetworkService, api::ApiAdapter as ApiAdapterTrait, backends::NetworkBackend,
 };
-use nomos_da_sampling::{backend::DaSamplingServiceBackend, DaSamplingService};
+use nomos_da_sampling::{DaSamplingService, backend::DaSamplingServiceBackend};
 use nomos_da_verifier::{backend::VerifierBackend, mempool::DaMempoolAdapter};
 use nomos_http_api_common::paths;
 use nomos_libp2p::PeerId;
 use nomos_mempool::{
-    backend::mockpool::MockPool, network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
-    TxMempoolService,
+    TxMempoolService, backend::mockpool::MockPool,
+    network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
 };
 use nomos_network::backends::libp2p::Libp2p as Libp2pNetworkBackend;
-use nomos_storage::{api::da::DaConverter, backends::rocksdb::RocksBackend, StorageService};
+use nomos_storage::{StorageService, api::da::DaConverter, backends::rocksdb::RocksBackend};
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use subnetworks_assignations::MembershipHandler;
 
 use crate::api::backend::DaStorageBackend;

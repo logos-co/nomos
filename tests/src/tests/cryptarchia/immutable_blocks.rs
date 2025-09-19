@@ -4,7 +4,7 @@ use futures_util::StreamExt as _;
 use serial_test::serial;
 use tests::{
     adjust_timeout,
-    nodes::validator::{create_validator_config, Validator},
+    nodes::validator::{Validator, create_validator_config},
     topology::configs::create_general_configs,
 };
 

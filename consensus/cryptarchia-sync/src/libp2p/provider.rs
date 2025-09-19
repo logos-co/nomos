@@ -1,16 +1,16 @@
-use futures::{stream::BoxStream, TryStreamExt as _};
+use futures::{TryStreamExt as _, stream::BoxStream};
 use libp2p::{PeerId, Stream as Libp2pStream};
 use tokio::sync::mpsc;
 use tracing::error;
 
 use crate::{
+    BlocksResponse, DynError, ProviderResponse, TipResponse,
     libp2p::{
         errors::{ChainSyncError, ChainSyncErrorKind},
         packing::unpack_from_reader,
         utils::{close_stream, send_message},
     },
     messages::{DownloadBlocksResponse, GetTipResponse, RequestMessage, SerialisedBlock},
-    BlocksResponse, DynError, ProviderResponse, TipResponse,
 };
 
 pub const MAX_ADDITIONAL_BLOCKS: usize = 5;

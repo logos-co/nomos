@@ -5,7 +5,7 @@ use nomos_core::sdp::{FinalizedBlockEvent, ServiceType};
 use overwatch::DynError;
 use thiserror::Error;
 
-use crate::{adapters::storage::MembershipStorageAdapter, MembershipProviders};
+use crate::{MembershipProviders, adapters::storage::MembershipStorageAdapter};
 
 pub mod membership;
 

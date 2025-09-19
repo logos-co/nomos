@@ -1,8 +1,8 @@
 use nomos_core::{
     da::BlobId,
     mantle::{
-        ops::{channel::blob::BlobOp, Op},
         SignedMantleTx,
+        ops::{Op, channel::blob::BlobOp},
     },
 };
 use thiserror::Error;

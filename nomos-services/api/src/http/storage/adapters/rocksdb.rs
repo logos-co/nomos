@@ -7,16 +7,16 @@ use std::{
 };
 
 use bytes::Bytes;
-use futures::{stream, Stream, StreamExt as _};
+use futures::{Stream, StreamExt as _, stream};
 use nomos_core::{block::Block, da::blob::Share, header::HeaderId};
 use nomos_storage::{
-    api::da::DaConverter, backends::rocksdb::RocksBackend, StorageMsg, StorageService,
+    StorageMsg, StorageService, api::da::DaConverter, backends::rocksdb::RocksBackend,
 };
 use overwatch::{
-    services::{relay::OutboundRelay, AsServiceId, ServiceData},
     DynError,
+    services::{AsServiceId, ServiceData, relay::OutboundRelay},
 };
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use tokio::sync::oneshot;
 
 use crate::http::storage::StorageAdapter;

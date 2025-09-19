@@ -1,8 +1,8 @@
 use std::{collections::HashSet, fmt::Debug};
 
 use nomos_libp2p::{
-    cryptarchia_sync::{BoxedStream, ChainSyncError, GetTipResponse, HeaderId, SerialisedBlock},
     PeerId,
+    cryptarchia_sync::{BoxedStream, ChainSyncError, GetTipResponse, HeaderId, SerialisedBlock},
 };
 use rand::RngCore;
 use tokio::sync::oneshot;
