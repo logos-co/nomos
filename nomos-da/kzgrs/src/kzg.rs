@@ -336,6 +336,7 @@ pub fn verify_multiple_element_proof(
 #[cfg(test)]
 mod test {
     use std::sync::LazyLock;
+
     use ark_bls12_381::{Bls12_381, Fr};
     use ark_poly::{
         univariate::DensePolynomial, DenseUVPolynomial as _, EvaluationDomain as _,
@@ -401,14 +402,14 @@ mod test {
                 prepared_beta_h: MULTIPLE_GLOBAL_PARAMETERS.prepared_beta_h.clone(),
             },
         )
-            .unwrap();
+        .unwrap();
         let proof = generate_multiple_element_proof(
             &(5..10).collect::<Vec<usize>>(),
             &poly,
             *DOMAIN,
             &MULTIPLE_GLOBAL_PARAMETERS,
         )
-            .unwrap();
+        .unwrap();
         assert!(verify_multiple_element_proof(
             &(5..10).collect::<Vec<usize>>(),
             &eval.evals[5..10],
