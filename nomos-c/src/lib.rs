@@ -1,6 +1,7 @@
-// Safety: Well, this is gonna be a shit show of unsafe calls...
-#![allow(clippy::allow_attributes_without_reason)]
-#![allow(clippy::undocumented_unsafe_blocks)]
+#![allow(
+    clippy::undocumented_unsafe_blocks,
+    reason = "Well, this is gonna be a shit show of unsafe calls..."
+)]
 
 mod api;
 
