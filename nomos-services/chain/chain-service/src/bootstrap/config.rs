@@ -1,5 +1,6 @@
 use std::{collections::HashSet, hash::Hash, time::Duration};
 
+use cryptarchia_engine::Length;
 use nomos_utils::bounded_duration::{MinimalBoundedDuration, SECOND};
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
@@ -43,6 +44,9 @@ where
     /// when no download is needed at the moment from a peer.
     #[serde(default = "default_delay_before_new_download")]
     pub delay_before_new_download: Duration,
+    /// Threshold in number of remaining blocks to the target height
+    /// at which blob validation becomes enabled during IBD.
+    pub final_blocks_with_blob_validation: Length,
 }
 
 const fn default_offline_grace_period() -> Duration {

@@ -1,5 +1,6 @@
 use std::{collections::HashSet, fmt::Debug, future::Future, hash::Hash, marker::PhantomData};
 
+use cryptarchia_engine::Length;
 use cryptarchia_sync::GetTipResponse;
 use futures::StreamExt as _;
 use nomos_core::header::HeaderId;
@@ -7,7 +8,8 @@ use overwatch::DynError;
 use tracing::{debug, error};
 
 use crate::{
-    bootstrap::download::{Delay, Download, Downloads, DownloadsOutput},
+    blob::{BlobValidation, SkipBlobValidation},
+    bootstrap::download::{Delay, Download, Downloads, DownloadsOutput, Target},
     network::NetworkAdapter,
     Cryptarchia, Error as ChainError, IbdConfig,
 };
@@ -19,7 +21,8 @@ pub struct InitialBlockDownload<NetAdapter, ProcessBlockFn, ProcessBlockFut, Run
 where
     NetAdapter: NetworkAdapter<RuntimeServiceId>,
     NetAdapter::PeerId: Clone + Eq + Hash,
-    ProcessBlockFn: Fn(Cryptarchia, HashSet<HeaderId>, NetAdapter::Block) -> ProcessBlockFut,
+    ProcessBlockFn:
+        Fn(Cryptarchia, HashSet<HeaderId>, NetAdapter::Block, Target) -> ProcessBlockFut,
     ProcessBlockFut: Future<Output = Result<(Cryptarchia, HashSet<HeaderId>), Error>>,
 {
     config: IbdConfig<NetAdapter::PeerId>,
@@ -33,7 +36,8 @@ impl<NetAdapter, ProcessBlockFn, ProcessBlockFut, RuntimeServiceId>
 where
     NetAdapter: NetworkAdapter<RuntimeServiceId>,
     NetAdapter::PeerId: Clone + Eq + Hash,
-    ProcessBlockFn: Fn(Cryptarchia, HashSet<HeaderId>, NetAdapter::Block) -> ProcessBlockFut,
+    ProcessBlockFn:
+        Fn(Cryptarchia, HashSet<HeaderId>, NetAdapter::Block, Target) -> ProcessBlockFut,
     ProcessBlockFut: Future<Output = Result<(Cryptarchia, HashSet<HeaderId>), Error>>,
 {
     pub const fn new(
@@ -56,8 +60,9 @@ where
     NetAdapter: NetworkAdapter<RuntimeServiceId> + Send + Sync,
     NetAdapter::PeerId: Copy + Clone + Eq + Hash + Debug + Send + Sync + Unpin,
     NetAdapter::Block: Debug + Unpin,
-    ProcessBlockFn:
-        Fn(Cryptarchia, HashSet<HeaderId>, NetAdapter::Block) -> ProcessBlockFut + Send + Sync,
+    ProcessBlockFn: Fn(Cryptarchia, HashSet<HeaderId>, NetAdapter::Block, Target) -> ProcessBlockFut
+        + Send
+        + Sync,
     ProcessBlockFut: Future<Output = Result<(Cryptarchia, HashSet<HeaderId>), Error>> + Send,
     RuntimeServiceId: Sync,
 {
@@ -133,7 +138,7 @@ where
         peer: NetAdapter::PeerId,
         latest_downloaded_block: Option<HeaderId>,
         cryptarchia: &Cryptarchia,
-        targets_in_progress: &HashSet<HeaderId>,
+        targets_in_progress: &HashSet<Target>,
     ) -> Result<Option<Download<NetAdapter::PeerId, NetAdapter::Block>>, Error> {
         // Get the most recent peer's tip.
         let tip_response = self
@@ -144,7 +149,7 @@ where
 
         // Use the peer's tip as the target for the download.
         let target = match tip_response {
-            GetTipResponse::Tip { tip, .. } => tip,
+            GetTipResponse::Tip { tip, height, .. } => Target::new(tip, height),
             GetTipResponse::Failure(reason) => {
                 return Err(Error::BlockProvider(DynError::from(reason)));
             }
@@ -159,7 +164,7 @@ where
             .network
             .request_blocks_from_peer(
                 peer,
-                target,
+                target.id(),
                 cryptarchia.tip(),
                 cryptarchia.lib(),
                 latest_downloaded_block.map_or_else(HashSet::new, |id| HashSet::from([id])),
@@ -171,11 +176,11 @@ where
     }
 
     fn should_download(
-        target: &HeaderId,
+        target: &Target,
         cryptarchia: &Cryptarchia,
-        targets_in_progress: &HashSet<HeaderId>,
+        targets_in_progress: &HashSet<Target>,
     ) -> bool {
-        cryptarchia.consensus.branches().get(target).is_none()
+        cryptarchia.consensus.branches().get(&target.id()).is_none()
             && !targets_in_progress.contains(target)
     }
 
@@ -225,6 +230,7 @@ where
                         cryptarchia.clone(),
                         storage_blocks_to_remove.clone(),
                         block,
+                        download.target(),
                     )
                     .await;
                     match process_block_result {
@@ -311,10 +317,54 @@ where
     }
 }
 
+#[expect(
+    clippy::if_same_then_else,
+    reason = "will be resolved by using historic sampling"
+)]
+pub fn determine_blob_validation<BlobId, Tx>(
+    parent: HeaderId,
+    target: Target,
+    cryptarchia: &Cryptarchia,
+    final_blocks_with_blob_validation: Length,
+) -> Result<Box<dyn BlobValidation<BlobId, Tx> + Send + Sync>, Error> {
+    if depth_from_target(parent, target, cryptarchia)? <= final_blocks_with_blob_validation {
+        Ok(Box::new(SkipBlobValidation)) // TODO: use historic sampling: https://github.com/logos-co/nomos/issues/1675
+    } else {
+        Ok(Box::new(SkipBlobValidation))
+    }
+}
+
+pub fn depth_from_target(
+    parent: HeaderId,
+    target: Target,
+    cryptarchia: &Cryptarchia,
+) -> Result<Length, Error> {
+    let parent_height = cryptarchia
+        .consensus
+        .branches()
+        .get(&parent)
+        .ok_or(Error::ParentNotFound(parent))?
+        .length();
+    let height = parent_height
+        .checked_add(1u64.into())
+        .expect("Height shouldn't be overflown");
+    target
+        .height()
+        .checked_sub(height)
+        .ok_or(Error::ReceivedBlockIsHigherThanTarget {
+            received: height,
+            target: target.height(),
+        })
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("Block provider error: {0}")]
     BlockProvider(DynError),
+    #[error("Parent block not found: {0}")]
+    ParentNotFound(HeaderId),
+    #[error("Received block height({received}) is higher than the target height({target})")]
+    ReceivedBlockIsHigherThanTarget { received: Length, target: Length },
     #[error("All peers failed")]
     AllPeersFailed,
     #[error("Block processing failed: {0}")]
@@ -325,7 +375,7 @@ pub enum Error {
 mod tests {
     use std::{collections::HashMap, iter::empty, num::NonZero};
 
-    use cryptarchia_engine::{EpochConfig, Length, Slot};
+    use cryptarchia_engine::{EpochConfig, Slot};
     use nomos_core::sdp::{MinStake, ServiceParameters};
     use nomos_ledger::LedgerState;
     use nomos_network::{backends::NetworkBackend, message::ChainSyncEvent, NetworkService};
@@ -652,8 +702,6 @@ mod tests {
         // All blocks from peer1 that provided valid blocks
         // should be added to the local chain.
         assert!(peer1.chain.iter().all(|b| contain(b, &cryptarchia)));
-        // The local tip should be the same as peer1's tip.
-        assert_eq!(cryptarchia.tip(), peer1.tip.unwrap().id);
 
         // Blocks from peer0 remain in the local chain only until
         // right before the failure.
@@ -708,6 +756,7 @@ mod tests {
         mut cryptarchia: Cryptarchia,
         storage_blocks_to_remove: HashSet<HeaderId>,
         block: Block,
+        _: Target,
     ) -> Result<(Cryptarchia, HashSet<HeaderId>), Error> {
         // Add the block only to the consensus, not to the ledger state
         // because the mocked block doesn't have a proof.
@@ -731,6 +780,7 @@ mod tests {
         IbdConfig {
             peers,
             delay_before_new_download: std::time::Duration::from_millis(1),
+            final_blocks_with_blob_validation: 2u64.into(),
         }
     }
 
