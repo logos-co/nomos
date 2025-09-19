@@ -23,10 +23,11 @@ use crate::{
     libp2p::{
         downloader::Downloader,
         errors::ChainSyncError,
+        messages::RequestMessage,
         provider::{Provider, ReceivingRequestStream, MAX_ADDITIONAL_BLOCKS},
     },
-    messages::{DownloadBlocksRequest, GetTipResponse, RequestMessage, SerialisedBlock},
-    BlocksResponse, TipResponse,
+    messages::{GetTipResponse, SerialisedBlock},
+    BlocksResponse, DownloadBlocksRequest, TipResponse,
 };
 
 /// Cryptarchia networking protocol for synchronizing blocks.
@@ -526,10 +527,10 @@ mod tests {
             errors::{ChainSyncError, ChainSyncErrorKind},
             provider::MAX_ADDITIONAL_BLOCKS,
         },
-        messages::{GetTipResponse, SerialisedBlock},
+        messages::GetTipResponse,
         BlocksResponse, DynError,
         GetTipResponse::Tip,
-        ProviderResponse, TipResponse,
+        ProviderResponse, SerialisedBlock, TipResponse,
     };
 
     #[tokio::test]

@@ -94,7 +94,7 @@ pub fn bytes_to_polynomial<const CHUNK_SIZE: usize>(
     if CHUNK_SIZE > BYTES_PER_FIELD_ELEMENT {
         return Err(KzgRsError::ChunkSizeTooBig(CHUNK_SIZE));
     }
-    if data.len() % CHUNK_SIZE != 0 {
+    if !data.len().is_multiple_of(CHUNK_SIZE) {
         return Err(KzgRsError::UnpaddedDataError {
             expected_modulus: CHUNK_SIZE,
             current_size: data.len(),

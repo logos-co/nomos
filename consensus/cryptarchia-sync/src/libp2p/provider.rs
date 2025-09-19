@@ -6,10 +6,11 @@ use tracing::error;
 use crate::{
     libp2p::{
         errors::{ChainSyncError, ChainSyncErrorKind},
+        messages::{DownloadBlocksResponse, RequestMessage},
         packing::unpack_from_reader,
         utils::{close_stream, send_message},
     },
-    messages::{DownloadBlocksResponse, GetTipResponse, RequestMessage, SerialisedBlock},
+    messages::{GetTipResponse, SerialisedBlock},
     BlocksResponse, DynError, ProviderResponse, TipResponse,
 };
 

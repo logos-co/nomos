@@ -216,6 +216,7 @@ cast_possible_truncation    = { level = "allow" }
 cast_possible_wrap          = { level = "allow" }
 cast_precision_loss         = { level = "allow" }
 cast_sign_loss              = { level = "allow" }
+doc_broken_link             = { level = "allow" }
 error_impl_error            = { level = "allow" }
 impl_trait_in_params        = { level = "allow" }
 indexing_slicing            = { level = "allow" }

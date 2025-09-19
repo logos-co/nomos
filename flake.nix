@@ -4,7 +4,7 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/02c80fc5421018016669d79765b40a18aaf3bd8d";
     rust-overlay = {
-      url = "github:oxalica/rust-overlay/c448ab42002ac39d3337da10420c414fccfb1088";
+      url = "github:oxalica/rust-overlay/e26a009e7edab102bd569dc041459deb6c0009f4";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
@@ -32,7 +32,7 @@
               pkg-config
               # Updating the version here requires also updating the `rev` version in the `overlays` section above
               # with a commit that contains the new version in its manifest
-              rust-bin.stable."1.89.0".default
+              rust-bin.stable."1.90.0".default
               clang_14
               llvmPackages_14.libclang
               openssl.dev

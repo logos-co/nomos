@@ -1,5 +1,4 @@
 pub mod adapters;
-mod messages;
 
 use futures::Stream;
 use nomos_network::{backends::NetworkBackend, NetworkService};
