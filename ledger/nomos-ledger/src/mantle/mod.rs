@@ -657,6 +657,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(clippy::too_many_lines, reason = "Test function.")]
     fn test_sdp_withdraw_operation() {
         // First, declare a service to activate.
         let utxo = utxo();
