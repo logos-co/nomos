@@ -52,7 +52,10 @@ pub use nomos_system_sig::SystemSig;
 use nomos_time::backends::NtpTimeBackend;
 #[cfg(feature = "tracing")]
 pub use nomos_tracing_service::Tracing;
-use overwatch::derive_services;
+use overwatch::{
+    derive_services,
+    overwatch::{Error as OverwatchError, Overwatch},
+};
 use subnetworks_assignations::versions::history_aware_refill::HistoryAware;
 
 pub use crate::config::{Config, CryptarchiaArgs, HttpArgs, LogArgs, NetworkArgs};

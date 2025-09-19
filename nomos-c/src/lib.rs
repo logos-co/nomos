@@ -6,10 +6,10 @@ mod api;
 
 use std::ffi::c_char;
 
-pub use api::{stop_node, NomosNode};
+pub use api::{NomosNode, stop_node};
 use nomos_node::{
-    get_services_to_start, AdapterSettings, Config, Nomos, NomosServiceSettings, SignedMantleTx,
-    SignedTxProcessorSettings, Transaction, TxMempoolSettings,
+    AdapterSettings, Config, Nomos, NomosServiceSettings, SignedMantleTx,
+    SignedTxProcessorSettings, Transaction, TxMempoolSettings, get_services_to_start,
 };
 use overwatch::overwatch::OverwatchRunner;
 use tokio::runtime::Runtime;
@@ -51,16 +51,16 @@ fn initialize_nomos_node(config_path: *const c_char) -> Result<NomosNode, NomosN
     let config_path = unsafe { std::ffi::CStr::from_ptr(config_path) }
         .to_str()
         .map_err(|e| {
-            eprintln!("Could not convert config path to string: {}", e);
+            eprintln!("Could not convert config path to string: {e}");
             NomosNodeErrorCode::CouldNotInitialize
         })?;
     let config =
         serde_yaml::from_reader::<_, Config>(std::fs::File::open(config_path).map_err(|e| {
-            eprintln!("Could not open config file: {}", e);
+            eprintln!("Could not open config file: {e}");
             NomosNodeErrorCode::CouldNotInitialize
         })?)
         .map_err(|e| {
-            eprintln!("Could not parse config file: {}", e);
+            eprintln!("Could not parse config file: {e}");
             NomosNodeErrorCode::CouldNotInitialize
         })?;
 
@@ -94,13 +94,14 @@ fn initialize_nomos_node(config_path: *const c_char) -> Result<NomosNode, NomosN
             time: config.time,
             storage: config.storage,
             system_sig: (),
+            wallet: config.wallet,
             sdp: (),
             membership: config.membership,
         },
         Some(handle.clone()),
     )
     .map_err(|e| {
-        eprintln!("Could not initialize overwatch: {}", e);
+        eprintln!("Could not initialize overwatch: {e}");
         NomosNodeErrorCode::CouldNotInitialize
     })?;
 
@@ -114,14 +115,14 @@ fn initialize_nomos_node(config_path: *const c_char) -> Result<NomosNode, NomosN
         )
         .await
         .map_err(|e| {
-            eprintln!("Could not get services to start: {}", e);
+            eprintln!("Could not get services to start: {e}");
             NomosNodeErrorCode::CouldNotInitialize
         })?;
         app_handel
             .start_service_sequence(services_to_start)
             .await
             .map_err(|e| {
-                eprintln!("Could not start services: {}", e);
+                eprintln!("Could not start services: {e}");
                 NomosNodeErrorCode::CouldNotInitialize
             })?;
         Ok(())

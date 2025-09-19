@@ -48,8 +48,8 @@ impl NomosNode {
     fn stop(self) -> NomosNodeErrorCode {
         let runtime_handle = self.get_runtime_handle();
         let overwatch_handle = self.get_overwatch_handle();
-        if let Some(e) = runtime_handle.block_on(overwatch_handle.stop_all_services()) {
-            eprintln!("Could not stop services: {}", e);
+        if let Err(e) = runtime_handle.block_on(overwatch_handle.stop_all_services()) {
+            eprintln!("Could not stop services: {e}");
             return NomosNodeErrorCode::StopError;
         }
         NomosNodeErrorCode::None
