@@ -2,7 +2,7 @@ use nomos_tracing::{
     logging::loki::LokiConfig, metrics::otlp::OtlpMetricsConfig, tracing::otlp::OtlpTracingConfig,
 };
 use nomos_tracing_service::{
-    FilterLayer, LoggerLayer, MetricsLayer, TracingLayer, TracingSettings,
+    ConsoleLayer, FilterLayer, LoggerLayer, MetricsLayer, TracingLayer, TracingSettings,
 };
 use tracing::Level;
 
@@ -41,6 +41,7 @@ impl GeneralTracingConfig {
                         .unwrap(),
                     host_identifier,
                 }),
+                console: ConsoleLayer::None,
                 level: Level::DEBUG,
             },
         }

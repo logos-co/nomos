@@ -7,6 +7,9 @@ version = "0.1.0"
 [lints]
 workspace = true
 
+[features]
+profiling = ["console-subscriber"]
+
 [dependencies]
 async-trait        = "0.1"
 nomos-tracing      = { workspace = true }
@@ -15,3 +18,5 @@ serde              = { default-features = false, version = "1.0" }
 tracing            = { workspace = true }
 tracing-appender   = "0.2"
 tracing-subscriber = { default-features = false, version = "0.3" }
+
+console-subscriber = { default-features = false, version = "0.4", optional = true }
