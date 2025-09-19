@@ -12,8 +12,8 @@ use crate::{
         tests::utils::{TestEncapsulatedMessage, TestSwarm},
         with_core::{
             behaviour::{
-                tests::utils::{BehaviourBuilder, SwarmExt as _},
                 Event, NegotiatedPeerState, SpamReason,
+                tests::utils::{BehaviourBuilder, SwarmExt as _},
             },
             error::Error,
         },

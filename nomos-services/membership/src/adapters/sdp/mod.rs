@@ -3,8 +3,8 @@ pub mod ledger;
 use async_trait::async_trait;
 use nomos_sdp::FinalizedBlockUpdateStream;
 use overwatch::{
-    services::{relay::OutboundRelay, ServiceData},
     DynError,
+    services::{ServiceData, relay::OutboundRelay},
 };
 use thiserror::Error;
 

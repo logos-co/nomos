@@ -5,12 +5,12 @@ use std::{
 };
 
 use futures::{
-    channel::oneshot::{Receiver, Sender},
     StreamExt,
+    channel::oneshot::{Receiver, Sender},
 };
 use kzgrs_backend::common::{
-    share::{DaLightShare, DaShare, DaSharesCommitments},
     ShareIndex,
+    share::{DaLightShare, DaShare, DaSharesCommitments},
 };
 use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId, mantle::SignedMantleTx};
 use nomos_da_messages::common::Share;
@@ -19,23 +19,22 @@ use nomos_da_network_core::{
     protocols::{
         dispersal::validator::behaviour::DispersalEvent,
         sampling::{
-            self,
+            self, BehaviourSampleReq, BehaviourSampleRes, SubnetsConfig,
             errors::{HistoricSamplingError, SamplingError},
             opinions::OpinionEvent,
-            BehaviourSampleReq, BehaviourSampleRes, SubnetsConfig,
         },
     },
     swarm::{
-        validator::{SampleArgs, ValidatorEventsStream},
         DAConnectionMonitorSettings, DAConnectionPolicySettings, DispersalValidationError,
         DispersalValidationResult, DispersalValidatorEvent, ReplicationConfig,
+        validator::{SampleArgs, ValidatorEventsStream},
     },
 };
-use nomos_libp2p::{ed25519, secret_key_serde, Multiaddr};
+use nomos_libp2p::{Multiaddr, ed25519, secret_key_serde};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{
     broadcast,
-    mpsc::{self, error::SendError, UnboundedSender},
+    mpsc::{self, UnboundedSender, error::SendError},
     oneshot,
 };
 use tracing::error;
@@ -563,7 +562,9 @@ pub(crate) async fn handle_historic_sample_request<Membership>(
     if let Err(SendError((blob_id, session_id, block_id, _))) =
         historic_sample_request_channel.send((blob_ids, session_id, block_id, membership))
     {
-        error!("Error requesting historic sample for blob_id: {blob_id:?}, session_id: {session_id:?}, block_id: {block_id:?}");
+        error!(
+            "Error requesting historic sample for blob_id: {blob_id:?}, session_id: {session_id:?}, block_id: {block_id:?}"
+        );
     }
 }
 

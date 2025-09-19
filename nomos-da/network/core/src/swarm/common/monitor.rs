@@ -21,7 +21,7 @@ use crate::{
             },
         },
         replication::behaviour::{ReplicationError, ReplicationEvent},
-        sampling::{errors::SamplingError, SamplingEvent},
+        sampling::{SamplingEvent, errors::SamplingError},
     },
 };
 
@@ -379,7 +379,7 @@ mod tests {
     use subnetworks_assignations::versions::v1::FillFromNodeList;
 
     use super::*;
-    use crate::swarm::{common::policy::DAConnectionPolicy, DAConnectionPolicySettings};
+    use crate::swarm::{DAConnectionPolicySettings, common::policy::DAConnectionPolicy};
 
     fn setup_monitor(peer_id: PeerId) -> DAConnectionMonitor<DAConnectionPolicy<FillFromNodeList>> {
         let monitor_settings = DAConnectionMonitorSettings {

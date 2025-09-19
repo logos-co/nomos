@@ -2,22 +2,22 @@ use std::collections::HashSet;
 
 use async_trait::async_trait;
 use chain_service::{
-    api::{CryptarchiaServiceApi, CryptarchiaServiceData},
-    storage::{adapters::storage::StorageAdapter, StorageAdapter as _},
     LibUpdate,
+    api::{CryptarchiaServiceApi, CryptarchiaServiceData},
+    storage::{StorageAdapter as _, adapters::storage::StorageAdapter},
 };
 use nomos_core::{
     block::Block,
     header::HeaderId,
-    mantle::{keys::PublicKey, SignedMantleTx, Utxo, Value},
+    mantle::{SignedMantleTx, Utxo, Value, keys::PublicKey},
 };
 use nomos_storage::backends::StorageBackend;
 use overwatch::{
-    services::{
-        state::{NoOperator, NoState},
-        AsServiceId, ServiceCore, ServiceData,
-    },
     DynError, OpaqueServiceResourcesHandle,
+    services::{
+        AsServiceId, ServiceCore, ServiceData,
+        state::{NoOperator, NoState},
+    },
 };
 use tokio::sync::oneshot;
 use tracing::{debug, error, info, trace};

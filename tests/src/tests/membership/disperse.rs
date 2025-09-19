@@ -10,14 +10,14 @@ use nomos_core::{
     sdp::{FinalizedBlockEvent, FinalizedBlockEventUpdate, Locator, ProviderId},
 };
 use nomos_utils::net::get_available_udp_port;
-use rand::{thread_rng, Rng as _};
+use rand::{Rng as _, thread_rng};
 use serial_test::serial;
 use tests::{
-    common::da::{disseminate_with_metadata, wait_for_blob_onchain, APP_ID},
+    common::da::{APP_ID, disseminate_with_metadata, wait_for_blob_onchain},
     nodes::{executor::Executor, validator::Validator},
     topology::{
-        configs::membership::{create_membership_configs, GeneralMembershipConfig, MembershipNode},
         Topology, TopologyConfig,
+        configs::membership::{GeneralMembershipConfig, MembershipNode, create_membership_configs},
     },
 };
 

@@ -4,7 +4,7 @@ use kzgrs_backend::{
     common::share::DaShare, global::global_parameters_from_file,
     verifier::DaVerifier as NomosKzgrsVerifier,
 };
-use nomos_core::da::{blob::Share, DaVerifier};
+use nomos_core::da::{DaVerifier, blob::Share};
 use serde::{Deserialize, Serialize};
 
 use super::VerifierBackend;

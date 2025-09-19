@@ -2,13 +2,13 @@ use std::{marker::PhantomData, path::PathBuf};
 
 use nomos_core::da::blob::Share;
 use nomos_storage::{
-    api::da::DaConverter, backends::rocksdb::RocksBackend, StorageMsg, StorageService,
+    StorageMsg, StorageService, api::da::DaConverter, backends::rocksdb::RocksBackend,
 };
 use overwatch::{
-    services::{relay::OutboundRelay, ServiceData},
     DynError,
+    services::{ServiceData, relay::OutboundRelay},
 };
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::storage::DaStorageAdapter;
 

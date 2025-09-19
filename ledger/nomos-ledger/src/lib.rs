@@ -16,7 +16,7 @@ use mantle::LedgerState as MantleLedger;
 use nomos_core::{
     block::BlockNumber,
     mantle::{
-        gas::GasConstants, ops::leader_claim::VoucherCm, AuthenticatedMantleTx, NoteId, Utxo,
+        AuthenticatedMantleTx, NoteId, Utxo, gas::GasConstants, ops::leader_claim::VoucherCm,
     },
     proofs::leader_proof,
 };
@@ -257,8 +257,8 @@ mod tests {
     use groth16::Fr;
     use nomos_core::{
         mantle::{
-            gas::MainnetGasConstants, keys::PublicKey, ledger::Tx as LedgerTx, GasCost as _,
-            MantleTx, Note, SignedMantleTx, Transaction as _,
+            GasCost as _, MantleTx, Note, SignedMantleTx, Transaction as _,
+            gas::MainnetGasConstants, keys::PublicKey, ledger::Tx as LedgerTx,
         },
         proofs::zksig::DummyZkSignature,
     };

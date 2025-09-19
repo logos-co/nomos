@@ -396,8 +396,8 @@ mod test {
     }
 
     #[tokio::test]
-    async fn test_multi_readers_single_writer(
-    ) -> Result<(), <RocksBackend as StorageBackend>::Error> {
+    async fn test_multi_readers_single_writer()
+    -> Result<(), <RocksBackend as StorageBackend>::Error> {
         use tokio::sync::mpsc::channel;
 
         let temp_path = TempDir::new().unwrap();

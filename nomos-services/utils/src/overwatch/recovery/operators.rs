@@ -2,10 +2,10 @@ use std::fmt::Debug;
 
 use log::error;
 use overwatch::services::state::{ServiceState, StateOperator};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 
 use crate::{
-    overwatch::recovery::{errors::RecoveryError, RecoveryResult},
+    overwatch::recovery::{RecoveryResult, errors::RecoveryError},
     traits::FromSettings,
 };
 

@@ -4,12 +4,12 @@ use std::{
 };
 
 use axum::{
+    Router,
     http::{
-        header::{CONTENT_TYPE, USER_AGENT},
         HeaderValue,
+        header::{CONTENT_TYPE, USER_AGENT},
     },
     routing::post,
-    Router,
 };
 use kzgrs_backend::common::share::DaShare;
 use nomos_api::Backend;
@@ -18,7 +18,7 @@ use nomos_da_sampling::{
     backend::kzgrs::KzgrsSamplingBackend,
     network::adapters::executor::Libp2pAdapter as SamplingLibp2pAdapter,
     storage::adapters::rocksdb::{
-        converter::DaStorageConverter, RocksAdapter as SamplingStorageAdapter,
+        RocksAdapter as SamplingStorageAdapter, converter::DaStorageConverter,
     },
 };
 use nomos_http_api_common::{
@@ -28,14 +28,14 @@ use nomos_http_api_common::{
 };
 use nomos_membership::MembershipService as MembershipServiceTrait;
 use nomos_node::{
+    DaNetworkApiAdapter, NomosDaMembership,
     api::testing::handlers::{da_get_membership, da_historic_sampling, update_membership},
     generic_services::{
         self, DaMembershipAdapter, MembershipBackend, MembershipSdp, MembershipService,
         MembershipStorageGeneric,
     },
-    DaNetworkApiAdapter, NomosDaMembership,
 };
-use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId, DynError};
+use overwatch::{DynError, overwatch::handle::OverwatchHandle, services::AsServiceId};
 use services_utils::wait_until_services_are_ready;
 use tokio::net::TcpListener;
 use tower::limit::ConcurrencyLimitLayer;

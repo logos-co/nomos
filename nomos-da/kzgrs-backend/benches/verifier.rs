@@ -1,13 +1,13 @@
 use std::hint::black_box;
 
-use divan::{counter::BytesCount, Bencher};
+use divan::{Bencher, counter::BytesCount};
 use kzgrs_backend::{
-    common::{share::DaShare, Chunk},
+    common::{Chunk, share::DaShare},
     encoder::{DaEncoder, DaEncoderParams},
     global::GLOBAL_PARAMETERS,
 };
-use nomos_core::da::{blob::Share as _, DaEncoder as _};
-use rand::{thread_rng, RngCore as _};
+use nomos_core::da::{DaEncoder as _, blob::Share as _};
+use rand::{RngCore as _, thread_rng};
 
 fn main() {
     divan::main();

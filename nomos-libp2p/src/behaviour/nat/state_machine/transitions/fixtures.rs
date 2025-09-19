@@ -1,12 +1,11 @@
 use std::{collections::HashSet, hash::Hash, str::FromStr as _, sync::LazyLock};
 
 use libp2p::{
-    autonat,
+    Multiaddr, PeerId, autonat,
     swarm::{
-        behaviour::ExternalAddrConfirmed, FromSwarm, NewExternalAddrCandidate,
-        NewExternalAddrOfPeer,
+        FromSwarm, NewExternalAddrCandidate, NewExternalAddrOfPeer,
+        behaviour::ExternalAddrConfirmed,
     },
-    Multiaddr, PeerId,
 };
 
 use crate::behaviour::nat::{

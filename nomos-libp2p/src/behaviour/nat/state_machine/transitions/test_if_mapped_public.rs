@@ -1,5 +1,5 @@
 use crate::behaviour::nat::state_machine::{
-    event::Event, states::TestIfMappedPublic, Command, CommandTx, OnEvent, State,
+    Command, CommandTx, OnEvent, State, event::Event, states::TestIfMappedPublic,
 };
 
 /// The `TestIfMappedPublic` state is responsible for testing if the mapped
@@ -47,13 +47,13 @@ mod tests {
 
     use super::Command;
     use crate::behaviour::nat::state_machine::{
+        StateMachine,
         states::{MappedPublic, Private, TestIfMappedPublic, TryMapAddress},
         transitions::fixtures::{
-            all_events, autonat_failed, autonat_failed_address_mismatch, default_gateway_changed,
-            default_gateway_changed_no_local_address, external_address_confirmed,
-            external_address_confirmed_address_mismatch, ADDR,
+            ADDR, all_events, autonat_failed, autonat_failed_address_mismatch,
+            default_gateway_changed, default_gateway_changed_no_local_address,
+            external_address_confirmed, external_address_confirmed_address_mismatch,
         },
-        StateMachine,
     };
 
     #[test]

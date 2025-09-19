@@ -2,14 +2,13 @@ use std::task::{Context, Poll};
 
 use either::Either;
 use libp2p::{
-    autonat,
-    core::{transport::PortUse, Endpoint},
+    Multiaddr, PeerId, autonat,
+    core::{Endpoint, transport::PortUse},
     swarm::{
-        behaviour::toggle::{Toggle, ToggleConnectionHandler},
         ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, NewListenAddr, THandler,
         THandlerInEvent, THandlerOutEvent, ToSwarm,
+        behaviour::toggle::{Toggle, ToggleConnectionHandler},
     },
-    Multiaddr, PeerId,
 };
 use rand::RngCore;
 
@@ -162,11 +161,11 @@ impl<Rng: RngCore + 'static> NetworkBehaviour for Behaviour<Rng> {
 mod tests {
     use std::time::Duration;
 
-    use libp2p::{identify, identity, swarm::SwarmEvent, Swarm};
+    use libp2p::{Swarm, identify, identity, swarm::SwarmEvent};
     use libp2p_swarm_test::SwarmExt as _;
     use rand::rngs::OsRng;
     use tokio::time::timeout;
-    use tracing_subscriber::{fmt::TestWriter, EnvFilter};
+    use tracing_subscriber::{EnvFilter, fmt::TestWriter};
 
     use super::*;
     use crate::config::AutonatClientSettings;

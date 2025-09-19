@@ -5,11 +5,11 @@ use std::{
 };
 
 use nomos_tracing_service::TracingSettings;
-use tests::topology::configs::{consensus::ConsensusParams, da::DaParams, GeneralConfig};
+use tests::topology::configs::{GeneralConfig, consensus::ConsensusParams, da::DaParams};
 use tokio::{sync::oneshot::Sender, time::timeout};
 
 use crate::{
-    config::{create_node_configs, Host},
+    config::{Host, create_node_configs},
     server::CfgSyncConfig,
 };
 

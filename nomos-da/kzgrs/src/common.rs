@@ -3,14 +3,14 @@ use std::fmt;
 use ark_bls12_381::fr::Fr;
 use ark_ff::Zero as _;
 use ark_poly::{
-    domain::general::GeneralEvaluationDomain, evaluations::univariate::Evaluations,
-    univariate::DensePolynomial, EvaluationDomain as _,
+    EvaluationDomain as _, domain::general::GeneralEvaluationDomain,
+    evaluations::univariate::Evaluations, univariate::DensePolynomial,
 };
 use blst::BLST_ERROR;
 use num_bigint::BigUint;
 use thiserror::Error;
 
-use crate::{FieldElement, BYTES_PER_FIELD_ELEMENT};
+use crate::{BYTES_PER_FIELD_ELEMENT, FieldElement};
 
 #[derive(Error, Debug)]
 pub struct BlstError(pub BLST_ERROR);
@@ -38,7 +38,9 @@ impl From<BLST_ERROR> for KzgRsError {
 
 #[derive(Error, Debug)]
 pub enum KzgRsError {
-    #[error("Data isn't properly padded, data len must match modulus {expected_modulus} but it is {current_size}")]
+    #[error(
+        "Data isn't properly padded, data len must match modulus {expected_modulus} but it is {current_size}"
+    )]
     UnpaddedDataError {
         expected_modulus: usize,
         current_size: usize,
@@ -47,7 +49,9 @@ pub enum KzgRsError {
     ChunkSizeTooBig(usize),
     #[error("Not enough attestations, required {required} but received {received}")]
     NotEnoughAttestations { required: usize, received: usize },
-    #[error("Mismatch between number of attestations ({attestations_count}) and number of signers ({signers_count})")]
+    #[error(
+        "Mismatch between number of attestations ({attestations_count}) and number of signers ({signers_count})"
+    )]
     AttestationSignersMismatch {
         attestations_count: usize,
         signers_count: usize,
@@ -144,10 +148,10 @@ mod test {
     use ark_ff::{BigInteger as _, PrimeField as _};
     use ark_poly::{EvaluationDomain as _, GeneralEvaluationDomain, Polynomial as _};
     use blst::BLST_ERROR;
-    use rand::{thread_rng, Fill as _};
+    use rand::{Fill as _, thread_rng};
 
     use super::{
-        bytes_to_evaluations, bytes_to_polynomial, compute_roots_of_unity, BlstError, KzgRsError,
+        BlstError, KzgRsError, bytes_to_evaluations, bytes_to_polynomial, compute_roots_of_unity,
     };
 
     const CHUNK_SIZE: usize = 31;

@@ -5,7 +5,7 @@ use nomos_core::{
     mantle::{ops::Op, tx::SignedMantleTx},
 };
 use nomos_da_sampling::DaSamplingServiceMsg;
-use overwatch::services::{relay::OutboundRelay, ServiceData};
+use overwatch::services::{ServiceData, relay::OutboundRelay};
 use serde::{Deserialize, Serialize};
 
 use super::{PayloadProcessor, ProcessorTask};

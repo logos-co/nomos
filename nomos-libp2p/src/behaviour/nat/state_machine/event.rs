@@ -1,7 +1,6 @@
 use libp2p::{
-    autonat,
-    swarm::{behaviour::ExternalAddrConfirmed, FromSwarm, NewExternalAddrCandidate},
-    Multiaddr,
+    Multiaddr, autonat,
+    swarm::{FromSwarm, NewExternalAddrCandidate, behaviour::ExternalAddrConfirmed},
 };
 
 use crate::behaviour::nat::address_mapper;

@@ -1,7 +1,7 @@
 use nomos_utils::blake_rng::BlakeRng;
 
 use crate::{
-    core::{backends::BlendBackend, BlendService},
+    core::{BlendService, backends::BlendBackend},
     message::ServiceMessage,
 };
 

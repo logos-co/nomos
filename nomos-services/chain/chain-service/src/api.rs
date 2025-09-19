@@ -1,7 +1,7 @@
 use nomos_core::header::HeaderId;
 use overwatch::{
-    services::{relay::OutboundRelay, AsServiceId, ServiceData},
     DynError, OpaqueServiceResourcesHandle,
+    services::{AsServiceId, ServiceData, relay::OutboundRelay},
 };
 use tokio::sync::{broadcast, oneshot};
 

@@ -1,7 +1,7 @@
 use cryptarchia_engine::Slot;
 use groth16::Fr;
 use nomos_core::{
-    mantle::{keys::SecretKey, ops::leader_claim::VoucherCm, Utxo},
+    mantle::{Utxo, keys::SecretKey, ops::leader_claim::VoucherCm},
     proofs::leader_proof::{Groth16LeaderProof, LeaderPrivate, LeaderPublic},
 };
 use nomos_ledger::{EpochState, UtxoTree};

@@ -1,6 +1,6 @@
 use futures::channel::oneshot::{Receiver, Sender};
 
-use crate::protocols::sampling::{errors::SamplingError, BehaviourSampleReq, BehaviourSampleRes};
+use crate::protocols::sampling::{BehaviourSampleReq, BehaviourSampleRes, errors::SamplingError};
 
 pub mod response_behaviour;
 

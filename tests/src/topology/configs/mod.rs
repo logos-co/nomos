@@ -17,7 +17,7 @@ use consensus::GeneralConsensusConfig;
 use da::GeneralDaConfig;
 use network::GeneralNetworkConfig;
 use nomos_utils::net::get_available_udp_port;
-use rand::{thread_rng, Rng as _};
+use rand::{Rng as _, thread_rng};
 use tracing::GeneralTracingConfig;
 
 use crate::topology::configs::{

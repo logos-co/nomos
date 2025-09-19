@@ -1,10 +1,10 @@
 pub mod adapters;
 
 use nomos_core::da::blob::Share;
-use nomos_storage::{backends::StorageBackend, StorageService};
+use nomos_storage::{StorageService, backends::StorageBackend};
 use overwatch::{
-    services::{relay::OutboundRelay, ServiceData},
     DynError,
+    services::{ServiceData, relay::OutboundRelay},
 };
 
 #[async_trait::async_trait]

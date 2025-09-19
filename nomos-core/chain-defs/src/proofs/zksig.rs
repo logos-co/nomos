@@ -1,6 +1,6 @@
-use groth16::{serde::serde_fr, Fr};
+use groth16::{Fr, serde::serde_fr};
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DeserializeAs, SerializeAs};
+use serde_with::{DeserializeAs, SerializeAs, serde_as};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DummyZkSignature {

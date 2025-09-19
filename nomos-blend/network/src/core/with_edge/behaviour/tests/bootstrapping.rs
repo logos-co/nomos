@@ -2,7 +2,7 @@ use core::time::Duration;
 use std::sync::{Arc, Mutex};
 
 use futures::StreamExt as _;
-use libp2p::{swarm::dummy, PeerId, Stream};
+use libp2p::{PeerId, Stream, swarm::dummy};
 use libp2p_stream::{Behaviour as StreamBehaviour, OpenStreamError};
 use libp2p_swarm_test::SwarmExt as _;
 use nomos_libp2p::SwarmEvent;
@@ -10,7 +10,7 @@ use test_log::test;
 use tokio::{select, spawn, time::sleep};
 
 use crate::core::{
-    tests::utils::{TestSwarm, PROTOCOL_NAME},
+    tests::utils::{PROTOCOL_NAME, TestSwarm},
     with_edge::behaviour::tests::utils::{BehaviourBuilder, StreamBehaviourExt as _},
 };
 

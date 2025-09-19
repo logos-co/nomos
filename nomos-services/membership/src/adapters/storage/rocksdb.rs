@@ -4,8 +4,8 @@ use nomos_core::{
     block::{BlockNumber, SessionNumber},
     sdp::{Locator, ProviderId, ServiceType},
 };
-use nomos_storage::{backends::StorageBackend, StorageMsg, StorageService};
-use overwatch::{services::relay::OutboundRelay, DynError};
+use nomos_storage::{StorageMsg, StorageService, backends::StorageBackend};
+use overwatch::{DynError, services::relay::OutboundRelay};
 
 pub struct MembershipRocksAdapter<Backend, RuntimeServiceId>
 where

@@ -7,7 +7,7 @@ use nomos_utils::blake_rng::BlakeRng;
 use overwatch::overwatch::OverwatchHandle;
 use rand::SeedableRng as _;
 
-use crate::edge::{backends::BlendBackend, Settings, LOG_TARGET};
+use crate::edge::{LOG_TARGET, Settings, backends::BlendBackend};
 
 pub struct MessageHandler<Backend, NodeId, RuntimeServiceId> {
     cryptographic_processor: CryptographicProcessor<NodeId, BlakeRng>,

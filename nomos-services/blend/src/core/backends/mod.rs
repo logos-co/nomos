@@ -5,7 +5,7 @@ use std::{fmt::Debug, pin::Pin};
 
 use futures::Stream;
 use nomos_blend_network::EncapsulatedMessageWithValidatedPublicHeader;
-use nomos_blend_scheduling::{membership::Membership, session::SessionEvent, EncapsulatedMessage};
+use nomos_blend_scheduling::{EncapsulatedMessage, membership::Membership, session::SessionEvent};
 use overwatch::overwatch::handle::OverwatchHandle;
 
 use crate::core::settings::BlendConfig;

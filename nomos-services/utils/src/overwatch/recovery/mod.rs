@@ -16,10 +16,9 @@ mod tests {
 
     use async_trait::async_trait;
     use overwatch::{
-        derive_services,
+        DynError, OpaqueServiceResourcesHandle, derive_services,
         overwatch::OverwatchRunner,
-        services::{state::ServiceState, AsServiceId, ServiceCore, ServiceData},
-        DynError, OpaqueServiceResourcesHandle,
+        services::{AsServiceId, ServiceCore, ServiceData, state::ServiceState},
     };
     use serde::{Deserialize, Serialize};
 

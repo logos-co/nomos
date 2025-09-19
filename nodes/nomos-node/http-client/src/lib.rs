@@ -11,7 +11,7 @@ use nomos_http_api_common::paths::{
     MEMPOOL_ADD_TX,
 };
 use reqwest::{Client, ClientBuilder, RequestBuilder, StatusCode, Url};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {

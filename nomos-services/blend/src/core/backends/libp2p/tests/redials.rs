@@ -120,12 +120,14 @@ async fn core_redial_different_peer_after_redial_limit() {
     }
 
     assert!(dialing_swarm.ongoing_dials().is_empty());
-    assert!(dialing_swarm
-        .behaviour()
-        .blend
-        .with_core()
-        .negotiated_peers()
-        .contains_key(&listening_peer_id));
+    assert!(
+        dialing_swarm
+            .behaviour()
+            .blend
+            .with_core()
+            .negotiated_peers()
+            .contains_key(&listening_peer_id)
+    );
     assert_eq!(
         dialing_swarm
             .behaviour()
@@ -134,10 +136,12 @@ async fn core_redial_different_peer_after_redial_limit() {
             .num_healthy_peers(),
         1
     );
-    assert!(listening_swarm
-        .behaviour()
-        .blend
-        .with_core()
-        .negotiated_peers()
-        .contains_key(&dialing_peer_id));
+    assert!(
+        listening_swarm
+            .behaviour()
+            .blend
+            .with_core()
+            .negotiated_peers()
+            .contains_key(&dialing_peer_id)
+    );
 }

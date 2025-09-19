@@ -9,9 +9,9 @@ use std::{
 use bytes::Bytes;
 use cryptarchia_engine::{Branch, Slot};
 use cryptarchia_sync::{BlocksResponse, ProviderResponse};
-use futures::{future, stream, stream::BoxStream, StreamExt as _, TryStreamExt as _};
+use futures::{StreamExt as _, TryStreamExt as _, future, stream, stream::BoxStream};
 use nomos_core::{block::Block, codec::SerdeOp, header::HeaderId};
-use nomos_storage::{api::chain::StorageChainApi, backends::StorageBackend, StorageMsg};
+use nomos_storage::{StorageMsg, api::chain::StorageChainApi, backends::StorageBackend};
 use overwatch::DynError;
 use serde::Serialize;
 use thiserror::Error;
@@ -542,13 +542,13 @@ mod tests {
     use groth16::Fr;
     use nomos_core::{
         header::Header,
-        mantle::{ledger::Utxo, Note, SignedMantleTx},
+        mantle::{Note, SignedMantleTx, ledger::Utxo},
         proofs::leader_proof::{LeaderPrivate, LeaderPublic},
         utils::merkle::MerkleNode,
     };
     use nomos_storage::{
-        backends::rocksdb::{RocksBackend, RocksBackendSettings},
         StorageService,
+        backends::rocksdb::{RocksBackend, RocksBackendSettings},
     };
     use num_bigint::BigUint;
     use overwatch::{derive_services, overwatch::OverwatchRunner};

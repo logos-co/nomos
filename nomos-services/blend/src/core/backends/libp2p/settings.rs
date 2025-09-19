@@ -1,7 +1,7 @@
 use core::time::Duration;
 use std::{num::NonZeroU64, ops::RangeInclusive};
 
-use libp2p::{identity::Keypair, Multiaddr, PeerId};
+use libp2p::{Multiaddr, PeerId, identity::Keypair};
 use nomos_libp2p::{ed25519, protocol_name::StreamProtocol};
 use nomos_utils::math::NonNegativeF64;
 use serde::{Deserialize, Serialize};

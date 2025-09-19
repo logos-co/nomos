@@ -6,13 +6,13 @@ use std::{
 use ark_bls12_381::{Bls12_381, Fr};
 use ark_ec::pairing::Pairing as _;
 use ark_poly::{
-    univariate::DensePolynomial, DenseUVPolynomial as _, EvaluationDomain as _,
-    GeneralEvaluationDomain,
+    DenseUVPolynomial as _, EvaluationDomain as _, GeneralEvaluationDomain,
+    univariate::DensePolynomial,
 };
-use ark_poly_commit::kzg10::{Commitment, Powers, Proof, UniversalParams, KZG10};
+use ark_poly_commit::kzg10::{Commitment, KZG10, Powers, Proof, UniversalParams};
 use num_traits::{One as _, Zero as _};
 
-use crate::{common::KzgRsError, Evaluations};
+use crate::{Evaluations, common::KzgRsError};
 
 /// Commit to a polynomial where each of the evaluations are over `w(i)` for the
 /// degree of the polynomial being omega (`w`) the root of unity (2^x).
@@ -81,11 +81,11 @@ mod test {
 
     use ark_bls12_381::{Bls12_381, Fr};
     use ark_poly::{
-        univariate::DensePolynomial, DenseUVPolynomial as _, EvaluationDomain as _,
-        GeneralEvaluationDomain,
+        DenseUVPolynomial as _, EvaluationDomain as _, GeneralEvaluationDomain,
+        univariate::DensePolynomial,
     };
-    use ark_poly_commit::kzg10::{UniversalParams, KZG10};
-    use rand::{thread_rng, Fill as _};
+    use ark_poly_commit::kzg10::{KZG10, UniversalParams};
+    use rand::{Fill as _, thread_rng};
     use rayon::{
         iter::{IndexedParallelIterator as _, ParallelIterator as _},
         prelude::IntoParallelRefIterator as _,

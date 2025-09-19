@@ -2,10 +2,10 @@ use std::{collections::HashSet, hash::Hash, marker::PhantomData, time::SystemTim
 
 use nomos_core::{header::HeaderId, mantle::Utxo};
 use nomos_ledger::LedgerState;
-use overwatch::{services::state::ServiceState, DynError};
+use overwatch::{DynError, services::state::ServiceState};
 use serde::{Deserialize, Serialize};
 
-use crate::{leadership::Leader, Cryptarchia, CryptarchiaSettings, Error};
+use crate::{Cryptarchia, CryptarchiaSettings, Error, leadership::Leader};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CryptarchiaConsensusState<TxS, NodeId, NetworkAdapterSettings, BlendAdapterSettings> {

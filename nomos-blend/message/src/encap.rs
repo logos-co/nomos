@@ -7,8 +7,8 @@ use serde_big_array::BigArray;
 
 use crate::{
     crypto::{
-        random_sized_bytes, Ed25519PrivateKey, Ed25519PublicKey, ProofOfQuota, ProofOfSelection,
-        SharedKey, Signature, X25519PrivateKey,
+        Ed25519PrivateKey, Ed25519PublicKey, ProofOfQuota, ProofOfSelection, SharedKey, Signature,
+        X25519PrivateKey, random_sized_bytes,
     },
     error::Error,
     input::EncapsulationInputs,
@@ -576,10 +576,11 @@ mod tests {
 
         // We cannot decapsulate with an invalid private key,
         // which we already used for the first decapsulation.
-        assert!(msg
-            .clone()
-            .decapsulate(blend_node_enc_keys.last().unwrap())
-            .is_err());
+        assert!(
+            msg.clone()
+                .decapsulate(blend_node_enc_keys.last().unwrap())
+                .is_err()
+        );
 
         // We can decapsulate with the correct private key
         // and the fully-decapsulated payload is correct.

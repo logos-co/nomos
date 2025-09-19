@@ -108,13 +108,13 @@ mod tests {
 
     use async_trait::async_trait;
     use overwatch::{
+        DynError, OpaqueServiceResourcesHandle,
         overwatch::{Overwatch, OverwatchRunner},
         services::{
+            AsServiceId, ServiceCore, ServiceData,
             state::{NoOperator, NoState},
             status::ServiceStatus,
-            AsServiceId, ServiceCore, ServiceData,
         },
-        DynError, OpaqueServiceResourcesHandle,
     };
     use overwatch_derive::derive_services;
 

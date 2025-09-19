@@ -6,7 +6,7 @@ use core::{
     time::Duration,
 };
 
-use futures::{stream::empty, Stream, StreamExt as _};
+use futures::{Stream, StreamExt as _, stream::empty};
 use tracing::{info, trace};
 
 use crate::{

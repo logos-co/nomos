@@ -4,9 +4,9 @@ use std::{num::NonZeroU64, str::FromStr as _};
 use nomos_blend_message::crypto::Ed25519PrivateKey;
 use nomos_blend_service::core::backends::libp2p::Libp2pBlendBackendSettings;
 use nomos_libp2p::{
+    Multiaddr,
     ed25519::{self},
     protocol_name::StreamProtocol,
-    Multiaddr,
 };
 
 #[derive(Clone)]

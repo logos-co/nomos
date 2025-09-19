@@ -1,7 +1,7 @@
 use std::{collections::HashSet, fmt::Debug, hash::Hash, marker::PhantomData};
 
 use cryptarchia_sync::GetTipResponse;
-use futures::{future::select_ok, FutureExt as _, TryStreamExt as _};
+use futures::{FutureExt as _, TryStreamExt as _, future::select_ok};
 use nomos_core::{block::Block, codec::SerdeOp, header::HeaderId};
 use nomos_network::{
     NetworkService,

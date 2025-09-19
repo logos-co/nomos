@@ -5,16 +5,16 @@ use core::{
 };
 
 use libp2p::{
-    identity::{ed25519::PublicKey, Keypair},
     PeerId, StreamProtocol, Swarm,
+    identity::{Keypair, ed25519::PublicKey},
 };
 use libp2p_swarm_test::SwarmExt as _;
 use nomos_blend_message::{
-    crypto::{Ed25519PrivateKey, ProofOfQuota, ProofOfSelection, Signature, SIGNATURE_SIZE},
-    input::EncapsulationInput,
     PayloadType,
+    crypto::{Ed25519PrivateKey, ProofOfQuota, ProofOfSelection, SIGNATURE_SIZE, Signature},
+    input::EncapsulationInput,
 };
-use nomos_blend_scheduling::{message_blend::crypto::EncapsulationInputs, EncapsulatedMessage};
+use nomos_blend_scheduling::{EncapsulatedMessage, message_blend::crypto::EncapsulationInputs};
 use nomos_libp2p::NetworkBehaviour;
 
 pub const PROTOCOL_NAME: StreamProtocol = StreamProtocol::new("/blend/core-behaviour/test");

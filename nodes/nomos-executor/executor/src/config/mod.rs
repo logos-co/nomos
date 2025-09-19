@@ -1,11 +1,11 @@
 use color_eyre::eyre::Result;
 use nomos_node::{
+    CryptarchiaArgs, HttpArgs, LogArgs, NetworkArgs,
     config::{
-        blend::BlendConfig, mempool::MempoolConfig, update_blend, update_cryptarchia_consensus,
-        update_network, BlendArgs,
+        BlendArgs, blend::BlendConfig, mempool::MempoolConfig, update_blend,
+        update_cryptarchia_consensus, update_network,
     },
     generic_services::{MembershipService, SdpService},
-    CryptarchiaArgs, HttpArgs, LogArgs, NetworkArgs,
 };
 use overwatch::services::ServiceData;
 use serde::{Deserialize, Serialize};

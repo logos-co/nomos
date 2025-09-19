@@ -17,17 +17,17 @@ use nomos_core::mantle::SignedMantleTx;
 pub use nomos_core::{
     codec,
     header::HeaderId,
-    mantle::{select::FillSize as FillSizeWithTx, Transaction},
+    mantle::{Transaction, select::FillSize as FillSizeWithTx},
 };
 pub use nomos_da_network_service::backends::libp2p::validator::DaNetworkValidatorBackend;
 use nomos_da_network_service::{
-    api::http::HttApiAdapter, membership::handler::DaMembershipHandler, DaAddressbook,
+    DaAddressbook, api::http::HttApiAdapter, membership::handler::DaMembershipHandler,
 };
 use nomos_da_sampling::{
     backend::kzgrs::KzgrsSamplingBackend,
     network::adapters::validator::Libp2pAdapter as SamplingLibp2pAdapter,
     storage::adapters::rocksdb::{
-        converter::DaStorageConverter, RocksAdapter as SamplingStorageAdapter,
+        RocksAdapter as SamplingStorageAdapter, converter::DaStorageConverter,
     },
 };
 use nomos_da_verifier::{
@@ -41,8 +41,8 @@ pub use nomos_mempool::network::adapters::libp2p::{
 };
 pub use nomos_network::backends::libp2p::Libp2p as NetworkBackend;
 pub use nomos_storage::backends::{
-    rocksdb::{RocksBackend, RocksBackendSettings},
     SerdeOp,
+    rocksdb::{RocksBackend, RocksBackendSettings},
 };
 pub use nomos_system_sig::SystemSig;
 use nomos_time::backends::NtpTimeBackend;

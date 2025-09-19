@@ -11,6 +11,7 @@ use overwatch::{
 };
 
 use crate::{
+    BroadcastSettings,
     core::{
         network::NetworkAdapter as NetworkAdapterTrait,
         service_components::{
@@ -18,7 +19,6 @@ use crate::{
         },
     },
     modes::{self, BroadcastMode, CoreMode, EdgeMode},
-    BroadcastSettings,
 };
 
 /// An instance that can operate in Core, Edge, or Broadcast mode,
@@ -302,12 +302,12 @@ mod tests {
     use nomos_blend_scheduling::membership::Node;
     use nomos_network::config::NetworkConfig;
     use overwatch::{
+        DynError, OpaqueServiceResourcesHandle,
         overwatch::OverwatchRunner,
         services::{
-            state::{NoOperator, NoState},
             ServiceCore,
+            state::{NoOperator, NoState},
         },
-        DynError, OpaqueServiceResourcesHandle,
     };
     use tokio::time::sleep;
 

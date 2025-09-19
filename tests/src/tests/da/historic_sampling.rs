@@ -2,7 +2,7 @@ use futures::StreamExt as _;
 use kzgrs_backend::dispersal::Index;
 use nomos_core::{da::BlobId, sdp::FinalizedBlockEvent};
 use tests::{
-    common::da::{disseminate_with_metadata, wait_for_blob_onchain, APP_ID},
+    common::da::{APP_ID, disseminate_with_metadata, wait_for_blob_onchain},
     nodes::executor::Executor,
     topology::{Topology, TopologyConfig},
 };

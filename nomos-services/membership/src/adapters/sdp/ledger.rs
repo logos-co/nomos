@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use async_trait::async_trait;
-use nomos_sdp::{backends::SdpBackend, FinalizedBlockUpdateStream, SdpMessage, SdpService};
+use nomos_sdp::{FinalizedBlockUpdateStream, SdpMessage, SdpService, backends::SdpBackend};
 use overwatch::services::relay::OutboundRelay;
 use tokio::sync::oneshot;
 

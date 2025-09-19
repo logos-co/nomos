@@ -1,11 +1,11 @@
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, Bytes};
+use serde_with::{Bytes, serde_as};
 
 use crate::{
     crypto::{
-        pseudo_random_sized_bytes, random_sized_bytes, Ed25519PrivateKey, Ed25519PublicKey,
-        ProofOfQuota, ProofOfSelection, Signature, KEY_SIZE, PROOF_OF_QUOTA_SIZE,
-        PROOF_OF_SELECTION_SIZE, SIGNATURE_SIZE,
+        Ed25519PrivateKey, Ed25519PublicKey, KEY_SIZE, PROOF_OF_QUOTA_SIZE,
+        PROOF_OF_SELECTION_SIZE, ProofOfQuota, ProofOfSelection, SIGNATURE_SIZE, Signature,
+        pseudo_random_sized_bytes, random_sized_bytes,
     },
     error::Error,
 };

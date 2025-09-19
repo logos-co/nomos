@@ -2,7 +2,7 @@ use std::num::NonZero;
 
 use chain_service::LeaderConfig;
 use cryptarchia_engine::EpochConfig;
-use nomos_core::mantle::{keys::SecretKey, Note, Utxo};
+use nomos_core::mantle::{Note, Utxo, keys::SecretKey};
 use nomos_ledger::LedgerState;
 use num_bigint::BigUint;
 
