@@ -2,7 +2,7 @@ pub mod api;
 pub mod config;
 pub mod generic_services;
 
-use color_eyre::eyre::Result;
+use color_eyre::eyre::{eyre, Result};
 use generic_services::VerifierMempoolAdapter;
 use kzgrs_backend::common::share::DaShare;
 pub use kzgrs_backend::dispersal::BlobInfo;
@@ -54,7 +54,8 @@ use nomos_time::backends::NtpTimeBackend;
 pub use nomos_tracing_service::Tracing;
 use overwatch::{
     derive_services,
-    overwatch::{Error as OverwatchError, Overwatch},
+    overwatch::{Error as OverwatchError, Overwatch, OverwatchRunner},
+    DynError,
 };
 use subnetworks_assignations::versions::history_aware_refill::HistoryAware;
 
@@ -226,6 +227,49 @@ pub struct Nomos {
     wallet: WalletService,
     #[cfg(feature = "testing")]
     testing_http: TestingApiService<RuntimeServiceId>,
+}
+
+pub fn run_node_from_config(config: Config) -> Result<Overwatch<RuntimeServiceId>, DynError> {
+    let (blend_config, blend_core_config, blend_edge_config) = config.blend.into();
+
+    let app = OverwatchRunner::<Nomos>::run(
+        NomosServiceSettings {
+            network: config.network,
+            blend: blend_config,
+            blend_core: blend_core_config,
+            blend_edge: blend_edge_config,
+            block_broadcast: (),
+            #[cfg(feature = "tracing")]
+            tracing: config.tracing,
+            http: config.http,
+            cl_mempool: TxMempoolSettings {
+                pool: (),
+                network_adapter: AdapterSettings {
+                    topic: String::from(CL_TOPIC),
+                    id: <SignedMantleTx as Transaction>::hash,
+                },
+                processor: SignedTxProcessorSettings {
+                    trigger_sampling_delay: config.mempool.trigger_sampling_delay,
+                },
+                recovery_path: config.mempool.cl_pool_recovery_path,
+            },
+            da_network: config.da_network,
+            da_sampling: config.da_sampling,
+            da_verifier: config.da_verifier,
+            cryptarchia: config.cryptarchia,
+            time: config.time,
+            storage: config.storage,
+            system_sig: (),
+            sdp: (),
+            membership: config.membership,
+            wallet: config.wallet,
+            #[cfg(feature = "testing")]
+            testing_http: config.testing_http,
+        },
+        None,
+    )
+    .map_err(|e| eyre!("Error encountered: {}", e))?;
+    Ok(app)
 }
 
 pub async fn get_services_to_start(
