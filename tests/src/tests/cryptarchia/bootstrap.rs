@@ -12,7 +12,7 @@ use tests::{
     nodes::validator::{create_validator_config, Validator},
     secret_key_to_peer_id,
     topology::configs::{
-        create_general_configs_with_network,
+        create_general_configs_with_blend_core_subset,
         network::{Libp2pNetworkLayout, NetworkParams},
         GeneralConfig,
     },
@@ -27,7 +27,11 @@ async fn test_ibd_behind_nodes() {
     let network_params = NetworkParams {
         libp2p_network_layout: Libp2pNetworkLayout::Full,
     };
-    let general_configs = create_general_configs_with_network(n_validators, &network_params);
+    let general_configs = create_general_configs_with_blend_core_subset(
+        n_validators,
+        n_initial_validators,
+        &network_params,
+    );
 
     let mut initial_validators = vec![];
     for config in general_configs.iter().take(n_initial_validators) {

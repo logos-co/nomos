@@ -17,41 +17,48 @@ pub struct GeneralMembershipConfig {
     pub service_settings: MembershipServiceSettings<MembershipBackendSettings>,
 }
 
+pub struct MembershipNode {
+    pub id: [u8; 32],
+    pub da_port: Option<u16>,
+    pub blend_port: Option<u16>,
+}
+
 #[must_use]
-pub fn create_membership_configs(
-    ids: &[[u8; 32]],
-    da_ports: &[u16],
-    blend_ports: &[u16],
-) -> Vec<GeneralMembershipConfig> {
+pub fn create_membership_configs(nodes: &[MembershipNode]) -> Vec<GeneralMembershipConfig> {
     let mut providers = HashMap::new();
 
-    for (i, id) in ids.iter().enumerate() {
-        let mut node_key_bytes = *id;
+    for node in nodes {
+        let mut node_key_bytes = node.id;
         let node_key = ed25519::SecretKey::try_from_bytes(&mut node_key_bytes)
             .expect("Failed to generate secret key from bytes");
         let provider_id = secret_key_to_provider_id(node_key.clone());
 
-        let da_listening_address =
-            Multiaddr::from_str(&format!("/ip4/127.0.0.1/udp/{}/quic-v1", da_ports[i]))
-                .expect("Failed to create multiaddr for DA");
-        let blend_listening_address =
-            Multiaddr::from_str(&format!("/ip4/127.0.0.1/udp/{}/quic-v1", blend_ports[i]))
-                .expect("Failed to create multiaddr for Blend");
+        if let Some(da_port) = node.da_port {
+            let da_listening_address =
+                Multiaddr::from_str(&format!("/ip4/127.0.0.1/udp/{da_port}/quic-v1"))
+                    .expect("Failed to create multiaddr for DA");
+            providers
+                .entry(ServiceType::DataAvailability)
+                .or_insert_with(HashMap::new)
+                .insert(
+                    provider_id,
+                    BTreeSet::from([Locator::new(da_listening_address)]),
+                );
+        }
 
-        providers
-            .entry(ServiceType::DataAvailability)
-            .or_insert_with(HashMap::new)
-            .insert(
-                provider_id,
-                BTreeSet::from([Locator::new(da_listening_address)]),
-            );
-        providers
-            .entry(ServiceType::BlendNetwork)
-            .or_insert_with(HashMap::new)
-            .insert(
-                provider_id,
-                BTreeSet::from([Locator::new(blend_listening_address)]),
-            );
+        if let Some(blend_port) = node.blend_port {
+            let blend_listening_address =
+                Multiaddr::from_str(&format!("/ip4/127.0.0.1/udp/{blend_port}/quic-v1"))
+                    .expect("Failed to create multiaddr for Blend");
+
+            providers
+                .entry(ServiceType::BlendNetwork)
+                .or_insert_with(HashMap::new)
+                .insert(
+                    provider_id,
+                    BTreeSet::from([Locator::new(blend_listening_address)]),
+                );
+        }
     }
 
     let mock_backend_settings = MembershipBackendSettings {
@@ -68,29 +75,5 @@ pub fn create_membership_configs(
         },
     };
 
-    ids.iter().map(|_| config.clone()).collect()
-}
-
-/// Create membership configs without DA providers.
-/// Blend providers should be included because the Blend service expects to have
-/// the initial membership at startup.
-#[must_use]
-pub fn create_empty_da_membership_configs(
-    ids: &[[u8; 32]],
-    blend_ports: &[u16],
-) -> Vec<GeneralMembershipConfig> {
-    // Use dummy DA ports since we will anyway remove DA config soon.
-    let dummy_da_ports = vec![0; ids.len()];
-    let mut configs = create_membership_configs(ids, &dummy_da_ports, blend_ports);
-
-    // Remove DA config
-    for config in &mut configs {
-        config
-            .service_settings
-            .backend
-            .session_zero_providers
-            .remove(&ServiceType::DataAvailability);
-    }
-
-    configs
+    nodes.iter().map(|_| config.clone()).collect()
 }
