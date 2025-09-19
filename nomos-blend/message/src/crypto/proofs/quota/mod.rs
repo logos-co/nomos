@@ -77,7 +77,7 @@ impl ProofOfQuota {
     #[must_use]
     pub fn from_bytes_unchecked(bytes: [u8; PROOF_OF_QUOTA_SIZE]) -> Self {
         let (key_nullifier_bytes, proof_circuit_bytes) = bytes.split_at(KEY_NULLIFIER_SIZE);
-        let key_nullifier = fr_from_bytes_unchecked(key_nullifier_bytes.try_into().unwrap());
+        let key_nullifier = fr_from_bytes_unchecked(key_nullifier_bytes);
         let (pi_a, pi_b, pi_c) = split_proof_components::<
             <Bn254 as CompressSize>::G1CompressedSize,
             <Bn254 as CompressSize>::G2CompressedSize,
