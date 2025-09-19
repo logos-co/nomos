@@ -2,7 +2,6 @@ use std::{
     collections::{BTreeSet, HashMap, HashSet},
     fmt::Debug,
     sync::Arc,
-    time::{Duration, Instant},
 };
 
 use kzgrs_backend::common::{
@@ -13,7 +12,10 @@ use nomos_core::da::BlobId;
 use nomos_da_network_core::SubnetworkId;
 use nomos_tracing::info_with_id;
 use serde::{Deserialize, Serialize};
-use tokio::{time, time::Interval};
+use tokio::{
+    time,
+    time::{Duration, Instant, Interval},
+};
 use tracing::instrument;
 
 use crate::{backend::SamplingState, DaSamplingServiceBackend};
@@ -152,15 +154,13 @@ impl DaSamplingServiceBackend for KzgrsSamplingBackend {
 
 #[cfg(test)]
 mod test {
-    use std::{
-        collections::HashSet,
-        time::{Duration, Instant},
-    };
+    use std::collections::HashSet;
 
     use kzgrs::Proof;
     use kzgrs_backend::common::{share::DaShare, Column};
     use nomos_core::da::BlobId;
     use rand::prelude::*;
+    use tokio::time::Duration;
 
     use crate::backend::kzgrs::{
         DaSamplingServiceBackend as _, KzgrsSamplingBackend, KzgrsSamplingBackendSettings,
@@ -323,26 +323,30 @@ mod test {
 
     #[tokio::test]
     async fn test_pruning() {
+        tokio::time::pause();
+
         let mut sampler = create_sampler(42, 42);
 
-        // create some sampling contexes
-        // first set will go through as in time
-        let ctx1 = SamplingContext {
-            subnets: HashSet::new(),
-            started: Instant::now(),
-            commitment: None,
-        };
-        let ctx2 = ctx1.clone();
-        let ctx3 = ctx1.clone();
-
-        // second set: will fail for expired
+        // create expired contexts first (before advancing time)
         let ctx11 = SamplingContext {
             subnets: HashSet::new(),
-            started: Instant::now().checked_sub(Duration::from_secs(1)).unwrap(),
+            started: tokio::time::Instant::now(),
             commitment: None,
         };
         let ctx12 = ctx11.clone();
         let ctx13 = ctx11.clone();
+
+        // advance time by 2 seconds to make the above contexts expired
+        tokio::time::advance(Duration::from_secs(2)).await;
+
+        // create fresh contexts after advancing time
+        let ctx1 = SamplingContext {
+            subnets: HashSet::new(),
+            started: tokio::time::Instant::now(),
+            commitment: None,
+        };
+        let ctx2 = ctx1.clone();
+        let ctx3 = ctx1.clone();
 
         let mut rng = StdRng::from_entropy();
         // create a couple blob ids

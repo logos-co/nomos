@@ -10,3 +10,6 @@ tempfile       = { workspace = true }
 
 [lints]
 workspace = true
+
+[package.metadata.cargo-machete]
+ignored = ["circuits-utils", "tempfile"] # machete hallucinations

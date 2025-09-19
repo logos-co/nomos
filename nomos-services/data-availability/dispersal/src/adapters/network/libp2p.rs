@@ -132,15 +132,18 @@ where
         subnetwork_id: Self::SubnetworkId,
         da_share: DaShare,
     ) -> Result<(), DynError> {
+        let (sender, rx) = oneshot::channel();
         self.outbound_relay
             .send(DaNetworkMsg::Process(
                 ExecutorDaNetworkMessage::RequestShareDispersal {
                     subnetwork_id,
                     da_share: Box::new(da_share),
+                    sender,
                 },
             ))
             .await
-            .map_err(|(e, _)| Box::new(e) as DynError)
+            .map_err(|(e, _)| Box::new(e) as DynError)?;
+        rx.await?.map_err(|e| Box::new(e) as DynError)
     }
 
     async fn disperse_tx(
@@ -148,15 +151,18 @@ where
         subnetwork_id: Self::SubnetworkId,
         tx: SignedMantleTx,
     ) -> Result<(), DynError> {
+        let (sender, rx) = oneshot::channel();
         self.outbound_relay
             .send(DaNetworkMsg::Process(
                 ExecutorDaNetworkMessage::RequestTxDispersal {
                     subnetwork_id,
                     tx: Box::new(tx),
+                    sender,
                 },
             ))
             .await
-            .map_err(|(e, _)| Box::new(e) as DynError)
+            .map_err(|(e, _)| Box::new(e) as DynError)?;
+        rx.await?.map_err(|e| Box::new(e) as DynError)
     }
 
     async fn dispersal_events_stream(

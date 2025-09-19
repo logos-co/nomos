@@ -1,15 +1,13 @@
 use std::{num::NonZeroU64, time::Duration};
 
-use nomos_blend_scheduling::{membership::Node, message_blend::CryptographicProcessorSettings};
+use nomos_blend_scheduling::message_blend::CryptographicProcessorSettings;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct Settings<NodeId> {
+pub struct Settings {
     pub crypto: CryptographicProcessorSettings,
     pub time: TimingSettings,
     pub minimal_network_size: NonZeroU64,
-    // TODO: Replace with SDP membership stream.
-    pub membership: Vec<Node<NodeId>>,
 }
 
 #[serde_with::serde_as]
@@ -47,3 +45,5 @@ impl TimingSettings {
         )
     }
 }
+
+pub(crate) const FIRST_SESSION_READY_TIMEOUT: Duration = Duration::from_secs(1);

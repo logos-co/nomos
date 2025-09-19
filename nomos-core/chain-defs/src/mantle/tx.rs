@@ -1,9 +1,9 @@
 use std::sync::LazyLock;
 
 use bytes::Bytes;
-use groth16::{serde::serde_fr, Fr};
+use groth16::{fr_from_bytes, serde::serde_fr, Fr};
 use num_bigint::BigUint;
-use poseidon2::Digest;
+use poseidon2::{Digest, ZkHash};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -22,10 +22,10 @@ use crate::{
     Debug, Clone, Copy, PartialEq, Eq, Default, Hash, PartialOrd, Ord, Serialize, Deserialize,
 )]
 #[serde(transparent)]
-pub struct TxHash(#[serde(with = "serde_fr")] pub Fr);
+pub struct TxHash(#[serde(with = "serde_fr")] pub ZkHash);
 
-impl From<Fr> for TxHash {
-    fn from(fr: Fr) -> Self {
+impl From<ZkHash> for TxHash {
+    fn from(fr: ZkHash) -> Self {
         Self(fr)
     }
 }
@@ -36,14 +36,14 @@ impl From<BigUint> for TxHash {
     }
 }
 
-impl From<TxHash> for Fr {
+impl From<TxHash> for ZkHash {
     fn from(hash: TxHash) -> Self {
         hash.0
     }
 }
 
-impl AsRef<Fr> for TxHash {
-    fn as_ref(&self) -> &Fr {
+impl AsRef<ZkHash> for TxHash {
+    fn as_ref(&self) -> &ZkHash {
         &self.0
     }
 }
@@ -69,10 +69,12 @@ pub struct MantleTx {
     pub storage_gas_price: Gas,
 }
 
-static NOMOS_MANTLE_TXHASH_V1_FR: LazyLock<Fr> =
-    LazyLock::new(|| BigUint::from_bytes_be(b"NOMOS_MANTLE_TXHASH_V1").into());
+static NOMOS_MANTLE_TXHASH_V1_FR: LazyLock<Fr> = LazyLock::new(|| {
+    fr_from_bytes(b"NOMOS_MANTLE_TXHASH_V1").expect("Constant should be valid Fr")
+});
 
-static END_OPS_FR: LazyLock<Fr> = LazyLock::new(|| BigUint::from_bytes_be(b"END_OPS").into());
+static END_OPS_FR: LazyLock<Fr> =
+    LazyLock::new(|| fr_from_bytes(b"END_OPS").expect("Constant should be valid Fr"));
 
 impl Transaction for MantleTx {
     const HASHER: TransactionHasher<Self> =
@@ -103,7 +105,7 @@ impl From<SignedMantleTx> for MantleTx {
 pub struct SignedMantleTx {
     pub mantle_tx: MantleTx,
     // TODO: make this more efficient
-    pub ops_profs: Vec<Option<OpProof>>,
+    pub ops_proofs: Vec<Option<OpProof>>,
     pub ledger_tx_proof: ZkSignature,
 }
 
@@ -130,18 +132,14 @@ impl AuthenticatedMantleTx for SignedMantleTx {
         self.mantle_tx
             .ops
             .iter()
-            .zip(self.ops_profs.iter().map(Option::as_ref))
+            .zip(self.ops_proofs.iter().map(Option::as_ref))
     }
 }
 
 impl SignedMantleTx {
     fn serialized_size(&self) -> u64 {
-        use bincode::Options as _;
-        // TODO: we need a more universal size estimation, but that means complete
-        // control over serialization which requires a rework of the wire module
-        crate::wire::bincode::OPTIONS
-            .serialized_size(&self)
-            .expect("Failed to serialize signed mantle tx")
+        <Self as crate::codec::SerdeOp>::serialized_size(self)
+            .expect("Failed to calculate serialized size for signed mantle tx")
     }
 }
 

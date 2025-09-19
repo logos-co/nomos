@@ -30,4 +30,4 @@ tracing-gelf                       = "0.7"
 tracing-loki                       = { default-features = false, features = ["compat-0-2-1"], version = "0.2.5" }
 tracing-opentelemetry              = { default-features = false, features = ["metrics"], version = "0.27" }
 tracing-subscriber                 = { default-features = false, features = ["env-filter", "std"], version = "0.3" }
-url                                = { default-features = false, version = "2" }
+url                                = { default-features = false, version = "2", features = ["serde"] }

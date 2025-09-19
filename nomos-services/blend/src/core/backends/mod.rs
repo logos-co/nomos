@@ -5,7 +5,7 @@ use std::{fmt::Debug, pin::Pin};
 
 use futures::Stream;
 use nomos_blend_network::EncapsulatedMessageWithValidatedPublicHeader;
-use nomos_blend_scheduling::{membership::Membership, EncapsulatedMessage};
+use nomos_blend_scheduling::{membership::Membership, session::SessionEvent, EncapsulatedMessage};
 use overwatch::overwatch::handle::OverwatchHandle;
 
 use crate::core::settings::BlendConfig;
@@ -16,9 +16,10 @@ pub trait BlendBackend<NodeId, Rng, RuntimeServiceId> {
     type Settings: Clone + Debug + Send + Sync + 'static;
 
     fn new(
-        service_config: BlendConfig<Self::Settings, NodeId>,
+        service_config: BlendConfig<Self::Settings>,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
-        session_stream: Pin<Box<dyn Stream<Item = Membership<NodeId>> + Send>>,
+        current_membership: Membership<NodeId>,
+        session_stream: Pin<Box<dyn Stream<Item = SessionEvent<Membership<NodeId>>> + Send>>,
         rng: Rng,
     ) -> Self;
     fn shutdown(self);

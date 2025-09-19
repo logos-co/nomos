@@ -5,25 +5,26 @@ use std::{
 };
 
 use axum::{
-    body::StreamBody,
+    body::Body,
     extract::{Query, State},
-    response::{IntoResponse, Response},
+    http::StatusCode,
+    response::{IntoResponse as _, Response},
     Json,
 };
-use http::{header, StatusCode};
+use broadcast_service::BlockBroadcastService;
+use futures::StreamExt as _;
 use nomos_api::http::{
     cl::{self, ClMempoolService},
     consensus::{self, Cryptarchia},
     da::{self, BalancerMessageFactory, DaVerifier, MonitorMessageFactory},
-    libp2p, mempool, storage,
+    libp2p, mempool,
+    storage::StorageAdapter,
+    DynError,
 };
 use nomos_core::{
-    da::{
-        blob::{info::DispersedBlobInfo, LightShare, Share},
-        BlobId, DaVerifier as CoreDaVerifier,
-    },
+    da::{blob::Share, BlobId, DaVerifier as CoreDaVerifier},
     header::HeaderId,
-    mantle::{SignedMantleTx, Transaction},
+    mantle::{AuthenticatedMantleTx, SignedMantleTx, Transaction},
 };
 use nomos_da_messages::http::da::{
     DASharesCommitmentsRequest, DaSamplingRequest, GetSharesRequest,
@@ -37,14 +38,10 @@ use nomos_http_api_common::paths;
 use nomos_libp2p::PeerId;
 use nomos_mempool::{
     backend::mockpool::MockPool, network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
-    DaMempoolService, TxMempoolService,
+    TxMempoolService,
 };
 use nomos_network::backends::libp2p::Libp2p as Libp2pNetworkBackend;
-use nomos_storage::{
-    api::da::DaConverter,
-    backends::{rocksdb::RocksBackend, StorageSerde},
-    StorageService,
-};
+use nomos_storage::{api::da::DaConverter, backends::rocksdb::RocksBackend, StorageService};
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use subnetworks_assignations::MembershipHandler;
@@ -56,11 +53,11 @@ macro_rules! make_request_and_return_response {
     ($cond:expr) => {{
         match $cond.await {
             ::std::result::Result::Ok(val) => ::axum::response::IntoResponse::into_response((
-                ::hyper::StatusCode::OK,
+                ::axum::http::StatusCode::OK,
                 ::axum::Json(val),
             )),
             ::std::result::Result::Err(e) => ::axum::response::IntoResponse::into_response((
-                ::hyper::StatusCode::INTERNAL_SERVER_ERROR,
+                ::axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                 e.to_string(),
             )),
         }
@@ -79,7 +76,14 @@ pub async fn cl_metrics<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServ
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
 ) -> Response
 where
-    Tx: Transaction + Clone + Debug + Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
+    Tx: AuthenticatedMantleTx
+        + Clone
+        + Debug
+        + Serialize
+        + for<'de> Deserialize<'de>
+        + Send
+        + Sync
+        + 'static,
     <Tx as Transaction>::Hash:
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     SamplingNetworkAdapter:
@@ -113,7 +117,14 @@ pub async fn cl_status<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServi
     Json(items): Json<Vec<<Tx as Transaction>::Hash>>,
 ) -> Response
 where
-    Tx: Transaction + Clone + Debug + Serialize + DeserializeOwned + Send + Sync + 'static,
+    Tx: AuthenticatedMantleTx
+        + Clone
+        + Debug
+        + Serialize
+        + DeserializeOwned
+        + Send
+        + Sync
+        + 'static,
     <Tx as Transaction>::Hash: Serialize + DeserializeOwned + Ord + Debug + Send + Sync + 'static,
     SamplingNetworkAdapter:
         nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
@@ -148,7 +159,6 @@ pub struct CryptarchiaInfoQuery {
 )]
 pub async fn cryptarchia_info<
     Tx,
-    SS,
     SamplingBackend,
     SamplingNetworkAdapter,
     SamplingStorage,
@@ -159,10 +169,17 @@ pub async fn cryptarchia_info<
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
 ) -> Response
 where
-    Tx: Transaction + Clone + Eq + Debug + Serialize + DeserializeOwned + Send + Sync + 'static,
+    Tx: AuthenticatedMantleTx
+        + Clone
+        + Eq
+        + Debug
+        + Serialize
+        + DeserializeOwned
+        + Send
+        + Sync
+        + 'static,
     <Tx as Transaction>::Hash:
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
-    SS: StorageSerde + Send + Sync + 'static,
     SamplingBackend: DaSamplingServiceBackend<BlobId = BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
@@ -179,7 +196,6 @@ where
         + AsServiceId<
             Cryptarchia<
                 Tx,
-                SS,
                 SamplingBackend,
                 SamplingNetworkAdapter,
                 SamplingStorage,
@@ -191,7 +207,6 @@ where
 {
     make_request_and_return_response!(consensus::cryptarchia_info::<
         Tx,
-        SS,
         SamplingBackend,
         SamplingNetworkAdapter,
         SamplingStorage,
@@ -211,7 +226,6 @@ where
 )]
 pub async fn cryptarchia_headers<
     Tx,
-    SS,
     SamplingBackend,
     SamplingNetworkAdapter,
     SamplingStorage,
@@ -223,10 +237,17 @@ pub async fn cryptarchia_headers<
     Query(query): Query<CryptarchiaInfoQuery>,
 ) -> Response
 where
-    Tx: Transaction + Eq + Clone + Debug + Serialize + DeserializeOwned + Send + Sync + 'static,
+    Tx: AuthenticatedMantleTx
+        + Eq
+        + Clone
+        + Debug
+        + Serialize
+        + DeserializeOwned
+        + Send
+        + Sync
+        + 'static,
     <Tx as Transaction>::Hash:
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
-    SS: StorageSerde + Send + Sync + 'static,
     SamplingBackend: DaSamplingServiceBackend<BlobId = BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
@@ -243,7 +264,6 @@ where
         + AsServiceId<
             Cryptarchia<
                 Tx,
-                SS,
                 SamplingBackend,
                 SamplingNetworkAdapter,
                 SamplingStorage,
@@ -256,7 +276,6 @@ where
     let CryptarchiaInfoQuery { from, to } = query;
     make_request_and_return_response!(consensus::cryptarchia_headers::<
         Tx,
-        SS,
         SamplingBackend,
         SamplingNetworkAdapter,
         SamplingStorage,
@@ -267,6 +286,43 @@ where
 }
 
 #[utoipa::path(
+    get,
+    path = paths::CRYPTARCHIA_LIB_STREAM,
+    responses(
+        (status = 200, description = "Request a stream for lib blocks"),
+        (status = 500, description = "Internal server error", body = StreamBody),
+    )
+)]
+pub async fn cryptarchia_lib_stream<RuntimeServiceId>(
+    State(handle): State<OverwatchHandle<RuntimeServiceId>>,
+) -> Response
+where
+    RuntimeServiceId:
+        Debug + Sync + Display + AsServiceId<BlockBroadcastService<RuntimeServiceId>> + 'static,
+{
+    match cl::lib_block_stream(&handle).await {
+        Ok(shares) => {
+            let stream = shares.map(|res| {
+                let info = res?;
+                let mut bytes = serde_json::to_vec(&info).map_err(|e| Box::new(e) as DynError)?;
+                bytes.push(b'\n');
+                Ok::<_, DynError>(bytes)
+            });
+
+            let body = Body::from_stream(stream);
+
+            Response::builder()
+                .status(StatusCode::OK)
+                .header("content-type", "application/x-ndjson")
+                .body(body)
+                .unwrap()
+                .into_response()
+        }
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
+#[utoipa::path(
     post,
     path = paths::DA_ADD_SHARE,
     responses(
@@ -274,7 +330,7 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn add_share<S, N, VB, SS, StorageConverter, VerifierMempoolAdapter, RuntimeServiceId>(
+pub async fn add_share<S, N, VB, StorageConverter, VerifierMempoolAdapter, RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
     Json(share): Json<S>,
 ) -> Response
@@ -289,23 +345,21 @@ where
     VB: VerifierBackend + CoreDaVerifier<DaShare = S>,
     <VB as VerifierBackend>::Settings: Clone,
     <VB as CoreDaVerifier>::Error: Error,
-    SS: StorageSerde + Send + Sync + 'static,
     StorageConverter:
-        DaConverter<DaStorageBackend<SS>, Share = S, Tx = SignedMantleTx> + Send + Sync + 'static,
+        DaConverter<DaStorageBackend, Share = S, Tx = SignedMantleTx> + Send + Sync + 'static,
     VerifierMempoolAdapter: DaMempoolAdapter + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
         + 'static
         + AsServiceId<
-            DaVerifier<S, N, VB, SS, StorageConverter, VerifierMempoolAdapter, RuntimeServiceId>,
+            DaVerifier<S, N, VB, StorageConverter, VerifierMempoolAdapter, RuntimeServiceId>,
         >,
 {
     make_request_and_return_response!(da::add_share::<
         S,
         N,
         VB,
-        SS,
         StorageConverter,
         VerifierMempoolAdapter,
         RuntimeServiceId,
@@ -499,17 +553,15 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn block<S, HttpStorageAdapter, Tx, RuntimeServiceId>(
+pub async fn block<HttpStorageAdapter, Tx, RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
     Json(id): Json<HeaderId>,
 ) -> Response
 where
-    Tx: Serialize + DeserializeOwned + Clone + Eq,
-    S: StorageSerde + Send + Sync + 'static,
-    HttpStorageAdapter: storage::StorageAdapter<S, RuntimeServiceId> + Send + Sync + 'static,
-    <S as StorageSerde>::Error: Send + Sync,
+    Tx: Serialize + DeserializeOwned + Clone + Eq + Send + Sync + 'static,
+    HttpStorageAdapter: StorageAdapter<RuntimeServiceId> + Send + Sync + 'static,
     RuntimeServiceId:
-        AsServiceId<StorageService<RocksBackend<S>, RuntimeServiceId>> + Debug + Sync + Display,
+        AsServiceId<StorageService<RocksBackend, RuntimeServiceId>> + Debug + Sync + Display,
 {
     let relay = match handle.relay().await {
         Ok(relay) => relay,
@@ -565,7 +617,6 @@ where
     )
 )]
 pub async fn da_get_storage_commitments<
-    StorageOp,
     DaStorageConverter,
     HttpStorageAdapter,
     DaShare,
@@ -578,12 +629,9 @@ where
     DaShare: Share,
     <DaShare as Share>::BlobId: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
     <DaShare as Share>::SharesCommitments: Serialize + DeserializeOwned + Send + Sync + 'static,
-    StorageOp: StorageSerde + Send + Sync + 'static,
-    <StorageOp as StorageSerde>::Error: Send + Sync,
-    DaStorageConverter:
-        DaConverter<DaStorageBackend<StorageOp>, Share = DaShare> + Send + Sync + 'static,
-    HttpStorageAdapter: storage::StorageAdapter<StorageOp, RuntimeServiceId>,
-    RuntimeServiceId: AsServiceId<StorageService<DaStorageBackend<StorageOp>, RuntimeServiceId>>
+    DaStorageConverter: DaConverter<DaStorageBackend, Share = DaShare> + Send + Sync + 'static,
+    HttpStorageAdapter: StorageAdapter<RuntimeServiceId>,
+    RuntimeServiceId: AsServiceId<StorageService<DaStorageBackend, RuntimeServiceId>>
         + Debug
         + Sync
         + Display
@@ -607,27 +655,18 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn da_get_light_share<
-    StorageOp,
-    DaStorageConverter,
-    HttpStorageAdapter,
-    DaShare,
-    RuntimeServiceId,
->(
+pub async fn da_get_light_share<DaStorageConverter, HttpStorageAdapter, DaShare, RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
     Json(request): Json<DaSamplingRequest<DaShare>>,
 ) -> Response
 where
-    DaShare: Share + DeserializeOwned + Clone + Send + Sync + 'static,
+    DaShare: Share + Clone + Send + Sync + 'static,
     <DaShare as Share>::BlobId: Clone + DeserializeOwned + Send + Sync + 'static,
     <DaShare as Share>::ShareIndex: Clone + DeserializeOwned + Send + Sync + 'static,
     DaShare::LightShare: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
-    StorageOp: StorageSerde + Send + Sync + 'static,
-    DaStorageConverter:
-        DaConverter<RocksBackend<StorageOp>, Share = DaShare> + Send + Sync + 'static,
-    <StorageOp as StorageSerde>::Error: Send + Sync,
-    HttpStorageAdapter: storage::StorageAdapter<StorageOp, RuntimeServiceId>,
-    RuntimeServiceId: AsServiceId<StorageService<RocksBackend<StorageOp>, RuntimeServiceId>>
+    DaStorageConverter: DaConverter<RocksBackend, Share = DaShare> + Send + Sync + 'static,
+    HttpStorageAdapter: StorageAdapter<RuntimeServiceId>,
+    RuntimeServiceId: AsServiceId<StorageService<RocksBackend, RuntimeServiceId>>
         + Debug
         + Sync
         + Display
@@ -651,38 +690,22 @@ where
         (status = 500, description = "Internal server error", body = StreamBody),
     )
 )]
-pub async fn da_get_shares<
-    StorageOp,
-    DaStorageConverter,
-    HttpStorageAdapter,
-    DaShare,
-    RuntimeServiceId,
->(
+pub async fn da_get_shares<DaStorageConverter, HttpStorageAdapter, DaShare, RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
     Json(request): Json<GetSharesRequest<DaShare>>,
 ) -> Response
 where
     DaShare: Share + 'static,
     <DaShare as Share>::BlobId: Clone + Send + Sync + 'static,
-    <DaShare as Share>::ShareIndex: Serialize + DeserializeOwned + Send + Sync + Eq + Hash,
-    <DaShare as Share>::LightShare: LightShare<ShareIndex = <DaShare as Share>::ShareIndex>
-        + Serialize
-        + DeserializeOwned
-        + Send
-        + Sync
-        + 'static,
-    StorageOp: StorageSerde + Send + Sync + 'static,
-    DaStorageConverter:
-        DaConverter<RocksBackend<StorageOp>, Share = DaShare> + Send + Sync + 'static,
-    <StorageOp as StorageSerde>::Error: Send + Sync,
-    HttpStorageAdapter: storage::StorageAdapter<StorageOp, RuntimeServiceId> + 'static,
-    <DaShare as Share>::LightShare: LightShare<ShareIndex = <DaShare as Share>::ShareIndex>,
-    <DaShare as Share>::ShareIndex: 'static,
+    <DaShare as Share>::ShareIndex: Serialize + DeserializeOwned + Hash + Eq + Send + Sync,
+    <DaShare as Share>::LightShare: Serialize + DeserializeOwned + Send + Sync + 'static,
+    DaStorageConverter: DaConverter<RocksBackend, Share = DaShare> + Send + Sync + 'static,
+    HttpStorageAdapter: StorageAdapter<RuntimeServiceId> + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
         + 'static
-        + AsServiceId<StorageService<RocksBackend<StorageOp>, RuntimeServiceId>>,
+        + AsServiceId<StorageService<RocksBackend, RuntimeServiceId>>,
 {
     let relay = match handle.relay().await {
         Ok(relay) => relay,
@@ -698,10 +721,17 @@ where
     .await
     {
         Ok(shares) => {
-            let body = StreamBody::new(shares);
-            IntoResponse::into_response(([(header::CONTENT_TYPE, "application/x-ndjson")], body))
+            let body = Body::from_stream(shares);
+            match Response::builder()
+                .status(StatusCode::OK)
+                .header("content-type", "application/json")
+                .body(body)
+            {
+                Ok(response) => response,
+                Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+            }
         }
-        Err(e) => IntoResponse::into_response((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
 }
 
@@ -818,7 +848,14 @@ pub async fn add_tx<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceI
     Json(tx): Json<Tx>,
 ) -> Response
 where
-    Tx: Transaction + Clone + Debug + Serialize + DeserializeOwned + Send + Sync + 'static,
+    Tx: AuthenticatedMantleTx
+        + Clone
+        + Debug
+        + Serialize
+        + DeserializeOwned
+        + Send
+        + Sync
+        + 'static,
     <Tx as Transaction>::Hash:
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     SamplingNetworkAdapter:
@@ -848,62 +885,4 @@ where
         <Tx as Transaction>::Hash,
         RuntimeServiceId,
     >(&handle, tx, Transaction::hash))
-}
-
-#[utoipa::path(
-    post,
-    path = paths::MEMPOOL_ADD_BLOB_INFO,
-    responses(
-        (status = 200, description = "Add blob info to the mempool"),
-        (status = 500, description = "Internal server error", body = String),
-    )
-)]
-pub async fn add_blob_info<B, SamplingBackend, SamplingAdapter, SamplingStorage, RuntimeServiceId>(
-    State(handle): State<OverwatchHandle<RuntimeServiceId>>,
-    Json(blob_info): Json<B>,
-) -> Response
-where
-    B: DispersedBlobInfo
-        + Clone
-        + Debug
-        + Hash
-        + Serialize
-        + DeserializeOwned
-        + Send
-        + Sync
-        + 'static,
-    <B as DispersedBlobInfo>::BlobId:
-        Ord + Clone + Debug + Hash + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
-    SamplingBackend:
-        DaSamplingServiceBackend<BlobId = <B as DispersedBlobInfo>::BlobId> + Send + 'static,
-    SamplingBackend::Settings: Clone,
-    SamplingBackend::Share: Debug + 'static,
-    SamplingBackend::BlobId: Debug + 'static,
-    SamplingAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + 'static,
-    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
-    RuntimeServiceId: Debug
-        + Sync
-        + Display
-        + 'static
-        + AsServiceId<
-            DaMempoolService<
-                MempoolNetworkAdapter<B, <B as DispersedBlobInfo>::BlobId, RuntimeServiceId>,
-                MockPool<HeaderId, B, <B as DispersedBlobInfo>::BlobId>,
-                SamplingBackend,
-                SamplingAdapter,
-                SamplingStorage,
-                RuntimeServiceId,
-            >,
-        >,
-{
-    make_request_and_return_response!(mempool::add_blob_info::<
-        Libp2pNetworkBackend,
-        MempoolNetworkAdapter<B, <B as DispersedBlobInfo>::BlobId, RuntimeServiceId>,
-        B,
-        <B as DispersedBlobInfo>::BlobId,
-        SamplingBackend,
-        SamplingAdapter,
-        SamplingStorage,
-        RuntimeServiceId,
-    >(&handle, blob_info, DispersedBlobInfo::blob_id))
 }

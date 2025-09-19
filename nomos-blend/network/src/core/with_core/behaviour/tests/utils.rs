@@ -157,6 +157,6 @@ pub fn build_memberships<Behaviour: NetworkBehaviour>(
         .collect::<Vec<_>>();
     nodes
         .iter()
-        .map(|node| Membership::new(&nodes, Some(&node.public_key)))
+        .map(|node| Membership::new(&nodes, &node.public_key))
         .collect()
 }

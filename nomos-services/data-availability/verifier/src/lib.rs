@@ -12,7 +12,7 @@ use std::{
 };
 
 use backend::{
-    trigger::{MempoolPublishTrigger, MempoolPublishTriggerConfig},
+    trigger::{MempoolPublishTrigger, MempoolPublishTriggerConfig, ShareEvent},
     tx::mock::MockTxVerifier,
     TxVerifierBackend, VerifierBackend,
 };
@@ -25,7 +25,7 @@ use nomos_da_network_service::{
 };
 use nomos_mempool::backend::MempoolError;
 use nomos_storage::StorageService;
-use nomos_tracing::{error_with_id, info_with_id};
+use nomos_tracing::info_with_id;
 use overwatch::{
     services::{
         state::{NoOperator, NoState},
@@ -115,7 +115,8 @@ where
     ShareVerifier::DaShare: Debug + Send,
     ShareVerifier::Error: Error + Send + Sync,
     ShareVerifier::Settings: Clone,
-    <ShareVerifier::DaShare as Share>::BlobId: Clone + AsRef<[u8]> + Hash + Eq + Send + Sync,
+    <ShareVerifier::DaShare as Share>::BlobId:
+        Clone + Debug + AsRef<[u8]> + Hash + Eq + Send + Sync,
     <ShareVerifier::DaShare as Share>::LightShare: Send,
     <ShareVerifier::DaShare as Share>::SharesCommitments: Send,
     TxVerifier: TxVerifierBackend<BlobId = <ShareVerifier::DaShare as Share>::BlobId> + Send + Sync,
@@ -126,12 +127,8 @@ where
         + Send
         + 'static,
     Network::Settings: Clone,
-    MempoolAdapter: DaMempoolAdapter<
-            BlobId = <ShareVerifier::DaShare as Share>::BlobId,
-            Tx = <TxVerifier as TxVerifierBackend>::Tx,
-        > + Send
-        + Sync
-        + 'static,
+    MempoolAdapter:
+        DaMempoolAdapter<Tx = <TxVerifier as TxVerifierBackend>::Tx> + Send + Sync + 'static,
     Storage: DaStorageAdapter<RuntimeServiceId, Share = ShareVerifier::DaShare, Tx = TxVerifier::Tx>
         + Send
         + Sync
@@ -145,32 +142,27 @@ where
         mempool_adapter: &MempoolAdapter,
         share: ShareVerifier::DaShare,
     ) -> Result<(), DynError> {
-        if let Some((assignations, tx)) = storage_adapter.get_tx(share.blob_id()).await? {
-            if storage_adapter
-                .get_share(share.blob_id(), share.share_idx())
-                .await?
-                .is_some()
-            {
-                info_with_id!(share.blob_id().as_ref(), "VerifierShareExists");
-            } else {
-                info_with_id!(share.blob_id().as_ref(), "VerifierAddShare");
-                let (blob_id, share_idx) = (share.blob_id(), share.share_idx());
-                let (light_share, commitments) = share.into_share_and_commitments();
-                // TODO: remove TX if verification fails.
-                verifier.verify(&commitments, &light_share)?;
-                storage_adapter
-                    .add_share(blob_id.clone(), share_idx, commitments, light_share)
-                    .await?;
-                if matches!(
-                    mempool_trigger.update(blob_id.clone(), assignations),
-                    backend::trigger::ShareState::Complete
-                ) {
-                    mempool_adapter.post_tx(blob_id, tx).await?;
+        if storage_adapter
+            .get_share(share.blob_id(), share.share_idx())
+            .await?
+            .is_some()
+        {
+            info_with_id!(share.blob_id().as_ref(), "VerifierShareExists");
+        } else {
+            info_with_id!(share.blob_id().as_ref(), "VerifierAddShare");
+            let (blob_id, share_idx) = (share.blob_id(), share.share_idx());
+            let (light_share, commitments) = share.into_share_and_commitments();
+            // TODO: remove TX if verification fails.
+            verifier.verify(&commitments, &light_share)?;
+            storage_adapter
+                .add_share(blob_id.clone(), share_idx, commitments, light_share)
+                .await?;
+            let share_status = mempool_trigger.record(blob_id.clone(), ShareEvent::Share);
+            if let Some((_, tx)) = storage_adapter.get_tx(blob_id).await? {
+                if matches!(share_status, backend::trigger::ShareState::Complete) {
+                    mempool_adapter.post_tx(tx).await?;
                 }
             }
-        } else {
-            error_with_id!(share.blob_id().as_ref(), "VerifierTxDoesNotExist");
-            return Err("Transaction doesn't exist".into());
         }
         Ok(())
     }
@@ -178,6 +170,7 @@ where
     async fn handle_new_tx(
         verifier: &TxVerifier,
         storage_adapter: &Storage,
+        mempool_trigger: &mut MempoolPublishTrigger<<ShareVerifier::DaShare as Share>::BlobId>,
         assignations: u16,
         tx: TxVerifier::Tx,
     ) -> Result<(), DynError> {
@@ -187,7 +180,10 @@ where
         } else {
             info_with_id!(blob_id.as_ref(), "VerifierAddTx");
             verifier.verify(&tx)?;
-            storage_adapter.add_tx(blob_id, assignations, tx).await?;
+            storage_adapter
+                .add_tx(blob_id.clone(), assignations, tx)
+                .await?;
+            mempool_trigger.record(blob_id, ShareEvent::Transaction { assignations });
         }
         Ok(())
     }
@@ -201,7 +197,7 @@ where
         let blob_ids = mempool_trigger.prune(now);
         for blob_id in blob_ids {
             if let Some((_, tx)) = storage_adapter.get_tx(blob_id.clone()).await? {
-                match mempool_adapter.post_tx(blob_id, tx).await {
+                match mempool_adapter.post_tx(tx).await {
                     Ok(()) | Err(MempoolAdapterError::Mempool(MempoolError::ExistingItem)) => {}
                     Err(err) => return Err(Box::new(err)),
                 };
@@ -264,7 +260,7 @@ where
     ShareVerifier::DaShare: Debug + Send + Sync + 'static,
     ShareVerifier::Error: Error + Send + Sync + 'static,
     <ShareVerifier::DaShare as Share>::BlobId:
-        Clone + AsRef<[u8]> + Debug + Hash + Eq + Send + Sync + 'static,
+        Clone + Debug + AsRef<[u8]> + Hash + Eq + Send + Sync + 'static,
     <ShareVerifier::DaShare as Share>::LightShare: Debug + Send + Sync + 'static,
     <ShareVerifier::DaShare as Share>::SharesCommitments: Debug + Send + Sync + 'static,
     TxVerifier: TxVerifierBackend<BlobId = <ShareVerifier::DaShare as Share>::BlobId> + Send + Sync,
@@ -289,12 +285,8 @@ where
         + Sync
         + 'static,
     DaStorage::Settings: Clone + Send + Sync + 'static,
-    MempoolAdapter: DaMempoolAdapter<
-            BlobId = <ShareVerifier::DaShare as Share>::BlobId,
-            Tx = <TxVerifier as TxVerifierBackend>::Tx,
-        > + Send
-        + Sync
-        + 'static,
+    MempoolAdapter:
+        DaMempoolAdapter<Tx = <TxVerifier as TxVerifierBackend>::Tx> + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Display
         + Sync
@@ -407,25 +399,39 @@ where
                         share
                     ).await {
                         if let Some(sender) = sender {
-                            let _ = sender.send(Err(DispersalValidationError)).await;
+                            if let Err(e) = sender.send(Err(DispersalValidationError)).await {
+                                tracing::debug!("Verifier couldn't respond share validation request failure: {e}");
+                            }
                         }
                         error!("Error handling blob {blob_id:?} due to {err:?}");
                         continue;
                     }
                     if let Some(sender) = sender {
-                        let _ = sender.send(Ok(())).await;
+                        if let Err(e) = sender.send(Ok(())).await {
+                            tracing::debug!("Verifier couldn't respond share validation request success: {e}");
+                        }
                     }
                 }
                 Some(ValidationRequest{ item: (assignations, tx), sender }) = tx_stream.next() => {
-                    if let Err(err) =  Self::handle_new_tx(&tx_verifier, &storage_adapter, assignations, tx).await {
+                    if let Err(err) =  Self::handle_new_tx(
+                        &tx_verifier,
+                        &storage_adapter,
+                        &mut mempool_trigger,
+                        assignations,
+                        tx,
+                    ).await {
                         if let Some(sender) = sender {
-                            let _ = sender.send(Err(DispersalValidationError)).await;
+                            if let Err(e) = sender.send(Err(DispersalValidationError)).await {
+                                tracing::debug!("Verifier couldn't respond tx validation request failure: {e}");
+                            }
                         }
                         error!("Error handling tx due to {err:?}");
                         continue;
                     }
                     if let Some(sender) = sender {
-                        let _ = sender.send(Ok(())).await;
+                        if let Err(e) = sender.send(Ok(())).await {
+                            tracing::debug!("Verifier couldn't respond tx validation request success: {e}");
+                        }
                     }
                 }
                 Some(msg) = service_resources_handle.inbound_relay.recv() => {

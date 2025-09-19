@@ -45,5 +45,5 @@ where
         NetworkAdapter,
         Membership,
         RuntimeServiceId,
-    >(&handle, dispersal_req.data))
+    >(&handle, dispersal_req.channel_id, dispersal_req.data))
 }

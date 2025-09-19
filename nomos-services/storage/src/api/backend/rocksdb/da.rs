@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use libp2p_identity::PeerId;
 use multiaddr::Multiaddr;
-use nomos_core::{block::BlockNumber, da::BlobId};
+use nomos_core::{block::SessionNumber, da::BlobId};
 use rocksdb::Error;
 use tracing::{debug, error};
 
@@ -13,7 +13,7 @@ use crate::{
         backend::rocksdb::utils::{create_share_idx, key_bytes},
         da::StorageDaApi,
     },
-    backends::{rocksdb::RocksBackend, StorageBackend as _, StorageSerde},
+    backends::{rocksdb::RocksBackend, SerdeOp, StorageBackend as _},
 };
 
 pub const DA_VID_KEY_PREFIX: &str = "da/vid/";
@@ -25,7 +25,7 @@ pub const DA_ADDRESSBOOK_PREFIX: &str = concat!("da/membership/", "ab");
 pub const DA_TX_PREFIX: &str = concat!("da/verified/", "tx");
 
 #[async_trait]
-impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBackend<SerdeOp> {
+impl StorageDaApi for RocksBackend {
     type Error = Error;
     type BlobId = BlobId;
     type Share = Bytes;
@@ -68,7 +68,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBacken
         let index_key = key_bytes(DA_BLOB_SHARES_INDEX_PREFIX, blob_id.as_ref());
         let indices_bytes = self.load(&index_key).await?;
         let indices = indices_bytes.map(|bytes| {
-            SerdeOp::deserialize::<HashSet<Self::ShareIndex>>(bytes).unwrap_or_else(|e| {
+            <HashSet<Self::ShareIndex> as SerdeOp>::deserialize(&bytes).unwrap_or_else(|e| {
                 error!("Failed to deserialize indices: {:?}", e);
                 HashSet::new()
             })
@@ -93,7 +93,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBacken
             }
 
             let mut indices = db.get(&index_key)?.map_or_else(HashSet::new, |bytes| {
-                SerdeOp::deserialize::<HashSet<[u8; 2]>>(bytes.into()).unwrap_or_else(|e| {
+                <HashSet<[u8; 2]> as SerdeOp>::deserialize(&bytes).unwrap_or_else(|e| {
                     error!("Failed to deserialize indices: {:?}", e);
                     HashSet::new()
                 })
@@ -101,7 +101,8 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBacken
 
             indices.insert(share_idx);
 
-            let serialized_indices = SerdeOp::serialize(indices);
+            let serialized_indices = <HashSet<[u8; 2]> as SerdeOp>::serialize(&indices)
+                .expect("Serialization of HashSet should not fail");
 
             if let Err(e) = db.put(&index_key, &serialized_indices) {
                 error!("Failed to store indices: {:?}", e);
@@ -143,25 +144,23 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBacken
 
     async fn store_assignations(
         &mut self,
-        block_number: BlockNumber,
+        sesion_id: SessionNumber,
         assignations: HashMap<Self::NetworkId, HashSet<Self::Id>>,
     ) -> Result<(), Self::Error> {
-        let block_bytes = block_number.to_be_bytes();
-        let assignations_key = key_bytes(DA_ASSIGNATIONS_PREFIX, block_bytes);
-        let serialized_assignations = SerdeOp::serialize(assignations);
+        let session_bytes = sesion_id.to_be_bytes();
+        let assignations_key = key_bytes(DA_ASSIGNATIONS_PREFIX, session_bytes);
+        let serialized_assignations =
+            <()>::serialize(&assignations).expect("Serialization of HashMap should not fail");
 
         match self.store(assignations_key, serialized_assignations).await {
             Ok(()) => {
-                debug!(
-                    "Successfully stored assignations for block {}",
-                    block_number
-                );
+                debug!("Successfully stored assignations for session {}", sesion_id);
                 Ok(())
             }
             Err(e) => {
                 error!(
-                    "Failed to store assignations for block {}: {:?}",
-                    block_number, e
+                    "Failed to store assignations for session {}: {:?}",
+                    sesion_id, e
                 );
                 Err(e)
             }
@@ -170,35 +169,32 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBacken
 
     async fn get_assignations(
         &mut self,
-        block_number: BlockNumber,
-    ) -> Result<HashMap<Self::NetworkId, HashSet<Self::Id>>, Self::Error> {
-        let block_bytes = block_number.to_be_bytes();
-        let assignations_key = key_bytes(DA_ASSIGNATIONS_PREFIX, block_bytes);
-
+        sesion_id: SessionNumber,
+    ) -> Result<Option<HashMap<Self::NetworkId, HashSet<Self::Id>>>, Self::Error> {
+        let session_bytes = sesion_id.to_be_bytes();
+        let assignations_key = key_bytes(DA_ASSIGNATIONS_PREFIX, session_bytes);
         let assignations_bytes = self.load(&assignations_key).await?;
 
         assignations_bytes.map_or_else(
             || {
-                debug!("No membership data found for block {}", block_number);
-                Ok(HashMap::new())
+                debug!("No membership data found for session {}", sesion_id);
+                Ok(None)
             },
             |assignations_data| {
-                let assignations = SerdeOp::deserialize::<
-                    HashMap<Self::NetworkId, HashSet<Self::Id>>,
-                >(assignations_data)
-                .unwrap_or_else(|e| {
-                    error!(
-                        "Failed to deserialize assignations for block {}: {:?}",
-                        block_number, e
-                    );
-                    HashMap::new()
-                });
+                let assignations =
+                    <HashMap<Self::NetworkId, HashSet<Self::Id>> as SerdeOp>::deserialize(
+                        &assignations_data,
+                    )
+                    .unwrap_or_else(|e| {
+                        error!(
+                            "Failed to deserialize assignations for session {}: {:?}",
+                            sesion_id, e
+                        );
+                        HashMap::new()
+                    });
 
-                debug!(
-                    "Successfully loaded assignations and addressbook for block {}",
-                    block_number
-                );
-                Ok(assignations)
+                debug!("Successfully loaded assignations for session {}", sesion_id);
+                Ok(Some(assignations))
             },
         )
     }
@@ -211,7 +207,8 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBacken
 
         for (id, addr) in ids {
             let addressbook_key = key_bytes(DA_ADDRESSBOOK_PREFIX, id.to_bytes());
-            let serialized_address = SerdeOp::serialize(addr);
+            let serialized_address =
+                <()>::serialize(&addr).expect("Serialization of Multiaddr should not fail");
             key_address_map.insert(addressbook_key, serialized_address);
         }
 
@@ -233,7 +230,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBacken
                 Ok(None)
             },
             |bytes| {
-                let address = SerdeOp::deserialize::<Multiaddr>(bytes).unwrap_or_else(|e| {
+                let address = <Multiaddr as SerdeOp>::deserialize(&bytes).unwrap_or_else(|e| {
                     error!("Failed to deserialize address for {}: {:?}", id, e);
                     Multiaddr::empty()
                 });
@@ -249,7 +246,8 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBacken
         tx: Self::Tx,
     ) -> Result<(), Self::Error> {
         let tx_key = key_bytes(DA_TX_PREFIX, blob_id.as_ref());
-        let serialized_tx_body = SerdeOp::serialize(tx);
+        let serialized_tx_body =
+            <()>::serialize(&tx).expect("Serialization of transaction should not fail");
 
         let mut serialized_tx = Vec::with_capacity(2 + serialized_tx_body.len());
         serialized_tx.extend_from_slice(&assignations.to_be_bytes());
@@ -280,7 +278,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for RocksBacken
 
         let assignations = u16::from_be_bytes(assignations_arr);
 
-        let tx = match SerdeOp::deserialize::<Self::Tx>(tx_bytes) {
+        let tx = match <Bytes as SerdeOp>::deserialize(&tx_bytes) {
             Ok(tx) => Some((assignations, tx)),
             Err(e) => {
                 error!("Failed to deserialize tx: {:?}", e);

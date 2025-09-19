@@ -21,6 +21,7 @@ pub(crate) type ConnectionBalancer<Membership> = common::balancer::DAConnectionB
 >;
 
 /// Dispersed data failed to be validated.
+#[derive(Debug)]
 pub struct DispersalValidationError;
 
 pub type DispersalValidationResult = Result<(), DispersalValidationError>;

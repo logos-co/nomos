@@ -21,6 +21,7 @@ use nomos_da_network_core::{
         sampling::{
             self,
             errors::{HistoricSamplingError, SamplingError},
+            opinions::OpinionEvent,
             BehaviourSampleReq, BehaviourSampleRes, SubnetsConfig,
         },
     },
@@ -184,6 +185,7 @@ pub(crate) async fn handle_validator_events_stream(
     commitments_broadcast_sender: broadcast::Sender<CommitmentsEvent>,
     validation_broadcast_sender: broadcast::Sender<VerificationEvent>,
     historic_sample_broadcast_sender: broadcast::Sender<HistoricSamplingEvent>,
+    opinion_sender: UnboundedSender<OpinionEvent>,
 ) {
     let ValidatorEventsStream {
         mut sampling_events_receiver,
@@ -195,7 +197,7 @@ pub(crate) async fn handle_validator_events_stream(
         // safe set: https://docs.rs/tokio/latest/tokio/macro.select.html#cancellation-safety
         tokio::select! {
             Some(sampling_event) = StreamExt::next(&mut sampling_events_receiver) => {
-                handle_sampling_event(&sampling_broadcast_sender, &commitments_broadcast_sender, &historic_sample_broadcast_sender, sampling_event).await;
+                handle_sampling_event(&sampling_broadcast_sender, &commitments_broadcast_sender, &historic_sample_broadcast_sender,&opinion_sender, sampling_event).await;
             }
             Some(dispersal_event) = StreamExt::next(&mut validation_events_receiver) => {
                 handle_dispersal_event(&validation_broadcast_sender, dispersal_event).await;
@@ -242,6 +244,10 @@ async fn handle_dispersal_event(
     }
 }
 
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "Channel responses need to be checked"
+)]
 async fn handle_incoming_share_with_response(
     validation_broadcast_sender: &broadcast::Sender<VerificationEvent>,
     behaviour_sender: Sender<DispersalValidationResult>,
@@ -251,7 +257,9 @@ async fn handle_incoming_share_with_response(
         mpsc::channel::<DispersalValidationResult>(BROADCAST_CHANNEL_SIZE);
     if let Err(error) = validation_broadcast_sender.send((share.data, Some(service_sender)).into())
     {
-        let _ = behaviour_sender.send(Err(DispersalValidationError));
+        if let Err(error) = behaviour_sender.send(Err(DispersalValidationError)) {
+            error!("Error in internal response sender of share validation error: {error:?}");
+        }
         error!(
             "Error in internal broadcast of validation for blob: {:?}",
             error.0
@@ -262,9 +270,15 @@ async fn handle_incoming_share_with_response(
         .recv()
         .await
         .unwrap_or(Err(DispersalValidationError));
-    let _ = behaviour_sender.send(validation_response);
+    if let Err(error) = behaviour_sender.send(validation_response) {
+        error!("Error in internal response sender of share validation success: {error:?}");
+    }
 }
 
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "Channel responses need to be checked"
+)]
 async fn handle_incoming_tx_with_response(
     validation_broadcast_sender: &broadcast::Sender<VerificationEvent>,
     behaviour_sender: Sender<DispersalValidationResult>,
@@ -276,7 +290,9 @@ async fn handle_incoming_tx_with_response(
     if let Err(error) =
         validation_broadcast_sender.send((assignations, tx, Some(service_sender)).into())
     {
-        let _ = behaviour_sender.send(Err(DispersalValidationError));
+        if let Err(error) = behaviour_sender.send(Err(DispersalValidationError)) {
+            error!("Error in internal response sender of share validation error: {error:?}",);
+        }
         error!(
             "Error in internal broadcast of validation for blob: {:?}",
             error.0
@@ -287,13 +303,16 @@ async fn handle_incoming_tx_with_response(
         .recv()
         .await
         .unwrap_or(Err(DispersalValidationError));
-    let _ = behaviour_sender.send(validation_response);
+    if let Err(error) = behaviour_sender.send(validation_response) {
+        error!("Error in internal response sender of share validation success: {error:?}");
+    }
 }
 
 async fn handle_sampling_event(
     sampling_broadcast_sender: &broadcast::Sender<SamplingEvent>,
     commitments_broadcast_sender: &broadcast::Sender<CommitmentsEvent>,
     historic_sample_broadcast_sender: &broadcast::Sender<HistoricSamplingEvent>,
+    opinion_sender: &UnboundedSender<OpinionEvent>,
     sampling_event: sampling::SamplingEvent,
 ) {
     match sampling_event {
@@ -354,6 +373,18 @@ async fn handle_sampling_event(
         sampling::SamplingEvent::HistoricSamplingError { block_id, error } => {
             handle_historic_sample_error(block_id, error, historic_sample_broadcast_sender);
         }
+        sampling::SamplingEvent::Opinion(opinion_event) => {
+            handle_opinion_event(opinion_sender, opinion_event);
+        }
+    }
+}
+
+fn handle_opinion_event(
+    opinion_sender: &UnboundedSender<OpinionEvent>,
+    opinion_event: OpinionEvent,
+) {
+    if let Err(e) = opinion_sender.send(opinion_event) {
+        error!("Error in internal broadcast of opinion event: {e:?}");
     }
 }
 

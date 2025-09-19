@@ -4,10 +4,11 @@ use libp2p::{
     kad::{PeerInfo, QueryId},
     Multiaddr, PeerId, StreamProtocol,
 };
+use rand::RngCore;
 
 use crate::behaviour::Behaviour;
 
-impl Behaviour {
+impl<R: Clone + Send + RngCore + 'static> Behaviour<R> {
     pub(crate) fn kademlia_add_address(&mut self, peer_id: PeerId, addr: Multiaddr) {
         self.kademlia.add_address(&peer_id, addr);
     }

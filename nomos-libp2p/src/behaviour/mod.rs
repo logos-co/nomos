@@ -6,21 +6,33 @@
 use std::error::Error;
 
 use cryptarchia_sync::ChainSyncError;
-use libp2p::{identity, kad, swarm::NetworkBehaviour, PeerId};
+use libp2p::{autonat, identify, identity, kad, swarm::NetworkBehaviour, PeerId};
+use rand::RngCore;
 use thiserror::Error;
 
 use crate::{
     behaviour::gossipsub::compute_message_id, protocol_name::ProtocolName, IdentifySettings,
-    KademliaSettings,
+    KademliaSettings, NatSettings,
 };
 
 pub mod chainsync;
 pub mod gossipsub;
 pub mod kademlia;
+pub mod nat;
 
 // TODO: Risc0 proofs are HUGE (220 Kb) and it's the only reason we need to have
 // this limit so large. Remove this once we transition to smaller proofs.
 const DATA_LIMIT: usize = 1 << 18; // Do not serialize/deserialize more than 256 KiB
+
+pub(crate) struct BehaviourConfig {
+    pub gossipsub_config: libp2p::gossipsub::Config,
+    pub kademlia_config: KademliaSettings,
+    pub identify_config: IdentifySettings,
+    pub nat_config: NatSettings,
+    pub protocol_name: ProtocolName,
+    pub public_key: identity::PublicKey,
+    pub chain_sync_config: cryptarchia_sync::Config,
+}
 
 #[derive(Debug, Error)]
 pub enum BehaviourError {
@@ -31,24 +43,31 @@ pub enum BehaviourError {
 }
 
 #[derive(NetworkBehaviour)]
-pub struct Behaviour {
+pub struct Behaviour<Rng: Clone + Send + RngCore + 'static> {
     pub(crate) gossipsub: libp2p::gossipsub::Behaviour,
     // todo: support persistent store if needed
     pub(crate) kademlia: kad::Behaviour<kad::store::MemoryStore>,
-    pub(crate) identify: libp2p::identify::Behaviour,
+    pub(crate) identify: identify::Behaviour,
     pub(crate) chain_sync: cryptarchia_sync::Behaviour,
+    // The spec makes it mandatory to run an autonat server for a public node.
+    pub(crate) autonat_server: autonat::v2::server::Behaviour<Rng>,
+    pub(crate) nat: nat::Behaviour<Rng>,
 }
 
-impl Behaviour {
-    pub(crate) fn new(
-        gossipsub_config: libp2p::gossipsub::Config,
-        kad_config: &KademliaSettings,
-        identify_config: &IdentifySettings,
-        chain_sync_config: cryptarchia_sync::Config,
-        protocol_name: ProtocolName,
-        public_key: identity::PublicKey,
-    ) -> Result<Self, Box<dyn Error>> {
+impl<Rng: Clone + Send + RngCore + 'static> Behaviour<Rng> {
+    pub(crate) fn new(config: BehaviourConfig, rng: Rng) -> Result<Self, Box<dyn Error>> {
+        let BehaviourConfig {
+            gossipsub_config,
+            kademlia_config,
+            identify_config,
+            chain_sync_config,
+            nat_config,
+            protocol_name,
+            public_key,
+        } = config;
+
         let peer_id = PeerId::from(public_key.clone());
+
         let gossipsub = libp2p::gossipsub::Behaviour::new(
             libp2p::gossipsub::MessageAuthenticity::Author(peer_id),
             libp2p::gossipsub::ConfigBuilder::from(gossipsub_config)
@@ -58,15 +77,17 @@ impl Behaviour {
                 .build()?,
         )?;
 
-        let identify = libp2p::identify::Behaviour::new(
-            identify_config.to_libp2p_config(public_key, protocol_name),
-        );
+        let identify =
+            identify::Behaviour::new(identify_config.to_libp2p_config(public_key, protocol_name));
 
         let kademlia = kad::Behaviour::with_config(
             peer_id,
             kad::store::MemoryStore::new(peer_id),
-            kad_config.to_libp2p_config(protocol_name),
+            kademlia_config.to_libp2p_config(protocol_name),
         );
+
+        let autonat_server = autonat::v2::server::Behaviour::new(rng.clone());
+        let nat = nat::Behaviour::new(rng, &nat_config);
 
         let chain_sync = cryptarchia_sync::Behaviour::new(chain_sync_config);
 
@@ -75,6 +96,8 @@ impl Behaviour {
             kademlia,
             identify,
             chain_sync,
+            autonat_server,
+            nat,
         })
     }
 }

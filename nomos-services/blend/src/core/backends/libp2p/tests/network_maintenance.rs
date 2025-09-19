@@ -27,18 +27,15 @@ async fn on_unhealthy_peer() {
     } = SwarmBuilder::default().build(|id| BlendBehaviourBuilder::new(&id).build());
     let (membership_entry, _) = second_swarm.listen_and_return_membership_entry(None).await;
 
-    let membership = Membership::new(
-        &[
-            membership_entry,
-            // We only care about including the unhealthy swarm peer ID in the membership.
-            Node {
-                id: *unhealthy_swarm.local_peer_id(),
-                address: Multiaddr::empty(),
-                public_key: Ed25519PrivateKey::generate().public_key(),
-            },
-        ],
-        None,
-    );
+    let membership = Membership::new_without_local(&[
+        membership_entry,
+        // We only care about including the unhealthy swarm peer ID in the membership.
+        Node {
+            id: *unhealthy_swarm.local_peer_id(),
+            address: Multiaddr::empty(),
+            public_key: Ed25519PrivateKey::generate().public_key(),
+        },
+    ]);
     let TestSwarm {
         swarm: mut listening_swarm,
         ..
@@ -121,18 +118,15 @@ async fn on_malicious_peer() {
     } = SwarmBuilder::default().build(|id| BlendBehaviourBuilder::new(&id).build());
     let (membership_entry, _) = second_swarm.listen_and_return_membership_entry(None).await;
 
-    let membership = Membership::new(
-        &[
-            membership_entry,
-            // We only care about including the unhealthy swarm peer ID in the membership.
-            Node {
-                id: *malicious_swarm.local_peer_id(),
-                address: Multiaddr::empty(),
-                public_key: Ed25519PrivateKey::generate().public_key(),
-            },
-        ],
-        None,
-    );
+    let membership = Membership::new_without_local(&[
+        membership_entry,
+        // We only care about including the unhealthy swarm peer ID in the membership.
+        Node {
+            id: *malicious_swarm.local_peer_id(),
+            address: Multiaddr::empty(),
+            public_key: Ed25519PrivateKey::generate().public_key(),
+        },
+    ]);
     let TestSwarm {
         swarm: mut listening_swarm,
         ..

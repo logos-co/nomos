@@ -45,6 +45,7 @@ impl DaEncoderParams {
     }
 }
 
+#[derive(Clone)]
 pub struct EncodedData {
     pub data: Vec<u8>,
     pub chunked_data: ChunksMatrix,

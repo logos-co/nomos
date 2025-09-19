@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use libp2p::{identity::Keypair, swarm::NetworkBehaviour, PeerId};
 use subnetworks_assignations::MembershipHandler;
+use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
     addressbook::AddressBookHandler,
@@ -62,6 +63,7 @@ where
         replication_config: ReplicationConfig,
         subnets_config: SubnetsConfig,
         refresh_signal: impl futures::Stream<Item = ()> + Send + 'static,
+        balancer_stats_sender: UnboundedSender<<Balancer as ConnectionBalancer>::Stats>,
     ) -> Self {
         let peer_id = PeerId::from_public_key(&key.public());
         Self {
@@ -74,7 +76,11 @@ where
             ),
             dispersal: DispersalValidatorBehaviour::new(peer_id, membership.clone()),
             replication: ReplicationBehaviour::new(replication_config, peer_id, membership),
-            balancer: ConnectionBalancerBehaviour::new(addressbook, balancer),
+            balancer: ConnectionBalancerBehaviour::new(
+                addressbook,
+                balancer,
+                Some(balancer_stats_sender),
+            ),
             monitor: ConnectionMonitorBehaviour::new(monitor, redial_cooldown),
         }
     }

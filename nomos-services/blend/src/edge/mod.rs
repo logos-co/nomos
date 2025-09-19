@@ -1,6 +1,9 @@
 pub mod backends;
+mod handlers;
 pub(crate) mod service_components;
 pub mod settings;
+#[cfg(test)]
+mod tests;
 
 use std::{
     fmt::{Debug, Display},
@@ -10,27 +13,33 @@ use std::{
 };
 
 use backends::BlendBackend;
+use futures::{Stream, StreamExt as _};
 use nomos_blend_scheduling::{
-    message_blend::crypto::CryptographicProcessor, session::SessionEventStream,
+    membership::Membership,
+    session::{SessionEvent, UninitializedSessionEventStream},
 };
-use nomos_core::wire;
-use nomos_utils::blake_rng::BlakeRng;
+use nomos_core::codec::SerdeOp;
 use overwatch::{
+    overwatch::OverwatchHandle,
     services::{
+        resources::ServiceResourcesHandle,
         state::{NoOperator, NoState},
         AsServiceId, ServiceCore, ServiceData,
     },
     OpaqueServiceResourcesHandle,
 };
-use rand::{RngCore, SeedableRng as _};
-use serde::Serialize;
+use serde::{de::DeserializeOwned, Serialize};
 pub(crate) use service_components::ServiceComponents;
 use services_utils::wait_until_services_are_ready;
 use settings::BlendConfig;
-use tokio::time::interval;
-use tokio_stream::{wrappers::IntervalStream, StreamExt as _};
+use tracing::{debug, error, info};
 
-use crate::{membership, message::ServiceMessage};
+use crate::{
+    edge::handlers::{Error, MessageHandler},
+    membership,
+    message::{NetworkMessage, ServiceMessage},
+    settings::FIRST_SESSION_READY_TIMEOUT,
+};
 
 const LOG_TARGET: &str = "blend::service::edge";
 
@@ -49,7 +58,7 @@ where
     Backend: BlendBackend<NodeId, RuntimeServiceId>,
     NodeId: Clone,
 {
-    type Settings = BlendConfig<Backend::Settings, NodeId>;
+    type Settings = BlendConfig<Backend::Settings>;
     type State = NoState<Self::Settings>;
     type StateOperator = NoOperator<Self::State>;
     type Message = ServiceMessage<BroadcastSettings>;
@@ -62,10 +71,9 @@ impl<Backend, NodeId, BroadcastSettings, MembershipAdapter, RuntimeServiceId>
 where
     Backend: BlendBackend<NodeId, RuntimeServiceId> + Send + Sync,
     NodeId: Clone + Eq + Hash + Send + Sync + 'static,
-    BroadcastSettings: Serialize + Send,
-    MembershipAdapter: membership::Adapter + Send,
+    BroadcastSettings: Serialize + DeserializeOwned + Send,
+    MembershipAdapter: membership::Adapter<NodeId = NodeId, Error: Send + Sync + 'static> + Send,
     membership::ServiceMessage<MembershipAdapter>: Send + Sync + 'static,
-    <MembershipAdapter as membership::Adapter>::Error: Send + Sync + 'static,
     RuntimeServiceId: AsServiceId<<MembershipAdapter as membership::Adapter>::Service>
         + AsServiceId<Self>
         + Display
@@ -87,118 +95,147 @@ where
 
     async fn run(mut self) -> Result<(), overwatch::DynError> {
         let Self {
-            service_resources_handle,
+            service_resources_handle:
+                ServiceResourcesHandle {
+                    inbound_relay,
+                    overwatch_handle,
+                    settings_handle,
+                    status_updater,
+                    ..
+                },
             ..
         } = self;
 
-        let settings = service_resources_handle
-            .settings_handle
-            .notifier()
-            .get_updated_settings();
-        let membership = settings.membership();
-        let current_membership = Some(membership.clone());
-        let minimum_network_size = settings.minimum_network_size;
-
-        let membership_adapter = MembershipAdapter::new(
-            service_resources_handle
-                .overwatch_handle
-                .relay::<<MembershipAdapter as membership::Adapter>::Service>()
-                .await?,
-            settings.crypto.signing_private_key.public_key(),
-        );
-        let mut _session_stream = SessionEventStream::new(
-            membership_adapter.subscribe().await?,
-            settings.time.session_transition_period(),
-        );
-        // TODO: Use session_stream: https://github.com/logos-co/nomos/issues/1532
+        let settings = settings_handle.notifier().get_updated_settings();
 
         wait_until_services_are_ready!(
-            &service_resources_handle.overwatch_handle,
+            &overwatch_handle,
             Some(Duration::from_secs(60)),
             <MembershipAdapter as membership::Adapter>::Service
         )
         .await?;
 
-        // TODO: Add logic to try process new sessions. I.e:
-        // * If the old session membership was too small and the new one is large
-        //   enough, create a new backend and start blending incoming messages.
-        // * If the old and new session membership are both too small, do nothing.
-        // * If the old session membership was large and the new one too small, simply
-        //   drop the backend.
-        // * If the old and new session membership are both large enough, perform
-        //   session rotation logic and maintain the swarm backend.
-        // Ideally, this service would be stopped altogether by the proxy service when a
-        // session is too small. Yet, the service itself must be resilient in case of
-        // bugs where the proxy service does not do that, hence the need for this
-        // additional logic.
-        if membership.size() < minimum_network_size.get() as usize {
-            tracing::warn!(target: LOG_TARGET, "Blend network size is smaller than the required minimum. Not starting swarm, hence no messages will be blended in this session.");
-            // We still mark the service as ready, albeit other services won't be able to
-            // interact with this service by sending messages to it, and it indeed should
-            // not happen, as all interactions should happen via the proxy service.
-            service_resources_handle.status_updater.notify_ready();
-            tracing::info!(
-                target: LOG_TARGET,
-                "Service '{}' is ready.",
-                <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
-            );
-        } else {
-            let mut cryptoraphic_processor = CryptographicProcessor::new(
-                settings.crypto.clone(),
-                settings.membership(),
-                BlakeRng::from_entropy(),
-            );
-            let mut messages_to_blend =
-                service_resources_handle
-                    .inbound_relay
-                    .map(|ServiceMessage::Blend(message)| {
-                        wire::serialize(&message)
-                            .expect("Message from internal services should not fail to serialize")
-                    });
-            let backend = <Backend as BlendBackend<NodeId, RuntimeServiceId>>::new(
-                settings.backend,
-                service_resources_handle.overwatch_handle.clone(),
-                Box::pin(
-                    IntervalStream::new(interval(settings.time.session_duration()))
-                        .map(move |_| membership.clone()),
-                ),
-                current_membership,
-                BlakeRng::from_entropy(),
-            );
+        let membership_stream = MembershipAdapter::new(
+            overwatch_handle
+                .relay::<<MembershipAdapter as membership::Adapter>::Service>()
+                .await?,
+            settings.crypto.signing_private_key.public_key(),
+        )
+        .subscribe()
+        .await?;
 
-            service_resources_handle.status_updater.notify_ready();
-            tracing::info!(
-                target: LOG_TARGET,
-                "Service '{}' is ready.",
-                <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
-            );
+        let uninitialized_session_stream = UninitializedSessionEventStream::new(
+            membership_stream,
+            FIRST_SESSION_READY_TIMEOUT,
+            settings.time.session_transition_period(),
+        );
 
-            while let Some(message) = messages_to_blend.next().await {
-                handle_messages_to_blend(message, &mut cryptoraphic_processor, &backend).await;
-            }
-        }
+        let messages_to_blend = inbound_relay.map(|ServiceMessage::Blend(message)| {
+            <NetworkMessage<BroadcastSettings> as SerdeOp>::serialize(&message)
+                .expect("NetworkMessage should be able to be serialized")
+                .to_vec()
+        });
 
-        Ok(())
+        run::<Backend, _, _>(
+            uninitialized_session_stream,
+            messages_to_blend,
+            &settings,
+            &overwatch_handle,
+            || {
+                status_updater.notify_ready();
+                info!(
+                    target: LOG_TARGET,
+                    "Service '{}' is ready.",
+                    <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
+                );
+            },
+        )
+        .await
+        .map_err(|e| {
+            error!(target: LOG_TARGET, "Edge blend service is being terminated with error: {e:?}");
+            e.into()
+        })
     }
 }
 
-/// Blend a new message received from another service.
-async fn handle_messages_to_blend<NodeId, Rng, Backend, RuntimeServiceId>(
-    message: Vec<u8>,
-    cryptographic_processor: &mut CryptographicProcessor<NodeId, Rng>,
-    backend: &Backend,
-) where
-    NodeId: Eq + Hash + Clone + Send,
-    Rng: RngCore + Send,
+/// Run the event loop of the service.
+///
+/// It listens for new sessions and messages to blend.
+/// It recreates the [`MessageHandler`] on each new session to handle messages
+/// with the new membership.
+/// It returns an [`Error`] if the new membership does not satisfy the edge node
+/// condition.
+///
+/// # Panics
+/// - If the initial membership is not yielded immediately from the session
+///   stream.
+/// - If the initial membership does not satisfy the edge node condition.
+async fn run<Backend, NodeId, RuntimeServiceId>(
+    session_stream: UninitializedSessionEventStream<impl Stream<Item = Membership<NodeId>> + Unpin>,
+    mut messages_to_blend: impl Stream<Item = Vec<u8>> + Send + Unpin,
+    settings: &Settings<Backend, NodeId, RuntimeServiceId>,
+    overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
+    notify_ready: impl Fn(),
+) -> Result<(), Error>
+where
     Backend: BlendBackend<NodeId, RuntimeServiceId> + Sync,
+    NodeId: Clone + Eq + Hash + Send + Sync + 'static,
+    RuntimeServiceId: Clone,
 {
-    let Ok(message) = cryptographic_processor
-        .encapsulate_data_payload(&message)
-        .inspect_err(|e| {
-            tracing::error!(target: LOG_TARGET, "Failed to encapsulate message: {e:?}");
-        })
-    else {
-        return;
-    };
-    backend.send(message).await;
+    let (membership, mut session_stream) = session_stream
+        .await_first_ready()
+        .await
+        .expect("The current session must be ready");
+
+    info!(
+        target: LOG_TARGET,
+        "The current membership is ready: {} nodes.",
+        membership.size()
+    );
+
+    let mut message_handler =
+        MessageHandler::<Backend, NodeId, RuntimeServiceId>::try_new_with_edge_condition_check(
+            settings,
+            membership,
+            overwatch_handle.clone(),
+        )
+        .expect("The initial membership should satisfy the edge node condition");
+
+    notify_ready();
+
+    loop {
+        tokio::select! {
+            Some(SessionEvent::NewSession(membership)) = session_stream.next() => {
+                message_handler = handle_new_session(membership, settings, overwatch_handle)?;
+            }
+            Some(message) = messages_to_blend.next() => {
+                message_handler.handle_messages_to_blend(message).await;
+            }
+        }
+    }
 }
+
+/// Handle a new session.
+///
+/// It creates a new [`MessageHandler`] if the membership satisfies all the edge
+/// node condition. Otherwise, it returns [`Error`].
+fn handle_new_session<Backend, NodeId, RuntimeServiceId>(
+    membership: Membership<NodeId>,
+    settings: &Settings<Backend, NodeId, RuntimeServiceId>,
+    overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
+) -> Result<MessageHandler<Backend, NodeId, RuntimeServiceId>, Error>
+where
+    Backend: BlendBackend<NodeId, RuntimeServiceId>,
+    NodeId: Clone + Eq + Hash + Send + 'static,
+    RuntimeServiceId: Clone,
+{
+    debug!(target: LOG_TARGET, "Trying to create a new message handler");
+    MessageHandler::<Backend, NodeId, RuntimeServiceId>::try_new_with_edge_condition_check(
+        settings,
+        membership,
+        overwatch_handle.clone(),
+    )
+}
+
+type Settings<Backend, NodeId, RuntimeServiceId> =
+    BlendConfig<<Backend as BlendBackend<NodeId, RuntimeServiceId>>::Settings>;

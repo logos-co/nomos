@@ -9,6 +9,7 @@ workspace = true
 
 [dependencies]
 async-trait            = "0.1"
+fork_stream            = { workspace = true }
 futures                = { default-features = false, version = "0.3" }
 libp2p                 = { optional = true, workspace = true }
 libp2p-stream          = { optional = true, workspace = true }
@@ -31,11 +32,12 @@ tokio-stream           = { default-features = false, version = "0.1" }
 tracing                = { workspace = true }
 
 [dev-dependencies]
-libp2p              = { default-features = false, features = ["plaintext", "tcp", "yamux"], workspace = true }
-libp2p-swarm-test   = { default-features = false, version = "0.5.0" }
-nomos-blend-message = { workspace = true }
-nomos-blend-network = { features = ["unsafe-test-functions"], workspace = true }
-test-log            = { default-features = false, version = "0.2.18" }
+libp2p                 = { default-features = false, features = ["plaintext", "tcp", "yamux"], workspace = true }
+libp2p-swarm-test      = { default-features = false, version = "0.5.0" }
+nomos-blend-message    = { workspace = true }
+nomos-blend-network    = { features = ["unsafe-test-functions"], workspace = true }
+nomos-blend-scheduling = { workspace = true, features = ["unsafe-test-functions"] }
+test-log               = { default-features = false, version = "0.2.18" }
 
 [features]
 default = []

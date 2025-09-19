@@ -200,7 +200,13 @@ impl<'a> From<WithdrawnState<'a>> for TransientDeclarationState<'a> {
 
 #[cfg(test)]
 mod tests {
+    use num_bigint::BigUint;
+
     use super::*;
+    use crate::{
+        mantle::NoteId,
+        sdp::{ServiceType, ZkPublicKey},
+    };
 
     const fn default_service_params() -> ServiceParameters {
         ServiceParameters {
@@ -214,7 +220,12 @@ mod tests {
     #[test]
     fn test_info_to_inactive_state() {
         let service_params = default_service_params();
-        let mut declaration_state = DeclarationState::new(0);
+        let mut declaration_state = DeclarationState::new(
+            0,
+            ServiceType::BlendNetwork,
+            NoteId(BigUint::from(0u8).into()),
+            ZkPublicKey(BigUint::from(0u8).into()),
+        );
 
         let inactive_state =
             TransientDeclarationState::try_from_state(21, &mut declaration_state, &service_params)
@@ -228,7 +239,12 @@ mod tests {
     #[test]
     fn test_info_to_inactive_active_state() {
         let service_params = default_service_params();
-        let mut declaration_state = DeclarationState::new(100);
+        let mut declaration_state = DeclarationState::new(
+            100,
+            ServiceType::BlendNetwork,
+            NoteId(BigUint::from(0u8).into()),
+            ZkPublicKey(BigUint::from(0u8).into()),
+        );
         declaration_state.active = 110;
 
         let inactive_activity_record_state =
@@ -244,7 +260,12 @@ mod tests {
     #[test]
     fn test_info_to_active_state() {
         let service_params = default_service_params();
-        let mut declaration_state = DeclarationState::new(100);
+        let mut declaration_state = DeclarationState::new(
+            100,
+            ServiceType::BlendNetwork,
+            NoteId(BigUint::from(0u8).into()),
+            ZkPublicKey(BigUint::from(0u8).into()),
+        );
 
         let active_state =
             TransientDeclarationState::try_from_state(111, &mut declaration_state, &service_params)
@@ -255,7 +276,12 @@ mod tests {
     #[test]
     fn test_info_to_active_recorded_state() {
         let service_params = default_service_params();
-        let mut declaration_state = DeclarationState::new(100);
+        let mut declaration_state = DeclarationState::new(
+            100,
+            ServiceType::BlendNetwork,
+            NoteId(BigUint::from(0u8).into()),
+            ZkPublicKey(BigUint::from(0u8).into()),
+        );
         declaration_state.active = 110;
 
         let active_recorded_state =
@@ -271,7 +297,12 @@ mod tests {
     #[test]
     fn test_info_to_withdrawn_state() {
         let service_params = default_service_params();
-        let mut declaration_state = DeclarationState::new(100);
+        let mut declaration_state = DeclarationState::new(
+            100,
+            ServiceType::BlendNetwork,
+            NoteId(BigUint::from(0u8).into()),
+            ZkPublicKey(BigUint::from(0u8).into()),
+        );
         declaration_state.active = 111;
         declaration_state.withdrawn = Some(121);
 
@@ -288,7 +319,12 @@ mod tests {
     #[test]
     fn test_previous_block() {
         let service_params = default_service_params();
-        let mut declaration_state = DeclarationState::new(3);
+        let mut declaration_state = DeclarationState::new(
+            3,
+            ServiceType::BlendNetwork,
+            NoteId(BigUint::from(0u8).into()),
+            ZkPublicKey(BigUint::from(0u8).into()),
+        );
 
         // Provider created in block 3, trying to convert to state in block 2.
         let res =
@@ -307,7 +343,12 @@ mod tests {
     #[test]
     fn test_active_to_active_declaration() {
         let service_params = default_service_params();
-        let mut declaration_state = DeclarationState::new(0);
+        let mut declaration_state = DeclarationState::new(
+            0,
+            ServiceType::BlendNetwork,
+            NoteId(BigUint::from(0u8).into()),
+            ZkPublicKey(BigUint::from(0u8).into()),
+        );
 
         let active_state =
             TransientDeclarationState::try_from_state(0, &mut declaration_state, &service_params)
@@ -324,7 +365,12 @@ mod tests {
     #[test]
     fn test_active_to_activity_recorded_to_withdraw() {
         let service_params = default_service_params();
-        let mut declaration_state = DeclarationState::new(0);
+        let mut declaration_state = DeclarationState::new(
+            0,
+            ServiceType::BlendNetwork,
+            NoteId(BigUint::from(0u8).into()),
+            ZkPublicKey(BigUint::from(0u8).into()),
+        );
 
         let active_state =
             TransientDeclarationState::try_from_state(0, &mut declaration_state, &service_params)
@@ -342,7 +388,12 @@ mod tests {
     #[test]
     fn test_withdrawal_constraints() {
         let service_params = default_service_params();
-        let mut declaration_state = DeclarationState::new(0);
+        let mut declaration_state = DeclarationState::new(
+            0,
+            ServiceType::BlendNetwork,
+            NoteId(BigUint::from(0u8).into()),
+            ZkPublicKey(BigUint::from(0u8).into()),
+        );
 
         let active_state =
             TransientDeclarationState::try_from_state(0, &mut declaration_state, &service_params)
@@ -372,7 +423,12 @@ mod tests {
         ));
 
         // Withdrawal can't be activity recorded in future.
-        let mut declaration_state = DeclarationState::new(0);
+        let mut declaration_state = DeclarationState::new(
+            0,
+            ServiceType::BlendNetwork,
+            NoteId(BigUint::from(0u8).into()),
+            ZkPublicKey(BigUint::from(0u8).into()),
+        );
         let active_withdrawal =
             TransientDeclarationState::try_from_state(0, &mut declaration_state, &service_params)
                 .unwrap()
@@ -388,7 +444,12 @@ mod tests {
     #[test]
     fn test_inactive_to_withdraw() {
         let service_params = default_service_params();
-        let mut declaration_state = DeclarationState::new(0);
+        let mut declaration_state = DeclarationState::new(
+            0,
+            ServiceType::BlendNetwork,
+            NoteId(BigUint::from(0u8).into()),
+            ZkPublicKey(BigUint::from(0u8).into()),
+        );
 
         // Try to make inactive state then withdraw.
         let inactive_state =
@@ -403,7 +464,12 @@ mod tests {
     #[test]
     fn test_inactive_to_active_to_withdraw() {
         let service_params = default_service_params();
-        let mut declaration_state = DeclarationState::new(0);
+        let mut declaration_state = DeclarationState::new(
+            0,
+            ServiceType::BlendNetwork,
+            NoteId(BigUint::from(0u8).into()),
+            ZkPublicKey(BigUint::from(0u8).into()),
+        );
 
         // Try to make inactive state active again and then withdraw.
         let inactive_state =
@@ -420,7 +486,12 @@ mod tests {
     #[test]
     fn test_withdrawn_cannot_transition_to_inactive() {
         let service_params = default_service_params();
-        let mut declaration_state = DeclarationState::new(0);
+        let mut declaration_state = DeclarationState::new(
+            0,
+            ServiceType::BlendNetwork,
+            NoteId(BigUint::from(0u8).into()),
+            ZkPublicKey(BigUint::from(0u8).into()),
+        );
 
         let active_state =
             TransientDeclarationState::try_from_state(0, &mut declaration_state, &service_params)
@@ -445,7 +516,12 @@ mod tests {
             retention_period: 30,
             timestamp: 0,
         };
-        let mut declaration_state = DeclarationState::new(0);
+        let mut declaration_state = DeclarationState::new(
+            0,
+            ServiceType::BlendNetwork,
+            NoteId(BigUint::from(0u8).into()),
+            ZkPublicKey(BigUint::from(0u8).into()),
+        );
 
         let inactive_state =
             TransientDeclarationState::try_from_state(10, &mut declaration_state, &service_params)
@@ -463,7 +539,12 @@ mod tests {
     #[test]
     fn test_active_cannot_record_activity_directly_when_withdrawing() {
         let service_params = default_service_params();
-        let mut declaration_state = DeclarationState::new(0);
+        let mut declaration_state = DeclarationState::new(
+            0,
+            ServiceType::BlendNetwork,
+            NoteId(BigUint::from(0u8).into()),
+            ZkPublicKey(BigUint::from(0u8).into()),
+        );
 
         let active_state =
             TransientDeclarationState::try_from_state(0, &mut declaration_state, &service_params)
