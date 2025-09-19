@@ -475,6 +475,7 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                 ibd: chain_service::IbdConfig {
                     peers: HashSet::new(),
                     delay_before_new_download: Duration::from_secs(10),
+                    final_blocks_with_blob_validation: 8640u64.into(),
                 },
             },
             sync: SyncConfig {

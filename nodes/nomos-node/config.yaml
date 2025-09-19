@@ -241,6 +241,7 @@ cryptarchia:
       state_recording_interval: [ 60, 0 ]
     ibd:
       peers: [ ]
+      final_blocks_with_blob_validation: 8640
   sync:
     orphan:
       max_orphan_cache_size: 5

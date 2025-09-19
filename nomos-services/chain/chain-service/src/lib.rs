@@ -637,21 +637,31 @@ where
         //       It needs to be replaced with a trait, which requires substantial
         // refactoring.       https://github.com/logos-co/nomos/issues/1505
         let initial_block_download = InitialBlockDownload::new(
-            bootstrap_config.ibd,
+            bootstrap_config.ibd.clone(),
             network_adapter,
-            |cryptarchia, storage_blocks_to_remove, block| {
+            |cryptarchia, storage_blocks_to_remove, block, target| {
                 let leader = &leader;
                 let relays = &relays;
                 let state_updater = &self.service_resources_handle.state_updater;
                 let new_block_subscription_sender = &self.new_block_subscription_sender;
                 let lib_subscription_sender = &self.lib_subscription_sender;
                 async move {
+                    let blob_validation =
+                        ibd::determine_blob_validation::<SamplingBackend::BlobId, ClPool::Item>(
+                            block.header().parent(),
+                            target,
+                            &cryptarchia,
+                            bootstrap_config.ibd.final_blocks_with_blob_validation,
+                        )
+                        .inspect_err(|e| {
+                            error!("Failed to determine blob validation during IBD: {e:?}");
+                        })?;
+
                     Self::process_block_and_update_state(
                         cryptarchia,
                         leader,
                         block,
-                        // TODO: Enable this once entering DA window: https://github.com/logos-co/nomos/issues/1675
-                        &SkipBlobValidation,
+                        blob_validation.as_ref(),
                         &storage_blocks_to_remove,
                         relays,
                         new_block_subscription_sender,
