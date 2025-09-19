@@ -9,7 +9,7 @@ use tracing::{debug, error};
 use crate::{
     bootstrap::download::{Delay, Download, Downloads, DownloadsOutput},
     network::NetworkAdapter,
-    Cryptarchia, IbdConfig,
+    Cryptarchia, Error as ChainError, IbdConfig,
 };
 
 // TODO: Replace ProcessBlock closures with a trait
@@ -311,7 +311,6 @@ where
     }
 }
 
-use crate::Error as ChainError;
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("Block provider error: {0}")]
@@ -450,7 +449,7 @@ mod tests {
     /// the peer should be ignored, and IBD should continue
     /// with the remaining peers.
     #[tokio::test]
-    async fn err_from_one_peer_while_downloading() {
+    async fn stream_err_from_one_peer_while_downloading() {
         let peer0 = BlockProvider::new(
             vec![
                 Block::genesis(),
@@ -492,7 +491,7 @@ mod tests {
     /// If all peers return an error while streaming blocks,
     /// [`Error::AllPeersFailed`] should be returned.
     #[tokio::test]
-    async fn err_from_all_peers_while_downloading() {
+    async fn stream_err_from_all_peers_while_downloading() {
         let peer0 = BlockProvider::new(
             vec![
                 Block::genesis(),
@@ -532,7 +531,7 @@ mod tests {
     /// the peer should be ignored, and IBD should continue
     /// with the remaining peers.
     #[tokio::test]
-    async fn err_from_one_peer_while_initiating() {
+    async fn stream_err_from_one_peer_while_initiating() {
         let peer0 = BlockProvider::new(
             vec![
                 Block::genesis(),
@@ -574,7 +573,7 @@ mod tests {
     /// If all peers return an error while initiating download,
     /// [`Error::AllPeersFailed`] should be returned.
     #[tokio::test]
-    async fn err_from_all_peers_while_initiating() {
+    async fn stream_err_from_all_peers_while_initiating() {
         let peer0 = BlockProvider::new(
             vec![
                 Block::genesis(),
@@ -610,6 +609,101 @@ mod tests {
         assert!(matches!(result, Err(Error::AllPeersFailed)));
     }
 
+    /// If a block received from a peer cannot be processed,
+    /// the peer should be ignored, and IBD should continue
+    /// with the remaining peers.
+    #[tokio::test]
+    async fn block_err_from_one_peer() {
+        let peer0 = BlockProvider::new(
+            vec![
+                Block::genesis(),
+                Block::new(1, GENESIS_ID, 1),
+                // Invalid block (parent doesn't exist)
+                Block::new(2, 100, 2),
+                Block::new(3, 2, 3),
+            ],
+            Ok(Block::new(3, 2, 3)),
+            2,
+            false,
+        );
+        let peer1 = BlockProvider::new(
+            vec![
+                Block::genesis(),
+                Block::new(4, GENESIS_ID, 4),
+                Block::new(5, 4, 5),
+                Block::new(6, 5, 6),
+            ],
+            Ok(Block::new(6, 5, 6)),
+            2,
+            false,
+        );
+        let (cryptarchia, _) = InitialBlockDownload::new(
+            config([NodeId(0), NodeId(1)].into()),
+            MockNetworkAdapter::<()>::new(HashMap::from([
+                (NodeId(0), peer0.clone()),
+                (NodeId(1), peer1.clone()),
+            ])),
+            process_block,
+        )
+        .run(new_cryptarchia(), HashSet::new())
+        .await
+        .unwrap();
+
+        // All blocks from peer1 that provided valid blocks
+        // should be added to the local chain.
+        assert!(peer1.chain.iter().all(|b| contain(b, &cryptarchia)));
+        // The local tip should be the same as peer1's tip.
+        assert_eq!(cryptarchia.tip(), peer1.tip.unwrap().id);
+
+        // Blocks from peer0 remain in the local chain only until
+        // right before the failure.
+        assert!(peer0.chain[..2].iter().all(|b| contain(b, &cryptarchia)));
+        assert!(peer0.chain[2..].iter().all(|b| !contain(b, &cryptarchia)));
+    }
+
+    /// If all peers provided invalid blocks,
+    /// [`Error::AllPeersFailed`] should be returned.
+    #[tokio::test]
+    async fn block_err_from_all_peers() {
+        let peer0 = BlockProvider::new(
+            vec![
+                Block::genesis(),
+                Block::new(1, GENESIS_ID, 1),
+                // Invalid block (parent doesn't exist)
+                Block::new(2, 100, 2),
+                Block::new(3, 2, 3),
+            ],
+            Ok(Block::new(3, 2, 3)),
+            2,
+            false,
+        );
+        let peer1 = BlockProvider::new(
+            vec![
+                Block::genesis(),
+                Block::new(4, GENESIS_ID, 4),
+                // Invalid block (parent doesn't exist)
+                Block::new(5, 100, 5),
+                Block::new(6, 5, 6),
+            ],
+            Ok(Block::new(6, 5, 6)),
+            2,
+            false,
+        );
+        let result = InitialBlockDownload::new(
+            config([NodeId(0), NodeId(1)].into()),
+            MockNetworkAdapter::<()>::new(HashMap::from([
+                (NodeId(0), peer0.clone()),
+                (NodeId(1), peer1.clone()),
+            ])),
+            process_block,
+        )
+        .run(new_cryptarchia(), HashSet::new())
+        .await;
+
+        // Expect an error
+        assert!(matches!(result, Err(Error::AllPeersFailed)));
+    }
+
     async fn process_block(
         mut cryptarchia: Cryptarchia,
         storage_blocks_to_remove: HashSet<HeaderId>,
@@ -621,7 +715,7 @@ mod tests {
         let (consensus, _) = cryptarchia
             .consensus
             .receive_block(block.id, block.parent, block.slot)
-            .expect("Block must be valid");
+            .map_err(ChainError::from)?;
         cryptarchia.consensus = consensus;
         Ok((cryptarchia, storage_blocks_to_remove))
     }
