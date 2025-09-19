@@ -198,6 +198,7 @@ fn update_tracing_identifier(
                 }
                 other @ MetricsLayer::None => other,
             },
+            console: settings.console,
             level: settings.level,
         },
     }
@@ -266,7 +267,7 @@ mod cfgsync_tests {
     };
     use nomos_libp2p::{Multiaddr, Protocol};
     use nomos_tracing_service::{
-        FilterLayer, LoggerLayer, MetricsLayer, TracingLayer, TracingSettings,
+        ConsoleLayer, FilterLayer, LoggerLayer, MetricsLayer, TracingLayer, TracingSettings,
     };
     use tests::topology::configs::{consensus::ConsensusParams, da::DaParams};
     use tracing::Level;
@@ -317,6 +318,7 @@ mod cfgsync_tests {
                 tracing: TracingLayer::None,
                 filter: FilterLayer::None,
                 metrics: MetricsLayer::None,
+                console: ConsoleLayer::None,
                 level: Level::DEBUG,
             },
             hosts,
