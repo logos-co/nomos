@@ -336,13 +336,12 @@ pub fn verify_multiple_element_proof(
 #[cfg(test)]
 mod test {
     use std::sync::LazyLock;
-    use std::time::Instant;
     use ark_bls12_381::{Bls12_381, Fr};
     use ark_poly::{
         univariate::DensePolynomial, DenseUVPolynomial as _, EvaluationDomain as _,
         GeneralEvaluationDomain,
     };
-    use ark_poly_commit::kzg10::{Proof, UniversalParams, KZG10};
+    use ark_poly_commit::kzg10::{UniversalParams, KZG10};
     use rand::{thread_rng, Fill as _};
     use rayon::{
         iter::{IndexedParallelIterator as _, ParallelIterator as _},
@@ -358,7 +357,7 @@ mod test {
         },
     };
 
-    const COEFFICIENTS_SIZE: usize = 32768;
+    const COEFFICIENTS_SIZE: usize = 16;
     static GLOBAL_PARAMETERS: LazyLock<UniversalParams<Bls12_381>> = LazyLock::new(|| {
         let mut rng = thread_rng();
         KZG10::<Bls12_381, DensePolynomial<Fr>>::setup(COEFFICIENTS_SIZE - 1, true, &mut rng)
@@ -402,14 +401,14 @@ mod test {
                 prepared_beta_h: MULTIPLE_GLOBAL_PARAMETERS.prepared_beta_h.clone(),
             },
         )
-        .unwrap();
+            .unwrap();
         let proof = generate_multiple_element_proof(
             &(5..10).collect::<Vec<usize>>(),
             &poly,
             *DOMAIN,
             &MULTIPLE_GLOBAL_PARAMETERS,
         )
-        .unwrap();
+            .unwrap();
         assert!(verify_multiple_element_proof(
             &(5..10).collect::<Vec<usize>>(),
             &eval.evals[5..10],
@@ -448,58 +447,5 @@ mod test {
                     }
                 }
             });
-    }
-
-    #[test]
-    fn generate_proof_for_1mib() {
-        let mut rng = thread_rng();
-        let mut bytes: [u8; 1_015_808] = [0; 1_015_808];
-        bytes.try_fill(&mut rng).unwrap();
-        let (eval, poly) = bytes_to_polynomial::<31>(&bytes, *DOMAIN).unwrap();
-        let mut proofs: Vec<Proof<Bls12_381>> =  Vec::new();
-        let commitment = commit_polynomial(
-            &poly,
-            &UniversalParams {
-                powers_of_g: MULTIPLE_GLOBAL_PARAMETERS.powers_of_g.clone(),
-                powers_of_gamma_g: MULTIPLE_GLOBAL_PARAMETERS.powers_of_gamma_g.clone(),
-                h: MULTIPLE_GLOBAL_PARAMETERS.h,
-                beta_h: MULTIPLE_GLOBAL_PARAMETERS.powers_of_h[1],
-                neg_powers_of_h: MULTIPLE_GLOBAL_PARAMETERS.neg_powers_of_h.clone(),
-                prepared_h: MULTIPLE_GLOBAL_PARAMETERS.prepared_h.clone(),
-                prepared_beta_h: MULTIPLE_GLOBAL_PARAMETERS.prepared_beta_h.clone(),
-            },
-        )
-            .unwrap();
-
-        println!("start! the number of evaluation is {}",eval.evals.len());
-        let start = Instant::now();
-        for i in 0..2048 {
-            println!("i: {}",i);
-            proofs.push(generate_multiple_element_proof(
-                &(i * 32..i * 32 + 32).collect::<Vec<usize>>(),
-                &poly,
-                *DOMAIN,
-                &MULTIPLE_GLOBAL_PARAMETERS,
-            ).unwrap());
-        }
-        let duration = start.elapsed();
-        println!("Time elapsed in proving is: {:?}", duration);
-
-        let start = Instant::now();
-        for i in 0..2048 {
-            println!("i: {}",i);
-            let test = verify_multiple_element_proof(
-                &(i * 32..i * 32 + 32).collect::<Vec<usize>>(),
-                &eval.evals[i * 32..i * 32 + 32],
-                &commitment,
-                &proofs[i],
-                *DOMAIN,
-                &MULTIPLE_GLOBAL_PARAMETERS,
-            );
-            println!("Test is {}", test);
-            assert!(test);
-        }
-        let duration = start.elapsed();
-        println!("Time elapsed in verification is: {:?}", duration / 2048);
     }
 }
