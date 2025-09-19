@@ -19,7 +19,7 @@ use std::{
 };
 
 use broadcast_service::{BlockBroadcastMsg, BlockBroadcastService, BlockInfo};
-use cryptarchia_engine::{PrunedBlocks, Slot};
+use cryptarchia_engine::{Length, PrunedBlocks, Slot};
 use cryptarchia_sync::{GetTipResponse, ProviderResponse};
 use futures::{StreamExt as _, TryFutureExt as _};
 pub use leadership::LeaderConfig;
@@ -127,7 +127,7 @@ pub struct CryptarchiaInfo {
     pub lib: HeaderId,
     pub tip: HeaderId,
     pub slot: Slot,
-    pub height: u64,
+    pub height: Length,
     pub mode: cryptarchia_engine::State,
 }
 

@@ -1,5 +1,6 @@
 use std::{collections::HashSet, time::Duration};
 
+use cryptarchia_engine::Length;
 use futures::stream::{self, StreamExt as _};
 use serial_test::serial;
 use tests::{
@@ -18,9 +19,9 @@ async fn happy_test(topology: &Topology) {
     let nodes = topology.validators();
     let config = nodes[0].config();
     let security_param = config.cryptarchia.config.consensus_config.security_param;
-    let n_blocks = security_param.get() * CHAIN_LENGTH_MULTIPLIER;
+    let n_blocks = Length::from(security_param.get() * CHAIN_LENGTH_MULTIPLIER);
     println!("waiting for {n_blocks} blocks");
-    let timeout = (f64::from(n_blocks)
+    let timeout = ((u64::from(n_blocks) as f64)
         / config.cryptarchia.config.consensus_config.active_slot_coeff
         * config
             .time
@@ -36,7 +37,7 @@ async fn happy_test(topology: &Topology) {
         tokio::select! {
             () = timeout => panic!("timed out waiting for nodes to produce {} blocks", n_blocks),
             () = async { while stream::iter(nodes)
-                .any(|n| async move { (n.consensus_info().await.height as u32) < n_blocks })
+                .any(|n| async move { n.consensus_info().await.height < n_blocks })
                 .await
             {
                 println!(
