@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use libp2p_identity::PeerId;
+use nomos_core::block::SessionNumber;
 use serde::{Deserialize, Serialize};
 
 use crate::{MembershipHandler, SubnetworkAssignations};
@@ -12,11 +13,13 @@ pub struct FillWithOriginalReplication {
     dispersal_factor: usize,
     original_replication: usize,
     pivot: u16,
+    session_id: SessionNumber,
 }
 
 impl FillWithOriginalReplication {
     #[must_use]
     pub fn new(
+        session_id: SessionNumber,
         peers: &[PeerId],
         subnetwork_size: usize,
         dispersal_factor: usize,
@@ -35,6 +38,7 @@ impl FillWithOriginalReplication {
             dispersal_factor,
             original_replication,
             pivot,
+            session_id,
         }
     }
     fn fill(
@@ -115,6 +119,10 @@ impl MembershipHandler for FillWithOriginalReplication {
             })
             .collect()
     }
+
+    fn session_id(&self) -> SessionNumber {
+        self.session_id
+    }
 }
 
 #[cfg(test)]
@@ -131,6 +139,7 @@ mod test {
         let original_replication = 10;
         let pivot = 512;
         let distribution = FillWithOriginalReplication::new(
+            0,
             &nodes,
             subnetwork_size,
             dispersal_factor,

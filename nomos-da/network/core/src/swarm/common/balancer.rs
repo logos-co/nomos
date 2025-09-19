@@ -242,6 +242,10 @@ mod tests {
         fn subnetworks(&self) -> HashMap<Self::NetworkId, HashSet<Self::Id>> {
             unimplemented!()
         }
+
+        fn session_id(&self) -> nomos_core::block::SessionNumber {
+            0
+        }
     }
 
     #[tokio::test]

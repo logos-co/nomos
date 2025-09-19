@@ -61,6 +61,10 @@ where
     fn subnetworks(&self) -> SubnetworkAssignations<Self::NetworkId, Self::Id> {
         self.membership.load().subnetworks()
     }
+
+    fn session_id(&self) -> nomos_core::block::SessionNumber {
+        self.membership.load().session_id()
+    }
 }
 
 #[derive(Clone)]
@@ -105,5 +109,9 @@ where
 
     fn subnetworks(&self) -> SubnetworkAssignations<Self::NetworkId, Self::Id> {
         self.membership.subnetworks()
+    }
+
+    fn session_id(&self) -> nomos_core::block::SessionNumber {
+        self.membership.session_id()
     }
 }

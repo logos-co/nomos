@@ -7,6 +7,7 @@ use std::{
     sync::Arc,
 };
 
+use nomos_core::block::SessionNumber;
 use rand::RngCore;
 
 pub type SubnetworkId = u16;
@@ -16,12 +17,21 @@ pub type SubnetworkAssignations<NetworkId, Id> = HashMap<NetworkId, HashSet<Id>>
 pub trait MembershipCreator: MembershipHandler {
     /// Initializes the underlying implementor with the provided members list.
     #[must_use]
-    fn init(&self, peer_addresses: SubnetworkAssignations<Self::NetworkId, Self::Id>) -> Self;
+    fn init(
+        &self,
+        session_id: SessionNumber,
+        peer_addresses: SubnetworkAssignations<Self::NetworkId, Self::Id>,
+    ) -> Self;
 
     /// Creates a new instance of membership handler that combines previous
     /// members and new members.
     #[must_use]
-    fn update<Rng: RngCore>(&self, new_peers: HashSet<Self::Id>, rng: &mut Rng) -> Self;
+    fn update<Rng: RngCore>(
+        &self,
+        session_id: SessionNumber,
+        new_peers: HashSet<Self::Id>,
+        rng: &mut Rng,
+    ) -> Self;
 }
 
 pub trait MembershipHandler {
@@ -29,6 +39,8 @@ pub trait MembershipHandler {
     type NetworkId: Eq + Debug + Hash;
     /// Members Id type
     type Id: Debug;
+
+    fn session_id(&self) -> SessionNumber;
 
     /// Returns the set of `NetworksIds` an id is a member of
     fn membership(&self, id: &Self::Id) -> HashSet<Self::NetworkId>;
@@ -82,5 +94,9 @@ where
 
     fn subnetworks(&self) -> HashMap<Self::NetworkId, HashSet<Self::Id>> {
         self.as_ref().subnetworks()
+    }
+
+    fn session_id(&self) -> SessionNumber {
+        self.as_ref().session_id()
     }
 }

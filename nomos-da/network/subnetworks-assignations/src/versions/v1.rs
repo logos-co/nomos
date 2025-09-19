@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use libp2p_identity::PeerId;
+use nomos_core::block::SessionNumber;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 
@@ -12,15 +13,22 @@ pub struct FillFromNodeList {
     assignations: Vec<HashSet<PeerId>>,
     subnetwork_size: usize,
     dispersal_factor: usize,
+    session_id: SessionNumber,
 }
 
 impl FillFromNodeList {
     #[must_use]
-    pub fn new(peers: &[PeerId], subnetwork_size: usize, dispersal_factor: usize) -> Self {
+    pub fn new(
+        session_id: SessionNumber,
+        peers: &[PeerId],
+        subnetwork_size: usize,
+        dispersal_factor: usize,
+    ) -> Self {
         Self {
             assignations: Self::fill(peers, subnetwork_size, dispersal_factor),
             subnetwork_size,
             dispersal_factor,
+            session_id,
         }
     }
 
@@ -49,7 +57,11 @@ impl FillFromNodeList {
 }
 
 impl MembershipCreator for FillFromNodeList {
-    fn init(&self, peer_addresses: SubnetworkAssignations<Self::NetworkId, PeerId>) -> Self {
+    fn init(
+        &self,
+        session_id: SessionNumber,
+        peer_addresses: SubnetworkAssignations<Self::NetworkId, PeerId>,
+    ) -> Self {
         let members: Vec<Self::Id> = peer_addresses
             .values()
             .flat_map(|peer_set| peer_set.iter())
@@ -60,10 +72,16 @@ impl MembershipCreator for FillFromNodeList {
             assignations: Self::fill(&members, self.subnetwork_size, self.dispersal_factor),
             subnetwork_size: self.subnetwork_size,
             dispersal_factor: self.dispersal_factor,
+            session_id,
         }
     }
 
-    fn update<Rng: RngCore>(&self, new_peer_addresses: HashSet<Self::Id>, _: &mut Rng) -> Self {
+    fn update<Rng: RngCore>(
+        &self,
+        session_id: SessionNumber,
+        new_peer_addresses: HashSet<Self::Id>,
+        _: &mut Rng,
+    ) -> Self {
         // todo: implement incremental update
         let members: Vec<Self::Id> = new_peer_addresses.into_iter().collect();
 
@@ -71,6 +89,7 @@ impl MembershipCreator for FillFromNodeList {
             assignations: Self::fill(&members, self.subnetwork_size, self.dispersal_factor),
             subnetwork_size: self.subnetwork_size,
             dispersal_factor: self.dispersal_factor,
+            session_id,
         }
     }
 }
@@ -122,6 +141,10 @@ impl MembershipHandler for FillFromNodeList {
             })
             .collect()
     }
+
+    fn session_id(&self) -> SessionNumber {
+        self.session_id
+    }
 }
 
 #[cfg(test)]
@@ -135,7 +158,7 @@ mod test {
         let nodes: Vec<_> = std::iter::repeat_with(PeerId::random).take(100).collect();
         let dispersal_factor = 2;
         let subnetwork_size = 1024;
-        let distribution = FillFromNodeList::new(&nodes, subnetwork_size, dispersal_factor);
+        let distribution = FillFromNodeList::new(0, &nodes, subnetwork_size, dispersal_factor);
         assert_eq!(distribution.assignations.len(), subnetwork_size);
         for subnetwork in &distribution.assignations {
             assert_eq!(subnetwork.len(), dispersal_factor);

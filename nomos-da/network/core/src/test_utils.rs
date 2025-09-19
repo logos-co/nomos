@@ -71,6 +71,10 @@ impl MembershipHandler for AllNeighbours {
     fn subnetworks(&self) -> HashMap<Self::NetworkId, HashSet<Self::Id>> {
         HashMap::new()
     }
+
+    fn session_id(&self) -> nomos_core::block::SessionNumber {
+        0
+    }
 }
 
 impl AddressBookHandler for AllNeighbours {
