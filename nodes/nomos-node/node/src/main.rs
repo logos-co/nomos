@@ -5,9 +5,7 @@ use nomos_mempool::{
     network::adapters::libp2p::Settings as AdapterSettings,
     processor::tx::SignedTxProcessorSettings, tx::settings::TxMempoolSettings,
 };
-use nomos_node::{
-    config::CliArgs, get_services_to_start, Config, Nomos, NomosServiceSettings, RuntimeServiceId,
-};
+use nomos_node::{config::CliArgs, get_services_to_start, Config, Nomos, NomosServiceSettings};
 use overwatch::overwatch::OverwatchRunner;
 
 #[tokio::main]
