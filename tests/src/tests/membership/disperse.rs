@@ -16,7 +16,7 @@ use tests::{
     common::da::{disseminate_with_metadata, wait_for_blob_onchain, APP_ID},
     nodes::{executor::Executor, validator::Validator},
     topology::{
-        configs::membership::{create_membership_configs, GeneralMembershipConfig},
+        configs::membership::{create_membership_configs, GeneralMembershipConfig, MembershipNode},
         Topology, TopologyConfig,
     },
 };
@@ -31,7 +31,20 @@ async fn update_membership_and_disseminate() {
     let topology =
         Topology::spawn_with_empty_membership(topology_config, &ids, &da_ports, &blend_ports).await;
 
-    let membership_config = create_membership_configs(&ids, &da_ports, &blend_ports)[0].clone();
+    // Create a new membership with DA nodes.
+    let membership_config = create_membership_configs(
+        ids.iter()
+            .zip(&da_ports)
+            .zip(&blend_ports)
+            .map(|((&id, &da_port), &blend_port)| MembershipNode {
+                id,
+                da_port: Some(da_port),
+                blend_port: Some(blend_port),
+            })
+            .collect::<Vec<_>>()
+            .as_slice(),
+    )[0]
+    .clone();
     let finalize_block_event = create_finalized_block_event(&membership_config);
 
     update_all_validators(&topology, &finalize_block_event).await;
