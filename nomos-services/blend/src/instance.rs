@@ -298,7 +298,7 @@ mod tests {
     use std::time::Duration;
 
     use libp2p::Multiaddr;
-    use nomos_blend_message::crypto::{Ed25519PrivateKey, Ed25519PublicKey};
+    use nomos_blend_message::crypto::keys::{Ed25519PrivateKey, Ed25519PublicKey};
     use nomos_blend_scheduling::membership::Node;
     use nomos_network::config::NetworkConfig;
     use overwatch::{
@@ -619,6 +619,7 @@ mod tests {
         type BlendBackend = ();
         type NodeId = u8;
         type Rng = ();
+        type ProofsGenerator = ();
     }
 
     struct EdgeService {

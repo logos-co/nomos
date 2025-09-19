@@ -8,7 +8,6 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
-ark-ff          = { default-features = false, version = "0.4" }
 blake2          = { workspace = true }
 ed25519-dalek   = { default-features = false, features = ["rand_core"], version = "2" }
 generic-array   = { default-features = false, version = "1.2" }

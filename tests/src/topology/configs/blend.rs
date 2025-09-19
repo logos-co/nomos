@@ -1,7 +1,7 @@
 use core::time::Duration;
 use std::{num::NonZeroU64, str::FromStr as _};
 
-use nomos_blend_message::crypto::Ed25519PrivateKey;
+use nomos_blend_message::crypto::keys::Ed25519PrivateKey;
 use nomos_blend_service::core::backends::libp2p::Libp2pBlendBackendSettings;
 use nomos_libp2p::{
     ed25519::{self},

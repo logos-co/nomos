@@ -13,7 +13,9 @@ use crate::{
         swarm::Command,
         tests::utils::{SwarmBuilder as EdgeSwarmBuilder, TestSwarm as EdgeTestSwarm},
     },
-    test_utils::TestEncapsulatedMessage,
+    test_utils::{
+        crypto::MockProofsVerifier, membership::mock_session_info, TestEncapsulatedMessage,
+    },
 };
 
 #[test(tokio::test)]
@@ -22,7 +24,9 @@ async fn edge_message_propagation() {
         swarm: mut core_swarm_1,
         incoming_message_receiver: mut core_swarm_1_incoming_message_receiver,
         ..
-    } = CoreSwarmBuilder::default().build(|id| BlendBehaviourBuilder::new(&id).build());
+    } = CoreSwarmBuilder::default().build(|id| {
+        BlendBehaviourBuilder::new(&id, (MockProofsVerifier, mock_session_info().into())).build()
+    });
     let (swarm_1_membership_entry, _) = core_swarm_1.listen_and_return_membership_entry(None).await;
 
     let membership = Membership::new_without_local(from_ref(&swarm_1_membership_entry));
@@ -33,7 +37,7 @@ async fn edge_message_propagation() {
     } = CoreSwarmBuilder::default()
         .with_membership(membership.clone())
         .build(|id| {
-            BlendBehaviourBuilder::new(&id)
+            BlendBehaviourBuilder::new(&id, (MockProofsVerifier, mock_session_info().into()))
                 .with_membership(membership)
                 .build()
         });
@@ -90,7 +94,7 @@ async fn replication_factor() {
     } = CoreSwarmBuilder::default()
         .with_empty_membership()
         .build(|id| {
-            BlendBehaviourBuilder::new(&id)
+            BlendBehaviourBuilder::new(&id, (MockProofsVerifier, mock_session_info().into()))
                 .with_empty_membership()
                 .build()
         });
@@ -103,7 +107,7 @@ async fn replication_factor() {
     } = CoreSwarmBuilder::default()
         .with_empty_membership()
         .build(|id| {
-            BlendBehaviourBuilder::new(&id)
+            BlendBehaviourBuilder::new(&id, (MockProofsVerifier, mock_session_info().into()))
                 .with_empty_membership()
                 .build()
         });
@@ -116,7 +120,7 @@ async fn replication_factor() {
     } = CoreSwarmBuilder::default()
         .with_empty_membership()
         .build(|id| {
-            BlendBehaviourBuilder::new(&id)
+            BlendBehaviourBuilder::new(&id, (MockProofsVerifier, mock_session_info().into()))
                 .with_empty_membership()
                 .build()
         });

@@ -21,10 +21,13 @@ chain-service            = { workspace = true }
 clap                     = { default-features = false, features = ["derive", "env", "std"], version = "4" }
 color-eyre               = { default-features = false, version = "0.6.0" }
 futures                  = { default-features = false, version = "0.3" }
+groth16                  = { workspace = true }
 hex                      = { default-features = false, version = "0.4.3" }
 http                     = "0.2.9"
 kzgrs-backend            = { workspace = true }
 nomos-api                = { workspace = true }
+nomos-blend-message      = { workspace = true }
+nomos-blend-scheduling   = { workspace = true }
 nomos-blend-service      = { workspace = true }
 nomos-core               = { workspace = true }
 nomos-da-messages        = { workspace = true }

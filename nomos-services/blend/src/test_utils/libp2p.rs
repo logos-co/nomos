@@ -9,7 +9,10 @@ use libp2p::{
     StreamProtocol, Swarm, Transport as _,
 };
 use nomos_blend_message::{
-    crypto::{Ed25519PrivateKey, ProofOfQuota, ProofOfSelection},
+    crypto::{
+        keys::Ed25519PrivateKey,
+        proofs::{quota::ProofOfQuota, selection::ProofOfSelection},
+    },
     input::EncapsulationInput,
     PayloadType,
 };
@@ -56,8 +59,8 @@ fn generate_valid_inputs() -> EncapsulationInputs {
                 EncapsulationInput::new(
                     Ed25519PrivateKey::generate(),
                     &recipient_signing_pubkey,
-                    ProofOfQuota::dummy(),
-                    ProofOfSelection::dummy(),
+                    ProofOfQuota::from_bytes_unchecked([0; _]),
+                    ProofOfSelection::from_bytes_unchecked([0; _]),
                 )
             })
             .collect::<Vec<_>>()

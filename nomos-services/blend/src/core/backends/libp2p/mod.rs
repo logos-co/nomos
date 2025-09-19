@@ -6,8 +6,11 @@ use futures::{
     Stream, StreamExt as _,
 };
 use libp2p::PeerId;
-use nomos_blend_network::EncapsulatedMessageWithValidatedPublicHeader;
-use nomos_blend_scheduling::{membership::Membership, session::SessionEvent, EncapsulatedMessage};
+use nomos_blend_message::encap::ProofsVerifier as ProofsVerifierTrait;
+use nomos_blend_scheduling::{
+    message_blend::crypto::IncomingEncapsulatedMessageWithValidatedPublicHeader,
+    EncapsulatedMessage,
+};
 use overwatch::overwatch::handle::OverwatchHandle;
 use rand::RngCore;
 use tokio::sync::{broadcast, mpsc};
@@ -16,10 +19,10 @@ use tokio_stream::wrappers::BroadcastStream;
 use crate::core::{
     backends::{
         libp2p::{
-            swarm::{BlendSwarm, BlendSwarmMessage},
+            swarm::{BlendSwarm, BlendSwarmMessage, SwarmParams},
             tokio_provider::ObservationWindowTokioIntervalProvider,
         },
-        BlendBackend,
+        BlendBackend, SessionInfo, SessionStream,
     },
     settings::BlendConfig,
 };
@@ -41,14 +44,17 @@ pub(crate) use self::tests::utils as core_swarm_test_utils;
 pub struct Libp2pBlendBackend {
     swarm_task_abort_handle: AbortHandle,
     swarm_message_sender: mpsc::Sender<BlendSwarmMessage>,
-    incoming_message_sender: broadcast::Sender<EncapsulatedMessageWithValidatedPublicHeader>,
+    incoming_message_sender:
+        broadcast::Sender<IncomingEncapsulatedMessageWithValidatedPublicHeader>,
 }
 
 const CHANNEL_SIZE: usize = 64;
 
 #[async_trait]
-impl<Rng, RuntimeServiceId> BlendBackend<PeerId, Rng, RuntimeServiceId> for Libp2pBlendBackend
+impl<Rng, ProofsVerifier, RuntimeServiceId>
+    BlendBackend<PeerId, Rng, ProofsVerifier, RuntimeServiceId> for Libp2pBlendBackend
 where
+    ProofsVerifier: ProofsVerifierTrait + Clone + Send + 'static,
     Rng: RngCore + Clone + Send + 'static,
 {
     type Settings = Libp2pBlendBackendSettings;
@@ -56,23 +62,30 @@ where
     fn new(
         config: BlendConfig<Self::Settings>,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
-        current_membership: Membership<PeerId>,
-        session_stream: Pin<Box<dyn Stream<Item = SessionEvent<Membership<PeerId>>> + Send>>,
+        SessionInfo {
+            membership: current_membership,
+            poq_verification_inputs: current_poq_verification_inputs,
+        }: SessionInfo<PeerId>,
+        session_stream: SessionStream<PeerId>,
         rng: Rng,
+        proofs_verifier: ProofsVerifier,
     ) -> Self {
         let (swarm_message_sender, swarm_message_receiver) = mpsc::channel(CHANNEL_SIZE);
         let (incoming_message_sender, _) = broadcast::channel(CHANNEL_SIZE);
         let minimum_network_size = config.minimum_network_size.try_into().unwrap();
 
-        let swarm = BlendSwarm::<_, _, ObservationWindowTokioIntervalProvider>::new(
-            config,
-            current_membership,
-            session_stream,
-            rng,
-            swarm_message_receiver,
-            incoming_message_sender.clone(),
-            minimum_network_size,
-        );
+        let swarm =
+            BlendSwarm::<_, _, _, ObservationWindowTokioIntervalProvider>::new(SwarmParams {
+                config: &config,
+                current_membership,
+                current_poq_verification_inputs,
+                incoming_message_sender: incoming_message_sender.clone(),
+                minimum_network_size,
+                proofs_verifier,
+                rng,
+                session_stream,
+                swarm_message_receiver,
+            });
 
         let (swarm_task_abort_handle, swarm_task_abort_registration) = AbortHandle::new_pair();
         overwatch_handle
@@ -102,7 +115,8 @@ where
 
     fn listen_to_incoming_messages(
         &mut self,
-    ) -> Pin<Box<dyn Stream<Item = EncapsulatedMessageWithValidatedPublicHeader> + Send>> {
+    ) -> Pin<Box<dyn Stream<Item = IncomingEncapsulatedMessageWithValidatedPublicHeader> + Send>>
+    {
         Box::pin(
             BroadcastStream::new(self.incoming_message_sender.subscribe())
                 .filter_map(|event| async { event.ok() }),

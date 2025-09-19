@@ -21,6 +21,7 @@ use nomos_api::http::{
     storage::StorageAdapter,
     DynError,
 };
+use nomos_blend_service::ProofsVerifier;
 use nomos_core::{
     da::{blob::Share, BlobId, DaVerifier as CoreDaVerifier},
     header::HeaderId,
@@ -163,6 +164,8 @@ pub async fn cryptarchia_info<
     SamplingNetworkAdapter,
     SamplingStorage,
     TimeBackend,
+    BlendProofsGenerator,
+    BlendProofsVerifier,
     RuntimeServiceId,
     const SIZE: usize,
 >(
@@ -188,6 +191,7 @@ where
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
+    BlendProofsVerifier: ProofsVerifier + Clone + Send + 'static,
     RuntimeServiceId: Debug
         + Send
         + Sync
@@ -200,6 +204,8 @@ where
                 SamplingNetworkAdapter,
                 SamplingStorage,
                 TimeBackend,
+                BlendProofsGenerator,
+                BlendProofsVerifier,
                 RuntimeServiceId,
                 SIZE,
             >,
@@ -211,6 +217,8 @@ where
         SamplingNetworkAdapter,
         SamplingStorage,
         TimeBackend,
+        BlendProofsGenerator,
+        BlendProofsVerifier,
         RuntimeServiceId,
         SIZE,
     >(&handle))
@@ -230,6 +238,8 @@ pub async fn cryptarchia_headers<
     SamplingNetworkAdapter,
     SamplingStorage,
     TimeBackend,
+    BlendProofsGenerator,
+    BlendProofsVerifier,
     RuntimeServiceId,
     const SIZE: usize,
 >(
@@ -256,6 +266,7 @@ where
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
+    BlendProofsVerifier: ProofsVerifier + Clone + Send + 'static,
     RuntimeServiceId: Debug
         + Send
         + Sync
@@ -268,6 +279,8 @@ where
                 SamplingNetworkAdapter,
                 SamplingStorage,
                 TimeBackend,
+                BlendProofsGenerator,
+                BlendProofsVerifier,
                 RuntimeServiceId,
                 SIZE,
             >,
@@ -280,6 +293,8 @@ where
         SamplingNetworkAdapter,
         SamplingStorage,
         TimeBackend,
+        BlendProofsGenerator,
+        BlendProofsVerifier,
         RuntimeServiceId,
         SIZE,
     >(&handle, from, to))

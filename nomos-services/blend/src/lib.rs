@@ -6,8 +6,13 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures::StreamExt as _;
-use nomos_blend_scheduling::session::UninitializedSessionEventStream;
+use futures::{Stream, StreamExt as _};
+pub use nomos_blend_message::{crypto::proofs::RealProofsVerifier, encap::ProofsVerifier};
+pub use nomos_blend_scheduling::message_blend::{ProofsGenerator, RealProofsGenerator};
+use nomos_blend_scheduling::{
+    message_blend::{PrivateInputs, PublicInputs},
+    session::UninitializedSessionEventStream,
+};
 use nomos_network::NetworkService;
 use overwatch::{
     services::{
@@ -33,14 +38,15 @@ use crate::{
 
 pub mod core;
 pub mod edge;
+pub mod membership;
 pub mod message;
+pub mod session;
 pub mod settings;
 
 mod instance;
-pub mod membership;
 mod modes;
 mod service_components;
-pub use service_components::ServiceComponents;
+pub use self::service_components::ServiceComponents;
 
 #[cfg(test)]
 mod test_utils;
@@ -84,8 +90,12 @@ where
             NodeId: Clone + Hash + Eq + Send + Sync + 'static,
         > + Send
         + 'static,
-    EdgeService:
-        ServiceData<Message = CoreService::Message> + edge::ServiceComponents + Send + 'static,
+    EdgeService: ServiceData<Message = CoreService::Message>
+        // We tie the core and edge proofs generator to be the same type, to avoid mistakes in the
+        // node configuration where the two services use different verification logic
+        + edge::ServiceComponents<ProofsGenerator = CoreService::ProofsGenerator>
+        + Send
+        + 'static,
     EdgeService::MembershipAdapter:
         membership::Adapter<NodeId = CoreService::NodeId, Error: Send + Sync + 'static> + Send,
     membership::ServiceMessage<EdgeService::MembershipAdapter>: Send + Sync + 'static,
@@ -142,7 +152,7 @@ where
             overwatch_handle
                 .relay::<MembershipService<EdgeService>>()
                 .await?,
-            settings.crypto.signing_private_key.public_key(),
+            settings.crypto.non_ephemeral_signing_key.public_key(),
         )
         .subscribe()
         .await?;
@@ -198,3 +208,41 @@ type MembershipAdapter<EdgeService> = <EdgeService as edge::ServiceComponents>::
 
 type MembershipService<EdgeService> =
     <MembershipAdapter<EdgeService> as membership::Adapter>::Service;
+
+const fn mock_poq_inputs() -> (PublicInputs, PrivateInputs) {
+    use groth16::Field as _;
+    use nomos_core::crypto::ZkHash;
+
+    (
+        PublicInputs {
+            core_quota: 0,
+            core_root: ZkHash::ZERO,
+            leader_quota: 0,
+            pol_epoch_nonce: ZkHash::ZERO,
+            pol_ledger_aged: ZkHash::ZERO,
+            session: 0,
+            total_stake: 0,
+        },
+        PrivateInputs {
+            aged_path: vec![],
+            aged_selector: vec![],
+            core_path: vec![],
+            core_path_selectors: vec![],
+            core_sk: ZkHash::ZERO,
+            note_value: 0,
+            output_number: 0,
+            pol_secret_key: ZkHash::ZERO,
+            slot: 0,
+            slot_secret: ZkHash::ZERO,
+            slot_secret_path: vec![],
+            starting_slot: 0,
+            transaction_hash: ZkHash::ZERO,
+        },
+    )
+}
+
+fn mock_poq_inputs_stream() -> impl Stream<Item = (PublicInputs, PrivateInputs)> {
+    use futures::stream::repeat;
+
+    repeat(mock_poq_inputs())
+}

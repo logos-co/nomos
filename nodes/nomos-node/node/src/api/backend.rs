@@ -19,6 +19,7 @@ use nomos_api::{
     http::{consensus::Cryptarchia, da::DaVerifier, storage},
     Backend,
 };
+use nomos_blend_service::{ProofsGenerator, ProofsVerifier};
 use nomos_core::{
     da::{
         blob::{LightShare, Share},
@@ -83,6 +84,8 @@ pub struct AxumBackend<
     TimeBackend,
     ApiAdapter,
     HttpStorageAdapter,
+    BlendProofsGenerator,
+    BlendProofsVerifier,
     const SIZE: usize,
 > {
     settings: AxumBackendSettings,
@@ -101,6 +104,7 @@ pub struct AxumBackend<
     _storage_adapter: core::marker::PhantomData<HttpStorageAdapter>,
     _da_membership: core::marker::PhantomData<(DaMembershipAdapter, DaMembershipStorage)>,
     _verifier_mempool_adapter: core::marker::PhantomData<VerifierMempoolAdapter>,
+    _blend: core::marker::PhantomData<(BlendProofsGenerator, BlendProofsVerifier)>,
 }
 
 #[derive(OpenApi)]
@@ -134,6 +138,8 @@ impl<
         TimeBackend,
         ApiAdapter,
         StorageAdapter,
+        BlendProofsGenerator,
+        BlendProofsVerifier,
         const SIZE: usize,
         RuntimeServiceId,
     > Backend<RuntimeServiceId>
@@ -154,6 +160,8 @@ impl<
         TimeBackend,
         ApiAdapter,
         StorageAdapter,
+        BlendProofsGenerator,
+        BlendProofsVerifier,
         SIZE,
     >
 where
@@ -214,6 +222,8 @@ where
     DaStorageConverter:
         DaConverter<DaStorageBackend, Share = DaShare, Tx = SignedMantleTx> + Send + Sync + 'static,
     StorageAdapter: storage::StorageAdapter<RuntimeServiceId> + Send + Sync + 'static,
+    BlendProofsGenerator: ProofsGenerator + Send + 'static,
+    BlendProofsVerifier: ProofsVerifier + Clone + Send + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Send
@@ -227,6 +237,8 @@ where
                 SamplingNetworkAdapter,
                 SamplingStorage,
                 TimeBackend,
+                BlendProofsGenerator,
+                BlendProofsVerifier,
                 RuntimeServiceId,
                 SIZE,
             >,
@@ -305,6 +317,7 @@ where
             _storage_adapter: core::marker::PhantomData,
             _da_membership: core::marker::PhantomData,
             _verifier_mempool_adapter: core::marker::PhantomData,
+            _blend: core::marker::PhantomData,
         })
     }
 
@@ -316,6 +329,8 @@ where
             &overwatch_handle,
             Some(Duration::from_secs(60)),
             Cryptarchia<
+                _,
+                _,
                 _,
                 _,
                 _,
@@ -373,6 +388,8 @@ where
                         SamplingNetworkAdapter,
                         SamplingStorage,
                         TimeBackend,
+                        BlendProofsGenerator,
+                        BlendProofsVerifier,
                         RuntimeServiceId,
                         SIZE,
                     >,
@@ -387,6 +404,8 @@ where
                         SamplingNetworkAdapter,
                         SamplingStorage,
                         TimeBackend,
+                        BlendProofsGenerator,
+                        BlendProofsVerifier,
                         RuntimeServiceId,
                         SIZE,
                     >,

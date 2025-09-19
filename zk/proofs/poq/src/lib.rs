@@ -188,12 +188,8 @@ mod tests {
             index: 5,
         };
 
-        let witness_inputs = PoQWitnessInputs::from_core_node_data(
-            chain_data.try_into().unwrap(),
-            common_data.into(),
-            blend_data.into(),
-        )
-        .unwrap();
+        let witness_inputs =
+            PoQWitnessInputs::from_core_node_data(chain_data, common_data, blend_data).unwrap();
 
         let (proof, inputs) = prove(&witness_inputs).unwrap();
         assert!(verify(&proof, &inputs).unwrap());
