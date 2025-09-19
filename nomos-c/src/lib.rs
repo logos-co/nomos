@@ -1,3 +1,4 @@
+// Safety: Well, this is gonna be a shit show of unsafe calls...
 #![allow(clippy::allow_attributes_without_reason)]
 #![allow(clippy::undocumented_unsafe_blocks)]
 
@@ -5,26 +6,25 @@ mod api;
 
 use std::ffi::c_char;
 
-pub use api::{NomosNode, stop_node};
+pub use api::{stop_node, NomosNode};
 use nomos_node::{
-    AdapterSettings, Config, Nomos, NomosServiceSettings, SignedMantleTx,
-    SignedTxProcessorSettings, Transaction, TxMempoolSettings, get_services_to_start,
+    get_services_to_start, AdapterSettings, Config, Nomos, NomosServiceSettings, SignedMantleTx,
+    SignedTxProcessorSettings, Transaction, TxMempoolSettings,
 };
 use overwatch::overwatch::OverwatchRunner;
 use tokio::runtime::Runtime;
 
-#[repr(C)]
+#[repr(u8)]
 pub enum NomosNodeErrorCode {
     None = 0x0,
     CouldNotInitialize = 0x1,
-    StopError,
-    NullPtr,
+    StopError = 0x2,
+    NullPtr = 0x3,
 }
 
 #[repr(C)]
 pub struct InitializedNomosNodeResult {
     nomos_node: *mut NomosNode,
-    success: bool,
     error_code: NomosNodeErrorCode,
 }
 
@@ -35,13 +35,11 @@ pub extern "C" fn start_nomos_node(config_path: *const c_char) -> InitializedNom
             let node_ptr = Box::into_raw(Box::new(nomos_node));
             InitializedNomosNodeResult {
                 nomos_node: node_ptr,
-                success: false,
                 error_code: NomosNodeErrorCode::None,
             }
         }
         Err(error_code) => InitializedNomosNodeResult {
             nomos_node: core::ptr::null_mut(),
-            success: false,
             error_code,
         },
     }
@@ -52,11 +50,19 @@ fn initialize_nomos_node(config_path: *const c_char) -> Result<NomosNode, NomosN
     let must_da_service_group_start = true;
     let config_path = unsafe { std::ffi::CStr::from_ptr(config_path) }
         .to_str()
-        .map_err(|_| NomosNodeErrorCode::CouldNotInitialize)?;
-    let config = serde_yaml::from_reader::<_, Config>(
-        std::fs::File::open(config_path).map_err(|_| NomosNodeErrorCode::CouldNotInitialize)?,
-    )
-    .map_err(|_| NomosNodeErrorCode::CouldNotInitialize)?;
+        .map_err(|e| {
+            eprintln!("Could not convert config path to string: {}", e);
+            NomosNodeErrorCode::CouldNotInitialize
+        })?;
+    let config =
+        serde_yaml::from_reader::<_, Config>(std::fs::File::open(config_path).map_err(|e| {
+            eprintln!("Could not open config file: {}", e);
+            NomosNodeErrorCode::CouldNotInitialize
+        })?)
+        .map_err(|e| {
+            eprintln!("Could not parse config file: {}", e);
+            NomosNodeErrorCode::CouldNotInitialize
+        })?;
 
     let (blend_config, blend_core_config, blend_edge_config) = config.blend.into();
     let rt = Runtime::new().unwrap();
@@ -93,7 +99,10 @@ fn initialize_nomos_node(config_path: *const c_char) -> Result<NomosNode, NomosN
         },
         Some(handle.clone()),
     )
-    .map_err(|_| NomosNodeErrorCode::CouldNotInitialize)?;
+    .map_err(|e| {
+        eprintln!("Could not initialize overwatch: {}", e);
+        NomosNodeErrorCode::CouldNotInitialize
+    })?;
 
     let app_handel = app.handle();
 
@@ -104,8 +113,17 @@ fn initialize_nomos_node(config_path: *const c_char) -> Result<NomosNode, NomosN
             must_da_service_group_start,
         )
         .await
-        .map_err(|_| NomosNodeErrorCode::CouldNotInitialize)?;
-        let _ = app_handel.start_service_sequence(services_to_start).await;
+        .map_err(|e| {
+            eprintln!("Could not get services to start: {}", e);
+            NomosNodeErrorCode::CouldNotInitialize
+        })?;
+        app_handel
+            .start_service_sequence(services_to_start)
+            .await
+            .map_err(|e| {
+                eprintln!("Could not start services: {}", e);
+                NomosNodeErrorCode::CouldNotInitialize
+            })?;
         Ok(())
     })?;
 

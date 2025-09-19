@@ -48,10 +48,8 @@ impl NomosNode {
     fn stop(self) -> NomosNodeErrorCode {
         let runtime_handle = self.get_runtime_handle();
         let overwatch_handle = self.get_overwatch_handle();
-        if runtime_handle
-            .block_on(overwatch_handle.stop_all_services())
-            .is_err()
-        {
+        if let Some(e) = runtime_handle.block_on(overwatch_handle.stop_all_services()) {
+            eprintln!("Could not stop services: {}", e);
             return NomosNodeErrorCode::StopError;
         }
         NomosNodeErrorCode::None
@@ -79,6 +77,7 @@ impl Drop for NomosNode {
 /// - The pointer will not be used after this function returns
 pub unsafe extern "C" fn stop_node(node: *mut NomosNode) -> NomosNodeErrorCode {
     if node.is_null() {
+        eprintln!("Attempted to stop a null node pointer. This is a bug. Aborting.");
         return NomosNodeErrorCode::NullPtr;
     }
 
