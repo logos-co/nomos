@@ -248,15 +248,19 @@ where
         ONCE_INIT.call_once(move || {
             let mut layers: Vec<Box<dyn tracing_subscriber::Layer<_> + Send + Sync>> = vec![];
 
-            let mut level_filter = LevelFilter::from(config.level);
-
-            #[cfg(feature = "profiling")]
-            if let ConsoleLayer::Console(console_config) = &config.console {
-                if let Some(console_layer) = console::create_console_layer(console_config) {
+            let level_filter = {
+                #[cfg(feature = "profiling")]
+                if let ConsoleLayer::Console(console_config) = &config.console
+                    && let Some(console_layer) = console::create_console_layer(console_config)
+                {
                     layers.push(console_layer);
-                    level_filter = LevelFilter::TRACE;
+                    LevelFilter::TRACE
+                } else {
+                    LevelFilter::from(config.level)
                 }
-            }
+                #[cfg(not(feature = "profiling"))]
+                LevelFilter::from(config.level)
+            };
 
             layers.push(logger_layer);
             layers.extend(other_layers);
