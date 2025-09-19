@@ -29,12 +29,24 @@ impl NomosNode {
     // Helper methods to safely access the inner types
     #[must_use]
     const fn get_overwatch_handle(&self) -> &OverwatchHandle<RuntimeServiceId> {
-        unsafe { self.overwatch.cast::<NomosOverwatch>().as_ref().unwrap() }.handle()
+        unsafe {
+            self.overwatch
+                .cast::<NomosOverwatch>()
+                .as_ref()
+                .expect("A valid `NomosOverwatch not null pointer`")
+        }
+        .handle()
     }
 
     #[must_use]
     fn get_runtime_handle(&self) -> &Handle {
-        unsafe { self.runtime.cast::<Runtime>().as_ref().unwrap() }.handle()
+        unsafe {
+            self.runtime
+                .cast::<Runtime>()
+                .as_ref()
+                .expect("A valid `tokio::Runtime` not null pointer")
+        }
+        .handle()
     }
 
     // Helper to safely take ownership back
@@ -59,12 +71,14 @@ impl NomosNode {
 // Implement Drop to prevent memory leaks
 impl Drop for NomosNode {
     fn drop(&mut self) {
-        if !self.overwatch.is_null() {
-            let _ = unsafe { Box::from_raw(self.overwatch.cast::<NomosOverwatch>()) };
+        if self.overwatch.is_null() {
+            eprintln!("Attempted to drop a null overwatch pointer. This is a bug");
         }
-        if !self.runtime.is_null() {
-            let _ = unsafe { Box::from_raw(self.runtime.cast::<Runtime>()) };
+        if self.runtime.is_null() {
+            eprintln!("Attempted to drop a null tokio runtime pointer. This is a bug");
         }
+        let _ = unsafe { Box::from_raw(self.overwatch.cast::<NomosOverwatch>()) };
+        let _ = unsafe { Box::from_raw(self.runtime.cast::<Runtime>()) };
     }
 }
 
