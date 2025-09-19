@@ -70,6 +70,6 @@ tower-http = { default-features = false, features = ["cors", "limit", "timeout",
 [features]
 default         = ["tracing"]
 instrumentation = []
-profiling       = ["nomos-http-api-common/profiling"]
+profiling       = ["nomos-http-api-common/profiling", "nomos-tracing-service/profiling"]
 testing         = []
 tracing         = []
