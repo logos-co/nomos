@@ -248,6 +248,7 @@ where
         ONCE_INIT.call_once(move || {
             let mut layers: Vec<Box<dyn tracing_subscriber::Layer<_> + Send + Sync>> = vec![];
 
+            #[cfg_attr(not(feature = "profiling"), allow(unused_mut))]
             let mut level_filter = LevelFilter::from(config.level);
 
             #[cfg(feature = "profiling")]
