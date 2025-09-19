@@ -72,7 +72,7 @@ impl Drop for NomosNode {
 /// # Safety
 ///
 /// The caller must ensure that:
-/// - `node` is either null or a valid pointer to a `NomosNode` instance
+/// - `node` is a valid pointer to a `NomosNode` instance
 /// - The `NomosNode` instance was created by this library
 /// - The pointer will not be used after this function returns
 pub unsafe extern "C" fn stop_node(node: *mut NomosNode) -> NomosNodeErrorCode {

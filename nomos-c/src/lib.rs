@@ -47,6 +47,7 @@ pub extern "C" fn start_nomos_node(config_path: *const c_char) -> InitializedNom
 }
 
 fn initialize_nomos_node(config_path: *const c_char) -> Result<NomosNode, NomosNodeErrorCode> {
+    // TODO: Remove flags when dynamic run of services is implemented.
     let must_blend_service_group_start = true;
     let must_da_service_group_start = true;
     let config_path = unsafe { std::ffi::CStr::from_ptr(config_path) }
