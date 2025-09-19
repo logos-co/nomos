@@ -1,8 +1,6 @@
 #[cfg(feature = "deser")]
 pub mod deserialize;
 
-use std::marker::PhantomData;
-
 use ark_bn254::Bn254;
 use ark_ec::pairing::Pairing;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize as _, SerializationError};
@@ -17,7 +15,7 @@ use crate::protocol::Protocol;
 #[cfg(feature = "deser")]
 use crate::utils::{JsonG1, JsonG2, StringifiedG1, StringifiedG2};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Proof<E: Pairing> {
     pub pi_a: E::G1Affine,
     pub pi_b: E::G2Affine,
@@ -29,12 +27,19 @@ pub trait CompressSize: Pairing {
     type G2CompressedSize: ArrayLength;
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompressedProof<E: CompressSize> {
     pub pi_a: GenericArray<u8, E::G1CompressedSize>,
     pub pi_b: GenericArray<u8, E::G2CompressedSize>,
     pub pi_c: GenericArray<u8, E::G1CompressedSize>,
-    _pairing: PhantomData<E>,
+}
+
+impl<E> Copy for CompressedProof<E>
+where
+    E: CompressSize,
+    GenericArray<u8, E::G1CompressedSize>: Copy,
+    GenericArray<u8, E::G2CompressedSize>: Copy,
+{
 }
 
 impl<E: CompressSize> CompressedProof<E> {
@@ -43,17 +48,13 @@ impl<E: CompressSize> CompressedProof<E> {
         pi_b: GenericArray<u8, E::G2CompressedSize>,
         pi_c: GenericArray<u8, E::G1CompressedSize>,
     ) -> Self {
-        Self {
-            pi_a,
-            pi_b,
-            pi_c,
-            _pairing: PhantomData,
-        }
+        Self { pi_a, pi_b, pi_c }
     }
 }
 
 impl CompressedProof<Bn254> {
     /// Total size = G1 + G2 + G1 at the type level.
+    #[must_use]
     pub fn to_bytes(&self) -> [u8; 128] {
         let mut bytes = [0u8; 128];
         let g1 = <Bn254 as CompressSize>::G1CompressedSize::to_usize();
@@ -67,6 +68,7 @@ impl CompressedProof<Bn254> {
     }
 
     /// Type-level length bound: accepts exactly G1 + G2 + G1 bytes.
+    #[must_use]
     pub fn from_bytes(bytes: &[u8; 128]) -> Self {
         let g1 = <Bn254 as CompressSize>::G1CompressedSize::to_usize();
         let g2 = <Bn254 as CompressSize>::G2CompressedSize::to_usize();
@@ -79,12 +81,7 @@ impl CompressedProof<Bn254> {
         pi_b.copy_from_slice(&bytes[g1..g1 + g2]);
         pi_c.copy_from_slice(&bytes[g1 + g2..]);
 
-        Self {
-            pi_a,
-            pi_b,
-            pi_c,
-            _pairing: PhantomData,
-        }
+        Self { pi_a, pi_b, pi_c }
     }
 }
 
@@ -139,7 +136,6 @@ impl<E: Pairing + CompressSize> TryFrom<&Proof<E>> for CompressedProof<E> {
             pi_a: a,
             pi_b: b,
             pi_c: c,
-            _pairing: PhantomData,
         })
     }
 }
@@ -147,9 +143,7 @@ impl<E: Pairing + CompressSize> TryFrom<&Proof<E>> for CompressedProof<E> {
 impl<E: Pairing + CompressSize> TryFrom<&CompressedProof<E>> for Proof<E> {
     type Error = SerializationError;
     fn try_from(value: &CompressedProof<E>) -> Result<Self, SerializationError> {
-        let CompressedProof {
-            pi_a, pi_b, pi_c, ..
-        } = value;
+        let CompressedProof { pi_a, pi_b, pi_c } = value;
         let a = <E::G1Affine as CanonicalDeserialize>::deserialize_compressed(&pi_a[..])?;
         let b = <E::G2Affine as CanonicalDeserialize>::deserialize_compressed(&pi_b[..])?;
         let c = <E::G1Affine as CanonicalDeserialize>::deserialize_compressed(&pi_c[..])?;

@@ -8,6 +8,7 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
+async-trait         = { default-features = false, version = "0.1" }
 derivative          = "2"
 fork_stream         = { workspace = true }
 futures             = { default-features = false, version = "0.3" }
