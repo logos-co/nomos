@@ -71,6 +71,16 @@ pub fn create_consensus_configs(
             security_param: consensus_params.security_param,
             active_slot_coeff: consensus_params.active_slot_coeff,
         },
+        service_params: nomos_core::sdp::ServiceParameters {
+            lock_period: 10,
+            inactivity_period: 20,
+            retention_period: 100,
+            timestamp: 0,
+        },
+        min_stake: nomos_core::sdp::MinStake {
+            threshold: 1,
+            timestamp: 0,
+        },
     };
 
     utxos

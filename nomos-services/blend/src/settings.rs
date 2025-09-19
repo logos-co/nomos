@@ -1,31 +1,13 @@
-use std::{hash::Hash, num::NonZeroU64, time::Duration};
+use std::{num::NonZeroU64, time::Duration};
 
-use futures::{Stream, StreamExt as _};
-use nomos_blend_scheduling::{
-    membership::{Membership, Node},
-    message_blend::CryptographicProcessorSettings,
-};
+use nomos_blend_scheduling::message_blend::CryptographicProcessorSettings;
 use serde::{Deserialize, Serialize};
-use tokio_stream::wrappers::IntervalStream;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct Settings<NodeId> {
+pub struct Settings {
     pub crypto: CryptographicProcessorSettings,
     pub time: TimingSettings,
     pub minimal_network_size: NonZeroU64,
-    // TODO: Replace with SDP membership stream.
-    //       We keep this for now since the membership service returns nothing.
-    pub membership: Vec<Node<NodeId>>,
-}
-
-impl<NodeId> Settings<NodeId>
-where
-    NodeId: Eq + Hash + Clone,
-{
-    pub(crate) fn membership(&self) -> Membership<NodeId> {
-        let local_signing_pubkey = self.crypto.signing_private_key.public_key();
-        Membership::new(&self.membership, &local_signing_pubkey)
-    }
 }
 
 #[serde_with::serde_as]
@@ -64,15 +46,4 @@ impl TimingSettings {
     }
 }
 
-/// A stream that repeatedly yields the same membership at fixed intervals.
-/// The first item is yielded immediately.
-// TODO: Replace with SDP membership stream.
-pub(crate) fn constant_membership_stream<NodeId>(
-    membership: Membership<NodeId>,
-    interval: Duration,
-) -> impl Stream<Item = Membership<NodeId>>
-where
-    NodeId: Clone,
-{
-    IntervalStream::new(tokio::time::interval(interval)).map(move |_| membership.clone())
-}
+pub(crate) const FIRST_SESSION_READY_TIMEOUT: Duration = Duration::from_secs(1);

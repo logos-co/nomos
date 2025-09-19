@@ -17,6 +17,7 @@ nomos-blend-message = { workspace = true }
 nomos-core          = { workspace = true }
 rand                = { features = ["alloc"], workspace = true }
 serde               = { default-features = false, version = "1.0" }
+thiserror           = { default-features = false, version = "1" }
 tokio               = { default-features = false, version = "1" }
 tokio-stream        = { default-features = false, version = "0.1" }
 tracing             = { workspace = true }

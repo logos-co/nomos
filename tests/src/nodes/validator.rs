@@ -8,6 +8,7 @@ use std::{
     time::Duration,
 };
 
+use broadcast_service::BlockInfo;
 use chain_service::{CryptarchiaInfo, CryptarchiaSettings, OrphanConfig, SyncConfig};
 use common_http_client::CommonHttpClient;
 use cryptarchia_engine::time::SlotConfig;
@@ -19,7 +20,12 @@ use nomos_blend_service::{
     core::settings::{CoverTrafficSettingsExt, MessageDelayerSettingsExt, SchedulerSettingsExt},
     settings::TimingSettings,
 };
-use nomos_core::{block::Block, da::BlobId, mantle::SignedMantleTx, sdp::FinalizedBlockEvent};
+use nomos_core::{
+    block::{Block, SessionNumber},
+    da::BlobId,
+    mantle::SignedMantleTx,
+    sdp::FinalizedBlockEvent,
+};
 use nomos_da_network_core::{
     protocols::sampling::SubnetsConfig,
     swarm::{BalancerStats, DAConnectionPolicySettings, MonitorStats},
@@ -39,13 +45,13 @@ use nomos_da_verifier::{
 };
 use nomos_http_api_common::paths::{
     CRYPTARCHIA_HEADERS, CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_GET_SHARES_COMMITMENTS,
-    DA_MONITOR_STATS, STORAGE_BLOCK, UPDATE_MEMBERSHIP,
+    DA_HISTORIC_SAMPLING, DA_MONITOR_STATS, STORAGE_BLOCK, UPDATE_MEMBERSHIP,
 };
 use nomos_mempool::MempoolMetrics;
 use nomos_network::{backends::libp2p::Libp2pConfig, config::NetworkConfig};
 use nomos_node::{
     Config, HeaderId, RocksBackendSettings,
-    api::backend::AxumBackendSettings,
+    api::{backend::AxumBackendSettings, testing::handlers::HistoricSamplingRequest},
     config::{blend::BlendConfig, mempool::MempoolConfig},
 };
 use nomos_time::{
@@ -55,6 +61,7 @@ use nomos_time::{
 use nomos_tracing::logging::local::FileConfig;
 use nomos_tracing_service::LoggerLayer;
 use nomos_utils::{math::NonNegativeF64, net::get_available_tcp_port};
+use nomos_wallet::WalletServiceSettings;
 use reqwest::Url;
 use tempfile::NamedTempFile;
 use tokio::time::error::Elapsed;
@@ -260,6 +267,34 @@ impl Validator {
         Ok(())
     }
 
+    pub async fn da_historic_sampling(
+        &self,
+        session_id: SessionNumber,
+        block_id: HeaderId,
+        blob_ids: Vec<BlobId>,
+    ) -> Result<bool, reqwest::Error> {
+        let request = HistoricSamplingRequest {
+            session_id,
+            block_id,
+            blob_ids,
+        };
+
+        let response = CLIENT
+            .post(format!(
+                "http://{}{}",
+                self.testing_http_addr, DA_HISTORIC_SAMPLING
+            ))
+            .json(&request)
+            .send()
+            .await?;
+
+        response.error_for_status_ref()?;
+
+        // Parse the boolean response
+        let success: bool = response.json().await?;
+        Ok(success)
+    }
+
     // not async so that we can use this in `Drop`
     #[must_use]
     pub fn get_logs_from_file(&self) -> String {
@@ -355,6 +390,14 @@ impl Validator {
             )
             .await
     }
+
+    pub async fn get_lib_stream(
+        &self,
+    ) -> Result<impl Stream<Item = BlockInfo>, common_http_client::Error> {
+        self.http_client
+            .get_lib_stream(Url::from_str(&format!("http://{}", self.addr))?)
+            .await
+    }
 }
 
 #[must_use]
@@ -402,7 +445,6 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                         .expect("Maximum release delay between rounds cannot be zero."),
                 },
             },
-            membership: config.blend_config.membership,
             minimum_network_size: 1
                 .try_into()
                 .expect("Minimum Blend network size cannot be zero."),
@@ -469,6 +511,7 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                 is_secure: false,
             },
             subnet_refresh_interval: config.da_config.subnets_refresh_interval,
+            subnet_threshold: config.da_config.num_subnets as usize,
         },
         da_verifier: DaVerifierServiceSettings {
             share_verifier_settings: KzgrsDaVerifierSettings {
@@ -491,9 +534,11 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
         http: nomos_api::ApiServiceSettings {
             backend_settings: AxumBackendSettings {
                 address: config.api_config.address,
-                cors_origins: vec![],
+                rate_limit_per_second: 10000,
+                rate_limit_burst: 10000,
+                max_concurrent_requests: 1000,
+                ..Default::default()
             },
-            request_timeout: None,
         },
         da_sampling: DaSamplingServiceSettings {
             sampling_settings: KzgrsSamplingBackendSettings {
@@ -532,18 +577,21 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
         },
         mempool: MempoolConfig {
             cl_pool_recovery_path: "./recovery/cl_mempool.json".into(),
-            da_pool_recovery_path: "./recovery/da_mempool.json".into(),
             trigger_sampling_delay: adjust_timeout(Duration::from_secs(5)),
         },
         membership: config.membership_config.service_settings,
         sdp: (),
-
+        wallet: WalletServiceSettings {
+            known_keys: HashSet::new(),
+        },
         testing_http: nomos_api::ApiServiceSettings {
             backend_settings: AxumBackendSettings {
                 address: testing_http_address,
-                cors_origins: vec![],
+                rate_limit_per_second: 10000,
+                rate_limit_burst: 10000,
+                max_concurrent_requests: 1000,
+                ..Default::default()
             },
-            request_timeout: None,
         },
     }
 }

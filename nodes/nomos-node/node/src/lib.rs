@@ -2,7 +2,6 @@ pub mod api;
 pub mod config;
 pub mod generic_services;
 
-use bytes::Bytes;
 use color_eyre::eyre::Result;
 use generic_services::VerifierMempoolAdapter;
 use kzgrs_backend::common::share::DaShare;
@@ -16,10 +15,9 @@ pub use nomos_blend_service::{
 };
 use nomos_core::mantle::SignedMantleTx;
 pub use nomos_core::{
-    da::blob::{info::DispersedBlobInfo, select::FillSize as FillSizeWithBlobs},
+    codec,
     header::HeaderId,
     mantle::{select::FillSize as FillSizeWithTx, Transaction},
-    wire,
 };
 pub use nomos_da_network_service::backends::libp2p::validator::DaNetworkValidatorBackend;
 use nomos_da_network_service::{
@@ -38,23 +36,19 @@ use nomos_da_verifier::{
     storage::adapters::rocksdb::RocksAdapter as VerifierStorageAdapter,
 };
 use nomos_libp2p::PeerId;
-pub use nomos_mempool::{
-    da::settings::DaMempoolSettings,
-    network::adapters::libp2p::{
-        Libp2pAdapter as MempoolNetworkAdapter, Settings as MempoolAdapterSettings,
-    },
+pub use nomos_mempool::network::adapters::libp2p::{
+    Libp2pAdapter as MempoolNetworkAdapter, Settings as MempoolAdapterSettings,
 };
 pub use nomos_network::backends::libp2p::Libp2p as NetworkBackend;
 pub use nomos_storage::backends::{
     rocksdb::{RocksBackend, RocksBackendSettings},
-    StorageSerde,
+    SerdeOp,
 };
 pub use nomos_system_sig::SystemSig;
 use nomos_time::backends::NtpTimeBackend;
 #[cfg(feature = "tracing")]
 pub use nomos_tracing_service::Tracing;
 use overwatch::derive_services;
-use serde::{de::DeserializeOwned, Serialize};
 use subnetworks_assignations::versions::history_aware_refill::HistoryAware;
 
 pub use crate::config::{Config, CryptarchiaArgs, HttpArgs, LogArgs, NetworkArgs};
@@ -69,20 +63,6 @@ pub const CONSENSUS_TOPIC: &str = "/cryptarchia/proto";
 pub const CL_TOPIC: &str = "cl";
 pub const DA_TOPIC: &str = "da";
 pub const MB16: usize = 1024 * 1024 * 16;
-
-pub struct Wire;
-
-impl StorageSerde for Wire {
-    type Error = wire::Error;
-
-    fn serialize<T: Serialize>(value: T) -> Bytes {
-        wire::serialize(&value).unwrap().into()
-    }
-
-    fn deserialize<T: DeserializeOwned>(buff: Bytes) -> Result<T, Self::Error> {
-        wire::deserialize(&buff)
-    }
-}
 
 /// Membership used by the DA Network service.
 pub type NomosDaMembership = HistoryAware<PeerId>;
@@ -114,6 +94,8 @@ pub(crate) type BlendEdgeService = nomos_blend_service::edge::BlendService<
 
 pub(crate) type BlendService =
     nomos_blend_service::BlendService<BlendCoreService, BlendEdgeService, RuntimeServiceId>;
+
+pub(crate) type BlockBroadcastService = broadcast_service::BlockBroadcastService<RuntimeServiceId>;
 
 pub(crate) type DaVerifierService = generic_services::DaVerifierService<
     VerifierNetworkAdapter<
@@ -166,9 +148,6 @@ pub(crate) type DaNetworkAdapter = nomos_da_sampling::network::adapters::validat
     RuntimeServiceId,
 >;
 
-pub(crate) type DaMempoolService =
-    generic_services::DaMempoolService<DaNetworkAdapter, RuntimeServiceId>;
-
 pub(crate) type CryptarchiaService = generic_services::CryptarchiaService<
     nomos_da_sampling::network::adapters::validator::Libp2pAdapter<
         NomosDaMembership,
@@ -182,17 +161,18 @@ pub(crate) type CryptarchiaService = generic_services::CryptarchiaService<
 
 pub(crate) type TimeService = generic_services::TimeService<RuntimeServiceId>;
 
-pub(crate) type ApiStorageAdapter<StorageOp, RuntimeServiceId> =
-    nomos_api::http::storage::adapters::rocksdb::RocksAdapter<StorageOp, RuntimeServiceId>;
+pub(crate) type WalletService =
+    nomos_wallet::WalletService<CryptarchiaService, RocksBackend, RuntimeServiceId>;
+
+pub(crate) type ApiStorageAdapter<RuntimeServiceId> =
+    nomos_api::http::storage::adapters::rocksdb::RocksAdapter<RuntimeServiceId>;
 
 pub(crate) type ApiService = nomos_api::ApiService<
     AxumBackend<
         DaShare,
-        BlobInfo,
         NomosDaMembership,
         DaMembershipAdapter<RuntimeServiceId>,
         DaMembershipStorage,
-        BlobInfo,
         KzgrsDaVerifier,
         VerifierNetworkAdapter<
             NomosDaMembership,
@@ -201,9 +181,8 @@ pub(crate) type ApiService = nomos_api::ApiService<
             DaNetworkApiAdapter,
             RuntimeServiceId,
         >,
-        VerifierStorageAdapter<DaShare, Wire, DaStorageConverter>,
+        VerifierStorageAdapter<DaShare, DaStorageConverter>,
         SignedMantleTx,
-        Wire,
         DaStorageConverter,
         KzgrsSamplingBackend,
         nomos_da_sampling::network::adapters::validator::Libp2pAdapter<
@@ -213,17 +192,17 @@ pub(crate) type ApiService = nomos_api::ApiService<
             DaNetworkApiAdapter,
             RuntimeServiceId,
         >,
-        SamplingStorageAdapter<DaShare, Wire, DaStorageConverter>,
+        SamplingStorageAdapter<DaShare, DaStorageConverter>,
         VerifierMempoolAdapter<DaNetworkAdapter, RuntimeServiceId>,
         NtpTimeBackend,
         DaNetworkApiAdapter,
-        ApiStorageAdapter<Wire, RuntimeServiceId>,
+        ApiStorageAdapter<RuntimeServiceId>,
         MB16,
     >,
     RuntimeServiceId,
 >;
 
-type StorageService = nomos_storage::StorageService<RocksBackend<Wire>, RuntimeServiceId>;
+type StorageService = nomos_storage::StorageService<RocksBackend, RuntimeServiceId>;
 
 type SystemSigService = SystemSig<RuntimeServiceId>;
 
@@ -242,15 +221,16 @@ pub struct Nomos {
     da_verifier: DaVerifierService,
     da_sampling: DaSamplingService,
     da_network: DaNetworkService,
-    da_mempool: DaMempoolService,
     cl_mempool: ClMempoolService,
     cryptarchia: CryptarchiaService,
+    block_broadcast: BlockBroadcastService,
     membership: MembershipService<RuntimeServiceId>,
     sdp: SdpService<RuntimeServiceId>,
     time: TimeService,
     http: ApiService,
     storage: StorageService,
     system_sig: SystemSigService,
+    wallet: WalletService,
     #[cfg(feature = "testing")]
     testing_http: TestingApiService<RuntimeServiceId>,
 }

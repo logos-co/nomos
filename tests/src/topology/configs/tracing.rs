@@ -29,8 +29,8 @@ impl GeneralTracingConfig {
                 }),
                 filter: FilterLayer::EnvFilter(nomos_tracing::filter::envfilter::EnvFilterConfig {
                     // Allow events only from modules that matches the regex, if it matches - use
-                    // provided tracing level. Libp2p and risc0 related crates are very log
-                    // intensive in debug mode.
+                    // provided tracing level. Libp2p related crates are very log intensive in debug
+                    // mode.
                     filters: std::iter::once(&("nomos", "debug"))
                         .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
                         .collect(),

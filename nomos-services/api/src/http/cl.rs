@@ -1,19 +1,21 @@
 use core::fmt::Debug;
 use std::fmt::Display;
 
+use broadcast_service::{BlockBroadcastMsg, BlockBroadcastService, BlockInfo};
+use futures::{Stream, StreamExt as _};
 use nomos_core::{
     header::HeaderId,
     mantle::{AuthenticatedMantleTx, Transaction},
 };
 use nomos_mempool::{
-    backend::mockpool::MockPool, network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
-    tx::service::openapi::Status, MempoolMetrics, MempoolMsg, TxMempoolService,
+    MempoolMetrics, MempoolMsg, TxMempoolService, backend::mockpool::MockPool,
+    network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
+    tx::service::openapi::Status,
 };
 use overwatch::services::AsServiceId;
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
-
-use crate::wait_with_timeout;
+use tokio_stream::wrappers::BroadcastStream;
 
 pub type ClMempoolService<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId> =
     TxMempoolService<
@@ -56,11 +58,7 @@ where
         .await
         .map_err(|(e, _)| e)?;
 
-    wait_with_timeout(
-        receiver,
-        "Timeout while waiting for cl_mempool_metrics".to_owned(),
-    )
-    .await
+    receiver.await.map_err(|e| Box::new(e) as super::DynError)
 }
 
 pub async fn cl_mempool_status<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>(
@@ -97,9 +95,30 @@ where
         .await
         .map_err(|(e, _)| e)?;
 
-    wait_with_timeout(
-        receiver,
-        "Timeout while waiting for cl_mempool_status".to_owned(),
-    )
-    .await
+    receiver.await.map_err(|e| Box::new(e) as super::DynError)
+}
+
+pub async fn lib_block_stream<RuntimeServiceId>(
+    handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
+) -> Result<
+    impl Stream<Item = Result<BlockInfo, crate::http::DynError>> + Send + Sync + use<RuntimeServiceId>,
+    super::DynError,
+>
+where
+    RuntimeServiceId: Debug + Sync + Display + AsServiceId<BlockBroadcastService<RuntimeServiceId>>,
+{
+    let relay = handle.relay().await?;
+    let (sender, receiver) = oneshot::channel();
+    relay
+        .send(BlockBroadcastMsg::SubscribeToFinalizedBlocks {
+            result_sender: sender,
+        })
+        .await
+        .map_err(|(e, _)| e)?;
+
+    let broadcast_receiver = receiver.await.map_err(|e| Box::new(e) as super::DynError)?;
+    let stream = BroadcastStream::new(broadcast_receiver)
+        .map(|result| result.map_err(|e| Box::new(e) as crate::http::DynError));
+
+    Ok(stream)
 }

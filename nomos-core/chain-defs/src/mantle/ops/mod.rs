@@ -1,6 +1,6 @@
 pub mod channel;
 pub(crate) mod internal;
-mod leader_claim;
+pub mod leader_claim;
 pub mod native;
 pub mod opcode;
 pub mod sdp;
@@ -13,8 +13,7 @@ use channel::{
     inscribe::InscriptionOp,
     set_keys::SetKeysOp,
 };
-use groth16::Fr;
-use num_bigint::BigUint;
+use groth16::{fr_from_bytes, Fr};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::{
@@ -29,9 +28,12 @@ use super::{
         sdp::{SDPActiveOp, SDPDeclareOp, SDPWithdrawOp},
     },
 };
-use crate::mantle::ops::{
-    internal::{OpDe, OpSer},
-    wire::OpWireVisitor,
+use crate::{
+    mantle::ops::{
+        internal::{OpDe, OpSer},
+        wire::OpWireVisitor,
+    },
+    proofs::zksig,
 };
 
 /// Core set of supported Mantle operations.
@@ -60,6 +62,11 @@ pub enum Op {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OpProof {
     Ed25519Sig(ed25519::Signature),
+    ZkSig(zksig::DummyZkSignature),
+    ZkAndEd25519Sigs {
+        zk_sig: zksig::DummyZkSignature,
+        ed25519_sig: ed25519::Signature,
+    },
 }
 
 /// Delegates serialization through the [`OpInternal`] representation.
@@ -129,10 +136,10 @@ impl Op {
     #[must_use]
     pub fn as_signing_fr(&self) -> Vec<Fr> {
         let mut buff = Vec::new();
-        buff.push(BigUint::from(self.opcode()).into());
+        buff.push(fr_from_bytes(&[self.opcode()]).expect("single byte fits in Fr"));
 
         for chunk in self.payload_bytes().chunks(31) {
-            buff.push(BigUint::from_bytes_le(chunk).into());
+            buff.push(fr_from_bytes(chunk).expect("31 bytes fit in Fr"));
         }
         buff
     }
@@ -176,7 +183,7 @@ mod tests {
     use serde_json::json;
 
     use super::{channel::blob::BlobOp, Op};
-    use crate::wire;
+    use crate::codec;
 
     // nothing special, just some valid bytes
     static VK: LazyLock<ed25519_dalek::VerifyingKey> = LazyLock::new(|| {
@@ -234,9 +241,10 @@ mod tests {
         };
         let op = Op::ChannelBlob(blob_op);
 
-        let serialized = wire::serialize(&op).unwrap();
-        assert_eq!(serialized, expected_bincode);
-        let deserialized = wire::deserialize::<Op>(&serialized).unwrap();
+        let serialized =
+            <Op as codec::SerdeOp>::serialize(&op).expect("Op should be able to be serialized");
+        assert_eq!(serialized.to_vec(), expected_bincode);
+        let deserialized: Op = <Op as codec::SerdeOp>::deserialize(&serialized).unwrap();
         assert_eq!(deserialized, op);
     }
 }

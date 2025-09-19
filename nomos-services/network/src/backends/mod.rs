@@ -15,7 +15,6 @@ pub trait NetworkBackend<RuntimeServiceId> {
     type Message: Debug + Send + Sync + 'static;
     type PubSubEvent: Debug + Send + Sync + 'static;
     type ChainSyncEvent: Debug + Send + Sync + 'static;
-
     fn new(config: Self::Settings, overwatch_handle: OverwatchHandle<RuntimeServiceId>) -> Self;
     async fn process(&self, msg: Self::Message);
     async fn subscribe_to_pubsub(&mut self) -> BroadcastStream<Self::PubSubEvent>;

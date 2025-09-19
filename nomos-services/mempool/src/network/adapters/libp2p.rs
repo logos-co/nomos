@@ -1,5 +1,5 @@
 use futures::Stream;
-use nomos_core::wire;
+use nomos_core::codec::SerdeOp;
 use nomos_network::{
     backends::libp2p::{Command, Libp2p, Message, PubSubCommand, TopicHash},
     message::NetworkMsg,
@@ -60,7 +60,7 @@ where
         let stream = receiver.await.unwrap();
         Box::new(Box::pin(stream.filter_map(move |message| match message {
             Ok(Message { data, topic, .. }) if topic == topic_hash => {
-                match wire::deserialize::<Item>(&data) {
+                match <Item as SerdeOp>::deserialize(&data) {
                     Ok(item) => Some((id(&item), item)),
                     Err(e) => {
                         tracing::debug!("Unrecognized message: {e}");
@@ -73,21 +73,21 @@ where
     }
 
     async fn send(&self, item: Item) {
-        if let Ok(wire) = wire::serialize(&item) {
+        let serialized =
+            <Item as SerdeOp>::serialize(&item).expect("Item should be able to be serialized");
+        {
             if let Err((e, _)) = self
                 .network_relay
                 .send(NetworkMsg::Process(Command::PubSub(
                     PubSubCommand::Broadcast {
                         topic: self.settings.topic.clone(),
-                        message: wire.into(),
+                        message: serialized.to_vec().into_boxed_slice(),
                     },
                 )))
                 .await
             {
                 tracing::error!("failed to send item to topic: {e}");
             }
-        } else {
-            tracing::error!("Failed to serialize item");
         }
     }
 }

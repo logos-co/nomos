@@ -55,7 +55,6 @@ async fn disseminate_and_retrieve() {
     assert!(validator_shares.len() == 2);
 }
 
-#[ignore = "Reenable after transaction mempool is used"]
 #[tokio::test]
 #[serial]
 async fn disseminate_retrieve_reconstruct() {
@@ -63,6 +62,7 @@ async fn disseminate_retrieve_reconstruct() {
 
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let executor = &topology.executors()[0];
+    let num_subnets = executor.config().da_network.backend.num_subnets as usize;
 
     let app_id = hex::decode(APP_ID).unwrap();
     let app_id: [u8; 32] = app_id.clone().try_into().unwrap();
@@ -71,14 +71,14 @@ async fn disseminate_retrieve_reconstruct() {
 
     for i in 0..ITERATIONS {
         let data_size = 31 * (i + 1);
-        println!("disseminating {data_size} bytes");
+        println!("disseminating {data_size} bytes, iteration {i}");
         let data = &data[..data_size]; // test increasing size data
         let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, Index::from(i as u64));
         let blob_id = disseminate_with_metadata(executor, data, metadata)
             .await
             .unwrap();
 
-        wait_for_blob_onchain(executor, blob_id).await;
+        wait_for_shares_number(executor, blob_id, num_subnets).await;
 
         let share_commitments = executor.get_commitments(blob_id).await.unwrap();
         let mut executor_shares = executor
@@ -91,8 +91,9 @@ async fn disseminate_retrieve_reconstruct() {
 
         executor_shares.sort_by_key(|share| share.share_idx);
 
-        // Reconstruction is performed from the one of the two blobs.
-        let reconstructed = reconstruct_without_missing_data(&executor_shares);
+        // Reconstruction is performed from the one of the two shares.
+        let reconstructed = reconstruct_without_missing_data(&[executor_shares[0].clone()]);
+
         assert_eq!(reconstructed, data);
     }
 
@@ -195,7 +196,6 @@ async fn four_subnets_disseminate_retrieve_reconstruct() {
 
 #[tokio::test]
 #[serial]
-#[ignore = "Reenable after transaction mempool is used"]
 async fn disseminate_same_data() {
     const ITERATIONS: usize = 10;
 

@@ -2,9 +2,7 @@
 # Keep this version in sync also in the following places:
 # * Dockerfile
 # * flake.nix
-# * ci/Dockerfile
 # * testnet/Dockerfile
-# * testnet/Dockerfile.debug
 # Also, update the version of the nightly toolchain to the latest nightly of the new version specified in the following places:
 # * .github/workflows/code-check.yml (fmt job)
 # * .pre-commit-config.yml (fmt hook)

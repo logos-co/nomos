@@ -8,6 +8,7 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
+broadcast-service     = { workspace = true }
 futures               = { default-features = false, version = "0.3.31" }
 nomos-core            = { workspace = true }
 nomos-da-messages     = { workspace = true }

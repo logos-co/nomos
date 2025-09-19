@@ -1,6 +1,9 @@
 use std::{io, marker::PhantomData, time::Duration};
 
-use futures::{stream, StreamExt as _};
+use futures::{
+    stream::{self, FuturesUnordered},
+    StreamExt as _,
+};
 use kzgrs_backend::common::share::DaShare;
 use libp2p::{
     core::transport::ListenerId,
@@ -10,6 +13,7 @@ use libp2p::{
 };
 use log::debug;
 use nomos_core::{da::BlobId, mantle::SignedMantleTx};
+use nomos_da_messages::replication::ReplicationRequest;
 use subnetworks_assignations::MembershipHandler;
 use tokio::{
     sync::mpsc::{unbounded_channel, UnboundedSender},
@@ -17,10 +21,14 @@ use tokio::{
 };
 use tokio_stream::wrappers::{IntervalStream, UnboundedReceiverStream};
 
+use super::common::handlers::{handle_validator_dispersal_event, ValidationTask};
 use crate::{
     addressbook::AddressBookHandler,
     behaviour::executor::{ExecutorBehaviour, ExecutorBehaviourEvent},
-    maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
+    maintenance::{
+        balancer::{ConnectionBalancer as Balancer, ConnectionBalancerCommand},
+        monitor::ConnectionMonitorCommand,
+    },
     protocols::{
         dispersal::{
             executor::behaviour::DispersalExecutorEvent, validator::behaviour::DispersalEvent,
@@ -30,10 +38,7 @@ use crate::{
     },
     swarm::{
         common::{
-            handlers::{
-                handle_replication_event, handle_sampling_event, handle_validator_dispersal_event,
-                monitor_event,
-            },
+            handlers::{handle_replication_event, handle_sampling_event, monitor_event},
             monitor::MonitorEvent,
             policy::DAConnectionPolicy,
         },
@@ -101,6 +106,7 @@ where
             subnets_settings: subnets_config,
         }: SwarmSettings,
         refresh_signal: impl futures::Stream<Item = ()> + Send + 'static,
+        balancer_stats_sender: UnboundedSender<<ConnectionBalancer<Membership> as Balancer>::Stats>,
     ) -> (Self, ExecutorEventsStream) {
         let (sampling_events_sender, sampling_events_receiver) = unbounded_channel();
         let (validation_events_sender, validation_events_receiver) = unbounded_channel();
@@ -139,6 +145,7 @@ where
                     replication_config,
                     subnets_config,
                     refresh_signal,
+                    balancer_stats_sender,
                 ),
                 sampling_events_sender,
                 validation_events_sender,
@@ -165,6 +172,7 @@ where
         replication_config: ReplicationConfig,
         subnets_config: SubnetsConfig,
         refresh_signal: impl futures::Stream<Item = ()> + Send + 'static,
+        balancer_stats_sender: UnboundedSender<<ConnectionBalancer<Membership> as Balancer>::Stats>,
     ) -> ExecutorSwarmType<Membership, HistoricMembership, Addressbook> {
         SwarmBuilder::with_existing_identity(key)
             .with_tokio()
@@ -180,6 +188,7 @@ where
                     replication_config,
                     subnets_config,
                     refresh_signal,
+                    balancer_stats_sender,
                 )
             })
             .expect("Validator behaviour should build")
@@ -280,12 +289,12 @@ where
         &mut self.swarm
     }
 
-    async fn handle_sampling_event(&mut self, event: SamplingEvent) {
+    fn handle_sampling_event(&mut self, event: SamplingEvent) {
         monitor_event(
             self.swarm.behaviour_mut().monitor_behaviour_mut(),
             MonitorEvent::from(&event),
         );
-        handle_sampling_event(&self.sampling_events_sender, event).await;
+        handle_sampling_event(&self.sampling_events_sender, event);
     }
 
     fn handle_executor_dispersal_event(&mut self, event: DispersalExecutorEvent) {
@@ -298,20 +307,15 @@ where
         }
     }
 
-    async fn handle_validator_dispersal_event(&mut self, event: DispersalEvent) {
+    fn handle_dispersal_event(&mut self, event: DispersalEvent) -> Option<ValidationTask> {
         monitor_event(
             self.swarm.behaviour_mut().monitor_behaviour_mut(),
             MonitorEvent::from(&event),
         );
-        handle_validator_dispersal_event(
-            &self.validation_events_sender,
-            self.swarm.behaviour_mut().replication_behaviour_mut(),
-            event,
-        )
-        .await;
+        handle_validator_dispersal_event(&self.validation_events_sender, event)
     }
 
-    async fn handle_replication_event(&mut self, event: ReplicationEvent) {
+    fn handle_replication_event(&mut self, event: ReplicationEvent) {
         monitor_event(
             self.swarm.behaviour_mut().monitor_behaviour_mut(),
             MonitorEvent::from(&event),
@@ -321,16 +325,16 @@ where
             &self.membership,
             self.local_peer_id(),
             event,
-        )
-        .await;
+        );
     }
 
     #[expect(
         clippy::cognitive_complexity,
         reason = "TODO: Address this at some point"
     )]
-    async fn handle_behaviour_event(
+    fn handle_behaviour_event(
         &mut self,
+        validation_tasks: &FuturesUnordered<ValidationTask>,
         event: ExecutorBehaviourEvent<
             ConnectionBalancer<Membership>,
             ConnectionMonitor<Membership>,
@@ -345,7 +349,7 @@ where
                     counter.behaviour_events_received = 1,
                     event = EVENT_SAMPLING
                 );
-                self.handle_sampling_event(event).await;
+                self.handle_sampling_event(event);
             }
             ExecutorBehaviourEvent::ExecutorDispersal(event) => {
                 tracing::info!(
@@ -360,7 +364,9 @@ where
                     event = EVENT_VALIDATOR_DISPERSAL,
                     share_size = event.share_size()
                 );
-                self.handle_validator_dispersal_event(event).await;
+                if let Some(task) = self.handle_dispersal_event(event) {
+                    validation_tasks.push(Box::pin(task));
+                }
             }
             ExecutorBehaviourEvent::Replication(event) => {
                 tracing::info!(
@@ -368,36 +374,58 @@ where
                     event = EVENT_REPLICATION,
                     share_size = event.share_size()
                 );
-                self.handle_replication_event(event).await;
+                self.handle_replication_event(event);
             }
             _ => {}
         }
     }
 
     pub async fn run(mut self) {
+        let mut validation_tasks = FuturesUnordered::new();
         loop {
-            if let Some(event) = self.swarm.next().await {
-                tracing::info!("Da swarm event received: {event:?}");
-                match event {
-                    SwarmEvent::Behaviour(behaviour_event) => {
-                        self.handle_behaviour_event(behaviour_event).await;
+            tokio::select! {
+                Some(event) = self.swarm.next() => {
+                    tracing::info!("Da swarm event received: {event:?}");
+                    match event {
+                        SwarmEvent::Behaviour(behaviour_event) => {
+                            self.handle_behaviour_event(&validation_tasks, behaviour_event);
+                        }
+                        SwarmEvent::ConnectionEstablished { .. }
+                        | SwarmEvent::ConnectionClosed { .. }
+                        | SwarmEvent::IncomingConnection { .. }
+                        | SwarmEvent::IncomingConnectionError { .. }
+                        | SwarmEvent::OutgoingConnectionError { .. }
+                        | SwarmEvent::NewListenAddr { .. }
+                        | SwarmEvent::ExpiredListenAddr { .. }
+                        | SwarmEvent::ListenerClosed { .. }
+                        | SwarmEvent::ListenerError { .. }
+                        | SwarmEvent::Dialing { .. }
+                        | SwarmEvent::NewExternalAddrCandidate { .. }
+                        | SwarmEvent::ExternalAddrConfirmed { .. }
+                        | SwarmEvent::ExternalAddrExpired { .. }
+                        | SwarmEvent::NewExternalAddrOfPeer { .. } => {}
+                        event => {
+                            debug!("Unsupported validator swarm event: {event:?}");
+                        }
                     }
-                    SwarmEvent::ConnectionEstablished { .. }
-                    | SwarmEvent::ConnectionClosed { .. }
-                    | SwarmEvent::IncomingConnection { .. }
-                    | SwarmEvent::IncomingConnectionError { .. }
-                    | SwarmEvent::OutgoingConnectionError { .. }
-                    | SwarmEvent::NewListenAddr { .. }
-                    | SwarmEvent::ExpiredListenAddr { .. }
-                    | SwarmEvent::ListenerClosed { .. }
-                    | SwarmEvent::ListenerError { .. }
-                    | SwarmEvent::Dialing { .. }
-                    | SwarmEvent::NewExternalAddrCandidate { .. }
-                    | SwarmEvent::ExternalAddrConfirmed { .. }
-                    | SwarmEvent::ExternalAddrExpired { .. }
-                    | SwarmEvent::NewExternalAddrOfPeer { .. } => {}
-                    event => {
-                        debug!("Unsupported validator swarm event: {event:?}");
+                }
+                Some((validation_result, event)) = validation_tasks.next() => {
+                    if let Err(e) = validation_result {
+                        tracing::error!("Validation task failed for event {event:?}: {e:?}");
+                        continue;
+                    }
+
+                    let replication_behaviour =
+                        self.swarm.behaviour_mut().replication_behaviour_mut();
+
+                    match event {
+                        DispersalEvent::IncomingShare(share) => {
+                            replication_behaviour.send_message(&ReplicationRequest::from(*share));
+                        }
+                        DispersalEvent::IncomingTx(signed_mantle_tx) => {
+                            replication_behaviour.send_message(&ReplicationRequest::from(*signed_mantle_tx.1));
+                        }
+                        DispersalEvent::DispersalError { .. } => {}
                     }
                 }
             }

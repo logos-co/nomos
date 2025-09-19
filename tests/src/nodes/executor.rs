@@ -8,6 +8,7 @@ use std::{
     time::Duration,
 };
 
+use broadcast_service::BlockInfo;
 use chain_service::{CryptarchiaInfo, CryptarchiaSettings, OrphanConfig, SyncConfig};
 use common_http_client::CommonHttpClient;
 use cryptarchia_engine::time::SlotConfig;
@@ -53,12 +54,13 @@ use nomos_da_verifier::{
 use nomos_executor::{api::backend::AxumBackendSettings, config::Config};
 use nomos_http_api_common::paths::{
     CL_METRICS, CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_BLACKLISTED_PEERS, DA_BLOCK_PEER,
-    DA_GET_MEMBERSHIP, DA_GET_SHARES_COMMITMENTS, DA_MONITOR_STATS, DA_UNBLOCK_PEER, STORAGE_BLOCK,
-    UPDATE_MEMBERSHIP,
+    DA_GET_MEMBERSHIP, DA_GET_SHARES_COMMITMENTS, DA_HISTORIC_SAMPLING, DA_MONITOR_STATS,
+    DA_UNBLOCK_PEER, STORAGE_BLOCK, UPDATE_MEMBERSHIP,
 };
 use nomos_network::{backends::libp2p::Libp2pConfig, config::NetworkConfig};
 use nomos_node::{
     RocksBackendSettings,
+    api::testing::handlers::HistoricSamplingRequest,
     config::{blend::BlendConfig, mempool::MempoolConfig},
 };
 use nomos_time::{
@@ -73,11 +75,12 @@ use tempfile::NamedTempFile;
 
 use super::{CLIENT, create_tempdir, persist_tempdir};
 use crate::{
-    IS_DEBUG_TRACING, adjust_timeout, nodes::LOGS_PREFIX, topology::configs::GeneralConfig,
+    IS_DEBUG_TRACING, adjust_timeout,
+    nodes::{DA_GET_TESTING_ENDPOINT_ERROR, LOGS_PREFIX},
+    topology::configs::GeneralConfig,
 };
 
 const BIN_PATH: &str = "../target/debug/nomos-executor";
-const DA_GET_TESTING_ENDPOINT_ERROR: &str = "Failed to connect to testing endpoint. The binary was likely built without the 'testing' feature. Try: cargo build --workspace --all-features";
 
 pub struct Executor {
     addr: SocketAddr,
@@ -226,9 +229,12 @@ impl Executor {
     }
 
     pub async fn consensus_info(&self) -> CryptarchiaInfo {
-        let res = self.get(CRYPTARCHIA_INFO).await;
-        println!("{res:?}");
-        res.unwrap().json().await.unwrap()
+        self.get(CRYPTARCHIA_INFO)
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap()
     }
 
     pub async fn get_block(&self, id: HeaderId) -> Option<Block<SignedMantleTx>> {
@@ -330,6 +336,42 @@ impl Executor {
         let response = response.unwrap();
         response.error_for_status()?.json().await
     }
+
+    pub async fn da_historic_sampling(
+        &self,
+        session_id: SessionNumber,
+        block_id: HeaderId,
+        blob_ids: Vec<BlobId>,
+    ) -> Result<bool, reqwest::Error> {
+        let request = HistoricSamplingRequest {
+            session_id,
+            block_id,
+            blob_ids,
+        };
+
+        let response = CLIENT
+            .post(format!(
+                "http://{}{}",
+                self.testing_http_addr, DA_HISTORIC_SAMPLING
+            ))
+            .json(&request)
+            .send()
+            .await?;
+
+        response.error_for_status_ref()?;
+
+        // Parse the boolean response
+        let success: bool = response.json().await?;
+        Ok(success)
+    }
+
+    pub async fn get_lib_stream(
+        &self,
+    ) -> Result<impl Stream<Item = BlockInfo>, common_http_client::Error> {
+        self.http_client
+            .get_lib_stream(Url::from_str(&format!("http://{}", self.addr))?)
+            .await
+    }
 }
 
 #[must_use]
@@ -376,7 +418,6 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                         .expect("Maximum release delay between rounds cannot be zero."),
                 },
             },
-            membership: config.blend_config.membership,
             minimum_network_size: 1
                 .try_into()
                 .expect("Minimum Blend network size cannot be zero."),
@@ -439,6 +480,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                 is_secure: false,
             },
             subnet_refresh_interval: config.da_config.subnets_refresh_interval,
+            subnet_threshold: config.da_config.num_subnets as usize,
         },
         da_verifier: DaVerifierServiceSettings {
             share_verifier_settings: KzgrsDaVerifierSettings {
@@ -461,9 +503,11 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
         http: nomos_api::ApiServiceSettings {
             backend_settings: AxumBackendSettings {
                 address: config.api_config.address,
-                cors_origins: vec![],
+                rate_limit_per_second: 10000,
+                rate_limit_burst: 10000,
+                max_concurrent_requests: 1000,
+                ..Default::default()
             },
-            request_timeout: None,
         },
         da_sampling: DaSamplingServiceSettings {
             sampling_settings: KzgrsSamplingBackendSettings {
@@ -491,6 +535,8 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                     global_params_path: config.da_config.global_params_path,
                 },
                 dispersal_timeout: Duration::from_secs(20),
+                retry_cooldown: Duration::from_secs(3),
+                retry_limit: 2,
             },
         },
         time: TimeServiceSettings {
@@ -511,7 +557,6 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
         },
         mempool: MempoolConfig {
             cl_pool_recovery_path: "./recovery/cl_mempool.json".into(),
-            da_pool_recovery_path: "./recovery/da_mempool.json".into(),
             trigger_sampling_delay: adjust_timeout(Duration::from_secs(5)),
         },
         membership: config.membership_config.service_settings,
@@ -520,9 +565,11 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
         testing_http: nomos_api::ApiServiceSettings {
             backend_settings: AxumBackendSettings {
                 address: testing_http_address,
-                cors_origins: vec![],
+                rate_limit_per_second: 10000,
+                rate_limit_burst: 10000,
+                max_concurrent_requests: 1000,
+                ..Default::default()
             },
-            request_timeout: None,
         },
     }
 }

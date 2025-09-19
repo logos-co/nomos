@@ -1,12 +1,9 @@
 use clap::Parser as _;
 use color_eyre::eyre::{eyre, Result};
-use kzgrs_backend::dispersal::BlobInfo;
-use nomos_core::{
-    da::blob::info::DispersedBlobInfo,
-    mantle::{SignedMantleTx, Transaction},
-};
+use nomos_core::mantle::{SignedMantleTx, Transaction};
 use nomos_mempool::{
-    network::adapters::libp2p::Settings as AdapterSettings, tx::settings::TxMempoolSettings,
+    network::adapters::libp2p::Settings as AdapterSettings,
+    processor::tx::SignedTxProcessorSettings, tx::settings::TxMempoolSettings,
 };
 use nomos_node::{config::CliArgs, Config, Nomos, NomosServiceSettings, RuntimeServiceId};
 use overwatch::overwatch::{Error as OverwatchError, Overwatch, OverwatchRunner};
@@ -39,6 +36,7 @@ async fn main() -> Result<()> {
             blend: blend_config,
             blend_core: blend_core_config,
             blend_edge: blend_edge_config,
+            block_broadcast: (),
             #[cfg(feature = "tracing")]
             tracing: config.tracing,
             http: config.http,
@@ -48,17 +46,10 @@ async fn main() -> Result<()> {
                     topic: String::from(nomos_node::CL_TOPIC),
                     id: <SignedMantleTx as Transaction>::hash,
                 },
-                processor: (),
-                recovery_path: config.mempool.cl_pool_recovery_path,
-            },
-            da_mempool: nomos_mempool::DaMempoolSettings {
-                pool: (),
-                network_adapter: AdapterSettings {
-                    topic: String::from(nomos_node::DA_TOPIC),
-                    id: <BlobInfo as DispersedBlobInfo>::blob_id,
+                processor: SignedTxProcessorSettings {
+                    trigger_sampling_delay: config.mempool.trigger_sampling_delay,
                 },
-                recovery_path: config.mempool.da_pool_recovery_path,
-                trigger_sampling_delay: config.mempool.trigger_sampling_delay,
+                recovery_path: config.mempool.cl_pool_recovery_path,
             },
             da_network: config.da_network,
             da_sampling: config.da_sampling,
@@ -69,6 +60,7 @@ async fn main() -> Result<()> {
             system_sig: (),
             sdp: (),
             membership: config.membership,
+            wallet: config.wallet,
             #[cfg(feature = "testing")]
             testing_http: config.testing_http,
         },
@@ -110,7 +102,7 @@ async fn get_services_to_start(
             RuntimeServiceId::DaVerifier,
             RuntimeServiceId::DaSampling,
             RuntimeServiceId::DaNetwork,
-            RuntimeServiceId::DaMempool,
+            RuntimeServiceId::ClMempool,
         ];
         service_ids.retain(|value| !da_service_ids.contains(value));
     }

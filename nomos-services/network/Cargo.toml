@@ -15,8 +15,9 @@ nomos-core       = { workspace = true }
 nomos-libp2p     = { optional = true, workspace = true }
 overwatch        = { workspace = true }
 rand             = { features = ["std"], optional = true, workspace = true }
-serde            = { default-features = false, version = "1.0" }
-tokio            = { default-features = false, version = "1" }
+rand_chacha      = { default-features = false, optional = true, version = "0.3" }
+serde            = { default-features = false, features = ["derive"], version = "1.0" }
+tokio            = { default-features = false, features = ["macros", "sync"], version = "1" }
 tokio-stream     = { default-features = false, version = "0.1" }
 tracing          = { workspace = true }
 utoipa           = { optional = true, workspace = true }
@@ -29,6 +30,6 @@ tracing-subscriber = { default-features = false, features = ["env-filter", "fmt"
 
 [features]
 default = []
-libp2p  = ["cryptarchia-sync/libp2p", "dep:nomos-libp2p", "dep:rand"]
-mock    = ["dep:rand"]
+libp2p  = ["cryptarchia-sync/libp2p", "dep:nomos-libp2p", "dep:rand", "dep:rand_chacha"]
+mock    = ["dep:rand", "dep:rand_chacha"]
 openapi = ["dep:utoipa"]

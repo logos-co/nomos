@@ -16,9 +16,9 @@ use backends::BlendBackend;
 use futures::{Stream, StreamExt as _};
 use nomos_blend_scheduling::{
     membership::Membership,
-    session::{SessionEvent, SessionEventStream},
+    session::{SessionEvent, UninitializedSessionEventStream},
 };
-use nomos_core::wire;
+use nomos_core::codec::SerdeOp;
 use overwatch::{
     overwatch::OverwatchHandle,
     services::{
@@ -28,18 +28,17 @@ use overwatch::{
     },
     OpaqueServiceResourcesHandle,
 };
-use serde::Serialize;
+use serde::{de::DeserializeOwned, Serialize};
 pub(crate) use service_components::ServiceComponents;
 use services_utils::wait_until_services_are_ready;
 use settings::BlendConfig;
-use tokio::time::timeout;
 use tracing::{debug, error, info};
 
 use crate::{
     edge::handlers::{Error, MessageHandler},
     membership,
-    message::ServiceMessage,
-    settings::constant_membership_stream,
+    message::{NetworkMessage, ServiceMessage},
+    settings::FIRST_SESSION_READY_TIMEOUT,
 };
 
 const LOG_TARGET: &str = "blend::service::edge";
@@ -59,7 +58,7 @@ where
     Backend: BlendBackend<NodeId, RuntimeServiceId>,
     NodeId: Clone,
 {
-    type Settings = BlendConfig<Backend::Settings, NodeId>;
+    type Settings = BlendConfig<Backend::Settings>;
     type State = NoState<Self::Settings>;
     type StateOperator = NoOperator<Self::State>;
     type Message = ServiceMessage<BroadcastSettings>;
@@ -72,10 +71,9 @@ impl<Backend, NodeId, BroadcastSettings, MembershipAdapter, RuntimeServiceId>
 where
     Backend: BlendBackend<NodeId, RuntimeServiceId> + Send + Sync,
     NodeId: Clone + Eq + Hash + Send + Sync + 'static,
-    BroadcastSettings: Serialize + Send,
-    MembershipAdapter: membership::Adapter + Send,
+    BroadcastSettings: Serialize + DeserializeOwned + Send,
+    MembershipAdapter: membership::Adapter<NodeId = NodeId, Error: Send + Sync + 'static> + Send,
     membership::ServiceMessage<MembershipAdapter>: Send + Sync + 'static,
-    <MembershipAdapter as membership::Adapter>::Error: Send + Sync + 'static,
     RuntimeServiceId: AsServiceId<<MembershipAdapter as membership::Adapter>::Service>
         + AsServiceId<Self>
         + Display
@@ -109,30 +107,6 @@ where
         } = self;
 
         let settings = settings_handle.notifier().get_updated_settings();
-        let membership = settings.membership();
-
-        let _membership_stream = MembershipAdapter::new(
-            overwatch_handle
-                .relay::<<MembershipAdapter as membership::Adapter>::Service>()
-                .await?,
-            settings.crypto.signing_private_key.public_key(),
-        )
-        .subscribe()
-        .await?;
-        // TODO: Use membership_stream once the membership/SDP services are ready to provide the real membership: https://github.com/logos-co/nomos/issues/1532
-
-        let session_stream = SessionEventStream::new(
-            Box::pin(constant_membership_stream(
-                membership.clone(),
-                settings.time.session_duration(),
-            )),
-            settings.time.session_transition_period(),
-        );
-
-        let messages_to_blend = inbound_relay.map(|ServiceMessage::Blend(message)| {
-            wire::serialize(&message)
-                .expect("Message from internal services should not fail to serialize")
-        });
 
         wait_until_services_are_ready!(
             &overwatch_handle,
@@ -141,8 +115,29 @@ where
         )
         .await?;
 
+        let membership_stream = MembershipAdapter::new(
+            overwatch_handle
+                .relay::<<MembershipAdapter as membership::Adapter>::Service>()
+                .await?,
+            settings.crypto.signing_private_key.public_key(),
+        )
+        .subscribe()
+        .await?;
+
+        let uninitialized_session_stream = UninitializedSessionEventStream::new(
+            membership_stream,
+            FIRST_SESSION_READY_TIMEOUT,
+            settings.time.session_transition_period(),
+        );
+
+        let messages_to_blend = inbound_relay.map(|ServiceMessage::Blend(message)| {
+            <NetworkMessage<BroadcastSettings> as SerdeOp>::serialize(&message)
+                .expect("NetworkMessage should be able to be serialized")
+                .to_vec()
+        });
+
         run::<Backend, _, _>(
-            session_stream,
+            uninitialized_session_stream,
             messages_to_blend,
             &settings,
             &overwatch_handle,
@@ -176,7 +171,7 @@ where
 ///   stream.
 /// - If the initial membership does not satisfy the edge node condition.
 async fn run<Backend, NodeId, RuntimeServiceId>(
-    mut session_stream: impl Stream<Item = SessionEvent<Membership<NodeId>>> + Send + Unpin,
+    session_stream: UninitializedSessionEventStream<impl Stream<Item = Membership<NodeId>> + Unpin>,
     mut messages_to_blend: impl Stream<Item = Vec<u8>> + Send + Unpin,
     settings: &Settings<Backend, NodeId, RuntimeServiceId>,
     overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
@@ -187,16 +182,16 @@ where
     NodeId: Clone + Eq + Hash + Send + Sync + 'static,
     RuntimeServiceId: Clone,
 {
-    // Read the initial membership, expecting it to be yielded immediately.
-    // We use 1s timeout to tolerate small delays.
-    let SessionEvent::NewSession(membership) =
-        timeout(Duration::from_secs(1), session_stream.next())
-            .await
-            .expect("Session stream should yield the first event immediately")
-            .expect("Session stream shouldn't be closed")
-    else {
-        panic!("NewSession must be yielded first");
-    };
+    let (membership, mut session_stream) = session_stream
+        .await_first_ready()
+        .await
+        .expect("The current session must be ready");
+
+    info!(
+        target: LOG_TARGET,
+        "The current membership is ready: {} nodes.",
+        membership.size()
+    );
 
     let mut message_handler =
         MessageHandler::<Backend, NodeId, RuntimeServiceId>::try_new_with_edge_condition_check(
@@ -243,4 +238,4 @@ where
 }
 
 type Settings<Backend, NodeId, RuntimeServiceId> =
-    BlendConfig<<Backend as BlendBackend<NodeId, RuntimeServiceId>>::Settings, NodeId>;
+    BlendConfig<<Backend as BlendBackend<NodeId, RuntimeServiceId>>::Settings>;

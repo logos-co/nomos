@@ -1,12 +1,14 @@
 use std::{collections::HashSet, fmt::Debug, hash::Hash, sync::Arc};
 
+use broadcast_service::BlockInfo;
 use futures::{Stream, StreamExt as _};
 use nomos_core::da::blob::Share;
 use nomos_da_messages::http::da::{
     DASharesCommitmentsRequest, DaSamplingRequest, GetSharesRequest,
 };
 use nomos_http_api_common::paths::{
-    DA_GET_LIGHT_SHARE, DA_GET_SHARES, DA_GET_STORAGE_SHARES_COMMITMENTS, MEMPOOL_ADD_TX,
+    CRYPTARCHIA_LIB_STREAM, DA_GET_LIGHT_SHARE, DA_GET_SHARES, DA_GET_STORAGE_SHARES_COMMITMENTS,
+    MEMPOOL_ADD_TX,
 };
 use reqwest::{Client, ClientBuilder, RequestBuilder, StatusCode, Url};
 use serde::{de::DeserializeOwned, Serialize};
@@ -97,6 +99,33 @@ impl CommonHttpClient {
             _ => Err(Error::Server(format!(
                 "Unexpected response [{status}]: {body}",
             ))),
+        }
+    }
+
+    pub async fn get_lib_stream(
+        &self,
+        base_url: Url,
+    ) -> Result<impl Stream<Item = BlockInfo>, Error> {
+        let request_url = base_url
+            .join(CRYPTARCHIA_LIB_STREAM.trim_start_matches('/'))
+            .map_err(Error::Url)?;
+        let mut request = self.client.get(request_url);
+
+        if let Some(basic_auth) = &self.basic_auth {
+            request = request.basic_auth(&basic_auth.username, basic_auth.password.as_deref());
+        }
+
+        let response = request.send().await.map_err(Error::Request)?;
+        let status = response.status();
+
+        let lib_stream = response.bytes_stream().filter_map(|item| async move {
+            let bytes = item.ok()?;
+            serde_json::from_slice::<BlockInfo>(&bytes).ok()
+        });
+        match status {
+            StatusCode::OK => Ok(lib_stream),
+            StatusCode::INTERNAL_SERVER_ERROR => Err(Error::Server("Error".to_owned())),
+            _ => Err(Error::Server(format!("Unexpected response [{status}]",))),
         }
     }
 

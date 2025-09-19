@@ -3,25 +3,50 @@ use std::{
     time::Duration,
 };
 
-use axum::{http::HeaderValue, routing::post, Router, Server};
-use hyper::header::{CONTENT_TYPE, USER_AGENT};
+use axum::{
+    http::{
+        header::{CONTENT_TYPE, USER_AGENT},
+        HeaderValue,
+    },
+    routing::post,
+    Router,
+};
+use kzgrs_backend::common::share::DaShare;
 use nomos_api::Backend;
 use nomos_da_network_service::backends::libp2p::executor::DaNetworkExecutorBackend;
-use nomos_http_api_common::paths::{DA_GET_MEMBERSHIP, UPDATE_MEMBERSHIP};
+use nomos_da_sampling::{
+    backend::kzgrs::KzgrsSamplingBackend,
+    network::adapters::executor::Libp2pAdapter as SamplingLibp2pAdapter,
+    storage::adapters::rocksdb::{
+        converter::DaStorageConverter, RocksAdapter as SamplingStorageAdapter,
+    },
+};
+use nomos_http_api_common::{
+    paths::{DA_GET_MEMBERSHIP, DA_HISTORIC_SAMPLING, UPDATE_MEMBERSHIP},
+    settings::AxumBackendSettings,
+    utils::create_rate_limit_layer,
+};
 use nomos_membership::MembershipService as MembershipServiceTrait;
 use nomos_node::{
-    api::testing::handlers::{da_get_membership, update_membership},
-    generic_services::{DaMembershipAdapter, MembershipBackend, MembershipSdp, MembershipService},
+    api::testing::handlers::{da_get_membership, da_historic_sampling, update_membership},
+    generic_services::{
+        self, DaMembershipAdapter, MembershipBackend, MembershipSdp, MembershipService,
+        MembershipStorageGeneric,
+    },
     DaNetworkApiAdapter, NomosDaMembership,
 };
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId, DynError};
 use services_utils::wait_until_services_are_ready;
+use tokio::net::TcpListener;
+use tower::limit::ConcurrencyLimitLayer;
 use tower_http::{
     cors::{Any, CorsLayer},
+    limit::RequestBodyLimitLayer,
+    timeout::TimeoutLayer,
     trace::TraceLayer,
 };
 
-use crate::{api::backend::AxumBackendSettings, DaMembershipStorage};
+use crate::DaMembershipStorage;
 
 pub struct TestAxumBackend {
     settings: AxumBackendSettings,
@@ -36,6 +61,17 @@ type TestDaNetworkService<RuntimeServiceId> = nomos_da_network_service::NetworkS
     RuntimeServiceId,
 >;
 
+type TestDaSamplingService<RuntimeServiceId> = generic_services::DaSamplingService<
+    SamplingLibp2pAdapter<
+        NomosDaMembership,
+        DaMembershipAdapter<RuntimeServiceId>,
+        DaMembershipStorage,
+        DaNetworkApiAdapter,
+        RuntimeServiceId,
+    >,
+    RuntimeServiceId,
+>;
+
 #[async_trait::async_trait]
 impl<RuntimeServiceId> Backend<RuntimeServiceId> for TestAxumBackend
 where
@@ -46,9 +82,10 @@ where
         + Clone
         + 'static
         + AsServiceId<MembershipService<RuntimeServiceId>>
-        + AsServiceId<TestDaNetworkService<RuntimeServiceId>>,
+        + AsServiceId<TestDaNetworkService<RuntimeServiceId>>
+        + AsServiceId<TestDaSamplingService<RuntimeServiceId>>,
 {
-    type Error = hyper::Error;
+    type Error = std::io::Error;
     type Settings = AxumBackendSettings;
 
     async fn new(settings: Self::Settings) -> Result<Self, Self::Error>
@@ -65,7 +102,7 @@ where
         wait_until_services_are_ready!(
             &overwatch_handle,
             Some(Duration::from_secs(60)),
-            MembershipServiceTrait<_, _, _>
+            MembershipServiceTrait<_, _, _, _>
         )
         .await?;
         Ok(())
@@ -88,18 +125,13 @@ where
 
         // Simple router with ONLY testing endpoints
         let app = Router::new()
-            .layer(
-                builder
-                    .allow_headers([CONTENT_TYPE, USER_AGENT])
-                    .allow_methods(Any),
-            )
-            .layer(TraceLayer::new_for_http())
             .route(
                 UPDATE_MEMBERSHIP,
                 post(
                     update_membership::<
-                        MembershipBackend,
+                        MembershipBackend<RuntimeServiceId>,
                         MembershipSdp<RuntimeServiceId>,
+                        MembershipStorageGeneric<RuntimeServiceId>,
                         RuntimeServiceId,
                     >,
                 ),
@@ -117,10 +149,42 @@ where
                     >,
                 ),
             )
-            .with_state(handle);
+            .route(
+                DA_HISTORIC_SAMPLING,
+                post(
+                    da_historic_sampling::<
+                        KzgrsSamplingBackend,
+                        nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
+                            NomosDaMembership,
+                            DaMembershipAdapter<RuntimeServiceId>,
+                            DaMembershipStorage,
+                            DaNetworkApiAdapter,
+                            RuntimeServiceId,
+                        >,
+                        SamplingStorageAdapter<DaShare, DaStorageConverter>,
+                        RuntimeServiceId,
+                    >,
+                ),
+            )
+            .with_state(handle)
+            .layer(TimeoutLayer::new(self.settings.timeout))
+            .layer(RequestBodyLimitLayer::new(self.settings.max_body_size))
+            .layer(ConcurrencyLimitLayer::new(
+                self.settings.max_concurrent_requests,
+            ))
+            .layer(create_rate_limit_layer(&self.settings))
+            .layer(TraceLayer::new_for_http())
+            .layer(
+                builder
+                    .allow_headers(vec![CONTENT_TYPE, USER_AGENT])
+                    .allow_methods(Any),
+            );
 
-        Server::bind(&self.settings.address)
-            .serve(app.into_make_service())
+        let listener = TcpListener::bind(&self.settings.address)
             .await
+            .expect("Failed to bind address");
+
+        let app = app.into_make_service_with_connect_info::<std::net::SocketAddr>();
+        axum::serve(listener, app).await
     }
 }

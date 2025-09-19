@@ -19,7 +19,7 @@ use libp2p::{
     },
 };
 use libp2p_stream::{Control, OpenStreamError};
-use nomos_core::{da::BlobId, mantle::SignedMantleTx, wire};
+use nomos_core::{codec, da::BlobId, mantle::SignedMantleTx};
 use nomos_da_messages::{
     dispersal,
     packing::{pack_to_writer, unpack_from_reader},
@@ -43,7 +43,7 @@ pub enum DispersalError {
     },
     #[error("Could not serialized: {error}")]
     Serialization {
-        error: wire::Error,
+        error: codec::Error,
         blob_id: BlobId,
         subnetwork_id: SubnetworkId,
     },
@@ -418,6 +418,7 @@ where
         let members = self.membership.members_of(&subnetwork_id);
         let peers: Vec<_> = members
             .iter()
+            .filter(|peer_id| self.connected_peers.contains_key(peer_id))
             .filter(|peer_id| !self.pending_peer_open_stream_requests.contains(peer_id))
             .collect();
 

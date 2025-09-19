@@ -18,7 +18,6 @@ use tests::{
 };
 
 #[tokio::test]
-#[ignore = "Reenable after transaction mempool is used"]
 #[serial]
 async fn test_get_share_data() {
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
@@ -53,6 +52,7 @@ async fn test_get_share_data() {
 
 #[tokio::test]
 #[serial]
+#[ignore = "Reenable after transaction mempool is used"]
 async fn test_get_commitments_from_peers() {
     let interconnected_topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let validator = &interconnected_topology.validators()[0];
@@ -105,18 +105,18 @@ async fn test_block_peer() {
         .config()
         .membership
         .backend
-        .session_zero_membership
+        .session_zero_providers
         .get(&nomos_core::sdp::ServiceType::DataAvailability)
         .expect("Expected data availability membership");
     assert!(!membership.is_empty());
 
     // take second peer ID from the membership set
     let existing_provider_id = *membership
-        .iter()
+        .keys()
         .nth(1)
         .expect("Expected at least two provider IDs in the membership set");
 
-    let existing_peer_id = peer_id_from_provider_id(&existing_provider_id.0)
+    let existing_peer_id = peer_id_from_provider_id(existing_provider_id.0.as_bytes())
         .expect("Failed to convert provider ID to PeerId");
 
     // try block/unblock peer id combinations
@@ -158,7 +158,6 @@ async fn test_block_peer() {
 
 #[tokio::test]
 #[serial]
-#[ignore = "Reenable after transaction mempool is used"]
 async fn test_get_shares() {
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let executor = &topology.executors()[0];

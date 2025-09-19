@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     error::Error,
     fmt::{Debug, Display},
     hash::Hash,
@@ -8,7 +9,8 @@ use kzgrs_backend::common::share::DaSharesCommitments;
 use nomos_core::{
     block::SessionNumber,
     da::{blob::Share, DaVerifier as CoreDaVerifier},
-    mantle::SignedMantleTx,
+    header::HeaderId,
+    mantle::{ops::channel::ChannelId, SignedMantleTx},
 };
 use nomos_da_dispersal::{
     adapters::network::DispersalNetworkAdapter, backend::DispersalBackend, DaDispersalMsg,
@@ -32,29 +34,23 @@ use nomos_da_verifier::{
     DaVerifierService,
 };
 use nomos_libp2p::PeerId;
-use nomos_storage::{
-    api::da::DaConverter,
-    backends::{rocksdb::RocksBackend, StorageSerde},
-};
+use nomos_storage::{api::da::DaConverter, backends::rocksdb::RocksBackend};
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId, DynError};
 use serde::{de::DeserializeOwned, Serialize};
 use subnetworks_assignations::MembershipHandler;
 use tokio::sync::oneshot;
 
-use crate::wait_with_timeout;
-
 pub type DaVerifier<
     Blob,
     NetworkAdapter,
     VerifierBackend,
-    StorageSerializer,
     DaStorageConverter,
     VerifierMempoolAdapter,
     RuntimeServiceId,
 > = DaVerifierService<
     VerifierBackend,
     NetworkAdapter,
-    VerifierStorageAdapter<Blob, StorageSerializer, DaStorageConverter>,
+    VerifierStorageAdapter<Blob, DaStorageConverter>,
     VerifierMempoolAdapter,
     RuntimeServiceId,
 >;
@@ -82,7 +78,6 @@ pub async fn add_share<
     DaShare,
     VerifierNetwork,
     ShareVerifier,
-    SerdeOp,
     DaStorageConverter,
     VerifierMempoolAdapter,
     RuntimeServiceId,
@@ -102,11 +97,8 @@ where
     ShareVerifier: VerifierBackend + CoreDaVerifier<DaShare = DaShare>,
     <ShareVerifier as VerifierBackend>::Settings: Clone,
     <ShareVerifier as CoreDaVerifier>::Error: Error,
-    SerdeOp: StorageSerde + Send + Sync + 'static,
-    DaStorageConverter: DaConverter<RocksBackend<SerdeOp>, Share = DaShare, Tx = SignedMantleTx>
-        + Send
-        + Sync
-        + 'static,
+    DaStorageConverter:
+        DaConverter<RocksBackend, Share = DaShare, Tx = SignedMantleTx> + Send + Sync + 'static,
     VerifierMempoolAdapter: DaMempoolAdapter,
     RuntimeServiceId: Debug
         + Sync
@@ -116,7 +108,6 @@ where
                 DaShare,
                 VerifierNetwork,
                 ShareVerifier,
-                SerdeOp,
                 DaStorageConverter,
                 VerifierMempoolAdapter,
                 RuntimeServiceId,
@@ -133,7 +124,9 @@ where
         .await
         .map_err(|(e, _)| e)?;
 
-    wait_with_timeout(receiver, "Timeout while waiting for add share".to_owned()).await
+    receiver
+        .await
+        .map_err(|_| DynError::from("Failed to add share"))
 }
 
 pub async fn get_commitments<SamplingBackend, SamplingNetwork, SamplingStorage, RuntimeServiceId>(
@@ -162,11 +155,14 @@ where
         .await
         .map_err(|(e, _)| e)?;
 
-    wait_with_timeout(receiver, "Timeout while waiting for get range".to_owned()).await
+    receiver
+        .await
+        .map_err(|_| DynError::from("Failed to get range"))
 }
 
 pub async fn disperse_data<Backend, NetworkAdapter, Membership, RuntimeServiceId>(
     handle: &OverwatchHandle<RuntimeServiceId>,
+    channel_id: ChannelId,
     data: Vec<u8>,
 ) -> Result<Backend::BlobId, DynError>
 where
@@ -189,17 +185,16 @@ where
     let (sender, receiver) = oneshot::channel();
     relay
         .send(DaDispersalMsg::Disperse {
+            channel_id,
             data,
             reply_channel: sender,
         })
         .await
         .map_err(|(e, _)| e)?;
 
-    wait_with_timeout(
-        receiver,
-        "Timeout while waiting for disperse data".to_owned(),
-    )
-    .await?
+    receiver
+        .await
+        .map_err(|_| DynError::from("Failed to disperse data"))?
 }
 
 pub async fn block_peer<
@@ -243,7 +238,9 @@ where
         .await
         .map_err(|(e, _)| e)?;
 
-    wait_with_timeout(receiver, "Timeout while waiting for block peer".to_owned()).await
+    receiver
+        .await
+        .map_err(|_| DynError::from("Failed to block peer"))
 }
 
 pub async fn unblock_peer<
@@ -287,11 +284,9 @@ where
         .await
         .map_err(|(e, _)| e)?;
 
-    wait_with_timeout(
-        receiver,
-        "Timeout while waiting for unblock peer".to_owned(),
-    )
-    .await
+    receiver
+        .await
+        .map_err(|_| DynError::from("Failed to unblock peer"))
 }
 
 pub async fn blacklisted_peers<
@@ -334,11 +329,9 @@ where
         .await
         .map_err(|(e, _)| e)?;
 
-    wait_with_timeout(
-        receiver,
-        "Timeout while waiting for blacklisted peers".to_owned(),
-    )
-    .await
+    receiver
+        .await
+        .map_err(|_| DynError::from("Failed to get blacklisted peers"))
 }
 
 pub async fn da_get_membership<
@@ -378,11 +371,49 @@ where
     let message = DaNetworkMsg::GetMembership { session_id, sender };
     relay.send(message).await.map_err(|(e, _)| e)?;
 
-    wait_with_timeout(
-        receiver,
-        "Timeout while waiting for get membership".to_owned(),
-    )
-    .await
+    receiver
+        .await
+        .map_err(|_| DynError::from("Failed to get membership"))
+}
+
+pub async fn da_historic_sampling<
+    SamplingBackend,
+    SamplingNetwork,
+    SamplingStorage,
+    RuntimeServiceId,
+>(
+    handle: OverwatchHandle<RuntimeServiceId>,
+    session_id: SessionNumber,
+    block_id: HeaderId,
+    blob_ids: Vec<SamplingBackend::BlobId>,
+) -> Result<bool, DynError>
+where
+    SamplingBackend: DaSamplingServiceBackend,
+    <SamplingBackend as DaSamplingServiceBackend>::BlobId: Send + Eq + Hash + 'static,
+    SamplingNetwork: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
+    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
+    RuntimeServiceId: Debug
+        + Sync
+        + Display
+        + AsServiceId<
+            DaSamplingService<SamplingBackend, SamplingNetwork, SamplingStorage, RuntimeServiceId>,
+        >,
+{
+    let relay = handle.relay().await?;
+    let (sender, receiver) = oneshot::channel();
+    let blob_ids: HashSet<SamplingBackend::BlobId> = blob_ids.into_iter().collect();
+
+    let message = DaSamplingServiceMsg::RequestHistoricSampling {
+        session_id,
+        block_id,
+        blob_ids,
+        reply_channel: sender,
+    };
+    relay.send(message).await.map_err(|(e, _)| e)?;
+
+    receiver
+        .await
+        .map_err(|_| DynError::from("Failed to get historic sampling"))
 }
 
 pub async fn balancer_stats<
@@ -425,11 +456,9 @@ where
         .await
         .map_err(|(e, _)| e)?;
 
-    wait_with_timeout(
-        receiver,
-        "Timeout while waiting for balancer stats".to_owned(),
-    )
-    .await
+    receiver
+        .await
+        .map_err(|_| DynError::from("Failed to get balancer stats"))
 }
 
 pub async fn monitor_stats<
@@ -472,11 +501,9 @@ where
         .await
         .map_err(|(e, _)| e)?;
 
-    wait_with_timeout(
-        receiver,
-        "Timeout while waiting for monitor stats".to_owned(),
-    )
-    .await
+    receiver
+        .await
+        .map_err(|_| DynError::from("Failed to get monitor stats"))
 }
 
 // Factory for generating messages for connection monitor (validator and

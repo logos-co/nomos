@@ -1,9 +1,20 @@
-use nomos_core::da::{DaDispersal, DaEncoder};
+pub mod kzgrs;
+
+use std::pin::Pin;
+
+use nomos_core::{
+    da::{DaDispersal, DaEncoder},
+    mantle::{
+        SignedMantleTx,
+        ops::channel::{ChannelId, MsgId},
+    },
+};
 use overwatch::DynError;
+use tokio::sync::oneshot;
 
 use crate::adapters::{network::DispersalNetworkAdapter, wallet::DaWalletAdapter};
 
-pub mod kzgrs;
+pub type DispersalTask = Pin<Box<dyn Future<Output = (ChannelId, Option<SignedMantleTx>)> + Send>>;
 
 #[async_trait::async_trait]
 pub trait DispersalBackend {
@@ -20,5 +31,11 @@ pub trait DispersalBackend {
         wallet_adapter: Self::WalletAdapter,
     ) -> Self;
 
-    async fn process_dispersal(&self, data: Vec<u8>) -> Result<Self::BlobId, DynError>;
+    async fn process_dispersal(
+        &self,
+        channel_id: ChannelId,
+        parent_msg_id: MsgId,
+        data: Vec<u8>,
+        sender: oneshot::Sender<Result<Self::BlobId, DynError>>,
+    ) -> Result<DispersalTask, DynError>;
 }

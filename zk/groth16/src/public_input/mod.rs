@@ -12,7 +12,7 @@ pub mod deserialize;
 #[cfg(feature = "deser")]
 pub use deserialize::InputDeser;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct Input<E: Pairing>(<E as Pairing>::ScalarField);
 
 impl<E: Pairing> Input<E> {
@@ -62,8 +62,10 @@ impl From<&Input<Bn254>> for InputDeser {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "deser")]
     use ark_ff::Field as _;
 
+    #[cfg(feature = "deser")]
     use super::*;
     #[cfg(feature = "deser")]
     #[test]
