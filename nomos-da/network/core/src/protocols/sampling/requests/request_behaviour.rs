@@ -32,6 +32,7 @@ use crate::{
     protocols::sampling::{
         connections::Connections,
         errors::SamplingError,
+        opinions::{OpinionEvent, Session},
         requests::SamplingEvent,
         streams::{self, SampleStream},
         SamplingResponseStreamFuture, SubnetsConfig,
@@ -88,6 +89,8 @@ where
     connections: Connections,
     /// Waker for sampling polling
     waker: Option<Waker>,
+    /// Queue of opinion events to be emitted
+    opinion_events: VecDeque<OpinionEvent>,
 }
 
 impl<Membership, Addressbook> RequestSamplingBehaviour<Membership, Addressbook>
@@ -110,6 +113,7 @@ where
         let to_sample = HashMap::new();
         let to_retry = VecDeque::new();
         let to_close = VecDeque::new();
+        let opinion_events = VecDeque::new();
 
         let sampling_peers = HashMap::new();
         let (shares_request_sender, receiver) = mpsc::unbounded_channel();
@@ -142,6 +146,7 @@ where
             subnet_refresh_signal,
             connections,
             waker: None,
+            opinion_events,
         }
     }
 
@@ -359,6 +364,24 @@ where
         sample_response: SampleResponse,
         stream: SampleStream,
     ) -> Poll<ToSwarm<<Self as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self>>> {
+        match &sample_response {
+            SampleResponse::Share(_) | SampleResponse::Commitments(_) => {
+                self.opinion_events.push_back(OpinionEvent::Positive {
+                    peer_id,
+                    session: Session::Current,
+                });
+            }
+            SampleResponse::Error(
+                sampling::SampleError::Share(_) | sampling::SampleError::Commitments(_),
+            ) => {
+                // Only share and commitments error variant is not found at the moment
+                self.opinion_events.push_back(OpinionEvent::Negative {
+                    peer_id,
+                    session: Session::Current,
+                });
+            }
+        }
+
         // Handle the free stream then return the response.
         self.schedule_outgoing_stream_task(stream);
         Self::handle_sample_response(sample_response, peer_id)
@@ -369,6 +392,8 @@ where
         error: SamplingError,
         maybe_stream: Option<SampleStream>,
     ) -> Option<Poll<ToSwarm<<Self as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self>>>> {
+        self.record_error_opinion(&error);
+
         match error {
             SamplingError::Io {
                 error,
@@ -441,6 +466,37 @@ where
             }
         }
         None
+    }
+
+    fn record_error_opinion(&mut self, error: &SamplingError) {
+        match error {
+            // Blacklist for invalid/malicious data
+            SamplingError::InvalidBlobId { peer_id, .. }
+            | SamplingError::Deserialize { peer_id, .. } => {
+                self.opinion_events.push_back(OpinionEvent::Blacklist {
+                    peer_id: *peer_id,
+                    session: Session::Current,
+                });
+            }
+
+            // Negative opinion for all other errors with a peer
+            SamplingError::Io { peer_id, .. }
+            | SamplingError::Share { peer_id, .. }
+            | SamplingError::Commitments { peer_id, .. }
+            | SamplingError::OpenStream { peer_id, .. }
+            | SamplingError::RequestChannel { peer_id, .. }
+            | SamplingError::BlobNotFound { peer_id, .. }
+            | SamplingError::ResponseChannel { peer_id, .. }
+            | SamplingError::MismatchSubnetwork { peer_id, .. } => {
+                self.opinion_events.push_back(OpinionEvent::Negative {
+                    peer_id: *peer_id,
+                    session: Session::Current,
+                });
+            }
+
+            // No opinion needed - no peer to evaluate
+            SamplingError::NoSubnetworkPeers { .. } => {}
+        }
     }
 }
 
@@ -521,6 +577,14 @@ where
         cx: &mut Context<'_>,
     ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         self.waker = Some(cx.waker().clone());
+
+        // poll and emit opinion events
+        if let Some(opinion_event) = self.opinion_events.pop_front() {
+            cx.waker().wake_by_ref();
+            return Poll::Ready(ToSwarm::GenerateEvent(SamplingEvent::Opinion(
+                opinion_event,
+            )));
+        }
 
         // Check if a new set of subnets and peers need to be selected.
         if self.subnet_refresh_signal.poll_next_unpin(cx) == Poll::Ready(Some(())) {
