@@ -1,3 +1,2 @@
-cpp_compat  = false
-language    = "C"   # Not "C++"
+language    = "C"  # Not "C++"
 no_includes = true
