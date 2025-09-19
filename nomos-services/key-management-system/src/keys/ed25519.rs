@@ -1,3 +1,5 @@
+#![allow(dead_code, reason = "KMS will be integrated soon.")]
+
 use bytes::Bytes;
 use ed25519_dalek::ed25519::signature::Signer as _;
 use overwatch::DynError;
