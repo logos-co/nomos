@@ -8,7 +8,10 @@ pub mod config;
 pub mod time;
 
 use core::{fmt::Debug, hash::Hash};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::{
+    collections::{BTreeMap, HashMap, HashSet, VecDeque},
+    num::NonZeroUsize,
+};
 
 pub use config::*;
 use thiserror::Error;
@@ -53,17 +56,11 @@ impl State {
 
     fn lib<Id>(cryptarchia: &Cryptarchia<Id>) -> Id
     where
-        Id: Eq + Hash + Copy,
+        Id: Eq + Hash + Copy + Debug,
     {
         match cryptarchia.state {
             Self::Bootstrapping => cryptarchia.branches.lib,
-            Self::Online => cryptarchia
-                .branches
-                .nth_ancestor(
-                    &cryptarchia.local_chain,
-                    cryptarchia.config.security_param.get().into(),
-                )
-                .id(),
+            Self::Online => cryptarchia.block_at_security_param().id(),
         }
     }
 }
@@ -294,6 +291,8 @@ where
 #[derive(Debug, Clone, Error)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 pub enum Error<Id> {
+    #[error("Branch of the block: {0:?} is not found")]
+    BranchNotFound(Id),
     #[error("Parent block: {0:?} is not know to this node")]
     ParentMissing(Id),
     #[error("Orphan proof has was not found in the ledger: {0:?}, can't import it")]
@@ -517,6 +516,43 @@ where
         // Update the LIB to the current local chain's tip
         let pruned_blocks = new.update_lib();
         (new, pruned_blocks)
+    }
+
+    pub fn block_at_security_param(&self) -> Branch<Id> {
+        self.branches()
+            .nth_ancestor(&self.local_chain, self.config.security_param.get().into())
+    }
+
+    pub fn blocks_in_inclusive_range(
+        &self,
+        start: Id,
+        target: Id,
+        limit: NonZeroUsize,
+    ) -> Result<impl Iterator<Item = Branch<Id>>, Error<Id>> {
+        let mut path = VecDeque::new();
+        let branches = self.branches();
+
+        let mut current = branches.get(&target).ok_or(Error::BranchNotFound(target))?;
+        loop {
+            path.push_front(*current);
+
+            if path.len() > limit.get() {
+                path.pop_back();
+            }
+
+            if current.id == start {
+                return Ok(path.into_iter());
+            }
+
+            if current.parent == current.id {
+                // Genesis block reached before reaching the start.
+                return Err(Error::BranchNotFound(start));
+            }
+
+            current = branches
+                .get(&current.parent)
+                .ok_or(Error::BranchNotFound(current.parent))?;
+        }
     }
 }
 
