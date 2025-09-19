@@ -82,6 +82,10 @@ impl From<&PoQChainInputs> for PoQChainInputsJson {
 pub enum PoQInputsFromDataError {
     #[error("Session number is greater than P")]
     SessionGreaterThanP,
+    #[error("Core quota is greater than 20 bits")]
+    CoreQuotaMoreThan20Bits,
+    #[error("Leader quota is greater than 20 bits")]
+    LeaderQuotaMoreThan20Bits,
 }
 
 impl TryFrom<PoQChainInputsData> for PoQChainInputs {

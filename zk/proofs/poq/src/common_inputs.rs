@@ -2,6 +2,11 @@ use groth16::{Field as _, Fr, Groth16Input, Groth16InputDeser};
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 
+use crate::chain_inputs::{
+    PoQInputsFromDataError,
+    PoQInputsFromDataError::{CoreQuotaMoreThan20Bits, LeaderQuotaMoreThan20Bits},
+};
+
 #[derive(Copy, Clone)]
 pub struct PoQCommonInputs {
     core_quota: Groth16Input,
@@ -54,8 +59,9 @@ impl From<&PoQCommonInputs> for PoQCommonInputsJson {
     }
 }
 
-impl From<PoQCommonInputsData> for PoQCommonInputs {
-    fn from(
+impl TryFrom<PoQCommonInputsData> for PoQCommonInputs {
+    type Error = PoQInputsFromDataError;
+    fn try_from(
         PoQCommonInputsData {
             core_quota,
             leader_quota,
@@ -63,14 +69,22 @@ impl From<PoQCommonInputsData> for PoQCommonInputs {
             selector,
             index,
         }: PoQCommonInputsData,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, Self::Error> {
+        let leader_quota_bits = leader_quota.checked_ilog2().map_or(0, |v| v + 1);
+        if leader_quota_bits > 20 {
+            return Err(LeaderQuotaMoreThan20Bits);
+        }
+        let core_quota_bits = core_quota.checked_ilog2().map_or(0, |v| v + 1);
+        if core_quota_bits > 20 {
+            return Err(CoreQuotaMoreThan20Bits);
+        }
+        Ok(Self {
             core_quota: Groth16Input::new(Fr::from(BigUint::from(core_quota))),
             leader_quota: Groth16Input::new(Fr::from(BigUint::from(leader_quota))),
             key_part_one: message_key.0.into(),
             key_part_two: message_key.1.into(),
             selector: Groth16Input::new(if selector { Fr::ONE } else { Fr::ZERO }),
             index: Groth16Input::new(Fr::from(BigUint::from(index))),
-        }
+        })
     }
 }
