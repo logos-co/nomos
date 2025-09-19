@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use kzgrs_backend::common::share::{DaLightShare, DaSharesCommitments};
 use nomos_core::{da::BlobId, header::HeaderId};
 
-use crate::protocols::sampling::errors::HistoricSamplingError;
+use crate::protocols::sampling::{errors::HistoricSamplingError, opinions::OpinionEvent};
 
 pub mod request_behaviour;
 
@@ -18,4 +18,5 @@ pub enum HistoricSamplingEvent {
         block_id: HeaderId,
         error: HistoricSamplingError,
     },
+    Opinion(OpinionEvent),
 }
