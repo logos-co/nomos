@@ -11,39 +11,41 @@ use crate::{relays::BroadcastRelay, LibUpdate, PrunedBlocksInfo};
 
 /// A trait for broadcasting finalized blocks to other services.
 #[async_trait::async_trait]
-pub trait BlockBroadcaster {
-    /// Broadcasts newly finalized blocks to the given relay.
+pub trait FinalizedBlockBroadcaster {
+    /// Broadcasts newly finalized blocks to other services.
     ///
     /// It compares the `cryptarchia` provided here with the one captured when
-    /// this [`BlockBroadcaster`] was created, and identifies the newly
+    /// this [`FinalizedBlockBroadcaster`] was created, and identifies the newly
     /// finalized blocks.
     async fn broadcast(
         self: Box<Self>,
         cryptarchia: &Cryptarchia<HeaderId>,
-        pruned_blocks: &PrunedBlocks<HeaderId>,
         relay: &BroadcastRelay,
         lib_broadcaster: &broadcast::Sender<LibUpdate>,
+        pruned_blocks: &PrunedBlocks<HeaderId>,
     ) -> Result<(), Error>;
 }
 
-/// Creates a new [`BlockBroadcaster`] based on the state of the given
+/// Creates a new [`FinalizedBlockBroadcaster`] based on the state of the given
 /// [`Cryptarchia`].
-pub fn new(cryptarchia: &Cryptarchia<HeaderId>) -> Box<dyn BlockBroadcaster + Send> {
+pub fn new_finalized_block_broadcaster(
+    cryptarchia: &Cryptarchia<HeaderId>,
+) -> Box<dyn FinalizedBlockBroadcaster + Send> {
     if cryptarchia.state().is_bootstrapping() {
-        Box::new(BootstrappingBlockBroadcaster::new(cryptarchia))
+        Box::new(BootstrappingFinalizedBlockBroadcaster::new(cryptarchia))
     } else {
-        Box::new(OnlineBlockBroadcaster::new(cryptarchia))
+        Box::new(OnlineFinalizedBlockBroadcaster::new(cryptarchia))
     }
 }
 
-/// A [`BlockBroadcaster`] for [`Cryptarchia`] in Online state.
+/// A [`FinalizedBlockBroadcaster`] for [`Cryptarchia`] in Online state.
 ///
 /// It broadcasts the new LIB when it changes.
-struct OnlineBlockBroadcaster {
+struct OnlineFinalizedBlockBroadcaster {
     prev_lib: HeaderId,
 }
 
-impl OnlineBlockBroadcaster {
+impl OnlineFinalizedBlockBroadcaster {
     const fn new(cryptarchia: &Cryptarchia<HeaderId>) -> Self {
         assert!(cryptarchia.state().is_online());
         Self {
@@ -53,14 +55,14 @@ impl OnlineBlockBroadcaster {
 }
 
 #[async_trait::async_trait]
-impl BlockBroadcaster for OnlineBlockBroadcaster {
+impl FinalizedBlockBroadcaster for OnlineFinalizedBlockBroadcaster {
     /// Broadcasts the current LIB, if it is different from the previous LIB.
     async fn broadcast(
         self: Box<Self>,
         cryptarchia: &Cryptarchia<HeaderId>,
-        pruned_blocks: &PrunedBlocks<HeaderId>,
         relay: &BroadcastRelay,
         lib_broadcaster: &broadcast::Sender<LibUpdate>,
+        pruned_blocks: &PrunedBlocks<HeaderId>,
     ) -> Result<(), Error> {
         if !cryptarchia.state().is_online() {
             return Err(Error::UnexpectedCryptarchiaState(*cryptarchia.state()));
@@ -93,16 +95,16 @@ impl BlockBroadcaster for OnlineBlockBroadcaster {
     }
 }
 
-/// A [`BlockBroadcaster`] for [`Cryptarchia`] in Bootstrapping state.
+/// A [`FinalizedBlockBroadcaster`] for [`Cryptarchia`] in Bootstrapping state.
 ///
 /// The LIB never changes in Bootstrapping state.
 /// So, this broadcasts potential-finalized blocks that are deeper than
 /// the security parameter from the local chain tip.
-struct BootstrappingBlockBroadcaster {
+struct BootstrappingFinalizedBlockBroadcaster {
     prev_block_at_security_param: Branch<HeaderId>,
 }
 
-impl BootstrappingBlockBroadcaster {
+impl BootstrappingFinalizedBlockBroadcaster {
     fn new(cryptarchia: &Cryptarchia<HeaderId>) -> Self {
         assert!(cryptarchia.state().is_bootstrapping());
         Self {
@@ -112,7 +114,7 @@ impl BootstrappingBlockBroadcaster {
 }
 
 #[async_trait::async_trait]
-impl BlockBroadcaster for BootstrappingBlockBroadcaster {
+impl FinalizedBlockBroadcaster for BootstrappingFinalizedBlockBroadcaster {
     /// Broadcasts all blocks between the previous security block (exclusive)
     /// and the security block (inclusive).
     ///
@@ -122,9 +124,11 @@ impl BlockBroadcaster for BootstrappingBlockBroadcaster {
     async fn broadcast(
         self: Box<Self>,
         cryptarchia: &Cryptarchia<HeaderId>,
-        _pruned_blocks: &PrunedBlocks<HeaderId>,
         relay: &BroadcastRelay,
+        // Since LIB never changes in Bootstrapping state,
+        // we don't need to send any LIB update through this channel.
         _lib_broadcaster: &broadcast::Sender<LibUpdate>,
+        _pruned_blocks: &PrunedBlocks<HeaderId>,
     ) -> Result<(), Error> {
         if !cryptarchia.state().is_bootstrapping() {
             return Err(Error::UnexpectedCryptarchiaState(*cryptarchia.state()));
@@ -198,7 +202,7 @@ mod tests {
         // Init Cryptarchia with LIB 10.
         let cryptarchia = Cryptarchia::from_lib(id(10), config, State::Online);
         assert_eq!(cryptarchia.lib(), id(10));
-        let broadcaster = new(&cryptarchia);
+        let broadcaster = new_finalized_block_broadcaster(&cryptarchia);
 
         // Add block 11 and 12.
         // Expect LIB to be 11, since security param is 1.
@@ -212,13 +216,13 @@ mod tests {
 
         // Broadcast blocks.
         let (relay, mut receiver) = relay();
-        let (lib_broadcaster, _) = broadcast::channel(10);
+        let (lib_broadcaster, mut lib_receiver) = broadcast::channel(10);
         broadcaster
             .broadcast(
                 &cryptarchia,
-                &PrunedBlocks::default(),
                 &relay,
                 &lib_broadcaster,
+                &PrunedBlocks::default(),
             )
             .await
             .unwrap();
@@ -231,8 +235,11 @@ mod tests {
         };
         assert_eq!(height, 1);
         assert_eq!(header_id, id(11));
-
         assert!(receiver.is_empty());
+
+        // Expect the block 11 to be sent to lib_broadcaster.
+        assert_eq!(lib_receiver.recv().await.unwrap().new_lib, id(11));
+        assert!(lib_receiver.is_empty());
     }
 
     #[tokio::test]
@@ -245,7 +252,7 @@ mod tests {
         // Init Cryptarchia with LIB 10.
         let cryptarchia = Cryptarchia::from_lib(id(10), config, State::Online);
         assert_eq!(cryptarchia.lib(), id(10));
-        let broadcaster = new(&cryptarchia);
+        let broadcaster = new_finalized_block_broadcaster(&cryptarchia);
 
         // Add block 11.
         // LIB doesn't change, since security param is 1.
@@ -256,19 +263,20 @@ mod tests {
 
         // Broadcast blocks.
         let (relay, receiver) = relay();
-        let (lib_broadcaster, _) = broadcast::channel(10);
+        let (lib_broadcaster, lib_receiver) = broadcast::channel(10);
         broadcaster
             .broadcast(
                 &cryptarchia,
-                &PrunedBlocks::default(),
                 &relay,
                 &lib_broadcaster,
+                &PrunedBlocks::default(),
             )
             .await
             .unwrap();
 
         // Expect no blocks to be broadcasted.
         assert!(receiver.is_empty());
+        assert!(lib_receiver.is_empty());
     }
 
     #[tokio::test]
@@ -280,7 +288,7 @@ mod tests {
 
         // Init Cryptarchia with Online state.
         let cryptarchia = Cryptarchia::from_lib(id(10), config, State::Online);
-        let broadcaster = new(&cryptarchia);
+        let broadcaster = new_finalized_block_broadcaster(&cryptarchia);
 
         // Broadcasting with Bootstrapping Cryptarchia should fail.
         let (relay, _) = relay();
@@ -289,9 +297,9 @@ mod tests {
             broadcaster
                 .broadcast(
                     &Cryptarchia::from_lib(id(10), config, State::Bootstrapping),
-                    &PrunedBlocks::default(),
                     &relay,
                     &lib_broadcaster,
+                    &PrunedBlocks::default(),
                 )
                 .await,
             Err(Error::UnexpectedCryptarchiaState(State::Bootstrapping))
@@ -308,7 +316,7 @@ mod tests {
         // Init Cryptarchia with LIB 10.
         let cryptarchia = Cryptarchia::from_lib(id(10), config, State::Bootstrapping);
         assert_eq!(cryptarchia.lib(), id(10));
-        let broadcaster = new(&cryptarchia);
+        let broadcaster = new_finalized_block_broadcaster(&cryptarchia);
 
         // Add block 11 and 12.
         // Expect the security block to be 11, since security param is 1.
@@ -322,13 +330,13 @@ mod tests {
 
         // Broadcast blocks.
         let (relay, mut receiver) = relay();
-        let (lib_broadcaster, _) = broadcast::channel(10);
+        let (lib_broadcaster, lib_receiver) = broadcast::channel(10);
         broadcaster
             .broadcast(
                 &cryptarchia,
-                &PrunedBlocks::default(),
                 &relay,
                 &lib_broadcaster,
+                &PrunedBlocks::default(),
             )
             .await
             .unwrap();
@@ -341,8 +349,11 @@ mod tests {
         };
         assert_eq!(height, 1);
         assert_eq!(header_id, id(11));
-
         assert!(receiver.is_empty());
+
+        // Expect no blocks to be broadcasted through `lib_broadcaster`
+        // since no LIB update happens in Bootstrapping state.
+        assert!(lib_receiver.is_empty());
     }
 
     #[tokio::test]
@@ -355,7 +366,7 @@ mod tests {
         // Init Cryptarchia with LIB 10.
         let cryptarchia = Cryptarchia::from_lib(id(10), config, State::Bootstrapping);
         assert_eq!(cryptarchia.lib(), id(10));
-        let broadcaster = new(&cryptarchia);
+        let broadcaster = new_finalized_block_broadcaster(&cryptarchia);
 
         // Add block 11.
         // The security block doesn't change, since security param is 1.
@@ -366,19 +377,20 @@ mod tests {
 
         // Broadcast blocks.
         let (relay, receiver) = relay();
-        let (lib_broadcaster, _) = broadcast::channel(10);
+        let (lib_broadcaster, lib_receiver) = broadcast::channel(10);
         broadcaster
             .broadcast(
                 &cryptarchia,
-                &PrunedBlocks::default(),
                 &relay,
                 &lib_broadcaster,
+                &PrunedBlocks::default(),
             )
             .await
             .unwrap();
 
         // Expect no blocks to be broadcasted.
         assert!(receiver.is_empty());
+        assert!(lib_receiver.is_empty());
     }
 
     #[tokio::test]
@@ -404,7 +416,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(cryptarchia.block_at_security_param().id(), id(12));
-        let broadcaster = new(&cryptarchia);
+        let broadcaster = new_finalized_block_broadcaster(&cryptarchia);
 
         // Add a longer fork.
         // 10 - 11 - 12 - 13
@@ -425,13 +437,13 @@ mod tests {
 
         // Broadcast blocks.
         let (relay, mut receiver) = relay();
-        let (lib_broadcaster, _) = broadcast::channel(10);
+        let (lib_broadcaster, lib_receiver) = broadcast::channel(10);
         broadcaster
             .broadcast(
                 &cryptarchia,
-                &PrunedBlocks::default(),
                 &relay,
                 &lib_broadcaster,
+                &PrunedBlocks::default(),
             )
             .await
             .unwrap();
@@ -452,6 +464,10 @@ mod tests {
         assert_eq!(height, 3);
         assert_eq!(header_id, id(15));
         assert!(receiver.is_empty());
+
+        // Expect no blocks to be broadcasted through `lib_broadcaster`
+        // since no LIB update happens in Bootstrapping state.
+        assert!(lib_receiver.is_empty());
     }
 
     #[tokio::test]
@@ -463,7 +479,7 @@ mod tests {
 
         // Init Cryptarchia with Online state.
         let cryptarchia = Cryptarchia::from_lib(id(10), config, State::Bootstrapping);
-        let broadcaster = new(&cryptarchia);
+        let broadcaster = new_finalized_block_broadcaster(&cryptarchia);
 
         // Broadcasting with Bootstrapping Cryptarchia should fail.
         let (relay, _) = relay();
@@ -472,9 +488,9 @@ mod tests {
             broadcaster
                 .broadcast(
                     &Cryptarchia::from_lib(id(10), config, State::Online),
-                    &PrunedBlocks::default(),
                     &relay,
                     &lib_broadcaster,
+                    &PrunedBlocks::default(),
                 )
                 .await,
             Err(Error::UnexpectedCryptarchiaState(State::Online))

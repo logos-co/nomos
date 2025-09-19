@@ -70,6 +70,7 @@ use crate::{
     blend::BlendAdapter,
     blob::{get_sampled_blobs, BlobValidation, RecentBlobValidation, SkipBlobValidation},
     bootstrap::{ibd::InitialBlockDownload, state::choose_engine_state},
+    broadcaster::new_finalized_block_broadcaster,
     leadership::Leader,
     relays::CryptarchiaConsensusRelays,
     states::CryptarchiaConsensusState,
@@ -1169,8 +1170,8 @@ where
         let header = block.header();
         let id = header.id();
 
-        // Prepare the block broadcaster for other services.
-        let block_broadcaster = broadcaster::new(&cryptarchia.consensus);
+        // Prepare the finalized block broadcaster for other services.
+        let finalized_block_broadcaster = new_finalized_block_broadcaster(&cryptarchia.consensus);
 
         // Apply the header.
         let (cryptarchia, pruned_blocks) = cryptarchia.try_apply_header(header)?;
@@ -1207,12 +1208,12 @@ where
         }
 
         // Broadcast newly finalized blocks to other services.
-        block_broadcaster
+        finalized_block_broadcaster
             .broadcast(
                 &cryptarchia.consensus,
-                &pruned_blocks,
                 relays.broadcast_relay(),
                 lib_broadcaster,
+                &pruned_blocks,
             )
             .await?;
 
