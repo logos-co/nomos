@@ -31,8 +31,8 @@ use nomos_core::{
     da,
     header::{Header, HeaderId},
     mantle::{
-        gas::MainnetGasConstants, ops::leader_claim::VoucherCm, AuthenticatedMantleTx, Op,
-        SignedMantleTx, Transaction, TxHash, TxSelect,
+        gas::MainnetGasConstants, keys::SecretKey, ops::leader_claim::VoucherCm,
+        AuthenticatedMantleTx, Op, SignedMantleTx, Transaction, TxHash, TxSelect,
     },
     proofs::leader_proof::{Groth16LeaderProof, LeaderPrivate, LeaderPublic},
 };
@@ -101,7 +101,7 @@ pub enum Error {
 }
 
 pub type WinningSlotPolInfoStream =
-    Pin<Box<dyn Stream<Item = (LeaderPublic, LeaderPrivate)> + Send + Sync + Unpin>>;
+    Pin<Box<dyn Stream<Item = (LeaderPublic, LeaderPrivate, SecretKey)> + Send + Sync + Unpin>>;
 
 pub enum ConsensusMsg {
     Info {
@@ -350,7 +350,7 @@ pub struct CryptarchiaConsensus<
     new_block_subscription_sender: broadcast::Sender<HeaderId>,
     lib_subscription_sender: broadcast::Sender<LibUpdate>,
     initial_state: <Self as ServiceData>::State,
-    winning_slot_pol_info_sender: broadcast::Sender<(LeaderPublic, LeaderPrivate)>,
+    winning_slot_pol_info_sender: broadcast::Sender<(LeaderPublic, LeaderPrivate, SecretKey)>,
 }
 
 impl<
@@ -965,7 +965,7 @@ where
         cryptarchia: &Cryptarchia,
         new_block_channel: &broadcast::Sender<HeaderId>,
         lib_channel: &broadcast::Sender<LibUpdate>,
-        winning_slot_pol_info_sender: &broadcast::Sender<(LeaderPublic, LeaderPrivate)>,
+        winning_slot_pol_info_sender: &broadcast::Sender<(LeaderPublic, LeaderPrivate, SecretKey)>,
         msg: ConsensusMsg,
     ) {
         match msg {

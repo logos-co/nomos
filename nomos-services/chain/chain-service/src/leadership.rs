@@ -48,7 +48,7 @@ impl Leader {
         latest_tree: &UtxoTree,
         epoch_state: &EpochState,
         slot: Slot,
-        winning_slot_pol_info_sender: &Sender<(LeaderPublic, LeaderPrivate)>,
+        winning_slot_pol_info_sender: &Sender<(LeaderPublic, LeaderPrivate, SecretKey)>,
     ) -> Option<Groth16LeaderProof> {
         for utxo in &self.utxos {
             let Some(_aged_witness) = aged_tree.witness(&utxo.id()) else {
@@ -101,9 +101,11 @@ impl Leader {
                     starting_slot,
                     &leader_pk,
                 );
-                if let Err(e) =
-                    winning_slot_pol_info_sender.send((public_inputs, private_inputs.clone()))
-                {
+                if let Err(e) = winning_slot_pol_info_sender.send((
+                    public_inputs,
+                    private_inputs.clone(),
+                    self.sk,
+                )) {
                     tracing::error!("Failed to send winning slot PoL info to subscribers: {e:?}");
                 }
                 let res = tokio::task::spawn_blocking(move || {
