@@ -3,6 +3,8 @@ use std::{
     hash::Hash,
 };
 
+use chain_service::api::CryptarchiaServiceData;
+
 use nomos_core::{
     block::Block,
     da,
@@ -141,6 +143,7 @@ where
         SamplingNetworkAdapter,
         SamplingStorage,
         TimeBackend,
+        CryptarchiaService,
     >(
         service_resources_handle: &OpaqueServiceResourcesHandle<
             CryptarchiaLeader<
@@ -154,6 +157,7 @@ where
                 SamplingNetworkAdapter,
                 SamplingStorage,
                 TimeBackend,
+                CryptarchiaService,
                 RuntimeServiceId,
             >,
             RuntimeServiceId,
@@ -197,7 +201,9 @@ where
                 >,
             >
             + AsServiceId<StorageService<Storage, RuntimeServiceId>>
-            + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>,
+            + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>
+            + AsServiceId<CryptarchiaService>,
+        CryptarchiaService: CryptarchiaServiceData,
     {
         let network_relay = service_resources_handle
             .overwatch_handle

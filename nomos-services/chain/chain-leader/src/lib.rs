@@ -52,6 +52,7 @@ use tokio::sync::oneshot;
 use tracing::{debug, error, info, instrument, span, Level};
 use tracing_futures::Instrument as _;
 
+pub use crate::bootstrap::config::{BootstrapConfig, IbdConfig, OfflineGracePeriodConfig};
 use crate::{
     blend::BlendAdapter,
     bootstrap::{ibd::InitialBlockDownload, state::choose_engine_state},
@@ -59,9 +60,7 @@ use crate::{
     relays::CryptarchiaConsensusRelays,
     storage::{adapters::StorageAdapter, StorageAdapter as _},
 };
-pub use crate::{
-    bootstrap::config::{BootstrapConfig, IbdConfig, OfflineGracePeriodConfig},
-};
+use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 
 type MempoolRelay<Payload, Item, Key> = OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>;
 type SamplingRelay<BlobId> = OutboundRelay<DaSamplingServiceMsg<BlobId>>;
@@ -182,7 +181,6 @@ impl Cryptarchia {
         tracing::debug!(target: LOG_TARGET, "Pruned {pruned_states_count} old forks and their ledger states.");
     }
 
-
     fn has_block(&self, block_id: &HeaderId) -> bool {
         self.consensus.branches().get(block_id).is_some()
     }
@@ -217,6 +215,7 @@ pub struct CryptarchiaLeader<
     SamplingNetworkAdapter,
     SamplingStorage,
     TimeBackend,
+    CryptarchiaService,
     RuntimeServiceId,
 > where
     NetAdapter: NetworkAdapter<RuntimeServiceId>,
@@ -240,6 +239,7 @@ pub struct CryptarchiaLeader<
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
+    CryptarchiaService: CryptarchiaServiceData,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
 }
@@ -255,6 +255,7 @@ impl<
         SamplingNetworkAdapter,
         SamplingStorage,
         TimeBackend,
+        CryptarchiaService,
         RuntimeServiceId,
     > ServiceData
     for CryptarchiaLeader<
@@ -268,6 +269,7 @@ impl<
         SamplingNetworkAdapter,
         SamplingStorage,
         TimeBackend,
+        CryptarchiaService,
         RuntimeServiceId,
     >
 where
@@ -290,6 +292,7 @@ where
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
+    CryptarchiaService: CryptarchiaServiceData,
 {
     type Settings = LeaderSettings<
         TxS::Settings,
@@ -314,6 +317,7 @@ impl<
         SamplingNetworkAdapter,
         SamplingStorage,
         TimeBackend,
+        CryptarchiaService,
         RuntimeServiceId,
     > ServiceCore<RuntimeServiceId>
     for CryptarchiaLeader<
@@ -327,6 +331,7 @@ impl<
         SamplingNetworkAdapter,
         SamplingStorage,
         TimeBackend,
+        CryptarchiaService,
         RuntimeServiceId,
     >
 where
@@ -375,6 +380,7 @@ where
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
+    CryptarchiaService: CryptarchiaServiceData,
     RuntimeServiceId: Debug
         + Send
         + Sync
@@ -401,7 +407,8 @@ where
             >,
         >
         + AsServiceId<StorageService<Storage, RuntimeServiceId>>
-        + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>,
+        + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>
+        + AsServiceId<CryptarchiaService>,
 {
     fn init(
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
@@ -423,10 +430,16 @@ where
             Storage,
             TxS,
             RuntimeServiceId,
-        > = CryptarchiaConsensusRelays::from_service_resources_handle::<_, _, _>(
+        > = CryptarchiaConsensusRelays::from_service_resources_handle::<_, _, _, CryptarchiaService>(
             &self.service_resources_handle,
         )
         .await;
+
+        // Create the API wrapper for chain service communication
+        let _cryptarchia_api = CryptarchiaServiceApi::<CryptarchiaService, RuntimeServiceId>::new::<Self>(
+            &self.service_resources_handle,
+        )
+        .await?;
 
         let LeaderSettings {
             config: ledger_config,
@@ -472,7 +485,6 @@ where
 
         let mut incoming_blocks = network_adapter.blocks_stream().await?;
 
-
         let mut slot_timer = {
             let (sender, receiver) = oneshot::channel();
             relays
@@ -487,7 +499,6 @@ where
             relays.blend_relay().clone(),
             blend_broadcast_settings.clone(),
         );
-
 
         self.service_resources_handle.status_updater.notify_ready();
         info!(
@@ -676,6 +687,7 @@ impl<
         SamplingNetworkAdapter,
         SamplingStorage,
         TimeBackend,
+        CryptarchiaService,
         RuntimeServiceId,
     >
     CryptarchiaLeader<
@@ -689,6 +701,7 @@ impl<
         SamplingNetworkAdapter,
         SamplingStorage,
         TimeBackend,
+        CryptarchiaService,
         RuntimeServiceId,
     >
 where
@@ -735,6 +748,7 @@ where
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
+    CryptarchiaService: CryptarchiaServiceData,
 {
     async fn process_block_and_prune_storage(
         cryptarchia: Cryptarchia,
@@ -1105,7 +1119,6 @@ where
             Err(errors)
         }
     }
-
 }
 
 async fn get_mempool_contents<Payload, Item, Key>(
