@@ -4,7 +4,7 @@ use cryptarchia_sync::GetTipResponse;
 use futures::StreamExt as _;
 use nomos_core::header::HeaderId;
 use overwatch::DynError;
-use tracing::{debug, error};
+use tracing::{debug, error, warn};
 
 use crate::{
     bootstrap::download::{Delay, Download, Downloads, DownloadsOutput},
@@ -77,6 +77,7 @@ where
         storage_blocks_to_remove: HashSet<HeaderId>,
     ) -> Result<(Cryptarchia, HashSet<HeaderId>), Error> {
         if self.config.peers.is_empty() {
+            warn!("No IBD peers were configured");
             return Ok((cryptarchia, storage_blocks_to_remove));
         }
 
@@ -149,10 +150,13 @@ where
                 return Err(Error::BlockProvider(DynError::from(reason)));
             }
         };
+        warn!("Tip({target:?}) received from {peer:?}");
 
         if !Self::should_download(&target, cryptarchia, targets_in_progress) {
+            warn!("Don't need to download for target: {target:?}");
             return Ok(None);
         }
+        warn!("Creating download for target from {peer:?}: {target:?}");
 
         // Request a block stream.
         let stream = self

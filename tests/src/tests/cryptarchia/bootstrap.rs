@@ -128,6 +128,10 @@ async fn test_ibd_behind_nodes() {
             .height
             .abs_diff(*max_initial_validator_height)
             <= height_margin,
+        "Height diff between behind node({}) and height peer({}) is beyond margin({})",
+        behind_node_info.height,
+        max_initial_validator_height,
+        height_margin,
     );
 }
 

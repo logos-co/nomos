@@ -1136,7 +1136,7 @@ where
         new_block_subscription_sender: &broadcast::Sender<HeaderId>,
         lib_broadcaster: &broadcast::Sender<LibUpdate>,
     ) -> Result<(Cryptarchia, PrunedBlocks<HeaderId>), Error> {
-        debug!("received proposal {:?}", block);
+        tracing::warn!("received proposal {:?}", block);
 
         let sampled_blobs = match get_sampled_blobs(relays.sampling_relay().clone()).await {
             Ok(sampled_blobs) => sampled_blobs,
