@@ -11,7 +11,6 @@ use ark_poly_commit::{
     Error,
 };
 use ark_std::rand::RngCore;
-use num_bigint::BigUint;
 use num_traits::{One as _, Zero as _};
 
 use crate::{bivariate::DensePolynomial, common::KzgRsError};
@@ -245,8 +244,11 @@ pub fn verify_bivariate_proof(
     let v_tau = commit_unvivariate_polynomial_in_x(&x_v, &global_parameters);
 
     let commitment_check_g1 = commitment.0 + v_tau.0.neg();
-    let evaluation_check_g2 =
-        global_parameters.beta_2_h + global_parameters.h.mul(y_domain.element(sample_index)).neg();
+    let evaluation_check_g2 = global_parameters.beta_2_h
+        + global_parameters
+            .h
+            .mul(y_domain.element(sample_index))
+            .neg();
     let lhs = Bls12_381::pairing(commitment_check_g1, global_parameters.h);
     let rhs = Bls12_381::pairing(proof.w, evaluation_check_g2);
     lhs == rhs

@@ -4,8 +4,8 @@ pub mod global_parameters;
 pub mod kzg;
 
 pub mod bdfg_proving;
-mod bivariate;
-mod boomy;
+pub mod bivariate;
+pub mod boomy;
 pub mod rs;
 
 use ark_bls12_381::{Bls12_381, Fr};

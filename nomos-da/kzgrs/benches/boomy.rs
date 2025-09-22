@@ -1,21 +1,20 @@
 use std::sync::LazyLock;
 
 use ark_bls12_381::{Bls12_381, Fr};
-use ark_poly::{univariate::DensePolynomial, EvaluationDomain as _, GeneralEvaluationDomain};
+use ark_poly::{EvaluationDomain as _, GeneralEvaluationDomain, Polynomial};
 use ark_poly_commit::kzg10::{UniversalParams, KZG10};
 use divan::{black_box, counter::ItemsCount, Bencher};
 use kzgrs::{
     common::bytes_to_polynomial_unchecked,
-    kzg::{
-        commit_polynomial, generate_element_proof, generate_multiple_element_proof,
-        multiple_point_setup, verify_element_proof, MultiplePointUniversalParams,
-    },
+    boomy::BivariateUniversalParams
 };
-use rand::RngCore as _;
+use rand::{random, RngCore as _};
+use rand::seq::index::sample;
 #[cfg(feature = "parallel")]
 use rayon::iter::IntoParallelIterator as _;
 #[cfg(feature = "parallel")]
 use rayon::iter::ParallelIterator as _;
+use kzgrs::boomy::{bivariate_setup, generate_bivariate_proof};
 
 fn main() {
     divan::main();
@@ -26,80 +25,55 @@ fn main() {
 // #[global_allocator]
 // static ALLOC: AllocProfiler = AllocProfiler::system();
 
-static GLOBAL_PARAMETERS: LazyLock<UniversalParams<Bls12_381>> = LazyLock::new(|| {
-    let mut rng = rand::thread_rng();
-    KZG10::<Bls12_381, DensePolynomial<Fr>>::setup(4096, true, &mut rng).unwrap()
-});
-
-static MULTIPLE_GLOBAL_PARAMETERS: LazyLock<MultiplePointUniversalParams<Bls12_381>> =
+static GLOBAL_PARAMETERS: LazyLock<BivariateUniversalParams<Bls12_381>> =
     LazyLock::new(|| {
         let mut rng = rand::thread_rng();
-        multiple_point_setup(4096, 50, true, &mut rng).unwrap()
+        bivariate_setup(1023, 31, &mut rng).unwrap()
     });
-
-fn rand_data_elements(elements_count: usize, chunk_size: usize) -> Vec<u8> {
-    let mut buff = vec![0u8; elements_count * chunk_size];
-    rand::thread_rng().fill_bytes(&mut buff);
-    buff
-}
 
 const CHUNK_SIZE: usize = 31;
 
-#[divan::bench(args = [16, 32, 64, 128, 256, 512, 1_024, 2_048, 4_096])]
-fn commit_single_polynomial_with_element_count(bencher: Bencher, element_count: usize) {
-    bencher
-        .with_inputs(|| {
-            let domain = GeneralEvaluationDomain::new(element_count).unwrap();
-            let data = rand_data_elements(element_count, CHUNK_SIZE);
-            bytes_to_polynomial_unchecked::<CHUNK_SIZE>(&data, domain)
-        })
-        .input_counter(move |(_evals, _poly)| ItemsCount::new(1usize))
-        .bench_refs(|(_evals, poly)| black_box(commit_polynomial(poly, &GLOBAL_PARAMETERS)));
-}
-
-#[cfg(feature = "parallel")]
-#[divan::bench(args = [16, 32, 64, 128, 256, 512, 1_024, 2_048, 4_096])]
-fn commit_polynomial_with_element_count_parallelized(bencher: Bencher, element_count: usize) {
-    let threads = 8usize;
-    bencher
-        .with_inputs(|| {
-            let domain = GeneralEvaluationDomain::new(element_count).unwrap();
-            let data = rand_data_elements(element_count, CHUNK_SIZE);
-            bytes_to_polynomial_unchecked::<CHUNK_SIZE>(&data, domain)
-        })
-        .input_counter(move |(_evals, _poly)| ItemsCount::new(threads))
-        .bench_refs(|(_evals, poly)| {
-            let _commitments: Vec<_> = (0..threads)
-                .into_par_iter()
-                .map(|_| commit_polynomial(poly, &GLOBAL_PARAMETERS))
-                .collect();
-        });
-}
-
 #[divan::bench(args = [128, 256, 512, 1_024, 2_048, 4_096])]
-fn compute_single_proof(bencher: Bencher, element_count: usize) {
+fn compute_bivariate_single_five_point_proof(bencher: Bencher, element_count: usize) {
     bencher
         .with_inputs(|| {
-            let domain = GeneralEvaluationDomain::new(element_count).unwrap();
-            let data = rand_data_elements(element_count, CHUNK_SIZE);
-            (
-                bytes_to_polynomial_unchecked::<CHUNK_SIZE>(&data, domain),
-                domain,
-            )
+            let y_domain = GeneralEvaluationDomain::new(5).unwrap();
+            let polynomial = kzgrs::bivariate::DensePolynomial::rand(element_count-1,4, &mut rand::thread_rng());
+            let sample_index: usize = (random::<u64>() % element_count as u64) as usize;
+            (sample_index, polynomial, y_domain)
         })
         .input_counter(|_| ItemsCount::new(1usize))
-        .bench_refs(|((evals, poly), domain)| {
-            black_box(generate_element_proof(
-                7,
-                poly,
-                evals,
-                &GLOBAL_PARAMETERS,
-                *domain,
+        .bench_refs(|(sample_index, polynomial, y_domain)| {
+        black_box(generate_bivariate_proof(*sample_index,
+                polynomial,
+                *y_domain,
+                &GLOBAL_PARAMETERS
             ))
         });
 }
 
-#[divan::bench(args = [128, 256, 512, 1_024], sample_count = 3, sample_size = 32)]
+#[divan::bench(args = [128, 256, 512, 1_024], sample_count = 3, sample_size = 1)]
+fn compute_bivariate_batch_thirty_two_points_proof(bencher: Bencher, element_count: usize) {
+    bencher
+        .with_inputs(|| {
+            let y_domain = GeneralEvaluationDomain::new(32).unwrap();
+            let polynomial = kzgrs::bivariate::DensePolynomial::rand((element_count/32)-1,31, &mut rand::thread_rng());
+            (polynomial, y_domain)
+        })
+        .input_counter(move |_| ItemsCount::new(element_count))
+        .bench_refs(|(polynomial, y_domain)| {
+            for i in 0..(element_count/32) {
+                black_box(generate_bivariate_proof(
+                    i,
+                    polynomial,
+                    *y_domain,
+                    &GLOBAL_PARAMETERS,
+                ));
+            }
+        });
+}
+
+/*#[divan::bench(args = [128, 256, 512, 1_024], sample_count = 3, sample_size = 32)]
 fn compute_batch_proofs(bencher: Bencher, element_count: usize) {
     bencher
         .with_inputs(|| {
@@ -155,7 +129,7 @@ fn compute_batch_thirty_two_points_proof(bencher: Bencher, element_count: usize)
         })
         .input_counter(move |_| ItemsCount::new(element_count))
         .bench_refs(|((evals, poly), domain)| {
-            for i in 0..(element_count/32) {
+            for i in 0..(element_count) {
                 black_box(generate_multiple_element_proof(
                     &(i * 32..i * 32 + 32).collect::<Vec<usize>>(),
                     poly,
@@ -216,3 +190,4 @@ fn verify_single_proof(bencher: Bencher) {
             ))
         });
 }
+*/

@@ -51,6 +51,10 @@ name    = "kzg"
 
 [[bench]]
 harness = false
+name    = "boomy"
+
+[[bench]]
+harness = false
 name    = "fft"
 
 [[bench]]
