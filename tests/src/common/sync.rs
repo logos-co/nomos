@@ -70,7 +70,7 @@ fn print_validators_info(infos: &[CryptarchiaInfo]) {
         "   Validators: {:?}",
         infos
             .iter()
-            .map(|info| format!("{:?}/{:?}", info.height, info.mode))
+            .map(|info| format!("{info:?}"))
             .collect::<Vec<_>>(),
     );
 }

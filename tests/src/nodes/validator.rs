@@ -340,7 +340,7 @@ impl Validator {
 
     pub async fn consensus_info(&self) -> CryptarchiaInfo {
         let res = self.get(CRYPTARCHIA_INFO).await;
-        println!("{res:?}");
+        // println!("{res:?}");
         res.unwrap().json().await.unwrap()
     }
 
