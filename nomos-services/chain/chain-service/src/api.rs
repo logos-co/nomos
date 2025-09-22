@@ -123,4 +123,19 @@ where
 
         Ok(rx.await?)
     }
+
+    /// Get the epoch state for a given slot
+    pub async fn get_epoch_state(
+        &self,
+        slot: cryptarchia_engine::Slot,
+    ) -> Result<Option<nomos_ledger::EpochState>, DynError> {
+        let (tx, rx) = oneshot::channel();
+
+        self.relay
+            .send(ConsensusMsg::GetEpochState { slot, tx })
+            .await
+            .map_err(|_| "Failed to send epoch state request")?;
+
+        Ok(rx.await?)
+    }
 }

@@ -113,12 +113,6 @@ impl Cryptarchia {
         self.consensus.tip()
     }
 
-    fn tip_state(&self) -> &LedgerState {
-        self.ledger
-            .state(&self.tip())
-            .expect("tip state not available")
-    }
-
     const fn lib(&self) -> HeaderId {
         self.consensus.lib()
     }
@@ -145,19 +139,6 @@ impl Cryptarchia {
         cryptarchia.prune_ledger_states(pruned_blocks.all());
 
         Ok((cryptarchia, pruned_blocks))
-    }
-
-    fn epoch_state_for_slot(&self, slot: Slot) -> Option<&nomos_ledger::EpochState> {
-        let tip = self.tip();
-        let state = self.ledger.state(&tip).expect("no state for tip");
-        let requested_epoch = self.ledger.config().epoch(slot);
-        if state.epoch_state().epoch() == requested_epoch {
-            Some(state.epoch_state())
-        } else if requested_epoch == state.next_epoch_state().epoch() {
-            Some(state.next_epoch_state())
-        } else {
-            None
-        }
     }
 
     /// Remove the ledger states associated with blocks that have been pruned by
@@ -436,7 +417,7 @@ where
         .await;
 
         // Create the API wrapper for chain service communication
-        let _cryptarchia_api = CryptarchiaServiceApi::<CryptarchiaService, RuntimeServiceId>::new::<Self>(
+        let cryptarchia_api = CryptarchiaServiceApi::<CryptarchiaService, RuntimeServiceId>::new::<Self>(
             &self.service_resources_handle,
         )
         .await?;
@@ -608,16 +589,43 @@ where
                     }
 
                     Some(SlotTick { slot, .. }) = slot_timer.next() => {
-                        let parent = cryptarchia.tip();
-                        let aged_tree = cryptarchia.tip_state().aged_commitments();
-                        let latest_tree = cryptarchia.tip_state().latest_commitments();
+                        let chain_info = match cryptarchia_api.info().await {
+                            Ok(info) => info,
+                            Err(e) => {
+                                error!("Failed to get chain info: {:?}", e);
+                                continue;
+                            }
+                        };
+                        let parent = chain_info.tip;
+
+                        let tip_state = match cryptarchia_api.get_ledger_state(parent).await {
+                            Ok(Some(state)) => state,
+                            Ok(None) => {
+                                error!("No ledger state found for tip {:?}", parent);
+                                continue;
+                            }
+                            Err(e) => {
+                                error!("Failed to get ledger state: {:?}", e);
+                                continue;
+                            }
+                        };
+
+                        let aged_tree = tip_state.aged_commitments();
+                        let latest_tree = tip_state.latest_commitments();
                         debug!("ticking for slot {}", u64::from(slot));
 
-                        let Some(epoch_state) = cryptarchia.epoch_state_for_slot(slot) else {
-                            error!("trying to propose a block for slot {} but epoch state is not available", u64::from(slot));
-                            continue;
+                        let epoch_state = match cryptarchia_api.get_epoch_state(slot).await {
+                            Ok(Some(state)) => state,
+                            Ok(None) => {
+                                error!("trying to propose a block for slot {} but epoch state is not available", u64::from(slot));
+                                continue;
+                            }
+                            Err(e) => {
+                                error!("Failed to get epoch state: {:?}", e);
+                                continue;
+                            }
                         };
-                        if let Some(proof) = leader.build_proof_for(aged_tree, latest_tree, epoch_state, slot).await {
+                        if let Some(proof) = leader.build_proof_for(aged_tree, latest_tree, &epoch_state, slot).await {
                             debug!("proposing block...");
                             // TODO: spawn as a separate task?
                             let block = Self::propose_block(

@@ -40,7 +40,7 @@ use nomos_core::{
 use nomos_da_sampling::{
     DaSamplingService, DaSamplingServiceMsg, backend::DaSamplingServiceBackend,
 };
-use nomos_ledger::LedgerState;
+use nomos_ledger::{EpochState, LedgerState};
 use nomos_mempool::{
     MempoolMsg, TxMempoolService, backend::RecoverableMempool,
     network::NetworkAdapter as MempoolAdapter,
@@ -125,6 +125,10 @@ pub enum ConsensusMsg {
     GetLedgerState {
         block_id: HeaderId,
         tx: oneshot::Sender<Option<LedgerState>>,
+    },
+    GetEpochState {
+        slot: Slot,
+        tx: oneshot::Sender<Option<EpochState>>,
     },
 }
 
@@ -225,7 +229,7 @@ impl Cryptarchia {
         Ok((cryptarchia, pruned_blocks))
     }
 
-    fn epoch_state_for_slot(&self, slot: Slot) -> Option<&nomos_ledger::EpochState> {
+    fn epoch_state_for_slot(&self, slot: Slot) -> Option<&EpochState> {
         let tip = self.tip();
         let state = self.ledger.state(&tip).expect("no state for tip");
         let requested_epoch = self.ledger.config().epoch(slot);
@@ -1040,16 +1044,18 @@ where
                     error!("Could not send ledger state through channel");
                 });
             }
+            ConsensusMsg::GetEpochState { slot, tx } => {
+                let epoch_state = cryptarchia.epoch_state_for_slot(slot).cloned();
+                tx.send(epoch_state).unwrap_or_else(|_| {
+                    error!("Could not send epoch state through channel");
+                });
+            }
         }
     }
 
     #[expect(
         clippy::type_complexity,
         reason = "CryptarchiaConsensusState and CryptarchiaConsensusRelays amount of generics."
-    )]
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "This function does too much, need to deal with this at some point"
     )]
     async fn process_block_and_update_state(
         cryptarchia: Cryptarchia,
@@ -1381,11 +1387,7 @@ where
             ledger_config,
             state,
         );
-        let leader = Leader::new(
-            leader_config.utxos.clone(),
-            leader_config.sk,
-            ledger_config,
-        );
+        let leader = Leader::new(leader_config.utxos.clone(), leader_config.sk, ledger_config);
 
         let blocks =
             Self::get_blocks_in_range(lib_id, self.initial_state.tip, relays.storage_adapter())

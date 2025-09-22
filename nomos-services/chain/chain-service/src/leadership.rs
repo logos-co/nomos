@@ -19,7 +19,7 @@ pub struct Leader {
         not(feature = "pol-dev-mode"),
         expect(
             dead_code,
-            reason = "Field only used when `pol-dev-mode` feature is enabled."
+            reason = "Config field is used only in pol-dev-mode feature"
         )
     )]
     config: nomos_ledger::Config,
