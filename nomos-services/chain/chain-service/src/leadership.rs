@@ -127,8 +127,4 @@ impl Leader {
 
         None
     }
-
-    pub(crate) fn utxos(&self) -> &[Utxo] {
-        &self.utxos
-    }
 }

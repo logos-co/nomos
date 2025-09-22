@@ -643,7 +643,6 @@ where
             storage_blocks_to_remove,
             network_adapter,
             |cryptarchia, storage_blocks_to_remove, block| {
-                let leader = &leader;
                 let relays = &relays;
                 let state_updater = &self.service_resources_handle.state_updater;
                 let new_block_subscription_sender = &self.new_block_subscription_sender;
@@ -651,7 +650,6 @@ where
                 async move {
                     Self::process_block_and_update_state(
                         cryptarchia,
-                        leader,
                         block,
                         // TODO: Enable this once entering DA window: https://github.com/logos-co/nomos/issues/1675
                         &SkipBlobValidation,
@@ -733,7 +731,6 @@ where
                         blob_validation = Box::new(RecentBlobValidation::new(relays.sampling_relay().clone()));
                         Self::update_state(
                             &cryptarchia,
-                            &leader,
                             storage_blocks_to_remove.clone(),
                             &self.service_resources_handle.state_updater,
                         );
@@ -750,7 +747,6 @@ where
                         // Process the received block and update the cryptarchia state.
                         match Self::process_block_and_update_state(
                             cryptarchia.clone(),
-                            &leader,
                             block.clone(),
                             blob_validation.as_ref(),
                             &storage_blocks_to_remove,
@@ -807,7 +803,6 @@ where
                                 // apply our own block
                                 match Self::process_block_and_update_state(
                                     cryptarchia.clone(),
-                                    &leader,
                                     block.clone(),
                                     // Skip this since the block was already built with valid blobs.
                                     &SkipBlobValidation,
@@ -856,7 +851,6 @@ where
 
                         match Self::process_block_and_update_state(
                             cryptarchia.clone(),
-                            &leader,
                             block.clone(),
                             blob_validation.as_ref(),
                             &storage_blocks_to_remove,
@@ -882,7 +876,6 @@ where
                         // Periodically record the current timestamp and engine state
                         Self::update_state(
                             &cryptarchia,
-                            &leader,
                             storage_blocks_to_remove.clone(),
                             &self.service_resources_handle.state_updater,
                         );
@@ -1060,7 +1053,6 @@ where
     )]
     async fn process_block_and_update_state(
         cryptarchia: Cryptarchia,
-        leader: &Leader,
         block: Block<ClPool::Item>,
         blob_validation: &(impl BlobValidation<SamplingBackend::BlobId, ClPool::Item> + Sync + ?Sized),
         storage_blocks_to_remove: &HashSet<HeaderId>,
@@ -1106,7 +1098,6 @@ where
 
         Self::update_state(
             &cryptarchia,
-            leader,
             storage_blocks_to_remove.clone(),
             state_updater,
         );
@@ -1117,7 +1108,6 @@ where
     #[expect(clippy::type_complexity, reason = "StateUpdater")]
     fn update_state(
         cryptarchia: &Cryptarchia,
-        leader: &Leader,
         storage_blocks_to_remove: HashSet<HeaderId>,
         state_updater: &StateUpdater<
             Option<
@@ -1132,7 +1122,6 @@ where
     ) {
         match <Self as ServiceData>::State::from_cryptarchia_and_unpruned_blocks(
             cryptarchia,
-            leader,
             storage_blocks_to_remove,
         ) {
             Ok(state) => {
@@ -1393,7 +1382,7 @@ where
             state,
         );
         let leader = Leader::new(
-            self.initial_state.lib_leader_utxos.clone(),
+            leader_config.utxos.clone(),
             leader_config.sk,
             ledger_config,
         );
