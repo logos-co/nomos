@@ -7,6 +7,7 @@ use nomos_core::{
 use nomos_ledger::{EpochState, UtxoTree};
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
+use tokio::sync::broadcast::Sender;
 
 /// TODO: this is a temporary solution until we have a proper wallet
 /// implementation. Most notably, it can't track when initial notes are spent
@@ -47,6 +48,7 @@ impl Leader {
         latest_tree: &UtxoTree,
         epoch_state: &EpochState,
         slot: Slot,
+        winning_slot_pol_info_sender: &Sender<(LeaderPublic, LeaderPrivate)>,
     ) -> Option<Groth16LeaderProof> {
         for utxo in &self.utxos {
             let Some(_aged_witness) = aged_tree.witness(&utxo.id()) else {
@@ -99,6 +101,11 @@ impl Leader {
                     starting_slot,
                     &leader_pk,
                 );
+                if let Err(e) =
+                    winning_slot_pol_info_sender.send((public_inputs, private_inputs.clone()))
+                {
+                    tracing::error!("Failed to send winning slot PoL info to subscribers: {e:?}");
+                }
                 let res = tokio::task::spawn_blocking(move || {
                     Groth16LeaderProof::prove(
                         private_inputs,
