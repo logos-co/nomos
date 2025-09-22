@@ -308,42 +308,31 @@ where
 
                     for blob_id in blob_ids_to_try {
                         let request = sampling::SampleRequest::new_share(blob_id, subnetwork_id);
-
-                        match streams::stream_sample(stream, request).await {
-                            Ok((_, response, mut new_stream)) => {
-                                if let SampleResponse::Share(share_data) = response {
-                                    opinions.push(Opinion::Positive {
-                                        peer_id,
-                                        session_id,
-                                    });
-                                    all_shares
-                                        .entry(blob_id)
-                                        .or_insert_with(Vec::new)
-                                        .push(share_data.data);
-                                    blob_ids.remove(&blob_id);
-                                    stream = new_stream;
+                        match Self::execute_sample_request(
+                            stream,
+                            request,
+                            |r| {
+                                if let SampleResponse::Share(share_data) = r {
+                                    Some(share_data.data)
                                 } else {
-                                    opinions.push(Opinion::Negative {
-                                        peer_id,
-                                        session_id,
-                                    });
-                                    let _ = new_stream.stream.close().await;
-                                    continue 'peers_loop;
+                                    None
                                 }
+                            },
+                            peer_id,
+                            session_id,
+                            &mut opinions,
+                        )
+                        .await
+                        {
+                            Ok((share_data, new_stream)) => {
+                                all_shares
+                                    .entry(blob_id)
+                                    .or_insert_with(Vec::new)
+                                    .push(share_data);
+                                blob_ids.remove(&blob_id);
+                                stream = new_stream;
                             }
-                            Err((sampling_error, maybe_stream)) => {
-                                if let Some(opinion) = Self::classify_sampling_error_opinion(
-                                    &sampling_error,
-                                    peer_id,
-                                    session_id,
-                                ) {
-                                    opinions.push(opinion);
-                                }
-                                if let Some(mut s) = maybe_stream {
-                                    let _ = s.stream.close().await;
-                                }
-                                continue 'peers_loop;
-                            }
+                            Err(()) => continue 'peers_loop,
                         }
                     }
                     let _ = stream.stream.close().await;
@@ -415,38 +404,28 @@ where
                     for blob_id in blob_ids_to_try {
                         let request = sampling::SampleRequest::new_commitments(blob_id);
 
-                        match streams::stream_sample(stream, request).await {
-                            Ok((_, response, mut new_stream)) => {
-                                if let SampleResponse::Commitments(comm) = response {
-                                    opinions.push(Opinion::Positive {
-                                        peer_id,
-                                        session_id,
-                                    });
-                                    commitments.insert(blob_id, comm);
-                                    remaining_blob_ids.remove(&blob_id);
-                                    stream = new_stream;
+                        match Self::execute_sample_request(
+                            stream,
+                            request,
+                            |r| {
+                                if let SampleResponse::Commitments(comm) = r {
+                                    Some(comm)
                                 } else {
-                                    opinions.push(Opinion::Negative {
-                                        peer_id,
-                                        session_id,
-                                    });
-                                    let _ = new_stream.stream.close().await;
-                                    continue 'peers_loop;
+                                    None
                                 }
+                            },
+                            peer_id,
+                            session_id,
+                            &mut opinions,
+                        )
+                        .await
+                        {
+                            Ok((comm, new_stream)) => {
+                                commitments.insert(blob_id, comm);
+                                remaining_blob_ids.remove(&blob_id);
+                                stream = new_stream;
                             }
-                            Err((sampling_error, maybe_stream)) => {
-                                if let Some(opinion) = Self::classify_sampling_error_opinion(
-                                    &sampling_error,
-                                    peer_id,
-                                    session_id,
-                                ) {
-                                    opinions.push(opinion);
-                                }
-                                if let Some(mut s) = maybe_stream {
-                                    let _ = s.stream.close().await;
-                                }
-                                continue 'peers_loop;
-                            }
+                            Err(()) => continue 'peers_loop,
                         }
                     }
                     let _ = stream.stream.close().await;
@@ -466,6 +445,49 @@ where
             Ok((commitments, opinion_event))
         } else {
             Err(HistoricSamplingError::SamplingFailed(opinion_event))
+        }
+    }
+
+    #[inline]
+    async fn execute_sample_request<T, F>(
+        stream: SampleStream,
+        request: sampling::SampleRequest,
+        response_extractor: F,
+        peer_id: PeerId,
+        session_id: SessionNumber,
+        opinions: &mut Vec<Opinion>,
+    ) -> Result<(T, SampleStream), ()>
+    where
+        F: FnOnce(SampleResponse) -> Option<T>,
+    {
+        match streams::stream_sample(stream, request).await {
+            Ok((_, response, mut new_stream)) => {
+                if let Some(data) = response_extractor(response) {
+                    opinions.push(Opinion::Positive {
+                        peer_id,
+                        session_id,
+                    });
+                    Ok((data, new_stream))
+                } else {
+                    opinions.push(Opinion::Negative {
+                        peer_id,
+                        session_id,
+                    });
+                    let _ = new_stream.stream.close().await;
+                    Err(())
+                }
+            }
+            Err((sampling_error, maybe_stream)) => {
+                if let Some(opinion) =
+                    Self::classify_sampling_error_opinion(&sampling_error, peer_id, session_id)
+                {
+                    opinions.push(opinion);
+                }
+                if let Some(mut s) = maybe_stream {
+                    let _ = s.stream.close().await;
+                }
+                Err(())
+            }
         }
     }
 
