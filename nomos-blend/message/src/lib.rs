@@ -4,6 +4,6 @@ mod error;
 pub mod input;
 mod message;
 
-pub use encap::MessageIdentifier;
+pub use encap::encapsulated::MessageIdentifier;
 pub use error::Error;
-pub use message::PayloadType;
+pub use message::payload::PayloadType;

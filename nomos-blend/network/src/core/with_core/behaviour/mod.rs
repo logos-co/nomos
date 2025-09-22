@@ -17,23 +17,28 @@ use libp2p::{
     },
     Multiaddr, PeerId, StreamProtocol,
 };
-use nomos_blend_message::MessageIdentifier;
+use nomos_blend_message::{
+    encap::{self, encapsulated::PoQVerificationInputMinusSigningKey},
+    MessageIdentifier,
+};
 use nomos_blend_scheduling::{
-    deserialize_encapsulated_message, membership::Membership, serialize_encapsulated_message,
-    EncapsulatedMessage,
+    deserialize_encapsulated_message,
+    membership::Membership,
+    message_blend::crypto::{
+        IncomingEncapsulatedMessageWithValidatedPublicHeader,
+        OutgoingEncapsulatedMessageWithValidatedPublicHeader,
+    },
+    serialize_encapsulated_message, EncapsulatedMessage,
 };
 
-use crate::{
-    core::with_core::{
-        behaviour::{
-            handler::{
-                conn_maintenance::ConnectionMonitor, ConnectionHandler, FromBehaviour, ToBehaviour,
-            },
-            old_session::OldSession,
+use crate::core::with_core::{
+    behaviour::{
+        handler::{
+            conn_maintenance::ConnectionMonitor, ConnectionHandler, FromBehaviour, ToBehaviour,
         },
-        error::Error,
+        old_session::OldSession,
     },
-    message::{EncapsulatedMessageWithValidatedPublicHeader, ValidateMessagePublicHeader as _},
+    error::Error,
 };
 
 mod handler;
@@ -86,7 +91,7 @@ impl RemotePeerConnectionDetails {
 /// The same checks are applied to messages received by the Blend service before
 /// they are propagated to the rest of the network, making sure no peer marks
 /// this node as malicious due to an invalid Blend message.
-pub struct Behaviour<ObservationWindowClockProvider> {
+pub struct Behaviour<ProofsVerifier, ObservationWindowClockProvider> {
     /// Tracks connections between this node and other core nodes.
     ///
     /// Only connections with other core nodes that are established before the
@@ -119,7 +124,14 @@ pub struct Behaviour<ObservationWindowClockProvider> {
     minimum_network_size: NonZeroUsize,
     /// States for processing messages from the old session
     /// before the transition period has passed.
-    old_session: Option<OldSession>,
+    old_session: Option<OldSession<ProofsVerifier>>,
+    /// The public inputs to use when verifying incoming messages' `PoQ`s. They
+    /// are updated on every session change.
+    session_poq_verification_inputs: PoQVerificationInputMinusSigningKey,
+    /// Verifier of the incoming messages' `PoQ`s that uses the
+    /// `session_poq_verification_inputs` public inputs for verification. This
+    /// is set on initialization and does not change across sessions.
+    poq_verifier: ProofsVerifier,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
@@ -159,7 +171,7 @@ pub enum Event {
     /// A message received from one of the core peers, after its public header
     /// has been verified.
     Message(
-        Box<EncapsulatedMessageWithValidatedPublicHeader>,
+        Box<IncomingEncapsulatedMessageWithValidatedPublicHeader>,
         (PeerId, ConnectionId),
     ),
     /// A peer on a given connection has been detected as unhealthy.
@@ -179,7 +191,9 @@ pub enum Event {
     OutboundConnectionUpgradeFailed(PeerId),
 }
 
-impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
+impl<ProofsVerifier, ObservationWindowClockProvider>
+    Behaviour<ProofsVerifier, ObservationWindowClockProvider>
+{
     #[must_use]
     pub fn new(
         config: &Config,
@@ -187,6 +201,8 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         current_membership: Option<Membership<PeerId>>,
         local_peer_id: PeerId,
         protocol_name: StreamProtocol,
+        current_poq_verification_inputs: PoQVerificationInputMinusSigningKey,
+        poq_verifier: ProofsVerifier,
     ) -> Self {
         Self {
             negotiated_peers: HashMap::with_capacity(*config.peering_degree.end()),
@@ -206,21 +222,9 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
             protocol_name,
             minimum_network_size: config.minimum_network_size,
             old_session: None,
+            session_poq_verification_inputs: current_poq_verification_inputs,
+            poq_verifier,
         }
-    }
-
-    pub fn start_new_session(&mut self, new_membership: Membership<PeerId>) {
-        self.connections_waiting_upgrade.clear();
-        self.current_membership = Some(new_membership);
-
-        self.stop_old_session();
-        self.old_session = Some(OldSession::new(
-            mem::take(&mut self.negotiated_peers)
-                .into_iter()
-                .map(|(peer_id, details)| (peer_id, details.connection_id))
-                .collect(),
-            mem::take(&mut self.exchanged_message_identifiers),
-        ));
     }
 
     pub fn finish_session_transition(&mut self) {
@@ -240,26 +244,11 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
 
     /// Publish an already-encapsulated message to all connected peers.
     ///
-    /// Before the message is propagated, its public header is validated to make
-    /// sure the receiving peer won't mark us as malicious.
-    pub fn validate_and_publish_message(
-        &mut self,
-        message: EncapsulatedMessage,
-    ) -> Result<(), Error> {
-        let validated_message = message
-            .validate_public_header()
-            .map_err(|_| Error::InvalidMessage)?;
-        self.forward_validated_message_and_maybe_exclude(&validated_message, None)?;
-        Ok(())
-    }
-
-    /// Publish an already-encapsulated message to all connected peers.
-    ///
     /// Public header validation checks are skipped, since the message is
     /// assumed to have been properly formed.
     pub fn publish_validated_message(
         &mut self,
-        message: &EncapsulatedMessageWithValidatedPublicHeader,
+        message: &OutgoingEncapsulatedMessageWithValidatedPublicHeader,
     ) -> Result<(), Error> {
         self.forward_validated_message_and_maybe_exclude(message, None)?;
         Ok(())
@@ -279,7 +268,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
     /// the blend protocol.
     pub fn forward_validated_message(
         &mut self,
-        message: &EncapsulatedMessageWithValidatedPublicHeader,
+        message: &OutgoingEncapsulatedMessageWithValidatedPublicHeader,
         except: (PeerId, ConnectionId),
     ) -> Result<(), Error> {
         if let Some(old_session) = &mut self.old_session {
@@ -380,12 +369,12 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
     /// message.
     fn forward_validated_message_and_maybe_exclude(
         &mut self,
-        message: &EncapsulatedMessageWithValidatedPublicHeader,
+        message: &OutgoingEncapsulatedMessageWithValidatedPublicHeader,
         excluded_peer: Option<PeerId>,
     ) -> Result<(), Error> {
         let message_id = message.id();
 
-        let serialized_message = serialize_encapsulated_message(message);
+        let serialized_message = serialize_encapsulated_message(message.as_ref());
         let mut at_least_one_receiver = false;
         self.negotiated_peers
             .iter()
@@ -707,71 +696,6 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         }
     }
 
-    fn handle_received_serialized_encapsulated_message(
-        &mut self,
-        serialized_message: &[u8],
-        (from_peer_id, from_connection_id): (PeerId, ConnectionId),
-    ) {
-        // First, try to handle the message in the context of the old session.
-        // If it is not part of the old session, try with the current session.
-        if let Some(old_session) = &mut self.old_session {
-            match old_session.handle_received_serialized_encapsulated_message(
-                serialized_message,
-                (from_peer_id, from_connection_id),
-            ) {
-                Ok(handled) => {
-                    if handled {
-                        return;
-                    }
-                }
-                Err(e) => {
-                    tracing::error!(target: LOG_TARGET, "Failed to handle message from the old session: {e:?}");
-                    return;
-                }
-            }
-        }
-
-        // Mark a peer as malicious if it sends a un-deserializable message: https://www.notion.so/nomos-tech/Blend-Protocol-Version-1-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df8172927bebb75d8b988e.
-        let Ok(deserialized_encapsulated_message) =
-            deserialize_encapsulated_message(serialized_message)
-        else {
-            tracing::debug!(target: LOG_TARGET, "Failed to deserialize encapsulated message.");
-            self.close_spammy_connection(
-                (from_peer_id, from_connection_id),
-                SpamReason::UndeserializableMessage,
-            );
-            return;
-        };
-
-        let message_identifier = deserialized_encapsulated_message.id();
-
-        // Mark a core peer as malicious if it sends a duplicate message maliciously (i.e., if a message with the same identifier was already exchanged with them): https://www.notion.so/nomos-tech/Blend-Protocol-Version-1-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81fc86bdce264466efd3.
-        let Ok(()) = self.check_and_update_message_cache(
-            &message_identifier,
-            (from_peer_id, from_connection_id),
-        ) else {
-            return;
-        };
-        // Verify the message public header, or else mark the peer as malicious: https://www.notion.so/nomos-tech/Blend-Protocol-Version-1-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81859cebf5e3d2a5cd8f.
-        let Ok(validated_message) = deserialized_encapsulated_message.validate_public_header()
-        else {
-            tracing::debug!(target: LOG_TARGET, "Neighbor sent us a message with an invalid public header. Marking it as spammy.");
-            self.close_spammy_connection(
-                (from_peer_id, from_connection_id),
-                SpamReason::InvalidPublicHeader,
-            );
-            return;
-        };
-
-        // Notify the swarm about the received message, so that it can be further
-        // processed by the core protocol module.
-        self.events.push_back(ToSwarm::GenerateEvent(Event::Message(
-            Box::new(validated_message),
-            (from_peer_id, from_connection_id),
-        )));
-        self.try_wake();
-    }
-
     fn check_and_update_message_cache(
         &mut self,
         message_id: &MessageIdentifier,
@@ -827,8 +751,128 @@ fn update_connection_id_and_direction(
     existing_connection.connection_id = new_connection_id;
 }
 
-impl<ObservationWindowClockProvider> NetworkBehaviour for Behaviour<ObservationWindowClockProvider>
+impl<ProofsVerifier, ObservationWindowClockProvider>
+    Behaviour<ProofsVerifier, ObservationWindowClockProvider>
 where
+    ProofsVerifier: Clone,
+{
+    pub fn start_new_session(
+        &mut self,
+        new_membership: Membership<PeerId>,
+        new_poq_verification_inputs: PoQVerificationInputMinusSigningKey,
+    ) {
+        self.connections_waiting_upgrade.clear();
+        self.current_membership = Some(new_membership);
+        let (old_poq_verification_inputs, new_poq_verification_inputs) = (
+            self.session_poq_verification_inputs,
+            new_poq_verification_inputs,
+        );
+
+        self.stop_old_session();
+        self.old_session = Some(OldSession::new(
+            mem::take(&mut self.negotiated_peers)
+                .into_iter()
+                .map(|(peer_id, details)| (peer_id, details.connection_id))
+                .collect(),
+            mem::take(&mut self.exchanged_message_identifiers),
+            old_poq_verification_inputs,
+            self.poq_verifier.clone(),
+        ));
+        self.session_poq_verification_inputs = new_poq_verification_inputs;
+    }
+}
+
+impl<ProofsVerifier, ObservationWindowClockProvider>
+    Behaviour<ProofsVerifier, ObservationWindowClockProvider>
+where
+    ProofsVerifier: encap::ProofsVerifier,
+{
+    /// Publish an already-encapsulated message to all connected peers.
+    ///
+    /// Before the message is propagated, its public header is validated to make
+    /// sure the receiving peer won't mark us as malicious.
+    pub fn validate_and_publish_message(
+        &mut self,
+        message: EncapsulatedMessage,
+    ) -> Result<(), Error> {
+        let validated_message = message
+            .verify_public_header(&self.session_poq_verification_inputs, &self.poq_verifier)
+            .map_err(|_| Error::InvalidMessage)?;
+        self.forward_validated_message_and_maybe_exclude(&validated_message.into(), None)?;
+        Ok(())
+    }
+
+    fn handle_received_serialized_encapsulated_message(
+        &mut self,
+        serialized_message: &[u8],
+        (from_peer_id, from_connection_id): (PeerId, ConnectionId),
+    ) {
+        // First, try to handle the message in the context of the old session.
+        // If it is not part of the old session, try with the current session.
+        if let Some(old_session) = &mut self.old_session {
+            match old_session.handle_received_serialized_encapsulated_message(
+                serialized_message,
+                (from_peer_id, from_connection_id),
+            ) {
+                Ok(handled) => {
+                    if handled {
+                        return;
+                    }
+                }
+                Err(e) => {
+                    tracing::error!(target: LOG_TARGET, "Failed to handle message from the old session: {e:?}");
+                    return;
+                }
+            }
+        }
+
+        // Mark a peer as malicious if it sends a un-deserializable message: https://www.notion.so/nomos-tech/Blend-Protocol-Version-1-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df8172927bebb75d8b988e.
+        let Ok(deserialized_encapsulated_message) =
+            deserialize_encapsulated_message(serialized_message)
+        else {
+            tracing::debug!(target: LOG_TARGET, "Failed to deserialize encapsulated message.");
+            self.close_spammy_connection(
+                (from_peer_id, from_connection_id),
+                SpamReason::UndeserializableMessage,
+            );
+            return;
+        };
+
+        let message_identifier = deserialized_encapsulated_message.id();
+
+        // Mark a core peer as malicious if it sends a duplicate message maliciously (i.e., if a message with the same identifier was already exchanged with them): https://www.notion.so/nomos-tech/Blend-Protocol-Version-1-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81fc86bdce264466efd3.
+        let Ok(()) = self.check_and_update_message_cache(
+            &message_identifier,
+            (from_peer_id, from_connection_id),
+        ) else {
+            return;
+        };
+        // Verify the message public header, or else mark the peer as malicious: https://www.notion.so/nomos-tech/Blend-Protocol-Version-1-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81859cebf5e3d2a5cd8f.
+        let Ok(validated_message) = deserialized_encapsulated_message
+            .verify_public_header(&self.session_poq_verification_inputs, &self.poq_verifier)
+        else {
+            tracing::debug!(target: LOG_TARGET, "Neighbor sent us a message with an invalid public header. Marking it as spammy.");
+            self.close_spammy_connection(
+                (from_peer_id, from_connection_id),
+                SpamReason::InvalidPublicHeader,
+            );
+            return;
+        };
+
+        // Notify the swarm about the received message, so that it can be further
+        // processed by the core protocol module.
+        self.events.push_back(ToSwarm::GenerateEvent(Event::Message(
+            Box::new(validated_message),
+            (from_peer_id, from_connection_id),
+        )));
+        self.try_wake();
+    }
+}
+
+impl<ProofsVerifier, ObservationWindowClockProvider> NetworkBehaviour
+    for Behaviour<ProofsVerifier, ObservationWindowClockProvider>
+where
+    ProofsVerifier: encap::ProofsVerifier + 'static,
     ObservationWindowClockProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
         + 'static,
 {

@@ -17,13 +17,13 @@ use libp2p::{
     },
     Multiaddr, PeerId, StreamProtocol,
 };
-use nomos_blend_scheduling::{deserialize_encapsulated_message, membership::Membership};
-
-use crate::{
-    core::with_edge::behaviour::handler::{ConnectionHandler, FromBehaviour, ToBehaviour},
-    message::ValidateMessagePublicHeader as _,
-    EncapsulatedMessageWithValidatedPublicHeader,
+use nomos_blend_message::encap::{self, encapsulated::PoQVerificationInputMinusSigningKey};
+use nomos_blend_scheduling::{
+    deserialize_encapsulated_message, membership::Membership,
+    message_blend::crypto::IncomingEncapsulatedMessageWithValidatedPublicHeader,
 };
+
+use crate::core::with_edge::behaviour::handler::{ConnectionHandler, FromBehaviour, ToBehaviour};
 
 mod handler;
 
@@ -36,7 +36,7 @@ const LOG_TARGET: &str = "blend::network::core::edge::behaviour";
 pub enum Event {
     /// A message received from one of the edge peers, after its public header
     /// has been verified.
-    Message(EncapsulatedMessageWithValidatedPublicHeader),
+    Message(IncomingEncapsulatedMessageWithValidatedPublicHeader),
 }
 
 #[derive(Debug)]
@@ -48,7 +48,7 @@ pub struct Config {
 
 /// A [`NetworkBehaviour`]:
 /// - receives messages from edge nodes and forwards them to the swarm.
-pub struct Behaviour {
+pub struct Behaviour<ProofsVerifier> {
     /// Queue of events to yield to the swarm.
     events: VecDeque<ToSwarm<Event, Either<FromBehaviour, Infallible>>>,
     /// Waker that handles polling
@@ -61,14 +61,18 @@ pub struct Behaviour {
     max_incoming_connections: usize,
     protocol_name: StreamProtocol,
     minimum_network_size: NonZeroUsize,
+    session_poq_verification_inputs: PoQVerificationInputMinusSigningKey,
+    poq_verifier: ProofsVerifier,
 }
 
-impl Behaviour {
+impl<ProofsVerifier> Behaviour<ProofsVerifier> {
     #[must_use]
     pub fn new(
         config: &Config,
         current_membership: Option<Membership<PeerId>>,
         protocol_name: StreamProtocol,
+        current_poq_verification_inputs: PoQVerificationInputMinusSigningKey,
+        poq_verifier: ProofsVerifier,
     ) -> Self {
         Self {
             events: VecDeque::new(),
@@ -79,10 +83,16 @@ impl Behaviour {
             max_incoming_connections: config.max_incoming_connections,
             protocol_name,
             minimum_network_size: config.minimum_network_size,
+            session_poq_verification_inputs: current_poq_verification_inputs,
+            poq_verifier,
         }
     }
 
-    pub fn start_new_session(&mut self, new_membership: Membership<PeerId>) {
+    pub fn start_new_session(
+        &mut self,
+        new_membership: Membership<PeerId>,
+        new_poq_verification_inputs: PoQVerificationInputMinusSigningKey,
+    ) {
         self.current_membership = Some(new_membership);
         // Close all the connections without waiting for the transition period,
         // so that edge nodes can retry with the new membership.
@@ -90,31 +100,13 @@ impl Behaviour {
         for conn in &peers {
             self.close_substream(*conn);
         }
+        self.session_poq_verification_inputs = new_poq_verification_inputs;
     }
 
     fn try_wake(&mut self) {
         if let Some(waker) = self.waker.take() {
             waker.wake();
         }
-    }
-
-    fn handle_received_serialized_encapsulated_message(&mut self, serialized_message: &[u8]) {
-        let Ok(deserialized_encapsulated_message) =
-            deserialize_encapsulated_message(serialized_message)
-        else {
-            tracing::trace!(target: LOG_TARGET, "Failed to deserialize received message. Ignoring...");
-            return;
-        };
-
-        let Ok(validated_message) = deserialized_encapsulated_message.validate_public_header()
-        else {
-            tracing::trace!(target: LOG_TARGET, "Failed to validate public header of received message. Ignoring...");
-            return;
-        };
-
-        self.events
-            .push_back(ToSwarm::GenerateEvent(Event::Message(validated_message)));
-        self.try_wake();
     }
 
     #[must_use]
@@ -161,7 +153,35 @@ impl Behaviour {
     }
 }
 
-impl NetworkBehaviour for Behaviour {
+impl<ProofsVerifier> Behaviour<ProofsVerifier>
+where
+    ProofsVerifier: encap::ProofsVerifier,
+{
+    fn handle_received_serialized_encapsulated_message(&mut self, serialized_message: &[u8]) {
+        let Ok(deserialized_encapsulated_message) =
+            deserialize_encapsulated_message(serialized_message)
+        else {
+            tracing::trace!(target: LOG_TARGET, "Failed to deserialize received message. Ignoring...");
+            return;
+        };
+
+        let Ok(validated_message) = deserialized_encapsulated_message
+            .verify_public_header(&self.session_poq_verification_inputs, &self.poq_verifier)
+        else {
+            tracing::trace!(target: LOG_TARGET, "Failed to validate public header of received message. Ignoring...");
+            return;
+        };
+
+        self.events
+            .push_back(ToSwarm::GenerateEvent(Event::Message(validated_message)));
+        self.try_wake();
+    }
+}
+
+impl<ProofsVerifier> NetworkBehaviour for Behaviour<ProofsVerifier>
+where
+    ProofsVerifier: encap::ProofsVerifier + 'static,
+{
     type ConnectionHandler = Either<ConnectionHandler, DummyConnectionHandler>;
     type ToSwarm = Event;
 

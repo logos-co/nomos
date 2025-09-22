@@ -10,7 +10,7 @@ use bytes::Bytes;
 use cryptarchia_engine::{Branch, Slot};
 use cryptarchia_sync::{BlocksResponse, ProviderResponse};
 use futures::{future, stream, stream::BoxStream, StreamExt as _, TryStreamExt as _};
-use nomos_core::{block::Block, codec::SerdeOp, header::HeaderId};
+use nomos_core::{block::Block, header::HeaderId};
 use nomos_storage::{api::chain::StorageChainApi, backends::StorageBackend, StorageMsg};
 use overwatch::DynError;
 use serde::Serialize;
@@ -63,7 +63,7 @@ where
 impl<Storage, Tx> BlockProvider<Storage, Tx>
 where
     Storage: StorageBackend + 'static,
-    <Storage as StorageChainApi>::Block: TryInto<Block<Tx>>,
+    <Storage as StorageChainApi>::Block: TryInto<Block<Tx>> + Into<Bytes>,
     Tx: Serialize + Clone + Eq + Send + Sync + 'static,
 {
     pub const fn new(storage_relay: StorageRelay<Storage>) -> Self {
@@ -148,12 +148,10 @@ where
                 let storage = storage.clone();
 
                 async move {
-                    let block = Self::load_block(id, &storage)
+                    Self::load_block_bytes(id, &storage)
                         .await
                         .map_err(DynError::from)?
-                        .ok_or_else(|| DynError::from(GetBlocksError::BlockNotFound(id)))?;
-
-                    <() as SerdeOp>::serialize(&block).map_err(DynError::from)
+                        .ok_or_else(|| DynError::from(GetBlocksError::BlockNotFound(id)))
                 }
             })
             .map_err(DynError::from)
@@ -502,6 +500,25 @@ where
         }
     }
 
+    /// Loads a block from storage as raw bytes, avoiding
+    /// deserialization/serialization
+    async fn load_block_bytes(
+        id: HeaderId,
+        storage: &StorageRelay<Storage>,
+    ) -> Result<Option<Bytes>, GetBlocksError> {
+        let (tx, rx) = oneshot::channel();
+        storage
+            .send(StorageMsg::get_block_request(id, tx))
+            .await
+            .map_err(|(e, _)| GetBlocksError::SendError(e.to_string()))?;
+
+        let response = rx.await.map_err(|_| GetBlocksError::ChannelDropped)?;
+
+        // Convert storage block type to Bytes to satisfy trait bounds.
+        // For RocksBackend this is Bytes -> Bytes (no-op).
+        Ok(response.map(Into::into))
+    }
+
     /// Scans immutable block IDs from the storage,
     /// starting from the `start_slot`, limited to `limit`.
     async fn scan_immutable_block_ids(
@@ -542,6 +559,7 @@ mod tests {
     use futures::StreamExt as _;
     use groth16::Fr;
     use nomos_core::{
+        codec::SerdeOp,
         header::Header,
         mantle::{ledger::Utxo, Note, SignedMantleTx},
         proofs::leader_proof::{LeaderPrivate, LeaderPublic},

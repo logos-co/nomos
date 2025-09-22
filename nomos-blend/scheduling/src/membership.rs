@@ -4,11 +4,8 @@ use std::{
 };
 
 use multiaddr::Multiaddr;
-use nomos_blend_message::crypto::Ed25519PublicKey;
-use rand::{
-    seq::{IteratorRandom as _, SliceRandom as _},
-    Rng,
-};
+use nomos_blend_message::crypto::keys::Ed25519PublicKey;
+use rand::{seq::IteratorRandom as _, Rng};
 use serde::{Deserialize, Serialize};
 
 use crate::serde::ed25519_pubkey_hex;
@@ -17,13 +14,13 @@ use crate::serde::ed25519_pubkey_hex;
 #[derive(Clone, Debug)]
 pub struct Membership<NodeId> {
     /// All nodes, including local and remote.
-    nodes: HashMap<NodeId, Node<NodeId>>,
-    /// IDs of remote nodes only, excluding the local node if present.
-    /// Kept as a separate [`Vec`] to enable efficient random sampling,
-    /// which is faster than sampling from the keys in [`HashMap`].
-    remote_nodes: Vec<NodeId>,
-    /// ID of the local node if it is part of the membership.
-    local_node: Option<NodeId>,
+    core_nodes: HashMap<NodeId, Node<NodeId>>,
+    /// List of node indices, used for proof of selection generation. It
+    /// contains all nodes in the `nodes` map.
+    node_indices: Vec<NodeId>,
+    /// ID of the local node in the `node_indices` vector, if present (i.e., if
+    /// the local node is a core node).
+    local_node_index: Option<usize>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -46,30 +43,30 @@ where
     #[must_use]
     pub fn new(nodes: &[Node<NodeId>], local_public_key: &Ed25519PublicKey) -> Self {
         let mut core_nodes = HashMap::with_capacity(nodes.len());
-        let mut remote_core_nodes = Vec::with_capacity(nodes.len());
-        let mut local_node = None;
-        for node in nodes {
-            core_nodes.insert(node.id.clone(), node.clone());
+        let mut node_indices = Vec::with_capacity(nodes.len());
+        let mut local_node_index = None;
+        for (index, node) in nodes.iter().enumerate() {
+            assert!(
+                core_nodes.insert(node.id.clone(), node.clone()).is_none(),
+                "Membership info contained a duplicate node."
+            );
+            node_indices.push(node.id.clone());
             if node.public_key == *local_public_key {
-                local_node = Some(node.id.clone());
-            } else {
-                remote_core_nodes.push(node.id.clone());
+                local_node_index = Some(index);
             }
         }
 
         Self {
-            nodes: core_nodes,
-            remote_nodes: remote_core_nodes,
-            local_node,
+            core_nodes,
+            node_indices,
+            local_node_index,
         }
     }
 
     #[cfg(feature = "unsafe-test-functions")]
     #[must_use]
     pub fn new_without_local(nodes: &[Node<NodeId>]) -> Self {
-        use nomos_blend_message::crypto::Ed25519PrivateKey;
-
-        Self::new(nodes, &Ed25519PrivateKey::generate().public_key())
+        Self::new(nodes, &[0; _].try_into().unwrap())
     }
 }
 
@@ -83,11 +80,7 @@ where
         rng: &mut R,
         amount: usize,
     ) -> impl Iterator<Item = &Node<NodeId>> {
-        self.remote_nodes.choose_multiple(rng, amount).map(|id| {
-            self.nodes
-                .get(id)
-                .expect("Node ID must exist in core nodes.")
-        })
+        self.filter_and_choose_remote_nodes(rng, amount, &HashSet::new())
     }
 
     /// Choose `amount` random remote nodes excluding the given set of node IDs.
@@ -97,38 +90,55 @@ where
         amount: usize,
         exclude_peers: &HashSet<NodeId>,
     ) -> impl Iterator<Item = &Node<NodeId>> {
-        self.remote_nodes
+        self.node_indices
             .iter()
-            .filter(|id| !exclude_peers.contains(id))
+            .enumerate()
+            // Filter out excluded peers.
+            .filter(|(_, node_id)| !exclude_peers.contains(node_id))
+            // Filter out local node, if the local node is a core node.
+            .filter(|(index, _)| self.local_node_index != Some(*index))
+            // Discard index after it's used.
+            .map(|(_, node)| node)
             .choose_multiple(rng, amount)
             .into_iter()
             .map(|id| {
-                self.nodes
+                self.core_nodes
                     .get(id)
                     .expect("Node ID must exist in core nodes.")
             })
     }
 
     pub fn contains(&self, node_id: &NodeId) -> bool {
-        self.nodes.contains_key(node_id)
+        self.core_nodes.contains_key(node_id)
     }
 
-    pub const fn contains_local(&self) -> bool {
-        self.local_node.is_some()
+    #[must_use]
+    pub fn get_node_at(&self, index: usize) -> Option<&Node<NodeId>> {
+        self.core_nodes.get(self.node_indices.get(index)?)
     }
 }
 
 impl<NodeId> Membership<NodeId> {
+    #[must_use]
+    pub const fn local_index(&self) -> Option<usize> {
+        self.local_node_index
+    }
+
+    #[must_use]
+    pub const fn contains_local(&self) -> bool {
+        self.local_node_index.is_some()
+    }
+
     /// Returns the number of all nodes, including local and remote.
     #[must_use]
     pub fn size(&self) -> usize {
-        self.nodes.len()
+        self.core_nodes.len()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use nomos_blend_message::crypto::Ed25519PrivateKey;
+    use nomos_blend_message::crypto::keys::Ed25519PrivateKey;
     use rand::rngs::OsRng;
 
     use super::*;
@@ -141,11 +151,17 @@ mod tests {
         let membership = Membership::new(&nodes, &local_key);
 
         assert_eq!(membership.size(), 3);
-        assert_eq!(membership.remote_nodes.len(), 2);
+        assert_eq!(
+            membership
+                .core_nodes
+                .keys()
+                .copied()
+                .collect::<HashSet<_>>(),
+            HashSet::from([1, 2, 3])
+        );
+        assert_eq!(membership.node_indices, vec![1, 2, 3]);
+        assert_eq!(membership.local_node_index, Some(1));
         assert!(membership.contains_local());
-        assert!(!membership.remote_nodes.contains(&2));
-        assert!(membership.remote_nodes.contains(&1));
-        assert!(membership.remote_nodes.contains(&3));
     }
 
     #[test]
@@ -156,18 +172,30 @@ mod tests {
         let membership = Membership::new(&nodes, &local_key);
 
         assert_eq!(membership.size(), 3);
-        assert_eq!(membership.remote_nodes.len(), 3);
+        assert_eq!(
+            membership
+                .core_nodes
+                .keys()
+                .copied()
+                .collect::<HashSet<_>>(),
+            HashSet::from([1, 2, 3])
+        );
+        assert_eq!(membership.node_indices, vec![1, 2, 3]);
+        assert!(membership.local_node_index.is_none());
         assert!(!membership.contains_local());
-        assert!(membership.remote_nodes.contains(&1));
-        assert!(membership.remote_nodes.contains(&2));
-        assert!(membership.remote_nodes.contains(&3));
     }
 
     #[test]
     fn test_membership_new_empty() {
         let local_key = key(99);
+
         let membership = Membership::<u32>::new(&[], &local_key);
+
         assert_eq!(membership.size(), 0);
+        assert!(membership.core_nodes.keys().next().is_none());
+        assert!(membership.node_indices.is_empty());
+        assert!(membership.local_node_index.is_none());
+        assert!(!membership.contains_local());
     }
 
     #[test]

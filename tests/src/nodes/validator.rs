@@ -15,7 +15,7 @@ use cryptarchia_engine::time::SlotConfig;
 use futures::Stream;
 use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
 use nomos_api::http::membership::MembershipUpdateRequest;
-use nomos_blend_scheduling::message_blend::CryptographicProcessorSettings;
+use nomos_blend_scheduling::message_blend::SessionCryptographicProcessorSettings;
 use nomos_blend_service::{
     core::settings::{CoverTrafficSettingsExt, MessageDelayerSettingsExt, SchedulerSettingsExt},
     settings::TimingSettings,
@@ -418,8 +418,8 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
         },
         blend: BlendConfig::new(nomos_blend_service::core::settings::BlendConfig {
             backend: config.blend_config.backend,
-            crypto: CryptographicProcessorSettings {
-                signing_private_key: config.blend_config.private_key.clone(),
+            crypto: SessionCryptographicProcessorSettings {
+                non_ephemeral_signing_key: config.blend_config.private_key.clone(),
                 num_blend_layers: 1,
             },
             time: TimingSettings {
