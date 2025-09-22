@@ -16,7 +16,7 @@ use crate::{
         SwarmBuilder as EdgeSwarmBuilder, TestSwarm as EdgeTestSwarm,
     },
     test_utils::{
-        crypto::MockProofsVerifier, membership::mock_session_info, TestEncapsulatedMessage,
+        TestEncapsulatedMessage, crypto::MockProofsVerifier, membership::mock_session_info,
     },
 };
 

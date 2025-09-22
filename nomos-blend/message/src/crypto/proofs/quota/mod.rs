@@ -2,14 +2,14 @@ use std::sync::LazyLock;
 
 use ::serde::{Deserialize, Serialize};
 use generic_array::{ArrayLength, GenericArray};
-use groth16::{fr_from_bytes, fr_from_bytes_unchecked, Bn254, CompressSize};
+use groth16::{Bn254, CompressSize, fr_from_bytes, fr_from_bytes_unchecked};
 use nomos_core::crypto::{ZkHash, ZkHasher};
-use poq::{prove, verify, PoQProof, PoQVerifierInput, PoQWitnessInputs, ProveError};
+use poq::{PoQProof, PoQVerifierInput, PoQWitnessInputs, ProveError, prove, verify};
 use thiserror::Error;
 
 use crate::crypto::proofs::quota::inputs::{
-    prove::{Inputs, PrivateInputs, PublicInputs},
     VerifyInputs,
+    prove::{Inputs, PrivateInputs, PublicInputs},
 };
 
 pub mod inputs;

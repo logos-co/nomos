@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    crypto::{keys::Ed25519PublicKey, proofs::quota::ProofOfQuota, signatures::Signature},
     Error,
+    crypto::{keys::Ed25519PublicKey, proofs::quota::ProofOfQuota, signatures::Signature},
 };
 
 const LATEST_BLEND_MESSAGE_VERSION: u8 = 1;

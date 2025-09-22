@@ -18,23 +18,23 @@ use libp2p::{
     },
 };
 use nomos_blend_message::{
-    encap::{self, encapsulated::PoQVerificationInputMinusSigningKey},
     MessageIdentifier,
+    encap::{self, encapsulated::PoQVerificationInputMinusSigningKey},
 };
 use nomos_blend_scheduling::{
-    deserialize_encapsulated_message,
+    EncapsulatedMessage, deserialize_encapsulated_message,
     membership::Membership,
     message_blend::crypto::{
         IncomingEncapsulatedMessageWithValidatedPublicHeader,
         OutgoingEncapsulatedMessageWithValidatedPublicHeader,
     },
-    serialize_encapsulated_message, EncapsulatedMessage,
+    serialize_encapsulated_message,
 };
 
 use crate::core::with_core::{
     behaviour::{
         handler::{
-            conn_maintenance::ConnectionMonitor, ConnectionHandler, FromBehaviour, ToBehaviour,
+            ConnectionHandler, FromBehaviour, ToBehaviour, conn_maintenance::ConnectionMonitor,
         },
         old_session::OldSession,
     },

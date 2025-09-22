@@ -3,22 +3,22 @@ use core::convert::Infallible;
 use nomos_core::crypto::ZkHash;
 
 use crate::{
+    Error, PayloadType,
     crypto::{
         keys::{Ed25519PrivateKey, X25519PrivateKey},
         proofs::{
-            quota::{inputs::prove::PublicInputs, ProofOfQuota},
-            selection::{inputs::VerifyInputs, ProofOfSelection},
+            quota::{ProofOfQuota, inputs::prove::PublicInputs},
+            selection::{ProofOfSelection, inputs::VerifyInputs},
         },
     },
     encap::{
+        ProofsVerifier,
         decapsulated::DecapsulationOutput,
         encapsulated::{EncapsulatedMessage, PoQVerificationInputMinusSigningKey},
         validated::RequiredProofOfSelectionVerificationInputs,
-        ProofsVerifier,
     },
     input::{EncapsulationInput, EncapsulationInputs},
     message::payload::MAX_PAYLOAD_BODY_SIZE,
-    Error, PayloadType,
 };
 
 const ENCAPSULATION_COUNT: usize = 3;
@@ -81,16 +81,17 @@ fn encapsulate_and_decapsulate() {
 
     // We cannot decapsulate with an invalid private key,
     // which we already used for the first decapsulation.
-    assert!(msg
-        .clone()
-        .verify_public_header(&PoQVerificationInputMinusSigningKey::default(), &verifier)
-        .unwrap()
-        .decapsulate(
-            blend_node_enc_keys.last().unwrap(),
-            &RequiredProofOfSelectionVerificationInputs::default(),
-            &verifier,
-        )
-        .is_err());
+    assert!(
+        msg.clone()
+            .verify_public_header(&PoQVerificationInputMinusSigningKey::default(), &verifier)
+            .unwrap()
+            .decapsulate(
+                blend_node_enc_keys.last().unwrap(),
+                &RequiredProofOfSelectionVerificationInputs::default(),
+                &verifier,
+            )
+            .is_err()
+    );
 
     // We can decapsulate with the correct private key
     // and the fully-decapsulated payload is correct.

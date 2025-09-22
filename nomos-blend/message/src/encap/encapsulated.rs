@@ -5,23 +5,23 @@ use nomos_core::{codec::SerdeOp, crypto::ZkHash};
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    Error, PayloadType,
     crypto::{
         keys::{Ed25519PrivateKey, Ed25519PublicKey, SharedKey},
         proofs::{
-            quota::{self, inputs::prove::PublicInputs, ProofOfQuota},
-            selection::{self, inputs::VerifyInputs, ProofOfSelection},
+            quota::{self, ProofOfQuota, inputs::prove::PublicInputs},
+            selection::{self, ProofOfSelection, inputs::VerifyInputs},
         },
         random_sized_bytes,
         signatures::Signature,
     },
     encap::{
+        ProofsVerifier,
         decapsulated::{PartDecapsulationOutput, PrivateHeaderDecapsulationOutput},
         validated::IncomingEncapsulatedMessageWithValidatedPublicHeader,
-        ProofsVerifier,
     },
     input::EncapsulationInputs,
     message::{BlendingHeader, Payload, PublicHeader},
-    Error, PayloadType,
 };
 
 pub type MessageIdentifier = Ed25519PublicKey;

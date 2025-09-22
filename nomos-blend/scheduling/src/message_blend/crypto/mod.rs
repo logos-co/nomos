@@ -1,5 +1,6 @@
 use derivative::Derivative;
 use nomos_blend_message::{
+    Error,
     crypto::keys::Ed25519PrivateKey,
     encap::{
         decapsulated::DecapsulationOutput as InternalDecapsulationOutput,
@@ -10,7 +11,6 @@ use nomos_blend_message::{
         },
     },
     input::EncapsulationInputs as InternalEncapsulationInputs,
-    Error,
 };
 use nomos_core::codec::SerdeOp as _;
 

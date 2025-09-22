@@ -13,13 +13,13 @@ use libp2p_swarm_test::SwarmExt as _;
 use nomos_blend_message::{
     crypto::keys::Ed25519PrivateKey,
     encap::{
-        encapsulated::PoQVerificationInputMinusSigningKey, ProofsVerifier as ProofsVerifierTrait,
+        ProofsVerifier as ProofsVerifierTrait, encapsulated::PoQVerificationInputMinusSigningKey,
     },
 };
 use nomos_blend_network::core::{
+    Config, NetworkBehaviour,
     with_core::behaviour::{Config as CoreToCoreConfig, IntervalStreamProvider},
     with_edge::behaviour::Config as CoreToEdgeConfig,
-    Config, NetworkBehaviour,
 };
 use nomos_blend_scheduling::{
     membership::{Membership, Node},
@@ -38,12 +38,12 @@ use tokio_stream::wrappers::IntervalStream;
 use crate::{
     core::{
         backends::{
-            libp2p::{behaviour::BlendBehaviour, swarm::BlendSwarmMessage, BlendSwarm},
             SessionInfo,
+            libp2p::{BlendSwarm, behaviour::BlendBehaviour, swarm::BlendSwarmMessage},
         },
         settings::BlendConfig,
     },
-    test_utils::{crypto::MockProofsVerifier, PROTOCOL_NAME},
+    test_utils::{PROTOCOL_NAME, crypto::MockProofsVerifier},
 };
 
 pub type InnerSwarm<ProofsVerifier> = BlendSwarm<

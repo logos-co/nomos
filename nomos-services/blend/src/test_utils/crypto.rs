@@ -5,8 +5,8 @@ use nomos_blend_message::{
     crypto::{
         keys::Ed25519PrivateKey,
         proofs::{
-            quota::{inputs::prove::PublicInputs, ProofOfQuota},
-            selection::{inputs::VerifyInputs, ProofOfSelection},
+            quota::{ProofOfQuota, inputs::prove::PublicInputs},
+            selection::{ProofOfSelection, inputs::VerifyInputs},
         },
     },
     encap::ProofsVerifier,

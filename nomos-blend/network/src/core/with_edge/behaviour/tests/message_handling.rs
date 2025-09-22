@@ -11,7 +11,7 @@ use test_log::test;
 use crate::{
     core::{
         tests::utils::{
-            default_poq_verification_inputs, AlwaysTrueVerifier, TestEncapsulatedMessage, TestSwarm,
+            AlwaysTrueVerifier, TestEncapsulatedMessage, TestSwarm, default_poq_verification_inputs,
         },
         with_edge::behaviour::{
             Event,

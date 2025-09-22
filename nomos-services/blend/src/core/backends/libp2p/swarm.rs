@@ -13,21 +13,21 @@ use libp2p::{
     swarm::{ConnectionId, dial_opts::PeerCondition},
 };
 use nomos_blend_message::encap::{
-    encapsulated::PoQVerificationInputMinusSigningKey, ProofsVerifier as ProofsVerifierTrait,
+    ProofsVerifier as ProofsVerifierTrait, encapsulated::PoQVerificationInputMinusSigningKey,
 };
 use nomos_blend_network::core::{
+    NetworkBehaviourEvent,
     with_core::behaviour::{Event as CoreToCoreEvent, IntervalStreamProvider, NegotiatedPeerState},
     with_edge::behaviour::Event as CoreToEdgeEvent,
-    NetworkBehaviourEvent,
 };
 use nomos_blend_scheduling::{
+    EncapsulatedMessage,
     membership::Membership,
     message_blend::crypto::{
         IncomingEncapsulatedMessageWithValidatedPublicHeader,
         OutgoingEncapsulatedMessageWithValidatedPublicHeader,
     },
     session::SessionEvent,
-    EncapsulatedMessage,
 };
 use nomos_libp2p::{DialOpts, SwarmEvent};
 use rand::RngCore;
@@ -35,11 +35,11 @@ use tokio::sync::{broadcast, mpsc};
 
 use crate::core::{
     backends::{
-        libp2p::{
-            behaviour::{BlendBehaviour, BlendBehaviourEvent},
-            Libp2pBlendBackendSettings, LOG_TARGET,
-        },
         SessionInfo,
+        libp2p::{
+            LOG_TARGET, Libp2pBlendBackendSettings,
+            behaviour::{BlendBehaviour, BlendBehaviourEvent},
+        },
     },
     settings::BlendConfig,
 };

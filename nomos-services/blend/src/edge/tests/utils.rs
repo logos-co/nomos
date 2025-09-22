@@ -7,13 +7,13 @@ use std::{
 
 use futures::StreamExt as _;
 use nomos_blend_scheduling::{
+    EncapsulatedMessage,
     membership::Membership,
     message_blend::{SessionCryptographicProcessorSettings, SessionInfo as PoQSessionInfo},
     session::UninitializedSessionEventStream,
-    EncapsulatedMessage,
 };
-use overwatch::overwatch::{commands::OverwatchCommand, OverwatchHandle};
-use rand::{rngs::OsRng, RngCore};
+use overwatch::overwatch::{OverwatchHandle, commands::OverwatchCommand};
+use rand::{RngCore, rngs::OsRng};
 use tokio::{sync::mpsc, task::JoinHandle};
 use tokio_stream::wrappers::ReceiverStream;
 
@@ -21,7 +21,7 @@ use crate::{
     edge::{backends::BlendBackend, handlers::Error, run, settings::BlendConfig},
     mock_poq_inputs_stream,
     session::SessionInfo,
-    settings::{TimingSettings, FIRST_SESSION_READY_TIMEOUT},
+    settings::{FIRST_SESSION_READY_TIMEOUT, TimingSettings},
     test_utils::{crypto::MockProofsGenerator, membership::key},
 };
 

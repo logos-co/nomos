@@ -20,7 +20,7 @@ use nomos_sdp::backends::mock::MockSdpBackend;
 use nomos_storage::backends::rocksdb::RocksBackend;
 use nomos_time::backends::NtpTimeBackend;
 
-use crate::{generic_services::blend::BlendService, MB16};
+use crate::{MB16, generic_services::blend::BlendService};
 
 pub mod blend;
 

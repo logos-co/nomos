@@ -4,13 +4,13 @@ use async_trait::async_trait;
 use nomos_blend_message::crypto::{
     keys::Ed25519PrivateKey,
     proofs::{
-        quota::{inputs::prove::PublicInputs, ProofOfQuota},
-        selection::{inputs::VerifyInputs, ProofOfSelection},
+        quota::{ProofOfQuota, inputs::prove::PublicInputs},
+        selection::{ProofOfSelection, inputs::VerifyInputs},
     },
     random_sized_bytes,
 };
 use nomos_blend_scheduling::message_blend::{BlendLayerProof, SessionInfo};
-use nomos_blend_service::{membership::service::Adapter, ProofsGenerator, ProofsVerifier};
+use nomos_blend_service::{ProofsGenerator, ProofsVerifier, membership::service::Adapter};
 use nomos_core::{codec::SerdeOp as _, crypto::ZkHash};
 use nomos_libp2p::PeerId;
 

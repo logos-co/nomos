@@ -6,9 +6,9 @@ use std::{fmt::Debug, pin::Pin};
 use futures::Stream;
 use nomos_blend_message::encap::encapsulated::PoQVerificationInputMinusSigningKey;
 use nomos_blend_scheduling::{
-    membership::Membership,
+    EncapsulatedMessage, membership::Membership,
     message_blend::crypto::IncomingEncapsulatedMessageWithValidatedPublicHeader,
-    session::SessionEvent, EncapsulatedMessage,
+    session::SessionEvent,
 };
 use overwatch::overwatch::handle::OverwatchHandle;
 

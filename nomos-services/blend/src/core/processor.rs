@@ -7,9 +7,8 @@ use std::{
 use nomos_blend_scheduling::{
     membership::Membership,
     message_blend::{
-        crypto::send_and_receive::SessionCryptographicProcessor,
         ProofsGenerator as ProofsGeneratorTrait, SessionCryptographicProcessorSettings,
-        SessionInfo,
+        SessionInfo, crypto::send_and_receive::SessionCryptographicProcessor,
     },
 };
 

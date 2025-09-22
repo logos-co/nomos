@@ -1,11 +1,11 @@
 use crate::{
+    Error, MessageIdentifier,
     crypto::{keys::X25519PrivateKey, proofs::selection::inputs::VerifyInputs},
     encap::{
+        ProofsVerifier,
         decapsulated::{DecapsulatedMessage, DecapsulationOutput, PartDecapsulationOutput},
         encapsulated::EncapsulatedMessage,
-        ProofsVerifier,
     },
-    Error, MessageIdentifier,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -120,7 +120,7 @@ impl<const ENCAPSULATION_COUNT: usize>
 {
     #[must_use]
     pub const fn id(&self) -> MessageIdentifier {
-        self.0 .0.id()
+        self.0.0.id()
     }
 }
 
@@ -139,6 +139,6 @@ impl<const ENCAPSULATION_COUNT: usize> AsRef<EncapsulatedMessage<ENCAPSULATION_C
     for OutgoingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>
 {
     fn as_ref(&self) -> &EncapsulatedMessage<ENCAPSULATION_COUNT> {
-        &self.0 .0
+        &self.0.0
     }
 }

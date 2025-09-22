@@ -1,24 +1,24 @@
 use core::ops::{Deref, DerefMut};
 
 use nomos_blend_message::{
-    encap::{
-        validated::RequiredProofOfSelectionVerificationInputs,
-        ProofsVerifier as ProofsVerifierTrait,
-    },
     Error,
+    encap::{
+        ProofsVerifier as ProofsVerifierTrait,
+        validated::RequiredProofOfSelectionVerificationInputs,
+    },
 };
 
 use crate::{
+    DecapsulationOutput,
     membership::Membership,
     message_blend::{
-        crypto::{
-            send::SessionCryptographicProcessor as SenderSessionCryptographicProcessor,
-            IncomingEncapsulatedMessageWithValidatedPublicHeader,
-        },
         ProofsGenerator as ProofsGeneratorTrait, SessionCryptographicProcessorSettings,
         SessionInfo,
+        crypto::{
+            IncomingEncapsulatedMessageWithValidatedPublicHeader,
+            send::SessionCryptographicProcessor as SenderSessionCryptographicProcessor,
+        },
     },
-    DecapsulationOutput,
 };
 
 /// [`SessionCryptographicProcessor`] is responsible for wrapping and unwrapping

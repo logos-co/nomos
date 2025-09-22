@@ -11,9 +11,8 @@ use nomos_blend_message::{
         keys::Ed25519PrivateKey,
         proofs::{
             quota::{
-                self,
+                self, ProofOfQuota,
                 inputs::prove::private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs},
-                ProofOfQuota,
             },
             selection::ProofOfSelection,
         },
@@ -23,7 +22,7 @@ use nomos_blend_message::{
 use nomos_core::crypto::ZkHash;
 use tokio::{
     spawn,
-    sync::mpsc::{channel, Receiver, Sender},
+    sync::mpsc::{Receiver, Sender, channel},
     task::spawn_blocking,
 };
 

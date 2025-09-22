@@ -12,7 +12,7 @@ use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
 
 use crate::core::{
-    tests::utils::{default_poq_verification_inputs, AlwaysTrueVerifier, TestSwarm, PROTOCOL_NAME},
+    tests::utils::{AlwaysTrueVerifier, PROTOCOL_NAME, TestSwarm, default_poq_verification_inputs},
     with_core::behaviour::{Behaviour, Event, IntervalStreamProvider},
 };
 

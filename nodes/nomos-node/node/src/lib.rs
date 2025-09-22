@@ -55,8 +55,8 @@ pub use crate::config::{Config, CryptarchiaArgs, HttpArgs, LogArgs, NetworkArgs}
 use crate::{
     api::backend::AxumBackend,
     generic_services::{
-        blend::{BlendProofsGenerator, BlendProofsVerifier},
         DaMembershipAdapter, DaMembershipStorageGeneric, MembershipService, SdpService,
+        blend::{BlendProofsGenerator, BlendProofsVerifier},
     },
 };
 

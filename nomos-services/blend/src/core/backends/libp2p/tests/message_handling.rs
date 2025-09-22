@@ -10,7 +10,7 @@ use crate::{
         tests::utils::{BlendBehaviourBuilder, SwarmBuilder, TestSwarm},
     },
     test_utils::{
-        crypto::MockProofsVerifier, membership::mock_session_info, TestEncapsulatedMessage,
+        TestEncapsulatedMessage, crypto::MockProofsVerifier, membership::mock_session_info,
     },
 };
 

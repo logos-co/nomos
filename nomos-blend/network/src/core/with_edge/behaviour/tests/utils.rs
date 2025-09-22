@@ -9,7 +9,7 @@ use nomos_blend_message::encap;
 use nomos_blend_scheduling::membership::{Membership, Node};
 
 use crate::core::{
-    tests::utils::{default_poq_verification_inputs, AlwaysTrueVerifier, PROTOCOL_NAME},
+    tests::utils::{AlwaysTrueVerifier, PROTOCOL_NAME, default_poq_verification_inputs},
     with_edge::behaviour::Behaviour,
 };
 

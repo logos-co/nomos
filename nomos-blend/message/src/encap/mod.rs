@@ -1,8 +1,8 @@
 use nomos_core::crypto::ZkHash;
 
 use crate::crypto::proofs::{
-    quota::{inputs::prove::PublicInputs, ProofOfQuota},
-    selection::{inputs::VerifyInputs, ProofOfSelection},
+    quota::{ProofOfQuota, inputs::prove::PublicInputs},
+    selection::{ProofOfSelection, inputs::VerifyInputs},
 };
 
 pub mod decapsulated;

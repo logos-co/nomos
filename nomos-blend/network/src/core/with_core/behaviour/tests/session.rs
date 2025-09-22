@@ -6,7 +6,7 @@ use test_log::test;
 use tokio::select;
 
 use crate::core::{
-    tests::utils::{default_poq_verification_inputs, TestEncapsulatedMessage, TestSwarm},
+    tests::utils::{TestEncapsulatedMessage, TestSwarm, default_poq_verification_inputs},
     with_core::{
         behaviour::{
             Event,

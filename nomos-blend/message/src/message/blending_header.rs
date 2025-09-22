@@ -3,11 +3,11 @@ use serde::{Deserialize, Serialize};
 use crate::crypto::{
     keys::{Ed25519PrivateKey, Ed25519PublicKey, KEY_SIZE},
     proofs::{
-        quota::{ProofOfQuota, PROOF_OF_QUOTA_SIZE},
-        selection::{ProofOfSelection, PROOF_OF_SELECTION_SIZE},
+        quota::{PROOF_OF_QUOTA_SIZE, ProofOfQuota},
+        selection::{PROOF_OF_SELECTION_SIZE, ProofOfSelection},
     },
     pseudo_random_sized_bytes, random_sized_bytes,
-    signatures::{Signature, SIGNATURE_SIZE},
+    signatures::{SIGNATURE_SIZE, Signature},
 };
 
 /// A blending header that is fully decapsulated.

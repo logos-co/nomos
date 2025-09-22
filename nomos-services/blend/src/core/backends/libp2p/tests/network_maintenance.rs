@@ -12,7 +12,7 @@ use crate::{
         BlendBehaviourBuilder, SwarmBuilder, SwarmExt as _, TestSwarm,
     },
     test_utils::{
-        crypto::MockProofsVerifier, membership::mock_session_info, TestEncapsulatedMessage,
+        TestEncapsulatedMessage, crypto::MockProofsVerifier, membership::mock_session_info,
     },
 };
 

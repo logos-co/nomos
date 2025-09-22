@@ -1,7 +1,7 @@
 use crate::{
+    PayloadType,
     encap::encapsulated::{EncapsulatedMessage, EncapsulatedPart, EncapsulatedPrivateHeader},
     message::{Payload, PublicHeader},
-    PayloadType,
 };
 
 /// The output of [`EncapsulatedMessage::decapsulate`]

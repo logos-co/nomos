@@ -30,9 +30,9 @@ use nomos_node::{
     BlobInfo, DaNetworkApiAdapter, MB16, NetworkBackend, NomosDaMembership, RocksBackend,
     SystemSig,
     generic_services::{
-        blend::{BlendProofsGenerator, BlendProofsVerifier},
         DaMembershipAdapter, DaMembershipStorageGeneric, MembershipService, SdpService,
         VerifierMempoolAdapter,
+        blend::{BlendProofsGenerator, BlendProofsVerifier},
     },
 };
 use nomos_time::backends::NtpTimeBackend;

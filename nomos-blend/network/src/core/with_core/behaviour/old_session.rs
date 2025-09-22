@@ -10,8 +10,8 @@ use libp2p::{
     swarm::{ConnectionId, NotifyHandler, ToSwarm},
 };
 use nomos_blend_message::{
-    encap::{self, encapsulated::PoQVerificationInputMinusSigningKey},
     MessageIdentifier,
+    encap::{self, encapsulated::PoQVerificationInputMinusSigningKey},
 };
 use nomos_blend_scheduling::{
     deserialize_encapsulated_message,
@@ -20,7 +20,7 @@ use nomos_blend_scheduling::{
 };
 
 use crate::core::with_core::{
-    behaviour::{handler::FromBehaviour, Event},
+    behaviour::{Event, handler::FromBehaviour},
     error::Error,
 };
 

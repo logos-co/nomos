@@ -9,12 +9,12 @@ use tokio::{select, time::sleep};
 
 use crate::core::{
     tests::utils::{
-        default_poq_verification_inputs, AlwaysTrueVerifier, TestEncapsulatedMessage, TestSwarm,
+        AlwaysTrueVerifier, TestEncapsulatedMessage, TestSwarm, default_poq_verification_inputs,
     },
     with_core::{
         behaviour::{
-            tests::utils::{BehaviourBuilder, SwarmExt as _},
             Event, NegotiatedPeerState, SpamReason,
+            tests::utils::{BehaviourBuilder, SwarmExt as _},
         },
         error::Error,
     },
