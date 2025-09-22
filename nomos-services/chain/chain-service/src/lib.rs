@@ -9,7 +9,7 @@ mod states;
 pub mod storage;
 mod sync;
 
-use core::fmt::Debug;
+use core::{fmt::Debug, pin::Pin};
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
     fmt::Display,
@@ -22,7 +22,7 @@ use broadcast_service::{BlockBroadcastMsg, BlockBroadcastService, BlockInfo};
 use bytes::Bytes;
 use cryptarchia_engine::{PrunedBlocks, Slot};
 use cryptarchia_sync::{GetTipResponse, ProviderResponse};
-use futures::{StreamExt as _, TryFutureExt as _};
+use futures::{Stream, StreamExt as _, TryFutureExt as _};
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
 pub use nomos_blend_service::ServiceComponents as BlendServiceComponents;
@@ -34,7 +34,7 @@ use nomos_core::{
         gas::MainnetGasConstants, ops::leader_claim::VoucherCm, AuthenticatedMantleTx, Op,
         SignedMantleTx, Transaction, TxHash, TxSelect,
     },
-    proofs::leader_proof::Groth16LeaderProof,
+    proofs::leader_proof::{Groth16LeaderProof, LeaderPrivate, LeaderPublic},
 };
 use nomos_da_sampling::{
     backend::DaSamplingServiceBackend, DaSamplingService, DaSamplingServiceMsg,
@@ -63,6 +63,7 @@ use tokio::{
     sync::{broadcast, mpsc, oneshot},
     time::Instant,
 };
+use tokio_stream::wrappers::BroadcastStream;
 use tracing::{debug, error, info, instrument, span, Level};
 use tracing_futures::Instrument as _;
 
@@ -99,7 +100,9 @@ pub enum Error {
     Storage(String),
 }
 
-#[derive(Debug)]
+pub type EpochPolInfoStream =
+    Pin<Box<dyn Stream<Item = (LeaderPublic, LeaderPrivate)> + Send + Sync + Unpin>>;
+
 pub enum ConsensusMsg {
     Info {
         tx: oneshot::Sender<CryptarchiaInfo>,
@@ -118,6 +121,9 @@ pub enum ConsensusMsg {
     GetLedgerState {
         block_id: HeaderId,
         tx: oneshot::Sender<Option<LedgerState>>,
+    },
+    SubscribeToEpochPolInfo {
+        sender: oneshot::Sender<EpochPolInfoStream>,
     },
 }
 
@@ -344,6 +350,7 @@ pub struct CryptarchiaConsensus<
     new_block_subscription_sender: broadcast::Sender<HeaderId>,
     lib_subscription_sender: broadcast::Sender<LibUpdate>,
     initial_state: <Self as ServiceData>::State,
+    epoch_pol_info_sender: broadcast::Sender<(LeaderPublic, LeaderPrivate)>,
 }
 
 impl<
@@ -517,12 +524,14 @@ where
     ) -> Result<Self, DynError> {
         let (new_block_subscription_sender, _) = broadcast::channel(16);
         let (lib_subscription_sender, _) = broadcast::channel(16);
+        let (epoch_pol_info_sender, _) = broadcast::channel(16);
 
         Ok(Self {
             service_resources_handle,
             new_block_subscription_sender,
             lib_subscription_sender,
             initial_state,
+            epoch_pol_info_sender,
         })
     }
 
@@ -811,7 +820,7 @@ where
                     }
 
                     Some(msg) = self.service_resources_handle.inbound_relay.next() => {
-                        Self::process_message(&cryptarchia, &self.new_block_subscription_sender, &self.lib_subscription_sender, msg);
+                        Self::process_message(&cryptarchia, &self.new_block_subscription_sender, &self.lib_subscription_sender, &self.epoch_pol_info_sender, msg);
                     }
 
                     Some(event) = chainsync_events.next() => {
@@ -956,6 +965,7 @@ where
         cryptarchia: &Cryptarchia,
         new_block_channel: &broadcast::Sender<HeaderId>,
         lib_channel: &broadcast::Sender<LibUpdate>,
+        epoch_pol_info_sender: &broadcast::Sender<(LeaderPublic, LeaderPrivate)>,
         msg: ConsensusMsg,
     ) {
         match msg {
@@ -1020,6 +1030,26 @@ where
                 let ledger_state = cryptarchia.ledger.state(&block_id).cloned();
                 tx.send(ledger_state).unwrap_or_else(|_| {
                     error!("Could not send ledger state through channel");
+                });
+            }
+            ConsensusMsg::SubscribeToEpochPolInfo { sender } => {
+                let receiver_stream = Box::pin(
+                    BroadcastStream::new(epoch_pol_info_sender.subscribe()).filter_map(|res| {
+                        Box::pin(async move {
+                            match res {
+                                Ok(update) => Some(update),
+                                Err(e) => {
+                                    tracing::warn!(
+                                        "Lagging chain service epoch PoL info subscriber: {e:?}"
+                                    );
+                                    None
+                                }
+                            }
+                        })
+                    }),
+                );
+                sender.send(receiver_stream).unwrap_or_else(|_| {
+                    error!("Could not subscribe to epoch PoL info channel");
                 });
             }
         }

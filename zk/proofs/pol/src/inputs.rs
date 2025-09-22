@@ -17,14 +17,36 @@ pub struct PolWitnessInputs {
 
 impl PolWitnessInputs {
     #[must_use]
-    pub fn from_chain_and_wallet_data(
+    pub const fn from_chain_and_wallet_inputs(
+        chain: PolChainInputs,
+        wallet: PolWalletInputs,
+    ) -> Self {
+        Self { wallet, chain }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PolWitnessInputsData {
+    pub wallet: PolWalletInputsData,
+    pub chain: PolChainInputsData,
+}
+
+impl From<PolWitnessInputsData> for PolWitnessInputs {
+    fn from(data: PolWitnessInputsData) -> Self {
+        Self {
+            wallet: data.wallet.into(),
+            chain: data.chain.into(),
+        }
+    }
+}
+
+impl PolWitnessInputsData {
+    #[must_use]
+    pub const fn from_chain_and_wallet_data(
         chain: PolChainInputsData,
         wallet: PolWalletInputsData,
     ) -> Self {
-        Self {
-            wallet: wallet.into(),
-            chain: chain.into(),
-        }
+        Self { wallet, chain }
     }
 }
 

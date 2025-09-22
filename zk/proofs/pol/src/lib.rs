@@ -40,7 +40,7 @@ pub use chain_inputs::{PolChainInputs, PolChainInputsData};
 use groth16::{
     CompressedGroth16Proof, Groth16Input, Groth16InputDeser, Groth16Proof, Groth16ProofJsonDeser,
 };
-pub use inputs::{PolVerifierInput, PolWitnessInputs};
+pub use inputs::{PolVerifierInput, PolWitnessInputs, PolWitnessInputsData};
 use thiserror::Error;
 pub use wallet_inputs::{PolWalletInputs, PolWalletInputsData};
 pub use witness::Witness;
