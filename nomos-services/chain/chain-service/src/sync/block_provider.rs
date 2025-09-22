@@ -559,6 +559,7 @@ mod tests {
     use futures::StreamExt as _;
     use groth16::Fr;
     use nomos_core::{
+        codec::SerdeOp,
         header::Header,
         mantle::{ledger::Utxo, Note, SignedMantleTx},
         proofs::leader_proof::{LeaderPrivate, LeaderPublic},
@@ -572,7 +573,7 @@ mod tests {
     use overwatch::{derive_services, overwatch::OverwatchRunner};
     use tempfile::TempDir;
     use tokio::{runtime::Handle, sync::mpsc};
-    use nomos_core::codec::SerdeOp;
+
     use super::*;
 
     #[tokio::test]
