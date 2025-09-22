@@ -44,7 +44,7 @@ impl PoQWitnessInputs {
     ) -> Result<Self, <PoQChainInputs as TryFrom<PoQChainInputsData>>::Error> {
         Ok(Self {
             chain: chain.try_into()?,
-            common: common.into(),
+            common: common.try_into()?,
             blend: blend.into(),
             wallet: PoQWalletInputs::from(PoQWalletInputsData {
                 slot: 0,
