@@ -19,3 +19,6 @@ name       = "libnomos"
 
 [lints]
 workspace = true
+
+[package.metadata.cargo-machete]
+ignored = ["cbindgen"] # machete does not recognize this for build dep and complains.
