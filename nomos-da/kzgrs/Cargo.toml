@@ -22,6 +22,7 @@ num-traits      = { default-features = false, version = "0.2.18" }
 rand            = { default-features = false, version = "0.8.5" }
 rayon           = { optional = true, version = "1.10" }
 thiserror       = "1.0.58"
+p3-maybe-rayon = "0.2"
 
 [dev-dependencies]
 divan = { default-features = false, version = "0.1" }
