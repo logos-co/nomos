@@ -1,24 +1,29 @@
 use std::{hash::Hash, marker::PhantomData};
 
-use nomos_blend_scheduling::{
-    membership::Membership, message_blend::crypto::CryptographicProcessor,
+use nomos_blend_scheduling::message_blend::{
+    crypto::send::SessionCryptographicProcessor, ProofsGenerator as ProofsGeneratorTrait,
 };
 use nomos_utils::blake_rng::BlakeRng;
 use overwatch::overwatch::OverwatchHandle;
 use rand::SeedableRng as _;
 
-use crate::edge::{backends::BlendBackend, Settings, LOG_TARGET};
+use crate::{
+    edge::{backends::BlendBackend, Settings, LOG_TARGET},
+    session::SessionInfo,
+};
 
-pub struct MessageHandler<Backend, NodeId, RuntimeServiceId> {
-    cryptographic_processor: CryptographicProcessor<NodeId, BlakeRng>,
+pub struct MessageHandler<Backend, NodeId, ProofsGenerator, RuntimeServiceId> {
+    cryptographic_processor: SessionCryptographicProcessor<NodeId, ProofsGenerator>,
     backend: Backend,
     _phantom: PhantomData<RuntimeServiceId>,
 }
 
-impl<Backend, NodeId, RuntimeServiceId> MessageHandler<Backend, NodeId, RuntimeServiceId>
+impl<Backend, NodeId, ProofsGenerator, RuntimeServiceId>
+    MessageHandler<Backend, NodeId, ProofsGenerator, RuntimeServiceId>
 where
     Backend: BlendBackend<NodeId, RuntimeServiceId>,
     NodeId: Clone + Send + 'static,
+    ProofsGenerator: ProofsGeneratorTrait,
 {
     /// Creates a [`MessageHandler`] with the given membership.
     ///
@@ -28,31 +33,32 @@ where
     /// 2. The local node is not a core node.
     pub fn try_new_with_edge_condition_check(
         settings: &Settings<Backend, NodeId, RuntimeServiceId>,
-        membership: Membership<NodeId>,
+        session_info: SessionInfo<NodeId>,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
     ) -> Result<Self, Error>
     where
         NodeId: Eq + Hash,
     {
-        if membership.size() < settings.minimum_network_size.get() as usize {
-            Err(Error::NetworkIsTooSmall(membership.size()))
-        } else if membership.contains_local() {
+        let membership_size = session_info.membership.size();
+        if membership_size < settings.minimum_network_size.get() as usize {
+            Err(Error::NetworkIsTooSmall(membership_size))
+        } else if session_info.membership.contains_local() {
             Err(Error::LocalIsCoreNode)
         } else {
-            Ok(Self::new(settings, membership, overwatch_handle))
+            Ok(Self::new(settings, session_info, overwatch_handle))
         }
     }
 
     fn new(
         settings: &Settings<Backend, NodeId, RuntimeServiceId>,
-        membership: Membership<NodeId>,
+        SessionInfo {
+            membership,
+            poq_generation_and_verification_inputs: poq_inputs,
+        }: SessionInfo<NodeId>,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
     ) -> Self {
-        let cryptographic_processor = CryptographicProcessor::new(
-            settings.crypto.clone(),
-            membership.clone(),
-            BlakeRng::from_entropy(),
-        );
+        let cryptographic_processor =
+            SessionCryptographicProcessor::new(&settings.crypto, membership.clone(), poq_inputs);
         let backend = Backend::new(
             settings.backend.clone(),
             overwatch_handle,
@@ -67,16 +73,19 @@ where
     }
 }
 
-impl<Backend, NodeId, RuntimeServiceId> MessageHandler<Backend, NodeId, RuntimeServiceId>
+impl<Backend, NodeId, ProofsGenerator, RuntimeServiceId>
+    MessageHandler<Backend, NodeId, ProofsGenerator, RuntimeServiceId>
 where
     NodeId: Eq + Hash + Clone + Send,
     Backend: BlendBackend<NodeId, RuntimeServiceId> + Sync,
+    ProofsGenerator: ProofsGeneratorTrait,
 {
     /// Blend a new message received from another service.
     pub async fn handle_messages_to_blend(&mut self, message: Vec<u8>) {
         let Ok(message) = self
             .cryptographic_processor
             .encapsulate_data_payload(&message)
+            .await
             .inspect_err(|e| {
                 tracing::error!(target: LOG_TARGET, "Failed to encapsulate message: {e:?}");
             })

@@ -1,11 +1,11 @@
 use std::{num::NonZeroU64, time::Duration};
 
-use nomos_blend_scheduling::message_blend::CryptographicProcessorSettings;
+use nomos_blend_scheduling::message_blend::SessionCryptographicProcessorSettings;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Settings {
-    pub crypto: CryptographicProcessorSettings,
+    pub crypto: SessionCryptographicProcessorSettings,
     pub time: TimingSettings,
     pub minimal_network_size: NonZeroU64,
 }

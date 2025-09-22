@@ -1,9 +1,12 @@
 use nomos_core::crypto::ZkHash;
 use thiserror::Error;
 
-use crate::crypto::proofs::{
-    quota::{inputs::prove::PublicInputs, ProofOfQuota},
-    selection::{inputs::VerifyInputs, ProofOfSelection},
+use crate::{
+    crypto::proofs::{
+        quota::{inputs::prove::PublicInputs, ProofOfQuota},
+        selection::{inputs::VerifyInputs, ProofOfSelection},
+    },
+    encap::ProofsVerifier,
 };
 
 pub mod quota;
@@ -18,9 +21,10 @@ pub enum Error {
 }
 
 /// Verifier that actually verifies the validity of Blend-related proofs.
-pub struct ProofsVerifier;
+#[derive(Clone)]
+pub struct RealProofsVerifier;
 
-impl crate::encap::ProofsVerifier for ProofsVerifier {
+impl ProofsVerifier for RealProofsVerifier {
     type Error = Error;
 
     fn new() -> Self {

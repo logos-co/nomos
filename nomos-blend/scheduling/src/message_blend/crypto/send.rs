@@ -1,74 +1,47 @@
-use std::hash::Hash;
+use core::hash::Hash;
 
-use derivative::Derivative;
 use nomos_blend_message::{
-    crypto::keys::{Ed25519PrivateKey, X25519PrivateKey},
-    encap::{
-        decapsulated::DecapsulationOutput as InternalDecapsulationOutput,
-        encapsulated::EncapsulatedMessage as InternalEncapsulatedMessage,
-        validated::{
-            IncomingEncapsulatedMessageWithValidatedPublicHeader as InternalIncomingEncapsulatedMessageWithValidatedPublicHeader,
-            OutgoingEncapsulatedMessageWithValidatedPublicHeader as InternalOutgoingEncapsulatedMessageWithValidatedPublicHeader,
-            RequiredProofOfSelectionVerificationInputs,
-        },
-        ProofsVerifier as ProofsVerifierTrait,
-    },
-    input::{EncapsulationInput, EncapsulationInputs as InternalEncapsulationInputs},
-    Error, PayloadType,
+    crypto::keys::X25519PrivateKey, input::EncapsulationInput, Error, PayloadType,
 };
-use nomos_core::codec::SerdeOp;
-use serde::{Deserialize, Serialize};
 
 use crate::{
     membership::Membership,
-    message_blend::{ProofsGenerator as ProofsGeneratorTrait, SessionInfo},
-    serde::ed25519_privkey_hex,
+    message_blend::{
+        crypto::EncapsulationInputs, ProofsGenerator as ProofsGeneratorTrait,
+        SessionCryptographicProcessorSettings, SessionInfo,
+    },
+    serialize_encapsulated_message, EncapsulatedMessage,
 };
 
-const ENCAPSULATION_COUNT: usize = 3;
-pub type EncapsulatedMessage = InternalEncapsulatedMessage<ENCAPSULATION_COUNT>;
-pub type EncapsulationInputs = InternalEncapsulationInputs<ENCAPSULATION_COUNT>;
-pub type DecapsulationOutput = InternalDecapsulationOutput<ENCAPSULATION_COUNT>;
-pub type IncomingEncapsulatedMessageWithValidatedPublicHeader =
-    InternalIncomingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>;
-pub type OutgoingEncapsulatedMessageWithValidatedPublicHeader =
-    InternalOutgoingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>;
-
-/// [`SessionCryptographicProcessor`] is responsible for wrapping and unwrapping
+/// [`SessionCryptographicProcessor`] is responsible for only wrapping
 /// messages for the message indistinguishability.
 ///
 /// Each instance is meant to be used during a single session.
-pub struct SessionCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier> {
-    settings: CryptographicProcessorSettings,
+pub struct SessionCryptographicProcessor<NodeId, ProofsGenerator> {
+    num_blend_layers: u64,
     /// The non-ephemeral encryption key (NEK) for decapsulating messages.
     non_ephemeral_encryption_key: X25519PrivateKey,
     membership: Membership<NodeId>,
     proofs_generator: ProofsGenerator,
-    proofs_verifier: ProofsVerifier,
 }
 
-#[derive(Clone, Derivative, Serialize, Deserialize)]
-#[derivative(Debug)]
-pub struct CryptographicProcessorSettings {
-    /// The non-ephemeral signing key (NSK) corresponding to the public key
-    /// registered in the membership (SDP).
-    #[serde(with = "ed25519_privkey_hex")]
-    #[derivative(Debug = "ignore")]
-    pub non_ephemeral_signing_key: Ed25519PrivateKey,
-    /// `ß_c`: expected number of blending operations for each locally generated
-    /// message.
-    pub num_blend_layers: u64,
+impl<NodeId, ProofsGenerator> SessionCryptographicProcessor<NodeId, ProofsGenerator> {
+    pub(super) const fn non_ephemeral_encryption_key(&self) -> &X25519PrivateKey {
+        &self.non_ephemeral_encryption_key
+    }
+
+    pub(super) const fn membership(&self) -> &Membership<NodeId> {
+        &self.membership
+    }
 }
 
-impl<NodeId, ProofsGenerator, ProofsVerifier>
-    SessionCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
+impl<NodeId, ProofsGenerator> SessionCryptographicProcessor<NodeId, ProofsGenerator>
 where
     ProofsGenerator: ProofsGeneratorTrait,
-    ProofsVerifier: ProofsVerifierTrait,
 {
     #[must_use]
     pub fn new(
-        settings: CryptographicProcessorSettings,
+        settings: &SessionCryptographicProcessorSettings,
         membership: Membership<NodeId>,
         session_info: SessionInfo,
     ) -> Self {
@@ -76,40 +49,15 @@ where
         // from the non-ephemeral signing key.
         let non_ephemeral_encryption_key = settings.non_ephemeral_signing_key.derive_x25519();
         Self {
-            settings,
+            num_blend_layers: settings.num_blend_layers,
             non_ephemeral_encryption_key,
             membership,
             proofs_generator: ProofsGenerator::new(session_info),
-            proofs_verifier: ProofsVerifier::new(),
         }
     }
 }
 
-impl<NodeId, ProofsGenerator, ProofsVerifier>
-    SessionCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
-where
-    ProofsVerifier: ProofsVerifierTrait,
-{
-    pub fn decapsulate_message(
-        &self,
-        message: IncomingEncapsulatedMessageWithValidatedPublicHeader,
-    ) -> Result<DecapsulationOutput, Error> {
-        let Some(local_node_index) = self.membership.local_index() else {
-            return Err(Error::NotCoreNodeReceiver);
-        };
-        message.decapsulate(
-            &self.non_ephemeral_encryption_key,
-            &RequiredProofOfSelectionVerificationInputs {
-                expected_node_index: local_node_index as u64,
-                total_membership_size: self.membership.size() as u64,
-            },
-            &self.proofs_verifier,
-        )
-    }
-}
-
-impl<NodeId, ProofsGenerator, ProofsVerifier>
-    SessionCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
+impl<NodeId, ProofsGenerator> SessionCryptographicProcessor<NodeId, ProofsGenerator>
 where
     NodeId: Eq + Hash,
     ProofsGenerator: ProofsGeneratorTrait,
@@ -155,11 +103,11 @@ where
         payload_type: PayloadType,
         payload: &[u8],
     ) -> Result<EncapsulatedMessage, Error> {
-        let mut proofs = Vec::with_capacity(self.settings.num_blend_layers as usize);
+        let mut proofs = Vec::with_capacity(self.num_blend_layers as usize);
 
         match payload_type {
             PayloadType::Cover => {
-                for _ in 0..self.settings.num_blend_layers {
+                for _ in 0..self.num_blend_layers {
                     let Some(proof) = self.proofs_generator.get_next_core_proof().await else {
                         return Err(Error::NoMoreProofOfQuotas);
                     };
@@ -167,7 +115,7 @@ where
                 }
             }
             PayloadType::Data => {
-                for _ in 0..self.settings.num_blend_layers {
+                for _ in 0..self.num_blend_layers {
                     let Some(proof) = self.proofs_generator.get_next_leadership_proof().await
                     else {
                         return Err(Error::NoMoreProofOfQuotas);
@@ -216,15 +164,4 @@ where
 
         EncapsulatedMessage::new(&inputs, payload_type, payload)
     }
-}
-
-#[must_use]
-pub fn serialize_encapsulated_message(message: &EncapsulatedMessage) -> Vec<u8> {
-    <EncapsulatedMessage as SerdeOp>::serialize(message)
-        .expect("EncapsulatedMessage should be serializable")
-        .to_vec()
-}
-
-pub fn deserialize_encapsulated_message(message: &[u8]) -> Result<EncapsulatedMessage, Error> {
-    <EncapsulatedMessage as SerdeOp>::deserialize(message).map_err(|_| Error::DeserializationFailed)
 }
