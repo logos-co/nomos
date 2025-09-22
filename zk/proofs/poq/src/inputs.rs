@@ -27,7 +27,7 @@ impl PoQWitnessInputs {
     ) -> Result<Self, <PoQChainInputs as TryFrom<PoQChainInputsData>>::Error> {
         Ok(Self {
             chain: chain.try_into()?,
-            common: common.into(),
+            common: common.try_into()?,
             blend: PoQBlendInputs::from(PoQBlendInputsData {
                 core_sk: Fr::ZERO,
                 core_path: vec![Fr::ZERO; 20],
@@ -44,10 +44,10 @@ impl PoQWitnessInputs {
     ) -> Result<Self, <PoQChainInputs as TryFrom<PoQChainInputsData>>::Error> {
         Ok(Self {
             chain: chain.try_into()?,
-            common: common.into(),
+            common: common.try_into()?,
             blend: blend.into(),
             wallet: PoQWalletInputs::from(PoQWalletInputsData {
-                slot: 2,
+                slot: 0,
                 note_value: 0,
                 transaction_hash: Fr::ZERO,
                 output_number: 0,
@@ -55,7 +55,7 @@ impl PoQWitnessInputs {
                 aged_selector: vec![false; 32],
                 slot_secret: Fr::ZERO,
                 slot_secret_path: vec![Fr::ZERO; 25],
-                starting_slot: 1,
+                starting_slot: 0,
             }),
         })
     }
