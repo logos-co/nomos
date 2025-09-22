@@ -45,16 +45,20 @@ pub type NetworkBackendOfService<Service, RuntimeServiceId> = <<Service as Servi
 pub trait MessageComponents {
     type Payload;
     type BroadcastSettings;
+    type Error;
 
-    fn into_components(self) -> (Self::Payload, Self::BroadcastSettings);
+    fn try_into_components(self) -> Result<(Self::Payload, Self::BroadcastSettings), Self::Error>;
 }
 
 impl<BroadcastSettings> MessageComponents for ServiceMessage<BroadcastSettings> {
     type Payload = Vec<u8>;
     type BroadcastSettings = BroadcastSettings;
+    type Error = ();
 
-    fn into_components(self) -> (Self::Payload, Self::BroadcastSettings) {
-        let Self::Blend(network_message) = self;
-        (network_message.message, network_message.broadcast_settings)
+    fn try_into_components(self) -> Result<(Self::Payload, Self::BroadcastSettings), Self::Error> {
+        let Self::Blend(message) = self else {
+            return Err(());
+        };
+        Ok((message.message, message.broadcast_settings))
     }
 }

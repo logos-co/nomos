@@ -13,7 +13,7 @@ use std::{
 };
 
 use backends::BlendBackend;
-use futures::{Stream, StreamExt as _};
+use futures::{future::ready, Stream, StreamExt as _};
 use nomos_blend_scheduling::{
     message_blend::{ProofsGenerator as ProofsGeneratorTrait, SessionInfo as PoQSessionInfo},
     session::{SessionEvent, UninitializedSessionEventStream},
@@ -176,10 +176,16 @@ where
             settings.time.session_transition_period(),
         );
 
-        let messages_to_blend = inbound_relay.map(|ServiceMessage::Blend(message)| {
-            <NetworkMessage<BroadcastSettings> as SerdeOp>::serialize(&message)
-                .expect("NetworkMessage should be able to be serialized")
-                .to_vec()
+        let messages_to_blend = inbound_relay.filter_map(|service_message| {
+            let out = match service_message {
+                ServiceMessage::Blend(network_message) => Some(
+                    <NetworkMessage<BroadcastSettings> as SerdeOp>::serialize(&network_message)
+                        .expect("NetworkMessage should be able to be serialized")
+                        .to_vec(),
+                ),
+                ServiceMessage::NotifyNewPolSlotEpoch(_) => None,
+            };
+            ready(out)
         });
 
         run::<Backend, _, ProofsGenerator, _>(

@@ -3,6 +3,7 @@ pub mod network;
 mod processor;
 pub mod settings;
 
+use core::panic;
 use std::{
     fmt::{Debug, Display},
     hash::Hash,
@@ -394,7 +395,9 @@ async fn handle_local_data_message<
     BroadcastSettings: Serialize + for<'de> Deserialize<'de> + Send,
     ProofsGenerator: ProofsGeneratorTrait,
 {
-    let ServiceMessage::Blend(message_payload) = local_data_message;
+    let ServiceMessage::Blend(message_payload) = local_data_message else {
+        panic!("TODO");
+    };
 
     let serialized_data_message =
         <NetworkMessage<BroadcastSettings> as SerdeOp>::serialize(&message_payload)
