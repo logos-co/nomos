@@ -7,10 +7,11 @@ use crate::{
     BlocksResponse, DynError, ProviderResponse, TipResponse,
     libp2p::{
         errors::{ChainSyncError, ChainSyncErrorKind},
+        messages::{DownloadBlocksResponse, RequestMessage},
         packing::unpack_from_reader,
         utils::{close_stream, send_message},
     },
-    messages::{DownloadBlocksResponse, GetTipResponse, RequestMessage, SerialisedBlock},
+    messages::{GetTipResponse, SerialisedBlock},
 };
 
 pub const MAX_ADDITIONAL_BLOCKS: usize = 5;

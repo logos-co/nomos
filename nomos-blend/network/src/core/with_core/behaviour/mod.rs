@@ -390,7 +390,7 @@ impl<ObservationWindowClockProvider> Behaviour<ObservationWindowClockProvider> {
         self.negotiated_peers
             .iter()
             // Exclude the peer the message was received from.
-            .filter(|(peer_id, _)| (excluded_peer != Some(**peer_id)))
+            .filter(|(peer_id, _)| excluded_peer != Some(**peer_id))
             // Exclude from the list of candidate peers any peer that is not in a healthy state.
             .filter(|(_, peer_state)| peer_state.negotiated_state.is_healthy())
             .for_each(|(peer_id, RemotePeerConnectionDetails { connection_id, .. })| {

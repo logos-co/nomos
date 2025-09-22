@@ -5,17 +5,15 @@ use tokio::{sync::oneshot, time, time::Duration};
 use tracing::error;
 
 use crate::{
+    DownloadBlocksRequest, GetTipResponse,
     libp2p::{
         behaviour::{BlocksRequestStream, BoxedStream, TipRequestStream},
         errors::{ChainSyncError, ChainSyncErrorKind},
+        messages::{DownloadBlocksResponse, RequestMessage},
         packing::unpack_from_reader,
-        utils,
-        utils::{open_stream, send_message},
+        utils::{self, open_stream, send_message},
     },
-    messages::{
-        DownloadBlocksRequest, DownloadBlocksResponse, GetTipResponse, RequestMessage,
-        SerialisedBlock,
-    },
+    messages::SerialisedBlock,
 };
 
 pub struct Downloader;

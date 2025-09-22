@@ -19,14 +19,15 @@ use tokio::sync::{mpsc, mpsc::Sender, oneshot};
 use tracing::{debug, error};
 
 use crate::{
-    BlocksResponse, TipResponse,
+    BlocksResponse, DownloadBlocksRequest, TipResponse,
     config::Config,
     libp2p::{
         downloader::Downloader,
         errors::ChainSyncError,
+        messages::RequestMessage,
         provider::{MAX_ADDITIONAL_BLOCKS, Provider, ReceivingRequestStream},
     },
-    messages::{DownloadBlocksRequest, GetTipResponse, RequestMessage, SerialisedBlock},
+    messages::{GetTipResponse, SerialisedBlock},
 };
 
 /// Cryptarchia networking protocol for synchronizing blocks.
