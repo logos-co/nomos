@@ -212,6 +212,27 @@ mod tests {
         }
     }
 
+    async fn new_swarm_with_tcp<B, F>(behaviour_fn: F) -> (Swarm<B>, Multiaddr)
+    where
+        B: NetworkBehaviour + Send,
+        B::ToSwarm: std::fmt::Debug,
+        F: FnOnce(identity::PublicKey) -> B,
+    {
+        let mut swarm = Swarm::new_ephemeral_tokio(|keypair| behaviour_fn(keypair.public()));
+        swarm
+            .listen_on("/ip4/127.0.0.1/tcp/0".parse().unwrap())
+            .unwrap();
+
+        let addr = swarm
+            .wait(|e| match e {
+                SwarmEvent::NewListenAddr { address, .. } => Some(address),
+                _ => None,
+            })
+            .await;
+
+        (swarm, addr)
+    }
+
     #[tokio::test]
     async fn test_external_address_is_confirmed_by_autonat_server() {
         const _500MS: Duration = Duration::from_millis(500);
@@ -220,26 +241,24 @@ mod tests {
             .compact()
             .with_writer(TestWriter::default())
             .try_init();
-        let mut client = Swarm::new_ephemeral_tokio(|keypair| Client::new(keypair.public()));
-        let mut server = Swarm::new_ephemeral_tokio(|keypair| Server::new(keypair.public()));
 
-        let (_, client_addr) = client.listen().await;
-        let _ = server.listen().with_tcp_addr_external().await;
+        let (mut client, client_addr) = new_swarm_with_tcp(Client::new).await;
+        let (mut server, server_addr) = new_swarm_with_tcp(Server::new).await;
+
+        client.dial(server_addr).unwrap();
 
         let client_addr_clone = client_addr.clone();
 
-        client.connect(&mut server).await;
-
         let client_task = timeout(_500MS, async move {
-            // The address candidate is automatically taken by Identify from the address
-            // observed by the server.
             let confirmed = client
                 .wait(|e| match e {
                     SwarmEvent::ExternalAddrConfirmed { address } => Some(address),
                     _ => None,
                 })
                 .await;
+
             assert_eq!(confirmed, client_addr);
+
             let autonat::v2::client::Event {
                 tested_addr,
                 result,
@@ -250,8 +269,9 @@ mod tests {
                     _ => None,
                 })
                 .await;
-            assert_eq!(tested_addr, client_addr);
-            assert!(result.is_ok(), "Result: {result:?}");
+
+            assert_eq!(tested_addr, confirmed);
+            assert!(result.is_ok());
         });
 
         let server_task = timeout(_500MS, async move {
@@ -265,8 +285,9 @@ mod tests {
                     _ => None,
                 })
                 .await;
+
             assert_eq!(tested_addr, client_addr_clone);
-            assert!(result.is_ok(), "Result: {result:?}");
+            assert!(result.is_ok());
         });
 
         let (client_result, server_result) = tokio::join!(client_task, server_task);

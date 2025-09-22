@@ -2,10 +2,8 @@ use std::{collections::HashSet, hash::Hash, str::FromStr as _, sync::LazyLock};
 
 use libp2p::{
     autonat,
-    swarm::{
-        behaviour::ExternalAddrConfirmed, FromSwarm, NewExternalAddrCandidate,
-        NewExternalAddrOfPeer,
-    },
+    core::transport::ListenerId,
+    swarm::{behaviour::ExternalAddrConfirmed, FromSwarm, NewExternalAddrOfPeer, NewListenAddr},
     Multiaddr, PeerId,
 };
 
@@ -39,7 +37,7 @@ pub fn all_events<'a>() -> HashSet<TestEvent<'a>> {
         mapping_failed(),
         mapping_ok(),
         mapping_ok_address_mismatch(),
-        new_external_address_candidate(),
+        new_listen_address(),
         external_address_confirmed(),
         default_gateway_changed(),
         local_address_changed(),
@@ -116,6 +114,9 @@ impl PartialEq for TestEvent<'_> {
                 (FromSwarm::ExternalAddrConfirmed(l), FromSwarm::ExternalAddrConfirmed(r)) => {
                     l.addr == r.addr
                 }
+                (FromSwarm::NewListenAddr(l), FromSwarm::NewListenAddr(r)) => {
+                    l.addr == r.addr && l.listener_id == r.listener_id
+                }
                 _ => false,
             },
             _ => core::mem::discriminant(self) == core::mem::discriminant(other),
@@ -146,6 +147,10 @@ impl Hash for TestEvent<'_> {
                     candidate.addr.hash(state);
                 }
                 FromSwarm::ExternalAddrConfirmed(confirmed) => confirmed.addr.hash(state),
+                FromSwarm::NewListenAddr(listen_addr) => {
+                    listen_addr.addr.hash(state);
+                    listen_addr.listener_id.hash(state);
+                }
                 // Sufficient for testing purposes
                 _ => core::mem::discriminant(event).hash(state),
             },
@@ -154,6 +159,7 @@ impl Hash for TestEvent<'_> {
 }
 
 pub static ADDR: LazyLock<Multiaddr> = LazyLock::new(|| Multiaddr::from_str("/memory/0").unwrap());
+pub static LISTENER_ID: LazyLock<ListenerId> = LazyLock::new(ListenerId::next);
 pub static ADDR_1: LazyLock<Multiaddr> =
     LazyLock::new(|| Multiaddr::from_str("/memory/1").unwrap());
 pub static AUTONAT_FAILED: LazyLock<BinaryCompatAutonatEvent> =
@@ -240,10 +246,11 @@ pub fn mapping_ok_address_mismatch<'a>() -> TestEvent<'a> {
     })
 }
 
-pub fn new_external_address_candidate<'a>() -> TestEvent<'a> {
-    TestEvent::FromSwarm(FromSwarm::NewExternalAddrCandidate(
-        NewExternalAddrCandidate { addr: &ADDR },
-    ))
+pub fn new_listen_address<'a>() -> TestEvent<'a> {
+    TestEvent::FromSwarm(FromSwarm::NewListenAddr(NewListenAddr {
+        addr: &ADDR,
+        listener_id: *LISTENER_ID,
+    }))
 }
 
 pub fn external_address_confirmed<'a>() -> TestEvent<'a> {
