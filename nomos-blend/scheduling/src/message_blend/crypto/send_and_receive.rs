@@ -42,19 +42,12 @@ where
         session_info: SessionInfo,
         proofs_verifier: ProofsVerifier,
     ) -> Self {
-        Self::from_sender_and_verifier(
-            SenderSessionCryptographicProcessor::new(settings, membership, session_info),
-            proofs_verifier,
-        )
-    }
-
-    #[must_use]
-    pub const fn from_sender_and_verifier(
-        sender_processor: SenderSessionCryptographicProcessor<NodeId, ProofsGenerator>,
-        proofs_verifier: ProofsVerifier,
-    ) -> Self {
         Self {
-            sender_processor,
+            sender_processor: SenderSessionCryptographicProcessor::new(
+                settings,
+                membership,
+                session_info,
+            ),
             proofs_verifier,
         }
     }
