@@ -13,14 +13,14 @@ use nomos_da_network_service::{
     api::ApiAdapter as ApiAdapterTrait, backends::NetworkBackend, NetworkService,
 };
 use nomos_da_sampling::{backend::DaSamplingServiceBackend, DaSamplingService};
-use nomos_membership::{adapters::SdpAdapter, backends::MembershipBackend, MembershipService};
+use nomos_membership::{adapters::sdp::SdpAdapter, backends::MembershipBackend, MembershipService};
 use overwatch::{overwatch::OverwatchHandle, services::AsServiceId};
 use serde::{Deserialize, Serialize};
 use subnetworks_assignations::MembershipHandler;
 
 use crate::make_request_and_return_response;
 
-pub async fn update_membership<Backend, Sdp, RuntimeServiceId>(
+pub async fn update_membership<Backend, Sdp, StorageAdapter, RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
     Json(payload): Json<MembershipUpdateRequest>,
 ) -> Response
@@ -33,11 +33,12 @@ where
         + Debug
         + Display
         + 'static
-        + AsServiceId<MembershipService<Backend, Sdp, RuntimeServiceId>>,
+        + AsServiceId<MembershipService<Backend, Sdp, StorageAdapter, RuntimeServiceId>>,
 {
     make_request_and_return_response!(membership::update_membership_handler::<
         Backend,
         Sdp,
+        StorageAdapter,
         RuntimeServiceId,
     >(handle, payload))
 }

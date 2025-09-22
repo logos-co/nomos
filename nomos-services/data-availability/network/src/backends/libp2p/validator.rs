@@ -8,6 +8,7 @@ use libp2p::PeerId;
 use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId};
 use nomos_da_network_core::{
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
+    protocols::sampling::opinions::OpinionEvent,
     swarm::{
         validator::{SampleArgs, SwarmSettings, ValidatorSwarm},
         BalancerStats, MonitorStats,
@@ -123,6 +124,7 @@ where
         addressbook: Self::Addressbook,
         subnet_refresh_signal: impl Stream<Item = ()> + Send + 'static,
         balancer_stats_sender: UnboundedSender<BalancerStats>,
+        opinion_sender: UnboundedSender<OpinionEvent>,
     ) -> Self {
         let keypair =
             libp2p::identity::Keypair::from(ed25519::Keypair::from(config.node_key.clone()));
@@ -167,7 +169,6 @@ where
             broadcast::channel(BROADCAST_CHANNEL_SIZE);
         let (verifying_broadcast_sender, verifying_broadcast_receiver) =
             broadcast::channel(BROADCAST_CHANNEL_SIZE);
-
         let (historic_sampling_broadcast_sender, historic_sampling_broadcast_receiver) =
             broadcast::channel(BROADCAST_CHANNEL_SIZE);
 
@@ -179,6 +180,7 @@ where
                 commitments_broadcast_sender,
                 verifying_broadcast_sender,
                 historic_sampling_broadcast_sender,
+                opinion_sender,
             ),
             replies_task_abort_registration,
         ));

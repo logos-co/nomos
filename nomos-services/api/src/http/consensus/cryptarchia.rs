@@ -13,13 +13,14 @@ use nomos_core::{
 use nomos_da_sampling::backend::DaSamplingServiceBackend;
 use nomos_libp2p::PeerId;
 use nomos_membership::{
-    adapters::sdp::LedgerSdpAdapter, backends::mock::MockMembershipBackend, MembershipService,
+    adapters::sdp::ledger::LedgerSdpAdapter, backends::membership::PersistentMembershipBackend,
+    MembershipService,
 };
 use nomos_mempool::{
     backend::mockpool::MockPool, network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
 };
 use nomos_sdp::backends::mock::MockSdpBackend;
-use nomos_storage::backends::{rocksdb::RocksBackend, StorageSerde};
+use nomos_storage::backends::rocksdb::RocksBackend;
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::sync::oneshot;
@@ -28,7 +29,6 @@ use crate::http::DynError;
 
 pub type Cryptarchia<
     Tx,
-    SS,
     SamplingBackend,
     SamplingNetworkAdapter,
     SamplingStorage,
@@ -41,7 +41,7 @@ pub type Cryptarchia<
     MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
     MempoolNetworkAdapter<Tx, <Tx as Transaction>::Hash, RuntimeServiceId>,
     FillSizeWithTx<SIZE, Tx>,
-    RocksBackend<SS>,
+    RocksBackend,
     SamplingBackend,
     SamplingNetworkAdapter,
     SamplingStorage,
@@ -67,10 +67,17 @@ type BlendService<RuntimeServiceId> = nomos_blend_service::BlendService<
     RuntimeServiceId,
 >;
 
+pub type DaMembershipStorage<RuntimeServiceId> =
+    nomos_membership::adapters::storage::rocksdb::MembershipRocksAdapter<
+        RocksBackend,
+        RuntimeServiceId,
+    >;
+
 type BlendMembershipAdapter<RuntimeServiceId> = nomos_blend_service::membership::service::Adapter<
     MembershipService<
-        MockMembershipBackend,
+        PersistentMembershipBackend<DaMembershipStorage<RuntimeServiceId>>,
         LedgerSdpAdapter<MockSdpBackend, Metadata, RuntimeServiceId>,
+        DaMembershipStorage<RuntimeServiceId>,
         RuntimeServiceId,
     >,
     PeerId,
@@ -78,7 +85,6 @@ type BlendMembershipAdapter<RuntimeServiceId> = nomos_blend_service::membership:
 
 pub async fn cryptarchia_info<
     Tx,
-    SS,
     SamplingBackend,
     SamplingNetworkAdapter,
     SamplingStorage,
@@ -100,7 +106,6 @@ where
         + 'static,
     <Tx as Transaction>::Hash:
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
-    SS: StorageSerde + Send + Sync + 'static,
     SamplingBackend: DaSamplingServiceBackend<BlobId = BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
@@ -117,7 +122,6 @@ where
         + AsServiceId<
             Cryptarchia<
                 Tx,
-                SS,
                 SamplingBackend,
                 SamplingNetworkAdapter,
                 SamplingStorage,
@@ -139,7 +143,6 @@ where
 
 pub async fn cryptarchia_headers<
     Tx,
-    SS,
     SamplingBackend,
     SamplingNetworkAdapter,
     SamplingStorage,
@@ -163,7 +166,6 @@ where
         + 'static,
     <Tx as Transaction>::Hash:
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
-    SS: StorageSerde + Send + Sync + 'static,
     SamplingBackend: DaSamplingServiceBackend<BlobId = BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
@@ -180,7 +182,6 @@ where
         + AsServiceId<
             Cryptarchia<
                 Tx,
-                SS,
                 SamplingBackend,
                 SamplingNetworkAdapter,
                 SamplingStorage,

@@ -5,11 +5,11 @@ use blake2::{
     Blake2bVar,
 };
 use groth16::Fr;
-use serde::Serialize;
+use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{
+    codec::SerdeOp,
     mantle::{Transaction, TransactionHasher},
-    wire::serialize,
 };
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, serde::Serialize, serde::Deserialize)]
@@ -18,9 +18,14 @@ pub struct MockTransaction<M> {
     content: M,
 }
 
-impl<M: Serialize> MockTransaction<M> {
+impl<M: Serialize + DeserializeOwned + Clone> MockTransaction<M> {
     pub fn new(content: M) -> Self {
-        let id = MockTxId::try_from(serialize(&content).unwrap().as_slice()).unwrap();
+        let id = MockTxId::try_from(
+            <M as SerdeOp>::serialize(&content)
+                .expect("MockTransaction should be able to be serialized")
+                .as_ref(),
+        )
+        .unwrap();
         Self { id, content }
     }
 
@@ -33,7 +38,7 @@ impl<M: Serialize> MockTransaction<M> {
     }
 }
 
-impl<M: Serialize> Transaction for MockTransaction<M> {
+impl<M: Serialize + DeserializeOwned + Clone> Transaction for MockTransaction<M> {
     const HASHER: TransactionHasher<Self> = Self::id;
     type Hash = MockTxId;
 
@@ -46,9 +51,14 @@ impl<M: Serialize> Transaction for MockTransaction<M> {
     clippy::fallible_impl_from,
     reason = "`TryFrom` impl conflicting with blanket impl."
 )]
-impl<M: Serialize> From<M> for MockTransaction<M> {
+impl<M: Serialize + DeserializeOwned + Clone> From<M> for MockTransaction<M> {
     fn from(msg: M) -> Self {
-        let id = MockTxId::try_from(serialize(&msg).unwrap().as_slice()).unwrap();
+        let id = MockTxId::try_from(
+            <M as SerdeOp>::serialize(&msg)
+                .expect("MockTransaction should be able to be serialized")
+                .as_ref(),
+        )
+        .unwrap();
         Self { id, content: msg }
     }
 }

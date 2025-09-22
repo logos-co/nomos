@@ -2,6 +2,7 @@ pub const CL_METRICS: &str = "/cl/metrics";
 pub const CL_STATUS: &str = "/cl/status";
 pub const CRYPTARCHIA_INFO: &str = "/cryptarchia/info";
 pub const CRYPTARCHIA_HEADERS: &str = "/cryptarchia/headers";
+pub const CRYPTARCHIA_LIB_STREAM: &str = "/cryptarchia/lib-stream";
 pub const DA_ADD_SHARE: &str = "/da/add-share";
 pub const DA_GET_SHARES_COMMITMENTS: &str = "/da/get-commitments";
 pub const DA_GET_STORAGE_SHARES_COMMITMENTS: &str = "/da/get-storage-commitments";

@@ -14,6 +14,7 @@ use axum::{
     },
     routing, Router,
 };
+use broadcast_service::BlockBroadcastService;
 use nomos_api::{
     http::{consensus::Cryptarchia, da::DaVerifier, storage},
     Backend,
@@ -39,11 +40,7 @@ use nomos_libp2p::PeerId;
 use nomos_mempool::{
     backend::mockpool::MockPool, tx::service::openapi::Status, MempoolMetrics, TxMempoolService,
 };
-use nomos_storage::{
-    api::da::DaConverter,
-    backends::{rocksdb::RocksBackend, StorageSerde},
-    StorageService,
-};
+use nomos_storage::{api::da::DaConverter, backends::rocksdb::RocksBackend, StorageService};
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId, DynError};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use services_utils::wait_until_services_are_ready;
@@ -61,13 +58,13 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use super::handlers::{
     add_share, add_tx, balancer_stats, blacklisted_peers, block, block_peer, cl_metrics, cl_status,
-    cryptarchia_headers, cryptarchia_info, da_get_commitments, da_get_light_share, da_get_shares,
-    da_get_storage_commitments, libp2p_info, monitor_stats, unblock_peer,
+    cryptarchia_headers, cryptarchia_info, cryptarchia_lib_stream, da_get_commitments,
+    da_get_light_share, da_get_shares, da_get_storage_commitments, libp2p_info, monitor_stats,
+    unblock_peer,
 };
 
-pub(crate) type DaStorageBackend<SerdeOp> = RocksBackend<SerdeOp>;
-type DaStorageService<DaStorageSerializer, RuntimeServiceId> =
-    StorageService<DaStorageBackend<DaStorageSerializer>, RuntimeServiceId>;
+pub(crate) type DaStorageBackend = RocksBackend;
+type DaStorageService<RuntimeServiceId> = StorageService<DaStorageBackend, RuntimeServiceId>;
 
 pub struct AxumBackend<
     DaShare,
@@ -78,7 +75,6 @@ pub struct AxumBackend<
     DaVerifierNetwork,
     DaVerifierStorage,
     Tx,
-    DaStorageSerializer,
     DaStorageConverter,
     SamplingBackend,
     SamplingNetworkAdapter,
@@ -96,7 +92,6 @@ pub struct AxumBackend<
     _verifier_network: core::marker::PhantomData<DaVerifierNetwork>,
     _verifier_storage: core::marker::PhantomData<DaVerifierStorage>,
     _tx: core::marker::PhantomData<Tx>,
-    _storage_serde: core::marker::PhantomData<DaStorageSerializer>,
     _storage_converter: core::marker::PhantomData<DaStorageConverter>,
     _sampling_backend: core::marker::PhantomData<SamplingBackend>,
     _sampling_network_adapter: core::marker::PhantomData<SamplingNetworkAdapter>,
@@ -131,7 +126,6 @@ impl<
         DaVerifierNetwork,
         DaVerifierStorage,
         Tx,
-        DaStorageSerializer,
         DaStorageConverter,
         SamplingBackend,
         SamplingNetworkAdapter,
@@ -152,7 +146,6 @@ impl<
         DaVerifierNetwork,
         DaVerifierStorage,
         Tx,
-        DaStorageSerializer,
         DaStorageConverter,
         SamplingBackend,
         SamplingNetworkAdapter,
@@ -195,8 +188,6 @@ where
         + 'static,
     <Tx as Transaction>::Hash:
         Serialize + for<'de> Deserialize<'de> + Ord + Debug + Send + Sync + 'static,
-    DaStorageSerializer: StorageSerde + Send + Sync + 'static,
-    <DaStorageSerializer as StorageSerde>::Error: Send + Sync,
     SamplingBackend: DaSamplingServiceBackend<BlobId = BlobId> + Send + 'static,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
@@ -220,12 +211,9 @@ where
     TimeBackend: nomos_time::backends::TimeBackend + Send + 'static,
     TimeBackend::Settings: Clone + Send + Sync,
     ApiAdapter: nomos_da_network_service::api::ApiAdapter + Send + Sync + 'static,
-    DaStorageConverter: DaConverter<DaStorageBackend<DaStorageSerializer>, Share = DaShare, Tx = SignedMantleTx>
-        + Send
-        + Sync
-        + 'static,
-    StorageAdapter:
-        storage::StorageAdapter<DaStorageSerializer, RuntimeServiceId> + Send + Sync + 'static,
+    DaStorageConverter:
+        DaConverter<DaStorageBackend, Share = DaShare, Tx = SignedMantleTx> + Send + Sync + 'static,
+    StorageAdapter: storage::StorageAdapter<RuntimeServiceId> + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Send
@@ -235,7 +223,6 @@ where
         + AsServiceId<
             Cryptarchia<
                 Tx,
-                DaStorageSerializer,
                 SamplingBackend,
                 SamplingNetworkAdapter,
                 SamplingStorage,
@@ -244,12 +231,12 @@ where
                 SIZE,
             >,
         >
+        + AsServiceId<BlockBroadcastService<RuntimeServiceId>>
         + AsServiceId<
             DaVerifier<
                 DaShare,
                 DaVerifierNetwork,
                 DaVerifierBackend,
-                DaStorageSerializer,
                 DaStorageConverter,
                 VerifierMempoolAdapter,
                 RuntimeServiceId,
@@ -271,7 +258,7 @@ where
                 RuntimeServiceId,
             >,
         >
-        + AsServiceId<DaStorageService<DaStorageSerializer, RuntimeServiceId>>
+        + AsServiceId<DaStorageService<RuntimeServiceId>>
         + AsServiceId<
             TxMempoolService<
                 nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
@@ -309,7 +296,6 @@ where
             _verifier_network: core::marker::PhantomData,
             _verifier_storage: core::marker::PhantomData,
             _tx: core::marker::PhantomData,
-            _storage_serde: core::marker::PhantomData,
             _storage_converter: core::marker::PhantomData,
             _sampling_backend: core::marker::PhantomData,
             _sampling_network_adapter: core::marker::PhantomData,
@@ -336,13 +322,12 @@ where
                 _,
                 _,
                 _,
-                _,
                 SIZE,
             >,
-            DaVerifier<_, _, _, _, _, _, _>,
+            DaVerifier<_, _, _, _, _, _>,
             nomos_da_network_service::NetworkService<_, _, _, _, _, _>,
             nomos_network::NetworkService<_, _>,
-            DaStorageService<_, _>,
+            DaStorageService<_>,
             TxMempoolService<_, _, _, _, _>
         )
         .await?;
@@ -384,7 +369,6 @@ where
                 routing::get(
                     cryptarchia_info::<
                         Tx,
-                        DaStorageSerializer,
                         SamplingBackend,
                         SamplingNetworkAdapter,
                         SamplingStorage,
@@ -399,7 +383,6 @@ where
                 routing::get(
                     cryptarchia_headers::<
                         Tx,
-                        DaStorageSerializer,
                         SamplingBackend,
                         SamplingNetworkAdapter,
                         SamplingStorage,
@@ -410,13 +393,16 @@ where
                 ),
             )
             .route(
+                paths::CRYPTARCHIA_LIB_STREAM,
+                routing::get(cryptarchia_lib_stream::<RuntimeServiceId>),
+            )
+            .route(
                 paths::DA_ADD_SHARE,
                 routing::post(
                     add_share::<
                         DaShare,
                         DaVerifierNetwork,
                         DaVerifierBackend,
-                        DaStorageSerializer,
                         DaStorageConverter,
                         VerifierMempoolAdapter,
                         RuntimeServiceId,
@@ -468,7 +454,7 @@ where
             )
             .route(
                 paths::STORAGE_BLOCK,
-                routing::post(block::<DaStorageSerializer, StorageAdapter, Tx, RuntimeServiceId>),
+                routing::post(block::<StorageAdapter, Tx, RuntimeServiceId>),
             )
             .route(
                 paths::MEMPOOL_ADD_TX,
@@ -492,7 +478,6 @@ where
                 paths::DA_GET_STORAGE_SHARES_COMMITMENTS,
                 routing::get(
                     da_get_storage_commitments::<
-                        DaStorageSerializer,
                         DaStorageConverter,
                         StorageAdapter,
                         DaShare,
@@ -504,7 +489,6 @@ where
                 paths::DA_GET_LIGHT_SHARE,
                 routing::get(
                     da_get_light_share::<
-                        DaStorageSerializer,
                         DaStorageConverter,
                         StorageAdapter,
                         DaShare,
@@ -515,13 +499,7 @@ where
             .route(
                 paths::DA_GET_SHARES,
                 routing::get(
-                    da_get_shares::<
-                        DaStorageSerializer,
-                        DaStorageConverter,
-                        StorageAdapter,
-                        DaShare,
-                        RuntimeServiceId,
-                    >,
+                    da_get_shares::<DaStorageConverter, StorageAdapter, DaShare, RuntimeServiceId>,
                 ),
             )
             .route(

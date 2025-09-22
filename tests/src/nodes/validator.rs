@@ -8,6 +8,7 @@ use std::{
     time::Duration,
 };
 
+use broadcast_service::BlockInfo;
 use chain_service::{CryptarchiaInfo, CryptarchiaSettings, OrphanConfig, SyncConfig};
 use common_http_client::CommonHttpClient;
 use cryptarchia_engine::time::SlotConfig;
@@ -61,6 +62,7 @@ use nomos_time::{
 use nomos_tracing::logging::local::FileConfig;
 use nomos_tracing_service::LoggerLayer;
 use nomos_utils::{math::NonNegativeF64, net::get_available_tcp_port};
+use nomos_wallet::WalletServiceSettings;
 use reqwest::Url;
 use tempfile::NamedTempFile;
 use tokio::time::error::Elapsed;
@@ -389,6 +391,14 @@ impl Validator {
             )
             .await
     }
+
+    pub async fn get_lib_stream(
+        &self,
+    ) -> Result<impl Stream<Item = BlockInfo>, common_http_client::Error> {
+        self.http_client
+            .get_lib_stream(Url::from_str(&format!("http://{}", self.addr))?)
+            .await
+    }
 }
 
 #[must_use]
@@ -572,7 +582,9 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
         },
         membership: config.membership_config.service_settings,
         sdp: (),
-
+        wallet: WalletServiceSettings {
+            known_keys: HashSet::new(),
+        },
         testing_http: nomos_api::ApiServiceSettings {
             backend_settings: AxumBackendSettings {
                 address: testing_http_address,

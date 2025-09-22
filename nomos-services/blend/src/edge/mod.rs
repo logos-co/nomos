@@ -18,7 +18,7 @@ use nomos_blend_scheduling::{
     membership::Membership,
     session::{SessionEvent, UninitializedSessionEventStream},
 };
-use nomos_core::wire;
+use nomos_core::codec::SerdeOp;
 use overwatch::{
     overwatch::OverwatchHandle,
     services::{
@@ -28,7 +28,7 @@ use overwatch::{
     },
     OpaqueServiceResourcesHandle,
 };
-use serde::Serialize;
+use serde::{de::DeserializeOwned, Serialize};
 pub(crate) use service_components::ServiceComponents;
 use services_utils::wait_until_services_are_ready;
 use settings::BlendConfig;
@@ -37,7 +37,7 @@ use tracing::{debug, error, info};
 use crate::{
     edge::handlers::{Error, MessageHandler},
     membership,
-    message::ServiceMessage,
+    message::{NetworkMessage, ServiceMessage},
     settings::FIRST_SESSION_READY_TIMEOUT,
 };
 
@@ -71,7 +71,7 @@ impl<Backend, NodeId, BroadcastSettings, MembershipAdapter, RuntimeServiceId>
 where
     Backend: BlendBackend<NodeId, RuntimeServiceId> + Send + Sync,
     NodeId: Clone + Eq + Hash + Send + Sync + 'static,
-    BroadcastSettings: Serialize + Send,
+    BroadcastSettings: Serialize + DeserializeOwned + Send,
     MembershipAdapter: membership::Adapter<NodeId = NodeId, Error: Send + Sync + 'static> + Send,
     membership::ServiceMessage<MembershipAdapter>: Send + Sync + 'static,
     RuntimeServiceId: AsServiceId<<MembershipAdapter as membership::Adapter>::Service>
@@ -131,8 +131,9 @@ where
         );
 
         let messages_to_blend = inbound_relay.map(|ServiceMessage::Blend(message)| {
-            wire::serialize(&message)
-                .expect("Message from internal services should not fail to serialize")
+            <NetworkMessage<BroadcastSettings> as SerdeOp>::serialize(&message)
+                .expect("NetworkMessage should be able to be serialized")
+                .to_vec()
         });
 
         run::<Backend, _, _>(

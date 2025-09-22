@@ -21,6 +21,7 @@ use nomos_da_network_core::{
         sampling::{
             self,
             errors::{HistoricSamplingError, SamplingError},
+            opinions::OpinionEvent,
             BehaviourSampleReq, BehaviourSampleRes, SubnetsConfig,
         },
     },
@@ -184,6 +185,7 @@ pub(crate) async fn handle_validator_events_stream(
     commitments_broadcast_sender: broadcast::Sender<CommitmentsEvent>,
     validation_broadcast_sender: broadcast::Sender<VerificationEvent>,
     historic_sample_broadcast_sender: broadcast::Sender<HistoricSamplingEvent>,
+    opinion_sender: UnboundedSender<OpinionEvent>,
 ) {
     let ValidatorEventsStream {
         mut sampling_events_receiver,
@@ -195,7 +197,7 @@ pub(crate) async fn handle_validator_events_stream(
         // safe set: https://docs.rs/tokio/latest/tokio/macro.select.html#cancellation-safety
         tokio::select! {
             Some(sampling_event) = StreamExt::next(&mut sampling_events_receiver) => {
-                handle_sampling_event(&sampling_broadcast_sender, &commitments_broadcast_sender, &historic_sample_broadcast_sender, sampling_event).await;
+                handle_sampling_event(&sampling_broadcast_sender, &commitments_broadcast_sender, &historic_sample_broadcast_sender,&opinion_sender, sampling_event).await;
             }
             Some(dispersal_event) = StreamExt::next(&mut validation_events_receiver) => {
                 handle_dispersal_event(&validation_broadcast_sender, dispersal_event).await;
@@ -310,6 +312,7 @@ async fn handle_sampling_event(
     sampling_broadcast_sender: &broadcast::Sender<SamplingEvent>,
     commitments_broadcast_sender: &broadcast::Sender<CommitmentsEvent>,
     historic_sample_broadcast_sender: &broadcast::Sender<HistoricSamplingEvent>,
+    opinion_sender: &UnboundedSender<OpinionEvent>,
     sampling_event: sampling::SamplingEvent,
 ) {
     match sampling_event {
@@ -370,6 +373,18 @@ async fn handle_sampling_event(
         sampling::SamplingEvent::HistoricSamplingError { block_id, error } => {
             handle_historic_sample_error(block_id, error, historic_sample_broadcast_sender);
         }
+        sampling::SamplingEvent::Opinion(opinion_event) => {
+            handle_opinion_event(opinion_sender, opinion_event);
+        }
+    }
+}
+
+fn handle_opinion_event(
+    opinion_sender: &UnboundedSender<OpinionEvent>,
+    opinion_event: OpinionEvent,
+) {
+    if let Err(e) = opinion_sender.send(opinion_event) {
+        error!("Error in internal broadcast of opinion event: {e:?}");
     }
 }
 

@@ -10,7 +10,7 @@ pub mod tracing;
 
 pub mod time;
 
-use std::time::Duration;
+use std::{iter::repeat, time::Duration};
 
 use blend::GeneralBlendConfig;
 use consensus::GeneralConsensusConfig;
@@ -21,8 +21,12 @@ use rand::{thread_rng, Rng as _};
 use tracing::GeneralTracingConfig;
 
 use crate::topology::configs::{
-    api::GeneralApiConfig, bootstrap::GeneralBootstrapConfig, consensus::ConsensusParams,
-    da::DaParams, membership::GeneralMembershipConfig, network::NetworkParams,
+    api::GeneralApiConfig,
+    bootstrap::GeneralBootstrapConfig,
+    consensus::ConsensusParams,
+    da::DaParams,
+    membership::{GeneralMembershipConfig, MembershipNode},
+    network::NetworkParams,
     time::GeneralTimeConfig,
 };
 
@@ -49,6 +53,20 @@ pub fn create_general_configs_with_network(
     n_nodes: usize,
     network_params: &NetworkParams,
 ) -> Vec<GeneralConfig> {
+    create_general_configs_with_blend_core_subset(n_nodes, n_nodes, network_params)
+}
+
+#[must_use]
+pub fn create_general_configs_with_blend_core_subset(
+    n_nodes: usize,
+    n_blend_core_nodes: usize,
+    network_params: &NetworkParams,
+) -> Vec<GeneralConfig> {
+    assert!(
+        n_blend_core_nodes <= n_nodes,
+        "n_blend_core_nodes({n_blend_core_nodes}) must be less than or equal to n_nodes({n_nodes})",
+    );
+
     let mut ids = vec![[0; 32]; n_nodes];
     let mut da_ports = vec![];
     let mut blend_ports = vec![];
@@ -67,7 +85,25 @@ pub fn create_general_configs_with_network(
     let api_configs = api::create_api_configs(&ids);
     let blend_configs = blend::create_blend_configs(&ids, &blend_ports);
     let tracing_configs = tracing::create_tracing_configs(&ids);
-    let membership_configs = membership::create_membership_configs(&ids, &da_ports, &blend_ports);
+    let membership_configs = membership::create_membership_configs(
+        ids.iter()
+            .zip(&da_ports)
+            .zip(
+                // Take only the first n_blend_core_nodes blend ports.
+                blend_ports
+                    .iter()
+                    .take(n_blend_core_nodes)
+                    .map(|&port| Some(port))
+                    .chain(repeat(None)),
+            )
+            .map(|((&id, &da_port), blend_port)| MembershipNode {
+                id,
+                da_port: Some(da_port),
+                blend_port,
+            })
+            .collect::<Vec<_>>()
+            .as_slice(),
+    );
     let time_config = time::default_time_config();
     let mut general_configs = vec![];
 

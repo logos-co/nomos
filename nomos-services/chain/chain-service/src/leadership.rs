@@ -1,11 +1,10 @@
 use cryptarchia_engine::Slot;
 use groth16::Fr;
 use nomos_core::{
-    mantle::{keys::SecretKey, Utxo},
-    proofs::leader_proof::Risc0LeaderProof,
+    mantle::{keys::SecretKey, ops::leader_claim::VoucherCm, Utxo},
+    proofs::leader_proof::{Groth16LeaderProof, LeaderPrivate, LeaderPublic},
 };
 use nomos_ledger::{EpochState, UtxoTree};
-use nomos_proof_statements::leadership::{LeaderPrivate, LeaderPublic};
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 
@@ -16,6 +15,7 @@ use serde::{Deserialize, Serialize};
 pub struct Leader {
     utxos: Vec<Utxo>,
     sk: SecretKey,
+    #[cfg_attr(not(feature = "pol-dev-mode"), expect(dead_code))]
     config: nomos_ledger::Config,
 }
 
@@ -41,7 +41,7 @@ impl Leader {
         latest_tree: &UtxoTree,
         epoch_state: &EpochState,
         slot: Slot,
-    ) -> Option<Risc0LeaderProof> {
+    ) -> Option<Groth16LeaderProof> {
         for utxo in &self.utxos {
             let Some(_aged_witness) = aged_tree.witness(&utxo.id()) else {
                 continue;
@@ -51,18 +51,25 @@ impl Leader {
             };
 
             let note_id: Fr = BigUint::from(1u8).into(); // placeholder for note ID, replace after mantle notes format update
-
             let public_inputs = LeaderPublic::new(
                 aged_tree.root(),
                 latest_tree.root(),
-                [1; 32], // placeholder for entropy
-                *epoch_state.nonce(),
+                epoch_state.nonce,
                 slot.into(),
-                self.config.consensus_config.active_slot_coeff,
                 epoch_state.total_stake(),
             );
 
-            if public_inputs.check_winning(utxo.note.value, note_id, *self.sk.as_fr()) {
+            #[cfg(feature = "pol-dev-mode")]
+            let winning = public_inputs.check_winning_dev(
+                utxo.note.value,
+                note_id,
+                *self.sk.as_fr(),
+                self.config.consensus_config.active_slot_coeff,
+            );
+            #[cfg(not(feature = "pol-dev-mode"))]
+            let winning = public_inputs.check_winning(utxo.note.value, note_id, *self.sk.as_fr());
+
+            if winning {
                 tracing::debug!(
                     "leader for slot {:?}, {:?}/{:?}",
                     slot,
@@ -70,16 +77,26 @@ impl Leader {
                     epoch_state.total_stake()
                 );
 
-                let private_inputs = LeaderPrivate {
-                    value: utxo.note.value,
-                    note_id,
-                    sk: *self.sk.as_fr(),
-                };
+                // TODO: Get the actual witness paths and leader key
+                let aged_path = Vec::new(); // Placeholder for aged path
+                let latest_path = Vec::new();
+                let slot_secret = *self.sk.as_fr();
+                let starting_slot = 0u64; // TODO: get actual starting slot
+                let leader_pk = ed25519_dalek::VerifyingKey::from_bytes(&[0; 32]).unwrap(); // TODO: get actual leader public key
+
+                let private_inputs = LeaderPrivate::new(
+                    public_inputs,
+                    *utxo,
+                    &aged_path,
+                    &latest_path,
+                    slot_secret,
+                    starting_slot,
+                    &leader_pk,
+                );
                 let res = tokio::task::spawn_blocking(move || {
-                    Risc0LeaderProof::prove(
-                        public_inputs,
+                    Groth16LeaderProof::prove(
                         &private_inputs,
-                        risc0_zkvm::default_prover().as_ref(),
+                        VoucherCm::default(), // TODO: use actual voucher commitment
                     )
                 })
                 .await;

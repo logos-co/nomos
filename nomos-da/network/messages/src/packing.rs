@@ -1,7 +1,7 @@
 use std::io;
 
 use futures::{AsyncReadExt, AsyncWriteExt};
-use nomos_core::wire;
+use nomos_core::codec::SerdeOp;
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::Result;
@@ -26,9 +26,9 @@ impl From<MessageTooLargeError> for io::Error {
 
 pub fn pack<Message>(message: &Message) -> Result<Vec<u8>>
 where
-    Message: Serialize,
+    Message: Serialize + DeserializeOwned,
 {
-    wire::serialize(message).map_err(io::Error::from)
+    Ok(<Message as SerdeOp>::serialize(message)?.into())
 }
 
 fn get_packed_message_size(packed_message: &[u8]) -> Result<usize> {
@@ -49,7 +49,7 @@ fn prepare_message_for_writer(packed_message: &[u8]) -> Result<Vec<u8>> {
 
 pub async fn pack_to_writer<Message, Writer>(message: &Message, writer: &mut Writer) -> Result<()>
 where
-    Message: Serialize + Sync,
+    Message: Serialize + DeserializeOwned + Sync,
     Writer: AsyncWriteExt + Send + Unpin,
 {
     let packed_message = pack(message)?;
@@ -67,13 +67,13 @@ where
     Ok(s)
 }
 
-pub fn unpack<M: DeserializeOwned>(data: &[u8]) -> Result<M> {
-    wire::deserialize(data).map_err(io::Error::from)
+pub fn unpack<M: DeserializeOwned + Serialize>(data: &[u8]) -> Result<M> {
+    <M as SerdeOp>::deserialize(data).map_err(io::Error::from)
 }
 
 pub async fn unpack_from_reader<Message, R>(reader: &mut R) -> Result<Message>
 where
-    Message: DeserializeOwned,
+    Message: DeserializeOwned + Serialize,
     R: AsyncReadExt + Unpin,
 {
     let data_length = read_data_length(reader).await?;

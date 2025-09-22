@@ -30,7 +30,7 @@ fn toeplitz2(coefficients: &[Fr], extended_vector: &[G1Projective]) -> Vec<G1Pro
     extended_vector
         .iter()
         .zip(toeplitz_coefficients_fft)
-        .map(|(v, c)| (v.mul(c)))
+        .map(|(v, c)| v.mul(c))
         .collect()
 }
 

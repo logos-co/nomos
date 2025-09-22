@@ -1,7 +1,7 @@
 use std::sync::LazyLock;
 
 use bytes::Bytes;
-use groth16::{serde::serde_fr, Fr};
+use groth16::{fr_from_bytes, serde::serde_fr, Fr};
 use num_bigint::BigUint;
 use poseidon2::{Digest, ZkHash};
 use serde::{Deserialize, Serialize};
@@ -69,10 +69,12 @@ pub struct MantleTx {
     pub storage_gas_price: Gas,
 }
 
-static NOMOS_MANTLE_TXHASH_V1_FR: LazyLock<Fr> =
-    LazyLock::new(|| BigUint::from_bytes_be(b"NOMOS_MANTLE_TXHASH_V1").into());
+static NOMOS_MANTLE_TXHASH_V1_FR: LazyLock<Fr> = LazyLock::new(|| {
+    fr_from_bytes(b"NOMOS_MANTLE_TXHASH_V1").expect("Constant should be valid Fr")
+});
 
-static END_OPS_FR: LazyLock<Fr> = LazyLock::new(|| BigUint::from_bytes_be(b"END_OPS").into());
+static END_OPS_FR: LazyLock<Fr> =
+    LazyLock::new(|| fr_from_bytes(b"END_OPS").expect("Constant should be valid Fr"));
 
 impl Transaction for MantleTx {
     const HASHER: TransactionHasher<Self> =
@@ -136,12 +138,8 @@ impl AuthenticatedMantleTx for SignedMantleTx {
 
 impl SignedMantleTx {
     fn serialized_size(&self) -> u64 {
-        use bincode::Options as _;
-        // TODO: we need a more universal size estimation, but that means complete
-        // control over serialization which requires a rework of the wire module
-        crate::wire::bincode::OPTIONS
-            .serialized_size(&self)
-            .expect("Failed to serialize signed mantle tx")
+        <Self as crate::codec::SerdeOp>::serialized_size(self)
+            .expect("Failed to calculate serialized size for signed mantle tx")
     }
 }
 

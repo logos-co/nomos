@@ -3,7 +3,7 @@ use serde::de::{Error, SeqAccess, Visitor};
 use crate::mantle::ops::{opcode, Op};
 
 /// Visitor for deserializing binary-encoded Mantle operations using the
-/// [`wire`](crate::wire) format. Although [`Op`] and [`OpInternal`] are
+/// [`wire`](crate::codec) format. Although [`Op`] and [`OpInternal`] are
 /// untagged enums in Serde terms, binary serde is handled through
 /// custom logic using [`WireOpSer`](crate::mantle::ops::serde_::WireOpSer) and
 /// [`WireOpDes`](crate::mantle::ops::serde_::WireOpDes). They add an

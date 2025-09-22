@@ -31,8 +31,9 @@ use nomos_node::{
     api::testing::handlers::{da_get_membership, da_historic_sampling, update_membership},
     generic_services::{
         self, DaMembershipAdapter, MembershipBackend, MembershipSdp, MembershipService,
+        MembershipStorageGeneric,
     },
-    DaNetworkApiAdapter, NomosDaMembership, Wire,
+    DaNetworkApiAdapter, NomosDaMembership,
 };
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId, DynError};
 use services_utils::wait_until_services_are_ready;
@@ -101,7 +102,7 @@ where
         wait_until_services_are_ready!(
             &overwatch_handle,
             Some(Duration::from_secs(60)),
-            MembershipServiceTrait<_, _, _>
+            MembershipServiceTrait<_, _, _, _>
         )
         .await?;
         Ok(())
@@ -128,8 +129,9 @@ where
                 UPDATE_MEMBERSHIP,
                 post(
                     update_membership::<
-                        MembershipBackend,
+                        MembershipBackend<RuntimeServiceId>,
                         MembershipSdp<RuntimeServiceId>,
+                        MembershipStorageGeneric<RuntimeServiceId>,
                         RuntimeServiceId,
                     >,
                 ),
@@ -159,7 +161,7 @@ where
                             DaNetworkApiAdapter,
                             RuntimeServiceId,
                         >,
-                        SamplingStorageAdapter<DaShare, Wire, DaStorageConverter>,
+                        SamplingStorageAdapter<DaShare, DaStorageConverter>,
                         RuntimeServiceId,
                     >,
                 ),

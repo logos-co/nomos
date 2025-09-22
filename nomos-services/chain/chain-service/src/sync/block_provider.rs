@@ -10,7 +10,7 @@ use bytes::Bytes;
 use cryptarchia_engine::{Branch, Slot};
 use cryptarchia_sync::{BlocksResponse, ProviderResponse};
 use futures::{future, stream, stream::BoxStream, StreamExt as _, TryStreamExt as _};
-use nomos_core::{block::Block, header::HeaderId, wire};
+use nomos_core::{block::Block, codec::SerdeOp, header::HeaderId};
 use nomos_storage::{api::chain::StorageChainApi, backends::StorageBackend, StorageMsg};
 use overwatch::DynError;
 use serde::Serialize;
@@ -153,9 +153,7 @@ where
                         .map_err(DynError::from)?
                         .ok_or_else(|| DynError::from(GetBlocksError::BlockNotFound(id)))?;
 
-                    Ok::<_, DynError>(Bytes::from(
-                        wire::serialize(&block).expect("Block must be serialized"),
-                    ))
+                    <() as SerdeOp>::serialize(&block).map_err(DynError::from)
                 }
             })
             .map_err(DynError::from)
@@ -542,18 +540,19 @@ mod tests {
 
     use cryptarchia_engine::Config;
     use futures::StreamExt as _;
-    use nomos_core::{header::Header, mantle::SignedMantleTx};
-    use nomos_proof_statements::leadership::{LeaderPrivate, LeaderPublic};
+    use groth16::Fr;
+    use nomos_core::{
+        header::Header,
+        mantle::{ledger::Utxo, Note, SignedMantleTx},
+        proofs::leader_proof::{LeaderPrivate, LeaderPublic},
+        utils::merkle::MerkleNode,
+    };
     use nomos_storage::{
-        backends::{
-            rocksdb::{RocksBackend, RocksBackendSettings},
-            StorageSerde,
-        },
+        backends::rocksdb::{RocksBackend, RocksBackendSettings},
         StorageService,
     };
     use num_bigint::BigUint;
     use overwatch::{derive_services, overwatch::OverwatchRunner};
-    use serde::de::DeserializeOwned;
     use tempfile::TempDir;
     use tokio::{runtime::Handle, sync::mpsc};
 
@@ -663,32 +662,18 @@ mod tests {
         );
     }
 
-    pub struct Wire;
-
-    impl StorageSerde for Wire {
-        type Error = wire::Error;
-
-        fn serialize<T: Serialize>(value: T) -> Bytes {
-            wire::serialize(&value).unwrap().into()
-        }
-
-        fn deserialize<T: DeserializeOwned>(buff: Bytes) -> Result<T, Self::Error> {
-            wire::deserialize(&buff)
-        }
-    }
-
     #[derive_services]
     pub struct TestServices {
-        pub storage: StorageService<RocksBackend<Wire>, RuntimeServiceId>,
+        pub storage: StorageService<RocksBackend, RuntimeServiceId>,
     }
 
     #[expect(dead_code, reason = "Fix in a separate PR")]
     struct TestEnv {
         service: overwatch::overwatch::Overwatch<RuntimeServiceId>,
-        storage_relay: StorageRelay<RocksBackend<Wire>>,
+        storage_relay: StorageRelay<RocksBackend>,
         cryptarchia: cryptarchia_engine::Cryptarchia<HeaderId>,
-        proof: nomos_core::proofs::leader_proof::Risc0LeaderProof,
-        provider: BlockProvider<RocksBackend<Wire>, SignedMantleTx>,
+        proof: nomos_core::proofs::leader_proof::Groth16LeaderProof,
+        provider: BlockProvider<RocksBackend, SignedMantleTx>,
     }
 
     impl TestEnv {
@@ -709,7 +694,7 @@ mod tests {
 
         async fn setup_storage() -> (
             overwatch::overwatch::Overwatch<RuntimeServiceId>,
-            StorageRelay<RocksBackend<Wire>>,
+            StorageRelay<RocksBackend>,
         ) {
             let temp_path = TempDir::new().unwrap();
             let service = OverwatchRunner::<TestServices>::run(
@@ -733,7 +718,7 @@ mod tests {
 
             let storage_relay = service
                 .handle()
-                .relay::<StorageService<RocksBackend<Wire>, RuntimeServiceId>>()
+                .relay::<StorageService<RocksBackend, RuntimeServiceId>>()
                 .await
                 .expect("Relay connection with StorageService should succeed");
 
@@ -880,7 +865,7 @@ mod tests {
             if let Some(ProviderResponse::Available(mut stream)) = rx.recv().await {
                 while let Some(res) = &stream.next().await {
                     if let Ok(bytes) = &res {
-                        let block: Block<SignedMantleTx> = wire::deserialize(bytes).unwrap();
+                        let block: Block<()> = <Block<()> as SerdeOp>::deserialize(bytes).unwrap();
                         blocks.push(block.header().id());
                     } else {
                         break;
@@ -936,25 +921,37 @@ mod tests {
             );
         }
 
-        fn make_test_proof() -> nomos_core::proofs::leader_proof::Risc0LeaderProof {
+        fn make_test_proof() -> nomos_core::proofs::leader_proof::Groth16LeaderProof {
             let public_inputs = LeaderPublic::new(
-                BigUint::from(1u8).into(),
-                BigUint::from(2u8).into(),
-                [3u8; 32],
-                [4u8; 32],
-                0u64,
-                0.05f64,
-                1000u64,
+                Fr::from(1), // aged root
+                Fr::from(2), // latest root
+                Fr::from(3), // epoch nonce
+                0,           // slot
+                1000,        // total stake
             );
-            let private_inputs = LeaderPrivate {
-                value: 100,
-                note_id: BigUint::from(5u8).into(),
-                sk: BigUint::from(6u8).into(),
+
+            let utxo = Utxo {
+                tx_hash: Fr::from(BigUint::from(1u8)).into(),
+                output_index: 0,
+                note: Note::new(100, Fr::from(5).into()),
             };
-            nomos_core::proofs::leader_proof::Risc0LeaderProof::prove(
+
+            let aged_path = vec![MerkleNode::Right(Fr::from(0u8))];
+            let latest_path = vec![MerkleNode::Left(Fr::from(0u8))];
+
+            let private_inputs = LeaderPrivate::new(
                 public_inputs,
+                utxo,
+                &aged_path,
+                &latest_path,
+                Fr::from(6), // slot secret
+                0,           // starting slot
+                &ed25519_dalek::VerifyingKey::from_bytes(&[0; 32]).unwrap(),
+            );
+
+            nomos_core::proofs::leader_proof::Groth16LeaderProof::prove(
                 &private_inputs,
-                risc0_zkvm::default_prover().as_ref(),
+                nomos_core::mantle::ops::leader_claim::VoucherCm::default(),
             )
             .expect("Proof generation should succeed")
         }

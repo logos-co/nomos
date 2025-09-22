@@ -321,7 +321,6 @@ mod tests {
             &ledger.state(&genesis_id).unwrap().cryptarchia_ledger,
             &utxo,
             Slot::from(1u64),
-            &ledger.config,
         );
 
         let new_id = [1; 32];
