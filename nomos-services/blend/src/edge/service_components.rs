@@ -8,14 +8,24 @@ pub trait ServiceComponents {
     type BroadcastSettings;
     /// Adapter for membership service.
     type MembershipAdapter;
+    type ProofsGenerator;
 }
 
-impl<Backend, NodeId, BroadcastSettings, MembershipAdapter, RuntimeServiceId> ServiceComponents
-    for BlendService<Backend, NodeId, BroadcastSettings, MembershipAdapter, RuntimeServiceId>
+impl<Backend, NodeId, BroadcastSettings, MembershipAdapter, ProofsGenerator, RuntimeServiceId>
+    ServiceComponents
+    for BlendService<
+        Backend,
+        NodeId,
+        BroadcastSettings,
+        MembershipAdapter,
+        ProofsGenerator,
+        RuntimeServiceId,
+    >
 where
     Backend: BlendBackend<NodeId, RuntimeServiceId>,
     NodeId: Clone,
 {
     type BroadcastSettings = BroadcastSettings;
     type MembershipAdapter = MembershipAdapter;
+    type ProofsGenerator = ProofsGenerator;
 }

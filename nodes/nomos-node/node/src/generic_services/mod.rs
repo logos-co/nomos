@@ -12,7 +12,6 @@ use nomos_da_sampling::{
     backend::kzgrs::KzgrsSamplingBackend, storage::adapters::rocksdb::converter::DaStorageConverter,
 };
 use nomos_da_verifier::{backend::kzgrs::KzgrsDaVerifier, mempool::kzgrs::KzgrsMempoolAdapter};
-use nomos_libp2p::PeerId;
 use nomos_membership::{
     adapters::sdp::ledger::LedgerSdpAdapter, backends::membership::PersistentMembershipBackend,
 };
@@ -21,7 +20,9 @@ use nomos_sdp::backends::mock::MockSdpBackend;
 use nomos_storage::backends::rocksdb::RocksBackend;
 use nomos_time::backends::NtpTimeBackend;
 
-use crate::MB16;
+use crate::{generic_services::blend::BlendService, MB16};
+
+pub mod blend;
 
 pub type TxMempoolService<SamplingNetworkAdapter, RuntimeServiceId> =
     nomos_mempool::TxMempoolService<
@@ -37,27 +38,6 @@ pub type TxMempoolService<SamplingNetworkAdapter, RuntimeServiceId> =
     >;
 
 pub type TimeService<RuntimeServiceId> = nomos_time::TimeService<NtpTimeBackend, RuntimeServiceId>;
-
-pub type BlendService<RuntimeServiceId> = nomos_blend_service::BlendService<
-    nomos_blend_service::core::BlendService<
-        nomos_blend_service::core::backends::libp2p::Libp2pBlendBackend,
-        PeerId,
-        nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
-        BlendMembershipAdapter<RuntimeServiceId>,
-        RuntimeServiceId,
-    >,
-    nomos_blend_service::edge::BlendService<
-        nomos_blend_service::edge::backends::libp2p::Libp2pBlendBackend,
-        PeerId,
-        <nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<RuntimeServiceId>>::BroadcastSettings,
-        BlendMembershipAdapter<RuntimeServiceId>,
-        RuntimeServiceId
-    >,
-    RuntimeServiceId,
->;
-
-type BlendMembershipAdapter<RuntimeServiceId> =
-    nomos_blend_service::membership::service::Adapter<MembershipService<RuntimeServiceId>, PeerId>;
 
 pub type VerifierMempoolAdapter<NetworkAdapter, RuntimeServiceId> = KzgrsMempoolAdapter<
     nomos_mempool::network::adapters::libp2p::Libp2pAdapter<

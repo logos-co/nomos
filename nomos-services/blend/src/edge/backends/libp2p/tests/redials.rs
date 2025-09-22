@@ -1,7 +1,7 @@
 use core::slice::from_ref;
 
 use libp2p::{Multiaddr, PeerId};
-use nomos_blend_message::crypto::Ed25519PrivateKey;
+use nomos_blend_message::crypto::keys::Ed25519PrivateKey;
 use nomos_blend_scheduling::membership::{Membership, Node};
 use nomos_libp2p::{Protocol, SwarmEvent};
 use test_log::test;
@@ -15,7 +15,9 @@ use crate::{
     edge::backends::libp2p::tests::utils::{
         SwarmBuilder as EdgeSwarmBuilder, TestSwarm as EdgeTestSwarm,
     },
-    test_utils::TestEncapsulatedMessage,
+    test_utils::{
+        crypto::MockProofsVerifier, membership::mock_session_info, TestEncapsulatedMessage,
+    },
 };
 
 #[test(tokio::test)]
@@ -123,7 +125,7 @@ async fn edge_redial_different_peer_after_redial_limit() {
     } = CoreSwarmBuilder::default()
         .with_empty_membership()
         .build(|id| {
-            BlendBehaviourBuilder::new(&id)
+            BlendBehaviourBuilder::new(&id, (MockProofsVerifier, mock_session_info().into()))
                 .with_empty_membership()
                 .build()
         });

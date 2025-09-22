@@ -10,7 +10,10 @@ use libp2p::{
 };
 use nomos_blend_message::{
     PayloadType,
-    crypto::{Ed25519PrivateKey, ProofOfQuota, ProofOfSelection},
+    crypto::{
+        keys::Ed25519PrivateKey,
+        proofs::{quota::ProofOfQuota, selection::ProofOfSelection},
+    },
     input::EncapsulationInput,
 };
 use nomos_blend_scheduling::{EncapsulatedMessage, message_blend::crypto::EncapsulationInputs};
@@ -56,8 +59,8 @@ fn generate_valid_inputs() -> EncapsulationInputs {
                 EncapsulationInput::new(
                     Ed25519PrivateKey::generate(),
                     &recipient_signing_pubkey,
-                    ProofOfQuota::dummy(),
-                    ProofOfSelection::dummy(),
+                    ProofOfQuota::from_bytes_unchecked([0; _]),
+                    ProofOfSelection::from_bytes_unchecked([0; _]),
                 )
             })
             .collect::<Vec<_>>()

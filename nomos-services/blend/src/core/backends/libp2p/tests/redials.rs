@@ -6,9 +6,12 @@ use nomos_libp2p::{Protocol, SwarmEvent};
 use test_log::test;
 use tokio::{select, time::sleep};
 
-use crate::core::backends::libp2p::{
-    core_swarm_test_utils::SwarmExt as _,
-    tests::utils::{BlendBehaviourBuilder, SwarmBuilder, TestSwarm},
+use crate::{
+    core::backends::libp2p::{
+        core_swarm_test_utils::SwarmExt as _,
+        tests::utils::{BlendBehaviourBuilder, SwarmBuilder, TestSwarm},
+    },
+    test_utils::{crypto::MockProofsVerifier, membership::mock_session_info},
 };
 
 #[test(tokio::test)]
@@ -16,7 +19,9 @@ async fn core_redial_same_peer() {
     let TestSwarm {
         swarm: mut dialing_swarm,
         ..
-    } = SwarmBuilder::default().build(|id| BlendBehaviourBuilder::new(&id).build());
+    } = SwarmBuilder::default().build(|id| {
+        BlendBehaviourBuilder::new(&id, (MockProofsVerifier, mock_session_info().into())).build()
+    });
 
     let random_peer_id = PeerId::random();
     let empty_multiaddr: Multiaddr = Protocol::Memory(0).into();
@@ -84,7 +89,9 @@ async fn core_redial_different_peer_after_redial_limit() {
     let TestSwarm {
         swarm: mut listening_swarm,
         ..
-    } = SwarmBuilder::default().build(|id| BlendBehaviourBuilder::new(&id).build());
+    } = SwarmBuilder::default().build(|id| {
+        BlendBehaviourBuilder::new(&id, (MockProofsVerifier, mock_session_info().into())).build()
+    });
     let (membership_entry, _) = listening_swarm
         .listen_and_return_membership_entry(None)
         .await;
@@ -98,7 +105,7 @@ async fn core_redial_different_peer_after_redial_limit() {
     } = SwarmBuilder::default()
         .with_membership(membership.clone())
         .build(|id| {
-            BlendBehaviourBuilder::new(&id)
+            BlendBehaviourBuilder::new(&id, (MockProofsVerifier, mock_session_info().into()))
                 .with_membership(membership)
                 .build()
         });
