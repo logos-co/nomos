@@ -8,15 +8,17 @@
 #[cfg(test)]
 mod errors {
     use super::*;
-
-    #[derive(Debug)]
-    pub enum PreloadEncodingError {
-        InvalidEncoding,
-    }
+    use crate::keys::KeyError;
 
     #[derive(Debug)]
     pub enum PreloadKeyError {
-        Encoding(PreloadEncodingError),
+        KeyError(KeyError),
+    }
+
+    impl From<KeyError> for PreloadKeyError {
+        fn from(value: KeyError) -> Self {
+            Self::KeyError(value)
+        }
     }
 
     #[derive(thiserror::Error, Debug)]
@@ -32,10 +34,7 @@ mod errors {
 mod encodings {
     use std::fmt::Debug;
 
-    use nomos_utils::convert::TryFromRef;
-
-    use super::*;
-    use crate::encodings::{Bytes, EncodingFormat};
+    use crate::encodings::Bytes;
 
     pub enum PreloadEncodingFormat {
         Bytes(Bytes),
@@ -59,21 +58,15 @@ mod encodings {
         }
     }
 
-    impl EncodingFormat for PreloadEncodingFormat {}
-
-    impl TryFromRef<'_, PreloadEncodingFormat> for Bytes {
-        type Error = errors::PreloadEncodingError; // TODO: Match with SecuredKeyAdapter::Error
-
-        fn try_from_ref(value: &PreloadEncodingFormat) -> Result<&Self, Self::Error> {
-            match value {
-                PreloadEncodingFormat::Bytes(bytes) => Ok(bytes),
-            }
-        }
-    }
-
     impl From<Bytes> for PreloadEncodingFormat {
         fn from(value: Bytes) -> Self {
             Self::Bytes(value)
+        }
+    }
+
+    impl From<bytes::Bytes> for PreloadEncodingFormat {
+        fn from(value: bytes::Bytes) -> Self {
+            Self::Bytes(Bytes::from(value))
         }
     }
 }
@@ -86,11 +79,9 @@ mod keys {
     use zeroize::ZeroizeOnDrop;
 
     use crate::{
-        backend::preload::{
-            encodings::PreloadEncodingFormat,
-            errors::{PreloadEncodingError, PreloadKeyError},
-        },
-        keys::{Ed25519Key, KeyError, SecuredKey, SecuredKeyAdapter},
+        backend::preload::{encodings::PreloadEncodingFormat, errors::PreloadKeyError},
+        encodings::Bytes,
+        keys::{Ed25519Key, SecuredKey},
     };
 
     impl Debug for Ed25519Key {
@@ -99,23 +90,23 @@ mod keys {
         }
     }
 
-    impl SecuredKeyAdapter<'_, PreloadEncodingFormat> for Ed25519Key {
-        type TargetError = PreloadKeyError;
+    impl SecuredKey<PreloadEncodingFormat> for Ed25519Key {
+        type Signature = PreloadEncodingFormat;
+        type PublicKey = PreloadEncodingFormat;
+        type Error = PreloadKeyError;
 
-        fn sign_adapted(
-            &self,
-            data: &PreloadEncodingFormat,
-        ) -> Result<PreloadEncodingFormat, Self::TargetError> {
+        fn sign(&self, data: &PreloadEncodingFormat) -> Result<Self::Signature, Self::Error> {
             match data {
                 PreloadEncodingFormat::Bytes(bytes) => {
-                    let signature = self.sign(bytes).map_err(|error| match error {
-                        KeyError::Encoding(_encoding_error) => {
-                            Self::TargetError::Encoding(PreloadEncodingError::InvalidEncoding)
-                        }
-                    })?;
-                    Ok(PreloadEncodingFormat::Bytes(signature))
+                    <Self as SecuredKey<Bytes>>::sign(self, bytes)
+                        .map(PreloadEncodingFormat::from)
+                        .map_err(PreloadKeyError::from)
                 }
             }
+        }
+
+        fn as_public_key(&self) -> Self::PublicKey {
+            <Self as SecuredKey<Bytes>>::as_public_key(self).into()
         }
     }
 
@@ -132,21 +123,25 @@ mod keys {
         }
     }
 
-    impl SecuredKey for PreloadKey {
-        type EncodingFormat = PreloadEncodingFormat;
+    impl SecuredKey<PreloadEncodingFormat> for PreloadKey {
+        type Signature = PreloadEncodingFormat;
+        type PublicKey = PreloadEncodingFormat;
         type Error = PreloadKeyError;
 
-        fn sign(&self, data: &Self::EncodingFormat) -> Result<Self::EncodingFormat, Self::Error> {
+        fn sign(&self, data: &PreloadEncodingFormat) -> Result<Self::Signature, Self::Error> {
             match self {
-                Self::Ed25519(key) => key.sign_adapted(data),
+                Self::Ed25519(key) => {
+                    <Ed25519Key as SecuredKey<PreloadEncodingFormat>>::sign(key, data)
+                }
             }
         }
 
-        fn as_pk(&self) -> Self::EncodingFormat {
+        fn as_public_key(&self) -> Self::PublicKey {
             match self {
-                Self::Ed25519(key) => key.as_pk(),
+                Self::Ed25519(key) => {
+                    <Ed25519Key as SecuredKey<PreloadEncodingFormat>>::as_public_key(key)
+                }
             }
-            .into()
         }
     }
 
@@ -164,15 +159,16 @@ mod keys {
         Ed25519,
     }
 
-    impl SecuredKey for PreloadKeyKind {
-        type EncodingFormat = <PreloadKey as SecuredKey>::EncodingFormat;
-        type Error = <PreloadKey as SecuredKey>::Error;
+    impl SecuredKey<PreloadEncodingFormat> for PreloadKeyKind {
+        type Signature = <PreloadKey as SecuredKey<PreloadEncodingFormat>>::Signature;
+        type PublicKey = <PreloadKey as SecuredKey<PreloadEncodingFormat>>::PublicKey;
+        type Error = <PreloadKey as SecuredKey<PreloadEncodingFormat>>::Error;
 
-        fn sign(&self, _data: &Self::EncodingFormat) -> Result<Self::EncodingFormat, Self::Error> {
+        fn sign(&self, _data: &PreloadEncodingFormat) -> Result<Self::Signature, Self::Error> {
             unimplemented!("Not needed.")
         }
 
-        fn as_pk(&self) -> Self::EncodingFormat {
+        fn as_public_key(&self) -> Self::PublicKey {
             unimplemented!("Not needed.")
         }
     }
@@ -186,7 +182,10 @@ mod backends {
     use serde::{Deserialize, Serialize};
 
     use super::*;
-    use crate::{KMSOperatorKey, SecuredKey, backend::KMSBackend};
+    use crate::{
+        KMSOperatorBackend, SecuredKey,
+        backend::{KMSBackend, preload::encodings::PreloadEncodingFormat},
+    };
 
     pub struct PreloadKMSBackend {
         keys: HashMap<String, keys::PreloadKey>,
@@ -204,6 +203,7 @@ mod backends {
     #[async_trait::async_trait]
     impl KMSBackend for PreloadKMSBackend {
         type KeyId = String;
+        type DataEncoding = PreloadEncodingFormat;
         type SupportedKey = keys::PreloadKeyKind;
         type Settings = PreloadKMSBackendSettings;
         type Error = DynError;
@@ -237,19 +237,21 @@ mod backends {
         fn public_key(
             &self,
             key_id: Self::KeyId,
-        ) -> Result<<Self::SupportedKey as SecuredKey>::EncodingFormat, Self::Error> {
+        ) -> Result<<Self::SupportedKey as SecuredKey<PreloadEncodingFormat>>::PublicKey, Self::Error>
+        {
             Ok(self
                 .keys
                 .get(&key_id)
                 .ok_or(errors::PreloadBackendError::KeyNotRegistered(key_id))?
-                .as_pk())
+                .as_public_key())
         }
 
         fn sign(
             &self,
             key_id: Self::KeyId,
-            data: <Self::SupportedKey as SecuredKey>::EncodingFormat,
-        ) -> Result<<Self::SupportedKey as SecuredKey>::EncodingFormat, Self::Error> {
+            data: PreloadEncodingFormat,
+        ) -> Result<<Self::SupportedKey as SecuredKey<PreloadEncodingFormat>>::Signature, Self::Error>
+        {
             self.keys
                 .get(&key_id)
                 .ok_or(errors::PreloadBackendError::KeyNotRegistered(key_id))?
@@ -260,7 +262,7 @@ mod backends {
         async fn execute(
             &mut self,
             key_id: Self::KeyId,
-            mut operator: KMSOperatorKey<Self::SupportedKey>,
+            mut operator: KMSOperatorBackend<Self>,
         ) -> Result<(), DynError> {
             let key = self
                 .keys
@@ -278,7 +280,7 @@ mod backends {
 mod tests {
     use std::collections::HashMap;
 
-    use bytes::Bytes;
+    use bytes::Bytes as RawBytes;
     use rand::rngs::OsRng;
 
     use super::*;
@@ -288,6 +290,7 @@ mod tests {
             KMSBackend as _,
             preload::{encodings::PreloadEncodingFormat, errors::PreloadKeyError},
         },
+        encodings::Bytes,
         keys::Ed25519Key,
     };
 
@@ -314,16 +317,17 @@ mod tests {
         // Check if the backend key operations results are the same as the direct
         // operation on the key itself.
         let key = Ed25519Key(key.clone());
-        let encoded_key = PreloadEncodingFormat::Bytes(key.as_pk());
-        let backend_key = backend.public_key(key_id.clone()).unwrap();
-        assert_eq!(backend_key, encoded_key);
+        let pk = <Ed25519Key as SecuredKey<Bytes>>::as_public_key(&key);
+        let encoded_pk = PreloadEncodingFormat::from(pk);
+        let backend_pk = backend.public_key(key_id.clone()).unwrap();
+        assert_eq!(backend_pk, encoded_pk);
 
-        let data = Bytes::from("data");
-        let wrapped_data = crate::encodings::Bytes::from(data);
+        let data = RawBytes::from("data");
+        let wrapped_data = Bytes::from(data);
         let signature = key.sign(&wrapped_data).unwrap();
-        let encoded_signature = PreloadEncodingFormat::Bytes(signature);
+        let encoded_signature = PreloadEncodingFormat::from(signature);
 
-        let encoded_data = PreloadEncodingFormat::Bytes(wrapped_data);
+        let encoded_data = PreloadEncodingFormat::from(wrapped_data);
         let backend_data = backend.sign(key_id.clone(), encoded_data).unwrap();
         assert_eq!(backend_data, encoded_signature);
 
@@ -333,7 +337,9 @@ mod tests {
                 key_id.clone(),
                 Box::new(
                     move |_: &mut dyn SecuredKey<
-                        EncodingFormat = PreloadEncodingFormat,
+                        PreloadEncodingFormat,
+                        PublicKey = PreloadEncodingFormat,
+                        Signature = PreloadEncodingFormat,
                         Error = PreloadKeyError,
                     >| Box::pin(async move { Ok(()) }),
                 ),
@@ -355,8 +361,8 @@ mod tests {
                 .is_err()
         );
         assert!(backend.public_key(key_id.clone()).is_err());
-        let data = Bytes::from("data");
-        let encoded_data = PreloadEncodingFormat::Bytes(crate::encodings::Bytes::from(data));
+        let data = RawBytes::from("data");
+        let encoded_data = PreloadEncodingFormat::from(data);
         assert!(backend.sign(key_id.clone(), encoded_data).is_err());
         assert!(
             backend
@@ -364,7 +370,9 @@ mod tests {
                     key_id,
                     Box::new(
                         move |_: &mut dyn SecuredKey<
-                            EncodingFormat = PreloadEncodingFormat,
+                            PreloadEncodingFormat,
+                            PublicKey = PreloadEncodingFormat,
+                            Signature = PreloadEncodingFormat,
                             Error = PreloadKeyError,
                         >| Box::pin(async move { Ok(()) })
                     ),

@@ -6,15 +6,6 @@ use crate::encodings::Encoding;
 ///
 /// Represents an encoding kind provided by the KMS crate.
 ///
-/// # Consistency
-///
-/// Each variant corresponds directly to a variant in [`Encoding`].
-/// The variant names must match exactly with those in [`Encoding`] for
-/// consistency, as this is relied upon by the [`Display`] implementation and
-/// conversion logic.
-///
-/// To know more, read [`Encoding`]'s `Consistency` section.
-///
 /// # Display
 ///
 /// The [`Display`] implementation relies on the naming consistency to print the

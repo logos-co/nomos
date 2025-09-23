@@ -1,4 +1,3 @@
-pub mod convert;
 pub mod fisheryates;
 pub mod math;
 pub mod net;

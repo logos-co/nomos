@@ -1,9 +1,7 @@
-use key_management_system_macros::SimpleEncodingFormat;
-
 type Inner = bytes::Bytes;
 
 /// An encoding of arbitrary bytes.
-#[derive(SimpleEncodingFormat, Clone)]
+#[derive(Clone)]
 pub struct Bytes(Inner);
 
 impl Bytes {
