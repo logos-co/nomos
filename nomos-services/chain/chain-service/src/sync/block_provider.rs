@@ -819,7 +819,6 @@ mod tests {
             prev_header: HeaderId,
             slot: Slot,
         ) -> Option<Block<SignedMantleTx>> {
-            // TODO: Use correct derived one time key
             let dummy_signing_key = ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]);
             let header = Header::new(prev_header, [0; 32].into(), slot, self.proof.clone());
 
