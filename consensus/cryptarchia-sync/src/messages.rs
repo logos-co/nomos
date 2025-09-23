@@ -8,8 +8,12 @@ pub type SerialisedBlock = Bytes;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum GetTipResponse {
-    /// A response containing the tip and slot of the peer.
-    Tip { tip: HeaderId, slot: Slot },
+    /// A success response.
+    Tip {
+        tip: HeaderId,
+        slot: Slot,
+        height: u64,
+    },
     /// A response indicating that the request failed.
     Failure(String),
 }

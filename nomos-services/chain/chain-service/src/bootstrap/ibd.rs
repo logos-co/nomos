@@ -338,10 +338,10 @@ mod tests {
         let peer = BlockProvider::new(
             vec![
                 Block::genesis(),
-                Block::new(1, GENESIS_ID, 1),
-                Block::new(2, 1, 2),
+                Block::new(1, GENESIS_ID, 1, 1),
+                Block::new(2, 1, 2, 2),
             ],
-            Ok(Block::new(2, 1, 2)),
+            Ok(Block::new(2, 1, 2, 2)),
             2,
             false,
         );
@@ -363,11 +363,11 @@ mod tests {
         let peer = BlockProvider::new(
             vec![
                 Block::genesis(),
-                Block::new(1, GENESIS_ID, 1),
-                Block::new(2, 1, 2),
-                Block::new(3, 2, 3),
+                Block::new(1, GENESIS_ID, 1, 1),
+                Block::new(2, 1, 2, 2),
+                Block::new(3, 2, 3, 3),
             ],
-            Ok(Block::new(3, 2, 3)),
+            Ok(Block::new(3, 2, 3, 3)),
             2,
             false,
         );
@@ -389,21 +389,21 @@ mod tests {
         let peer0 = BlockProvider::new(
             vec![
                 Block::genesis(),
-                Block::new(1, GENESIS_ID, 1),
-                Block::new(2, 1, 2),
+                Block::new(1, GENESIS_ID, 1, 1),
+                Block::new(2, 1, 2, 2),
             ],
-            Ok(Block::new(2, 1, 2)),
+            Ok(Block::new(2, 1, 2, 2)),
             2,
             false,
         );
         let peer1 = BlockProvider::new(
             vec![
                 Block::genesis(),
-                Block::new(3, GENESIS_ID, 3),
-                Block::new(4, 3, 4),
-                Block::new(5, 4, 5),
+                Block::new(3, GENESIS_ID, 3, 1),
+                Block::new(4, 3, 4, 2),
+                Block::new(5, 4, 5, 3),
             ],
-            Ok(Block::new(5, 4, 5)),
+            Ok(Block::new(5, 4, 5, 3)),
             2,
             false,
         );
@@ -432,21 +432,21 @@ mod tests {
         let peer0 = BlockProvider::new(
             vec![
                 Block::genesis(),
-                Block::new(1, GENESIS_ID, 1),
-                Block::new(2, 1, 2),
+                Block::new(1, GENESIS_ID, 1, 1),
+                Block::new(2, 1, 2, 2),
             ],
-            Ok(Block::new(2, 1, 2)),
+            Ok(Block::new(2, 1, 2, 2)),
             2,
             true, // Return error while streaming blocks
         );
         let peer1 = BlockProvider::new(
             vec![
                 Block::genesis(),
-                Block::new(3, GENESIS_ID, 3),
-                Block::new(4, 3, 4),
-                Block::new(5, 4, 5),
+                Block::new(3, GENESIS_ID, 3, 1),
+                Block::new(4, 3, 4, 2),
+                Block::new(5, 4, 5, 3),
             ],
-            Ok(Block::new(5, 4, 5)),
+            Ok(Block::new(5, 4, 5, 3)),
             2,
             false,
         );
@@ -474,21 +474,21 @@ mod tests {
         let peer0 = BlockProvider::new(
             vec![
                 Block::genesis(),
-                Block::new(1, GENESIS_ID, 1),
-                Block::new(2, 1, 2),
+                Block::new(1, GENESIS_ID, 1, 1),
+                Block::new(2, 1, 2, 2),
             ],
-            Ok(Block::new(2, 1, 2)),
+            Ok(Block::new(2, 1, 2, 2)),
             2,
             true, // Return error while streaming blocks
         );
         let peer1 = BlockProvider::new(
             vec![
                 Block::genesis(),
-                Block::new(3, GENESIS_ID, 3),
-                Block::new(4, 3, 4),
-                Block::new(5, 4, 5),
+                Block::new(3, GENESIS_ID, 3, 1),
+                Block::new(4, 3, 4, 2),
+                Block::new(5, 4, 5, 3),
             ],
-            Ok(Block::new(5, 4, 5)),
+            Ok(Block::new(5, 4, 5, 3)),
             2,
             true, // Return error while streaming blocks
         );
@@ -514,8 +514,8 @@ mod tests {
         let peer0 = BlockProvider::new(
             vec![
                 Block::genesis(),
-                Block::new(1, GENESIS_ID, 1),
-                Block::new(2, 1, 2),
+                Block::new(1, GENESIS_ID, 1, 1),
+                Block::new(2, 1, 2, 2),
             ],
             Err(()), // Return error while initiating download
             2,
@@ -524,11 +524,11 @@ mod tests {
         let peer1 = BlockProvider::new(
             vec![
                 Block::genesis(),
-                Block::new(3, GENESIS_ID, 3),
-                Block::new(4, 3, 4),
-                Block::new(5, 4, 5),
+                Block::new(3, GENESIS_ID, 3, 1),
+                Block::new(4, 3, 4, 2),
+                Block::new(5, 4, 5, 3),
             ],
-            Ok(Block::new(5, 4, 5)),
+            Ok(Block::new(5, 4, 5, 3)),
             2,
             false,
         );
@@ -556,8 +556,8 @@ mod tests {
         let peer0 = BlockProvider::new(
             vec![
                 Block::genesis(),
-                Block::new(1, GENESIS_ID, 1),
-                Block::new(2, 1, 2),
+                Block::new(1, GENESIS_ID, 1, 1),
+                Block::new(2, 1, 2, 2),
             ],
             Err(()), // Return error while initiating download
             2,
@@ -566,9 +566,9 @@ mod tests {
         let peer1 = BlockProvider::new(
             vec![
                 Block::genesis(),
-                Block::new(3, GENESIS_ID, 3),
-                Block::new(4, 3, 4),
-                Block::new(5, 4, 5),
+                Block::new(3, GENESIS_ID, 3, 1),
+                Block::new(4, 3, 4, 2),
+                Block::new(5, 4, 5, 3),
             ],
             Err(()), // Return error while initiating download
             2,
@@ -625,14 +625,16 @@ mod tests {
         id: HeaderId,
         parent: HeaderId,
         slot: Slot,
+        height: u64,
     }
 
     impl Block {
-        fn new(id: u8, parent: u8, slot: u64) -> Self {
+        fn new(id: u8, parent: u8, slot: u64, height: u64) -> Self {
             Self {
                 id: [id; 32].into(),
                 parent: [parent; 32].into(),
                 slot: slot.into(),
+                height,
             }
         }
 
@@ -641,6 +643,7 @@ mod tests {
                 id: [GENESIS_ID; 32].into(),
                 parent: [GENESIS_ID; 32].into(),
                 slot: Slot::genesis(),
+                height: 0,
             }
         }
     }
@@ -740,6 +743,7 @@ mod tests {
                 Ok(tip) => Ok(GetTipResponse::Tip {
                     tip: tip.id,
                     slot: tip.slot,
+                    height: tip.height,
                 }),
                 Err(()) => Err(DynError::from("Cannot provide tip")),
             }
