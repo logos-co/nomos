@@ -15,6 +15,7 @@ pub struct PoQWalletInputs {
     pol_note_value: Groth16Input,
 }
 
+#[derive(Clone, Debug)]
 pub struct PoQWalletInputsData {
     pub slot: u64,
     pub note_value: u64,
