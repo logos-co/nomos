@@ -16,7 +16,7 @@ pub use nomos_blend_service::{
 pub use nomos_core::{
     codec,
     header::HeaderId,
-    mantle::{SignedMantleTx, Transaction, select::FillSize as FillSizeWithTx},
+    mantle::{SignedMantleTx, Transaction, TxHash, select::FillSize as FillSizeWithTx},
 };
 pub use nomos_da_network_service::backends::libp2p::validator::DaNetworkValidatorBackend;
 use nomos_da_network_service::{
@@ -49,6 +49,7 @@ use overwatch::{
     overwatch::{Error as OverwatchError, Overwatch, OverwatchRunner},
 };
 use subnetworks_assignations::versions::history_aware_refill::HistoryAware;
+use tx_service::storage::adapters::RocksStorageAdapter;
 pub use tx_service::{
     network::adapters::libp2p::{
         Libp2pAdapter as MempoolNetworkAdapter, Settings as MempoolAdapterSettings,
@@ -165,7 +166,6 @@ pub(crate) type ApiService = nomos_api::ApiService<
             RuntimeServiceId,
         >,
         VerifierStorageAdapter<DaShare, DaStorageConverter>,
-        SignedMantleTx,
         DaStorageConverter,
         KzgrsSamplingBackend,
         nomos_da_sampling::network::adapters::validator::Libp2pAdapter<
@@ -180,6 +180,7 @@ pub(crate) type ApiService = nomos_api::ApiService<
         NtpTimeBackend,
         DaNetworkApiAdapter,
         ApiStorageAdapter<RuntimeServiceId>,
+        RocksStorageAdapter<SignedMantleTx, TxHash>,
     >,
     RuntimeServiceId,
 >;

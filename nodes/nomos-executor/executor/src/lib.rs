@@ -3,7 +3,7 @@ pub mod config;
 
 use api::backend::AxumBackend;
 use kzgrs_backend::common::share::DaShare;
-use nomos_core::mantle::SignedMantleTx;
+use nomos_core::mantle::{SignedMantleTx, TxHash};
 use nomos_da_dispersal::{
     DispersalService,
     adapters::{
@@ -35,6 +35,7 @@ use nomos_node::{
 };
 use nomos_time::backends::NtpTimeBackend;
 use overwatch::derive_services;
+use tx_service::storage::adapters::RocksStorageAdapter;
 
 #[cfg(feature = "tracing")]
 pub(crate) type TracingService = Tracing<RuntimeServiceId>;
@@ -144,7 +145,6 @@ pub(crate) type ApiService = nomos_api::ApiService<
             RuntimeServiceId,
         >,
         VerifierStorageAdapter<DaShare, DaStorageConverter>,
-        SignedMantleTx,
         DaStorageConverter,
         DispersalKZGRSBackend<
             DispersalNetworkAdapter<
@@ -171,6 +171,7 @@ pub(crate) type ApiService = nomos_api::ApiService<
         NtpTimeBackend,
         DaNetworkApiAdapter,
         ApiStorageAdapter<RuntimeServiceId>,
+        RocksStorageAdapter<SignedMantleTx, TxHash>,
     >,
     RuntimeServiceId,
 >;

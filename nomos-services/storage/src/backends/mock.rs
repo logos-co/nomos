@@ -2,16 +2,19 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     num::NonZeroUsize,
     ops::RangeInclusive,
+    pin::Pin,
 };
 
 use async_trait::async_trait;
 use bytes::Bytes;
 use cryptarchia_engine::Slot;
+use futures::Stream;
 use libp2p_identity::PeerId;
 use multiaddr::Multiaddr;
 use nomos_core::{
     block::{BlockNumber, SessionNumber},
     header::HeaderId,
+    mantle::TxHash,
     sdp::{Locator, ProviderId, ServiceType},
 };
 use overwatch::DynError;
@@ -109,6 +112,7 @@ impl StorageBackend for MockStorage {
 impl StorageChainApi for MockStorage {
     type Error = MockStorageError;
     type Block = Bytes;
+    type Tx = Bytes;
 
     async fn get_block(
         &mut self,
@@ -151,6 +155,24 @@ impl StorageChainApi for MockStorage {
         _slot_range: RangeInclusive<Slot>,
         _limit: NonZeroUsize,
     ) -> Result<Vec<HeaderId>, Self::Error> {
+        unimplemented!()
+    }
+
+    async fn store_transactions(
+        &mut self,
+        _transactions: HashMap<TxHash, Self::Tx>,
+    ) -> Result<(), Self::Error> {
+        unimplemented!()
+    }
+
+    async fn get_transactions(
+        &mut self,
+        _tx_hashes: &[TxHash],
+    ) -> Result<Pin<Box<dyn Stream<Item = Self::Tx> + Send>>, Self::Error> {
+        unimplemented!()
+    }
+
+    async fn remove_transactions(&mut self, _tx_hashes: &[TxHash]) -> Result<(), Self::Error> {
         unimplemented!()
     }
 }

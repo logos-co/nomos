@@ -18,6 +18,7 @@ const-hex          = { default-features = false, features = ["alloc"], version =
 cryptarchia-engine = { features = ["serde"], workspace = true }
 ed25519            = { default-features = false, version = "2.2" }
 ed25519-dalek      = { default-features = false, features = ["serde"], version = "2.2.0" }
+futures            = { version = "0.3", default-features = false, features = ["alloc"] }
 generic-array      = "1.2.0"
 groth16            = { workspace = true, features = ["deser"] }
 multiaddr          = { default-features = false, version = "0.18" }

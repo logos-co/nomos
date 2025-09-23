@@ -1,12 +1,13 @@
 use std::sync::LazyLock;
 
 use bytes::Bytes;
-use groth16::{Fr, fr_from_bytes, serde::serde_fr};
+use groth16::{Fr, fr_from_bytes, fr_to_bytes, serde::serde_fr};
 use num_bigint::BigUint;
 use poseidon2::{Digest, ZkHash};
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    codec::SerdeOp,
     crypto::ZkHasher,
     mantle::{
         AuthenticatedMantleTx, Transaction, TransactionHasher,
@@ -58,6 +59,11 @@ impl TxHash {
     #[must_use]
     pub fn as_signing_bytes(&self) -> Bytes {
         self.0.0.0.iter().flat_map(|b| b.to_le_bytes()).collect()
+    }
+
+    #[must_use]
+    pub fn as_bytes(&self) -> [u8; 32] {
+        fr_to_bytes(&self.0)
     }
 }
 
@@ -242,7 +248,7 @@ impl SignedMantleTx {
     }
 
     fn serialized_size(&self) -> u64 {
-        <Self as crate::codec::SerdeOp>::serialized_size(self)
+        <Self as SerdeOp>::serialized_size(self)
             .expect("Failed to calculate serialized size for signed mantle tx")
     }
 }
@@ -307,6 +313,22 @@ impl<'de> Deserialize<'de> for SignedMantleTx {
         let helper = SignedMantleTxHelper::deserialize(deserializer)?;
         Self::new(helper.mantle_tx, helper.ops_proofs, helper.ledger_tx_proof)
             .map_err(serde::de::Error::custom)
+    }
+}
+
+impl TryFrom<SignedMantleTx> for Bytes {
+    type Error = crate::codec::Error;
+
+    fn try_from(tx: SignedMantleTx) -> Result<Self, Self::Error> {
+        <SignedMantleTx as SerdeOp>::serialize(&tx)
+    }
+}
+
+impl TryFrom<Bytes> for SignedMantleTx {
+    type Error = crate::codec::Error;
+
+    fn try_from(bytes: Bytes) -> Result<Self, Self::Error> {
+        <Self as SerdeOp>::deserialize(&bytes)
     }
 }
 

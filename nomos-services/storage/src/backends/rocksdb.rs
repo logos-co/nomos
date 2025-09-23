@@ -39,6 +39,7 @@ impl StorageTransaction for Transaction {
 }
 
 /// Rocks storage backend
+#[derive(Clone)]
 pub struct RocksBackend {
     rocks: Arc<DB>,
 }

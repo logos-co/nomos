@@ -1,5 +1,7 @@
+use crate::mempool::MempoolAdapterTrait as _;
 mod blend;
 mod leadership;
+mod mempool;
 mod relays;
 
 use core::fmt::Debug;
@@ -7,7 +9,7 @@ use std::{collections::BTreeSet, fmt::Display, time::Duration};
 
 use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 use cryptarchia_engine::{Epoch, Slot};
-use futures::{StreamExt as _, TryFutureExt as _};
+use futures::StreamExt as _;
 pub use leadership::LeaderConfig;
 use nomos_core::{
     block::Block,
@@ -31,8 +33,10 @@ use tokio::sync::{broadcast, oneshot};
 use tracing::{Level, error, info, instrument, span};
 use tracing_futures::Instrument as _;
 use tx_service::{
-    MempoolMsg, TxMempoolService, backend::RecoverableMempool,
-    network::NetworkAdapter as MempoolAdapter,
+    TxMempoolService,
+    backend::{MemPool, RecoverableMempool},
+    network::NetworkAdapter as MempoolNetworkAdapter,
+    storage::MempoolStorageAdapter,
 };
 
 use crate::{
@@ -96,12 +100,14 @@ pub struct CryptarchiaLeader<
 > where
     BlendService: nomos_blend_service::ServiceComponents,
     Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash>,
+    Mempool::Storage: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
     Mempool::RecoveryState: Serialize + DeserializeOwned,
     Mempool::Settings: Clone,
     Mempool::Item: Clone + Eq + Debug + 'static,
     Mempool::Item: AuthenticatedMantleTx,
     MempoolNetAdapter:
-        MempoolAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>,
+        MempoolNetworkAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>,
+    <MempoolNetAdapter as MempoolNetworkAdapter<RuntimeServiceId>>::Settings: Send + Sync,
     TxS: TxSelect<Tx = Mempool::Item>,
     TxS::Settings: Send,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
@@ -148,10 +154,12 @@ where
     BlendService: nomos_blend_service::ServiceComponents,
     Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash>,
     Mempool::RecoveryState: Serialize + DeserializeOwned,
+    Mempool::Storage: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
     Mempool::Settings: Clone,
     Mempool::Item: AuthenticatedMantleTx + Clone + Eq + Debug,
     MempoolNetAdapter:
-        MempoolAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>,
+        MempoolNetworkAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>,
+    <MempoolNetAdapter as MempoolNetworkAdapter<RuntimeServiceId>>::Settings: Send + Sync,
     TxS: TxSelect<Tx = Mempool::Item>,
     TxS::Settings: Send,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
@@ -206,6 +214,7 @@ where
         + 'static,
     BlendService::BroadcastSettings: Clone + Send + Sync,
     Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash> + Send + Sync + 'static,
+    Mempool::Storage: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
     Mempool::RecoveryState: Serialize + DeserializeOwned,
     Mempool::Settings: Clone + Send + Sync + 'static,
     Mempool::Item: Transaction<Hash = Mempool::Key>
@@ -219,10 +228,11 @@ where
         + Unpin
         + 'static,
     Mempool::Item: AuthenticatedMantleTx,
-    MempoolNetAdapter: MempoolAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>
+    MempoolNetAdapter: MempoolNetworkAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>
         + Send
         + Sync
         + 'static,
+    <MempoolNetAdapter as MempoolNetworkAdapter<RuntimeServiceId>>::Settings: Send + Sync,
     TxS: TxSelect<Tx = Mempool::Item> + Clone + Send + Sync + 'static,
     TxS::Settings: Send + Sync + 'static,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send + 'static,
@@ -249,6 +259,7 @@ where
                 SamplingNetworkAdapter,
                 SamplingStorage,
                 Mempool,
+                Mempool::Storage,
                 RuntimeServiceId,
             >,
         >
@@ -328,7 +339,7 @@ where
             &self.service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
             BlendService,
-            TxMempoolService<_, _, _, _, _>,
+            TxMempoolService<_, _, _, _, _,_>,
             DaSamplingService<_, _, _, _>,
             TimeService<_, _>,
             CryptarchiaService,
@@ -496,10 +507,12 @@ where
         + Sync
         + 'static,
     Mempool::Item: AuthenticatedMantleTx,
-    MempoolNetAdapter: MempoolAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>
+    MempoolNetAdapter: MempoolNetworkAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>
         + Send
         + Sync
         + 'static,
+    <MempoolNetAdapter as MempoolNetworkAdapter<RuntimeServiceId>>::Settings: Send + Sync,
+    <Mempool as MemPool>::Storage: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
     TxS: TxSelect<Tx = Mempool::Item> + Clone + Send + Sync + 'static,
     TxS::Settings: Send + Sync + 'static,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
@@ -511,6 +524,7 @@ where
     TimeBackend::Settings: Clone + Send + Sync,
     CryptarchiaService: CryptarchiaServiceData<Tx = Mempool::Item>,
     Wallet: nomos_wallet::api::WalletServiceData,
+    RuntimeServiceId: Sync + Send + 'static,
 {
     #[expect(clippy::allow_attributes_without_reason)]
     #[instrument(level = "debug", skip(tx_selector, relays))]
@@ -528,21 +542,25 @@ where
         >,
     ) -> Option<Block<Mempool::Item>> {
         let mut output = None;
-        let txs = get_mempool_contents(relays.mempool_relay().clone()).map_err(DynError::from);
+        let txs = relays.mempool_adapter().get_mempool_view([0; 32].into());
         let sampling_relay = relays.sampling_relay().clone();
         let blobs_ids = get_sampled_blobs(sampling_relay);
         match futures::try_join!(txs, blobs_ids) {
-            Ok((txs, blobs)) => {
-                let txs = tx_selector
-                    .select_tx_from(txs.filter(|tx|
+            Ok((txs_stream, blobs)) => {
+                let filtered_stream = txs_stream.filter(move |tx| {
                     // skip txs that try to include a blob which is not yet sampled
-                    tx.mantle_tx().ops.iter().all(|op| match op {
+                    let is_valid = tx.mantle_tx().ops.iter().all(|op| match op {
                         Op::ChannelBlob(op) => blobs.contains(&op.blob),
                         _ => true,
-                    })))
-                    .collect::<Vec<_>>();
-                let content_id = [0; 32].into(); // TODO: calculate the actual content id
+                    });
 
+                    async move { is_valid }
+                });
+
+                let selected_txs_stream = tx_selector.select_tx_from(filtered_stream);
+                let txs: Vec<_> = selected_txs_stream.collect().await;
+
+                let content_id = [0; 32].into(); // TODO: calculate the actual content id
                 // TODO: this should probably be a proposal or be transformed into a proposal
                 let block = Block::new(Header::new(parent, content_id, slot, proof), txs);
                 info!("proposed block with id {:?}", block.header().id());
@@ -555,26 +573,6 @@ where
 
         output
     }
-}
-
-async fn get_mempool_contents<Payload, Item, Key>(
-    mempool: OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>,
-) -> Result<Box<dyn Iterator<Item = Item> + Send>, oneshot::error::RecvError>
-where
-    Key: Send,
-    Payload: Send,
-{
-    let (reply_channel, rx) = oneshot::channel();
-
-    mempool
-        .send(MempoolMsg::View {
-            ancestor_hint: [0; 32].into(),
-            reply_channel,
-        })
-        .await
-        .unwrap_or_else(|(e, _)| eprintln!("Could not get transactions from mempool {e}"));
-
-    rx.await
 }
 
 async fn get_sampled_blobs<BlobId>(
