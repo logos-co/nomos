@@ -117,18 +117,11 @@ impl<'de, Tx: Deserialize<'de>> Deserialize<'de> for Block<Tx> {
 #[cfg(test)]
 mod tests {
     use ed25519_dalek::SigningKey;
-    use num_bigint::BigUint;
 
     use super::Fr;
     use crate::{
-        block::{Block, References},
+        block::{Block, References, tests::make_test_proof},
         codec::SerdeOp,
-        mantle::{
-            ledger::{Note, Utxo},
-            ops::leader_claim::VoucherCm,
-        },
-        proofs::leader_proof::{Groth16LeaderProof, LeaderPrivate, LeaderPublic},
-        utils::merkle::MerkleNode,
     };
 
     #[test]
@@ -157,35 +150,6 @@ mod tests {
         assert_eq!(deserialized.mempool_transactions[0], Fr::from(123u64));
         assert_eq!(deserialized.mempool_transactions[1], Fr::from(456u64));
         assert_eq!(deserialized.mempool_transactions[2], Fr::from(789u64));
-    }
-
-    // TODO: probably should have some utility for this in workspace
-    fn make_test_proof() -> Groth16LeaderProof {
-        let public_inputs = LeaderPublic::new(
-            Fr::from(1), // aged root
-            Fr::from(2), // latest root
-            Fr::from(3), // epoch nonce
-            0,           // slot
-            1000,        // total stake
-        );
-        let utxo = Utxo {
-            tx_hash: Fr::from(BigUint::from(1u8)).into(),
-            output_index: 0,
-            note: Note::new(100, Fr::from(5).into()),
-        };
-        let aged_path = vec![MerkleNode::Right(Fr::from(0u8))];
-        let latest_path = vec![MerkleNode::Left(Fr::from(0u8))];
-        let private_inputs = LeaderPrivate::new(
-            public_inputs,
-            utxo,
-            &aged_path,
-            &latest_path,
-            Fr::from(6), // slot secret
-            0,           // starting slot
-            &ed25519_dalek::VerifyingKey::from_bytes(&[0; 32]).unwrap(),
-        );
-        Groth16LeaderProof::prove(&private_inputs, VoucherCm::default())
-            .expect("Proof generation should succeed")
     }
 
     #[test]

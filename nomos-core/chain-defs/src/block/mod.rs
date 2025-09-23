@@ -1,9 +1,11 @@
 use ::serde::{Deserialize, Serialize, de::DeserializeOwned};
 use bytes::Bytes;
-use ed25519_dalek::{Signer as _, SigningKey};
+use ed25519_dalek::{Signer as _, SigningKey, Verifier as _};
 use groth16::Fr;
 
-use crate::{codec::SerdeOp, header::Header, mantle::Transaction};
+use crate::{
+    codec::SerdeOp, header::Header, mantle::Transaction, proofs::leader_proof::LeaderProof as _,
+};
 
 mod wire;
 
@@ -116,7 +118,12 @@ impl<Tx> Block<Tx> {
             ));
         }
 
-        // TODO: validate signature?
+        let leader_public_key = self.header.leader_proof().leader_key();
+        let header_bytes = <Header as SerdeOp>::serialize(&self.header)?;
+
+        leader_public_key
+            .verify(&header_bytes, &self.signature)
+            .map_err(|e| Error::Signing(format!("Invalid signature: {e}")))?;
 
         Ok(())
     }
@@ -161,5 +168,101 @@ impl<Tx: Clone + Eq + Serialize + DeserializeOwned> TryFrom<Block<Tx>> for Bytes
 
     fn try_from(block: Block<Tx>) -> Result<Self, Self::Error> {
         <Block<Tx> as SerdeOp>::serialize(&block)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use cryptarchia_engine::Slot;
+    use num_bigint::BigUint;
+
+    use super::*;
+    use crate::{
+        header::ContentId,
+        mantle::{
+            ledger::{Note, Tx, Utxo},
+            ops::leader_claim::VoucherCm,
+        },
+        proofs::leader_proof::{Groth16LeaderProof, LeaderPrivate, LeaderPublic},
+        utils::merkle::MerkleNode,
+    };
+
+    pub fn make_test_proof() -> Groth16LeaderProof {
+        let public_inputs = LeaderPublic::new(
+            Fr::from(1), // aged root
+            Fr::from(2), // latest root
+            Fr::from(3), // epoch nonce
+            0,           // slot
+            1000,        // total stake
+        );
+        let utxo = Utxo {
+            tx_hash: Fr::from(BigUint::from(1u8)).into(),
+            output_index: 0,
+            note: Note::new(100, Fr::from(5).into()),
+        };
+        let aged_path = vec![MerkleNode::Right(Fr::from(0u8))];
+        let latest_path = vec![MerkleNode::Left(Fr::from(0u8))];
+
+        let signing_key = SigningKey::from_bytes(&[0; 32]);
+        let verifying_key = signing_key.verifying_key();
+
+        let private_inputs = LeaderPrivate::new(
+            public_inputs,
+            utxo,
+            &aged_path,
+            &latest_path,
+            Fr::from(6), // slot secret
+            0,           // starting slot
+            &verifying_key,
+        );
+        Groth16LeaderProof::prove(&private_inputs, VoucherCm::default())
+            .expect("Proof generation should succeed")
+    }
+
+    #[test]
+    fn test_block_signature_validation() {
+        let header = Header::new(
+            [0u8; 32].into(),
+            ContentId::from([1u8; 32]),
+            Slot::from(42u64),
+            make_test_proof(),
+        );
+
+        let transactions: Vec<Tx> = vec![];
+        let service_reward = Fr::from(123u64);
+
+        let correct_signing_key = SigningKey::from_bytes(&[0; 32]);
+        let valid_signature = header
+            .sign(&correct_signing_key)
+            .expect("Signing should work");
+
+        let valid_block = Block::new(
+            header.clone(),
+            transactions.clone(),
+            Some(service_reward),
+            valid_signature,
+        );
+
+        assert!(
+            valid_block.validate().is_ok(),
+            "Valid block should pass validation"
+        );
+
+        let wrong_signing_key = SigningKey::from_bytes(&[1u8; 32]);
+        let invalid_signature = header
+            .sign(&wrong_signing_key)
+            .expect("Signing should work");
+
+        let invalid_block = Block::new(
+            header,
+            transactions,
+            Some(service_reward),
+            invalid_signature,
+        );
+
+        assert!(
+            invalid_block.validate().is_err(),
+            "Invalid block should fail validation"
+        );
     }
 }
