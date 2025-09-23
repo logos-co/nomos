@@ -6,6 +6,7 @@ use std::{
     time::Duration,
 };
 
+use cryptarchia_engine::Length;
 use cryptarchia_sync::HeaderId;
 use futures::{future::BoxFuture, stream::FuturesUnordered, Stream, StreamExt as _};
 use overwatch::DynError;
@@ -22,7 +23,7 @@ pub struct Downloads<'a, NodeId, Block> {
     /// [`Future`]s that read a single block from a [`Download`].
     downloads: FuturesUnordered<BoxFuture<'a, DownloadResult<NodeId, Block>>>,
     /// A set of blocks that are being targeted by [`Self::downloads`].
-    targets: HashSet<HeaderId>,
+    targets: HashSet<Target>,
     /// [`Delay`] for peers that have no download needed at the moment.
     delays: FuturesUnordered<BoxFuture<'a, Delay<NodeId>>>,
     /// The duration of a delay.
@@ -143,7 +144,7 @@ where
         }));
     }
 
-    pub const fn targets(&self) -> &HashSet<HeaderId> {
+    pub const fn targets(&self) -> &HashSet<Target> {
         &self.targets
     }
 
@@ -175,7 +176,7 @@ pub enum DownloadsOutput<NodeId, Block> {
 pub struct Download<NodeId, Block> {
     peer: NodeId,
     /// The target block this download aims to reach.
-    target: HeaderId,
+    target: Target,
     /// A stream of blocks that may continue up to [`Self::target`].
     stream: BoxedStream<Result<(HeaderId, Block), DynError>>,
     /// The last block that was read from [`Self::stream`].
@@ -183,10 +184,30 @@ pub struct Download<NodeId, Block> {
     last: Option<HeaderId>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Target {
+    id: HeaderId,
+    height: Length,
+}
+
+impl Target {
+    pub const fn new(id: HeaderId, height: Length) -> Self {
+        Self { id, height }
+    }
+
+    pub const fn id(&self) -> HeaderId {
+        self.id
+    }
+
+    pub const fn height(&self) -> Length {
+        self.height
+    }
+}
+
 impl<NodeId, Block> Download<NodeId, Block> {
     pub fn new(
         peer: NodeId,
-        target: HeaderId,
+        target: Target,
         stream: BoxedStream<Result<(HeaderId, Block), DynError>>,
     ) -> Self {
         Self {
@@ -204,6 +225,10 @@ impl<NodeId, Block> Download<NodeId, Block> {
     pub const fn last(&self) -> Option<HeaderId> {
         self.last
     }
+
+    pub const fn target(&self) -> Target {
+        self.target
+    }
 }
 
 impl<NodeId, Block> Stream for Download<NodeId, Block>
@@ -216,7 +241,7 @@ where
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         // Check if the target block has already been reached.
         if let Some(last) = self.last {
-            if last == self.target {
+            if last == self.target.id() {
                 return Poll::Ready(None);
             }
         }
@@ -284,7 +309,7 @@ mod tests {
     #[tokio::test]
     async fn download_empty_stream() {
         let peer: TestNodeId = 1;
-        let target = header_id(1);
+        let target = Target::new(header_id(1), 1u64.into());
         let stream = block_stream(vec![]);
         let mut download = Download::new(peer, target, stream);
 
@@ -294,7 +319,7 @@ mod tests {
     #[tokio::test]
     async fn download_blocks_until_target() {
         let peer: TestNodeId = 1;
-        let target = header_id(3);
+        let target = Target::new(header_id(3), 3u64.into());
         let stream = block_stream(vec![
             Ok((header_id(1), 100)),
             Ok((header_id(2), 200)),
@@ -329,7 +354,7 @@ mod tests {
     #[tokio::test]
     async fn download_blocks_if_no_target_in_stream() {
         let peer: TestNodeId = 1;
-        let target = header_id(4);
+        let target = Target::new(header_id(4), 4u64.into());
         let stream = block_stream(vec![
             Ok((header_id(1), 100)),
             Ok((header_id(2), 200)),
@@ -356,7 +381,7 @@ mod tests {
     #[tokio::test]
     async fn download_with_error() {
         let peer: TestNodeId = 1;
-        let target = header_id(3);
+        let target = Target::new(header_id(3), 3u64.into());
         let stream = block_stream(vec![
             Ok((header_id(1), 100)),
             Err(DynError::from("test error")),
@@ -377,7 +402,7 @@ mod tests {
     #[tokio::test]
     async fn add_single_download() {
         let mut downloads = Downloads::new(Duration::from_millis(1));
-        let target = header_id(2);
+        let target = Target::new(header_id(2), 2u64.into());
         let download = Download::new(
             1,
             target,
@@ -431,7 +456,7 @@ mod tests {
     #[tokio::test]
     async fn add_single_download_with_error() {
         let mut downloads = Downloads::new(Duration::from_millis(1));
-        let target = header_id(2);
+        let target = Target::new(header_id(2), 2u64.into());
         let download = Download::new(
             1,
             target,
@@ -477,12 +502,12 @@ mod tests {
 
         // Download 1: Single block
         let peer1: TestNodeId = 1;
-        let target1 = header_id(1);
+        let target1 = Target::new(header_id(1), 1u64.into());
         let download1 = Download::new(peer1, target1, block_stream(vec![Ok((header_id(1), 100))]));
 
         // Download 2: Two blocks
         let peer2: TestNodeId = 2;
-        let target2 = header_id(3);
+        let target2 = Target::new(header_id(3), 2u64.into());
         let download2 = Download::new(
             peer2,
             target2,
@@ -566,7 +591,7 @@ mod tests {
 
         // Download 1
         let peer1: TestNodeId = 1;
-        let target = header_id(1);
+        let target = Target::new(header_id(1), 1u64.into());
         let download1 = Download::new(peer1, target, block_stream(vec![Ok((header_id(1), 100))]));
 
         // Download 2: with the same target
@@ -616,7 +641,11 @@ mod tests {
         // Add a download for peer1
         let peer1: TestNodeId = 1;
         // An empty stream for simplicity
-        let download = Download::new(peer1, header_id(1), block_stream(vec![]));
+        let download = Download::new(
+            peer1,
+            Target::new(header_id(1), 1u64.into()),
+            block_stream(vec![]),
+        );
         downloads.add_download(download);
 
         // Add a delay for peer2
@@ -644,7 +673,7 @@ mod tests {
         // An empty stream for simplicity
         let download = Download::new(
             peer1,
-            header_id(1),
+            Target::new(header_id(1), 1u64.into()),
             slow_block_stream(vec![Ok((header_id(1), 100))], Duration::from_secs(2)),
         );
         downloads.add_download(download);
