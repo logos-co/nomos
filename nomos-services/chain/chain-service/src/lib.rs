@@ -839,7 +839,7 @@ where
                                         cryptarchia = new_cryptarchia;
                                         storage_blocks_to_remove = new_storage_blocks_to_remove;
 
-                                        if let Err(e) = sign_and_broadcast(block, &blend_adapter).await {
+                                        if let Err(e) = broadcast(block, &blend_adapter).await {
                                             error!(target: LOG_TARGET, "Failed broadcast proposal: {:?}", e);
                                         }
                                     }
@@ -1726,7 +1726,7 @@ async fn broadcast_finalized_block(
         .map_err(|(error, _)| Box::new(error) as DynError)
 }
 
-async fn sign_and_broadcast<BlendService, Item>(
+async fn broadcast<BlendService, Item>(
     block: Block<Item>,
     blend_adapter: &BlendAdapter<BlendService>,
 ) -> Result<(), Error>
