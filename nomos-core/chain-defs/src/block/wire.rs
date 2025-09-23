@@ -120,7 +120,7 @@ mod tests {
 
     use super::Fr;
     use crate::{
-        block::{Block, References, tests::make_test_proof},
+        block::{Block, References, tests::create_proof},
         codec::SerdeOp,
     };
 
@@ -162,7 +162,7 @@ mod tests {
             [0u8; 32].into(),
             ContentId::from([1u8; 32]),
             Slot::from(42u64),
-            make_test_proof(),
+            create_proof(),
         );
 
         let transactions = vec!["tx1".to_owned(), "tx2".to_owned()];

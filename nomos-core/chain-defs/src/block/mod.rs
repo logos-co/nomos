@@ -175,6 +175,8 @@ impl<Tx: Clone + Eq + Serialize + DeserializeOwned> TryFrom<Block<Tx>> for Bytes
 
 #[cfg(test)]
 mod tests {
+    use std::iter;
+
     use cryptarchia_engine::Slot;
     use num_bigint::BigUint;
 
@@ -189,19 +191,15 @@ mod tests {
         utils::merkle::MerkleNode,
     };
 
-    pub fn make_test_proof() -> Groth16LeaderProof {
-        let public_inputs = LeaderPublic::new(
-            Fr::from(1), // aged root
-            Fr::from(2), // latest root
-            Fr::from(3), // epoch nonce
-            0,           // slot
-            1000,        // total stake
-        );
+    pub fn create_proof() -> Groth16LeaderProof {
+        let public_inputs = LeaderPublic::new(Fr::from(1), Fr::from(2), Fr::from(3), 0, 1000);
+
         let utxo = Utxo {
             tx_hash: Fr::from(BigUint::from(1u8)).into(),
             output_index: 0,
             note: Note::new(100, Fr::from(5).into()),
         };
+
         let aged_path = vec![MerkleNode::Right(Fr::from(0u8))];
         let latest_path = vec![MerkleNode::Left(Fr::from(0u8))];
 
@@ -213,58 +211,82 @@ mod tests {
             utxo,
             &aged_path,
             &latest_path,
-            Fr::from(6), // slot secret
-            0,           // starting slot
+            Fr::from(6),
+            0,
             &verifying_key,
         );
         Groth16LeaderProof::prove(&private_inputs, VoucherCm::default())
             .expect("Proof generation should succeed")
     }
 
-    #[test]
-    fn test_block_signature_validation() {
-        let header = Header::new(
+    fn create_header() -> Header {
+        Header::new(
             [0u8; 32].into(),
             ContentId::from([1u8; 32]),
             Slot::from(42u64),
-            make_test_proof(),
-        );
+            create_proof(),
+        )
+    }
 
+    fn create_signature(header: &Header) -> ed25519_dalek::Signature {
+        let signing_key = SigningKey::from_bytes(&[0; 32]);
+        header.sign(&signing_key).expect("Signing should work")
+    }
+
+    fn create_transactions(count: usize) -> Vec<Tx> {
+        iter::repeat_with(|| Tx {
+            inputs: vec![],
+            outputs: vec![],
+        })
+        .take(count)
+        .collect()
+    }
+
+    #[test]
+    fn test_block_signature_validation() {
+        let header = create_header();
         let transactions: Vec<Tx> = vec![];
-        let service_reward = Fr::from(123u64);
+        let service_reward = Some(Fr::from(123u64));
 
-        let correct_signing_key = SigningKey::from_bytes(&[0; 32]);
-        let valid_signature = header
-            .sign(&correct_signing_key)
-            .expect("Signing should work");
-
+        let valid_signature = create_signature(&header);
         let valid_block = Block::new(
             header.clone(),
             transactions.clone(),
-            Some(service_reward),
+            service_reward,
             valid_signature,
         );
 
-        assert!(
-            valid_block.validate().is_ok(),
-            "Valid block should pass validation"
-        );
+        assert!(valid_block.validate().is_ok());
 
         let wrong_signing_key = SigningKey::from_bytes(&[1u8; 32]);
         let invalid_signature = header
             .sign(&wrong_signing_key)
             .expect("Signing should work");
 
-        let invalid_block = Block::new(
-            header,
-            transactions,
-            Some(service_reward),
-            invalid_signature,
-        );
+        let invalid_block = Block::new(header, transactions, service_reward, invalid_signature);
+        assert!(invalid_block.validate().is_err());
+    }
 
-        assert!(
-            invalid_block.validate().is_err(),
-            "Invalid block should fail validation"
+    #[test]
+    fn test_block_transaction_count_validation() {
+        let header = create_header();
+        let signature = create_signature(&header);
+        let service_reward = Some(Fr::from(123u64));
+
+        let valid_block: Block<Tx> = Block::new(header.clone(), vec![], service_reward, signature);
+        assert!(valid_block.validate().is_ok());
+
+        let invalid_block: Block<Tx> = Block::new(
+            header,
+            create_transactions(MAX_TRANSACTIONS + 1),
+            service_reward,
+            signature,
         );
+        let result = invalid_block.validate();
+
+        assert!(result.is_err());
+        let error_msg = result.unwrap_err().to_string();
+        assert!(error_msg.contains("Too many transactions"));
+        assert!(error_msg.contains(&MAX_TRANSACTIONS.to_string()));
     }
 }
