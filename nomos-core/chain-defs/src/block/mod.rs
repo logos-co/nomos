@@ -7,6 +7,8 @@ use crate::{
     codec::SerdeOp, header::Header, mantle::Transaction, proofs::leader_proof::LeaderProof as _,
 };
 
+const MAX_TRANSACTIONS: usize = 1024;
+
 mod wire;
 
 pub type TxHash = [u8; 32];
@@ -32,7 +34,7 @@ pub struct Proposal {
 #[derive(Clone, Debug)]
 pub struct References {
     pub service_reward: Option<Fr>,
-    pub mempool_transactions: Vec<Fr>, // 1024 - len(service_reward)
+    pub mempool_transactions: Vec<Fr>, // MAX_TRANSACTIONS - len(service_reward)
 }
 
 /// A block
@@ -112,10 +114,10 @@ impl<Tx> Block<Tx> {
             return Err(Error::Signing("Invalid header version".to_owned()));
         }
 
-        if self.transactions.len() > 1024 {
-            return Err(Error::Signing(
-                "Too many transactions (max 1024)".to_owned(),
-            ));
+        if self.transactions.len() > MAX_TRANSACTIONS {
+            return Err(Error::Signing(format!(
+                "Too many transactions (max {MAX_TRANSACTIONS})"
+            )));
         }
 
         let leader_public_key = self.header.leader_proof().leader_key();
