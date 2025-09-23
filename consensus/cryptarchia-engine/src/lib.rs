@@ -523,6 +523,9 @@ where
             .nth_ancestor(&self.local_chain, self.config.security_param.get().into())
     }
 
+    /// Returns the chain of blocks from `start` to `target` (inclusive).
+    /// The number of blocks is capped by `limit`; if the limit is reached,
+    /// the chain may not include the `target`.
     pub fn blocks_in_inclusive_range(
         &self,
         start: Id,
