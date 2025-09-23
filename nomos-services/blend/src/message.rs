@@ -1,21 +1,23 @@
+use futures::Stream;
+use nomos_blend_message::crypto::proofs::quota::inputs::prove::private::ProofOfLeadershipQuotaInputs;
 use nomos_blend_scheduling::EncapsulatedMessage;
 use nomos_core::crypto::ZkHash;
-use poq::PoQWalletInputsData;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug)]
-pub struct EpochPoLSlotPrivateInfo {
-    pub wallet: PoQWalletInputsData,
-    pub pol_secret_key: ZkHash,
+#[derive(Clone)]
+pub struct PolEpochInfo {
+    pub epoch_nonce: ZkHash,
+    pub poq_private_inputs: ProofOfLeadershipQuotaInputs,
 }
 
 /// A message that is handled by [`BlendService`].
-#[derive(Debug)]
 pub enum ServiceMessage<BroadcastSettings> {
     /// To send a message to the blend network and eventually broadcast it to
     /// the [`NetworkService`].
     Blend(NetworkMessage<BroadcastSettings>),
-    NotifyNewPolSlotEpoch(EpochPoLSlotPrivateInfo),
+    /// Notify Blend service about a new `PoL` epoch, with information about any
+    /// one winning slot.
+    PolEpochStream(Box<dyn Stream<Item = PolEpochInfo> + Send + Sync + Unpin>),
 }
 
 /// A message that is sent to the blend network.

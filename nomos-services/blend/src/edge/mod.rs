@@ -13,9 +13,11 @@ use std::{
 };
 
 use backends::BlendBackend;
-use futures::{future::ready, Stream, StreamExt as _};
+use futures::{Stream, StreamExt as _, future::ready};
 use nomos_blend_scheduling::{
-    message_blend::{ProofsGenerator as ProofsGeneratorTrait, SessionInfo as PoQSessionInfo},
+    message_blend::{
+        PrivateInputs, ProofsGenerator as ProofsGeneratorTrait, SessionInfo as PoQSessionInfo,
+    },
     session::{SessionEvent, UninitializedSessionEventStream},
 };
 use nomos_core::codec::SerdeOp;
@@ -32,6 +34,7 @@ use serde::{Serialize, de::DeserializeOwned};
 pub(crate) use service_components::ServiceComponents;
 use services_utils::wait_until_services_are_ready;
 use settings::BlendConfig;
+use tokio::time::timeout;
 use tracing::{debug, error, info};
 
 use crate::{
@@ -117,11 +120,12 @@ where
         })
     }
 
+    #[expect(clippy::too_many_lines, reason = "TODO: Address this at some point.")]
     async fn run(mut self) -> Result<(), overwatch::DynError> {
         let Self {
             service_resources_handle:
                 ServiceResourcesHandle {
-                    inbound_relay,
+                    mut inbound_relay,
                     overwatch_handle,
                     settings_handle,
                     status_updater,
@@ -148,27 +152,54 @@ where
         .subscribe()
         .await?;
 
-        // TODO: Replace with actual service usage.
+        let Ok(Some(ServiceMessage::PolEpochStream(pol_epoch_stream))) =
+            timeout(Duration::from_secs(3), inbound_relay.recv()).await
+        else {
+            panic!("Blend service must receive a PoL epoch stream to work properly.");
+        };
+
+        // TODO: Replace with chain-follower stream integration.
         let poq_input_stream = mock_poq_inputs_stream();
 
         // Stream combining the membership stream with the stream yielding PoQ
         // generation and verification material.
-        let aggregated_session_stream = membership_stream.zip(poq_input_stream).map(
-            |(membership, (poq_public_inputs, poq_private_inputs))| {
-                let local_node_index = membership.local_index();
-                let membership_size = membership.size();
+        let aggregated_session_stream = membership_stream
+            .zip(pol_epoch_stream)
+            .zip(poq_input_stream)
+            // Flatten nested zipped streams.
+            .map(|((membership, pol_epoch), poq_inputs)| (membership, pol_epoch, poq_inputs))
+            .map(
+                |(membership, pol_epoch, (poq_public_inputs, poq_private_inputs))| {
+                    let local_node_index = membership.local_index();
+                    let membership_size = membership.size();
 
-                SessionInfo {
-                    membership,
-                    poq_generation_and_verification_inputs: PoQSessionInfo {
-                        local_node_index,
-                        membership_size,
-                        private_inputs: poq_private_inputs,
-                        public_inputs: poq_public_inputs,
-                    },
-                }
-            },
-        );
+                    assert!(pol_epoch.epoch_nonce == poq_public_inputs.pol_epoch_nonce, "The PoL epoch stream and the chain follower epoch stream must yield at the same time, once per epoch.");
+
+                    SessionInfo {
+                        membership,
+                        poq_generation_and_verification_inputs: PoQSessionInfo {
+                            local_node_index,
+                            membership_size,
+                            private_inputs: PrivateInputs {
+                                aged_path: pol_epoch.poq_private_inputs.aged_path,
+                                aged_selector: pol_epoch.poq_private_inputs.aged_selector,
+                                core_path: poq_private_inputs.core_path,
+                                core_path_selectors: poq_private_inputs.core_path_selectors,
+                                core_sk: poq_private_inputs.core_sk,
+                                note_value: pol_epoch.poq_private_inputs.note_value,
+                                output_number: pol_epoch.poq_private_inputs.output_number,
+                                pol_secret_key: pol_epoch.poq_private_inputs.pol_secret_key,
+                                slot: pol_epoch.poq_private_inputs.slot,
+                                slot_secret: pol_epoch.poq_private_inputs.slot_secret,
+                                slot_secret_path: pol_epoch.poq_private_inputs.slot_secret_path,
+                                starting_slot: pol_epoch.poq_private_inputs.starting_slot,
+                                transaction_hash: pol_epoch.poq_private_inputs.transaction_hash,
+                            },
+                            public_inputs: poq_public_inputs,
+                        },
+                    }
+                },
+            );
 
         let uninitialized_session_stream = UninitializedSessionEventStream::new(
             aggregated_session_stream,
@@ -177,15 +208,18 @@ where
         );
 
         let messages_to_blend = inbound_relay.filter_map(|service_message| {
-            let out = match service_message {
-                ServiceMessage::Blend(network_message) => Some(
-                    <NetworkMessage<BroadcastSettings> as SerdeOp>::serialize(&network_message)
-                        .expect("NetworkMessage should be able to be serialized")
-                        .to_vec(),
-                ),
-                ServiceMessage::NotifyNewPolSlotEpoch(_) => None,
+            let ServiceMessage::Blend(network_message) = service_message else {
+                tracing::warn!(
+                    target: LOG_TARGET,
+                    "PoL epoch stream is not expected to be received more than once. Ignoring..."
+                );
+                return ready(None);
             };
-            ready(out)
+            ready(Some(
+                <NetworkMessage<BroadcastSettings> as SerdeOp>::serialize(&network_message)
+                    .expect("NetworkMessage should be able to be serialized")
+                    .to_vec(),
+            ))
         });
 
         run::<Backend, _, ProofsGenerator, _>(

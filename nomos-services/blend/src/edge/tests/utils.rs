@@ -9,7 +9,9 @@ use futures::StreamExt as _;
 use nomos_blend_scheduling::{
     EncapsulatedMessage,
     membership::Membership,
-    message_blend::{SessionCryptographicProcessorSettings, SessionInfo as PoQSessionInfo},
+    message_blend::{
+        PrivateInputs, SessionCryptographicProcessorSettings, SessionInfo as PoQSessionInfo,
+    },
     session::UninitializedSessionEventStream,
 };
 use overwatch::overwatch::{OverwatchHandle, commands::OverwatchCommand};
@@ -22,7 +24,7 @@ use crate::{
     mock_poq_inputs_stream,
     session::SessionInfo,
     settings::{FIRST_SESSION_READY_TIMEOUT, TimingSettings},
-    test_utils::{crypto::MockProofsGenerator, membership::key},
+    test_utils::{crypto::MockProofsGenerator, epoch::mock_pol_epoch_stream, membership::key},
 };
 
 pub async fn spawn_run(
@@ -47,8 +49,10 @@ pub async fn spawn_run(
     }
 
     let aggregated_session_stream = ReceiverStream::new(session_receiver)
+        .zip(mock_pol_epoch_stream())
         .zip(mock_poq_inputs_stream())
-        .map(|(membership, (public_inputs, private_inputs))| {
+        .map(|((membership, pol_epoch), poq_inputs)| (membership, pol_epoch, poq_inputs))
+        .map(|(membership, pol_epoch, (public_inputs, private_inputs))| {
             let local_node_index = membership.local_index();
             let membership_size = membership.size();
 
@@ -57,7 +61,21 @@ pub async fn spawn_run(
                 poq_generation_and_verification_inputs: PoQSessionInfo {
                     local_node_index,
                     membership_size,
-                    private_inputs,
+                    private_inputs: PrivateInputs {
+                        aged_path: pol_epoch.poq_private_inputs.aged_path,
+                        aged_selector: pol_epoch.poq_private_inputs.aged_selector,
+                        core_path: private_inputs.core_path,
+                        core_path_selectors: private_inputs.core_path_selectors,
+                        core_sk: private_inputs.core_sk,
+                        note_value: pol_epoch.poq_private_inputs.note_value,
+                        output_number: pol_epoch.poq_private_inputs.output_number,
+                        pol_secret_key: pol_epoch.poq_private_inputs.pol_secret_key,
+                        slot: pol_epoch.poq_private_inputs.slot,
+                        slot_secret: pol_epoch.poq_private_inputs.slot_secret,
+                        slot_secret_path: pol_epoch.poq_private_inputs.slot_secret_path,
+                        starting_slot: pol_epoch.poq_private_inputs.starting_slot,
+                        transaction_hash: pol_epoch.poq_private_inputs.transaction_hash,
+                    },
                     public_inputs,
                 },
             }
