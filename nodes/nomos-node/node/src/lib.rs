@@ -2,7 +2,7 @@ pub mod api;
 pub mod config;
 pub mod generic_services;
 
-use color_eyre::eyre::{eyre, Result};
+use color_eyre::eyre::{Result, eyre};
 use generic_services::VerifierMempoolAdapter;
 use kzgrs_backend::common::share::DaShare;
 pub use kzgrs_backend::dispersal::BlobInfo;
@@ -53,9 +53,8 @@ use nomos_time::backends::NtpTimeBackend;
 #[cfg(feature = "tracing")]
 pub use nomos_tracing_service::Tracing;
 use overwatch::{
-    derive_services,
+    DynError, derive_services,
     overwatch::{Error as OverwatchError, Overwatch, OverwatchRunner},
-    DynError,
 };
 use subnetworks_assignations::versions::history_aware_refill::HistoryAware;
 

@@ -1,6 +1,6 @@
 use clap::Parser as _;
-use color_eyre::eyre::{eyre, Result};
-use nomos_node::{config::CliArgs, get_services_to_start, run_node_from_config, Config};
+use color_eyre::eyre::{Result, eyre};
+use nomos_node::{Config, config::CliArgs, get_services_to_start, run_node_from_config};
 
 #[tokio::main]
 async fn main() -> Result<()> {
