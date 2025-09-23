@@ -2,7 +2,7 @@ use nomos_core::header;
 
 use crate::{api::StorageBackendApi, backends::rocksdb::RocksBackend};
 
-pub mod blocks;
+pub mod chain;
 pub mod da;
 pub mod membership;
 pub mod utils;

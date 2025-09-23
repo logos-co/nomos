@@ -247,7 +247,7 @@ async fn handle_store_tx<Backend: StorageBackend>(
     backend: &mut Backend,
     blob_id: Backend::BlobId,
     assignations: u16,
-    tx: Backend::Tx,
+    tx: <Backend as StorageDaApi>::Tx,
 ) -> Result<(), StorageServiceError> {
     backend
         .store_tx(blob_id, assignations, tx)
