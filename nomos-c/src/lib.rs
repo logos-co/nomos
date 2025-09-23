@@ -67,7 +67,7 @@ fn initialize_nomos_node(config_path: *const c_char) -> Result<NomosNode, NomosN
         NomosNodeErrorCode::CouldNotInitialize
     })?;
 
-    let app_handel = app.handle();
+    let app_handle = app.handle();
 
     rt.block_on(async {
         let services_to_start = get_services_to_start(
@@ -80,7 +80,7 @@ fn initialize_nomos_node(config_path: *const c_char) -> Result<NomosNode, NomosN
             eprintln!("Could not get services to start: {e}");
             NomosNodeErrorCode::CouldNotInitialize
         })?;
-        app_handel
+        app_handle
             .start_service_sequence(services_to_start)
             .await
             .map_err(|e| {
