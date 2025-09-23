@@ -8,8 +8,9 @@ use nomos_core::{
     mantle::{AuthenticatedMantleTx, Transaction},
 };
 use nomos_mempool::{
-    backend::mockpool::MockPool, network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
-    tx::service::openapi::Status, MempoolMetrics, MempoolMsg, TxMempoolService,
+    MempoolMetrics, MempoolMsg, TxMempoolService, backend::mockpool::MockPool,
+    network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
+    tx::service::openapi::Status,
 };
 use overwatch::services::AsServiceId;
 use serde::{Deserialize, Serialize};
@@ -100,7 +101,7 @@ where
 pub async fn lib_block_stream<RuntimeServiceId>(
     handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
 ) -> Result<
-    impl Stream<Item = Result<BlockInfo, crate::http::DynError>> + Send + Sync,
+    impl Stream<Item = Result<BlockInfo, crate::http::DynError>> + Send + Sync + use<RuntimeServiceId>,
     super::DynError,
 >
 where

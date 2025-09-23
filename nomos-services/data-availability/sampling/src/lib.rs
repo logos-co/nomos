@@ -11,23 +11,23 @@ use std::{
 };
 
 use backend::{DaSamplingServiceBackend, SamplingState};
-use futures::{future::BoxFuture, stream::FuturesUnordered, FutureExt as _, Stream};
+use futures::{FutureExt as _, Stream, future::BoxFuture, stream::FuturesUnordered};
 use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
 use network::NetworkAdapter;
 use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId};
 use nomos_da_network_core::protocols::sampling::errors::SamplingError;
 use nomos_da_network_service::{
-    backends::libp2p::common::{CommitmentsEvent, HistoricSamplingEvent, SamplingEvent},
     NetworkService,
+    backends::libp2p::common::{CommitmentsEvent, HistoricSamplingEvent, SamplingEvent},
 };
 use nomos_storage::StorageService;
 use nomos_tracing::{error_with_id, info_with_id};
 use overwatch::{
-    services::{
-        state::{NoOperator, NoState},
-        AsServiceId, ServiceCore, ServiceData,
-    },
     DynError, OpaqueServiceResourcesHandle,
+    services::{
+        AsServiceId, ServiceCore, ServiceData,
+        state::{NoOperator, NoState},
+    },
 };
 use serde::{Deserialize, Serialize};
 use services_utils::wait_until_services_are_ready;
@@ -36,7 +36,7 @@ use subnetworks_assignations::MembershipHandler;
 use tokio::sync::oneshot;
 use tokio_stream::StreamExt as _;
 use tracing::{error, instrument};
-use verifier::{kzgrs::KzgrsDaVerifier, VerifierBackend};
+use verifier::{VerifierBackend, kzgrs::KzgrsDaVerifier};
 
 const HISTORICAL_SAMPLING_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -330,10 +330,10 @@ where
                 blob_id,
                 response_sender,
             } => {
-                if let Ok(commitments) = storage_adapter.get_commitments(blob_id).await {
-                    if let Err(err) = response_sender.send(commitments).await {
-                        tracing::error!("Couldn't send commitments response: {err:?}");
-                    }
+                if let Ok(commitments) = storage_adapter.get_commitments(blob_id).await
+                    && let Err(err) = response_sender.send(commitments).await
+                {
+                    tracing::error!("Couldn't send commitments response: {err:?}");
                 }
             }
             CommitmentsEvent::CommitmentsError { error } => match error.blob_id() {
@@ -372,11 +372,10 @@ where
                         blob_id: received_blob_id,
                         commitments,
                     } = message
+                        && received_blob_id == blob_id
                     {
-                        if received_blob_id == blob_id {
-                            let _ = result_sender.send(Some(*commitments));
-                            return;
-                        }
+                        let _ = result_sender.send(Some(*commitments));
+                        return;
                     }
                 }
                 let _ = result_sender.send(None);

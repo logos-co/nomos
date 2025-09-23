@@ -8,24 +8,26 @@ use std::{
 };
 
 use axum::{
+    Router,
     http::{
-        header::{CONTENT_TYPE, USER_AGENT},
         HeaderValue,
+        header::{CONTENT_TYPE, USER_AGENT},
     },
-    routing, Router,
+    routing,
 };
 use nomos_api::{
+    Backend,
     http::{
         consensus::Cryptarchia,
         da::{DaDispersal, DaVerifier},
         storage,
     },
-    Backend,
 };
+use nomos_blend_service::{ProofsGenerator, ProofsVerifier};
 use nomos_core::{
     da::{
-        blob::{info::DispersedBlobInfo, metadata, LightShare, Share},
         DaVerifier as CoreDaVerifier,
+        blob::{LightShare, Share, info::DispersedBlobInfo, metadata},
     },
     header::HeaderId,
     mantle::{AuthenticatedMantleTx, SignedMantleTx, Transaction},
@@ -35,25 +37,25 @@ use nomos_da_network_service::{
     backends::libp2p::executor::DaNetworkExecutorBackend, membership::MembershipAdapter,
     storage::MembershipStorageAdapter,
 };
-use nomos_da_sampling::{backend::DaSamplingServiceBackend, DaSamplingService};
+use nomos_da_sampling::{DaSamplingService, backend::DaSamplingServiceBackend};
 use nomos_da_verifier::{backend::VerifierBackend, mempool::DaMempoolAdapter};
 pub use nomos_http_api_common::settings::AxumBackendSettings;
 use nomos_http_api_common::{paths, utils::create_rate_limit_layer};
 use nomos_libp2p::PeerId;
 use nomos_mempool::{
-    backend::mockpool::MockPool, tx::service::openapi::Status, MempoolMetrics, TxMempoolService,
+    MempoolMetrics, TxMempoolService, backend::mockpool::MockPool, tx::service::openapi::Status,
 };
 use nomos_node::{
+    RocksBackend,
     api::handlers::{
         add_share, add_tx, balancer_stats, blacklisted_peers, block, block_peer, cl_metrics,
         cl_status, cryptarchia_headers, cryptarchia_info, da_get_commitments, da_get_light_share,
         da_get_shares, da_get_storage_commitments, libp2p_info, monitor_stats, unblock_peer,
     },
-    RocksBackend,
 };
-use nomos_storage::{api::da, StorageService};
-use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId, DynError};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use nomos_storage::{StorageService, api::da};
+use overwatch::{DynError, overwatch::handle::OverwatchHandle, services::AsServiceId};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use services_utils::wait_until_services_are_ready;
 use subnetworks_assignations::MembershipHandler;
 use tokio::net::TcpListener;
@@ -94,6 +96,8 @@ pub struct AxumBackend<
     TimeBackend,
     ApiAdapter,
     HttpStorageAdapter,
+    BlendProofsGenerator,
+    BlendProofsVerifier,
     const SIZE: usize,
 > {
     settings: AxumBackendSettings,
@@ -121,6 +125,8 @@ pub struct AxumBackend<
         TimeBackend,
         ApiAdapter,
         HttpStorageAdapter,
+        BlendProofsGenerator,
+        BlendProofsVerifier,
     )>,
 }
 
@@ -139,30 +145,32 @@ struct ApiDoc;
 
 #[async_trait::async_trait]
 impl<
-        DaShare,
-        DaBlobInfo,
-        Membership,
-        DaMembershipAdapter,
-        DaMembershipStorage,
-        DaVerifiedBlobInfo,
-        DaVerifierBackend,
-        DaVerifierNetwork,
-        DaVerifierStorage,
-        Tx,
-        DaStorageConverter,
-        DispersalBackend,
-        DispersalNetworkAdapter,
-        Metadata,
-        SamplingBackend,
-        SamplingNetworkAdapter,
-        SamplingStorage,
-        VerifierMempoolAdapter,
-        TimeBackend,
-        ApiAdapter,
-        StorageAdapter,
-        const SIZE: usize,
-        RuntimeServiceId,
-    > Backend<RuntimeServiceId>
+    DaShare,
+    DaBlobInfo,
+    Membership,
+    DaMembershipAdapter,
+    DaMembershipStorage,
+    DaVerifiedBlobInfo,
+    DaVerifierBackend,
+    DaVerifierNetwork,
+    DaVerifierStorage,
+    Tx,
+    DaStorageConverter,
+    DispersalBackend,
+    DispersalNetworkAdapter,
+    Metadata,
+    SamplingBackend,
+    SamplingNetworkAdapter,
+    SamplingStorage,
+    VerifierMempoolAdapter,
+    TimeBackend,
+    ApiAdapter,
+    StorageAdapter,
+    BlendProofsGenerator,
+    BlendProofsVerifier,
+    const SIZE: usize,
+    RuntimeServiceId,
+> Backend<RuntimeServiceId>
     for AxumBackend<
         DaShare,
         DaBlobInfo,
@@ -185,6 +193,8 @@ impl<
         TimeBackend,
         ApiAdapter,
         StorageAdapter,
+        BlendProofsGenerator,
+        BlendProofsVerifier,
         SIZE,
     >
 where
@@ -292,6 +302,8 @@ where
     TimeBackend::Settings: Clone + Send + Sync,
     ApiAdapter: nomos_da_network_service::api::ApiAdapter + Send + Sync + 'static,
     StorageAdapter: storage::StorageAdapter<RuntimeServiceId> + Send + Sync + 'static,
+    BlendProofsGenerator: ProofsGenerator + Send + 'static,
+    BlendProofsVerifier: ProofsVerifier + Clone + Send + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Send
@@ -305,6 +317,8 @@ where
                 SamplingNetworkAdapter,
                 SamplingStorage,
                 TimeBackend,
+                BlendProofsGenerator,
+                BlendProofsVerifier,
                 RuntimeServiceId,
                 SIZE,
             >,
@@ -381,7 +395,7 @@ where
         wait_until_services_are_ready!(
             &overwatch_handle,
             Some(Duration::from_secs(60)),
-            Cryptarchia<_, _, _, _, _, _, SIZE>,
+            Cryptarchia<_, _, _, _, _, _, _, _, SIZE>,
             DaVerifier<_, _, _, _, _, _>,
             nomos_da_network_service::NetworkService<_, _, _,_, _, _>,
             nomos_network::NetworkService<_, _>,
@@ -431,6 +445,8 @@ where
                         SamplingNetworkAdapter,
                         SamplingStorage,
                         TimeBackend,
+                        BlendProofsGenerator,
+                        BlendProofsVerifier,
                         RuntimeServiceId,
                         SIZE,
                     >,
@@ -445,6 +461,8 @@ where
                         SamplingNetworkAdapter,
                         SamplingStorage,
                         TimeBackend,
+                        BlendProofsGenerator,
+                        BlendProofsVerifier,
                         RuntimeServiceId,
                         SIZE,
                     >,

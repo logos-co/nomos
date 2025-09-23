@@ -5,8 +5,8 @@ use std::{
 };
 
 use kzgrs_backend::common::{
-    share::{DaShare, DaSharesCommitments},
     ShareIndex,
+    share::{DaShare, DaSharesCommitments},
 };
 use nomos_core::da::BlobId;
 use nomos_da_network_core::SubnetworkId;
@@ -18,7 +18,7 @@ use tokio::{
 };
 use tracing::instrument;
 
-use crate::{backend::SamplingState, DaSamplingServiceBackend};
+use crate::{DaSamplingServiceBackend, backend::SamplingState};
 
 #[derive(Clone)]
 pub struct SamplingContext {
@@ -157,7 +157,7 @@ mod test {
     use std::collections::HashSet;
 
     use kzgrs::Proof;
-    use kzgrs_backend::common::{share::DaShare, Column};
+    use kzgrs_backend::common::{Column, share::DaShare};
     use nomos_core::da::BlobId;
     use rand::prelude::*;
     use tokio::time::Duration;
@@ -187,8 +187,8 @@ mod test {
         let mut rng = StdRng::from_entropy();
 
         // create some blobs and blob_ids
-        let b1: BlobId = rng.gen();
-        let b2: BlobId = rng.gen();
+        let b1: BlobId = rng.r#gen();
+        let b2: BlobId = rng.r#gen();
         let share = DaShare {
             share_idx: 42,
             column: Column(vec![]),
@@ -350,9 +350,9 @@ mod test {
 
         let mut rng = StdRng::from_entropy();
         // create a couple blob ids
-        let b1: BlobId = rng.gen();
-        let b2: BlobId = rng.gen();
-        let b3: BlobId = rng.gen();
+        let b1: BlobId = rng.r#gen();
+        let b2: BlobId = rng.r#gen();
+        let b3: BlobId = rng.r#gen();
 
         // insert first blob
         // pruning should have no effect

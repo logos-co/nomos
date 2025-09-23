@@ -1,13 +1,12 @@
 use std::{hint::black_box, sync::LazyLock};
 
 use ark_bls12_381::{Bls12_381, Fr};
-use ark_poly::{univariate::DensePolynomial, EvaluationDomain as _, GeneralEvaluationDomain};
+use ark_poly::{EvaluationDomain as _, GeneralEvaluationDomain, univariate::DensePolynomial};
 use ark_poly_commit::kzg10::KZG10;
-use divan::{counter::ItemsCount, Bencher};
+use divan::{Bencher, counter::ItemsCount};
 use kzgrs::{
-    bytes_to_polynomial,
-    fk20::{fk20_batch_generate_elements_proofs, Toeplitz1Cache},
-    GlobalParameters, BYTES_PER_FIELD_ELEMENT,
+    BYTES_PER_FIELD_ELEMENT, GlobalParameters, bytes_to_polynomial,
+    fk20::{Toeplitz1Cache, fk20_batch_generate_elements_proofs},
 };
 use rand::SeedableRng as _;
 #[cfg(feature = "parallel")]

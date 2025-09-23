@@ -13,7 +13,7 @@ use crate::{
         backend::rocksdb::utils::{create_share_idx, key_bytes},
         da::StorageDaApi,
     },
-    backends::{rocksdb::RocksBackend, SerdeOp, StorageBackend as _},
+    backends::{SerdeOp, StorageBackend as _, rocksdb::RocksBackend},
 };
 
 pub const DA_VID_KEY_PREFIX: &str = "da/vid/";

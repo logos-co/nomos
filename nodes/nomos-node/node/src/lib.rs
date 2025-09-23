@@ -17,17 +17,17 @@ use nomos_core::mantle::SignedMantleTx;
 pub use nomos_core::{
     codec,
     header::HeaderId,
-    mantle::{select::FillSize as FillSizeWithTx, Transaction},
+    mantle::{Transaction, select::FillSize as FillSizeWithTx},
 };
 pub use nomos_da_network_service::backends::libp2p::validator::DaNetworkValidatorBackend;
 use nomos_da_network_service::{
-    api::http::HttApiAdapter, membership::handler::DaMembershipHandler, DaAddressbook,
+    DaAddressbook, api::http::HttApiAdapter, membership::handler::DaMembershipHandler,
 };
 use nomos_da_sampling::{
     backend::kzgrs::KzgrsSamplingBackend,
     network::adapters::validator::Libp2pAdapter as SamplingLibp2pAdapter,
     storage::adapters::rocksdb::{
-        converter::DaStorageConverter, RocksAdapter as SamplingStorageAdapter,
+        RocksAdapter as SamplingStorageAdapter, converter::DaStorageConverter,
     },
 };
 use nomos_da_verifier::{
@@ -41,8 +41,8 @@ pub use nomos_mempool::network::adapters::libp2p::{
 };
 pub use nomos_network::backends::libp2p::Libp2p as NetworkBackend;
 pub use nomos_storage::backends::{
-    rocksdb::{RocksBackend, RocksBackendSettings},
     SerdeOp,
+    rocksdb::{RocksBackend, RocksBackendSettings},
 };
 pub use nomos_system_sig::SystemSig;
 use nomos_time::backends::NtpTimeBackend;
@@ -56,6 +56,7 @@ use crate::{
     api::backend::AxumBackend,
     generic_services::{
         DaMembershipAdapter, DaMembershipStorageGeneric, MembershipService, SdpService,
+        blend::{BlendProofsGenerator, BlendProofsVerifier},
     },
 };
 
@@ -74,26 +75,9 @@ pub(crate) type TracingService = Tracing<RuntimeServiceId>;
 
 pub(crate) type NetworkService = nomos_network::NetworkService<NetworkBackend, RuntimeServiceId>;
 
-pub(crate) type BlendCoreService = nomos_blend_service::core::BlendService<
-    BlendBackend,
-    PeerId,
-    BlendNetworkAdapter<RuntimeServiceId>,
-    BlendMembershipAdapter<MembershipService<RuntimeServiceId>, PeerId>,
-    RuntimeServiceId,
->;
-
-pub(crate) type BlendEdgeService = nomos_blend_service::edge::BlendService<
-    nomos_blend_service::edge::backends::libp2p::Libp2pBlendBackend,
-    PeerId,
-    <BlendNetworkAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<
-        RuntimeServiceId,
-    >>::BroadcastSettings,
-    BlendMembershipAdapter<MembershipService<RuntimeServiceId>, PeerId>,
-    RuntimeServiceId,
->;
-
-pub(crate) type BlendService =
-    nomos_blend_service::BlendService<BlendCoreService, BlendEdgeService, RuntimeServiceId>;
+pub(crate) type BlendCoreService = generic_services::blend::BlendCoreService<RuntimeServiceId>;
+pub(crate) type BlendEdgeService = generic_services::blend::BlendEdgeService<RuntimeServiceId>;
+pub(crate) type BlendService = generic_services::blend::BlendService<RuntimeServiceId>;
 
 pub(crate) type BlockBroadcastService = broadcast_service::BlockBroadcastService<RuntimeServiceId>;
 
@@ -197,6 +181,8 @@ pub(crate) type ApiService = nomos_api::ApiService<
         NtpTimeBackend,
         DaNetworkApiAdapter,
         ApiStorageAdapter<RuntimeServiceId>,
+        BlendProofsGenerator,
+        BlendProofsVerifier,
         MB16,
     >,
     RuntimeServiceId,

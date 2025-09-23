@@ -1,17 +1,16 @@
 use std::{
     fmt::{Debug, Display, Formatter},
-    future::Future,
     pin::Pin,
 };
 
 use bytes::Bytes;
 use log::error;
 use overwatch::{
-    services::{
-        state::{NoOperator, NoState},
-        AsServiceId, ServiceCore, ServiceData,
-    },
     DynError, OpaqueServiceResourcesHandle,
+    services::{
+        AsServiceId, ServiceCore, ServiceData,
+        state::{NoOperator, NoState},
+    },
 };
 use tokio::sync::oneshot;
 

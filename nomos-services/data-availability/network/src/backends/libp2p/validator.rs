@@ -1,19 +1,19 @@
 use std::{collections::HashSet, fmt::Debug, marker::PhantomData, pin::Pin};
 
 use futures::{
-    future::{AbortHandle, Abortable},
     Stream, StreamExt as _,
+    future::{AbortHandle, Abortable},
 };
 use libp2p::PeerId;
 use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId};
 use nomos_da_network_core::{
+    SubnetworkId,
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
     protocols::sampling::opinions::OpinionEvent,
     swarm::{
-        validator::{SampleArgs, SwarmSettings, ValidatorSwarm},
         BalancerStats, MonitorStats,
+        validator::{SampleArgs, SwarmSettings, ValidatorSwarm},
     },
-    SubnetworkId,
 };
 use nomos_libp2p::ed25519;
 use nomos_tracing::info_with_id;
@@ -25,17 +25,17 @@ use tokio_stream::wrappers::BroadcastStream;
 use tracing::instrument;
 
 use crate::{
+    DaAddressbook,
     backends::{
-        libp2p::common::{
-            handle_balancer_command, handle_historic_sample_request, handle_monitor_command,
-            handle_sample_request, handle_validator_events_stream, CommitmentsEvent,
-            DaNetworkBackendSettings, HistoricSamplingEvent, SamplingEvent, VerificationEvent,
-            BROADCAST_CHANNEL_SIZE,
-        },
         ConnectionStatus, NetworkBackend,
+        libp2p::common::{
+            BROADCAST_CHANNEL_SIZE, CommitmentsEvent, DaNetworkBackendSettings,
+            HistoricSamplingEvent, SamplingEvent, VerificationEvent, handle_balancer_command,
+            handle_historic_sample_request, handle_monitor_command, handle_sample_request,
+            handle_validator_events_stream,
+        },
     },
     membership::handler::{DaMembershipHandler, SharedMembershipHandler},
-    DaAddressbook,
 };
 
 /// Message that the backend replies to

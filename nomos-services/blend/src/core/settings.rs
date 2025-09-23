@@ -2,7 +2,7 @@ use std::num::NonZeroU64;
 
 use futures::{Stream, StreamExt as _};
 use nomos_blend_scheduling::{
-    membership::Membership, message_blend::CryptographicProcessorSettings,
+    membership::Membership, message_blend::SessionCryptographicProcessorSettings,
     message_scheduler::session_info::SessionInfo, session::SessionEvent,
 };
 use nomos_utils::math::NonNegativeF64;
@@ -13,7 +13,7 @@ use crate::settings::TimingSettings;
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct BlendConfig<BackendSettings> {
     pub backend: BackendSettings,
-    pub crypto: CryptographicProcessorSettings,
+    pub crypto: SessionCryptographicProcessorSettings,
     pub scheduler: SchedulerSettingsExt,
     pub time: TimingSettings,
     pub minimum_network_size: NonZeroU64,
@@ -40,7 +40,7 @@ pub struct CoverTrafficSettingsExt {
 impl CoverTrafficSettingsExt {
     fn session_quota(
         &self,
-        crypto: &CryptographicProcessorSettings,
+        crypto: &SessionCryptographicProcessorSettings,
         timings: &TimingSettings,
         membership_size: usize,
     ) -> u64 {
@@ -74,14 +74,18 @@ impl<BackendSettings> BlendConfig<BackendSettings> {
     /// For each [`SessionEvent::NewSession`] event received, the stream
     /// constructs a new [`SessionInfo`] based on the new membership.
     /// [`SessionEvent::TransitionPeriodExpired`] events are ignored.
-    pub(super) fn session_info_stream<NodeId>(
+    pub(super) fn session_info_stream<NodeId, SessionEventStream>(
         &self,
         initial_session: &Membership<NodeId>,
-        session_event_stream: impl Stream<Item = SessionEvent<Membership<NodeId>>> + Send + 'static,
-    ) -> (SessionInfo, impl Stream<Item = SessionInfo> + Unpin)
+        session_event_stream: SessionEventStream,
+    ) -> (
+        SessionInfo,
+        impl Stream<Item = SessionInfo> + Unpin + use<NodeId, SessionEventStream, BackendSettings>,
+    )
     where
         BackendSettings: Clone + Send + 'static,
         NodeId: Clone + Send + 'static,
+        SessionEventStream: Stream<Item = SessionEvent<Membership<NodeId>>> + Send + 'static,
     {
         let settings = self.clone();
         let initial_session_info = SessionInfo {
@@ -138,7 +142,7 @@ impl<BackendSettings> BlendConfig<BackendSettings> {
 #[cfg(test)]
 mod tests {
     use futures::FutureExt as _;
-    use nomos_blend_message::crypto::Ed25519PrivateKey;
+    use nomos_blend_message::crypto::keys::Ed25519PrivateKey;
     use tokio::sync::mpsc;
     use tokio_stream::wrappers::ReceiverStream;
 
@@ -186,18 +190,20 @@ mod tests {
 
         // The stream should yield `None` if the underlying stream is closed.
         drop(session_sender);
-        assert!(stream
-            .next()
-            .now_or_never()
-            .expect("should yield immediately")
-            .is_none());
+        assert!(
+            stream
+                .next()
+                .now_or_never()
+                .expect("should yield immediately")
+                .is_none()
+        );
     }
 
     fn settings(message_frequency_per_round: f64, rounds_per_session: u64) -> BlendConfig<()> {
         BlendConfig {
             backend: (),
-            crypto: CryptographicProcessorSettings {
-                signing_private_key: Ed25519PrivateKey::generate(),
+            crypto: SessionCryptographicProcessorSettings {
+                non_ephemeral_signing_key: Ed25519PrivateKey::generate(),
                 num_blend_layers: 1,
             },
             scheduler: SchedulerSettingsExt {

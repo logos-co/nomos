@@ -7,7 +7,7 @@ use std::{
 };
 
 use cryptarchia_sync::HeaderId;
-use futures::{future::BoxFuture, stream::FuturesUnordered, Stream, StreamExt as _};
+use futures::{Stream, StreamExt as _, future::BoxFuture, stream::FuturesUnordered};
 use overwatch::DynError;
 use tracing::{debug, info};
 
@@ -215,10 +215,10 @@ where
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         // Check if the target block has already been reached.
-        if let Some(last) = self.last {
-            if last == self.target {
-                return Poll::Ready(None);
-            }
+        if let Some(last) = self.last
+            && last == self.target
+        {
+            return Poll::Ready(None);
         }
 
         // Check if there is a block ready to be returned.
@@ -277,7 +277,7 @@ impl<NodeId> Delay<NodeId> {
 
 #[cfg(test)]
 mod tests {
-    use futures::{stream, FutureExt as _, StreamExt as _};
+    use futures::{FutureExt as _, StreamExt as _, stream};
 
     use super::*;
 

@@ -301,7 +301,7 @@ impl HistoryAwareRefill {
 mod tests {
     use std::collections::HashSet;
 
-    use rand::{rngs::SmallRng, seq::IteratorRandom as _, thread_rng, SeedableRng as _};
+    use rand::{SeedableRng as _, rngs::SmallRng, seq::IteratorRandom as _, thread_rng};
 
     use super::*;
 

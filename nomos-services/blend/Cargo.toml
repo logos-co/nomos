@@ -1,5 +1,5 @@
 [package]
-edition = "2021"
+edition = { workspace = true }
 license = { workspace = true }
 name    = "nomos-blend-service"
 version = "0.1.0"
@@ -11,6 +11,7 @@ workspace = true
 async-trait            = "0.1"
 fork_stream            = { workspace = true }
 futures                = { default-features = false, version = "0.3" }
+groth16                = { default-features = false, workspace = true }
 libp2p                 = { optional = true, workspace = true }
 libp2p-stream          = { optional = true, workspace = true }
 nomos-blend-message    = { workspace = true }

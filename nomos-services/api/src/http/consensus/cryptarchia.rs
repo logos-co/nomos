@@ -1,20 +1,21 @@
 use std::fmt::{Debug, Display};
 
 use chain_service::{
-    network::adapters::libp2p::LibP2pAdapter as ConsensusNetworkAdapter, ConsensusMsg,
-    CryptarchiaConsensus, CryptarchiaInfo,
+    ConsensusMsg, CryptarchiaConsensus, CryptarchiaInfo,
+    network::adapters::libp2p::LibP2pAdapter as ConsensusNetworkAdapter,
 };
 use kzgrs_backend::dispersal::Metadata;
+use nomos_blend_service::ProofsVerifier;
 use nomos_core::{
     da::BlobId,
     header::HeaderId,
-    mantle::{select::FillSize as FillSizeWithTx, AuthenticatedMantleTx, Transaction},
+    mantle::{AuthenticatedMantleTx, Transaction, select::FillSize as FillSizeWithTx},
 };
 use nomos_da_sampling::backend::DaSamplingServiceBackend;
 use nomos_libp2p::PeerId;
 use nomos_membership::{
-    adapters::sdp::ledger::LedgerSdpAdapter, backends::membership::PersistentMembershipBackend,
-    MembershipService,
+    MembershipService, adapters::sdp::ledger::LedgerSdpAdapter,
+    backends::membership::PersistentMembershipBackend,
 };
 use nomos_mempool::{
     backend::mockpool::MockPool, network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
@@ -22,7 +23,7 @@ use nomos_mempool::{
 use nomos_sdp::backends::mock::MockSdpBackend;
 use nomos_storage::backends::rocksdb::RocksBackend;
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tokio::sync::oneshot;
 
 use crate::http::DynError;
@@ -33,11 +34,13 @@ pub type Cryptarchia<
     SamplingNetworkAdapter,
     SamplingStorage,
     TimeBackend,
+    BlendProofsGenerator,
+    BlendProofsVerifier,
     RuntimeServiceId,
     const SIZE: usize,
 > = CryptarchiaConsensus<
     ConsensusNetworkAdapter<Tx, RuntimeServiceId>,
-    BlendService<RuntimeServiceId>,
+    BlendService<BlendProofsGenerator, BlendProofsVerifier, RuntimeServiceId>,
     MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
     MempoolNetworkAdapter<Tx, <Tx as Transaction>::Hash, RuntimeServiceId>,
     FillSizeWithTx<SIZE, Tx>,
@@ -49,12 +52,14 @@ pub type Cryptarchia<
     RuntimeServiceId,
 >;
 
-type BlendService<RuntimeServiceId> = nomos_blend_service::BlendService<
+type BlendService<ProofsGenerator, ProofsVerifier, RuntimeServiceId> = nomos_blend_service::BlendService<
     nomos_blend_service::core::BlendService<
         nomos_blend_service::core::backends::libp2p::Libp2pBlendBackend,
         PeerId,
         nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
         BlendMembershipAdapter<RuntimeServiceId>,
+        ProofsGenerator,
+        ProofsVerifier,
         RuntimeServiceId,
     >,
     nomos_blend_service::edge::BlendService<
@@ -62,6 +67,7 @@ type BlendService<RuntimeServiceId> = nomos_blend_service::BlendService<
         PeerId,
         <nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<RuntimeServiceId>>::BroadcastSettings,
         BlendMembershipAdapter<RuntimeServiceId>,
+        ProofsGenerator,
         RuntimeServiceId
     >,
     RuntimeServiceId,
@@ -89,6 +95,8 @@ pub async fn cryptarchia_info<
     SamplingNetworkAdapter,
     SamplingStorage,
     TimeBackend,
+    BlendProofsGenerator,
+    BlendProofsVerifier,
     RuntimeServiceId,
     const SIZE: usize,
 >(
@@ -114,6 +122,7 @@ where
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
+    BlendProofsVerifier: ProofsVerifier + Clone + Send + 'static,
     RuntimeServiceId: Debug
         + Send
         + Sync
@@ -126,6 +135,8 @@ where
                 SamplingNetworkAdapter,
                 SamplingStorage,
                 TimeBackend,
+                BlendProofsGenerator,
+                BlendProofsVerifier,
                 RuntimeServiceId,
                 SIZE,
             >,
@@ -147,6 +158,8 @@ pub async fn cryptarchia_headers<
     SamplingNetworkAdapter,
     SamplingStorage,
     TimeBackend,
+    BlendProofsGenerator,
+    BlendProofsVerifier,
     RuntimeServiceId,
     const SIZE: usize,
 >(
@@ -174,6 +187,7 @@ where
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
+    BlendProofsVerifier: ProofsVerifier + Clone + Send + 'static,
     RuntimeServiceId: Debug
         + Send
         + Sync
@@ -186,6 +200,8 @@ where
                 SamplingNetworkAdapter,
                 SamplingStorage,
                 TimeBackend,
+                BlendProofsGenerator,
+                BlendProofsVerifier,
                 RuntimeServiceId,
                 SIZE,
             >,

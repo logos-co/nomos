@@ -5,7 +5,7 @@ use std::{
 use nomos_da_network_core::swarm::{
     DAConnectionMonitorSettings, DAConnectionPolicySettings, ReplicationConfig,
 };
-use nomos_libp2p::{ed25519, Multiaddr, PeerId};
+use nomos_libp2p::{Multiaddr, PeerId, ed25519};
 use nomos_node::NomosDaMembership;
 use subnetworks_assignations::MembershipHandler as _;
 

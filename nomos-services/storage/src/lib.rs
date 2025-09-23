@@ -11,13 +11,13 @@ use async_trait::async_trait;
 use backends::{SerdeOp, StorageBackend, StorageTransaction};
 use bytes::Bytes;
 use overwatch::{
-    services::{
-        state::{NoOperator, NoState},
-        AsServiceId, ServiceCore, ServiceData,
-    },
     DynError, OpaqueServiceResourcesHandle,
+    services::{
+        AsServiceId, ServiceCore, ServiceData,
+        state::{NoOperator, NoState},
+    },
 };
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use tracing::error;
 
 use crate::api::{StorageApiRequest, StorageOperation};

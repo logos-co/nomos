@@ -7,21 +7,21 @@ use std::{
 };
 
 use nomos_tracing::{
-    filter::envfilter::{create_envfilter_layer, EnvFilterConfig},
+    filter::envfilter::{EnvFilterConfig, create_envfilter_layer},
     logging::{
-        gelf::{create_gelf_layer, GelfConfig},
-        local::{create_file_layer, create_writer_layer, FileConfig},
-        loki::{create_loki_layer, LokiConfig},
+        gelf::{GelfConfig, create_gelf_layer},
+        local::{FileConfig, create_file_layer, create_writer_layer},
+        loki::{LokiConfig, create_loki_layer},
     },
-    metrics::otlp::{create_otlp_metrics_layer, OtlpMetricsConfig},
-    tracing::otlp::{create_otlp_tracing_layer, OtlpTracingConfig},
+    metrics::otlp::{OtlpMetricsConfig, create_otlp_metrics_layer},
+    tracing::otlp::{OtlpTracingConfig, create_otlp_tracing_layer},
 };
 use overwatch::{
-    services::{
-        state::{NoOperator, NoState},
-        AsServiceId, ServiceCore, ServiceData,
-    },
     OpaqueServiceResourcesHandle,
+    services::{
+        AsServiceId, ServiceCore, ServiceData,
+        state::{NoOperator, NoState},
+    },
 };
 use serde::{Deserialize, Serialize};
 use tracing::Level;
@@ -274,7 +274,7 @@ where
 }
 
 mod serde_level {
-    use serde::{de::Error as _, Deserialize as _, Deserializer, Serialize as _, Serializer};
+    use serde::{Deserialize as _, Deserializer, Serialize as _, Serializer, de::Error as _};
 
     use super::Level;
 

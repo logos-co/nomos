@@ -121,6 +121,8 @@ pub fn find_file(file_name: &str, environment_variable: &str) -> Result<PathBuf,
 
 #[cfg(test)]
 mod tests {
+    use serial_test::serial;
+
     use super::*;
 
     #[test]
@@ -198,6 +200,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_find_file_in_path() {
         let temp_dir = tempfile::tempdir().unwrap();
         let file_path = temp_dir.path().join("file_with_unusual_name");
@@ -231,6 +234,7 @@ mod tests {
     /// found, it was found in the correct location due to the order of
     /// environment setup.
     #[test]
+    #[serial]
     fn test_find_file() {
         let env_var_name = "TEST_ENV_VAR_FOR_FIND_FILE";
         let file_name = "file_with_unusual_name";

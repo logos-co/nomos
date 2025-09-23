@@ -13,7 +13,7 @@ use channel::{
     inscribe::InscriptionOp,
     set_keys::SetKeysOp,
 };
-use groth16::{fr_from_bytes, Fr};
+use groth16::{Fr, fr_from_bytes};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::{
@@ -182,7 +182,7 @@ mod tests {
 
     use serde_json::json;
 
-    use super::{channel::blob::BlobOp, Op};
+    use super::{Op, channel::blob::BlobOp};
     use crate::codec;
 
     // nothing special, just some valid bytes

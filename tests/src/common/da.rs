@@ -36,8 +36,8 @@ pub async fn wait_for_blob_onchain(executor: &Executor, blob_id: BlobId) {
         let mut onchain = false;
         while !onchain {
             let CryptarchiaInfo { tip, .. } = executor.consensus_info().await;
-            if let Some(block) = executor.get_block(tip).await {
-                if block
+            if let Some(block) = executor.get_block(tip).await
+                && block
                     .transactions()
                     .flat_map(|tx| tx.mantle_tx().ops.iter())
                     .filter_map(|op| {
@@ -48,9 +48,8 @@ pub async fn wait_for_blob_onchain(executor: &Executor, blob_id: BlobId) {
                         }
                     })
                     .any(|blob| blob == blob_id)
-                {
-                    onchain = true;
-                }
+            {
+                onchain = true;
             }
             tokio::time::sleep(Duration::from_millis(200)).await;
         }

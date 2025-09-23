@@ -1,11 +1,11 @@
 use std::{collections::HashMap, marker::PhantomData};
 
 use futures::StreamExt as _;
-use libp2p::{core::signed_envelope::DecodingError, Multiaddr, PeerId};
+use libp2p::{Multiaddr, PeerId, core::signed_envelope::DecodingError};
 use nomos_core::sdp::ServiceType;
 use nomos_libp2p::ed25519;
 use nomos_membership::{MembershipMessage, MembershipService, MembershipSnapshotStream};
-use overwatch::services::{relay::OutboundRelay, ServiceData};
+use overwatch::services::{ServiceData, relay::OutboundRelay};
 use tokio::sync::oneshot;
 
 use crate::membership::{MembershipAdapter, MembershipAdapterError, PeerMultiaddrStream};
@@ -44,12 +44,10 @@ where
             .await
             .map_err(|(e, _)| MembershipAdapterError::Other(e.into()))?;
 
-        let res = receiver
+        receiver
             .await
             .map_err(|e| MembershipAdapterError::Other(e.into()))?
-            .map_err(MembershipAdapterError::Backend);
-
-        res
+            .map_err(MembershipAdapterError::Backend)
     }
 }
 

@@ -5,8 +5,8 @@ use zerocopy::FromBytes as _;
 use crate::behaviour::nat::address_mapper::protocols::pcp_core::{
     client::PcpError,
     wire::{
-        Ipv4MappedIpv6, MapPayload, PcpMapRequest, PcpMapResponse, Protocol, ResultCode,
-        OPCODE_MAP, PCP_MAP_SIZE,
+        Ipv4MappedIpv6, MapPayload, OPCODE_MAP, PCP_MAP_SIZE, PcpMapRequest, PcpMapResponse,
+        Protocol, ResultCode,
     },
 };
 
@@ -99,7 +99,7 @@ mod tests {
 
     use super::*;
     use crate::behaviour::nat::address_mapper::protocols::pcp_core::wire::{
-        PcpResponseHeader, PCP_VERSION,
+        PCP_VERSION, PcpResponseHeader,
     };
 
     fn create_valid_map_response(

@@ -4,7 +4,7 @@ use core::{
 };
 use std::collections::HashSet;
 
-use futures::{stream::pending, task::noop_waker_ref, StreamExt as _};
+use futures::{StreamExt as _, stream::pending, task::noop_waker_ref};
 use nomos_utils::blake_rng::BlakeRng;
 use rand::SeedableRng as _;
 use tokio_stream::iter;
@@ -12,9 +12,9 @@ use tokio_stream::iter;
 use crate::{
     cover_traffic::SessionCoverTraffic,
     message_scheduler::{
+        MessageScheduler,
         round_info::{Round, RoundInfo},
         session_info::SessionInfo,
-        MessageScheduler,
     },
     release_delayer::SessionProcessedMessageDelayer,
 };

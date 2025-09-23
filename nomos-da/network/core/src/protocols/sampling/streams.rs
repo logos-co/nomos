@@ -6,7 +6,7 @@ use nomos_da_messages::{
 };
 
 use super::{
-    errors::SamplingError, BehaviourSampleReq, ResponseChannel, SampleRequestFutureSuccess,
+    BehaviourSampleReq, ResponseChannel, SampleRequestFutureSuccess, errors::SamplingError,
 };
 use crate::protocols::sampling::SampleRequestFutureError;
 

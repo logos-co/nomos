@@ -2,19 +2,19 @@ use std::task::{Context, Poll};
 
 use either::Either;
 use futures::{
-    future::BoxFuture, stream::FuturesUnordered, AsyncWriteExt as _, FutureExt as _, StreamExt as _,
+    AsyncWriteExt as _, FutureExt as _, StreamExt as _, future::BoxFuture, stream::FuturesUnordered,
 };
 use libp2p::{
-    core::{transport::PortUse, Endpoint},
+    Multiaddr, PeerId, Stream,
+    core::{Endpoint, transport::PortUse},
     swarm::{
         ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent,
         THandlerOutEvent, ToSwarm,
     },
-    Multiaddr, PeerId, Stream,
 };
 use libp2p_stream::IncomingStreams;
 use log::debug;
-use nomos_core::mantle::{ops::channel::blob::BlobOp, Op, SignedMantleTx};
+use nomos_core::mantle::{Op, SignedMantleTx, ops::channel::blob::BlobOp};
 use nomos_da_messages::{
     common::Share,
     dispersal,
@@ -23,7 +23,7 @@ use nomos_da_messages::{
 use subnetworks_assignations::MembershipHandler;
 use thiserror::Error;
 
-use crate::{protocol::DISPERSAL_PROTOCOL, SubnetworkId};
+use crate::{SubnetworkId, protocol::DISPERSAL_PROTOCOL};
 
 #[derive(Debug, Error)]
 pub enum DispersalError {

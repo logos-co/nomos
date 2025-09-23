@@ -6,7 +6,7 @@ use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};
 use libp2p_identity::PeerId;
 use multiaddr::Multiaddr;
 use nomos_core::da::BlobId;
-use nomos_da_network_core::{addressbook::AddressBookHandler, SubnetworkId};
+use nomos_da_network_core::{SubnetworkId, addressbook::AddressBookHandler};
 use overwatch::DynError;
 use rand::prelude::IteratorRandom as _;
 use serde::{Deserialize, Serialize};

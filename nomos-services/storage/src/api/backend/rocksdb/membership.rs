@@ -10,7 +10,7 @@ use tracing::{debug, error};
 
 use crate::{
     api::{backend::rocksdb::utils::key_bytes, membership::StorageMembershipApi},
-    backends::{rocksdb::RocksBackend, SerdeOp, StorageBackend as _},
+    backends::{SerdeOp, StorageBackend as _, rocksdb::RocksBackend},
 };
 
 pub const MEMBERSHIP_ACTIVE_SESSION_PREFIX: &str = "membership/active/";

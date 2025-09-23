@@ -10,27 +10,26 @@ use nomos_core::{
     header::HeaderId,
     mantle::{AuthenticatedMantleTx, TxHash, TxSelect},
 };
-use nomos_da_sampling::{backend::DaSamplingServiceBackend, DaSamplingService};
+use nomos_da_sampling::{DaSamplingService, backend::DaSamplingServiceBackend};
 use nomos_mempool::{
+    TxMempoolService,
     backend::{MemPool, RecoverableMempool},
     network::NetworkAdapter as MempoolAdapter,
-    TxMempoolService,
 };
-use nomos_network::{message::BackendNetworkMsg, NetworkService};
+use nomos_network::{NetworkService, message::BackendNetworkMsg};
 use nomos_storage::{
-    api::chain::StorageChainApi, backends::StorageBackend, StorageMsg, StorageService,
+    StorageMsg, StorageService, api::chain::StorageChainApi, backends::StorageBackend,
 };
-use nomos_time::{backends::TimeBackend as TimeBackendTrait, TimeService, TimeServiceMessage};
+use nomos_time::{TimeService, TimeServiceMessage, backends::TimeBackend as TimeBackendTrait};
 use overwatch::{
-    services::{relay::OutboundRelay, AsServiceId, ServiceData},
     OpaqueServiceResourcesHandle,
+    services::{AsServiceId, ServiceData, relay::OutboundRelay},
 };
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{
-    network,
-    storage::{adapters::StorageAdapter, StorageAdapter as _},
-    CryptarchiaConsensus, MempoolRelay, SamplingRelay,
+    CryptarchiaConsensus, MempoolRelay, SamplingRelay, network,
+    storage::{StorageAdapter as _, adapters::StorageAdapter},
 };
 
 type NetworkRelay<NetworkBackend, RuntimeServiceId> =
@@ -76,15 +75,15 @@ pub struct CryptarchiaConsensusRelays<
 }
 
 impl<
-        BlendService,
-        ClPool,
-        ClPoolAdapter,
-        NetworkAdapter,
-        SamplingBackend,
-        Storage,
-        TxS,
-        RuntimeServiceId,
-    >
+    BlendService,
+    ClPool,
+    ClPoolAdapter,
+    NetworkAdapter,
+    SamplingBackend,
+    Storage,
+    TxS,
+    RuntimeServiceId,
+>
     CryptarchiaConsensusRelays<
         BlendService,
         ClPool,

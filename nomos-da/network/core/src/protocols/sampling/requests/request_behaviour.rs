@@ -224,7 +224,7 @@ where
 
     fn sample_commitments(&mut self, blob_id: BlobId) {
         let current_session = self.current_session;
-        if let Some((_, &peer_id)) = &self.sampling_peers.iter().choose(&mut rand::thread_rng()) {
+        if let &Some((_, &peer_id)) = &self.sampling_peers.iter().choose(&mut rand::rng()) {
             let control = self.control.clone();
             let sample_request = sampling::SampleRequest::new_commitments(blob_id);
             let with_dial_task: SamplingResponseStreamFuture = async move {
@@ -273,7 +273,7 @@ where
     fn try_subnetwork_sample_share(&mut self, blob_id: BlobId, subnetwork_id: SubnetworkId) {
         let current_session = self.current_session;
         if self.connections.should_retry(subnetwork_id) {
-            let mut rng = rand::thread_rng();
+            let mut rng = rand::rng();
             if let Some(peer_id) = self.pick_subnetwork_peer(subnetwork_id, &mut rng) {
                 let control = self.control.clone();
                 let sample_request = sampling::SampleRequest::new_share(blob_id, subnetwork_id);
@@ -302,7 +302,7 @@ where
         self.connections.clear();
         self.current_session = self.membership.session_id();
 
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let subnets: Vec<SubnetworkId> = (0..self.membership.last_subnetwork_id())
             .choose_multiple(&mut rng, self.subnets_config.num_of_subnets);
 
@@ -668,11 +668,11 @@ where
         }
 
         // Discard stream, if still pending pushback to close later.
-        if let Some(mut stream) = self.to_close.pop_front() {
-            if stream.stream.close().poll_unpin(cx).is_pending() {
-                self.to_close.push_back(stream);
-                cx.waker().wake_by_ref();
-            }
+        if let Some(mut stream) = self.to_close.pop_front()
+            && stream.stream.close().poll_unpin(cx).is_pending()
+        {
+            self.to_close.push_back(stream);
+            cx.waker().wake_by_ref();
         }
 
         Poll::Pending

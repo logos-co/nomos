@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 
-use divan::{black_box, counter::ItemsCount, Bencher};
+use divan::{Bencher, black_box, counter::ItemsCount};
 use nomos_utils::blake_rng::BlakeRng;
-use rand::{prelude::IteratorRandom as _, thread_rng, RngCore as _, SeedableRng as _};
+use rand::{RngCore as _, SeedableRng as _, prelude::IteratorRandom as _, thread_rng};
 use subnetworks_assignations::versions::history_aware_refill::assignations::HistoryAwareRefill;
 fn main() {
     divan::main();
@@ -49,10 +49,10 @@ fn compute_growing_size_subnetwork_assignations(
 ) {
     bencher
         .with_inputs(|| {
-            let mut rng = BlakeRng::from_seed([33; 64].into());
+            let mut blake_rng = BlakeRng::from_seed([33; 64].into());
             let nodes: Vec<BenchId> = std::iter::repeat_with(|| {
                 let mut buff = [0u8; 32];
-                rng.fill_bytes(&mut buff);
+                blake_rng.fill_bytes(&mut buff);
                 buff
             })
             .take(network_size)
@@ -67,7 +67,7 @@ fn compute_growing_size_subnetwork_assignations(
                 &nodes,
                 previous_nodes,
                 REPLICATION_FACTOR,
-                &mut rng,
+                &mut blake_rng,
             );
 
             let new_nodes: Vec<_> = nodes
@@ -84,7 +84,7 @@ fn compute_growing_size_subnetwork_assignations(
                 )
                 .collect();
 
-            (rng, new_nodes, assignations)
+            (blake_rng, new_nodes, assignations)
         })
         .input_counter(move |_| ItemsCount::new(growing_size))
         .bench_values(|(mut rng, nodes, previous_nodes)| {

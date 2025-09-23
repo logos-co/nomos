@@ -6,26 +6,26 @@ use std::{
 };
 
 use nomos_core::sdp::{Locator, ServiceType};
-use nomos_libp2p::{ed25519, multiaddr, Multiaddr};
+use nomos_libp2p::{Multiaddr, ed25519, multiaddr};
 use nomos_membership::{
-    backends::membership::MembershipBackendSettings, MembershipServiceSettings,
+    MembershipServiceSettings, backends::membership::MembershipBackendSettings,
 };
 use nomos_tracing_service::{LoggerLayer, MetricsLayer, TracingLayer, TracingSettings};
 use nomos_utils::net::get_available_udp_port;
-use rand::{thread_rng, Rng as _};
+use rand::{Rng as _, thread_rng};
 use tests::{
     secret_key_to_provider_id,
     topology::configs::{
+        GeneralConfig,
         api::GeneralApiConfig,
         blend::create_blend_configs,
         bootstrap::create_bootstrap_configs,
-        consensus::{create_consensus_configs, ConsensusParams},
-        da::{create_da_configs, DaParams},
+        consensus::{ConsensusParams, create_consensus_configs},
+        da::{DaParams, create_da_configs},
         membership::GeneralMembershipConfig,
-        network::{create_network_configs, NetworkParams},
+        network::{NetworkParams, create_network_configs},
         time::default_time_config,
         tracing::GeneralTracingConfig,
-        GeneralConfig,
     },
 };
 
@@ -271,7 +271,7 @@ mod cfgsync_tests {
     use tests::topology::configs::{consensus::ConsensusParams, da::DaParams};
     use tracing::Level;
 
-    use super::{create_node_configs, Host, HostKind};
+    use super::{Host, HostKind, create_node_configs};
 
     #[test]
     fn basic_ip_list() {

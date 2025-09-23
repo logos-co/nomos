@@ -177,7 +177,7 @@ mod tests {
     use core::task::{Context, Poll};
     use std::collections::HashSet;
 
-    use futures::{io::empty, task::noop_waker_ref, StreamExt as _};
+    use futures::{StreamExt as _, io::empty, task::noop_waker_ref};
     use tokio_stream::iter;
 
     use crate::cover_traffic::SessionCoverTraffic;

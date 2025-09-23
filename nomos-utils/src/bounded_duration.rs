@@ -1,6 +1,6 @@
 use std::{fmt::Display, marker::PhantomData};
 
-use serde::{de::Error as _, ser::Error as _, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _, ser::Error as _};
 use serde_with::{DeserializeAs, SerializeAs};
 use time::Duration;
 
@@ -198,7 +198,7 @@ mod test {
     use serde_with::serde_as;
     use time::Duration;
 
-    use crate::bounded_duration::{MinimalBoundedDuration, DAY, SECOND};
+    use crate::bounded_duration::{DAY, MinimalBoundedDuration, SECOND};
 
     #[test]
     fn success_deserialize() {

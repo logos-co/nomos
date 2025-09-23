@@ -1,7 +1,7 @@
 use kzgrs_backend::common::share::DaShare;
 use nomos_core::{
-    da::{blob, BlobId},
-    mantle::{ops::Op, SignedMantleTx},
+    da::{BlobId, blob},
+    mantle::{SignedMantleTx, ops::Op},
 };
 use serde::{Deserialize, Serialize};
 

@@ -1,4 +1,4 @@
-use rocksdb::{Options, DB};
+use rocksdb::{DB, Options};
 
 const TEMP_ROCKS_PATH: &str = "rocks";
 

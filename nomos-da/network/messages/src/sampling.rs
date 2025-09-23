@@ -1,4 +1,4 @@
-use kzgrs_backend::common::{share::DaSharesCommitments, ShareIndex};
+use kzgrs_backend::common::{ShareIndex, share::DaSharesCommitments};
 use nomos_core::da::BlobId;
 use serde::{Deserialize, Serialize};
 

@@ -11,6 +11,7 @@ use overwatch::{
 };
 
 use crate::{
+    BroadcastSettings,
     core::{
         network::NetworkAdapter as NetworkAdapterTrait,
         service_components::{
@@ -18,7 +19,6 @@ use crate::{
         },
     },
     modes::{self, BroadcastMode, CoreMode, EdgeMode},
-    BroadcastSettings,
 };
 
 /// An instance that can operate in Core, Edge, or Broadcast mode,
@@ -298,16 +298,16 @@ mod tests {
     use std::time::Duration;
 
     use libp2p::Multiaddr;
-    use nomos_blend_message::crypto::{Ed25519PrivateKey, Ed25519PublicKey};
+    use nomos_blend_message::crypto::keys::{Ed25519PrivateKey, Ed25519PublicKey};
     use nomos_blend_scheduling::membership::Node;
     use nomos_network::config::NetworkConfig;
     use overwatch::{
+        DynError, OpaqueServiceResourcesHandle,
         overwatch::OverwatchRunner,
         services::{
-            state::{NoOperator, NoState},
             ServiceCore,
+            state::{NoOperator, NoState},
         },
-        DynError, OpaqueServiceResourcesHandle,
     };
     use tokio::time::sleep;
 
@@ -619,6 +619,7 @@ mod tests {
         type BlendBackend = ();
         type NodeId = u8;
         type Rng = ();
+        type ProofsGenerator = ();
     }
 
     struct EdgeService {

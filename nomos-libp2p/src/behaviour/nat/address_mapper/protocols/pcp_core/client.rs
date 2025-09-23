@@ -4,11 +4,11 @@ use thiserror::Error;
 use tracing::info;
 
 use super::{
-    connection::{generate_nonce, PcpConnection},
+    connection::{PcpConnection, generate_nonce},
     mapping::Mapping,
     wire::{
-        PcpAnnounceRequest, PcpAnnounceResponse, PcpMapRequest, PcpMapResponse, Protocol,
-        ResultCode, PCP_MAP_SIZE,
+        PCP_MAP_SIZE, PcpAnnounceRequest, PcpAnnounceResponse, PcpMapRequest, PcpMapResponse,
+        Protocol, ResultCode,
     },
 };
 
@@ -127,10 +127,10 @@ impl PcpClient {
     }
 
     fn get_default_gateway() -> Result<Ipv4Addr, PcpError> {
-        if let Ok(ipv4_addrs) = netdev::get_default_gateway().map(|g| g.ipv4) {
-            if let Some(gw) = ipv4_addrs.first() {
-                return Ok(*gw);
-            }
+        if let Ok(ipv4_addrs) = netdev::get_default_gateway().map(|g| g.ipv4)
+            && let Some(gw) = ipv4_addrs.first()
+        {
+            return Ok(*gw);
         }
 
         Err(PcpError::CannotGetGateway)

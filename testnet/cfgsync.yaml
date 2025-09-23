@@ -27,8 +27,8 @@ mempool_publish_strategy: !SampleSubnetworks
 replication_settings:
   seen_message_cache_size: 204800
   seen_message_ttl: "900.0"
-retry_shares_limit: 5,
-retry_commitments_limit: 5,
+retry_shares_limit: 5
+retry_commitments_limit: 5
 
 # Tracing
 tracing_settings:
