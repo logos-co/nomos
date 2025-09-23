@@ -10,7 +10,7 @@ use overwatch::DynError;
 use tokio::sync::oneshot;
 use tracing::debug;
 
-use crate::{SamplingRelay, LOG_TARGET};
+use crate::{LOG_TARGET, SamplingRelay};
 
 /// Blob validation strategy.
 #[async_trait::async_trait]

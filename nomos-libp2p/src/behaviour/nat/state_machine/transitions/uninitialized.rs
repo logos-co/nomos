@@ -3,15 +3,13 @@ use crate::behaviour::nat::state_machine::{
 };
 
 /// The `Uninitialized` state is the starting point of the NAT state machine. In
-/// this state, the state machine is waiting for an external address candidate
-/// to be provided. Once it receives a candidate, it transitions to the
+/// this state, the state machine is waiting for a listening address
+/// to be provided. Once it receives a listening address, it transitions to the
 /// `TestIfPublic` state to verify if the address is public or not.
 impl OnEvent for State<Uninitialized> {
     fn on_event(self: Box<Self>, event: Event, _: &CommandTx) -> Box<dyn OnEvent> {
         match event {
-            Event::NewExternalAddressCandidate(addr) => {
-                self.boxed(|state| state.into_test_if_public(addr))
-            }
+            Event::NewListenAddress(addr) => self.boxed(|state| state.into_test_if_public(addr)),
             _ => self,
         }
     }
@@ -24,14 +22,14 @@ mod tests {
     use crate::behaviour::nat::state_machine::{
         StateMachine,
         states::{TestIfPublic, Uninitialized},
-        transitions::fixtures::{ADDR, all_events, new_external_address_candidate},
+        transitions::fixtures::{ADDR, all_events, new_listen_address},
     };
 
     #[test]
-    fn new_external_address_candidate_event_causes_transition() {
+    fn new_listen_address_event_causes_transition() {
         let (tx, mut rx) = unbounded_channel();
         let mut state_machine = StateMachine::new(tx);
-        let event = new_external_address_candidate();
+        let event = new_listen_address();
         state_machine.on_test_event(event);
         assert_eq!(
             state_machine.inner.as_ref().unwrap(),
@@ -45,7 +43,7 @@ mod tests {
         let (tx, mut rx) = unbounded_channel();
         let mut state_machine = StateMachine::new(tx);
         let mut other_events = all_events();
-        other_events.remove(&new_external_address_candidate());
+        other_events.remove(&new_listen_address());
         for event in other_events {
             state_machine.on_test_event(event);
             assert_eq!(

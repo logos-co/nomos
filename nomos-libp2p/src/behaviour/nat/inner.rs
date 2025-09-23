@@ -182,6 +182,10 @@ where
     }
 
     fn on_swarm_event(&mut self, event: FromSwarm) {
+        if let FromSwarm::NewListenAddr(addr_event) = &event {
+            self.local_address = Some(addr_event.addr.clone());
+        }
+
         self.state_machine.on_event(event);
         self.autonat_client_behaviour.on_swarm_event(event);
     }
@@ -201,7 +205,10 @@ where
         cx: &mut Context<'_>,
     ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         if let Poll::Ready(to_swarm) = self.autonat_client_behaviour.poll(cx) {
-            if let ToSwarm::GenerateEvent(event) = &to_swarm {
+            if let ToSwarm::GenerateEvent(event) = &to_swarm
+                && let Some(ref local_addr) = self.local_address
+                && &event.tested_addr == local_addr
+            {
                 self.state_machine.on_event(event);
             }
 
