@@ -14,6 +14,7 @@ instrumentation = []
 
 [dependencies]
 async-trait              = "0.1"
+broadcast-service        = { workspace = true }
 bytes                    = { workspace = true }
 chain-service            = { features = ["libp2p"], workspace = true }
 futures                  = { default-features = false, version = "0.3.31" }
@@ -37,6 +38,7 @@ serde                    = { default-features = false, version = "1" }
 serde_json               = { default-features = false, version = "1.0.140" }
 subnetworks-assignations = { workspace = true }
 tokio                    = { default-features = false, features = ["net"], version = "1" }
+tokio-stream             = { default-features = false, version = "0.1" }
 tracing                  = { default-features = false, version = "0.1" }
 
 # axum related dependencies

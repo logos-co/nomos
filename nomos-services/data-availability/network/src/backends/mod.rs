@@ -5,7 +5,10 @@ use std::{collections::HashSet, pin::Pin};
 
 use futures::Stream;
 use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId};
-use nomos_da_network_core::{addressbook::AddressBookHandler, swarm::BalancerStats};
+use nomos_da_network_core::{
+    addressbook::AddressBookHandler, protocols::sampling::opinions::OpinionEvent,
+    swarm::BalancerStats,
+};
 use overwatch::{overwatch::handle::OverwatchHandle, services::state::ServiceState};
 use subnetworks_assignations::MembershipHandler;
 use tokio::sync::mpsc::UnboundedSender;
@@ -41,6 +44,7 @@ pub trait NetworkBackend<RuntimeServiceId> {
         addressbook: Self::Addressbook,
         subnet_refresh_signal: impl Stream<Item = ()> + Send + 'static,
         blancer_stats_sender: UnboundedSender<BalancerStats>,
+        opinion_sender: UnboundedSender<OpinionEvent>,
     ) -> Self;
     fn shutdown(&mut self);
     async fn process(&self, msg: Self::Message);

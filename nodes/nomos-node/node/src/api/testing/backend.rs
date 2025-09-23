@@ -45,6 +45,7 @@ use crate::{
     },
     generic_services::{
         self, DaMembershipAdapter, MembershipBackend, MembershipSdp, MembershipService,
+        MembershipStorageGeneric,
     },
     DaMembershipStorage, DaNetworkApiAdapter, NomosDaMembership,
 };
@@ -102,7 +103,7 @@ where
         wait_until_services_are_ready!(
             &overwatch_handle,
             Some(Duration::from_secs(60)),
-            MembershipServiceTrait<_, _, _>
+            MembershipServiceTrait<_, _, _, _>
         )
         .await?;
         Ok(())
@@ -129,8 +130,9 @@ where
                 UPDATE_MEMBERSHIP,
                 post(
                     update_membership::<
-                        MembershipBackend,
+                        MembershipBackend<RuntimeServiceId>,
                         MembershipSdp<RuntimeServiceId>,
+                        MembershipStorageGeneric<RuntimeServiceId>,
                         RuntimeServiceId,
                     >,
                 ),

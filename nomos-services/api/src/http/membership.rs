@@ -2,7 +2,7 @@ use std::fmt::{Debug, Display};
 
 use nomos_core::sdp::FinalizedBlockEvent;
 use nomos_membership::{
-    adapters::SdpAdapter, backends::MembershipBackend, MembershipMessage, MembershipService,
+    adapters::sdp::SdpAdapter, backends::MembershipBackend, MembershipMessage, MembershipService,
 };
 use overwatch::{overwatch::OverwatchHandle, DynError};
 use serde::{Deserialize, Serialize};
@@ -12,7 +12,7 @@ pub struct MembershipUpdateRequest {
     pub update_event: FinalizedBlockEvent,
 }
 
-pub async fn update_membership_handler<Backend, Sdp, RuntimeServiceId>(
+pub async fn update_membership_handler<Backend, Sdp, StorageAdapter, RuntimeServiceId>(
     handle: OverwatchHandle<RuntimeServiceId>,
     payload: MembershipUpdateRequest,
 ) -> Result<(), DynError>
@@ -25,7 +25,9 @@ where
         + Debug
         + Display
         + 'static
-        + overwatch::services::AsServiceId<MembershipService<Backend, Sdp, RuntimeServiceId>>,
+        + overwatch::services::AsServiceId<
+            MembershipService<Backend, Sdp, StorageAdapter, RuntimeServiceId>,
+        >,
 {
     let relay = handle.relay().await?;
 

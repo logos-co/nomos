@@ -142,6 +142,56 @@ To generate the project documentation locally, run:
 cargo doc
 ```
 
+## Dependency Graph Visualization
+
+To visualize the project's dependency structure, you can generate a dependency graph using `cargo-depgraph`.
+
+### Installation
+
+First, install the `cargo-depgraph` tool:
+
+```bash
+cargo install cargo-depgraph
+```
+
+### Generating the Graph
+
+Generate a DOT file containing the dependency graph:
+
+```bash
+# Full dependency graph with all transitive dependencies
+cargo depgraph --all-deps --dedup-transitive-deps --workspace-only --all-features > dependencies_graph.dot
+
+# Simplified graph showing only direct dependencies
+cargo depgraph --workspace-only --all-features > dependencies_graph_simple.dot
+```
+
+### Rendering the Graph
+
+Convert the DOT file to a viewable format using Graphviz:
+
+```bash
+# Install Graphviz (macOS)
+brew install graphviz
+
+# Install Graphviz (Ubuntu/Debian)
+sudo apt-get install graphviz
+
+# Render to PNG
+dot -Tpng dependencies_graph.dot -o dependencies_graph.png
+
+# Render to SVG (better for large graphs)
+dot -Tsvg dependencies_graph.dot -o dependencies_graph.svg
+```
+
+### Alternative: Online Visualization
+
+You can also visualize the DOT file online using tools like:
+- [Graphviz Online](https://dreampuf.github.io/GraphvizOnline/)
+- [WebGraphviz](http://www.webgraphviz.com/)
+
+Simply copy the contents of the DOT file and paste it into the online tool.
+
 ## Contributing
 
 We welcome contributions! Please read our [Contributing Guidelines](CONTRIBUTING.md) for details on how to get started.

@@ -4,6 +4,7 @@ use crate::{api::StorageBackendApi, backends::rocksdb::RocksBackend};
 
 pub mod blocks;
 pub mod da;
+pub mod membership;
 pub mod utils;
 
 impl StorageBackendApi for RocksBackend {}

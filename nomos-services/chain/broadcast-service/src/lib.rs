@@ -9,12 +9,13 @@ use overwatch::{
         state::{NoOperator, NoState},
     },
 };
+use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, oneshot};
 use tracing::{error, info};
 
 const BROADCAST_CHANNEL_SIZE: usize = 128;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlockInfo {
     pub height: u64,
     pub header_id: HeaderId,

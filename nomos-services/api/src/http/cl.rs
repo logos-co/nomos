@@ -1,6 +1,8 @@
 use core::fmt::Debug;
 use std::fmt::Display;
 
+use broadcast_service::{BlockBroadcastMsg, BlockBroadcastService, BlockInfo};
+use futures::{Stream, StreamExt as _};
 use nomos_core::{
     header::HeaderId,
     mantle::{AuthenticatedMantleTx, Transaction},
@@ -12,6 +14,7 @@ use nomos_mempool::{
 use overwatch::services::AsServiceId;
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
+use tokio_stream::wrappers::BroadcastStream;
 
 pub type ClMempoolService<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId> =
     TxMempoolService<
@@ -92,4 +95,29 @@ where
         .map_err(|(e, _)| e)?;
 
     receiver.await.map_err(|e| Box::new(e) as super::DynError)
+}
+
+pub async fn lib_block_stream<RuntimeServiceId>(
+    handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
+) -> Result<
+    impl Stream<Item = Result<BlockInfo, crate::http::DynError>> + Send + Sync,
+    super::DynError,
+>
+where
+    RuntimeServiceId: Debug + Sync + Display + AsServiceId<BlockBroadcastService<RuntimeServiceId>>,
+{
+    let relay = handle.relay().await?;
+    let (sender, receiver) = oneshot::channel();
+    relay
+        .send(BlockBroadcastMsg::SubscribeToFinalizedBlocks {
+            result_sender: sender,
+        })
+        .await
+        .map_err(|(e, _)| e)?;
+
+    let broadcast_receiver = receiver.await.map_err(|e| Box::new(e) as super::DynError)?;
+    let stream = BroadcastStream::new(broadcast_receiver)
+        .map(|result| result.map_err(|e| Box::new(e) as crate::http::DynError));
+
+    Ok(stream)
 }

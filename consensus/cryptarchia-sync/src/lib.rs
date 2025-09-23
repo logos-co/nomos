@@ -1,7 +1,10 @@
 pub mod config;
 #[cfg(feature = "libp2p")]
 mod libp2p;
+#[cfg(feature = "libp2p")]
+pub use libp2p::messages::DownloadBlocksRequest;
 mod messages;
+pub use messages::{GetTipResponse, SerialisedBlock};
 
 pub type DynError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
@@ -21,5 +24,4 @@ pub use libp2p::{
     behaviour::{Behaviour, BoxedStream, Event},
     errors::{ChainSyncError, ChainSyncErrorKind},
 };
-pub use messages::{DownloadBlocksRequest, GetTipResponse, SerialisedBlock};
 pub use nomos_core::header::HeaderId;

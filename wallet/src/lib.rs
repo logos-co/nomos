@@ -30,9 +30,9 @@ impl<Tx: AuthenticatedMantleTx> From<Block<Tx>> for WalletBlock {
 }
 
 #[derive(Clone)]
-struct WalletState {
-    utxos: rpds::HashTrieMapSync<NoteId, Utxo>,
-    pk_index: rpds::HashTrieMapSync<PublicKey, rpds::HashTrieSetSync<NoteId>>,
+pub struct WalletState {
+    pub utxos: rpds::HashTrieMapSync<NoteId, Utxo>,
+    pub pk_index: rpds::HashTrieMapSync<PublicKey, rpds::HashTrieSetSync<NoteId>>,
 }
 
 impl WalletState {
@@ -90,6 +90,7 @@ impl WalletState {
         }
     }
 
+    #[must_use]
     pub fn balance(&self, pk: PublicKey) -> Option<Value> {
         let balance = self
             .pk_index
@@ -101,6 +102,7 @@ impl WalletState {
         Some(balance)
     }
 
+    #[must_use]
     pub fn apply_block(&self, known_keys: &HashSet<PublicKey>, block: &WalletBlock) -> Self {
         let mut utxos = self.utxos.clone();
         let mut pk_index = self.pk_index.clone();
@@ -197,7 +199,17 @@ impl Wallet {
         }
     }
 
+    #[must_use]
+    pub const fn known_keys(&self) -> &HashSet<PublicKey> {
+        &self.known_keys
+    }
+
     pub fn apply_block(&mut self, block: &WalletBlock) -> Result<(), WalletError> {
+        if self.wallet_states.contains_key(&block.id) {
+            // Already processed this block
+            return Ok(());
+        }
+
         let block_wallet_state = self
             .wallet_state_at(block.parent)?
             .apply_block(&self.known_keys, block);
@@ -218,10 +230,33 @@ impl Wallet {
         Ok(self.wallet_state_at(tip)?.utxos_for_amount(amount, pks))
     }
 
-    fn wallet_state_at(&self, tip: HeaderId) -> Result<&WalletState, WalletError> {
+    pub fn wallet_state_at(&self, tip: HeaderId) -> Result<&WalletState, WalletError> {
         self.wallet_states
             .get(&tip)
             .ok_or(WalletError::UnknownBlock)
+    }
+
+    /// Prune wallet states for blocks that have been pruned from the chain.
+    ///
+    /// This removes wallet states for blocks that are no longer part of the
+    /// chain after LIB advancement. Both stale blocks (from abandoned
+    /// forks) and immutable blocks (before the new LIB) are removed.
+    pub fn prune_states(&mut self, pruned_blocks: impl IntoIterator<Item = HeaderId>) {
+        let mut removed_count = 0;
+
+        for block_id in pruned_blocks {
+            if self.wallet_states.remove(&block_id).is_some() {
+                removed_count += 1;
+            }
+        }
+
+        if removed_count > 0 {
+            tracing::debug!(
+                removed_states = removed_count,
+                remaining_states = self.wallet_states.len(),
+                "Pruned wallet states for pruned blocks"
+            );
+        }
     }
 }
 

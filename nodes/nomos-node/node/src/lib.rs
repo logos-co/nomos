@@ -55,6 +55,7 @@ pub use crate::config::{Config, CryptarchiaArgs, HttpArgs, LogArgs, NetworkArgs}
 use crate::{
     api::backend::AxumBackend,
     generic_services::{
+        blend::{BlendProofsGenerator, BlendProofsVerifier},
         DaMembershipAdapter, DaMembershipStorageGeneric, MembershipService, SdpService,
     },
 };
@@ -74,26 +75,9 @@ pub(crate) type TracingService = Tracing<RuntimeServiceId>;
 
 pub(crate) type NetworkService = nomos_network::NetworkService<NetworkBackend, RuntimeServiceId>;
 
-pub(crate) type BlendCoreService = nomos_blend_service::core::BlendService<
-    BlendBackend,
-    PeerId,
-    BlendNetworkAdapter<RuntimeServiceId>,
-    BlendMembershipAdapter<MembershipService<RuntimeServiceId>, PeerId>,
-    RuntimeServiceId,
->;
-
-pub(crate) type BlendEdgeService = nomos_blend_service::edge::BlendService<
-    nomos_blend_service::edge::backends::libp2p::Libp2pBlendBackend,
-    PeerId,
-    <BlendNetworkAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<
-        RuntimeServiceId,
-    >>::BroadcastSettings,
-    BlendMembershipAdapter<MembershipService<RuntimeServiceId>, PeerId>,
-    RuntimeServiceId,
->;
-
-pub(crate) type BlendService =
-    nomos_blend_service::BlendService<BlendCoreService, BlendEdgeService, RuntimeServiceId>;
+pub(crate) type BlendCoreService = generic_services::blend::BlendCoreService<RuntimeServiceId>;
+pub(crate) type BlendEdgeService = generic_services::blend::BlendEdgeService<RuntimeServiceId>;
+pub(crate) type BlendService = generic_services::blend::BlendService<RuntimeServiceId>;
 
 pub(crate) type BlockBroadcastService = broadcast_service::BlockBroadcastService<RuntimeServiceId>;
 
@@ -161,6 +145,9 @@ pub(crate) type CryptarchiaService = generic_services::CryptarchiaService<
 
 pub(crate) type TimeService = generic_services::TimeService<RuntimeServiceId>;
 
+pub(crate) type WalletService =
+    nomos_wallet::WalletService<CryptarchiaService, RocksBackend, RuntimeServiceId>;
+
 pub(crate) type ApiStorageAdapter<RuntimeServiceId> =
     nomos_api::http::storage::adapters::rocksdb::RocksAdapter<RuntimeServiceId>;
 
@@ -194,6 +181,8 @@ pub(crate) type ApiService = nomos_api::ApiService<
         NtpTimeBackend,
         DaNetworkApiAdapter,
         ApiStorageAdapter<RuntimeServiceId>,
+        BlendProofsGenerator,
+        BlendProofsVerifier,
         MB16,
     >,
     RuntimeServiceId,
@@ -227,6 +216,7 @@ pub struct Nomos {
     http: ApiService,
     storage: StorageService,
     system_sig: SystemSigService,
+    wallet: WalletService,
     #[cfg(feature = "testing")]
     testing_http: TestingApiService<RuntimeServiceId>,
 }

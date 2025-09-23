@@ -7,18 +7,17 @@ use nomos_libp2p::SwarmEvent;
 use test_log::test;
 use tokio::{select, time::sleep};
 
-use crate::{
-    core::{
-        tests::utils::{TestEncapsulatedMessage, TestSwarm},
-        with_core::{
-            behaviour::{
-                tests::utils::{BehaviourBuilder, SwarmExt as _},
-                Event, NegotiatedPeerState, SpamReason,
-            },
-            error::Error,
-        },
+use crate::core::{
+    tests::utils::{
+        default_poq_verification_inputs, AlwaysTrueVerifier, TestEncapsulatedMessage, TestSwarm,
     },
-    message::ValidateMessagePublicHeader as _,
+    with_core::{
+        behaviour::{
+            tests::utils::{BehaviourBuilder, SwarmExt as _},
+            Event, NegotiatedPeerState, SpamReason,
+        },
+        error::Error,
+    },
 };
 
 #[test(tokio::test)]
@@ -47,7 +46,7 @@ async fn message_sending_and_reception() {
             listening_event = listening_swarm.select_next_some() => {
                 if let SwarmEvent::Behaviour(Event::Message(encapsulated_message, (peer_id, _))) = listening_event {
                     assert_eq!(peer_id, *dialing_swarm.local_peer_id());
-                    assert_eq!(*encapsulated_message, test_message.clone().validate_public_header().unwrap());
+                    assert_eq!(*encapsulated_message, test_message.clone().verify_public_header(&default_poq_verification_inputs(), &AlwaysTrueVerifier).unwrap());
                     break;
                 }
             }

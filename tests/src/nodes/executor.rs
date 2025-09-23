@@ -8,13 +8,14 @@ use std::{
     time::Duration,
 };
 
+use broadcast_service::BlockInfo;
 use chain_service::{CryptarchiaInfo, CryptarchiaSettings, OrphanConfig, SyncConfig};
 use common_http_client::CommonHttpClient;
 use cryptarchia_engine::time::SlotConfig;
 use futures::Stream;
 use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
 use nomos_api::http::membership::MembershipUpdateRequest;
-use nomos_blend_scheduling::message_blend::CryptographicProcessorSettings;
+use nomos_blend_scheduling::message_blend::SessionCryptographicProcessorSettings;
 use nomos_blend_service::{
     core::settings::{CoverTrafficSettingsExt, MessageDelayerSettingsExt, SchedulerSettingsExt},
     settings::TimingSettings,
@@ -365,6 +366,14 @@ impl Executor {
         let success: bool = response.json().await?;
         Ok(success)
     }
+
+    pub async fn get_lib_stream(
+        &self,
+    ) -> Result<impl Stream<Item = BlockInfo>, common_http_client::Error> {
+        self.http_client
+            .get_lib_stream(Url::from_str(&format!("http://{}", self.addr))?)
+            .await
+    }
 }
 
 #[must_use]
@@ -383,8 +392,8 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
         },
         blend: BlendConfig::new(nomos_blend_service::core::settings::BlendConfig {
             backend: config.blend_config.backend,
-            crypto: CryptographicProcessorSettings {
-                signing_private_key: config.blend_config.private_key.clone(),
+            crypto: SessionCryptographicProcessorSettings {
+                non_ephemeral_signing_key: config.blend_config.private_key.clone(),
                 num_blend_layers: 1,
             },
             time: TimingSettings {

@@ -10,22 +10,22 @@ use tokio::sync::oneshot;
 
 use crate::membership::{MembershipAdapter, MembershipAdapterError, PeerMultiaddrStream};
 
-pub struct MembershipServiceAdapter<Backend, SdpAdapter, RuntimeServiceId>
+pub struct MembershipServiceAdapter<Backend, SdpAdapter, StorageAdapter, RuntimeServiceId>
 where
     Backend: nomos_membership::backends::MembershipBackend,
     Backend::Settings: Clone,
-    SdpAdapter: nomos_membership::adapters::SdpAdapter,
+    SdpAdapter: nomos_membership::adapters::sdp::SdpAdapter,
 {
     relay: OutboundRelay<
-        <MembershipService<Backend, SdpAdapter, RuntimeServiceId> as ServiceData>::Message,
+        <MembershipService<Backend, SdpAdapter, StorageAdapter, RuntimeServiceId> as ServiceData>::Message,
     >,
     phantom: PhantomData<(Backend, SdpAdapter, RuntimeServiceId)>,
 }
 
-impl<Backend, SdpAdapter, RuntimeServiceId>
-    MembershipServiceAdapter<Backend, SdpAdapter, RuntimeServiceId>
+impl<Backend, SdpAdapter, StorageAdapter, RuntimeServiceId>
+    MembershipServiceAdapter<Backend, SdpAdapter, StorageAdapter, RuntimeServiceId>
 where
-    SdpAdapter: nomos_membership::adapters::SdpAdapter + Send + Sync + 'static,
+    SdpAdapter: nomos_membership::adapters::sdp::SdpAdapter + Send + Sync + 'static,
     Backend: nomos_membership::backends::MembershipBackend + Send + Sync + 'static,
     Backend::Settings: Clone,
     RuntimeServiceId: Send + Sync + 'static,
@@ -54,15 +54,16 @@ where
 }
 
 #[async_trait::async_trait]
-impl<Backend, SdpAdapter, RuntimeServiceId> MembershipAdapter
-    for MembershipServiceAdapter<Backend, SdpAdapter, RuntimeServiceId>
+impl<Backend, SdpAdapter, StorageAdapter, RuntimeServiceId> MembershipAdapter
+    for MembershipServiceAdapter<Backend, SdpAdapter, StorageAdapter, RuntimeServiceId>
 where
-    SdpAdapter: nomos_membership::adapters::SdpAdapter + Send + Sync + 'static,
+    SdpAdapter: nomos_membership::adapters::sdp::SdpAdapter + Send + Sync + 'static,
     Backend: nomos_membership::backends::MembershipBackend + Send + Sync + 'static,
     Backend::Settings: Clone,
     RuntimeServiceId: Send + Sync + 'static,
 {
-    type MembershipService = MembershipService<Backend, SdpAdapter, RuntimeServiceId>;
+    type MembershipService =
+        MembershipService<Backend, SdpAdapter, StorageAdapter, RuntimeServiceId>;
     type Id = PeerId;
 
     fn new(relay: OutboundRelay<<Self::MembershipService as ServiceData>::Message>) -> Self {

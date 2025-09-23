@@ -1,6 +1,7 @@
 mod connections;
 pub mod errors;
 mod historic;
+pub mod opinions;
 mod requests;
 mod responses;
 mod streams;
@@ -28,7 +29,7 @@ use crate::{
     addressbook::AddressBookHandler,
     protocols::sampling::{
         errors::HistoricSamplingError,
-        historic::request_behaviour::HistoricRequestSamplingBehaviour,
+        historic::request_behaviour::HistoricRequestSamplingBehaviour, opinions::OpinionEvent,
         requests::request_behaviour::RequestSamplingBehaviour,
         responses::response_behaviour::ResponseSamplingBehaviour,
     },
@@ -156,6 +157,7 @@ pub enum SamplingEvent {
         block_id: HeaderId,
         error: HistoricSamplingError,
     },
+    Opinion(OpinionEvent),
 }
 
 impl From<requests::SamplingEvent> for SamplingEvent {
@@ -177,8 +179,8 @@ impl From<requests::SamplingEvent> for SamplingEvent {
                 blob_id,
                 commitments,
             },
-
             requests::SamplingEvent::SamplingError { error } => Self::SamplingError { error },
+            requests::SamplingEvent::Opinion(opinion_event) => Self::Opinion(opinion_event),
         }
     }
 }

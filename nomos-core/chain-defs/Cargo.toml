@@ -9,30 +9,32 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
-anyhow                 = { default-features = false, version = "1.0" }
-async-trait            = { version = "0.1" }
-bincode                = { version = "1.3" }
-blake2                 = { default-features = false, version = "0.10" }
-bytes                  = { workspace = true }
-const-hex              = { default-features = false, features = ["alloc"], version = "1" }
-cryptarchia-engine     = { features = ["serde"], workspace = true }
-ed25519                = { default-features = false, version = "2.2" }
-ed25519-dalek          = { default-features = false, features = ["serde"], version = "2.2.0" }
-groth16                = { workspace = true, features = ["deser"] }
-multiaddr              = { default-features = false, version = "0.18" }
-nomos_proof_statements = { workspace = true }
-nomos_risc0_proofs     = { path = "../risc0_proofs" }
-num-bigint             = { version = "0.4", default-features = false }
-poseidon2              = { workspace = true }
-risc0-zkvm             = { features = ["client"], workspace = true }
-serde                  = { default-features = false, version = "1.0" }
-thiserror              = "1.0"
-tracing                = { workspace = true }
+anyhow             = { default-features = false, version = "1.0" }
+ark-ff             = { default-features = false, version = "0.4" }
+async-trait        = { version = "0.1" }
+bincode            = "1.3"
+blake2             = { default-features = false, version = "0.10" }
+bytes              = { workspace = true }
+const-hex          = { default-features = false, features = ["alloc"], version = "1" }
+cryptarchia-engine = { features = ["serde"], workspace = true }
+ed25519            = { default-features = false, version = "2.2" }
+ed25519-dalek      = { default-features = false, features = ["serde"], version = "2.2.0" }
+generic-array      = "1.2.0"
+groth16            = { workspace = true, features = ["deser"] }
+multiaddr          = { default-features = false, version = "0.18" }
+num-bigint         = { version = "0.4", default-features = false }
+pol                = { workspace = true }
+poseidon2          = { workspace = true }
+serde              = { default-features = false, version = "1.0" }
+serde_with         = { version = "3.14.0", default-features = false, features = ["alloc", "macros"] }
+thiserror          = "1.0"
+tracing            = { workspace = true }
 
 [dev-dependencies]
 rand       = { workspace = true }
 serde_json = { default-features = false, features = ["alloc"], version = "1.0" }
 
 [features]
-default = []
-mock    = []
+default      = []
+mock         = []
+pol-dev-mode = []

@@ -10,7 +10,9 @@ use log::error;
 use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId, mantle::SignedMantleTx};
 use nomos_da_network_core::{
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
-    protocols::dispersal::executor::behaviour::DispersalExecutorEvent,
+    protocols::{
+        dispersal::executor::behaviour::DispersalExecutorEvent, sampling::opinions::OpinionEvent,
+    },
     swarm::{
         executor::ExecutorSwarm,
         validator::{SampleArgs, SwarmSettings},
@@ -151,6 +153,7 @@ where
         addressbook: Self::Addressbook,
         subnet_refresh_signal: impl Stream<Item = ()> + Send + 'static,
         balancer_stats_sender: UnboundedSender<BalancerStats>,
+        opinion_sender: UnboundedSender<OpinionEvent>,
     ) -> Self {
         let keypair = libp2p::identity::Keypair::from(ed25519::Keypair::from(
             config.validator_settings.node_key.clone(),
@@ -212,6 +215,7 @@ where
                 commitments_broadcast_sender,
                 verifying_broadcast_sender,
                 historic_sampling_broadcast_sender,
+                opinion_sender,
             ),
             verifier_replies_task_abort_registration,
         ));

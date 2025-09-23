@@ -10,7 +10,7 @@ use bytes::Bytes;
 use cryptarchia_engine::{Branch, Slot};
 use cryptarchia_sync::{BlocksResponse, ProviderResponse};
 use futures::{future, stream, stream::BoxStream, StreamExt as _, TryStreamExt as _};
-use nomos_core::{block::Block, codec::SerdeOp, header::HeaderId};
+use nomos_core::{block::Block, header::HeaderId};
 use nomos_storage::{api::chain::StorageChainApi, backends::StorageBackend, StorageMsg};
 use overwatch::DynError;
 use serde::Serialize;
@@ -63,7 +63,7 @@ where
 impl<Storage, Tx> BlockProvider<Storage, Tx>
 where
     Storage: StorageBackend + 'static,
-    <Storage as StorageChainApi>::Block: TryInto<Block<Tx>>,
+    <Storage as StorageChainApi>::Block: TryInto<Block<Tx>> + Into<Bytes>,
     Tx: Serialize + Clone + Eq + Send + Sync + 'static,
 {
     pub const fn new(storage_relay: StorageRelay<Storage>) -> Self {
@@ -148,12 +148,10 @@ where
                 let storage = storage.clone();
 
                 async move {
-                    let block = Self::load_block(id, &storage)
+                    Self::load_block_bytes(id, &storage)
                         .await
                         .map_err(DynError::from)?
-                        .ok_or_else(|| DynError::from(GetBlocksError::BlockNotFound(id)))?;
-
-                    <() as SerdeOp>::serialize(&block).map_err(DynError::from)
+                        .ok_or_else(|| DynError::from(GetBlocksError::BlockNotFound(id)))
                 }
             })
             .map_err(DynError::from)
@@ -502,6 +500,25 @@ where
         }
     }
 
+    /// Loads a block from storage as raw bytes, avoiding
+    /// deserialization/serialization
+    async fn load_block_bytes(
+        id: HeaderId,
+        storage: &StorageRelay<Storage>,
+    ) -> Result<Option<Bytes>, GetBlocksError> {
+        let (tx, rx) = oneshot::channel();
+        storage
+            .send(StorageMsg::get_block_request(id, tx))
+            .await
+            .map_err(|(e, _)| GetBlocksError::SendError(e.to_string()))?;
+
+        let response = rx.await.map_err(|_| GetBlocksError::ChannelDropped)?;
+
+        // Convert storage block type to Bytes to satisfy trait bounds.
+        // For RocksBackend this is Bytes -> Bytes (no-op).
+        Ok(response.map(Into::into))
+    }
+
     /// Scans immutable block IDs from the storage,
     /// starting from the `start_slot`, limited to `limit`.
     async fn scan_immutable_block_ids(
@@ -540,8 +557,14 @@ mod tests {
 
     use cryptarchia_engine::Config;
     use futures::StreamExt as _;
-    use nomos_core::{header::Header, mantle::SignedMantleTx};
-    use nomos_proof_statements::leadership::{LeaderPrivate, LeaderPublic};
+    use groth16::Fr;
+    use nomos_core::{
+        codec::SerdeOp,
+        header::Header,
+        mantle::{ledger::Utxo, Note, SignedMantleTx},
+        proofs::leader_proof::{LeaderPrivate, LeaderPublic},
+        utils::merkle::MerkleNode,
+    };
     use nomos_storage::{
         backends::rocksdb::{RocksBackend, RocksBackendSettings},
         StorageService,
@@ -667,7 +690,7 @@ mod tests {
         service: overwatch::overwatch::Overwatch<RuntimeServiceId>,
         storage_relay: StorageRelay<RocksBackend>,
         cryptarchia: cryptarchia_engine::Cryptarchia<HeaderId>,
-        proof: nomos_core::proofs::leader_proof::Risc0LeaderProof,
+        proof: nomos_core::proofs::leader_proof::Groth16LeaderProof,
         provider: BlockProvider<RocksBackend, SignedMantleTx>,
     }
 
@@ -916,25 +939,37 @@ mod tests {
             );
         }
 
-        fn make_test_proof() -> nomos_core::proofs::leader_proof::Risc0LeaderProof {
+        fn make_test_proof() -> nomos_core::proofs::leader_proof::Groth16LeaderProof {
             let public_inputs = LeaderPublic::new(
-                BigUint::from(1u8).into(),
-                BigUint::from(2u8).into(),
-                [3u8; 32],
-                [4u8; 32],
-                0u64,
-                0.05f64,
-                1000u64,
+                Fr::from(1), // aged root
+                Fr::from(2), // latest root
+                Fr::from(3), // epoch nonce
+                0,           // slot
+                1000,        // total stake
             );
-            let private_inputs = LeaderPrivate {
-                value: 100,
-                note_id: BigUint::from(5u8).into(),
-                sk: BigUint::from(6u8).into(),
+
+            let utxo = Utxo {
+                tx_hash: Fr::from(BigUint::from(1u8)).into(),
+                output_index: 0,
+                note: Note::new(100, Fr::from(5).into()),
             };
-            nomos_core::proofs::leader_proof::Risc0LeaderProof::prove(
+
+            let aged_path = vec![MerkleNode::Right(Fr::from(0u8))];
+            let latest_path = vec![MerkleNode::Left(Fr::from(0u8))];
+
+            let private_inputs = LeaderPrivate::new(
                 public_inputs,
+                utxo,
+                &aged_path,
+                &latest_path,
+                Fr::from(6), // slot secret
+                0,           // starting slot
+                &ed25519_dalek::VerifyingKey::from_bytes(&[0; 32]).unwrap(),
+            );
+
+            nomos_core::proofs::leader_proof::Groth16LeaderProof::prove(
                 &private_inputs,
-                risc0_zkvm::default_prover().as_ref(),
+                nomos_core::mantle::ops::leader_claim::VoucherCm::default(),
             )
             .expect("Proof generation should succeed")
         }

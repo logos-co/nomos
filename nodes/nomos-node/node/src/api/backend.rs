@@ -14,10 +14,12 @@ use axum::{
     },
     routing, Router,
 };
+use broadcast_service::BlockBroadcastService;
 use nomos_api::{
     http::{consensus::Cryptarchia, da::DaVerifier, storage},
     Backend,
 };
+use nomos_blend_service::{ProofsGenerator, ProofsVerifier};
 use nomos_core::{
     da::{
         blob::{LightShare, Share},
@@ -57,8 +59,9 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use super::handlers::{
     add_share, add_tx, balancer_stats, blacklisted_peers, block, block_peer, cl_metrics, cl_status,
-    cryptarchia_headers, cryptarchia_info, da_get_commitments, da_get_light_share, da_get_shares,
-    da_get_storage_commitments, libp2p_info, monitor_stats, unblock_peer,
+    cryptarchia_headers, cryptarchia_info, cryptarchia_lib_stream, da_get_commitments,
+    da_get_light_share, da_get_shares, da_get_storage_commitments, libp2p_info, monitor_stats,
+    unblock_peer,
 };
 
 pub(crate) type DaStorageBackend = RocksBackend;
@@ -81,6 +84,8 @@ pub struct AxumBackend<
     TimeBackend,
     ApiAdapter,
     HttpStorageAdapter,
+    BlendProofsGenerator,
+    BlendProofsVerifier,
     const SIZE: usize,
 > {
     settings: AxumBackendSettings,
@@ -99,6 +104,7 @@ pub struct AxumBackend<
     _storage_adapter: core::marker::PhantomData<HttpStorageAdapter>,
     _da_membership: core::marker::PhantomData<(DaMembershipAdapter, DaMembershipStorage)>,
     _verifier_mempool_adapter: core::marker::PhantomData<VerifierMempoolAdapter>,
+    _blend: core::marker::PhantomData<(BlendProofsGenerator, BlendProofsVerifier)>,
 }
 
 #[derive(OpenApi)]
@@ -132,6 +138,8 @@ impl<
         TimeBackend,
         ApiAdapter,
         StorageAdapter,
+        BlendProofsGenerator,
+        BlendProofsVerifier,
         const SIZE: usize,
         RuntimeServiceId,
     > Backend<RuntimeServiceId>
@@ -152,6 +160,8 @@ impl<
         TimeBackend,
         ApiAdapter,
         StorageAdapter,
+        BlendProofsGenerator,
+        BlendProofsVerifier,
         SIZE,
     >
 where
@@ -212,6 +222,8 @@ where
     DaStorageConverter:
         DaConverter<DaStorageBackend, Share = DaShare, Tx = SignedMantleTx> + Send + Sync + 'static,
     StorageAdapter: storage::StorageAdapter<RuntimeServiceId> + Send + Sync + 'static,
+    BlendProofsGenerator: ProofsGenerator + Send + 'static,
+    BlendProofsVerifier: ProofsVerifier + Clone + Send + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Send
@@ -225,10 +237,13 @@ where
                 SamplingNetworkAdapter,
                 SamplingStorage,
                 TimeBackend,
+                BlendProofsGenerator,
+                BlendProofsVerifier,
                 RuntimeServiceId,
                 SIZE,
             >,
         >
+        + AsServiceId<BlockBroadcastService<RuntimeServiceId>>
         + AsServiceId<
             DaVerifier<
                 DaShare,
@@ -302,6 +317,7 @@ where
             _storage_adapter: core::marker::PhantomData,
             _da_membership: core::marker::PhantomData,
             _verifier_mempool_adapter: core::marker::PhantomData,
+            _blend: core::marker::PhantomData,
         })
     }
 
@@ -313,6 +329,8 @@ where
             &overwatch_handle,
             Some(Duration::from_secs(60)),
             Cryptarchia<
+                _,
+                _,
                 _,
                 _,
                 _,
@@ -370,6 +388,8 @@ where
                         SamplingNetworkAdapter,
                         SamplingStorage,
                         TimeBackend,
+                        BlendProofsGenerator,
+                        BlendProofsVerifier,
                         RuntimeServiceId,
                         SIZE,
                     >,
@@ -384,10 +404,16 @@ where
                         SamplingNetworkAdapter,
                         SamplingStorage,
                         TimeBackend,
+                        BlendProofsGenerator,
+                        BlendProofsVerifier,
                         RuntimeServiceId,
                         SIZE,
                     >,
                 ),
+            )
+            .route(
+                paths::CRYPTARCHIA_LIB_STREAM,
+                routing::get(cryptarchia_lib_stream::<RuntimeServiceId>),
             )
             .route(
                 paths::DA_ADD_SHARE,

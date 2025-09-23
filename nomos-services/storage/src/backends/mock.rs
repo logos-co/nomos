@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     num::NonZeroUsize,
     ops::RangeInclusive,
 };
@@ -9,11 +9,18 @@ use bytes::Bytes;
 use cryptarchia_engine::Slot;
 use libp2p_identity::PeerId;
 use multiaddr::Multiaddr;
-use nomos_core::{block::SessionNumber, header::HeaderId};
+use nomos_core::{
+    block::{BlockNumber, SessionNumber},
+    header::HeaderId,
+    sdp::{Locator, ProviderId, ServiceType},
+};
+use overwatch::DynError;
 use thiserror::Error;
 
 use super::{StorageBackend, StorageTransaction};
-use crate::api::{chain::StorageChainApi, da::StorageDaApi, StorageBackendApi};
+use crate::api::{
+    chain::StorageChainApi, da::StorageDaApi, membership::StorageMembershipApi, StorageBackendApi,
+};
 
 #[derive(Debug, Error)]
 #[error("Errors in MockStorage should not happen")]
@@ -250,3 +257,46 @@ impl StorageDaApi for MockStorage {
 
 #[async_trait]
 impl StorageBackendApi for MockStorage {}
+
+#[async_trait]
+impl StorageMembershipApi for MockStorage {
+    async fn save_active_session(
+        &mut self,
+        _service_type: ServiceType,
+        _session_id: SessionNumber,
+        _providers: &HashMap<ProviderId, BTreeSet<Locator>>,
+    ) -> Result<(), DynError> {
+        unimplemented!()
+    }
+
+    async fn load_active_session(
+        &mut self,
+        _service_type: ServiceType,
+    ) -> Result<Option<(SessionNumber, HashMap<ProviderId, BTreeSet<Locator>>)>, DynError> {
+        unimplemented!()
+    }
+
+    async fn save_latest_block(&mut self, _block_number: BlockNumber) -> Result<(), DynError> {
+        unimplemented!()
+    }
+
+    async fn load_latest_block(&mut self) -> Result<Option<BlockNumber>, DynError> {
+        unimplemented!()
+    }
+
+    async fn save_forming_session(
+        &mut self,
+        _service_type: ServiceType,
+        _session_id: SessionNumber,
+        _providers: &HashMap<ProviderId, BTreeSet<Locator>>,
+    ) -> Result<(), DynError> {
+        unimplemented!()
+    }
+
+    async fn load_forming_session(
+        &mut self,
+        _service_type: ServiceType,
+    ) -> Result<Option<(SessionNumber, HashMap<ProviderId, BTreeSet<Locator>>)>, DynError> {
+        unimplemented!()
+    }
+}

@@ -1,18 +1,22 @@
 use libp2p::{allow_block_list::BlockedPeers, connection_limits::ConnectionLimits, PeerId};
+use nomos_blend_message::encap::encapsulated::PoQVerificationInputMinusSigningKey;
 use nomos_blend_scheduling::membership::Membership;
 use nomos_libp2p::NetworkBehaviour;
 
 use crate::core::{backends::libp2p::Libp2pBlendBackendSettings, settings::BlendConfig};
 
 #[derive(NetworkBehaviour)]
-pub struct BlendBehaviour<ObservationWindowProvider> {
-    pub blend: nomos_blend_network::core::NetworkBehaviour<ObservationWindowProvider>,
+pub struct BlendBehaviour<ProofsVerifier, ObservationWindowProvider> {
+    pub blend:
+        nomos_blend_network::core::NetworkBehaviour<ProofsVerifier, ObservationWindowProvider>,
     pub limits: libp2p::connection_limits::Behaviour,
     pub blocked_peers: libp2p::allow_block_list::Behaviour<BlockedPeers>,
 }
 
-impl<ObservationWindowProvider> BlendBehaviour<ObservationWindowProvider>
+impl<ProofsVerifier, ObservationWindowProvider>
+    BlendBehaviour<ProofsVerifier, ObservationWindowProvider>
 where
+    ProofsVerifier: Clone,
     ObservationWindowProvider: for<'c> From<(
         &'c BlendConfig<Libp2pBlendBackendSettings>,
         &'c Membership<PeerId>,
@@ -21,6 +25,8 @@ where
     pub fn new(
         config: &BlendConfig<Libp2pBlendBackendSettings>,
         current_membership: Membership<PeerId>,
+        poq_verification_inputs: PoQVerificationInputMinusSigningKey,
+        poq_verifier: ProofsVerifier,
     ) -> Self {
         let observation_window_interval_provider =
             ObservationWindowProvider::from((config, &current_membership));
@@ -47,6 +53,8 @@ where
                 Some(current_membership),
                 config.backend.peer_id(),
                 config.backend.protocol_name.clone().into_inner(),
+                poq_verification_inputs,
+                poq_verifier,
             ),
             limits: libp2p::connection_limits::Behaviour::new(
                 ConnectionLimits::default()

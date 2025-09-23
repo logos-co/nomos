@@ -3,13 +3,6 @@ pub mod config;
 
 use api::backend::AxumBackend;
 use kzgrs_backend::common::share::DaShare;
-use nomos_blend_service::{
-    core::{
-        backends::libp2p::Libp2pBlendBackend as BlendBackend,
-        network::libp2p::Libp2pAdapter as BlendNetworkAdapter,
-    },
-    membership::service::Adapter as BlendMembershipAdapter,
-};
 use nomos_core::mantle::SignedMantleTx;
 use nomos_da_dispersal::{
     adapters::{
@@ -31,11 +24,11 @@ use nomos_da_verifier::{
     network::adapters::executor::Libp2pAdapter as VerifierNetworkAdapter,
     storage::adapters::rocksdb::RocksAdapter as VerifierStorageAdapter,
 };
-use nomos_libp2p::PeerId;
 #[cfg(feature = "tracing")]
 use nomos_node::Tracing;
 use nomos_node::{
     generic_services::{
+        blend::{BlendProofsGenerator, BlendProofsVerifier},
         DaMembershipAdapter, DaMembershipStorageGeneric, MembershipService, SdpService,
         VerifierMempoolAdapter,
     },
@@ -52,26 +45,11 @@ type DaMembershipStorage = DaMembershipStorageGeneric<RuntimeServiceId>;
 
 pub(crate) type NetworkService = nomos_network::NetworkService<NetworkBackend, RuntimeServiceId>;
 
-pub(crate) type BlendCoreService = nomos_blend_service::core::BlendService<
-    BlendBackend,
-    PeerId,
-    BlendNetworkAdapter<RuntimeServiceId>,
-    BlendMembershipAdapter<MembershipService<RuntimeServiceId>, PeerId>,
-    RuntimeServiceId,
->;
-
-pub(crate) type BlendEdgeService = nomos_blend_service::edge::BlendService<
-    nomos_blend_service::edge::backends::libp2p::Libp2pBlendBackend,
-    PeerId,
-    <BlendNetworkAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<
-        RuntimeServiceId,
-    >>::BroadcastSettings,
-    BlendMembershipAdapter<MembershipService<RuntimeServiceId>, PeerId>,
-    RuntimeServiceId,
->;
-
-pub(crate) type BlendService =
-    nomos_blend_service::BlendService<BlendCoreService, BlendEdgeService, RuntimeServiceId>;
+pub(crate) type BlendCoreService =
+    nomos_node::generic_services::blend::BlendCoreService<RuntimeServiceId>;
+pub(crate) type BlendEdgeService =
+    nomos_node::generic_services::blend::BlendEdgeService<RuntimeServiceId>;
+pub(crate) type BlendService = nomos_node::generic_services::blend::BlendService<RuntimeServiceId>;
 
 pub(crate) type BlockBroadcastService = broadcast_service::BlockBroadcastService<RuntimeServiceId>;
 
@@ -214,6 +192,8 @@ pub(crate) type ApiService = nomos_api::ApiService<
         NtpTimeBackend,
         DaNetworkApiAdapter,
         ApiStorageAdapter<RuntimeServiceId>,
+        BlendProofsGenerator,
+        BlendProofsVerifier,
         MB16,
     >,
     RuntimeServiceId,

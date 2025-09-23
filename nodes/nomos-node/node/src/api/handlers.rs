@@ -11,13 +11,17 @@ use axum::{
     response::{IntoResponse as _, Response},
     Json,
 };
+use broadcast_service::BlockBroadcastService;
+use futures::StreamExt as _;
 use nomos_api::http::{
     cl::{self, ClMempoolService},
     consensus::{self, Cryptarchia},
     da::{self, BalancerMessageFactory, DaVerifier, MonitorMessageFactory},
     libp2p, mempool,
     storage::StorageAdapter,
+    DynError,
 };
+use nomos_blend_service::ProofsVerifier;
 use nomos_core::{
     da::{blob::Share, BlobId, DaVerifier as CoreDaVerifier},
     header::HeaderId,
@@ -160,6 +164,8 @@ pub async fn cryptarchia_info<
     SamplingNetworkAdapter,
     SamplingStorage,
     TimeBackend,
+    BlendProofsGenerator,
+    BlendProofsVerifier,
     RuntimeServiceId,
     const SIZE: usize,
 >(
@@ -185,6 +191,7 @@ where
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
+    BlendProofsVerifier: ProofsVerifier + Clone + Send + 'static,
     RuntimeServiceId: Debug
         + Send
         + Sync
@@ -197,6 +204,8 @@ where
                 SamplingNetworkAdapter,
                 SamplingStorage,
                 TimeBackend,
+                BlendProofsGenerator,
+                BlendProofsVerifier,
                 RuntimeServiceId,
                 SIZE,
             >,
@@ -208,6 +217,8 @@ where
         SamplingNetworkAdapter,
         SamplingStorage,
         TimeBackend,
+        BlendProofsGenerator,
+        BlendProofsVerifier,
         RuntimeServiceId,
         SIZE,
     >(&handle))
@@ -227,6 +238,8 @@ pub async fn cryptarchia_headers<
     SamplingNetworkAdapter,
     SamplingStorage,
     TimeBackend,
+    BlendProofsGenerator,
+    BlendProofsVerifier,
     RuntimeServiceId,
     const SIZE: usize,
 >(
@@ -253,6 +266,7 @@ where
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
+    BlendProofsVerifier: ProofsVerifier + Clone + Send + 'static,
     RuntimeServiceId: Debug
         + Send
         + Sync
@@ -265,6 +279,8 @@ where
                 SamplingNetworkAdapter,
                 SamplingStorage,
                 TimeBackend,
+                BlendProofsGenerator,
+                BlendProofsVerifier,
                 RuntimeServiceId,
                 SIZE,
             >,
@@ -277,9 +293,48 @@ where
         SamplingNetworkAdapter,
         SamplingStorage,
         TimeBackend,
+        BlendProofsGenerator,
+        BlendProofsVerifier,
         RuntimeServiceId,
         SIZE,
     >(&handle, from, to))
+}
+
+#[utoipa::path(
+    get,
+    path = paths::CRYPTARCHIA_LIB_STREAM,
+    responses(
+        (status = 200, description = "Request a stream for lib blocks"),
+        (status = 500, description = "Internal server error", body = StreamBody),
+    )
+)]
+pub async fn cryptarchia_lib_stream<RuntimeServiceId>(
+    State(handle): State<OverwatchHandle<RuntimeServiceId>>,
+) -> Response
+where
+    RuntimeServiceId:
+        Debug + Sync + Display + AsServiceId<BlockBroadcastService<RuntimeServiceId>> + 'static,
+{
+    match cl::lib_block_stream(&handle).await {
+        Ok(shares) => {
+            let stream = shares.map(|res| {
+                let info = res?;
+                let mut bytes = serde_json::to_vec(&info).map_err(|e| Box::new(e) as DynError)?;
+                bytes.push(b'\n');
+                Ok::<_, DynError>(bytes)
+            });
+
+            let body = Body::from_stream(stream);
+
+            Response::builder()
+                .status(StatusCode::OK)
+                .header("content-type", "application/x-ndjson")
+                .body(body)
+                .unwrap()
+                .into_response()
+        }
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
 }
 
 #[utoipa::path(

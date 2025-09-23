@@ -8,14 +8,12 @@ use crate::{
     libp2p::{
         behaviour::{BlocksRequestStream, BoxedStream, TipRequestStream},
         errors::{ChainSyncError, ChainSyncErrorKind},
+        messages::{DownloadBlocksResponse, RequestMessage},
         packing::unpack_from_reader,
-        utils,
-        utils::{open_stream, send_message},
+        utils::{self, open_stream, send_message},
     },
-    messages::{
-        DownloadBlocksRequest, DownloadBlocksResponse, GetTipResponse, RequestMessage,
-        SerialisedBlock,
-    },
+    messages::SerialisedBlock,
+    DownloadBlocksRequest, GetTipResponse,
 };
 
 pub struct Downloader;
