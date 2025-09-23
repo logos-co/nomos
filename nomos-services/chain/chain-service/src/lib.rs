@@ -1306,7 +1306,6 @@ where
                     })))
                     .collect::<Vec<_>>();
                 let content_id = [0; 32].into(); // TODO: calculate the actual content id
-                // TODO: this should probably be a proposal or be transformed into a proposal
                 // TODO: Use correct derived one time key
                 let dummy_signing_key = SigningKey::from_bytes(&[1u8; 32]);
                 let header = Header::new(parent, content_id, slot, proof);
