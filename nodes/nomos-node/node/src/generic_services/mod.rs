@@ -3,7 +3,7 @@ use chain_service::CryptarchiaConsensus;
 use kzgrs_backend::{common::share::DaShare, dispersal::Metadata};
 use nomos_core::{
     header::HeaderId,
-    mantle::{SignedMantleTx, Transaction},
+    mantle::{SignedMantleTx, Transaction, TxHash},
 };
 use nomos_da_network_service::{
     membership::adapters::service::MembershipServiceAdapter,
@@ -16,7 +16,7 @@ use nomos_da_verifier::{backend::kzgrs::KzgrsDaVerifier, mempool::kzgrs::KzgrsMe
 use nomos_membership::{
     adapters::sdp::ledger::LedgerSdpAdapter, backends::membership::PersistentMembershipBackend,
 };
-use nomos_mempool::backend::mockpool::MockPool;
+use nomos_mempool::{backend::pool::Mempool, storage::adapters::rocksdb::RocksStorageAdapter};
 use nomos_sdp::backends::mock::MockSdpBackend;
 use nomos_storage::backends::rocksdb::RocksBackend;
 use nomos_time::backends::NtpTimeBackend;
@@ -34,7 +34,14 @@ pub type TxMempoolService<SamplingNetworkAdapter, RuntimeServiceId> =
         >,
         SamplingNetworkAdapter,
         nomos_da_sampling::storage::adapters::rocksdb::RocksAdapter<DaShare, DaStorageConverter>,
-        MockPool<HeaderId, SignedMantleTx, <SignedMantleTx as Transaction>::Hash>,
+        Mempool<
+            HeaderId,
+            SignedMantleTx,
+            TxHash,
+            RocksStorageAdapter<SignedMantleTx, <SignedMantleTx as Transaction>::Hash>,
+            RuntimeServiceId,
+        >,
+        RocksStorageAdapter<SignedMantleTx, <SignedMantleTx as Transaction>::Hash>,
         RuntimeServiceId,
     >;
 
@@ -43,10 +50,16 @@ pub type TimeService<RuntimeServiceId> = nomos_time::TimeService<NtpTimeBackend,
 pub type VerifierMempoolAdapter<NetworkAdapter, RuntimeServiceId> = KzgrsMempoolAdapter<
     nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
         SignedMantleTx,
-        <SignedMantleTx as Transaction>::Hash,
+        TxHash,
         RuntimeServiceId,
     >,
-    MockPool<HeaderId, SignedMantleTx, <SignedMantleTx as Transaction>::Hash>,
+    Mempool<
+        HeaderId,
+        SignedMantleTx,
+        TxHash,
+        RocksStorageAdapter<SignedMantleTx, <SignedMantleTx as Transaction>::Hash>,
+        RuntimeServiceId,
+    >,
     KzgrsSamplingBackend,
     NetworkAdapter,
     nomos_da_sampling::storage::adapters::rocksdb::RocksAdapter<DaShare, DaStorageConverter>,
@@ -73,17 +86,20 @@ pub type DaSamplingService<SamplingAdapter, RuntimeServiceId> =
         RuntimeServiceId,
     >;
 
-pub type Mempool = MockPool<HeaderId, SignedMantleTx, <SignedMantleTx as Transaction>::Hash>;
-pub type MempoolAdapter<RuntimeServiceId> = nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
-    SignedMantleTx,
-    <SignedMantleTx as Transaction>::Hash,
-    RuntimeServiceId,
->;
-
 pub type CryptarchiaService<SamplingAdapter, RuntimeServiceId> = CryptarchiaConsensus<
     chain_service::network::adapters::libp2p::LibP2pAdapter<SignedMantleTx, RuntimeServiceId>,
-    Mempool,
-    MempoolAdapter<RuntimeServiceId>,
+    Mempool<
+        HeaderId,
+        SignedMantleTx,
+        <SignedMantleTx as Transaction>::Hash,
+        RocksStorageAdapter<SignedMantleTx, <SignedMantleTx as Transaction>::Hash>,
+        RuntimeServiceId,
+    >,
+    nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
+        SignedMantleTx,
+        TxHash,
+        RuntimeServiceId,
+    >,
     RocksBackend,
     KzgrsSamplingBackend,
     SamplingAdapter,
@@ -94,8 +110,18 @@ pub type CryptarchiaService<SamplingAdapter, RuntimeServiceId> = CryptarchiaCons
 
 pub type CryptarchiaLeaderService<SamplingAdapter, RuntimeServiceId> = CryptarchiaLeader<
     BlendService<RuntimeServiceId>,
-    Mempool,
-    MempoolAdapter<RuntimeServiceId>,
+    Mempool<
+        HeaderId,
+        SignedMantleTx,
+        <SignedMantleTx as Transaction>::Hash,
+        RocksStorageAdapter<SignedMantleTx, <SignedMantleTx as Transaction>::Hash>,
+        RuntimeServiceId,
+    >,
+    nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
+        SignedMantleTx,
+        TxHash,
+        RuntimeServiceId,
+    >,
     nomos_core::mantle::select::FillSize<MB16, SignedMantleTx>,
     KzgrsSamplingBackend,
     SamplingAdapter,

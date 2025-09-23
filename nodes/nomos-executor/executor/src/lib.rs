@@ -3,7 +3,7 @@ pub mod config;
 
 use api::backend::AxumBackend;
 use kzgrs_backend::common::share::DaShare;
-use nomos_core::mantle::SignedMantleTx;
+use nomos_core::mantle::{SignedMantleTx, TxHash};
 use nomos_da_dispersal::{
     DispersalService,
     adapters::{
@@ -24,6 +24,7 @@ use nomos_da_verifier::{
     network::adapters::executor::Libp2pAdapter as VerifierNetworkAdapter,
     storage::adapters::rocksdb::RocksAdapter as VerifierStorageAdapter,
 };
+use nomos_mempool::storage::adapters::rocksdb::RocksStorageAdapter;
 #[cfg(feature = "tracing")]
 use nomos_node::Tracing;
 use nomos_node::{
@@ -152,7 +153,6 @@ pub(crate) type ApiService = nomos_api::ApiService<
             RuntimeServiceId,
         >,
         VerifierStorageAdapter<DaShare, DaStorageConverter>,
-        SignedMantleTx,
         DaStorageConverter,
         DispersalKZGRSBackend<
             DispersalNetworkAdapter<
@@ -185,6 +185,7 @@ pub(crate) type ApiService = nomos_api::ApiService<
         NtpTimeBackend,
         DaNetworkApiAdapter,
         ApiStorageAdapter<RuntimeServiceId>,
+        RocksStorageAdapter<SignedMantleTx, TxHash>,
     >,
     RuntimeServiceId,
 >;
