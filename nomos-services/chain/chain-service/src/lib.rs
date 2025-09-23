@@ -754,26 +754,26 @@ where
                             Ok(block) => {
                                 Self::log_received_block(&block);
 
-                        if cryptarchia.has_block(&block.header().id()) {
-                            info!(target: LOG_TARGET, "Block {:?} already processed, ignoring", block.header().id());
-                            continue;
-                        }
+                                if cryptarchia.has_block(&block.header().id()) {
+                                    info!(target: LOG_TARGET, "Block {:?} already processed, ignoring", block.header().id());
+                                    continue;
+                                }
 
-                        // Process the received block and update the cryptarchia state.
-                        match Self::process_block_and_update_state(
-                            cryptarchia.clone(),
-                            &leader,
-                            block.clone(),
-                            blob_validation.as_ref(),
-                            &storage_blocks_to_remove,
-                            &relays,
-                            &self.new_block_subscription_sender,
-                            &self.lib_subscription_sender,
-                            &self.service_resources_handle.state_updater
-                        ).await {
-                            Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
-                                cryptarchia = new_cryptarchia;
-                                storage_blocks_to_remove = new_storage_blocks_to_remove;
+                                // Process the received block and update the cryptarchia state.
+                                match Self::process_block_and_update_state(
+                                    cryptarchia.clone(),
+                                    &leader,
+                                    block.clone(),
+                                    blob_validation.as_ref(),
+                                    &storage_blocks_to_remove,
+                                    &relays,
+                                    &self.new_block_subscription_sender,
+                                    &self.lib_subscription_sender,
+                                    &self.service_resources_handle.state_updater
+                                ).await {
+                                    Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
+                                        cryptarchia = new_cryptarchia;
+                                        storage_blocks_to_remove = new_storage_blocks_to_remove;
 
                                         orphan_downloader.remove_orphan(&block.header().id());
 
