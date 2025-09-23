@@ -1,6 +1,6 @@
 use ::serde::{Deserialize, Serialize, de::DeserializeOwned};
 use bytes::Bytes;
-use ed25519_dalek::{Signer as _, SigningKey, Verifier as _};
+use ed25519_dalek::Verifier as _;
 use groth16::Fr;
 
 use crate::{
@@ -130,7 +130,7 @@ impl<Tx> Block<Tx> {
         Ok(())
     }
 
-    pub fn to_proposal(&self, signing_key: &SigningKey) -> Result<Proposal, Error>
+    pub fn to_proposal(&self) -> Result<Proposal, Error>
     where
         Tx: Transaction,
         Tx::Hash: Into<Fr>,
@@ -146,13 +146,10 @@ impl<Tx> Block<Tx> {
             mempool_transactions,
         };
 
-        let header_bytes = crate::codec::bincode::serialize(&self.header)?;
-        let signature = signing_key.sign(&header_bytes);
-
         Ok(Proposal {
             header: self.header.clone(),
             references,
-            signature,
+            signature: self.signature,
         })
     }
 }
@@ -178,6 +175,7 @@ mod tests {
     use std::iter;
 
     use cryptarchia_engine::Slot;
+    use ed25519_dalek::SigningKey;
     use num_bigint::BigUint;
 
     use super::*;

@@ -1740,10 +1740,8 @@ where
     <BlendService as ServiceData>::Message: Send,
     BlendService::BroadcastSettings: Clone + Sync,
 {
-    // TODO: Use correct derived one time key
-    let signing_key = SigningKey::from_bytes(&rand::random::<[u8; 32]>());
     let proposal = block
-        .to_proposal(&signing_key)
+        .to_proposal()
         .map_err(|e| Error::InvalidBlock(format!("Failed to create proposal from block: {e}")))?;
 
     blend_adapter.publish_proposal(proposal).await;
