@@ -37,7 +37,11 @@ where
     Tx: AuthenticatedMantleTx + Sync,
 {
     async fn validate(&self, block: &Block<Tx>) -> Result<(), Error> {
-        debug!(target = LOG_TARGET, "Validating recent blobs");
+        debug!(
+            target = LOG_TARGET,
+            "Validating blobs in block {:?}",
+            block.header().id()
+        );
         let sampled_blobs = get_sampled_blobs(&self.sampling_relay)
             .await
             .map_err(|_| Error::RelayError)?;
@@ -65,8 +69,12 @@ pub struct SkipBlobValidation;
 
 #[async_trait::async_trait]
 impl<BlobId, Tx> BlobValidation<BlobId, Tx> for SkipBlobValidation {
-    async fn validate(&self, _: &Block<Tx>) -> Result<(), Error> {
-        debug!(target = LOG_TARGET, "Skipping blob validation");
+    async fn validate(&self, block: &Block<Tx>) -> Result<(), Error> {
+        debug!(
+            target = LOG_TARGET,
+            "Skipping blob validation for block {:?}",
+            block.header().id()
+        );
         Ok(())
     }
 }
