@@ -651,7 +651,7 @@ where
                             block.header().parent(),
                             target,
                             &cryptarchia,
-                            bootstrap_config.ibd.final_blocks_with_blob_validation,
+                            bootstrap_config.ibd.last_blocks_with_blob_validation,
                         )
                         .inspect_err(|e| {
                             error!("Failed to determine blob validation during IBD: {e:?}");

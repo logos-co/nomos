@@ -325,9 +325,9 @@ pub fn determine_blob_validation<BlobId, Tx>(
     parent: HeaderId,
     target: Target,
     cryptarchia: &Cryptarchia,
-    final_blocks_with_blob_validation: Length,
+    last_blocks_with_blob_validation: Length,
 ) -> Result<Box<dyn BlobValidation<BlobId, Tx> + Send + Sync>, Error> {
-    if depth_from_target(parent, target, cryptarchia)? <= final_blocks_with_blob_validation {
+    if depth_from_target(parent, target, cryptarchia)? <= last_blocks_with_blob_validation {
         Ok(Box::new(SkipBlobValidation)) // TODO: use historic sampling: https://github.com/logos-co/nomos/issues/1675
     } else {
         Ok(Box::new(SkipBlobValidation))
@@ -780,7 +780,7 @@ mod tests {
         IbdConfig {
             peers,
             delay_before_new_download: std::time::Duration::from_millis(1),
-            final_blocks_with_blob_validation: 2u64.into(),
+            last_blocks_with_blob_validation: 2u64.into(),
         }
     }
 

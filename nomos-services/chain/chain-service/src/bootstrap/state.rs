@@ -136,7 +136,7 @@ mod tests {
             ibd: IbdConfig {
                 peers: HashSet::new(),
                 delay_before_new_download: Duration::from_millis(1),
-                final_blocks_with_blob_validation: 2u64.into(),
+                last_blocks_with_blob_validation: 2u64.into(),
             },
         }
     }

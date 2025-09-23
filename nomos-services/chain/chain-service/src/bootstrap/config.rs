@@ -46,7 +46,7 @@ where
     pub delay_before_new_download: Duration,
     /// Threshold in number of remaining blocks to the target height
     /// at which blob validation becomes enabled during IBD.
-    pub final_blocks_with_blob_validation: Length,
+    pub last_blocks_with_blob_validation: Length,
 }
 
 const fn default_offline_grace_period() -> Duration {
