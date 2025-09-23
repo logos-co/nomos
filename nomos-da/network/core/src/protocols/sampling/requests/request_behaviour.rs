@@ -6,16 +6,16 @@ use std::{
 
 use either::Either;
 use futures::{
-    stream::{BoxStream, FuturesUnordered},
     AsyncWriteExt as _, FutureExt as _, StreamExt as _,
+    stream::{BoxStream, FuturesUnordered},
 };
 use libp2p::{
-    core::{transport::PortUse, Endpoint},
-    swarm::{
-        dial_opts::DialOpts, ConnectionDenied, ConnectionId, DialFailure, FromSwarm,
-        NetworkBehaviour, THandler, THandlerInEvent, THandlerOutEvent, ToSwarm,
-    },
     Multiaddr, PeerId,
+    core::{Endpoint, transport::PortUse},
+    swarm::{
+        ConnectionDenied, ConnectionId, DialFailure, FromSwarm, NetworkBehaviour, THandler,
+        THandlerInEvent, THandlerOutEvent, ToSwarm, dial_opts::DialOpts,
+    },
 };
 use libp2p_stream::Control;
 use nomos_core::{block::SessionNumber, da::BlobId};
@@ -27,17 +27,17 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::warn;
 
 use crate::{
+    SubnetworkId,
     addressbook::AddressBookHandler,
     protocol::SAMPLING_PROTOCOL,
     protocols::sampling::{
+        SamplingResponseStreamFuture, SubnetsConfig,
         connections::Connections,
         errors::SamplingError,
         opinions::OpinionEvent,
         requests::SamplingEvent,
         streams::{self, SampleStream},
-        SamplingResponseStreamFuture, SubnetsConfig,
     },
-    SubnetworkId,
 };
 
 type AttemptNumber = usize;
