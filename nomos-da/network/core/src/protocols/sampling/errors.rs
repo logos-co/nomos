@@ -6,7 +6,7 @@ use nomos_da_messages::sampling;
 use thiserror::Error;
 
 use super::BehaviourSampleReq;
-use crate::{protocols::sampling::opinions::OpinionEvent, SubnetworkId};
+use crate::{SubnetworkId, protocols::sampling::opinions::OpinionEvent};
 
 #[derive(Debug, Error)]
 pub enum SamplingError {
