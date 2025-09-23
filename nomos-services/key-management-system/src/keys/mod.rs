@@ -8,8 +8,11 @@ use zeroize::ZeroizeOnDrop;
 use crate::encodings::Encoding;
 pub use crate::keys::{ed25519::Ed25519Key, errors::KeyError, secured_key::SecuredKey};
 
-/// A cryptographic key dispatcher that covers all keys provided by the KMS
-/// crate.
+/// Entity that gathers all keys provided by the KMS crate.
+///
+/// Works as a [`SecuredKey`] over [`Encoding`], delegating requests to the
+/// appropriate key.
+#[expect(dead_code, reason = "Will be used when integrating the KMS service.")]
 #[derive(Serialize, Deserialize, ZeroizeOnDrop)]
 pub enum Key {
     Ed25519(Ed25519Key),

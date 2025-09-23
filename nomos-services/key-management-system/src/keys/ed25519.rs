@@ -1,4 +1,4 @@
-use bytes::Bytes as RawBytes;
+use bytes::Bytes;
 use ed25519_dalek::ed25519::signature::Signer as _;
 use serde::{Deserialize, Serialize};
 use zeroize::ZeroizeOnDrop;
@@ -21,13 +21,13 @@ impl SecuredKey<InnerEncoding> for Ed25519Key {
     fn sign(&self, data: &InnerEncoding) -> Result<Self::Signature, Self::Error> {
         let data_bytes = data.as_bytes();
         let signature_slice = self.0.sign(data_bytes).to_bytes();
-        let signature_bytes = RawBytes::copy_from_slice(&signature_slice);
+        let signature_bytes = Bytes::copy_from_slice(&signature_slice);
         Ok(Self::Signature::from(signature_bytes))
     }
 
     fn as_public_key(&self) -> Self::PublicKey {
         let verifying_key = self.0.verifying_key();
-        let verifying_key_bytes = RawBytes::copy_from_slice(verifying_key.as_bytes());
+        let verifying_key_bytes = Bytes::copy_from_slice(verifying_key.as_bytes());
         Self::PublicKey::from(verifying_key_bytes)
     }
 }

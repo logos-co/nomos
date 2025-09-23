@@ -6,7 +6,7 @@ pub use encoding_bytes::Bytes;
 pub use errors::EncodingError;
 pub use kind::EncodingKind;
 
-/// Represents an encoding provided by the KMS crate.
+/// Entity that gathers all encodings provided by the KMS crate.
 pub enum Encoding {
     Bytes(Bytes),
 }

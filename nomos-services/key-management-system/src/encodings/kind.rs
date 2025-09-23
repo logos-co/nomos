@@ -2,9 +2,9 @@ use std::fmt::Display;
 
 use crate::encodings::Encoding;
 
-/// # Consistency
+/// Represents the kind of [`Encoding`] used.
 ///
-/// Represents an encoding kind provided by the KMS crate.
+/// Mainly used with [`EncodingError`](crate::encodings::errors::EncodingError).
 ///
 /// # Display
 ///
@@ -21,6 +21,11 @@ use crate::encodings::Encoding;
 /// let encoding_kind = EncodingKind::from(&encoding);
 /// assert_eq!(encoding_kind.to_string(), "EncodingKind::Bytes(crate::encodings::Bytes)");
 /// ```
+///
+/// # Improvements
+///
+/// Can probably be moved to a macro over [`Encoding`], to handle changes
+/// dynamically.
 #[derive(Debug)]
 pub enum EncodingKind {
     Bytes,

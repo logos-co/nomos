@@ -42,8 +42,8 @@ pub type KMSOperatorKey<Key, Data, OperatorError> = KMSOperator<
 >;
 
 pub type KMSOperatorBackend<Backend> = KMSOperatorKey<
-    <Backend as KMSBackend>::SupportedKey,
-    <Backend as KMSBackend>::DataEncoding,
+    <Backend as KMSBackend>::Key,
+    <Backend as KMSBackend>::Data,
     <Backend as KMSBackend>::Error,
 >;
 
@@ -53,7 +53,7 @@ where
 {
     Register {
         key_id: Backend::KeyId,
-        key_type: Backend::SupportedKey,
+        key_type: Backend::Key,
         reply_channel: oneshot::Sender<Backend::KeyId>,
     },
     PublicKey {
@@ -80,17 +80,14 @@ pub type KMSMessageKey<Backend, Key, Data> = KMSMessage<
     <Backend as KMSBackend>::Error,
 >;
 
-pub type KMSMessageBackend<Backend> = KMSMessageKey<
-    Backend,
-    <Backend as KMSBackend>::SupportedKey,
-    <Backend as KMSBackend>::DataEncoding,
->;
+pub type KMSMessageBackend<Backend> =
+    KMSMessageKey<Backend, <Backend as KMSBackend>::Key, <Backend as KMSBackend>::Data>;
 
 impl<Backend> Debug for KMSMessageBackend<Backend>
 where
     Backend: KMSBackend,
     Backend::KeyId: Debug,
-    Backend::SupportedKey: Debug,
+    Backend::Key: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -124,7 +121,7 @@ pub struct KMSService<Backend, RuntimeServiceId>
 where
     Backend: KMSBackend + 'static,
     Backend::KeyId: Debug,
-    Backend::SupportedKey: Debug,
+    Backend::Key: Debug,
     Backend::Settings: Clone,
 {
     backend: Backend,
@@ -135,7 +132,7 @@ impl<Backend, RuntimeServiceId> ServiceData for KMSService<Backend, RuntimeServi
 where
     Backend: KMSBackend + 'static,
     Backend::KeyId: Debug,
-    Backend::SupportedKey: Debug,
+    Backend::Key: Debug,
     Backend::Settings: Clone,
 {
     type Settings = KMSServiceSettings<Backend::Settings>;
@@ -149,11 +146,11 @@ impl<Backend, RuntimeServiceId> ServiceCore<RuntimeServiceId>
     for KMSService<Backend, RuntimeServiceId>
 where
     Backend: KMSBackend + Send + 'static,
-    Backend::DataEncoding: Send,
-    <Backend::SupportedKey as SecuredKey<Backend::DataEncoding>>::Signature: Send,
-    <Backend::SupportedKey as SecuredKey<Backend::DataEncoding>>::PublicKey: Send,
+    Backend::Data: Send,
+    <Backend::Key as SecuredKey<Backend::Data>>::Signature: Send,
+    <Backend::Key as SecuredKey<Backend::Data>>::PublicKey: Send,
     Backend::KeyId: Debug + Send,
-    Backend::SupportedKey: Debug + Send,
+    Backend::Key: Debug + Send,
     Backend::Settings: Clone + Send + Sync,
     Backend::Error: Debug + Send,
     RuntimeServiceId: AsServiceId<Self> + Display + Send,
@@ -202,7 +199,7 @@ impl<Backend, RuntimeServiceId> KMSService<Backend, RuntimeServiceId>
 where
     Backend: KMSBackend + 'static,
     Backend::KeyId: Debug,
-    Backend::SupportedKey: Debug,
+    Backend::Key: Debug,
     Backend::Settings: Clone,
     Backend::Error: Debug,
 {

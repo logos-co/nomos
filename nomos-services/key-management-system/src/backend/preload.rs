@@ -7,8 +7,7 @@
 
 #[cfg(test)]
 mod errors {
-    use super::*;
-    use crate::keys::KeyError;
+    use crate::{backend::preload::keys, keys::KeyError};
 
     #[derive(Debug)]
     pub enum PreloadKeyError {
@@ -116,7 +115,7 @@ mod keys {
     }
 
     impl PreloadKey {
-        pub fn key_type(&self) -> PreloadKeyKind {
+        pub const fn key_type(&self) -> PreloadKeyKind {
             match self {
                 Self::Ed25519(_) => PreloadKeyKind::Ed25519,
             }
@@ -181,10 +180,12 @@ mod backends {
     use overwatch::DynError;
     use serde::{Deserialize, Serialize};
 
-    use super::*;
     use crate::{
         KMSOperatorBackend, SecuredKey,
-        backend::{KMSBackend, preload::encodings::PreloadEncodingFormat},
+        backend::{
+            KMSBackend,
+            preload::{encodings::PreloadEncodingFormat, errors, keys},
+        },
     };
 
     pub struct PreloadKMSBackend {
@@ -203,8 +204,8 @@ mod backends {
     #[async_trait::async_trait]
     impl KMSBackend for PreloadKMSBackend {
         type KeyId = String;
-        type DataEncoding = PreloadEncodingFormat;
-        type SupportedKey = keys::PreloadKeyKind;
+        type Data = PreloadEncodingFormat;
+        type Key = keys::PreloadKeyKind;
         type Settings = PreloadKMSBackendSettings;
         type Error = DynError;
 
@@ -220,7 +221,7 @@ mod backends {
         fn register(
             &mut self,
             key_id: Self::KeyId,
-            key_type: Self::SupportedKey,
+            key_type: Self::Key,
         ) -> Result<Self::KeyId, Self::Error> {
             let key = self
                 .keys
@@ -237,7 +238,7 @@ mod backends {
         fn public_key(
             &self,
             key_id: Self::KeyId,
-        ) -> Result<<Self::SupportedKey as SecuredKey<PreloadEncodingFormat>>::PublicKey, Self::Error>
+        ) -> Result<<Self::Key as SecuredKey<PreloadEncodingFormat>>::PublicKey, Self::Error>
         {
             Ok(self
                 .keys
@@ -250,7 +251,7 @@ mod backends {
             &self,
             key_id: Self::KeyId,
             data: PreloadEncodingFormat,
-        ) -> Result<<Self::SupportedKey as SecuredKey<PreloadEncodingFormat>>::Signature, Self::Error>
+        ) -> Result<<Self::Key as SecuredKey<PreloadEncodingFormat>>::Signature, Self::Error>
         {
             self.keys
                 .get(&key_id)
