@@ -1,11 +1,13 @@
 use blake2::Digest as _;
 use cryptarchia_engine::Slot;
+use ed25519_dalek::Signer as _;
 use groth16::fr_to_bytes;
 use serde::{Deserialize, Serialize};
 
 pub const BEDROCK_VERSION: u8 = 1;
 
 use crate::{
+    codec::SerdeOp,
     crypto::Hasher,
     proofs::leader_proof::{Groth16LeaderProof, LeaderProof},
     utils::{display_hex_bytes_newtype, serde_bytes_newtype},
@@ -21,7 +23,36 @@ pub struct ContentId([u8; 32]);
 pub struct Nonce([u8; 32]);
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Version {
+    pub proposal_version: u8,
+    pub cryptarchia_version: u8,
+    pub mantle_version: u8,
+}
+
+impl Default for Version {
+    fn default() -> Self {
+        Self {
+            proposal_version: BEDROCK_VERSION,
+            cryptarchia_version: BEDROCK_VERSION,
+            mantle_version: BEDROCK_VERSION,
+        }
+    }
+}
+
+impl Version {
+    #[must_use]
+    pub const fn to_bytes(&self) -> [u8; 3] {
+        [
+            self.proposal_version,
+            self.cryptarchia_version,
+            self.mantle_version,
+        ]
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Header {
+    version: Version,
     parent_block: HeaderId,
     slot: Slot,
     block_root: ContentId,
@@ -30,13 +61,25 @@ pub struct Header {
 
 impl Header {
     #[must_use]
+    pub const fn version(&self) -> &Version {
+        &self.version
+    }
+
+    #[must_use]
+    pub const fn is_valid_bedrock_version(&self) -> bool {
+        self.version.proposal_version == BEDROCK_VERSION
+            && self.version.cryptarchia_version == BEDROCK_VERSION
+            && self.version.mantle_version == BEDROCK_VERSION
+    }
+
+    #[must_use]
     pub const fn parent(&self) -> HeaderId {
         self.parent_block
     }
 
     fn update_hasher(&self, h: &mut Hasher) {
         h.update(b"BLOCK_ID_V1");
-        h.update([BEDROCK_VERSION]);
+        h.update(self.version.to_bytes());
         h.update(self.parent_block.0);
         h.update(self.slot.to_le_bytes());
         h.update(self.block_root.0);
@@ -63,14 +106,40 @@ impl Header {
         self.slot
     }
 
+    pub fn sign(
+        &self,
+        signing_key: &ed25519_dalek::SigningKey,
+    ) -> Result<ed25519_dalek::Signature, crate::block::Error> {
+        let header_bytes = <Self as SerdeOp>::serialize(self)?;
+        Ok(signing_key.sign(&header_bytes))
+    }
+
     #[must_use]
-    pub const fn new(
+    pub fn new(
         parent_block: HeaderId,
         block_root: ContentId,
         slot: Slot,
         proof_of_leadership: Groth16LeaderProof,
     ) -> Self {
         Self {
+            version: Version::default(),
+            parent_block,
+            slot,
+            block_root,
+            proof_of_leadership,
+        }
+    }
+
+    #[must_use]
+    pub const fn new_with_version(
+        version: Version,
+        parent_block: HeaderId,
+        block_root: ContentId,
+        slot: Slot,
+        proof_of_leadership: Groth16LeaderProof,
+    ) -> Self {
+        Self {
+            version,
             parent_block,
             slot,
             block_root,
@@ -131,8 +200,8 @@ pub enum Error {
 #[test]
 fn test_serde() {
     assert_eq!(
-        <HeaderId as crate::codec::SerdeOp>::deserialize::<HeaderId>(
-            &<HeaderId as crate::codec::SerdeOp>::serialize(&HeaderId([0; 32]))
+        <HeaderId as SerdeOp>::deserialize::<HeaderId>(
+            &<HeaderId as SerdeOp>::serialize(&HeaderId([0; 32]))
                 .expect("HeaderId should be able to be serialized")
         )
         .unwrap(),
