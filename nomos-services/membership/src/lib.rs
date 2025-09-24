@@ -199,7 +199,7 @@ where
                 let providers = backend.get_latest_providers(service_type).await;
 
                 if let Ok((session_id, providers)) = providers {
-                    if !providers.is_empty() && tx.send((session_id, providers)).is_err() {
+                    if tx.send((session_id, providers)).is_err() {
                         tracing::error!(
                             "Error sending initial membership snapshot for service type: {:?}",
                             service_type

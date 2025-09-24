@@ -380,6 +380,10 @@ where
                     Self::handle_network_service_message(msg, backend, &membership_storage, api_adapter, addressbook).await;
                 }
                 Some((session_id, providers)) = membership_updates_stream.next() => {
+                    if providers.is_empty() {
+                        tracing::error!("Received empty membership for session {session_id}: skipping session update");
+                        continue
+                    }
                     tracing::debug!(
                         "Received membership update for session {}: {:?}",
                         session_id, providers
