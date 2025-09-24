@@ -1,4 +1,4 @@
-use nomos_core::header::HeaderId;
+use nomos_core::{block::Block, header::HeaderId};
 use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
     services::{AsServiceId, ServiceData, relay::OutboundRelay},
@@ -7,20 +7,28 @@ use tokio::sync::{broadcast, oneshot};
 
 use crate::{ConsensusMsg, CryptarchiaInfo, LibUpdate};
 
-pub trait CryptarchiaServiceData: ServiceData<Message = ConsensusMsg> + Send + 'static {}
-impl<T> CryptarchiaServiceData for T where T: ServiceData<Message = ConsensusMsg> + Send + 'static {}
+pub trait CryptarchiaServiceData<Tx>:
+    ServiceData<Message = ConsensusMsg<Tx>> + Send + 'static
+{
+}
+impl<T, Tx> CryptarchiaServiceData<Tx> for T where
+    T: ServiceData<Message = ConsensusMsg<Tx>> + Send + 'static
+{
+}
 
-pub struct CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>
+pub struct CryptarchiaServiceApi<Cryptarchia, Tx, RuntimeServiceId>
 where
-    Cryptarchia: CryptarchiaServiceData,
+    Cryptarchia: CryptarchiaServiceData<Tx>,
 {
     relay: OutboundRelay<Cryptarchia::Message>,
     _id: std::marker::PhantomData<RuntimeServiceId>,
+    _tx: std::marker::PhantomData<Tx>,
 }
 
-impl<Cryptarchia, RuntimeServiceId> CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>
+impl<Cryptarchia, Tx, RuntimeServiceId> CryptarchiaServiceApi<Cryptarchia, Tx, RuntimeServiceId>
 where
-    Cryptarchia: CryptarchiaServiceData,
+    Tx: Send + Sync + 'static,
+    Cryptarchia: CryptarchiaServiceData<Tx>,
     RuntimeServiceId: AsServiceId<Cryptarchia> + std::fmt::Debug + std::fmt::Display + Sync,
 {
     /// Create a new API instance
@@ -41,6 +49,7 @@ where
         Ok(Self {
             relay,
             _id: std::marker::PhantomData,
+            _tx: std::marker::PhantomData,
         })
     }
 
@@ -137,5 +146,21 @@ where
             .map_err(|_| "Failed to send epoch state request")?;
 
         Ok(rx.await?)
+    }
+
+    /// Process a block through the chain service
+    pub async fn process_leader_block(&self, block: Block<Tx>) -> Result<(), DynError> {
+        let (tx, rx) = oneshot::channel();
+
+        let boxed_block = Box::new(block);
+        self.relay
+            .send(ConsensusMsg::ProcessLeaderBlock {
+                block: boxed_block,
+                tx,
+            })
+            .await
+            .map_err(|_| "Failed to send process block request")?;
+
+        rx.await?.map_err(Into::into)
     }
 }

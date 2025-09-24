@@ -203,7 +203,7 @@ where
             + AsServiceId<StorageService<Storage, RuntimeServiceId>>
             + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>
             + AsServiceId<CryptarchiaService>,
-        CryptarchiaService: CryptarchiaServiceData,
+        CryptarchiaService: CryptarchiaServiceData<ClPool::Item>,
     {
         let network_relay = service_resources_handle
             .overwatch_handle
@@ -219,7 +219,6 @@ where
                 "Relay connection with nomos_blend_service::BlendService should
         succeed",
             );
-
 
         let cl_mempool_relay = service_resources_handle
             .overwatch_handle
@@ -268,7 +267,6 @@ where
     pub const fn blend_relay(&self) -> &BlendRelay<BlendService> {
         &self.blend_relay
     }
-
 
     pub const fn cl_mempool_relay(
         &self,

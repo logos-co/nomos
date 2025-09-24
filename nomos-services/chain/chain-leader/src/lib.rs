@@ -220,7 +220,7 @@ pub struct CryptarchiaLeader<
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
-    CryptarchiaService: CryptarchiaServiceData,
+    CryptarchiaService: CryptarchiaServiceData<ClPool::Item>,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
 }
@@ -273,7 +273,7 @@ where
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
-    CryptarchiaService: CryptarchiaServiceData,
+    CryptarchiaService: CryptarchiaServiceData<ClPool::Item>,
 {
     type Settings = LeaderSettings<
         TxS::Settings,
@@ -361,7 +361,7 @@ where
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
-    CryptarchiaService: CryptarchiaServiceData,
+    CryptarchiaService: CryptarchiaServiceData<ClPool::Item>,
     RuntimeServiceId: Debug
         + Send
         + Sync
@@ -417,9 +417,11 @@ where
         .await;
 
         // Create the API wrapper for chain service communication
-        let cryptarchia_api = CryptarchiaServiceApi::<CryptarchiaService, RuntimeServiceId>::new::<Self>(
-            &self.service_resources_handle,
-        )
+        let cryptarchia_api = CryptarchiaServiceApi::<
+            CryptarchiaService,
+            ClPool::Item,
+            RuntimeServiceId,
+        >::new::<Self>(&self.service_resources_handle)
         .await?;
 
         let LeaderSettings {
@@ -637,21 +639,13 @@ where
                             ).await;
 
                             if let Some(block) = block {
-                                // apply our own block
-                                match Self::process_block_and_prune_storage(
-                                    cryptarchia.clone(),
-                                    block.clone(),
-                                    &storage_blocks_to_remove,
-                                    &relays,
-                                )
-                                .await {
-                                    Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
-                                        cryptarchia = new_cryptarchia;
-                                        storage_blocks_to_remove = new_storage_blocks_to_remove;
-
+                                // Process our own block first to ensure it's valid
+                                match cryptarchia_api.process_leader_block(block.clone()).await {
+                                    Ok(()) => {
+                                        // Block successfully processed, now publish it to the network
                                         blend_adapter.publish_block(
-                                    block,
-                                ).await;
+                                            block,
+                                        ).await;
                                     }
                                     Err(e) => {
                                         error!(target: LOG_TARGET, "Error processing local block: {:?}", e);
@@ -756,7 +750,7 @@ where
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
-    CryptarchiaService: CryptarchiaServiceData,
+    CryptarchiaService: CryptarchiaServiceData<ClPool::Item>,
 {
     async fn process_block_and_prune_storage(
         cryptarchia: Cryptarchia,

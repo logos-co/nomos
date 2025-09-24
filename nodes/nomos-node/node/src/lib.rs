@@ -153,7 +153,7 @@ pub(crate) type CryptarchiaService = generic_services::CryptarchiaService<
 pub(crate) type TimeService = generic_services::TimeService<RuntimeServiceId>;
 
 pub(crate) type WalletService =
-    nomos_wallet::WalletService<CryptarchiaService, RocksBackend, RuntimeServiceId>;
+    nomos_wallet::WalletService<CryptarchiaService, SignedMantleTx, RocksBackend, RuntimeServiceId>;
 
 pub(crate) type ApiStorageAdapter<RuntimeServiceId> =
     nomos_api::http::storage::adapters::rocksdb::RocksAdapter<RuntimeServiceId>;

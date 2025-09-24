@@ -107,7 +107,7 @@ pub enum Error {
 }
 
 #[derive(Debug)]
-pub enum ConsensusMsg {
+pub enum ConsensusMsg<Tx> {
     Info {
         tx: oneshot::Sender<CryptarchiaInfo>,
     },
@@ -129,6 +129,10 @@ pub enum ConsensusMsg {
     GetEpochState {
         slot: Slot,
         tx: oneshot::Sender<Option<EpochState>>,
+    },
+    ProcessLeaderBlock {
+        block: Box<Block<Tx>>,
+        tx: oneshot::Sender<Result<(), String>>,
     },
 }
 
@@ -417,7 +421,7 @@ where
         BlendService::BroadcastSettings,
     >;
     type StateOperator = RecoveryOperator<JsonFileBackend<Self::State, Self::Settings>>;
-    type Message = ConsensusMsg;
+    type Message = ConsensusMsg<ClPool::Item>;
 }
 
 #[async_trait::async_trait]
@@ -750,15 +754,15 @@ where
 
                         // Process the received block and update the cryptarchia state.
                         match Self::process_block_and_update_state(
-                            cryptarchia.clone(),
-                            block.clone(),
-                            blob_validation.as_ref(),
-                            &storage_blocks_to_remove,
-                            &relays,
-                            &self.new_block_subscription_sender,
-                            &self.lib_subscription_sender,
-                            &self.service_resources_handle.state_updater
-                        ).await {
+                                    cryptarchia.clone(),
+                                    block.clone(),
+                                    blob_validation.as_ref(),
+                                    &storage_blocks_to_remove,
+                                    &relays,
+                                    &self.new_block_subscription_sender,
+                                    &self.lib_subscription_sender,
+                                    &self.service_resources_handle.state_updater,
+                                ).await {
                             Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
                                 cryptarchia = new_cryptarchia;
                                 storage_blocks_to_remove = new_storage_blocks_to_remove;
@@ -834,7 +838,38 @@ where
                     }
 
                     Some(msg) = self.service_resources_handle.inbound_relay.next() => {
-                        Self::process_message(&cryptarchia, &self.new_block_subscription_sender, &self.lib_subscription_sender, msg);
+                        // Handle ProcessBlock separately since it needs async and access to more state
+                        if let ConsensusMsg::ProcessLeaderBlock { block, tx } = msg {
+                            // TODO: move this into the process_message() function after making the process_message async.
+                            match Self::process_block_and_update_state(
+                                    cryptarchia.clone(),
+                                    *block,
+                                    // Skip this since the block was already built with valid blobs.
+                                    &SkipBlobValidation,
+                                    &storage_blocks_to_remove,
+                                    &relays,
+                                    &self.new_block_subscription_sender,
+                                    &self.lib_subscription_sender,
+                                    &self.service_resources_handle.state_updater,
+                                ).await {
+                                Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
+                                    cryptarchia = new_cryptarchia;
+                                    storage_blocks_to_remove = new_storage_blocks_to_remove;
+                                    tx.send(Ok(())).unwrap_or_else(|_| {
+                                        error!("Could not send process block result through channel");
+                                    });
+                                }
+                                Err(e) => {
+                                    let error_msg = format!("Failed to process block: {e:?}");
+                                    error!(target: LOG_TARGET, "{}", error_msg);
+                                    tx.send(Err(error_msg)).unwrap_or_else(|_| {
+                                        error!("Could not send process block error through channel");
+                                    });
+                                }
+                            }
+                        } else {
+                            Self::process_message(&cryptarchia, &self.new_block_subscription_sender, &self.lib_subscription_sender, msg);
+                        }
                     }
 
                     Some(event) = chainsync_events.next() => {
@@ -978,7 +1013,7 @@ where
         cryptarchia: &Cryptarchia,
         new_block_channel: &broadcast::Sender<HeaderId>,
         lib_channel: &broadcast::Sender<LibUpdate>,
-        msg: ConsensusMsg,
+        msg: ConsensusMsg<ClPool::Item>,
     ) {
         match msg {
             ConsensusMsg::Info { tx } => {
@@ -1050,6 +1085,11 @@ where
                     error!("Could not send epoch state through channel");
                 });
             }
+            ConsensusMsg::ProcessLeaderBlock { .. } => {
+                // ProcessBlock is handled separately in the run loop where we have async context
+                // This should never be reached since we filter it out before calling process_message
+                error!("ProcessBlock should be handled in the run loop, not in process_message");
+            }
         }
     }
 
@@ -1057,6 +1097,7 @@ where
         clippy::type_complexity,
         reason = "CryptarchiaConsensusState and CryptarchiaConsensusRelays amount of generics."
     )]
+    #[expect(clippy::too_many_arguments, reason = "need to resolve at some point")]
     async fn process_block_and_update_state(
         cryptarchia: Cryptarchia,
         block: Block<ClPool::Item>,
