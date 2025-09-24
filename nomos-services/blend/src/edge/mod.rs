@@ -168,14 +168,6 @@ where
         .subscribe()
         .await?;
 
-        let _pol_epoch_stream = timeout(
-            Duration::from_secs(1),
-            PolInfoProvider::subscribe(overwatch_handle)
-                .map(|r| r.expect("PoL slot info provider failed to return a usable stream.")),
-        )
-        .await
-        .expect("PoL slot info provider not received within the expected timeout.");
-
         // TODO: Replace with chain-follower stream integration.
         let poq_input_stream = mock_poq_inputs_stream();
 
@@ -210,7 +202,7 @@ where
                 .to_vec()
         });
 
-        run::<Backend, _, ProofsGenerator, _>(
+        run::<Backend, _, ProofsGenerator, PolInfoProvider, _>(
             uninitialized_session_stream,
             messages_to_blend,
             &settings,
@@ -244,7 +236,7 @@ where
 /// - If the initial membership is not yielded immediately from the session
 ///   stream.
 /// - If the initial membership does not satisfy the edge node condition.
-async fn run<Backend, NodeId, ProofsGenerator, RuntimeServiceId>(
+async fn run<Backend, NodeId, ProofsGenerator, PolInfoProvider, RuntimeServiceId>(
     session_stream: UninitializedSessionEventStream<
         impl Stream<Item = SessionInfo<NodeId>> + Unpin,
     >,
@@ -257,6 +249,7 @@ where
     Backend: BlendBackend<NodeId, RuntimeServiceId> + Sync,
     NodeId: Clone + Eq + Hash + Send + Sync + 'static,
     ProofsGenerator: ProofsGeneratorTrait,
+    PolInfoProvider: PolInfoProviderTrait<RuntimeServiceId>,
     RuntimeServiceId: Clone,
 {
     let (session_info, mut session_stream) = session_stream
@@ -279,6 +272,19 @@ where
         .expect("The initial membership should satisfy the edge node condition");
 
     notify_ready();
+
+    // There might be services that depend on Blend to be ready before starting, so
+    // we cannot wait for the stream to be sent before we signal we are
+    // ready, hence this should always be called after `notify_ready();`.
+    // Also, Blend services start even if such a stream is not immediately
+    // available, since they will simply keep blending cover messages.
+    let _pol_epoch_stream = timeout(
+        Duration::from_secs(3),
+        PolInfoProvider::subscribe(overwatch_handle)
+            .map(|r| r.expect("PoL slot info provider failed to return a usable stream.")),
+    )
+    .await
+    .expect("PoL slot info provider not received within the expected timeout.");
 
     loop {
         tokio::select! {

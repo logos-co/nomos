@@ -203,14 +203,6 @@ where
         .await
         .expect("Membership service should be ready");
 
-        let _pol_epoch_stream = timeout(
-            Duration::from_secs(1),
-            PolInfoProvider::subscribe(overwatch_handle)
-                .map(|r| r.expect("PoL slot info provider failed to return a usable stream.")),
-        )
-        .await
-        .expect("PoL slot info provider not received within the expected timeout.");
-
         // TODO: Replace with chain-follower stream integration.
         let poq_input_stream = mock_poq_inputs_stream();
 
@@ -309,6 +301,19 @@ where
             "Service '{}' is ready.",
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
+
+        // There might be services that depend on Blend to be ready before starting, so
+        // we cannot wait for the stream to be sent before we signal we are
+        // ready, hence this should always be called after `notify_ready();`.
+        // Also, Blend services start even if such a stream is not immediately
+        // available, since they will simply keep blending cover messages.
+        let _pol_epoch_stream = timeout(
+            Duration::from_secs(3),
+            PolInfoProvider::subscribe(overwatch_handle)
+                .map(|r| r.expect("PoL slot info provider failed to return a usable stream.")),
+        )
+        .await
+        .expect("PoL slot info provider not received within the expected timeout.");
 
         // Maps the original (membership, session info) by transforming the tuple into
         // the required struct, nothing else.

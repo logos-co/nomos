@@ -39,14 +39,15 @@ where
     where
         NodeId: Eq + Hash,
     {
-        let membership_size = session_info.membership.size();
-        if membership_size < settings.minimum_network_size.get() as usize {
-            Err(Error::NetworkIsTooSmall(membership_size))
-        } else if session_info.membership.contains_local() {
-            Err(Error::LocalIsCoreNode)
-        } else {
-            Ok(Self::new(settings, session_info, overwatch_handle))
-        }
+        Ok(Self::new(settings, session_info, overwatch_handle))
+        // let membership_size = session_info.membership.size();
+        // if membership_size < settings.minimum_network_size.get() as usize {
+        //     Err(Error::NetworkIsTooSmall(membership_size))
+        // } else if session_info.membership.contains_local() {
+        //     Err(Error::LocalIsCoreNode)
+        // } else {
+        //     Ok(Self::new(settings, session_info, overwatch_handle))
+        // }
     }
 
     fn new(

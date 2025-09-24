@@ -1053,11 +1053,13 @@ where
                 });
             }
             ConsensusMsg::WinningPolEpochSlotStreamSubscribe { sender } => {
+                println!("***** Received a `WinningPolEpochSlotStreamSubscribe` message");
                 sender
                     .send(winning_pol_epoch_slots_sender.subscribe())
                     .unwrap_or_else(|_| {
                         error!("Could not subscribe to POL epoch winning slots channel.");
                     });
+                println!("***** Broadcast stream sent!");
             }
         }
     }
