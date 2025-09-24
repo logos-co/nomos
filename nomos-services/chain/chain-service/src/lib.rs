@@ -1097,7 +1097,10 @@ where
         clippy::type_complexity,
         reason = "CryptarchiaConsensusState and CryptarchiaConsensusRelays amount of generics."
     )]
-    #[expect(clippy::too_many_arguments, reason = "need to resolve at some point")]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "This function does too much, need to deal with this at some point"
+    )]
     async fn process_block_and_update_state(
         cryptarchia: Cryptarchia,
         block: Block<ClPool::Item>,

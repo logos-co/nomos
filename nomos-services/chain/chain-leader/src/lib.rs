@@ -1,5 +1,4 @@
 mod blend;
-mod bootstrap;
 mod leadership;
 mod messages;
 pub mod network;
@@ -52,10 +51,8 @@ use tokio::sync::oneshot;
 use tracing::{debug, error, info, instrument, span, Level};
 use tracing_futures::Instrument as _;
 
-pub use crate::bootstrap::config::{BootstrapConfig, IbdConfig, OfflineGracePeriodConfig};
 use crate::{
     blend::BlendAdapter,
-    bootstrap::{ibd::InitialBlockDownload, state::choose_engine_state},
     leadership::Leader,
     relays::CryptarchiaConsensusRelays,
     storage::{adapters::StorageAdapter, StorageAdapter as _},
@@ -168,9 +165,7 @@ impl Cryptarchia {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct LeaderSettings<Ts, NodeId, NetworkAdapterSettings, BlendBroadcastSettings>
-where
-    NodeId: Clone + Eq + Hash,
+pub struct LeaderSettings<Ts, NetworkAdapterSettings, BlendBroadcastSettings>
 {
     #[serde(default)]
     pub transaction_selector_settings: Ts,
@@ -181,7 +176,6 @@ where
     pub network_adapter_settings: NetworkAdapterSettings,
     pub blend_broadcast_settings: BlendBroadcastSettings,
     pub recovery_file: PathBuf,
-    pub bootstrap: BootstrapConfig<NodeId>,
 }
 
 #[expect(clippy::allow_attributes_without_reason)]
@@ -277,7 +271,6 @@ where
 {
     type Settings = LeaderSettings<
         TxS::Settings,
-        NetAdapter::PeerId,
         NetAdapter::Settings,
         BlendService::BroadcastSettings,
     >;
@@ -432,7 +425,6 @@ where
             leader_config,
             network_adapter_settings,
             blend_broadcast_settings,
-            bootstrap: bootstrap_config,
             ..
         } = self
             .service_resources_handle
@@ -449,7 +441,6 @@ where
             .initialize_cryptarchia(
                 genesis_id,
                 &genesis_state,
-                &bootstrap_config,
                 ledger_config,
                 leader_config,
                 &relays,
@@ -501,61 +492,8 @@ where
         )
         .await?;
 
-        // Run IBD (Initial Block Download).
-        // TODO: Currently, we're passing a closure that processes each block.
-        //       It needs to be replaced with a trait, which requires substantial
-        // refactoring.       https://github.com/logos-co/nomos/issues/1505
-        let initial_block_download = InitialBlockDownload::new(
-            bootstrap_config.ibd,
-            network_adapter,
-            |cryptarchia, storage_blocks_to_remove, block| {
-                let relays = &relays;
-                let cryptarchia_clone = cryptarchia.clone();
-                let storage_blocks_to_remove_clone = storage_blocks_to_remove.clone();
-                async move {
-                    Self::process_block_and_prune_storage(
-                        cryptarchia,
-                        block,
-                        &storage_blocks_to_remove,
-                        relays,
-                    )
-                    .await
-                    .unwrap_or_else(|e| {
-                        error!("Error processing block during IBD: {:?}", e);
-                        (cryptarchia_clone, storage_blocks_to_remove_clone)
-                    })
-                }
-            },
-        );
-
-        let (mut cryptarchia, mut storage_blocks_to_remove) = match initial_block_download
-            .run(cryptarchia, storage_blocks_to_remove)
-            .await
-        {
-            Ok((cryptarchia, storage_blocks_to_remove)) => {
-                info!("Initial Block Download completed successfully.");
-                (cryptarchia, storage_blocks_to_remove)
-            }
-            Err(e) => {
-                error!("Initial Block Download failed: {e:?}. Initiating graceful shutdown.");
-
-                if let Err(shutdown_err) = self
-                    .service_resources_handle
-                    .overwatch_handle
-                    .shutdown()
-                    .await
-                {
-                    error!("Failed to shutdown overwatch: {shutdown_err:?}");
-                }
-
-                error!("Initial Block Download did not complete successfully: {e}. Common causes: unresponsive initial peers, \
-                network issues, or incorrect peer addresses. Consider retrying with different bootstrap peers.");
-
-                return Err(DynError::from(format!(
-                    "Initial Block Download failed: {e:?}"
-                )));
-            }
-        };
+        let mut cryptarchia = cryptarchia;
+        let mut storage_blocks_to_remove = storage_blocks_to_remove;
         let async_loop = async {
             loop {
                 tokio::select! {
@@ -994,7 +932,6 @@ where
         &self,
         genesis_id: HeaderId,
         genesis_state: &LedgerState,
-        bootstrap_config: &BootstrapConfig<NetAdapter::PeerId>,
         ledger_config: nomos_ledger::Config,
         leader_config: LeaderConfig,
         relays: &CryptarchiaConsensusRelays<
@@ -1009,12 +946,7 @@ where
         >,
     ) -> (Cryptarchia, PrunedBlocks<HeaderId>, Leader) {
         let lib_id = genesis_id; // Start from genesis for leader
-        let state = choose_engine_state(
-            lib_id,
-            genesis_id,
-            bootstrap_config,
-            None, // No last engine state for leader
-        );
+        let state = cryptarchia_engine::State::Online;
         let mut cryptarchia =
             Cryptarchia::from_lib(lib_id, genesis_state.clone(), ledger_config, state);
         let leader = Leader::new(leader_config.utxos.clone(), leader_config.sk, ledger_config);
