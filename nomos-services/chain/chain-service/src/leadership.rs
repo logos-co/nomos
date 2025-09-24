@@ -44,7 +44,7 @@ impl Leader {
         clippy::cognitive_complexity,
         reason = "TODO: Address this at some point"
     )]
-    pub async fn build_proof_for(
+    pub async fn build_and_broadcast_proof_for(
         &self,
         aged_tree: &UtxoTree,
         latest_tree: &UtxoTree,

@@ -161,6 +161,8 @@ pub type BlendService<SamplingAdapter, RuntimeServiceId> = nomos_blend_service::
     RuntimeServiceId,
 >;
 
+/// The provider of a stream of winning `PoL` epoch slots for the Blend service,
+/// without introducing a cyclic dependency from Blend service to chain service.
 pub struct PolInfoProvider<SamplingAdapter>(PhantomData<SamplingAdapter>);
 
 #[async_trait]
@@ -190,7 +192,6 @@ where
             .await
             .ok()?;
         let item = receiver.await.ok()?;
-        // TODO: Change this.
         Some(Box::new(BroadcastStream::new(item).filter_map(|res| {
             let Ok((private, secret_key)) = res else {
                 return ready(None);

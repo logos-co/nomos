@@ -105,6 +105,7 @@ pub enum Error {
 
 pub type WinningSlotEpochInfo = (LeaderPrivate, SecretKey);
 
+#[derive(Debug)]
 pub enum ConsensusMsg {
     Info {
         tx: oneshot::Sender<CryptarchiaInfo>,
@@ -796,7 +797,7 @@ where
                             error!("trying to propose a block for slot {} but epoch state is not available", u64::from(slot));
                             continue;
                         };
-                        if let Some(proof) = leader.build_proof_for(aged_tree, latest_tree, epoch_state, slot, &self.winning_pol_epoch_slots_sender).await {
+                        if let Some(proof) = leader.build_and_broadcast_proof_for(aged_tree, latest_tree, epoch_state, slot, &self.winning_pol_epoch_slots_sender).await {
                             debug!("proposing block...");
                             // TODO: spawn as a separate task?
                             let block = Self::propose_block(
@@ -1053,13 +1054,11 @@ where
                 });
             }
             ConsensusMsg::WinningPolEpochSlotStreamSubscribe { sender } => {
-                println!("***** Received a `WinningPolEpochSlotStreamSubscribe` message");
                 sender
                     .send(winning_pol_epoch_slots_sender.subscribe())
                     .unwrap_or_else(|_| {
                         error!("Could not subscribe to POL epoch winning slots channel.");
                     });
-                println!("***** Broadcast stream sent!");
             }
         }
     }

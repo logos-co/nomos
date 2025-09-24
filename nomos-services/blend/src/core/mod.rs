@@ -203,7 +203,7 @@ where
         .await
         .expect("Membership service should be ready");
 
-        // TODO: Replace with chain-follower stream integration.
+        // TODO: Replace with actual service usage.
         let poq_input_stream = mock_poq_inputs_stream();
 
         let ((current_membership, (public_poq_inputs, private_poq_inputs)), session_stream) =

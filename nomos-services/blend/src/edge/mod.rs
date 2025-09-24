@@ -142,7 +142,7 @@ where
             service_resources_handle:
                 ServiceResourcesHandle {
                     inbound_relay,
-                    ref overwatch_handle,
+                    overwatch_handle,
                     settings_handle,
                     status_updater,
                     ..
@@ -153,7 +153,7 @@ where
         let settings = settings_handle.notifier().get_updated_settings();
 
         wait_until_services_are_ready!(
-            overwatch_handle,
+            &overwatch_handle,
             Some(Duration::from_secs(60)),
             <MembershipAdapter as membership::Adapter>::Service
         )
@@ -168,7 +168,7 @@ where
         .subscribe()
         .await?;
 
-        // TODO: Replace with chain-follower stream integration.
+        // TODO: Replace with actual service usage.
         let poq_input_stream = mock_poq_inputs_stream();
 
         // Stream combining the membership stream with the stream yielding PoQ
@@ -206,7 +206,7 @@ where
             uninitialized_session_stream,
             messages_to_blend,
             &settings,
-            overwatch_handle,
+            &overwatch_handle,
             || {
                 status_updater.notify_ready();
                 info!(
