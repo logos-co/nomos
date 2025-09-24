@@ -23,7 +23,7 @@ use broadcast_service::{BlockBroadcastMsg, BlockBroadcastService, BlockInfo};
 use bytes::Bytes;
 use cryptarchia_engine::{PrunedBlocks, Slot};
 use cryptarchia_sync::{GetTipResponse, ProviderResponse};
-use futures::{Stream, StreamExt as _, TryFutureExt as _, stream::empty};
+use futures::{StreamExt as _, TryFutureExt as _};
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
 pub use nomos_blend_service::ServiceComponents as BlendServiceComponents;
@@ -103,9 +103,6 @@ pub enum Error {
     BlobValidationFailed(#[from] blob::Error),
 }
 
-pub type PolEpochSlotStream =
-    Box<dyn Stream<Item = (LeaderPublic, LeaderPrivate, SecretKey)> + Send + Unpin>;
-
 pub enum ConsensusMsg {
     Info {
         tx: oneshot::Sender<CryptarchiaInfo>,
@@ -125,8 +122,8 @@ pub enum ConsensusMsg {
         block_id: HeaderId,
         tx: oneshot::Sender<Option<LedgerState>>,
     },
-    SubscribeToWinningPolEpochSlotStream {
-        sender: oneshot::Sender<PolEpochSlotStream>,
+    WinningPolEpochSlotStreamSubscribe {
+        sender: oneshot::Sender<broadcast::Receiver<(LeaderPublic, LeaderPrivate, SecretKey)>>,
     },
 }
 
@@ -352,6 +349,7 @@ pub struct CryptarchiaConsensus<
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     new_block_subscription_sender: broadcast::Sender<HeaderId>,
     lib_subscription_sender: broadcast::Sender<LibUpdate>,
+    winning_pol_epoch_slots_sender: broadcast::Sender<(LeaderPublic, LeaderPrivate, SecretKey)>,
     initial_state: <Self as ServiceData>::State,
 }
 
@@ -526,11 +524,13 @@ where
     ) -> Result<Self, DynError> {
         let (new_block_subscription_sender, _) = broadcast::channel(16);
         let (lib_subscription_sender, _) = broadcast::channel(16);
+        let (winning_pol_epoch_slots_sender, _) = broadcast::channel(16);
 
         Ok(Self {
             service_resources_handle,
             new_block_subscription_sender,
             lib_subscription_sender,
+            winning_pol_epoch_slots_sender,
             initial_state,
         })
     }
@@ -611,7 +611,6 @@ where
             relays.blend_relay().clone(),
             blend_broadcast_settings.clone(),
         );
-        println!("After sending stream to Blend adapter");
 
         let mut orphan_downloader = Box::pin(OrphanBlocksDownloader::new(
             network_adapter.clone(),
@@ -795,7 +794,7 @@ where
                             error!("trying to propose a block for slot {} but epoch state is not available", u64::from(slot));
                             continue;
                         };
-                        if let Some(proof) = leader.build_proof_for(aged_tree, latest_tree, epoch_state, slot).await {
+                        if let Some(proof) = leader.build_proof_for(aged_tree, latest_tree, epoch_state, slot, &self.winning_pol_epoch_slots_sender).await {
                             debug!("proposing block...");
                             // TODO: spawn as a separate task?
                             let block = Self::propose_block(
@@ -838,7 +837,7 @@ where
                     }
 
                     Some(msg) = self.service_resources_handle.inbound_relay.next() => {
-                        Self::process_message(&cryptarchia, &self.new_block_subscription_sender, &self.lib_subscription_sender, msg);
+                        Self::process_message(&cryptarchia, &self.new_block_subscription_sender, &self.lib_subscription_sender, &self.winning_pol_epoch_slots_sender, msg);
                     }
 
                     Some(event) = chainsync_events.next() => {
@@ -984,6 +983,11 @@ where
         cryptarchia: &Cryptarchia,
         new_block_channel: &broadcast::Sender<HeaderId>,
         lib_channel: &broadcast::Sender<LibUpdate>,
+        winning_pol_epoch_slots_sender: &broadcast::Sender<(
+            LeaderPublic,
+            LeaderPrivate,
+            SecretKey,
+        )>,
         msg: ConsensusMsg,
     ) {
         match msg {
@@ -1050,9 +1054,12 @@ where
                     error!("Could not send ledger state through channel");
                 });
             }
-            ConsensusMsg::SubscribeToWinningPolEpochSlotStream { sender } => {
-                // TODO: Change this
-                let _ = sender.send(Box::new(empty()));
+            ConsensusMsg::WinningPolEpochSlotStreamSubscribe { sender } => {
+                sender
+                    .send(winning_pol_epoch_slots_sender.subscribe())
+                    .unwrap_or_else(|_| {
+                        error!("Could not subscribe to POL epoch winning slots channel.");
+                    });
             }
         }
     }
