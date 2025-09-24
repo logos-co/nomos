@@ -33,7 +33,7 @@ static GLOBAL_PARAMETERS: LazyLock<GlobalParameters> = LazyLock::new(|| {
 
 const NUMBER_OF_SUBNETWORK: usize = 2048;
 
-#[divan::bench(args = [NUMBER_OF_SUBNETWORK/2], sample_count = 10, sample_size = 10)]
+#[divan::bench(args = [NUMBER_OF_SUBNETWORK/2], sample_count = 1, sample_size = 1)]
 fn compute_fk20_proofs_for_size(bencher: Bencher, datasize: usize) {
     bencher
         .with_inputs(|| {
