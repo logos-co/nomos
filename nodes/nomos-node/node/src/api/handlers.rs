@@ -21,7 +21,7 @@ use nomos_api::http::{
     libp2p, mempool,
     storage::StorageAdapter,
 };
-use nomos_blend_service::{ProofsVerifier, pol::PolInfoProvider as PolInfoProviderTrait};
+use nomos_blend_service::{ProofsVerifier, epoch_info::PolInfoProvider as PolInfoProviderTrait};
 use nomos_core::{
     da::{BlobId, DaVerifier as CoreDaVerifier, blob::Share},
     header::HeaderId,

@@ -24,7 +24,7 @@ use nomos_api::{
     },
 };
 use nomos_blend_service::{
-    ProofsGenerator, ProofsVerifier, pol::PolInfoProvider as PolInfoProviderTrait,
+    ProofsGenerator, ProofsVerifier, epoch_info::PolInfoProvider as PolInfoProviderTrait,
 };
 use nomos_core::{
     da::{

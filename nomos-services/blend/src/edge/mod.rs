@@ -42,7 +42,7 @@ use crate::{
     membership,
     message::{NetworkMessage, ServiceMessage},
     mock_poq_inputs_stream,
-    pol::PolInfoProvider as PolInfoProviderTrait,
+    epoch_info::PolInfoProvider as PolInfoProviderTrait,
     session::SessionInfo,
     settings::FIRST_SESSION_READY_TIMEOUT,
 };

@@ -21,8 +21,8 @@ use nomos_blend_message::crypto::{
 use nomos_blend_scheduling::message_blend::{BlendLayerProof, SessionInfo};
 use nomos_blend_service::{
     ProofsGenerator, ProofsVerifier,
+    epoch_info::{PolEpochInfo, PolInfoProvider as PolInfoProviderTrait},
     membership::service::Adapter,
-    pol::{PolEpochInfo, PolInfoProvider as PolInfoProviderTrait},
 };
 use nomos_core::{codec::SerdeOp as _, crypto::ZkHash};
 use nomos_da_sampling::network::NetworkAdapter;

@@ -8,7 +8,12 @@ use std::{
 use async_trait::async_trait;
 use futures::{Stream, StreamExt as _};
 use nomos_blend_message::crypto::proofs::quota::inputs::prove::private::ProofOfCoreQuotaInputs;
-pub use nomos_blend_message::{crypto::proofs::RealProofsVerifier, encap::ProofsVerifier};
+pub use nomos_blend_message::{
+    crypto::proofs::{
+        RealProofsVerifier, quota::inputs::prove::private::ProofOfLeadershipQuotaInputs,
+    },
+    encap::ProofsVerifier,
+};
 pub use nomos_blend_scheduling::message_blend::{ProofsGenerator, RealProofsGenerator};
 use nomos_blend_scheduling::{
     message_blend::PublicInputs, session::UninitializedSessionEventStream,
@@ -38,9 +43,9 @@ use crate::{
 
 pub mod core;
 pub mod edge;
+pub mod epoch_info;
 pub mod membership;
 pub mod message;
-pub mod pol;
 pub mod session;
 pub mod settings;
 
