@@ -3,7 +3,6 @@ pub mod network;
 mod processor;
 pub mod settings;
 
-use core::panic;
 use std::{
     fmt::{Debug, Display},
     hash::Hash,
@@ -23,7 +22,7 @@ use nomos_blend_message::{
 };
 use nomos_blend_scheduling::{
     message_blend::{
-        PrivateInputs, ProofsGenerator as ProofsGeneratorTrait, SessionInfo as PoQSessionInfo,
+        ProofsGenerator as ProofsGeneratorTrait, SessionInfo as PoQSessionInfo,
         crypto::IncomingEncapsulatedMessageWithValidatedPublicHeader,
     },
     message_scheduler::{MessageScheduler, round_info::RoundInfo},
@@ -51,10 +50,10 @@ use crate::{
         processor::{CoreCryptographicProcessor, Error},
         settings::BlendConfig,
     },
+    epoch_info::PolInfoProvider as PolInfoProviderTrait,
     membership,
     message::{NetworkMessage, ProcessedMessage, ServiceMessage},
     mock_poq_inputs_stream,
-    epoch_info::PolInfoProvider as PolInfoProviderTrait,
     session::SessionInfo as ProcessorSessionInfo,
     settings::FIRST_SESSION_READY_TIMEOUT,
 };
@@ -204,51 +203,30 @@ where
         .await
         .expect("Membership service should be ready");
 
-        let pol_epoch_stream = timeout(
+        let _pol_epoch_stream = timeout(
             Duration::from_secs(1),
             PolInfoProvider::subscribe(overwatch_handle)
-                .map(|r| r.expect("PoL info provider failed to return a usable stream.")),
+                .map(|r| r.expect("PoL slot info provider failed to return a usable stream.")),
         )
         .await
-        .expect("PoL info provider not received within the expected timeout.");
+        .expect("PoL slot info provider not received within the expected timeout.");
 
         // TODO: Replace with chain-follower stream integration.
         let poq_input_stream = mock_poq_inputs_stream();
 
-        let aggregated_session_stream = membership_stream
-            .zip(pol_epoch_stream)
-            .zip(poq_input_stream) // Flatten nested zipped streams.
-            .map(|((membership, pol_epoch), poq_inputs)| (membership, pol_epoch, poq_inputs));
-
-        let (
-            (current_membership, pol_epoch, (public_poq_inputs, private_poq_inputs)),
-            session_stream,
-        ) = UninitializedSessionEventStream::new(
-            aggregated_session_stream,
-            FIRST_SESSION_READY_TIMEOUT,
-            blend_config.time.session_transition_period(),
-        )
-        .await_first_ready()
-        .await
-        .expect("The current session must be ready");
+        let ((current_membership, (public_poq_inputs, private_poq_inputs)), session_stream) =
+            UninitializedSessionEventStream::new(
+                membership_stream.zip(poq_input_stream),
+                FIRST_SESSION_READY_TIMEOUT,
+                blend_config.time.session_transition_period(),
+            )
+            .await_first_ready()
+            .await
+            .expect("The current session must be ready");
         let current_poq_session_info = PoQSessionInfo {
             local_node_index: current_membership.local_index(),
             membership_size: current_membership.size(),
-            private_inputs: PrivateInputs {
-                aged_path: pol_epoch.poq_private_inputs.aged_path,
-                aged_selector: pol_epoch.poq_private_inputs.aged_selector,
-                core_path: private_poq_inputs.core_path,
-                core_path_selectors: private_poq_inputs.core_path_selectors,
-                core_sk: private_poq_inputs.core_sk,
-                note_value: pol_epoch.poq_private_inputs.note_value,
-                output_number: pol_epoch.poq_private_inputs.output_number,
-                pol_secret_key: pol_epoch.poq_private_inputs.pol_secret_key,
-                slot: pol_epoch.poq_private_inputs.slot,
-                slot_secret: pol_epoch.poq_private_inputs.slot_secret,
-                slot_secret_path: pol_epoch.poq_private_inputs.slot_secret_path,
-                starting_slot: pol_epoch.poq_private_inputs.starting_slot,
-                transaction_hash: pol_epoch.poq_private_inputs.transaction_hash,
-            },
+            private_inputs: private_poq_inputs,
             public_inputs: public_poq_inputs,
         };
 
@@ -274,7 +252,7 @@ where
         // Yields once every randomly-scheduled release round. It takes the original
         // (membership, session info) stream and discards session info.
         let membership_info_stream =
-            map_session_event_stream(session_stream.clone(), |(membership, _, _)| membership);
+            map_session_event_stream(session_stream.clone(), |(membership, _)| membership);
         let (initial_scheduler_session_info, scheduler_session_info_stream) =
             blend_config.session_info_stream(&current_membership, membership_info_stream);
         let mut message_scheduler =
@@ -290,7 +268,7 @@ where
         // they are not used by the swarm.
         let swarm_backend_stream = map_session_event_stream(
             session_stream.clone(),
-            |(membership, pol_epoch, (poq_public_inputs, poq_private_inputs))| {
+            |(membership, (poq_public_inputs, poq_private_inputs))| {
                 let local_node_index = membership.local_index();
                 let membership_size = membership.size();
                 SessionInfo {
@@ -298,21 +276,7 @@ where
                     poq_verification_inputs: PoQSessionInfo {
                         local_node_index,
                         membership_size,
-                        private_inputs: PrivateInputs {
-                            aged_path: pol_epoch.poq_private_inputs.aged_path,
-                            aged_selector: pol_epoch.poq_private_inputs.aged_selector,
-                            core_path: poq_private_inputs.core_path,
-                            core_path_selectors: poq_private_inputs.core_path_selectors,
-                            core_sk: poq_private_inputs.core_sk,
-                            note_value: pol_epoch.poq_private_inputs.note_value,
-                            output_number: pol_epoch.poq_private_inputs.output_number,
-                            pol_secret_key: pol_epoch.poq_private_inputs.pol_secret_key,
-                            slot: pol_epoch.poq_private_inputs.slot,
-                            slot_secret: pol_epoch.poq_private_inputs.slot_secret,
-                            slot_secret_path: pol_epoch.poq_private_inputs.slot_secret_path,
-                            starting_slot: pol_epoch.poq_private_inputs.starting_slot,
-                            transaction_hash: pol_epoch.poq_private_inputs.transaction_hash,
-                        },
+                        private_inputs: poq_private_inputs,
                         public_inputs: poq_public_inputs,
                     }
                     .into(),
@@ -350,7 +314,7 @@ where
         // the required struct, nothing else.
         let mut service_session_stream = map_session_event_stream(
             session_stream,
-            |(membership, pol_epoch, (poq_public_inputs, poq_private_inputs))| {
+            |(membership, (poq_public_inputs, poq_private_inputs))| {
                 let local_node_index = membership.local_index();
                 let membership_size = membership.size();
                 ProcessorSessionInfo {
@@ -358,21 +322,7 @@ where
                     poq_generation_and_verification_inputs: PoQSessionInfo {
                         local_node_index,
                         membership_size,
-                        private_inputs: PrivateInputs {
-                            aged_path: pol_epoch.poq_private_inputs.aged_path,
-                            aged_selector: pol_epoch.poq_private_inputs.aged_selector,
-                            core_path: poq_private_inputs.core_path,
-                            core_path_selectors: poq_private_inputs.core_path_selectors,
-                            core_sk: poq_private_inputs.core_sk,
-                            note_value: pol_epoch.poq_private_inputs.note_value,
-                            output_number: pol_epoch.poq_private_inputs.output_number,
-                            pol_secret_key: pol_epoch.poq_private_inputs.pol_secret_key,
-                            slot: pol_epoch.poq_private_inputs.slot,
-                            slot_secret: pol_epoch.poq_private_inputs.slot_secret,
-                            slot_secret_path: pol_epoch.poq_private_inputs.slot_secret_path,
-                            starting_slot: pol_epoch.poq_private_inputs.starting_slot,
-                            transaction_hash: pol_epoch.poq_private_inputs.transaction_hash,
-                        },
+                        private_inputs: poq_private_inputs,
                         public_inputs: poq_public_inputs,
                     },
                 }

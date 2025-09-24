@@ -1,5 +1,4 @@
 pub mod crypto;
-pub mod epoch;
 pub mod membership;
 
 #[cfg(feature = "libp2p")]

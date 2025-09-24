@@ -13,11 +13,9 @@ use std::{
 };
 
 use backends::BlendBackend;
-use futures::{FutureExt as _, Stream, StreamExt as _, future::ready};
+use futures::{FutureExt as _, Stream, StreamExt as _};
 use nomos_blend_scheduling::{
-    message_blend::{
-        PrivateInputs, ProofsGenerator as ProofsGeneratorTrait, SessionInfo as PoQSessionInfo,
-    },
+    message_blend::{ProofsGenerator as ProofsGeneratorTrait, SessionInfo as PoQSessionInfo},
     session::{SessionEvent, UninitializedSessionEventStream},
 };
 use nomos_core::codec::SerdeOp;
@@ -39,10 +37,10 @@ use tracing::{debug, error, info};
 
 use crate::{
     edge::handlers::{Error, MessageHandler},
+    epoch_info::PolInfoProvider as PolInfoProviderTrait,
     membership,
     message::{NetworkMessage, ServiceMessage},
     mock_poq_inputs_stream,
-    epoch_info::PolInfoProvider as PolInfoProviderTrait,
     session::SessionInfo,
     settings::FIRST_SESSION_READY_TIMEOUT,
 };
@@ -139,9 +137,7 @@ where
         })
     }
 
-    #[expect(clippy::too_many_lines, reason = "TODO: Address this at some point.")]
     async fn run(mut self) -> Result<(), overwatch::DynError> {
-        println!("Starting Blend edge service.");
         let Self {
             service_resources_handle:
                 ServiceResourcesHandle {
@@ -172,56 +168,35 @@ where
         .subscribe()
         .await?;
 
-        let pol_epoch_stream = timeout(
+        let _pol_epoch_stream = timeout(
             Duration::from_secs(1),
             PolInfoProvider::subscribe(overwatch_handle)
-                .map(|r| r.expect("PoL info provider failed to return a usable stream.")),
+                .map(|r| r.expect("PoL slot info provider failed to return a usable stream.")),
         )
         .await
-        .expect("PoL info provider not received within the expected timeout.");
+        .expect("PoL slot info provider not received within the expected timeout.");
 
         // TODO: Replace with chain-follower stream integration.
         let poq_input_stream = mock_poq_inputs_stream();
 
         // Stream combining the membership stream with the stream yielding PoQ
         // generation and verification material.
-        let aggregated_session_stream = membership_stream
-            .zip(pol_epoch_stream)
-            .zip(poq_input_stream)
-            // Flatten nested zipped streams.
-            .map(|((membership, pol_epoch), poq_inputs)| (membership, pol_epoch, poq_inputs))
-            .map(
-                |(membership, pol_epoch, (poq_public_inputs, poq_private_inputs))| {
-                    let local_node_index = membership.local_index();
-                    let membership_size = membership.size();
+        let aggregated_session_stream = membership_stream.zip(poq_input_stream).map(
+            |(membership, (poq_public_inputs, poq_private_inputs))| {
+                let local_node_index = membership.local_index();
+                let membership_size = membership.size();
 
-                    assert!(pol_epoch.epoch_nonce == poq_public_inputs.pol_epoch_nonce, "The PoL epoch stream and the chain follower epoch stream must yield at the same time, once per epoch.");
-
-                    SessionInfo {
-                        membership,
-                        poq_generation_and_verification_inputs: PoQSessionInfo {
-                            local_node_index,
-                            membership_size,
-                            private_inputs: PrivateInputs {
-                                aged_path: pol_epoch.poq_private_inputs.aged_path,
-                                aged_selector: pol_epoch.poq_private_inputs.aged_selector,
-                                core_path: poq_private_inputs.core_path,
-                                core_path_selectors: poq_private_inputs.core_path_selectors,
-                                core_sk: poq_private_inputs.core_sk,
-                                note_value: pol_epoch.poq_private_inputs.note_value,
-                                output_number: pol_epoch.poq_private_inputs.output_number,
-                                pol_secret_key: pol_epoch.poq_private_inputs.pol_secret_key,
-                                slot: pol_epoch.poq_private_inputs.slot,
-                                slot_secret: pol_epoch.poq_private_inputs.slot_secret,
-                                slot_secret_path: pol_epoch.poq_private_inputs.slot_secret_path,
-                                starting_slot: pol_epoch.poq_private_inputs.starting_slot,
-                                transaction_hash: pol_epoch.poq_private_inputs.transaction_hash,
-                            },
-                            public_inputs: poq_public_inputs,
-                        },
-                    }
-                },
-            );
+                SessionInfo {
+                    membership,
+                    poq_generation_and_verification_inputs: PoQSessionInfo {
+                        local_node_index,
+                        membership_size,
+                        private_inputs: poq_private_inputs,
+                        public_inputs: poq_public_inputs,
+                    },
+                }
+            },
+        );
 
         let uninitialized_session_stream = UninitializedSessionEventStream::new(
             aggregated_session_stream,
@@ -229,13 +204,10 @@ where
             settings.time.session_transition_period(),
         );
 
-        let messages_to_blend = inbound_relay.filter_map(|service_message| {
-            let ServiceMessage::Blend(network_message) = service_message;
-            ready(Some(
-                <NetworkMessage<BroadcastSettings> as SerdeOp>::serialize(&network_message)
-                    .expect("NetworkMessage should be able to be serialized")
-                    .to_vec(),
-            ))
+        let messages_to_blend = inbound_relay.map(|ServiceMessage::Blend(message)| {
+            <NetworkMessage<BroadcastSettings> as SerdeOp>::serialize(&message)
+                .expect("NetworkMessage should be able to be serialized")
+                .to_vec()
         });
 
         run::<Backend, _, ProofsGenerator, _>(

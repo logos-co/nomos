@@ -7,7 +7,6 @@ use std::{
 
 use async_trait::async_trait;
 use futures::{Stream, StreamExt as _};
-use nomos_blend_message::crypto::proofs::quota::inputs::prove::private::ProofOfCoreQuotaInputs;
 pub use nomos_blend_message::{
     crypto::proofs::{
         RealProofsVerifier, quota::inputs::prove::private::ProofOfLeadershipQuotaInputs,
@@ -16,7 +15,8 @@ pub use nomos_blend_message::{
 };
 pub use nomos_blend_scheduling::message_blend::{ProofsGenerator, RealProofsGenerator};
 use nomos_blend_scheduling::{
-    message_blend::PublicInputs, session::UninitializedSessionEventStream,
+    message_blend::{PrivateInputs, PublicInputs},
+    session::UninitializedSessionEventStream,
 };
 use nomos_network::NetworkService;
 use overwatch::{
@@ -215,7 +215,7 @@ type MembershipAdapter<EdgeService> = <EdgeService as edge::ServiceComponents>::
 type MembershipService<EdgeService> =
     <MembershipAdapter<EdgeService> as membership::Adapter>::Service;
 
-const fn mock_poq_inputs() -> (PublicInputs, ProofOfCoreQuotaInputs) {
+const fn mock_poq_inputs() -> (PublicInputs, PrivateInputs) {
     use groth16::Field as _;
     use nomos_core::crypto::ZkHash;
 
@@ -229,15 +229,25 @@ const fn mock_poq_inputs() -> (PublicInputs, ProofOfCoreQuotaInputs) {
             session: 0,
             total_stake: 0,
         },
-        ProofOfCoreQuotaInputs {
+        PrivateInputs {
+            aged_path: vec![],
+            aged_selector: vec![],
             core_path: vec![],
             core_path_selectors: vec![],
             core_sk: ZkHash::ZERO,
+            note_value: 0,
+            output_number: 0,
+            pol_secret_key: ZkHash::ZERO,
+            slot: 0,
+            slot_secret: ZkHash::ZERO,
+            slot_secret_path: vec![],
+            starting_slot: 0,
+            transaction_hash: ZkHash::ZERO,
         },
     )
 }
 
-fn mock_poq_inputs_stream() -> impl Stream<Item = (PublicInputs, ProofOfCoreQuotaInputs)> {
+fn mock_poq_inputs_stream() -> impl Stream<Item = (PublicInputs, PrivateInputs)> {
     use futures::stream::repeat;
 
     repeat(mock_poq_inputs())

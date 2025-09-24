@@ -2,7 +2,7 @@ use nomos_utils::blake_rng::BlakeRng;
 
 use crate::{
     core::{BlendService, backends::BlendBackend},
-    message::{NetworkMessage, ServiceMessage},
+    message::ServiceMessage,
 };
 
 /// Helper trait to help the Blend proxy service rely on the concrete types of
@@ -63,10 +63,7 @@ impl<BroadcastSettings> MessageComponents for ServiceMessage<BroadcastSettings> 
     type BroadcastSettings = BroadcastSettings;
 
     fn into_components(self) -> (Self::Payload, Self::BroadcastSettings) {
-        let Self::Blend(NetworkMessage {
-            broadcast_settings,
-            message,
-        }) = self;
-        (message, broadcast_settings)
+        let Self::Blend(network_message) = self;
+        (network_message.message, network_message.broadcast_settings)
     }
 }
