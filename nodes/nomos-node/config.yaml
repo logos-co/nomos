@@ -3,6 +3,7 @@ tracing:
   tracing: None
   filter: None
   metrics: None
+  console: None
   level: DEBUG
 network:
   backend:

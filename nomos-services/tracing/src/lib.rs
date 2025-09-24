@@ -30,6 +30,9 @@ use tracing_subscriber::{
     filter::LevelFilter, layer::SubscriberExt as _, util::SubscriberInitExt as _,
 };
 
+#[cfg(feature = "profiling")]
+mod console;
+
 pub struct Tracing<RuntimeServiceId> {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     logger_guard: Option<WorkerGuard>,
@@ -108,11 +111,24 @@ pub enum MetricsLayer {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TokioConsoleConfig {
+    pub bind_address: String,
+    pub port: u16,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum ConsoleLayer {
+    Console(TokioConsoleConfig),
+    None,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TracingSettings {
     pub logger: LoggerLayer,
     pub tracing: TracingLayer,
     pub filter: FilterLayer,
     pub metrics: MetricsLayer,
+    pub console: ConsoleLayer,
     #[serde(with = "serde_level")]
     pub level: Level,
 }
@@ -124,6 +140,7 @@ impl Default for TracingSettings {
             tracing: TracingLayer::None,
             filter: FilterLayer::None,
             metrics: MetricsLayer::None,
+            console: ConsoleLayer::None,
             level: Level::DEBUG,
         }
     }
@@ -137,6 +154,7 @@ impl TracingSettings {
         tracing: TracingLayer,
         filter: FilterLayer,
         metrics: MetricsLayer,
+        console: ConsoleLayer,
         level: Level,
     ) -> Self {
         Self {
@@ -144,6 +162,7 @@ impl TracingSettings {
             tracing,
             filter,
             metrics,
+            console,
             level,
         }
     }
@@ -173,7 +192,6 @@ where
             .settings_handle
             .notifier()
             .get_updated_settings();
-        let mut layers: Vec<Box<dyn tracing_subscriber::Layer<_> + Send + Sync>> = vec![];
 
         let (logger_layer, logger_guard): (
             Box<dyn tracing_subscriber::Layer<_> + Send + Sync>,
@@ -210,35 +228,45 @@ where
             LoggerLayer::None => (Box::new(tracing_subscriber::fmt::Layer::new()), None),
         };
 
-        layers.push(logger_layer);
+        let mut other_layers: Vec<Box<dyn tracing_subscriber::Layer<_> + Send + Sync>> = vec![];
 
         if let TracingLayer::Otlp(config) = config.tracing {
             let tracing_layer = create_otlp_tracing_layer(config)?;
-            layers.push(Box::new(tracing_layer));
+            other_layers.push(Box::new(tracing_layer));
         }
 
         if let FilterLayer::EnvFilter(config) = config.filter {
             let filter_layer = create_envfilter_layer(config)?;
-            layers.push(Box::new(filter_layer));
+            other_layers.push(Box::new(filter_layer));
         }
 
         if let MetricsLayer::Otlp(config) = config.metrics {
             let metrics_layer = create_otlp_metrics_layer(config)?;
-            layers.push(Box::new(metrics_layer));
-        }
-
-        // If no layers are created, the tracing subscriber is not required.
-        if layers.is_empty() {
-            return Ok(Self {
-                service_resources_handle,
-                logger_guard: None,
-                _runtime_service_id: PhantomData,
-            });
+            other_layers.push(Box::new(metrics_layer));
         }
 
         ONCE_INIT.call_once(move || {
+            let mut layers: Vec<Box<dyn tracing_subscriber::Layer<_> + Send + Sync>> = vec![];
+
+            let level_filter = {
+                #[cfg(feature = "profiling")]
+                if let ConsoleLayer::Console(console_config) = &config.console
+                    && let Some(console_layer) = console::create_console_layer(console_config)
+                {
+                    layers.push(console_layer);
+                    LevelFilter::TRACE
+                } else {
+                    LevelFilter::from(config.level)
+                }
+                #[cfg(not(feature = "profiling"))]
+                LevelFilter::from(config.level)
+            };
+
+            layers.push(logger_layer);
+            layers.extend(other_layers);
+
             tracing_subscriber::registry()
-                .with(LevelFilter::from(config.level))
+                .with(level_filter)
                 .with(layers)
                 .init();
         });

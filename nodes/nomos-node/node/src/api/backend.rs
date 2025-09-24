@@ -548,19 +548,29 @@ where
                     >,
                 ),
             )
-            .with_state(handle)
+            .with_state(handle.clone())
             .layer(TimeoutLayer::new(self.settings.timeout))
             .layer(RequestBodyLimitLayer::new(self.settings.max_body_size))
             .layer(ConcurrencyLimitLayer::new(
                 self.settings.max_concurrent_requests,
             ))
             .layer(create_rate_limit_layer(&self.settings))
-            .layer(TraceLayer::new_for_http())
-            .layer(
-                builder
-                    .allow_headers(vec![CONTENT_TYPE, USER_AGENT])
-                    .allow_methods(Any),
-            );
+            .layer(TraceLayer::new_for_http());
+
+        let cors_layer = builder
+            .allow_headers(vec![CONTENT_TYPE, USER_AGENT])
+            .allow_methods(Any);
+
+        let app = app.layer(cors_layer.clone());
+
+        #[cfg(feature = "profiling")]
+        let app = {
+            let pprof_routes = nomos_http_api_common::pprof::create_pprof_router()
+                .layer(TraceLayer::new_for_http())
+                .layer(cors_layer);
+
+            app.merge(pprof_routes)
+        };
 
         let listener = TcpListener::bind(&self.settings.address)
             .await

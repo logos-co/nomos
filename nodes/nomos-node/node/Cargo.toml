@@ -35,7 +35,7 @@ nomos-da-network-core    = { workspace = true }
 nomos-da-network-service = { workspace = true }
 nomos-da-sampling        = { features = ["libp2p", "rocksdb-backend"], workspace = true }
 nomos-da-verifier        = { features = ["libp2p"], workspace = true }
-nomos-http-api-common    = { workspace = true }
+nomos-http-api-common    = { workspace = true, features = ["profiling"] }
 nomos-libp2p             = { workspace = true }
 nomos-membership         = { workspace = true }
 nomos-mempool            = { workspace = true }
@@ -70,5 +70,6 @@ tower-http = { default-features = false, features = ["cors", "limit", "timeout",
 [features]
 default         = ["tracing"]
 instrumentation = []
+profiling       = ["nomos-http-api-common/profiling", "nomos-tracing-service/profiling"]
 testing         = []
 tracing         = []
