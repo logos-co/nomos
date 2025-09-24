@@ -83,7 +83,7 @@ pub(crate) type TracingService = Tracing<RuntimeServiceId>;
 pub(crate) type NetworkService = nomos_network::NetworkService<NetworkBackend, RuntimeServiceId>;
 
 pub(crate) type BlendCoreService = generic_services::blend::BlendCoreService<
-    nomos_da_sampling::network::adapters::validator::Libp2pAdapter<
+    SamplingLibp2pAdapter<
         NomosDaMembership,
         DaMembershipAdapter<RuntimeServiceId>,
         DaMembershipStorage,
@@ -93,7 +93,7 @@ pub(crate) type BlendCoreService = generic_services::blend::BlendCoreService<
     RuntimeServiceId,
 >;
 pub(crate) type BlendEdgeService = generic_services::blend::BlendEdgeService<
-    nomos_da_sampling::network::adapters::validator::Libp2pAdapter<
+    SamplingLibp2pAdapter<
         NomosDaMembership,
         DaMembershipAdapter<RuntimeServiceId>,
         DaMembershipStorage,
@@ -103,7 +103,7 @@ pub(crate) type BlendEdgeService = generic_services::blend::BlendEdgeService<
     RuntimeServiceId,
 >;
 pub(crate) type BlendService = generic_services::blend::BlendService<
-    nomos_da_sampling::network::adapters::validator::Libp2pAdapter<
+    SamplingLibp2pAdapter<
         NomosDaMembership,
         DaMembershipAdapter<RuntimeServiceId>,
         DaMembershipStorage,
@@ -218,7 +218,7 @@ pub(crate) type ApiService = nomos_api::ApiService<
         BlendProofsGenerator,
         BlendProofsVerifier,
         PolInfoProvider<
-            nomos_da_sampling::network::adapters::validator::Libp2pAdapter<
+            SamplingLibp2pAdapter<
                 NomosDaMembership,
                 DaMembershipAdapter<RuntimeServiceId>,
                 DaMembershipStorage,

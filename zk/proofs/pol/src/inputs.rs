@@ -17,7 +17,10 @@ pub struct PolWitnessInputs {
 
 impl PolWitnessInputs {
     #[must_use]
-    pub const fn from_chain_and_wallet(chain: PolChainInputs, wallet: PolWalletInputs) -> Self {
+    pub const fn from_chain_and_wallet_inputs(
+        chain: PolChainInputs,
+        wallet: PolWalletInputs,
+    ) -> Self {
         Self { wallet, chain }
     }
 }

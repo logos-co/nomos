@@ -23,9 +23,7 @@ use nomos_api::{
         storage,
     },
 };
-use nomos_blend_service::{
-    ProofsGenerator, ProofsVerifier, epoch_info::PolInfoProvider as PolInfoProviderTrait,
-};
+use nomos_blend_service::{ProofsGenerator, ProofsVerifier, epoch_info::PolInfoProvider};
 use nomos_core::{
     da::{
         DaVerifier as CoreDaVerifier,
@@ -100,7 +98,7 @@ pub struct AxumBackend<
     HttpStorageAdapter,
     BlendProofsGenerator,
     BlendProofsVerifier,
-    PolInfoProvider,
+    BlendPolInfoProvider,
     const SIZE: usize,
 > {
     settings: AxumBackendSettings,
@@ -130,7 +128,7 @@ pub struct AxumBackend<
         HttpStorageAdapter,
         BlendProofsGenerator,
         BlendProofsVerifier,
-        PolInfoProvider,
+        BlendPolInfoProvider,
     )>,
 }
 
@@ -172,7 +170,7 @@ impl<
     StorageAdapter,
     BlendProofsGenerator,
     BlendProofsVerifier,
-    PolInfoProvider,
+    BlendPolInfoProvider,
     const SIZE: usize,
     RuntimeServiceId,
 > Backend<RuntimeServiceId>
@@ -200,7 +198,7 @@ impl<
         StorageAdapter,
         BlendProofsGenerator,
         BlendProofsVerifier,
-        PolInfoProvider,
+        BlendPolInfoProvider,
         SIZE,
     >
 where
@@ -310,7 +308,7 @@ where
     StorageAdapter: storage::StorageAdapter<RuntimeServiceId> + Send + Sync + 'static,
     BlendProofsGenerator: ProofsGenerator + Send + 'static,
     BlendProofsVerifier: ProofsVerifier + Clone + Send + 'static,
-    PolInfoProvider: PolInfoProviderTrait<RuntimeServiceId> + Send + 'static,
+    BlendPolInfoProvider: PolInfoProvider<RuntimeServiceId> + Send + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Send
@@ -326,7 +324,7 @@ where
                 TimeBackend,
                 BlendProofsGenerator,
                 BlendProofsVerifier,
-                PolInfoProvider,
+                BlendPolInfoProvider,
                 RuntimeServiceId,
                 SIZE,
             >,
@@ -455,7 +453,7 @@ where
                         TimeBackend,
                         BlendProofsGenerator,
                         BlendProofsVerifier,
-                        PolInfoProvider,
+                        BlendPolInfoProvider,
                         RuntimeServiceId,
                         SIZE,
                     >,
@@ -472,7 +470,7 @@ where
                         TimeBackend,
                         BlendProofsGenerator,
                         BlendProofsVerifier,
-                        PolInfoProvider,
+                        BlendPolInfoProvider,
                         RuntimeServiceId,
                         SIZE,
                     >,
