@@ -23,6 +23,9 @@ rand            = { default-features = false, version = "0.8.5" }
 rayon           = { optional = true, version = "1.10" }
 thiserror       = "1.0.58"
 p3-maybe-rayon = "0.2"
+ekzg-bls12-381 = "0.9.0"
+ekzg-multi-open = "0.9.0"
+ekzg-polynomial = "0.9.0"
 
 [dev-dependencies]
 divan = { default-features = false, version = "0.1" }
