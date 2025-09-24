@@ -23,7 +23,6 @@ nomos-membership       = { workspace = true }
 nomos-network          = { workspace = true }
 nomos-utils            = { features = ["serde"], workspace = true }
 overwatch              = { workspace = true }
-poq                    = { workspace = true }
 rand                   = { workspace = true }
 serde                  = { default-features = false, version = "1.0" }
 serde_with             = { workspace = true }

@@ -2,6 +2,7 @@ use core::{
     convert::Infallible,
     fmt::{Debug, Display},
     marker::PhantomData,
+    time::Duration,
 };
 
 use async_trait::async_trait;
@@ -29,6 +30,7 @@ use nomos_da_sampling::network::NetworkAdapter;
 use nomos_libp2p::PeerId;
 use overwatch::{overwatch::OverwatchHandle, services::AsServiceId};
 use pol::{PolChainInputsData, PolWalletInputsData, PolWitnessInputsData};
+use services_utils::wait_until_services_are_ready;
 use tokio::sync::oneshot::channel;
 use tokio_stream::wrappers::BroadcastStream;
 
@@ -182,6 +184,7 @@ where
     async fn subscribe(
         overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
     ) -> Option<Self::Stream> {
+        wait_until_services_are_ready!(overwatch_handle, Some(Duration::from_secs(3)), CryptarchiaService<SamplingAdapter, RuntimeServiceId>).await.ok()?;
         let cryptarchia_service_relay = overwatch_handle
             .relay::<CryptarchiaService<SamplingAdapter, RuntimeServiceId>>()
             .await
