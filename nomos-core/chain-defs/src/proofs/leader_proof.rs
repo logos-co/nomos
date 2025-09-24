@@ -272,6 +272,12 @@ impl LeaderPrivate {
     }
 }
 
+impl From<LeaderPrivate> for pol::PolWitnessInputsData {
+    fn from(value: LeaderPrivate) -> Self {
+        value.input
+    }
+}
+
 mod proof_serde {
     use serde::{Deserialize, Deserializer, Serializer};
 

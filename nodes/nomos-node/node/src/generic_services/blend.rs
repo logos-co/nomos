@@ -6,7 +6,7 @@ use core::{
 
 use async_trait::async_trait;
 use chain_service::ConsensusMsg;
-use futures::{Stream, StreamExt as _};
+use futures::{Stream, StreamExt as _, future::ready};
 use nomos_blend_message::crypto::{
     keys::Ed25519PrivateKey,
     proofs::{
@@ -28,7 +28,9 @@ use nomos_core::{codec::SerdeOp as _, crypto::ZkHash};
 use nomos_da_sampling::network::NetworkAdapter;
 use nomos_libp2p::PeerId;
 use overwatch::{overwatch::OverwatchHandle, services::AsServiceId};
+use pol::{PolChainInputsData, PolWalletInputsData, PolWitnessInputsData};
 use tokio::sync::oneshot::channel;
+use tokio_stream::wrappers::BroadcastStream;
 
 use crate::generic_services::{CryptarchiaService, MembershipService};
 
@@ -178,35 +180,56 @@ where
     async fn subscribe(
         overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
     ) -> Option<Self::Stream> {
-        use groth16::Field as _;
-
         let cryptarchia_service_relay = overwatch_handle
             .relay::<CryptarchiaService<SamplingAdapter, RuntimeServiceId>>()
             .await
             .ok()?;
         let (sender, receiver) = channel();
         cryptarchia_service_relay
-            .send(ConsensusMsg::SubscribeToWinningPolEpochSlotStream { sender })
+            .send(ConsensusMsg::WinningPolEpochSlotStreamSubscribe { sender })
             .await
             .ok()?;
         let item = receiver.await.ok()?;
         // TODO: Change this.
-        Some(Box::new(item.map(|(public_info, _, secret_key)| {
-            PolEpochInfo {
-                epoch_nonce: public_info.epoch_nonce,
+        Some(Box::new(BroadcastStream::new(item).filter_map(|res| {
+            let Ok((private, secret_key)) = res else {
+                return ready(None);
+            };
+            let PolWitnessInputsData {
+                chain:
+                    PolChainInputsData {
+                        epoch_nonce,
+                        slot_number,
+                        ..
+                    },
+                wallet:
+                    PolWalletInputsData {
+                        note_value,
+                        transaction_hash,
+                        output_number,
+                        aged_path,
+                        aged_selector,
+                        slot_secret,
+                        slot_secret_path,
+                        starting_slot,
+                        ..
+                    },
+            } = PolWitnessInputsData::from(private);
+            ready(Some(PolEpochInfo {
+                epoch_nonce,
                 poq_private_inputs: ProofOfLeadershipQuotaInputs {
-                    aged_path: vec![],
-                    aged_selector: vec![],
-                    note_value: 0,
-                    output_number: 0,
+                    aged_path,
+                    aged_selector,
+                    note_value,
+                    output_number,
                     pol_secret_key: secret_key.into(),
-                    slot: 0,
-                    slot_secret: ZkHash::ZERO,
-                    slot_secret_path: vec![],
-                    starting_slot: 0,
-                    transaction_hash: ZkHash::ZERO,
+                    slot: slot_number,
+                    slot_secret,
+                    slot_secret_path,
+                    starting_slot,
+                    transaction_hash,
                 },
-            }
+            }))
         })))
     }
 }

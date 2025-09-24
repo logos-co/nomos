@@ -35,7 +35,7 @@ use nomos_core::{
         AuthenticatedMantleTx, Op, SignedMantleTx, Transaction, TxHash, TxSelect,
         gas::MainnetGasConstants, keys::SecretKey, ops::leader_claim::VoucherCm,
     },
-    proofs::leader_proof::{Groth16LeaderProof, LeaderPrivate, LeaderPublic},
+    proofs::leader_proof::{Groth16LeaderProof, LeaderPrivate},
 };
 use nomos_da_sampling::{
     DaSamplingService, DaSamplingServiceMsg, backend::DaSamplingServiceBackend,
@@ -103,6 +103,8 @@ pub enum Error {
     BlobValidationFailed(#[from] blob::Error),
 }
 
+pub type WinningSlotEpochInfo = (LeaderPrivate, SecretKey);
+
 pub enum ConsensusMsg {
     Info {
         tx: oneshot::Sender<CryptarchiaInfo>,
@@ -123,7 +125,7 @@ pub enum ConsensusMsg {
         tx: oneshot::Sender<Option<LedgerState>>,
     },
     WinningPolEpochSlotStreamSubscribe {
-        sender: oneshot::Sender<broadcast::Receiver<(LeaderPublic, LeaderPrivate, SecretKey)>>,
+        sender: oneshot::Sender<broadcast::Receiver<WinningSlotEpochInfo>>,
     },
 }
 
@@ -349,7 +351,7 @@ pub struct CryptarchiaConsensus<
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     new_block_subscription_sender: broadcast::Sender<HeaderId>,
     lib_subscription_sender: broadcast::Sender<LibUpdate>,
-    winning_pol_epoch_slots_sender: broadcast::Sender<(LeaderPublic, LeaderPrivate, SecretKey)>,
+    winning_pol_epoch_slots_sender: broadcast::Sender<WinningSlotEpochInfo>,
     initial_state: <Self as ServiceData>::State,
 }
 
@@ -983,11 +985,7 @@ where
         cryptarchia: &Cryptarchia,
         new_block_channel: &broadcast::Sender<HeaderId>,
         lib_channel: &broadcast::Sender<LibUpdate>,
-        winning_pol_epoch_slots_sender: &broadcast::Sender<(
-            LeaderPublic,
-            LeaderPrivate,
-            SecretKey,
-        )>,
+        winning_pol_epoch_slots_sender: &broadcast::Sender<WinningSlotEpochInfo>,
         msg: ConsensusMsg,
     ) {
         match msg {

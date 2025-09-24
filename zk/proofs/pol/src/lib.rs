@@ -303,9 +303,10 @@ mod tests {
             .collect(),
             starting_slot: 16,
         };
-        let witness_inputs = PolWitnessInputs::from_chain_and_wallet_data(chain_data, wallet_data);
+        let witness_inputs =
+            PolWitnessInputsData::from_chain_and_wallet_data(chain_data, wallet_data);
 
-        let (proof, inputs) = prove(&witness_inputs).unwrap();
+        let (proof, inputs) = prove(&witness_inputs.into()).unwrap();
         assert!(verify(&proof, &inputs).unwrap());
     }
 }
