@@ -1,13 +1,12 @@
 mod blend;
 mod leadership;
 mod messages;
-pub mod network;
 mod relays;
-mod storage;
 
 use core::fmt::Debug;
 use std::{collections::BTreeSet, fmt::Display, path::PathBuf, time::Duration};
 
+use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 use cryptarchia_engine::Slot;
 use futures::{StreamExt as _, TryFutureExt as _};
 pub use leadership::LeaderConfig;
@@ -39,7 +38,6 @@ use tracing::{debug, error, info, instrument, span, Level};
 use tracing_futures::Instrument as _;
 
 use crate::{blend::BlendAdapter, leadership::Leader, relays::CryptarchiaConsensusRelays};
-use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 
 type MempoolRelay<Payload, Item, Key> = OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>;
 type SamplingRelay<BlobId> = OutboundRelay<DaSamplingServiceMsg<BlobId>>;
@@ -102,7 +100,7 @@ pub struct CryptarchiaLeader<
     SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
     TimeBackend: nomos_time::backends::TimeBackend,
-    TimeBackend::Settings: Clone + Send + Sync,
+    TimeBackend::Settings: Clone + Send + Sync + 'static,
     CryptarchiaService: CryptarchiaServiceData<ClPool::Item>,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
@@ -147,7 +145,7 @@ where
     SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
     TimeBackend: nomos_time::backends::TimeBackend,
-    TimeBackend::Settings: Clone + Send + Sync,
+    TimeBackend::Settings: Clone + Send + Sync + 'static,
     CryptarchiaService: CryptarchiaServiceData<ClPool::Item>,
 {
     type Settings = LeaderSettings<TxS::Settings, BlendService::BroadcastSettings>;
@@ -209,14 +207,15 @@ where
         + 'static,
     TxS: TxSelect<Tx = ClPool::Item> + Clone + Send + Sync + 'static,
     TxS::Settings: Send + Sync + 'static,
-    SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
+    SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send + 'static,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + Send + 'static,
     SamplingNetworkAdapter:
-        nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
-    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
+        nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync + 'static,
+    SamplingStorage:
+        nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync + 'static,
     TimeBackend: nomos_time::backends::TimeBackend,
-    TimeBackend::Settings: Clone + Send + Sync,
+    TimeBackend::Settings: Clone + Send + Sync + 'static,
     CryptarchiaService: CryptarchiaServiceData<ClPool::Item>,
     RuntimeServiceId: Debug
         + Send
@@ -256,17 +255,11 @@ where
 
     #[expect(clippy::too_many_lines, reason = "TODO: Address this at some point.")]
     async fn run(mut self) -> Result<(), DynError> {
-        let relays: CryptarchiaConsensusRelays<
-            BlendService,
-            ClPool,
-            ClPoolAdapter,
-            SamplingBackend,
-            RuntimeServiceId,
-        > = CryptarchiaConsensusRelays::from_service_resources_handle::<
+        let relays = CryptarchiaConsensusRelays::from_service_resources_handle::<
             Self,
-            _,
-            _,
-            _,
+            SamplingNetworkAdapter,
+            SamplingStorage,
+            TimeBackend,
             CryptarchiaService,
         >(&self.service_resources_handle)
         .await;

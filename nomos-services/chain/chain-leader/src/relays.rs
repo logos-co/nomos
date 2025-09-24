@@ -1,7 +1,6 @@
 use std::fmt::{Debug, Display};
 
 use chain_service::api::CryptarchiaServiceData;
-
 use nomos_core::{
     da,
     header::HeaderId,
@@ -68,7 +67,7 @@ where
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
 {
-    pub async fn new(
+    pub const fn new(
         blend_relay: BlendRelay<BlendService>,
         cl_mempool_relay: ClMempoolRelay<ClPool, ClPoolAdapter, RuntimeServiceId>,
         sampling_relay: SamplingRelay<SamplingBackend::BlobId>,
@@ -83,7 +82,6 @@ where
     }
 
     #[expect(clippy::allow_attributes_without_reason)]
-    #[expect(clippy::type_complexity)]
     pub async fn from_service_resources_handle<
         S,
         SamplingNetworkAdapter,
@@ -95,6 +93,9 @@ where
     ) -> Self
     where
         S: ServiceData,
+        <S as ServiceData>::Message: Send + Sync + 'static,
+        <S as ServiceData>::Settings: Send + Sync + 'static,
+        <S as ServiceData>::State: Send + Sync + 'static,
         ClPool::Key: Send,
         BlendService: nomos_blend_service::ServiceComponents,
         BlendService::BroadcastSettings: Send + Sync,
@@ -104,7 +105,7 @@ where
         SamplingStorage:
             nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
         TimeBackend: TimeBackendTrait,
-        TimeBackend::Settings: Clone + Send + Sync,
+        TimeBackend::Settings: Clone + Send + Sync + 'static,
         RuntimeServiceId: Debug
             + Sync
             + Send
@@ -159,7 +160,7 @@ where
             .await
             .expect("Relay connection with TimeService should succeed");
 
-        Self::new(blend_relay, cl_mempool_relay, sampling_relay, time_relay).await
+        Self::new(blend_relay, cl_mempool_relay, sampling_relay, time_relay)
     }
 
     pub const fn blend_relay(&self) -> &BlendRelay<BlendService> {

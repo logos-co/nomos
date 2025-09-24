@@ -1086,8 +1086,9 @@ where
                 });
             }
             ConsensusMsg::ProcessLeaderBlock { .. } => {
-                // ProcessBlock is handled separately in the run loop where we have async context
-                // This should never be reached since we filter it out before calling process_message
+                // ProcessBlock is handled separately in the run loop where we have async
+                // context This should never be reached since we filter it out
+                // before calling process_message
                 error!("ProcessBlock should be handled in the run loop, not in process_message");
             }
         }
