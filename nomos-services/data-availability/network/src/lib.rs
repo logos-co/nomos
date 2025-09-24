@@ -351,7 +351,7 @@ where
 
         let membership_service_adapter = MembershipServiceAdapter::new(membership_service_relay);
 
-        let mut opinion_aggregator = OpinionAggregator::<Membership>::new();
+        let mut opinion_aggregator = OpinionAggregator::<Membership>::new(backend.local_peer_id());
 
         wait_until_services_are_ready!(
             &self.service_resources_handle.overwatch_handle,
@@ -396,7 +396,11 @@ where
                     );
                     match Self::handle_membership_update(session_id, providers, &membership_storage).await {
                         Ok(current_membership) => {
-                            opinion_aggregator.on_session_change(current_membership);
+                            let opinions = opinion_aggregator.handle_session_change(current_membership);
+                            if let Some(opinions) = opinions {
+                                tracing::debug!("Processing opinions {opinions:?}");
+                                // todo: sdp_adapter.process_opinions(opinions).await;
+                            }
                             let _ = subnet_refresh_sender.send(()).await;
                         }
                         Err(e) => {

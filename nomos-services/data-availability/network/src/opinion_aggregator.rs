@@ -11,27 +11,37 @@ pub struct OpinionAggregator<Membership>
 where
     Membership: MembershipHandler<Id = PeerId>,
 {
-    // Opinion counters for current session (new blocks)
+    local_peer_id: PeerId,
     positive_opinions: HashMap<PeerId, u32>,
     negative_opinions: HashMap<PeerId, u32>,
     blacklist: HashSet<PeerId>,
 
-    // Opinion counters for previous session (old blocks)
     old_positive_opinions: HashMap<PeerId, u32>,
     old_negative_opinions: HashMap<PeerId, u32>,
     old_blacklist: HashSet<PeerId>,
 
-    // Memberships contain both the peer lists and session IDs
     current_membership: Option<Membership>,
     previous_membership: Option<Membership>,
+}
+
+#[derive(Debug)]
+#[expect(
+    dead_code,
+    reason = "Will be used when SDP adapter integration is complete"
+)]
+pub struct Opinions {
+    pub session_id: SessionNumber,
+    pub new_opinions: Vec<bool>,
+    pub old_opinions: Vec<bool>,
 }
 
 impl<Membership> OpinionAggregator<Membership>
 where
     Membership: MembershipHandler<Id = PeerId>,
 {
-    pub fn new() -> Self {
+    pub fn new(local_peer_id: PeerId) -> Self {
         Self {
+            local_peer_id,
             positive_opinions: HashMap::new(),
             negative_opinions: HashMap::new(),
             blacklist: HashSet::new(),
@@ -122,15 +132,18 @@ where
         }
     }
 
-    pub fn on_session_change(&mut self, new_membership: Membership) {
-        // Generate activity proof here if we have both memberships (before clearing)
-        if self.current_membership.is_some() && self.previous_membership.is_some() {
-            // This would be session s+1, time to generate proof for session s
-            // TODO: generate_activity_proof() and send it
-        }
+    pub fn handle_session_change(&mut self, new_membership: Membership) -> Option<Opinions> {
+        // Generate opinions before clearing if we have both memberships
+        let opinions = if self.current_membership.is_some() && self.previous_membership.is_some() {
+            self.generate_opinions()
+        } else {
+            None
+        };
 
+        // Rotate memberships
         self.previous_membership = self.current_membership.take();
 
+        // Clear all counters
         self.positive_opinions.clear();
         self.negative_opinions.clear();
         self.blacklist.clear();
@@ -138,13 +151,12 @@ where
         self.old_negative_opinions.clear();
         self.old_blacklist.clear();
 
-        // Pre-populate opinion maps with zeros for new membership so the vectors fit
+        // Pre-populate opinion maps with zeros
         for peer_id in new_membership.members() {
             self.positive_opinions.insert(peer_id, 0);
             self.negative_opinions.insert(peer_id, 0);
         }
 
-        // Pre-populate for previous membership (if it exists) so the vectors fit
         if let Some(ref membership) = self.previous_membership {
             for peer_id in membership.members() {
                 self.old_positive_opinions.insert(peer_id, 0);
@@ -153,5 +165,65 @@ where
         }
 
         self.current_membership = Some(new_membership);
+
+        opinions // Return opinions to be sent to SDP
+    }
+
+    pub fn generate_opinions(&self) -> Option<Opinions> {
+        let current = self.current_membership.as_ref()?;
+        let previous = self.previous_membership.as_ref()?;
+
+        // Sort peer IDs lexicographically as per spec
+        let mut current_peers: Vec<PeerId> = current.members().into_iter().collect();
+        current_peers.sort();
+
+        let mut previous_peers: Vec<PeerId> = previous.members().into_iter().collect();
+        previous_peers.sort();
+
+        let new_opinions = self.calculate_opinions(
+            &current_peers,
+            &self.positive_opinions,
+            &self.negative_opinions,
+            true, // Always include self opinion
+        );
+
+        let old_opinions = self.calculate_opinions(
+            &previous_peers,
+            &self.old_positive_opinions,
+            &self.old_negative_opinions,
+            previous_peers.contains(&self.local_peer_id), // Only if we were in previous session
+        );
+
+        Some(Opinions {
+            session_id: current.session_id(),
+            new_opinions,
+            old_opinions,
+        })
+    }
+
+    fn calculate_opinions(
+        &self,
+        sorted_peers: &[PeerId],
+        positive: &HashMap<PeerId, u32>,
+        negative: &HashMap<PeerId, u32>,
+        include_self: bool,
+    ) -> Vec<bool> {
+        sorted_peers
+            .iter()
+            .map(|peer_id| {
+                if include_self && *peer_id == self.local_peer_id {
+                    true // Always positive opinion about self
+                } else {
+                    let pos = positive.get(peer_id).copied().unwrap_or(0);
+                    if pos == 0 {
+                        false // No positive opinions = negative (matches spec update)
+                    } else {
+                        let neg = negative.get(peer_id).copied().unwrap_or(0);
+                        let ratio = (pos as f32 - neg as f32) / pos as f32;
+                        ratio > OPINION_THRESHOLD
+                    }
+                }
+            })
+            .collect()
     }
 }
