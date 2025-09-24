@@ -1,20 +1,36 @@
-use core::convert::Infallible;
+use core::{
+    convert::Infallible,
+    fmt::{Debug, Display},
+    marker::PhantomData,
+};
 
 use async_trait::async_trait;
+use chain_service::ConsensusMsg;
+use futures::{Stream, StreamExt as _};
 use nomos_blend_message::crypto::{
     keys::Ed25519PrivateKey,
     proofs::{
-        quota::{ProofOfQuota, inputs::prove::PublicInputs},
+        quota::{
+            ProofOfQuota,
+            inputs::prove::{PublicInputs, private::ProofOfLeadershipQuotaInputs},
+        },
         selection::{ProofOfSelection, inputs::VerifyInputs},
     },
     random_sized_bytes,
 };
 use nomos_blend_scheduling::message_blend::{BlendLayerProof, SessionInfo};
-use nomos_blend_service::{ProofsGenerator, ProofsVerifier, membership::service::Adapter};
+use nomos_blend_service::{
+    ProofsGenerator, ProofsVerifier,
+    membership::service::Adapter,
+    pol::{PolEpochInfo, PolInfoProvider as PolInfoProviderTrait},
+};
 use nomos_core::{codec::SerdeOp as _, crypto::ZkHash};
+use nomos_da_sampling::network::NetworkAdapter;
 use nomos_libp2p::PeerId;
+use overwatch::{overwatch::OverwatchHandle, services::AsServiceId};
+use tokio::sync::oneshot::channel;
 
-use crate::generic_services::MembershipService;
+use crate::generic_services::{CryptarchiaService, MembershipService};
 
 // TODO: Replace this with the actual verifier once the verification inputs are
 // successfully fetched by the Blend service.
@@ -117,25 +133,80 @@ fn loop_until_valid_proof(
 
 pub type BlendMembershipAdapter<RuntimeServiceId> =
     Adapter<MembershipService<RuntimeServiceId>, PeerId>;
-pub type BlendCoreService<RuntimeServiceId> = nomos_blend_service::core::BlendService<
-    nomos_blend_service::core::backends::libp2p::Libp2pBlendBackend,
-    PeerId,
-    nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
-    BlendMembershipAdapter<RuntimeServiceId>,
-    BlendProofsGenerator,
-    BlendProofsVerifier,
-    RuntimeServiceId,
->;
-pub type BlendEdgeService<RuntimeServiceId> = nomos_blend_service::edge::BlendService<
+pub type BlendCoreService<SamplingAdapter, RuntimeServiceId> =
+    nomos_blend_service::core::BlendService<
+        nomos_blend_service::core::backends::libp2p::Libp2pBlendBackend,
+        PeerId,
+        nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
+        BlendMembershipAdapter<RuntimeServiceId>,
+        BlendProofsGenerator,
+        BlendProofsVerifier,
+        PolInfoProvider<SamplingAdapter>,
+        RuntimeServiceId,
+    >;
+pub type BlendEdgeService<SamplingAdapter, RuntimeServiceId> = nomos_blend_service::edge::BlendService<
         nomos_blend_service::edge::backends::libp2p::Libp2pBlendBackend,
         PeerId,
         <nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<RuntimeServiceId>>::BroadcastSettings,
         BlendMembershipAdapter<RuntimeServiceId>,
         BlendProofsGenerator,
+        PolInfoProvider<SamplingAdapter>,
         RuntimeServiceId
     >;
-pub type BlendService<RuntimeServiceId> = nomos_blend_service::BlendService<
-    BlendCoreService<RuntimeServiceId>,
-    BlendEdgeService<RuntimeServiceId>,
+pub type BlendService<SamplingAdapter, RuntimeServiceId> = nomos_blend_service::BlendService<
+    BlendCoreService<SamplingAdapter, RuntimeServiceId>,
+    BlendEdgeService<SamplingAdapter, RuntimeServiceId>,
     RuntimeServiceId,
 >;
+
+pub struct PolInfoProvider<SamplingAdapter>(PhantomData<SamplingAdapter>);
+
+#[async_trait]
+impl<SamplingAdapter, RuntimeServiceId> PolInfoProviderTrait<RuntimeServiceId>
+    for PolInfoProvider<SamplingAdapter>
+where
+    SamplingAdapter: NetworkAdapter<RuntimeServiceId>,
+    RuntimeServiceId: AsServiceId<CryptarchiaService<SamplingAdapter, RuntimeServiceId>>
+        + Debug
+        + Display
+        + Send
+        + Sync
+        + 'static,
+{
+    type Stream = Box<dyn Stream<Item = PolEpochInfo> + Send + Unpin>;
+
+    async fn subscribe(
+        overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
+    ) -> Option<Self::Stream> {
+        use groth16::Field as _;
+
+        let cryptarchia_service_relay = overwatch_handle
+            .relay::<CryptarchiaService<SamplingAdapter, RuntimeServiceId>>()
+            .await
+            .ok()?;
+        let (sender, receiver) = channel();
+        cryptarchia_service_relay
+            .send(ConsensusMsg::SubscribeToWinningPolEpochSlotStream { sender })
+            .await
+            .ok()?;
+        let item = receiver.await.ok()?;
+        // TODO: Change this.
+        Some(Box::new(item.map(|(public_info, _, secret_key)| {
+            PolEpochInfo {
+                epoch_nonce: public_info.epoch_nonce,
+                poq_private_inputs: ProofOfLeadershipQuotaInputs {
+                    aged_path: vec![],
+                    aged_selector: vec![],
+                    note_value: 0,
+                    output_number: 0,
+                    pol_secret_key: secret_key.into(),
+                    slot: 0,
+                    slot_secret: ZkHash::ZERO,
+                    slot_secret_path: vec![],
+                    starting_slot: 0,
+                    transaction_hash: ZkHash::ZERO,
+                },
+            }
+        })))
+    }
+}

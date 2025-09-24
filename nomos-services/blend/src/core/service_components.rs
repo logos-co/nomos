@@ -2,7 +2,7 @@ use nomos_utils::blake_rng::BlakeRng;
 
 use crate::{
     core::{BlendService, backends::BlendBackend},
-    message::ServiceMessage,
+    message::{NetworkMessage, ServiceMessage},
 };
 
 /// Helper trait to help the Blend proxy service rely on the concrete types of
@@ -16,8 +16,16 @@ pub trait ServiceComponents<RuntimeServiceId> {
     type ProofsGenerator;
 }
 
-impl<Backend, NodeId, Network, MembershipAdapter, ProofsGenerator, ProofsVerifier, RuntimeServiceId>
-    ServiceComponents<RuntimeServiceId>
+impl<
+    Backend,
+    NodeId,
+    Network,
+    MembershipAdapter,
+    ProofsGenerator,
+    ProofsVerifier,
+    PolInfoProvider,
+    RuntimeServiceId,
+> ServiceComponents<RuntimeServiceId>
     for BlendService<
         Backend,
         NodeId,
@@ -25,6 +33,7 @@ impl<Backend, NodeId, Network, MembershipAdapter, ProofsGenerator, ProofsVerifie
         MembershipAdapter,
         ProofsGenerator,
         ProofsVerifier,
+        PolInfoProvider,
         RuntimeServiceId,
     >
 where
@@ -45,20 +54,19 @@ pub type NetworkBackendOfService<Service, RuntimeServiceId> = <<Service as Servi
 pub trait MessageComponents {
     type Payload;
     type BroadcastSettings;
-    type Error;
 
-    fn try_into_components(self) -> Result<(Self::Payload, Self::BroadcastSettings), Self::Error>;
+    fn into_components(self) -> (Self::Payload, Self::BroadcastSettings);
 }
 
 impl<BroadcastSettings> MessageComponents for ServiceMessage<BroadcastSettings> {
     type Payload = Vec<u8>;
     type BroadcastSettings = BroadcastSettings;
-    type Error = ();
 
-    fn try_into_components(self) -> Result<(Self::Payload, Self::BroadcastSettings), Self::Error> {
-        let Self::Blend(message) = self else {
-            return Err(());
-        };
-        Ok((message.message, message.broadcast_settings))
+    fn into_components(self) -> (Self::Payload, Self::BroadcastSettings) {
+        let Self::Blend(NetworkMessage {
+            broadcast_settings,
+            message,
+        }) = self;
+        (message, broadcast_settings)
     }
 }

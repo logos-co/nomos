@@ -71,7 +71,7 @@ pub type DaSamplingService<SamplingAdapter, RuntimeServiceId> =
 
 pub type CryptarchiaService<SamplingAdapter, RuntimeServiceId> = CryptarchiaConsensus<
     chain_service::network::adapters::libp2p::LibP2pAdapter<SignedMantleTx, RuntimeServiceId>,
-    BlendService<RuntimeServiceId>,
+    BlendService<SamplingAdapter, RuntimeServiceId>,
     MockPool<HeaderId, SignedMantleTx, <SignedMantleTx as Transaction>::Hash>,
     nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
         SignedMantleTx,

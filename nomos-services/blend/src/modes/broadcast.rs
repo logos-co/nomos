@@ -62,9 +62,7 @@ where
             + Sync
             + 'static,
     {
-        let (payload, broadcast_settings) = message
-            .try_into_components()
-            .map_err(|_| Error::Overwatch("Failed to decompose message".into()))?;
+        let (payload, broadcast_settings) = message.into_components();
         self.adapter
             .broadcast(payload.into(), broadcast_settings.into())
             .await;
@@ -74,8 +72,6 @@ where
 
 #[cfg(test)]
 pub mod tests {
-    use core::convert::Infallible;
-
     use futures::StreamExt as _;
     use nomos_network::{NetworkService, backends::NetworkBackend, message::NetworkMsg};
     use overwatch::{
@@ -266,12 +262,9 @@ pub mod tests {
     impl MessageComponents for TestMessage {
         type Payload = Vec<u8>;
         type BroadcastSettings = ();
-        type Error = Infallible;
 
-        fn try_into_components(
-            self,
-        ) -> Result<(Self::Payload, Self::BroadcastSettings), Self::Error> {
-            Ok((self.0, ()))
+        fn into_components(self) -> (Self::Payload, Self::BroadcastSettings) {
+            (self.0, ())
         }
     }
 

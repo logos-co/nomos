@@ -21,7 +21,7 @@ use nomos_api::http::{
     libp2p, mempool,
     storage::StorageAdapter,
 };
-use nomos_blend_service::ProofsVerifier;
+use nomos_blend_service::{ProofsVerifier, pol::PolInfoProvider as PolInfoProviderTrait};
 use nomos_core::{
     da::{BlobId, DaVerifier as CoreDaVerifier, blob::Share},
     header::HeaderId,
@@ -166,6 +166,7 @@ pub async fn cryptarchia_info<
     TimeBackend,
     BlendProofsGenerator,
     BlendProofsVerifier,
+    PolInfoProvider,
     RuntimeServiceId,
     const SIZE: usize,
 >(
@@ -192,6 +193,7 @@ where
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
     BlendProofsVerifier: ProofsVerifier + Clone + Send + 'static,
+    PolInfoProvider: PolInfoProviderTrait<RuntimeServiceId>,
     RuntimeServiceId: Debug
         + Send
         + Sync
@@ -206,6 +208,7 @@ where
                 TimeBackend,
                 BlendProofsGenerator,
                 BlendProofsVerifier,
+                PolInfoProvider,
                 RuntimeServiceId,
                 SIZE,
             >,
@@ -219,6 +222,7 @@ where
         TimeBackend,
         BlendProofsGenerator,
         BlendProofsVerifier,
+        PolInfoProvider,
         RuntimeServiceId,
         SIZE,
     >(&handle))
@@ -240,6 +244,7 @@ pub async fn cryptarchia_headers<
     TimeBackend,
     BlendProofsGenerator,
     BlendProofsVerifier,
+    PolInfoProvider,
     RuntimeServiceId,
     const SIZE: usize,
 >(
@@ -267,6 +272,7 @@ where
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
     BlendProofsVerifier: ProofsVerifier + Clone + Send + 'static,
+    PolInfoProvider: PolInfoProviderTrait<RuntimeServiceId>,
     RuntimeServiceId: Debug
         + Send
         + Sync
@@ -281,6 +287,7 @@ where
                 TimeBackend,
                 BlendProofsGenerator,
                 BlendProofsVerifier,
+                PolInfoProvider,
                 RuntimeServiceId,
                 SIZE,
             >,
@@ -295,6 +302,7 @@ where
         TimeBackend,
         BlendProofsGenerator,
         BlendProofsVerifier,
+        PolInfoProvider,
         RuntimeServiceId,
         SIZE,
     >(&handle, from, to))

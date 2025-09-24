@@ -32,7 +32,7 @@ use nomos_node::{
     generic_services::{
         DaMembershipAdapter, DaMembershipStorageGeneric, MembershipService, SdpService,
         VerifierMempoolAdapter,
-        blend::{BlendProofsGenerator, BlendProofsVerifier},
+        blend::{BlendProofsGenerator, BlendProofsVerifier, PolInfoProvider},
     },
 };
 use nomos_time::backends::NtpTimeBackend;
@@ -45,11 +45,36 @@ type DaMembershipStorage = DaMembershipStorageGeneric<RuntimeServiceId>;
 
 pub(crate) type NetworkService = nomos_network::NetworkService<NetworkBackend, RuntimeServiceId>;
 
-pub(crate) type BlendCoreService =
-    nomos_node::generic_services::blend::BlendCoreService<RuntimeServiceId>;
-pub(crate) type BlendEdgeService =
-    nomos_node::generic_services::blend::BlendEdgeService<RuntimeServiceId>;
-pub(crate) type BlendService = nomos_node::generic_services::blend::BlendService<RuntimeServiceId>;
+pub(crate) type BlendCoreService = nomos_node::generic_services::blend::BlendCoreService<
+    nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
+        NomosDaMembership,
+        DaMembershipAdapter<RuntimeServiceId>,
+        DaMembershipStorage,
+        DaNetworkApiAdapter,
+        RuntimeServiceId,
+    >,
+    RuntimeServiceId,
+>;
+pub(crate) type BlendEdgeService = nomos_node::generic_services::blend::BlendEdgeService<
+    nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
+        NomosDaMembership,
+        DaMembershipAdapter<RuntimeServiceId>,
+        DaMembershipStorage,
+        DaNetworkApiAdapter,
+        RuntimeServiceId,
+    >,
+    RuntimeServiceId,
+>;
+pub(crate) type BlendService = nomos_node::generic_services::blend::BlendService<
+    nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
+        NomosDaMembership,
+        DaMembershipAdapter<RuntimeServiceId>,
+        DaMembershipStorage,
+        DaNetworkApiAdapter,
+        RuntimeServiceId,
+    >,
+    RuntimeServiceId,
+>;
 
 pub(crate) type BlockBroadcastService = broadcast_service::BlockBroadcastService<RuntimeServiceId>;
 
@@ -194,6 +219,15 @@ pub(crate) type ApiService = nomos_api::ApiService<
         ApiStorageAdapter<RuntimeServiceId>,
         BlendProofsGenerator,
         BlendProofsVerifier,
+        PolInfoProvider<
+            nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
+                NomosDaMembership,
+                DaMembershipAdapter<RuntimeServiceId>,
+                DaMembershipStorage,
+                DaNetworkApiAdapter,
+                RuntimeServiceId,
+            >,
+        >,
         MB16,
     >,
     RuntimeServiceId,

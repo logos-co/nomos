@@ -1,7 +1,7 @@
 use futures::Stream;
 use nomos_blend_message::crypto::proofs::quota::inputs::prove::private::ProofOfLeadershipQuotaInputs;
 
-use crate::message::PolEpochInfo;
+use crate::pol::PolEpochInfo;
 
 pub const fn mock_pol_epoch() -> PolEpochInfo {
     use groth16::Field as _;

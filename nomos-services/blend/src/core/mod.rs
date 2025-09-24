@@ -14,7 +14,7 @@ use std::{
 use async_trait::async_trait;
 use backends::BlendBackend;
 use fork_stream::StreamExt as _;
-use futures::{Stream, StreamExt as _, future::join_all};
+use futures::{FutureExt as _, Stream, StreamExt as _, future::join_all};
 use network::NetworkAdapter;
 use nomos_blend_message::{
     PayloadType,
@@ -54,6 +54,7 @@ use crate::{
     membership,
     message::{NetworkMessage, ProcessedMessage, ServiceMessage},
     mock_poq_inputs_stream,
+    pol::PolInfoProvider as PolInfoProviderTrait,
     session::SessionInfo as ProcessorSessionInfo,
     settings::FIRST_SESSION_READY_TIMEOUT,
 };
@@ -76,17 +77,26 @@ pub struct BlendService<
     MembershipAdapter,
     ProofsGenerator,
     ProofsVerifier,
+    PolInfoProvider,
     RuntimeServiceId,
 > where
     Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId>,
     Network: NetworkAdapter<RuntimeServiceId>,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-    _phantom: PhantomData<(Backend, MembershipAdapter, ProofsGenerator)>,
+    _phantom: PhantomData<(Backend, MembershipAdapter, ProofsGenerator, PolInfoProvider)>,
 }
 
-impl<Backend, NodeId, Network, MembershipAdapter, ProofsGenerator, ProofsVerifier, RuntimeServiceId>
-    ServiceData
+impl<
+    Backend,
+    NodeId,
+    Network,
+    MembershipAdapter,
+    ProofsGenerator,
+    ProofsVerifier,
+    PolInfoProvider,
+    RuntimeServiceId,
+> ServiceData
     for BlendService<
         Backend,
         NodeId,
@@ -94,6 +104,7 @@ impl<Backend, NodeId, Network, MembershipAdapter, ProofsGenerator, ProofsVerifie
         MembershipAdapter,
         ProofsGenerator,
         ProofsVerifier,
+        PolInfoProvider,
         RuntimeServiceId,
     >
 where
@@ -107,8 +118,16 @@ where
 }
 
 #[async_trait]
-impl<Backend, NodeId, Network, MembershipAdapter, ProofsGenerator, ProofsVerifier, RuntimeServiceId>
-    ServiceCore<RuntimeServiceId>
+impl<
+    Backend,
+    NodeId,
+    Network,
+    MembershipAdapter,
+    ProofsGenerator,
+    ProofsVerifier,
+    PolInfoProvider,
+    RuntimeServiceId,
+> ServiceCore<RuntimeServiceId>
     for BlendService<
         Backend,
         NodeId,
@@ -116,6 +135,7 @@ impl<Backend, NodeId, Network, MembershipAdapter, ProofsGenerator, ProofsVerifie
         MembershipAdapter,
         ProofsGenerator,
         ProofsVerifier,
+        PolInfoProvider,
         RuntimeServiceId,
     >
 where
@@ -126,6 +146,7 @@ where
     membership::ServiceMessage<MembershipAdapter>: Send + Sync + 'static,
     ProofsGenerator: ProofsGeneratorTrait + Send,
     ProofsVerifier: ProofsVerifierTrait + Clone + Send,
+    PolInfoProvider: PolInfoProviderTrait<RuntimeServiceId, Stream: Send + Unpin + 'static> + Send,
     RuntimeServiceId: AsServiceId<NetworkService<Network::Backend, RuntimeServiceId>>
         + AsServiceId<<MembershipAdapter as membership::Adapter>::Service>
         + AsServiceId<Self>
@@ -183,11 +204,13 @@ where
         .await
         .expect("Membership service should be ready");
 
-        let Ok(Some(ServiceMessage::PolEpochStream(pol_epoch_stream))) =
-            timeout(Duration::from_secs(3), inbound_relay.recv()).await
-        else {
-            panic!("Blend service must receive a PoL epoch stream to work properly.");
-        };
+        let pol_epoch_stream = timeout(
+            Duration::from_secs(1),
+            PolInfoProvider::subscribe(overwatch_handle)
+                .map(|r| r.expect("PoL info provider failed to return a usable stream.")),
+        )
+        .await
+        .expect("PoL info provider not received within the expected timeout.");
 
         // TODO: Replace with chain-follower stream integration.
         let poq_input_stream = mock_poq_inputs_stream();
@@ -451,13 +474,7 @@ async fn handle_local_data_message<
     BroadcastSettings: Serialize + for<'de> Deserialize<'de> + Send,
     ProofsGenerator: ProofsGeneratorTrait,
 {
-    let ServiceMessage::Blend(message_payload) = local_data_message else {
-        tracing::warn!(
-            target: LOG_TARGET,
-            "PoL epoch stream is not expected to be received more than once. Ignoring..."
-        );
-        return;
-    };
+    let ServiceMessage::Blend(message_payload) = local_data_message;
 
     let serialized_data_message =
         <NetworkMessage<BroadcastSettings> as SerdeOp>::serialize(&message_payload)

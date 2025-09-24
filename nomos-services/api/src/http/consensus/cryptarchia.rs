@@ -36,11 +36,12 @@ pub type Cryptarchia<
     TimeBackend,
     BlendProofsGenerator,
     BlendProofsVerifier,
+    PolInfoProvider,
     RuntimeServiceId,
     const SIZE: usize,
 > = CryptarchiaConsensus<
     ConsensusNetworkAdapter<Tx, RuntimeServiceId>,
-    BlendService<BlendProofsGenerator, BlendProofsVerifier, RuntimeServiceId>,
+    BlendService<BlendProofsGenerator, BlendProofsVerifier, PolInfoProvider, RuntimeServiceId>,
     MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
     MempoolNetworkAdapter<Tx, <Tx as Transaction>::Hash, RuntimeServiceId>,
     FillSizeWithTx<SIZE, Tx>,
@@ -52,7 +53,7 @@ pub type Cryptarchia<
     RuntimeServiceId,
 >;
 
-type BlendService<ProofsGenerator, ProofsVerifier, RuntimeServiceId> = nomos_blend_service::BlendService<
+type BlendService<ProofsGenerator, ProofsVerifier, PolInfoProvider, RuntimeServiceId> = nomos_blend_service::BlendService<
     nomos_blend_service::core::BlendService<
         nomos_blend_service::core::backends::libp2p::Libp2pBlendBackend,
         PeerId,
@@ -60,6 +61,7 @@ type BlendService<ProofsGenerator, ProofsVerifier, RuntimeServiceId> = nomos_ble
         BlendMembershipAdapter<RuntimeServiceId>,
         ProofsGenerator,
         ProofsVerifier,
+        PolInfoProvider,
         RuntimeServiceId,
     >,
     nomos_blend_service::edge::BlendService<
@@ -68,6 +70,7 @@ type BlendService<ProofsGenerator, ProofsVerifier, RuntimeServiceId> = nomos_ble
         <nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<RuntimeServiceId>>::BroadcastSettings,
         BlendMembershipAdapter<RuntimeServiceId>,
         ProofsGenerator,
+        PolInfoProvider,
         RuntimeServiceId
     >,
     RuntimeServiceId,
@@ -97,6 +100,7 @@ pub async fn cryptarchia_info<
     TimeBackend,
     BlendProofsGenerator,
     BlendProofsVerifier,
+    PolInfoProvider,
     RuntimeServiceId,
     const SIZE: usize,
 >(
@@ -137,6 +141,7 @@ where
                 TimeBackend,
                 BlendProofsGenerator,
                 BlendProofsVerifier,
+                PolInfoProvider,
                 RuntimeServiceId,
                 SIZE,
             >,
@@ -160,6 +165,7 @@ pub async fn cryptarchia_headers<
     TimeBackend,
     BlendProofsGenerator,
     BlendProofsVerifier,
+    PolInfoProvider,
     RuntimeServiceId,
     const SIZE: usize,
 >(
@@ -202,6 +208,7 @@ where
                 TimeBackend,
                 BlendProofsGenerator,
                 BlendProofsVerifier,
+                PolInfoProvider,
                 RuntimeServiceId,
                 SIZE,
             >,

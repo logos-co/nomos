@@ -40,6 +40,7 @@ pub mod core;
 pub mod edge;
 pub mod membership;
 pub mod message;
+pub mod pol;
 pub mod session;
 pub mod settings;
 

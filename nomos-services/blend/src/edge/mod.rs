@@ -13,7 +13,7 @@ use std::{
 };
 
 use backends::BlendBackend;
-use futures::{Stream, StreamExt as _, future::ready};
+use futures::{FutureExt as _, Stream, StreamExt as _, future::ready};
 use nomos_blend_scheduling::{
     message_blend::{
         PrivateInputs, ProofsGenerator as ProofsGeneratorTrait, SessionInfo as PoQSessionInfo,
@@ -42,6 +42,7 @@ use crate::{
     membership,
     message::{NetworkMessage, ServiceMessage},
     mock_poq_inputs_stream,
+    pol::PolInfoProvider as PolInfoProviderTrait,
     session::SessionInfo,
     settings::FIRST_SESSION_READY_TIMEOUT,
 };
@@ -54,23 +55,32 @@ pub struct BlendService<
     BroadcastSettings,
     MembershipAdapter,
     ProofsGenerator,
+    PolInfoProvider,
     RuntimeServiceId,
 > where
     Backend: BlendBackend<NodeId, RuntimeServiceId>,
     NodeId: Clone,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-    _phantom: PhantomData<(MembershipAdapter, ProofsGenerator)>,
+    _phantom: PhantomData<(MembershipAdapter, ProofsGenerator, PolInfoProvider)>,
 }
 
-impl<Backend, NodeId, BroadcastSettings, MembershipAdapter, ProofsGenerator, RuntimeServiceId>
-    ServiceData
+impl<
+    Backend,
+    NodeId,
+    BroadcastSettings,
+    MembershipAdapter,
+    ProofsGenerator,
+    PolInfoProvider,
+    RuntimeServiceId,
+> ServiceData
     for BlendService<
         Backend,
         NodeId,
         BroadcastSettings,
         MembershipAdapter,
         ProofsGenerator,
+        PolInfoProvider,
         RuntimeServiceId,
     >
 where
@@ -84,14 +94,22 @@ where
 }
 
 #[async_trait::async_trait]
-impl<Backend, NodeId, BroadcastSettings, MembershipAdapter, ProofsGenerator, RuntimeServiceId>
-    ServiceCore<RuntimeServiceId>
+impl<
+    Backend,
+    NodeId,
+    BroadcastSettings,
+    MembershipAdapter,
+    ProofsGenerator,
+    PolInfoProvider,
+    RuntimeServiceId,
+> ServiceCore<RuntimeServiceId>
     for BlendService<
         Backend,
         NodeId,
         BroadcastSettings,
         MembershipAdapter,
         ProofsGenerator,
+        PolInfoProvider,
         RuntimeServiceId,
     >
 where
@@ -101,6 +119,7 @@ where
     MembershipAdapter: membership::Adapter<NodeId = NodeId, Error: Send + Sync + 'static> + Send,
     membership::ServiceMessage<MembershipAdapter>: Send + Sync + 'static,
     ProofsGenerator: ProofsGeneratorTrait + Send,
+    PolInfoProvider: PolInfoProviderTrait<RuntimeServiceId, Stream: Send + Unpin + 'static> + Send,
     RuntimeServiceId: AsServiceId<<MembershipAdapter as membership::Adapter>::Service>
         + AsServiceId<Self>
         + Display
@@ -122,11 +141,12 @@ where
 
     #[expect(clippy::too_many_lines, reason = "TODO: Address this at some point.")]
     async fn run(mut self) -> Result<(), overwatch::DynError> {
+        println!("Starting Blend edge service.");
         let Self {
             service_resources_handle:
                 ServiceResourcesHandle {
-                    mut inbound_relay,
-                    overwatch_handle,
+                    inbound_relay,
+                    ref overwatch_handle,
                     settings_handle,
                     status_updater,
                     ..
@@ -137,7 +157,7 @@ where
         let settings = settings_handle.notifier().get_updated_settings();
 
         wait_until_services_are_ready!(
-            &overwatch_handle,
+            overwatch_handle,
             Some(Duration::from_secs(60)),
             <MembershipAdapter as membership::Adapter>::Service
         )
@@ -152,11 +172,13 @@ where
         .subscribe()
         .await?;
 
-        let Ok(Some(ServiceMessage::PolEpochStream(pol_epoch_stream))) =
-            timeout(Duration::from_secs(3), inbound_relay.recv()).await
-        else {
-            panic!("Blend service must receive a PoL epoch stream to work properly.");
-        };
+        let pol_epoch_stream = timeout(
+            Duration::from_secs(1),
+            PolInfoProvider::subscribe(overwatch_handle)
+                .map(|r| r.expect("PoL info provider failed to return a usable stream.")),
+        )
+        .await
+        .expect("PoL info provider not received within the expected timeout.");
 
         // TODO: Replace with chain-follower stream integration.
         let poq_input_stream = mock_poq_inputs_stream();
@@ -208,13 +230,7 @@ where
         );
 
         let messages_to_blend = inbound_relay.filter_map(|service_message| {
-            let ServiceMessage::Blend(network_message) = service_message else {
-                tracing::warn!(
-                    target: LOG_TARGET,
-                    "PoL epoch stream is not expected to be received more than once. Ignoring..."
-                );
-                return ready(None);
-            };
+            let ServiceMessage::Blend(network_message) = service_message;
             ready(Some(
                 <NetworkMessage<BroadcastSettings> as SerdeOp>::serialize(&network_message)
                     .expect("NetworkMessage should be able to be serialized")
@@ -226,7 +242,7 @@ where
             uninitialized_session_stream,
             messages_to_blend,
             &settings,
-            &overwatch_handle,
+            overwatch_handle,
             || {
                 status_updater.notify_ready();
                 info!(

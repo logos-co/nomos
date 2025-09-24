@@ -23,7 +23,7 @@ use broadcast_service::{BlockBroadcastMsg, BlockBroadcastService, BlockInfo};
 use bytes::Bytes;
 use cryptarchia_engine::{PrunedBlocks, Slot};
 use cryptarchia_sync::{GetTipResponse, ProviderResponse};
-use futures::{StreamExt as _, TryFutureExt as _};
+use futures::{Stream, StreamExt as _, TryFutureExt as _, stream::empty};
 pub use leadership::LeaderConfig;
 use network::NetworkAdapter;
 pub use nomos_blend_service::ServiceComponents as BlendServiceComponents;
@@ -33,9 +33,9 @@ use nomos_core::{
     header::{Header, HeaderId},
     mantle::{
         AuthenticatedMantleTx, Op, SignedMantleTx, Transaction, TxHash, TxSelect,
-        gas::MainnetGasConstants, ops::leader_claim::VoucherCm,
+        gas::MainnetGasConstants, keys::SecretKey, ops::leader_claim::VoucherCm,
     },
-    proofs::leader_proof::Groth16LeaderProof,
+    proofs::leader_proof::{Groth16LeaderProof, LeaderPrivate, LeaderPublic},
 };
 use nomos_da_sampling::{
     DaSamplingService, DaSamplingServiceMsg, backend::DaSamplingServiceBackend,
@@ -103,7 +103,9 @@ pub enum Error {
     BlobValidationFailed(#[from] blob::Error),
 }
 
-#[derive(Debug)]
+pub type PolEpochSlotStream =
+    Box<dyn Stream<Item = (LeaderPublic, LeaderPrivate, SecretKey)> + Send + Unpin>;
+
 pub enum ConsensusMsg {
     Info {
         tx: oneshot::Sender<CryptarchiaInfo>,
@@ -122,6 +124,9 @@ pub enum ConsensusMsg {
     GetLedgerState {
         block_id: HeaderId,
         tx: oneshot::Sender<Option<LedgerState>>,
+    },
+    SubscribeToWinningPolEpochSlotStream {
+        sender: oneshot::Sender<PolEpochSlotStream>,
     },
 }
 
@@ -606,6 +611,7 @@ where
             relays.blend_relay().clone(),
             blend_broadcast_settings.clone(),
         );
+        println!("After sending stream to Blend adapter");
 
         let mut orphan_downloader = Box::pin(OrphanBlocksDownloader::new(
             network_adapter.clone(),
@@ -1043,6 +1049,10 @@ where
                 tx.send(ledger_state).unwrap_or_else(|_| {
                     error!("Could not send ledger state through channel");
                 });
+            }
+            ConsensusMsg::SubscribeToWinningPolEpochSlotStream { sender } => {
+                // TODO: Change this
+                let _ = sender.send(Box::new(empty()));
             }
         }
     }
