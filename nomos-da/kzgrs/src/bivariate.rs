@@ -9,7 +9,7 @@ use ark_std::{
     ops::{Add, AddAssign, Neg, Sub, SubAssign},
     rand::Rng,
 };
-use p3_maybe_rayon::prelude::{IndexedParallelIterator, ParallelIterator};
+use p3_maybe_rayon::prelude::ParallelIterator;
 
 // NOTE: I have avoid implmenting `trait DenseMVPolynomial`, because the
 // knowledge of "dense+bivariate" obviates the need to define `BVTerm` and
@@ -206,7 +206,7 @@ impl<F: Field> DensePolynomial<F> {
                             .for_each(|(c, q_c)| *c -= *q_c * div_coeff)
                     });
                     if let Some(row) = remainder.coeffs.last() {
-                        assert!(row.iter().all(|c| c.is_zero()));
+                        assert!(row.iter().all( |c| c.is_zero()));
                         remainder.coeffs.pop();
                         remainder.deg_x -= 1;
                     }
@@ -229,7 +229,7 @@ impl<F: Field> DensePolynomial<F> {
                         .iter()
                         .map(|row| {
                             let c = row.last().unwrap();
-                            *c * &divisor_leading_inv
+                            *c * divisor_leading_inv
                         })
                         .collect();
                     let cur_q_degree = remainder.deg_y - divisor.degree();
@@ -244,8 +244,8 @@ impl<F: Field> DensePolynomial<F> {
                             .iter_mut()
                             .enumerate()
                             .for_each(|(idx, row)| {
-                                row[cur_q_degree + i] -= cur_q_coeff[idx] * div_coeff
-                            })
+                                row[cur_q_degree + i] -= cur_q_coeff[idx] * div_coeff;
+                            });
                     });
                     if let Some(column) = remainder
                         .coeffs
@@ -338,14 +338,14 @@ impl<F: Field> DensePolynomial<F> {
 // =================================================
 // TODO: impl Mul, Div
 impl<F: Field> Add for DensePolynomial<F> {
-    type Output = DensePolynomial<F>;
+    type Output = Self;
     #[inline]
     fn add(self, rhs: Self) -> Self::Output {
         &self + &rhs
     }
 }
 
-impl<'a, 'b, F: Field> Add<&'a DensePolynomial<F>> for &'b DensePolynomial<F> {
+impl<'a, F: Field> Add<&'a DensePolynomial<F>> for &DensePolynomial<F> {
     type Output = DensePolynomial<F>;
     #[inline]
     fn add(self, rhs: &'a DensePolynomial<F>) -> Self::Output {
@@ -404,9 +404,9 @@ impl<'a, 'b, F: Field> Add<&'a DensePolynomial<F>> for &'b DensePolynomial<F> {
     }
 }
 
-impl<'a, F: Field> AddAssign<&'a DensePolynomial<F>> for DensePolynomial<F> {
+impl<'a, F: Field> AddAssign<&'a Self> for DensePolynomial<F> {
     #[inline]
-    fn add_assign(&mut self, rhs: &'a DensePolynomial<F>) {
+    fn add_assign(&mut self, rhs: &'a Self) {
         if self.is_zero() {
             *self = rhs.clone();
         } else if rhs.is_zero() {
@@ -443,7 +443,7 @@ impl<'a, F: Field> AddAssign<&'a DensePolynomial<F>> for DensePolynomial<F> {
                 .for_each(|(row_idx, row)| {
                     row.iter_mut()
                         .zip(rhs.coeffs[row_idx].iter())
-                        .for_each(|(a, b)| *a += b)
+                        .for_each(|(a, b)| *a += b);
                 });
             self.deg_x = deg_x;
             self.deg_y = deg_y;
@@ -452,9 +452,9 @@ impl<'a, F: Field> AddAssign<&'a DensePolynomial<F>> for DensePolynomial<F> {
     }
 }
 
-impl<'a, F: Field> AddAssign<(F, &'a DensePolynomial<F>)> for DensePolynomial<F> {
+impl<'a, F: Field> AddAssign<(F, &'a Self)> for DensePolynomial<F> {
     #[inline]
-    fn add_assign(&mut self, (f, rhs): (F, &'a DensePolynomial<F>)) {
+    fn add_assign(&mut self, (f, rhs): (F, &'a Self)) {
         if rhs.is_zero() || f.is_zero() {
         } else if self.is_zero() {
             *self = rhs.clone();
@@ -483,7 +483,7 @@ impl<'a, F: Field> AddAssign<(F, &'a DensePolynomial<F>)> for DensePolynomial<F>
                 .for_each(|(row_idx, row)| {
                     row.iter_mut()
                         .zip(rhs.coeffs[row_idx].iter())
-                        .for_each(|(a, b)| *a += *b * &f)
+                        .for_each(|(a, b)| *a += *b * f);
                 });
             self.deg_x = deg_x;
             self.deg_y = deg_y;
@@ -493,7 +493,7 @@ impl<'a, F: Field> AddAssign<(F, &'a DensePolynomial<F>)> for DensePolynomial<F>
 }
 
 impl<F: Field> Neg for DensePolynomial<F> {
-    type Output = DensePolynomial<F>;
+    type Output = Self;
     #[inline]
     fn neg(mut self) -> Self::Output {
         self.coeffs.iter_mut().for_each(|row| {
@@ -503,7 +503,7 @@ impl<F: Field> Neg for DensePolynomial<F> {
     }
 }
 
-impl<'a, 'b, F: Field> Sub<&'a DensePolynomial<F>> for &'b DensePolynomial<F> {
+impl<'a, F: Field> Sub<&'a DensePolynomial<F>> for &DensePolynomial<F> {
     type Output = DensePolynomial<F>;
     #[inline]
     fn sub(self, rhs: &'a DensePolynomial<F>) -> Self::Output {
@@ -521,7 +521,7 @@ impl<'a, 'b, F: Field> Sub<&'a DensePolynomial<F>> for &'b DensePolynomial<F> {
                     row_a
                         .iter_mut()
                         .zip(row_b.iter())
-                        .for_each(|(a, b)| *a -= b)
+                        .for_each(|(a, b)| *a -= b);
                 });
             result.update_degree();
             result
@@ -553,9 +553,9 @@ impl<'a, 'b, F: Field> Sub<&'a DensePolynomial<F>> for &'b DensePolynomial<F> {
     }
 }
 
-impl<'a, F: Field> SubAssign<&'a DensePolynomial<F>> for DensePolynomial<F> {
+impl<'a, F: Field> SubAssign<&'a Self> for DensePolynomial<F> {
     #[inline]
-    fn sub_assign(&mut self, rhs: &'a DensePolynomial<F>) {
+    fn sub_assign(&mut self, rhs: &'a Self) {
         if rhs.is_zero() {
         } else if self.is_zero() {
             *self = -rhs.clone();
@@ -567,7 +567,7 @@ impl<'a, F: Field> SubAssign<&'a DensePolynomial<F>> for DensePolynomial<F> {
                     row_a
                         .iter_mut()
                         .zip(row_b.iter())
-                        .for_each(|(a, b)| *a -= b)
+                        .for_each(|(a, b)| *a -= b);
                 });
             self.update_degree();
         } else {
@@ -635,7 +635,7 @@ impl<F: Field> fmt::Debug for DensePolynomial<F> {
             for (col_idx, cell) in row.iter().enumerate() {
                 if !cell.is_zero() {
                     if first_monomial_written {
-                        write!(f, " + {}*X^{}*Y^{}", cell, row_idx, col_idx)?;
+                        write!(f, " + {cell}*X^{row_idx}*Y^{col_idx}")?;
                     } else {
                         write!(
                             f,
@@ -654,7 +654,7 @@ impl<F: Field> fmt::Debug for DensePolynomial<F> {
 #[cfg(test)]
 mod tests {
     use ark_bls12_381::Fr;
-    use ark_std::{test_rng, UniformRand};
+    use ark_std::{test_rng, UniformRand as _};
 
     use super::*;
 
@@ -758,7 +758,7 @@ mod tests {
             for (row_idx, row) in p1.coeffs.iter().enumerate() {
                 for (col_idx, coeff) in row.iter().enumerate() {
                     expected +=
-                        *coeff * point.0.pow(&[row_idx as u64]) * point.1.pow(&[col_idx as u64]);
+                        *coeff * point.0.pow([row_idx as u64]) * point.1.pow([col_idx as u64]);
                 }
             }
             assert_eq!(p1.evaluate(&point), expected);
@@ -789,7 +789,7 @@ mod tests {
             let dx = rng.gen_range(0..20) as usize;
             let dy = rng.gen_range(0..20) as usize;
             // we allow larger than dx degree
-            let divisor_deg = rng.gen_range(0..dx + 5) as usize;
+            let divisor_deg = rng.gen_range(0..dx + 5);
 
             let p = DensePolynomial::<Fr>::rand(dx, dy, rng);
             let divisor = univariate::DensePolynomial::rand(divisor_deg, rng);
@@ -824,7 +824,7 @@ mod tests {
         for _ in 0..100 {
             let dx = rng.gen_range(1..20) as usize;
             let dy = rng.gen_range(1..20) as usize;
-            let uv_deg = rng.gen_range(0..dx) as usize;
+            let uv_deg = rng.gen_range(0..dx);
 
             let mut p = DensePolynomial::<Fr>::rand(dx, dy, rng);
             let p_old = p.clone();
@@ -838,7 +838,7 @@ mod tests {
             assert_eq!(p, p_old);
 
             let p_old = p.clone();
-            let uv_deg = rng.gen_range(0..dy) as usize;
+            let uv_deg = rng.gen_range(0..dy);
             let q_y = univariate::DensePolynomial::rand(uv_deg, rng);
             p.sub_assign_uv_poly(&q_y, false);
             assert_eq!(p.evaluate(&r), p_old.evaluate(&r) - q_y.evaluate(&r.1));

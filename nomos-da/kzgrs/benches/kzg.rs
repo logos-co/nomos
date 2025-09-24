@@ -132,13 +132,13 @@ fn compute_single_five_points_proof(bencher: Bencher, element_count: usize) {
             )
         })
         .input_counter(move |_| ItemsCount::new(element_count))
-        .bench_refs(|((evals, poly), domain)| {
+        .bench_refs(|((_, poly), domain)| {
             black_box(generate_multiple_element_proof(
                 &(0..5).collect::<Vec<usize>>(),
                 poly,
                 *domain,
                 &MULTIPLE_GLOBAL_PARAMETERS,
-            ));
+            ))
         });
 }
 
@@ -154,14 +154,14 @@ fn compute_batch_thirty_two_points_proof(bencher: Bencher, element_count: usize)
             )
         })
         .input_counter(move |_| ItemsCount::new(element_count))
-        .bench_refs(|((evals, poly), domain)| {
-            for i in 0..(element_count/32) {
+        .bench_refs(|((_, poly), domain)| {
+            for i in 0..(element_count / 32) {
                 black_box(generate_multiple_element_proof(
                     &(i * 32..i * 32 + 32).collect::<Vec<usize>>(),
                     poly,
                     *domain,
                     &MULTIPLE_GLOBAL_PARAMETERS,
-                ));
+                ).unwrap());
             }
         });
 }

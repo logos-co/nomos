@@ -1,35 +1,26 @@
-use std::ops::{Deref, Mul as _, Neg as _};
+use std::ops::{Mul as _, Neg as _};
 
 use ark_bls12_381::{Bls12_381, Fr, G1Projective};
-use ark_ec::{pairing::Pairing, scalar_mul::fixed_base::FixedBase, CurveGroup, VariableBaseMSM};
-use ark_ff::{Field, PrimeField, UniformRand};
+use ark_ec::{pairing::Pairing, scalar_mul::fixed_base::FixedBase, CurveGroup as _, VariableBaseMSM as _};
+use ark_ff::{Field, PrimeField as _, UniformRand as _};
 use ark_poly::{
-    univariate, DenseUVPolynomial, EvaluationDomain, GeneralEvaluationDomain, Polynomial,
+    univariate, DenseUVPolynomial as _, EvaluationDomain as _, GeneralEvaluationDomain, Polynomial as _,
 };
 use ark_poly_commit::{
-    kzg10::{Commitment, Powers, Proof, UniversalParams, KZG10},
+    kzg10::{Commitment, Proof},
     Error,
 };
 use ark_std::rand::RngCore;
-use num_traits::{One as _, Zero as _};
+use num_traits::Zero as _;
 
 use crate::{bivariate::DensePolynomial, common::KzgRsError};
 
 pub struct BivariateUniversalParams<E: Pairing> {
-    /// row-wise matrix for exponent values of (\tau_x^i * \tau_y^j)
-    /// where i \in [0, d_x], j \in [0, d_y], and \tau_x, \tau_y are two
-    /// trapdoors for the two variables X and Y.
-    ///
-    /// [  X^0 * Y^0   X^0 * Y^1   X^0 * Y^2   ...   X^0 * Y^d_y  ]
-    /// [  X^1 * Y^0   X^1 * Y^1   X^1 * Y^2   ...   X^1 * Y^d_y  ]
-    /// [  X^2 * Y^0   X^2 * Y^1   X^2 * Y^2   ...   X^2 * Y^d_y  ]
-    /// [     ...          ...          ...    ...       ...      ]
-    /// [ X^d_x * Y^0  X^d_x * Y^1  X^d_x * Y^2  ...  X^d_x * Y^d_y ]
-    /// Replace X with \tau_x, Y with \tau_y
+    /// Replace X with `tau_x`, Y with `tau_y`
     pub powers_of_g: Vec<Vec<E::G1Affine>>,
     /// The generator of G2.
     pub h: E::G2Affine,
-    /// \beta_1^i times the above generator of G2, where `i` ranges from 0 to
+    /// `beta_1^i` times the above generator of G2, where `i` ranges from 0 to
     /// `max_points`.
     pub beta_2_h: E::G2Affine,
     /// The generator of G2, prepared for use in pairings.
@@ -52,9 +43,9 @@ pub fn bivariate_setup<R: RngCore>(
     let mut powers_of_beta: Vec<Vec<Fr>> = Vec::new();
 
     let mut cur_1 = Fr::ONE;
-    for i in 0..max_x_degree + 1 {
+    for i in 0..=max_x_degree {
         powers_of_beta.push(vec![cur_1]);
-        let mut cur_2 = beta_2.clone();
+        let mut cur_2 = beta_2;
         for _ in 0..max_y_degree {
             powers_of_beta[i].push(cur_1 * cur_2);
             cur_2 *= &beta_2;
@@ -95,6 +86,7 @@ pub fn bivariate_setup<R: RngCore>(
 
 /// Commit to a polynomial where each of the evaluations are over `w(i)` for the
 /// degree of the polynomial being omega (`w`) the root of unity (2^x).
+#[must_use]
 pub fn commit_bivariate_polynomial(
     polynomial: &DensePolynomial<Fr>,
     global_parameters: &BivariateUniversalParams<Bls12_381>,
@@ -114,13 +106,14 @@ pub fn commit_bivariate_polynomial(
     Commitment(G1Projective::msm(&bases, &scalars).unwrap().into_affine())
 }
 
+#[must_use]
 pub fn commit_unvivariate_polynomial_in_y(
     polynomial: &univariate::DensePolynomial<Fr>,
     global_parameters: &BivariateUniversalParams<Bls12_381>,
 ) -> Commitment<Bls12_381> {
     let bases = global_parameters
         .powers_of_g
-        .get(0)
+        .first()
         .expect("bivariate setup must contain at least one row (Y^0)");
     Commitment(
         G1Projective::msm(&bases[..polynomial.coeffs.len()], &polynomial.coeffs)
@@ -129,6 +122,7 @@ pub fn commit_unvivariate_polynomial_in_y(
     )
 }
 
+#[must_use]
 pub fn commit_unvivariate_polynomial_in_x(
     polynomial: &univariate::DensePolynomial<Fr>,
     global_parameters: &BivariateUniversalParams<Bls12_381>,
@@ -162,7 +156,7 @@ pub fn generate_bivariate_proof(
         )
         .unwrap();
 
-    let proof = commit_bivariate_polynomial(&witness_polynomial, &global_parameters);
+    let proof = commit_bivariate_polynomial(&witness_polynomial, global_parameters);
 
     let proof = Proof {
         w: proof.0,
@@ -220,7 +214,7 @@ pub fn verify_bivariate_proof(
     let x_u: univariate::DensePolynomial<Fr> = elements
         .iter()
         .enumerate()
-        .map(|(idx, element)| {
+        .map(|(idx, _)| {
             univariate::DensePolynomial::<Fr>::from_coefficients_vec(vec![
                 -x_domain.element(idx),
                 Fr::ONE,
@@ -241,7 +235,7 @@ pub fn verify_bivariate_proof(
         &x_u,
     );
 
-    let v_tau = commit_unvivariate_polynomial_in_x(&x_v, &global_parameters);
+    let v_tau = commit_unvivariate_polynomial_in_x(&x_v, global_parameters);
 
     let commitment_check_g1 = commitment.0 + v_tau.0.neg();
     let evaluation_check_g2 = global_parameters.beta_2_h
@@ -260,28 +254,17 @@ mod test {
 
     use ark_bls12_381::{Bls12_381, Fr};
     use ark_poly::{
-        univariate, DenseUVPolynomial as _, EvaluationDomain as _, GeneralEvaluationDomain,
-        Polynomial,
+        EvaluationDomain as _, GeneralEvaluationDomain,
+        Polynomial as _,
     };
-    use ark_poly_commit::kzg10::{UniversalParams, KZG10};
-    use rand::{random, seq::index::sample, thread_rng, Fill as _};
-    use rayon::{
-        iter::{IndexedParallelIterator as _, ParallelIterator as _},
-        prelude::IntoParallelRefIterator as _,
-    };
+    use rand::{random, thread_rng};
 
     use crate::{
         bivariate::DensePolynomial,
         boomy::{
             bivariate_setup, commit_bivariate_polynomial, generate_bivariate_proof,
             verify_bivariate_proof, BivariateUniversalParams,
-        },
-        common::bytes_to_polynomial,
-        kzg::{
-            commit_polynomial, generate_element_proof, generate_multiple_element_proof,
-            multiple_point_setup, verify_element_proof, verify_multiple_element_proof,
-            MultiplePointUniversalParams,
-        },
+        }
     };
 
     const NUMBER_OF_SUBNETWORK: usize = 10;

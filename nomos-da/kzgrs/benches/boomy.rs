@@ -1,20 +1,12 @@
 use std::sync::LazyLock;
 
-use ark_bls12_381::{Bls12_381, Fr};
-use ark_poly::{EvaluationDomain as _, GeneralEvaluationDomain, Polynomial};
-use ark_poly_commit::kzg10::{UniversalParams, KZG10};
+use ark_bls12_381::Bls12_381;
+use ark_poly::{EvaluationDomain as _, GeneralEvaluationDomain};
 use divan::{black_box, counter::ItemsCount, Bencher};
 use kzgrs::{
-    common::bytes_to_polynomial_unchecked,
-    boomy::BivariateUniversalParams
+    boomy::{bivariate_setup, generate_bivariate_proof, BivariateUniversalParams}
 };
-use rand::{random, RngCore as _};
-use rand::seq::index::sample;
-#[cfg(feature = "parallel")]
-use rayon::iter::IntoParallelIterator as _;
-#[cfg(feature = "parallel")]
-use rayon::iter::ParallelIterator as _;
-use kzgrs::boomy::{bivariate_setup, generate_bivariate_proof};
+use rand::random;
 
 fn main() {
     divan::main();
@@ -25,29 +17,31 @@ fn main() {
 // #[global_allocator]
 // static ALLOC: AllocProfiler = AllocProfiler::system();
 
-static GLOBAL_PARAMETERS: LazyLock<BivariateUniversalParams<Bls12_381>> =
-    LazyLock::new(|| {
-        let mut rng = rand::thread_rng();
-        bivariate_setup(1023, 31, &mut rng).unwrap()
-    });
-
-const CHUNK_SIZE: usize = 31;
+static GLOBAL_PARAMETERS: LazyLock<BivariateUniversalParams<Bls12_381>> = LazyLock::new(|| {
+    let mut rng = rand::thread_rng();
+    bivariate_setup(1023, 31, &mut rng).unwrap()
+});
 
 #[divan::bench(args = [128, 256, 512, 1_024, 2_048, 4_096])]
 fn compute_bivariate_single_five_point_proof(bencher: Bencher, element_count: usize) {
     bencher
         .with_inputs(|| {
             let y_domain = GeneralEvaluationDomain::new(5).unwrap();
-            let polynomial = kzgrs::bivariate::DensePolynomial::rand(element_count-1,4, &mut rand::thread_rng());
+            let polynomial = kzgrs::bivariate::DensePolynomial::rand(
+                element_count - 1,
+                4,
+                &mut rand::thread_rng(),
+            );
             let sample_index: usize = (random::<u64>() % element_count as u64) as usize;
             (sample_index, polynomial, y_domain)
         })
         .input_counter(|_| ItemsCount::new(1usize))
         .bench_refs(|(sample_index, polynomial, y_domain)| {
-        black_box(generate_bivariate_proof(*sample_index,
+            black_box(generate_bivariate_proof(
+                *sample_index,
                 polynomial,
                 *y_domain,
-                &GLOBAL_PARAMETERS
+                &GLOBAL_PARAMETERS,
             ))
         });
 }
@@ -57,18 +51,22 @@ fn compute_bivariate_batch_thirty_two_points_proof(bencher: Bencher, element_cou
     bencher
         .with_inputs(|| {
             let y_domain = GeneralEvaluationDomain::new(32).unwrap();
-            let polynomial = kzgrs::bivariate::DensePolynomial::rand((element_count/32)-1,31, &mut rand::thread_rng());
+            let polynomial = kzgrs::bivariate::DensePolynomial::rand(
+                (element_count / 32) - 1,
+                31,
+                &mut rand::thread_rng(),
+            );
             (polynomial, y_domain)
         })
         .input_counter(move |_| ItemsCount::new(element_count))
         .bench_refs(|(polynomial, y_domain)| {
-            for i in 0..(element_count/32) {
+            for i in 0..(element_count / 32) {
                 black_box(generate_bivariate_proof(
                     i,
                     polynomial,
                     *y_domain,
                     &GLOBAL_PARAMETERS,
-                ));
+                ).unwrap());
             }
         });
 }

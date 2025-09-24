@@ -1,24 +1,23 @@
 use std::{hint::black_box, sync::LazyLock};
 
 use ark_bls12_381::{Bls12_381, Fr};
-use ark_ff::BigInteger;
+use ark_ff::BigInteger as _;
 use ark_poly::{univariate::DensePolynomial, EvaluationDomain as _, GeneralEvaluationDomain};
 use ark_poly_commit::kzg10::KZG10;
 use divan::{counter::ItemsCount, Bencher};
+use ekzg_bls12_381::{
+    fixed_base_msm::UsePrecomp, g1_batch_normalize, g2_batch_normalize, traits::{Group as _,Field as _}, G1Projective,
+    G2Projective, Scalar,
+};
+use ekzg_multi_open::{
+    commit_key::CommitKey, verification_key::VerificationKey, Prover, ProverInput,
+};
+use ekzg_polynomial::poly_coeff::PolyCoeff;
 use kzgrs::{
     bytes_to_polynomial,
     fk20::{fk20_batch_generate_elements_proofs, Toeplitz1Cache},
     GlobalParameters, BYTES_PER_FIELD_ELEMENT,
 };
-use ekzg_bls12_381::{
-    fixed_base_msm::UsePrecomp, g1_batch_normalize, g2_batch_normalize, traits::*, G1Projective,
-    G2Projective, Scalar,
-};
-use ekzg_multi_open::{
-    commit_key::CommitKey, verification_key::VerificationKey, Prover, ProverInput, Verifier,
-};
-use ekzg_polynomial::poly_coeff::PolyCoeff;
-use num_bigint::BigUint;
 use rand::SeedableRng as _;
 #[cfg(feature = "parallel")]
 use rayon::iter::{IntoParallelIterator as _, ParallelIterator as _};
@@ -32,8 +31,9 @@ static GLOBAL_PARAMETERS: LazyLock<GlobalParameters> = LazyLock::new(|| {
     KZG10::<Bls12_381, DensePolynomial<Fr>>::setup(33791, true, &mut rng).unwrap()
 });
 
+const NUMBER_OF_SUBNETWORK: usize = 2048;
 
-#[divan::bench(args = [1_024], sample_count = 10, sample_size = 1)]
+#[divan::bench(args = [NUMBER_OF_SUBNETWORK/2], sample_count = 10, sample_size = 10)]
 fn compute_fk20_proofs_for_size(bencher: Bencher, datasize: usize) {
     bencher
         .with_inputs(|| {
@@ -41,11 +41,11 @@ fn compute_fk20_proofs_for_size(bencher: Bencher, datasize: usize) {
                 .map(|i| (i % 255) as u8)
                 .rev()
                 .collect();
-            let domain = GeneralEvaluationDomain::new(datasize*2).unwrap();
+            let domain = GeneralEvaluationDomain::new(datasize * 2).unwrap();
             let (_, poly) = bytes_to_polynomial::<BYTES_PER_FIELD_ELEMENT>(&buff, domain).unwrap();
             poly
         })
-        .input_counter(move |_| ItemsCount::new(datasize*2))
+        .input_counter(move |_| ItemsCount::new(datasize * 2))
         .bench_refs(|poly| {
             black_box(fk20_batch_generate_elements_proofs(
                 poly,
@@ -55,38 +55,42 @@ fn compute_fk20_proofs_for_size(bencher: Bencher, datasize: usize) {
         });
 }
 
-
-#[divan::bench(args = [1,2,4,8,16,32], sample_count = 10, sample_size = 1)]
-fn compute_coset_fk20_proofs_for_size(bencher: Bencher, samplesize: usize) {
+#[divan::bench(args = [1,2,4,8,16,32], sample_count = 1, sample_size = 1)]
+fn compute_coset_fk20_proofs_for_sample_size(bencher: Bencher, samplesize: usize) {
     bencher
         .with_inputs(|| {
-            let buff: Vec<_> = (0..BYTES_PER_FIELD_ELEMENT * samplesize * 1024)
+            let buff: Vec<_> = (0..BYTES_PER_FIELD_ELEMENT * samplesize * NUMBER_OF_SUBNETWORK/2)
                 .map(|i| (i % 255) as u8)
                 .rev()
                 .collect();
-            let domain = GeneralEvaluationDomain::new(samplesize*2048).unwrap();
+            let domain = GeneralEvaluationDomain::new(samplesize * NUMBER_OF_SUBNETWORK/2).unwrap();
             let (_, poly) = bytes_to_polynomial::<BYTES_PER_FIELD_ELEMENT>(&buff, domain).unwrap();
-            let poly = PolyCoeff::from(poly.coeffs.iter().map(|&e| {
-                let mut vec = [0u8; 32];
-                let bytes = e.0.to_bytes_be();
-                vec[..bytes.len()].copy_from_slice(&bytes);
-                Scalar::from_bytes_be(&vec).unwrap()
-            }).collect::<Vec<Scalar>>());
-            let (ck, _) = create_insecure_commit_verification_keys(samplesize * 1024usize, samplesize);
+            let poly = PolyCoeff::from(
+                poly.coeffs
+                    .iter()
+                    .map(|&e| {
+                        let mut vec = [0u8; 32];
+                        let bytes = e.0.to_bytes_be();
+                        vec[..bytes.len()].copy_from_slice(&bytes);
+                        Scalar::from_bytes_be(&vec).unwrap()
+                    })
+                    .collect::<Vec<Scalar>>(),
+            );
+            let (ck, _) =
+                create_insecure_commit_verification_keys(samplesize * NUMBER_OF_SUBNETWORK/2, samplesize);
 
             let prover = Prover::new(
                 ck,
-                samplesize * 1024,
+                samplesize * NUMBER_OF_SUBNETWORK/2,
                 samplesize,
-                2048,
+                samplesize * NUMBER_OF_SUBNETWORK,
                 UsePrecomp::Yes { width: 8 },
             );
-            let num_proofs = prover.num_proofs();
             (prover, poly)
         })
-        .input_counter(move |_| ItemsCount::new(samplesize*1024))
+        .input_counter(move |_| ItemsCount::new(samplesize * NUMBER_OF_SUBNETWORK))
         .bench_refs(|(prover, poly)| {
-            black_box( prover.compute_multi_opening_proofs(ProverInput::PolyCoeff(poly.clone())))
+            black_box(prover.compute_multi_opening_proofs(ProverInput::PolyCoeff(poly.clone())))
         });
 }
 
@@ -113,7 +117,7 @@ fn compute_parallel_fk20_proofs_for_size(bencher: Bencher, size: usize) {
         });
 }
 
-#[divan::bench(args = [1_024], sample_count = 10, sample_size = 1)]
+#[divan::bench(args = [NUMBER_OF_SUBNETWORK/2], sample_count = 10, sample_size = 10)]
 fn compute_fk20_proofs_for_size_with_cache(bencher: Bencher, size: usize) {
     bencher
         .with_inputs(|| {
@@ -121,12 +125,12 @@ fn compute_fk20_proofs_for_size_with_cache(bencher: Bencher, size: usize) {
                 .map(|i| (i % 255) as u8)
                 .rev()
                 .collect();
-            let domain = GeneralEvaluationDomain::new(size*2).unwrap();
+            let domain = GeneralEvaluationDomain::new(size * 2).unwrap();
             let (_, poly) = bytes_to_polynomial::<BYTES_PER_FIELD_ELEMENT>(&buff, domain).unwrap();
-            let cache = Toeplitz1Cache::with_size(&GLOBAL_PARAMETERS, size*2);
+            let cache = Toeplitz1Cache::with_size(&GLOBAL_PARAMETERS, size * 2);
             (poly, cache)
         })
-        .input_counter(move |_| ItemsCount::new(size*2))
+        .input_counter(move |_| ItemsCount::new(size * 2))
         .bench_refs(|(poly, cache)| {
             black_box(fk20_batch_generate_elements_proofs(
                 poly,
@@ -160,12 +164,14 @@ fn compute_parallel_fk20_proofs_for_size_with_cache(bencher: Bencher, size: usiz
         });
 }
 
-// We duplicate this to ensure that the version in the src code is only ever compiled with the test feature.
+// We duplicate this to ensure that the version in the src code is only ever
+// compiled with the test feature.
 //
 // This code should never be used outside of benchmarks and tests.
+#[must_use]
 pub fn create_insecure_commit_verification_keys(
     size: usize,
-    number_of_points_per_proof: usize
+    number_of_points_per_proof: usize,
 ) -> (CommitKey, VerificationKey) {
     // A single proof will attest to the opening of 64 points.
     let multi_opening_size = number_of_points_per_proof;
