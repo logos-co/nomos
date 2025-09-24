@@ -75,7 +75,7 @@ where
         &self,
         session_id: SessionNumber,
         new_members: AddressBookSnapshot<Membership::Id>,
-    ) -> Result<(), DynError> {
+    ) -> Result<Membership, DynError> {
         let mut hasher = Blake2b512::default();
         BlakeUpdate::update(&mut hasher, session_id.to_le_bytes().as_slice());
         let seed: [u8; 64] = hasher.finalize().into();
@@ -96,14 +96,16 @@ where
         tracing::debug!("Updating membership at session {session_id} with {assignations:?}");
 
         // update in-memory latest membership
-        self.membership_handler.update(updated_membership);
+        self.membership_handler.update(updated_membership.clone());
         self.addressbook.update(new_members.clone());
 
         // update membership storage
         self.membership_adapter
             .store(session_id, assignations)
             .await?;
-        self.membership_adapter.store_addresses(new_members).await
+        self.membership_adapter.store_addresses(new_members).await?;
+
+        Ok(updated_membership)
     }
 
     pub async fn get_historic_membership(
