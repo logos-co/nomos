@@ -11,6 +11,7 @@ mod errors {
 
     #[derive(Debug)]
     pub enum PreloadKeyError {
+        #[expect(dead_code, reason = "No error expected in these tests.")]
         KeyError(KeyError),
     }
 

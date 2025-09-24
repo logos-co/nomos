@@ -1,3 +1,8 @@
+use std::{
+    any::type_name,
+    fmt::{Display, Formatter},
+};
+
 type Inner = bytes::Bytes;
 
 /// An encoding of arbitrary bytes.
@@ -13,5 +18,11 @@ impl Bytes {
 impl From<Inner> for Bytes {
     fn from(value: Inner) -> Self {
         Self(value)
+    }
+}
+
+impl Display for Bytes {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", type_name::<Self>())
     }
 }

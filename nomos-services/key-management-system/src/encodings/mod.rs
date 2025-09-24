@@ -1,10 +1,8 @@
 mod encoding_bytes;
 mod errors;
-mod kind;
 
 pub use encoding_bytes::Bytes;
 pub use errors::EncodingError;
-pub use kind::EncodingKind;
 
 /// Entity that gathers all encodings provided by the KMS crate.
 pub enum Encoding {
