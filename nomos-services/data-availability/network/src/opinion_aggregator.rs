@@ -139,10 +139,8 @@ where
             None
         };
 
-        // Rotate memberships
         self.previous_membership = self.current_membership.take();
 
-        // Clear all counters
         self.positive_opinions.clear();
         self.negative_opinions.clear();
         self.blacklist.clear();
@@ -150,7 +148,7 @@ where
         self.old_negative_opinions.clear();
         self.old_blacklist.clear();
 
-        // Pre-populate opinion maps with zeros
+        // Pre-populate opinion maps with zeros to the right vector size
         for peer_id in new_membership.members() {
             self.positive_opinions.insert(peer_id, 0);
             self.negative_opinions.insert(peer_id, 0);
@@ -165,7 +163,9 @@ where
 
         self.current_membership = Some(new_membership);
 
-        opinions // Return opinions to be sent to SDP
+        // Return opinions to be sent to SDP
+        // SDP will convert peerID -> ProviderID and sort in lexicographical order
+        opinions
     }
 
     pub fn generate_opinions(&self) -> Option<Opinions> {
