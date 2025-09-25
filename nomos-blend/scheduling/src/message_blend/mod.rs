@@ -1,5 +1,3 @@
-pub mod crypto;
-
 use async_trait::async_trait;
 pub use crypto::SessionCryptographicProcessorSettings;
 use futures::{
@@ -8,11 +6,14 @@ use futures::{
 };
 use nomos_blend_message::{
     crypto::{
-        keys::Ed25519PrivateKey,
+        keys::{Ed25519PrivateKey, Ed25519PublicKey},
         proofs::{
             quota::{
                 self, ProofOfQuota,
-                inputs::prove::private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs},
+                inputs::prove::{
+                    PublicInputs as PoQPublicInputs,
+                    private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs},
+                },
             },
             selection::ProofOfSelection,
         },
@@ -25,6 +26,11 @@ use tokio::{
     sync::mpsc::{Receiver, Sender, channel},
     task::spawn_blocking,
 };
+
+pub mod crypto;
+
+#[cfg(test)]
+mod tests;
 
 /// Information about the ongoing session required to build `PoQ`s and
 /// `PoSel`s.
@@ -78,6 +84,32 @@ impl From<PublicInputs> for PoQVerificationInputMinusSigningKey {
             session,
             total_stake,
         }
+    }
+}
+
+const fn poq_public_inputs_from_session_public_inputs_and_signing_key(
+    (
+        PublicInputs {
+            core_quota,
+            core_root,
+            leader_quota,
+            pol_epoch_nonce,
+            pol_ledger_aged,
+            session,
+            total_stake,
+        },
+        signing_key,
+    ): (PublicInputs, Ed25519PublicKey),
+) -> PoQPublicInputs {
+    PoQPublicInputs {
+        core_quota,
+        core_root,
+        leader_quota,
+        pol_epoch_nonce,
+        pol_ledger_aged,
+        session,
+        total_stake,
+        signing_key,
     }
 }
 

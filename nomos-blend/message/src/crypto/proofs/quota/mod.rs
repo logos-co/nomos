@@ -96,7 +96,7 @@ impl ProofOfQuota {
     ///
     /// The key nullifier required to verify the proof is taken from the proof
     /// itself and is not contained in the passed inputs.
-    pub(super) fn verify(self, public_inputs: &PublicInputs) -> Result<ZkHash, Error> {
+    pub fn verify(self, public_inputs: &PublicInputs) -> Result<ZkHash, Error> {
         let verifier_input =
             VerifyInputs::from_prove_inputs_and_nullifier(*public_inputs, self.key_nullifier);
         let is_proof_valid = matches!(verify(&self.proof, verifier_input.into()), Ok(true));

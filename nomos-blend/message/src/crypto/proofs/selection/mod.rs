@@ -78,7 +78,7 @@ impl ProofOfSelection {
             .map_err(|_| Error::Overflow)
     }
 
-    pub(super) fn verify(
+    pub fn verify(
         self,
         VerifyInputs {
             expected_node_index,
