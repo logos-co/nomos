@@ -552,4 +552,30 @@ mod tests {
         .collect();
         assert!(assignations.iter().all(|a| a == &assignations[0]));
     }
+
+    #[test]
+    fn test_insufficient_nodes() {
+        let mut rng = thread_rng();
+
+        let nodes: Vec<TestId> = std::iter::repeat_with(|| {
+            let mut buff = [0u8; 32];
+            rng.fill_bytes(&mut buff);
+            TestId(buff)
+        })
+        .take(3)
+        .collect();
+
+        let previous_nodes: Vec<BTreeSet<TestId>> = std::iter::repeat_with(BTreeSet::new)
+            .take(SUBNETWORK_SIZE)
+            .collect();
+
+        let assignations = HistoryAwareRefill::calculate_subnetwork_assignations(
+            &nodes,
+            previous_nodes,
+            REPLICATION_FACTOR,
+            &mut rng,
+        );
+
+        assert!(assignations.is_empty());
+    }
 }
