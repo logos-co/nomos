@@ -27,3 +27,6 @@ tests/.tmp*
 
 # Circom Circuits' Binaries
 zk/**/bin/*
+
+# C headers
+nomos-c/libnomos.h
