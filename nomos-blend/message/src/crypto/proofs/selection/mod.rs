@@ -2,15 +2,20 @@ use core::fmt::Debug;
 
 use ::serde::{Deserialize, Serialize};
 use groth16::{fr_from_bytes, fr_from_bytes_unchecked, fr_to_bytes};
-use nomos_core::crypto::{ZkHash, ZkHasher};
+use nomos_core::crypto::ZkHash;
 use num_bigint::BigUint;
 use thiserror::Error;
 
 use crate::crypto::{
-    blake2b512, proofs::selection::inputs::VerifyInputs, pseudo_random_sized_bytes,
+    blake2b512,
+    proofs::{ZkHashExt as _, selection::inputs::VerifyInputs},
+    pseudo_random_sized_bytes,
 };
 
 pub mod inputs;
+
+#[cfg(test)]
+mod tests;
 
 pub const PROOF_OF_SELECTION_SIZE: usize = size_of::<ProofOfSelection>();
 const DOMAIN_SEPARATION_TAG: [u8; 9] = *b"BlendNode";
@@ -84,21 +89,17 @@ impl ProofOfSelection {
         let final_index = self.expected_index(*total_membership_size as usize)?;
         if final_index != *expected_node_index as usize {
             return Err(Error::IndexMismatch {
-                expected: *expected_node_index,
-                provided: final_index as u64,
+                expected: final_index as u64,
+                provided: *expected_node_index,
             });
         }
 
         // Condition 2: https://www.notion.so/nomos-tech/Blend-Protocol-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df814da8e8ec1f1fcf4fe6
-        let selection_randomness_zk_hash = {
-            let mut hasher = ZkHasher::new();
-            hasher.update(&[self.selection_randomness]);
-            hasher.finalize()
-        };
+        let selection_randomness_zk_hash = [self.selection_randomness].hash();
         if selection_randomness_zk_hash != *key_nullifier {
             return Err(Error::KeyNullifierMismatch {
-                expected: *key_nullifier,
-                provided: selection_randomness_zk_hash,
+                expected: selection_randomness_zk_hash,
+                provided: *key_nullifier,
             });
         }
 
