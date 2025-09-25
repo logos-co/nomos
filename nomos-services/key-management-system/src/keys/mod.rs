@@ -5,7 +5,7 @@ mod secured_key;
 use serde::{Deserialize, Serialize};
 use zeroize::ZeroizeOnDrop;
 
-use crate::encodings::Encoding;
+use crate::encodings::{DataEncoding, PublicKeyEncoding, SignatureEncoding};
 pub use crate::keys::{ed25519::Ed25519Key, errors::KeyError, secured_key::SecuredKey};
 
 /// Entity that gathers all keys provided by the KMS crate.
@@ -18,12 +18,12 @@ pub enum Key {
     Ed25519(Ed25519Key),
 }
 
-impl SecuredKey<Encoding> for Key {
-    type Signature = Encoding;
-    type PublicKey = Encoding;
+impl SecuredKey<DataEncoding> for Key {
+    type Signature = SignatureEncoding;
+    type PublicKey = PublicKeyEncoding;
     type Error = KeyError;
 
-    fn sign(&self, data: &Encoding) -> Result<Self::Signature, Self::Error> {
+    fn sign(&self, data: &DataEncoding) -> Result<Self::Signature, Self::Error> {
         match self {
             Self::Ed25519(key) => key.sign(data),
         }
@@ -31,7 +31,7 @@ impl SecuredKey<Encoding> for Key {
 
     fn as_public_key(&self) -> Self::PublicKey {
         match self {
-            Self::Ed25519(key) => <Ed25519Key as SecuredKey<Encoding>>::as_public_key(key),
+            Self::Ed25519(key) => <Ed25519Key as SecuredKey<DataEncoding>>::as_public_key(key),
         }
     }
 }
