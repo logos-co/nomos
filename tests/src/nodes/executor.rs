@@ -9,6 +9,7 @@ use std::{
 };
 
 use broadcast_service::BlockInfo;
+use chain_leader::LeaderSettings;
 use chain_service::{CryptarchiaInfo, CryptarchiaSettings, OrphanConfig, SyncConfig};
 use common_http_client::CommonHttpClient;
 use cryptarchia_engine::time::SlotConfig;
@@ -423,17 +424,11 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                 .expect("Minimum Blend network size cannot be zero."),
         }),
         cryptarchia: CryptarchiaSettings {
-            leader_config: config.consensus_config.leader_config,
             config: config.consensus_config.ledger_config,
             genesis_id: HeaderId::from([0; 32]),
             genesis_state: config.consensus_config.genesis_state,
-            transaction_selector_settings: (),
             network_adapter_settings:
                 chain_service::network::adapters::libp2p::LibP2pAdapterSettings {
-                    topic: String::from(nomos_node::CONSENSUS_TOPIC),
-                },
-            blend_broadcast_settings:
-                nomos_blend_service::core::network::libp2p::Libp2pBroadcastSettings {
                     topic: String::from(nomos_node::CONSENSUS_TOPIC),
                 },
             recovery_file: PathBuf::from("./recovery/cryptarchia.json"),
@@ -455,6 +450,15 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                         .expect("Max orphan cache size must be non-zero"),
                 },
             },
+        },
+        cryptarchia_leader: LeaderSettings {
+            transaction_selector_settings: (),
+            config: config.consensus_config.ledger_config,
+            leader_config: config.consensus_config.leader_config,
+            blend_broadcast_settings:
+                nomos_blend_service::core::network::libp2p::Libp2pBroadcastSettings {
+                    topic: String::from(nomos_node::CONSENSUS_TOPIC),
+                },
         },
         da_network: DaNetworkConfig {
             backend: DaNetworkExecutorBackendSettings {

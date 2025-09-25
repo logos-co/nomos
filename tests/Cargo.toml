@@ -11,6 +11,7 @@ workspace = true
 [dependencies]
 blst                     = { version = "0.3.11" }
 broadcast-service        = { workspace = true }
+chain-leader             = { workspace = true }
 chain-service            = { workspace = true }
 common-http-client       = { workspace = true }
 cryptarchia-engine       = { features = ["serde"], workspace = true }

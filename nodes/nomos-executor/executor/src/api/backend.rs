@@ -23,7 +23,6 @@ use nomos_api::{
         storage,
     },
 };
-use nomos_blend_service::{ProofsGenerator, ProofsVerifier};
 use nomos_core::{
     da::{
         DaVerifier as CoreDaVerifier,

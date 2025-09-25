@@ -275,7 +275,6 @@ where
             transaction_selector_settings,
             leader_config,
             blend_broadcast_settings,
-            ..
         } = self
             .service_resources_handle
             .settings_handle
