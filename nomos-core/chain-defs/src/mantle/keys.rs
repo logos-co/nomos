@@ -1,8 +1,9 @@
 use groth16::{Fr, serde::serde_fr};
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
+use zeroize::ZeroizeOnDrop;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, ZeroizeOnDrop)]
 #[serde(transparent)]
 pub struct SecretKey(#[serde(with = "serde_fr")] Fr);
 
@@ -20,6 +21,11 @@ impl SecretKey {
     #[must_use]
     pub fn to_public_key(&self) -> PublicKey {
         unimplemented!("Conversion from SecretKey to PublicKey is not implemented yet")
+    }
+
+    #[must_use]
+    pub fn sign(&self, _data: &Fr) -> Fr {
+        unimplemented!("Signing is not implemented yet")
     }
 }
 

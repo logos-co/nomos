@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Display};
+use std::any::type_name;
 
 use thiserror::Error;
 
@@ -10,8 +10,10 @@ pub enum EncodingError {
 }
 
 impl EncodingError {
-    #[expect(dead_code, reason = "Will be used when adding the ZK key.")]
-    pub fn requires<T: Display>(encoding: T) -> Self {
-        Self::Requires(encoding.to_string())
+    /// Creates a new `EncodingError::Requires` error.
+    /// It contains the path to the required type.
+    #[expect(dead_code, reason = "Will be used when integrating KMS.")]
+    pub fn requires<T>() -> Self {
+        Self::Requires(type_name::<T>().to_owned())
     }
 }
