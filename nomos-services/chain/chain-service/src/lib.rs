@@ -634,6 +634,8 @@ where
         // refactoring.       https://github.com/logos-co/nomos/issues/1505
         let initial_block_download = InitialBlockDownload::new(
             bootstrap_config.ibd,
+            cryptarchia,
+            storage_blocks_to_remove,
             network_adapter,
             |cryptarchia, storage_blocks_to_remove, block| {
                 let leader = &leader;
@@ -662,7 +664,7 @@ where
         );
 
         let (mut cryptarchia, mut storage_blocks_to_remove) = match initial_block_download
-            .run(cryptarchia, storage_blocks_to_remove)
+            .run()
             .await
         {
             Ok((cryptarchia, storage_blocks_to_remove)) => {
