@@ -21,7 +21,6 @@ use nomos_api::http::{
     libp2p, mempool,
     storage::StorageAdapter,
 };
-use nomos_blend_service::ProofsVerifier;
 use nomos_core::{
     da::{BlobId, DaVerifier as CoreDaVerifier, blob::Share},
     header::HeaderId,
@@ -164,10 +163,7 @@ pub async fn cryptarchia_info<
     SamplingNetworkAdapter,
     SamplingStorage,
     TimeBackend,
-    BlendProofsGenerator,
-    BlendProofsVerifier,
     RuntimeServiceId,
-    const SIZE: usize,
 >(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
 ) -> Response
@@ -191,7 +187,6 @@ where
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
-    BlendProofsVerifier: ProofsVerifier + Clone + Send + 'static,
     RuntimeServiceId: Debug
         + Send
         + Sync
@@ -204,10 +199,7 @@ where
                 SamplingNetworkAdapter,
                 SamplingStorage,
                 TimeBackend,
-                BlendProofsGenerator,
-                BlendProofsVerifier,
                 RuntimeServiceId,
-                SIZE,
             >,
         >,
 {
@@ -217,10 +209,7 @@ where
         SamplingNetworkAdapter,
         SamplingStorage,
         TimeBackend,
-        BlendProofsGenerator,
-        BlendProofsVerifier,
         RuntimeServiceId,
-        SIZE,
     >(&handle))
 }
 
@@ -238,10 +227,7 @@ pub async fn cryptarchia_headers<
     SamplingNetworkAdapter,
     SamplingStorage,
     TimeBackend,
-    BlendProofsGenerator,
-    BlendProofsVerifier,
     RuntimeServiceId,
-    const SIZE: usize,
 >(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
     Query(query): Query<CryptarchiaInfoQuery>,
@@ -266,7 +252,6 @@ where
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
-    BlendProofsVerifier: ProofsVerifier + Clone + Send + 'static,
     RuntimeServiceId: Debug
         + Send
         + Sync
@@ -279,10 +264,7 @@ where
                 SamplingNetworkAdapter,
                 SamplingStorage,
                 TimeBackend,
-                BlendProofsGenerator,
-                BlendProofsVerifier,
                 RuntimeServiceId,
-                SIZE,
             >,
         >,
 {
@@ -293,10 +275,7 @@ where
         SamplingNetworkAdapter,
         SamplingStorage,
         TimeBackend,
-        BlendProofsGenerator,
-        BlendProofsVerifier,
         RuntimeServiceId,
-        SIZE,
     >(&handle, from, to))
 }
 

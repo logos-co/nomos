@@ -3,7 +3,7 @@ mod leadership;
 mod relays;
 
 use core::fmt::Debug;
-use std::{collections::BTreeSet, fmt::Display, path::PathBuf, time::Duration};
+use std::{collections::BTreeSet, fmt::Display, time::Duration};
 
 use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 use cryptarchia_engine::Slot;
@@ -68,7 +68,6 @@ pub struct LeaderSettings<Ts, BlendBroadcastSettings> {
     pub config: nomos_ledger::Config,
     pub leader_config: LeaderConfig,
     pub blend_broadcast_settings: BlendBroadcastSettings,
-    pub recovery_file: PathBuf,
 }
 
 #[expect(clippy::allow_attributes_without_reason)]
