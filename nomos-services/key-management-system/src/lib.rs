@@ -20,10 +20,10 @@ use tokio::sync::oneshot;
 use crate::{backend::KMSBackend, keys::SecuredKey};
 
 // TODO: Use [`AsyncFnMut`](https://doc.rust-lang.org/stable/std/ops/trait.AsyncFnMut.html#tymethod.async_call_mut) once it is stabilized.
-pub type KMSOperator<Data, Signature, PublicKey, KeyError, OperatorError> = Box<
+pub type KMSOperator<Payload, Signature, PublicKey, KeyError, OperatorError> = Box<
     dyn FnMut(
             &mut dyn SecuredKey<
-                Data,
+                Payload = Payload,
                 Signature = Signature,
                 PublicKey = PublicKey,
                 Error = KeyError,
@@ -33,26 +33,23 @@ pub type KMSOperator<Data, Signature, PublicKey, KeyError, OperatorError> = Box<
         + Sync,
 >;
 
-pub type KMSOperatorKey<Key, Data, OperatorError> = KMSOperator<
-    Data,
-    <Key as SecuredKey<Data>>::Signature,
-    <Key as SecuredKey<Data>>::PublicKey,
-    <Key as SecuredKey<Data>>::Error,
+pub type KMSOperatorKey<Key, OperatorError> = KMSOperator<
+    <Key as SecuredKey>::Payload,
+    <Key as SecuredKey>::Signature,
+    <Key as SecuredKey>::PublicKey,
+    <Key as SecuredKey>::Error,
     OperatorError,
 >;
 
-pub type KMSOperatorBackend<Backend> = KMSOperatorKey<
-    <Backend as KMSBackend>::Key,
-    <Backend as KMSBackend>::Data,
-    <Backend as KMSBackend>::Error,
->;
+pub type KMSOperatorBackend<Backend> =
+    KMSOperatorKey<<Backend as KMSBackend>::Key, <Backend as KMSBackend>::Error>;
 
 type KeyDescriptor<Backend> = (
     <Backend as KMSBackend>::KeyId,
-    <<Backend as KMSBackend>::Key as SecuredKey<<Backend as KMSBackend>::Data>>::PublicKey,
+    <<Backend as KMSBackend>::Key as SecuredKey>::PublicKey,
 );
 
-pub enum KMSMessage<Backend, Data, Signature, PublicKey, KeyError, OperatorError>
+pub enum KMSMessage<Backend, Payload, Signature, PublicKey, KeyError, OperatorError>
 where
     Backend: KMSBackend,
 {
@@ -67,26 +64,23 @@ where
     },
     Sign {
         key_id: Backend::KeyId,
-        data: Data,
+        data: Payload,
         reply_channel: oneshot::Sender<Signature>,
     },
     Execute {
         key_id: Backend::KeyId,
-        operator: KMSOperator<Data, Signature, PublicKey, KeyError, OperatorError>,
+        operator: KMSOperator<Payload, Signature, PublicKey, KeyError, OperatorError>,
     },
 }
 
-pub type KMSMessageKey<Backend, Key, Data> = KMSMessage<
+pub type KMSMessageBackend<Backend> = KMSMessage<
     Backend,
-    Data,
-    <Key as SecuredKey<Data>>::Signature,
-    <Key as SecuredKey<Data>>::PublicKey,
-    <Key as SecuredKey<Data>>::Error,
+    <<Backend as KMSBackend>::Key as SecuredKey>::Payload,
+    <<Backend as KMSBackend>::Key as SecuredKey>::Signature,
+    <<Backend as KMSBackend>::Key as SecuredKey>::PublicKey,
+    <<Backend as KMSBackend>::Key as SecuredKey>::Error,
     <Backend as KMSBackend>::Error,
 >;
-
-pub type KMSMessageBackend<Backend> =
-    KMSMessageKey<Backend, <Backend as KMSBackend>::Key, <Backend as KMSBackend>::Data>;
 
 impl<Backend> Debug for KMSMessageBackend<Backend>
 where
@@ -151,11 +145,11 @@ impl<Backend, RuntimeServiceId> ServiceCore<RuntimeServiceId>
     for KMSService<Backend, RuntimeServiceId>
 where
     Backend: KMSBackend + Send + 'static,
-    Backend::Data: Send,
-    <Backend::Key as SecuredKey<Backend::Data>>::Signature: Send,
-    <Backend::Key as SecuredKey<Backend::Data>>::PublicKey: Send,
     Backend::KeyId: Clone + Debug + Send,
     Backend::Key: Debug + Send,
+    <Backend::Key as SecuredKey>::Payload: Send,
+    <Backend::Key as SecuredKey>::Signature: Send,
+    <Backend::Key as SecuredKey>::PublicKey: Send,
     Backend::Settings: Clone + Send + Sync,
     Backend::Error: Debug + Send,
     RuntimeServiceId: AsServiceId<Self> + Display + Send,

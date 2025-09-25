@@ -8,13 +8,14 @@ use crate::keys::{KeyError, secured_key::SecuredKey};
 #[derive(Serialize, Deserialize, ZeroizeOnDrop)]
 pub struct Ed25519Key(pub(crate) ed25519_dalek::SigningKey);
 
-impl SecuredKey<Bytes> for Ed25519Key {
+impl SecuredKey for Ed25519Key {
+    type Payload = Bytes;
     type Signature = Signature;
     type PublicKey = VerifyingKey;
     type Error = KeyError;
 
-    fn sign(&self, data: &Bytes) -> Result<Self::Signature, Self::Error> {
-        Ok(self.0.sign(data.iter().as_slice()))
+    fn sign(&self, payload: &Self::Payload) -> Result<Self::Signature, Self::Error> {
+        Ok(self.0.sign(payload.iter().as_slice()))
     }
 
     fn as_public_key(&self) -> Self::PublicKey {

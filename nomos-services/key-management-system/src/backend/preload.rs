@@ -35,6 +35,7 @@ mod encodings {
     use std::fmt::Debug;
 
     use bytes::Bytes;
+    use ed25519_dalek::{Signature, VerifyingKey};
 
     pub enum PreloadEncoding {
         Bytes(Bytes),
@@ -63,13 +64,27 @@ mod encodings {
             Self::Bytes(value)
         }
     }
+
+    impl From<Signature> for PreloadEncoding {
+        fn from(value: Signature) -> Self {
+            let value_bytes = value.to_bytes();
+            let bytes = Bytes::copy_from_slice(&value_bytes);
+            Self::Bytes(bytes)
+        }
+    }
+
+    impl From<VerifyingKey> for PreloadEncoding {
+        fn from(value: VerifyingKey) -> Self {
+            let bytes = Bytes::copy_from_slice(value.as_bytes());
+            Self::Bytes(bytes)
+        }
+    }
 }
 
 #[cfg(test)]
 mod keys {
     use std::fmt::{Debug, Formatter};
 
-    use bytes::Bytes;
     use serde::{Deserialize, Serialize};
     use zeroize::ZeroizeOnDrop;
 
@@ -81,29 +96,6 @@ mod keys {
     impl Debug for Ed25519Key {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
             f.debug_struct("Ed25519Key").finish()
-        }
-    }
-
-    impl SecuredKey<PreloadEncoding> for Ed25519Key {
-        type Signature = PreloadEncoding;
-        type PublicKey = PreloadEncoding;
-        type Error = PreloadKeyError;
-
-        fn sign(&self, data: &PreloadEncoding) -> Result<Self::Signature, Self::Error> {
-            match data {
-                PreloadEncoding::Bytes(bytes) => {
-                    let signature = <Self as SecuredKey<Bytes>>::sign(self, bytes)?;
-                    let signature_bytes = signature.to_bytes();
-                    let signature_as_bytes = Bytes::copy_from_slice(&signature_bytes);
-                    Ok(PreloadEncoding::from(signature_as_bytes))
-                }
-            }
-        }
-
-        fn as_public_key(&self) -> Self::PublicKey {
-            let public_key = <Self as SecuredKey<Bytes>>::as_public_key(self);
-            let public_key_as_bytes = Bytes::copy_from_slice(public_key.as_ref());
-            PreloadEncoding::from(public_key_as_bytes)
         }
     }
 
@@ -120,22 +112,24 @@ mod keys {
         }
     }
 
-    impl SecuredKey<PreloadEncoding> for PreloadKey {
+    impl SecuredKey for PreloadKey {
+        type Payload = PreloadEncoding;
         type Signature = PreloadEncoding;
         type PublicKey = PreloadEncoding;
         type Error = PreloadKeyError;
 
-        fn sign(&self, data: &PreloadEncoding) -> Result<Self::Signature, Self::Error> {
-            match self {
-                Self::Ed25519(key) => <Ed25519Key as SecuredKey<PreloadEncoding>>::sign(key, data),
+        fn sign(&self, payload: &Self::Payload) -> Result<Self::Signature, Self::Error> {
+            match (self, payload) {
+                (Self::Ed25519(key), PreloadEncoding::Bytes(bytes)) => key
+                    .sign(bytes)
+                    .map(PreloadEncoding::from)
+                    .map_err(PreloadKeyError::KeyError),
             }
         }
 
         fn as_public_key(&self) -> Self::PublicKey {
             match self {
-                Self::Ed25519(key) => {
-                    <Ed25519Key as SecuredKey<PreloadEncoding>>::as_public_key(key)
-                }
+                Self::Ed25519(key) => key.as_public_key().into(),
             }
         }
     }
@@ -154,12 +148,13 @@ mod keys {
         Ed25519,
     }
 
-    impl SecuredKey<PreloadEncoding> for PreloadKeyKind {
-        type Signature = <PreloadKey as SecuredKey<PreloadEncoding>>::Signature;
-        type PublicKey = <PreloadKey as SecuredKey<PreloadEncoding>>::PublicKey;
-        type Error = <PreloadKey as SecuredKey<PreloadEncoding>>::Error;
+    impl SecuredKey for PreloadKeyKind {
+        type Payload = <PreloadKey as SecuredKey>::Payload;
+        type Signature = <PreloadKey as SecuredKey>::Signature;
+        type PublicKey = <PreloadKey as SecuredKey>::PublicKey;
+        type Error = <PreloadKey as SecuredKey>::Error;
 
-        fn sign(&self, _data: &PreloadEncoding) -> Result<Self::Signature, Self::Error> {
+        fn sign(&self, _data: &Self::Payload) -> Result<Self::Signature, Self::Error> {
             unimplemented!("Not needed.")
         }
 
@@ -180,7 +175,7 @@ mod backends {
         KMSOperatorBackend, SecuredKey,
         backend::{
             KMSBackend,
-            preload::{encodings::PreloadEncoding, errors, keys},
+            preload::{errors, keys},
         },
     };
 
@@ -200,7 +195,6 @@ mod backends {
     #[async_trait::async_trait]
     impl KMSBackend for PreloadKMSBackend {
         type KeyId = String;
-        type Data = PreloadEncoding;
         type Key = keys::PreloadKeyKind;
         type Settings = PreloadKMSBackendSettings;
         type Error = DynError;
@@ -234,7 +228,7 @@ mod backends {
         fn public_key(
             &self,
             key_id: Self::KeyId,
-        ) -> Result<<Self::Key as SecuredKey<PreloadEncoding>>::PublicKey, Self::Error> {
+        ) -> Result<<Self::Key as SecuredKey>::PublicKey, Self::Error> {
             Ok(self
                 .keys
                 .get(&key_id)
@@ -245,12 +239,12 @@ mod backends {
         fn sign(
             &self,
             key_id: Self::KeyId,
-            data: PreloadEncoding,
-        ) -> Result<<Self::Key as SecuredKey<PreloadEncoding>>::Signature, Self::Error> {
+            payload: <Self::Key as SecuredKey>::Payload,
+        ) -> Result<<Self::Key as SecuredKey>::Signature, Self::Error> {
             self.keys
                 .get(&key_id)
                 .ok_or(errors::PreloadBackendError::KeyNotRegistered(key_id))?
-                .sign(&data)
+                .sign(&payload)
                 .map_err(|error| DynError::from(format!("{error:?}")))
         }
 
@@ -280,20 +274,30 @@ mod tests {
 
     use super::*;
     use crate::{
-        SecuredKey,
+        KMSOperatorBackend, SecuredKey,
         backend::{
-            KMSBackend as _,
-            preload::{encodings::PreloadEncoding, errors::PreloadKeyError},
+            KMSBackend,
+            preload::{backends::PreloadKMSBackend, encodings::PreloadEncoding},
         },
         keys::Ed25519Key,
     };
+
+    type BackendKey<'a, Backend> = dyn SecuredKey<
+            Payload = <<Backend as KMSBackend>::Key as SecuredKey>::Payload,
+            Signature = <<Backend as KMSBackend>::Key as SecuredKey>::Signature,
+            PublicKey = <<Backend as KMSBackend>::Key as SecuredKey>::PublicKey,
+            Error = <<Backend as KMSBackend>::Key as SecuredKey>::Error,
+        > + 'a;
+    fn noop_operator<Backend: KMSBackend>() -> KMSOperatorBackend<Backend> {
+        Box::new(move |_: &mut BackendKey<Backend>| Box::pin(async move { Ok(()) }))
+    }
 
     #[tokio::test]
     async fn preload_backend() {
         // Initialize a backend with a pre-generated key in the setting
         let key_id = "blend/1".to_owned();
         let key = ed25519_dalek::SigningKey::generate(&mut OsRng);
-        let mut backend = backends::PreloadKMSBackend::new(backends::PreloadKMSBackendSettings {
+        let mut backend = PreloadKMSBackend::new(backends::PreloadKMSBackendSettings {
             keys: HashMap::from_iter(vec![(
                 key_id.clone(),
                 keys::PreloadKey::Ed25519(Ed25519Key(key.clone())),
@@ -311,38 +315,26 @@ mod tests {
         // Check if the backend key operations results are the same as the direct
         // operation on the key itself.
         let key = Ed25519Key(key.clone());
-        let pk = <Ed25519Key as SecuredKey<PreloadEncoding>>::as_public_key(&key);
-        let backend_pk = backend.public_key(key_id.clone()).unwrap();
-        assert_eq!(backend_pk, pk);
+        let public_key = key.as_public_key().into();
+        let backend_public_key = backend.public_key(key_id.clone()).unwrap();
+        assert_eq!(backend_public_key, public_key);
 
-        let data = Bytes::from("data");
-        let encoded_data = PreloadEncoding::from(data.clone());
-        let signature = key.sign(&encoded_data).unwrap();
-
-        let encoded_data = PreloadEncoding::from(data);
-        let backend_signature = backend.sign(key_id.clone(), encoded_data).unwrap();
+        let payload = Bytes::from("data");
+        let signature = key.sign(&payload).unwrap().into();
+        let encoded_payload = PreloadEncoding::from(payload);
+        let backend_signature = backend.sign(key_id.clone(), encoded_payload).unwrap();
         assert_eq!(backend_signature, signature);
 
         // Check if the execute function works as expected
         backend
-            .execute(
-                key_id.clone(),
-                Box::new(
-                    move |_: &mut dyn SecuredKey<
-                        PreloadEncoding,
-                        PublicKey = PreloadEncoding,
-                        Signature = PreloadEncoding,
-                        Error = PreloadKeyError,
-                    >| Box::pin(async move { Ok(()) }),
-                ),
-            )
+            .execute(key_id.clone(), noop_operator::<PreloadKMSBackend>())
             .await
             .unwrap();
     }
 
     #[tokio::test]
     async fn key_not_registered() {
-        let mut backend = backends::PreloadKMSBackend::new(backends::PreloadKMSBackendSettings {
+        let mut backend = PreloadKMSBackend::new(backends::PreloadKMSBackendSettings {
             keys: HashMap::new(),
         });
 
@@ -358,17 +350,7 @@ mod tests {
         assert!(backend.sign(key_id.clone(), encoded_data).is_err());
         assert!(
             backend
-                .execute(
-                    key_id,
-                    Box::new(
-                        move |_: &mut dyn SecuredKey<
-                            PreloadEncoding,
-                            PublicKey = PreloadEncoding,
-                            Signature = PreloadEncoding,
-                            Error = PreloadKeyError,
-                        >| Box::pin(async move { Ok(()) })
-                    ),
-                )
+                .execute(key_id, noop_operator::<PreloadKMSBackend>(),)
                 .await
                 .is_err()
         );
