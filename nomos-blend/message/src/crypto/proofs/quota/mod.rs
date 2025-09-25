@@ -20,6 +20,9 @@ mod serde;
 #[cfg(test)]
 mod tests;
 
+#[cfg(feature = "unsafe-test-functions")]
+pub mod fixtures;
+
 const KEY_NULLIFIER_SIZE: usize = size_of::<ZkHash>();
 const PROOF_CIRCUIT_SIZE: usize = size_of::<PoQProof>();
 pub const PROOF_OF_QUOTA_SIZE: usize = KEY_NULLIFIER_SIZE.checked_add(PROOF_CIRCUIT_SIZE).unwrap();

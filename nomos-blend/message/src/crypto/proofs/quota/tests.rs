@@ -1,7 +1,10 @@
 use const_hex::FromHex as _;
 use num_bigint::BigUint;
 
-use crate::crypto::proofs::quota::DOMAIN_SEPARATION_TAG_FR;
+use crate::crypto::proofs::{
+    ZkHashExt as _,
+    quota::{DOMAIN_SEPARATION_TAG_FR, ProofOfQuota, fixtures::valid_proof_of_core_quota_inputs},
+};
 
 #[test]
 fn secret_selection_randomness_dst_encoding() {
@@ -13,4 +16,16 @@ fn secret_selection_randomness_dst_encoding() {
         )
         .into()
     );
+}
+
+#[test]
+fn valid_proof_of_core_quota() {
+    let (public_inputs, private_inputs) =
+        valid_proof_of_core_quota_inputs([0; _].try_into().unwrap(), 1, 0);
+
+    let (proof, secret_selection_randomness) =
+        ProofOfQuota::new(&public_inputs, private_inputs).unwrap();
+
+    let key_nullifier = proof.verify(&public_inputs).unwrap();
+    assert_eq!([secret_selection_randomness].hash(), key_nullifier);
 }
