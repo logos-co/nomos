@@ -1,9 +1,13 @@
 use const_hex::FromHex as _;
+use groth16::fr_from_bytes_le_unchecked;
 use num_bigint::BigUint;
 
 use crate::crypto::proofs::{
     ZkHashExt as _,
-    quota::{DOMAIN_SEPARATION_TAG_FR, ProofOfQuota, fixtures::valid_proof_of_core_quota_inputs},
+    quota::{
+        DOMAIN_SEPARATION_TAG_FR, ProofOfQuota,
+        fixtures::{valid_proof_of_core_quota_inputs, valid_proof_of_leadership_quota_inputs},
+    },
 };
 
 #[test]
@@ -27,5 +31,32 @@ fn valid_proof_of_core_quota() {
         ProofOfQuota::new(&public_inputs, private_inputs).unwrap();
 
     let key_nullifier = proof.verify(&public_inputs).unwrap();
-    assert_eq!([secret_selection_randomness].hash(), key_nullifier);
+    assert_eq!(
+        [
+            fr_from_bytes_le_unchecked(b"KEY_NULLIFIER_V1"),
+            secret_selection_randomness
+        ]
+        .hash(),
+        key_nullifier
+    );
+}
+
+#[test]
+fn valid_proof_of_leadership_quota() {
+    let (public_inputs, private_inputs) =
+        valid_proof_of_leadership_quota_inputs([0; _].try_into().unwrap(), 1, 0);
+
+    let (proof, secret_selection_randomness) =
+        ProofOfQuota::new(&public_inputs, private_inputs).unwrap();
+
+    // TODO: Check why this is failing.
+    let key_nullifier = proof.verify(&public_inputs).unwrap();
+    assert_eq!(
+        [
+            fr_from_bytes_le_unchecked(b"KEY_NULLIFIER_V1"),
+            secret_selection_randomness
+        ]
+        .hash(),
+        key_nullifier
+    );
 }
