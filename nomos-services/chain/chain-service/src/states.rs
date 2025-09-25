@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::{Cryptarchia, CryptarchiaSettings, Error};
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct CryptarchiaConsensusState<TxS, NodeId, NetworkAdapterSettings, BlendAdapterSettings> {
+pub struct CryptarchiaConsensusState<NodeId, NetworkAdapterSettings> {
     pub tip: HeaderId,
     pub lib: HeaderId,
     pub lib_ledger_state: LedgerState,
@@ -20,11 +20,11 @@ pub struct CryptarchiaConsensusState<TxS, NodeId, NetworkAdapterSettings, BlendA
     /// Last engine state and timestamp for offline grace period tracking
     pub last_engine_state: Option<LastEngineState>,
     // Only neededed for the service state trait
-    _markers: PhantomData<(TxS, NodeId, NetworkAdapterSettings, BlendAdapterSettings)>,
+    _markers: PhantomData<(NodeId, NetworkAdapterSettings)>,
 }
 
-impl<TxS, NodeId, NetworkAdapterSettings, BlendAdapterSettings>
-    CryptarchiaConsensusState<TxS, NodeId, NetworkAdapterSettings, BlendAdapterSettings>
+impl<NodeId, NetworkAdapterSettings>
+    CryptarchiaConsensusState<NodeId, NetworkAdapterSettings>
 {
     /// Re-create the [`CryptarchiaConsensusState`]
     /// given the cryptarchia engine and ledger state.
@@ -59,12 +59,12 @@ impl<TxS, NodeId, NetworkAdapterSettings, BlendAdapterSettings>
     }
 }
 
-impl<TxS, NodeId, NetworkAdapterSettings, BlendAdapterSettings> ServiceState
-    for CryptarchiaConsensusState<TxS, NodeId, NetworkAdapterSettings, BlendAdapterSettings>
+impl<NodeId, NetworkAdapterSettings> ServiceState
+    for CryptarchiaConsensusState<NodeId, NetworkAdapterSettings>
 where
     NodeId: Clone + Eq + Hash,
 {
-    type Settings = CryptarchiaSettings<TxS, NodeId, NetworkAdapterSettings, BlendAdapterSettings>;
+    type Settings = CryptarchiaSettings<NodeId, NetworkAdapterSettings>;
     type Error = Error;
 
     fn from_settings(

@@ -325,6 +325,9 @@ where
             loop {
                 tokio::select! {
                     Some(SlotTick { slot, .. }) = slot_timer.next() => {
+                        // TODO: Don't propose blocks until IBD is done and online mode is activated.
+                        //       Until then, mempool, DA, blend service will not be ready: https://github.com/logos-co/nomos/issues/1656
+
                         let chain_info = match cryptarchia_api.info().await {
                             Ok(info) => info,
                             Err(e) => {
@@ -487,7 +490,8 @@ where
     ) -> Option<Block<ClPool::Item>> {
         let mut output = None;
         let txs = get_mempool_contents(relays.cl_mempool_relay().clone()).map_err(DynError::from);
-        let blobs_ids = get_sampled_blobs(relays.sampling_relay().clone());
+        let sampling_relay = relays.sampling_relay().clone();
+        let blobs_ids = get_sampled_blobs(sampling_relay);
         match futures::try_join!(txs, blobs_ids) {
             Ok((txs, blobs)) => {
                 let txs = tx_selector
@@ -499,7 +503,8 @@ where
                     })))
                     .collect::<Vec<_>>();
                 let content_id = [0; 32].into(); // TODO: calculate the actual content id
-                                                 // TODO: this should probably be a proposal or be transformed into a proposal
+
+                // TODO: this should probably be a proposal or be transformed into a proposal
                 let block = Block::new(Header::new(parent, content_id, slot, proof), txs);
                 debug!("proposed block with id {:?}", block.header().id());
                 output = Some(block);
