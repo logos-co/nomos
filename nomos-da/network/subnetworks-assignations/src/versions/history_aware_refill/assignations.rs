@@ -204,10 +204,11 @@ impl HistoryAwareRefill {
         for<'id> Id: Ord + Copy + Hash + 'id,
         Rng: RngCore,
     {
-        assert!(
-            new_nodes_list.len() >= replication_factor,
-            "The network size is smaller than the replication factor"
-        );
+        // Behaviors can skip when assignations are empty
+        if new_nodes_list.len() < replication_factor {
+            return Vec::new();
+        }
+
         // The algorithm works as follows:
         // 1. Remove nodes that are not active from the previous subnetworks
         //    assignations
