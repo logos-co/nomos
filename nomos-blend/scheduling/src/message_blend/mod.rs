@@ -6,14 +6,11 @@ use futures::{
 };
 use nomos_blend_message::{
     crypto::{
-        keys::{Ed25519PrivateKey, Ed25519PublicKey},
+        keys::Ed25519PrivateKey,
         proofs::{
             quota::{
                 self, ProofOfQuota,
-                inputs::prove::{
-                    PublicInputs as PoQPublicInputs,
-                    private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs},
-                },
+                inputs::prove::private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs},
             },
             selection::ProofOfSelection,
         },
@@ -84,32 +81,6 @@ impl From<PublicInputs> for PoQVerificationInputMinusSigningKey {
             session,
             total_stake,
         }
-    }
-}
-
-const fn poq_public_inputs_from_session_public_inputs_and_signing_key(
-    (
-        PublicInputs {
-            core_quota,
-            core_root,
-            leader_quota,
-            pol_epoch_nonce,
-            pol_ledger_aged,
-            session,
-            total_stake,
-        },
-        signing_key,
-    ): (PublicInputs, Ed25519PublicKey),
-) -> PoQPublicInputs {
-    PoQPublicInputs {
-        core_quota,
-        core_root,
-        leader_quota,
-        pol_epoch_nonce,
-        pol_ledger_aged,
-        session,
-        total_stake,
-        signing_key,
     }
 }
 
@@ -213,9 +184,13 @@ fn start(
     leadership_proofs_sender: Sender<BlendLayerProof>,
     session_info: SessionInfo,
 ) -> AbortHandle {
+    println!("A");
     let session_info_clone = session_info.clone();
+    println!("B");
     let total_core_proofs = session_info.public_inputs.core_quota;
-    let core_proofs_task = spawn_blocking(async move || {
+    println!("C");
+    let core_proofs_task = spawn_blocking(move || {
+        println!("1");
         for core_key_index in 0..total_core_proofs {
             let ephemeral_signing_key = Ed25519PrivateKey::generate();
             let Ok((proof_of_quota, secret_selection_randomness)) = ProofOfQuota::new(
@@ -245,18 +220,20 @@ fn start(
             };
             let proof_of_selection = ProofOfSelection::new(secret_selection_randomness);
             core_proofs_sender
-                .send(BlendLayerProof {
+                .blocking_send(BlendLayerProof {
                     proof_of_quota,
                     proof_of_selection,
                     ephemeral_signing_key,
                 })
-                .await
                 .unwrap();
         }
     });
 
+    println!("D");
     let total_leadership_proofs = session_info.public_inputs.leader_quota;
-    let leadership_proofs_task = spawn_blocking(async move || {
+    println!("E");
+    let leadership_proofs_task = spawn_blocking(move || {
+        println!("2");
         for leadership_key_index in 0..total_leadership_proofs {
             let ephemeral_signing_key = Ed25519PrivateKey::generate();
             let Ok((proof_of_quota, secret_selection_randomness)) = ProofOfQuota::new(
@@ -290,24 +267,27 @@ fn start(
             };
             let proof_of_selection = ProofOfSelection::new(secret_selection_randomness);
             leadership_proofs_sender
-                .send(BlendLayerProof {
+                .blocking_send(BlendLayerProof {
                     proof_of_quota,
                     proof_of_selection,
                     ephemeral_signing_key,
                 })
-                .await
                 .unwrap();
         }
     });
 
+    println!("F");
     let proofs_generation_task = join(core_proofs_task, leadership_proofs_task);
+    println!("G");
     let (proofs_generation_task_abort_handle, proofs_generation_task_abort_registration) =
         AbortHandle::new_pair();
+    println!("H");
 
     spawn(Abortable::new(
         proofs_generation_task,
         proofs_generation_task_abort_registration,
     ));
+    println!("I");
 
     proofs_generation_task_abort_handle
 }

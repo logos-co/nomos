@@ -1,6 +1,6 @@
 use blake2::Digest as _;
 use cryptarchia_engine::Slot;
-use groth16::fr_to_bytes;
+use groth16::fr_to_bytes_le;
 use serde::{Deserialize, Serialize};
 
 pub const BEDROCK_VERSION: u8 = 1;
@@ -41,7 +41,7 @@ impl Header {
         h.update(self.slot.to_le_bytes());
         h.update(self.block_root.0);
         h.update(self.proof_of_leadership.voucher_cm().to_bytes());
-        h.update(fr_to_bytes(&self.proof_of_leadership.entropy()));
+        h.update(fr_to_bytes_le(&self.proof_of_leadership.entropy()));
         h.update(self.proof_of_leadership.proof().to_bytes());
         h.update(self.proof_of_leadership.leader_key().to_bytes());
     }

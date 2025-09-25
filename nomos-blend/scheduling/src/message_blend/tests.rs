@@ -1,10 +1,38 @@
+use nomos_blend_message::crypto::{
+    keys::Ed25519PublicKey, proofs::quota::inputs::prove::PublicInputs as PoQPublicInputs,
+};
 use nomos_core::crypto::ZkHash;
 use num_bigint::BigUint;
 
 use crate::message_blend::{
     PrivateInputs, ProofsGenerator as _, PublicInputs, RealProofsGenerator, SessionInfo,
-    poq_public_inputs_from_session_public_inputs_and_signing_key,
 };
+
+const fn poq_public_inputs_from_session_public_inputs_and_signing_key(
+    (
+        PublicInputs {
+            core_quota,
+            core_root,
+            leader_quota,
+            pol_epoch_nonce,
+            pol_ledger_aged,
+            session,
+            total_stake,
+        },
+        signing_key,
+    ): (PublicInputs, Ed25519PublicKey),
+) -> PoQPublicInputs {
+    PoQPublicInputs {
+        core_quota,
+        core_root,
+        leader_quota,
+        pol_epoch_nonce,
+        pol_ledger_aged,
+        session,
+        total_stake,
+        signing_key,
+    }
+}
 
 // Inputs taken from the `poq` crate unit tests. If these tests start failing,
 // make sure the inputs here are in sync with the ones in there.
@@ -144,12 +172,12 @@ fn proof_inputs() -> (PrivateInputs, PublicInputs) {
             .into(),
         leader_quota: 10,
         pol_epoch_nonce:
-            "20362738684904188164173875375066172826647102735682033630054721962986517191370"
+            "19641557459421245881192062599424356623307357061239367895203248247965332876925"
                 .parse::<BigUint>()
                 .unwrap()
                 .into(),
         pol_ledger_aged:
-            "801456473606247514536554589505313817337641017798795001180932230529383426690"
+            "15086725893164811954172616834548352813855877555218805048439988510537512645421"
                 .parse::<BigUint>()
                 .unwrap()
                 .into(),
@@ -173,6 +201,7 @@ async fn real_proof_generation() {
     });
 
     for _ in 0..core_quota {
+        println!("AAAAA");
         let proof = proofs_generator.get_next_core_proof().await.unwrap();
         proof
             .proof_of_quota

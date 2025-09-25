@@ -1,7 +1,7 @@
 use std::sync::LazyLock;
 
 use cryptarchia_engine::{Epoch, Slot};
-use groth16::{Field as _, Fr, fr_from_bytes};
+use groth16::{Field as _, Fr, fr_from_bytes_le};
 use nomos_core::{
     crypto::{ZkDigest, ZkHasher},
     mantle::{AuthenticatedMantleTx, NoteId, Utxo, Value, gas::GasConstants},
@@ -241,7 +241,7 @@ impl LedgerState {
         // constants and structure as defined in the Mantle spec:
         // https://www.notion.so/Cryptarchia-v1-Protocol-Specification-21c261aa09df810cb85eff1c76e5798c
         static EPOCH_NONCE_V1: LazyLock<Fr> =
-            LazyLock::new(|| fr_from_bytes(b"EPOCH_NONCE_V1").unwrap());
+            LazyLock::new(|| fr_from_bytes_le(b"EPOCH_NONCE_V1").unwrap());
         let mut hasher = ZkHasher::new();
         <ZkHasher as ZkDigest>::update(&mut hasher, &EPOCH_NONCE_V1);
         <ZkHasher as ZkDigest>::update(&mut hasher, &self.nonce);

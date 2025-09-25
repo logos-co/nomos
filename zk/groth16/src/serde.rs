@@ -2,13 +2,13 @@ pub mod serde_fr {
     use ark_bn254::Fr;
     use serde::{Deserialize as _, Deserializer, Serialize as _, Serializer};
 
-    use crate::{FrBytes, fr_from_bytes, fr_to_bytes};
+    use crate::{FrBytes, fr_from_bytes_le, fr_to_bytes_le};
 
     pub fn serialize<S>(item: &Fr, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        let bytes = fr_to_bytes(item);
+        let bytes = fr_to_bytes_le(item);
         if serializer.is_human_readable() {
             let hex = hex::encode(bytes); // Convert `Fr` to hex representation
             serializer.serialize_str(&hex)
@@ -29,10 +29,10 @@ pub mod serde_fr {
                 .map_err(|b: Vec<u8>| {
                     serde::de::Error::custom(format!("Bytes length is not 32, got: {:?}", b.len()))
                 })?;
-            Ok(fr_from_bytes(&bytes).map_err(serde::de::Error::custom)?) // Parse from hex
+            Ok(fr_from_bytes_le(&bytes).map_err(serde::de::Error::custom)?) // Parse from hex
         } else {
             let sized_bytes = <[u8; 32]>::deserialize(deserializer)?;
-            Ok(fr_from_bytes(&sized_bytes).map_err(serde::de::Error::custom)?)
+            Ok(fr_from_bytes_le(&sized_bytes).map_err(serde::de::Error::custom)?)
         }
     }
 

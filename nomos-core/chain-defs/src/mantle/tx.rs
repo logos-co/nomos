@@ -1,7 +1,7 @@
 use std::sync::LazyLock;
 
 use bytes::Bytes;
-use groth16::{Fr, fr_from_bytes, serde::serde_fr};
+use groth16::{Fr, fr_from_bytes_le, serde::serde_fr};
 use num_bigint::BigUint;
 use poseidon2::{Digest, ZkHash};
 use serde::{Deserialize, Serialize};
@@ -70,11 +70,11 @@ pub struct MantleTx {
 }
 
 static NOMOS_MANTLE_TXHASH_V1_FR: LazyLock<Fr> = LazyLock::new(|| {
-    fr_from_bytes(b"NOMOS_MANTLE_TXHASH_V1").expect("Constant should be valid Fr")
+    fr_from_bytes_le(b"NOMOS_MANTLE_TXHASH_V1").expect("Constant should be valid Fr")
 });
 
 static END_OPS_FR: LazyLock<Fr> =
-    LazyLock::new(|| fr_from_bytes(b"END_OPS").expect("Constant should be valid Fr"));
+    LazyLock::new(|| fr_from_bytes_le(b"END_OPS").expect("Constant should be valid Fr"));
 
 impl Transaction for MantleTx {
     const HASHER: TransactionHasher<Self> =

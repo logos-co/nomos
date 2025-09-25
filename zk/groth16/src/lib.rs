@@ -42,10 +42,17 @@ pub type Groth16InputDeser = public_input::InputDeser;
 pub type FrBytes = [u8; 32];
 
 #[must_use]
-pub fn fr_to_bytes(fr: &Fr) -> FrBytes {
-    (*fr)
-        .into_bigint()
-        .to_bytes_le()
+pub fn fr_to_bytes_le(fr: &Fr) -> FrBytes {
+    to_bytes((*fr).into_bigint().to_bytes_le())
+}
+
+#[must_use]
+pub fn fr_to_bytes_be(fr: &Fr) -> FrBytes {
+    to_bytes((*fr).into_bigint().to_bytes_be())
+}
+
+fn to_bytes(fr_bytes: Vec<u8>) -> FrBytes {
+    fr_bytes
         .try_into()
         .expect("Bn254 Fr to bytes should fit in 32 bytes")
 }
@@ -57,8 +64,15 @@ pub struct FrFromBytesError {
     pub modulus: String,
 }
 
-pub fn fr_from_bytes(fr: &[u8]) -> Result<Fr, impl Error + use<>> {
-    let n = BigUint::from_bytes_le(fr);
+pub fn fr_from_bytes_le(fr: &[u8]) -> Result<Fr, impl Error + use<>> {
+    from_biguint(BigUint::from_bytes_le(fr))
+}
+
+pub fn fr_from_bytes_be(fr: &[u8]) -> Result<Fr, impl Error + use<>> {
+    from_biguint(BigUint::from_bytes_be(fr))
+}
+
+fn from_biguint(n: BigUint) -> Result<Fr, impl Error> {
     if n > <Fr as PrimeField>::MODULUS.into() {
         return Err(FrFromBytesError {
             parsed_bytes: n.to_string(),
@@ -71,8 +85,13 @@ pub fn fr_from_bytes(fr: &[u8]) -> Result<Fr, impl Error + use<>> {
 /// To be used only in cases where a random or pseudo-random `Fr` value is
 /// needed.
 #[must_use]
-pub fn fr_from_bytes_unchecked(fr: &[u8]) -> Fr {
+pub fn fr_from_bytes_le_unchecked(fr: &[u8]) -> Fr {
     BigUint::from_bytes_le(fr).into()
+}
+
+#[must_use]
+pub fn fr_from_bytes_be_unchecked(fr: &[u8]) -> Fr {
+    BigUint::from_bytes_be(fr).into()
 }
 
 #[cfg(test)]
@@ -80,13 +99,13 @@ mod tests {
     use ark_bn254::Fr;
     use num_bigint::BigUint;
 
-    use crate::{fr_from_bytes, fr_to_bytes};
+    use crate::{fr_from_bytes_le, fr_to_bytes_le};
 
     #[test]
     fn fr_to_from_bytes() {
         let value: Fr = BigUint::from(1_234_567_890_123_456_789u64).into();
-        let bytes = fr_to_bytes(&value);
-        let value2 = fr_from_bytes(&bytes).unwrap();
+        let bytes = fr_to_bytes_le(&value);
+        let value2 = fr_from_bytes_le(&bytes).unwrap();
         assert_eq!(value, value2);
     }
 }
