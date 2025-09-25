@@ -189,101 +189,150 @@ where
     /// as long as there are other peers still in progress.
     ///
     /// An error is return if all peers fail.
-    #[expect(
-        clippy::cognitive_complexity,
-        reason = "To be refactored into sub-functions"
-    )]
     async fn proceed_downloads<'a>(
         &self,
-        mut downloads: Downloads<'a, NetAdapter::PeerId, NetAdapter::Block>,
-        mut cryptarchia: Cryptarchia,
-        mut storage_blocks_to_remove: HashSet<HeaderId>,
+        downloads: Downloads<'a, NetAdapter::PeerId, NetAdapter::Block>,
+        cryptarchia: Cryptarchia,
+        storage_blocks_to_remove: HashSet<HeaderId>,
     ) -> Result<(Cryptarchia, HashSet<HeaderId>), Error>
     where
         NetAdapter::PeerId: 'a,
         NetAdapter::Block: 'a,
     {
-        // Track failed peers, so that we can return an error if all peers fail.
-        let num_peers = downloads.num_peers();
-        let mut failed_peers = HashSet::new();
+        let mut context = Context::new(cryptarchia, storage_blocks_to_remove, downloads);
 
         // Repeat until there is no download remaining.
-        while let Some(output) = downloads.next().await {
-            match output {
-                DownloadsOutput::DelayCompleted(delay) => {
-                    downloads = self
-                        .try_initiate_download(
-                            *delay.peer(),
-                            delay.latest_downloaded_block(),
-                            &cryptarchia,
-                            downloads,
-                        )
-                        .await;
-                }
-                DownloadsOutput::BlockReceived { block, download } => {
-                    let process_block_result = (self.process_block)(
-                        cryptarchia.clone(),
-                        storage_blocks_to_remove.clone(),
-                        block,
-                    )
-                    .await;
-                    match process_block_result {
-                        Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
-                            cryptarchia = new_cryptarchia;
-                            storage_blocks_to_remove = new_storage_blocks_to_remove;
-                            downloads.add_download(download);
-                        }
-                        Err(e) => {
-                            error!("Block processing failed: {e}");
-                            failed_peers.insert(*download.peer());
-                            if failed_peers.len() == num_peers {
-                                return Err(Error::AllPeersFailed);
-                            }
-                            // TODO: Close the download (the underlying stream)
-                            //       when we need to stop it: https://github.com/logos-co/nomos/issues/1517
-                        }
-                    }
-                }
-                DownloadsOutput::DownloadCompleted(download) => {
-                    debug!(
-                        "A download completed for {:?}. Try a new download",
-                        download.peer()
-                    );
-                    downloads = self
-                        .try_initiate_download(
-                            *download.peer(),
-                            download.last(),
-                            &cryptarchia,
-                            downloads,
-                        )
-                        .await;
-                }
-                DownloadsOutput::Error { error, download } => {
-                    error!("Download failed from {:?}: {}", download.peer(), error);
-                    failed_peers.insert(*download.peer());
-                    if failed_peers.len() == num_peers {
+        while let Some(output) = context.downloads.next().await {
+            context = match self.handle_downloads_output(output, context).await {
+                Ok(context) => context,
+                Err((e, context)) => {
+                    error!("A peer was dropped from IBD due to error: {e:?}");
+                    if context.is_all_peers_failed() {
                         return Err(Error::AllPeersFailed);
                     }
+                    context
                 }
             }
         }
 
-        Ok((cryptarchia, storage_blocks_to_remove))
+        Ok((context.cryptarchia, context.storage_blocks_to_remove))
+    }
+
+    /// Handles a [`DownloadsOutput`].
+    ///
+    /// It returns an updated [`Context`] if the output is handled successfully.
+    /// Otherwise, it returns an error along with the failed peer ID and the
+    /// [`Context`] in which the [`Download`] for the failed peer has been
+    /// dropped.
+    async fn handle_downloads_output<'a>(
+        &self,
+        output: DownloadsOutput<NetAdapter::PeerId, NetAdapter::Block>,
+        context: Context<'a, NetAdapter::PeerId, NetAdapter::Block>,
+    ) -> ContextResult<'a, NetAdapter::PeerId, NetAdapter::Block>
+    where
+        NetAdapter::PeerId: 'a,
+        NetAdapter::Block: 'a,
+    {
+        match output {
+            DownloadsOutput::DelayCompleted(delay) => {
+                self.handle_delay_completed(delay, context).await
+            }
+            DownloadsOutput::BlockReceived { block, download } => {
+                self.handle_block_received(block, download, context).await
+            }
+            DownloadsOutput::DownloadCompleted(download) => {
+                self.handle_download_completed(download, context).await
+            }
+            DownloadsOutput::Error { error, download } => {
+                error!("Download failed from {:?}: {}", download.peer(), error);
+                Err((Error::BlockProvider(error), context))
+            }
+        }
+    }
+
+    /// Handles a [`DownloadsOutput::BlockReceived`] by processing the block.
+    async fn handle_block_received<'a>(
+        &self,
+        block: NetAdapter::Block,
+        download: Download<NetAdapter::PeerId, NetAdapter::Block>,
+        mut context: Context<'a, NetAdapter::PeerId, NetAdapter::Block>,
+    ) -> ContextResult<'a, NetAdapter::PeerId, NetAdapter::Block>
+    where
+        NetAdapter::PeerId: 'a,
+        NetAdapter::Block: 'a,
+    {
+        debug!("Handling a block received from {:?}", download.peer());
+
+        match (self.process_block)(
+            context.cryptarchia.clone(),
+            context.storage_blocks_to_remove.clone(),
+            block,
+        )
+        .await
+        {
+            Ok((cryptarchia, storage_blocks_to_remove)) => {
+                context.downloads.add_download(download);
+                Ok(Context::new(
+                    cryptarchia,
+                    storage_blocks_to_remove,
+                    context.downloads,
+                ))
+            }
+            Err(e) => {
+                error!("Failed to process block from peer: {:?}", download.peer());
+                Err((e, context))
+            }
+        }
+    }
+
+    /// Handles a [`DownloadsOutput::DownloadCompleted`] by trying to
+    /// initiate a new download for the same peer.
+    async fn handle_download_completed<'a>(
+        &self,
+        download: Download<NetAdapter::PeerId, NetAdapter::Block>,
+        context: Context<'a, NetAdapter::PeerId, NetAdapter::Block>,
+    ) -> ContextResult<'a, NetAdapter::PeerId, NetAdapter::Block>
+    where
+        NetAdapter::PeerId: 'a,
+        NetAdapter::Block: 'a,
+    {
+        debug!(
+            "A download completed for {:?}. Try a new download",
+            download.peer()
+        );
+        self.try_initiate_download(*download.peer(), download.last(), context)
+            .await
+    }
+
+    /// Handles a [`DownloadsOutput::DelayCompleted`] by trying to
+    /// initiate a new download for the same peer.
+    async fn handle_delay_completed<'a>(
+        &self,
+        delay: Delay<NetAdapter::PeerId>,
+        context: Context<'a, NetAdapter::PeerId, NetAdapter::Block>,
+    ) -> ContextResult<'a, NetAdapter::PeerId, NetAdapter::Block>
+    where
+        NetAdapter::PeerId: 'a,
+        NetAdapter::Block: 'a,
+    {
+        debug!(
+            "A delay completed for {:?}. Try a new download",
+            delay.peer()
+        );
+        self.try_initiate_download(*delay.peer(), delay.latest_downloaded_block(), context)
+            .await
     }
 
     /// Tries to initiate a download for a peer.
     ///
     /// If there is no download needed at the moment, a delay is scheduled,
     /// so that a new download can be attempted later.
-    ///
-    /// The peer is ignored if the communication fails.
     async fn try_initiate_download<'a>(
         &self,
         peer: NetAdapter::PeerId,
         latest_downloaded_block: Option<HeaderId>,
-        cryptarchia: &Cryptarchia,
-        mut downloads: Downloads<'a, NetAdapter::PeerId, NetAdapter::Block>,
-    ) -> Downloads<'a, NetAdapter::PeerId, NetAdapter::Block>
+        mut context: Context<'a, NetAdapter::PeerId, NetAdapter::Block>,
+    ) -> ContextResult<'a, NetAdapter::PeerId, NetAdapter::Block>
     where
         NetAdapter::PeerId: 'a,
         NetAdapter::Block: 'a,
@@ -292,24 +341,55 @@ where
             .initiate_download(
                 peer,
                 latest_downloaded_block,
-                cryptarchia,
-                downloads.targets(),
+                &context.cryptarchia,
+                context.downloads.targets(),
             )
             .await
         {
             Ok(Some(download)) => {
-                downloads.add_download(download);
+                context.downloads.add_download(download);
+                Ok(context)
             }
             Ok(None) => {
-                downloads.add_delay(Delay::new(peer, latest_downloaded_block));
+                context
+                    .downloads
+                    .add_delay(Delay::new(peer, latest_downloaded_block));
+                Ok(context)
             }
             Err(e) => {
                 error!("Failed to initiate next download for {peer:?}: {e}");
+                Err((e, context))
             }
         }
-        downloads
     }
 }
+
+struct Context<'a, PeerId, Block> {
+    cryptarchia: Cryptarchia,
+    storage_blocks_to_remove: HashSet<HeaderId>,
+    downloads: Downloads<'a, PeerId, Block>,
+}
+
+impl<'a, PeerId, Block> Context<'a, PeerId, Block> {
+    const fn new(
+        cryptarchia: Cryptarchia,
+        storage_blocks_to_remove: HashSet<HeaderId>,
+        downloads: Downloads<'a, PeerId, Block>,
+    ) -> Self {
+        Self {
+            cryptarchia,
+            storage_blocks_to_remove,
+            downloads,
+        }
+    }
+
+    fn is_all_peers_failed(&self) -> bool {
+        self.downloads.num_peers() == 0
+    }
+}
+
+type ContextResult<'a, PeerId, Block> =
+    Result<Context<'a, PeerId, Block>, (Error, Context<'a, PeerId, Block>)>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
