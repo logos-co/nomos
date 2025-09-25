@@ -2,6 +2,7 @@ mod ed25519;
 mod errors;
 mod secured_key;
 
+use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use zeroize::ZeroizeOnDrop;
 
@@ -24,14 +25,19 @@ impl SecuredKey<DataEncoding> for Key {
     type Error = KeyError;
 
     fn sign(&self, data: &DataEncoding) -> Result<Self::Signature, Self::Error> {
-        match self {
-            Self::Ed25519(key) => key.sign(data),
+        match (self, data) {
+            (Self::Ed25519(key), DataEncoding::Ed25519(data)) => {
+                key.sign(data).map(Self::Signature::Ed25519)
+            }
         }
     }
 
     fn as_public_key(&self) -> Self::PublicKey {
         match self {
-            Self::Ed25519(key) => <Ed25519Key as SecuredKey<DataEncoding>>::as_public_key(key),
+            Self::Ed25519(key) => {
+                let public_key = <Ed25519Key as SecuredKey<Bytes>>::as_public_key(key);
+                Self::PublicKey::Ed25519(public_key)
+            }
         }
     }
 }
