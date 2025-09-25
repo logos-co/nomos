@@ -160,7 +160,7 @@ impl TryFrom<PoQVerifierInputJson> for PoQVerifierInput {
 
 impl PoQVerifierInput {
     #[must_use]
-    pub const fn to_inputs(&self) -> [Fr; 11] {
+    pub const fn to_inputs(self) -> [Fr; 11] {
         [
             self.key_nullifier.into_inner(),
             self.session.into_inner(),
