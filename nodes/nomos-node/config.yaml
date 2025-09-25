@@ -147,7 +147,6 @@ time:
       timeout: [ 5, 0 ]
       listening_interface: 0.0.0.0
 cryptarchia:
-  transaction_selector_settings: null
   blob_selector_settings: null
   config:
     epoch_config:
@@ -221,17 +220,7 @@ cryptarchia:
   time:
     slot_duration: [ 2, 0 ]
     chain_start_time: [ 2025, 41, 9, 38, 29, 993653000, 0, 0, 0 ]
-  leader_config:
-    utxos:
-      - tx_hash: "0000000000000000000000000000000000000000000000000000000000000000"
-        output_index: 0
-        note:
-          value: 1
-          pk: "0000000000000000000000000000000000000000000000000000000000000000"
-    sk: 3cf3335017304dcfce45124a0633829f00000000000000000000000000000000
   network_adapter_settings:
-    topic: /cryptarchia/proto
-  blend_broadcast_settings:
     topic: /cryptarchia/proto
   recovery_file: ./recovery/cryptarchia.json
   bootstrap:
@@ -245,6 +234,34 @@ cryptarchia:
   sync:
     orphan:
       max_orphan_cache_size: 5
+cryptarchia_leader:
+  transaction_selector_settings: null
+  config:
+    epoch_config:
+      epoch_stake_distribution_stabilization: 3
+      epoch_period_nonce_buffer: 3
+      epoch_period_nonce_stabilization: 4
+    consensus_config:
+      security_param: 10
+      active_slot_coeff: 0.9
+    service_params:
+      lock_period: 10
+      inactivity_period: 20
+      retention_period: 100
+      timestamp: 0
+    min_stake:
+      threshold: 1
+      timestamp: 0
+  leader_config:
+    utxos:
+      - tx_hash: "0000000000000000000000000000000000000000000000000000000000000000"
+        output_index: 0
+        note:
+          value: 1
+          pk: "0000000000000000000000000000000000000000000000000000000000000000"
+    sk: 3cf3335017304dcfce45124a0633829f00000000000000000000000000000000
+  blend_broadcast_settings:
+    topic: /cryptarchia/proto
 storage:
   db_path: nomos_db
   read_only: false

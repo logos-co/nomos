@@ -22,7 +22,6 @@ use cryptarchia_engine::{PrunedBlocks, Slot};
 use cryptarchia_sync::{GetTipResponse, ProviderResponse};
 use futures::StreamExt as _;
 use network::NetworkAdapter;
-pub use nomos_blend_service::ServiceComponents as BlendServiceComponents;
 use nomos_core::{
     block::Block,
     da,

@@ -138,16 +138,11 @@ pub(crate) type DaNetworkAdapter = nomos_da_sampling::network::adapters::validat
     RuntimeServiceId,
 >;
 
-pub(crate) type CryptarchiaService = generic_services::CryptarchiaService<
-    DaNetworkAdapter,
-    RuntimeServiceId,
->;
+pub(crate) type CryptarchiaService =
+    generic_services::CryptarchiaService<DaNetworkAdapter, RuntimeServiceId>;
 
-pub(crate) type CryptarchiaLeaderService = generic_services::CryptarchiaLeaderService<
-    DaNetworkAdapter,
-    RuntimeServiceId,
->;
-
+pub(crate) type CryptarchiaLeaderService =
+    generic_services::CryptarchiaLeaderService<DaNetworkAdapter, RuntimeServiceId>;
 
 pub(crate) type TimeService = generic_services::TimeService<RuntimeServiceId>;
 

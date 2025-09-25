@@ -6,18 +6,18 @@ use nomos_core::{
     header::HeaderId,
     mantle::{AuthenticatedMantleTx, TxHash},
 };
-use nomos_da_sampling::{backend::DaSamplingServiceBackend, DaSamplingService};
+use nomos_da_sampling::{DaSamplingService, backend::DaSamplingServiceBackend};
 use nomos_mempool::{
+    TxMempoolService,
     backend::{MemPool, RecoverableMempool},
     network::NetworkAdapter as MempoolAdapter,
-    TxMempoolService,
 };
-use nomos_time::{backends::TimeBackend as TimeBackendTrait, TimeService, TimeServiceMessage};
+use nomos_time::{TimeService, TimeServiceMessage, backends::TimeBackend as TimeBackendTrait};
 use overwatch::{
-    services::{relay::OutboundRelay, AsServiceId, ServiceData},
     OpaqueServiceResourcesHandle,
+    services::{AsServiceId, ServiceData, relay::OutboundRelay},
 };
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{MempoolRelay, SamplingRelay};
 

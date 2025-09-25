@@ -9,7 +9,6 @@ use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 use cryptarchia_engine::Slot;
 use futures::{StreamExt as _, TryFutureExt as _};
 pub use leadership::LeaderConfig;
-pub use nomos_blend_service::ServiceComponents as BlendServiceComponents;
 use nomos_core::{
     block::Block,
     da,
@@ -18,22 +17,22 @@ use nomos_core::{
     proofs::leader_proof::Groth16LeaderProof,
 };
 use nomos_da_sampling::{
-    backend::DaSamplingServiceBackend, DaSamplingService, DaSamplingServiceMsg,
+    DaSamplingService, DaSamplingServiceMsg, backend::DaSamplingServiceBackend,
 };
 use nomos_mempool::{
-    backend::RecoverableMempool, network::NetworkAdapter as MempoolAdapter, MempoolMsg,
-    TxMempoolService,
+    MempoolMsg, TxMempoolService, backend::RecoverableMempool,
+    network::NetworkAdapter as MempoolAdapter,
 };
 use nomos_time::{SlotTick, TimeService, TimeServiceMessage};
 use overwatch::{
-    services::{relay::OutboundRelay, AsServiceId, ServiceCore, ServiceData},
     DynError, OpaqueServiceResourcesHandle,
+    services::{AsServiceId, ServiceCore, ServiceData, relay::OutboundRelay},
 };
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use services_utils::wait_until_services_are_ready;
 use thiserror::Error;
 use tokio::sync::oneshot;
-use tracing::{debug, error, info, instrument, span, Level};
+use tracing::{Level, debug, error, info, instrument, span};
 use tracing_futures::Instrument as _;
 
 use crate::{blend::BlendAdapter, leadership::Leader, relays::CryptarchiaConsensusRelays};
@@ -105,17 +104,17 @@ pub struct CryptarchiaLeader<
 }
 
 impl<
-        BlendService,
-        ClPool,
-        ClPoolAdapter,
-        TxS,
-        SamplingBackend,
-        SamplingNetworkAdapter,
-        SamplingStorage,
-        TimeBackend,
-        CryptarchiaService,
-        RuntimeServiceId,
-    > ServiceData
+    BlendService,
+    ClPool,
+    ClPoolAdapter,
+    TxS,
+    SamplingBackend,
+    SamplingNetworkAdapter,
+    SamplingStorage,
+    TimeBackend,
+    CryptarchiaService,
+    RuntimeServiceId,
+> ServiceData
     for CryptarchiaLeader<
         BlendService,
         ClPool,
@@ -154,17 +153,17 @@ where
 
 #[async_trait::async_trait]
 impl<
-        BlendService,
-        ClPool,
-        ClPoolAdapter,
-        TxS,
-        SamplingBackend,
-        SamplingNetworkAdapter,
-        SamplingStorage,
-        TimeBackend,
-        CryptarchiaService,
-        RuntimeServiceId,
-    > ServiceCore<RuntimeServiceId>
+    BlendService,
+    ClPool,
+    ClPoolAdapter,
+    TxS,
+    SamplingBackend,
+    SamplingNetworkAdapter,
+    SamplingStorage,
+    TimeBackend,
+    CryptarchiaService,
+    RuntimeServiceId,
+> ServiceCore<RuntimeServiceId>
     for CryptarchiaLeader<
         BlendService,
         ClPool,
@@ -411,17 +410,17 @@ where
 }
 
 impl<
-        BlendService,
-        ClPool,
-        ClPoolAdapter,
-        TxS,
-        SamplingBackend,
-        SamplingNetworkAdapter,
-        SamplingStorage,
-        TimeBackend,
-        CryptarchiaService,
-        RuntimeServiceId,
-    >
+    BlendService,
+    ClPool,
+    ClPoolAdapter,
+    TxS,
+    SamplingBackend,
+    SamplingNetworkAdapter,
+    SamplingStorage,
+    TimeBackend,
+    CryptarchiaService,
+    RuntimeServiceId,
+>
     CryptarchiaLeader<
         BlendService,
         ClPool,

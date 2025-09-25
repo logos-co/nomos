@@ -23,9 +23,7 @@ pub struct CryptarchiaConsensusState<NodeId, NetworkAdapterSettings> {
     _markers: PhantomData<(NodeId, NetworkAdapterSettings)>,
 }
 
-impl<NodeId, NetworkAdapterSettings>
-    CryptarchiaConsensusState<NodeId, NetworkAdapterSettings>
-{
+impl<NodeId, NetworkAdapterSettings> CryptarchiaConsensusState<NodeId, NetworkAdapterSettings> {
     /// Re-create the [`CryptarchiaConsensusState`]
     /// given the cryptarchia engine and ledger state.
     ///
@@ -194,7 +192,7 @@ mod tests {
             .copied()
             .collect::<HashSet<_>>();
         let recovery_state =
-            CryptarchiaConsensusState::<(), (), (), ()>::from_cryptarchia_and_unpruned_blocks(
+            CryptarchiaConsensusState::<(), ()>::from_cryptarchia_and_unpruned_blocks(
                 &Cryptarchia {
                     ledger: ledger_state,
                     consensus: cryptarchia_engine.clone(),
