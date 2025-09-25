@@ -10,6 +10,7 @@ use crate::{
             quota::{ProofOfQuota, inputs::prove::PublicInputs},
             selection::{ProofOfSelection, inputs::VerifyInputs},
         },
+        signatures::{SIGNATURE_SIZE, Signature},
     },
     encap::{
         ProofsVerifier,
@@ -48,6 +49,60 @@ impl ProofsVerifier for NeverFailingProofsVerifier {
         _inputs: &VerifyInputs,
     ) -> Result<(), Self::Error> {
         Ok(())
+    }
+}
+
+struct AlwaysFailingProofOfQuotaVerifier;
+
+impl ProofsVerifier for AlwaysFailingProofOfQuotaVerifier {
+    type Error = ();
+
+    fn new() -> Self {
+        Self
+    }
+
+    fn verify_proof_of_quota(
+        &self,
+        _proof: ProofOfQuota,
+        _inputs: &PublicInputs,
+    ) -> Result<ZkHash, Self::Error> {
+        Err(())
+    }
+
+    fn verify_proof_of_selection(
+        &self,
+        _proof: ProofOfSelection,
+        _inputs: &VerifyInputs,
+    ) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+struct AlwaysFailingProofOfSelectionVerifier;
+
+impl ProofsVerifier for AlwaysFailingProofOfSelectionVerifier {
+    type Error = ();
+
+    fn new() -> Self {
+        Self
+    }
+
+    fn verify_proof_of_quota(
+        &self,
+        _proof: ProofOfQuota,
+        _inputs: &PublicInputs,
+    ) -> Result<ZkHash, Self::Error> {
+        use groth16::Field as _;
+
+        Ok(ZkHash::ZERO)
+    }
+
+    fn verify_proof_of_selection(
+        &self,
+        _proof: ProofOfSelection,
+        _inputs: &VerifyInputs,
+    ) -> Result<(), Self::Error> {
+        Err(())
     }
 }
 
@@ -123,6 +178,82 @@ fn payload_too_long() {
         )
         .err(),
         Some(Error::PayloadTooLarge)
+    ));
+}
+
+#[test]
+fn invalid_public_header_signature() {
+    const PAYLOAD_BODY: &[u8] = b"hello";
+    let verifier = NeverFailingProofsVerifier;
+
+    let msg_with_invalid_signature = {
+        let (inputs, _) = generate_inputs(2).unwrap();
+        let mut msg = EncapsulatedMessage::<ENCAPSULATION_COUNT>::new(
+            &inputs,
+            PayloadType::Data,
+            PAYLOAD_BODY,
+        )
+        .unwrap();
+        *msg.public_header_mut().signature_mut() = Signature::from([100u8; SIGNATURE_SIZE]);
+        msg
+    };
+
+    let public_header_verification_result = msg_with_invalid_signature
+        .verify_public_header(&PoQVerificationInputMinusSigningKey::default(), &verifier);
+    assert!(matches!(
+        public_header_verification_result,
+        Err(Error::SignatureVerificationFailed)
+    ));
+}
+
+#[test]
+fn invalid_public_header_proof_of_quota() {
+    use crate::crypto::proofs::quota::Error as PoQError;
+
+    const PAYLOAD_BODY: &[u8] = b"hello";
+    let verifier = AlwaysFailingProofOfQuotaVerifier;
+
+    let (inputs, _) = generate_inputs(2).unwrap();
+    let msg =
+        EncapsulatedMessage::<ENCAPSULATION_COUNT>::new(&inputs, PayloadType::Data, PAYLOAD_BODY)
+            .unwrap();
+
+    let public_header_verification_result =
+        msg.verify_public_header(&PoQVerificationInputMinusSigningKey::default(), &verifier);
+    assert!(matches!(
+        public_header_verification_result,
+        Err(Error::ProofOfQuotaVerificationFailed(
+            PoQError::InvalidProof
+        ))
+    ));
+}
+
+#[test]
+fn invalid_blend_header_proof_of_selection() {
+    use crate::crypto::proofs::selection::Error as PoSelError;
+
+    const PAYLOAD_BODY: &[u8] = b"hello";
+    let verifier = AlwaysFailingProofOfSelectionVerifier;
+
+    let (inputs, blend_node_enc_keys) = generate_inputs(2).unwrap();
+    let msg =
+        EncapsulatedMessage::<ENCAPSULATION_COUNT>::new(&inputs, PayloadType::Data, PAYLOAD_BODY)
+            .unwrap();
+
+    let validated_message = msg
+        .verify_public_header(&PoQVerificationInputMinusSigningKey::default(), &verifier)
+        .unwrap();
+
+    let validated_message_decapsulation_result = validated_message.decapsulate(
+        blend_node_enc_keys.last().unwrap(),
+        &RequiredProofOfSelectionVerificationInputs::default(),
+        &verifier,
+    );
+    assert!(matches!(
+        validated_message_decapsulation_result,
+        Err(Error::ProofOfSelectionVerificationFailed(
+            PoSelError::Verification
+        ))
     ));
 }
 
