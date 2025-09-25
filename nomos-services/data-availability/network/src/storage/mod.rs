@@ -127,4 +127,8 @@ where
 
         Ok(Some(membership.unwrap()))
     }
+
+    pub async fn get_address(&self, id: Membership::Id) -> Result<Option<Multiaddr>, DynError> {
+        self.membership_adapter.get_address(id).await
+    }
 }

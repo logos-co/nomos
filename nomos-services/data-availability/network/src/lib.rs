@@ -480,48 +480,8 @@ where
                     );
                 }),
             DaNetworkMsg::GetMembership { session_id, sender } => {
-                // todo: handle errors properly when the usage of this function is known
-                // now we are just logging and returning an empty assignations
-                if let Some(membership) = membership_storage
-                    .get_historic_membership(session_id)
-                    .await
-                    .unwrap_or_else(|e| {
-                        tracing::error!(
-                            "Failed to get historic membership for session {session_id}: {e}"
-                        );
-                        None
-                    })
-                {
-                    let assignations = membership.subnetworks();
-                    let addressbook = assignations
-                        .values()
-                        .flatten()
-                        .filter_map(|id| {
-                            addressbook
-                                .get_address(id)
-                                .map(|address| (*id, address))
-                                .or_else(|| {
-                                    tracing::error!("No address found for peer {id:?}");
-                                    None
-                                })
-                        })
-                        .collect::<AddressBookSnapshot<_>>();
-                    sender.send(MembershipResponse { assignations, addressbook }).unwrap_or_else(|_| {
-                                tracing::warn!(
-                                    "client hung up before a subnetwork assignations handle could be established"
-                                );
-                            });
-                } else {
-                    tracing::warn!("No membership found for session {session_id}");
-                    sender.send(MembershipResponse{
-                                assignations: SubnetworkAssignations::default(),
-                                addressbook: AddressBookSnapshot::default(),
-                            }).unwrap_or_else(|_| {
-                                tracing::warn!(
-                                    "client hung up before a subnetwork assignations handle could be established"
-                                );
-                            });
-                }
+                Self::handle_get_membership(session_id, sender, membership_storage, addressbook)
+                    .await;
             }
             DaNetworkMsg::GetCommitments { blob_id, sender } => {
                 if let Err(e) = api_adapter.request_commitments(blob_id, sender).await {
@@ -541,6 +501,83 @@ where
                     blob_ids,
                 )
                 .await;
+            }
+        }
+    }
+
+    async fn handle_get_membership(
+        session_id: SessionNumber,
+        sender: oneshot::Sender<MembershipResponse>,
+        membership_storage: &MembershipStorage<StorageAdapter, Membership, DaAddressbook>,
+        addressbook: &DaAddressbook,
+    ) {
+        let membership = membership_storage
+            .get_historic_membership(session_id)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::error!("Failed to get historic membership for session {session_id}: {e}");
+                None
+            });
+
+        let response = if let Some(membership) = membership {
+            Self::build_membership_response(membership, membership_storage, addressbook).await
+        } else {
+            tracing::warn!("No membership found for session {session_id}");
+            MembershipResponse {
+                assignations: SubnetworkAssignations::default(),
+                addressbook: AddressBookSnapshot::default(),
+            }
+        };
+
+        if sender.send(response).is_err() {
+            tracing::warn!(
+                "client hung up before a subnetwork assignations handle could be established"
+            );
+        }
+    }
+
+    async fn build_membership_response(
+        membership: Membership,
+        membership_storage: &MembershipStorage<StorageAdapter, Membership, DaAddressbook>,
+        addressbook: &DaAddressbook,
+    ) -> MembershipResponse {
+        let assignations = membership.subnetworks();
+        let mut addressbook_map = HashMap::new();
+
+        for id in assignations.values().flatten() {
+            if let Some(address) =
+                Self::get_peer_address(*id, addressbook, membership_storage).await
+            {
+                addressbook_map.insert(*id, address);
+            }
+        }
+
+        MembershipResponse {
+            assignations,
+            addressbook: addressbook_map.into_iter().collect(),
+        }
+    }
+
+    async fn get_peer_address(
+        peer_id: PeerId,
+        addressbook: &DaAddressbook,
+        membership_storage: &MembershipStorage<StorageAdapter, Membership, DaAddressbook>,
+    ) -> Option<Multiaddr> {
+        // Check in-memory first
+        if let Some(address) = addressbook.get_address(&peer_id) {
+            return Some(address);
+        }
+
+        // Fall back to storage
+        match membership_storage.get_address(peer_id).await {
+            Ok(Some(address)) => Some(address),
+            Ok(None) => {
+                tracing::debug!("No address found for peer {peer_id:?}");
+                None
+            }
+            Err(e) => {
+                tracing::error!("Failed to get address for peer {peer_id:?}: {e}");
+                None
             }
         }
     }
