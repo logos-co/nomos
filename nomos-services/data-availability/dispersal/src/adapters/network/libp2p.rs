@@ -1,15 +1,16 @@
 use std::{collections::HashSet, fmt::Debug, marker::PhantomData, pin::Pin, time::Duration};
 
-use futures::{stream::BoxStream, Stream, StreamExt as _};
+use futures::{Stream, StreamExt as _, stream::BoxStream};
 use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};
 use nomos_core::{da::BlobId, mantle::SignedMantleTx};
 use nomos_da_network_core::{
+    PeerId, SubnetworkId,
     protocols::{
         dispersal::executor::behaviour::DispersalExecutorEvent, sampling::errors::SamplingError,
     },
-    PeerId, SubnetworkId,
 };
 use nomos_da_network_service::{
+    DaNetworkMsg, NetworkService,
     api::ApiAdapter as ApiAdapterTrait,
     backends::libp2p::{
         common::SamplingEvent,
@@ -18,11 +19,10 @@ use nomos_da_network_service::{
         },
     },
     membership::MembershipAdapter,
-    DaNetworkMsg, NetworkService,
 };
 use overwatch::{
-    services::{relay::OutboundRelay, ServiceData},
     DynError,
+    services::{ServiceData, relay::OutboundRelay},
 };
 use subnetworks_assignations::MembershipHandler;
 use tokio::sync::oneshot;

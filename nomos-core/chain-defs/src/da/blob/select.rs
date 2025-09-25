@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::{
-    da::blob::{info::DispersedBlobInfo, BlobSelect},
+    da::blob::{BlobSelect, info::DispersedBlobInfo},
     utils,
 };
 

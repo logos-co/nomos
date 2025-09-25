@@ -33,7 +33,7 @@ impl PcpProtocol {
             IpAddr::V6(_) => {
                 return Err(AddressMapperError::MultiaddrParseError(
                     "PCP only supports IPv4 addresses".to_owned(),
-                ))
+                ));
             }
         };
 

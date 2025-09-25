@@ -1,5 +1,6 @@
 pub mod api;
 mod blend;
+mod blob;
 mod bootstrap;
 mod leadership;
 mod messages;
@@ -11,7 +12,7 @@ mod sync;
 
 use core::fmt::Debug;
 use std::{
-    collections::{BTreeMap, BTreeSet, HashSet},
+    collections::{BTreeMap, HashSet},
     fmt::Display,
     hash::Hash,
     path::PathBuf,
@@ -19,6 +20,7 @@ use std::{
 };
 
 use broadcast_service::{BlockBroadcastMsg, BlockBroadcastService, BlockInfo};
+use bytes::Bytes;
 use cryptarchia_engine::{PrunedBlocks, Slot};
 use cryptarchia_sync::{GetTipResponse, ProviderResponse};
 use futures::{StreamExt as _, TryFutureExt as _};
@@ -30,31 +32,31 @@ use nomos_core::{
     da,
     header::{Header, HeaderId},
     mantle::{
-        gas::MainnetGasConstants, ops::leader_claim::VoucherCm, AuthenticatedMantleTx, Op,
-        SignedMantleTx, Transaction, TxHash, TxSelect,
+        AuthenticatedMantleTx, Op, SignedMantleTx, Transaction, TxHash, TxSelect,
+        gas::MainnetGasConstants, ops::leader_claim::VoucherCm,
     },
     proofs::leader_proof::Groth16LeaderProof,
 };
 use nomos_da_sampling::{
-    backend::DaSamplingServiceBackend, DaSamplingService, DaSamplingServiceMsg,
+    DaSamplingService, DaSamplingServiceMsg, backend::DaSamplingServiceBackend,
 };
 use nomos_ledger::LedgerState;
 use nomos_mempool::{
-    backend::RecoverableMempool, network::NetworkAdapter as MempoolAdapter, MempoolMsg,
-    TxMempoolService,
+    MempoolMsg, TxMempoolService, backend::RecoverableMempool,
+    network::NetworkAdapter as MempoolAdapter,
 };
-use nomos_network::{message::ChainSyncEvent, NetworkService};
-use nomos_storage::{api::chain::StorageChainApi, backends::StorageBackend, StorageService};
+use nomos_network::{NetworkService, message::ChainSyncEvent};
+use nomos_storage::{StorageService, api::chain::StorageChainApi, backends::StorageBackend};
 use nomos_time::{SlotTick, TimeService, TimeServiceMessage};
 use overwatch::{
-    services::{relay::OutboundRelay, state::StateUpdater, AsServiceId, ServiceCore, ServiceData},
     DynError, OpaqueServiceResourcesHandle,
+    services::{AsServiceId, ServiceCore, ServiceData, relay::OutboundRelay, state::StateUpdater},
 };
 use relays::BroadcastRelay;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_with::serde_as;
 use services_utils::{
-    overwatch::{recovery::backends::FileBackendSettings, JsonFileBackend, RecoveryOperator},
+    overwatch::{JsonFileBackend, RecoveryOperator, recovery::backends::FileBackendSettings},
     wait_until_services_are_ready,
 };
 use thiserror::Error;
@@ -62,11 +64,12 @@ use tokio::{
     sync::{broadcast, mpsc, oneshot},
     time::Instant,
 };
-use tracing::{debug, error, info, instrument, span, Level};
+use tracing::{Level, debug, error, info, instrument, span};
 use tracing_futures::Instrument as _;
 
 use crate::{
     blend::BlendAdapter,
+    blob::{BlobValidation, RecentBlobValidation, SkipBlobValidation, get_sampled_blobs},
     bootstrap::{
         ibd::{self, InitialBlockDownload},
         state::choose_engine_state,
@@ -74,7 +77,7 @@ use crate::{
     leadership::Leader,
     relays::CryptarchiaConsensusRelays,
     states::CryptarchiaConsensusState,
-    storage::{adapters::StorageAdapter, StorageAdapter as _},
+    storage::{StorageAdapter as _, adapters::StorageAdapter},
     sync::{block_provider::BlockProvider, orphan_handler::OrphanBlocksDownloader},
 };
 pub use crate::{
@@ -99,6 +102,8 @@ pub enum Error {
     Consensus(#[from] cryptarchia_engine::Error<HeaderId>),
     #[error("Storage error: {0}")]
     Storage(String),
+    #[error("Blob validation failed: {0}")]
+    BlobValidationFailed(#[from] blob::Error),
 }
 
 #[derive(Debug)]
@@ -349,18 +354,18 @@ pub struct CryptarchiaConsensus<
 }
 
 impl<
-        NetAdapter,
-        BlendService,
-        ClPool,
-        ClPoolAdapter,
-        TxS,
-        Storage,
-        SamplingBackend,
-        SamplingNetworkAdapter,
-        SamplingStorage,
-        TimeBackend,
-        RuntimeServiceId,
-    > ServiceData
+    NetAdapter,
+    BlendService,
+    ClPool,
+    ClPoolAdapter,
+    TxS,
+    Storage,
+    SamplingBackend,
+    SamplingNetworkAdapter,
+    SamplingStorage,
+    TimeBackend,
+    RuntimeServiceId,
+> ServiceData
     for CryptarchiaConsensus<
         NetAdapter,
         BlendService,
@@ -413,18 +418,18 @@ where
 
 #[async_trait::async_trait]
 impl<
-        NetAdapter,
-        BlendService,
-        ClPool,
-        ClPoolAdapter,
-        TxS,
-        Storage,
-        SamplingBackend,
-        SamplingNetworkAdapter,
-        SamplingStorage,
-        TimeBackend,
-        RuntimeServiceId,
-    > ServiceCore<RuntimeServiceId>
+    NetAdapter,
+    BlendService,
+    ClPool,
+    ClPoolAdapter,
+    TxS,
+    Storage,
+    SamplingBackend,
+    SamplingNetworkAdapter,
+    SamplingStorage,
+    TimeBackend,
+    RuntimeServiceId,
+> ServiceCore<RuntimeServiceId>
     for CryptarchiaConsensus<
         NetAdapter,
         BlendService,
@@ -475,7 +480,7 @@ where
     TxS::Settings: Send + Sync + 'static,
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as StorageChainApi>::Block:
-        TryFrom<Block<ClPool::Item>> + TryInto<Block<ClPool::Item>>,
+        TryFrom<Block<ClPool::Item>> + TryInto<Block<ClPool::Item>> + Into<Bytes>,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + Send + 'static,
@@ -648,6 +653,8 @@ where
                         cryptarchia,
                         leader,
                         block,
+                        // TODO: Enable this once entering DA window: https://github.com/logos-co/nomos/issues/1675
+                        &SkipBlobValidation,
                         &storage_blocks_to_remove,
                         relays,
                         new_block_subscription_sender,
@@ -683,8 +690,10 @@ where
                     error!("Failed to shutdown overwatch: {shutdown_err:?}");
                 }
 
-                error!("Initial Block Download did not complete successfully: {e}. Common causes: unresponsive initial peers, \
-                network issues, or incorrect peer addresses. Consider retrying with different bootstrap peers.");
+                error!(
+                    "Initial Block Download did not complete successfully: {e}. Common causes: unresponsive initial peers, \
+                network issues, or incorrect peer addresses. Consider retrying with different bootstrap peers."
+                );
 
                 return Err(DynError::from(format!(
                     "Initial Block Download failed: {e:?}"
@@ -692,7 +701,7 @@ where
             }
         };
 
-        // Start the timer for Prelonged Bootstrap Period.
+        // Start the timer for Prolonged Bootstrap Period.
         let mut prolonged_bootstrap_timer = Box::pin(tokio::time::sleep_until(
             Instant::now() + bootstrap_config.prolonged_bootstrap_period,
         ));
@@ -704,6 +713,13 @@ where
                 .state_recording_interval,
         );
 
+        let mut blob_validation: Box<dyn BlobValidation<_, _> + Send + Sync> =
+            if cryptarchia.is_boostrapping() {
+                Box::new(SkipBlobValidation)
+            } else {
+                Box::new(RecentBlobValidation::new(relays.sampling_relay().clone()))
+            };
+
         let async_loop = async {
             loop {
                 tokio::select! {
@@ -714,6 +730,7 @@ where
                             &storage_blocks_to_remove,
                             relays.storage_adapter(),
                         ).await;
+                        blob_validation = Box::new(RecentBlobValidation::new(relays.sampling_relay().clone()));
                         Self::update_state(
                             &cryptarchia,
                             &leader,
@@ -735,6 +752,7 @@ where
                             cryptarchia.clone(),
                             &leader,
                             block.clone(),
+                            blob_validation.as_ref(),
                             &storage_blocks_to_remove,
                             &relays,
                             &self.new_block_subscription_sender,
@@ -763,6 +781,8 @@ where
                     }
 
                     Some(SlotTick { slot, .. }) = slot_timer.next() => {
+                        // TODO: Don't propose blocks until IBD is done and online mode is activated.
+                        //       Until then, mempool, DA, blend service will not be ready: https://github.com/logos-co/nomos/issues/1656
                         let parent = cryptarchia.tip();
                         let aged_tree = cryptarchia.tip_state().aged_commitments();
                         let latest_tree = cryptarchia.tip_state().latest_commitments();
@@ -789,6 +809,8 @@ where
                                     cryptarchia.clone(),
                                     &leader,
                                     block.clone(),
+                                    // Skip this since the block was already built with valid blobs.
+                                    &SkipBlobValidation,
                                     &storage_blocks_to_remove,
                                     &relays,
                                     &self.new_block_subscription_sender,
@@ -836,6 +858,7 @@ where
                             cryptarchia.clone(),
                             &leader,
                             block.clone(),
+                            blob_validation.as_ref(),
                             &storage_blocks_to_remove,
                             &relays,
                             &self.new_block_subscription_sender,
@@ -884,18 +907,18 @@ where
 }
 
 impl<
-        NetAdapter,
-        BlendService,
-        ClPool,
-        ClPoolAdapter,
-        TxS,
-        Storage,
-        SamplingBackend,
-        SamplingNetworkAdapter,
-        SamplingStorage,
-        TimeBackend,
-        RuntimeServiceId,
-    >
+    NetAdapter,
+    BlendService,
+    ClPool,
+    ClPoolAdapter,
+    TxS,
+    Storage,
+    SamplingBackend,
+    SamplingNetworkAdapter,
+    SamplingStorage,
+    TimeBackend,
+    RuntimeServiceId,
+>
     CryptarchiaConsensus<
         NetAdapter,
         BlendService,
@@ -945,7 +968,7 @@ where
     TxS::Settings: Send + Sync + 'static,
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as StorageChainApi>::Block:
-        TryFrom<Block<ClPool::Item>> + TryInto<Block<ClPool::Item>>,
+        TryFrom<Block<ClPool::Item>> + TryInto<Block<ClPool::Item>> + Into<Bytes>,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
@@ -1039,6 +1062,7 @@ where
         cryptarchia: Cryptarchia,
         leader: &Leader,
         block: Block<ClPool::Item>,
+        blob_validation: &(impl BlobValidation<SamplingBackend::BlobId, ClPool::Item> + Sync + ?Sized),
         storage_blocks_to_remove: &HashSet<HeaderId>,
         relays: &CryptarchiaConsensusRelays<
             BlendService,
@@ -1066,6 +1090,7 @@ where
         let (cryptarchia, pruned_blocks) = Self::process_block(
             cryptarchia,
             block,
+            blob_validation,
             relays,
             new_block_subscription_sender,
             lib_subscription_sender,
@@ -1122,10 +1147,11 @@ where
     /// Try to add a [`Block`] to [`Cryptarchia`].
     /// A [`Block`] is only added if it's valid
     #[expect(clippy::allow_attributes_without_reason)]
-    #[instrument(level = "debug", skip(cryptarchia, relays))]
+    #[instrument(level = "debug", skip(cryptarchia, relays, blob_validation))]
     async fn process_block(
         cryptarchia: Cryptarchia,
         block: Block<ClPool::Item>,
+        blob_validation: &(impl BlobValidation<SamplingBackend::BlobId, ClPool::Item> + Sync + ?Sized),
         relays: &CryptarchiaConsensusRelays<
             BlendService,
             ClPool,
@@ -1141,17 +1167,7 @@ where
     ) -> Result<(Cryptarchia, PrunedBlocks<HeaderId>), Error> {
         debug!("received proposal {:?}", block);
 
-        let sampled_blobs = match get_sampled_blobs(relays.sampling_relay().clone()).await {
-            Ok(sampled_blobs) => sampled_blobs,
-            Err(error) => {
-                error!("Unable to retrieved sampled blobs: {error}");
-                return Ok((cryptarchia, PrunedBlocks::new()));
-            }
-        };
-        if !Self::validate_blocks_blobs(&block, &sampled_blobs) {
-            error!("Invalid block: {block:?}");
-            return Ok((cryptarchia, PrunedBlocks::new()));
-        }
+        blob_validation.validate(&block).await?;
 
         // TODO: filter on time?
         let header = block.header();
@@ -1243,7 +1259,8 @@ where
     ) -> Option<Block<ClPool::Item>> {
         let mut output = None;
         let txs = get_mempool_contents(relays.cl_mempool_relay().clone()).map_err(DynError::from);
-        let blobs_ids = get_sampled_blobs(relays.sampling_relay().clone());
+        let sampling_relay = relays.sampling_relay().clone();
+        let blobs_ids = get_sampled_blobs(&sampling_relay);
         match futures::try_join!(txs, blobs_ids) {
             Ok((txs, blobs)) => {
                 let txs = tx_selector
@@ -1255,7 +1272,7 @@ where
                     })))
                     .collect::<Vec<_>>();
                 let content_id = [0; 32].into(); // TODO: calculate the actual content id
-                                                 // TODO: this should probably be a proposal or be transformed into a proposal
+                // TODO: this should probably be a proposal or be transformed into a proposal
                 let block = Block::new(Header::new(parent, content_id, slot, proof), txs);
                 debug!("proposed block with id {:?}", block.header().id());
                 output = Some(block);
@@ -1267,25 +1284,6 @@ where
 
         output
     }
-
-    fn validate_blocks_blobs(
-        block: &Block<ClPool::Item>,
-        sampled_blobs_ids: &BTreeSet<da::BlobId>,
-    ) -> bool {
-        let validated_blobs = block
-            .transactions()
-            .flat_map(|tx| tx.mantle_tx().ops.iter())
-            .filter_map(|op| {
-                if let Op::ChannelBlob(op) = op {
-                    Some(op.blob)
-                } else {
-                    None
-                }
-            })
-            .all(|blob| sampled_blobs_ids.contains(&blob));
-        validated_blobs
-    }
-
     fn log_received_block(block: &Block<ClPool::Item>) {
         let content_size = 0; // TODO: calculate the actual content size
         let transactions = block.transactions().len();
@@ -1412,6 +1410,7 @@ where
             match Self::process_block(
                 cryptarchia.clone(),
                 block,
+                &SkipBlobValidation,
                 relays,
                 &self.new_block_subscription_sender,
                 &self.lib_subscription_sender,
@@ -1545,6 +1544,7 @@ where
                 let response = ProviderResponse::Available(GetTipResponse::Tip {
                     tip: tip.id(),
                     slot: tip.slot(),
+                    height: tip.length(),
                 });
 
                 info!("Sending tip response: {response:?}");
@@ -1649,22 +1649,6 @@ async fn mark_blob_in_block<BlobId: Debug + Send>(
     {
         error!("Error marking in block for blobs ids: {blobs_id:?}");
     }
-}
-
-async fn get_sampled_blobs<BlobId>(
-    sampling_relay: SamplingRelay<BlobId>,
-) -> Result<BTreeSet<BlobId>, DynError>
-where
-    BlobId: Send,
-{
-    let (sender, receiver) = oneshot::channel();
-    sampling_relay
-        .send(DaSamplingServiceMsg::GetValidatedBlobs {
-            reply_channel: sender,
-        })
-        .await
-        .map_err(|(error, _)| Box::new(error) as DynError)?;
-    receiver.await.map_err(|error| Box::new(error) as DynError)
 }
 
 async fn broadcast_finalized_block(

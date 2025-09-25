@@ -1,7 +1,7 @@
 [package]
 default-run = "nomos-cli"
 description = "Cli app to interact with Nomos nodes and perform various tasks"
-edition     = "2021"
+edition     = { workspace = true }
 license     = { workspace = true }
 name        = "nomos-cli"
 version     = "0.1.0"

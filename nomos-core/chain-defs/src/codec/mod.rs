@@ -8,7 +8,7 @@ use std::error::Error as StdError;
 use bincode::{deserialize, serialize, serialized_size};
 use bytes::Bytes;
 pub use errors::Error;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// Unified serialization trait for all wire and storage operations

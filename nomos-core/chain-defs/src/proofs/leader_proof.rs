@@ -1,6 +1,6 @@
 use ark_ff::{Field as _, PrimeField as _};
 use generic_array::GenericArray;
-use groth16::{fr_from_bytes, serde::serde_fr, Fr};
+use groth16::{Fr, fr_from_bytes, serde::serde_fr};
 use num_bigint::BigUint;
 use poseidon2::{Digest as _, Poseidon2Bn254Hasher};
 use serde::{Deserialize, Serialize};
@@ -330,14 +330,17 @@ mod tests {
     fn check_prob(target: f64, f: impl Fn() -> bool) {
         const EPS: f64 = 0.01; // tolerance band (±2 percentage points)
         const ALPHA: f64 = 1e-6; // fails with probability at most ALPHA if the observed rate is within EPS of
-                                 // target
+        // target
 
         let n = hoeffding_sample_size(EPS, ALPHA);
         println!("Sampling n = {n}");
 
         let observed = empirical_rate(n, f);
 
-        assert!((observed - target).abs() <= EPS,"Rate out of tolerance: observed={observed:.6}, target={target:.6}, eps={EPS:.6}, n={n}");
+        assert!(
+            (observed - target).abs() <= EPS,
+            "Rate out of tolerance: observed={observed:.6}, target={target:.6}, eps={EPS:.6}, n={n}"
+        );
     }
 
     fn rand_inputs() -> (LeaderPublic, Fr, Fr) {

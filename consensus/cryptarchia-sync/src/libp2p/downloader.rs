@@ -5,17 +5,15 @@ use tokio::{sync::oneshot, time, time::Duration};
 use tracing::error;
 
 use crate::{
+    DownloadBlocksRequest, GetTipResponse,
     libp2p::{
         behaviour::{BlocksRequestStream, BoxedStream, TipRequestStream},
         errors::{ChainSyncError, ChainSyncErrorKind},
+        messages::{DownloadBlocksResponse, RequestMessage},
         packing::unpack_from_reader,
-        utils,
-        utils::{open_stream, send_message},
+        utils::{self, open_stream, send_message},
     },
-    messages::{
-        DownloadBlocksRequest, DownloadBlocksResponse, GetTipResponse, RequestMessage,
-        SerialisedBlock,
-    },
+    messages::SerialisedBlock,
 };
 
 pub struct Downloader;
@@ -72,7 +70,7 @@ impl Downloader {
         })?
         .map_err(|e| ChainSyncError::from((peer_id, e)))
         .and_then(|response| match response {
-            GetTipResponse::Tip { tip, slot } => Ok(GetTipResponse::Tip { tip, slot }),
+            tip @ GetTipResponse::Tip { .. } => Ok(tip),
             GetTipResponse::Failure(reason) => Err(ChainSyncError {
                 peer: peer_id,
                 kind: ChainSyncErrorKind::RequestTipError(reason),

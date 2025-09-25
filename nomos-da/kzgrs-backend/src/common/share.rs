@@ -1,12 +1,12 @@
-use blake2::{digest::consts::U32, Blake2b, Digest as _};
+use blake2::{Blake2b, Digest as _, digest::consts::U32};
 use kzgrs::Proof;
-use nomos_core::da::{blob, BlobId};
+use nomos_core::da::{BlobId, blob};
 use serde::{Deserialize, Serialize};
 
-use super::{build_blob_id, ShareIndex};
+use super::{ShareIndex, build_blob_id};
 use crate::common::{
-    deserialize_canonical, deserialize_vec_canonical, serialize_canonical, serialize_vec_canonical,
-    Column, Commitment,
+    Column, Commitment, deserialize_canonical, deserialize_vec_canonical, serialize_canonical,
+    serialize_vec_canonical,
 };
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]

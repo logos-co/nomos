@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use nomos_core::mantle::{ops::channel::ChannelId, SignedMantleTx};
+use nomos_core::mantle::{SignedMantleTx, ops::channel::ChannelId};
 
 use super::DispersalStorageAdapter;
 

@@ -1,11 +1,14 @@
 [package]
-edition = "2021"
+edition = { workspace = true }
 license = { workspace = true }
 name    = "nomos-tracing-service"
 version = "0.1.0"
 
 [lints]
 workspace = true
+
+[features]
+profiling = ["console-subscriber"]
 
 [dependencies]
 async-trait        = "0.1"
@@ -15,3 +18,5 @@ serde              = { default-features = false, version = "1.0" }
 tracing            = { workspace = true }
 tracing-appender   = "0.2"
 tracing-subscriber = { default-features = false, version = "0.3" }
+
+console-subscriber = { default-features = false, version = "0.4", optional = true }

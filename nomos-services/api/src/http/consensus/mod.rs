@@ -1,2 +1,2 @@
 mod cryptarchia;
-pub use cryptarchia::{cryptarchia_headers, cryptarchia_info, Cryptarchia};
+pub use cryptarchia::{Cryptarchia, cryptarchia_headers, cryptarchia_info};

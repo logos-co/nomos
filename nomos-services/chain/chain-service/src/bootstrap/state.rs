@@ -4,7 +4,7 @@ use nomos_core::header::HeaderId;
 use tracing::warn;
 
 use crate::{
-    bootstrap::LOG_TARGET, states::LastEngineState, BootstrapConfig, OfflineGracePeriodConfig,
+    BootstrapConfig, OfflineGracePeriodConfig, bootstrap::LOG_TARGET, states::LastEngineState,
 };
 
 pub fn choose_engine_state<NodeId>(

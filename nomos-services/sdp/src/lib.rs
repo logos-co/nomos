@@ -7,11 +7,11 @@ use backends::{SdpBackend, SdpBackendError};
 use futures::{Stream, StreamExt as _};
 use nomos_core::sdp::FinalizedBlockEvent;
 use overwatch::{
-    services::{
-        state::{NoOperator, NoState},
-        AsServiceId, ServiceCore, ServiceData,
-    },
     OpaqueServiceResourcesHandle,
+    services::{
+        AsServiceId, ServiceCore, ServiceData,
+        state::{NoOperator, NoState},
+    },
 };
 use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;

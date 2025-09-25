@@ -7,7 +7,7 @@ use rand::SeedableRng as _;
 use tokio::sync::mpsc;
 
 use crate::{
-    edge::backends::libp2p::{swarm::Command, BlendSwarm},
+    edge::backends::libp2p::{BlendSwarm, swarm::Command},
     test_utils::PROTOCOL_NAME,
 };
 

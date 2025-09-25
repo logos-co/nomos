@@ -1,5 +1,5 @@
 [package]
-edition = "2021"
+edition = { workspace = true }
 license = { workspace = true }
 name    = "nomos-executor"
 version = "0.1.0"
@@ -55,5 +55,6 @@ utoipa-swagger-ui        = { workspace = true }
 [features]
 default         = ["tracing"]
 instrumentation = ["nomos-node/instrumentation"]
+profiling       = ["nomos-http-api-common/profiling", "nomos-node/profiling"]
 testing         = []
 tracing         = ["nomos-node/tracing"]

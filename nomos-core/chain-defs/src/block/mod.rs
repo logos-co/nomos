@@ -1,4 +1,4 @@
-use ::serde::{de::DeserializeOwned, Deserialize, Serialize};
+use ::serde::{Deserialize, Serialize, de::DeserializeOwned};
 use bytes::Bytes;
 use poseidon2::Fr;
 

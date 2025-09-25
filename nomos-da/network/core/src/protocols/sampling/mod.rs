@@ -14,11 +14,11 @@ use futures::{
     future::BoxFuture,
 };
 use kzgrs_backend::common::{
-    share::{DaLightShare, DaSharesCommitments},
     ShareIndex,
+    share::{DaLightShare, DaSharesCommitments},
 };
-use libp2p::{swarm::NetworkBehaviour, PeerId};
-use nomos_core::{da::BlobId, header::HeaderId};
+use libp2p::{PeerId, swarm::NetworkBehaviour};
+use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId};
 use nomos_da_messages::{common, sampling, sampling::SampleResponse};
 use serde::{Deserialize, Serialize};
 use streams::SampleStream;
@@ -26,6 +26,7 @@ use subnetworks_assignations::MembershipHandler;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
+    SubnetworkId,
     addressbook::AddressBookHandler,
     protocols::sampling::{
         errors::HistoricSamplingError,
@@ -34,18 +35,18 @@ use crate::{
         responses::response_behaviour::ResponseSamplingBehaviour,
     },
     swarm::validator::SampleArgs,
-    SubnetworkId,
 };
 
-type SampleResponseFutureSuccess = (PeerId, SampleResponse, SampleStream);
+type SampleResponseFutureSuccess = (SessionNumber, PeerId, SampleResponse, SampleStream);
 type SampleRequestFutureSuccess = (PeerId, SampleStream);
 
-type SampleFutureError = (SamplingError, Option<SampleStream>);
+type SampleResponseFutureError = (SamplingError, Option<SampleStream>, SessionNumber);
+type SampleRequestFutureError = (SamplingError, Option<SampleStream>);
 
 type SamplingResponseStreamFuture =
-    BoxFuture<'static, Result<SampleResponseFutureSuccess, SampleFutureError>>;
+    BoxFuture<'static, Result<SampleResponseFutureSuccess, SampleResponseFutureError>>;
 type SamplingRequestStreamFuture =
-    BoxFuture<'static, Result<SampleRequestFutureSuccess, SampleFutureError>>;
+    BoxFuture<'static, Result<SampleRequestFutureSuccess, SampleRequestFutureError>>;
 
 /// Auxiliary struct that binds where to send a request and the pair channel to
 /// listen for a response
@@ -297,36 +298,36 @@ mod test {
 
     use futures::StreamExt as _;
     use kzgrs::Proof;
-    use kzgrs_backend::common::{share::DaLightShare, Column};
-    use libp2p::{identity::Keypair, swarm::SwarmEvent, Multiaddr, PeerId, Swarm};
+    use kzgrs_backend::common::{Column, share::DaLightShare};
+    use libp2p::{Multiaddr, PeerId, Swarm, identity::Keypair, swarm::SwarmEvent};
     use log::debug;
     use rand::Rng as _;
     use subnetworks_assignations::MembershipHandler;
     use tokio::time;
     use tokio_stream::wrappers::IntervalStream;
-    use tracing_subscriber::{fmt::TestWriter, EnvFilter};
+    use tracing_subscriber::{EnvFilter, fmt::TestWriter};
 
     use super::{SamplingBehaviour, SamplingEvent};
     use crate::{
+        SubnetworkId,
         addressbook::AddressBookHandler,
         protocols::sampling::{BehaviourSampleRes, SubnetsConfig},
-        test_utils::{new_swarm_in_memory, AllNeighbours},
-        SubnetworkId,
+        test_utils::{AllNeighbours, new_swarm_in_memory},
     };
 
     async fn test_sampling_swarm(
         mut swarm: Swarm<
             SamplingBehaviour<
                 impl MembershipHandler<Id = PeerId, NetworkId = SubnetworkId>
-                    + Clone
-                    + Send
-                    + Sync
-                    + 'static,
+                + Clone
+                + Send
+                + Sync
+                + 'static,
                 impl MembershipHandler<Id = PeerId, NetworkId = SubnetworkId>
-                    + Clone
-                    + Send
-                    + Sync
-                    + 'static,
+                + Clone
+                + Send
+                + Sync
+                + 'static,
                 impl AddressBookHandler<Id = PeerId> + Send + Sync + 'static,
             >,
         >,
@@ -385,10 +386,10 @@ mod test {
         let k2 = Keypair::generate_ed25519();
 
         // Generate a random peer ids not to conflict with other tests
-        let p1_id = rand::thread_rng().gen::<u64>();
+        let p1_id = rand::rng().random::<u64>();
         let p1_address: Multiaddr = format!("/memory/{p1_id}").parse().unwrap();
 
-        let p2_id = rand::thread_rng().gen::<u64>();
+        let p2_id = rand::rng().random::<u64>();
         let p2_address: Multiaddr = format!("/memory/{p2_id}").parse().unwrap();
 
         let neighbours_p1 = AllNeighbours::default();

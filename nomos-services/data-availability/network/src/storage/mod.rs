@@ -4,20 +4,20 @@ use std::{
     hash::Hash,
 };
 
-use blake2::{digest::Update as BlakeUpdate, Blake2b512, Digest as _};
+use blake2::{Blake2b512, Digest as _, digest::Update as BlakeUpdate};
 use multiaddr::Multiaddr;
 use nomos_core::block::SessionNumber;
 use nomos_utils::blake_rng::BlakeRng;
 use overwatch::{
-    services::{relay::OutboundRelay, ServiceData},
     DynError,
+    services::{ServiceData, relay::OutboundRelay},
 };
 use rand::SeedableRng as _;
 use subnetworks_assignations::{MembershipCreator, MembershipHandler};
 
 use crate::{
     addressbook::{AddressBookMut, AddressBookSnapshot},
-    membership::{handler::DaMembershipHandler, Assignations},
+    membership::{Assignations, handler::DaMembershipHandler},
 };
 
 #[async_trait::async_trait]
@@ -88,7 +88,7 @@ where
             let updated_membership = self
                 .membership_handler
                 .membership()
-                .update(update, &mut rng);
+                .update(session_id, update, &mut rng);
             let assignations = updated_membership.subnetworks();
             (updated_membership, assignations)
         };
@@ -113,7 +113,11 @@ where
         let mut membership = None;
 
         if let Some(assignations) = self.membership_adapter.get(session_id).await? {
-            membership = Some(self.membership_handler.membership().init(assignations));
+            membership = Some(
+                self.membership_handler
+                    .membership()
+                    .init(session_id, assignations),
+            );
         }
 
         if membership.is_none() {

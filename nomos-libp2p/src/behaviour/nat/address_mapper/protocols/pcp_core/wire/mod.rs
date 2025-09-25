@@ -9,15 +9,15 @@ pub mod map;
 use std::net::{Ipv4Addr, Ipv6Addr};
 
 pub(super) use announce::{
-    AnnouncePayload, PcpAnnounceRequest, PcpAnnounceResponse, OPCODE_ANNOUNCE, PCP_ANNOUNCE_SIZE,
+    AnnouncePayload, OPCODE_ANNOUNCE, PCP_ANNOUNCE_SIZE, PcpAnnounceRequest, PcpAnnounceResponse,
 };
 pub(super) use map::{
-    MapPayload, MapResponsePayload, PcpMapRequest, PcpMapResponse, OPCODE_MAP, PCP_MAP_SIZE,
+    MapPayload, MapResponsePayload, OPCODE_MAP, PCP_MAP_SIZE, PcpMapRequest, PcpMapResponse,
 };
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use zerocopy::{
-    byteorder::network_endian::U32 as U32NE, FromBytes, FromZeros, Immutable, IntoBytes,
-    KnownLayout, Unaligned,
+    FromBytes, FromZeros, Immutable, IntoBytes, KnownLayout, Unaligned,
+    byteorder::network_endian::U32 as U32NE,
 };
 
 use crate::behaviour::nat::address_mapper::protocols::pcp_core::client::PcpError;

@@ -1,4 +1,4 @@
-use crate::edge::{backends::BlendBackend, BlendService};
+use crate::edge::{BlendService, backends::BlendBackend};
 
 /// Exposes associated types for external modules that depend on
 /// [`BlendService`], without requiring them to specify its generic parameters.
@@ -8,14 +8,24 @@ pub trait ServiceComponents {
     type BroadcastSettings;
     /// Adapter for membership service.
     type MembershipAdapter;
+    type ProofsGenerator;
 }
 
-impl<Backend, NodeId, BroadcastSettings, MembershipAdapter, RuntimeServiceId> ServiceComponents
-    for BlendService<Backend, NodeId, BroadcastSettings, MembershipAdapter, RuntimeServiceId>
+impl<Backend, NodeId, BroadcastSettings, MembershipAdapter, ProofsGenerator, RuntimeServiceId>
+    ServiceComponents
+    for BlendService<
+        Backend,
+        NodeId,
+        BroadcastSettings,
+        MembershipAdapter,
+        ProofsGenerator,
+        RuntimeServiceId,
+    >
 where
     Backend: BlendBackend<NodeId, RuntimeServiceId>,
     NodeId: Clone,
 {
     type BroadcastSettings = BroadcastSettings;
     type MembershipAdapter = MembershipAdapter;
+    type ProofsGenerator = ProofsGenerator;
 }

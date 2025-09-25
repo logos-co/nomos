@@ -6,16 +6,16 @@ use std::{
 };
 
 use libp2p::{
+    Multiaddr, PeerId,
     core::{
-        transport::PortUse,
         ConnectedPoint::{Dialer, Listener},
         Endpoint,
+        transport::PortUse,
     },
     swarm::{
-        dial_opts::DialOpts, dummy, ConnectionClosed, ConnectionDenied, ConnectionId, FromSwarm,
-        NetworkBehaviour, THandlerInEvent, THandlerOutEvent, ToSwarm,
+        ConnectionClosed, ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour,
+        THandlerInEvent, THandlerOutEvent, ToSwarm, dial_opts::DialOpts, dummy,
     },
-    Multiaddr, PeerId,
 };
 use tokio::sync::{
     mpsc::{self, UnboundedReceiver, UnboundedSender},
@@ -85,10 +85,10 @@ where
 
     fn record_event(&mut self, event: ConnectionEvent) {
         self.balancer.record_event(event);
-        if let Some(stats_sender) = &self.stats_sender {
-            if let Err(err) = stats_sender.send(self.balancer.stats()) {
-                tracing::error!("Error while sending response to a channel: {err:?}");
-            }
+        if let Some(stats_sender) = &self.stats_sender
+            && let Err(err) = stats_sender.send(self.balancer.stats())
+        {
+            tracing::error!("Error while sending response to a channel: {err:?}");
         }
         if let Some(waker) = self.waker.take() {
             waker.wake();
@@ -178,20 +178,20 @@ where
             cx.waker().wake_by_ref();
         }
 
-        if self.peers_to_dial.is_empty() {
-            if let Poll::Ready(peers) = self.balancer.poll(cx) {
-                self.peers_to_dial = peers;
-            }
+        if self.peers_to_dial.is_empty()
+            && let Poll::Ready(peers) = self.balancer.poll(cx)
+        {
+            self.peers_to_dial = peers;
         }
 
-        if let Some(peer) = self.peers_to_dial.pop_front() {
-            if let Some(addr) = self.addressbook.get_address(&peer) {
-                let opts = DialOpts::peer_id(peer)
-                    .addresses(vec![addr])
-                    .extend_addresses_through_behaviour()
-                    .build();
-                return Poll::Ready(ToSwarm::Dial { opts });
-            }
+        if let Some(peer) = self.peers_to_dial.pop_front()
+            && let Some(addr) = self.addressbook.get_address(&peer)
+        {
+            let opts = DialOpts::peer_id(peer)
+                .addresses(vec![addr])
+                .extend_addresses_through_behaviour()
+                .build();
+            return Poll::Ready(ToSwarm::Dial { opts });
         }
 
         Poll::Pending

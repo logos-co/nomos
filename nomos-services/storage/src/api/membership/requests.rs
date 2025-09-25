@@ -7,11 +7,11 @@ use nomos_core::{
 use tokio::sync::oneshot::Sender;
 
 use crate::{
+    StorageMsg, StorageServiceError,
     api::{
-        membership::StorageMembershipApi, StorageApiRequest, StorageBackendApi, StorageOperation,
+        StorageApiRequest, StorageBackendApi, StorageOperation, membership::StorageMembershipApi,
     },
     backends::StorageBackend,
-    StorageMsg, StorageServiceError,
 };
 
 pub type SessionSender = Sender<Option<(SessionNumber, HashMap<ProviderId, BTreeSet<Locator>>)>>;

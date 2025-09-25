@@ -2,7 +2,7 @@ use std::io;
 
 use futures::{AsyncReadExt, AsyncWriteExt};
 use nomos_core::codec::{self, SerdeOp};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use thiserror::Error;
 
 type Result<T> = std::result::Result<T, PackingError>;

@@ -6,19 +6,19 @@ use libp2p::PeerId;
 use nomos_core::{da::BlobId, mantle::SignedMantleTx};
 use nomos_da_network_core::SubnetworkId;
 use nomos_da_network_service::{
+    NetworkService,
     api::ApiAdapter as ApiAdapterTrait,
     backends::libp2p::{
         common::VerificationEvent,
         validator::{DaNetworkEvent, DaNetworkEventKind, DaNetworkValidatorBackend},
     },
-    membership::{handler::DaMembershipHandler, MembershipAdapter},
-    NetworkService,
+    membership::{MembershipAdapter, handler::DaMembershipHandler},
 };
-use overwatch::services::{relay::OutboundRelay, ServiceData};
+use overwatch::services::{ServiceData, relay::OutboundRelay};
 use subnetworks_assignations::MembershipHandler;
 use tokio_stream::StreamExt as _;
 
-use crate::network::{adapters::common::adapter_for, NetworkAdapter, ValidationRequest};
+use crate::network::{NetworkAdapter, ValidationRequest, adapters::common::adapter_for};
 
 adapter_for!(
     DaNetworkValidatorBackend,

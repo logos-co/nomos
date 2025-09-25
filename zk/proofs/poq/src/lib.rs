@@ -10,20 +10,17 @@ mod witness;
 use std::error::Error;
 
 pub use blend_inputs::{PoQBlendInputs, PoQBlendInputsData};
-pub use chain_inputs::{PoQChainInputs, PoQChainInputsData};
+pub use chain_inputs::{PoQChainInputs, PoQChainInputsData, PoQInputsFromDataError};
 pub use common_inputs::{PoQCommonInputs, PoQCommonInputsData};
 use groth16::{
     CompressedGroth16Proof, Groth16Input, Groth16InputDeser, Groth16Proof, Groth16ProofJsonDeser,
 };
-pub use inputs::PoQWitnessInputs;
+pub use inputs::{PoQVerifierInput, PoQVerifierInputData, PoQWitnessInputs};
 use thiserror::Error;
 pub use wallet_inputs::{PoQWalletInputs, PoQWalletInputsData};
 pub use witness::Witness;
 
-use crate::{
-    inputs::{PoQVerifierInput, PoQVerifierInputJson},
-    proving_key::POQ_PROVING_KEY_PATH,
-};
+use crate::{inputs::PoQVerifierInputJson, proving_key::POQ_PROVING_KEY_PATH};
 
 pub type PoQProof = CompressedGroth16Proof;
 
@@ -191,12 +188,8 @@ mod tests {
             index: 5,
         };
 
-        let witness_inputs = PoQWitnessInputs::from_core_node_data(
-            chain_data.try_into().unwrap(),
-            common_data.into(),
-            blend_data.into(),
-        )
-        .unwrap();
+        let witness_inputs =
+            PoQWitnessInputs::from_core_node_data(chain_data, common_data, blend_data).unwrap();
 
         let (proof, inputs) = prove(&witness_inputs).unwrap();
         assert!(verify(&proof, &inputs).unwrap());

@@ -1,8 +1,8 @@
 use std::error::Error;
 
-use opentelemetry::{global, KeyValue};
+use opentelemetry::{KeyValue, global};
 use opentelemetry_otlp::{ExportConfig, Protocol, WithExportConfig as _};
-use opentelemetry_sdk::{runtime, Resource};
+use opentelemetry_sdk::{Resource, runtime};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tracing::Subscriber;

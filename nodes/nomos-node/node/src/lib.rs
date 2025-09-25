@@ -2,7 +2,7 @@ pub mod api;
 pub mod config;
 pub mod generic_services;
 
-use color_eyre::eyre::Result;
+use color_eyre::eyre::{Result, eyre};
 use generic_services::VerifierMempoolAdapter;
 use kzgrs_backend::common::share::DaShare;
 pub use kzgrs_backend::dispersal::BlobInfo;
@@ -13,21 +13,20 @@ pub use nomos_blend_service::{
     },
     membership::service::Adapter as BlendMembershipAdapter,
 };
-use nomos_core::mantle::SignedMantleTx;
 pub use nomos_core::{
     codec,
     header::HeaderId,
-    mantle::{select::FillSize as FillSizeWithTx, Transaction},
+    mantle::{SignedMantleTx, Transaction, select::FillSize as FillSizeWithTx},
 };
 pub use nomos_da_network_service::backends::libp2p::validator::DaNetworkValidatorBackend;
 use nomos_da_network_service::{
-    api::http::HttApiAdapter, membership::handler::DaMembershipHandler, DaAddressbook,
+    DaAddressbook, api::http::HttApiAdapter, membership::handler::DaMembershipHandler,
 };
 use nomos_da_sampling::{
     backend::kzgrs::KzgrsSamplingBackend,
     network::adapters::validator::Libp2pAdapter as SamplingLibp2pAdapter,
     storage::adapters::rocksdb::{
-        converter::DaStorageConverter, RocksAdapter as SamplingStorageAdapter,
+        RocksAdapter as SamplingStorageAdapter, converter::DaStorageConverter,
     },
 };
 use nomos_da_verifier::{
@@ -36,19 +35,27 @@ use nomos_da_verifier::{
     storage::adapters::rocksdb::RocksAdapter as VerifierStorageAdapter,
 };
 use nomos_libp2p::PeerId;
-pub use nomos_mempool::network::adapters::libp2p::{
-    Libp2pAdapter as MempoolNetworkAdapter, Settings as MempoolAdapterSettings,
+pub use nomos_mempool::{
+    network::adapters::libp2p::{
+        Libp2pAdapter as MempoolNetworkAdapter, Settings as MempoolAdapterSettings,
+        Settings as AdapterSettings,
+    },
+    processor::tx::SignedTxProcessorSettings,
+    tx::settings::TxMempoolSettings,
 };
 pub use nomos_network::backends::libp2p::Libp2p as NetworkBackend;
 pub use nomos_storage::backends::{
-    rocksdb::{RocksBackend, RocksBackendSettings},
     SerdeOp,
+    rocksdb::{RocksBackend, RocksBackendSettings},
 };
 pub use nomos_system_sig::SystemSig;
 use nomos_time::backends::NtpTimeBackend;
 #[cfg(feature = "tracing")]
 pub use nomos_tracing_service::Tracing;
-use overwatch::derive_services;
+use overwatch::{
+    DynError, derive_services,
+    overwatch::{Error as OverwatchError, Overwatch, OverwatchRunner},
+};
 use subnetworks_assignations::versions::history_aware_refill::HistoryAware;
 
 pub use crate::config::{Config, CryptarchiaArgs, HttpArgs, LogArgs, NetworkArgs};
@@ -56,6 +63,7 @@ use crate::{
     api::backend::AxumBackend,
     generic_services::{
         DaMembershipAdapter, DaMembershipStorageGeneric, MembershipService, SdpService,
+        blend::{BlendProofsGenerator, BlendProofsVerifier},
     },
 };
 
@@ -74,26 +82,9 @@ pub(crate) type TracingService = Tracing<RuntimeServiceId>;
 
 pub(crate) type NetworkService = nomos_network::NetworkService<NetworkBackend, RuntimeServiceId>;
 
-pub(crate) type BlendCoreService = nomos_blend_service::core::BlendService<
-    BlendBackend,
-    PeerId,
-    BlendNetworkAdapter<RuntimeServiceId>,
-    BlendMembershipAdapter<MembershipService<RuntimeServiceId>, PeerId>,
-    RuntimeServiceId,
->;
-
-pub(crate) type BlendEdgeService = nomos_blend_service::edge::BlendService<
-    nomos_blend_service::edge::backends::libp2p::Libp2pBlendBackend,
-    PeerId,
-    <BlendNetworkAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<
-        RuntimeServiceId,
-    >>::BroadcastSettings,
-    BlendMembershipAdapter<MembershipService<RuntimeServiceId>, PeerId>,
-    RuntimeServiceId,
->;
-
-pub(crate) type BlendService =
-    nomos_blend_service::BlendService<BlendCoreService, BlendEdgeService, RuntimeServiceId>;
+pub(crate) type BlendCoreService = generic_services::blend::BlendCoreService<RuntimeServiceId>;
+pub(crate) type BlendEdgeService = generic_services::blend::BlendEdgeService<RuntimeServiceId>;
+pub(crate) type BlendService = generic_services::blend::BlendService<RuntimeServiceId>;
 
 pub(crate) type BlockBroadcastService = broadcast_service::BlockBroadcastService<RuntimeServiceId>;
 
@@ -197,6 +188,8 @@ pub(crate) type ApiService = nomos_api::ApiService<
         NtpTimeBackend,
         DaNetworkApiAdapter,
         ApiStorageAdapter<RuntimeServiceId>,
+        BlendProofsGenerator,
+        BlendProofsVerifier,
         MB16,
     >,
     RuntimeServiceId,
@@ -233,4 +226,76 @@ pub struct Nomos {
     wallet: WalletService,
     #[cfg(feature = "testing")]
     testing_http: TestingApiService<RuntimeServiceId>,
+}
+
+pub fn run_node_from_config(config: Config) -> Result<Overwatch<RuntimeServiceId>, DynError> {
+    let (blend_config, blend_core_config, blend_edge_config) = config.blend.into();
+
+    let app = OverwatchRunner::<Nomos>::run(
+        NomosServiceSettings {
+            network: config.network,
+            blend: blend_config,
+            blend_core: blend_core_config,
+            blend_edge: blend_edge_config,
+            block_broadcast: (),
+            #[cfg(feature = "tracing")]
+            tracing: config.tracing,
+            http: config.http,
+            cl_mempool: TxMempoolSettings {
+                pool: (),
+                network_adapter: AdapterSettings {
+                    topic: String::from(CL_TOPIC),
+                    id: <SignedMantleTx as Transaction>::hash,
+                },
+                processor: SignedTxProcessorSettings {
+                    trigger_sampling_delay: config.mempool.trigger_sampling_delay,
+                },
+                recovery_path: config.mempool.cl_pool_recovery_path,
+            },
+            da_network: config.da_network,
+            da_sampling: config.da_sampling,
+            da_verifier: config.da_verifier,
+            cryptarchia: config.cryptarchia,
+            time: config.time,
+            storage: config.storage,
+            system_sig: (),
+            sdp: (),
+            membership: config.membership,
+            wallet: config.wallet,
+            #[cfg(feature = "testing")]
+            testing_http: config.testing_http,
+        },
+        None,
+    )
+    .map_err(|e| eyre!("Error encountered: {}", e))?;
+    Ok(app)
+}
+
+pub async fn get_services_to_start(
+    app: &Overwatch<RuntimeServiceId>,
+    must_blend_service_group_start: bool,
+    must_da_service_group_start: bool,
+) -> Result<Vec<RuntimeServiceId>, OverwatchError> {
+    let mut service_ids = app.handle().retrieve_service_ids().await?;
+
+    // Exclude core and edge blend services, which will be started
+    // on demand by the blend service.
+    let blend_inner_service_ids = [RuntimeServiceId::BlendCore, RuntimeServiceId::BlendEdge];
+    service_ids.retain(|value| !blend_inner_service_ids.contains(value));
+
+    if !must_blend_service_group_start {
+        service_ids.retain(|value| value != &RuntimeServiceId::Blend);
+    }
+
+    if !must_da_service_group_start {
+        let da_service_ids = [
+            RuntimeServiceId::DaVerifier,
+            RuntimeServiceId::DaSampling,
+            RuntimeServiceId::DaNetwork,
+            RuntimeServiceId::ClMempool,
+        ];
+        service_ids.retain(|value| !da_service_ids.contains(value));
+    }
+
+    Ok(service_ids)
 }

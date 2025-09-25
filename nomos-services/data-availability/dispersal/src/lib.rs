@@ -5,22 +5,22 @@ use std::{
 };
 
 use adapters::{
-    storage::{mock::MockDispersalStorageAdapter, DispersalStorageAdapter},
-    wallet::{mock::MockWalletAdapter, DaWalletAdapter},
+    storage::{DispersalStorageAdapter, mock::MockDispersalStorageAdapter},
+    wallet::{DaWalletAdapter, mock::MockWalletAdapter},
 };
 use backend::DispersalTask;
-use futures::{stream::FuturesUnordered, StreamExt as _};
+use futures::{StreamExt as _, stream::FuturesUnordered};
 use nomos_core::mantle::{
-    ops::channel::{ChannelId, MsgId},
     AuthenticatedMantleTx as _, Op,
+    ops::channel::{ChannelId, MsgId},
 };
 use nomos_da_network_core::{PeerId, SubnetworkId};
 use overwatch::{
-    services::{
-        state::{NoOperator, NoState},
-        AsServiceId, ServiceCore, ServiceData,
-    },
     DynError, OpaqueServiceResourcesHandle,
+    services::{
+        AsServiceId, ServiceCore, ServiceData,
+        state::{NoOperator, NoState},
+    },
 };
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;

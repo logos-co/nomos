@@ -1,6 +1,6 @@
 use std::{path::PathBuf, process};
 
-use cfgsync::server::{cfgsync_app, CfgSyncConfig};
+use cfgsync::server::{CfgSyncConfig, cfgsync_app};
 use clap::Parser;
 use tokio::net::TcpListener;
 

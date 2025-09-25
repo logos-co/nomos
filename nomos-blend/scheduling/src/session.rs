@@ -6,7 +6,7 @@ use std::{
 };
 
 use futures::StreamExt as _;
-use tokio::time::{sleep, timeout, Sleep};
+use tokio::time::{Sleep, sleep, timeout};
 
 /// A staging type that initializes a [`SessionEventStream`] by consuming
 /// the first [`Session`] from the underlying stream, expected to be yielded
@@ -111,11 +111,11 @@ where
         }
 
         // Check if the transition period has expired.
-        if let Some(timer) = &mut self.transition_period_timer {
-            if timer.as_mut().poll(cx).is_ready() {
-                self.transition_period_timer = None;
-                return Poll::Ready(Some(SessionEvent::TransitionPeriodExpired));
-            }
+        if let Some(timer) = &mut self.transition_period_timer
+            && timer.as_mut().poll(cx).is_ready()
+        {
+            self.transition_period_timer = None;
+            return Poll::Ready(Some(SessionEvent::TransitionPeriodExpired));
         }
 
         Poll::Pending
@@ -166,7 +166,7 @@ pub enum FirstReadyStreamError {
 #[cfg(test)]
 mod tests {
     use futures::StreamExt as _;
-    use tokio::time::{interval, interval_at, Instant};
+    use tokio::time::{Instant, interval, interval_at};
     use tokio_stream::wrappers::IntervalStream;
 
     use super::*;

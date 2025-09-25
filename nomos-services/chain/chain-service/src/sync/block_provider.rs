@@ -9,9 +9,9 @@ use std::{
 use bytes::Bytes;
 use cryptarchia_engine::{Branch, Slot};
 use cryptarchia_sync::{BlocksResponse, ProviderResponse};
-use futures::{future, stream, stream::BoxStream, StreamExt as _, TryStreamExt as _};
-use nomos_core::{block::Block, codec::SerdeOp, header::HeaderId};
-use nomos_storage::{api::chain::StorageChainApi, backends::StorageBackend, StorageMsg};
+use futures::{StreamExt as _, TryStreamExt as _, future, stream, stream::BoxStream};
+use nomos_core::{block::Block, header::HeaderId};
+use nomos_storage::{StorageMsg, api::chain::StorageChainApi, backends::StorageBackend};
 use overwatch::DynError;
 use serde::Serialize;
 use thiserror::Error;
@@ -63,7 +63,7 @@ where
 impl<Storage, Tx> BlockProvider<Storage, Tx>
 where
     Storage: StorageBackend + 'static,
-    <Storage as StorageChainApi>::Block: TryInto<Block<Tx>>,
+    <Storage as StorageChainApi>::Block: TryInto<Block<Tx>> + Into<Bytes>,
     Tx: Serialize + Clone + Eq + Send + Sync + 'static,
 {
     pub const fn new(storage_relay: StorageRelay<Storage>) -> Self {
@@ -148,12 +148,10 @@ where
                 let storage = storage.clone();
 
                 async move {
-                    let block = Self::load_block(id, &storage)
+                    Self::load_block_bytes(id, &storage)
                         .await
                         .map_err(DynError::from)?
-                        .ok_or_else(|| DynError::from(GetBlocksError::BlockNotFound(id)))?;
-
-                    <() as SerdeOp>::serialize(&block).map_err(DynError::from)
+                        .ok_or_else(|| DynError::from(GetBlocksError::BlockNotFound(id)))
                 }
             })
             .map_err(DynError::from)
@@ -225,12 +223,11 @@ where
         known_blocks: &HashSet<HeaderId>,
         target_info: &BlockInfo,
     ) -> Result<BlockInfo, GetBlocksError> {
-        if target_info.location == BlockLocation::Engine {
-            if let Some(start_info) =
+        if target_info.location == BlockLocation::Engine
+            && let Some(start_info) =
                 Self::find_optimal_start_block_from_engine(cryptarchia, known_blocks, target_info)?
-            {
-                return Ok(start_info);
-            }
+        {
+            return Ok(start_info);
         }
 
         self.find_optimal_start_block_from_storage(known_blocks)
@@ -277,10 +274,10 @@ where
         // Check if the genesis block is stored as immutable
         let maybe_genesis = self.find_immutable_genesis_block().await;
 
-        if let Ok(Some(genesis_block_id)) = &maybe_genesis {
-            if !known_blocks.contains(&genesis_block_id.id) {
-                return Ok(None);
-            }
+        if let Ok(Some(genesis_block_id)) = &maybe_genesis
+            && !known_blocks.contains(&genesis_block_id.id)
+        {
+            return Ok(None);
         }
 
         maybe_genesis
@@ -386,10 +383,10 @@ where
             .scan_immutable_block_ids(start_block_slot..=target_block_slot, limit)
             .await?;
 
-        if let Some(last_id) = storage_path.last() {
-            if *last_id == target_block {
-                return Ok(storage_path);
-            }
+        if let Some(last_id) = storage_path.last()
+            && *last_id == target_block
+        {
+            return Ok(storage_path);
         }
 
         let Some(remaining_limit) = NonZeroUsize::new(limit.get() - storage_path.len()) else {
@@ -502,6 +499,25 @@ where
         }
     }
 
+    /// Loads a block from storage as raw bytes, avoiding
+    /// deserialization/serialization
+    async fn load_block_bytes(
+        id: HeaderId,
+        storage: &StorageRelay<Storage>,
+    ) -> Result<Option<Bytes>, GetBlocksError> {
+        let (tx, rx) = oneshot::channel();
+        storage
+            .send(StorageMsg::get_block_request(id, tx))
+            .await
+            .map_err(|(e, _)| GetBlocksError::SendError(e.to_string()))?;
+
+        let response = rx.await.map_err(|_| GetBlocksError::ChannelDropped)?;
+
+        // Convert storage block type to Bytes to satisfy trait bounds.
+        // For RocksBackend this is Bytes -> Bytes (no-op).
+        Ok(response.map(Into::into))
+    }
+
     /// Scans immutable block IDs from the storage,
     /// starting from the `start_slot`, limited to `limit`.
     async fn scan_immutable_block_ids(
@@ -542,14 +558,15 @@ mod tests {
     use futures::StreamExt as _;
     use groth16::Fr;
     use nomos_core::{
+        codec::SerdeOp,
         header::Header,
-        mantle::{ledger::Utxo, Note, SignedMantleTx},
+        mantle::{Note, SignedMantleTx, ledger::Utxo},
         proofs::leader_proof::{LeaderPrivate, LeaderPublic},
         utils::merkle::MerkleNode,
     };
     use nomos_storage::{
-        backends::rocksdb::{RocksBackend, RocksBackendSettings},
         StorageService,
+        backends::rocksdb::{RocksBackend, RocksBackendSettings},
     };
     use num_bigint::BigUint;
     use overwatch::{derive_services, overwatch::OverwatchRunner};

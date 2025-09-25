@@ -3,13 +3,16 @@ use nomos_core::block::SessionNumber;
 
 #[derive(Debug, Clone)]
 pub enum OpinionEvent {
-    Positive { peer_id: PeerId, session: Session },
-    Negative { peer_id: PeerId, session: Session },
-    Blacklist { peer_id: PeerId, session: Session },
-}
-
-#[derive(Debug, Clone)]
-pub enum Session {
-    Current,
-    Id(SessionNumber),
+    Positive {
+        peer_id: PeerId,
+        session_id: SessionNumber,
+    },
+    Negative {
+        peer_id: PeerId,
+        session_id: SessionNumber,
+    },
+    Blacklist {
+        peer_id: PeerId,
+        session_id: SessionNumber,
+    },
 }

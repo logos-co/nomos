@@ -6,15 +6,15 @@ use kzgrs_backend::common::share::DaShare;
 use nomos_core::da::blob::LightShare as _;
 use nomos_da_network_service::membership::adapters::service::peer_id_from_provider_id;
 use nomos_libp2p::ed25519;
-use rand::{rngs::OsRng, RngCore as _};
+use rand::{RngCore as _, rngs::OsRng};
 use reqwest::Url;
 use serial_test::serial;
 use tests::{
     adjust_timeout,
-    common::da::{disseminate_with_metadata, wait_for_blob_onchain, APP_ID, DA_TESTS_TIMEOUT},
-    nodes::validator::{create_validator_config, Validator},
+    common::da::{APP_ID, DA_TESTS_TIMEOUT, disseminate_with_metadata, wait_for_blob_onchain},
+    nodes::validator::{Validator, create_validator_config},
     secret_key_to_peer_id,
-    topology::{configs::create_general_configs, Topology, TopologyConfig},
+    topology::{Topology, TopologyConfig, configs::create_general_configs},
 };
 
 #[tokio::test]

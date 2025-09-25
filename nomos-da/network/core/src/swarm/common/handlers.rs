@@ -1,6 +1,6 @@
 use std::pin::Pin;
 
-use futures::{channel::oneshot, Future};
+use futures::channel::oneshot;
 use log::{debug, error};
 use nomos_da_messages::replication::ReplicationRequest;
 use subnetworks_assignations::MembershipHandler;

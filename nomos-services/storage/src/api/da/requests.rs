@@ -7,15 +7,15 @@ use tokio::sync::oneshot::Sender;
 
 use super::ServiceTx;
 use crate::{
+    StorageMsg, StorageServiceError,
     api::{
+        StorageApiRequest, StorageBackendApi, StorageOperation,
         da::{
             DaConverter, ServiceBlobId, ServiceLightShare, ServiceShareIndex,
             ServiceSharedCommitments, StorageDaApi,
         },
-        StorageApiRequest, StorageBackendApi, StorageOperation,
     },
     backends::StorageBackend,
-    StorageMsg, StorageServiceError,
 };
 
 type AssignationsMap<Backend> =

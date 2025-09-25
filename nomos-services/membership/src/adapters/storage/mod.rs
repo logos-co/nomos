@@ -7,8 +7,8 @@ use nomos_core::{
     sdp::{Locator, ProviderId, ServiceType},
 };
 use overwatch::{
-    services::{relay::OutboundRelay, ServiceData},
     DynError,
+    services::{ServiceData, relay::OutboundRelay},
 };
 
 #[async_trait::async_trait]

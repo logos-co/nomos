@@ -1,11 +1,11 @@
 use std::convert::Infallible;
 
 use blake2::{
-    digest::{Update as _, VariableOutput as _},
     Blake2bVar,
+    digest::{Update as _, VariableOutput as _},
 };
 use groth16::Fr;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 
 use crate::{
     codec::SerdeOp,

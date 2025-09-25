@@ -1,47 +1,55 @@
 use std::{
-    collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque, hash_map::Entry},
     convert::Infallible,
     task::{Context, Poll, Waker},
 };
 
 use either::Either;
 use libp2p::{
-    swarm::{ConnectionId, NotifyHandler, ToSwarm},
     PeerId,
+    swarm::{ConnectionId, NotifyHandler, ToSwarm},
 };
-use nomos_blend_message::MessageIdentifier;
-use nomos_blend_scheduling::{deserialize_encapsulated_message, serialize_encapsulated_message};
+use nomos_blend_message::{
+    MessageIdentifier,
+    encap::{self, encapsulated::PoQVerificationInputMinusSigningKey},
+};
+use nomos_blend_scheduling::{
+    deserialize_encapsulated_message,
+    message_blend::crypto::OutgoingEncapsulatedMessageWithValidatedPublicHeader,
+    serialize_encapsulated_message,
+};
 
-use crate::{
-    core::with_core::{
-        behaviour::{handler::FromBehaviour, Event},
-        error::Error,
-    },
-    message::ValidateMessagePublicHeader as _,
-    EncapsulatedMessageWithValidatedPublicHeader,
+use crate::core::with_core::{
+    behaviour::{Event, handler::FromBehaviour},
+    error::Error,
 };
 
 /// Defines behaviours for processing messages from the old session
 /// until the session transition period has passed.
-#[derive(Default)]
-pub struct OldSession {
+pub struct OldSession<ProofsVerifier> {
     negotiated_peers: HashMap<PeerId, ConnectionId>,
     exchanged_message_identifiers: HashMap<PeerId, HashSet<MessageIdentifier>>,
     events: VecDeque<ToSwarm<Event, Either<FromBehaviour, Infallible>>>,
     waker: Option<Waker>,
+    poq_verification_inputs: PoQVerificationInputMinusSigningKey,
+    poq_verifier: ProofsVerifier,
 }
 
-impl OldSession {
+impl<ProofsVerifier> OldSession<ProofsVerifier> {
     #[must_use]
     pub const fn new(
         negotiated_peers: HashMap<PeerId, ConnectionId>,
         exchanged_message_identifiers: HashMap<PeerId, HashSet<MessageIdentifier>>,
+        poq_verification_inputs: PoQVerificationInputMinusSigningKey,
+        poq_verifier: ProofsVerifier,
     ) -> Self {
         Self {
             negotiated_peers,
             exchanged_message_identifiers,
             events: VecDeque::new(),
             waker: None,
+            poq_verification_inputs,
+            poq_verifier,
         }
     }
 
@@ -81,7 +89,7 @@ impl OldSession {
     ///   the [`except`] connection.
     pub fn forward_validated_message(
         &mut self,
-        message: &EncapsulatedMessageWithValidatedPublicHeader,
+        message: &OutgoingEncapsulatedMessageWithValidatedPublicHeader,
         except: &(PeerId, ConnectionId),
     ) -> Result<bool, Error> {
         if !self.is_negotiated(except) {
@@ -89,13 +97,13 @@ impl OldSession {
         }
 
         let message_id = message.id();
-        let serialized_message = serialize_encapsulated_message(message);
+        let serialized_message = serialize_encapsulated_message(message.as_ref());
         let mut at_least_one_receiver = false;
         self.negotiated_peers
             .iter()
-            .filter(|(&peer_id, _)| peer_id != except.0)
+            .filter(|(peer_id, _)| **peer_id != except.0)
             .for_each(|(&peer_id, &connection_id)| {
-                if Self::check_and_update_message_cache(
+                if check_and_update_message_cache(
                     &mut self.exchanged_message_identifiers,
                     &message_id,
                     peer_id,
@@ -119,6 +127,63 @@ impl OldSession {
         }
     }
 
+    /// Should be called when a connection is detected as closed.
+    ///
+    /// It removes the connection from the states and returns [`true`]
+    /// if the connection was part of the old session.
+    pub fn handle_closed_connection(
+        &mut self,
+        (peer_id, connection_id): &(PeerId, ConnectionId),
+    ) -> bool {
+        if let Entry::Occupied(entry) = self.negotiated_peers.entry(*peer_id)
+            && entry.get() == connection_id
+        {
+            entry.remove();
+            self.exchanged_message_identifiers.remove(peer_id);
+            return true;
+        }
+        false
+    }
+
+    fn try_wake(&mut self) {
+        if let Some(waker) = self.waker.take() {
+            waker.wake();
+        }
+    }
+
+    pub fn poll(
+        &mut self,
+        cx: &Context<'_>,
+    ) -> Poll<ToSwarm<Event, Either<FromBehaviour, Infallible>>> {
+        if let Some(event) = self.events.pop_front() {
+            Poll::Ready(event)
+        } else {
+            self.waker = Some(cx.waker().clone());
+            Poll::Pending
+        }
+    }
+}
+
+fn check_and_update_message_cache(
+    exchanged_message_identifiers: &mut HashMap<PeerId, HashSet<MessageIdentifier>>,
+    message_id: &MessageIdentifier,
+    peer_id: PeerId,
+) -> Result<(), Error> {
+    if exchanged_message_identifiers
+        .entry(peer_id)
+        .or_default()
+        .insert(*message_id)
+    {
+        Ok(())
+    } else {
+        Err(Error::MessageAlreadyExchanged)
+    }
+}
+
+impl<ProofsVerifier> OldSession<ProofsVerifier>
+where
+    ProofsVerifier: encap::ProofsVerifier,
+{
     /// Handles a message received from a peer.
     ///
     /// # Returns
@@ -143,7 +208,7 @@ impl OldSession {
         let message_identifier = deserialized_encapsulated_message.id();
 
         // Add the message to the set of exchanged message identifiers.
-        Self::check_and_update_message_cache(
+        check_and_update_message_cache(
             &mut self.exchanged_message_identifiers,
             &message_identifier,
             from_peer_id,
@@ -151,7 +216,7 @@ impl OldSession {
 
         // Verify the message public header
         let validated_message = deserialized_encapsulated_message
-            .validate_public_header()
+            .verify_public_header(&self.poq_verification_inputs, &self.poq_verifier)
             .map_err(|_| Error::InvalidMessage)?;
 
         // Notify the swarm about the received message, so that it can be further
@@ -162,57 +227,5 @@ impl OldSession {
         )));
         self.try_wake();
         Ok(true)
-    }
-
-    fn check_and_update_message_cache(
-        exchanged_message_identifiers: &mut HashMap<PeerId, HashSet<MessageIdentifier>>,
-        message_id: &MessageIdentifier,
-        peer_id: PeerId,
-    ) -> Result<(), Error> {
-        if exchanged_message_identifiers
-            .entry(peer_id)
-            .or_default()
-            .insert(*message_id)
-        {
-            Ok(())
-        } else {
-            Err(Error::MessageAlreadyExchanged)
-        }
-    }
-
-    /// Should be called when a connection is detected as closed.
-    ///
-    /// It removes the connection from the states and returns [`true`]
-    /// if the connection was part of the old session.
-    pub fn handle_closed_connection(
-        &mut self,
-        (peer_id, connection_id): &(PeerId, ConnectionId),
-    ) -> bool {
-        if let Entry::Occupied(entry) = self.negotiated_peers.entry(*peer_id) {
-            if entry.get() == connection_id {
-                entry.remove();
-                self.exchanged_message_identifiers.remove(peer_id);
-                return true;
-            }
-        }
-        false
-    }
-
-    fn try_wake(&mut self) {
-        if let Some(waker) = self.waker.take() {
-            waker.wake();
-        }
-    }
-
-    pub fn poll(
-        &mut self,
-        cx: &Context<'_>,
-    ) -> Poll<ToSwarm<Event, Either<FromBehaviour, Infallible>>> {
-        if let Some(event) = self.events.pop_front() {
-            Poll::Ready(event)
-        } else {
-            self.waker = Some(cx.waker().clone());
-            Poll::Pending
-        }
     }
 }

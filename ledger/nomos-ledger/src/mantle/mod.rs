@@ -8,8 +8,8 @@ use ed25519::signature::Verifier as _;
 use nomos_core::{
     block::BlockNumber,
     mantle::{
-        ops::{leader_claim::VoucherCm, Op, OpProof},
         AuthenticatedMantleTx, GasConstants, NoteId,
+        ops::{Op, OpProof, leader_claim::VoucherCm},
     },
     proofs::zksig::{self, ZkSignatureProof as _},
     sdp::state::DeclarationStateError,
@@ -200,18 +200,18 @@ mod tests {
     use ed25519_dalek::{Signer as _, SigningKey, VerifyingKey};
     use nomos_core::{
         mantle::{
+            MantleTx, SignedMantleTx, Transaction as _,
             gas::MainnetGasConstants,
             ledger::Tx as LedgerTx,
             ops::{
                 channel::{
-                    blob::BlobOp, inscribe::InscriptionOp, set_keys::SetKeysOp, ChannelId, MsgId,
+                    ChannelId, MsgId, blob::BlobOp, inscribe::InscriptionOp, set_keys::SetKeysOp,
                 },
                 sdp::{SDPActiveOp, SDPDeclareOp, SDPWithdrawOp},
             },
-            MantleTx, SignedMantleTx, Transaction as _,
         },
         proofs::zksig::DummyZkSignature,
-        sdp::{state::ActiveStateError, ProviderId, ServiceType, ZkPublicKey},
+        sdp::{ProviderId, ServiceType, ZkPublicKey, state::ActiveStateError},
     };
     use num_bigint::BigUint;
 
@@ -657,6 +657,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(clippy::too_many_lines, reason = "Test function.")]
     fn test_sdp_withdraw_operation() {
         // First, declare a service to activate.
         let utxo = utxo();
@@ -696,9 +697,11 @@ mod tests {
             .0;
 
         assert!(ledger_state.sdp.get_declaration(&declaration_id).is_ok());
-        assert!(ledger_state
-            .locked_notes
-            .contains(&declare_op.locked_note_id));
+        assert!(
+            ledger_state
+                .locked_notes
+                .contains(&declare_op.locked_note_id)
+        );
 
         // Apply the active operation.
         let active_op = SDPActiveOp {
@@ -769,9 +772,11 @@ mod tests {
             .0;
 
         let declaration = ledger_state.sdp.get_declaration(&declaration_id).unwrap();
-        assert!(!ledger_state
-            .locked_notes
-            .contains(&declare_op.locked_note_id));
+        assert!(
+            !ledger_state
+                .locked_notes
+                .contains(&declare_op.locked_note_id)
+        );
         assert_eq!(declaration.active, 1);
         assert_eq!(declaration.withdrawn, Some(11));
         assert_eq!(declaration.nonce, 2);

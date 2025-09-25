@@ -5,7 +5,7 @@ use kzgrs_backend::common::{build_blob_id, share::DaShare};
 use libp2p::PeerId;
 use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId};
 use nomos_da_network_core::{
-    protocols::sampling::opinions::OpinionEvent, swarm::BalancerStats, SubnetworkId,
+    SubnetworkId, protocols::sampling::opinions::OpinionEvent, swarm::BalancerStats,
 };
 use overwatch::{overwatch::handle::OverwatchHandle, services::state::NoState};
 use serde::{Deserialize, Serialize};
@@ -17,8 +17,8 @@ use tokio::sync::{
 use tokio_stream::wrappers::BroadcastStream;
 
 use crate::{
-    backends::{ConnectionStatus, NetworkBackend},
     DaAddressbook,
+    backends::{ConnectionStatus, NetworkBackend},
 };
 
 const BUFFER_SIZE: usize = 64;
@@ -177,6 +177,10 @@ impl MembershipHandler for MockMembership {
     fn subnetworks(
         &self,
     ) -> subnetworks_assignations::SubnetworkAssignations<Self::NetworkId, Self::Id> {
+        todo!()
+    }
+
+    fn session_id(&self) -> SessionNumber {
         todo!()
     }
 }
