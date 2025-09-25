@@ -313,7 +313,8 @@ where
             BlendService,
             TxMempoolService<_, _, _, _, _>,
             DaSamplingService<_, _, _, _>,
-            TimeService<_, _>
+            TimeService<_, _>,
+            CryptarchiaService
         )
         .await?;
 
