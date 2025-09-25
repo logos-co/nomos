@@ -47,6 +47,11 @@ pub type KMSOperatorBackend<Backend> = KMSOperatorKey<
     <Backend as KMSBackend>::Error,
 >;
 
+type KeyDescriptor<Backend> = (
+    <Backend as KMSBackend>::KeyId,
+    <<Backend as KMSBackend>::Key as SecuredKey<<Backend as KMSBackend>::Data>>::PublicKey,
+);
+
 pub enum KMSMessage<Backend, Data, Signature, PublicKey, KeyError, OperatorError>
 where
     Backend: KMSBackend,
@@ -54,7 +59,7 @@ where
     Register {
         key_id: Backend::KeyId,
         key_type: Backend::Key,
-        reply_channel: oneshot::Sender<Backend::KeyId>,
+        reply_channel: oneshot::Sender<KeyDescriptor<Backend>>,
     },
     PublicKey {
         key_id: Backend::KeyId,
@@ -149,7 +154,7 @@ where
     Backend::Data: Send,
     <Backend::Key as SecuredKey<Backend::Data>>::Signature: Send,
     <Backend::Key as SecuredKey<Backend::Data>>::PublicKey: Send,
-    Backend::KeyId: Debug + Send,
+    Backend::KeyId: Clone + Debug + Send,
     Backend::Key: Debug + Send,
     Backend::Settings: Clone + Send + Sync,
     Backend::Error: Debug + Send,
@@ -198,7 +203,7 @@ where
 impl<Backend, RuntimeServiceId> KMSService<Backend, RuntimeServiceId>
 where
     Backend: KMSBackend + 'static,
-    Backend::KeyId: Debug,
+    Backend::KeyId: Debug + Clone,
     Backend::Key: Debug,
     Backend::Settings: Clone,
     Backend::Error: Debug,
@@ -213,7 +218,10 @@ where
                 let Ok(key_id) = backend.register(key_id, key_type) else {
                     panic!("A key could not be registered");
                 };
-                if let Err(_key_id) = reply_channel.send(key_id) {
+                let Ok(key_public_key) = backend.public_key(key_id.clone()) else {
+                    panic!("Requested public key for nonexistent KeyId");
+                };
+                if let Err(_key_descriptor) = reply_channel.send((key_id, key_public_key)) {
                     error!("Could not reply key_id for register request");
                 }
             }
