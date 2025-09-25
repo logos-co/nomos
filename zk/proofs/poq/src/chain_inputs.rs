@@ -14,6 +14,7 @@ pub struct PoQChainInputs {
     pol_t1: Groth16Input,
 }
 
+#[derive(Clone, Copy)]
 pub struct PoQChainInputsData {
     pub session: u64,
     pub core_root: Fr,

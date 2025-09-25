@@ -190,9 +190,26 @@ mod tests {
 
         let witness_inputs =
             PoQWitnessInputs::from_core_node_data(chain_data, common_data, blend_data).unwrap();
-
         let (proof, inputs) = prove(&witness_inputs).unwrap();
+        let key_nullifier = inputs.key_nullifier.into_inner();
+        // Test that verifying with the inputs returned by `prove` works.
         assert!(verify(&proof, inputs).unwrap());
+
+        // Test that verifying with the reconstructed inputs inside the verifier context
+        // works.
+        let recomputed_verify_inputs = PoQVerifierInputData {
+            core_quota: common_data.core_quota,
+            core_root: chain_data.core_root,
+            k_part_one: common_data.message_key.0,
+            k_part_two: common_data.message_key.1,
+            key_nullifier,
+            leader_quota: common_data.leader_quota,
+            pol_epoch_nonce: chain_data.pol_epoch_nonce,
+            pol_ledger_aged: chain_data.pol_ledger_aged,
+            session: chain_data.session,
+            total_stake: chain_data.total_stake,
+        };
+        assert!(verify(&proof, recomputed_verify_inputs.into()).unwrap());
     }
 
     #[expect(clippy::too_many_lines, reason = "For the sake of the test let it be")]
@@ -324,8 +341,25 @@ mod tests {
 
         let witness_inputs =
             PoQWitnessInputs::from_leader_data(chain_data, common_data, wallet_data).unwrap();
-
         let (proof, inputs) = prove(&witness_inputs).unwrap();
+        let key_nullifier = inputs.key_nullifier.into_inner();
+        // Test that verifying with the inputs returned by `prove` works.
         assert!(verify(&proof, inputs).unwrap());
+
+        // Test that verifying with the reconstructed inputs inside the verifier context
+        // works.
+        let recomputed_verify_inputs = PoQVerifierInputData {
+            core_quota: common_data.core_quota,
+            core_root: chain_data.core_root,
+            k_part_one: common_data.message_key.0,
+            k_part_two: common_data.message_key.1,
+            key_nullifier,
+            leader_quota: common_data.leader_quota,
+            pol_epoch_nonce: chain_data.pol_epoch_nonce,
+            pol_ledger_aged: chain_data.pol_ledger_aged,
+            session: chain_data.session,
+            total_stake: chain_data.total_stake,
+        };
+        assert!(verify(&proof, recomputed_verify_inputs.into()).unwrap());
     }
 }
