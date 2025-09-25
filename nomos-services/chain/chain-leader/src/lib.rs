@@ -1,6 +1,5 @@
 mod blend;
 mod leadership;
-mod messages;
 mod relays;
 
 use core::fmt::Debug;

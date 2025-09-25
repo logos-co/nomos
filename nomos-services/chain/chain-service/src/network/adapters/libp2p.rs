@@ -21,10 +21,8 @@ use tokio::sync::oneshot;
 use tokio_stream::{StreamExt as _, wrappers::errors::BroadcastStreamRecvError};
 use tracing::debug;
 
-use crate::{
-    messages::NetworkMessage,
-    network::{BoxedStream, NetworkAdapter},
-};
+use crate::network::{BoxedStream, NetworkAdapter};
+use chain_common::NetworkMessage;
 
 const MAX_PEERS_TO_TRY_FOR_ORPHAN_DOWNLOAD: usize = 3;
 

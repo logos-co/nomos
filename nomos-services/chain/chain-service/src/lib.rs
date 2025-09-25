@@ -948,10 +948,6 @@ where
     }
 
     #[expect(
-        clippy::type_complexity,
-        reason = "CryptarchiaConsensusState and CryptarchiaConsensusRelays amount of generics."
-    )]
-    #[expect(
         clippy::too_many_arguments,
         reason = "This function does too much, need to deal with this at some point"
     )]
@@ -1000,7 +996,6 @@ where
         Ok((cryptarchia, storage_blocks_to_remove))
     }
 
-    #[expect(clippy::type_complexity, reason = "StateUpdater")]
     fn update_state(
         cryptarchia: &Cryptarchia,
         storage_blocks_to_remove: HashSet<HeaderId>,
