@@ -11,8 +11,9 @@ use overwatch::services::ServiceData;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    ApiService, CryptarchiaService, DaDispersalService, DaNetworkService, DaSamplingService,
-    DaVerifierService, NetworkService, RuntimeServiceId, StorageService, TimeService,
+    ApiService, CryptarchiaLeaderService, CryptarchiaService, DaDispersalService, DaNetworkService,
+    DaSamplingService, DaVerifierService, NetworkService, RuntimeServiceId, StorageService,
+    TimeService,
 };
 
 #[derive(Deserialize, Debug, Clone, Serialize)]

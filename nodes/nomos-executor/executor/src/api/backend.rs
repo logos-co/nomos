@@ -96,9 +96,6 @@ pub struct AxumBackend<
     TimeBackend,
     ApiAdapter,
     HttpStorageAdapter,
-    BlendProofsGenerator,
-    BlendProofsVerifier,
-    const SIZE: usize,
 > {
     settings: AxumBackendSettings,
     #[expect(clippy::allow_attributes_without_reason)]
@@ -125,8 +122,6 @@ pub struct AxumBackend<
         TimeBackend,
         ApiAdapter,
         HttpStorageAdapter,
-        BlendProofsGenerator,
-        BlendProofsVerifier,
     )>,
 }
 
@@ -166,9 +161,6 @@ impl<
     TimeBackend,
     ApiAdapter,
     StorageAdapter,
-    BlendProofsGenerator,
-    BlendProofsVerifier,
-    const SIZE: usize,
     RuntimeServiceId,
 > Backend<RuntimeServiceId>
     for AxumBackend<
@@ -193,9 +185,6 @@ impl<
         TimeBackend,
         ApiAdapter,
         StorageAdapter,
-        BlendProofsGenerator,
-        BlendProofsVerifier,
-        SIZE,
     >
 where
     DaShare: Share + Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
@@ -302,8 +291,6 @@ where
     TimeBackend::Settings: Clone + Send + Sync,
     ApiAdapter: nomos_da_network_service::api::ApiAdapter + Send + Sync + 'static,
     StorageAdapter: storage::StorageAdapter<RuntimeServiceId> + Send + Sync + 'static,
-    BlendProofsGenerator: ProofsGenerator + Send + 'static,
-    BlendProofsVerifier: ProofsVerifier + Clone + Send + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Send
@@ -317,10 +304,7 @@ where
                 SamplingNetworkAdapter,
                 SamplingStorage,
                 TimeBackend,
-                BlendProofsGenerator,
-                BlendProofsVerifier,
                 RuntimeServiceId,
-                SIZE,
             >,
         >
         + AsServiceId<
@@ -395,7 +379,7 @@ where
         wait_until_services_are_ready!(
             &overwatch_handle,
             Some(Duration::from_secs(60)),
-            Cryptarchia<_, _, _, _, _, _, _, _, SIZE>,
+            Cryptarchia<_, _, _, _, _, _>,
             DaVerifier<_, _, _, _, _, _>,
             nomos_da_network_service::NetworkService<_, _, _,_, _, _>,
             nomos_network::NetworkService<_, _>,
@@ -445,10 +429,7 @@ where
                         SamplingNetworkAdapter,
                         SamplingStorage,
                         TimeBackend,
-                        BlendProofsGenerator,
-                        BlendProofsVerifier,
                         RuntimeServiceId,
-                        SIZE,
                     >,
                 ),
             )
@@ -461,10 +442,7 @@ where
                         SamplingNetworkAdapter,
                         SamplingStorage,
                         TimeBackend,
-                        BlendProofsGenerator,
-                        BlendProofsVerifier,
                         RuntimeServiceId,
-                        SIZE,
                     >,
                 ),
             )
