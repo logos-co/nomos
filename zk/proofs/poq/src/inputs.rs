@@ -167,12 +167,12 @@ impl PoQVerifierInput {
             self.core_quota.into_inner(),
             self.leader_quota.into_inner(),
             self.core_root.into_inner(),
+            self.pol_ledger_aged.into_inner(),
             self.k_part_one.into_inner(),
             self.k_part_two.into_inner(),
             self.pol_epoch_nonce.into_inner(),
             self.pol_t0.into_inner(),
             self.pol_t1.into_inner(),
-            self.pol_ledger_aged.into_inner(),
         ]
     }
 }
