@@ -98,7 +98,7 @@ pub enum VerifyError {
 ///
 /// - Returns an error if there is an issue with the verification key or the
 ///   underlying verification process fails.
-pub fn verify(proof: &PoQProof, public_inputs: &PoQVerifierInput) -> Result<bool, VerifyError> {
+pub fn verify(proof: &PoQProof, public_inputs: PoQVerifierInput) -> Result<bool, VerifyError> {
     let inputs = public_inputs.to_inputs();
     let expanded_proof = Groth16Proof::try_from(proof).map_err(|_| VerifyError::Expansion)?;
     groth16::groth16_verify(verification_key::POQ_VK.as_ref(), &expanded_proof, &inputs)
@@ -192,7 +192,7 @@ mod tests {
             PoQWitnessInputs::from_core_node_data(chain_data, common_data, blend_data).unwrap();
 
         let (proof, inputs) = prove(&witness_inputs).unwrap();
-        assert!(verify(&proof, &inputs).unwrap());
+        assert!(verify(&proof, inputs).unwrap());
     }
 
     #[expect(clippy::too_many_lines, reason = "For the sake of the test let it be")]
@@ -326,6 +326,6 @@ mod tests {
             PoQWitnessInputs::from_leader_data(chain_data, common_data, wallet_data).unwrap();
 
         let (proof, inputs) = prove(&witness_inputs).unwrap();
-        assert!(verify(&proof, &inputs).unwrap());
+        assert!(verify(&proof, inputs).unwrap());
     }
 }
