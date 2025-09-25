@@ -246,7 +246,11 @@ where
         NetAdapter::PeerId: 'a,
         NetAdapter::Block: 'a,
     {
-        debug!("Handling a block received from {:?}", download.peer());
+        debug!(
+            "Handling a block received from {:?}: {:?}",
+            download.peer(),
+            block
+        );
 
         let (cryptarchia, storage_blocks_to_remove) = (self.process_block)(
             self.cryptarchia.clone(),
@@ -669,11 +673,11 @@ mod tests {
         let peer1 = BlockProvider::new(
             vec![
                 Block::genesis(),
-                Block::new(4, GENESIS_ID, 4, 1),
-                Block::new(5, 4, 5, 2),
-                Block::new(6, 5, 6, 3),
+                Block::new(4, GENESIS_ID, 1, 1),
+                Block::new(5, 4, 2, 2),
+                Block::new(6, 5, 3, 3),
             ],
-            Ok(Block::new(6, 5, 6, 3)),
+            Ok(Block::new(6, 5, 3, 3)),
             2,
             false,
         );
@@ -722,12 +726,12 @@ mod tests {
         let peer1 = BlockProvider::new(
             vec![
                 Block::genesis(),
-                Block::new(4, GENESIS_ID, 4, 1),
+                Block::new(4, GENESIS_ID, 1, 1),
                 // Invalid block (parent doesn't exist)
-                Block::new(5, 100, 5, 2),
-                Block::new(6, 5, 6, 3),
+                Block::new(5, 100, 2, 2),
+                Block::new(6, 5, 3, 3),
             ],
-            Ok(Block::new(6, 5, 6, 3)),
+            Ok(Block::new(6, 5, 3, 3)),
             2,
             false,
         );
