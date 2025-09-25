@@ -22,7 +22,7 @@ use crate::{backend::KMSBackend, keys::SecuredKey};
 // TODO: Use [`AsyncFnMut`](https://doc.rust-lang.org/stable/std/ops/trait.AsyncFnMut.html#tymethod.async_call_mut) once it is stabilized.
 pub type KMSOperator<Payload, Signature, PublicKey, KeyError, OperatorError> = Box<
     dyn FnMut(
-            &mut dyn SecuredKey<
+            &dyn SecuredKey<
                 Payload = Payload,
                 Signature = Signature,
                 PublicKey = PublicKey,

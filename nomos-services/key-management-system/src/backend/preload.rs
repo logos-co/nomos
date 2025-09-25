@@ -289,7 +289,7 @@ mod tests {
             Error = <<Backend as KMSBackend>::Key as SecuredKey>::Error,
         > + 'a;
     fn noop_operator<Backend: KMSBackend>() -> KMSOperatorBackend<Backend> {
-        Box::new(move |_: &mut BackendKey<Backend>| Box::pin(async move { Ok(()) }))
+        Box::new(move |_: &BackendKey<Backend>| Box::pin(async move { Ok(()) }))
     }
 
     #[tokio::test]
