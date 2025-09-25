@@ -496,6 +496,7 @@ where
                 Self::handle_historic_sample_request(
                     backend,
                     membership_storage,
+                    addressbook,
                     session_id,
                     block_id,
                     blob_ids,
@@ -594,9 +595,11 @@ where
                 tracing::error!("Failed to update membership for session {session_id}: {e}");
             });
     }
+
     async fn handle_historic_sample_request(
         backend: &Backend,
         membership_storage: &MembershipStorage<StorageAdapter, Membership, AddressBook>,
+        addressbook: &DaAddressbook,
         session_id: SessionNumber,
         block_id: HeaderId,
         blob_ids: HashSet<[u8; 32]>,
@@ -610,6 +613,22 @@ where
             });
 
         if let Some(membership) = membership {
+            // Collect historic addresses that aren't already in the addressbook
+            let assignations = membership.subnetworks();
+            let mut historic_addresses = HashMap::new();
+
+            for peer_id in assignations.values().flatten() {
+                // Only add if not already in current addressbook
+                if addressbook.get_address(peer_id).is_none()
+                    && let Ok(Some(address)) = membership_storage.get_address(*peer_id).await
+                {
+                    historic_addresses.insert(*peer_id, address);
+                }
+            }
+
+            // Update addressbook with historic peers
+            membership_storage.update_addressbook(historic_addresses);
+
             let membership = SharedMembershipHandler::new(membership);
             let send = backend.start_historic_sampling(session_id, block_id, blob_ids, membership);
             send.await;

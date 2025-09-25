@@ -106,6 +106,10 @@ where
         self.membership_adapter.store_addresses(new_members).await
     }
 
+    pub fn update_addressbook(&self, new_members: AddressBookSnapshot<Membership::Id>) {
+        self.addressbook.update(new_members);
+    }
+
     pub async fn get_historic_membership(
         &self,
         session_id: SessionNumber,
