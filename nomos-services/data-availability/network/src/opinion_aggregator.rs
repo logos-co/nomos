@@ -31,10 +31,9 @@ where
 )]
 pub struct Opinions {
     pub session_id: SessionNumber,
-    pub new_opinions: Vec<bool>,
-    pub old_opinions: Vec<bool>,
+    pub new_opinions: HashMap<PeerId, bool>,
+    pub old_opinions: HashMap<PeerId, bool>,
 }
-
 impl<Membership> OpinionAggregator<Membership>
 where
     Membership: MembershipHandler<Id = PeerId>,
@@ -173,25 +172,21 @@ where
         let current = self.current_membership.as_ref()?;
         let previous = self.previous_membership.as_ref()?;
 
-        // Sort peer IDs lexicographically as per spec
-        let mut current_peers: Vec<PeerId> = current.members().into_iter().collect();
-        current_peers.sort();
-
-        let mut previous_peers: Vec<PeerId> = previous.members().into_iter().collect();
-        previous_peers.sort();
-
-        let new_opinions = self.calculate_opinions(
-            &current_peers,
+        let new_opinions = self.calculate_opinions_map(
+            current.members().into_iter(),
             &self.positive_opinions,
             &self.negative_opinions,
-            true, // Always include self opinion
+            true,
         );
 
-        let old_opinions = self.calculate_opinions(
-            &previous_peers,
+        let old_opinions = self.calculate_opinions_map(
+            previous.members().into_iter(),
             &self.old_positive_opinions,
             &self.old_negative_opinions,
-            previous_peers.contains(&self.local_peer_id), // Only if we were in previous session
+            previous
+                .members()
+                .into_iter()
+                .any(|id| id == self.local_peer_id),
         );
 
         Some(Opinions {
@@ -201,28 +196,28 @@ where
         })
     }
 
-    fn calculate_opinions(
+    fn calculate_opinions_map(
         &self,
-        sorted_peers: &[PeerId],
+        peers: impl Iterator<Item = PeerId>,
         positive: &HashMap<PeerId, u32>,
         negative: &HashMap<PeerId, u32>,
         include_self: bool,
-    ) -> Vec<bool> {
-        sorted_peers
-            .iter()
+    ) -> HashMap<PeerId, bool> {
+        peers
             .map(|peer_id| {
-                if include_self && *peer_id == self.local_peer_id {
-                    true // Always positive opinion about self
+                let opinion = if include_self && peer_id == self.local_peer_id {
+                    true
                 } else {
-                    let pos = positive.get(peer_id).copied().unwrap_or(0);
+                    let pos = positive.get(&peer_id).copied().unwrap_or(0);
                     if pos == 0 {
-                        false // No positive opinions = negative (matches spec update)
+                        false
                     } else {
-                        let neg = negative.get(peer_id).copied().unwrap_or(0);
+                        let neg = negative.get(&peer_id).copied().unwrap_or(0);
                         let ratio = (pos as f32 - neg as f32) / pos as f32;
                         ratio > OPINION_THRESHOLD
                     }
-                }
+                };
+                (peer_id, opinion)
             })
             .collect()
     }
