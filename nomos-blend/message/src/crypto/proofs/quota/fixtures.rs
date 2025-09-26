@@ -9,6 +9,7 @@ use crate::crypto::{
     },
 };
 
+// Reference values taken from the tests within the `poq` crate.
 #[must_use]
 pub fn valid_proof_of_core_quota_inputs(
     signing_key: Ed25519PublicKey,
@@ -72,6 +73,7 @@ pub fn valid_proof_of_core_quota_inputs(
     (public_inputs, private_inputs)
 }
 
+// Reference values taken from the tests within the `poq` crate.
 #[must_use]
 #[expect(clippy::too_many_lines, reason = "This fixture is simply too long.")]
 pub fn valid_proof_of_leadership_quota_inputs(

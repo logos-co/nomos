@@ -1,13 +1,12 @@
 use const_hex::FromHex as _;
-use groth16::fr_from_bytes_le_unchecked;
 use num_bigint::BigUint;
 
 use crate::crypto::proofs::{
-    ZkHashExt as _,
     quota::{
         DOMAIN_SEPARATION_TAG_FR, ProofOfQuota,
         fixtures::{valid_proof_of_core_quota_inputs, valid_proof_of_leadership_quota_inputs},
     },
+    selection::derive_key_nullifier_from_secret_selection_randomness,
 };
 
 #[test]
@@ -32,11 +31,7 @@ fn valid_proof_of_core_quota() {
 
     let key_nullifier = proof.verify(&public_inputs).unwrap();
     assert_eq!(
-        [
-            fr_from_bytes_le_unchecked(b"KEY_NULLIFIER_V1"),
-            secret_selection_randomness
-        ]
-        .hash(),
+        derive_key_nullifier_from_secret_selection_randomness(secret_selection_randomness),
         key_nullifier
     );
 }
@@ -52,11 +47,7 @@ fn valid_proof_of_leadership_quota() {
     // TODO: Check why this is failing.
     let key_nullifier = proof.verify(&public_inputs).unwrap();
     assert_eq!(
-        [
-            fr_from_bytes_le_unchecked(b"KEY_NULLIFIER_V1"),
-            secret_selection_randomness
-        ]
-        .hash(),
+        derive_key_nullifier_from_secret_selection_randomness(secret_selection_randomness),
         key_nullifier
     );
 }
