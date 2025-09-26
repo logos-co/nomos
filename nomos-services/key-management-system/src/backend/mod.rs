@@ -1,7 +1,7 @@
 #[cfg(feature = "preload")]
 pub mod preload;
 
-use crate::{KMSOperatorBackend, keys::SecuredKey};
+use crate::{KMSOperatorBackend, keys::secured_key::SecuredKey};
 
 #[async_trait::async_trait]
 pub trait KMSBackend {
