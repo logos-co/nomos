@@ -408,7 +408,7 @@ pub fn update_cryptarchia_consensus(
     let sk = nomos_core::mantle::keys::SecretKey::from(BigUint::from_bytes_le(
         &<[u8; 16]>::from_hex(secret_key)?,
     ));
-    cryptarchia.leader_config.sk = sk;
+    cryptarchia.leader_config.sk = sk.clone();
 
     let pk = sk.to_public_key();
 
