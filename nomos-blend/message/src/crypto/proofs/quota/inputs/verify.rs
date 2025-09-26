@@ -35,8 +35,8 @@ impl From<Inputs> for PoQVerifierInput {
         PoQVerifierInputData {
             core_quota: value.prove_inputs.core_quota,
             core_root: value.prove_inputs.core_root,
-            k_part_one: BigUint::from_bytes_le(&signing_key_first_half[..]).into(),
-            k_part_two: BigUint::from_bytes_le(&signing_key_second_half[..]).into(),
+            k_part_one: BigUint::from_bytes_be(&signing_key_first_half[..]).into(),
+            k_part_two: BigUint::from_bytes_be(&signing_key_second_half[..]).into(),
             key_nullifier: value.key_nullifier,
             leader_quota: value.prove_inputs.leader_quota,
             pol_epoch_nonce: value.prove_inputs.pol_epoch_nonce,

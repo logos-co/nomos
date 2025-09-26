@@ -37,8 +37,8 @@ impl TryFrom<Inputs> for PoQWitnessInputs {
             index: value.private.key_index,
             leader_quota: value.public.leader_quota,
             message_key: (
-                BigUint::from_bytes_le(&signing_key_first_half[..]).into(),
-                BigUint::from_bytes_le(&signing_key_second_half[..]).into(),
+                BigUint::from_bytes_be(&signing_key_first_half[..]).into(),
+                BigUint::from_bytes_be(&signing_key_second_half[..]).into(),
             ),
             selector: value.private.selector,
         };

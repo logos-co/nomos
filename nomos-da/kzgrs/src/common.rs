@@ -76,7 +76,7 @@ pub fn bytes_to_evaluations<const CHUNK_SIZE: usize>(
             .map(
                 // use little endian for convenience as shortening 1 byte (<32 supported)
                 // do not matter in this endianness
-                field_element_from_bytes_le,
+                field_element_from_bytes_be,
             )
             .collect(),
         domain,
@@ -129,9 +129,9 @@ pub fn bytes_to_polynomial_unchecked<const CHUNK_SIZE: usize>(
 /// data fits within the bls modulus.
 /// Data len cannot be higher than `BYTES_PER_FIELD_ELEMENT`
 #[must_use]
-pub fn field_element_from_bytes_le(b: &[u8]) -> FieldElement {
+pub fn field_element_from_bytes_be(b: &[u8]) -> FieldElement {
     assert!(b.len() <= BYTES_PER_FIELD_ELEMENT);
-    FieldElement::from(BigUint::from_bytes_le(b))
+    FieldElement::from(BigUint::from_bytes_be(b))
 }
 
 #[must_use]
@@ -173,7 +173,7 @@ mod test {
             // check point bytes are the same
             assert_eq!(
                 &bytes[CHUNK_SIZE * i..CHUNK_SIZE * i + CHUNK_SIZE],
-                &point.into_bigint().to_bytes_le()[..CHUNK_SIZE]
+                &point.into_bigint().to_bytes_be()[..CHUNK_SIZE]
             );
         }
     }

@@ -45,7 +45,7 @@ pub type FrBytes = [u8; 32];
 pub fn fr_to_bytes(fr: &Fr) -> FrBytes {
     (*fr)
         .into_bigint()
-        .to_bytes_le()
+        .to_bytes_be()
         .try_into()
         .expect("Bn254 Fr to bytes should fit in 32 bytes")
 }
@@ -58,7 +58,7 @@ pub struct FrFromBytesError {
 }
 
 pub fn fr_from_bytes(fr: &[u8]) -> Result<Fr, impl Error + use<>> {
-    let n = BigUint::from_bytes_le(fr);
+    let n = BigUint::from_bytes_be(fr);
     if n > <Fr as PrimeField>::MODULUS.into() {
         return Err(FrFromBytesError {
             parsed_bytes: n.to_string(),
@@ -72,7 +72,7 @@ pub fn fr_from_bytes(fr: &[u8]) -> Result<Fr, impl Error + use<>> {
 /// needed.
 #[must_use]
 pub fn fr_from_bytes_unchecked(fr: &[u8]) -> Fr {
-    BigUint::from_bytes_le(fr).into()
+    BigUint::from_bytes_be(fr).into()
 }
 
 #[cfg(test)]

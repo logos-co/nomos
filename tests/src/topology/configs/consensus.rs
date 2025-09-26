@@ -48,7 +48,7 @@ pub fn create_consensus_configs(
         .map(|&id| {
             let mut sk = [0; 16];
             sk.copy_from_slice(&id[0..16]);
-            SecretKey::from(BigUint::from_bytes_le(&sk))
+            SecretKey::from(BigUint::from_bytes_be(&sk))
         })
         .collect::<Vec<_>>();
 

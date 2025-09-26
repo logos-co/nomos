@@ -213,7 +213,7 @@ impl DaEncoder {
                     Row(eval
                         .evals
                         .iter()
-                        .map(|point| Chunk(point.into_bigint().to_bytes_le()))
+                        .map(|point| Chunk(point.into_bigint().to_bytes_be()))
                         .collect())
                 })
                 .collect(),
