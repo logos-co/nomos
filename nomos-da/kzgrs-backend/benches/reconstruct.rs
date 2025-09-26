@@ -3,7 +3,7 @@ use std::{collections::HashSet, hint::black_box};
 use ark_bls12_381::Fr;
 use ark_poly::{EvaluationDomain as _, GeneralEvaluationDomain};
 use divan::{Bencher, counter::BytesCount};
-use kzgrs::{common::field_element_from_bytes_be, decode, rs::points_to_bytes};
+use kzgrs::{common::field_element_from_bytes, decode, rs::points_to_bytes};
 use kzgrs_backend::{
     encoder::{DaEncoder, DaEncoderParams},
     global::GLOBAL_PARAMETERS,
@@ -46,7 +46,7 @@ fn reconstruct<const SIZE: usize>(bencher: Bencher, column_size: usize) {
                         .enumerate()
                         .map(|(i, chunk)| {
                             idxs.contains(&i)
-                                .then(|| field_element_from_bytes_be(chunk.0.as_ref()))
+                                .then(|| field_element_from_bytes(chunk.0.as_ref()))
                         })
                         .collect::<Vec<Option<Fr>>>()
                 });
