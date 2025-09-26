@@ -31,15 +31,10 @@ impl SecuredKey for Key {
             (Self::Ed25519(key), Self::Payload::Ed25519(payload)) => {
                 key.sign(payload).map(Self::Signature::Ed25519)
             }
-            (Self::Ed25519(_), _) => {
-                Err(EncodingError::requires::<<Ed25519Key as SecuredKey>::Payload>().into())
-            }
             (Self::Zk(key), Self::Payload::Zk(payload)) => {
                 key.sign(payload).map(Self::Signature::Zk)
             }
-            (Self::Zk(_), _) => {
-                Err(EncodingError::requires::<<ZkKey as SecuredKey>::Payload>().into())
-            }
+            (key, payload) => Err(EncodingError::requires(key, payload).into()),
         }
     }
 
