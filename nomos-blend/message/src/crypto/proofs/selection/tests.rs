@@ -35,14 +35,14 @@ fn success_on_valid_proof() {
 }
 
 #[test]
-fn fail_on_invalid_nullifier() {
+fn failure_on_invalid_nullifier() {
     let posel = ProofOfSelection::new(ZkHash::ZERO);
     let Err(Error::KeyNullifierMismatch { expected, provided }) = posel.verify(&VerifyInputs {
         expected_node_index: 0,
         total_membership_size: 1,
         key_nullifier: ZkHash::ONE,
     }) else {
-        panic!("posel.verify should fail.");
+        panic!("`posel.verify` should fail.");
     };
     assert_eq!(
         expected,
@@ -52,7 +52,7 @@ fn fail_on_invalid_nullifier() {
 }
 
 #[test]
-fn fail_on_invalid_index() {
+fn failure_on_invalid_index() {
     let posel = ProofOfSelection::new(ZkHash::ZERO);
     let expected_index = posel.expected_index(2).unwrap();
     let Err(Error::IndexMismatch { expected, provided }) = posel.verify(&VerifyInputs {
