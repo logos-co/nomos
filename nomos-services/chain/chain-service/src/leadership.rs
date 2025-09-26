@@ -7,6 +7,9 @@ use nomos_core::{
 use nomos_ledger::{EpochState, UtxoTree};
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
+use tokio::sync::broadcast;
+
+use crate::WinningSlotEpochInfo;
 
 /// TODO: this is a temporary solution until we have a proper wallet
 /// implementation. Most notably, it can't track when initial notes are spent
@@ -41,12 +44,13 @@ impl Leader {
         clippy::cognitive_complexity,
         reason = "TODO: Address this at some point"
     )]
-    pub async fn build_proof_for(
+    pub async fn build_and_broadcast_proof_for(
         &self,
         aged_tree: &UtxoTree,
         latest_tree: &UtxoTree,
         epoch_state: &EpochState,
         slot: Slot,
+        winning_pol_epoch_slots_sender: &broadcast::Sender<WinningSlotEpochInfo>,
     ) -> Option<Groth16LeaderProof> {
         for utxo in &self.utxos {
             let Some(_aged_witness) = aged_tree.witness(&utxo.id()) else {
@@ -99,9 +103,16 @@ impl Leader {
                     starting_slot,
                     &leader_pk,
                 );
+                if let Err(e) =
+                    winning_pol_epoch_slots_sender.send((private_inputs.clone(), self.sk))
+                {
+                    tracing::error!(
+                        "Failed to broadcast new winning slot to subscribers. Error: {e:?}"
+                    );
+                }
                 let res = tokio::task::spawn_blocking(move || {
                     Groth16LeaderProof::prove(
-                        &private_inputs,
+                        private_inputs,
                         VoucherCm::default(), // TODO: use actual voucher commitment
                     )
                 })
