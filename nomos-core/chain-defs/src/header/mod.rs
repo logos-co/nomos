@@ -38,7 +38,7 @@ impl Header {
         h.update(b"BLOCK_ID_V1");
         h.update([BEDROCK_VERSION]);
         h.update(self.parent_block.0);
-        h.update(self.slot.to_le_bytes());
+        h.update(self.slot.to_be_bytes());
         h.update(self.block_root.0);
         h.update(self.proof_of_leadership.voucher_cm().to_bytes());
         h.update(fr_to_bytes(&self.proof_of_leadership.entropy()));

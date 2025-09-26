@@ -217,7 +217,7 @@ impl DeclarationMessage {
         hasher.update(service.as_bytes());
         hasher.update(self.provider_id.0);
         for number in self.zk_id.0.0.0 {
-            hasher.update(number.to_le_bytes());
+            hasher.update(number.to_be_bytes());
         }
         for locator in &self.locators {
             hasher.update(locator.0.as_ref());
@@ -234,7 +234,7 @@ impl DeclarationMessage {
             buff.extend_from_slice(locator.0.as_ref());
         }
         buff.extend_from_slice(self.provider_id.0.as_ref());
-        buff.extend(self.zk_id.0.0.0.iter().flat_map(|n| n.to_le_bytes()));
+        buff.extend(self.zk_id.0.0.0.iter().flat_map(|n| n.to_be_bytes()));
         buff.freeze()
     }
 }
@@ -250,7 +250,7 @@ impl WithdrawMessage {
     pub fn payload_bytes(&self) -> Bytes {
         let mut buff = BytesMut::new();
         buff.extend_from_slice(self.declaration_id.0.as_ref());
-        buff.extend_from_slice(&(self.nonce.to_le_bytes()));
+        buff.extend_from_slice(&(self.nonce.to_be_bytes()));
         buff.freeze()
     }
 }
@@ -267,7 +267,7 @@ impl<Metadata: AsRef<[u8]>> ActiveMessage<Metadata> {
     pub fn payload_bytes(&self) -> Bytes {
         let mut buff = BytesMut::new();
         buff.extend_from_slice(self.declaration_id.0.as_ref());
-        buff.extend_from_slice(&(self.nonce.to_le_bytes()));
+        buff.extend_from_slice(&(self.nonce.to_be_bytes()));
         if let Some(metadata) = &self.metadata {
             buff.extend_from_slice(metadata.as_ref());
         }

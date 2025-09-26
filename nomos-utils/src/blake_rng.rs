@@ -56,7 +56,7 @@ impl BlakeRng {
     fn rehash((i, seed): (usize, BlakeRngSeed)) -> Vec<u8> {
         let mut hasher = Hasher::new();
         hasher.update(seed);
-        hasher.update(i.to_le_bytes());
+        hasher.update(i.to_be_bytes());
         hasher.finalize().to_vec()
     }
 
@@ -90,11 +90,11 @@ impl SeedableRng for BlakeRng {
 
 impl RngCore for BlakeRng {
     fn next_u32(&mut self) -> u32 {
-        u32::from_le_bytes(self.rng_next_bytes::<4>())
+        u32::from_be_bytes(self.rng_next_bytes::<4>())
     }
 
     fn next_u64(&mut self) -> u64 {
-        u64::from_le_bytes(self.rng_next_bytes::<8>())
+        u64::from_be_bytes(self.rng_next_bytes::<8>())
     }
 
     fn fill_bytes(&mut self, dst: &mut [u8]) {

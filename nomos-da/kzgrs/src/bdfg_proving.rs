@@ -95,7 +95,7 @@ pub fn compute_combined_polynomial(
     aggregated_commitments_hash: &[u8],
     domain: PolynomialEvaluationDomain,
 ) -> Evaluations {
-    let h = Fr::from_le_bytes_mod_order(aggregated_commitments_hash);
+    let h = Fr::from_be_bytes_mod_order(aggregated_commitments_hash);
     let h_roots = compute_h_roots(h, polynomials.len());
     let evals: Vec<Fr> = {
         {
@@ -208,7 +208,7 @@ pub fn verify_column(
     global_parameters: &GlobalParameters,
 ) -> bool {
     let row_commitments_hash = generate_row_commitments_hash(row_commitments);
-    let h = Fr::from_le_bytes_mod_order(&row_commitments_hash);
+    let h = Fr::from_be_bytes_mod_order(&row_commitments_hash);
     let h_roots = compute_h_roots(h, column.len());
     let aggregated_elements: Fr = column
         .iter()
