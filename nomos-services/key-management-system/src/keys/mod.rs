@@ -5,7 +5,7 @@ pub mod secured_key;
 #[cfg(feature = "key-zk")]
 mod zk;
 
-use key_management_system_macros::KmsKey;
+use key_management_system_macros::KmsEnumKey;
 use serde::{Deserialize, Serialize};
 use zeroize::ZeroizeOnDrop;
 
@@ -19,7 +19,7 @@ pub use crate::keys::zk::ZkKey;
 /// Works as a [`SecuredKey`] over [`Encoding`], delegating requests to the
 /// appropriate key.
 #[expect(dead_code, reason = "Will be used when integrating the KMS service.")]
-#[derive(Serialize, Deserialize, ZeroizeOnDrop, KmsKey)]
+#[derive(Serialize, Deserialize, ZeroizeOnDrop, KmsEnumKey)]
 pub enum Key {
     #[cfg(any(feature = "key-ed25519", test))]
     Ed25519(Ed25519Key),
