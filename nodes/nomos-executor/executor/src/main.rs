@@ -6,8 +6,8 @@ use nomos_executor::{
 };
 use nomos_mempool::{processor::tx::SignedTxProcessorSettings, tx::settings::TxMempoolSettings};
 use nomos_node::{
-    CL_TOPIC, CryptarchiaArgs, HttpArgs, LogArgs, MempoolAdapterSettings, NetworkArgs, Transaction,
-    config::BlendArgs,
+    CL_TOPIC, CryptarchiaLeaderArgs, HttpArgs, LogArgs, MempoolAdapterSettings, NetworkArgs,
+    Transaction, config::BlendArgs,
 };
 use overwatch::overwatch::{Error as OverwatchError, Overwatch, OverwatchRunner};
 
@@ -33,7 +33,7 @@ struct Args {
     #[clap(flatten)]
     http: HttpArgs,
     #[clap(flatten)]
-    cryptarchia: CryptarchiaArgs,
+    cryptarchia_leader: CryptarchiaLeaderArgs,
 }
 
 #[tokio::main]
@@ -44,7 +44,7 @@ async fn main() -> Result<()> {
         http: http_args,
         network: network_args,
         blend: blend_args,
-        cryptarchia: cryptarchia_args,
+        cryptarchia_leader: cryptarchia_args,
         check_config_only,
     } = Args::parse();
     let config = serde_yaml::from_reader::<_, ExecutorConfig>(std::fs::File::open(config)?)?
@@ -93,6 +93,7 @@ async fn main() -> Result<()> {
             da_sampling: config.da_sampling,
             da_verifier: config.da_verifier,
             cryptarchia: config.cryptarchia,
+            cryptarchia_leader: config.cryptarchia_leader,
             time: config.time,
             storage: config.storage,
             system_sig: (),

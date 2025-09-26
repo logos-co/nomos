@@ -1,3 +1,4 @@
+use chain_leader::CryptarchiaLeader;
 use chain_service::CryptarchiaConsensus;
 use kzgrs_backend::{common::share::DaShare, dispersal::Metadata};
 use nomos_core::{
@@ -61,29 +62,46 @@ pub type DaVerifierService<VerifierAdapter, MempoolAdapter, RuntimeServiceId> =
         RuntimeServiceId,
     >;
 
+pub type DaSamplingStorage =
+    nomos_da_sampling::storage::adapters::rocksdb::RocksAdapter<DaShare, DaStorageConverter>;
+
 pub type DaSamplingService<SamplingAdapter, RuntimeServiceId> =
     nomos_da_sampling::DaSamplingService<
         KzgrsSamplingBackend,
         SamplingAdapter,
-        nomos_da_sampling::storage::adapters::rocksdb::RocksAdapter<DaShare, DaStorageConverter>,
+        DaSamplingStorage,
         RuntimeServiceId,
     >;
 
+pub type Mempool = MockPool<HeaderId, SignedMantleTx, <SignedMantleTx as Transaction>::Hash>;
+pub type MempoolAdapter<RuntimeServiceId> = nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
+    SignedMantleTx,
+    <SignedMantleTx as Transaction>::Hash,
+    RuntimeServiceId,
+>;
+
 pub type CryptarchiaService<SamplingAdapter, RuntimeServiceId> = CryptarchiaConsensus<
     chain_service::network::adapters::libp2p::LibP2pAdapter<SignedMantleTx, RuntimeServiceId>,
-    BlendService<RuntimeServiceId>,
-    MockPool<HeaderId, SignedMantleTx, <SignedMantleTx as Transaction>::Hash>,
-    nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
-        SignedMantleTx,
-        <SignedMantleTx as Transaction>::Hash,
-        RuntimeServiceId,
-    >,
-    nomos_core::mantle::select::FillSize<MB16, SignedMantleTx>,
+    Mempool,
+    MempoolAdapter<RuntimeServiceId>,
     RocksBackend,
     KzgrsSamplingBackend,
     SamplingAdapter,
-    nomos_da_sampling::storage::adapters::rocksdb::RocksAdapter<DaShare, DaStorageConverter>,
+    DaSamplingStorage,
     NtpTimeBackend,
+    RuntimeServiceId,
+>;
+
+pub type CryptarchiaLeaderService<SamplingAdapter, RuntimeServiceId> = CryptarchiaLeader<
+    BlendService<RuntimeServiceId>,
+    Mempool,
+    MempoolAdapter<RuntimeServiceId>,
+    nomos_core::mantle::select::FillSize<MB16, SignedMantleTx>,
+    KzgrsSamplingBackend,
+    SamplingAdapter,
+    DaSamplingStorage,
+    NtpTimeBackend,
+    CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
     RuntimeServiceId,
 >;
 

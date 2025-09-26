@@ -1,9 +1,9 @@
 use color_eyre::eyre::Result;
 use nomos_node::{
-    CryptarchiaArgs, HttpArgs, LogArgs, NetworkArgs,
+    CryptarchiaLeaderArgs, HttpArgs, LogArgs, NetworkArgs,
     config::{
         BlendArgs, blend::BlendConfig, mempool::MempoolConfig, update_blend,
-        update_cryptarchia_consensus, update_network,
+        update_cryptarchia_leader_consensus, update_network,
     },
     generic_services::{MembershipService, SdpService},
 };
@@ -11,8 +11,9 @@ use overwatch::services::ServiceData;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    ApiService, CryptarchiaService, DaDispersalService, DaNetworkService, DaSamplingService,
-    DaVerifierService, NetworkService, RuntimeServiceId, StorageService, TimeService,
+    ApiService, CryptarchiaLeaderService, CryptarchiaService, DaDispersalService, DaNetworkService,
+    DaSamplingService, DaVerifierService, NetworkService, RuntimeServiceId, StorageService,
+    TimeService,
 };
 
 #[derive(Deserialize, Debug, Clone, Serialize)]
@@ -29,6 +30,7 @@ pub struct Config {
     pub da_sampling: <DaSamplingService as ServiceData>::Settings,
     pub http: <ApiService as ServiceData>::Settings,
     pub cryptarchia: <CryptarchiaService as ServiceData>::Settings,
+    pub cryptarchia_leader: <CryptarchiaLeaderService as ServiceData>::Settings,
     pub time: <TimeService as ServiceData>::Settings,
     pub storage: <StorageService as ServiceData>::Settings,
     pub mempool: MempoolConfig,
@@ -51,14 +53,14 @@ impl Config {
         network_args: NetworkArgs,
         blend_args: BlendArgs,
         http_args: HttpArgs,
-        cryptarchia_args: CryptarchiaArgs,
+        cryptarchia_leader_args: CryptarchiaLeaderArgs,
     ) -> Result<Self> {
         #[cfg(feature = "tracing")]
         nomos_node::config::update_tracing(&mut self.tracing, log_args)?;
         update_network::<RuntimeServiceId>(&mut self.network, network_args)?;
         update_blend(&mut self.blend, blend_args)?;
         update_http(&mut self.http, http_args)?;
-        update_cryptarchia_consensus(&mut self.cryptarchia, cryptarchia_args)?;
+        update_cryptarchia_leader_consensus(&mut self.cryptarchia_leader, cryptarchia_leader_args)?;
         Ok(self)
     }
 }

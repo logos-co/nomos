@@ -17,10 +17,7 @@ pub struct Leader {
     sk: SecretKey,
     #[cfg_attr(
         not(feature = "pol-dev-mode"),
-        expect(
-            dead_code,
-            reason = "Field only used when `pol-dev-mode` feature is enabled."
-        )
+        expect(dead_code, reason = "Config is only used in pol-dev-mode")
     )]
     config: nomos_ledger::Config,
 }
@@ -126,9 +123,5 @@ impl Leader {
         }
 
         None
-    }
-
-    pub(crate) fn utxos(&self) -> &[Utxo] {
-        &self.utxos
     }
 }

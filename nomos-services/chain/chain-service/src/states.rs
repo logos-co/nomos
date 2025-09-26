@@ -1,18 +1,17 @@
 use std::{collections::HashSet, hash::Hash, marker::PhantomData, time::SystemTime};
 
-use nomos_core::{header::HeaderId, mantle::Utxo};
+use nomos_core::header::HeaderId;
 use nomos_ledger::LedgerState;
 use overwatch::{DynError, services::state::ServiceState};
 use serde::{Deserialize, Serialize};
 
-use crate::{Cryptarchia, CryptarchiaSettings, Error, leadership::Leader};
+use crate::{Cryptarchia, CryptarchiaSettings, Error};
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct CryptarchiaConsensusState<TxS, NodeId, NetworkAdapterSettings, BlendAdapterSettings> {
+pub struct CryptarchiaConsensusState<NodeId, NetworkAdapterSettings> {
     pub tip: HeaderId,
     pub lib: HeaderId,
     pub lib_ledger_state: LedgerState,
-    pub lib_leader_utxos: Vec<Utxo>,
     pub lib_block_length: u64,
     /// Set of blocks that have been pruned from the engine but have not yet
     /// been deleted from the persistence layer because of some unexpected
@@ -21,21 +20,18 @@ pub struct CryptarchiaConsensusState<TxS, NodeId, NetworkAdapterSettings, BlendA
     /// Last engine state and timestamp for offline grace period tracking
     pub last_engine_state: Option<LastEngineState>,
     // Only neededed for the service state trait
-    _markers: PhantomData<(TxS, NodeId, NetworkAdapterSettings, BlendAdapterSettings)>,
+    _markers: PhantomData<(NodeId, NetworkAdapterSettings)>,
 }
 
-impl<TxS, NodeId, NetworkAdapterSettings, BlendAdapterSettings>
-    CryptarchiaConsensusState<TxS, NodeId, NetworkAdapterSettings, BlendAdapterSettings>
-{
+impl<NodeId, NetworkAdapterSettings> CryptarchiaConsensusState<NodeId, NetworkAdapterSettings> {
     /// Re-create the [`CryptarchiaConsensusState`]
-    /// given the cryptarchia engine, ledger state, and the leader details.
+    /// given the cryptarchia engine and ledger state.
     ///
     /// Furthermore, it allows to specify blocks deleted from the cryptarchia
     /// engine (hence not tracked anymore) but that should be deleted from the
     /// persistence layer.
     pub(crate) fn from_cryptarchia_and_unpruned_blocks(
         cryptarchia: &Cryptarchia,
-        leader: &Leader,
         storage_blocks_to_remove: HashSet<HeaderId>,
     ) -> Result<Self, DynError> {
         let lib = cryptarchia.consensus.lib_branch();
@@ -45,13 +41,11 @@ impl<TxS, NodeId, NetworkAdapterSettings, BlendAdapterSettings>
             ));
         };
         let lib_block_length = lib.length();
-        let lib_leader_utxos = leader.utxos().to_vec();
 
         Ok(Self {
             tip: cryptarchia.consensus.tip_branch().id(),
             lib: lib.id(),
             lib_ledger_state,
-            lib_leader_utxos,
             lib_block_length,
             storage_blocks_to_remove,
             last_engine_state: Some(LastEngineState {
@@ -63,12 +57,12 @@ impl<TxS, NodeId, NetworkAdapterSettings, BlendAdapterSettings>
     }
 }
 
-impl<TxS, NodeId, NetworkAdapterSettings, BlendAdapterSettings> ServiceState
-    for CryptarchiaConsensusState<TxS, NodeId, NetworkAdapterSettings, BlendAdapterSettings>
+impl<NodeId, NetworkAdapterSettings> ServiceState
+    for CryptarchiaConsensusState<NodeId, NetworkAdapterSettings>
 where
     NodeId: Clone + Eq + Hash,
 {
-    type Settings = CryptarchiaSettings<TxS, NodeId, NetworkAdapterSettings, BlendAdapterSettings>;
+    type Settings = CryptarchiaSettings<NodeId, NetworkAdapterSettings>;
     type Error = Error;
 
     fn from_settings(
@@ -79,7 +73,6 @@ where
                 tip: settings.genesis_id,
                 lib: settings.genesis_id,
                 lib_ledger_state: settings.genesis_state.clone(),
-                lib_leader_utxos: settings.leader_config.utxos.clone(),
                 lib_block_length: 0,
                 storage_blocks_to_remove: HashSet::new(),
                 last_engine_state: None,
@@ -100,9 +93,7 @@ mod tests {
     use std::num::NonZero;
 
     use cryptarchia_engine::State::Bootstrapping;
-    use groth16::Fr;
     use nomos_core::sdp::{MinStake, ServiceParameters};
-    use num_bigint::BigUint;
 
     use super::*;
 
@@ -195,21 +186,17 @@ mod tests {
             ledger_config,
         );
 
-        // Empty leader utxos.
-        let leader = Leader::new(vec![], Fr::from(BigUint::from(1u8)).into(), ledger_config);
-
         // Build [`CryptarchiaConsensusState`] with the pruned blocks.
         let pruned_stale_blocks = pruned_blocks
             .stale_blocks()
             .copied()
             .collect::<HashSet<_>>();
         let recovery_state =
-            CryptarchiaConsensusState::<(), (), (), ()>::from_cryptarchia_and_unpruned_blocks(
+            CryptarchiaConsensusState::<(), ()>::from_cryptarchia_and_unpruned_blocks(
                 &Cryptarchia {
                     ledger: ledger_state,
                     consensus: cryptarchia_engine.clone(),
                 },
-                &leader,
                 pruned_stale_blocks.clone(),
             )
             .unwrap();

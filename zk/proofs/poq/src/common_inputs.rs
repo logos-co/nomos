@@ -17,6 +17,7 @@ pub struct PoQCommonInputs {
     index: Groth16Input,
 }
 
+#[derive(Clone, Copy)]
 pub struct PoQCommonInputsData {
     pub core_quota: u64,
     pub leader_quota: u64,

@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+use chain_common::NetworkMessage as ChainNetworkMessage;
 use nomos_blend_service::message::{NetworkMessage, ServiceMessage};
 use nomos_core::{block::Block, codec::SerdeOp};
 use overwatch::services::{ServiceData, relay::OutboundRelay};
@@ -48,8 +49,8 @@ where
         if let Err((e, _)) = self
             .relay
             .send(ServiceMessage::Blend(NetworkMessage {
-                message: <crate::messages::NetworkMessage<Tx> as SerdeOp>::serialize(
-                    &crate::messages::NetworkMessage::Block(block),
+                message: <ChainNetworkMessage<Tx> as SerdeOp>::serialize(
+                    &ChainNetworkMessage::Block(block),
                 )
                 .expect("NetworkMessage should be able to be serialized")
                 .to_vec(),

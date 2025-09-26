@@ -9,7 +9,7 @@ use chain_service::{
 use nomos_core::{
     block::Block,
     header::HeaderId,
-    mantle::{SignedMantleTx, Utxo, Value, keys::PublicKey},
+    mantle::{AuthenticatedMantleTx, Utxo, Value, keys::PublicKey},
 };
 use nomos_storage::backends::StorageBackend;
 use overwatch::{
@@ -19,6 +19,7 @@ use overwatch::{
         state::{NoOperator, NoState},
     },
 };
+use serde::{Serialize, de::DeserializeOwned};
 use tokio::sync::oneshot;
 use tracing::{debug, error, info, trace};
 use wallet::{Wallet, WalletBlock, WalletError};
@@ -65,13 +66,14 @@ pub struct WalletServiceSettings {
     pub known_keys: HashSet<PublicKey>,
 }
 
-pub struct WalletService<Cryptarchia, Storage, RuntimeServiceId> {
+pub struct WalletService<Cryptarchia, Tx, Storage, RuntimeServiceId> {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     _storage: std::marker::PhantomData<Storage>,
+    _tx: std::marker::PhantomData<Tx>,
 }
 
-impl<Cryptarchia, Storage, RuntimeServiceId> ServiceData
-    for WalletService<Cryptarchia, Storage, RuntimeServiceId>
+impl<Cryptarchia, Tx, Storage, RuntimeServiceId> ServiceData
+    for WalletService<Cryptarchia, Tx, Storage, RuntimeServiceId>
 {
     type Settings = WalletServiceSettings;
     type State = NoState<Self::Settings>;
@@ -80,13 +82,14 @@ impl<Cryptarchia, Storage, RuntimeServiceId> ServiceData
 }
 
 #[async_trait]
-impl<Cryptarchia, Storage, RuntimeServiceId> ServiceCore<RuntimeServiceId>
-    for WalletService<Cryptarchia, Storage, RuntimeServiceId>
+impl<Cryptarchia, Tx, Storage, RuntimeServiceId> ServiceCore<RuntimeServiceId>
+    for WalletService<Cryptarchia, Tx, Storage, RuntimeServiceId>
 where
-    Cryptarchia: CryptarchiaServiceData,
+    Tx: AuthenticatedMantleTx + Send + Sync + Clone + Eq + Serialize + DeserializeOwned + 'static,
+    Cryptarchia: CryptarchiaServiceData<Tx>,
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as nomos_storage::api::chain::StorageChainApi>::Block:
-        TryFrom<Block<SignedMantleTx>> + TryInto<Block<SignedMantleTx>>,
+        TryFrom<Block<Tx>> + TryInto<Block<Tx>>,
     RuntimeServiceId: AsServiceId<Self>
         + AsServiceId<Cryptarchia>
         + AsServiceId<nomos_storage::StorageService<Storage, RuntimeServiceId>>
@@ -103,6 +106,7 @@ where
         Ok(Self {
             service_resources_handle,
             _storage: std::marker::PhantomData,
+            _tx: std::marker::PhantomData,
         })
     }
 
@@ -123,14 +127,15 @@ where
             .await?;
 
         // Create the API wrapper for cleaner communication
-        let cryptarchia_api = CryptarchiaServiceApi::<Cryptarchia, RuntimeServiceId>::new::<Self>(
-            &service_resources_handle,
-        )
-        .await?;
+        let cryptarchia_api =
+            CryptarchiaServiceApi::<Cryptarchia, Tx, RuntimeServiceId>::new::<Self>(
+                &service_resources_handle,
+            )
+            .await?;
 
         // Create StorageAdapter for cleaner block operations
         let storage_adapter =
-            StorageAdapter::<Storage, SignedMantleTx, RuntimeServiceId>::new(storage_relay).await;
+            StorageAdapter::<Storage, Tx, RuntimeServiceId>::new(storage_relay).await;
 
         // Query chain service for current state using the API
         let chain_info = cryptarchia_api.info().await?;
@@ -200,19 +205,21 @@ where
     }
 }
 
-impl<Cryptarchia, Storage, RuntimeServiceId> WalletService<Cryptarchia, Storage, RuntimeServiceId>
+impl<Cryptarchia, Tx, Storage, RuntimeServiceId>
+    WalletService<Cryptarchia, Tx, Storage, RuntimeServiceId>
 where
-    Cryptarchia: CryptarchiaServiceData + Send + 'static,
+    Tx: AuthenticatedMantleTx + Send + Sync + Clone + Eq + Serialize + DeserializeOwned + 'static,
+    Cryptarchia: CryptarchiaServiceData<Tx> + Send + 'static,
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as nomos_storage::api::chain::StorageChainApi>::Block:
-        TryFrom<Block<SignedMantleTx>> + TryInto<Block<SignedMantleTx>>,
+        TryFrom<Block<Tx>> + TryInto<Block<Tx>>,
     RuntimeServiceId: AsServiceId<Cryptarchia> + std::fmt::Debug + std::fmt::Display + Sync,
 {
     async fn handle_wallet_message(
         msg: WalletMsg,
         wallet: &mut Wallet,
-        storage_adapter: &StorageAdapter<Storage, SignedMantleTx, RuntimeServiceId>,
-        cryptarchia_api: &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
+        storage_adapter: &StorageAdapter<Storage, Tx, RuntimeServiceId>,
+        cryptarchia_api: &CryptarchiaServiceApi<Cryptarchia, Tx, RuntimeServiceId>,
     ) {
         match msg {
             WalletMsg::GetBalance { tip, pk, tx } => {
@@ -243,8 +250,8 @@ where
         tip: HeaderId,
         tx: oneshot::Sender<Result<Vec<Utxo>, WalletServiceError>>,
         wallet: &mut Wallet,
-        storage_adapter: &StorageAdapter<Storage, SignedMantleTx, RuntimeServiceId>,
-        cryptarchia_api: &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
+        storage_adapter: &StorageAdapter<Storage, Tx, RuntimeServiceId>,
+        cryptarchia_api: &CryptarchiaServiceApi<Cryptarchia, Tx, RuntimeServiceId>,
     ) {
         // Get the ledger state at the specified tip
         let Ok(Some(ledger_state)) = cryptarchia_api.get_ledger_state(tip).await else {
@@ -312,8 +319,8 @@ where
     async fn backfill_missing_blocks(
         missing_block: HeaderId,
         wallet: &mut Wallet,
-        storage_adapter: &StorageAdapter<Storage, SignedMantleTx, RuntimeServiceId>,
-        cryptarchia_api: &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
+        storage_adapter: &StorageAdapter<Storage, Tx, RuntimeServiceId>,
+        cryptarchia_api: &CryptarchiaServiceApi<Cryptarchia, Tx, RuntimeServiceId>,
     ) -> Result<(), WalletServiceError> {
         let headers = cryptarchia_api.get_headers_to_lib(missing_block).await?;
 

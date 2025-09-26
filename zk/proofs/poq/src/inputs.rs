@@ -135,12 +135,12 @@ impl TryFrom<PoQVerifierInputJson> for PoQVerifierInput {
             core_quota,
             leader_quota,
             core_root,
+            pol_ledger_aged,
             k_part_one,
             k_part_two,
             pol_epoch_nonce,
             pol_t0,
             pol_t1,
-            pol_ledger_aged,
         ] = value.0;
         Ok(Self {
             key_nullifier: key_nullifier.try_into()?,

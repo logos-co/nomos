@@ -19,7 +19,6 @@ bytes                    = { workspace = true }
 chain-service            = { features = ["libp2p"], workspace = true }
 futures                  = { default-features = false, version = "0.3.31" }
 kzgrs-backend            = { workspace = true }
-nomos-blend-service      = { workspace = true }
 nomos-core               = { workspace = true }
 nomos-da-dispersal       = { workspace = true }
 nomos-da-network-core    = { workspace = true }
@@ -30,7 +29,6 @@ nomos-libp2p             = { workspace = true }
 nomos-membership         = { workspace = true }
 nomos-mempool            = { features = ["libp2p", "mock", "openapi"], workspace = true }
 nomos-network            = { workspace = true }
-nomos-sdp                = { workspace = true }
 nomos-storage            = { features = ["rocksdb-backend"], workspace = true }
 nomos-time               = { workspace = true }
 overwatch                = { workspace = true }

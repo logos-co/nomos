@@ -17,6 +17,7 @@ workspace = true
 [dependencies]
 async-trait              = "0.1"
 broadcast-service        = { workspace = true }
+chain-leader             = { workspace = true }
 chain-service            = { workspace = true }
 clap                     = { default-features = false, features = ["derive", "env", "std"], version = "4" }
 color-eyre               = { default-features = false, version = "0.6.0" }
@@ -28,7 +29,7 @@ kzgrs-backend            = { workspace = true }
 nomos-api                = { workspace = true }
 nomos-blend-message      = { workspace = true }
 nomos-blend-scheduling   = { workspace = true }
-nomos-blend-service      = { workspace = true }
+nomos-blend-service      = { features = ["libp2p"], workspace = true }
 nomos-core               = { workspace = true }
 nomos-da-messages        = { workspace = true }
 nomos-da-network-core    = { workspace = true }

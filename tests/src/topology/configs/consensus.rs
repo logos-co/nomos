@@ -1,6 +1,6 @@
 use std::num::NonZero;
 
-use chain_service::LeaderConfig;
+use chain_leader::LeaderConfig;
 use cryptarchia_engine::EpochConfig;
 use nomos_core::mantle::{Note, Utxo, keys::SecretKey};
 use nomos_ledger::LedgerState;

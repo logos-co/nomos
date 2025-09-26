@@ -58,12 +58,11 @@ use overwatch::{
 };
 use subnetworks_assignations::versions::history_aware_refill::HistoryAware;
 
-pub use crate::config::{Config, CryptarchiaArgs, HttpArgs, LogArgs, NetworkArgs};
+pub use crate::config::{Config, CryptarchiaLeaderArgs, HttpArgs, LogArgs, NetworkArgs};
 use crate::{
     api::backend::AxumBackend,
     generic_services::{
         DaMembershipAdapter, DaMembershipStorageGeneric, MembershipService, SdpService,
-        blend::{BlendProofsGenerator, BlendProofsVerifier},
     },
 };
 
@@ -139,21 +138,16 @@ pub(crate) type DaNetworkAdapter = nomos_da_sampling::network::adapters::validat
     RuntimeServiceId,
 >;
 
-pub(crate) type CryptarchiaService = generic_services::CryptarchiaService<
-    nomos_da_sampling::network::adapters::validator::Libp2pAdapter<
-        NomosDaMembership,
-        DaMembershipAdapter<RuntimeServiceId>,
-        DaMembershipStorage,
-        DaNetworkApiAdapter,
-        RuntimeServiceId,
-    >,
-    RuntimeServiceId,
->;
+pub(crate) type CryptarchiaService =
+    generic_services::CryptarchiaService<DaNetworkAdapter, RuntimeServiceId>;
+
+pub(crate) type CryptarchiaLeaderService =
+    generic_services::CryptarchiaLeaderService<DaNetworkAdapter, RuntimeServiceId>;
 
 pub(crate) type TimeService = generic_services::TimeService<RuntimeServiceId>;
 
 pub(crate) type WalletService =
-    nomos_wallet::WalletService<CryptarchiaService, RocksBackend, RuntimeServiceId>;
+    nomos_wallet::WalletService<CryptarchiaService, SignedMantleTx, RocksBackend, RuntimeServiceId>;
 
 pub(crate) type ApiStorageAdapter<RuntimeServiceId> =
     nomos_api::http::storage::adapters::rocksdb::RocksAdapter<RuntimeServiceId>;
@@ -188,9 +182,6 @@ pub(crate) type ApiService = nomos_api::ApiService<
         NtpTimeBackend,
         DaNetworkApiAdapter,
         ApiStorageAdapter<RuntimeServiceId>,
-        BlendProofsGenerator,
-        BlendProofsVerifier,
-        MB16,
     >,
     RuntimeServiceId,
 >;
@@ -216,6 +207,7 @@ pub struct Nomos {
     da_network: DaNetworkService,
     cl_mempool: ClMempoolService,
     cryptarchia: CryptarchiaService,
+    cryptarchia_leader: CryptarchiaLeaderService,
     block_broadcast: BlockBroadcastService,
     membership: MembershipService<RuntimeServiceId>,
     sdp: SdpService<RuntimeServiceId>,
@@ -256,6 +248,7 @@ pub fn run_node_from_config(config: Config) -> Result<Overwatch<RuntimeServiceId
             da_sampling: config.da_sampling,
             da_verifier: config.da_verifier,
             cryptarchia: config.cryptarchia,
+            cryptarchia_leader: config.cryptarchia_leader,
             time: config.time,
             storage: config.storage,
             system_sig: (),

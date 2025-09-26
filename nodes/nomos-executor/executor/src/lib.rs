@@ -27,12 +27,10 @@ use nomos_da_verifier::{
 #[cfg(feature = "tracing")]
 use nomos_node::Tracing;
 use nomos_node::{
-    BlobInfo, DaNetworkApiAdapter, MB16, NetworkBackend, NomosDaMembership, RocksBackend,
-    SystemSig,
+    BlobInfo, DaNetworkApiAdapter, NetworkBackend, NomosDaMembership, RocksBackend, SystemSig,
     generic_services::{
         DaMembershipAdapter, DaMembershipStorageGeneric, MembershipService, SdpService,
         VerifierMempoolAdapter,
-        blend::{BlendProofsGenerator, BlendProofsVerifier},
     },
 };
 use nomos_time::backends::NtpTimeBackend;
@@ -126,16 +124,11 @@ pub(crate) type DaNetworkAdapter = nomos_da_sampling::network::adapters::executo
     RuntimeServiceId,
 >;
 
-pub(crate) type CryptarchiaService = nomos_node::generic_services::CryptarchiaService<
-    nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
-        NomosDaMembership,
-        DaMembershipAdapter<RuntimeServiceId>,
-        DaMembershipStorage,
-        DaNetworkApiAdapter,
-        RuntimeServiceId,
-    >,
-    RuntimeServiceId,
->;
+pub(crate) type CryptarchiaService =
+    nomos_node::generic_services::CryptarchiaService<DaNetworkAdapter, RuntimeServiceId>;
+
+pub(crate) type CryptarchiaLeaderService =
+    nomos_node::generic_services::CryptarchiaLeaderService<DaNetworkAdapter, RuntimeServiceId>;
 
 pub(crate) type TimeService = nomos_node::generic_services::TimeService<RuntimeServiceId>;
 
@@ -192,9 +185,6 @@ pub(crate) type ApiService = nomos_api::ApiService<
         NtpTimeBackend,
         DaNetworkApiAdapter,
         ApiStorageAdapter<RuntimeServiceId>,
-        BlendProofsGenerator,
-        BlendProofsVerifier,
-        MB16,
     >,
     RuntimeServiceId,
 >;
@@ -223,6 +213,7 @@ pub struct NomosExecutor {
     sdp: SdpService<RuntimeServiceId>,
     cl_mempool: ClMempoolService,
     cryptarchia: CryptarchiaService,
+    cryptarchia_leader: CryptarchiaLeaderService,
     block_broadcast: BlockBroadcastService,
     time: TimeService,
     http: ApiService,

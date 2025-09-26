@@ -1,5 +1,6 @@
 use std::{collections::HashSet, fmt::Debug, hash::Hash, marker::PhantomData};
 
+use chain_common::NetworkMessage;
 use cryptarchia_sync::GetTipResponse;
 use futures::{FutureExt as _, TryStreamExt as _, future::select_ok};
 use nomos_core::{block::Block, codec::SerdeOp, header::HeaderId};
@@ -21,10 +22,7 @@ use tokio::sync::oneshot;
 use tokio_stream::{StreamExt as _, wrappers::errors::BroadcastStreamRecvError};
 use tracing::debug;
 
-use crate::{
-    messages::NetworkMessage,
-    network::{BoxedStream, NetworkAdapter},
-};
+use crate::network::{BoxedStream, NetworkAdapter};
 
 const MAX_PEERS_TO_TRY_FOR_ORPHAN_DOWNLOAD: usize = 3;
 
