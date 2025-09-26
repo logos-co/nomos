@@ -1,11 +1,12 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
+use bitvec::prelude::*;
 use libp2p::PeerId;
-use nomos_core::block::SessionNumber;
+use nomos_core::{block::SessionNumber, sdp::ProviderId};
 use nomos_da_network_core::protocols::sampling::opinions::{Opinion, OpinionEvent};
 use subnetworks_assignations::MembershipHandler;
 
-const OPINION_THRESHOLD: f32 = 0.9;
+const OPINION_THRESHOLD: u32 = 10;
 
 pub struct OpinionAggregator<Membership>
 where
@@ -34,6 +35,7 @@ pub struct Opinions {
     pub new_opinions: HashMap<PeerId, bool>,
     pub old_opinions: HashMap<PeerId, bool>,
 }
+
 impl<Membership> OpinionAggregator<Membership>
 where
     Membership: MembershipHandler<Id = PeerId>,
@@ -209,16 +211,28 @@ where
                     true
                 } else {
                     let pos = positive.get(&peer_id).copied().unwrap_or(0);
-                    if pos == 0 {
-                        false
-                    } else {
-                        let neg = negative.get(&peer_id).copied().unwrap_or(0);
-                        let ratio = (pos as f32 - neg as f32) / pos as f32;
-                        ratio > OPINION_THRESHOLD
-                    }
+                    let neg = negative.get(&peer_id).copied().unwrap_or(0);
+                    pos > neg * OPINION_THRESHOLD
                 };
                 (peer_id, opinion)
             })
             .collect()
+    }
+}
+
+impl Opinions {
+    #[expect(
+        dead_code,
+        reason = "Will be used by SDP adapter for generating activity proofs"
+    )]
+    pub fn to_bit_vectors(
+        new_opinions: &BTreeMap<ProviderId, bool>,
+        old_opinions: &BTreeMap<ProviderId, bool>,
+    ) -> (BitVec, BitVec) {
+        // Values are already in sorted order by ProviderId
+        let new_bits: BitVec = new_opinions.values().copied().collect();
+        let old_bits: BitVec = old_opinions.values().copied().collect();
+
+        (new_bits, old_bits)
     }
 }
