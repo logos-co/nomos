@@ -128,6 +128,18 @@ impl<'de> Deserialize<'de> for ProviderId {
     }
 }
 
+impl PartialOrd for ProviderId {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ProviderId {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.as_bytes().cmp(other.0.as_bytes())
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct DeclarationId(pub [u8; 32]);
 
