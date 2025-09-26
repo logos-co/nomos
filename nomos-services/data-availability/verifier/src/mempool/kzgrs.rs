@@ -7,7 +7,7 @@ use nomos_core::{
 use nomos_da_sampling::backend::DaSamplingServiceBackend;
 use nomos_mempool::{
     MempoolMsg, TxMempoolService,
-    backend::{MemPool, RecoverableMempool},
+    backend::{Mempool, RecoverableMempool},
     network::NetworkAdapter as MempoolAdapter,
 };
 use overwatch::services::{ServiceData, relay::OutboundRelay};
@@ -26,7 +26,7 @@ pub struct KzgrsMempoolAdapter<
     SamplingStorage,
     RuntimeServiceId,
 > where
-    ClPool: MemPool<BlockId = HeaderId>,
+    ClPool: Mempool<BlockId = HeaderId>,
     ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = ClPool::Key>,
     ClPool::Item: Clone + Eq + Debug + 'static,
     ClPool::Key: Debug + 'static,

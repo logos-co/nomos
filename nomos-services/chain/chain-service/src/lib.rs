@@ -77,7 +77,6 @@ pub use crate::{
     sync::config::{OrphanConfig, SyncConfig},
 };
 
-type MempoolRelay<Payload, Item, Key> = OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>;
 type SamplingRelay<BlobId> = OutboundRelay<DaSamplingServiceMsg<BlobId>>;
 
 // Limit the number of blocks returned by GetHeaders

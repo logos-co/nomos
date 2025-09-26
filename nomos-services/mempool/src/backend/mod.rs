@@ -11,7 +11,7 @@ pub enum MempoolError {
     DynamicPoolError(#[from] overwatch::DynError),
 }
 
-pub trait MemPool {
+pub trait Mempool {
     type Settings;
     type Item;
     type Key;
@@ -60,7 +60,7 @@ pub trait MemPool {
 }
 
 /// A mempool with recovery capabilities.
-pub trait RecoverableMempool: MemPool {
+pub trait RecoverableMempool: Mempool {
     /// The state that is serialized and deserialized and from which the pool
     /// state is recreated.
     type RecoveryState;

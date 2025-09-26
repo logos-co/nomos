@@ -37,7 +37,6 @@ use tracing_futures::Instrument as _;
 
 use crate::{blend::BlendAdapter, leadership::Leader, relays::CryptarchiaConsensusRelays};
 
-type MempoolRelay<Payload, Item, Key> = OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>;
 type SamplingRelay<BlobId> = OutboundRelay<DaSamplingServiceMsg<BlobId>>;
 
 const LEADER_ID: &str = "Leader";

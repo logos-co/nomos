@@ -9,7 +9,7 @@ use nomos_core::{
 use nomos_da_sampling::{DaSamplingService, backend::DaSamplingServiceBackend};
 use nomos_mempool::{
     TxMempoolService,
-    backend::{MemPool, RecoverableMempool},
+    backend::{Mempool, RecoverableMempool},
     network::NetworkAdapter as MempoolAdapter,
 };
 use nomos_time::{TimeService, TimeServiceMessage, backends::TimeBackend as TimeBackendTrait};
@@ -22,10 +22,14 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use crate::{MempoolRelay, SamplingRelay};
 
 type BlendRelay<BlendService> = OutboundRelay<<BlendService as ServiceData>::Message>;
-type ClMempoolRelay<ClPool, ClPoolAdapter, RuntimeServiceId> = MempoolRelay<
-    <ClPoolAdapter as MempoolAdapter<RuntimeServiceId>>::Payload,
-    <ClPool as MemPool>::Item,
-    <ClPool as MemPool>::Key,
+
+type ClMempoolRelay<ClPool, ClPoolAdapter, RuntimeServiceId> = OutboundRelay<
+    MempoolMsg<
+        HeaderId,
+        <ClPoolAdapter as MempoolAdapter<RuntimeServiceId>>::Payload,
+        <ClPool as Mempool>::Item,
+        <ClPool as Mempool>::Key,
+    >,
 >;
 type TimeRelay = OutboundRelay<TimeServiceMessage>;
 
@@ -37,7 +41,7 @@ pub struct CryptarchiaConsensusRelays<
     RuntimeServiceId,
 > where
     BlendService: ServiceData,
-    ClPool: MemPool,
+    ClPool: Mempool,
     ClPoolAdapter: MempoolAdapter<RuntimeServiceId>,
     SamplingBackend: DaSamplingServiceBackend,
 {

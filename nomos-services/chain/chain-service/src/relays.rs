@@ -12,8 +12,8 @@ use nomos_core::{
 };
 use nomos_da_sampling::{DaSamplingService, backend::DaSamplingServiceBackend};
 use nomos_mempool::{
-    TxMempoolService,
-    backend::{MemPool, RecoverableMempool},
+    MempoolMsg, TxMempoolService,
+    backend::{Mempool, RecoverableMempool},
     network::NetworkAdapter as MempoolAdapter,
 };
 use nomos_network::{NetworkService, message::BackendNetworkMsg};
@@ -28,17 +28,21 @@ use overwatch::{
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{
-    CryptarchiaConsensus, MempoolRelay, SamplingRelay, network,
+    CryptarchiaConsensus, SamplingRelay, network,
     storage::{StorageAdapter as _, adapters::StorageAdapter},
 };
 
 type NetworkRelay<NetworkBackend, RuntimeServiceId> =
     OutboundRelay<BackendNetworkMsg<NetworkBackend, RuntimeServiceId>>;
 pub type BroadcastRelay = OutboundRelay<BlockBroadcastMsg>;
-type ClMempoolRelay<ClPool, ClPoolAdapter, RuntimeServiceId> = MempoolRelay<
-    <ClPoolAdapter as MempoolAdapter<RuntimeServiceId>>::Payload,
-    <ClPool as MemPool>::Item,
-    <ClPool as MemPool>::Key,
+
+type ClMempoolRelay<ClPool, ClPoolAdapter, RuntimeServiceId> = OutboundRelay<
+    MempoolMsg<
+        HeaderId,
+        <ClPoolAdapter as MempoolAdapter<RuntimeServiceId>>::Payload,
+        <ClPool as Mempool>::Item,
+        <ClPool as Mempool>::Key,
+    >,
 >;
 pub type StorageRelay<Storage> = OutboundRelay<StorageMsg<Storage>>;
 
@@ -50,7 +54,7 @@ pub struct CryptarchiaConsensusRelays<
     Storage,
     RuntimeServiceId,
 > where
-    ClPool: MemPool,
+    ClPool: Mempool,
     ClPoolAdapter: MempoolAdapter<RuntimeServiceId>,
     NetworkAdapter: network::NetworkAdapter<RuntimeServiceId>,
     Storage: StorageBackend + Send + Sync + 'static,
