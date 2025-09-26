@@ -15,10 +15,11 @@ impl Inputs {
         key_index: u64,
         proof_of_core_quota_inputs: ProofOfCoreQuotaInputs,
     ) -> Self {
+        let proof_type: ProofType = proof_of_core_quota_inputs.into();
         Self {
             key_index,
-            selector: false,
-            proof_type: proof_of_core_quota_inputs.into(),
+            selector: proof_type.proof_selector(),
+            proof_type,
         }
     }
 
@@ -27,10 +28,11 @@ impl Inputs {
         key_index: u64,
         proof_of_leadership_quota_inputs: ProofOfLeadershipQuotaInputs,
     ) -> Self {
+        let proof_type: ProofType = proof_of_leadership_quota_inputs.into();
         Self {
             key_index,
-            selector: true,
-            proof_type: proof_of_leadership_quota_inputs.into(),
+            selector: proof_type.proof_selector(),
+            proof_type,
         }
     }
 
@@ -50,6 +52,16 @@ impl Inputs {
 pub enum ProofType {
     CoreQuota(ProofOfCoreQuotaInputs),
     LeadershipQuota(ProofOfLeadershipQuotaInputs),
+}
+
+impl ProofType {
+    #[must_use]
+    pub const fn proof_selector(&self) -> bool {
+        match self {
+            Self::CoreQuota(_) => false,
+            Self::LeadershipQuota(_) => true,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

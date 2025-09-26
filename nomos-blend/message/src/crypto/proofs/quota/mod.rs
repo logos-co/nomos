@@ -3,19 +3,25 @@ use std::sync::LazyLock;
 use ::serde::{Deserialize, Serialize};
 use generic_array::{ArrayLength, GenericArray};
 use groth16::{Bn254, CompressSize, fr_from_bytes, fr_from_bytes_unchecked};
-use nomos_core::crypto::{ZkHash, ZkHasher};
+use nomos_core::crypto::ZkHash;
 use poq::{PoQProof, PoQVerifierInput, PoQWitnessInputs, ProveError, prove, verify};
 use thiserror::Error;
 
-use crate::crypto::proofs::quota::inputs::{
-    VerifyInputs,
-    prove::{Inputs, PrivateInputs, PublicInputs},
+use crate::crypto::proofs::{
+    ZkHashExt as _,
+    quota::inputs::{
+        VerifyInputs,
+        prove::{Inputs, PrivateInputs, PublicInputs},
+    },
 };
 
 pub mod inputs;
 mod serde;
 #[cfg(test)]
 mod tests;
+
+#[cfg(feature = "unsafe-test-functions")]
+pub mod fixtures;
 
 const KEY_NULLIFIER_SIZE: usize = size_of::<ZkHash>();
 const PROOF_CIRCUIT_SIZE: usize = size_of::<PoQProof>();
@@ -93,7 +99,7 @@ impl ProofOfQuota {
     ///
     /// The key nullifier required to verify the proof is taken from the proof
     /// itself and is not contained in the passed inputs.
-    pub(super) fn verify(self, public_inputs: &PublicInputs) -> Result<ZkHash, Error> {
+    pub fn verify(self, public_inputs: &PublicInputs) -> Result<ZkHash, Error> {
         let verifier_input =
             VerifyInputs::from_prove_inputs_and_nullifier(*public_inputs, self.key_nullifier);
         let is_proof_valid = matches!(verify(&self.proof, verifier_input.into()), Ok(true));
@@ -123,16 +129,13 @@ static DOMAIN_SEPARATION_TAG_FR: LazyLock<ZkHash> = LazyLock::new(|| {
 });
 // As per Proof of Quota v1 spec: <https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#215261aa09df81adb8ccd1448c9afd68>.
 fn generate_secret_selection_randomness(sk: ZkHash, key_index: u64, session: u64) -> ZkHash {
-    let hash_input = [
+    [
         *DOMAIN_SEPARATION_TAG_FR,
         sk,
         key_index.into(),
         session.into(),
-    ];
-
-    let mut hasher = ZkHasher::new();
-    hasher.update(&hash_input);
-    hasher.finalize()
+    ]
+    .hash()
 }
 
 fn split_proof_components<G1Compressed, G2Compressed>(

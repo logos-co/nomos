@@ -1,5 +1,3 @@
-pub mod crypto;
-
 use async_trait::async_trait;
 pub use crypto::SessionCryptographicProcessorSettings;
 use futures::{
@@ -12,7 +10,9 @@ use nomos_blend_message::{
         proofs::{
             quota::{
                 self, ProofOfQuota,
-                inputs::prove::private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs},
+                inputs::prove::private::{
+                    ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs, ProofType,
+                },
             },
             selection::ProofOfSelection,
         },
@@ -23,8 +23,13 @@ use nomos_core::crypto::ZkHash;
 use tokio::{
     spawn,
     sync::mpsc::{Receiver, Sender, channel},
-    task::spawn_blocking,
+    task::{JoinHandle, spawn_blocking},
 };
+
+pub mod crypto;
+
+#[cfg(test)]
+mod tests;
 
 /// Information about the ongoing session required to build `PoQ`s and
 /// `PoSel`s.
@@ -179,94 +184,51 @@ impl Drop for RealProofsGenerator {
 fn start(
     core_proofs_sender: Sender<BlendLayerProof>,
     leadership_proofs_sender: Sender<BlendLayerProof>,
-    session_info: SessionInfo,
+    SessionInfo {
+        public_inputs,
+        private_inputs:
+            PrivateInputs {
+                aged_path,
+                aged_selector,
+                core_path,
+                core_path_selectors,
+                core_sk,
+                note_value,
+                output_number,
+                pol_secret_key,
+                slot,
+                slot_secret,
+                slot_secret_path,
+                starting_slot,
+                transaction_hash,
+            },
+        ..
+    }: SessionInfo,
 ) -> AbortHandle {
-    let session_info_clone = session_info.clone();
-    let total_core_proofs = session_info.public_inputs.core_quota;
-    let core_proofs_task = spawn_blocking(async move || {
-        for core_key_index in 0..total_core_proofs {
-            let ephemeral_signing_key = Ed25519PrivateKey::generate();
-            let Ok((proof_of_quota, secret_selection_randomness)) = ProofOfQuota::new(
-                &quota::inputs::prove::PublicInputs {
-                    core_quota: session_info_clone.public_inputs.core_quota,
-                    core_root: session_info_clone.public_inputs.core_root,
-                    leader_quota: session_info_clone.public_inputs.leader_quota,
-                    pol_epoch_nonce: session_info_clone.public_inputs.pol_epoch_nonce,
-                    pol_ledger_aged: session_info_clone.public_inputs.pol_ledger_aged,
-                    session: session_info_clone.public_inputs.session,
-                    signing_key: ephemeral_signing_key.public_key(),
-                    total_stake: session_info_clone.public_inputs.total_stake,
-                },
-                quota::inputs::prove::PrivateInputs::new_proof_of_core_quota_inputs(
-                    core_key_index,
-                    ProofOfCoreQuotaInputs {
-                        core_path: session_info_clone.private_inputs.core_path.clone(),
-                        core_path_selectors: session_info_clone
-                            .private_inputs
-                            .core_path_selectors
-                            .clone(),
-                        core_sk: session_info_clone.private_inputs.core_sk,
-                    },
-                ),
-            ) else {
-                continue;
-            };
-            let proof_of_selection = ProofOfSelection::new(secret_selection_randomness);
-            core_proofs_sender
-                .send(BlendLayerProof {
-                    proof_of_quota,
-                    proof_of_selection,
-                    ephemeral_signing_key,
-                })
-                .await
-                .unwrap();
-        }
-    });
-
-    let total_leadership_proofs = session_info.public_inputs.leader_quota;
-    let leadership_proofs_task = spawn_blocking(async move || {
-        for leadership_key_index in 0..total_leadership_proofs {
-            let ephemeral_signing_key = Ed25519PrivateKey::generate();
-            let Ok((proof_of_quota, secret_selection_randomness)) = ProofOfQuota::new(
-                &quota::inputs::prove::PublicInputs {
-                    core_quota: session_info.public_inputs.core_quota,
-                    core_root: session_info.public_inputs.core_root,
-                    leader_quota: session_info.public_inputs.leader_quota,
-                    pol_epoch_nonce: session_info.public_inputs.pol_epoch_nonce,
-                    pol_ledger_aged: session_info.public_inputs.pol_ledger_aged,
-                    session: session_info.public_inputs.session,
-                    signing_key: ephemeral_signing_key.public_key(),
-                    total_stake: session_info.public_inputs.total_stake,
-                },
-                quota::inputs::prove::PrivateInputs::new_proof_of_leadership_quota_inputs(
-                    leadership_key_index,
-                    ProofOfLeadershipQuotaInputs {
-                        aged_path: session_info.private_inputs.aged_path.clone(),
-                        aged_selector: session_info.private_inputs.aged_selector.clone(),
-                        note_value: session_info.private_inputs.note_value,
-                        output_number: session_info.private_inputs.output_number,
-                        pol_secret_key: session_info.private_inputs.pol_secret_key,
-                        slot: session_info.private_inputs.slot,
-                        slot_secret: session_info.private_inputs.slot_secret,
-                        slot_secret_path: session_info.private_inputs.slot_secret_path.clone(),
-                        starting_slot: session_info.private_inputs.starting_slot,
-                        transaction_hash: session_info.private_inputs.transaction_hash,
-                    },
-                ),
-            ) else {
-                continue;
-            };
-            let proof_of_selection = ProofOfSelection::new(secret_selection_randomness);
-            leadership_proofs_sender
-                .send(BlendLayerProof {
-                    proof_of_quota,
-                    proof_of_selection,
-                    ephemeral_signing_key,
-                })
-                .await
-                .unwrap();
-        }
-    });
+    let core_proof_inputs = ProofOfCoreQuotaInputs {
+        core_path,
+        core_path_selectors,
+        core_sk,
+    };
+    let core_proofs_task =
+        spawn_proof_generation_task(core_proofs_sender, public_inputs, core_proof_inputs.into());
+    let leadership_proof_inputs = ProofOfLeadershipQuotaInputs {
+        aged_path,
+        aged_selector,
+        note_value,
+        output_number,
+        pol_secret_key,
+        slot,
+        slot_secret,
+        slot_secret_path,
+        starting_slot,
+        transaction_hash,
+    };
+    let leadership_proofs_task = spawn_proof_generation_task(
+        leadership_proofs_sender,
+        public_inputs,
+        leadership_proof_inputs.into(),
+    );
 
     let proofs_generation_task = join(core_proofs_task, leadership_proofs_task);
     let (proofs_generation_task_abort_handle, proofs_generation_task_abort_registration) =
@@ -278,4 +240,57 @@ fn start(
     ));
 
     proofs_generation_task_abort_handle
+}
+
+fn spawn_proof_generation_task(
+    sender_channel: Sender<BlendLayerProof>,
+    public_inputs: PublicInputs,
+    proof_type: ProofType,
+) -> JoinHandle<()> {
+    let quota = match proof_type {
+        ProofType::CoreQuota(_) => public_inputs.core_quota,
+        ProofType::LeadershipQuota(_) => public_inputs.leader_quota,
+    };
+    spawn_blocking(move || {
+        for key_index in 0..quota {
+            let ephemeral_signing_key = Ed25519PrivateKey::generate();
+            let private_inputs = match proof_type {
+                ProofType::CoreQuota(ref private_core_quota_inputs) => {
+                    quota::inputs::prove::PrivateInputs::new_proof_of_core_quota_inputs(
+                        key_index,
+                        private_core_quota_inputs.clone(),
+                    )
+                }
+                ProofType::LeadershipQuota(ref private_leadership_quota_inputs) => {
+                    quota::inputs::prove::PrivateInputs::new_proof_of_leadership_quota_inputs(
+                        key_index,
+                        private_leadership_quota_inputs.clone(),
+                    )
+                }
+            };
+            let Ok((proof_of_quota, secret_selection_randomness)) = ProofOfQuota::new(
+                &quota::inputs::prove::PublicInputs {
+                    core_quota: public_inputs.core_quota,
+                    core_root: public_inputs.core_root,
+                    leader_quota: public_inputs.leader_quota,
+                    pol_epoch_nonce: public_inputs.pol_epoch_nonce,
+                    pol_ledger_aged: public_inputs.pol_ledger_aged,
+                    session: public_inputs.session,
+                    signing_key: ephemeral_signing_key.public_key(),
+                    total_stake: public_inputs.total_stake,
+                },
+                private_inputs,
+            ) else {
+                continue;
+            };
+            let proof_of_selection = ProofOfSelection::new(secret_selection_randomness);
+            sender_channel
+                .blocking_send(BlendLayerProof {
+                    proof_of_quota,
+                    proof_of_selection,
+                    ephemeral_signing_key,
+                })
+                .unwrap();
+        }
+    })
 }

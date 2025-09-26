@@ -23,7 +23,7 @@ pub struct Membership<NodeId> {
     local_node_index: Option<usize>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Node<Id> {
     /// An unique identifier of the node,
     /// which is usually corresponding to the network node identifier
@@ -271,6 +271,24 @@ mod tests {
 
         assert!(membership.contains(&1));
         assert!(!membership.contains(&2));
+    }
+
+    #[test]
+    fn get_node_at() {
+        let nodes = vec![node(1, 1)];
+        let local_key = key(99);
+        let membership = Membership::new(&nodes, &local_key);
+
+        assert_eq!(membership.get_node_at(0), Some(&node(1, 1)));
+        assert_eq!(membership.get_node_at(1), None);
+    }
+
+    #[test]
+    #[should_panic(expected = "Membership info contained a duplicate node.")]
+    fn duplicate_remote_node() {
+        let nodes = vec![node(1, 1), node(1, 2)];
+        let local_key = key(99);
+        let _ = Membership::new(&nodes, &local_key);
     }
 
     fn key(seed: u8) -> Ed25519PublicKey {

@@ -1,4 +1,4 @@
-use num_bigint::BigUint;
+use groth16::fr_from_bytes;
 use poq::{
     PoQBlendInputsData, PoQChainInputsData, PoQCommonInputsData, PoQInputsFromDataError,
     PoQWalletInputsData, PoQWitnessInputs,
@@ -37,8 +37,12 @@ impl TryFrom<Inputs> for PoQWitnessInputs {
             index: value.private.key_index,
             leader_quota: value.public.leader_quota,
             message_key: (
-                BigUint::from_bytes_le(&signing_key_first_half[..]).into(),
-                BigUint::from_bytes_le(&signing_key_second_half[..]).into(),
+                fr_from_bytes(&signing_key_first_half[..]).expect(
+                    "First half of signing public key does not represent a valid `Fr` point.",
+                ),
+                fr_from_bytes(&signing_key_second_half[..]).expect(
+                    "Second half of signing public key does not represent a valid `Fr` point.",
+                ),
             ),
             selector: value.private.selector,
         };

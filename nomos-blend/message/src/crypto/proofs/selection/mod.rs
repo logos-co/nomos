@@ -1,16 +1,22 @@
 use core::fmt::Debug;
+use std::sync::LazyLock;
 
 use ::serde::{Deserialize, Serialize};
 use groth16::{fr_from_bytes, fr_from_bytes_unchecked, fr_to_bytes};
-use nomos_core::crypto::{ZkHash, ZkHasher};
+use nomos_core::crypto::ZkHash;
 use num_bigint::BigUint;
 use thiserror::Error;
 
 use crate::crypto::{
-    blake2b512, proofs::selection::inputs::VerifyInputs, pseudo_random_sized_bytes,
+    blake2b512,
+    proofs::{ZkHashExt as _, selection::inputs::VerifyInputs},
+    pseudo_random_sized_bytes,
 };
 
 pub mod inputs;
+
+#[cfg(test)]
+mod tests;
 
 pub const PROOF_OF_SELECTION_SIZE: usize = size_of::<ProofOfSelection>();
 const DOMAIN_SEPARATION_TAG: [u8; 9] = *b"BlendNode";
@@ -73,7 +79,7 @@ impl ProofOfSelection {
             .map_err(|_| Error::Overflow)
     }
 
-    pub(super) fn verify(
+    pub fn verify(
         self,
         VerifyInputs {
             expected_node_index,
@@ -84,21 +90,18 @@ impl ProofOfSelection {
         let final_index = self.expected_index(*total_membership_size as usize)?;
         if final_index != *expected_node_index as usize {
             return Err(Error::IndexMismatch {
-                expected: *expected_node_index,
-                provided: final_index as u64,
+                expected: final_index as u64,
+                provided: *expected_node_index,
             });
         }
 
         // Condition 2: https://www.notion.so/nomos-tech/Blend-Protocol-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df814da8e8ec1f1fcf4fe6
-        let selection_randomness_zk_hash = {
-            let mut hasher = ZkHasher::new();
-            hasher.update(&[self.selection_randomness]);
-            hasher.finalize()
-        };
-        if selection_randomness_zk_hash != *key_nullifier {
+        let calculated_key_nullifier =
+            derive_key_nullifier_from_secret_selection_randomness(self.selection_randomness);
+        if calculated_key_nullifier != *key_nullifier {
             return Err(Error::KeyNullifierMismatch {
-                expected: *key_nullifier,
-                provided: selection_randomness_zk_hash,
+                expected: calculated_key_nullifier,
+                provided: *key_nullifier,
             });
         }
 
@@ -110,6 +113,24 @@ impl ProofOfSelection {
     pub fn dummy() -> Self {
         Self::from_bytes_unchecked([0u8; _])
     }
+}
+
+const KEY_NULLIFIER_DERIVATION_DOMAIN_SEPARATION_TAG: [u8; 16] = *b"KEY_NULLIFIER_V1";
+static KEY_NULLIFIER_DERIVATION_DOMAIN_SEPARATION_TAG_FR: LazyLock<ZkHash> = LazyLock::new(|| {
+    fr_from_bytes(&KEY_NULLIFIER_DERIVATION_DOMAIN_SEPARATION_TAG[..]).expect(
+        "DST for key nullifier derivation from secret selection randomness must be correct.",
+    )
+});
+// As per Proof of Quota v1 spec: <https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#215261aa09df81adb8ccd1448c9afd68>.
+#[must_use]
+pub fn derive_key_nullifier_from_secret_selection_randomness(
+    secret_selection_randomness: ZkHash,
+) -> ZkHash {
+    [
+        *KEY_NULLIFIER_DERIVATION_DOMAIN_SEPARATION_TAG_FR,
+        secret_selection_randomness,
+    ]
+    .hash()
 }
 
 impl TryFrom<[u8; PROOF_OF_SELECTION_SIZE]> for ProofOfSelection {
