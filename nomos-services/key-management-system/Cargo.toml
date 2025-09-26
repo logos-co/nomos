@@ -8,18 +8,19 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
-async-trait   = "0.1"
-bytes         = { workspace = true }
-ed25519-dalek = { default-features = false, features = ["serde", "zeroize"], version = "2" }
-groth16       = { workspace = true }
-log           = "0.4.22"
-nomos-core    = { workspace = true }
-overwatch     = { workspace = true }
-serde         = { default-features = false, features = ["derive"], version = "1" }
-thiserror     = { default-features = false, version = "2" }
-tokio         = { default-features = false, version = "1" }
-tracing       = { default-features = false, version = "0.1" }
-zeroize       = { workspace = true }
+async-trait                  = "0.1"
+bytes                        = { workspace = true }
+ed25519-dalek                = { default-features = false, features = ["serde", "zeroize"], version = "2" }
+groth16                      = { workspace = true }
+key-management-system-macros = { workspace = true }
+log                          = "0.4.22"
+nomos-core                   = { workspace = true }
+overwatch                    = { workspace = true }
+serde                        = { default-features = false, features = ["derive"], version = "1" }
+thiserror                    = { default-features = false, version = "2" }
+tokio                        = { default-features = false, version = "1" }
+tracing                      = { default-features = false, version = "0.1" }
+zeroize                      = { workspace = true }
 
 [dev-dependencies]
 ed25519-dalek = { default-features = false, features = ["rand_core"], version = "2" }
@@ -27,5 +28,8 @@ rand          = { features = ["getrandom"], workspace = true }
 serde         = { default-features = false, features = ["std"], version = "1" }
 
 [features]
-default = ["preload"]
-preload = []
+all-keys    = ["key-ed25519", "key-zk"]
+default     = ["preload"]
+key-ed25519 = []
+key-zk      = []
+preload     = []
