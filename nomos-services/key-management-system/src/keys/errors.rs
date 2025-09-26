@@ -24,7 +24,6 @@ pub enum EncodingError {
 
 impl EncodingError {
     /// Creates a new `EncodingError::Requires` error.
-    /// It contains the path to the required type.
     #[expect(dead_code, reason = "Will be used when integrating KMS.")]
     pub fn requires<Key: SecuredKey, Payload>(key: &Key, received_payload: &Payload) -> Self {
         let key_type_name = type_name_of_val(key);

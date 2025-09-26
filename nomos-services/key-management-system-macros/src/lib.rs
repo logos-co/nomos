@@ -7,11 +7,11 @@ use syn::{
     token::{Comma, Paren},
 };
 
-#[proc_macro_derive(KmsKey)]
-pub fn derive_kms_key(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+#[proc_macro_derive(KmsEnumKey)]
+pub fn derive_kms_enum_key(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = syn::parse_macro_input!(input as DeriveInput);
     let Data::Enum(key_enum) = &input.data else {
-        return Error::new_spanned(input.ident, "KmsKey can only be derived for enums")
+        return Error::new_spanned(input.ident, "KmsEnumKey can only be derived for enums")
             .to_compile_error()
             .into();
     };
@@ -33,13 +33,13 @@ pub fn derive_kms_key(input: proc_macro::TokenStream) -> proc_macro::TokenStream
 }
 
 /// Validate all variants:
-/// - Each variant must have exactly one unnamed field (the key type).
 /// - At least one variant must be enabled.
+/// - Each variant must have exactly one unnamed field (the key type).
 fn validate_variants(key_enum_variants: &Punctuated<Variant, Comma>) -> Option<Error> {
     if key_enum_variants.is_empty() {
         return Some(Error::new_spanned(
             key_enum_variants,
-            "KmsKey requires at least one variant. All variants are currently disabled.
+            "KmsEnumKey requires at least one variant. All variants are currently disabled.
 To fix this:
 - Normal builds: enable a key feature (e.g. `--features all-keys`).
 - Tests: run with `--lib` for unit tests, or enable a key feature for integration tests.
@@ -51,7 +51,7 @@ To fix this:
         if !matches!(&variant.fields, Fields::Unnamed(f) if f.unnamed.len() == 1) {
             return Some(Error::new_spanned(
                 variant,
-                "KmsKey expects each variant to have exactly one unnamed field (the key type)",
+                "KmsEnumKey expects each variant to have exactly one unnamed field (the key type)",
             ));
         }
     }
