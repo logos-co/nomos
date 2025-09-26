@@ -44,7 +44,6 @@ fn valid_proof_of_leadership_quota() {
     let (proof, secret_selection_randomness) =
         ProofOfQuota::new(&public_inputs, private_inputs).unwrap();
 
-    // TODO: Check why this is failing.
     let key_nullifier = proof.verify(&public_inputs).unwrap();
     assert_eq!(
         derive_key_nullifier_from_secret_selection_randomness(secret_selection_randomness),

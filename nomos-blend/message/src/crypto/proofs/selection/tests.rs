@@ -14,7 +14,7 @@ fn secret_selection_randomness_to_key_nullifier_dst_encoding() {
     assert_eq!(
         *KEY_NULLIFIER_DERIVATION_DOMAIN_SEPARATION_TAG_FR,
         BigUint::from_bytes_be(
-            &<[u8; 23]>::from_hex("0x31565f52454946494c4c554e5f59454b").unwrap()
+            &<[u8; 16]>::from_hex("0x31565f52454946494c4c554e5f59454b").unwrap()
         )
         .into()
     );

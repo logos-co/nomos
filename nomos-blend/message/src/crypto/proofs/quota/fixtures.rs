@@ -1,4 +1,3 @@
-use nomos_core::crypto::ZkHash;
 use num_bigint::BigUint;
 
 use crate::crypto::{
@@ -81,8 +80,6 @@ pub fn valid_proof_of_leadership_quota_inputs(
     leader_quota: u64,
     key_index: u64,
 ) -> (PublicInputs, PrivateInputs) {
-    use groth16::Field as _;
-
     let public_inputs = PublicInputs {
         leader_quota,
         pol_epoch_nonce:
@@ -95,10 +92,10 @@ pub fn valid_proof_of_leadership_quota_inputs(
                 .parse::<BigUint>()
                 .unwrap()
                 .into(),
-        session: 1,
-        total_stake: 5_000,
         signing_key,
         // Not relevant for leadership quota proofs
+        session: 1,
+        total_stake: 1,
         core_quota: 1,
         core_root: BigUint::from(1u64).into(),
     };
@@ -192,8 +189,11 @@ pub fn valid_proof_of_leadership_quota_inputs(
             .map(|value| value.parse::<BigUint>().unwrap().into())
             .collect(),
             starting_slot: 1_406_736_108,
-            // Not relevant for PoQ verification, but used for PoSel randomness.
-            pol_secret_key: ZkHash::ZERO,
+            pol_secret_key:
+                "18019127557194082278807311486867266075760349564427945043423958886677616674528"
+                    .parse::<BigUint>()
+                    .unwrap()
+                    .into(),
         },
     );
 
