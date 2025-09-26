@@ -3,6 +3,7 @@ pub mod mock;
 
 use std::{collections::HashSet, pin::Pin};
 
+use ::libp2p::PeerId;
 use futures::Stream;
 use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId};
 use nomos_da_network_core::{
@@ -60,4 +61,6 @@ pub trait NetworkBackend<RuntimeServiceId> {
         blob_ids: HashSet<BlobId>,
         membership: Self::HistoricMembership,
     );
+
+    fn local_peer_id(&self) -> PeerId;
 }

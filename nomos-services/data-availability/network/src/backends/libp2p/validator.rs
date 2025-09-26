@@ -93,6 +93,7 @@ pub struct DaNetworkValidatorBackend<Membership> {
     commitments_broadcast_receiver: broadcast::Receiver<CommitmentsEvent>,
     verifying_broadcast_receiver: broadcast::Receiver<VerificationEvent>,
     historic_sampling_broadcast_receiver: broadcast::Receiver<HistoricSamplingEvent>,
+    local_peer_id: PeerId,
     _membership: PhantomData<Membership>,
 }
 
@@ -143,6 +144,9 @@ where
             subnet_refresh_signal,
             balancer_stats_sender,
         );
+
+        let local_peer_id = *validator_swarm.local_peer_id();
+
         let address = config.listening_address;
         // put swarm to listen at the specified configuration address
         validator_swarm
@@ -186,6 +190,7 @@ where
         ));
 
         Self {
+            local_peer_id,
             connection_status: ConnectionStatus::InsufficientSubnetworkConnections,
             task_abort_handle,
             replies_task_abort_handle,
@@ -288,5 +293,9 @@ where
             membership,
         )
         .await;
+    }
+
+    fn local_peer_id(&self) -> PeerId {
+        self.local_peer_id
     }
 }
