@@ -311,13 +311,7 @@ where
                         match Self::execute_sample_request(
                             stream,
                             request,
-                            |r| {
-                                if let SampleResponse::Share(share_data) = r {
-                                    Some(share_data.data)
-                                } else {
-                                    None
-                                }
-                            },
+                            try_extract_share_data,
                             peer_id,
                             session_id,
                             &mut opinions,
@@ -407,13 +401,7 @@ where
                         match Self::execute_sample_request(
                             stream,
                             request,
-                            |r| {
-                                if let SampleResponse::Commitments(comm) = r {
-                                    Some(comm)
-                                } else {
-                                    None
-                                }
-                            },
+                            try_extract_commitments,
                             peer_id,
                             session_id,
                             &mut opinions,
@@ -706,5 +694,23 @@ where
         }
 
         Poll::Pending
+    }
+}
+
+#[inline]
+fn try_extract_share_data(response: SampleResponse) -> Option<DaLightShare> {
+    if let SampleResponse::Share(share_data) = response {
+        Some(share_data.data)
+    } else {
+        None
+    }
+}
+
+#[inline]
+fn try_extract_commitments(response: SampleResponse) -> Option<DaSharesCommitments> {
+    if let SampleResponse::Commitments(comm) = response {
+        Some(comm)
+    } else {
+        None
     }
 }
