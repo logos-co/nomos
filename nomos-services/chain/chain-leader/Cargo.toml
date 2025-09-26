@@ -1,8 +1,13 @@
 [package]
-edition = { workspace = true }
-license = { workspace = true }
-name    = "chain-leader"
-version = "0.1.0"
+categories  = { workspace = true }
+description = { workspace = true }
+edition     = { workspace = true }
+keywords    = { workspace = true }
+license     = { workspace = true }
+name        = "chain-leader"
+readme      = { workspace = true }
+repository  = { workspace = true }
+version     = { workspace = true }
 
 [lints]
 workspace = true
@@ -21,7 +26,7 @@ nomos-da-sampling   = { workspace = true }
 nomos-ledger        = { features = ["serde"], workspace = true }
 nomos-mempool       = { workspace = true }
 nomos-time          = { workspace = true }
-num-bigint          = { version = "0.4", default-features = false }
+num-bigint          = { default-features = false, version = "0.4" }
 overwatch           = { workspace = true }
 serde               = { default-features = false, version = "1" }
 services-utils      = { workspace = true }

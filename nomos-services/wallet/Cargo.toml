@@ -1,19 +1,24 @@
 [package]
-edition = { workspace = true }
-license = { workspace = true }
-name    = "nomos-wallet"
-version = "0.1.0"
+categories  = { workspace = true }
+description = { workspace = true }
+edition     = { workspace = true }
+keywords    = { workspace = true }
+license     = { workspace = true }
+name        = "nomos-wallet"
+readme      = { workspace = true }
+repository  = { workspace = true }
+version     = { workspace = true }
 
 [dependencies]
 async-trait = "0.1"
-serde       = { version = "1.0", features = ["derive"] }
+serde       = { features = ["derive"], version = "1.0" }
 thiserror   = "1.0"
-tokio       = { version = "1", features = ["sync"] }
+tokio       = { features = ["sync"], version = "1" }
 tracing     = { workspace = true }
 
 chain-service = { workspace = true }
 nomos-core    = { workspace = true }
-nomos-storage = { workspace = true, features = ["mock"] }
+nomos-storage = { features = ["mock"], workspace = true }
 overwatch     = { workspace = true }
 wallet        = { workspace = true }
 

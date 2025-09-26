@@ -1,9 +1,14 @@
 [package]
-authors = ["Daniel Sanchez Quiros <danielsq@status.im>"]
-edition = { workspace = true }
-license = { workspace = true }
-name    = "nomos-core"
-version = "0.1.0"
+authors     = ["Daniel Sanchez Quiros <danielsq@status.im>"]
+categories  = { workspace = true }
+description = { workspace = true }
+edition     = { workspace = true }
+keywords    = { workspace = true }
+license     = { workspace = true }
+name        = "nomos-core"
+readme      = { workspace = true }
+repository  = { workspace = true }
+version     = { workspace = true }
 
 [lints]
 workspace = true
@@ -19,13 +24,13 @@ cryptarchia-engine = { features = ["serde"], workspace = true }
 ed25519            = { default-features = false, version = "2.2" }
 ed25519-dalek      = { default-features = false, features = ["serde"], version = "2.2.0" }
 generic-array      = "1.2.0"
-groth16            = { workspace = true, features = ["deser"] }
+groth16            = { features = ["deser"], workspace = true }
 multiaddr          = { default-features = false, version = "0.18" }
-num-bigint         = { version = "0.4", default-features = false }
+num-bigint         = { default-features = false, version = "0.4" }
 pol                = { workspace = true }
 poseidon2          = { workspace = true }
 serde              = { default-features = false, version = "1.0" }
-serde_with         = { version = "3.14.0", default-features = false, features = ["alloc", "macros"] }
+serde_with         = { default-features = false, features = ["alloc", "macros"], version = "3.14.0" }
 thiserror          = "1.0"
 tracing            = { workspace = true }
 
