@@ -4,10 +4,16 @@ use thiserror::Error;
 
 use crate::keys::secured_key::SecuredKey;
 
+#[expect(
+    dead_code,
+    reason = "Variants' usage depends on feature gates: At any point in time, at least one will be unused. E.g.: `NoKeysEnabled` is only used when no keys have been enabled, and vice versa."
+)]
 #[derive(Error, Debug)]
 pub enum KeyError {
     #[error(transparent)]
     Encoding(EncodingError),
+    #[error("No keys are enabled in this build of the KMS crate.")]
+    NoKeysEnabled,
 }
 
 impl From<EncodingError> for KeyError {

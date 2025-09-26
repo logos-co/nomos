@@ -8,5 +8,5 @@ pub trait SecuredKey: ZeroizeOnDrop {
     type Error;
 
     fn sign(&self, payload: &Self::Payload) -> Result<Self::Signature, Self::Error>;
-    fn as_public_key(&self) -> Self::PublicKey;
+    fn as_public_key(&self) -> Result<Self::PublicKey, Self::Error>;
 }

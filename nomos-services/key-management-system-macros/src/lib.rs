@@ -32,21 +32,8 @@ pub fn derive_kms_enum_key(input: proc_macro::TokenStream) -> proc_macro::TokenS
     .into()
 }
 
-/// Validate all variants:
-/// - At least one variant must be enabled.
-/// - Each variant must have exactly one unnamed field (the key type).
+/// Validate each variant must have exactly one unnamed field (the key type).
 fn validate_variants(key_enum_variants: &Punctuated<Variant, Comma>) -> Option<Error> {
-    if key_enum_variants.is_empty() {
-        return Some(Error::new_spanned(
-            key_enum_variants,
-            "KmsEnumKey requires at least one variant. All variants are currently disabled.
-To fix this:
-- Normal builds: enable a key feature (e.g. `--features all-keys`).
-- Tests: run with `--lib` for unit tests, or enable a key feature for integration tests.
-",
-        ));
-    }
-
     for variant in key_enum_variants {
         if !matches!(&variant.fields, Fields::Unnamed(f) if f.unnamed.len() == 1) {
             return Some(Error::new_spanned(
@@ -149,27 +136,39 @@ fn build_key_enum_impl_secured_key(
 fn build_key_enum_impl_secured_key_method_sign(
     key_enum_variants: &Punctuated<Variant, Comma>,
 ) -> TokenStream {
-    let sign_arms_ok = key_enum_variants.iter().map(|variant| {
-        let variant_ident = &variant.ident;
-        let variant_attributes_cfg: Vec<Attribute> = get_cfg_attributes(&variant.attrs).collect();
+    let match_block = if key_enum_variants.is_empty() {
+        quote! {
+            Err(Self::Error::NoKeysEnabled)
+        }
+    } else {
+        let sign_arms_ok = key_enum_variants.iter().map(|variant| {
+            let variant_ident = &variant.ident;
+            let variant_attributes_cfg: Vec<Attribute> =
+                get_cfg_attributes(&variant.attrs).collect();
+
+            quote! {
+                #(#variant_attributes_cfg)*
+                (Self::#variant_ident(key), Self::Payload::#variant_ident(payload)) => {
+                    key.sign(payload).map(Self::Signature::#variant_ident)
+                }
+            }
+        });
+
+        let sign_arm_error = quote! {
+            (key, payload) => Err(crate::keys::errors::EncodingError::requires(key, payload).into()),
+        };
 
         quote! {
-            #(#variant_attributes_cfg)*
-            (Self::#variant_ident(key), Self::Payload::#variant_ident(payload)) => {
-                key.sign(payload).map(Self::Signature::#variant_ident).map_err(Into::into)
-            }
-        }
-    });
-    let sign_arm_error = quote! {
-        (key, payload) => Err(crate::keys::errors::EncodingError::requires(key, payload).into()),
-    };
-
-    quote! {
-        fn sign(&self, payload: &Self::Payload) -> Result<Self::Signature, Self::Error> {
             match (self, payload) {
                 #(#sign_arms_ok)*
                 #sign_arm_error
             }
+        }
+    };
+
+    quote! {
+        fn sign(&self, payload: &Self::Payload) -> Result<Self::Signature, Self::Error> {
+            #match_block
         }
     }
 }
@@ -177,20 +176,30 @@ fn build_key_enum_impl_secured_key_method_sign(
 fn build_key_enum_impl_secured_key_method_as_public_key(
     key_enum_variants: &Punctuated<Variant, Comma>,
 ) -> TokenStream {
-    let as_public_key_arms = key_enum_variants.iter().map(|variant| {
-        let variant_ident = &variant.ident;
-        let variant_attributes_cfg: Vec<Attribute> = get_cfg_attributes(&variant.attrs).collect();
+    let match_block = if key_enum_variants.is_empty() {
         quote! {
-            #(#variant_attributes_cfg)*
-            Self::#variant_ident(key) => Self::PublicKey::#variant_ident(key.as_public_key()),
+            Err(Self::Error::NoKeysEnabled)
         }
-    });
+    } else {
+        let as_public_key_arms = key_enum_variants.iter().map(|variant| {
+            let variant_ident = &variant.ident;
+            let variant_attributes_cfg: Vec<Attribute> = get_cfg_attributes(&variant.attrs).collect();
+            quote! {
+                #(#variant_attributes_cfg)*
+                Self::#variant_ident(key) => key.as_public_key().map(Self::PublicKey::#variant_ident),
+            }
+        });
 
-    quote! {
-        fn as_public_key(&self) -> Self::PublicKey {
+        quote! {
             match self {
                 #(#as_public_key_arms)*
             }
+        }
+    };
+
+    quote! {
+        fn as_public_key(&self) -> Result<Self::PublicKey, Self::Error> {
+            #match_block
         }
     }
 }
