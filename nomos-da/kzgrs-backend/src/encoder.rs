@@ -380,7 +380,7 @@ pub mod test {
         ) {
             let column: Vec<FieldElement> = column
                 .iter()
-                .map(|Chunk(b)| FieldElement::from_le_bytes_mod_order(b))
+                .map(|Chunk(b)| FieldElement::from_be_bytes_mod_order(b))
                 .collect();
             assert!(kzgrs::bdfg_proving::verify_column(
                 idx,

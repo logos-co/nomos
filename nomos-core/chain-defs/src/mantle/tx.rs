@@ -57,7 +57,7 @@ impl TxHash {
 
     #[must_use]
     pub fn as_signing_bytes(&self) -> Bytes {
-        self.0.0.0.iter().flat_map(|b| b.to_le_bytes()).collect()
+        self.0.0.0.iter().flat_map(|b| b.to_be_bytes()).collect()
     }
 }
 

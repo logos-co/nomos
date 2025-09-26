@@ -25,7 +25,7 @@ impl NoteId {
 
     #[must_use]
     pub fn as_bytes(&self) -> Bytes {
-        self.0.0.0.iter().flat_map(|b| b.to_le_bytes()).collect()
+        self.0.0.0.iter().flat_map(|b| b.to_be_bytes()).collect()
     }
 }
 
@@ -94,9 +94,9 @@ impl Utxo {
         let mut hasher = ZkHasher::default();
         let tx_hash: Fr = *self.tx_hash.as_ref();
         let output_index =
-            fr_from_bytes(self.output_index.to_le_bytes().as_slice()).expect("usize fits in Fr");
+            fr_from_bytes(self.output_index.to_be_bytes().as_slice()).expect("usize fits in Fr");
         let note_value: Fr =
-            fr_from_bytes(self.note.value.to_le_bytes().as_slice()).expect("u64 fits in Fr");
+            fr_from_bytes(self.note.value.to_be_bytes().as_slice()).expect("u64 fits in Fr");
         let note_pk: Fr = self.note.pk.into();
         <ZkHasher as Digest>::update(&mut hasher, &NOMOS_NOTE_ID_V1);
         <ZkHasher as Digest>::update(&mut hasher, &tx_hash);

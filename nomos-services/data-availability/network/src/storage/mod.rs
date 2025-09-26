@@ -77,7 +77,7 @@ where
         new_members: AddressBookSnapshot<Membership::Id>,
     ) -> Result<(), DynError> {
         let mut hasher = Blake2b512::default();
-        BlakeUpdate::update(&mut hasher, session_id.to_le_bytes().as_slice());
+        BlakeUpdate::update(&mut hasher, session_id.to_be_bytes().as_slice());
         let seed: [u8; 64] = hasher.finalize().into();
 
         let update: HashSet<Membership::Id> = new_members.keys().copied().collect();

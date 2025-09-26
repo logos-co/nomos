@@ -30,8 +30,8 @@ impl BlobOp {
         let mut buff = BytesMut::new();
         buff.extend_from_slice(self.channel.as_ref());
         buff.extend_from_slice(self.blob.as_ref());
-        buff.extend_from_slice(self.blob_size.to_le_bytes().as_ref());
-        buff.extend_from_slice(self.da_storage_gas_price.to_le_bytes().as_ref());
+        buff.extend_from_slice(self.blob_size.to_be_bytes().as_ref());
+        buff.extend_from_slice(self.da_storage_gas_price.to_be_bytes().as_ref());
         buff.extend_from_slice(self.parent.as_ref());
         buff.extend_from_slice(self.signer.as_ref());
         buff.freeze()
