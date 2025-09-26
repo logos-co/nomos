@@ -2,7 +2,7 @@ use core::fmt::Debug;
 use std::sync::LazyLock;
 
 use ::serde::{Deserialize, Serialize};
-use groth16::{fr_from_bytes_le, fr_from_bytes_le_unchecked, fr_to_bytes_be};
+use groth16::{fr_from_bytes, fr_from_bytes_unchecked, fr_to_bytes};
 use nomos_core::crypto::ZkHash;
 use num_bigint::BigUint;
 use thiserror::Error;
@@ -55,7 +55,7 @@ impl ProofOfSelection {
     #[must_use]
     pub fn from_bytes_unchecked(bytes: [u8; PROOF_OF_SELECTION_SIZE]) -> Self {
         Self {
-            selection_randomness: fr_from_bytes_le_unchecked(&bytes),
+            selection_randomness: fr_from_bytes_unchecked(&bytes),
         }
     }
 
@@ -63,7 +63,7 @@ impl ProofOfSelection {
     /// membership size.
     pub fn expected_index(&self, membership_size: usize) -> Result<usize, Error> {
         // Condition 1: https://www.notion.so/nomos-tech/Blend-Protocol-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df819991e6f9455ff7ec92
-        let selection_randomness_bytes = fr_to_bytes_be(&self.selection_randomness);
+        let selection_randomness_bytes = fr_to_bytes(&self.selection_randomness);
         let selection_randomness_blake_hash =
             blake2b512(&[&DOMAIN_SEPARATION_TAG[..], &selection_randomness_bytes[..]].concat());
         let pseudo_random_output: u64 = {
@@ -117,7 +117,7 @@ impl ProofOfSelection {
 
 const KEY_NULLIFIER_DERIVATION_DOMAIN_SEPARATION_TAG: [u8; 16] = *b"KEY_NULLIFIER_V1";
 static KEY_NULLIFIER_DERIVATION_DOMAIN_SEPARATION_TAG_FR: LazyLock<ZkHash> = LazyLock::new(|| {
-    fr_from_bytes_le(&KEY_NULLIFIER_DERIVATION_DOMAIN_SEPARATION_TAG[..]).expect(
+    fr_from_bytes(&KEY_NULLIFIER_DERIVATION_DOMAIN_SEPARATION_TAG[..]).expect(
         "DST for key nullifier derivation from secret selection randomness must be correct.",
     )
 });
@@ -138,7 +138,7 @@ impl TryFrom<[u8; PROOF_OF_SELECTION_SIZE]> for ProofOfSelection {
 
     fn try_from(value: [u8; PROOF_OF_SELECTION_SIZE]) -> Result<Self, Self::Error> {
         Ok(Self {
-            selection_randomness: fr_from_bytes_le(&value)
+            selection_randomness: fr_from_bytes(&value)
                 .map_err(|e| Error::InvalidInput(Box::new(e)))?,
         })
     }

@@ -1,4 +1,4 @@
-use groth16::fr_from_bytes_le;
+use groth16::fr_from_bytes;
 use nomos_core::crypto::ZkHash;
 use poq::{PoQVerifierInput, PoQVerifierInputData};
 
@@ -35,9 +35,9 @@ impl From<Inputs> for PoQVerifierInput {
         PoQVerifierInputData {
             core_quota: value.prove_inputs.core_quota,
             core_root: value.prove_inputs.core_root,
-            k_part_one: fr_from_bytes_le(&signing_key_first_half[..])
+            k_part_one: fr_from_bytes(&signing_key_first_half[..])
                 .expect("First half of signing public key does not represent a valid `Fr` point."),
-            k_part_two: fr_from_bytes_le(&signing_key_second_half[..])
+            k_part_two: fr_from_bytes(&signing_key_second_half[..])
                 .expect("Second half of signing public key does not represent a valid `Fr` point."),
             key_nullifier: value.key_nullifier,
             leader_quota: value.prove_inputs.leader_quota,

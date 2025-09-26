@@ -2,7 +2,7 @@ use std::sync::LazyLock;
 
 use ::serde::{Deserialize, Serialize};
 use generic_array::{ArrayLength, GenericArray};
-use groth16::{Bn254, CompressSize, fr_from_bytes_le, fr_from_bytes_le_unchecked};
+use groth16::{Bn254, CompressSize, fr_from_bytes, fr_from_bytes_unchecked};
 use nomos_core::crypto::ZkHash;
 use poq::{PoQProof, PoQVerifierInput, PoQWitnessInputs, ProveError, prove, verify};
 use thiserror::Error;
@@ -83,7 +83,7 @@ impl ProofOfQuota {
     #[must_use]
     pub fn from_bytes_unchecked(bytes: [u8; PROOF_OF_QUOTA_SIZE]) -> Self {
         let (key_nullifier_bytes, proof_circuit_bytes) = bytes.split_at(KEY_NULLIFIER_SIZE);
-        let key_nullifier = fr_from_bytes_le_unchecked(key_nullifier_bytes);
+        let key_nullifier = fr_from_bytes_unchecked(key_nullifier_bytes);
         let (pi_a, pi_b, pi_c) = split_proof_components::<
             <Bn254 as CompressSize>::G1CompressedSize,
             <Bn254 as CompressSize>::G2CompressedSize,
@@ -124,7 +124,7 @@ impl ProofOfQuota {
 
 const DOMAIN_SEPARATION_TAG: [u8; 23] = *b"SELECTION_RANDOMNESS_V1";
 static DOMAIN_SEPARATION_TAG_FR: LazyLock<ZkHash> = LazyLock::new(|| {
-    fr_from_bytes_le(&DOMAIN_SEPARATION_TAG[..])
+    fr_from_bytes(&DOMAIN_SEPARATION_TAG[..])
         .expect("DST for secret selection randomness calculation must be correct.")
 });
 // As per Proof of Quota v1 spec: <https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#215261aa09df81adb8ccd1448c9afd68>.

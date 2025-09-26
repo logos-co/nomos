@@ -1,6 +1,6 @@
 use ark_ff::{Field as _, PrimeField as _};
 use generic_array::GenericArray;
-use groth16::{Fr, fr_from_bytes_le, serde::serde_fr};
+use groth16::{Fr, fr_from_bytes, serde::serde_fr};
 use num_bigint::BigUint;
 use poseidon2::{Digest as _, Poseidon2Bn254Hasher};
 use serde::{Deserialize, Serialize};
@@ -296,8 +296,8 @@ fn ed25519_pk_to_fr_tuple(pk: &ed25519_dalek::VerifyingKey) -> (Fr, Fr) {
     let pk_bytes = pk.as_bytes();
     // Convert each half of the public key to Fr so that they alwasy fit
     (
-        fr_from_bytes_le(&pk_bytes[0..16]).unwrap(),
-        fr_from_bytes_le(&pk_bytes[16..32]).unwrap(),
+        fr_from_bytes(&pk_bytes[0..16]).unwrap(),
+        fr_from_bytes(&pk_bytes[16..32]).unwrap(),
     )
 }
 

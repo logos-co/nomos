@@ -1,5 +1,5 @@
 use bytes::{Bytes, BytesMut};
-use groth16::{fr_to_bytes_le, serde::serde_fr};
+use groth16::{fr_to_bytes, serde::serde_fr};
 use poseidon2::{Fr, ZkHash};
 use serde::{Deserialize, Serialize};
 
@@ -23,9 +23,9 @@ impl LeaderClaimOp {
     #[must_use]
     pub fn payload_bytes(&self) -> Bytes {
         let mut buff = BytesMut::new();
-        buff.extend(fr_to_bytes_le(&self.rewards_root.0));
-        buff.extend(fr_to_bytes_le(&self.voucher_nullifier.0));
-        buff.extend(fr_to_bytes_le(&self.mantle_tx_hash.0));
+        buff.extend(fr_to_bytes(&self.rewards_root.0));
+        buff.extend(fr_to_bytes(&self.voucher_nullifier.0));
+        buff.extend(fr_to_bytes(&self.mantle_tx_hash.0));
         buff.freeze()
     }
 }
@@ -75,6 +75,6 @@ impl From<VoucherCm> for Fr {
 impl VoucherCm {
     #[must_use]
     pub fn to_bytes(&self) -> [u8; 32] {
-        fr_to_bytes_le(&self.0)
+        fr_to_bytes(&self.0)
     }
 }
