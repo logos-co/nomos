@@ -184,13 +184,9 @@ fn start(
     leadership_proofs_sender: Sender<BlendLayerProof>,
     session_info: SessionInfo,
 ) -> AbortHandle {
-    println!("A");
     let session_info_clone = session_info.clone();
-    println!("B");
     let total_core_proofs = session_info.public_inputs.core_quota;
-    println!("C");
     let core_proofs_task = spawn_blocking(move || {
-        println!("1");
         for core_key_index in 0..total_core_proofs {
             let ephemeral_signing_key = Ed25519PrivateKey::generate();
             let Ok((proof_of_quota, secret_selection_randomness)) = ProofOfQuota::new(
@@ -229,11 +225,8 @@ fn start(
         }
     });
 
-    println!("D");
     let total_leadership_proofs = session_info.public_inputs.leader_quota;
-    println!("E");
     let leadership_proofs_task = spawn_blocking(move || {
-        println!("2");
         for leadership_key_index in 0..total_leadership_proofs {
             let ephemeral_signing_key = Ed25519PrivateKey::generate();
             let Ok((proof_of_quota, secret_selection_randomness)) = ProofOfQuota::new(
@@ -276,18 +269,14 @@ fn start(
         }
     });
 
-    println!("F");
     let proofs_generation_task = join(core_proofs_task, leadership_proofs_task);
-    println!("G");
     let (proofs_generation_task_abort_handle, proofs_generation_task_abort_registration) =
         AbortHandle::new_pair();
-    println!("H");
 
     spawn(Abortable::new(
         proofs_generation_task,
         proofs_generation_task_abort_registration,
     ));
-    println!("I");
 
     proofs_generation_task_abort_handle
 }
