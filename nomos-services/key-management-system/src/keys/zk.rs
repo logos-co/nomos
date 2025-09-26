@@ -2,7 +2,7 @@ use nomos_core::mantle::keys::{PublicKey, SecretKey};
 use serde::{Deserialize, Serialize};
 use zeroize::ZeroizeOnDrop;
 
-use crate::keys::{KeyError, secured_key::SecuredKey};
+use crate::keys::{errors::KeyError, secured_key::SecuredKey};
 
 #[derive(Serialize, Deserialize, ZeroizeOnDrop)]
 pub struct ZkKey(pub(crate) SecretKey);
@@ -17,7 +17,7 @@ impl SecuredKey for ZkKey {
         Ok(self.0.sign(payload))
     }
 
-    fn as_public_key(&self) -> Self::PublicKey {
-        self.0.to_public_key()
+    fn as_public_key(&self) -> Result<Self::PublicKey, Self::Error> {
+        Ok(self.0.to_public_key())
     }
 }
