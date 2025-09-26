@@ -15,7 +15,7 @@ use broadcast_service::BlockBroadcastService;
 use futures::StreamExt as _;
 use nomos_api::http::{
     DynError,
-    cl::{self, ClMempoolService},
+    cl::{self, MempoolService},
     consensus::{self, Cryptarchia},
     da::{self, BalancerMessageFactory, DaVerifier, MonitorMessageFactory},
     libp2p, mempool,
@@ -94,7 +94,7 @@ where
         + Sync
         + Display
         + 'static
-        + AsServiceId<ClMempoolService<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>>,
+        + AsServiceId<MempoolService<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>>,
 {
     make_request_and_return_response!(cl::cl_mempool_metrics::<
         Tx,
@@ -134,7 +134,7 @@ where
         + Sync
         + Display
         + 'static
-        + AsServiceId<ClMempoolService<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>>,
+        + AsServiceId<MempoolService<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>>,
 {
     make_request_and_return_response!(cl::cl_mempool_status::<
         Tx,

@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 use tokio_stream::wrappers::BroadcastStream;
 
-pub type ClMempoolService<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId> =
+pub type MempoolService<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId> =
     TxMempoolService<
         MempoolNetworkAdapter<Tx, <Tx as Transaction>::Hash, RuntimeServiceId>,
         SamplingNetworkAdapter,
@@ -47,7 +47,7 @@ where
         + Sync
         + Send
         + Display
-        + AsServiceId<ClMempoolService<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>>,
+        + AsServiceId<MempoolService<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>>,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
@@ -83,7 +83,7 @@ where
         + Sync
         + Send
         + Display
-        + AsServiceId<ClMempoolService<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>>,
+        + AsServiceId<MempoolService<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>>,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();

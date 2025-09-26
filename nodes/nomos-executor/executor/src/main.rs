@@ -77,7 +77,7 @@ async fn main() -> Result<()> {
             #[cfg(feature = "tracing")]
             tracing: config.tracing,
             http: config.http,
-            cl_mempool: TxMempoolSettings {
+            mempool: TxMempoolSettings {
                 pool: (),
                 network_adapter: MempoolAdapterSettings {
                     topic: String::from(CL_TOPIC),
