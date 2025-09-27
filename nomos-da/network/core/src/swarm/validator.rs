@@ -10,7 +10,7 @@ use libp2p::{
     identity::Keypair,
     swarm::{DialError, SwarmEvent},
 };
-use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId};
+use nomos_core::{da::BlobId, header::HeaderId};
 use nomos_da_messages::replication::ReplicationRequest;
 use subnetworks_assignations::MembershipHandler;
 use tokio::{
@@ -48,7 +48,7 @@ use crate::{
     },
 };
 
-pub type SampleArgs<Membership> = (HashSet<BlobId>, SessionNumber, HeaderId, Membership);
+pub type SampleArgs<Membership> = (HashSet<BlobId>, HeaderId, Membership);
 
 // Metrics
 const EVENT_SAMPLING: &str = "sampling";

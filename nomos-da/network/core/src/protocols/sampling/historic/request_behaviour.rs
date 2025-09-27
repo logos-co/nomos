@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     future::ready,
     io::ErrorKind,
     task::{Context, Poll},
@@ -21,7 +21,7 @@ use libp2p::{
     },
 };
 use libp2p_stream::{Control, OpenStreamError};
-use nomos_core::{da::BlobId, header::HeaderId};
+use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId};
 use nomos_da_messages::sampling::{self, SampleResponse};
 use rand::{rngs::ThreadRng, seq::IteratorRandom as _};
 use subnetworks_assignations::MembershipHandler;
@@ -40,6 +40,7 @@ use crate::{
         SubnetsConfig,
         errors::{HistoricSamplingError, SamplingError},
         historic::HistoricSamplingEvent,
+        opinions::{Opinion, OpinionEvent},
         streams::{self, SampleStream},
     },
     swarm::validator::SampleArgs,
@@ -54,14 +55,13 @@ enum StreamSamplingError {
     Timeout,
     #[error("Sampling error occurred: {0}")]
     SamplingError(#[from] SamplingError),
-    #[error("Stream error occurred")]
-    StreamError(Option<SampleStream>),
 }
 
 type HistoricSamplingResponseSuccess = (
     HeaderId,
     HashMap<BlobId, Vec<DaLightShare>>,
     HashMap<BlobId, DaSharesCommitments>,
+    OpinionEvent,
 );
 
 type HistoricFutureError = (HeaderId, HistoricSamplingError);
@@ -95,6 +95,8 @@ where
     subnets_config: SubnetsConfig,
     /// Broadcast channel for notifying about established connections
     connection_broadcast_sender: tokio::sync::broadcast::Sender<PeerId>,
+    /// Rewards opinion events
+    opinion_events: VecDeque<OpinionEvent>,
 }
 
 impl<Membership, Addressbook> HistoricRequestSamplingBehaviour<Membership, Addressbook>
@@ -117,6 +119,7 @@ where
         let historic_request_stream = UnboundedReceiverStream::new(receiver).boxed();
 
         let (connection_broadcast_sender, _) = tokio::sync::broadcast::channel(1024);
+        let opinion_events = VecDeque::new();
 
         Self {
             local_peer_id,
@@ -128,6 +131,7 @@ where
             historic_request_stream,
             subnets_config,
             connection_broadcast_sender,
+            opinion_events,
         }
     }
 
@@ -185,7 +189,7 @@ where
 {
     /// Schedule sampling tasks for blobs using the provided historic membership
     fn sample_historic(&self, sample_args: SampleArgs<Membership>) {
-        let (blob_ids, _, block_id, membership) = sample_args;
+        let (blob_ids, block_id, membership) = sample_args;
         let control = self.control.clone();
         let mut rng = rand::rng();
         let subnets: Vec<SubnetworkId> = (0..membership.last_subnetwork_id())
@@ -195,7 +199,8 @@ where
         let connection_broadcast_sender = self.connection_broadcast_sender.clone();
 
         let request_future = async move {
-            let commitments = Self::sample_all_commitments(
+            let mut opinions = Vec::new();
+            let (commitments, opinion_event) = Self::sample_all_commitments(
                 &membership,
                 &subnets,
                 &local_peer_id,
@@ -206,7 +211,9 @@ where
             .await
             .map_err(|err| (block_id, err))?;
 
-            let shares = Self::sample_all_shares(
+            opinions.extend(opinion_event.opinions);
+
+            let (shares, opinion_event) = Self::sample_all_shares(
                 &subnets,
                 &membership,
                 &local_peer_id,
@@ -217,7 +224,9 @@ where
             .await
             .map_err(|err| (block_id, err))?;
 
-            Ok((block_id, shares, commitments))
+            opinions.extend(opinion_event.opinions);
+
+            Ok((block_id, shares, commitments, OpinionEvent { opinions }))
         }
         .boxed();
 
@@ -231,8 +240,9 @@ where
         blob_ids: &HashSet<BlobId>,
         control: &Control,
         connection_sender: &tokio::sync::broadcast::Sender<PeerId>,
-    ) -> Result<HashMap<BlobId, Vec<DaLightShare>>, HistoricSamplingError> {
+    ) -> Result<(HashMap<BlobId, Vec<DaLightShare>>, OpinionEvent), HistoricSamplingError> {
         let mut subnetwork_tasks = FuturesUnordered::new();
+        let session_id = membership.session_id();
 
         for subnetwork_id in subnets {
             let task = Self::sample_shares_for_subnetwork(
@@ -242,26 +252,30 @@ where
                 blob_ids.clone(),
                 *subnetwork_id,
                 connection_sender.subscribe(),
+                session_id,
             );
             subnetwork_tasks.push(task);
         }
 
         let mut all_shares = HashMap::new();
+        let mut opinions = Vec::new();
         while let Some(result) = subnetwork_tasks.next().await {
             match result {
-                Ok(shares) => {
+                Ok((shares, opinion_event)) => {
                     for (blob_id, share_vec) in shares {
                         all_shares
                             .entry(blob_id)
                             .or_insert_with(Vec::new)
                             .extend(share_vec);
                     }
+
+                    opinions.extend(opinion_event.opinions);
                 }
                 Err(err) => return Err(err),
             }
         }
 
-        Ok(all_shares)
+        Ok((all_shares, OpinionEvent { opinions }))
     }
 
     async fn sample_shares_for_subnetwork(
@@ -271,14 +285,15 @@ where
         mut blob_ids: HashSet<BlobId>,
         subnetwork_id: SubnetworkId,
         connection_receiver: tokio::sync::broadcast::Receiver<PeerId>,
-    ) -> Result<HashMap<BlobId, Vec<DaLightShare>>, HistoricSamplingError> {
-        // Pre-select up to MAX_PEER_RETRIES peers from the subnetwork
+        session_id: SessionNumber,
+    ) -> Result<(HashMap<BlobId, Vec<DaLightShare>>, OpinionEvent), HistoricSamplingError> {
         let candidate_peers = {
             let mut rng = rand::rng();
             Self::pick_random_subnetwork_peers(subnetwork_id, membership, local_peer_id, &mut rng)
         };
 
         let mut all_shares = HashMap::new();
+        let mut opinions = Vec::new();
 
         'peers_loop: for peer_id in candidate_peers {
             if blob_ids.is_empty() {
@@ -293,7 +308,16 @@ where
 
                     for blob_id in blob_ids_to_try {
                         let request = sampling::SampleRequest::new_share(blob_id, subnetwork_id);
-                        match Self::handle_share_request(stream, request).await {
+                        match Self::execute_sample_request(
+                            stream,
+                            request,
+                            try_extract_share_data,
+                            peer_id,
+                            session_id,
+                            &mut opinions,
+                        )
+                        .await
+                        {
                             Ok((share_data, new_stream)) => {
                                 all_shares
                                     .entry(blob_id)
@@ -302,32 +326,26 @@ where
                                 blob_ids.remove(&blob_id);
                                 stream = new_stream;
                             }
-                            Err(err) => {
-                                if let StreamSamplingError::StreamError(Some(mut new_stream)) = err
-                                {
-                                    // try to send EOF to gracefully shutdown the stream
-                                    let _ = new_stream.stream.close().await;
-                                }
-
-                                continue 'peers_loop; // Try next peer with
-                                // remaining blobs
-                            }
+                            Err(()) => continue 'peers_loop,
                         }
                     }
-
-                    // close stream on success as well
                     let _ = stream.stream.close().await;
                 }
                 Err(err) => {
                     log::error!("Failed to open stream to peer {peer_id}: {err}");
+                    opinions.push(Opinion::Negative {
+                        peer_id,
+                        session_id,
+                    });
                 }
             }
         }
 
+        let opinion_event = OpinionEvent { opinions };
         if blob_ids.is_empty() {
-            Ok(all_shares)
+            Ok((all_shares, opinion_event))
         } else {
-            Err(HistoricSamplingError::SamplingFailed)
+            Err(HistoricSamplingError::SamplingFailed(opinion_event))
         }
     }
 
@@ -338,8 +356,9 @@ where
         blob_ids: &HashSet<BlobId>,
         control: &Control,
         connection_receiver: tokio::sync::broadcast::Receiver<PeerId>,
-    ) -> Result<HashMap<BlobId, DaSharesCommitments>, HistoricSamplingError> {
-        // Pre-select up to MAX_PEER_RETRIES peers from a random subnet
+    ) -> Result<(HashMap<BlobId, DaSharesCommitments>, OpinionEvent), HistoricSamplingError> {
+        let session_id = membership.session_id();
+
         let candidate_peers = {
             let mut peers = Vec::new();
             let mut rng = rand::rng();
@@ -363,6 +382,7 @@ where
 
         let mut remaining_blob_ids = blob_ids.clone();
         let mut commitments = HashMap::new();
+        let mut opinions = Vec::new();
 
         'peers_loop: for peer_id in candidate_peers {
             if remaining_blob_ids.is_empty() {
@@ -377,67 +397,112 @@ where
 
                     for blob_id in blob_ids_to_try {
                         let request = sampling::SampleRequest::new_commitments(blob_id);
-                        match Self::handle_commitment_request(stream, request).await {
-                            Ok((commitment, new_stream)) => {
-                                commitments.insert(blob_id, commitment);
+
+                        match Self::execute_sample_request(
+                            stream,
+                            request,
+                            try_extract_commitments,
+                            peer_id,
+                            session_id,
+                            &mut opinions,
+                        )
+                        .await
+                        {
+                            Ok((comm, new_stream)) => {
+                                commitments.insert(blob_id, comm);
                                 remaining_blob_ids.remove(&blob_id);
                                 stream = new_stream;
                             }
-                            Err(err) => {
-                                if let StreamSamplingError::StreamError(Some(mut new_stream)) = err
-                                {
-                                    // try to send EOF to gracefully shutdown the stream
-                                    let _ = new_stream.stream.close().await;
-                                }
-
-                                continue 'peers_loop;
-                            }
+                            Err(()) => continue 'peers_loop,
                         }
                     }
-
-                    // close stream on success as well
                     let _ = stream.stream.close().await;
                 }
                 Err(err) => {
                     log::error!("Failed to open stream to peer {peer_id}: {err}");
+                    opinions.push(Opinion::Negative {
+                        peer_id,
+                        session_id,
+                    });
                 }
             }
         }
 
+        let opinion_event = OpinionEvent { opinions };
         if remaining_blob_ids.is_empty() {
-            Ok(commitments)
+            Ok((commitments, opinion_event))
         } else {
-            Err(HistoricSamplingError::SamplingFailed)
+            Err(HistoricSamplingError::SamplingFailed(opinion_event))
         }
     }
 
-    async fn handle_share_request(
+    #[inline]
+    async fn execute_sample_request<T, F>(
         stream: SampleStream,
         request: sampling::SampleRequest,
-    ) -> Result<(DaLightShare, SampleStream), StreamSamplingError> {
-        let (_, response_result, new_stream) = streams::stream_sample(stream, request)
-            .await
-            .map_err(|(_, maybe_stream)| StreamSamplingError::StreamError(maybe_stream))?;
-
-        if let SampleResponse::Share(share_data) = response_result {
-            Ok((share_data.data, new_stream))
-        } else {
-            Err(StreamSamplingError::StreamError(Some(new_stream)))
+        response_extractor: F,
+        peer_id: PeerId,
+        session_id: SessionNumber,
+        opinions: &mut Vec<Opinion>,
+    ) -> Result<(T, SampleStream), ()>
+    where
+        F: FnOnce(SampleResponse) -> Option<T>,
+    {
+        match streams::stream_sample(stream, request).await {
+            Ok((_, response, mut new_stream)) => {
+                if let Some(data) = response_extractor(response) {
+                    opinions.push(Opinion::Positive {
+                        peer_id,
+                        session_id,
+                    });
+                    Ok((data, new_stream))
+                } else {
+                    opinions.push(Opinion::Negative {
+                        peer_id,
+                        session_id,
+                    });
+                    let _ = new_stream.stream.close().await;
+                    Err(())
+                }
+            }
+            Err((sampling_error, maybe_stream)) => {
+                if let Some(opinion) =
+                    Self::classify_sampling_error_opinion(&sampling_error, peer_id, session_id)
+                {
+                    opinions.push(opinion);
+                }
+                if let Some(mut s) = maybe_stream {
+                    let _ = s.stream.close().await;
+                }
+                Err(())
+            }
         }
     }
 
-    async fn handle_commitment_request(
-        stream: SampleStream,
-        request: sampling::SampleRequest,
-    ) -> Result<(DaSharesCommitments, SampleStream), StreamSamplingError> {
-        let (_, response_result, new_stream) = streams::stream_sample(stream, request)
-            .await
-            .map_err(|(_, maybe_stream)| StreamSamplingError::StreamError(maybe_stream))?;
-
-        if let SampleResponse::Commitments(comm) = response_result {
-            Ok((comm, new_stream))
-        } else {
-            Err(StreamSamplingError::StreamError(Some(new_stream)))
+    const fn classify_sampling_error_opinion(
+        sampling_error: &SamplingError,
+        peer_id: PeerId,
+        session_id: SessionNumber,
+    ) -> Option<Opinion> {
+        match sampling_error {
+            SamplingError::InvalidBlobId { .. } | SamplingError::Deserialize { .. } => {
+                Some(Opinion::Blacklist {
+                    peer_id,
+                    session_id,
+                })
+            }
+            SamplingError::Io { .. }
+            | SamplingError::Share { .. }
+            | SamplingError::Commitments { .. }
+            | SamplingError::OpenStream { .. }
+            | SamplingError::RequestChannel { .. }
+            | SamplingError::BlobNotFound { .. }
+            | SamplingError::ResponseChannel { .. }
+            | SamplingError::MismatchSubnetwork { .. } => Some(Opinion::Negative {
+                peer_id,
+                session_id,
+            }),
+            SamplingError::NoSubnetworkPeers { .. } => None,
         }
     }
 
@@ -478,10 +543,20 @@ where
         if let Poll::Ready(Some(future_result)) = self.historic_request_tasks.poll_next_unpin(cx) {
             cx.waker().wake_by_ref();
             match future_result {
-                Ok((block_id, shares, commitments)) => {
+                Ok((block_id, shares, commitments, opinion_event)) => {
+                    // Queue the opinion event for emission
+                    if !opinion_event.opinions.is_empty() {
+                        self.opinion_events.push_back(opinion_event);
+                    }
                     return Some(Self::handle_historic_success(block_id, shares, commitments));
                 }
                 Err((block_id, sampling_error)) => {
+                    // Extract opinions from error if it contains them
+                    if let HistoricSamplingError::SamplingFailed(opinion_event) = &sampling_error
+                        && !opinion_event.opinions.is_empty()
+                    {
+                        self.opinion_events.push_back(opinion_event.clone());
+                    }
                     return Some(Self::handle_historic_error(block_id, sampling_error));
                 }
             }
@@ -508,7 +583,7 @@ where
         sampling_error: HistoricSamplingError,
     ) -> Poll<ToSwarm<<Self as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self>>> {
         match sampling_error {
-            HistoricSamplingError::SamplingFailed
+            HistoricSamplingError::SamplingFailed(_)
             | HistoricSamplingError::InternalServerError(_) => Poll::Ready(ToSwarm::GenerateEvent(
                 HistoricSamplingEvent::SamplingError {
                     block_id,
@@ -586,6 +661,14 @@ where
         &mut self,
         cx: &mut Context<'_>,
     ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
+        //poll opinion events
+        if let Some(opinion_event) = self.opinion_events.pop_front() {
+            cx.waker().wake_by_ref();
+            return Poll::Ready(ToSwarm::GenerateEvent(HistoricSamplingEvent::Opinion(
+                opinion_event,
+            )));
+        }
+
         // Poll pending historic sampling requests
         if let Poll::Ready(Some(sample_args)) = self.historic_request_stream.poll_next_unpin(cx) {
             self.sample_historic(sample_args);
@@ -611,5 +694,23 @@ where
         }
 
         Poll::Pending
+    }
+}
+
+#[inline]
+fn try_extract_share_data(response: SampleResponse) -> Option<DaLightShare> {
+    if let SampleResponse::Share(share_data) = response {
+        Some(share_data.data)
+    } else {
+        None
+    }
+}
+
+#[inline]
+fn try_extract_commitments(response: SampleResponse) -> Option<DaSharesCommitments> {
+    if let SampleResponse::Commitments(comm) = response {
+        Some(comm)
+    } else {
+        None
     }
 }

@@ -559,8 +559,8 @@ pub(crate) async fn handle_historic_sample_request<Membership>(
     block_id: HeaderId,
     membership: Membership,
 ) {
-    if let Err(SendError((blob_id, session_id, block_id, _))) =
-        historic_sample_request_channel.send((blob_ids, session_id, block_id, membership))
+    if let Err(SendError((blob_id, block_id, _))) =
+        historic_sample_request_channel.send((blob_ids, block_id, membership))
     {
         error!(
             "Error requesting historic sample for blob_id: {blob_id:?}, session_id: {session_id:?}, block_id: {block_id:?}"
