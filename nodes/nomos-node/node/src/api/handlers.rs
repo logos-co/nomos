@@ -14,8 +14,7 @@ use axum::{
 use broadcast_service::BlockBroadcastService;
 use futures::StreamExt as _;
 use nomos_api::http::{
-    DynError,
-    cl::{self, ClMempoolService},
+    DynError, cl,
     consensus::{self, Cryptarchia},
     da::{self, BalancerMessageFactory, DaVerifier, MonitorMessageFactory},
     libp2p, mempool,
@@ -24,7 +23,7 @@ use nomos_api::http::{
 use nomos_core::{
     da::{BlobId, DaVerifier as CoreDaVerifier, blob::Share},
     header::HeaderId,
-    mantle::{AuthenticatedMantleTx, SignedMantleTx, Transaction},
+    mantle::{SignedMantleTx, Transaction},
 };
 use nomos_da_messages::http::da::{
     DASharesCommitmentsRequest, DaSamplingRequest, GetSharesRequest,
@@ -37,7 +36,7 @@ use nomos_da_verifier::{backend::VerifierBackend, mempool::DaMempoolAdapter};
 use nomos_http_api_common::paths;
 use nomos_libp2p::PeerId;
 use nomos_mempool::{
-    TxMempoolService, backend::mockpool::MockPool,
+    TxMempoolService, backend::Mempool,
     network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
 };
 use nomos_network::backends::libp2p::Libp2p as Libp2pNetworkBackend;
@@ -72,34 +71,52 @@ macro_rules! make_request_and_return_response {
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn cl_metrics<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>(
+pub async fn cl_metrics<SamplingNetworkAdapter, SamplingStorage, StorageAdapter, RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
 ) -> Response
 where
-    Tx: AuthenticatedMantleTx
-        + Clone
-        + Debug
-        + Serialize
-        + for<'de> Deserialize<'de>
-        + Send
-        + Sync
-        + 'static,
-    <Tx as Transaction>::Hash:
-        Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     SamplingNetworkAdapter:
         nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
+    StorageAdapter: nomos_mempool::storage::MempoolStorageAdapter<
+            RuntimeServiceId,
+            Item = SignedMantleTx,
+            Key = <SignedMantleTx as Transaction>::Hash,
+        > + Send
+        + Sync
+        + Clone
+        + 'static,
+    StorageAdapter::Error: Debug,
     RuntimeServiceId: Debug
         + Send
         + Sync
         + Display
         + 'static
-        + AsServiceId<ClMempoolService<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>>,
+        + AsServiceId<
+            TxMempoolService<
+                MempoolNetworkAdapter<
+                    SignedMantleTx,
+                    <SignedMantleTx as Transaction>::Hash,
+                    RuntimeServiceId,
+                >,
+                SamplingNetworkAdapter,
+                SamplingStorage,
+                Mempool<
+                    HeaderId,
+                    SignedMantleTx,
+                    <SignedMantleTx as Transaction>::Hash,
+                    StorageAdapter,
+                    RuntimeServiceId,
+                >,
+                StorageAdapter,
+                RuntimeServiceId,
+            >,
+        >,
 {
     make_request_and_return_response!(cl::cl_mempool_metrics::<
-        Tx,
         SamplingNetworkAdapter,
         SamplingStorage,
+        StorageAdapter,
         RuntimeServiceId,
     >(&handle))
 }
@@ -112,34 +129,53 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn cl_status<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>(
+pub async fn cl_status<SamplingNetworkAdapter, SamplingStorage, StorageAdapter, RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
-    Json(items): Json<Vec<<Tx as Transaction>::Hash>>,
+    Json(items): Json<Vec<<SignedMantleTx as Transaction>::Hash>>,
 ) -> Response
 where
-    Tx: AuthenticatedMantleTx
-        + Clone
-        + Debug
-        + Serialize
-        + DeserializeOwned
-        + Send
-        + Sync
-        + 'static,
-    <Tx as Transaction>::Hash: Serialize + DeserializeOwned + Ord + Debug + Send + Sync + 'static,
     SamplingNetworkAdapter:
         nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
+    StorageAdapter: nomos_mempool::storage::MempoolStorageAdapter<
+            RuntimeServiceId,
+            Item = SignedMantleTx,
+            Key = <SignedMantleTx as Transaction>::Hash,
+        > + Send
+        + Sync
+        + Clone
+        + 'static,
+    StorageAdapter::Error: Debug,
     RuntimeServiceId: Debug
         + Send
         + Sync
         + Display
         + 'static
-        + AsServiceId<ClMempoolService<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>>,
+        + AsServiceId<
+            TxMempoolService<
+                MempoolNetworkAdapter<
+                    SignedMantleTx,
+                    <SignedMantleTx as Transaction>::Hash,
+                    RuntimeServiceId,
+                >,
+                SamplingNetworkAdapter,
+                SamplingStorage,
+                Mempool<
+                    HeaderId,
+                    SignedMantleTx,
+                    <SignedMantleTx as Transaction>::Hash,
+                    StorageAdapter,
+                    RuntimeServiceId,
+                >,
+                StorageAdapter,
+                RuntimeServiceId,
+            >,
+        >,
 {
     make_request_and_return_response!(cl::cl_mempool_status::<
-        Tx,
         SamplingNetworkAdapter,
         SamplingStorage,
+        StorageAdapter,
         RuntimeServiceId,
     >(&handle, items))
 }
@@ -158,33 +194,33 @@ pub struct CryptarchiaInfoQuery {
     )
 )]
 pub async fn cryptarchia_info<
-    Tx,
     SamplingBackend,
     SamplingNetworkAdapter,
     SamplingStorage,
+    StorageAdapter,
     TimeBackend,
     RuntimeServiceId,
 >(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
 ) -> Response
 where
-    Tx: AuthenticatedMantleTx
-        + Clone
-        + Eq
-        + Debug
-        + Serialize
-        + DeserializeOwned
-        + Send
-        + Sync
-        + 'static,
-    <Tx as Transaction>::Hash:
-        Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     SamplingBackend: DaSamplingServiceBackend<BlobId = BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
     SamplingBackend::BlobId: Debug + 'static,
-    SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
-    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
+    SamplingNetworkAdapter:
+        nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync + 'static,
+    SamplingStorage:
+        nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync + 'static,
+    StorageAdapter: nomos_mempool::storage::MempoolStorageAdapter<
+            RuntimeServiceId,
+            Item = SignedMantleTx,
+            Key = <SignedMantleTx as Transaction>::Hash,
+        > + Send
+        + Sync
+        + Clone
+        + 'static,
+    StorageAdapter::Error: Debug,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
     RuntimeServiceId: Debug
@@ -194,20 +230,20 @@ where
         + 'static
         + AsServiceId<
             Cryptarchia<
-                Tx,
                 SamplingBackend,
                 SamplingNetworkAdapter,
                 SamplingStorage,
+                StorageAdapter,
                 TimeBackend,
                 RuntimeServiceId,
             >,
         >,
 {
     make_request_and_return_response!(consensus::cryptarchia_info::<
-        Tx,
         SamplingBackend,
         SamplingNetworkAdapter,
         SamplingStorage,
+        StorageAdapter,
         TimeBackend,
         RuntimeServiceId,
     >(&handle))
@@ -222,10 +258,10 @@ where
     )
 )]
 pub async fn cryptarchia_headers<
-    Tx,
     SamplingBackend,
     SamplingNetworkAdapter,
     SamplingStorage,
+    StorageAdapter,
     TimeBackend,
     RuntimeServiceId,
 >(
@@ -233,23 +269,23 @@ pub async fn cryptarchia_headers<
     Query(query): Query<CryptarchiaInfoQuery>,
 ) -> Response
 where
-    Tx: AuthenticatedMantleTx
-        + Eq
-        + Clone
-        + Debug
-        + Serialize
-        + DeserializeOwned
-        + Send
-        + Sync
-        + 'static,
-    <Tx as Transaction>::Hash:
-        Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     SamplingBackend: DaSamplingServiceBackend<BlobId = BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
     SamplingBackend::BlobId: Debug + 'static,
-    SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
-    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
+    SamplingNetworkAdapter:
+        nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync + 'static,
+    SamplingStorage:
+        nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync + 'static,
+    StorageAdapter: nomos_mempool::storage::MempoolStorageAdapter<
+            RuntimeServiceId,
+            Item = SignedMantleTx,
+            Key = <SignedMantleTx as Transaction>::Hash,
+        > + Send
+        + Sync
+        + Clone
+        + 'static,
+    StorageAdapter::Error: Debug,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
     RuntimeServiceId: Debug
@@ -259,10 +295,10 @@ where
         + 'static
         + AsServiceId<
             Cryptarchia<
-                Tx,
                 SamplingBackend,
                 SamplingNetworkAdapter,
                 SamplingStorage,
+                StorageAdapter,
                 TimeBackend,
                 RuntimeServiceId,
             >,
@@ -270,10 +306,10 @@ where
 {
     let CryptarchiaInfoQuery { from, to } = query;
     make_request_and_return_response!(consensus::cryptarchia_headers::<
-        Tx,
         SamplingBackend,
         SamplingNetworkAdapter,
         SamplingStorage,
+        StorageAdapter,
         TimeBackend,
         RuntimeServiceId,
     >(&handle, from, to))
@@ -547,12 +583,11 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn block<HttpStorageAdapter, Tx, RuntimeServiceId>(
+pub async fn block<HttpStorageAdapter, RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
     Json(id): Json<HeaderId>,
 ) -> Response
 where
-    Tx: Serialize + DeserializeOwned + Clone + Eq + Send + Sync + 'static,
     HttpStorageAdapter: StorageAdapter<RuntimeServiceId> + Send + Sync + 'static,
     RuntimeServiceId:
         AsServiceId<StorageService<RocksBackend, RuntimeServiceId>> + Debug + Sync + Display,
@@ -561,7 +596,7 @@ where
         Ok(relay) => relay,
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     };
-    make_request_and_return_response!(HttpStorageAdapter::get_block::<Tx>(relay, id))
+    make_request_and_return_response!(HttpStorageAdapter::get_block::<SignedMantleTx>(relay, id))
 }
 
 #[utoipa::path(
@@ -837,24 +872,24 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn add_tx<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>(
+pub async fn add_tx<SamplingNetworkAdapter, SamplingStorage, StorageAdapter, RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
-    Json(tx): Json<Tx>,
+    Json(tx): Json<SignedMantleTx>,
 ) -> Response
 where
-    Tx: AuthenticatedMantleTx
-        + Clone
-        + Debug
-        + Serialize
-        + DeserializeOwned
-        + Send
-        + Sync
-        + 'static,
-    <Tx as Transaction>::Hash:
-        Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     SamplingNetworkAdapter:
-        nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
-    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
+        nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync + 'static,
+    SamplingStorage:
+        nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync + 'static,
+    StorageAdapter: nomos_mempool::storage::MempoolStorageAdapter<
+            RuntimeServiceId,
+            Item = SignedMantleTx,
+            Key = <SignedMantleTx as Transaction>::Hash,
+        > + Send
+        + Sync
+        + Clone
+        + 'static,
+    StorageAdapter::Error: Debug,
     RuntimeServiceId: Debug
         + Sync
         + Send
@@ -862,21 +897,37 @@ where
         + 'static
         + AsServiceId<
             TxMempoolService<
-                MempoolNetworkAdapter<Tx, <Tx as Transaction>::Hash, RuntimeServiceId>,
+                MempoolNetworkAdapter<
+                    SignedMantleTx,
+                    <SignedMantleTx as Transaction>::Hash,
+                    RuntimeServiceId,
+                >,
                 SamplingNetworkAdapter,
                 SamplingStorage,
-                MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
+                Mempool<
+                    HeaderId,
+                    SignedMantleTx,
+                    <SignedMantleTx as Transaction>::Hash,
+                    StorageAdapter,
+                    RuntimeServiceId,
+                >,
+                StorageAdapter,
                 RuntimeServiceId,
             >,
         >,
 {
     make_request_and_return_response!(mempool::add_tx::<
         Libp2pNetworkBackend,
-        MempoolNetworkAdapter<Tx, <Tx as Transaction>::Hash, RuntimeServiceId>,
+        MempoolNetworkAdapter<
+            SignedMantleTx,
+            <SignedMantleTx as Transaction>::Hash,
+            RuntimeServiceId,
+        >,
         SamplingNetworkAdapter,
         SamplingStorage,
-        Tx,
-        <Tx as Transaction>::Hash,
+        StorageAdapter,
+        SignedMantleTx,
+        <SignedMantleTx as Transaction>::Hash,
         RuntimeServiceId,
     >(&handle, tx, Transaction::hash))
 }

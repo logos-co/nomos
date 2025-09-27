@@ -1,6 +1,7 @@
 pub mod api;
 mod blob;
 mod bootstrap;
+mod mempool;
 pub mod network;
 mod relays;
 mod states;
@@ -22,6 +23,7 @@ use cryptarchia_engine::{PrunedBlocks, Slot};
 use cryptarchia_sync::{GetTipResponse, ProviderResponse};
 use futures::StreamExt as _;
 use network::NetworkAdapter;
+pub use nomos_blend_service::ServiceComponents as BlendServiceComponents;
 use nomos_core::{
     block::Block,
     da,
@@ -37,7 +39,7 @@ use nomos_da_sampling::{
 use nomos_ledger::{EpochState, LedgerState};
 use nomos_mempool::{
     MempoolMsg, TxMempoolService, backend::RecoverableMempool,
-    network::NetworkAdapter as MempoolAdapter,
+    network::NetworkAdapter as MempoolNetworkAdapter, storage::MempoolStorageAdapter,
 };
 use nomos_network::{NetworkService, message::ChainSyncEvent};
 use nomos_storage::{StorageService, api::chain::StorageChainApi, backends::StorageBackend};
@@ -67,6 +69,7 @@ use crate::{
         ibd::{self, InitialBlockDownload},
         state::choose_engine_state,
     },
+    mempool::MempoolAdapterTrait as _,
     relays::CryptarchiaConsensusRelays,
     states::CryptarchiaConsensusState,
     storage::{StorageAdapter as _, adapters::StorageAdapter},
@@ -94,6 +97,8 @@ pub enum Error {
     Consensus(#[from] cryptarchia_engine::Error<HeaderId>),
     #[error("Storage error: {0}")]
     Storage(String),
+    #[error("Mempool error: {0}")]
+    Mempool(String),
     #[error("Blob validation failed: {0}")]
     BlobValidationFailed(#[from] blob::Error),
 }
@@ -320,10 +325,14 @@ pub struct CryptarchiaConsensus<
     ClPool: RecoverableMempool<BlockId = HeaderId, Key = TxHash>,
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     ClPool::Settings: Clone,
+    ClPool::Storage: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
     ClPool::Item: Clone + Eq + Debug + 'static,
     ClPool::Item: AuthenticatedMantleTx,
-    ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
+    ClPoolAdapter:
+        MempoolNetworkAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
+    ClPoolAdapter::Settings: Send + Sync,
     Storage: StorageBackend + Send + Sync + 'static,
+    <Storage as StorageChainApi>::Tx: TryFrom<ClPool::Item> + TryInto<ClPool::Item>,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
@@ -367,9 +376,13 @@ where
     ClPool: RecoverableMempool<BlockId = HeaderId, Key = TxHash>,
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     ClPool::Settings: Clone,
+    ClPool::Storage: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
     ClPool::Item: AuthenticatedMantleTx + Clone + Eq + Debug,
-    ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
+    ClPoolAdapter:
+        MempoolNetworkAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
+    ClPoolAdapter::Settings: Send + Sync,
     Storage: StorageBackend + Send + Sync + 'static,
+    <Storage as StorageChainApi>::Tx: TryFrom<ClPool::Item> + TryInto<ClPool::Item>,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
@@ -418,6 +431,7 @@ where
     ClPool: RecoverableMempool<BlockId = HeaderId, Key = TxHash> + Send + Sync + 'static,
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     ClPool::Settings: Clone + Send + Sync + 'static,
+    ClPool::Storage: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
     ClPool::Item: Transaction<Hash = ClPool::Key>
         + Debug
         + Clone
@@ -429,11 +443,13 @@ where
         + Unpin
         + 'static,
     ClPool::Item: AuthenticatedMantleTx,
-    ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>
+    ClPoolAdapter: MempoolNetworkAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>
         + Send
         + Sync
         + 'static,
+    ClPoolAdapter::Settings: Send + Sync,
     Storage: StorageBackend + Send + Sync + 'static,
+    <Storage as StorageChainApi>::Tx: TryFrom<ClPool::Item> + TryInto<ClPool::Item>,
     <Storage as StorageChainApi>::Block:
         TryFrom<Block<ClPool::Item>> + TryInto<Block<ClPool::Item>> + Into<Bytes>,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
@@ -458,6 +474,7 @@ where
                 SamplingNetworkAdapter,
                 SamplingStorage,
                 ClPool,
+                ClPool::Storage,
                 RuntimeServiceId,
             >,
         >
@@ -552,7 +569,7 @@ where
             &self.service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
             NetworkService<_, _>,
-            TxMempoolService<_, _, _, _, _>,
+            TxMempoolService<_, _, _, _, _, _>,
             DaSamplingService<_, _, _, _>,
             StorageService<_, _>,
             TimeService<_, _>
@@ -836,6 +853,7 @@ where
     ClPool: RecoverableMempool<BlockId = HeaderId, Key = TxHash> + Send + Sync + 'static,
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     ClPool::Settings: Clone + Send + Sync + 'static,
+    ClPool::Storage: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
     ClPool::Item: Transaction<Hash = ClPool::Key>
         + Debug
         + Clone
@@ -846,11 +864,13 @@ where
         + Sync
         + 'static,
     ClPool::Item: AuthenticatedMantleTx,
-    ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>
+    ClPoolAdapter: MempoolNetworkAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>
         + Send
         + Sync
         + 'static,
+    ClPoolAdapter::Settings: Send + Sync,
     Storage: StorageBackend + Send + Sync + 'static,
+    <Storage as StorageChainApi>::Tx: TryFrom<ClPool::Item> + TryInto<ClPool::Item>,
     <Storage as StorageChainApi>::Block:
         TryFrom<Block<ClPool::Item>> + TryInto<Block<ClPool::Item>> + Into<Bytes>,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
@@ -1049,12 +1069,17 @@ where
         let new_lib = cryptarchia.lib();
 
         // remove included content from mempool
-        mark_in_block(
-            relays.cl_mempool_relay().clone(),
-            block.transactions().map(Transaction::hash),
-            id,
-        )
-        .await;
+        relays
+            .mempool_adapter()
+            .mark_transactions_in_block(
+                &block
+                    .transactions()
+                    .map(Transaction::hash)
+                    .collect::<Vec<_>>(),
+                id,
+            )
+            .await
+            .unwrap_or_else(|e| error!("Could not mark transactions in block: {e}"));
 
         mark_blob_in_block(
             relays.sampling_relay().clone(),
@@ -1418,23 +1443,6 @@ where
 
         (cryptarchia, storage_blocks_to_remove)
     }
-}
-
-async fn mark_in_block<Payload, Item, Key>(
-    mempool: OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>,
-    ids: impl Iterator<Item = Key>,
-    block: HeaderId,
-) where
-    Key: Send,
-    Payload: Send,
-{
-    mempool
-        .send(MempoolMsg::MarkInBlock {
-            ids: ids.collect(),
-            block,
-        })
-        .await
-        .unwrap_or_else(|(e, _)| error!("Could not mark items in block: {e}"));
 }
 
 async fn mark_blob_in_block<BlobId: Debug + Send>(

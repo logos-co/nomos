@@ -14,7 +14,8 @@ use nomos_da_sampling::{DaSamplingService, backend::DaSamplingServiceBackend};
 use nomos_mempool::{
     TxMempoolService,
     backend::{MemPool, RecoverableMempool},
-    network::NetworkAdapter as MempoolAdapter,
+    network::NetworkAdapter as MempoolNetworkAdapter,
+    storage::MempoolStorageAdapter,
 };
 use nomos_network::{NetworkService, message::BackendNetworkMsg};
 use nomos_storage::{
@@ -28,7 +29,9 @@ use overwatch::{
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{
-    CryptarchiaConsensus, MempoolRelay, SamplingRelay, network,
+    CryptarchiaConsensus, MempoolRelay, SamplingRelay,
+    mempool::adapter::MempoolAdapter,
+    network,
     storage::{StorageAdapter as _, adapters::StorageAdapter},
 };
 
@@ -36,7 +39,7 @@ type NetworkRelay<NetworkBackend, RuntimeServiceId> =
     OutboundRelay<BackendNetworkMsg<NetworkBackend, RuntimeServiceId>>;
 pub type BroadcastRelay = OutboundRelay<BlockBroadcastMsg>;
 type ClMempoolRelay<ClPool, ClPoolAdapter, RuntimeServiceId> = MempoolRelay<
-    <ClPoolAdapter as MempoolAdapter<RuntimeServiceId>>::Payload,
+    <ClPoolAdapter as MempoolNetworkAdapter<RuntimeServiceId>>::Payload,
     <ClPool as MemPool>::Item,
     <ClPool as MemPool>::Key,
 >;
@@ -51,7 +54,7 @@ pub struct CryptarchiaConsensusRelays<
     RuntimeServiceId,
 > where
     ClPool: MemPool,
-    ClPoolAdapter: MempoolAdapter<RuntimeServiceId>,
+    ClPoolAdapter: MempoolNetworkAdapter<RuntimeServiceId>,
     NetworkAdapter: network::NetworkAdapter<RuntimeServiceId>,
     Storage: StorageBackend + Send + Sync + 'static,
     SamplingBackend: DaSamplingServiceBackend,
@@ -61,9 +64,10 @@ pub struct CryptarchiaConsensusRelays<
         RuntimeServiceId,
     >,
     broadcast_relay: BroadcastRelay,
-    cl_mempool_relay: ClMempoolRelay<ClPool, ClPoolAdapter, RuntimeServiceId>,
+    mempool_adapter: MempoolAdapter<ClPool::Item, ClPool::Item>,
     storage_adapter: StorageAdapter<Storage, ClPool::Item, RuntimeServiceId>,
     sampling_relay: SamplingRelay<SamplingBackend::BlobId>,
+    _clpool_adapter: std::marker::PhantomData<ClPoolAdapter>,
 }
 
 impl<ClPool, ClPoolAdapter, NetworkAdapter, SamplingBackend, Storage, RuntimeServiceId>
@@ -76,12 +80,15 @@ impl<ClPool, ClPoolAdapter, NetworkAdapter, SamplingBackend, Storage, RuntimeSer
         RuntimeServiceId,
     >
 where
-    ClPool: RecoverableMempool<BlockId = HeaderId, Key = TxHash>,
+    ClPool: RecoverableMempool<BlockId = HeaderId, Key = TxHash> + Send + Sync,
     ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     ClPool::Item: Debug + Serialize + DeserializeOwned + Eq + Clone + Send + Sync + 'static,
     ClPool::Item: AuthenticatedMantleTx,
-    ClPool::Settings: Clone,
-    ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
+    ClPool::Settings: Clone + Send + Sync,
+    ClPoolAdapter: MempoolNetworkAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>
+        + Send
+        + Sync,
+    ClPoolAdapter::Settings: Send + Sync,
     NetworkAdapter: network::NetworkAdapter<RuntimeServiceId>,
     NetworkAdapter::Settings: Send,
     NetworkAdapter::PeerId: Clone + Eq + Hash + Send + Sync,
@@ -91,6 +98,8 @@ where
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as StorageChainApi>::Block:
         TryFrom<Block<ClPool::Item>> + TryInto<Block<ClPool::Item>>,
+    <Storage as StorageChainApi>::Tx: TryFrom<ClPool::Item> + TryInto<ClPool::Item>,
+    ClPool::Storage: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
 {
     pub async fn new(
         network_relay: NetworkRelay<
@@ -104,12 +113,14 @@ where
     ) -> Self {
         let storage_adapter =
             StorageAdapter::<Storage, ClPool::Item, RuntimeServiceId>::new(storage_relay).await;
+        let mempool_adapter = MempoolAdapter::new(cl_mempool_relay);
         Self {
             network_relay,
             broadcast_relay,
-            cl_mempool_relay,
+            mempool_adapter,
             storage_adapter,
             sampling_relay,
+            _clpool_adapter: std::marker::PhantomData,
         }
     }
 
@@ -157,6 +168,7 @@ where
                     SamplingNetworkAdapter,
                     SamplingStorage,
                     ClPool,
+                    ClPool::Storage,
                     RuntimeServiceId,
                 >,
             >
@@ -188,7 +200,7 @@ where
 
         let cl_mempool_relay = service_resources_handle
             .overwatch_handle
-            .relay::<TxMempoolService<_, _, _, _, _>>()
+            .relay::<TxMempoolService<_, _, _, _, _, _>>()
             .await
             .expect("Relay connection with CL MemPoolService should succeed");
 
@@ -227,10 +239,8 @@ where
         &self.broadcast_relay
     }
 
-    pub const fn cl_mempool_relay(
-        &self,
-    ) -> &ClMempoolRelay<ClPool, ClPoolAdapter, RuntimeServiceId> {
-        &self.cl_mempool_relay
+    pub const fn mempool_adapter(&self) -> &MempoolAdapter<ClPool::Item, ClPool::Item> {
+        &self.mempool_adapter
     }
 
     pub const fn sampling_relay(&self) -> &SamplingRelay<SamplingBackend::BlobId> {
