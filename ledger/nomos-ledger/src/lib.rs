@@ -12,11 +12,13 @@ pub use config::Config;
 use cryptarchia::LedgerState as CryptarchiaLedger;
 pub use cryptarchia::{EpochState, UtxoTree};
 use cryptarchia_engine::Slot;
+use groth16::{Field as _, Fr};
 use mantle::LedgerState as MantleLedger;
 use nomos_core::{
     block::BlockNumber,
     mantle::{
-        AuthenticatedMantleTx, NoteId, Utxo, gas::GasConstants, ops::leader_claim::VoucherCm,
+        AuthenticatedMantleTx, GenesisTx, NoteId, Utxo, gas::GasConstants,
+        ops::leader_claim::VoucherCm,
     },
     proofs::leader_proof,
 };
@@ -49,6 +51,8 @@ pub enum LedgerError<Id> {
     Mantle(#[from] mantle::Error),
     #[error("Locked note: {0:?}")]
     LockedNote(NoteId),
+    #[error("Input note in genesis block: {0:?}")]
+    InputInGenesis(NoteId),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -220,9 +224,27 @@ impl LedgerState {
     pub fn from_utxos(utxos: impl IntoIterator<Item = Utxo>) -> Self {
         Self {
             block_number: 0,
-            cryptarchia_ledger: CryptarchiaLedger::from_utxos(utxos),
+            cryptarchia_ledger: CryptarchiaLedger::from_utxos(utxos, Fr::ZERO),
             mantle_ledger: MantleLedger::default(),
         }
+    }
+
+    pub fn from_genesis_tx<Id, Constants: GasConstants>(
+        tx: impl GenesisTx,
+        config: &Config,
+        epoch_nonce: Fr,
+    ) -> Result<Self, LedgerError<Id>> {
+        let cryptarchia_ledger = CryptarchiaLedger::from_genesis_tx(&tx, epoch_nonce)?;
+        let mantle_ledger = MantleLedger::from_genesis_tx::<Constants>(
+            tx,
+            config,
+            cryptarchia_ledger.latest_commitments(),
+        )?;
+        Ok(Self {
+            block_number: 0,
+            cryptarchia_ledger,
+            mantle_ledger,
+        })
     }
 
     #[must_use]
@@ -254,7 +276,6 @@ impl LedgerState {
 #[cfg(test)]
 mod tests {
     use cryptarchia::tests::{config, generate_proof, utxo};
-    use groth16::Fr;
     use nomos_core::{
         mantle::{
             GasCost as _, MantleTx, Note, SignedMantleTx, Transaction as _,
