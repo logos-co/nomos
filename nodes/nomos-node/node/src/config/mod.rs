@@ -412,7 +412,6 @@ pub fn update_cryptarchia_leader_consensus(
     ));
     let pk = sk.to_public_key();
 
-
     leader.leader_config.sk = sk;
     let tx_hash: TxHash = BigUint::from_bytes_be(&<[u8; 32]>::from_hex(tx_hash)?).into();
     leader.leader_config.utxos.push(Utxo {
