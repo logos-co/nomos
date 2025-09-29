@@ -17,7 +17,7 @@ impl SecuredKey for ZkKey {
         Ok(self.0.sign(payload))
     }
 
-    fn as_public_key(&self) -> Result<Self::PublicKey, Self::Error> {
-        Ok(self.0.to_public_key())
+    fn as_public_key(&self) -> Self::PublicKey {
+        self.0.to_public_key()
     }
 }

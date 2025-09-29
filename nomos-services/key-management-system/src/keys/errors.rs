@@ -4,7 +4,11 @@ use thiserror::Error;
 
 use crate::keys::secured_key::SecuredKey;
 
-#[expect(
+#[allow(
+    clippy::allow_attributes,
+    reason = "Below's `dead_code` will not trigger when keys are enabled. This reduces a warning when running `cargo hack`."
+)]
+#[allow(
     dead_code,
     reason = "Variants' usage depends on feature gates: At any point in time, at least one will be unused. E.g.: `NoKeysEnabled` is only used when no keys have been enabled, and vice versa."
 )]
@@ -12,8 +16,6 @@ use crate::keys::secured_key::SecuredKey;
 pub enum KeyError {
     #[error(transparent)]
     Encoding(EncodingError),
-    #[error("No keys are enabled in this build of the KMS crate.")]
-    NoKeysEnabled,
 }
 
 impl From<EncodingError> for KeyError {

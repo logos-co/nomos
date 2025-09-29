@@ -18,7 +18,7 @@ impl SecuredKey for Ed25519Key {
         Ok(self.0.sign(payload.iter().as_slice()))
     }
 
-    fn as_public_key(&self) -> Result<VerifyingKey, KeyError> {
-        Ok(self.0.verifying_key())
+    fn as_public_key(&self) -> VerifyingKey {
+        self.0.verifying_key()
     }
 }

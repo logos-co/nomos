@@ -127,12 +127,9 @@ mod keys {
             }
         }
 
-        fn as_public_key(&self) -> Result<Self::PublicKey, Self::Error> {
+        fn as_public_key(&self) -> Self::PublicKey {
             match self {
-                Self::Ed25519(key) => key
-                    .as_public_key()
-                    .map(PreloadEncoding::from)
-                    .map_err(Into::into),
+                Self::Ed25519(key) => PreloadEncoding::from(key.as_public_key()),
             }
         }
     }
@@ -161,7 +158,7 @@ mod keys {
             unimplemented!("Not needed.")
         }
 
-        fn as_public_key(&self) -> Result<Self::PublicKey, Self::Error> {
+        fn as_public_key(&self) -> Self::PublicKey {
             unimplemented!("Not needed.")
         }
     }
@@ -232,11 +229,11 @@ mod backends {
             &self,
             key_id: Self::KeyId,
         ) -> Result<<Self::Key as SecuredKey>::PublicKey, Self::Error> {
-            self.keys
+            Ok(self
+                .keys
                 .get(&key_id)
                 .ok_or(errors::PreloadBackendError::KeyNotRegistered(key_id))?
-                .as_public_key()
-                .map_err(|error| DynError::from(format!("{error:?}")))
+                .as_public_key())
         }
 
         fn sign(
@@ -318,7 +315,7 @@ mod tests {
         // Check if the backend key operations results are the same as the direct
         // operation on the key itself.
         let key = Ed25519Key(key.clone());
-        let public_key = key.as_public_key().unwrap().into();
+        let public_key = key.as_public_key().into();
         let backend_public_key = backend.public_key(key_id.clone()).unwrap();
         assert_eq!(backend_public_key, public_key);
 

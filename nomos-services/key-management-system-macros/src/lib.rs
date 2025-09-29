@@ -183,30 +183,20 @@ fn build_key_enum_impl_secured_key_method_sign(
 fn build_key_enum_impl_secured_key_method_as_public_key(
     key_enum_variants: &Punctuated<Variant, Comma>,
 ) -> TokenStream {
-    let match_block = if key_enum_variants.is_empty() {
+    let as_public_key_arms = key_enum_variants.iter().map(|variant| {
+        let variant_ident = &variant.ident;
+        let variant_attributes_cfg: Vec<Attribute> = get_cfg_attributes(&variant.attrs).collect();
         quote! {
-            Err(Self::Error::NoKeysEnabled)
+            #(#variant_attributes_cfg)*
+            Self::#variant_ident(key) => Self::PublicKey::#variant_ident(key.as_public_key()),
         }
-    } else {
-        let as_public_key_arms = key_enum_variants.iter().map(|variant| {
-            let variant_ident = &variant.ident;
-            let variant_attributes_cfg: Vec<Attribute> = get_cfg_attributes(&variant.attrs).collect();
-            quote! {
-                #(#variant_attributes_cfg)*
-                Self::#variant_ident(key) => key.as_public_key().map(Self::PublicKey::#variant_ident),
-            }
-        });
+    });
 
-        quote! {
+    quote! {
+        fn as_public_key(&self) -> Self::PublicKey {
             match self {
                 #(#as_public_key_arms)*
             }
-        }
-    };
-
-    quote! {
-        fn as_public_key(&self) -> Result<Self::PublicKey, Self::Error> {
-            #match_block
         }
     }
 }
