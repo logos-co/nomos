@@ -28,7 +28,7 @@ impl DaVerifier {
         let column: Vec<FieldElement> = share
             .column
             .iter()
-            .map(|Chunk(b)| FieldElement::from_be_bytes_mod_order(b))
+            .map(|Chunk(b)| FieldElement::from_le_bytes_mod_order(b))
             .collect();
         let rows_domain = PolynomialEvaluationDomain::new(rows_domain_size)
             .expect("Domain should be able to build");

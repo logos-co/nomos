@@ -83,12 +83,7 @@ pub fn lagrange_interpolate(points: &[Fr], roots_of_unity: &[Fr]) -> DensePolyno
 /// size and a set of points
 pub fn points_to_bytes<const CHUNK_SIZE: usize>(points: &[Fr]) -> Vec<u8> {
     fn point_to_buff<const CHUNK_SIZE: usize>(p: &Fr) -> impl Iterator<Item = u8> {
-        let bytes = p.into_bigint().to_bytes_be();
-        let bytes_size = bytes.len();
-        bytes
-            .into_iter()
-            .skip(bytes_size - CHUNK_SIZE) // skip for smaller chunk sizes
-            .take(CHUNK_SIZE)
+        p.into_bigint().to_bytes_le().into_iter().take(CHUNK_SIZE)
     }
     points
         .iter()
