@@ -13,7 +13,7 @@ use nomos_core::{
     block::Block,
     da,
     header::{Header, HeaderId},
-    mantle::{AuthenticatedMantleTx, Op, Transaction, TxHash, TxSelect, keys::SecretKey},
+    mantle::{AuthenticatedMantleTx, Op, Transaction, TxHash, TxSelect},
     proofs::leader_proof::{Groth16LeaderProof, LeaderPrivate},
 };
 use nomos_da_sampling::{
@@ -53,12 +53,10 @@ pub enum Error {
     Storage(String),
 }
 
-pub type WinningSlotEpochInfo = (LeaderPrivate, SecretKey);
-
 #[derive(Debug)]
 pub enum LeaderMsg {
     WinningPolEpochSlotStreamSubscribe {
-        sender: oneshot::Sender<broadcast::Receiver<WinningSlotEpochInfo>>,
+        sender: oneshot::Sender<broadcast::Receiver<LeaderPrivate>>,
     },
 }
 
@@ -104,7 +102,7 @@ pub struct CryptarchiaLeader<
     CryptarchiaService: CryptarchiaServiceData<Mempool::Item>,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-    winning_pol_epoch_slots_sender: broadcast::Sender<WinningSlotEpochInfo>,
+    winning_pol_epoch_slots_sender: broadcast::Sender<LeaderPrivate>,
 }
 
 impl<
@@ -557,9 +555,10 @@ where
 
 fn handle_inbound_message(
     msg: LeaderMsg,
-    winning_pol_epoch_slots_sender: &broadcast::Sender<WinningSlotEpochInfo>,
+    winning_pol_epoch_slots_sender: &broadcast::Sender<LeaderPrivate>,
 ) {
     let LeaderMsg::WinningPolEpochSlotStreamSubscribe { sender } = msg;
+
     sender
         .send(winning_pol_epoch_slots_sender.subscribe())
         .unwrap_or_else(|_| {
