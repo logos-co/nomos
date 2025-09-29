@@ -16,6 +16,13 @@ pub fn derive_kms_enum_key(input: proc_macro::TokenStream) -> proc_macro::TokenS
             .into();
     };
 
+    // If there are no variants, do nothing. This won't implement `SecuredKey` or
+    // the encodings, but it will allow the crate to be compiled when no keys
+    // are enabled.
+    if key_enum.variants.is_empty() {
+        return quote! {}.into();
+    }
+
     if let Some(err) = validate_variants(&key_enum.variants) {
         return err.to_compile_error().into();
     }

@@ -1,7 +1,8 @@
-#[cfg(any(feature = "key-ed25519", test))]
-mod ed25519;
 pub mod errors;
 pub mod secured_key;
+
+#[cfg(any(feature = "key-ed25519", test))]
+mod ed25519;
 #[cfg(feature = "key-zk")]
 mod zk;
 
