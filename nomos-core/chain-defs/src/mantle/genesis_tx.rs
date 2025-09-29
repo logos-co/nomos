@@ -25,7 +25,7 @@ pub enum Error {
     #[error("Genesis transaction should not have any inputs")]
     UnepectedInput,
     #[error("Genesis block cannot contain this op: {0:?}")]
-    UnsupportedGenesisOp(Box<Op>),
+    UnsupportedGenesisOp(Vec<Op>),
     #[error("Expected exactly one inscription in genesis block")]
     MissingInscription,
     #[error("Invalid genesis inscription: {0:?}")]
@@ -54,11 +54,12 @@ impl GenesisTx {
             _ => return Err(Error::MissingInscription),
         }
 
-        for op in ops {
-            match op {
-                Op::SDPDeclare(_) => {}
-                _ => return Err(Error::UnsupportedGenesisOp(Box::new(op.clone()))),
-            }
+        let unsupported_ops = ops
+            .filter(|op| !matches!(op, Op::SDPDeclare(_)))
+            .cloned()
+            .collect::<Vec<_>>();
+        if !unsupported_ops.is_empty() {
+            return Err(Error::UnsupportedGenesisOp(unsupported_ops));
         }
 
         Ok(Self(signed_tx))
@@ -264,9 +265,9 @@ mod tests {
                     Op::ChannelInscribe(inscription_op()),
                     Op::ChannelInscribe(inscription_op()),
                 ],
-                Some(Error::UnsupportedGenesisOp(Box::new(Op::ChannelInscribe(
+                Some(Error::UnsupportedGenesisOp(vec![Op::ChannelInscribe(
                     inscription_op(),
-                )))),
+                )])),
             ),
             // Invalid non-SDP combinations
             (
@@ -274,9 +275,9 @@ mod tests {
                     Op::ChannelInscribe(inscription_op()),
                     Op::ChannelBlob(blob_op()),
                 ],
-                Some(Error::UnsupportedGenesisOp(Box::new(Op::ChannelBlob(
-                    blob_op(),
-                )))),
+                Some(Error::UnsupportedGenesisOp(vec![
+                    Op::ChannelBlob(blob_op()),
+                ])),
             ),
         ];
 
@@ -343,9 +344,9 @@ mod tests {
                     Op::SDPDeclare(sdp_declare_op_helper(utxo1, 0)),
                     Op::ChannelBlob(blob_op()),
                 ],
-                Some(Error::UnsupportedGenesisOp(Box::new(Op::ChannelBlob(
-                    blob_op(),
-                )))),
+                Some(Error::UnsupportedGenesisOp(vec![
+                    Op::ChannelBlob(blob_op()),
+                ])),
             ),
         ];
 
