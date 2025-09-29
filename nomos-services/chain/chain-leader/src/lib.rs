@@ -55,6 +55,13 @@ pub enum Error {
 
 #[derive(Debug)]
 pub enum LeaderMsg {
+    /// Request a new broadcast receiver that will yield all winning slots of
+    /// the future epochs.
+    ///
+    /// The stream will yield items in one of two cases:
+    /// * a new epoch starts -> winning slots for the new epoch
+    /// * this service has just started mid-epoch -> winning slots for the
+    ///   current epoch
     WinningPolEpochSlotStreamSubscribe {
         sender: oneshot::Sender<broadcast::Receiver<LeaderPrivate>>,
     },

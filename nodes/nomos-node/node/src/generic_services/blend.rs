@@ -194,48 +194,50 @@ where
             .send(LeaderMsg::WinningPolEpochSlotStreamSubscribe { sender })
             .await
             .ok()?;
-        let item = receiver.await.ok()?;
-        Some(Box::new(BroadcastStream::new(item).filter_map(|res| {
-            let Ok(private) = res else {
-                return ready(None);
-            };
-            let PolWitnessInputsData {
-                chain:
-                    PolChainInputsData {
-                        epoch_nonce,
-                        slot_number,
-                        ..
-                    },
-                wallet:
-                    PolWalletInputsData {
-                        note_value,
-                        transaction_hash,
-                        output_number,
+        let pol_winning_slot_receiver = receiver.await.ok()?;
+        Some(Box::new(
+            BroadcastStream::new(pol_winning_slot_receiver).filter_map(|res| {
+                let Ok(private) = res else {
+                    return ready(None);
+                };
+                let PolWitnessInputsData {
+                    chain:
+                        PolChainInputsData {
+                            epoch_nonce,
+                            slot_number,
+                            ..
+                        },
+                    wallet:
+                        PolWalletInputsData {
+                            note_value,
+                            transaction_hash,
+                            output_number,
+                            aged_path,
+                            aged_selector,
+                            slot_secret,
+                            slot_secret_path,
+                            starting_slot,
+                            ..
+                        },
+                } = PolWitnessInputsData::from(private);
+                ready(Some(PolEpochInfo {
+                    epoch_nonce,
+                    poq_private_inputs: ProofOfLeadershipQuotaInputs {
                         aged_path,
                         aged_selector,
+                        note_value,
+                        output_number,
+                        // TODO: Replace with actual value once `LeaderPrivate` will include the
+                        // note secret key.
+                        pol_secret_key: ZkHash::ZERO,
+                        slot: slot_number,
                         slot_secret,
                         slot_secret_path,
                         starting_slot,
-                        ..
+                        transaction_hash,
                     },
-            } = PolWitnessInputsData::from(private);
-            ready(Some(PolEpochInfo {
-                epoch_nonce,
-                poq_private_inputs: ProofOfLeadershipQuotaInputs {
-                    aged_path,
-                    aged_selector,
-                    note_value,
-                    output_number,
-                    // TODO: Replace with actual value once `LeaderPrivate` will include the note
-                    // secret key.
-                    pol_secret_key: ZkHash::ZERO,
-                    slot: slot_number,
-                    slot_secret,
-                    slot_secret_path,
-                    starting_slot,
-                    transaction_hash,
-                },
-            }))
-        })))
+                }))
+            }),
+        ))
     }
 }
