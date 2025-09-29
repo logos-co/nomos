@@ -10,6 +10,10 @@ inputs:
     description: Directory to download the circuits to
     required: false
     default: 'bin/circuits'
+  version:
+    description: Version of the circuits to download. Expected to be in the format of 'X.Y.Z' (without 'v' prefix). Use '*' to get the latest version.
+    required: false
+    default: '*'
 
 runs:
   using: "composite"
@@ -26,7 +30,7 @@ runs:
       with:
         repository: "logos-co/nomos-pocs"
         latest: true
-        tag: "circom_circuits-v*"
+        tag: "circom_circuits-v${{ inputs.version }}"
         fileName: '*-${{ steps.normalise-os.outputs.os }}-*.tar.gz'
         token: ${{ inputs.github-token }}
         out-file-path: ${{ inputs.download-directory }}
