@@ -171,9 +171,10 @@ mod test {
             // check point is the same
             assert_eq!(evals[i], point);
             // check point bytes are the same
+            let res = &point.into_bigint().to_bytes_be();
             assert_eq!(
                 &bytes[CHUNK_SIZE * i..CHUNK_SIZE * i + CHUNK_SIZE],
-                &point.into_bigint().to_bytes_be()[..CHUNK_SIZE]
+                &res[res.len() - CHUNK_SIZE..]
             );
         }
     }
