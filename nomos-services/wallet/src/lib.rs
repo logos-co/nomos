@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, time::Duration};
 
 use async_trait::async_trait;
 use chain_service::{
@@ -20,6 +20,7 @@ use overwatch::{
     },
 };
 use serde::{Serialize, de::DeserializeOwned};
+use services_utils::wait_until_services_are_ready;
 use tokio::sync::oneshot;
 use tracing::{debug, error, info, trace};
 use wallet::{Wallet, WalletBlock, WalletError};
@@ -115,6 +116,14 @@ where
             mut service_resources_handle,
             ..
         } = self;
+
+        wait_until_services_are_ready!(
+            &service_resources_handle.overwatch_handle,
+            Some(Duration::from_secs(60)),
+            nomos_storage::StorageService<_, _>,
+            Cryptarchia
+        )
+        .await?;
 
         let settings = service_resources_handle
             .settings_handle

@@ -20,7 +20,7 @@ use crate::{
     topology::configs::{
         api::create_api_configs,
         blend::create_blend_configs,
-        bootstrap::create_bootstrap_configs,
+        bootstrap::{SHORT_PROLONGED_BOOTSTRAP_PERIOD, create_bootstrap_configs},
         consensus::{ConsensusParams, create_consensus_configs},
         membership::{MembershipNode, create_membership_configs},
         time::default_time_config,
@@ -126,7 +126,7 @@ impl Topology {
         }
 
         let consensus_configs = create_consensus_configs(&ids, &config.consensus_params);
-        let bootstrapping_config = create_bootstrap_configs(&ids, Duration::from_secs(30));
+        let bootstrapping_config = create_bootstrap_configs(&ids, SHORT_PROLONGED_BOOTSTRAP_PERIOD);
         let da_configs = create_da_configs(&ids, &config.da_params, &da_ports);
         let membership_configs = create_membership_configs(
             ids.iter()
@@ -181,7 +181,7 @@ impl Topology {
         let n_participants = config.n_validators + config.n_executors;
 
         let consensus_configs = create_consensus_configs(ids, &config.consensus_params);
-        let bootstrapping_config = create_bootstrap_configs(ids, Duration::from_secs(60));
+        let bootstrapping_config = create_bootstrap_configs(ids, SHORT_PROLONGED_BOOTSTRAP_PERIOD);
         let da_configs = create_da_configs(ids, &config.da_params, da_ports);
         let network_configs = create_network_configs(ids, &config.network_params);
         let blend_configs = create_blend_configs(ids, blend_ports);
