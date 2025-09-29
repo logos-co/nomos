@@ -1,5 +1,5 @@
-use groth16::fr_from_bytes;
 use nomos_core::crypto::ZkHash;
+use num_bigint::BigUint;
 use poq::{PoQVerifierInput, PoQVerifierInputData};
 
 use crate::crypto::proofs::quota::inputs::{prove::PublicInputs, split_ephemeral_signing_key};
