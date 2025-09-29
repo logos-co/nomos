@@ -24,8 +24,9 @@ tokio-stream        = { default-features = false, version = "0.1" }
 tracing             = { workspace = true }
 
 [dev-dependencies]
-nomos-utils = { workspace = true }
-tokio       = { default-features = false, version = "1" }
+nomos-blend-message = { workspace = true, features = ["unsafe-test-functions"] }
+nomos-utils         = { workspace = true }
+tokio               = { default-features = false, version = "1" }
 
 [features]
 unsafe-test-functions = []

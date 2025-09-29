@@ -6,7 +6,7 @@ use nomos_executor::{
 };
 use nomos_mempool::{processor::tx::SignedTxProcessorSettings, tx::settings::TxMempoolSettings};
 use nomos_node::{
-    CL_TOPIC, CryptarchiaLeaderArgs, HttpArgs, LogArgs, MempoolAdapterSettings, NetworkArgs,
+    CryptarchiaLeaderArgs, HttpArgs, LogArgs, MANTLE_TOPIC, MempoolAdapterSettings, NetworkArgs,
     Transaction, config::BlendArgs,
 };
 use overwatch::overwatch::{Error as OverwatchError, Overwatch, OverwatchRunner};
@@ -77,16 +77,16 @@ async fn main() -> Result<()> {
             #[cfg(feature = "tracing")]
             tracing: config.tracing,
             http: config.http,
-            cl_mempool: TxMempoolSettings {
+            mempool: TxMempoolSettings {
                 pool: (),
                 network_adapter: MempoolAdapterSettings {
-                    topic: String::from(CL_TOPIC),
+                    topic: String::from(MANTLE_TOPIC),
                     id: <SignedMantleTx as Transaction>::hash,
                 },
                 processor: SignedTxProcessorSettings {
                     trigger_sampling_delay: config.mempool.trigger_sampling_delay,
                 },
-                recovery_path: config.mempool.cl_pool_recovery_path,
+                recovery_path: config.mempool.pool_recovery_path,
             },
             da_dispersal: config.da_dispersal,
             da_network: config.da_network,

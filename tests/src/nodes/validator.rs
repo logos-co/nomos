@@ -76,7 +76,7 @@ const BIN_PATH: &str = "../target/debug/nomos-node";
 
 pub enum Pool {
     Da,
-    Cl,
+    Mantle,
 }
 
 pub struct Validator {
@@ -221,7 +221,7 @@ impl Validator {
 
     pub async fn get_mempoool_metrics(&self, pool: Pool) -> MempoolMetrics {
         let discr = match pool {
-            Pool::Cl => "cl",
+            Pool::Mantle => "mantle",
             Pool::Da => "da",
         };
         let addr = format!("/{discr}/metrics");
@@ -580,7 +580,7 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
             },
         },
         mempool: MempoolConfig {
-            cl_pool_recovery_path: "./recovery/cl_mempool.json".into(),
+            pool_recovery_path: "./recovery/mempool.json".into(),
             trigger_sampling_delay: adjust_timeout(Duration::from_secs(5)),
         },
         membership: config.membership_config.service_settings,

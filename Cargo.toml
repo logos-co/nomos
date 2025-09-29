@@ -123,6 +123,7 @@ tests                    = { default-features = false, path = "./tests" }
 utxotree                 = { default-features = false, path = "./utxotree" }
 wallet                   = { default-features = false, path = "./wallet" }
 witness-generator        = { default-features = false, path = "zk/circuits/witness-generator" }
+zeroize                  = { default-features = false, features = ["zeroize_derive"], version = "1" }
 zksign                   = { default-features = false, path = "./zk/proofs/zksign" }
 
 # External

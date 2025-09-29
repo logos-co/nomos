@@ -5,11 +5,7 @@ use nomos_core::{
     mantle::{SignedMantleTx, Transaction as _, TxHash},
 };
 use nomos_da_sampling::backend::DaSamplingServiceBackend;
-use nomos_mempool::{
-    MempoolMsg, TxMempoolService,
-    backend::{MemPool, RecoverableMempool},
-    network::NetworkAdapter as MempoolAdapter,
-};
+use nomos_mempool::{MempoolMsg, TxMempoolService, backend::RecoverableMempool};
 use overwatch::services::{ServiceData, relay::OutboundRelay};
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
@@ -19,21 +15,21 @@ use super::{DaMempoolAdapter, MempoolAdapterError};
 type MempoolRelay<Item, Key> = OutboundRelay<MempoolMsg<HeaderId, Item, Item, Key>>;
 
 pub struct KzgrsMempoolAdapter<
-    ClPoolAdapter,
-    ClPool,
+    MempoolNetAdapter,
+    Mempool,
     SamplingBackend,
     SamplingNetworkAdapter,
     SamplingStorage,
     RuntimeServiceId,
 > where
-    ClPool: MemPool<BlockId = HeaderId>,
-    ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Key = ClPool::Key>,
-    ClPool::Item: Clone + Eq + Debug + 'static,
-    ClPool::Key: Debug + 'static,
+    Mempool: nomos_mempool::backend::Mempool<BlockId = HeaderId>,
+    MempoolNetAdapter: nomos_mempool::network::NetworkAdapter<RuntimeServiceId, Key = Mempool::Key>,
+    Mempool::Item: Clone + Eq + Debug + 'static,
+    Mempool::Key: Debug + 'static,
 {
-    pub mempool_relay: MempoolRelay<ClPool::Item, ClPool::Key>,
+    pub mempool_relay: MempoolRelay<Mempool::Item, Mempool::Key>,
     _phantom: PhantomData<(
-        ClPoolAdapter,
+        MempoolNetAdapter,
         SamplingBackend,
         SamplingNetworkAdapter,
         SamplingStorage,
@@ -43,27 +39,27 @@ pub struct KzgrsMempoolAdapter<
 
 #[async_trait::async_trait]
 impl<
-    ClPoolAdapter,
-    ClPool,
+    MempoolNetAdapter,
+    Mempool,
     SamplingBackend,
     SamplingNetworkAdapter,
     SamplingStorage,
     RuntimeServiceId,
 > DaMempoolAdapter
     for KzgrsMempoolAdapter<
-        ClPoolAdapter,
-        ClPool,
+        MempoolNetAdapter,
+        Mempool,
         SamplingBackend,
         SamplingNetworkAdapter,
         SamplingStorage,
         RuntimeServiceId,
     >
 where
-    ClPool: RecoverableMempool<BlockId = HeaderId, Key = TxHash, Item = SignedMantleTx>,
-    ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    ClPool::Settings: Clone,
-    ClPoolAdapter:
-        MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key> + Sync,
+    Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash, Item = SignedMantleTx>,
+    Mempool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
+    Mempool::Settings: Clone,
+    MempoolNetAdapter:
+        nomos_mempool::network::NetworkAdapter<RuntimeServiceId, Key = Mempool::Key> + Sync,
     SamplingBackend: DaSamplingServiceBackend + Send + Sync,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
@@ -74,10 +70,10 @@ where
     RuntimeServiceId: Send + Sync,
 {
     type MempoolService = TxMempoolService<
-        ClPoolAdapter,
+        MempoolNetAdapter,
         SamplingNetworkAdapter,
         SamplingStorage,
-        ClPool,
+        Mempool,
         RuntimeServiceId,
     >;
     type Tx = SignedMantleTx;

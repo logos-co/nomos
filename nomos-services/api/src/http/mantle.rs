@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 use tokio_stream::wrappers::BroadcastStream;
 
-pub type ClMempoolService<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId> =
+pub type MempoolService<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId> =
     TxMempoolService<
         MempoolNetworkAdapter<Tx, <Tx as Transaction>::Hash, RuntimeServiceId>,
         SamplingNetworkAdapter,
@@ -26,7 +26,7 @@ pub type ClMempoolService<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeSe
         RuntimeServiceId,
     >;
 
-pub async fn cl_mempool_metrics<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>(
+pub async fn mantle_mempool_metrics<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>(
     handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
 ) -> Result<MempoolMetrics, super::DynError>
 where
@@ -47,7 +47,7 @@ where
         + Sync
         + Send
         + Display
-        + AsServiceId<ClMempoolService<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>>,
+        + AsServiceId<MempoolService<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>>,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
@@ -61,7 +61,7 @@ where
     receiver.await.map_err(|e| Box::new(e) as super::DynError)
 }
 
-pub async fn cl_mempool_status<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>(
+pub async fn mantle_mempool_status<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>(
     handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
     items: Vec<<Tx as Transaction>::Hash>,
 ) -> Result<Vec<Status<HeaderId>>, super::DynError>
@@ -83,7 +83,7 @@ where
         + Sync
         + Send
         + Display
-        + AsServiceId<ClMempoolService<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>>,
+        + AsServiceId<MempoolService<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>>,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();

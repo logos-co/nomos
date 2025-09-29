@@ -8,8 +8,7 @@ use nomos_core::{
 };
 use nomos_da_sampling::{DaSamplingService, backend::DaSamplingServiceBackend};
 use nomos_mempool::{
-    TxMempoolService,
-    backend::{MemPool, RecoverableMempool},
+    MempoolMsg, TxMempoolService, backend::RecoverableMempool,
     network::NetworkAdapter as MempoolAdapter,
 };
 use nomos_time::{TimeService, TimeServiceMessage, backends::TimeBackend as TimeBackendTrait};
@@ -19,63 +18,68 @@ use overwatch::{
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::{MempoolRelay, SamplingRelay};
+use crate::SamplingRelay;
 
 type BlendRelay<BlendService> = OutboundRelay<<BlendService as ServiceData>::Message>;
-type ClMempoolRelay<ClPool, ClPoolAdapter, RuntimeServiceId> = MempoolRelay<
-    <ClPoolAdapter as MempoolAdapter<RuntimeServiceId>>::Payload,
-    <ClPool as MemPool>::Item,
-    <ClPool as MemPool>::Key,
+
+type MempoolRelay<Mempool, MempoolNetAdapter, RuntimeServiceId> = OutboundRelay<
+    MempoolMsg<
+        HeaderId,
+        <MempoolNetAdapter as MempoolAdapter<RuntimeServiceId>>::Payload,
+        <Mempool as nomos_mempool::backend::Mempool>::Item,
+        <Mempool as nomos_mempool::backend::Mempool>::Key,
+    >,
 >;
 type TimeRelay = OutboundRelay<TimeServiceMessage>;
 
 pub struct CryptarchiaConsensusRelays<
     BlendService,
-    ClPool,
-    ClPoolAdapter,
+    Mempool,
+    MempoolNetAdapter,
     SamplingBackend,
     RuntimeServiceId,
 > where
     BlendService: ServiceData,
-    ClPool: MemPool,
-    ClPoolAdapter: MempoolAdapter<RuntimeServiceId>,
+    Mempool: nomos_mempool::backend::Mempool,
+    MempoolNetAdapter: MempoolAdapter<RuntimeServiceId>,
     SamplingBackend: DaSamplingServiceBackend,
 {
     blend_relay: BlendRelay<BlendService>,
-    cl_mempool_relay: ClMempoolRelay<ClPool, ClPoolAdapter, RuntimeServiceId>,
+    mempool_relay: MempoolRelay<Mempool, MempoolNetAdapter, RuntimeServiceId>,
     sampling_relay: SamplingRelay<SamplingBackend::BlobId>,
     time_relay: TimeRelay,
 }
 
-impl<BlendService, ClPool, ClPoolAdapter, SamplingBackend, RuntimeServiceId>
+impl<BlendService, Mempool, MempoolNetAdapter, SamplingBackend, RuntimeServiceId>
     CryptarchiaConsensusRelays<
         BlendService,
-        ClPool,
-        ClPoolAdapter,
+        Mempool,
+        MempoolNetAdapter,
         SamplingBackend,
         RuntimeServiceId,
     >
 where
     BlendService: ServiceData,
-    ClPool: RecoverableMempool<BlockId = HeaderId, Key = TxHash>,
-    ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    ClPool::Item: Debug + Serialize + DeserializeOwned + Eq + Clone + Send + Sync + 'static,
-    ClPool::Item: AuthenticatedMantleTx,
-    ClPool::Settings: Clone,
-    ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
+    Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash>,
+    Mempool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
+    Mempool::Item: Debug + Serialize + DeserializeOwned + Eq + Clone + Send + Sync + 'static,
+    Mempool::Item: AuthenticatedMantleTx,
+    Mempool::Settings: Clone,
+    MempoolNetAdapter:
+        MempoolAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
 {
     pub const fn new(
         blend_relay: BlendRelay<BlendService>,
-        cl_mempool_relay: ClMempoolRelay<ClPool, ClPoolAdapter, RuntimeServiceId>,
+        mempool_relay: MempoolRelay<Mempool, MempoolNetAdapter, RuntimeServiceId>,
         sampling_relay: SamplingRelay<SamplingBackend::BlobId>,
         time_relay: TimeRelay,
     ) -> Self {
         Self {
             blend_relay,
-            cl_mempool_relay,
+            mempool_relay,
             sampling_relay,
             time_relay,
         }
@@ -96,7 +100,7 @@ where
         <S as ServiceData>::Message: Send + Sync + 'static,
         <S as ServiceData>::Settings: Send + Sync + 'static,
         <S as ServiceData>::State: Send + Sync + 'static,
-        ClPool::Key: Send,
+        Mempool::Key: Send,
         BlendService: nomos_blend_service::ServiceComponents,
         BlendService::BroadcastSettings: Send + Sync,
         <BlendService as ServiceData>::Message: Send + 'static,
@@ -114,10 +118,10 @@ where
             + AsServiceId<BlendService>
             + AsServiceId<
                 TxMempoolService<
-                    ClPoolAdapter,
+                    MempoolNetAdapter,
                     SamplingNetworkAdapter,
                     SamplingStorage,
-                    ClPool,
+                    Mempool,
                     RuntimeServiceId,
                 >,
             >
@@ -131,7 +135,7 @@ where
             >
             + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>
             + AsServiceId<CryptarchiaService>,
-        CryptarchiaService: CryptarchiaServiceData<ClPool::Item>,
+        CryptarchiaService: CryptarchiaServiceData<Mempool::Item>,
     {
         let blend_relay = service_resources_handle
             .overwatch_handle
@@ -142,11 +146,11 @@ where
         succeed",
             );
 
-        let cl_mempool_relay = service_resources_handle
+        let mempool_relay = service_resources_handle
             .overwatch_handle
             .relay::<TxMempoolService<_, _, _, _, _>>()
             .await
-            .expect("Relay connection with CL MemPoolService should succeed");
+            .expect("Relay connection with MempoolService should succeed");
 
         let sampling_relay = service_resources_handle
             .overwatch_handle
@@ -160,17 +164,17 @@ where
             .await
             .expect("Relay connection with TimeService should succeed");
 
-        Self::new(blend_relay, cl_mempool_relay, sampling_relay, time_relay)
+        Self::new(blend_relay, mempool_relay, sampling_relay, time_relay)
     }
 
     pub const fn blend_relay(&self) -> &BlendRelay<BlendService> {
         &self.blend_relay
     }
 
-    pub const fn cl_mempool_relay(
+    pub const fn mempool_relay(
         &self,
-    ) -> &ClMempoolRelay<ClPool, ClPoolAdapter, RuntimeServiceId> {
-        &self.cl_mempool_relay
+    ) -> &MempoolRelay<Mempool, MempoolNetAdapter, RuntimeServiceId> {
+        &self.mempool_relay
     }
 
     pub const fn sampling_relay(&self) -> &SamplingRelay<SamplingBackend::BlobId> {

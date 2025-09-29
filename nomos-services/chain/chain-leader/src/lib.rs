@@ -37,7 +37,6 @@ use tracing_futures::Instrument as _;
 
 use crate::{blend::BlendAdapter, leadership::Leader, relays::CryptarchiaConsensusRelays};
 
-type MempoolRelay<Payload, Item, Key> = OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>;
 type SamplingRelay<BlobId> = OutboundRelay<DaSamplingServiceMsg<BlobId>>;
 
 const LEADER_ID: &str = "Leader";
@@ -72,8 +71,8 @@ pub struct LeaderSettings<Ts, BlendBroadcastSettings> {
 #[expect(clippy::allow_attributes_without_reason)]
 pub struct CryptarchiaLeader<
     BlendService,
-    ClPool,
-    ClPoolAdapter,
+    Mempool,
+    MempoolNetAdapter,
     TxS,
     SamplingBackend,
     SamplingNetworkAdapter,
@@ -83,13 +82,14 @@ pub struct CryptarchiaLeader<
     RuntimeServiceId,
 > where
     BlendService: nomos_blend_service::ServiceComponents,
-    ClPool: RecoverableMempool<BlockId = HeaderId, Key = TxHash>,
-    ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    ClPool::Settings: Clone,
-    ClPool::Item: Clone + Eq + Debug + 'static,
-    ClPool::Item: AuthenticatedMantleTx,
-    ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
-    TxS: TxSelect<Tx = ClPool::Item>,
+    Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash>,
+    Mempool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
+    Mempool::Settings: Clone,
+    Mempool::Item: Clone + Eq + Debug + 'static,
+    Mempool::Item: AuthenticatedMantleTx,
+    MempoolNetAdapter:
+        MempoolAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>,
+    TxS: TxSelect<Tx = Mempool::Item>,
     TxS::Settings: Send,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
     SamplingBackend::Settings: Clone,
@@ -98,15 +98,15 @@ pub struct CryptarchiaLeader<
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync + 'static,
-    CryptarchiaService: CryptarchiaServiceData<ClPool::Item>,
+    CryptarchiaService: CryptarchiaServiceData<Mempool::Item>,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
 }
 
 impl<
     BlendService,
-    ClPool,
-    ClPoolAdapter,
+    Mempool,
+    MempoolNetAdapter,
     TxS,
     SamplingBackend,
     SamplingNetworkAdapter,
@@ -117,8 +117,8 @@ impl<
 > ServiceData
     for CryptarchiaLeader<
         BlendService,
-        ClPool,
-        ClPoolAdapter,
+        Mempool,
+        MempoolNetAdapter,
         TxS,
         SamplingBackend,
         SamplingNetworkAdapter,
@@ -129,12 +129,13 @@ impl<
     >
 where
     BlendService: nomos_blend_service::ServiceComponents,
-    ClPool: RecoverableMempool<BlockId = HeaderId, Key = TxHash>,
-    ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    ClPool::Settings: Clone,
-    ClPool::Item: AuthenticatedMantleTx + Clone + Eq + Debug,
-    ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
-    TxS: TxSelect<Tx = ClPool::Item>,
+    Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash>,
+    Mempool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
+    Mempool::Settings: Clone,
+    Mempool::Item: AuthenticatedMantleTx + Clone + Eq + Debug,
+    MempoolNetAdapter:
+        MempoolAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>,
+    TxS: TxSelect<Tx = Mempool::Item>,
     TxS::Settings: Send,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
     SamplingBackend::Settings: Clone,
@@ -143,7 +144,7 @@ where
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync + 'static,
-    CryptarchiaService: CryptarchiaServiceData<ClPool::Item>,
+    CryptarchiaService: CryptarchiaServiceData<Mempool::Item>,
 {
     type Settings = LeaderSettings<TxS::Settings, BlendService::BroadcastSettings>;
     type State = overwatch::services::state::NoState<Self::Settings>;
@@ -154,8 +155,8 @@ where
 #[async_trait::async_trait]
 impl<
     BlendService,
-    ClPool,
-    ClPoolAdapter,
+    Mempool,
+    MempoolNetAdapter,
     TxS,
     SamplingBackend,
     SamplingNetworkAdapter,
@@ -166,8 +167,8 @@ impl<
 > ServiceCore<RuntimeServiceId>
     for CryptarchiaLeader<
         BlendService,
-        ClPool,
-        ClPoolAdapter,
+        Mempool,
+        MempoolNetAdapter,
         TxS,
         SamplingBackend,
         SamplingNetworkAdapter,
@@ -184,10 +185,10 @@ where
         + Sync
         + 'static,
     BlendService::BroadcastSettings: Clone + Send + Sync,
-    ClPool: RecoverableMempool<BlockId = HeaderId, Key = TxHash> + Send + Sync + 'static,
-    ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    ClPool::Settings: Clone + Send + Sync + 'static,
-    ClPool::Item: Transaction<Hash = ClPool::Key>
+    Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash> + Send + Sync + 'static,
+    Mempool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
+    Mempool::Settings: Clone + Send + Sync + 'static,
+    Mempool::Item: Transaction<Hash = Mempool::Key>
         + Debug
         + Clone
         + Eq
@@ -197,12 +198,12 @@ where
         + Sync
         + Unpin
         + 'static,
-    ClPool::Item: AuthenticatedMantleTx,
-    ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>
+    Mempool::Item: AuthenticatedMantleTx,
+    MempoolNetAdapter: MempoolAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>
         + Send
         + Sync
         + 'static,
-    TxS: TxSelect<Tx = ClPool::Item> + Clone + Send + Sync + 'static,
+    TxS: TxSelect<Tx = Mempool::Item> + Clone + Send + Sync + 'static,
     TxS::Settings: Send + Sync + 'static,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send + 'static,
     SamplingBackend::Settings: Clone,
@@ -213,7 +214,7 @@ where
         nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync + 'static,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync + 'static,
-    CryptarchiaService: CryptarchiaServiceData<ClPool::Item>,
+    CryptarchiaService: CryptarchiaServiceData<Mempool::Item>,
     RuntimeServiceId: Debug
         + Send
         + Sync
@@ -223,10 +224,10 @@ where
         + AsServiceId<BlendService>
         + AsServiceId<
             TxMempoolService<
-                ClPoolAdapter,
+                MempoolNetAdapter,
                 SamplingNetworkAdapter,
                 SamplingStorage,
-                ClPool,
+                Mempool,
                 RuntimeServiceId,
             >,
         >
@@ -264,7 +265,7 @@ where
         // Create the API wrapper for chain service communication
         let cryptarchia_api = CryptarchiaServiceApi::<
             CryptarchiaService,
-            ClPool::Item,
+            Mempool::Item,
             RuntimeServiceId,
         >::new::<Self>(&self.service_resources_handle)
         .await?;
@@ -412,8 +413,8 @@ where
 
 impl<
     BlendService,
-    ClPool,
-    ClPoolAdapter,
+    Mempool,
+    MempoolNetAdapter,
     TxS,
     SamplingBackend,
     SamplingNetworkAdapter,
@@ -424,8 +425,8 @@ impl<
 >
     CryptarchiaLeader<
         BlendService,
-        ClPool,
-        ClPoolAdapter,
+        Mempool,
+        MempoolNetAdapter,
         TxS,
         SamplingBackend,
         SamplingNetworkAdapter,
@@ -442,10 +443,10 @@ where
         + Sync
         + 'static,
     BlendService::BroadcastSettings: Send + Sync,
-    ClPool: RecoverableMempool<BlockId = HeaderId, Key = TxHash> + Send + Sync + 'static,
-    ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    ClPool::Settings: Clone + Send + Sync + 'static,
-    ClPool::Item: Transaction<Hash = ClPool::Key>
+    Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash> + Send + Sync + 'static,
+    Mempool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
+    Mempool::Settings: Clone + Send + Sync + 'static,
+    Mempool::Item: Transaction<Hash = Mempool::Key>
         + Debug
         + Clone
         + Eq
@@ -454,12 +455,12 @@ where
         + Send
         + Sync
         + 'static,
-    ClPool::Item: AuthenticatedMantleTx,
-    ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>
+    Mempool::Item: AuthenticatedMantleTx,
+    MempoolNetAdapter: MempoolAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>
         + Send
         + Sync
         + 'static,
-    TxS: TxSelect<Tx = ClPool::Item> + Clone + Send + Sync + 'static,
+    TxS: TxSelect<Tx = Mempool::Item> + Clone + Send + Sync + 'static,
     TxS::Settings: Send + Sync + 'static,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
     SamplingBackend::Settings: Clone,
@@ -468,7 +469,7 @@ where
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
-    CryptarchiaService: CryptarchiaServiceData<ClPool::Item>,
+    CryptarchiaService: CryptarchiaServiceData<Mempool::Item>,
 {
     #[expect(clippy::allow_attributes_without_reason)]
     #[instrument(level = "debug", skip(tx_selector, relays))]
@@ -479,14 +480,14 @@ where
         tx_selector: TxS,
         relays: &CryptarchiaConsensusRelays<
             BlendService,
-            ClPool,
-            ClPoolAdapter,
+            Mempool,
+            MempoolNetAdapter,
             SamplingBackend,
             RuntimeServiceId,
         >,
-    ) -> Option<Block<ClPool::Item>> {
+    ) -> Option<Block<Mempool::Item>> {
         let mut output = None;
-        let txs = get_mempool_contents(relays.cl_mempool_relay().clone()).map_err(DynError::from);
+        let txs = get_mempool_contents(relays.mempool_relay().clone()).map_err(DynError::from);
         let sampling_relay = relays.sampling_relay().clone();
         let blobs_ids = get_sampled_blobs(sampling_relay);
         match futures::try_join!(txs, blobs_ids) {

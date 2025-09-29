@@ -1,4 +1,4 @@
-use num_bigint::BigUint;
+use groth16::fr_from_bytes;
 use poq::{
     PoQBlendInputsData, PoQChainInputsData, PoQCommonInputsData, PoQInputsFromDataError,
     PoQWalletInputsData, PoQWitnessInputs,

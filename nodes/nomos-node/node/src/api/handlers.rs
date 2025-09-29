@@ -15,10 +15,11 @@ use broadcast_service::BlockBroadcastService;
 use futures::StreamExt as _;
 use nomos_api::http::{
     DynError,
-    cl::{self, ClMempoolService},
     consensus::{self, Cryptarchia},
     da::{self, BalancerMessageFactory, DaVerifier, MonitorMessageFactory},
-    libp2p, mempool,
+    libp2p,
+    mantle::{self, MempoolService},
+    mempool,
     storage::StorageAdapter,
 };
 use nomos_core::{
@@ -66,13 +67,13 @@ macro_rules! make_request_and_return_response {
 
 #[utoipa::path(
     get,
-    path = paths::CL_METRICS,
+    path = paths::MANTLE_METRICS,
     responses(
         (status = 200, description = "Get the mempool metrics of the cl service", body = MempoolMetrics),
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn cl_metrics<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>(
+pub async fn mantle_metrics<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
 ) -> Response
 where
@@ -94,9 +95,9 @@ where
         + Sync
         + Display
         + 'static
-        + AsServiceId<ClMempoolService<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>>,
+        + AsServiceId<MempoolService<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>>,
 {
-    make_request_and_return_response!(cl::cl_mempool_metrics::<
+    make_request_and_return_response!(mantle::mantle_mempool_metrics::<
         Tx,
         SamplingNetworkAdapter,
         SamplingStorage,
@@ -106,13 +107,13 @@ where
 
 #[utoipa::path(
     post,
-    path = paths::CL_STATUS,
+    path = paths::MANTLE_STATUS,
     responses(
         (status = 200, description = "Query the mempool status of the cl service", body = Vec<<T as Transaction>::Hash>),
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn cl_status<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>(
+pub async fn mantle_status<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
     Json(items): Json<Vec<<Tx as Transaction>::Hash>>,
 ) -> Response
@@ -134,9 +135,9 @@ where
         + Sync
         + Display
         + 'static
-        + AsServiceId<ClMempoolService<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>>,
+        + AsServiceId<MempoolService<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>>,
 {
-    make_request_and_return_response!(cl::cl_mempool_status::<
+    make_request_and_return_response!(mantle::mantle_mempool_status::<
         Tx,
         SamplingNetworkAdapter,
         SamplingStorage,
@@ -294,7 +295,7 @@ where
     RuntimeServiceId:
         Debug + Sync + Display + AsServiceId<BlockBroadcastService<RuntimeServiceId>> + 'static,
 {
-    match cl::lib_block_stream(&handle).await {
+    match mantle::lib_block_stream(&handle).await {
         Ok(shares) => {
             let stream = shares.map(|res| {
                 let info = res?;

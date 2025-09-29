@@ -11,11 +11,7 @@ use nomos_core::{
     mantle::{AuthenticatedMantleTx, TxHash},
 };
 use nomos_da_sampling::{DaSamplingService, backend::DaSamplingServiceBackend};
-use nomos_mempool::{
-    TxMempoolService,
-    backend::{MemPool, RecoverableMempool},
-    network::NetworkAdapter as MempoolAdapter,
-};
+use nomos_mempool::{MempoolMsg, TxMempoolService, backend::RecoverableMempool};
 use nomos_network::{NetworkService, message::BackendNetworkMsg};
 use nomos_storage::{
     StorageMsg, StorageService, api::chain::StorageChainApi, backends::StorageBackend,
@@ -25,89 +21,91 @@ use overwatch::{
     OpaqueServiceResourcesHandle,
     services::{AsServiceId, relay::OutboundRelay},
 };
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{Serialize, de::DeserializeOwned};
 
 use crate::{
-    CryptarchiaConsensus, MempoolRelay, SamplingRelay, network,
+    CryptarchiaConsensus, SamplingRelay, network,
     storage::{StorageAdapter as _, adapters::StorageAdapter},
 };
 
 type NetworkRelay<NetworkBackend, RuntimeServiceId> =
     OutboundRelay<BackendNetworkMsg<NetworkBackend, RuntimeServiceId>>;
 pub type BroadcastRelay = OutboundRelay<BlockBroadcastMsg>;
-type ClMempoolRelay<ClPool, ClPoolAdapter, RuntimeServiceId> = MempoolRelay<
-    <ClPoolAdapter as MempoolAdapter<RuntimeServiceId>>::Payload,
-    <ClPool as MemPool>::Item,
-    <ClPool as MemPool>::Key,
+
+type MempoolRelay<Mempool, MempoolNetAdapter, RuntimeServiceId> = OutboundRelay<
+    MempoolMsg<
+        HeaderId,
+        <MempoolNetAdapter as nomos_mempool::network::NetworkAdapter<RuntimeServiceId>>::Payload,
+        <Mempool as nomos_mempool::backend::Mempool>::Item,
+        <Mempool as nomos_mempool::backend::Mempool>::Key,
+    >,
 >;
+
 pub type StorageRelay<Storage> = OutboundRelay<StorageMsg<Storage>>;
 
 pub struct CryptarchiaConsensusRelays<
-    ClPool,
-    ClPoolAdapter,
+    Mempool,
+    MempoolNetAdapter,
     NetworkAdapter,
     SamplingBackend,
     Storage,
     RuntimeServiceId,
 > where
-    ClPool: MemPool,
-    ClPoolAdapter: MempoolAdapter<RuntimeServiceId>,
+    Mempool: nomos_mempool::backend::Mempool,
+    MempoolNetAdapter: nomos_mempool::network::NetworkAdapter<RuntimeServiceId>,
     NetworkAdapter: network::NetworkAdapter<RuntimeServiceId>,
     Storage: StorageBackend + Send + Sync + 'static,
     SamplingBackend: DaSamplingServiceBackend,
 {
-    network_relay: NetworkRelay<
-        <NetworkAdapter as network::NetworkAdapter<RuntimeServiceId>>::Backend,
-        RuntimeServiceId,
-    >,
+    network_relay: NetworkRelay<NetworkAdapter::Backend, RuntimeServiceId>,
     broadcast_relay: BroadcastRelay,
-    cl_mempool_relay: ClMempoolRelay<ClPool, ClPoolAdapter, RuntimeServiceId>,
-    storage_adapter: StorageAdapter<Storage, ClPool::Item, RuntimeServiceId>,
+    mempool_relay: MempoolRelay<Mempool, MempoolNetAdapter, RuntimeServiceId>,
+    storage_adapter: StorageAdapter<Storage, Mempool::Item, RuntimeServiceId>,
     sampling_relay: SamplingRelay<SamplingBackend::BlobId>,
 }
 
-impl<ClPool, ClPoolAdapter, NetworkAdapter, SamplingBackend, Storage, RuntimeServiceId>
+impl<Mempool, MempoolNetAdapter, NetworkAdapter, SamplingBackend, Storage, RuntimeServiceId>
     CryptarchiaConsensusRelays<
-        ClPool,
-        ClPoolAdapter,
+        Mempool,
+        MempoolNetAdapter,
         NetworkAdapter,
         SamplingBackend,
         Storage,
         RuntimeServiceId,
     >
 where
-    ClPool: RecoverableMempool<BlockId = HeaderId, Key = TxHash>,
-    ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    ClPool::Item: Debug + Serialize + DeserializeOwned + Eq + Clone + Send + Sync + 'static,
-    ClPool::Item: AuthenticatedMantleTx,
-    ClPool::Settings: Clone,
-    ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
+    Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash>,
+    Mempool::RecoveryState: Serialize + DeserializeOwned,
+    Mempool::Item: Debug + Serialize + DeserializeOwned + Eq + Clone + Send + Sync + 'static,
+    Mempool::Item: AuthenticatedMantleTx,
+    Mempool::Settings: Clone,
+    MempoolNetAdapter: nomos_mempool::network::NetworkAdapter<
+            RuntimeServiceId,
+            Payload = Mempool::Item,
+            Key = Mempool::Key,
+        >,
     NetworkAdapter: network::NetworkAdapter<RuntimeServiceId>,
     NetworkAdapter::Settings: Send,
     NetworkAdapter::PeerId: Clone + Eq + Hash + Send + Sync,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
-    Storage: StorageBackend + Send + Sync + 'static,
-    <Storage as StorageChainApi>::Block:
-        TryFrom<Block<ClPool::Item>> + TryInto<Block<ClPool::Item>>,
+    Storage: StorageChainApi + StorageBackend + Send + Sync + 'static,
+    Storage::Block: TryFrom<Block<Mempool::Item>> + TryInto<Block<Mempool::Item>>,
 {
     pub async fn new(
-        network_relay: NetworkRelay<
-            <NetworkAdapter as network::NetworkAdapter<RuntimeServiceId>>::Backend,
-            RuntimeServiceId,
-        >,
+        network_relay: NetworkRelay<NetworkAdapter::Backend, RuntimeServiceId>,
         broadcast_relay: BroadcastRelay,
-        cl_mempool_relay: ClMempoolRelay<ClPool, ClPoolAdapter, RuntimeServiceId>,
+        mempool_relay: MempoolRelay<Mempool, MempoolNetAdapter, RuntimeServiceId>,
         sampling_relay: SamplingRelay<SamplingBackend::BlobId>,
         storage_relay: StorageRelay<Storage>,
     ) -> Self {
         let storage_adapter =
-            StorageAdapter::<Storage, ClPool::Item, RuntimeServiceId>::new(storage_relay).await;
+            StorageAdapter::<Storage, Mempool::Item, RuntimeServiceId>::new(storage_relay).await;
         Self {
             network_relay,
             broadcast_relay,
-            cl_mempool_relay,
+            mempool_relay,
             storage_adapter,
             sampling_relay,
         }
@@ -123,8 +121,8 @@ where
         service_resources_handle: &OpaqueServiceResourcesHandle<
             CryptarchiaConsensus<
                 NetworkAdapter,
-                ClPool,
-                ClPoolAdapter,
+                Mempool,
+                MempoolNetAdapter,
                 Storage,
                 SamplingBackend,
                 SamplingNetworkAdapter,
@@ -136,7 +134,7 @@ where
         >,
     ) -> Self
     where
-        ClPool::Key: Send,
+        Mempool::Key: Send,
         NetworkAdapter::Settings: Sync + Send,
         SamplingNetworkAdapter:
             nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
@@ -153,10 +151,10 @@ where
             + AsServiceId<BlockBroadcastService<RuntimeServiceId>>
             + AsServiceId<
                 TxMempoolService<
-                    ClPoolAdapter,
+                    MempoolNetAdapter,
                     SamplingNetworkAdapter,
                     SamplingStorage,
-                    ClPool,
+                    Mempool,
                     RuntimeServiceId,
                 >,
             >
@@ -186,11 +184,11 @@ where
         succeed",
             );
 
-        let cl_mempool_relay = service_resources_handle
+        let mempool_relay = service_resources_handle
             .overwatch_handle
             .relay::<TxMempoolService<_, _, _, _, _>>()
             .await
-            .expect("Relay connection with CL MemPoolService should succeed");
+            .expect("Relay connection with MempoolService should succeed");
 
         let sampling_relay = service_resources_handle
             .overwatch_handle
@@ -207,19 +205,14 @@ where
         Self::new(
             network_relay,
             broadcast_relay,
-            cl_mempool_relay,
+            mempool_relay,
             sampling_relay,
             storage_relay,
         )
         .await
     }
 
-    pub const fn network_relay(
-        &self,
-    ) -> &NetworkRelay<
-        <NetworkAdapter as network::NetworkAdapter<RuntimeServiceId>>::Backend,
-        RuntimeServiceId,
-    > {
+    pub const fn network_relay(&self) -> &NetworkRelay<NetworkAdapter::Backend, RuntimeServiceId> {
         &self.network_relay
     }
 
@@ -227,10 +220,10 @@ where
         &self.broadcast_relay
     }
 
-    pub const fn cl_mempool_relay(
+    pub const fn mempool_relay(
         &self,
-    ) -> &ClMempoolRelay<ClPool, ClPoolAdapter, RuntimeServiceId> {
-        &self.cl_mempool_relay
+    ) -> &MempoolRelay<Mempool, MempoolNetAdapter, RuntimeServiceId> {
+        &self.mempool_relay
     }
 
     pub const fn sampling_relay(&self) -> &SamplingRelay<SamplingBackend::BlobId> {
@@ -239,7 +232,7 @@ where
 
     pub const fn storage_adapter(
         &self,
-    ) -> &StorageAdapter<Storage, ClPool::Item, RuntimeServiceId> {
+    ) -> &StorageAdapter<Storage, Mempool::Item, RuntimeServiceId> {
         &self.storage_adapter
     }
 }

@@ -67,7 +67,7 @@ use crate::{
 };
 
 pub const CONSENSUS_TOPIC: &str = "/cryptarchia/proto";
-pub const CL_TOPIC: &str = "cl";
+pub const MANTLE_TOPIC: &str = "mantle";
 pub const DA_TOPIC: &str = "da";
 pub const MB16: usize = 1024 * 1024 * 16;
 
@@ -119,7 +119,7 @@ pub(crate) type DaNetworkService = nomos_da_network_service::NetworkService<
     RuntimeServiceId,
 >;
 
-pub(crate) type ClMempoolService = generic_services::TxMempoolService<
+pub(crate) type MempoolService = generic_services::TxMempoolService<
     SamplingLibp2pAdapter<
         NomosDaMembership,
         DaMembershipAdapter<RuntimeServiceId>,
@@ -205,7 +205,7 @@ pub struct Nomos {
     da_verifier: DaVerifierService,
     da_sampling: DaSamplingService,
     da_network: DaNetworkService,
-    cl_mempool: ClMempoolService,
+    mempool: MempoolService,
     cryptarchia: CryptarchiaService,
     cryptarchia_leader: CryptarchiaLeaderService,
     block_broadcast: BlockBroadcastService,
@@ -233,16 +233,16 @@ pub fn run_node_from_config(config: Config) -> Result<Overwatch<RuntimeServiceId
             #[cfg(feature = "tracing")]
             tracing: config.tracing,
             http: config.http,
-            cl_mempool: TxMempoolSettings {
+            mempool: TxMempoolSettings {
                 pool: (),
                 network_adapter: AdapterSettings {
-                    topic: String::from(CL_TOPIC),
+                    topic: String::from(MANTLE_TOPIC),
                     id: <SignedMantleTx as Transaction>::hash,
                 },
                 processor: SignedTxProcessorSettings {
                     trigger_sampling_delay: config.mempool.trigger_sampling_delay,
                 },
-                recovery_path: config.mempool.cl_pool_recovery_path,
+                recovery_path: config.mempool.pool_recovery_path,
             },
             da_network: config.da_network,
             da_sampling: config.da_sampling,
@@ -285,7 +285,7 @@ pub async fn get_services_to_start(
             RuntimeServiceId::DaVerifier,
             RuntimeServiceId::DaSampling,
             RuntimeServiceId::DaNetwork,
-            RuntimeServiceId::ClMempool,
+            RuntimeServiceId::Mempool,
         ];
         service_ids.retain(|value| !da_service_ids.contains(value));
     }

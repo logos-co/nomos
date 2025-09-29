@@ -27,7 +27,7 @@ use services_utils::{
 
 use crate::{
     MempoolMetrics, MempoolMsg,
-    backend::{MemPool, RecoverableMempool},
+    backend::{Mempool, RecoverableMempool},
     network::NetworkAdapter as NetworkAdapterTrait,
     processor::{PayloadProcessor, tx::SignedTxProcessor},
     tx::{settings::TxMempoolSettings, state::TxMempoolState},
@@ -56,14 +56,14 @@ pub type TxMempoolService<
     JsonFileBackend<
         TxMempoolState<
             <Pool as RecoverableMempool>::RecoveryState,
-            <Pool as MemPool>::Settings,
+            <Pool as Mempool>::Settings,
             <MempoolNetworkAdapter as NetworkAdapterTrait<RuntimeServiceId>>::Settings,
             <SignedTxProcessor<
                 DaSamplingService<SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>,
             > as PayloadProcessor>::Settings,
         >,
         TxMempoolSettings<
-            <Pool as MemPool>::Settings,
+            <Pool as Mempool>::Settings,
             <MempoolNetworkAdapter as NetworkAdapterTrait<RuntimeServiceId>>::Settings,
             <SignedTxProcessor<
                 DaSamplingService<SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>,
