@@ -967,7 +967,7 @@ mod tests {
             );
 
             nomos_core::proofs::leader_proof::Groth16LeaderProof::prove(
-                &private_inputs,
+                private_inputs,
                 nomos_core::mantle::ops::leader_claim::VoucherCm::default(),
             )
             .expect("Proof generation should succeed")

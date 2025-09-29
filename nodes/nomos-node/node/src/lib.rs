@@ -81,12 +81,38 @@ pub(crate) type TracingService = Tracing<RuntimeServiceId>;
 
 pub(crate) type NetworkService = nomos_network::NetworkService<NetworkBackend, RuntimeServiceId>;
 
-pub(crate) type BlendCoreService = generic_services::blend::BlendCoreService<RuntimeServiceId>;
-pub(crate) type BlendEdgeService = generic_services::blend::BlendEdgeService<RuntimeServiceId>;
-pub(crate) type BlendService = generic_services::blend::BlendService<RuntimeServiceId>;
+pub(crate) type BlendCoreService = generic_services::blend::BlendCoreService<
+    SamplingLibp2pAdapter<
+        NomosDaMembership,
+        DaMembershipAdapter<RuntimeServiceId>,
+        DaMembershipStorage,
+        DaNetworkApiAdapter,
+        RuntimeServiceId,
+    >,
+    RuntimeServiceId,
+>;
+pub(crate) type BlendEdgeService = generic_services::blend::BlendEdgeService<
+    SamplingLibp2pAdapter<
+        NomosDaMembership,
+        DaMembershipAdapter<RuntimeServiceId>,
+        DaMembershipStorage,
+        DaNetworkApiAdapter,
+        RuntimeServiceId,
+    >,
+    RuntimeServiceId,
+>;
+pub(crate) type BlendService = generic_services::blend::BlendService<
+    SamplingLibp2pAdapter<
+        NomosDaMembership,
+        DaMembershipAdapter<RuntimeServiceId>,
+        DaMembershipStorage,
+        DaNetworkApiAdapter,
+        RuntimeServiceId,
+    >,
+    RuntimeServiceId,
+>;
 
 pub(crate) type BlockBroadcastService = broadcast_service::BlockBroadcastService<RuntimeServiceId>;
-
 pub(crate) type DaVerifierService = generic_services::DaVerifierService<
     VerifierNetworkAdapter<
         NomosDaMembership,
