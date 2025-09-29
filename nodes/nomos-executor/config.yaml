@@ -278,7 +278,7 @@ storage:
   read_only: false
   column_family: blocks
 mempool:
-  cl_pool_recovery_path: ./recovery/cl_mempool.json
+  pool_recovery_path: ./recovery/mempool.json
   trigger_sampling_delay:
     secs: 5
     nanos: 0
