@@ -1,5 +1,5 @@
-pub const CL_METRICS: &str = "/cl/metrics";
-pub const CL_STATUS: &str = "/cl/status";
+pub const MANTLE_METRICS: &str = "/mantle/metrics";
+pub const MANTLE_STATUS: &str = "/mantle/status";
 pub const CRYPTARCHIA_INFO: &str = "/cryptarchia/info";
 pub const CRYPTARCHIA_HEADERS: &str = "/cryptarchia/headers";
 pub const CRYPTARCHIA_LIB_STREAM: &str = "/cryptarchia/lib-stream";

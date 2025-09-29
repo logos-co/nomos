@@ -54,9 +54,9 @@ use nomos_da_verifier::{
 };
 use nomos_executor::{api::backend::AxumBackendSettings, config::Config};
 use nomos_http_api_common::paths::{
-    CL_METRICS, CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_BLACKLISTED_PEERS, DA_BLOCK_PEER,
-    DA_GET_MEMBERSHIP, DA_GET_SHARES_COMMITMENTS, DA_HISTORIC_SAMPLING, DA_MONITOR_STATS,
-    DA_UNBLOCK_PEER, STORAGE_BLOCK, UPDATE_MEMBERSHIP,
+    CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_BLACKLISTED_PEERS, DA_BLOCK_PEER, DA_GET_MEMBERSHIP,
+    DA_GET_SHARES_COMMITMENTS, DA_HISTORIC_SAMPLING, DA_MONITOR_STATS, DA_UNBLOCK_PEER,
+    MANTLE_METRICS, STORAGE_BLOCK, UPDATE_MEMBERSHIP,
 };
 use nomos_network::{backends::libp2p::Libp2pConfig, config::NetworkConfig};
 use nomos_node::{
@@ -191,7 +191,7 @@ impl Executor {
 
     async fn wait_online(&self) {
         loop {
-            let res = self.get(CL_METRICS).await;
+            let res = self.get(MANTLE_METRICS).await;
             if res.is_ok() && res.unwrap().status().is_success() {
                 break;
             }
@@ -560,7 +560,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
             },
         },
         mempool: MempoolConfig {
-            cl_pool_recovery_path: "./recovery/cl_mempool.json".into(),
+            pool_recovery_path: "./recovery/mempool.json".into(),
             trigger_sampling_delay: adjust_timeout(Duration::from_secs(5)),
         },
         membership: config.membership_config.service_settings,

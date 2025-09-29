@@ -47,9 +47,10 @@ use nomos_mempool::{
 use nomos_node::{
     RocksBackend,
     api::handlers::{
-        add_share, add_tx, balancer_stats, blacklisted_peers, block, block_peer, cl_metrics,
-        cl_status, cryptarchia_headers, cryptarchia_info, da_get_commitments, da_get_light_share,
-        da_get_shares, da_get_storage_commitments, libp2p_info, monitor_stats, unblock_peer,
+        add_share, add_tx, balancer_stats, blacklisted_peers, block, block_peer,
+        cryptarchia_headers, cryptarchia_info, da_get_commitments, da_get_light_share,
+        da_get_shares, da_get_storage_commitments, libp2p_info, mantle_metrics, mantle_status,
+        monitor_stats, unblock_peer,
     },
 };
 use nomos_storage::{StorageService, api::da};
@@ -408,15 +409,15 @@ where
         let app = Router::new()
             .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
             .route(
-                paths::CL_METRICS,
+                paths::MANTLE_METRICS,
                 routing::get(
-                    cl_metrics::<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>,
+                    mantle_metrics::<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>,
                 ),
             )
             .route(
-                paths::CL_STATUS,
+                paths::MANTLE_STATUS,
                 routing::post(
-                    cl_status::<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>,
+                    mantle_status::<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>,
                 ),
             )
             .route(

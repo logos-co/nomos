@@ -67,7 +67,7 @@ use crate::{
 };
 
 pub const CONSENSUS_TOPIC: &str = "/cryptarchia/proto";
-pub const CL_TOPIC: &str = "cl";
+pub const MANTLE_TOPIC: &str = "mantle";
 pub const DA_TOPIC: &str = "da";
 pub const MB16: usize = 1024 * 1024 * 16;
 
@@ -236,13 +236,13 @@ pub fn run_node_from_config(config: Config) -> Result<Overwatch<RuntimeServiceId
             mempool: TxMempoolSettings {
                 pool: (),
                 network_adapter: AdapterSettings {
-                    topic: String::from(CL_TOPIC),
+                    topic: String::from(MANTLE_TOPIC),
                     id: <SignedMantleTx as Transaction>::hash,
                 },
                 processor: SignedTxProcessorSettings {
                     trigger_sampling_delay: config.mempool.trigger_sampling_delay,
                 },
-                recovery_path: config.mempool.cl_pool_recovery_path,
+                recovery_path: config.mempool.pool_recovery_path,
             },
             da_network: config.da_network,
             da_sampling: config.da_sampling,
