@@ -33,6 +33,7 @@ serde              = { default-features = false, version = "1.0" }
 serde_with         = { default-features = false, features = ["alloc", "macros"], version = "3.14.0" }
 thiserror          = "1.0"
 tracing            = { workspace = true }
+zeroize            = { workspace = true }
 
 [dev-dependencies]
 rand       = { workspace = true }

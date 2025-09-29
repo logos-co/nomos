@@ -9,12 +9,12 @@ use crate::chain_inputs::{
 
 #[derive(Copy, Clone)]
 pub struct PoQCommonInputs {
-    core_quota: Groth16Input,
-    leader_quota: Groth16Input,
-    key_part_one: Groth16Input,
-    key_part_two: Groth16Input,
-    selector: Groth16Input,
-    index: Groth16Input,
+    pub core_quota: Groth16Input,
+    pub leader_quota: Groth16Input,
+    pub key_part_one: Groth16Input,
+    pub key_part_two: Groth16Input,
+    pub selector: Groth16Input,
+    pub index: Groth16Input,
 }
 
 #[derive(Clone, Copy)]

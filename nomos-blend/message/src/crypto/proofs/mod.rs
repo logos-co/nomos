@@ -1,4 +1,4 @@
-use nomos_core::crypto::ZkHash;
+use nomos_core::crypto::{ZkHash, ZkHasher};
 use thiserror::Error;
 
 use crate::{
@@ -45,5 +45,20 @@ impl ProofsVerifier for RealProofsVerifier {
         inputs: &VerifyInputs,
     ) -> Result<(), Self::Error> {
         proof.verify(inputs).map_err(Error::ProofOfSelection)
+    }
+}
+
+trait ZkHashExt {
+    fn hash(&self) -> ZkHash;
+}
+
+impl<T> ZkHashExt for T
+where
+    T: AsRef<[ZkHash]>,
+{
+    fn hash(&self) -> ZkHash {
+        let mut hasher = ZkHasher::new();
+        hasher.update(self.as_ref());
+        hasher.finalize()
     }
 }
