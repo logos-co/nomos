@@ -8,8 +8,7 @@ use nomos_core::{
 };
 use nomos_da_sampling::{DaSamplingService, backend::DaSamplingServiceBackend};
 use nomos_mempool::{
-    MempoolMsg, TxMempoolService,
-    backend::RecoverableMempool,
+    MempoolMsg, TxMempoolService, backend::RecoverableMempool,
     network::NetworkAdapter as MempoolAdapter,
 };
 use nomos_time::{TimeService, TimeServiceMessage, backends::TimeBackend as TimeBackendTrait};
@@ -66,7 +65,8 @@ where
     Mempool::Item: Debug + Serialize + DeserializeOwned + Eq + Clone + Send + Sync + 'static,
     Mempool::Item: AuthenticatedMantleTx,
     Mempool::Settings: Clone,
-    MempoolNetAdapter: MempoolAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>,
+    MempoolNetAdapter:
+        MempoolAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,

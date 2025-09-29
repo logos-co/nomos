@@ -87,7 +87,8 @@ pub struct CryptarchiaLeader<
     Mempool::Settings: Clone,
     Mempool::Item: Clone + Eq + Debug + 'static,
     Mempool::Item: AuthenticatedMantleTx,
-    MempoolNetAdapter: MempoolAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>,
+    MempoolNetAdapter:
+        MempoolAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>,
     TxS: TxSelect<Tx = Mempool::Item>,
     TxS::Settings: Send,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
@@ -132,7 +133,8 @@ where
     Mempool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     Mempool::Settings: Clone,
     Mempool::Item: AuthenticatedMantleTx + Clone + Eq + Debug,
-    MempoolNetAdapter: MempoolAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>,
+    MempoolNetAdapter:
+        MempoolAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>,
     TxS: TxSelect<Tx = Mempool::Item>,
     TxS::Settings: Send,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
