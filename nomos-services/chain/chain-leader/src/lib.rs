@@ -499,8 +499,18 @@ where
 
                 // TODO: use valid signing key
                 let dummy_signing_key = SigningKey::from_bytes(&[1u8; 32]);
-                let block = match Block::create(parent, slot, proof, txs, None, &dummy_signing_key)
-                {
+
+                // TODO: calculate service reward
+                let service_reward = None;
+
+                let block = match Block::create(
+                    parent,
+                    slot,
+                    proof,
+                    txs,
+                    service_reward,
+                    &dummy_signing_key,
+                ) {
                     Ok(block) => block,
                     Err(e) => {
                         error!("Failed to create valid block during proposal: {e}");

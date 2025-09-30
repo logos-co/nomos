@@ -1,7 +1,4 @@
-use groth16::Fr;
-use poseidon2::Digest as _;
-
-use crate::crypto::ZkHasher;
+use crate::crypto::{Digest as _, Hasher};
 
 #[derive(Clone)]
 pub enum MerkleNode<T> {
@@ -19,111 +16,97 @@ impl<T> MerkleNode<T> {
 
 pub type MerklePath<T> = Vec<MerkleNode<T>>;
 
-pub fn calculate_merkle_root<T>(leaves: &[MerkleNode<T>]) -> Option<Fr>
+#[must_use]
+pub fn leaf(data: &[u8]) -> [u8; 32] {
+    let mut hasher = Hasher::new();
+    hasher.update(b"NOMOS_MERKLE_LEAF");
+    hasher.update(data);
+    hasher.finalize().into()
+}
+
+pub fn node(left: impl AsRef<[u8]>, right: impl AsRef<[u8]>) -> [u8; 32] {
+    let mut hasher = Hasher::new();
+    hasher.update(b"NOMOS_MERKLE_NODE");
+    hasher.update(left.as_ref());
+    hasher.update(right.as_ref());
+    hasher.finalize().into()
+}
+
+pub fn calculate_merkle_root<T>(elements: &[T], pad_to: usize) -> [u8; 32]
 where
-    T: Into<Fr> + Copy,
+    T: Into<[u8; 32]> + Default + Clone,
 {
-    if leaves.is_empty() {
-        return None;
+    let mut leaves: Vec<[u8; 32]> = elements
+        .iter()
+        .cloned()
+        .map(|element| leaf(&element.into()))
+        .collect();
+
+    if leaves.len() < pad_to {
+        let zero_element = T::default();
+        let zero_leaf = leaf(&zero_element.into());
+        leaves.resize(pad_to, zero_leaf);
     }
 
-    let mut current_level: Vec<Fr> = leaves.iter().map(|node| (*node.item()).into()).collect();
+    let leaves_count = leaves.len();
 
-    while current_level.len() > 1 {
-        let mut next_level = Vec::new();
+    assert!(
+        leaves_count >= 2 && leaves_count.is_power_of_two(),
+        "Input must be full binary tree"
+    );
 
-        for chunk in current_level.chunks(2) {
-            let combined = if chunk.len() == 2 {
-                ZkHasher::digest(&[chunk[0], chunk[1]])
-            } else {
-                chunk[0]
-            };
-            next_level.push(combined);
-        }
-
-        current_level = next_level;
-    }
-
-    Some(current_level[0])
+    (0..leaves_count.ilog2()).fold(leaves, |level, _| {
+        level.chunks(2).map(|pair| node(pair[0], pair[1])).collect()
+    })[0]
 }
 
 #[cfg(test)]
 mod tests {
+    use groth16::Fr;
+
     use super::*;
+    use crate::mantle::TxHash;
 
     #[test]
-    fn empty_returns_none() {
-        let leaves: Vec<MerkleNode<Fr>> = vec![];
-        assert_eq!(calculate_merkle_root(&leaves), None);
+    fn test_root_two_elements() {
+        let elements = vec![TxHash::from(Fr::from(1u64)), TxHash::from(Fr::from(2u64))];
+        let result = calculate_merkle_root(&elements, 2);
+
+        let bytes1: [u8; 32] = elements[0].into();
+        let bytes2: [u8; 32] = elements[1].into();
+        let leaf1 = leaf(&bytes1);
+        let leaf2 = leaf(&bytes2);
+        let expected = node(leaf1, leaf2);
+
+        assert_eq!(result, expected);
     }
 
     #[test]
-    fn single_leaf_returns_unchanged() {
-        let leaves = vec![MerkleNode::Left(Fr::from(42u64))];
-        assert_eq!(calculate_merkle_root(&leaves), Some(Fr::from(42u64)));
+    fn test_root_with_padding() {
+        let elements = vec![TxHash::from(Fr::from(1u64)), TxHash::from(Fr::from(2u64))];
+        let result = calculate_merkle_root(&elements, 4);
+
+        let bytes1: [u8; 32] = elements[0].into();
+        let bytes2: [u8; 32] = elements[1].into();
+        let zero_hash = TxHash::default();
+        let zero_bytes: [u8; 32] = zero_hash.into();
+
+        let leaf1 = leaf(&bytes1);
+        let leaf2 = leaf(&bytes2);
+        let leaf3 = leaf(&zero_bytes); // padding
+        let leaf4 = leaf(&zero_bytes); // padding
+
+        let branch1 = node(leaf1, leaf2);
+        let branch2 = node(leaf3, leaf4);
+        let expected = node(branch1, branch2);
+
+        assert_eq!(result, expected);
     }
 
     #[test]
-    fn two_leaves_hashed() {
-        let leaves = vec![
-            MerkleNode::Left(Fr::from(1u64)),
-            MerkleNode::Right(Fr::from(2u64)),
-        ];
-
-        let root = calculate_merkle_root(&leaves);
-        let expected = ZkHasher::digest(&[Fr::from(1u64), Fr::from(2u64)]);
-
-        assert_eq!(root, Some(expected));
-    }
-
-    #[test]
-    fn three_leaves() {
-        let leaves = vec![
-            MerkleNode::Left(Fr::from(1u64)),
-            MerkleNode::Right(Fr::from(2u64)),
-            MerkleNode::Left(Fr::from(3u64)),
-        ];
-        let root = calculate_merkle_root(&leaves);
-
-        let level1_hash = ZkHasher::digest(&[Fr::from(1u64), Fr::from(2u64)]);
-        let expected = ZkHasher::digest(&[level1_hash, Fr::from(3u64)]);
-
-        assert_eq!(root, Some(expected));
-    }
-
-    #[test]
-    fn four_leaves() {
-        let leaves = vec![
-            MerkleNode::Left(Fr::from(1u64)),
-            MerkleNode::Right(Fr::from(2u64)),
-            MerkleNode::Left(Fr::from(3u64)),
-            MerkleNode::Right(Fr::from(4u64)),
-        ];
-        let root = calculate_merkle_root(&leaves);
-
-        let left_hash = ZkHasher::digest(&[Fr::from(1u64), Fr::from(2u64)]);
-        let right_hash = ZkHasher::digest(&[Fr::from(3u64), Fr::from(4u64)]);
-        let expected = ZkHasher::digest(&[left_hash, right_hash]);
-
-        assert_eq!(root, Some(expected));
-    }
-
-    #[test]
-    fn five_leaves() {
-        let leaves = vec![
-            MerkleNode::Left(Fr::from(1u64)),
-            MerkleNode::Right(Fr::from(2u64)),
-            MerkleNode::Left(Fr::from(3u64)),
-            MerkleNode::Right(Fr::from(4u64)),
-            MerkleNode::Left(Fr::from(5u64)),
-        ];
-        let root = calculate_merkle_root(&leaves);
-
-        let hash1 = ZkHasher::digest(&[Fr::from(1u64), Fr::from(2u64)]);
-        let hash2 = ZkHasher::digest(&[Fr::from(3u64), Fr::from(4u64)]);
-        let level2_left = ZkHasher::digest(&[hash1, hash2]);
-        let expected = ZkHasher::digest(&[level2_left, Fr::from(5u64)]);
-
-        assert_eq!(root, Some(expected));
+    #[should_panic(expected = "Input must be full binary tree")]
+    fn test_root_invalid_padding_size() {
+        let elements = vec![TxHash::from(Fr::from(1u64)), TxHash::from(Fr::from(2u64))];
+        calculate_merkle_root(&elements, 3);
     }
 }

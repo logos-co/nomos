@@ -124,18 +124,17 @@ where
     where
         Pool::Item: Clone,
     {
-        let mut found_transactions = Vec::new();
-        let mut not_found_hashes = Vec::new();
-
-        for hash in hashes {
-            if let Some(transaction) = pool.get_item(&hash).cloned() {
-                found_transactions.push(transaction);
-            } else {
-                not_found_hashes.push(hash);
-            }
-        }
-
-        (found_transactions, not_found_hashes)
+        hashes.into_iter().fold(
+            (Vec::new(), Vec::new()),
+            |(mut found_transactions, mut not_found_hashes), hash| {
+                if let Some(transaction) = pool.get_item(&hash).cloned() {
+                    found_transactions.push(transaction);
+                } else {
+                    not_found_hashes.push(hash);
+                }
+                (found_transactions, not_found_hashes)
+            },
+        )
     }
 }
 

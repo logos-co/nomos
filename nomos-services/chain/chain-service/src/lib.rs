@@ -796,17 +796,10 @@ where
                                 cryptarchia = new_cryptarchia;
                                 storage_blocks_to_remove = new_storage_blocks_to_remove;
 
-                                orphan_downloader.remove_orphan(&header_id);
                                 info!(counter.consensus_processed_blocks = 1);
                             }
-                            Err(Error::Ledger(nomos_ledger::LedgerError::ParentNotFound(parent))
-                                | Error::Consensus(cryptarchia_engine::Error::ParentMissing(parent))) => {
-
-                                orphan_downloader.enqueue_orphan(header_id, cryptarchia.tip(), cryptarchia.lib());
-                                error!(target: LOG_TARGET, "Orphan block with parent {:?} not in ledger state", parent);
-                            }
                             Err(e) => {
-                                error!(target: LOG_TARGET, "Error processing orphan block: {e:?}");
+                                error!(target: LOG_TARGET, "Error processing orphan downloader block: {e:?}");
                                 orphan_downloader.cancel_active_download();
                             }
                         }
@@ -1469,7 +1462,7 @@ where
 async fn get_transactions_by_hashes<Payload, Item, Key>(
     mempool: OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>,
     hashes: Vec<Key>,
-) -> Result<TransactionsByHashesResponse<Item, Key>, oneshot::error::RecvError>
+) -> Result<TransactionsByHashesResponse<Item, Key>, DynError>
 where
     Key: Send,
     Payload: Send,
@@ -1483,11 +1476,9 @@ where
             reply_channel,
         })
         .await
-        .unwrap_or_else(|(e, _)| {
-            error!("Could not get transactions by hashes from mempool {e}");
-        });
+        .map_err(|(error, _)| Box::new(error) as DynError)?;
 
-    receiver.await
+    receiver.await.map_err(|error| Box::new(error) as DynError)
 }
 
 async fn mark_in_block<Payload, Item, Key>(

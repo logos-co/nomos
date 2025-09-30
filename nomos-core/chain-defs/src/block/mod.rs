@@ -4,19 +4,16 @@ use ::serde::{Deserialize, Serialize, de::DeserializeOwned};
 use bytes::Bytes;
 use cryptarchia_engine::Slot;
 use ed25519_dalek::Verifier as _;
-use groth16::fr_to_bytes;
 
 use crate::{
     codec::SerdeOp,
     header::{ContentId, Header, HeaderId},
-    mantle::{AuthenticatedMantleTx, Transaction, TxHash},
+    mantle::{Transaction, TxHash},
     proofs::leader_proof::{Groth16LeaderProof, LeaderProof as _},
     utils::merkle,
 };
 
 const MAX_TRANSACTIONS: usize = 1024;
-
-mod wire;
 
 pub type BlockNumber = u64;
 pub type SessionNumber = u64;
@@ -25,25 +22,26 @@ pub type SessionNumber = u64;
 pub enum Error {
     #[error("Failed to serialize: {0}")]
     Serialisation(#[from] crate::codec::Error),
-    #[error("Signing error: {0}")]
-    Signing(String),
+    #[error("Signature error: {0}")]
+    Signature(String),
+    #[error("Validation error: {0}")]
+    Validation(String),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Proposal {
     pub header: Header,
-    pub transactions: References,
+    pub references: References,
     pub signature: ed25519_dalek::Signature,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct References {
     pub service_reward: Option<TxHash>,
     pub mempool_transactions: Vec<TxHash>,
 }
 
-/// A block
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Block<Tx> {
     header: Header,
     signature: ed25519_dalek::Signature,
@@ -59,12 +57,12 @@ impl Proposal {
 
     #[must_use]
     pub const fn references(&self) -> &References {
-        &self.transactions
+        &self.references
     }
 
     #[must_use]
     pub fn mempool_transactions(&self) -> &[TxHash] {
-        &self.transactions.mempool_transactions
+        &self.references.mempool_transactions
     }
 
     #[must_use]
@@ -86,13 +84,12 @@ impl<Tx> Block<Tx> {
         Tx: Transaction<Hash = TxHash>,
     {
         if transactions.len() > MAX_TRANSACTIONS {
-            return Err(Error::Signing(format!(
+            return Err(Error::Validation(format!(
                 "Too many transactions (max {MAX_TRANSACTIONS})"
             )));
         }
 
-        let block_root =
-            Self::calculate_content_id_from_parts(&transactions, service_reward.as_ref());
+        let block_root = Self::calculate_content_id(&transactions, service_reward.as_ref());
 
         let header = Header::new(parent_block, block_root, slot, proof_of_leadership);
 
@@ -115,20 +112,16 @@ impl<Tx> Block<Tx> {
     where
         Tx: Transaction<Hash = TxHash>,
     {
-        if !header.is_valid_bedrock_version() {
-            return Err(Error::Signing("Invalid header version".to_owned()));
-        }
-
         if transactions.len() > MAX_TRANSACTIONS {
-            return Err(Error::Signing(format!(
+            return Err(Error::Validation(format!(
                 "Too many transactions (max {MAX_TRANSACTIONS})"
             )));
         }
 
         let calculated_content_id =
-            Self::calculate_content_id_from_parts(&transactions, service_reward.as_ref());
+            Self::calculate_content_id(&transactions, service_reward.as_ref());
         if header.block_root() != &calculated_content_id {
-            return Err(Error::Signing(
+            return Err(Error::Validation(
                 "Block root mismatch with transactions".to_owned(),
             ));
         }
@@ -138,7 +131,7 @@ impl<Tx> Block<Tx> {
 
         leader_public_key
             .verify(&header_bytes, &signature)
-            .map_err(|e| Error::Signing(format!("Invalid signature: {e}")))?;
+            .map_err(|e| Error::Signature(format!("Invalid signature: {e}")))?;
 
         Ok(Self {
             header,
@@ -148,40 +141,19 @@ impl<Tx> Block<Tx> {
         })
     }
 
-    fn calculate_content_id_from_parts(
-        transactions: &[Tx],
-        service_reward: Option<&Tx>,
-    ) -> ContentId
+    fn calculate_content_id(transactions: &[Tx], service_reward: Option<&Tx>) -> ContentId
     where
         Tx: Transaction<Hash = TxHash>,
     {
-        let mut all_transactions = Vec::new();
-        if let Some(reward) = service_reward {
-            all_transactions.push(reward);
-        }
-        all_transactions.extend(transactions.iter());
-
-        if all_transactions.is_empty() {
-            return ContentId::from([0; 32]);
-        }
-
-        let merkle_leaves: Vec<merkle::MerkleNode<TxHash>> = all_transactions
-            .iter()
-            .enumerate()
-            .map(|(i, tx)| {
-                if i % 2 == 0 {
-                    merkle::MerkleNode::Left(tx.hash())
-                } else {
-                    merkle::MerkleNode::Right(tx.hash())
-                }
-            })
+        let tx_hashes: Vec<TxHash> = service_reward
+            .into_iter()
+            .chain(transactions.iter())
+            .map(Transaction::hash)
             .collect();
 
-        let root_hash = merkle::calculate_merkle_root(&merkle_leaves);
-        root_hash.map_or_else(
-            || ContentId::from([0; 32]),
-            |hash| ContentId::from(fr_to_bytes(&hash)),
-        )
+        // TODO: check if padding needed
+        let root_hash = merkle::calculate_merkle_root(&tx_hashes, MAX_TRANSACTIONS);
+        ContentId::from(root_hash)
     }
 
     #[must_use]
@@ -209,23 +181,23 @@ impl<Tx> Block<Tx> {
         &self.signature
     }
 
-    pub fn to_proposal(&self) -> Proposal
+    pub fn to_proposal(self) -> Proposal
     where
-        Tx: AuthenticatedMantleTx + Clone,
+        Tx: Transaction<Hash = TxHash>,
     {
         let mempool_transactions: Vec<TxHash> =
             self.transactions.iter().map(Transaction::hash).collect();
 
         let service_reward_hash = self.service_reward.as_ref().map(Transaction::hash);
 
-        let transactions = References {
+        let references = References {
             service_reward: service_reward_hash,
             mempool_transactions,
         };
 
         Proposal {
-            header: self.header.clone(),
-            transactions,
+            header: self.header,
+            references,
             signature: self.signature,
         }
     }

@@ -22,7 +22,18 @@ pub struct ContentId([u8; 32]);
 #[derive(Clone, Debug, Eq, PartialEq, Copy)]
 pub struct Nonce([u8; 32]);
 
-pub type Version = u8;
+#[derive(Clone, Debug, Eq, PartialEq, Copy, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum Version {
+    Bedrock = BEDROCK_VERSION,
+}
+
+impl Version {
+    #[must_use]
+    pub const fn to_le_bytes(self) -> [u8; 1] {
+        [self as u8]
+    }
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Header {
@@ -37,11 +48,6 @@ impl Header {
     #[must_use]
     pub const fn version(&self) -> &Version {
         &self.version
-    }
-
-    #[must_use]
-    pub const fn is_valid_bedrock_version(&self) -> bool {
-        self.version == BEDROCK_VERSION
     }
 
     #[must_use]
@@ -99,24 +105,7 @@ impl Header {
         proof_of_leadership: Groth16LeaderProof,
     ) -> Self {
         Self {
-            version: BEDROCK_VERSION,
-            parent_block,
-            slot,
-            block_root,
-            proof_of_leadership,
-        }
-    }
-
-    #[must_use]
-    pub const fn new_with_version(
-        version: Version,
-        parent_block: HeaderId,
-        block_root: ContentId,
-        slot: Slot,
-        proof_of_leadership: Groth16LeaderProof,
-    ) -> Self {
-        Self {
-            version,
+            version: Version::Bedrock,
             parent_block,
             slot,
             block_root,

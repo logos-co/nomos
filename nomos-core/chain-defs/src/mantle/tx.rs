@@ -1,7 +1,7 @@
 use std::sync::LazyLock;
 
 use bytes::Bytes;
-use groth16::{Fr, fr_from_bytes, serde::serde_fr};
+use groth16::{Fr, fr_from_bytes, fr_to_bytes, serde::serde_fr};
 use num_bigint::BigUint;
 use poseidon2::{Digest, ZkHash};
 use serde::{Deserialize, Serialize};
@@ -45,6 +45,12 @@ impl From<TxHash> for ZkHash {
 impl AsRef<ZkHash> for TxHash {
     fn as_ref(&self) -> &ZkHash {
         &self.0
+    }
+}
+
+impl From<TxHash> for [u8; 32] {
+    fn from(hash: TxHash) -> Self {
+        fr_to_bytes(&hash.0)
     }
 }
 
