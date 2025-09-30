@@ -29,6 +29,7 @@ serde_with         = { version = "3.14.0", default-features = false, features = 
 thiserror          = "1.0"
 tracing            = { workspace = true }
 zeroize            = { workspace = true }
+zksign             = { workspace = true }
 
 [dev-dependencies]
 rand       = { workspace = true }
