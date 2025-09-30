@@ -20,7 +20,7 @@ pub fn proving_key_from_file(file_path: &str) -> Result<ProvingKey, Box<dyn Erro
     Ok(params)
 }
 
-
+#[must_use]
 pub fn verification_key_proving_key(proving_key: &ProvingKey) -> VerificationKey {
     VerificationKey {
         g: proving_key.powers_of_g[0],

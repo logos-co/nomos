@@ -117,9 +117,9 @@ mod tests {
             EncodedData,
             test::{ENCODER, rand_data},
         },
+        kzg_keys::VERIFICATION_KEY,
         verifier::DaVerifier,
     };
-    use crate::kzg_keys::VERIFICATION_KEY;
 
     fn attest_encoded_data(encoded_data: &EncodedData, verifiers: &[DaVerifier]) -> Vec<bool> {
         let mut attestations = Vec::new();

@@ -1,6 +1,6 @@
 use ark_ff::PrimeField as _;
 use ark_poly::EvaluationDomain as _;
-use kzgrs::{FieldElement, VerificationKey, PolynomialEvaluationDomain};
+use kzgrs::{FieldElement, PolynomialEvaluationDomain, VerificationKey};
 
 use crate::common::{
     Chunk,

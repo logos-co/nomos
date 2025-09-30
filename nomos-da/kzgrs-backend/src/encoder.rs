@@ -3,8 +3,8 @@ use std::ops::Div as _;
 use ark_ff::{BigInteger as _, PrimeField as _};
 use ark_poly::EvaluationDomain as _;
 use kzgrs::{
-    BYTES_PER_FIELD_ELEMENT, Commitment, Evaluations, ProvingKey, KzgRsError, Polynomial,
-    PolynomialEvaluationDomain, Proof, bdfg_proving, commit_polynomial,
+    BYTES_PER_FIELD_ELEMENT, Commitment, Evaluations, KzgRsError, Polynomial,
+    PolynomialEvaluationDomain, Proof, ProvingKey, bdfg_proving, commit_polynomial,
     common::bytes_to_polynomial_unchecked, encode, fk20::Toeplitz1Cache,
 };
 #[cfg(feature = "parallel")]
@@ -174,8 +174,7 @@ impl DaEncoder {
                 r.as_bytes().as_ref(),
                 polynomial_evaluation_domain,
             );
-            commit_polynomial(&poly, proving_key)
-                .map(|commitment| ((evals, poly), commitment))
+            commit_polynomial(&poly, proving_key).map(|commitment| ((evals, poly), commitment))
         })
         .collect()
     }
@@ -272,9 +271,8 @@ pub mod test {
     use crate::{
         common::Chunk,
         encoder::{DaEncoder, DaEncoderParams},
-        kzg_keys::PROVING_KEY,
+        kzg_keys::{PROVING_KEY, VERIFICATION_KEY},
     };
-    use crate::kzg_keys::VERIFICATION_KEY;
 
     pub static DOMAIN_SIZE: usize = 16;
     pub static PARAMS: LazyLock<DaEncoderParams> =

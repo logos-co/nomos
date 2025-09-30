@@ -4,9 +4,7 @@ use std::{
 };
 
 use ark_bls12_381::{Bls12_381, Fr};
-use ark_ec::bls12::G2Prepared;
-use ark_ec::CurveGroup;
-use ark_ec::pairing::Pairing as _;
+use ark_ec::{CurveGroup as _, bls12::G2Prepared, pairing::Pairing as _};
 use ark_poly::{
     DenseUVPolynomial as _, EvaluationDomain as _, GeneralEvaluationDomain,
     univariate::DensePolynomial,
@@ -93,8 +91,11 @@ mod test {
         prelude::IntoParallelRefIterator as _,
     };
 
-    use crate::{common::bytes_to_polynomial, kzg::{commit_polynomial, generate_element_proof, verify_element_proof}};
-    use crate::proving_key::verification_key_proving_key;
+    use crate::{
+        common::bytes_to_polynomial,
+        kzg::{commit_polynomial, generate_element_proof, verify_element_proof},
+        proving_key::verification_key_proving_key,
+    };
 
     const COEFFICIENTS_SIZE: usize = 16;
     static PROVING_KEY: LazyLock<UniversalParams<Bls12_381>> = LazyLock::new(|| {
@@ -102,9 +103,8 @@ mod test {
         KZG10::<Bls12_381, DensePolynomial<Fr>>::setup(COEFFICIENTS_SIZE - 1, true, &mut rng)
             .unwrap()
     });
-    static VERIFICATION_KEY: LazyLock<VerifierKey<Bls12_381>> = LazyLock::new(|| {
-        verification_key_proving_key(&PROVING_KEY)
-    });
+    static VERIFICATION_KEY: LazyLock<VerifierKey<Bls12_381>> =
+        LazyLock::new(|| verification_key_proving_key(&PROVING_KEY));
 
     static DOMAIN: LazyLock<GeneralEvaluationDomain<Fr>> =
         LazyLock::new(|| GeneralEvaluationDomain::new(COEFFICIENTS_SIZE).unwrap());

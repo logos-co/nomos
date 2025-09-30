@@ -1,7 +1,8 @@
 use core::fmt;
 
 use kzgrs_backend::{
-    common::share::DaShare, kzg_keys::{proving_key_from_file,verification_key_proving_key},
+    common::share::DaShare,
+    kzg_keys::{proving_key_from_file, verification_key_proving_key},
     verifier::DaVerifier as NomosKzgrsVerifier,
 };
 use nomos_core::da::{DaVerifier, blob::Share};
@@ -34,8 +35,10 @@ impl VerifierBackend for KzgrsDaVerifier {
     type Settings = KzgrsDaVerifierSettings;
 
     fn new(settings: Self::Settings) -> Self {
-        let verification_key = verification_key_proving_key(&proving_key_from_file(&settings.global_params_path)
-            .expect("Global parameters has to be loaded from file"));
+        let verification_key = verification_key_proving_key(
+            &proving_key_from_file(&settings.global_params_path)
+                .expect("Global parameters has to be loaded from file"),
+        );
 
         let verifier = NomosKzgrsVerifier::new(verification_key);
         Self {

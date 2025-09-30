@@ -6,7 +6,7 @@ use ark_ff::Field as _;
 use ark_poly::{EvaluationDomain as _, GeneralEvaluationDomain};
 use num_traits::Zero as _;
 
-use crate::{ProvingKey, Polynomial, Proof};
+use crate::{Polynomial, Proof, ProvingKey};
 
 fn toeplitz1(global_parameters: &[G1Affine], polynomial_degree: usize) -> Vec<G1Projective> {
     debug_assert_eq!(global_parameters.len(), polynomial_degree);
@@ -107,7 +107,12 @@ mod test {
     use ark_poly_commit::kzg10::KZG10;
     use rand::SeedableRng as _;
 
-    use crate::{BYTES_PER_FIELD_ELEMENT, ProvingKey, Proof, common::bytes_to_polynomial, fk20::{Toeplitz1Cache, fk20_batch_generate_elements_proofs}, kzg::generate_element_proof};
+    use crate::{
+        BYTES_PER_FIELD_ELEMENT, Proof, ProvingKey,
+        common::bytes_to_polynomial,
+        fk20::{Toeplitz1Cache, fk20_batch_generate_elements_proofs},
+        kzg::generate_element_proof,
+    };
 
     static PROVING_KEY: LazyLock<ProvingKey> = LazyLock::new(|| {
         let mut rng = rand::rngs::StdRng::seed_from_u64(1987);
@@ -122,21 +127,17 @@ mod test {
                 .rev()
                 .collect();
             let domain = GeneralEvaluationDomain::new(size).unwrap();
-            let (_, poly) =
-                bytes_to_polynomial::<BYTES_PER_FIELD_ELEMENT>(&buff, domain).unwrap();
+            let (_, poly) = bytes_to_polynomial::<BYTES_PER_FIELD_ELEMENT>(&buff, domain).unwrap();
             let polynomial_degree = poly.len();
             let slow_proofs: Vec<Proof> = (0..polynomial_degree)
-                .map(|i| {
-                    generate_element_proof(i, &poly, &PROVING_KEY, domain).unwrap()
-                })
+                .map(|i| generate_element_proof(i, &poly, &PROVING_KEY, domain).unwrap())
                 .collect();
             let fk20_proofs = fk20_batch_generate_elements_proofs(&poly, &PROVING_KEY, None);
             assert_eq!(slow_proofs, fk20_proofs);
 
             // Test variant with Toeplitz1Cache param
             let tc = Toeplitz1Cache::with_size(&PROVING_KEY.clone(), size);
-            let fk20_proofs =
-                fk20_batch_generate_elements_proofs(&poly, &PROVING_KEY, Some(&tc));
+            let fk20_proofs = fk20_batch_generate_elements_proofs(&poly, &PROVING_KEY, Some(&tc));
             assert_eq!(slow_proofs, fk20_proofs);
         }
     }

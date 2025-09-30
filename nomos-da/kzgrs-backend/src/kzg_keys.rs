@@ -1,7 +1,10 @@
 use std::sync::LazyLock;
 
 // Reexport global parameters loading from file.
-pub use kzgrs::{ProvingKey, proving_key_from_randomness, verification_key_proving_key, proving_key_from_file, VerificationKey};
+pub use kzgrs::{
+    ProvingKey, VerificationKey, proving_key_from_file, proving_key_from_randomness,
+    verification_key_proving_key,
+};
 
 pub static PROVING_KEY: LazyLock<ProvingKey> = LazyLock::new(|| {
     println!("WARNING: Proving key is randomly generated. Use for development only.");
@@ -9,9 +12,8 @@ pub static PROVING_KEY: LazyLock<ProvingKey> = LazyLock::new(|| {
     proving_key_from_randomness(&mut rng)
 });
 
-pub static VERIFICATION_KEY: LazyLock<VerificationKey> = LazyLock::new(|| {
-    verification_key_proving_key(&PROVING_KEY)
-});
+pub static VERIFICATION_KEY: LazyLock<VerificationKey> =
+    LazyLock::new(|| verification_key_proving_key(&PROVING_KEY));
 
 #[cfg(test)]
 mod tests {
@@ -27,7 +29,9 @@ mod tests {
         let proving_key = proving_key_from_randomness(&mut rng);
 
         let mut serialized_data = Vec::new();
-        proving_key.serialize_uncompressed(&mut serialized_data).unwrap();
+        proving_key
+            .serialize_uncompressed(&mut serialized_data)
+            .unwrap();
 
         let mut file = File::create("./kzgrs_test_params").unwrap();
         file.write_all(&serialized_data).unwrap();
