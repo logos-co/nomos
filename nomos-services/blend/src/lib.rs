@@ -43,6 +43,7 @@ pub mod message;
 pub mod session;
 pub mod settings;
 
+mod epoch;
 mod instance;
 mod modes;
 mod service_components;

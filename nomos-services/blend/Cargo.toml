@@ -9,6 +9,8 @@ workspace = true
 
 [dependencies]
 async-trait              = "0.1"
+chain-service            = { workspace = true }
+cryptarchia-engine       = { workspace = true }
 fork_stream              = { workspace = true }
 futures                  = { default-features = false, version = "0.3" }
 groth16                  = { default-features = false, workspace = true }
@@ -21,6 +23,7 @@ nomos-core               = { workspace = true }
 nomos-libp2p             = { optional = true, workspace = true }
 nomos-membership-service = { workspace = true }
 nomos-network            = { workspace = true }
+nomos-time               = { workspace = true }
 nomos-utils              = { features = ["serde"], workspace = true }
 overwatch                = { workspace = true }
 rand                     = { workspace = true }

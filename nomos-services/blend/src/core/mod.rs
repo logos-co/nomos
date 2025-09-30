@@ -30,6 +30,7 @@ use nomos_blend_scheduling::{
 };
 use nomos_core::codec::SerdeOp;
 use nomos_network::NetworkService;
+use nomos_time::TimeService;
 use nomos_utils::blake_rng::BlakeRng;
 use overwatch::{
     OpaqueServiceResourcesHandle,
@@ -164,6 +165,7 @@ where
             &overwatch_handle,
             Some(Duration::from_secs(60)),
             NetworkService<_, _>,
+            TimeService<_, _>,
             <MembershipAdapter as membership::Adapter>::Service
         )
         .await?;
