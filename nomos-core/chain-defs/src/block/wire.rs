@@ -1,4 +1,3 @@
-use groth16::{Fr, serde::serde_fr};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::{
@@ -6,22 +5,6 @@ use crate::{
     header::Header,
     mantle::TxHash,
 };
-
-#[derive(serde::Serialize, serde::Deserialize)]
-#[serde(transparent)]
-struct SerializableFr(#[serde(with = "serde_fr")] Fr);
-
-impl From<Fr> for SerializableFr {
-    fn from(fr: Fr) -> Self {
-        Self(fr)
-    }
-}
-
-impl From<SerializableFr> for Fr {
-    fn from(serializable: SerializableFr) -> Self {
-        serializable.0
-    }
-}
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct WireReferences {
@@ -108,8 +91,8 @@ impl<'de, Tx: Deserialize<'de>> Deserialize<'de> for Block<Tx> {
 mod tests {
     use cryptarchia_engine::Slot;
     use ed25519_dalek::SigningKey;
+    use groth16::Fr;
 
-    use super::Fr;
     use crate::{
         block::{Block, References, tests::create_proof},
         codec::SerdeOp,
