@@ -52,7 +52,7 @@ impl StorageChainApi for RocksBackend {
         let txn = self.txn(move |db| {
             let mut batch = WriteBatch::default();
             for (slot, header_id) in ids {
-                let key = key_bytes(IMMUTABLE_BLOCK_PREFIX, slot.to_be_bytes());
+                let key = key_bytes(IMMUTABLE_BLOCK_PREFIX, slot.to_le_bytes());
                 let header_id: [u8; 32] = header_id.into();
                 batch.put(key, Bytes::copy_from_slice(&header_id));
             }
@@ -68,7 +68,7 @@ impl StorageChainApi for RocksBackend {
         &mut self,
         slot: Slot,
     ) -> Result<Option<HeaderId>, Self::Error> {
-        let key = key_bytes(IMMUTABLE_BLOCK_PREFIX, slot.to_be_bytes());
+        let key = key_bytes(IMMUTABLE_BLOCK_PREFIX, slot.to_le_bytes());
         self.load(&key)
             .await?
             .map(|bytes| bytes.as_ref().try_into().map_err(Into::into))
@@ -80,8 +80,8 @@ impl StorageChainApi for RocksBackend {
         slot_range: RangeInclusive<Slot>,
         limit: NonZeroUsize,
     ) -> Result<Vec<HeaderId>, Self::Error> {
-        let start_key = slot_range.start().to_be_bytes();
-        let end_key = slot_range.end().to_be_bytes();
+        let start_key = slot_range.start().to_le_bytes();
+        let end_key = slot_range.end().to_le_bytes();
         let result = self
             .load_prefix(
                 IMMUTABLE_BLOCK_PREFIX.as_ref(),
