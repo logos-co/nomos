@@ -23,13 +23,21 @@ runs:
       shell: bash
       run:
         echo "os=$(echo "$RUNNER_OS" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+        
+        # Decide whether to use the latest version or not.
+        # If the version is '*', then use the latest version.
+        if [[ "${{ inputs.version }}" == "*" ]]; then
+          echo "latest=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "latest=false" >> "$GITHUB_OUTPUT"
+        fi
 
     - name: Download Circuits
       id: download-circuits
       uses: robinraju/release-downloader@v1
       with:
         repository: "logos-co/nomos-pocs"
-        latest: true
+        latest: ${{ steps.normalise-os.outputs.latest }}
         tag: "circom_circuits-v${{ inputs.version }}"
         fileName: '*-${{ steps.normalise-os.outputs.os }}-*.tar.gz'
         token: ${{ inputs.github-token }}
