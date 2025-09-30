@@ -117,7 +117,9 @@ impl ProofOfSelection {
 
 const KEY_NULLIFIER_DERIVATION_DOMAIN_SEPARATION_TAG: [u8; 16] = *b"KEY_NULLIFIER_V1";
 static KEY_NULLIFIER_DERIVATION_DOMAIN_SEPARATION_TAG_FR: LazyLock<ZkHash> = LazyLock::new(|| {
-    BigUint::from_bytes_le(&KEY_NULLIFIER_DERIVATION_DOMAIN_SEPARATION_TAG[..]).into()
+    fr_from_bytes(&KEY_NULLIFIER_DERIVATION_DOMAIN_SEPARATION_TAG[..]).expect(
+        "DST for key nullifier derivation from secret selection randomness must be correct.",
+    )
 });
 // As per Proof of Quota v1 spec: <https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#215261aa09df81adb8ccd1448c9afd68>.
 #[must_use]

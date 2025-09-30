@@ -1,7 +1,6 @@
 use const_hex::FromHex as _;
-use groth16::Field as _;
+use groth16::{Field as _, fr_from_bytes_unchecked};
 use nomos_core::crypto::ZkHash;
-use num_bigint::BigUint;
 
 use crate::crypto::proofs::selection::{
     Error, KEY_NULLIFIER_DERIVATION_DOMAIN_SEPARATION_TAG_FR, ProofOfSelection,
@@ -14,10 +13,9 @@ fn secret_selection_randomness_to_key_nullifier_dst_encoding() {
 
     assert_eq!(
         *KEY_NULLIFIER_DERIVATION_DOMAIN_SEPARATION_TAG_FR,
-        BigUint::from_bytes_le(
+        fr_from_bytes_unchecked(
             &<[u8; 16]>::from_hex("0x4b45595f4e554c4c49464945525f5631").unwrap()
         )
-        .into()
     );
 }
 
