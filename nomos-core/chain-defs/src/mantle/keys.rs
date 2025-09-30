@@ -1,6 +1,6 @@
 use std::sync::LazyLock;
 
-use ark_ff::{Field as _, Field};
+use ark_ff::Field as _;
 use generic_array::{GenericArray, typenum::U128};
 use groth16::{Fr, serde::serde_fr};
 use num_bigint::BigUint;
