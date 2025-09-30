@@ -14,33 +14,33 @@ pub use tx::{service::TxMempoolService, settings::TxMempoolSettings};
 #[derive(Debug, Clone)]
 pub struct TransactionsByHashesResponse<Item, Key> {
     /// Transactions that were found in the mempool
-    pub found_transactions: Vec<Item>,
+    found: Vec<Item>,
     /// Hashes of transactions that were not found in the mempool
-    pub not_found_hashes: Vec<Key>,
+    not_found: Vec<Key>,
 }
 
 impl<Item, Key> TransactionsByHashesResponse<Item, Key> {
     #[must_use]
     pub const fn new(found_transactions: Vec<Item>, not_found_hashes: Vec<Key>) -> Self {
         Self {
-            found_transactions,
-            not_found_hashes,
+            found: found_transactions,
+            not_found: not_found_hashes,
         }
     }
 
     #[must_use]
     pub const fn all_found(&self) -> bool {
-        self.not_found_hashes.is_empty()
+        self.not_found.is_empty()
     }
 
     #[must_use]
-    pub const fn found_count(&self) -> usize {
-        self.found_transactions.len()
+    pub fn not_found(&self) -> &[Key] {
+        &self.not_found
     }
 
     #[must_use]
-    pub const fn not_found_count(&self) -> usize {
-        self.not_found_hashes.len()
+    pub fn into_found(self) -> Vec<Item> {
+        self.found
     }
 }
 

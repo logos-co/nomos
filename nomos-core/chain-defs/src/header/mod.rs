@@ -22,43 +22,7 @@ pub struct ContentId([u8; 32]);
 #[derive(Clone, Debug, Eq, PartialEq, Copy)]
 pub struct Nonce([u8; 32]);
 
-/// Version structure for the proposal message format.
-///
-/// Total size: 3 bytes
-///
-/// Fields:
-/// - `proposal_version`: Version of the proposal message structure (1 byte,
-///   fixed to 0x01)
-/// - `cryptarchia_version`: Version of the Cryptarchia consensus (1 byte, fixed
-///   to 0x01)
-/// - `mantle_version`: Version of the Mantle (1 byte, fixed to 0x01)
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Version {
-    pub proposal_version: u8,
-    pub cryptarchia_version: u8,
-    pub mantle_version: u8,
-}
-
-impl Default for Version {
-    fn default() -> Self {
-        Self {
-            proposal_version: BEDROCK_VERSION,
-            cryptarchia_version: BEDROCK_VERSION,
-            mantle_version: BEDROCK_VERSION,
-        }
-    }
-}
-
-impl Version {
-    #[must_use]
-    pub const fn to_bytes(&self) -> [u8; 3] {
-        [
-            self.proposal_version,
-            self.cryptarchia_version,
-            self.mantle_version,
-        ]
-    }
-}
+pub type Version = u8;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Header {
@@ -77,9 +41,7 @@ impl Header {
 
     #[must_use]
     pub const fn is_valid_bedrock_version(&self) -> bool {
-        self.version.proposal_version == BEDROCK_VERSION
-            && self.version.cryptarchia_version == BEDROCK_VERSION
-            && self.version.mantle_version == BEDROCK_VERSION
+        self.version == BEDROCK_VERSION
     }
 
     #[must_use]
@@ -89,7 +51,7 @@ impl Header {
 
     fn update_hasher(&self, h: &mut Hasher) {
         h.update(b"BLOCK_ID_V1");
-        h.update(self.version.to_bytes());
+        h.update(self.version.to_le_bytes());
         h.update(self.parent_block.0);
         h.update(self.slot.to_le_bytes());
         h.update(self.block_root.0);
@@ -112,6 +74,11 @@ impl Header {
     }
 
     #[must_use]
+    pub const fn block_root(&self) -> &ContentId {
+        &self.block_root
+    }
+
+    #[must_use]
     pub const fn slot(&self) -> Slot {
         self.slot
     }
@@ -125,14 +92,14 @@ impl Header {
     }
 
     #[must_use]
-    pub fn new(
+    pub const fn new(
         parent_block: HeaderId,
         block_root: ContentId,
         slot: Slot,
         proof_of_leadership: Groth16LeaderProof,
     ) -> Self {
         Self {
-            version: Version::default(),
+            version: BEDROCK_VERSION,
             parent_block,
             slot,
             block_root,

@@ -11,9 +11,9 @@ use ed25519_dalek::SigningKey;
 use futures::{StreamExt as _, TryFutureExt as _};
 pub use leadership::LeaderConfig;
 use nomos_core::{
-    block::{Block, BuilderWithSignature},
+    block::Block,
     da,
-    header::{Header, HeaderId},
+    header::HeaderId,
     mantle::{AuthenticatedMantleTx, Op, Transaction, TxHash, TxSelect},
     proofs::leader_proof::Groth16LeaderProof,
 };
@@ -496,23 +496,10 @@ where
                         _ => true,
                     })))
                     .collect::<Vec<_>>();
-                let content_id = [0; 32].into(); // TODO: calculate the actual content id
-                // TODO: Use correct derived one time key
+
+                // TODO: use valid signing key
                 let dummy_signing_key = SigningKey::from_bytes(&[1u8; 32]);
-                let header = Header::new(parent, content_id, slot, proof);
-
-                let Ok(signature) = header.sign(&dummy_signing_key) else {
-                    error!("Failed to sign header during block proposal");
-                    return None;
-                };
-
-                // TODO: this should probably be a proposal or be transformed into a proposal
-                let block = match Block::builder()
-                    .header(header)
-                    .and_then(|b| b.transactions(txs))
-                    .map(|b| b.service_reward(None))
-                    .and_then(|b| b.signature(signature))
-                    .and_then(BuilderWithSignature::build)
+                let block = match Block::create(parent, slot, proof, txs, None, &dummy_signing_key)
                 {
                     Ok(block) => block,
                     Err(e) => {

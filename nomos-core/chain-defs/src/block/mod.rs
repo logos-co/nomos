@@ -2,14 +2,16 @@ use core::fmt::Debug;
 
 use ::serde::{Deserialize, Serialize, de::DeserializeOwned};
 use bytes::Bytes;
+use cryptarchia_engine::Slot;
 use ed25519_dalek::Verifier as _;
-use groth16::Fr;
+use groth16::fr_to_bytes;
 
 use crate::{
     codec::SerdeOp,
-    header::Header,
+    header::{ContentId, Header, HeaderId},
     mantle::{AuthenticatedMantleTx, Transaction, TxHash},
-    proofs::leader_proof::LeaderProof as _,
+    proofs::leader_proof::{Groth16LeaderProof, LeaderProof as _},
+    utils::merkle,
 };
 
 const MAX_TRANSACTIONS: usize = 1024;
@@ -28,21 +30,15 @@ pub enum Error {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Proposal<Tx>
-where
-    Tx: AuthenticatedMantleTx + Clone,
-{
+pub struct Proposal {
     pub header: Header,
-    pub transactions: Transactions<Tx>,
+    pub transactions: References,
     pub signature: ed25519_dalek::Signature,
 }
 
 #[derive(Clone, Debug)]
-pub struct Transactions<Tx>
-where
-    Tx: AuthenticatedMantleTx + Clone,
-{
-    pub service_reward: Option<Tx>,
+pub struct References {
+    pub service_reward: Option<TxHash>,
     pub mempool_transactions: Vec<TxHash>,
 }
 
@@ -55,154 +51,14 @@ pub struct Block<Tx> {
     transactions: Vec<Tx>,
 }
 
-#[derive(Debug)]
-pub struct Builder<Tx> {
-    header: Option<Header>,
-    transactions: Vec<Tx>,
-    service_reward: Option<Tx>,
-}
-
-pub struct BuilderWithSigningKey<Tx> {
-    header: Header,
-    transactions: Vec<Tx>,
-    service_reward: Option<Tx>,
-    signing_key: ed25519_dalek::SigningKey,
-}
-
-#[derive(Debug)]
-pub struct BuilderWithSignature<Tx> {
-    header: Header,
-    transactions: Vec<Tx>,
-    service_reward: Option<Tx>,
-    signature: ed25519_dalek::Signature,
-}
-
-impl<Tx> Builder<Tx> {
-    const fn new() -> Self {
-        Self {
-            header: None,
-            transactions: Vec::new(),
-            service_reward: None,
-        }
-    }
-
-    pub fn header(mut self, header: Header) -> Result<Self, Error> {
-        if !header.is_valid_bedrock_version() {
-            return Err(Error::Signing("Invalid header version".to_owned()));
-        }
-
-        self.header = Some(header);
-
-        Ok(self)
-    }
-
-    pub fn transactions(mut self, transactions: Vec<Tx>) -> Result<Self, Error> {
-        if transactions.len() > MAX_TRANSACTIONS {
-            return Err(Error::Signing(format!(
-                "Too many transactions (max {MAX_TRANSACTIONS})"
-            )));
-        }
-
-        self.transactions = transactions;
-
-        Ok(self)
-    }
-
-    #[must_use]
-    pub fn service_reward(mut self, service_reward: Option<Tx>) -> Self {
-        self.service_reward = service_reward;
-        self
-    }
-
-    pub fn signing_key(
-        self,
-        signing_key: ed25519_dalek::SigningKey,
-    ) -> Result<BuilderWithSigningKey<Tx>, Error> {
-        let header = self
-            .header
-            .ok_or_else(|| Error::Signing("Header must be set before signing key".to_owned()))?;
-
-        Ok(BuilderWithSigningKey {
-            header,
-            transactions: self.transactions,
-            service_reward: self.service_reward,
-            signing_key,
-        })
-    }
-
-    pub fn signature(
-        self,
-        signature: ed25519_dalek::Signature,
-    ) -> Result<BuilderWithSignature<Tx>, Error> {
-        let header = self
-            .header
-            .ok_or_else(|| Error::Signing("Header must be set before signature".to_owned()))?;
-
-        Ok(BuilderWithSignature {
-            header,
-            transactions: self.transactions,
-            service_reward: self.service_reward,
-            signature,
-        })
-    }
-}
-
-impl<Tx> BuilderWithSigningKey<Tx> {
-    pub fn build(self) -> Result<Block<Tx>, Error>
-    where
-        Tx: Transaction,
-        Tx::Hash: Into<Fr>,
-    {
-        let signature = self.header.sign(&self.signing_key)?;
-
-        let leader_public_key = self.header.leader_proof().leader_key();
-        let header_bytes = <Header as SerdeOp>::serialize(&self.header)?;
-
-        leader_public_key
-            .verify(&header_bytes, &signature)
-            .map_err(|e| Error::Signing(format!("Signature verification failed: {e}")))?;
-
-        Ok(Block::new_unchecked(
-            self.header,
-            self.transactions,
-            self.service_reward,
-            signature,
-        ))
-    }
-}
-
-impl<Tx> BuilderWithSignature<Tx> {
-    pub fn build(self) -> Result<Block<Tx>, Error>
-    where
-        Tx: Transaction,
-        Tx::Hash: Into<Fr>,
-    {
-        let leader_public_key = self.header.leader_proof().leader_key();
-        let header_bytes = <Header as SerdeOp>::serialize(&self.header)?;
-        leader_public_key
-            .verify(&header_bytes, &self.signature)
-            .map_err(|e| Error::Signing(format!("Signature verification failed: {e}")))?;
-
-        Ok(Block::new_unchecked(
-            self.header,
-            self.transactions,
-            self.service_reward,
-            self.signature,
-        ))
-    }
-}
-
-impl<Tx> Proposal<Tx>
-where
-    Tx: AuthenticatedMantleTx + Clone,
-{
+impl Proposal {
     #[must_use]
     pub const fn header(&self) -> &Header {
         &self.header
     }
 
     #[must_use]
-    pub const fn transactions(&self) -> &Transactions<Tx> {
+    pub const fn references(&self) -> &References {
         &self.transactions
     }
 
@@ -218,19 +74,114 @@ where
 }
 
 impl<Tx> Block<Tx> {
-    /// Private constructor - use `Builder` to create valid blocks
-    const fn new_unchecked(
-        header: Header,
+    pub fn create(
+        parent_block: HeaderId,
+        slot: Slot,
+        proof_of_leadership: Groth16LeaderProof,
         transactions: Vec<Tx>,
         service_reward: Option<Tx>,
-        signature: ed25519_dalek::Signature,
-    ) -> Self {
-        Self {
+        signing_key: &ed25519_dalek::SigningKey,
+    ) -> Result<Self, Error>
+    where
+        Tx: Transaction<Hash = TxHash>,
+    {
+        if transactions.len() > MAX_TRANSACTIONS {
+            return Err(Error::Signing(format!(
+                "Too many transactions (max {MAX_TRANSACTIONS})"
+            )));
+        }
+
+        let block_root =
+            Self::calculate_content_id_from_parts(&transactions, service_reward.as_ref());
+
+        let header = Header::new(parent_block, block_root, slot, proof_of_leadership);
+
+        let signature = header.sign(signing_key)?;
+
+        Ok(Self {
             header,
             signature,
             service_reward,
             transactions,
+        })
+    }
+
+    pub fn recover(
+        header: Header,
+        transactions: Vec<Tx>,
+        service_reward: Option<Tx>,
+        signature: ed25519_dalek::Signature,
+    ) -> Result<Self, Error>
+    where
+        Tx: Transaction<Hash = TxHash>,
+    {
+        if !header.is_valid_bedrock_version() {
+            return Err(Error::Signing("Invalid header version".to_owned()));
         }
+
+        if transactions.len() > MAX_TRANSACTIONS {
+            return Err(Error::Signing(format!(
+                "Too many transactions (max {MAX_TRANSACTIONS})"
+            )));
+        }
+
+        let calculated_content_id =
+            Self::calculate_content_id_from_parts(&transactions, service_reward.as_ref());
+        if header.block_root() != &calculated_content_id {
+            return Err(Error::Signing(
+                "Block root mismatch with transactions".to_owned(),
+            ));
+        }
+
+        let leader_public_key = header.leader_proof().leader_key();
+        let header_bytes = <Header as SerdeOp>::serialize(&header)?;
+
+        leader_public_key
+            .verify(&header_bytes, &signature)
+            .map_err(|e| Error::Signing(format!("Invalid signature: {e}")))?;
+
+        Ok(Self {
+            header,
+            signature,
+            service_reward,
+            transactions,
+        })
+    }
+
+    fn calculate_content_id_from_parts(
+        transactions: &[Tx],
+        service_reward: Option<&Tx>,
+    ) -> ContentId
+    where
+        Tx: Transaction<Hash = TxHash>,
+    {
+        let mut all_transactions = Vec::new();
+        if let Some(reward) = service_reward {
+            all_transactions.push(reward);
+        }
+        all_transactions.extend(transactions.iter());
+
+        if all_transactions.is_empty() {
+            return ContentId::from([0; 32]);
+        }
+
+        let merkle_leaves: Vec<merkle::MerkleNode<TxHash>> = all_transactions
+            .iter()
+            .enumerate()
+            .map(|(i, tx)| {
+                if i % 2 == 0 {
+                    merkle::MerkleNode::Left(tx.hash())
+                } else {
+                    merkle::MerkleNode::Right(tx.hash())
+                }
+            })
+            .collect();
+
+        let root_hash = merkle::calculate_merkle_root(&merkle_leaves);
+        root_hash.map_or_else(
+            || ContentId::from([0; 32]),
+            |hash| ContentId::from(fr_to_bytes(&hash)),
+        )
     }
 
     #[must_use]
@@ -258,45 +209,17 @@ impl<Tx> Block<Tx> {
         &self.signature
     }
 
-    pub fn validate(&self) -> Result<(), Error>
-    where
-        Tx: Transaction,
-        Tx::Hash: Into<TxHash>,
-    {
-        if !self.header.is_valid_bedrock_version() {
-            return Err(Error::Signing("Invalid header version".to_owned()));
-        }
-
-        if self.transactions.len() > MAX_TRANSACTIONS {
-            return Err(Error::Signing(format!(
-                "Too many transactions (max {MAX_TRANSACTIONS})"
-            )));
-        }
-
-        let leader_public_key = self.header.leader_proof().leader_key();
-        let header_bytes = <Header as SerdeOp>::serialize(&self.header)?;
-
-        leader_public_key
-            .verify(&header_bytes, &self.signature)
-            .map_err(|e| Error::Signing(format!("Invalid signature: {e}")))?;
-
-        Ok(())
-    }
-
-    #[must_use]
-    pub const fn builder() -> Builder<Tx> {
-        Builder::new()
-    }
-
-    pub fn to_proposal(&self) -> Proposal<Tx>
+    pub fn to_proposal(&self) -> Proposal
     where
         Tx: AuthenticatedMantleTx + Clone,
     {
         let mempool_transactions: Vec<TxHash> =
             self.transactions.iter().map(Transaction::hash).collect();
 
-        let transactions = Transactions {
-            service_reward: self.service_reward.clone(),
+        let service_reward_hash = self.service_reward.as_ref().map(Transaction::hash);
+
+        let transactions = References {
+            service_reward: service_reward_hash,
             mempool_transactions,
         };
 
@@ -328,18 +251,17 @@ impl<Tx: Clone + Eq + Serialize + DeserializeOwned> TryFrom<Block<Tx>> for Bytes
 mod tests {
     use std::iter;
 
-    use cryptarchia_engine::Slot;
     use ed25519_dalek::SigningKey;
+    use groth16::Fr;
     use num_bigint::BigUint;
 
     use super::*;
     use crate::{
-        header::ContentId,
         mantle::{
             ledger::{Note, Tx, Utxo},
             ops::leader_claim::VoucherCm,
         },
-        proofs::leader_proof::{Groth16LeaderProof, LeaderPrivate, LeaderPublic},
+        proofs::leader_proof::{LeaderPrivate, LeaderPublic},
         utils::merkle::MerkleNode,
     };
 
@@ -371,20 +293,6 @@ mod tests {
             .expect("Proof generation should succeed")
     }
 
-    fn create_header() -> Header {
-        Header::new(
-            [0u8; 32].into(),
-            ContentId::from([1u8; 32]),
-            Slot::from(42u64),
-            create_proof(),
-        )
-    }
-
-    fn create_signature(header: &Header) -> ed25519_dalek::Signature {
-        let signing_key = SigningKey::from_bytes(&[0; 32]);
-        header.sign(&signing_key).expect("Signing should work")
-    }
-
     fn create_transactions(count: usize) -> Vec<Tx> {
         iter::repeat_with(|| Tx {
             inputs: vec![],
@@ -396,58 +304,74 @@ mod tests {
 
     #[test]
     fn test_block_signature_validation() {
-        let header = create_header();
+        let parent_block = [0u8; 32].into();
+        let slot = Slot::from(42u64);
+        let proof_of_leadership = create_proof();
         let transactions: Vec<Tx> = vec![];
         let service_reward = None;
 
-        let valid_signature = create_signature(&header);
-        let _valid_block = Block::builder()
-            .header(header.clone())
-            .and_then(|b| b.transactions(transactions.clone()))
-            .map(|b| b.service_reward(service_reward.clone()))
-            .and_then(|b| b.signature(valid_signature))
-            .and_then(BuilderWithSignature::build)
-            .expect("Valid block should be created");
+        let valid_signing_key = SigningKey::from_bytes(&[0; 32]);
+        let valid_block = Block::create(
+            parent_block,
+            slot,
+            proof_of_leadership,
+            transactions.clone(),
+            service_reward.clone(),
+            &valid_signing_key,
+        )
+        .expect("Valid block should be created");
 
-        // Block is guaranteed to be valid since it was created through the builder
+        let header = valid_block.header().clone();
+        let valid_signature = *valid_block.signature();
+
+        let _recovered_block = Block::recover(
+            header.clone(),
+            transactions.clone(),
+            service_reward.clone(),
+            valid_signature,
+        )
+        .expect("Should recover block with valid signature");
 
         let wrong_signing_key = SigningKey::from_bytes(&[1u8; 32]);
         let invalid_signature = header
             .sign(&wrong_signing_key)
             .expect("Signing should work");
 
-        let invalid_block_result = Block::builder()
-            .header(header)
-            .and_then(|b| b.transactions(transactions))
-            .map(|b| b.service_reward(service_reward))
-            .and_then(|b| b.signature(invalid_signature))
-            .and_then(BuilderWithSignature::build);
+        let invalid_block_result =
+            Block::recover(header, transactions, service_reward, invalid_signature);
 
         assert!(
             invalid_block_result.is_err(),
-            "Should not create valid block with invalid signature"
+            "Should not recover block with invalid signature"
         );
     }
 
     #[test]
     fn test_block_transaction_count_validation() {
-        let header = create_header();
-        let signature = create_signature(&header);
+        let parent_block = [0u8; 32].into();
+        let slot = Slot::from(42u64);
+        let proof_of_leadership = create_proof();
         let service_reward = None;
+        let signing_key = SigningKey::from_bytes(&[0; 32]);
 
-        let _valid_block: Block<Tx> = Block::builder()
-            .header(header.clone())
-            .and_then(|b| b.transactions(vec![]))
-            .map(|b| b.service_reward(service_reward))
-            .and_then(|b| b.signature(signature))
-            .and_then(BuilderWithSignature::build)
-            .expect("Valid block should be created");
+        let _valid_block: Block<Tx> = Block::create(
+            parent_block,
+            slot,
+            proof_of_leadership.clone(),
+            vec![],
+            service_reward.clone(),
+            &signing_key,
+        )
+        .expect("Valid block should be created");
 
-        // Block is guaranteed to be valid since it was created through the builder
-
-        let invalid_block_result = Block::builder()
-            .header(header)
-            .and_then(|b| b.transactions(create_transactions(MAX_TRANSACTIONS + 1)));
+        let invalid_block_result = Block::create(
+            parent_block,
+            slot,
+            proof_of_leadership,
+            create_transactions(MAX_TRANSACTIONS + 1),
+            service_reward,
+            &signing_key,
+        );
 
         assert!(invalid_block_result.is_err());
         let error_msg = invalid_block_result.unwrap_err().to_string();

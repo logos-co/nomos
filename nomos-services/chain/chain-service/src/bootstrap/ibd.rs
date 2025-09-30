@@ -354,10 +354,8 @@ mod tests {
     use std::{collections::HashMap, iter::empty, num::NonZero};
 
     use cryptarchia_engine::{EpochConfig, Slot};
-    use mantle::SignedMantleTx;
     use nomos_core::{
         block::Proposal,
-        mantle,
         sdp::{MinStake, ServiceParameters},
     };
     use nomos_ledger::LedgerState;
@@ -888,7 +886,7 @@ mod tests {
         type Settings = ();
         type PeerId = NodeId;
         type Block = Block;
-        type Proposal = Proposal<SignedMantleTx>;
+        type Proposal = Proposal;
 
         async fn new(
             _settings: Self::Settings,

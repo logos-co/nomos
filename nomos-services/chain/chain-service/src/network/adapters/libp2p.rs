@@ -113,7 +113,7 @@ where
     type Settings = LibP2pAdapterSettings;
     type PeerId = PeerId;
     type Block = Block<Tx>;
-    type Proposal = Proposal<Tx>;
+    type Proposal = Proposal;
 
     async fn new(settings: Self::Settings, network_relay: Relay<Libp2p, RuntimeServiceId>) -> Self {
         let relay = network_relay.clone();
@@ -140,7 +140,7 @@ where
         }
         let stream = receiver.await.map_err(Box::new)?;
         Ok(Box::new(stream.filter_map(|message| match message {
-            Ok(message) => <NetworkMessage<Tx> as SerdeOp>::deserialize(&message.data).map_or_else(
+            Ok(message) => <NetworkMessage as SerdeOp>::deserialize(&message.data).map_or_else(
                 |_| {
                     tracing::debug!("unrecognized gossipsub message");
                     None

@@ -23,7 +23,7 @@ use cryptarchia_sync::{GetTipResponse, ProviderResponse};
 use futures::StreamExt as _;
 use network::NetworkAdapter;
 use nomos_core::{
-    block::{Block, BuilderWithSignature, Proposal},
+    block::{Block, Proposal},
     da::{self},
     header::{Header, HeaderId},
     mantle::{
@@ -417,11 +417,8 @@ impl<
         RuntimeServiceId,
     >
 where
-    NetAdapter: NetworkAdapter<
-            RuntimeServiceId,
-            Block = Block<Mempool::Item>,
-            Proposal = Proposal<Mempool::Item>,
-        > + Clone
+    NetAdapter: NetworkAdapter<RuntimeServiceId, Block = Block<Mempool::Item>, Proposal = Proposal>
+        + Clone
         + Send
         + Sync
         + 'static,
@@ -865,11 +862,8 @@ impl<
         RuntimeServiceId,
     >
 where
-    NetAdapter: NetworkAdapter<
-            RuntimeServiceId,
-            Block = Block<Mempool::Item>,
-            Proposal = Proposal<Mempool::Item>,
-        > + Clone
+    NetAdapter: NetworkAdapter<RuntimeServiceId, Block = Block<Mempool::Item>, Proposal = Proposal>
+        + Clone
         + Send
         + Sync
         + 'static,
@@ -1023,10 +1017,6 @@ where
             Option<CryptarchiaConsensusState<NetAdapter::PeerId, NetAdapter::Settings>>,
         >,
     ) -> Result<(Cryptarchia, HashSet<HeaderId>), Error> {
-        block
-            .validate()
-            .map_err(|e| Error::InvalidBlock(format!("Block validation failed: {e}")))?;
-
         let (cryptarchia, pruned_blocks) = Self::process_block(
             cryptarchia,
             block,
@@ -1542,41 +1532,40 @@ async fn broadcast_finalized_block(
 
 /// Reconstruct a Block from a Proposal by looking up transactions from mempool
 async fn reconstruct_block_from_proposal<Payload, Item>(
-    proposal: Proposal<Item>,
+    proposal: Proposal,
     mempool: OutboundRelay<MempoolMsg<HeaderId, Payload, Item, TxHash>>,
 ) -> Result<Block<Item>, Error>
 where
     Payload: Send,
     Item: AuthenticatedMantleTx<Hash = TxHash> + Clone + Send,
 {
-    let needed_hashes: Vec<TxHash> = proposal.mempool_transactions().to_vec();
-
-    let response = get_transactions_by_hashes(mempool, needed_hashes.clone())
+    let mempool_hashes: Vec<TxHash> = proposal.mempool_transactions().to_vec();
+    let mempool_response = get_transactions_by_hashes(mempool.clone(), mempool_hashes)
         .await
-        .map_err(|e| Error::InvalidBlock(format!("Failed to get transactions by hashes: {e}")))?;
+        .map_err(|e| Error::InvalidBlock(format!("Failed to get mempool transactions: {e}")))?;
 
-    if !response.all_found() {
+    if !mempool_response.all_found() {
         return Err(Error::InvalidBlock(format!(
-            "Failed to reconstruct block: {:?} transactions not found in mempool",
-            response.not_found_hashes
+            "Failed to reconstruct block: {:?} mempool transactions not found",
+            mempool_response.not_found()
         )));
     }
 
-    let reconstructed_transactions = response.found_transactions;
+    // TODO: recover service reward
+    let service_reward = None;
+
+    let reconstructed_transactions = mempool_response.into_found();
 
     let header = proposal.header().clone();
-
-    // TODO: Replace with calculation
-    let service_reward = proposal.transactions().service_reward.clone();
     let signature = *proposal.signature();
 
-    let block = Block::builder()
-        .header(header)
-        .and_then(|b| b.transactions(reconstructed_transactions))
-        .map(|b| b.service_reward(service_reward))
-        .and_then(|b| b.signature(signature))
-        .and_then(BuilderWithSignature::build)
-        .map_err(|e| Error::InvalidBlock(format!("Failed to create valid block: {e}")))?;
+    let block = Block::recover(
+        header,
+        reconstructed_transactions,
+        service_reward,
+        signature,
+    )
+    .map_err(|e| Error::InvalidBlock(format!("Invalid block: {e}")))?;
 
     Ok(block)
 }

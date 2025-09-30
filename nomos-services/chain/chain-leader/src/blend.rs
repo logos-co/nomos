@@ -2,9 +2,8 @@ use std::marker::PhantomData;
 
 use chain_common::messages;
 use nomos_blend_service::message::{NetworkMessage, ServiceMessage};
-use nomos_core::{block::Proposal, codec::SerdeOp, mantle::AuthenticatedMantleTx};
+use nomos_core::{block::Proposal, codec::SerdeOp};
 use overwatch::services::{ServiceData, relay::OutboundRelay};
-use serde::{Serialize, de::DeserializeOwned};
 use tracing::error;
 
 use crate::LOG_TARGET;
@@ -42,14 +41,11 @@ where
     <BlendService as ServiceData>::Message: Send,
     BlendService::BroadcastSettings: Clone + Sync,
 {
-    pub async fn publish_proposal<Tx>(&self, proposal: Proposal<Tx>)
-    where
-        Tx: AuthenticatedMantleTx + Clone + Serialize + DeserializeOwned,
-    {
+    pub async fn publish_proposal(&self, proposal: Proposal) {
         if let Err((e, _)) = self
             .relay
             .send(ServiceMessage::Blend(NetworkMessage {
-                message: <messages::NetworkMessage<Tx> as SerdeOp>::serialize(
+                message: <messages::NetworkMessage as SerdeOp>::serialize(
                     &messages::NetworkMessage::Proposal(proposal),
                 )
                 .expect("NetworkMessage should be able to be serialized")

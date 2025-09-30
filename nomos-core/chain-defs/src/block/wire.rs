@@ -2,9 +2,9 @@ use groth16::{Fr, serde::serde_fr};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::{
-    block::{Block, Transactions},
+    block::{Block, References},
     header::Header,
-    mantle::{AuthenticatedMantleTx, TxHash},
+    mantle::TxHash,
 };
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -24,18 +24,18 @@ impl From<SerializableFr> for Fr {
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
-struct WireReferences<Tx> {
-    service_reward: Option<Tx>,
+struct WireReferences {
+    service_reward: Option<TxHash>,
     mempool_transactions: Vec<TxHash>,
 }
 
-impl<Tx: Serialize + Clone + AuthenticatedMantleTx> Serialize for Transactions<Tx> {
+impl Serialize for References {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
         let wire = WireReferences {
-            service_reward: self.service_reward.clone(),
+            service_reward: self.service_reward,
             mempool_transactions: self.mempool_transactions.clone(),
         };
 
@@ -43,15 +43,12 @@ impl<Tx: Serialize + Clone + AuthenticatedMantleTx> Serialize for Transactions<T
     }
 }
 
-impl<'de, Tx: Deserialize<'de> + AuthenticatedMantleTx + Clone> Deserialize<'de>
-    for Transactions<Tx>
-{
+impl<'de> Deserialize<'de> for References {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        let wire: WireReferences<Tx> =
-            <WireReferences<Tx> as Deserialize>::deserialize(deserializer)?;
+        let wire: WireReferences = <WireReferences as Deserialize>::deserialize(deserializer)?;
 
         let service_reward = wire.service_reward;
         let mempool_transactions = wire.mempool_transactions;
@@ -112,51 +109,32 @@ mod tests {
     use cryptarchia_engine::Slot;
     use ed25519_dalek::SigningKey;
 
-    use super::{super::BuilderWithSignature, Fr};
+    use super::Fr;
     use crate::{
-        block::{Block, Transactions, tests::create_proof},
+        block::{Block, References, tests::create_proof},
         codec::SerdeOp,
-        header::{ContentId, Header},
         mantle::{SignedMantleTx, TxHash, ledger::Tx},
     };
 
     #[test]
     fn test_transactions_serialization() {
-        let service_reward = Some(SignedMantleTx {
-            mantle_tx: crate::mantle::MantleTx {
-                ops: vec![],
-                ledger_tx: Tx {
-                    inputs: vec![],
-                    outputs: vec![],
-                },
-                execution_gas_price: 0,
-                storage_gas_price: 0,
-            },
-            ops_proofs: vec![],
-            ledger_tx_proof: crate::proofs::zksig::DummyZkSignature::prove(
-                crate::proofs::zksig::ZkSignaturePublic {
-                    msg_hash: Fr::from(0u64),
-                    pks: vec![],
-                },
-            ),
-        });
+        let service_reward = Some(TxHash::from(Fr::from(999u64)));
         let mempool_transactions = vec![
             TxHash::from(Fr::from(123u64)),
             TxHash::from(Fr::from(456u64)),
             TxHash::from(Fr::from(789u64)),
         ];
 
-        let transactions = Transactions {
+        let transactions = References {
             service_reward,
             mempool_transactions,
         };
 
-        let wire_bytes = <Transactions<SignedMantleTx> as SerdeOp>::serialize(&transactions)
+        let wire_bytes = <References as SerdeOp>::serialize(&transactions)
             .expect("Failed to serialize with wire");
 
-        let deserialized: Transactions<SignedMantleTx> =
-            <Transactions<SignedMantleTx> as SerdeOp>::deserialize(&wire_bytes)
-                .expect("Failed to deserialize with wire");
+        let deserialized: References = <References as SerdeOp>::deserialize(&wire_bytes)
+            .expect("Failed to deserialize with wire");
 
         assert_eq!(transactions.service_reward, deserialized.service_reward);
         assert_eq!(
@@ -164,7 +142,10 @@ mod tests {
             deserialized.mempool_transactions
         );
 
-        assert!(deserialized.service_reward.is_some());
+        assert_eq!(
+            deserialized.service_reward,
+            Some(TxHash::from(Fr::from(999u64)))
+        );
         assert_eq!(deserialized.mempool_transactions.len(), 3);
         assert_eq!(
             deserialized.mempool_transactions[0],
@@ -182,12 +163,9 @@ mod tests {
 
     #[test]
     fn test_block_serialization() {
-        let header = Header::new(
-            [0u8; 32].into(),
-            ContentId::from([1u8; 32]),
-            Slot::from(42u64),
-            create_proof(),
-        );
+        let parent_block = [0u8; 32].into();
+        let slot = Slot::from(42u64);
+        let proof_of_leadership = create_proof();
 
         let service_reward = SignedMantleTx {
             mantle_tx: crate::mantle::MantleTx {
@@ -209,18 +187,17 @@ mod tests {
         };
 
         let signing_key = SigningKey::from_bytes(&[0; 32]);
-        let signature = header
-            .sign(&signing_key)
-            .expect("Header signing should work in test");
-
         let mantle_transactions = vec![service_reward.clone()];
-        let block: Block<SignedMantleTx> = Block::builder()
-            .header(header)
-            .and_then(|b| b.transactions(mantle_transactions))
-            .map(|b| b.service_reward(Some(service_reward)))
-            .and_then(|b| b.signature(signature))
-            .and_then(BuilderWithSignature::build)
-            .expect("Valid block should be created");
+
+        let block: Block<SignedMantleTx> = Block::create(
+            parent_block,
+            slot,
+            proof_of_leadership,
+            mantle_transactions,
+            Some(service_reward),
+            &signing_key,
+        )
+        .expect("Valid block should be created");
 
         let wire_bytes = <Block<SignedMantleTx> as SerdeOp>::serialize(&block)
             .expect("Failed to serialize block");
