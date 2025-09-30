@@ -1,11 +1,14 @@
 use std::sync::LazyLock;
 
+use ark_ff::Field;
+use generic_array::{GenericArray, typenum::U128};
 use groth16::{Fr, serde::serde_fr};
 use num_bigint::BigUint;
 use poseidon2::{Digest as _, Poseidon2Bn254Hasher};
 use serde::{Deserialize, Serialize};
+use tracing::error;
 use zeroize::ZeroizeOnDrop;
-
+use zksign::{ZkSignProof, ZkSignVerifierInputs, ZkSignWitnessInputs, prove, verify};
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, ZeroizeOnDrop)]
 #[serde(transparent)]
 pub struct SecretKey(#[serde(with = "serde_fr")] Fr);
@@ -30,8 +33,13 @@ impl SecretKey {
     }
 
     #[must_use]
-    pub fn sign(&self, _data: &Fr) -> Fr {
-        unimplemented!("Signing is not implemented yet")
+    pub fn sign(&self, data: &Fr) -> Signature {
+        let mut keys = [Fr::ZERO; 32];
+        keys[0] = self.0;
+        let inputs =
+            ZkSignWitnessInputs::from_witness_data_and_message_hash(keys.into(), data.clone());
+        let (signature, _) = prove(&inputs).expect("Signature should succeed");
+        Signature(signature.to_bytes().into())
     }
 }
 
@@ -48,6 +56,27 @@ impl PublicKey {
     #[must_use]
     pub const fn as_fr(&self) -> &Fr {
         &self.0
+    }
+
+    #[must_use]
+    pub fn verify(&self, data: &Fr, signature: &Signature) -> bool {
+        let mut pks = [Fr::ZERO; 32];
+        pks[0] = self.0.clone();
+        let inputs = ZkSignVerifierInputs::new_from_msg_and_pks(*data, &pks);
+        verify(&signature.as_proof(), &inputs).unwrap_or_else(|e| {
+            error!("Error verifying signature: {e:?}");
+            false
+        })
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Signature(GenericArray<u8, U128>);
+
+impl Signature {
+    pub fn as_proof(&self) -> ZkSignProof {
+        ZkSignProof::from_bytes(&self.0.into_array())
     }
 }
 
