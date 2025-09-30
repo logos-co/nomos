@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub mod membership;
-mod storage;
+pub mod storage;
 
 #[derive(Debug, Clone)]
 pub struct Session {
