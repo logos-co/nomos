@@ -21,7 +21,7 @@ runs:
     - name: Normalise OS
       id: normalise-os
       shell: bash
-      run:
+      run: |
         echo "os=$(echo "$RUNNER_OS" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
         
         # Decide whether to use the latest version or not.
