@@ -50,7 +50,7 @@ impl GenesisTx {
         // and then may contain other SDP declarations
         let mut ops = mantle_tx.ops.iter();
         match ops.next() {
-            Some(Op::ChannelInscribe(op)) => validate_inscription_op(op)?,
+            Some(Op::ChannelInscribe(op)) => valid_cryptarchia_inscription(op)?,
             _ => return Err(Error::MissingInscription),
         }
 
@@ -66,7 +66,7 @@ impl GenesisTx {
     }
 }
 
-fn validate_inscription_op(inscription: &InscriptionOp) -> Result<(), Error> {
+fn valid_cryptarchia_inscription(inscription: &InscriptionOp) -> Result<(), Error> {
     if inscription.parent != MsgId::root() {
         return Err(Error::InvalidInscription(Box::new(Op::ChannelInscribe(
             inscription.clone(),
@@ -217,7 +217,7 @@ mod tests {
             Err(Error::InvalidInscription(_))
         ));
 
-        // TODO: check inscription with non-zero signer fails
+        // check inscription with non-zero signer fails
         let tx = create_signed_tx(vec![Op::ChannelInscribe(inscription_op(
             ChannelId::from([0; 32]),
             MsgId::root(),
@@ -228,7 +228,7 @@ mod tests {
             Err(Error::InvalidInscription(_))
         ));
 
-        // TODO: check valid inscription passes
+        // check valid inscription passes
         let tx = create_signed_tx(vec![Op::ChannelInscribe(inscription_op(
             ChannelId::from([0; 32]),
             MsgId::root(),
