@@ -2,8 +2,9 @@ use std::sync::LazyLock;
 
 use ::serde::{Deserialize, Serialize};
 use generic_array::{ArrayLength, GenericArray};
-use groth16::{Bn254, CompressSize, fr_from_bytes, fr_from_bytes_unchecked};
+use groth16::{Bn254, CompressSize, fr_from_bytes_unchecked};
 use nomos_core::crypto::ZkHash;
+use num_bigint::BigUint;
 use poq::{PoQProof, PoQVerifierInput, PoQWitnessInputs, ProveError, prove, verify};
 use thiserror::Error;
 
@@ -123,10 +124,8 @@ impl ProofOfQuota {
 }
 
 const DOMAIN_SEPARATION_TAG: [u8; 23] = *b"SELECTION_RANDOMNESS_V1";
-static DOMAIN_SEPARATION_TAG_FR: LazyLock<ZkHash> = LazyLock::new(|| {
-    fr_from_bytes(&DOMAIN_SEPARATION_TAG[..])
-        .expect("DST for secret selection randomness calculation must be correct.")
-});
+static DOMAIN_SEPARATION_TAG_FR: LazyLock<ZkHash> =
+    LazyLock::new(|| BigUint::from_bytes_le(&DOMAIN_SEPARATION_TAG[..]).into());
 // As per Proof of Quota v1 spec: <https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#215261aa09df81adb8ccd1448c9afd68>.
 fn generate_secret_selection_randomness(sk: ZkHash, key_index: u64, session: u64) -> ZkHash {
     [

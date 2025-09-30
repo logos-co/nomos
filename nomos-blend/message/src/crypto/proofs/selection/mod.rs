@@ -69,7 +69,7 @@ impl ProofOfSelection {
         let pseudo_random_output: u64 = {
             let pseudo_random_output_bytes =
                 pseudo_random_sized_bytes::<8>(&selection_randomness_blake_hash);
-            let pseudo_random_biguint = BigUint::from_bytes_be(&pseudo_random_output_bytes[..]);
+            let pseudo_random_biguint = BigUint::from_bytes_le(&pseudo_random_output_bytes[..]);
             pseudo_random_biguint
                 .try_into()
                 .map_err(|_| Error::Overflow)?
@@ -117,9 +117,7 @@ impl ProofOfSelection {
 
 const KEY_NULLIFIER_DERIVATION_DOMAIN_SEPARATION_TAG: [u8; 16] = *b"KEY_NULLIFIER_V1";
 static KEY_NULLIFIER_DERIVATION_DOMAIN_SEPARATION_TAG_FR: LazyLock<ZkHash> = LazyLock::new(|| {
-    fr_from_bytes(&KEY_NULLIFIER_DERIVATION_DOMAIN_SEPARATION_TAG[..]).expect(
-        "DST for key nullifier derivation from secret selection randomness must be correct.",
-    )
+    BigUint::from_bytes_le(&KEY_NULLIFIER_DERIVATION_DOMAIN_SEPARATION_TAG[..]).into()
 });
 // As per Proof of Quota v1 spec: <https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#215261aa09df81adb8ccd1448c9afd68>.
 #[must_use]
