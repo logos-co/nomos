@@ -1,7 +1,4 @@
-use std::{
-    borrow::Cow,
-    ops::Mul as _,
-};
+use std::{borrow::Cow, ops::Mul as _};
 
 use ark_bls12_381::{Bls12_381, Fr};
 use ark_ec::pairing::Pairing as _;
@@ -64,9 +61,7 @@ pub fn verify_element_proof(
     let v = element;
     let commitment_check_g1 = verification_key.g.mul(v) - commitment.0 - proof.w.mul(u);
     let qap = Bls12_381::multi_miller_loop(
-        [commitment_check_g1,
-            proof.w.into(),
-        ],
+        [commitment_check_g1, proof.w.into()],
         [
             verification_key.prepared_h.clone(),
             verification_key.prepared_beta_h.clone(),
