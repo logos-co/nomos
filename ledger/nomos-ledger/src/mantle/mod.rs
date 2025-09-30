@@ -259,14 +259,16 @@ mod tests {
     }
 
     fn create_multi_signed_tx(ops: Vec<Op>, signing_keys: Vec<&SigningKey>) -> SignedMantleTx {
-        let mut tx = create_test_tx_with_ops(ops);
+        let mut tx = create_test_tx_with_ops(ops.clone());
         let tx_hash = tx.hash();
         tx.ops_proofs = signing_keys
             .into_iter()
-            .map(|key| {
-                Some(OpProof::Ed25519Sig(
+            .zip(ops)
+            .map(|(key, op)| match op {
+                Op::ChannelSetKeys(_) => Some(OpProof::Ed25519Sig(
                     key.sign(tx_hash.as_signing_bytes().as_ref()),
-                ))
+                )),
+                _ => None,
             })
             .collect();
         tx
@@ -358,34 +360,6 @@ mod tests {
     }
 
     #[test]
-    fn test_invalid_signature_error() {
-        let cryptarchia_state = genesis_state(&[utxo()]);
-        let test_config = config();
-        let ledger_state = LedgerState::new();
-        let (_, verifying_key) = create_test_keys_with_seed(1);
-        let (wrong_signing_key, _) = create_test_keys_with_seed(2);
-        let channel_id = ChannelId::from([4; 32]);
-
-        let blob_op = BlobOp {
-            channel: channel_id,
-            blob: [42; 32],
-            blob_size: 1024,
-            da_storage_gas_price: 10,
-            parent: MsgId::root(),
-            signer: verifying_key,
-        };
-
-        let tx = create_signed_tx(Op::ChannelBlob(blob_op), &wrong_signing_key);
-        let result = ledger_state.try_apply_tx::<MainnetGasConstants>(
-            0,
-            &test_config,
-            cryptarchia_state.latest_commitments(),
-            tx,
-        );
-        assert_eq!(result, Err(Error::InvalidSignature));
-    }
-
-    #[test]
     fn test_unsupported_operation() {
         let cryptarchia_state = genesis_state(&[utxo()]);
         let test_config = config();
@@ -412,16 +386,12 @@ mod tests {
         let (_, verifying_key) = create_test_keys();
         let channel_id = ChannelId::from([5; 32]);
 
-        let blob_op = BlobOp {
+        let set_keys_op = SetKeysOp {
             channel: channel_id,
-            blob: [42; 32],
-            blob_size: 1024,
-            da_storage_gas_price: 10,
-            parent: MsgId::root(),
-            signer: verifying_key,
+            keys: vec![verifying_key],
         };
 
-        let op = Op::ChannelBlob(blob_op);
+        let op = Op::ChannelSetKeys(set_keys_op);
         let mut tx = create_test_tx_with_ops(vec![op]);
         tx.ops_proofs = vec![None]; // Missing proof
 
