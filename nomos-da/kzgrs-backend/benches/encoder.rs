@@ -3,7 +3,7 @@ use std::hint::black_box;
 use divan::{Bencher, counter::BytesCount};
 use kzgrs_backend::{
     encoder::{DaEncoder, DaEncoderParams},
-    global::GLOBAL_PARAMETERS,
+    kzg_keys::GLOBAL_PARAMETERS,
 };
 use rand::RngCore as _;
 

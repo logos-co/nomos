@@ -6,7 +6,7 @@ use divan::{Bencher, counter::BytesCount};
 use kzgrs::{common::field_element_from_bytes_le, decode, rs::points_to_bytes};
 use kzgrs_backend::{
     encoder::{DaEncoder, DaEncoderParams},
-    global::GLOBAL_PARAMETERS,
+    kzg_keys::GLOBAL_PARAMETERS,
 };
 use nomos_core::da::DaEncoder as _;
 use rand::{RngCore as _, prelude::IteratorRandom as _, thread_rng};

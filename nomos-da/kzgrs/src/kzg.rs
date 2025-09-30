@@ -93,7 +93,8 @@ mod test {
         prelude::IntoParallelRefIterator as _,
     };
 
-    use crate::{common::bytes_to_polynomial, kzg::{commit_polynomial, generate_element_proof, verify_element_proof}, VerificationKey};
+    use crate::{common::bytes_to_polynomial, kzg::{commit_polynomial, generate_element_proof, verify_element_proof}};
+    use crate::proving_key::verification_key_proving_key;
 
     const COEFFICIENTS_SIZE: usize = 16;
     static PROVING_KEY: LazyLock<UniversalParams<Bls12_381>> = LazyLock::new(|| {
@@ -102,14 +103,7 @@ mod test {
             .unwrap()
     });
     static VERIFICATION_KEY: LazyLock<VerifierKey<Bls12_381>> = LazyLock::new(|| {
-        VerificationKey {
-            g: PROVING_KEY.powers_of_g[0],
-            gamma_g: PROVING_KEY.powers_of_gamma_g[&0],
-            h: PROVING_KEY.h,
-            beta_h: PROVING_KEY.beta_h,
-            prepared_h: PROVING_KEY.prepared_h.clone(),
-            prepared_beta_h: PROVING_KEY.prepared_beta_h.clone(),
-        }
+        verification_key_proving_key(&PROVING_KEY)
     });
 
     static DOMAIN: LazyLock<GeneralEvaluationDomain<Fr>> =

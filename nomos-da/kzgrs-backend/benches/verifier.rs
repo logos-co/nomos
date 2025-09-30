@@ -4,7 +4,7 @@ use divan::{Bencher, counter::BytesCount};
 use kzgrs_backend::{
     common::{Chunk, share::DaShare},
     encoder::{DaEncoder, DaEncoderParams},
-    global::GLOBAL_PARAMETERS,
+    kzg_keys::GLOBAL_PARAMETERS,
 };
 use nomos_core::da::{DaEncoder as _, blob::Share as _};
 use rand::{RngCore as _, thread_rng};

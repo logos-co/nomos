@@ -11,7 +11,7 @@ use ark_poly::{GeneralEvaluationDomain, univariate::DensePolynomial};
 use ark_poly_commit::{kzg10, sonic_pc::UniversalParams};
 use ark_poly_commit::kzg10::VerifierKey;
 pub use common::{KzgRsError, bytes_to_evaluations, bytes_to_polynomial};
-pub use proving_key::{global_parameters_from_file, global_parameters_from_randomness};
+pub use proving_key::{proving_key_from_file, proving_key_from_randomness, verification_key_proving_key};
 pub use kzg::{commit_polynomial, generate_element_proof, verify_element_proof};
 pub use rs::{decode, encode};
 
