@@ -27,6 +27,11 @@ impl Slot {
     }
 
     #[must_use]
+    pub const fn to_be_bytes(&self) -> [u8; 8] {
+        self.0.to_be_bytes()
+    }
+
+    #[must_use]
     pub const fn genesis() -> Self {
         Self(0)
     }
