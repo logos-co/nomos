@@ -1,6 +1,6 @@
 use std::sync::LazyLock;
 
-use ark_ff::Field;
+use ark_ff::{Field as _, Field};
 use generic_array::{GenericArray, typenum::U128};
 use groth16::{Fr, serde::serde_fr};
 use num_bigint::BigUint;
@@ -36,8 +36,7 @@ impl SecretKey {
     pub fn sign(&self, data: &Fr) -> Signature {
         let mut keys = [Fr::ZERO; 32];
         keys[0] = self.0;
-        let inputs =
-            ZkSignWitnessInputs::from_witness_data_and_message_hash(keys.into(), data.clone());
+        let inputs = ZkSignWitnessInputs::from_witness_data_and_message_hash(keys.into(), *data);
         let (signature, _) = prove(&inputs).expect("Signature should succeed");
         Signature(signature.to_bytes().into())
     }
@@ -61,7 +60,7 @@ impl PublicKey {
     #[must_use]
     pub fn verify(&self, data: &Fr, signature: &Signature) -> bool {
         let mut pks = [Fr::ZERO; 32];
-        pks[0] = self.0.clone();
+        pks[0] = self.0;
         let inputs = ZkSignVerifierInputs::new_from_msg_and_pks(*data, &pks);
         verify(&signature.as_proof(), &inputs).unwrap_or_else(|e| {
             error!("Error verifying signature: {e:?}");
@@ -75,6 +74,7 @@ impl PublicKey {
 pub struct Signature(GenericArray<u8, U128>);
 
 impl Signature {
+    #[must_use]
     pub fn as_proof(&self) -> ZkSignProof {
         ZkSignProof::from_bytes(&self.0.into_array())
     }
