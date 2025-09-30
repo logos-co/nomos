@@ -30,7 +30,7 @@ use nomos_blend_scheduling::{
 };
 use nomos_core::codec::SerdeOp;
 use nomos_network::NetworkService;
-use nomos_time::TimeService;
+use nomos_time::{TimeService, TimeServiceMessage};
 use nomos_utils::blake_rng::BlakeRng;
 use overwatch::{
     OpaqueServiceResourcesHandle,
@@ -42,6 +42,7 @@ use overwatch::{
 use rand::{RngCore, SeedableRng as _, seq::SliceRandom as _};
 use serde::{Deserialize, Serialize};
 use services_utils::wait_until_services_are_ready;
+use tokio::sync::oneshot;
 use tracing::info;
 
 use crate::{
@@ -50,6 +51,7 @@ use crate::{
         processor::{CoreCryptographicProcessor, Error},
         settings::BlendConfig,
     },
+    epoch::EpochStream,
     membership,
     message::{NetworkMessage, ProcessedMessage, ServiceMessage},
     mock_poq_inputs_stream,
@@ -75,17 +77,34 @@ pub struct BlendService<
     MembershipAdapter,
     ProofsGenerator,
     ProofsVerifier,
+    TimeBackend,
+    ChainService,
     RuntimeServiceId,
 > where
     Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId>,
     Network: NetworkAdapter<RuntimeServiceId>,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-    _phantom: PhantomData<(Backend, MembershipAdapter, ProofsGenerator)>,
+    _phantom: PhantomData<(
+        Backend,
+        MembershipAdapter,
+        ProofsGenerator,
+        TimeBackend,
+        ChainService,
+    )>,
 }
 
-impl<Backend, NodeId, Network, MembershipAdapter, ProofsGenerator, ProofsVerifier, RuntimeServiceId>
-    ServiceData
+impl<
+    Backend,
+    NodeId,
+    Network,
+    MembershipAdapter,
+    ProofsGenerator,
+    ProofsVerifier,
+    TimeBackend,
+    ChainService,
+    RuntimeServiceId,
+> ServiceData
     for BlendService<
         Backend,
         NodeId,
@@ -93,6 +112,8 @@ impl<Backend, NodeId, Network, MembershipAdapter, ProofsGenerator, ProofsVerifie
         MembershipAdapter,
         ProofsGenerator,
         ProofsVerifier,
+        TimeBackend,
+        ChainService,
         RuntimeServiceId,
     >
 where
@@ -106,8 +127,17 @@ where
 }
 
 #[async_trait]
-impl<Backend, NodeId, Network, MembershipAdapter, ProofsGenerator, ProofsVerifier, RuntimeServiceId>
-    ServiceCore<RuntimeServiceId>
+impl<
+    Backend,
+    NodeId,
+    Network,
+    MembershipAdapter,
+    ProofsGenerator,
+    ProofsVerifier,
+    TimeBackend,
+    ChainService,
+    RuntimeServiceId,
+> ServiceCore<RuntimeServiceId>
     for BlendService<
         Backend,
         NodeId,
@@ -115,6 +145,8 @@ impl<Backend, NodeId, Network, MembershipAdapter, ProofsGenerator, ProofsVerifie
         MembershipAdapter,
         ProofsGenerator,
         ProofsVerifier,
+        TimeBackend,
+        ChainService,
         RuntimeServiceId,
     >
 where
@@ -125,8 +157,11 @@ where
     membership::ServiceMessage<MembershipAdapter>: Send + Sync + 'static,
     ProofsGenerator: ProofsGeneratorTrait + Send,
     ProofsVerifier: ProofsVerifierTrait + Clone + Send,
+    TimeBackend: nomos_time::backends::TimeBackend + Send,
+    ChainService: Send,
     RuntimeServiceId: AsServiceId<NetworkService<Network::Backend, RuntimeServiceId>>
         + AsServiceId<<MembershipAdapter as membership::Adapter>::Service>
+        + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>
         + AsServiceId<Self>
         + Clone
         + Debug
@@ -182,6 +217,19 @@ where
         .subscribe()
         .await
         .expect("Membership service should be ready");
+
+        let time_relay = overwatch_handle
+            .relay::<TimeService<_, _>>()
+            .await
+            .expect("Relay with time service should be available.");
+        let (sender, receiver) = oneshot::channel();
+        time_relay
+            .send(TimeServiceMessage::Subscribe { sender })
+            .await
+            .expect("Failed to subscribe to slot clock.");
+        let slot_stream = receiver.await;
+        let _epoch_stream =
+            EpochStream::<_, ChainService, _>::new(slot_stream, overwatch_handle.clone());
 
         // TODO: Replace with actual service usage.
         let poq_input_stream = mock_poq_inputs_stream();

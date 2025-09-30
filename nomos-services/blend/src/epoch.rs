@@ -5,9 +5,8 @@ use core::{
     task::{Context, Poll},
 };
 
-use chain_service::{ConsensusMsg, CryptarchiaConsensus};
 use cryptarchia_engine::{Epoch, Slot};
-use futures::{FutureExt, Stream, StreamExt as _, pin_mut};
+use futures::{FutureExt as _, Stream, StreamExt as _};
 use nomos_core::crypto::ZkHash;
 use nomos_ledger::EpochState;
 use nomos_time::SlotTick;
@@ -24,15 +23,28 @@ pub struct EpochInfo {
     total_stake: u64,
 }
 
-pub struct EpochStream<SlotStream, ChainService, Tx, RuntimeServiceId> {
+#[derive(Debug, Error)]
+enum Error {
+    #[error(transparent)]
+    Relay(RelayError),
+    #[error("Failed to send message to get epoch state.")]
+    MsgSend,
+    #[error(transparent)]
+    MsgRecv(RecvError),
+}
+
+type GetEpochForSlotFuture = Pin<Box<dyn Future<Output = Result<Option<EpochInfo>, Error>> + Send>>;
+
+pub struct EpochStream<SlotStream, ChainService, RuntimeServiceId> {
     slot_stream: SlotStream,
     current_epoch: Option<Epoch>,
     overwatch_handle: OverwatchHandle<RuntimeServiceId>,
-    _phantom: PhantomData<(ChainService, Tx)>,
+    epoch_state_future: Option<GetEpochForSlotFuture>,
+    _phantom: PhantomData<ChainService>,
 }
 
-impl<SlotStream, ChainService, Tx, RuntimeServiceId>
-    EpochStream<SlotStream, ChainService, Tx, RuntimeServiceId>
+impl<SlotStream, ChainService, RuntimeServiceId>
+    EpochStream<SlotStream, ChainService, RuntimeServiceId>
 {
     pub fn new(
         slot_stream: SlotStream,
@@ -42,78 +54,84 @@ impl<SlotStream, ChainService, Tx, RuntimeServiceId>
             current_epoch: None,
             overwatch_handle,
             slot_stream,
+            epoch_state_future: None,
             _phantom: PhantomData,
         }
     }
 }
 
-impl<SlotStream, ChainService, Tx, RuntimeServiceId> Stream
-    for EpochStream<SlotStream, ChainService, Tx, RuntimeServiceId>
+pub struct GetEpochStateForSlotMessage {
+    pub slot: Slot,
+    pub sender: oneshot::Sender<Option<EpochState>>,
+}
+
+impl<SlotStream, ChainService, RuntimeServiceId> Stream
+    for EpochStream<SlotStream, ChainService, RuntimeServiceId>
 where
     SlotStream: Stream<Item = SlotTick> + Unpin,
-    ChainService: ServiceCore<RuntimeServiceId, Message = ConsensusMsg<Tx>> + Unpin,
-    Tx: Send + 'static + Unpin,
-    RuntimeServiceId: Debug + Sync + Display + AsServiceId<ChainService>,
+    ChainService: ServiceCore<RuntimeServiceId, Message: From<GetEpochStateForSlotMessage> + Send>
+        + Unpin
+        + 'static,
+    RuntimeServiceId: Debug + Send + Sync + Clone + Display + AsServiceId<ChainService> + 'static,
 {
     type Item = EpochInfo;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        if let Some(mut pending_fut) = self.epoch_state_future.take() {
+            match pending_fut.poll_unpin(cx) {
+                Poll::Pending => return Poll::Pending,
+                Poll::Ready(Ok(epoch_info)) => {
+                    return Poll::Ready(epoch_info);
+                }
+                Poll::Ready(Err(_)) => panic!("Should not panic"),
+            }
+        }
         match self.slot_stream.poll_next_unpin(cx) {
             Poll::Ready(None) => Poll::Ready(None),
             Poll::Pending => Poll::Pending,
             Poll::Ready(Some(SlotTick { epoch, slot })) => {
-                // Same epoch as the already processed one, we don't yield anyting new.
+                // Same epoch as the already processed one, we don't yield anything new.
                 if let Some(current_epoch) = self.current_epoch
                     && current_epoch == epoch
                 {
                     cx.waker().wake_by_ref();
                     return Poll::Pending;
-                };
-                self.current_epoch = Some(epoch);
-                let mut epoch_for_slot_future =
-                    get_epoch_state_for_slot(slot, &self.overwatch_handle);
-                // TODO: Must resume from here
-                match pin_mut!(epoch_for_slot_future).poll_unpin(cx) {
-                    Poll::Pending => return Poll::Pending,
-                    Poll::Ready(Ok(epoch_info)) => return Poll::Ready(epoch_info),
-                    _ => panic!("Should not panic"),
                 }
+                self.current_epoch = Some(epoch);
+                self.epoch_state_future = Some(Box::pin(get_epoch_state_for_slot::<
+                    ChainService,
+                    RuntimeServiceId,
+                >(
+                    slot, self.overwatch_handle.clone()
+                )));
+                cx.waker().wake_by_ref();
+                Poll::Pending
             }
         }
     }
 }
 
-#[derive(Debug, Error)]
-enum Error {
-    #[error(transparent)]
-    RelayError(RelayError),
-    #[error("Failed to send message to get epoch state.")]
-    MsgSendError,
-    #[error(transparent)]
-    MsgRecvError(RecvError),
-}
-
-async fn get_epoch_state_for_slot<ChainService, Tx, RuntimeServiceId>(
+async fn get_epoch_state_for_slot<ChainService, RuntimeServiceId>(
     slot: Slot,
-    overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
+    overwatch_handle: OverwatchHandle<RuntimeServiceId>,
 ) -> Result<Option<EpochInfo>, Error>
 where
-    ChainService: ServiceCore<RuntimeServiceId, Message = ConsensusMsg<Tx>>,
-    Tx: Send + 'static,
+    ChainService:
+        ServiceCore<RuntimeServiceId, Message: From<GetEpochStateForSlotMessage> + Send + 'static>,
     RuntimeServiceId: Debug + Sync + Display + AsServiceId<ChainService>,
 {
     let relay = overwatch_handle
         .relay::<ChainService>()
         .await
-        .map_err(Error::RelayError)?;
+        .map_err(Error::Relay)?;
     let (sender, receiver) = oneshot::channel();
 
     relay
-        .send(ConsensusMsg::GetEpochState { slot, tx: sender })
+        .send(GetEpochStateForSlotMessage { slot, sender }.into())
         .await
-        .map_err(|_| Error::MsgSendError)?;
+        .map_err(|_| Error::MsgSend)?;
 
-    let epoch_state = receiver.await.map_err(Error::MsgRecvError)?;
+    let epoch_state = receiver.await.map_err(Error::MsgRecv)?;
     let Some(EpochState {
         nonce,
         total_stake,

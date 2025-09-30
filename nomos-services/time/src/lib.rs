@@ -57,7 +57,6 @@ pub struct TimeServiceSettings<BackendSettings> {
 pub struct TimeService<Backend, RuntimeServiceId>
 where
     Backend: TimeBackend,
-    Backend::Settings: Clone,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     backend: Backend,
@@ -66,7 +65,6 @@ where
 impl<Backend, RuntimeServiceId> ServiceData for TimeService<Backend, RuntimeServiceId>
 where
     Backend: TimeBackend,
-    Backend::Settings: Clone,
 {
     type Settings = TimeServiceSettings<Backend::Settings>;
     type State = NoState<Self::Settings>;
