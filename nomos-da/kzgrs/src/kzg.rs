@@ -1,10 +1,10 @@
 use std::{
     borrow::Cow,
-    ops::{Mul as _, Neg as _},
+    ops::Mul as _,
 };
 
 use ark_bls12_381::{Bls12_381, Fr};
-use ark_ec::{CurveGroup as _, bls12::G2Prepared, pairing::Pairing as _};
+use ark_ec::pairing::Pairing as _;
 use ark_poly::{
     DenseUVPolynomial as _, EvaluationDomain as _, GeneralEvaluationDomain,
     univariate::DensePolynomial,
@@ -62,13 +62,14 @@ pub fn verify_element_proof(
 ) -> bool {
     let u = domain.element(element_index);
     let v = element;
-    let commitment_check_g1 = (commitment.0.neg() + verification_key.g.mul(v)).into_affine();
-    let proof_check_g2 = (verification_key.beta_h + verification_key.h.mul(u).neg()).into_affine();
+    let commitment_check_g1 = verification_key.g.mul(v) - commitment.0 - proof.w.mul(u);
     let qap = Bls12_381::multi_miller_loop(
-        [commitment_check_g1, proof.w],
+        [commitment_check_g1,
+            proof.w.into(),
+        ],
         [
             verification_key.prepared_h.clone(),
-            G2Prepared::from(proof_check_g2),
+            verification_key.prepared_beta_h.clone(),
         ],
     );
     let test = Bls12_381::final_exponentiation(qap).unwrap();
