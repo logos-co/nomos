@@ -135,6 +135,13 @@ pub fn create_node_configs(
         network_config
             .initial_peers
             .clone_from(&host_network_init_peers);
+        network_config.swarm_config.nat_config = nomos_libp2p::NatSettings::Static {
+            external_address: Multiaddr::from_str(&format!(
+                "/ip4/{}/udp/{}/quic-v1",
+                host.ip, host.network_port
+            ))
+            .unwrap(),
+        };
 
         // Tracing config.
         let tracing_config =
