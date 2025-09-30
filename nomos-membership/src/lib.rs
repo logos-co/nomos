@@ -12,14 +12,14 @@ pub mod membership;
 mod storage;
 
 #[derive(Debug, Clone)]
-pub struct SessionState {
+pub struct Session {
     session_number: SessionNumber,
     providers: HashMap<ProviderId, BTreeSet<Locator>>,
 }
 
 pub type DynError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
-pub type NewSesssion = Option<HashMap<ServiceType, SessionState>>;
+pub type NewSesssion = Option<HashMap<ServiceType, Session>>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MembershipConfig {
@@ -45,10 +45,7 @@ pub trait Membership {
 
     fn new(settings: MembershipConfig, storage_adapter: Self::Storage) -> Self;
 
-    fn get_latest_providers(
-        &self,
-        service_type: ServiceType,
-    ) -> Result<SessionState, MembershipError>;
+    fn get_latest_providers(&self, service_type: ServiceType) -> Result<Session, MembershipError>;
 
     async fn update(&mut self, update: FinalizedBlockEvent)
     -> Result<NewSesssion, MembershipError>;

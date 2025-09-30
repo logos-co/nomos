@@ -6,14 +6,13 @@ use nomos_core::{
 };
 
 use crate::{
-    Membership, MembershipConfig, MembershipError, NewSesssion, SessionState,
-    storage::MembershipStorage,
+    Membership, MembershipConfig, MembershipError, NewSesssion, Session, storage::MembershipStorage,
 };
 
 pub struct PersistentMembership<S: MembershipStorage> {
     storage: S,
-    active_sessions: HashMap<ServiceType, SessionState>,
-    forming_sessions: HashMap<ServiceType, SessionState>,
+    active_sessions: HashMap<ServiceType, Session>,
+    forming_sessions: HashMap<ServiceType, Session>,
     latest_block_number: BlockNumber,
     session_sizes: HashMap<ServiceType, u32>,
 }
@@ -36,7 +35,7 @@ where
                 .cloned()
                 .unwrap_or_default();
 
-            let session_0 = SessionState {
+            let session_0 = Session {
                 session_number: 0,
                 providers,
             };
@@ -155,10 +154,7 @@ where
         })
     }
 
-    fn get_latest_providers(
-        &self,
-        service_type: ServiceType,
-    ) -> Result<SessionState, MembershipError> {
+    fn get_latest_providers(&self, service_type: ServiceType) -> Result<Session, MembershipError> {
         if let Some(session_state) = self.active_sessions.get(&service_type).cloned() {
             return Ok(session_state);
         }
@@ -167,7 +163,7 @@ where
     }
 }
 
-impl SessionState {
+impl Session {
     fn apply_update(&mut self, update: &FinalizedBlockEventUpdate) {
         match update.state {
             nomos_core::sdp::FinalizedDeclarationState::Active => {
