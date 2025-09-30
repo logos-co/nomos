@@ -1,7 +1,7 @@
 use std::fmt::{Debug, Display};
 
 use nomos_core::sdp::FinalizedBlockEvent;
-use nomos_membership::{
+use nomos_membership_service::{
     MembershipMessage, MembershipService, adapters::sdp::SdpAdapter, backends::MembershipBackend,
 };
 use overwatch::{DynError, overwatch::OverwatchHandle};

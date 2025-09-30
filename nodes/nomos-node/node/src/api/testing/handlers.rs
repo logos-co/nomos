@@ -13,7 +13,9 @@ use nomos_da_network_service::{
     NetworkService, api::ApiAdapter as ApiAdapterTrait, backends::NetworkBackend,
 };
 use nomos_da_sampling::{DaSamplingService, backend::DaSamplingServiceBackend};
-use nomos_membership::{MembershipService, adapters::sdp::SdpAdapter, backends::MembershipBackend};
+use nomos_membership_service::{
+    MembershipService, adapters::sdp::SdpAdapter, backends::MembershipBackend,
+};
 use overwatch::{overwatch::OverwatchHandle, services::AsServiceId};
 use serde::{Deserialize, Serialize};
 use subnetworks_assignations::MembershipHandler;

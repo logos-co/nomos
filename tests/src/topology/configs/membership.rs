@@ -5,7 +5,7 @@ use std::{
 
 use nomos_core::sdp::{Locator, ServiceType};
 use nomos_libp2p::{Multiaddr, ed25519};
-use nomos_membership::{
+use nomos_membership_service::{
     MembershipServiceSettings, backends::membership::MembershipBackendSettings,
 };
 use serde::{Deserialize, Serialize};
