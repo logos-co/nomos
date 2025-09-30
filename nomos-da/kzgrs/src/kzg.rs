@@ -4,6 +4,7 @@ use std::{
 };
 
 use ark_bls12_381::{Bls12_381, Fr};
+use ark_ec::CurveGroup;
 use ark_ec::pairing::Pairing as _;
 use ark_poly::{
     DenseUVPolynomial as _, EvaluationDomain as _, GeneralEvaluationDomain,
@@ -12,7 +13,7 @@ use ark_poly::{
 use ark_poly_commit::kzg10::{Commitment, KZG10, Powers, Proof, UniversalParams};
 use num_traits::{One as _, Zero as _};
 
-use crate::{Evaluations, common::KzgRsError};
+use crate::common::KzgRsError;
 
 /// Commit to a polynomial where each of the evaluations are over `w(i)` for the
 /// degree of the polynomial being omega (`w`) the root of unity (2^x).
@@ -33,7 +34,6 @@ pub fn commit_polynomial(
 pub fn generate_element_proof(
     element_index: usize,
     polynomial: &DensePolynomial<Fr>,
-    evaluations: &Evaluations,
     global_parameters: &UniversalParams<Bls12_381>,
     domain: GeneralEvaluationDomain<Fr>,
 ) -> Result<Proof<Bls12_381>, KzgRsError> {
@@ -41,13 +41,8 @@ pub fn generate_element_proof(
     if u.is_zero() {
         return Err(KzgRsError::DivisionByZeroPolynomial);
     }
-
-    // Instead of evaluating over the polynomial, we can reuse the evaluation points
-    // from the rs encoding let v = polynomial.evaluate(&u);
-    let v = evaluations.evals[element_index];
-    let f_x_v = polynomial + &DensePolynomial::<Fr>::from_coefficients_vec(vec![-v]);
     let x_u = DensePolynomial::<Fr>::from_coefficients_vec(vec![-u, Fr::one()]);
-    let witness_polynomial: DensePolynomial<_> = &f_x_v / &x_u;
+    let witness_polynomial: DensePolynomial<_> = polynomial / &x_u;
     let proof = commit_polynomial(&witness_polynomial, global_parameters)?;
     let proof = Proof {
         w: proof.0,
@@ -68,11 +63,17 @@ pub fn verify_element_proof(
 ) -> bool {
     let u = domain.element(element_index);
     let v = element;
-    let commitment_check_g1 = commitment.0 + global_parameters.powers_of_g[0].mul(v).neg();
-    let proof_check_g2 = global_parameters.beta_h + global_parameters.h.mul(u).neg();
-    let lhs = Bls12_381::pairing(commitment_check_g1, global_parameters.h);
-    let rhs = Bls12_381::pairing(proof.w, proof_check_g2);
-    lhs == rhs
+    let commitment_check_g1 = (commitment.0.neg() + global_parameters.powers_of_g[0].mul(v)).into_affine();
+    let proof_check_g2 = (global_parameters.beta_h + global_parameters.h.mul(u).neg()).into_affine();
+    let qap = Bls12_381::multi_miller_loop(
+        [commitment_check_g1, proof.w],
+        [
+            global_parameters.h,
+            proof_check_g2,
+        ],
+    );
+    let test = Bls12_381::final_exponentiation(qap).unwrap();
+    test.is_zero()
 }
 
 #[cfg(test)]
@@ -119,7 +120,7 @@ mod test {
         let (eval, poly) = bytes_to_polynomial::<31>(&bytes, *DOMAIN).unwrap();
         let commitment = commit_polynomial(&poly, &GLOBAL_PARAMETERS).unwrap();
         let proofs: Vec<_> = (0..10)
-            .map(|i| generate_element_proof(i, &poly, &eval, &GLOBAL_PARAMETERS, *DOMAIN).unwrap())
+            .map(|i| generate_element_proof(i, &poly, &GLOBAL_PARAMETERS, *DOMAIN).unwrap())
             .collect();
 
         eval.evals

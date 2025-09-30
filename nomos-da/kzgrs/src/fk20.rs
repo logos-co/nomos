@@ -71,11 +71,11 @@ pub fn fk20_batch_generate_elements_proofs(
         .collect();
     let h_extended_vector = toeplitz2(&toeplitz_coefficients, &extended_vector);
     let h_vector = toeplitz3(h_extended_vector);
-    domain
-        .fft(&h_vector)
+    let proofs = domain.fft(&h_vector);
+    G1Projective::normalize_batch(&proofs)
         .into_iter()
         .map(|g1| Proof {
-            w: g1.into_affine(),
+            w: g1,
             random_v: None,
         })
         .collect()
@@ -127,12 +127,12 @@ mod test {
                 .rev()
                 .collect();
             let domain = GeneralEvaluationDomain::new(size).unwrap();
-            let (evals, poly) =
+            let (_, poly) =
                 bytes_to_polynomial::<BYTES_PER_FIELD_ELEMENT>(&buff, domain).unwrap();
             let polynomial_degree = poly.len();
             let slow_proofs: Vec<Proof> = (0..polynomial_degree)
                 .map(|i| {
-                    generate_element_proof(i, &poly, &evals, &GLOBAL_PARAMETERS, domain).unwrap()
+                    generate_element_proof(i, &poly, &GLOBAL_PARAMETERS, domain).unwrap()
                 })
                 .collect();
             let fk20_proofs = fk20_batch_generate_elements_proofs(&poly, &GLOBAL_PARAMETERS, None);
