@@ -13,7 +13,7 @@ use blake2::{
 #[cfg(feature = "parallel")]
 use rayon::iter::{IntoParallelIterator as _, ParallelIterator as _};
 
-use super::{Commitment, Evaluations, GlobalParameters, PolynomialEvaluationDomain, Proof, kzg};
+use super::{Commitment, Evaluations, PolynomialEvaluationDomain, Proof, kzg, VerificationKey, ProvingKey};
 use crate::fk20::{Toeplitz1Cache, fk20_batch_generate_elements_proofs};
 
 const ROW_HASH_SIZE: usize = 31;
@@ -163,7 +163,7 @@ pub fn generate_combined_proof(
     polynomials: &[Evaluations],
     commitments: &[Commitment],
     domain: PolynomialEvaluationDomain,
-    global_parameters: &GlobalParameters,
+    global_parameters: &ProvingKey,
     toeplitz1cache: Option<&Toeplitz1Cache>,
 ) -> Vec<Proof> {
     let rows_commitments_hash = generate_row_commitments_hash(commitments);
@@ -207,7 +207,7 @@ pub fn verify_column(
     row_commitments: &[Commitment],
     column_proof: &Proof,
     domain: PolynomialEvaluationDomain,
-    global_parameters: &GlobalParameters,
+    verification_key: &VerificationKey,
 ) -> bool {
     let row_commitments_hash = generate_row_commitments_hash(row_commitments);
     let h = Fr::from_le_bytes_mod_order(&row_commitments_hash);
@@ -226,7 +226,7 @@ pub fn verify_column(
         &commitment,
         column_proof,
         domain,
-        global_parameters,
+        verification_key,
     )
 }
 

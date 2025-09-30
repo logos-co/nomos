@@ -4,13 +4,14 @@ use std::{
 };
 
 use ark_bls12_381::{Bls12_381, Fr};
+use ark_ec::bls12::G2Prepared;
 use ark_ec::CurveGroup;
 use ark_ec::pairing::Pairing as _;
 use ark_poly::{
     DenseUVPolynomial as _, EvaluationDomain as _, GeneralEvaluationDomain,
     univariate::DensePolynomial,
 };
-use ark_poly_commit::kzg10::{Commitment, KZG10, Powers, Proof, UniversalParams};
+use ark_poly_commit::kzg10::{Commitment, KZG10, Powers, Proof, UniversalParams, VerifierKey};
 use num_traits::{One as _, Zero as _};
 
 use crate::common::KzgRsError;
@@ -34,7 +35,7 @@ pub fn commit_polynomial(
 pub fn generate_element_proof(
     element_index: usize,
     polynomial: &DensePolynomial<Fr>,
-    global_parameters: &UniversalParams<Bls12_381>,
+    proving_key: &UniversalParams<Bls12_381>,
     domain: GeneralEvaluationDomain<Fr>,
 ) -> Result<Proof<Bls12_381>, KzgRsError> {
     let u = domain.element(element_index);
@@ -43,7 +44,7 @@ pub fn generate_element_proof(
     }
     let x_u = DensePolynomial::<Fr>::from_coefficients_vec(vec![-u, Fr::one()]);
     let witness_polynomial: DensePolynomial<_> = polynomial / &x_u;
-    let proof = commit_polynomial(&witness_polynomial, global_parameters)?;
+    let proof = commit_polynomial(&witness_polynomial, proving_key)?;
     let proof = Proof {
         w: proof.0,
         random_v: None,
@@ -59,17 +60,17 @@ pub fn verify_element_proof(
     commitment: &Commitment<Bls12_381>,
     proof: &Proof<Bls12_381>,
     domain: GeneralEvaluationDomain<Fr>,
-    global_parameters: &UniversalParams<Bls12_381>,
+    verification_key: &VerifierKey<Bls12_381>,
 ) -> bool {
     let u = domain.element(element_index);
     let v = element;
-    let commitment_check_g1 = (commitment.0.neg() + global_parameters.powers_of_g[0].mul(v)).into_affine();
-    let proof_check_g2 = (global_parameters.beta_h + global_parameters.h.mul(u).neg()).into_affine();
+    let commitment_check_g1 = (commitment.0.neg() + verification_key.g.mul(v)).into_affine();
+    let proof_check_g2 = (verification_key.beta_h + verification_key.h.mul(u).neg()).into_affine();
     let qap = Bls12_381::multi_miller_loop(
         [commitment_check_g1, proof.w],
         [
-            global_parameters.h,
-            proof_check_g2,
+            verification_key.prepared_h.clone(),
+            G2Prepared::from(proof_check_g2),
         ],
     );
     let test = Bls12_381::final_exponentiation(qap).unwrap();
@@ -85,23 +86,30 @@ mod test {
         DenseUVPolynomial as _, EvaluationDomain as _, GeneralEvaluationDomain,
         univariate::DensePolynomial,
     };
-    use ark_poly_commit::kzg10::{KZG10, UniversalParams};
+    use ark_poly_commit::kzg10::{KZG10, UniversalParams, VerifierKey};
     use rand::{Fill as _, thread_rng};
     use rayon::{
         iter::{IndexedParallelIterator as _, ParallelIterator as _},
         prelude::IntoParallelRefIterator as _,
     };
 
-    use crate::{
-        common::bytes_to_polynomial,
-        kzg::{commit_polynomial, generate_element_proof, verify_element_proof},
-    };
+    use crate::{common::bytes_to_polynomial, kzg::{commit_polynomial, generate_element_proof, verify_element_proof}, VerificationKey};
 
     const COEFFICIENTS_SIZE: usize = 16;
-    static GLOBAL_PARAMETERS: LazyLock<UniversalParams<Bls12_381>> = LazyLock::new(|| {
+    static PROVING_KEY: LazyLock<UniversalParams<Bls12_381>> = LazyLock::new(|| {
         let mut rng = thread_rng();
         KZG10::<Bls12_381, DensePolynomial<Fr>>::setup(COEFFICIENTS_SIZE - 1, true, &mut rng)
             .unwrap()
+    });
+    static VERIFICATION_KEY: LazyLock<VerifierKey<Bls12_381>> = LazyLock::new(|| {
+        VerificationKey {
+            g: PROVING_KEY.powers_of_g[0],
+            gamma_g: PROVING_KEY.powers_of_gamma_g[&0],
+            h: PROVING_KEY.h,
+            beta_h: PROVING_KEY.beta_h,
+            prepared_h: PROVING_KEY.prepared_h.clone(),
+            prepared_beta_h: PROVING_KEY.prepared_beta_h.clone(),
+        }
     });
 
     static DOMAIN: LazyLock<GeneralEvaluationDomain<Fr>> =
@@ -109,7 +117,7 @@ mod test {
     #[test]
     fn test_poly_commit() {
         let poly = DensePolynomial::from_coefficients_vec((0..10).map(Fr::from).collect());
-        assert!(commit_polynomial(&poly, &GLOBAL_PARAMETERS).is_ok());
+        assert!(commit_polynomial(&poly, &PROVING_KEY).is_ok());
     }
 
     #[test]
@@ -118,9 +126,9 @@ mod test {
         let mut rng = thread_rng();
         bytes.try_fill(&mut rng).unwrap();
         let (eval, poly) = bytes_to_polynomial::<31>(&bytes, *DOMAIN).unwrap();
-        let commitment = commit_polynomial(&poly, &GLOBAL_PARAMETERS).unwrap();
+        let commitment = commit_polynomial(&poly, &PROVING_KEY).unwrap();
         let proofs: Vec<_> = (0..10)
-            .map(|i| generate_element_proof(i, &poly, &GLOBAL_PARAMETERS, *DOMAIN).unwrap())
+            .map(|i| generate_element_proof(i, &poly, &PROVING_KEY, *DOMAIN).unwrap())
             .collect();
 
         eval.evals
@@ -137,7 +145,7 @@ mod test {
                             &commitment,
                             proof,
                             *DOMAIN,
-                            &GLOBAL_PARAMETERS
+                            &VERIFICATION_KEY
                         ));
                     } else {
                         // Verification should fail for other points
@@ -147,7 +155,7 @@ mod test {
                             &commitment,
                             proof,
                             *DOMAIN,
-                            &GLOBAL_PARAMETERS
+                            &VERIFICATION_KEY
                         ));
                     }
                 }

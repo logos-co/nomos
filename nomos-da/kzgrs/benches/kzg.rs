@@ -79,11 +79,10 @@ fn compute_single_proof(bencher: Bencher, element_count: usize) {
             )
         })
         .input_counter(|_| ItemsCount::new(1usize))
-        .bench_refs(|((evals, poly), domain)| {
+        .bench_refs(|((_, poly), domain)| {
             black_box(generate_element_proof(
                 7,
                 poly,
-                evals,
                 &GLOBAL_PARAMETERS,
                 *domain,
             ))
@@ -102,10 +101,10 @@ fn compute_batch_proofs(bencher: Bencher, element_count: usize) {
             )
         })
         .input_counter(move |_| ItemsCount::new(element_count))
-        .bench_refs(|((evals, poly), domain)| {
+        .bench_refs(|((_, poly), domain)| {
             for i in 0..element_count {
                 black_box(
-                    generate_element_proof(i, poly, evals, &GLOBAL_PARAMETERS, *domain).unwrap(),
+                    generate_element_proof(i, poly, &GLOBAL_PARAMETERS, *domain).unwrap(),
                 );
             }
         });
@@ -146,7 +145,7 @@ fn verify_single_proof(bencher: Bencher) {
             let (eval, poly) = bytes_to_polynomial_unchecked::<CHUNK_SIZE>(&data, domain);
             let commitment = commit_polynomial(&poly, &GLOBAL_PARAMETERS).unwrap();
             let proof =
-                generate_element_proof(0, &poly, &eval, &GLOBAL_PARAMETERS, domain).unwrap();
+                generate_element_proof(0, &poly, &GLOBAL_PARAMETERS, domain).unwrap();
             (0usize, eval.evals[0], commitment, proof, domain)
         })
         .input_counter(|_| ItemsCount::new(1usize))
