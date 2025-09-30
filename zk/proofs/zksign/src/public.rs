@@ -7,6 +7,7 @@ pub struct ZkSignVerifierInputs {
 }
 
 impl ZkSignVerifierInputs {
+    #[must_use]
     pub fn new_from_msg_and_pks(msg: Fr, pks: &[Fr; 32]) -> Self {
         Self {
             msg: msg.into(),
