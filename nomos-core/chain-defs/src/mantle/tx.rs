@@ -101,12 +101,136 @@ impl From<SignedMantleTx> for MantleTx {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SignedMantleTx {
     pub mantle_tx: MantleTx,
     // TODO: make this more efficient
     pub ops_proofs: Vec<Option<OpProof>>,
     pub ledger_tx_proof: ZkSignature,
+}
+
+#[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
+pub enum VerificationError {
+    #[error("Invalid signature for operation at index {op_index}")]
+    InvalidSignature { op_index: usize },
+    #[error("Missing required proof for {op_type} operation at index {op_index}")]
+    MissingProof {
+        op_type: &'static str,
+        op_index: usize,
+    },
+    #[error("Incorrect proof type for {op_type} operation at index {op_index}")]
+    IncorrectProofType {
+        op_type: &'static str,
+        op_index: usize,
+    },
+}
+
+impl SignedMantleTx {
+    /// Create a new `SignedMantleTx` and verify that all required proofs are
+    /// present and valid.
+    ///
+    /// This enforces at construction time that:
+    /// - `ChannelBlob` operations have a valid Ed25519 signature from the
+    ///   declared signer
+    /// - `ChannelInscribe` operations have a valid Ed25519 signature from the
+    ///   declared signer
+    pub fn new(
+        mantle_tx: MantleTx,
+        ops_proofs: Vec<Option<OpProof>>,
+        ledger_tx_proof: ZkSignature,
+    ) -> Result<Self, VerificationError> {
+        let tx = Self {
+            mantle_tx,
+            ops_proofs,
+            ledger_tx_proof,
+        };
+        tx.verify_ops_proofs()?;
+        Ok(tx)
+    }
+
+    /// Create a `SignedMantleTx` without verifying proofs.
+    /// This should only be used for `GenesisTx` or in tests.
+    #[doc(hidden)]
+    #[cfg(any(test, debug_assertions))]
+    #[must_use]
+    pub const fn new_unverified(
+        mantle_tx: MantleTx,
+        ops_proofs: Vec<Option<OpProof>>,
+        ledger_tx_proof: ZkSignature,
+    ) -> Self {
+        Self {
+            mantle_tx,
+            ops_proofs,
+            ledger_tx_proof,
+        }
+    }
+
+    fn verify_ops_proofs(&self) -> Result<(), VerificationError> {
+        use ed25519::signature::Verifier as _;
+
+        let tx_hash = self.hash();
+        let tx_hash_bytes = tx_hash.as_signing_bytes();
+
+        for (idx, (op, proof)) in self
+            .mantle_tx
+            .ops
+            .iter()
+            .zip(self.ops_proofs.iter())
+            .enumerate()
+        {
+            match op {
+                Op::ChannelBlob(blob_op) => {
+                    // Blob operations require an Ed25519 signature
+                    let Some(OpProof::Ed25519Sig(sig)) = proof else {
+                        if proof.is_none() {
+                            return Err(VerificationError::MissingProof {
+                                op_type: "ChannelBlob",
+                                op_index: idx,
+                            });
+                        }
+                        return Err(VerificationError::IncorrectProofType {
+                            op_type: "ChannelBlob",
+                            op_index: idx,
+                        });
+                    };
+
+                    blob_op
+                        .signer
+                        .verify(tx_hash_bytes.as_ref(), sig)
+                        .map_err(|_| VerificationError::InvalidSignature { op_index: idx })?;
+                }
+                Op::ChannelInscribe(inscribe_op) => {
+                    // Inscription operations require an Ed25519 signature
+                    let Some(OpProof::Ed25519Sig(sig)) = proof else {
+                        if proof.is_none() {
+                            return Err(VerificationError::MissingProof {
+                                op_type: "ChannelInscribe",
+                                op_index: idx,
+                            });
+                        }
+                        return Err(VerificationError::IncorrectProofType {
+                            op_type: "ChannelInscribe",
+                            op_index: idx,
+                        });
+                    };
+
+                    inscribe_op
+                        .signer
+                        .verify(tx_hash_bytes.as_ref(), sig)
+                        .map_err(|_| VerificationError::InvalidSignature { op_index: idx })?;
+                }
+                // Other operations are checked by the ledger or don't require verification here
+                _ => {}
+            }
+        }
+
+        Ok(())
+    }
+
+    fn serialized_size(&self) -> u64 {
+        <Self as crate::codec::SerdeOp>::serialized_size(self)
+            .expect("Failed to calculate serialized size for signed mantle tx")
+    }
 }
 
 impl Transaction for SignedMantleTx {
@@ -136,13 +260,6 @@ impl AuthenticatedMantleTx for SignedMantleTx {
     }
 }
 
-impl SignedMantleTx {
-    fn serialized_size(&self) -> u64 {
-        <Self as crate::codec::SerdeOp>::serialized_size(self)
-            .expect("Failed to calculate serialized size for signed mantle tx")
-    }
-}
-
 impl GasCost for SignedMantleTx {
     fn gas_cost<Constants: GasConstants>(&self) -> Gas {
         let execution_gas = self
@@ -158,5 +275,23 @@ impl GasCost for SignedMantleTx {
         execution_gas * self.mantle_tx.execution_gas_price
             + storage_gas * self.mantle_tx.storage_gas_price
             + da_gas_cost
+    }
+}
+
+impl<'de> Deserialize<'de> for SignedMantleTx {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct SignedMantleTxHelper {
+            mantle_tx: MantleTx,
+            ops_proofs: Vec<Option<OpProof>>,
+            ledger_tx_proof: ZkSignature,
+        }
+
+        let helper = SignedMantleTxHelper::deserialize(deserializer)?;
+        Self::new(helper.mantle_tx, helper.ops_proofs, helper.ledger_tx_proof)
+            .map_err(serde::de::Error::custom)
     }
 }
