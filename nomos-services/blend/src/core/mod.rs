@@ -51,7 +51,6 @@ use crate::{
         processor::{CoreCryptographicProcessor, Error},
         settings::BlendConfig,
     },
-    epoch::EpochStream,
     membership,
     message::{NetworkMessage, ProcessedMessage, ServiceMessage},
     mock_poq_inputs_stream,
@@ -222,14 +221,15 @@ where
             .relay::<TimeService<_, _>>()
             .await
             .expect("Relay with time service should be available.");
-        let (sender, receiver) = oneshot::channel();
-        time_relay
-            .send(TimeServiceMessage::Subscribe { sender })
-            .await
-            .expect("Failed to subscribe to slot clock.");
-        let slot_stream = receiver.await;
-        let _epoch_stream =
-            EpochStream::<_, ChainService, _>::new(slot_stream, overwatch_handle.clone());
+        // let (sender, receiver) = oneshot::channel();
+        // time_relay
+        //     .send(TimeServiceMessage::Subscribe { sender })
+        //     .await
+        //     .expect("Failed to subscribe to slot clock.");
+        // let slot_stream = receiver.await;
+        // let _epoch_stream =
+        //     EpochStream::<_, ChainService>::new(slot_stream,
+        // overwatch_handle.clone());
 
         // TODO: Replace with actual service usage.
         let poq_input_stream = mock_poq_inputs_stream();
