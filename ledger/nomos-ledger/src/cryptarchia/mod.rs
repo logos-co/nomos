@@ -1,7 +1,7 @@
 use std::sync::LazyLock;
 
 use cryptarchia_engine::{Epoch, Slot};
-use groth16::{Field as _, Fr, fr_from_bytes};
+use groth16::{Fr, fr_from_bytes};
 use nomos_core::{
     crypto::{ZkDigest, ZkHasher},
     mantle::{AuthenticatedMantleTx, NoteId, Utxo, Value, gas::GasConstants},
@@ -277,7 +277,23 @@ impl LedgerState {
         &self.epoch_state.utxos
     }
 
-    pub fn from_utxos(utxos: impl IntoIterator<Item = Utxo>) -> Self {
+    pub fn from_genesis_tx<Id>(
+        tx: impl AuthenticatedMantleTx,
+        epoch_nonce: Fr,
+    ) -> Result<Self, LedgerError<Id>> {
+        if !tx.mantle_tx().ledger_tx.inputs.is_empty() {
+            return Err(LedgerError::InputInGenesis(
+                tx.mantle_tx().ledger_tx.inputs[0],
+            ));
+        }
+
+        Ok(Self::from_utxos(
+            tx.mantle_tx().ledger_tx.utxos(),
+            epoch_nonce,
+        ))
+    }
+
+    pub fn from_utxos(utxos: impl IntoIterator<Item = Utxo>, nonce: Fr) -> Self {
         let utxos = utxos
             .into_iter()
             .map(|utxo| (utxo.id(), utxo))
@@ -289,17 +305,17 @@ impl LedgerState {
             .sum::<Value>();
         Self {
             utxos: utxos.clone(),
-            nonce: Fr::ZERO,
+            nonce,
             slot: 0.into(),
             next_epoch_state: EpochState {
                 epoch: 1.into(),
-                nonce: Fr::ZERO,
+                nonce,
                 utxos: utxos.clone(),
                 total_stake,
             },
             epoch_state: EpochState {
                 epoch: 0.into(),
-                nonce: Fr::ZERO,
+                nonce,
                 utxos,
                 total_stake,
             },
@@ -326,6 +342,7 @@ pub mod tests {
     use std::num::NonZero;
 
     use cryptarchia_engine::EpochConfig;
+    use groth16::Field as _;
     use nomos_core::{
         crypto::{Digest as _, Hasher},
         mantle::{
@@ -740,7 +757,7 @@ pub mod tests {
         let output_note2 = Note::new(3000, Fr::from(BigUint::from(3u8)).into());
 
         let locked_notes = LockedNotes::new();
-        let ledger_state = LedgerState::from_utxos([input_utxo]);
+        let ledger_state = LedgerState::from_utxos([input_utxo], Fr::ZERO);
         let tx = create_tx(&[&input_utxo], vec![output_note1, output_note2]);
 
         let _fees = tx.gas_cost::<MainnetGasConstants>();
@@ -805,7 +822,7 @@ pub mod tests {
             note: Note::new(999, Fr::from(BigUint::from(1u8)).into()),
         };
 
-        let ledger_state = LedgerState::from_utxos([input_utxo]);
+        let ledger_state = LedgerState::from_utxos([input_utxo], Fr::ZERO);
 
         let invalid_utxos = [
             non_existent_utxo_1,
@@ -835,7 +852,7 @@ pub mod tests {
         let output_note = Note::new(1, Fr::from(BigUint::from(2u8)).into());
 
         let locked_notes = LockedNotes::new();
-        let ledger_state = LedgerState::from_utxos([input_utxo]);
+        let ledger_state = LedgerState::from_utxos([input_utxo], Fr::ZERO);
         let tx = create_tx(&[&input_utxo], vec![output_note, output_note]);
 
         let (_, balance) = ledger_state
@@ -864,7 +881,7 @@ pub mod tests {
         };
 
         let locked_notes = LockedNotes::new();
-        let ledger_state = LedgerState::from_utxos([input_utxo]);
+        let ledger_state = LedgerState::from_utxos([input_utxo], Fr::ZERO);
         let tx = create_tx(&[&input_utxo], vec![]);
 
         let _fees = tx.gas_cost::<MainnetGasConstants>();
@@ -887,7 +904,7 @@ pub mod tests {
         };
 
         let locked_notes = LockedNotes::new();
-        let ledger_state = LedgerState::from_utxos([input_utxo]);
+        let ledger_state = LedgerState::from_utxos([input_utxo], Fr::ZERO);
         let tx = create_tx(
             &[&input_utxo],
             vec![Note::new(0, Fr::from(BigUint::from(2u8)).into())],
@@ -895,5 +912,34 @@ pub mod tests {
 
         let result = ledger_state.try_apply_tx::<(), MainnetGasConstants>(&locked_notes, tx);
         assert!(matches!(result, Err(LedgerError::ZeroValueNote)));
+    }
+
+    #[test]
+    fn test_input_in_genesis() {
+        let input_utxo = Utxo {
+            tx_hash: Fr::from(BigUint::from(1u8)).into(),
+            output_index: 0,
+            note: Note::new(10000, Fr::from(BigUint::from(1u8)).into()),
+        };
+
+        let tx = create_tx(
+            &[&input_utxo],
+            vec![Note::new(0, Fr::from(BigUint::from(2u8)).into())],
+        );
+
+        assert!(matches!(
+            LedgerState::from_genesis_tx::<()>(tx, Fr::ZERO),
+            Err(LedgerError::InputInGenesis(_))
+        ));
+        let tx = create_tx(
+            &[],
+            vec![Note::new(10000, Fr::from(BigUint::from(2u8)).into())],
+        );
+        assert_eq!(
+            LedgerState::from_genesis_tx::<()>(tx, Fr::ONE)
+                .unwrap()
+                .nonce,
+            Fr::ONE
+        );
     }
 }

@@ -2,7 +2,6 @@ use std::{
     collections::{BTreeSet, HashMap},
     net::Ipv4Addr,
     str::FromStr as _,
-    time::Duration,
 };
 
 use nomos_core::sdp::{Locator, ServiceType};
@@ -19,7 +18,7 @@ use tests::{
         GeneralConfig,
         api::GeneralApiConfig,
         blend::create_blend_configs,
-        bootstrap::create_bootstrap_configs,
+        bootstrap::{SHORT_PROLONGED_BOOTSTRAP_PERIOD, create_bootstrap_configs},
         consensus::{ConsensusParams, create_consensus_configs},
         da::{DaParams, create_da_configs},
         membership::GeneralMembershipConfig,
@@ -91,7 +90,7 @@ pub fn create_node_configs(
     }
 
     let consensus_configs = create_consensus_configs(&ids, consensus_params);
-    let bootstrap_configs = create_bootstrap_configs(&ids, Duration::from_secs(60));
+    let bootstrap_configs = create_bootstrap_configs(&ids, SHORT_PROLONGED_BOOTSTRAP_PERIOD);
     let da_configs = create_da_configs(&ids, da_params, &ports);
     let network_configs = create_network_configs(&ids, &NetworkParams::default());
     let membership_configs = create_membership_configs(&ids, &hosts);
@@ -136,6 +135,13 @@ pub fn create_node_configs(
         network_config
             .initial_peers
             .clone_from(&host_network_init_peers);
+        network_config.swarm_config.nat_config = nomos_libp2p::NatSettings::Static {
+            external_address: Multiaddr::from_str(&format!(
+                "/ip4/{}/udp/{}/quic-v1",
+                host.ip, host.network_port
+            ))
+            .unwrap(),
+        };
 
         // Tracing config.
         let tracing_config =

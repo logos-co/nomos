@@ -28,7 +28,7 @@ RUN apt-get update && apt-get install -yq \
 RUN chmod +x testnet/scripts/download_circuit_binaries.sh && \
     testnet/scripts/download_circuit_binaries.sh "$VERSION" "$PLATFORM"
 
-RUN cargo build --release
+RUN cargo build --release --all-features
 
 # ===========================
 # NODE IMAGE

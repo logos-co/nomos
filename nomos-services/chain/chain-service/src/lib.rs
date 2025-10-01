@@ -546,12 +546,6 @@ where
             sync_config.orphan.max_orphan_cache_size,
         ));
 
-        self.service_resources_handle.status_updater.notify_ready();
-        info!(
-            "Service '{}' is ready.",
-            <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
-        );
-
         wait_until_services_are_ready!(
             &self.service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
@@ -648,6 +642,12 @@ where
                 Box::new(RecentBlobValidation::new(relays.sampling_relay().clone()))
             };
 
+        // Mark the service as ready if the chain is in the Online state.
+        // If not, it will be marked as ready after Prolonged Bootstrap Period ends.
+        if cryptarchia.state().is_online() {
+            self.notify_service_ready();
+        }
+
         let async_loop = async {
             loop {
                 tokio::select! {
@@ -664,6 +664,8 @@ where
                             storage_blocks_to_remove.clone(),
                             &self.service_resources_handle.state_updater,
                         );
+
+                        self.notify_service_ready();
                     }
 
                     Some(block) = incoming_blocks.next() => {
@@ -865,7 +867,16 @@ where
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
+    RuntimeServiceId: Display + AsServiceId<Self>,
 {
+    fn notify_service_ready(&self) {
+        self.service_resources_handle.status_updater.notify_ready();
+        info!(
+            "Service '{}' is ready.",
+            <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
+        );
+    }
+
     fn process_message(
         cryptarchia: &Cryptarchia,
         new_block_channel: &broadcast::Sender<HeaderId>,

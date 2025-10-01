@@ -323,9 +323,6 @@ where
             loop {
                 tokio::select! {
                     Some(SlotTick { slot, .. }) = slot_timer.next() => {
-                        // TODO: Don't propose blocks until IBD is done and online mode is activated.
-                        //       Until then, mempool, DA, blend service will not be ready: https://github.com/logos-co/nomos/issues/1656
-
                         let chain_info = match cryptarchia_api.info().await {
                             Ok(info) => info,
                             Err(e) => {

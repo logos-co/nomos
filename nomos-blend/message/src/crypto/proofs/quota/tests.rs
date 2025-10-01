@@ -1,5 +1,5 @@
 use const_hex::FromHex as _;
-use num_bigint::BigUint;
+use groth16::fr_from_bytes_unchecked;
 
 use crate::crypto::proofs::{
     quota::{
@@ -14,10 +14,9 @@ fn secret_selection_randomness_dst_encoding() {
     // Blend spec: <https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#25e261aa09df802d87edfc54d1d60b80>
     assert_eq!(
         *DOMAIN_SEPARATION_TAG_FR,
-        BigUint::from_bytes_be(
-            &<[u8; 23]>::from_hex("0x31565f5353454e4d4f444e41525f4e4f495443454c4553").unwrap()
-        )
-        .into()
+        fr_from_bytes_unchecked(
+            &<[u8; 23]>::from_hex("0x53454c454354494f4e5f52414e444f4d4e4553535f5631").unwrap()
+        ),
     );
 }
 
