@@ -183,11 +183,7 @@ pub struct HttpArgs {
 
 #[derive(Parser, Debug, Clone)]
 pub struct CryptarchiaLeaderArgs {
-    #[clap(
-        long = "consensus-utxo-sk",
-        env = "CONSENSUS_UTXO_SK",
-        requires = "value"
-    )]
+    #[clap(long = "consensus-utxo-sk", env = "CONSENSUS_UTXO_SK")]
     pub secret_key: Option<String>,
 }
 
