@@ -1,7 +1,10 @@
 use std::sync::LazyLock;
 
 use ark_ff::Field as _;
-use generic_array::{GenericArray, typenum::U128};
+use generic_array::{
+    GenericArray,
+    typenum::{U32, U64},
+};
 use groth16::{Fr, serde::serde_fr};
 use num_bigint::BigUint;
 use poseidon2::{Digest as _, Poseidon2Bn254Hasher};
@@ -38,7 +41,7 @@ impl SecretKey {
         keys[0] = self.0;
         let inputs = ZkSignWitnessInputs::from_witness_data_and_message_hash(keys.into(), *data);
         let (signature, _) = prove(&inputs).expect("Signature should succeed");
-        Signature(signature.to_bytes().into())
+        Signature(signature)
     }
 }
 
@@ -62,7 +65,7 @@ impl PublicKey {
         let mut pks = [Fr::ZERO; 32];
         pks[0] = self.0;
         let inputs = ZkSignVerifierInputs::new_from_msg_and_pks(*data, &pks);
-        verify(&signature.as_proof(), &inputs).unwrap_or_else(|e| {
+        verify(signature.as_proof(), &inputs).unwrap_or_else(|e| {
             error!("Error verifying signature: {e:?}");
             false
         })
@@ -70,13 +73,21 @@ impl PublicKey {
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(remote = "ZkSignProof")]
+struct SignatureSerde {
+    pi_a: GenericArray<u8, U32>,
+    pi_b: GenericArray<u8, U64>,
+    pi_c: GenericArray<u8, U32>,
+}
+
+#[derive(Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct Signature(GenericArray<u8, U128>);
+pub struct Signature(#[serde(with = "SignatureSerde")] ZkSignProof);
 
 impl Signature {
     #[must_use]
-    pub fn as_proof(&self) -> ZkSignProof {
-        ZkSignProof::from_bytes(&self.0.into_array())
+    pub const fn as_proof(&self) -> &ZkSignProof {
+        &self.0
     }
 }
 
