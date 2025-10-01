@@ -1,6 +1,18 @@
 use overwatch::services::ServiceData;
 
-pub trait WalletApi: ServiceData {
+use crate::{WalletMsg, WalletServiceSettings};
+
+pub trait WalletServiceData:
+    ServiceData<Settings = WalletServiceSettings, Message = WalletMsg>
+{
+}
+
+impl<T> WalletServiceData for T where
+    T: ServiceData<Settings = WalletServiceSettings, Message = WalletMsg>
+{
+}
+
+pub trait WalletApi: WalletServiceData {
     type Cryptarchia;
     type Tx;
     type Storage;

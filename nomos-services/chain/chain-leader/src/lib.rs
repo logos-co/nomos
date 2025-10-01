@@ -302,7 +302,13 @@ where
 
         // TODO: check active slot coeff is exactly 1/30
 
-        let leader = Leader::new(leader_config.utxos.clone(), leader_config.sk, ledger_config);
+        let leader = Leader::new(leader_config.sk, ledger_config);
+
+        let wallet_relay = self
+            .service_resources_handle
+            .overwatch_handle
+            .relay::<Wallet>()
+            .await?;
 
         let tx_selector = TxS::new(transaction_selector_settings);
 
@@ -379,7 +385,30 @@ where
                                 continue;
                             }
                         };
-                        if let Some(proof) = leader.build_proof_for(aged_tree, latest_tree, &epoch_state, slot).await {
+
+                        // Query wallet for eligible UTXOs for leadership
+                        let (utxo_sender, utxo_receiver) = oneshot::channel();
+                        if let Err(e) = wallet_relay.send(nomos_wallet::WalletMsg::GetLeaderAgedNotes {
+                            tip: parent,
+                            tx: utxo_sender,
+                        }).await {
+                            error!("Failed to request UTXOs from wallet: {:?}", e);
+                            continue;
+                        }
+
+                        let eligible_utxos = match utxo_receiver.await {
+                            Ok(Ok(utxos)) => utxos,
+                            Ok(Err(e)) => {
+                                error!("Wallet error fetching eligible UTXOs: {:?}", e);
+                                continue;
+                            }
+                            Err(e) => {
+                                error!("Failed to receive UTXOs from wallet: {:?}", e);
+                                continue;
+                            }
+                        };
+
+                        if let Some(proof) = leader.build_proof_for(&eligible_utxos, aged_tree, latest_tree, &epoch_state, slot).await {
                             debug!("proposing block...");
                             // TODO: spawn as a separate task?
                             let block = Self::propose_block(
