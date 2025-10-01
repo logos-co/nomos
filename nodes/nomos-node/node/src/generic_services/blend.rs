@@ -130,13 +130,13 @@ fn loop_until_valid_proof(
     }
 }
 
-pub struct ChainService<CryptarchiaSamplingAdapter, OutboundMsg>(
+pub struct ChainServiceAdapter<CryptarchiaSamplingAdapter, OutboundMsg>(
     OutboundRelay<OutboundMsg>,
     PhantomData<CryptarchiaSamplingAdapter>,
 );
 
 impl<CryptarchiaSamplingAdapter, OutboundMsg> Clone
-    for ChainService<CryptarchiaSamplingAdapter, OutboundMsg>
+    for ChainServiceAdapter<CryptarchiaSamplingAdapter, OutboundMsg>
 {
     fn clone(&self) -> Self {
         Self(self.0.clone(), self.1)
@@ -144,7 +144,7 @@ impl<CryptarchiaSamplingAdapter, OutboundMsg> Clone
 }
 
 impl<CryptarchiaSamplingAdapter, OutboundMsg>
-    ChainService<CryptarchiaSamplingAdapter, OutboundMsg>
+    ChainServiceAdapter<CryptarchiaSamplingAdapter, OutboundMsg>
 {
     const fn new(outbound_relay: OutboundRelay<OutboundMsg>) -> Self {
         Self(outbound_relay, PhantomData)
@@ -153,7 +153,7 @@ impl<CryptarchiaSamplingAdapter, OutboundMsg>
 
 #[async_trait]
 impl<CryptarchiaSamplingAdapter, RuntimeServiceId> ChainApi<RuntimeServiceId>
-    for ChainService<CryptarchiaSamplingAdapter, ConsensusMsg<SignedMantleTx>>
+    for ChainServiceAdapter<CryptarchiaSamplingAdapter, ConsensusMsg<SignedMantleTx>>
 where
     CryptarchiaSamplingAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Sync,
     RuntimeServiceId: Debug
@@ -195,7 +195,7 @@ pub type BlendCoreService<ChainSamplingAdapter, RuntimeServiceId> =
         BlendProofsGenerator,
         BlendProofsVerifier,
         NtpTimeBackend,
-        ChainService<ChainSamplingAdapter, ConsensusMsg<SignedMantleTx>>,
+        ChainServiceAdapter<ChainSamplingAdapter, ConsensusMsg<SignedMantleTx>>,
         RuntimeServiceId,
     >;
 pub type BlendEdgeService<ChainSamplingAdapter, RuntimeServiceId> = nomos_blend_service::edge::BlendService<
@@ -205,7 +205,7 @@ pub type BlendEdgeService<ChainSamplingAdapter, RuntimeServiceId> = nomos_blend_
         BlendMembershipAdapter<RuntimeServiceId>,
         BlendProofsGenerator,
         NtpTimeBackend,
-        ChainService<ChainSamplingAdapter, ConsensusMsg<SignedMantleTx>>,
+        ChainServiceAdapter<ChainSamplingAdapter, ConsensusMsg<SignedMantleTx>>,
         RuntimeServiceId
     >;
 pub type BlendService<ChainSamplingAdapter, RuntimeServiceId> = nomos_blend_service::BlendService<
