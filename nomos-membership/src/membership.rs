@@ -21,7 +21,7 @@ impl<S> PersistentMembership<S>
 where
     S: MembershipStorage,
 {
-    fn new(settings: MembershipConfig, storage_adapter: S) -> Self {
+    pub fn new(settings: MembershipConfig, storage_adapter: S) -> Self {
         let mut active_sessions = HashMap::new();
         let mut forming_sessions = HashMap::new();
 
@@ -53,7 +53,7 @@ where
         }
     }
 
-    async fn update(
+    pub async fn update(
         &mut self,
         update: FinalizedBlockEvent,
     ) -> Result<NewSesssion, MembershipError> {
@@ -151,7 +151,10 @@ where
         })
     }
 
-    fn get_latest_providers(&self, service_type: ServiceType) -> Result<Session, MembershipError> {
+    pub fn get_latest_providers(
+        &self,
+        service_type: ServiceType,
+    ) -> Result<Session, MembershipError> {
         if let Some(session_state) = self.active_sessions.get(&service_type).cloned() {
             return Ok(session_state);
         }
