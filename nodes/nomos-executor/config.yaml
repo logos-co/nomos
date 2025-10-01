@@ -288,3 +288,6 @@ membership:
       DA: 4320  # DataAvailability - 4320 blocks per session
     session_zero_providers: { }
 sdp:
+wallet:
+  known_keys:
+    - "0000000000000000000000000000000000000000000000000000000000000000"

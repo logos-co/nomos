@@ -112,8 +112,15 @@ pub(crate) type DaNetworkAdapter = nomos_da_sampling::network::adapters::executo
 pub(crate) type CryptarchiaService =
     nomos_node::generic_services::CryptarchiaService<DaNetworkAdapter, RuntimeServiceId>;
 
-pub(crate) type CryptarchiaLeaderService =
-    nomos_node::generic_services::CryptarchiaLeaderService<DaNetworkAdapter, RuntimeServiceId>;
+pub(crate) type WalletService =
+    nomos_node::generic_services::WalletService<CryptarchiaService, RuntimeServiceId>;
+
+pub(crate) type CryptarchiaLeaderService = nomos_node::generic_services::CryptarchiaLeaderService<
+    CryptarchiaService,
+    WalletService,
+    DaNetworkAdapter,
+    RuntimeServiceId,
+>;
 
 pub(crate) type TimeService = nomos_node::generic_services::TimeService<RuntimeServiceId>;
 
@@ -198,6 +205,7 @@ pub struct NomosExecutor {
     http: ApiService,
     storage: StorageService,
     system_sig: SystemSigService,
+    wallet: WalletService,
     #[cfg(feature = "testing")]
     testing_http: TestingApiService<RuntimeServiceId>,
 }

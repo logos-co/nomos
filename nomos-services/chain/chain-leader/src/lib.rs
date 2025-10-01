@@ -87,11 +87,12 @@ pub struct CryptarchiaLeader<
     SamplingStorage,
     TimeBackend,
     CryptarchiaService,
+    Wallet,
     RuntimeServiceId,
 > where
     BlendService: nomos_blend_service::ServiceComponents,
     Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash>,
-    Mempool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
+    Mempool::RecoveryState: Serialize + DeserializeOwned,
     Mempool::Settings: Clone,
     Mempool::Item: Clone + Eq + Debug + 'static,
     Mempool::Item: AuthenticatedMantleTx,
@@ -107,6 +108,7 @@ pub struct CryptarchiaLeader<
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync + 'static,
     CryptarchiaService: CryptarchiaServiceData,
+    Wallet: nomos_wallet::api::WalletApi,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     winning_pol_epoch_slots_sender: broadcast::Sender<LeaderPrivate>,
@@ -122,6 +124,7 @@ impl<
     SamplingStorage,
     TimeBackend,
     CryptarchiaService,
+    Wallet,
     RuntimeServiceId,
 > ServiceData
     for CryptarchiaLeader<
@@ -134,12 +137,13 @@ impl<
         SamplingStorage,
         TimeBackend,
         CryptarchiaService,
+        Wallet,
         RuntimeServiceId,
     >
 where
     BlendService: nomos_blend_service::ServiceComponents,
     Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash>,
-    Mempool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
+    Mempool::RecoveryState: Serialize + DeserializeOwned,
     Mempool::Settings: Clone,
     Mempool::Item: AuthenticatedMantleTx + Clone + Eq + Debug,
     MempoolNetAdapter:
@@ -154,6 +158,7 @@ where
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync + 'static,
     CryptarchiaService: CryptarchiaServiceData,
+    Wallet: nomos_wallet::api::WalletApi,
 {
     type Settings = LeaderSettings<TxS::Settings, BlendService::BroadcastSettings>;
     type State = overwatch::services::state::NoState<Self::Settings>;
@@ -172,6 +177,7 @@ impl<
     SamplingStorage,
     TimeBackend,
     CryptarchiaService,
+    Wallet,
     RuntimeServiceId,
 > ServiceCore<RuntimeServiceId>
     for CryptarchiaLeader<
@@ -184,6 +190,7 @@ impl<
         SamplingStorage,
         TimeBackend,
         CryptarchiaService,
+        Wallet,
         RuntimeServiceId,
     >
 where
@@ -195,7 +202,7 @@ where
         + 'static,
     BlendService::BroadcastSettings: Clone + Send + Sync,
     Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash> + Send + Sync + 'static,
-    Mempool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
+    Mempool::RecoveryState: Serialize + DeserializeOwned,
     Mempool::Settings: Clone + Send + Sync + 'static,
     Mempool::Item: Transaction<Hash = Mempool::Key>
         + Debug
@@ -224,6 +231,7 @@ where
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync + 'static,
     CryptarchiaService: CryptarchiaServiceData<Tx = Mempool::Item>,
+    Wallet: nomos_wallet::api::WalletApi,
     RuntimeServiceId: Debug
         + Send
         + Sync
@@ -249,7 +257,8 @@ where
             >,
         >
         + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>
-        + AsServiceId<CryptarchiaService>,
+        + AsServiceId<CryptarchiaService>
+        + AsServiceId<Wallet>,
 {
     fn init(
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
@@ -325,7 +334,8 @@ where
             TxMempoolService<_, _, _, _, _>,
             DaSamplingService<_, _, _, _>,
             TimeService<_, _>,
-            CryptarchiaService
+            CryptarchiaService,
+            Wallet
         )
         .await?;
 
@@ -404,7 +414,7 @@ where
             }
         };
 
-        // It sucks to use `CRYPTARCHIA_ID` when we have `<RuntimeServiceId as
+        // It sucks to use `LEADER_ID` when we have `<RuntimeServiceId as
         // AsServiceId<Self>>::SERVICE_ID`.
         // Somehow it just does not let us use it.
         //
@@ -427,6 +437,7 @@ impl<
     SamplingStorage,
     TimeBackend,
     CryptarchiaService,
+    Wallet,
     RuntimeServiceId,
 >
     CryptarchiaLeader<
@@ -439,6 +450,7 @@ impl<
         SamplingStorage,
         TimeBackend,
         CryptarchiaService,
+        Wallet,
         RuntimeServiceId,
     >
 where
@@ -450,7 +462,7 @@ where
         + 'static,
     BlendService::BroadcastSettings: Send + Sync,
     Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash> + Send + Sync + 'static,
-    Mempool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
+    Mempool::RecoveryState: Serialize + DeserializeOwned,
     Mempool::Settings: Clone + Send + Sync + 'static,
     Mempool::Item: Transaction<Hash = Mempool::Key>
         + Debug
@@ -476,6 +488,7 @@ where
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
     CryptarchiaService: CryptarchiaServiceData<Tx = Mempool::Item>,
+    Wallet: nomos_wallet::api::WalletApi,
 {
     #[expect(clippy::allow_attributes_without_reason)]
     #[instrument(level = "debug", skip(tx_selector, relays))]

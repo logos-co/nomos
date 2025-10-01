@@ -91,18 +91,23 @@ pub type CryptarchiaService<SamplingAdapter, RuntimeServiceId> = CryptarchiaCons
     RuntimeServiceId,
 >;
 
-pub type CryptarchiaLeaderService<SamplingAdapter, RuntimeServiceId> = CryptarchiaLeader<
-    BlendService<SamplingAdapter, RuntimeServiceId>,
-    Mempool,
-    MempoolAdapter<RuntimeServiceId>,
-    nomos_core::mantle::select::FillSize<MB16, SignedMantleTx>,
-    KzgrsSamplingBackend,
-    SamplingAdapter,
-    DaSamplingStorage,
-    NtpTimeBackend,
-    CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
-    RuntimeServiceId,
->;
+pub type WalletService<Cryptarchia, RuntimeServiceId> =
+    nomos_wallet::WalletService<Cryptarchia, SignedMantleTx, RocksBackend, RuntimeServiceId>;
+
+pub type CryptarchiaLeaderService<Cryptarchia, Wallet, SamplingAdapter, RuntimeServiceId> =
+    CryptarchiaLeader<
+        BlendService<SamplingAdapter, RuntimeServiceId>,
+        Mempool,
+        MempoolAdapter<RuntimeServiceId>,
+        nomos_core::mantle::select::FillSize<MB16, SignedMantleTx>,
+        KzgrsSamplingBackend,
+        SamplingAdapter,
+        DaSamplingStorage,
+        NtpTimeBackend,
+        Cryptarchia,
+        Wallet,
+        RuntimeServiceId,
+    >;
 
 pub type MembershipStorageGeneric<RuntimeServiceId> =
     nomos_membership_service::adapters::storage::rocksdb::MembershipRocksAdapter<
