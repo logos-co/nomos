@@ -2,7 +2,10 @@ use std::num::NonZero;
 
 use chain_leader::LeaderConfig;
 use cryptarchia_engine::EpochConfig;
-use nomos_core::mantle::{Note, Utxo, keys::{PublicKey, SecretKey}};
+use nomos_core::mantle::{
+    Note, Utxo,
+    keys::{PublicKey, SecretKey},
+};
 use nomos_ledger::LedgerState;
 use num_bigint::BigUint;
 
@@ -85,8 +88,7 @@ pub fn create_consensus_configs(
         },
     };
 
-    keys
-        .into_iter()
+    keys.into_iter()
         .map(|(pk, sk)| GeneralConsensusConfig {
             leader_config: LeaderConfig { pk, sk },
             ledger_config,
