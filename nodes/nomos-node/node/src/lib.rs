@@ -81,9 +81,12 @@ pub(crate) type TracingService = Tracing<RuntimeServiceId>;
 
 pub(crate) type NetworkService = nomos_network::NetworkService<NetworkBackend, RuntimeServiceId>;
 
-pub(crate) type BlendCoreService = generic_services::blend::BlendCoreService<RuntimeServiceId>;
-pub(crate) type BlendEdgeService = generic_services::blend::BlendEdgeService<RuntimeServiceId>;
-pub(crate) type BlendService = generic_services::blend::BlendService<RuntimeServiceId>;
+pub(crate) type BlendCoreService =
+    generic_services::blend::BlendCoreService<DaNetworkAdapter, RuntimeServiceId>;
+pub(crate) type BlendEdgeService =
+    generic_services::blend::BlendEdgeService<DaNetworkAdapter, RuntimeServiceId>;
+pub(crate) type BlendService =
+    generic_services::blend::BlendService<DaNetworkAdapter, RuntimeServiceId>;
 
 pub(crate) type BlockBroadcastService = broadcast_service::BlockBroadcastService<RuntimeServiceId>;
 

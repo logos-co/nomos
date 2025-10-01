@@ -92,7 +92,7 @@ pub type CryptarchiaService<SamplingAdapter, RuntimeServiceId> = CryptarchiaCons
 >;
 
 pub type CryptarchiaLeaderService<SamplingAdapter, RuntimeServiceId> = CryptarchiaLeader<
-    BlendService<RuntimeServiceId>,
+    BlendService<SamplingAdapter, RuntimeServiceId>,
     Mempool,
     MempoolAdapter<RuntimeServiceId>,
     nomos_core::mantle::select::FillSize<MB16, SignedMantleTx>,

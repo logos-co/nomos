@@ -1,6 +1,12 @@
-use core::convert::Infallible;
+use core::{
+    convert::Infallible,
+    fmt::{Debug, Display},
+    marker::PhantomData,
+    time::Duration,
+};
 
 use async_trait::async_trait;
+use chain_service::{ConsensusMsg, EpochState, Slot};
 use nomos_blend_message::crypto::{
     keys::Ed25519PrivateKey,
     proofs::{
@@ -10,11 +16,20 @@ use nomos_blend_message::crypto::{
     random_sized_bytes,
 };
 use nomos_blend_scheduling::message_blend::{BlendLayerProof, SessionInfo};
-use nomos_blend_service::{ProofsGenerator, ProofsVerifier, membership::service::Adapter};
-use nomos_core::{codec::SerdeOp as _, crypto::ZkHash};
+use nomos_blend_service::{
+    ProofsGenerator, ProofsVerifier, epoch::ChainApi, membership::service::Adapter,
+};
+use nomos_core::{codec::SerdeOp as _, crypto::ZkHash, mantle::SignedMantleTx};
 use nomos_libp2p::PeerId;
+use nomos_time::backends::NtpTimeBackend;
+use overwatch::{
+    overwatch::OverwatchHandle,
+    services::{AsServiceId, relay::OutboundRelay},
+};
+use services_utils::wait_until_services_are_ready;
+use tokio::sync::oneshot;
 
-use crate::generic_services::MembershipService;
+use crate::generic_services::{CryptarchiaService, MembershipService};
 
 // TODO: Replace this with the actual verifier once the verification inputs are
 // successfully fetched by the Blend service.
@@ -115,27 +130,78 @@ fn loop_until_valid_proof(
     }
 }
 
+pub struct ChainService<CryptarchiaSamplingAdapter, OutboundMsg>(
+    OutboundRelay<OutboundMsg>,
+    PhantomData<CryptarchiaSamplingAdapter>,
+);
+
+impl<CryptarchiaSamplingAdapter, OutboundMsg>
+    ChainService<CryptarchiaSamplingAdapter, OutboundMsg>
+{
+    const fn new(outbound_relay: OutboundRelay<OutboundMsg>) -> Self {
+        Self(outbound_relay, PhantomData)
+    }
+}
+
+#[async_trait]
+impl<CryptarchiaSamplingAdapter, RuntimeServiceId> ChainApi<RuntimeServiceId>
+    for ChainService<CryptarchiaSamplingAdapter, ConsensusMsg<SignedMantleTx>>
+where
+    CryptarchiaSamplingAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Sync,
+    RuntimeServiceId: Debug
+        + Display
+        + Send
+        + Sync
+        + 'static
+        + AsServiceId<CryptarchiaService<CryptarchiaSamplingAdapter, RuntimeServiceId>>,
+{
+    async fn new(overwatch_handle: &OverwatchHandle<RuntimeServiceId>) -> Self {
+        wait_until_services_are_ready!(overwatch_handle, Some(Duration::from_secs(3)), CryptarchiaService<_, _>).await.expect("Failed to wait that the chain service is ready.");
+        let outbound_relay = overwatch_handle
+            .relay::<CryptarchiaService<_, _>>()
+            .await
+            .expect("Could not get outbound relay from Blend service to chain service.");
+        Self::new(outbound_relay)
+    }
+
+    async fn get_epoch_state_for_slot(&self, slot: Slot) -> Option<EpochState> {
+        let (sender, receiver) = oneshot::channel();
+        self.0
+            .send(ConsensusMsg::GetEpochState { slot, tx: sender })
+            .await
+            .expect("Should not fail to send `GetEpochState` message to chain service.");
+        receiver
+            .await
+            .expect("Should not fail to receive epoch for requested slot.")
+    }
+}
+
 pub type BlendMembershipAdapter<RuntimeServiceId> =
     Adapter<MembershipService<RuntimeServiceId>, PeerId>;
-pub type BlendCoreService<RuntimeServiceId> = nomos_blend_service::core::BlendService<
-    nomos_blend_service::core::backends::libp2p::Libp2pBlendBackend,
-    PeerId,
-    nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
-    BlendMembershipAdapter<RuntimeServiceId>,
-    BlendProofsGenerator,
-    BlendProofsVerifier,
-    RuntimeServiceId,
->;
-pub type BlendEdgeService<RuntimeServiceId> = nomos_blend_service::edge::BlendService<
+pub type BlendCoreService<ChainSamplingAdapter, RuntimeServiceId> =
+    nomos_blend_service::core::BlendService<
+        nomos_blend_service::core::backends::libp2p::Libp2pBlendBackend,
+        PeerId,
+        nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
+        BlendMembershipAdapter<RuntimeServiceId>,
+        BlendProofsGenerator,
+        BlendProofsVerifier,
+        NtpTimeBackend,
+        ChainService<ChainSamplingAdapter, ConsensusMsg<SignedMantleTx>>,
+        RuntimeServiceId,
+    >;
+pub type BlendEdgeService<ChainSamplingAdapter, RuntimeServiceId> = nomos_blend_service::edge::BlendService<
         nomos_blend_service::edge::backends::libp2p::Libp2pBlendBackend,
         PeerId,
         <nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<RuntimeServiceId>>::BroadcastSettings,
         BlendMembershipAdapter<RuntimeServiceId>,
         BlendProofsGenerator,
+        NtpTimeBackend,
+        ChainService<ChainSamplingAdapter, ConsensusMsg<SignedMantleTx>>,
         RuntimeServiceId
     >;
-pub type BlendService<RuntimeServiceId> = nomos_blend_service::BlendService<
-    BlendCoreService<RuntimeServiceId>,
-    BlendEdgeService<RuntimeServiceId>,
+pub type BlendService<ChainSamplingAdapter, RuntimeServiceId> = nomos_blend_service::BlendService<
+    BlendCoreService<ChainSamplingAdapter, RuntimeServiceId>,
+    BlendEdgeService<ChainSamplingAdapter, RuntimeServiceId>,
     RuntimeServiceId,
 >;
