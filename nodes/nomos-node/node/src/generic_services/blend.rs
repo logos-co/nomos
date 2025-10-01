@@ -164,7 +164,7 @@ where
         + AsServiceId<CryptarchiaService<CryptarchiaSamplingAdapter, RuntimeServiceId>>,
 {
     async fn new(overwatch_handle: &OverwatchHandle<RuntimeServiceId>) -> Self {
-        wait_until_services_are_ready!(overwatch_handle, Some(Duration::from_secs(3)), CryptarchiaService<_, _>).await.expect("Failed to wait that the chain service is ready.");
+        wait_until_services_are_ready!(overwatch_handle, Some(Duration::from_secs(60)), CryptarchiaService<_, _>).await.expect("Failed to wait that the chain service is ready.");
         let outbound_relay = overwatch_handle
             .relay::<CryptarchiaService<_, _>>()
             .await
