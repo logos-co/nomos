@@ -157,7 +157,12 @@ mod tests {
 
     use async_trait::async_trait;
     use cryptarchia_engine::Slot;
-    use futures::{StreamExt as _, future::ready, stream::once, task::noop_waker_ref};
+    use futures::{
+        StreamExt as _,
+        future::ready,
+        stream::{empty, once},
+        task::noop_waker_ref,
+    };
     use nomos_core::crypto::ZkHash;
     use nomos_ledger::{EpochState, UtxoTree};
     use nomos_time::SlotTick;
@@ -198,7 +203,7 @@ mod tests {
     }
 
     #[test(tokio::test)]
-    async fn polling() {
+    async fn manual_polling() {
         let slot_stream = once(ready(SlotTick {
             epoch: 1.into(),
             slot: 1.into(),
@@ -281,5 +286,58 @@ mod tests {
         assert_eq!(result, Some(default_epoch_state().into()));
         assert!(stream.epoch_state_future.is_none());
         assert_eq!(stream.current_epoch, Some(3.into()));
+    }
+
+    #[test(tokio::test)]
+    async fn stream_api() {
+        let slot_stream = once(ready(SlotTick {
+            epoch: 1.into(),
+            slot: 1.into(),
+        }))
+        // New slot same epoch
+        .chain(once(ready(SlotTick {
+            epoch: 1.into(),
+            slot: 2.into(),
+        })))
+        // New slot new epoch
+        .chain(once(ready(SlotTick {
+            epoch: 2.into(),
+            slot: 3.into(),
+        })))
+        // New slot new epoch, but no associated epoch state
+        .chain(once(ready(SlotTick {
+            epoch: 3.into(),
+            slot: NON_EXISTING_EPOCH_STATE_SLOT,
+        })))
+        // New slot new epoch, but with associated epoch state
+        .chain(once(ready(SlotTick {
+            epoch: 4.into(),
+            slot: 5.into(),
+        })))
+        // We stop the iteration here
+        .chain(empty());
+        let mut stream = EpochStream::new(slot_stream, ChainService);
+
+        // Epoch 1
+        let next = stream.next().await;
+        assert_eq!(next, Some(default_epoch_state().into()));
+        assert_eq!(stream.current_epoch, Some(1.into()));
+        assert!(stream.epoch_state_future.is_none());
+
+        // Epoch 2
+        let next = stream.next().await;
+        assert_eq!(next, Some(default_epoch_state().into()));
+        assert_eq!(stream.current_epoch, Some(2.into()));
+        assert!(stream.epoch_state_future.is_none());
+
+        // Epoch 4 (skipping epoch 3 because no epoch state was found for it)
+        let next = stream.next().await;
+        assert_eq!(next, Some(default_epoch_state().into()));
+        assert_eq!(stream.current_epoch, Some(4.into()));
+        assert!(stream.epoch_state_future.is_none());
+
+        // Epoch 5 - should return `Ready(None)`
+        let next = stream.next().await;
+        assert!(next.is_none());
     }
 }
