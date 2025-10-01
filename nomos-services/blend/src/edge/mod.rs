@@ -19,6 +19,7 @@ use nomos_blend_scheduling::{
     session::{SessionEvent, UninitializedSessionEventStream},
 };
 use nomos_core::codec::SerdeOp;
+use nomos_time::{TimeService, TimeServiceMessage};
 use overwatch::{
     OpaqueServiceResourcesHandle,
     overwatch::OverwatchHandle,
@@ -32,10 +33,12 @@ use serde::{Serialize, de::DeserializeOwned};
 pub(crate) use service_components::ServiceComponents;
 use services_utils::wait_until_services_are_ready;
 use settings::BlendConfig;
+use tokio::sync::oneshot;
 use tracing::{debug, error, info};
 
 use crate::{
     edge::handlers::{Error, MessageHandler},
+    epoch::{ChainApi, EpochStream},
     membership,
     message::{NetworkMessage, ServiceMessage},
     mock_poq_inputs_stream,
@@ -51,23 +54,40 @@ pub struct BlendService<
     BroadcastSettings,
     MembershipAdapter,
     ProofsGenerator,
+    TimeBackend,
+    ChainService,
     RuntimeServiceId,
 > where
     Backend: BlendBackend<NodeId, RuntimeServiceId>,
     NodeId: Clone,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-    _phantom: PhantomData<(MembershipAdapter, ProofsGenerator)>,
+    _phantom: PhantomData<(
+        MembershipAdapter,
+        ProofsGenerator,
+        TimeBackend,
+        ChainService,
+    )>,
 }
 
-impl<Backend, NodeId, BroadcastSettings, MembershipAdapter, ProofsGenerator, RuntimeServiceId>
-    ServiceData
+impl<
+    Backend,
+    NodeId,
+    BroadcastSettings,
+    MembershipAdapter,
+    ProofsGenerator,
+    TimeBackend,
+    ChainService,
+    RuntimeServiceId,
+> ServiceData
     for BlendService<
         Backend,
         NodeId,
         BroadcastSettings,
         MembershipAdapter,
         ProofsGenerator,
+        TimeBackend,
+        ChainService,
         RuntimeServiceId,
     >
 where
@@ -81,14 +101,24 @@ where
 }
 
 #[async_trait::async_trait]
-impl<Backend, NodeId, BroadcastSettings, MembershipAdapter, ProofsGenerator, RuntimeServiceId>
-    ServiceCore<RuntimeServiceId>
+impl<
+    Backend,
+    NodeId,
+    BroadcastSettings,
+    MembershipAdapter,
+    ProofsGenerator,
+    TimeBackend,
+    ChainService,
+    RuntimeServiceId,
+> ServiceCore<RuntimeServiceId>
     for BlendService<
         Backend,
         NodeId,
         BroadcastSettings,
         MembershipAdapter,
         ProofsGenerator,
+        TimeBackend,
+        ChainService,
         RuntimeServiceId,
     >
 where
@@ -98,8 +128,11 @@ where
     MembershipAdapter: membership::Adapter<NodeId = NodeId, Error: Send + Sync + 'static> + Send,
     membership::ServiceMessage<MembershipAdapter>: Send + Sync + 'static,
     ProofsGenerator: ProofsGeneratorTrait + Send,
+    TimeBackend: nomos_time::backends::TimeBackend + Send,
+    ChainService: ChainApi<RuntimeServiceId> + Send,
     RuntimeServiceId: AsServiceId<<MembershipAdapter as membership::Adapter>::Service>
         + AsServiceId<Self>
+        + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>
         + Display
         + Debug
         + Clone
@@ -147,6 +180,22 @@ where
         )
         .subscribe()
         .await?;
+
+        let _epoch_state_stream = async {
+            let chain_service = ChainService::new(&overwatch_handle).await;
+            let time_relay = overwatch_handle
+                .relay::<TimeService<_, _>>()
+                .await
+                .expect("Relay with time service should be available.");
+            let (sender, receiver) = oneshot::channel();
+            time_relay
+                .send(TimeServiceMessage::Subscribe { sender })
+                .await
+                .expect("Failed to subscribe to slot clock.");
+            let slot_stream = receiver.await;
+            EpochStream::<_, _, RuntimeServiceId>::new(slot_stream, chain_service)
+        }
+        .await;
 
         // TODO: Replace with actual service usage.
         let poq_input_stream = mock_poq_inputs_stream();

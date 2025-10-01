@@ -51,6 +51,7 @@ use crate::{
         processor::{CoreCryptographicProcessor, Error},
         settings::BlendConfig,
     },
+    epoch::{ChainApi, EpochStream},
     membership,
     message::{NetworkMessage, ProcessedMessage, ServiceMessage},
     mock_poq_inputs_stream,
@@ -157,7 +158,7 @@ where
     ProofsGenerator: ProofsGeneratorTrait + Send,
     ProofsVerifier: ProofsVerifierTrait + Clone + Send,
     TimeBackend: nomos_time::backends::TimeBackend + Send,
-    ChainService: Send,
+    ChainService: ChainApi<RuntimeServiceId> + Send,
     RuntimeServiceId: AsServiceId<NetworkService<Network::Backend, RuntimeServiceId>>
         + AsServiceId<<MembershipAdapter as membership::Adapter>::Service>
         + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>
@@ -217,19 +218,21 @@ where
         .await
         .expect("Membership service should be ready");
 
-        let time_relay = overwatch_handle
-            .relay::<TimeService<_, _>>()
-            .await
-            .expect("Relay with time service should be available.");
-        // let (sender, receiver) = oneshot::channel();
-        // time_relay
-        //     .send(TimeServiceMessage::Subscribe { sender })
-        //     .await
-        //     .expect("Failed to subscribe to slot clock.");
-        // let slot_stream = receiver.await;
-        // let _epoch_stream =
-        //     EpochStream::<_, ChainService>::new(slot_stream,
-        // overwatch_handle.clone());
+        let _epoch_state_stream = async {
+            let chain_service = ChainService::new(overwatch_handle).await;
+            let time_relay = overwatch_handle
+                .relay::<TimeService<_, _>>()
+                .await
+                .expect("Relay with time service should be available.");
+            let (sender, receiver) = oneshot::channel();
+            time_relay
+                .send(TimeServiceMessage::Subscribe { sender })
+                .await
+                .expect("Failed to subscribe to slot clock.");
+            let slot_stream = receiver.await;
+            EpochStream::<_, _, RuntimeServiceId>::new(slot_stream, chain_service)
+        }
+        .await;
 
         // TODO: Replace with actual service usage.
         let poq_input_stream = mock_poq_inputs_stream();

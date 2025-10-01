@@ -1,5 +1,6 @@
 use core::{
     fmt::Debug,
+    marker::PhantomData,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -10,6 +11,7 @@ use futures::{FutureExt as _, Stream, StreamExt as _};
 use nomos_core::crypto::ZkHash;
 use nomos_ledger::EpochState;
 use nomos_time::SlotTick;
+use overwatch::overwatch::OverwatchHandle;
 
 const LOG_TARGET: &str = "blend::service::epoch";
 
@@ -40,32 +42,49 @@ impl From<EpochState> for EpochInfo {
 type GetEpochForSlotFuture = Pin<Box<dyn Future<Output = Option<EpochState>> + Send>>;
 
 #[async_trait]
-pub trait ChainApi {
+pub trait ChainApi<RuntimeServiceId> {
+    async fn new(overwatch_handle: &OverwatchHandle<RuntimeServiceId>) -> Self;
     async fn get_epoch_state_for_slot(&self, slot: Slot) -> Option<EpochState>;
 }
 
-pub struct EpochStream<SlotStream, ChainService> {
+/// A stream that listens to slot ticks, and on the first slot received as well
+/// as the first slot of each new epoch, fetches the epoch state from the
+/// provided chain service adapter.
+///
+/// In case the epoch state for a given slot is not found, it will retry on
+/// subsequent slots until one state is received.
+pub struct EpochStream<SlotStream, ChainService, RuntimeServiceId> {
     slot_stream: SlotStream,
     chain_service: ChainService,
     current_epoch: Option<Epoch>,
     epoch_state_future: Option<GetEpochForSlotFuture>,
+    _phantom: PhantomData<RuntimeServiceId>,
 }
 
-impl<SlotStream, ChainService> EpochStream<SlotStream, ChainService> {
+impl<SlotStream, ChainService, RuntimeServiceId>
+    EpochStream<SlotStream, ChainService, RuntimeServiceId>
+{
     pub fn new(slot_stream: SlotStream, chain_service: ChainService) -> Self {
         Self {
             slot_stream,
             chain_service,
             current_epoch: None,
             epoch_state_future: None,
+            _phantom: PhantomData,
         }
     }
 }
 
-impl<SlotStream, ChainService> Stream for EpochStream<SlotStream, ChainService>
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "It's better to keep all the polling logic together."
+)]
+impl<SlotStream, ChainService, RuntimeServiceId> Stream
+    for EpochStream<SlotStream, ChainService, RuntimeServiceId>
 where
     SlotStream: Stream<Item = SlotTick> + Unpin,
-    ChainService: ChainApi + Clone + Unpin + Send + 'static,
+    ChainService: ChainApi<RuntimeServiceId> + Clone + Unpin + Send + 'static,
+    RuntimeServiceId: Unpin,
 {
     type Item = EpochInfo;
 
@@ -137,6 +156,7 @@ mod tests {
     use nomos_core::crypto::ZkHash;
     use nomos_ledger::{EpochState, UtxoTree};
     use nomos_time::SlotTick;
+    use overwatch::overwatch::OverwatchHandle;
     use test_log::test;
 
     use crate::epoch::{ChainApi, EpochStream};
@@ -158,7 +178,11 @@ mod tests {
     struct ChainService;
 
     #[async_trait]
-    impl ChainApi for ChainService {
+    impl ChainApi<()> for ChainService {
+        async fn new(_: &OverwatchHandle<()>) -> Self {
+            Self
+        }
+
         async fn get_epoch_state_for_slot(&self, slot: Slot) -> Option<EpochState> {
             if slot == NON_EXISTING_EPOCH_STATE_SLOT {
                 None
