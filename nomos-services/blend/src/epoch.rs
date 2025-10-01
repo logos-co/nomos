@@ -39,20 +39,22 @@ impl From<EpochState> for EpochInfo {
     }
 }
 
-type GetEpochForSlotFuture = Pin<Box<dyn Future<Output = Option<EpochState>> + Send>>;
-
+/// A trait that provides the needed functionalities for the epoch stream to
+/// fetch the epoch state for a given slot.
 #[async_trait]
 pub trait ChainApi<RuntimeServiceId> {
     async fn new(overwatch_handle: &OverwatchHandle<RuntimeServiceId>) -> Self;
     async fn get_epoch_state_for_slot(&self, slot: Slot) -> Option<EpochState>;
 }
 
-/// A stream that listens to slot ticks, and on the first slot received as well
-/// as the first slot of each new epoch, fetches the epoch state from the
-/// provided chain service adapter.
+type GetEpochForSlotFuture = Pin<Box<dyn Future<Output = Option<EpochState>> + Send>>;
+
+/// A stream that listens to slot ticks, and on the first slot tick received as
+/// well as the first slot tick of each new epoch, fetches the epoch state from
+/// the provided chain service adapter.
 ///
 /// In case the epoch state for a given slot is not found, it will retry on
-/// subsequent slots until one state is received.
+/// subsequent slots until one is successfully received.
 pub struct EpochStream<SlotStream, ChainService, RuntimeServiceId> {
     slot_stream: SlotStream,
     chain_service: ChainService,
@@ -93,7 +95,7 @@ where
         let this = self.as_mut().get_mut();
 
         if let Some(ref mut pending_fut) = this.epoch_state_future {
-            tracing::trace!(target: LOG_TARGET, "Future found to fetch state for current epoch...");
+            tracing::trace!(target: LOG_TARGET, "Pending future found to fetch state for current epoch...");
             match pending_fut.poll_unpin(cx) {
                 Poll::Pending => {
                     tracing::trace!(target: LOG_TARGET, "Future not completed yet.");
@@ -107,6 +109,7 @@ where
                         // `current_epoch` so we try again on the next slot tick.
                         tracing::warn!(target: LOG_TARGET, "No epoch state for given slot. Retrying on the next slot tick.");
                         this.current_epoch = None;
+                        // We wake so we poll for the next slot tick.
                         cx.waker().wake_by_ref();
                         return Poll::Pending;
                     };
@@ -130,6 +133,7 @@ where
                     && current_epoch == epoch
                 {
                     tracing::debug!(target: LOG_TARGET, "New slot for current epoch. Skipping...");
+                    // We wake so we poll for the next slot tick.
                     cx.waker().wake_by_ref();
                     return Poll::Pending;
                 }
@@ -139,6 +143,7 @@ where
                     chain_service_clone.get_epoch_state_for_slot(slot).await
                 }));
                 tracing::debug!(target: LOG_TARGET, "Found new epoch unseen before. Polling for its state...");
+                // We wake so we poll for the next slot tick.
                 cx.waker().wake_by_ref();
                 Poll::Pending
             }
