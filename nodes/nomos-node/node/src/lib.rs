@@ -35,14 +35,6 @@ use nomos_da_verifier::{
     storage::adapters::rocksdb::RocksAdapter as VerifierStorageAdapter,
 };
 use nomos_libp2p::PeerId;
-pub use nomos_mempool::{
-    network::adapters::libp2p::{
-        Libp2pAdapter as MempoolNetworkAdapter, Settings as MempoolAdapterSettings,
-        Settings as AdapterSettings,
-    },
-    processor::tx::SignedTxProcessorSettings,
-    tx::settings::TxMempoolSettings,
-};
 pub use nomos_network::backends::libp2p::Libp2p as NetworkBackend;
 pub use nomos_storage::backends::{
     SerdeOp,
@@ -57,6 +49,14 @@ use overwatch::{
     overwatch::{Error as OverwatchError, Overwatch, OverwatchRunner},
 };
 use subnetworks_assignations::versions::history_aware_refill::HistoryAware;
+pub use tx_service::{
+    network::adapters::libp2p::{
+        Libp2pAdapter as MempoolNetworkAdapter, Settings as MempoolAdapterSettings,
+        Settings as AdapterSettings,
+    },
+    processor::tx::SignedTxProcessorSettings,
+    tx::settings::TxMempoolSettings,
+};
 
 pub use crate::config::{Config, CryptarchiaLeaderArgs, HttpArgs, LogArgs, NetworkArgs};
 use crate::{

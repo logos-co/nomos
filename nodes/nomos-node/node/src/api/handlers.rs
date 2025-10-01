@@ -37,15 +37,15 @@ use nomos_da_sampling::{DaSamplingService, backend::DaSamplingServiceBackend};
 use nomos_da_verifier::{backend::VerifierBackend, mempool::DaMempoolAdapter};
 use nomos_http_api_common::paths;
 use nomos_libp2p::PeerId;
-use nomos_mempool::{
-    TxMempoolService, backend::mockpool::MockPool,
-    network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
-};
 use nomos_network::backends::libp2p::Libp2p as Libp2pNetworkBackend;
 use nomos_storage::{StorageService, api::da::DaConverter, backends::rocksdb::RocksBackend};
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use subnetworks_assignations::MembershipHandler;
+use tx_service::{
+    TxMempoolService, backend::mockpool::MockPool,
+    network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
+};
 
 use crate::api::backend::DaStorageBackend;
 

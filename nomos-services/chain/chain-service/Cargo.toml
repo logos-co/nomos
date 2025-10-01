@@ -20,7 +20,6 @@ groth16            = { workspace = true }
 nomos-core         = { workspace = true }
 nomos-da-sampling  = { workspace = true }
 nomos-ledger       = { features = ["serde"], workspace = true }
-nomos-mempool      = { workspace = true }
 nomos-network      = { workspace = true }
 nomos-storage      = { workspace = true }
 nomos-time         = { workspace = true }
@@ -36,6 +35,7 @@ tokio              = { default-features = false, version = "1" }
 tokio-stream       = { default-features = false, version = "0.1" }
 tracing            = { workspace = true }
 tracing-futures    = { default-features = false, version = "0.2" }
+tx-service         = { workspace = true }
 utoipa             = { optional = true, workspace = true }
 
 [dev-dependencies]

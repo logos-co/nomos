@@ -48,7 +48,6 @@ use nomos_http_api_common::paths::{
     CRYPTARCHIA_HEADERS, CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_GET_SHARES_COMMITMENTS,
     DA_HISTORIC_SAMPLING, DA_MONITOR_STATS, STORAGE_BLOCK, UPDATE_MEMBERSHIP,
 };
-use nomos_mempool::MempoolMetrics;
 use nomos_network::{backends::libp2p::Libp2pConfig, config::NetworkConfig};
 use nomos_node::{
     Config, HeaderId, RocksBackendSettings,
@@ -66,6 +65,7 @@ use nomos_wallet::WalletServiceSettings;
 use reqwest::Url;
 use tempfile::NamedTempFile;
 use tokio::time::error::Elapsed;
+use tx_service::MempoolMetrics;
 
 use super::{CLIENT, create_tempdir, persist_tempdir};
 use crate::{

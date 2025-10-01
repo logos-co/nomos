@@ -35,7 +35,6 @@ use nomos_da_sampling::{
     DaSamplingService, DaSamplingServiceMsg, backend::DaSamplingServiceBackend,
 };
 use nomos_ledger::{EpochState, LedgerState};
-use nomos_mempool::{MempoolMsg, TxMempoolService, backend::RecoverableMempool};
 use nomos_network::{NetworkService, message::ChainSyncEvent};
 use nomos_storage::{StorageService, api::chain::StorageChainApi, backends::StorageBackend};
 use nomos_time::TimeService;
@@ -57,6 +56,7 @@ use tokio::{
 };
 use tracing::{Level, debug, error, info, instrument, span};
 use tracing_futures::Instrument as _;
+use tx_service::{MempoolMsg, TxMempoolService, backend::RecoverableMempool};
 
 use crate::{
     blob::{BlobValidation, RecentBlobValidation, SkipBlobValidation},
@@ -317,7 +317,7 @@ pub struct CryptarchiaConsensus<
     Mempool::RecoveryState: Serialize + DeserializeOwned,
     Mempool::Settings: Clone,
     Mempool::Item: AuthenticatedMantleTx + Clone + Eq + Debug + 'static,
-    MempoolNetAdapter: nomos_mempool::network::NetworkAdapter<
+    MempoolNetAdapter: tx_service::network::NetworkAdapter<
             RuntimeServiceId,
             Payload = Mempool::Item,
             Key = Mempool::Key,
@@ -367,7 +367,7 @@ where
     Mempool::RecoveryState: Serialize + DeserializeOwned,
     Mempool::Settings: Clone,
     Mempool::Item: AuthenticatedMantleTx + Clone + Eq + Debug,
-    MempoolNetAdapter: nomos_mempool::network::NetworkAdapter<
+    MempoolNetAdapter: tx_service::network::NetworkAdapter<
             RuntimeServiceId,
             Payload = Mempool::Item,
             Key = Mempool::Key,
@@ -431,7 +431,7 @@ where
         + Sync
         + Unpin
         + 'static,
-    MempoolNetAdapter: nomos_mempool::network::NetworkAdapter<
+    MempoolNetAdapter: tx_service::network::NetworkAdapter<
             RuntimeServiceId,
             Payload = Mempool::Item,
             Key = Mempool::Key,
@@ -851,7 +851,7 @@ where
         + Send
         + Sync
         + 'static,
-    MempoolNetAdapter: nomos_mempool::network::NetworkAdapter<
+    MempoolNetAdapter: tx_service::network::NetworkAdapter<
             RuntimeServiceId,
             Payload = Mempool::Item,
             Key = Mempool::Key,

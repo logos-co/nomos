@@ -10,13 +10,13 @@ use nomos_core::{
     mantle::{AuthenticatedMantleTx, Transaction},
 };
 use nomos_da_sampling::backend::DaSamplingServiceBackend;
-use nomos_mempool::{
-    backend::mockpool::MockPool, network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
-};
 use nomos_storage::backends::rocksdb::RocksBackend;
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tokio::sync::oneshot;
+use tx_service::{
+    backend::mockpool::MockPool, network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
+};
 
 use crate::http::DynError;
 
