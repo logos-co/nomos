@@ -201,6 +201,7 @@ impl From<historic::HistoricSamplingEvent> for SamplingEvent {
             historic::HistoricSamplingEvent::SamplingError { block_id, error } => {
                 Self::HistoricSamplingError { block_id, error }
             }
+            historic::HistoricSamplingEvent::Opinion(opinion_event) => Self::Opinion(opinion_event),
         }
     }
 }
