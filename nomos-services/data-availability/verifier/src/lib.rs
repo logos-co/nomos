@@ -22,7 +22,6 @@ use nomos_da_network_core::swarm::DispersalValidationError;
 use nomos_da_network_service::{
     NetworkService, membership::MembershipAdapter, storage::MembershipStorageAdapter,
 };
-use nomos_mempool::backend::MempoolError;
 use nomos_storage::StorageService;
 use nomos_tracing::info_with_id;
 use overwatch::{
@@ -39,6 +38,7 @@ use subnetworks_assignations::MembershipHandler;
 use tokio::sync::oneshot::Sender;
 use tokio_stream::StreamExt as _;
 use tracing::{error, instrument};
+use tx_service::backend::MempoolError;
 
 use crate::{
     backend::{TxVerifierBackend, VerifierBackend},

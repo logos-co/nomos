@@ -7,15 +7,15 @@ use nomos_core::{
     header::HeaderId,
     mantle::{AuthenticatedMantleTx, Transaction},
 };
-use nomos_mempool::{
-    MempoolMetrics, MempoolMsg, TxMempoolService, backend::mockpool::MockPool,
-    network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
-    tx::service::openapi::Status,
-};
 use overwatch::services::AsServiceId;
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 use tokio_stream::wrappers::BroadcastStream;
+use tx_service::{
+    MempoolMetrics, MempoolMsg, TxMempoolService, backend::mockpool::MockPool,
+    network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
+    tx::service::openapi::Status,
+};
 
 pub type MempoolService<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId> =
     TxMempoolService<

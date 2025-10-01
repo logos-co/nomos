@@ -41,9 +41,6 @@ use nomos_da_verifier::{backend::VerifierBackend, mempool::DaMempoolAdapter};
 pub use nomos_http_api_common::settings::AxumBackendSettings;
 use nomos_http_api_common::{paths, utils::create_rate_limit_layer};
 use nomos_libp2p::PeerId;
-use nomos_mempool::{
-    MempoolMetrics, TxMempoolService, backend::mockpool::MockPool, tx::service::openapi::Status,
-};
 use nomos_node::{
     RocksBackend,
     api::handlers::{
@@ -65,6 +62,9 @@ use tower_http::{
     limit::RequestBodyLimitLayer,
     timeout::TimeoutLayer,
     trace::TraceLayer,
+};
+use tx_service::{
+    MempoolMetrics, TxMempoolService, backend::mockpool::MockPool, tx::service::openapi::Status,
 };
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -336,7 +336,7 @@ where
         + AsServiceId<DaStorageService<RuntimeServiceId>>
         + AsServiceId<
             TxMempoolService<
-                nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
+                tx_service::network::adapters::libp2p::Libp2pAdapter<
                     Tx,
                     <Tx as Transaction>::Hash,
                     RuntimeServiceId,

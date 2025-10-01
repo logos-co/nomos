@@ -35,13 +35,13 @@ members = [
   "nomos-services/data-availability/verifier",
   "nomos-services/key-management-system",
   "nomos-services/membership",
-  "nomos-services/mempool",
   "nomos-services/network",
   "nomos-services/sdp",
   "nomos-services/storage",
   "nomos-services/system-sig",
   "nomos-services/time",
   "nomos-services/tracing",
+  "nomos-services/tx-service",
   "nomos-services/utils",
   "nomos-services/wallet",
   "nomos-tracing",
@@ -102,7 +102,6 @@ nomos-ledger             = { default-features = false, path = "./ledger/nomos-le
 nomos-libp2p             = { default-features = false, path = "./nomos-libp2p" }
 nomos-mantle-core        = { default-features = false, path = "./nomos-mantle" }
 nomos-membership         = { default-features = false, path = "./nomos-services/membership" }
-nomos-mempool            = { default-features = false, path = "./nomos-services/mempool" }
 nomos-network            = { default-features = false, path = "./nomos-services/network" }
 nomos-node               = { default-features = false, path = "./nodes/nomos-node/node" }
 nomos-sdp                = { default-features = false, path = "./nomos-services/sdp" }
@@ -120,6 +119,7 @@ poseidon2                = { default-features = false, path = "./zk/poseidon2" }
 services-utils           = { default-features = false, path = "./nomos-services/utils" }
 subnetworks-assignations = { default-features = false, path = "./nomos-da/network/subnetworks-assignations" }
 tests                    = { default-features = false, path = "./tests" }
+tx-service               = { default-features = false, path = "./nomos-services/tx-service" }
 utxotree                 = { default-features = false, path = "./utxotree" }
 wallet                   = { default-features = false, path = "./wallet" }
 witness-generator        = { default-features = false, path = "zk/circuits/witness-generator" }

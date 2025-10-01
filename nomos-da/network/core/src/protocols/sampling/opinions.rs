@@ -2,7 +2,7 @@ use libp2p::PeerId;
 use nomos_core::block::SessionNumber;
 
 #[derive(Debug, Clone)]
-pub enum OpinionEvent {
+pub enum Opinion {
     Positive {
         peer_id: PeerId,
         session_id: SessionNumber,
@@ -15,4 +15,9 @@ pub enum OpinionEvent {
         peer_id: PeerId,
         session_id: SessionNumber,
     },
+}
+
+#[derive(Debug, Clone)]
+pub struct OpinionEvent {
+    pub opinions: Vec<Opinion>,
 }

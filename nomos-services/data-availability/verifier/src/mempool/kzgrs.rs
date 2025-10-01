@@ -5,10 +5,10 @@ use nomos_core::{
     mantle::{SignedMantleTx, Transaction as _, TxHash},
 };
 use nomos_da_sampling::backend::DaSamplingServiceBackend;
-use nomos_mempool::{MempoolMsg, TxMempoolService, backend::RecoverableMempool};
 use overwatch::services::{ServiceData, relay::OutboundRelay};
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
+use tx_service::{MempoolMsg, TxMempoolService, backend::RecoverableMempool};
 
 use super::{DaMempoolAdapter, MempoolAdapterError};
 
@@ -22,8 +22,8 @@ pub struct KzgrsMempoolAdapter<
     SamplingStorage,
     RuntimeServiceId,
 > where
-    Mempool: nomos_mempool::backend::Mempool<BlockId = HeaderId>,
-    MempoolNetAdapter: nomos_mempool::network::NetworkAdapter<RuntimeServiceId, Key = Mempool::Key>,
+    Mempool: tx_service::backend::Mempool<BlockId = HeaderId>,
+    MempoolNetAdapter: tx_service::network::NetworkAdapter<RuntimeServiceId, Key = Mempool::Key>,
     Mempool::Item: Clone + Eq + Debug + 'static,
     Mempool::Key: Debug + 'static,
 {
@@ -59,7 +59,7 @@ where
     Mempool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     Mempool::Settings: Clone,
     MempoolNetAdapter:
-        nomos_mempool::network::NetworkAdapter<RuntimeServiceId, Key = Mempool::Key> + Sync,
+        tx_service::network::NetworkAdapter<RuntimeServiceId, Key = Mempool::Key> + Sync,
     SamplingBackend: DaSamplingServiceBackend + Send + Sync,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,

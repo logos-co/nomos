@@ -11,7 +11,6 @@ use nomos_core::{
     mantle::{AuthenticatedMantleTx, TxHash},
 };
 use nomos_da_sampling::{DaSamplingService, backend::DaSamplingServiceBackend};
-use nomos_mempool::{MempoolMsg, TxMempoolService, backend::RecoverableMempool};
 use nomos_network::{NetworkService, message::BackendNetworkMsg};
 use nomos_storage::{
     StorageMsg, StorageService, api::chain::StorageChainApi, backends::StorageBackend,
@@ -22,6 +21,7 @@ use overwatch::{
     services::{AsServiceId, relay::OutboundRelay},
 };
 use serde::{Serialize, de::DeserializeOwned};
+use tx_service::{MempoolMsg, TxMempoolService, backend::RecoverableMempool};
 
 use crate::{
     CryptarchiaConsensus, SamplingRelay, network,
@@ -35,9 +35,9 @@ pub type BroadcastRelay = OutboundRelay<BlockBroadcastMsg>;
 type MempoolRelay<Mempool, MempoolNetAdapter, RuntimeServiceId> = OutboundRelay<
     MempoolMsg<
         HeaderId,
-        <MempoolNetAdapter as nomos_mempool::network::NetworkAdapter<RuntimeServiceId>>::Payload,
-        <Mempool as nomos_mempool::backend::Mempool>::Item,
-        <Mempool as nomos_mempool::backend::Mempool>::Key,
+        <MempoolNetAdapter as tx_service::network::NetworkAdapter<RuntimeServiceId>>::Payload,
+        <Mempool as tx_service::backend::Mempool>::Item,
+        <Mempool as tx_service::backend::Mempool>::Key,
     >,
 >;
 
@@ -51,8 +51,8 @@ pub struct CryptarchiaConsensusRelays<
     Storage,
     RuntimeServiceId,
 > where
-    Mempool: nomos_mempool::backend::Mempool,
-    MempoolNetAdapter: nomos_mempool::network::NetworkAdapter<RuntimeServiceId>,
+    Mempool: tx_service::backend::Mempool,
+    MempoolNetAdapter: tx_service::network::NetworkAdapter<RuntimeServiceId>,
     NetworkAdapter: network::NetworkAdapter<RuntimeServiceId>,
     Storage: StorageBackend + Send + Sync + 'static,
     SamplingBackend: DaSamplingServiceBackend,
@@ -79,7 +79,7 @@ where
     Mempool::Item: Debug + Serialize + DeserializeOwned + Eq + Clone + Send + Sync + 'static,
     Mempool::Item: AuthenticatedMantleTx,
     Mempool::Settings: Clone,
-    MempoolNetAdapter: nomos_mempool::network::NetworkAdapter<
+    MempoolNetAdapter: tx_service::network::NetworkAdapter<
             RuntimeServiceId,
             Payload = Mempool::Item,
             Key = Mempool::Key,

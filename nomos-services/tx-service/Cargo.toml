@@ -1,7 +1,7 @@
 [package]
 edition = { workspace = true }
 license = { workspace = true }
-name    = "nomos-mempool"
+name    = "tx-service"
 version = "0.1.0"
 
 [package.metadata.cargo-machete]
@@ -33,11 +33,11 @@ tracing           = { workspace = true }
 utoipa            = { optional = true, workspace = true }
 
 [dev-dependencies]
-nomos-mempool         = { features = ["mock"], path = "." }
 nomos-tracing-service = { workspace = true }
 nomos-utils           = { workspace = true }
 overwatch-derive      = { workspace = true }
 tokio                 = { default-features = false, version = "1" }
+tx-service            = { features = ["mock"], path = "." }
 
 [features]
 default         = []
