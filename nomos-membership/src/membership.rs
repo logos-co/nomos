@@ -2,11 +2,12 @@ use std::collections::HashMap;
 
 use nomos_core::{
     block::BlockNumber,
-    sdp::{FinalizedBlockEvent, FinalizedBlockEventUpdate, ServiceType},
+    sdp::{FinalizedBlockEvent, ServiceType},
 };
 
 use crate::{
-    Membership, MembershipConfig, MembershipError, NewSesssion, Session, storage::MembershipStorage,
+    Membership, MembershipConfig, MembershipError, NewSesssion, session::Session,
+    storage::MembershipStorage,
 };
 
 pub struct PersistentMembership<S: MembershipStorage> {
@@ -160,21 +161,6 @@ where
         }
 
         Err(MembershipError::NotFound)
-    }
-}
-
-impl Session {
-    fn apply_update(&mut self, update: &FinalizedBlockEventUpdate) {
-        match update.state {
-            nomos_core::sdp::FinalizedDeclarationState::Active => {
-                self.providers
-                    .insert(update.provider_id, update.locators.clone());
-            }
-            nomos_core::sdp::FinalizedDeclarationState::Inactive
-            | nomos_core::sdp::FinalizedDeclarationState::Withdrawn => {
-                self.providers.remove(&update.provider_id);
-            }
-        }
     }
 }
 

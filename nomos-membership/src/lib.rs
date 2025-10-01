@@ -1,21 +1,15 @@
 use std::collections::{BTreeSet, HashMap};
 
 use async_trait::async_trait;
-use nomos_core::{
-    block::SessionNumber,
-    sdp::{FinalizedBlockEvent, Locator, ProviderId, ServiceType},
-};
+use nomos_core::sdp::{FinalizedBlockEvent, Locator, ProviderId, ServiceType};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-pub mod membership;
-pub mod storage;
+use crate::session::Session;
 
-#[derive(Debug, Clone)]
-pub struct Session {
-    session_number: SessionNumber,
-    providers: HashMap<ProviderId, BTreeSet<Locator>>,
-}
+pub mod membership;
+pub mod session;
+pub mod storage;
 
 pub type DynError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
