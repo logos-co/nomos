@@ -295,3 +295,346 @@ impl<'de> Deserialize<'de> for SignedMantleTx {
             .map_err(serde::de::Error::custom)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use ed25519::signature::Signer as _;
+    use ed25519_dalek::SigningKey;
+
+    use super::*;
+    use crate::{
+        mantle::{
+            ledger::Tx as LedgerTx,
+            ops::channel::{blob::BlobOp, inscribe::InscriptionOp},
+        },
+        proofs::zksig::ZkSignaturePublic,
+    };
+
+    fn dummy_zk_signature() -> ZkSignature {
+        ZkSignature::prove(ZkSignaturePublic {
+            msg_hash: Fr::default(),
+            pks: vec![],
+        })
+    }
+
+    fn create_test_mantle_tx(ops: Vec<Op>) -> MantleTx {
+        MantleTx {
+            ops,
+            ledger_tx: LedgerTx::new(vec![], vec![]),
+            execution_gas_price: 1,
+            storage_gas_price: 1,
+        }
+    }
+
+    fn create_test_blob_op(signing_key: &SigningKey) -> BlobOp {
+        BlobOp {
+            channel: [0; 32].into(),
+            blob: [0; 32],
+            blob_size: 0,
+            da_storage_gas_price: 0,
+            parent: [0; 32].into(),
+            signer: signing_key.verifying_key(),
+        }
+    }
+
+    fn create_test_inscribe_op(signing_key: &SigningKey) -> InscriptionOp {
+        InscriptionOp {
+            channel_id: [0; 32].into(),
+            inscription: vec![1, 2, 3],
+            parent: [0; 32].into(),
+            signer: signing_key.verifying_key(),
+        }
+    }
+
+    #[test]
+    fn test_signed_mantle_tx_new_with_valid_blob_proof() {
+        let signing_key = SigningKey::from_bytes(&[1; 32]);
+        let blob_op = create_test_blob_op(&signing_key);
+        let mantle_tx = create_test_mantle_tx(vec![Op::ChannelBlob(blob_op)]);
+
+        // Sign the transaction hash
+        let tx_hash = mantle_tx.hash().as_signing_bytes();
+        let signature = signing_key.sign(&tx_hash);
+
+        let result = SignedMantleTx::new(
+            mantle_tx,
+            vec![Some(OpProof::Ed25519Sig(signature))],
+            dummy_zk_signature(),
+        );
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_signed_mantle_tx_new_with_valid_inscribe_proof() {
+        let signing_key = SigningKey::from_bytes(&[1; 32]);
+        let inscribe_op = create_test_inscribe_op(&signing_key);
+        let mantle_tx = create_test_mantle_tx(vec![Op::ChannelInscribe(inscribe_op)]);
+
+        // Sign the transaction hash
+        let tx_hash = mantle_tx.hash().as_signing_bytes();
+        let signature = signing_key.sign(&tx_hash);
+
+        let result = SignedMantleTx::new(
+            mantle_tx,
+            vec![Some(OpProof::Ed25519Sig(signature))],
+            dummy_zk_signature(),
+        );
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_signed_mantle_tx_new_missing_blob_proof() {
+        let signing_key = SigningKey::from_bytes(&[1; 32]);
+        let blob_op = create_test_blob_op(&signing_key);
+        let mantle_tx = create_test_mantle_tx(vec![Op::ChannelBlob(blob_op)]);
+
+        let result = SignedMantleTx::new(mantle_tx, vec![None], dummy_zk_signature());
+
+        assert!(matches!(
+            result,
+            Err(VerificationError::MissingProof {
+                op_type: "ChannelBlob",
+                op_index: 0
+            })
+        ));
+    }
+
+    #[test]
+    fn test_signed_mantle_tx_new_missing_inscribe_proof() {
+        let signing_key = SigningKey::from_bytes(&[1; 32]);
+        let inscribe_op = create_test_inscribe_op(&signing_key);
+        let mantle_tx = create_test_mantle_tx(vec![Op::ChannelInscribe(inscribe_op)]);
+
+        let result = SignedMantleTx::new(mantle_tx, vec![None], dummy_zk_signature());
+
+        assert!(matches!(
+            result,
+            Err(VerificationError::MissingProof {
+                op_type: "ChannelInscribe",
+                op_index: 0
+            })
+        ));
+    }
+
+    #[test]
+    fn test_signed_mantle_tx_new_invalid_blob_signature() {
+        let signing_key = SigningKey::from_bytes(&[1; 32]);
+        let wrong_signing_key = SigningKey::from_bytes(&[2; 32]);
+        let blob_op = create_test_blob_op(&signing_key);
+        let mantle_tx = create_test_mantle_tx(vec![Op::ChannelBlob(blob_op)]);
+
+        // Sign with wrong key
+        let tx_hash = mantle_tx.hash().as_signing_bytes();
+        let signature = wrong_signing_key.sign(&tx_hash);
+
+        let result = SignedMantleTx::new(
+            mantle_tx,
+            vec![Some(OpProof::Ed25519Sig(signature))],
+            dummy_zk_signature(),
+        );
+
+        assert!(matches!(
+            result,
+            Err(VerificationError::InvalidSignature { op_index: 0 })
+        ));
+    }
+
+    #[test]
+    fn test_signed_mantle_tx_new_invalid_inscribe_signature() {
+        let signing_key = SigningKey::from_bytes(&[1; 32]);
+        let wrong_signing_key = SigningKey::from_bytes(&[2; 32]);
+        let inscribe_op = create_test_inscribe_op(&signing_key);
+        let mantle_tx = create_test_mantle_tx(vec![Op::ChannelInscribe(inscribe_op)]);
+
+        // Sign with wrong key
+        let tx_hash = mantle_tx.hash().as_signing_bytes();
+        let signature = wrong_signing_key.sign(&tx_hash);
+
+        let result = SignedMantleTx::new(
+            mantle_tx,
+            vec![Some(OpProof::Ed25519Sig(signature))],
+            dummy_zk_signature(),
+        );
+
+        assert!(matches!(
+            result,
+            Err(VerificationError::InvalidSignature { op_index: 0 })
+        ));
+    }
+
+    #[test]
+    fn test_signed_mantle_tx_new_incorrect_blob_proof_type() {
+        let signing_key = SigningKey::from_bytes(&[1; 32]);
+        let blob_op = create_test_blob_op(&signing_key);
+        let mantle_tx = create_test_mantle_tx(vec![Op::ChannelBlob(blob_op)]);
+
+        // Use wrong proof type
+        let result = SignedMantleTx::new(
+            mantle_tx,
+            vec![Some(OpProof::ZkSig(dummy_zk_signature()))],
+            dummy_zk_signature(),
+        );
+
+        assert!(matches!(
+            result,
+            Err(VerificationError::IncorrectProofType {
+                op_type: "ChannelBlob",
+                op_index: 0
+            })
+        ));
+    }
+
+    #[test]
+    fn test_signed_mantle_tx_new_incorrect_inscribe_proof_type() {
+        let signing_key = SigningKey::from_bytes(&[1; 32]);
+        let inscribe_op = create_test_inscribe_op(&signing_key);
+        let mantle_tx = create_test_mantle_tx(vec![Op::ChannelInscribe(inscribe_op)]);
+
+        // Use wrong proof type
+        let result = SignedMantleTx::new(
+            mantle_tx,
+            vec![Some(OpProof::ZkSig(dummy_zk_signature()))],
+            dummy_zk_signature(),
+        );
+
+        assert!(matches!(
+            result,
+            Err(VerificationError::IncorrectProofType {
+                op_type: "ChannelInscribe",
+                op_index: 0
+            })
+        ));
+    }
+
+    #[test]
+    fn test_signed_mantle_tx_new_multiple_ops_valid() {
+        let signing_key1 = SigningKey::from_bytes(&[1; 32]);
+        let signing_key2 = SigningKey::from_bytes(&[2; 32]);
+
+        let blob_op = create_test_blob_op(&signing_key1);
+        let inscribe_op = create_test_inscribe_op(&signing_key2);
+
+        let mantle_tx = create_test_mantle_tx(vec![
+            Op::ChannelBlob(blob_op),
+            Op::ChannelInscribe(inscribe_op),
+        ]);
+
+        let tx_hash = mantle_tx.hash().as_signing_bytes();
+        let sig1 = signing_key1.sign(&tx_hash);
+        let sig2 = signing_key2.sign(&tx_hash);
+
+        let result = SignedMantleTx::new(
+            mantle_tx,
+            vec![
+                Some(OpProof::Ed25519Sig(sig1)),
+                Some(OpProof::Ed25519Sig(sig2)),
+            ],
+            dummy_zk_signature(),
+        );
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_signed_mantle_tx_new_multiple_ops_one_invalid() {
+        let signing_key1 = SigningKey::from_bytes(&[1; 32]);
+        let signing_key2 = SigningKey::from_bytes(&[2; 32]);
+        let wrong_key = SigningKey::from_bytes(&[3; 32]);
+
+        let blob_op = create_test_blob_op(&signing_key1);
+        let inscribe_op = create_test_inscribe_op(&signing_key2);
+
+        let mantle_tx = create_test_mantle_tx(vec![
+            Op::ChannelBlob(blob_op),
+            Op::ChannelInscribe(inscribe_op),
+        ]);
+
+        let tx_hash = mantle_tx.hash().as_signing_bytes();
+        let sig1 = signing_key1.sign(&tx_hash);
+        let sig2 = wrong_key.sign(&tx_hash); // Wrong signature
+
+        let result = SignedMantleTx::new(
+            mantle_tx,
+            vec![
+                Some(OpProof::Ed25519Sig(sig1)),
+                Some(OpProof::Ed25519Sig(sig2)),
+            ],
+            dummy_zk_signature(),
+        );
+
+        assert!(matches!(
+            result,
+            Err(VerificationError::InvalidSignature { op_index: 1 })
+        ));
+    }
+
+    #[test]
+    fn test_signed_mantle_tx_deserialize_with_valid_proof() {
+        let signing_key = SigningKey::from_bytes(&[1; 32]);
+        let blob_op = create_test_blob_op(&signing_key);
+        let mantle_tx = create_test_mantle_tx(vec![Op::ChannelBlob(blob_op)]);
+
+        let tx_hash = mantle_tx.hash().as_signing_bytes();
+        let signature = signing_key.sign(&tx_hash);
+
+        let signed_tx = SignedMantleTx::new(
+            mantle_tx,
+            vec![Some(OpProof::Ed25519Sig(signature))],
+            dummy_zk_signature(),
+        )
+        .unwrap();
+
+        // Serialize and deserialize
+        let serialized = serde_json::to_string(&signed_tx).unwrap();
+        let deserialized: Result<SignedMantleTx, _> = serde_json::from_str(&serialized);
+
+        assert!(deserialized.is_ok());
+        assert_eq!(deserialized.unwrap(), signed_tx);
+    }
+
+    #[test]
+    fn test_signed_mantle_tx_deserialize_with_missing_proof() {
+        let signing_key = SigningKey::from_bytes(&[1; 32]);
+        let blob_op = create_test_blob_op(&signing_key);
+        let mantle_tx = create_test_mantle_tx(vec![Op::ChannelBlob(blob_op)]);
+
+        let helper = SignedMantleTx {
+            mantle_tx,
+            ops_proofs: vec![None],
+            ledger_tx_proof: dummy_zk_signature(),
+        };
+
+        let serialized = serde_json::to_string(&helper).unwrap();
+        let deserialized: Result<SignedMantleTx, _> = serde_json::from_str(&serialized);
+
+        assert!(deserialized.is_err());
+        let err_msg = deserialized.unwrap_err().to_string();
+        assert!(err_msg.contains("MissingProof") || err_msg.contains("ChannelBlob"));
+    }
+
+    #[test]
+    fn test_signed_mantle_tx_deserialize_with_invalid_signature() {
+        let signing_key = SigningKey::from_bytes(&[1; 32]);
+        let wrong_key = SigningKey::from_bytes(&[2; 32]);
+        let blob_op = create_test_blob_op(&signing_key);
+        let mantle_tx = create_test_mantle_tx(vec![Op::ChannelBlob(blob_op)]);
+
+        let tx_hash = mantle_tx.hash().as_signing_bytes();
+        let wrong_signature = wrong_key.sign(&tx_hash);
+
+        let helper = SignedMantleTx {
+            mantle_tx,
+            ops_proofs: vec![Some(OpProof::Ed25519Sig(wrong_signature))],
+            ledger_tx_proof: dummy_zk_signature(),
+        };
+
+        let serialized = serde_json::to_string(&helper).unwrap();
+        let deserialized: Result<SignedMantleTx, _> = serde_json::from_str(&serialized);
+
+        assert!(deserialized.is_err());
+        let err_msg = deserialized.unwrap_err().to_string();
+        assert!(err_msg.contains("Invalid signature"));
+    }
+}
