@@ -48,7 +48,6 @@ use nomos_http_api_common::paths::{
     CRYPTARCHIA_HEADERS, CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_GET_SHARES_COMMITMENTS,
     DA_HISTORIC_SAMPLING, DA_MONITOR_STATS, STORAGE_BLOCK, UPDATE_MEMBERSHIP,
 };
-use nomos_mempool::MempoolMetrics;
 use nomos_network::{backends::libp2p::Libp2pConfig, config::NetworkConfig};
 use nomos_node::{
     Config, HeaderId, RocksBackendSettings,
@@ -66,6 +65,7 @@ use nomos_wallet::WalletServiceSettings;
 use reqwest::Url;
 use tempfile::NamedTempFile;
 use tokio::time::error::Elapsed;
+use tx_service::MempoolMetrics;
 
 use super::{CLIENT, create_tempdir, persist_tempdir};
 use crate::{
@@ -76,7 +76,7 @@ const BIN_PATH: &str = "../target/debug/nomos-node";
 
 pub enum Pool {
     Da,
-    Cl,
+    Mantle,
 }
 
 pub struct Validator {
@@ -90,9 +90,7 @@ pub struct Validator {
 
 impl Drop for Validator {
     fn drop(&mut self) {
-        if std::thread::panicking()
-            && let Err(e) = persist_tempdir(&mut self.tempdir, "nomos-node")
-        {
+        if let Err(e) = persist_tempdir(&mut self.tempdir, "nomos-node") {
             println!("failed to persist tempdir: {e}");
         }
 
@@ -221,7 +219,7 @@ impl Validator {
 
     pub async fn get_mempoool_metrics(&self, pool: Pool) -> MempoolMetrics {
         let discr = match pool {
-            Pool::Cl => "cl",
+            Pool::Mantle => "mantle",
             Pool::Da => "da",
         };
         let addr = format!("/{discr}/metrics");
@@ -580,7 +578,7 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
             },
         },
         mempool: MempoolConfig {
-            cl_pool_recovery_path: "./recovery/cl_mempool.json".into(),
+            pool_recovery_path: "./recovery/mempool.json".into(),
             trigger_sampling_delay: adjust_timeout(Duration::from_secs(5)),
         },
         membership: config.membership_config.service_settings,

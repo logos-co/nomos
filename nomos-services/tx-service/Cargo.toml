@@ -4,7 +4,7 @@ description = { workspace = true }
 edition     = { workspace = true }
 keywords    = { workspace = true }
 license     = { workspace = true }
-name        = "nomos-mempool"
+name        = "tx-service"
 readme      = { workspace = true }
 repository  = { workspace = true }
 version     = { workspace = true }
@@ -38,11 +38,11 @@ tracing           = { workspace = true }
 utoipa            = { optional = true, workspace = true }
 
 [dev-dependencies]
-nomos-mempool         = { features = ["mock"], path = "." }
 nomos-tracing-service = { workspace = true }
 nomos-utils           = { workspace = true }
 overwatch-derive      = { workspace = true }
 tokio                 = { default-features = false, version = "1" }
+tx-service            = { features = ["mock"], path = "." }
 
 [features]
 default         = []

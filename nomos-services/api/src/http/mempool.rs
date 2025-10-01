@@ -3,13 +3,13 @@ use std::fmt::Display;
 
 use nomos_core::header::HeaderId;
 use nomos_da_sampling::network::NetworkAdapter as DaSamplingNetworkAdapter;
-use nomos_mempool::{
-    MempoolMsg, TxMempoolService, backend::mockpool::MockPool, network::NetworkAdapter,
-};
 use nomos_network::backends::NetworkBackend;
 use overwatch::{DynError, services::AsServiceId};
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
+use tx_service::{
+    MempoolMsg, TxMempoolService, backend::mockpool::MockPool, network::NetworkAdapter,
+};
 
 pub async fn add_tx<
     MempoolNetworkBackend,

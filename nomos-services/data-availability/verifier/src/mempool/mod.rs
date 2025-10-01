@@ -1,10 +1,10 @@
 pub mod kzgrs;
 
-use nomos_mempool::backend::MempoolError;
 use overwatch::{
     DynError,
     services::{ServiceData, relay::OutboundRelay},
 };
+use tx_service::backend::MempoolError;
 
 #[derive(thiserror::Error, Debug)]
 pub enum MempoolAdapterError {

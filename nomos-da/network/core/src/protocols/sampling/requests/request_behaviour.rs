@@ -34,7 +34,7 @@ use crate::{
         SamplingResponseStreamFuture, SubnetsConfig,
         connections::Connections,
         errors::SamplingError,
-        opinions::OpinionEvent,
+        opinions::{Opinion, OpinionEvent},
         requests::SamplingEvent,
         streams::{self, SampleStream},
     },
@@ -400,18 +400,22 @@ where
     ) -> Poll<ToSwarm<<Self as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self>>> {
         match &sample_response {
             SampleResponse::Share(_) | SampleResponse::Commitments(_) => {
-                self.opinion_events.push_back(OpinionEvent::Positive {
-                    peer_id,
-                    session_id,
+                self.opinion_events.push_back(OpinionEvent {
+                    opinions: vec![Opinion::Positive {
+                        peer_id,
+                        session_id,
+                    }],
                 });
             }
             SampleResponse::Error(
                 sampling::SampleError::Share(_) | sampling::SampleError::Commitments(_),
             ) => {
                 // Only share and commitments error variant is not found at the moment
-                self.opinion_events.push_back(OpinionEvent::Negative {
-                    peer_id,
-                    session_id,
+                self.opinion_events.push_back(OpinionEvent {
+                    opinions: vec![Opinion::Negative {
+                        peer_id,
+                        session_id,
+                    }],
                 });
             }
         }
@@ -513,9 +517,11 @@ where
             // Blacklist for invalid/malicious data
             SamplingError::InvalidBlobId { peer_id, .. }
             | SamplingError::Deserialize { peer_id, .. } => {
-                self.opinion_events.push_back(OpinionEvent::Blacklist {
-                    peer_id: *peer_id,
-                    session_id,
+                self.opinion_events.push_back(OpinionEvent {
+                    opinions: vec![Opinion::Blacklist {
+                        peer_id: *peer_id,
+                        session_id,
+                    }],
                 });
             }
 
@@ -528,9 +534,11 @@ where
             | SamplingError::BlobNotFound { peer_id, .. }
             | SamplingError::ResponseChannel { peer_id, .. }
             | SamplingError::MismatchSubnetwork { peer_id, .. } => {
-                self.opinion_events.push_back(OpinionEvent::Negative {
-                    peer_id: *peer_id,
-                    session_id,
+                self.opinion_events.push_back(OpinionEvent {
+                    opinions: vec![Opinion::Negative {
+                        peer_id: *peer_id,
+                        session_id,
+                    }],
                 });
             }
 

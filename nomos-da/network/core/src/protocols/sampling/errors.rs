@@ -6,7 +6,7 @@ use nomos_da_messages::sampling;
 use thiserror::Error;
 
 use super::BehaviourSampleReq;
-use crate::SubnetworkId;
+use crate::{SubnetworkId, protocols::sampling::opinions::OpinionEvent};
 
 #[derive(Debug, Error)]
 pub enum SamplingError {
@@ -188,7 +188,7 @@ impl Clone for SamplingError {
 #[derive(Error, Debug, Clone)]
 pub enum HistoricSamplingError {
     #[error("Historic sampling failed")]
-    SamplingFailed,
+    SamplingFailed(OpinionEvent),
     #[error("Internal server error: {0}")]
     InternalServerError(String),
 }

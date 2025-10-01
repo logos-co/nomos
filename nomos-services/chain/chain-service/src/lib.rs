@@ -35,10 +35,6 @@ use nomos_da_sampling::{
     DaSamplingService, DaSamplingServiceMsg, backend::DaSamplingServiceBackend,
 };
 use nomos_ledger::{EpochState, LedgerState};
-use nomos_mempool::{
-    MempoolMsg, TxMempoolService, backend::RecoverableMempool,
-    network::NetworkAdapter as MempoolAdapter,
-};
 use nomos_network::{NetworkService, message::ChainSyncEvent};
 use nomos_storage::{StorageService, api::chain::StorageChainApi, backends::StorageBackend};
 use nomos_time::TimeService;
@@ -60,6 +56,7 @@ use tokio::{
 };
 use tracing::{Level, debug, error, info, instrument, span};
 use tracing_futures::Instrument as _;
+use tx_service::{MempoolMsg, TxMempoolService, backend::RecoverableMempool};
 
 use crate::{
     blob::{BlobValidation, RecentBlobValidation, SkipBlobValidation},
@@ -77,7 +74,6 @@ pub use crate::{
     sync::config::{OrphanConfig, SyncConfig},
 };
 
-type MempoolRelay<Payload, Item, Key> = OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>;
 type SamplingRelay<BlobId> = OutboundRelay<DaSamplingServiceMsg<BlobId>>;
 
 // Limit the number of blocks returned by GetHeaders
@@ -304,8 +300,8 @@ where
 #[expect(clippy::allow_attributes_without_reason)]
 pub struct CryptarchiaConsensus<
     NetAdapter,
-    ClPool,
-    ClPoolAdapter,
+    Mempool,
+    MempoolNetAdapter,
     Storage,
     SamplingBackend,
     SamplingNetworkAdapter,
@@ -317,12 +313,15 @@ pub struct CryptarchiaConsensus<
     NetAdapter::Backend: 'static,
     NetAdapter::Settings: Send,
     NetAdapter::PeerId: Clone + Eq + Hash,
-    ClPool: RecoverableMempool<BlockId = HeaderId, Key = TxHash>,
-    ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    ClPool::Settings: Clone,
-    ClPool::Item: Clone + Eq + Debug + 'static,
-    ClPool::Item: AuthenticatedMantleTx,
-    ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
+    Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash>,
+    Mempool::RecoveryState: Serialize + DeserializeOwned,
+    Mempool::Settings: Clone,
+    Mempool::Item: AuthenticatedMantleTx + Clone + Eq + Debug + 'static,
+    MempoolNetAdapter: tx_service::network::NetworkAdapter<
+            RuntimeServiceId,
+            Payload = Mempool::Item,
+            Key = Mempool::Key,
+        >,
     Storage: StorageBackend + Send + Sync + 'static,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
     SamplingBackend::Settings: Clone,
@@ -340,8 +339,8 @@ pub struct CryptarchiaConsensus<
 
 impl<
     NetAdapter,
-    ClPool,
-    ClPoolAdapter,
+    Mempool,
+    MempoolNetAdapter,
     Storage,
     SamplingBackend,
     SamplingNetworkAdapter,
@@ -351,8 +350,8 @@ impl<
 > ServiceData
     for CryptarchiaConsensus<
         NetAdapter,
-        ClPool,
-        ClPoolAdapter,
+        Mempool,
+        MempoolNetAdapter,
         Storage,
         SamplingBackend,
         SamplingNetworkAdapter,
@@ -364,11 +363,15 @@ where
     NetAdapter: NetworkAdapter<RuntimeServiceId>,
     NetAdapter::Settings: Send,
     NetAdapter::PeerId: Clone + Eq + Hash,
-    ClPool: RecoverableMempool<BlockId = HeaderId, Key = TxHash>,
-    ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    ClPool::Settings: Clone,
-    ClPool::Item: AuthenticatedMantleTx + Clone + Eq + Debug,
-    ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>,
+    Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash>,
+    Mempool::RecoveryState: Serialize + DeserializeOwned,
+    Mempool::Settings: Clone,
+    Mempool::Item: AuthenticatedMantleTx + Clone + Eq + Debug,
+    MempoolNetAdapter: tx_service::network::NetworkAdapter<
+            RuntimeServiceId,
+            Payload = Mempool::Item,
+            Key = Mempool::Key,
+        >,
     Storage: StorageBackend + Send + Sync + 'static,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
     SamplingBackend::Settings: Clone,
@@ -381,14 +384,14 @@ where
     type Settings = CryptarchiaSettings<NetAdapter::PeerId, NetAdapter::Settings>;
     type State = CryptarchiaConsensusState<NetAdapter::PeerId, NetAdapter::Settings>;
     type StateOperator = RecoveryOperator<JsonFileBackend<Self::State, Self::Settings>>;
-    type Message = ConsensusMsg<ClPool::Item>;
+    type Message = ConsensusMsg<Mempool::Item>;
 }
 
 #[async_trait::async_trait]
 impl<
     NetAdapter,
-    ClPool,
-    ClPoolAdapter,
+    Mempool,
+    MempoolNetAdapter,
     Storage,
     SamplingBackend,
     SamplingNetworkAdapter,
@@ -398,8 +401,8 @@ impl<
 > ServiceCore<RuntimeServiceId>
     for CryptarchiaConsensus<
         NetAdapter,
-        ClPool,
-        ClPoolAdapter,
+        Mempool,
+        MempoolNetAdapter,
         Storage,
         SamplingBackend,
         SamplingNetworkAdapter,
@@ -408,17 +411,17 @@ impl<
         RuntimeServiceId,
     >
 where
-    NetAdapter: NetworkAdapter<RuntimeServiceId, Block = Block<ClPool::Item>>
+    NetAdapter: NetworkAdapter<RuntimeServiceId, Block = Block<Mempool::Item>>
         + Clone
         + Send
         + Sync
         + 'static,
     NetAdapter::Settings: Send + Sync + 'static,
     NetAdapter::PeerId: Clone + Eq + Hash + Copy + Debug + Send + Sync + Unpin + 'static,
-    ClPool: RecoverableMempool<BlockId = HeaderId, Key = TxHash> + Send + Sync + 'static,
-    ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    ClPool::Settings: Clone + Send + Sync + 'static,
-    ClPool::Item: Transaction<Hash = ClPool::Key>
+    Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash> + Send + Sync + 'static,
+    Mempool::RecoveryState: Serialize + DeserializeOwned,
+    Mempool::Settings: Clone + Send + Sync + 'static,
+    Mempool::Item: AuthenticatedMantleTx
         + Debug
         + Clone
         + Eq
@@ -428,14 +431,15 @@ where
         + Sync
         + Unpin
         + 'static,
-    ClPool::Item: AuthenticatedMantleTx,
-    ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>
-        + Send
+    MempoolNetAdapter: tx_service::network::NetworkAdapter<
+            RuntimeServiceId,
+            Payload = Mempool::Item,
+            Key = Mempool::Key,
+        > + Send
         + Sync
         + 'static,
-    Storage: StorageBackend + Send + Sync + 'static,
-    <Storage as StorageChainApi>::Block:
-        TryFrom<Block<ClPool::Item>> + TryInto<Block<ClPool::Item>> + Into<Bytes>,
+    Storage: StorageChainApi + StorageBackend + Send + Sync + 'static,
+    Storage::Block: TryFrom<Block<Mempool::Item>> + TryInto<Block<Mempool::Item>> + Into<Bytes>,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + Send + 'static,
@@ -454,10 +458,10 @@ where
         + AsServiceId<BlockBroadcastService<RuntimeServiceId>>
         + AsServiceId<
             TxMempoolService<
-                ClPoolAdapter,
+                MempoolNetAdapter,
                 SamplingNetworkAdapter,
                 SamplingStorage,
-                ClPool,
+                Mempool,
                 RuntimeServiceId,
             >,
         >
@@ -490,8 +494,8 @@ where
     #[expect(clippy::too_many_lines, reason = "TODO: Address this at some point.")]
     async fn run(mut self) -> Result<(), DynError> {
         let relays: CryptarchiaConsensusRelays<
-            ClPool,
-            ClPoolAdapter,
+            Mempool,
+            MempoolNetAdapter,
             NetAdapter,
             SamplingBackend,
             Storage,
@@ -541,12 +545,6 @@ where
             network_adapter.clone(),
             sync_config.orphan.max_orphan_cache_size,
         ));
-
-        self.service_resources_handle.status_updater.notify_ready();
-        info!(
-            "Service '{}' is ready.",
-            <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
-        );
 
         wait_until_services_are_ready!(
             &self.service_resources_handle.overwatch_handle,
@@ -644,6 +642,12 @@ where
                 Box::new(RecentBlobValidation::new(relays.sampling_relay().clone()))
             };
 
+        // Mark the service as ready if the chain is in the Online state.
+        // If not, it will be marked as ready after Prolonged Bootstrap Period ends.
+        if cryptarchia.state().is_online() {
+            self.notify_service_ready();
+        }
+
         let async_loop = async {
             loop {
                 tokio::select! {
@@ -660,6 +664,8 @@ where
                             storage_blocks_to_remove.clone(),
                             &self.service_resources_handle.state_updater,
                         );
+
+                        self.notify_service_ready();
                     }
 
                     Some(block) = incoming_blocks.next() => {
@@ -805,8 +811,8 @@ where
 
 impl<
     NetAdapter,
-    ClPool,
-    ClPoolAdapter,
+    Mempool,
+    MempoolNetAdapter,
     Storage,
     SamplingBackend,
     SamplingNetworkAdapter,
@@ -816,8 +822,8 @@ impl<
 >
     CryptarchiaConsensus<
         NetAdapter,
-        ClPool,
-        ClPoolAdapter,
+        Mempool,
+        MempoolNetAdapter,
         Storage,
         SamplingBackend,
         SamplingNetworkAdapter,
@@ -826,17 +832,17 @@ impl<
         RuntimeServiceId,
     >
 where
-    NetAdapter: NetworkAdapter<RuntimeServiceId, Block = Block<ClPool::Item>>
+    NetAdapter: NetworkAdapter<RuntimeServiceId, Block = Block<Mempool::Item>>
         + Clone
         + Send
         + Sync
         + 'static,
     NetAdapter::Settings: Send + Sync + 'static,
     NetAdapter::PeerId: Clone + Eq + Hash + Copy + Debug + Send + Sync,
-    ClPool: RecoverableMempool<BlockId = HeaderId, Key = TxHash> + Send + Sync + 'static,
-    ClPool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    ClPool::Settings: Clone + Send + Sync + 'static,
-    ClPool::Item: Transaction<Hash = ClPool::Key>
+    Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash> + Send + Sync + 'static,
+    Mempool::RecoveryState: Serialize + DeserializeOwned,
+    Mempool::Settings: Clone + Send + Sync + 'static,
+    Mempool::Item: AuthenticatedMantleTx
         + Debug
         + Clone
         + Eq
@@ -845,14 +851,15 @@ where
         + Send
         + Sync
         + 'static,
-    ClPool::Item: AuthenticatedMantleTx,
-    ClPoolAdapter: MempoolAdapter<RuntimeServiceId, Payload = ClPool::Item, Key = ClPool::Key>
-        + Send
+    MempoolNetAdapter: tx_service::network::NetworkAdapter<
+            RuntimeServiceId,
+            Payload = Mempool::Item,
+            Key = Mempool::Key,
+        > + Send
         + Sync
         + 'static,
-    Storage: StorageBackend + Send + Sync + 'static,
-    <Storage as StorageChainApi>::Block:
-        TryFrom<Block<ClPool::Item>> + TryInto<Block<ClPool::Item>> + Into<Bytes>,
+    Storage: StorageChainApi + StorageBackend + Send + Sync + 'static,
+    Storage::Block: TryFrom<Block<Mempool::Item>> + TryInto<Block<Mempool::Item>> + Into<Bytes>,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
@@ -860,12 +867,21 @@ where
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
+    RuntimeServiceId: Display + AsServiceId<Self>,
 {
+    fn notify_service_ready(&self) {
+        self.service_resources_handle.status_updater.notify_ready();
+        info!(
+            "Service '{}' is ready.",
+            <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
+        );
+    }
+
     fn process_message(
         cryptarchia: &Cryptarchia,
         new_block_channel: &broadcast::Sender<HeaderId>,
         lib_channel: &broadcast::Sender<LibUpdate>,
-        msg: ConsensusMsg<ClPool::Item>,
+        msg: ConsensusMsg<Mempool::Item>,
     ) {
         match msg {
             ConsensusMsg::Info { tx } => {
@@ -954,12 +970,12 @@ where
     )]
     async fn process_block_and_update_state(
         cryptarchia: Cryptarchia,
-        block: Block<ClPool::Item>,
-        blob_validation: &(impl BlobValidation<SamplingBackend::BlobId, ClPool::Item> + Sync + ?Sized),
+        block: Block<Mempool::Item>,
+        blob_validation: &(impl BlobValidation<SamplingBackend::BlobId, Mempool::Item> + Sync + ?Sized),
         storage_blocks_to_remove: &HashSet<HeaderId>,
         relays: &CryptarchiaConsensusRelays<
-            ClPool,
-            ClPoolAdapter,
+            Mempool,
+            MempoolNetAdapter,
             NetAdapter,
             SamplingBackend,
             Storage,
@@ -1023,11 +1039,11 @@ where
     #[instrument(level = "debug", skip(cryptarchia, relays, blob_validation))]
     async fn process_block(
         cryptarchia: Cryptarchia,
-        block: Block<ClPool::Item>,
-        blob_validation: &(impl BlobValidation<SamplingBackend::BlobId, ClPool::Item> + Sync + ?Sized),
+        block: Block<Mempool::Item>,
+        blob_validation: &(impl BlobValidation<SamplingBackend::BlobId, Mempool::Item> + Sync + ?Sized),
         relays: &CryptarchiaConsensusRelays<
-            ClPool,
-            ClPoolAdapter,
+            Mempool,
+            MempoolNetAdapter,
             NetAdapter,
             SamplingBackend,
             Storage,
@@ -1050,7 +1066,7 @@ where
 
         // remove included content from mempool
         mark_in_block(
-            relays.cl_mempool_relay().clone(),
+            relays.mempool_relay().clone(),
             block.transactions().map(Transaction::hash),
             id,
         )
@@ -1110,7 +1126,7 @@ where
         Ok((cryptarchia, pruned_blocks))
     }
 
-    fn log_received_block(block: &Block<ClPool::Item>) {
+    fn log_received_block(block: &Block<Mempool::Item>) {
         let content_size = 0; // TODO: calculate the actual content size
         let transactions = block.transactions().len();
 
@@ -1150,8 +1166,8 @@ where
     async fn get_blocks_in_range(
         from: HeaderId,
         to: HeaderId,
-        storage_adapter: &StorageAdapter<Storage, ClPool::Item, RuntimeServiceId>,
-    ) -> Vec<Block<ClPool::Item>> {
+        storage_adapter: &StorageAdapter<Storage, Mempool::Item, RuntimeServiceId>,
+    ) -> Vec<Block<Mempool::Item>> {
         // Due to the blocks traversal order, this yields `to..from` order
         let blocks = futures::stream::unfold(to, |header_id| async move {
             if header_id == from {
@@ -1194,8 +1210,8 @@ where
         bootstrap_config: &BootstrapConfig<NetAdapter::PeerId>,
         ledger_config: nomos_ledger::Config,
         relays: &CryptarchiaConsensusRelays<
-            ClPool,
-            ClPoolAdapter,
+            Mempool,
+            MempoolNetAdapter,
             NetAdapter,
             SamplingBackend,
             Storage,
@@ -1259,7 +1275,7 @@ where
     async fn delete_pruned_blocks_from_storage(
         pruned_blocks: impl Iterator<Item = HeaderId> + Send,
         additional_blocks: &HashSet<HeaderId>,
-        storage_adapter: &StorageAdapter<Storage, ClPool::Item, RuntimeServiceId>,
+        storage_adapter: &StorageAdapter<Storage, Mempool::Item, RuntimeServiceId>,
     ) -> HashSet<HeaderId> {
         match Self::delete_blocks_from_storage(
             pruned_blocks.chain(additional_blocks.iter().copied()),
@@ -1285,7 +1301,7 @@ where
     /// result.
     async fn delete_blocks_from_storage<Headers>(
         block_headers: Headers,
-        storage_adapter: &StorageAdapter<Storage, ClPool::Item, RuntimeServiceId>,
+        storage_adapter: &StorageAdapter<Storage, Mempool::Item, RuntimeServiceId>,
     ) -> Result<(), Vec<(HeaderId, DynError)>>
     where
         Headers: Iterator<Item = HeaderId> + Send,
@@ -1332,7 +1348,7 @@ where
 
     async fn handle_chainsync_event(
         cryptarchia: &Cryptarchia,
-        sync_blocks_provider: &BlockProvider<Storage, ClPool::Item>,
+        sync_blocks_provider: &BlockProvider<Storage, Mempool::Item>,
         event: ChainSyncEvent,
     ) {
         match event {
@@ -1399,7 +1415,7 @@ where
     async fn switch_to_online(
         cryptarchia: Cryptarchia,
         storage_blocks_to_remove: &HashSet<HeaderId>,
-        storage_adapter: &StorageAdapter<Storage, ClPool::Item, RuntimeServiceId>,
+        storage_adapter: &StorageAdapter<Storage, Mempool::Item, RuntimeServiceId>,
     ) -> (Cryptarchia, HashSet<HeaderId>) {
         let (cryptarchia, pruned_blocks) = cryptarchia.online();
         if let Err(e) = storage_adapter

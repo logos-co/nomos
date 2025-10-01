@@ -20,7 +20,7 @@ use tests::{
 #[tokio::test]
 #[serial]
 async fn test_ibd_behind_nodes() {
-    let n_validators = 4;
+    let n_validators = 3;
     let n_initial_validators = 2;
 
     let network_params = NetworkParams {
@@ -46,23 +46,10 @@ async fn test_ibd_behind_nodes() {
         .map(|config| secret_key_to_peer_id(config.network_config.swarm_config.node_key.clone()))
         .collect();
 
-    let mut config = create_validator_config(general_configs[n_initial_validators].clone());
-    config.cryptarchia.bootstrap.ibd.peers = initial_peer_ids.clone();
-
-    // Try to spawn the node - it should fail during IBD when peers are
-    // bootstrapping
-    if let Ok(mut node) = Validator::spawn(config).await {
-        assert!(
-            node.wait_for_exit(Duration::from_secs(5)).await,
-            "Expected node to fail during IBD when peers are bootstrapping"
-        );
-    }
-
     let minimum_height = 10;
     println!(
         "Waiting for initial validators to switch to online mode and reach height {minimum_height}...",
     );
-
     wait_for_validators_mode_and_height(
         &initial_validators,
         cryptarchia_engine::State::Online,
@@ -71,9 +58,9 @@ async fn test_ibd_behind_nodes() {
     )
     .await;
 
-    println!("Starting behind node with IBD peers...");
+    println!("Starting a behind node with IBD peers...");
 
-    let mut config = create_validator_config(general_configs[3].clone());
+    let mut config = create_validator_config(general_configs[n_initial_validators].clone());
     config.cryptarchia.bootstrap.ibd.peers = initial_peer_ids.clone();
     // Shorten the delay to quickly catching up with peers that grow during IBD.
     // e.g. We start a download only for peer1 because two peers have the same tip

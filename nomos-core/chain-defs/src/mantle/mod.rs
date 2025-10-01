@@ -3,6 +3,7 @@ use std::hash::Hash;
 use thiserror::Error;
 
 pub mod gas;
+pub mod genesis_tx;
 pub mod keys;
 pub mod ledger;
 #[cfg(feature = "mock")]
@@ -14,6 +15,7 @@ pub mod tx;
 pub use gas::{GasConstants, GasCost};
 use groth16::Fr;
 pub use ledger::{Note, NoteId, Utxo, Value};
+use ops::channel::inscribe::InscriptionOp;
 pub use ops::{Op, OpProof};
 pub use tx::{MantleTx, SignedMantleTx, TxHash};
 
@@ -43,6 +45,12 @@ pub trait AuthenticatedMantleTx: Transaction<Hash = TxHash> + GasCost {
     fn ledger_tx_proof(&self) -> &impl ZkSignatureProof;
 
     fn ops_with_proof(&self) -> impl Iterator<Item = (&Op, Option<&OpProof>)>;
+}
+
+/// A genesis transaction as specified in
+//  https://www.notion.so/nomos-tech/Bedrock-Genesis-Block-21d261aa09df80bb8dc3c768802eb527?d=27a261aa09df808e9c66001cf0585dee
+pub trait GenesisTx: AuthenticatedMantleTx {
+    fn genesis_inscription(&self) -> &InscriptionOp;
 }
 
 impl<T: Transaction> Transaction for &T {

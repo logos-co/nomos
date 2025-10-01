@@ -10,17 +10,25 @@ repository  = { workspace = true }
 version     = { workspace = true }
 
 [dependencies]
-async-trait = "0.1"
-serde       = { features = ["derive"], version = "1.0" }
-thiserror   = "1.0"
-tokio       = { features = ["sync"], version = "1" }
-tracing     = { workspace = true }
-
-chain-service = { workspace = true }
-nomos-core    = { workspace = true }
-nomos-storage = { features = ["mock"], workspace = true }
-overwatch     = { workspace = true }
-wallet        = { workspace = true }
+async-trait    = "0.1"
+chain-service  = { workspace = true }
+futures        = { default-features = false, version = "0.3" }
+nomos-core     = { workspace = true }
+nomos-storage  = { features = ["mock"], workspace = true }
+overwatch      = { workspace = true }
+serde          = { features = ["derive"], version = "1.0" }
+services-utils = { workspace = true }
+thiserror      = "1.0"
+tokio          = { features = ["sync"], version = "1" }
+tracing        = { workspace = true }
+wallet         = { workspace = true }
 
 [lints]
 workspace = true
+
+[package.metadata.cargo-machete]
+# False positives.
+ignored = [
+  # Required by `wait_until_services_are_ready` macro.
+  "futures",
+]

@@ -12,7 +12,7 @@ use overwatch::services::state::ServiceState;
 
 use super::Status;
 use crate::{
-    backend::{MemPool, MempoolError, RecoverableMempool},
+    backend::{Mempool, MempoolError, RecoverableMempool},
     tx::settings::TxMempoolSettings,
 };
 
@@ -111,7 +111,7 @@ where
     }
 }
 
-impl<BlockId, Item, Key> MemPool for MockPool<BlockId, Item, Key>
+impl<BlockId, Item, Key> Mempool for MockPool<BlockId, Item, Key>
 where
     Key: Hash + Eq + Ord + Clone + Send,
     Item: Clone + Send + 'static,
@@ -227,6 +227,6 @@ where
     type Settings = TxMempoolSettings<(), (), ()>;
 
     fn from_settings(_settings: &Self::Settings) -> Result<Self, Self::Error> {
-        Ok(<Self as MemPool>::new(()))
+        Ok(<Self as Mempool>::new(()))
     }
 }

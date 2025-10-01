@@ -21,7 +21,6 @@ nomos-core               = { workspace = true }
 nomos-da-network-core    = { workspace = true }
 nomos-da-network-service = { workspace = true }
 nomos-da-sampling        = { workspace = true }
-nomos-mempool            = { workspace = true }
 nomos-storage            = { workspace = true }
 nomos-tracing            = { workspace = true }
 nomos-utils              = { features = ["serde"], workspace = true }
@@ -34,6 +33,7 @@ thiserror                = "1.0"
 tokio                    = { default-features = false, version = "1" }
 tokio-stream             = { default-features = false, version = "0.1.15" }
 tracing                  = { workspace = true }
+tx-service               = { workspace = true }
 
 [features]
 libp2p          = []

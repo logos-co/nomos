@@ -69,7 +69,7 @@ impl ProofOfSelection {
         let pseudo_random_output: u64 = {
             let pseudo_random_output_bytes =
                 pseudo_random_sized_bytes::<8>(&selection_randomness_blake_hash);
-            let pseudo_random_biguint = BigUint::from_bytes_be(&pseudo_random_output_bytes[..]);
+            let pseudo_random_biguint = BigUint::from_bytes_le(&pseudo_random_output_bytes[..]);
             pseudo_random_biguint
                 .try_into()
                 .map_err(|_| Error::Overflow)?

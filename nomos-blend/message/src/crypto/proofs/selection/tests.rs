@@ -1,7 +1,6 @@
 use const_hex::FromHex as _;
-use groth16::Field as _;
+use groth16::{Field as _, fr_from_bytes_unchecked};
 use nomos_core::crypto::ZkHash;
-use num_bigint::BigUint;
 
 use crate::crypto::proofs::selection::{
     Error, KEY_NULLIFIER_DERIVATION_DOMAIN_SEPARATION_TAG_FR, ProofOfSelection,
@@ -11,12 +10,12 @@ use crate::crypto::proofs::selection::{
 #[test]
 fn secret_selection_randomness_to_key_nullifier_dst_encoding() {
     // Blend spec: <https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#26c261aa09df802f9dbcd0780dc7ac6e>
+
     assert_eq!(
         *KEY_NULLIFIER_DERIVATION_DOMAIN_SEPARATION_TAG_FR,
-        BigUint::from_bytes_be(
-            &<[u8; 16]>::from_hex("0x31565f52454946494c4c554e5f59454b").unwrap()
+        fr_from_bytes_unchecked(
+            &<[u8; 16]>::from_hex("0x4b45595f4e554c4c49464945525f5631").unwrap()
         )
-        .into()
     );
 }
 
