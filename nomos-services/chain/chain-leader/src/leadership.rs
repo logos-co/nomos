@@ -1,5 +1,8 @@
 use cryptarchia_engine::Slot;
 use groth16::Fr;
+use nomos_blend_service::{
+    ProofOfLeadershipQuotaInputs, ProofOfQuota, ProofOfQuotaPrivateInputs, ProofOfQuotaPublicInputs,
+};
 use nomos_core::{
     mantle::{
         Utxo,
@@ -7,6 +10,7 @@ use nomos_core::{
         ops::leader_claim::VoucherCm,
     },
     proofs::leader_proof::{Groth16LeaderProof, LeaderPrivate, LeaderPublic},
+    utils::merkle::MerkleNode,
 };
 use nomos_ledger::{EpochState, UtxoTree};
 use num_bigint::BigUint;
@@ -123,5 +127,53 @@ impl Leader {
         }
 
         None
+    }
+
+    pub async fn is_slot_winning(&self, epoch_state: &EpochState, slot: Slot) -> bool {
+        use groth16::Field as _;
+
+        let public_inputs = ProofOfQuotaPublicInputs {
+            core_quota: 0,
+            core_root: Fr::ZERO,
+            leader_quota: 1,
+            pol_epoch_nonce: epoch_state.nonce,
+            pol_ledger_aged: epoch_state.utxos.root(),
+            session: 1,
+            signing_key: [0; _].try_into().unwrap(),
+            total_stake: epoch_state.total_stake,
+        };
+
+        // TODO: Get the actual witness paths and leader key
+        let aged_path = Vec::new(); // Placeholder for aged path
+        let aged_selector: Vec<bool> = aged_path
+            .iter()
+            .map(|n| matches!(n, MerkleNode::Right(_)))
+            .collect();
+        let aged_path: Vec<Fr> = aged_path.into_iter().map(|p| *p.item()).collect();
+        let slot_secret = *self.sk.as_fr();
+        let slot_secret_path = vec![]; // TODO: implement
+        let starting_slot = 0u64; // TODO: get actual starting slot
+
+        for utxo in &self.utxos {
+            let private_inputs = ProofOfQuotaPrivateInputs::new_proof_of_leadership_quota_inputs(
+                0,
+                ProofOfLeadershipQuotaInputs {
+                    aged_path: aged_path.clone(),
+                    aged_selector: aged_selector.clone(),
+                    note_value: utxo.note.value,
+                    output_number: utxo.output_index as u64,
+                    pol_secret_key: *self.sk.as_fr(),
+                    slot: slot.into(),
+                    slot_secret,
+                    slot_secret_path: slot_secret_path.clone(),
+                    starting_slot,
+                    transaction_hash: utxo.tx_hash.0,
+                },
+            );
+            if ProofOfQuota::new(&public_inputs, private_inputs).is_ok() {
+                return true;
+            }
+        }
+        false
     }
 }

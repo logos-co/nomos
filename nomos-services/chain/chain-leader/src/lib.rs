@@ -6,7 +6,7 @@ use core::fmt::Debug;
 use std::{collections::BTreeSet, fmt::Display, time::Duration};
 
 use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
-use cryptarchia_engine::Slot;
+use cryptarchia_engine::{Epoch, Slot};
 use futures::{StreamExt as _, TryFutureExt as _};
 pub use leadership::LeaderConfig;
 use nomos_core::{
@@ -346,6 +346,7 @@ where
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
 
+        let mut _last_processed_epoch: Option<Epoch> = None;
         let async_loop = async {
             loop {
                 tokio::select! {
@@ -394,6 +395,18 @@ where
                                 continue;
                             }
                         };
+
+                        // // If we are in the same epoch that we already processed, skip. Else, pre-compute proofs and send them to subcribers.
+                        // if let Some(processed_epoch) = last_processed_epoch && processed_epoch == epoch {} else {
+                        //     debug!("Pre-computing PoL private inputs for message blending.");
+                        //     processed_epoch = Some(epoch);
+                        //     let leader = leader.clone();
+                        //     let sender = self.winning_pol_epoch_slots_sender.clone();
+                        //     let epoch_state = epoch_state.clone();
+                        //     spawn_blocking(move {
+
+                        //     });
+                        // }
 
                         if let Some(proof) = leader.build_proof_for(&eligible_utxos, aged_tree, latest_tree, &epoch_state, slot).await {
                             // TODO: spawn as a separate task?

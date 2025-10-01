@@ -9,7 +9,15 @@ use async_trait::async_trait;
 use futures::{Stream, StreamExt as _};
 pub use nomos_blend_message::{
     crypto::proofs::{
-        RealProofsVerifier, quota::inputs::prove::private::ProofOfLeadershipQuotaInputs,
+        RealProofsVerifier,
+        quota::{
+            ProofOfQuota,
+            inputs::prove::{
+                PrivateInputs as ProofOfQuotaPrivateInputs,
+                PublicInputs as ProofOfQuotaPublicInputs,
+                private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs},
+            },
+        },
     },
     encap::ProofsVerifier,
 };
