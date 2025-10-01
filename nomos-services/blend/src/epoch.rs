@@ -83,7 +83,15 @@ where
                 Poll::Ready(epoch_state) => {
                     tracing::debug!(target: LOG_TARGET, "Future ready with result: {epoch_state:?}.");
                     this.epoch_state_future = None;
-                    return Poll::Ready(epoch_state.map(Into::into));
+                    let Some(epoch_state) = epoch_state else {
+                        // If we could not fetch the epoch state for the given slot, we reset
+                        // `current_epoch` so we try again on the next slot tick.
+                        tracing::warn!(target: LOG_TARGET, "No epoch state for given slot. Retrying on the next slot tick.");
+                        this.current_epoch = None;
+                        cx.waker().wake_by_ref();
+                        return Poll::Pending;
+                    };
+                    return Poll::Ready(Some(epoch_state.into()));
                 }
             }
         }
@@ -176,10 +184,15 @@ mod tests {
             epoch: 2.into(),
             slot: 3.into(),
         })))
-        // New slot same epoch, but no associated epoch state
+        // New slot new epoch, but no associated epoch state
         .chain(once(ready(SlotTick {
-            epoch: 2.into(),
+            epoch: 3.into(),
             slot: NON_EXISTING_EPOCH_STATE_SLOT,
+        })))
+        // New slot same epoch, but with associated epoch state
+        .chain(once(ready(SlotTick {
+            epoch: 3.into(),
+            slot: 5.into(),
         })));
         let mut stream = EpochStream::new(slot_stream, ChainService);
 
@@ -215,8 +228,29 @@ mod tests {
         assert!(stream.epoch_state_future.is_none());
         assert_eq!(stream.current_epoch, Some(2.into()));
 
-        // Next slot should return a `None` epoch state
+        // Next poll for new epoch, we spawn the future.
+        let poll_next = stream.poll_next_unpin(&mut cx);
+        assert_eq!(poll_next, Poll::Pending);
+        assert!(stream.epoch_state_future.is_some());
+        assert_eq!(stream.current_epoch, Some(3.into()));
+
+        // Once the future completes, it will return `None`, so the next slot will be
+        // polled.
+        loop {
+            let poll_next = stream.poll_next_unpin(&mut cx);
+            // React to the fact that `None` was received by the future.
+            if stream.current_epoch.is_none() {
+                assert_eq!(poll_next, Poll::Pending);
+                assert!(stream.epoch_state_future.is_none());
+                break;
+            }
+        }
+
+        // Lastly, a new slot for the same epoch as the previous `None` is received, and
+        // the expected state is yielded.
         let result = stream.next().await;
-        assert!(result.is_none());
+        assert_eq!(result, Some(default_epoch_state().into()));
+        assert!(stream.epoch_state_future.is_none());
+        assert_eq!(stream.current_epoch, Some(3.into()));
     }
 }
