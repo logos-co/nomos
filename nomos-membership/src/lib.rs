@@ -1,6 +1,9 @@
 use std::collections::{BTreeSet, HashMap};
 
-use nomos_core::sdp::{Locator, ProviderId, ServiceType};
+use nomos_core::{
+    block::BlockNumber,
+    sdp::{Locator, ProviderId, ServiceType},
+};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -30,4 +33,10 @@ pub enum MembershipError {
 
     #[error("Not found")]
     NotFound,
+
+    #[error("Configuration state missing for service type {0:?}")]
+    ConfigurationMissing(ServiceType),
+
+    #[error("Session state missing for block number {0:?}")]
+    SessionStateMissing(BlockNumber),
 }

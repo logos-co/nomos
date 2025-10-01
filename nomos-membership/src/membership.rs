@@ -25,43 +25,34 @@ where
         let mut active_sessions = HashMap::new();
         let mut forming_sessions = HashMap::new();
 
-        for service_type in settings.session_sizes.keys() {
-            let providers = settings
-                .session_zero_providers
-                .get(service_type)
-                .cloned()
-                .unwrap_or_default();
-
+        for (service_type, providers) in settings.session_zero_providers {
             let session_0 = Session {
                 session_number: 0,
+                providers: providers.clone(),
+            };
+            let session_1 = Session {
+                session_number: 1,
                 providers,
             };
 
-            active_sessions.insert(*service_type, session_0.clone());
-
-            let mut session_1 = session_0;
-            session_1.session_number = 1;
-            forming_sessions.insert(*service_type, session_1);
+            active_sessions.insert(service_type, session_0);
+            forming_sessions.insert(service_type, session_1);
         }
 
         Self {
+            storage: storage_adapter,
             active_sessions,
             forming_sessions,
             latest_block_number: 0,
             session_sizes: settings.session_sizes,
-            storage: storage_adapter,
         }
     }
 
-    pub async fn update(
-        &mut self,
-        update: FinalizedBlockEvent,
-    ) -> Result<NewSesssion, MembershipError> {
+    pub fn update(&mut self, update: FinalizedBlockEvent) -> Result<NewSesssion, MembershipError> {
         let block_number = update.block_number;
 
         tracing::debug!(
-            "Updating membership: {:?}, block {}, latest_block_number: {}",
-            update,
+            "Updating membership for block {}, latest known: {}",
             block_number,
             self.latest_block_number
         );
@@ -70,7 +61,6 @@ where
             return Err(MembershipError::BlockFromPast);
         }
 
-        // Apply updates to forming sessions
         for event_update in update.updates {
             if let Some(forming_session) = self.forming_sessions.get_mut(&event_update.service_type)
             {
@@ -79,68 +69,16 @@ where
         }
 
         self.latest_block_number = block_number;
-
-        // Persist latest block
         self.storage
             .save_latest_block(block_number)
-            .await
             .map_err(MembershipError::Other)?;
 
-        // Check which services complete their sessions at this block
         let mut completed_sessions = HashMap::new();
+        let service_types: Vec<ServiceType> = self.session_sizes.keys().copied().collect();
 
-        for (service_type, session_size) in &self.session_sizes {
-            let next_session = (block_number + 1) / BlockNumber::from(*session_size);
-
-            if let Some(forming_session) = self.forming_sessions.get(service_type) {
-                // Check if forming session should be promoted
-                if forming_session.session_number <= next_session {
-                    // Clone forming session to promote it
-                    let promoted_session = forming_session.clone();
-
-                    // Get snapshot before promoting
-                    completed_sessions.insert(*service_type, promoted_session.clone());
-
-                    // Persist the new active session
-                    self.storage
-                        .save_active_session(
-                            *service_type,
-                            promoted_session.session_number,
-                            &promoted_session.providers,
-                        )
-                        .await
-                        .map_err(MembershipError::Other)?;
-
-                    // Promote forming to active
-                    self.active_sessions
-                        .insert(*service_type, promoted_session.clone());
-
-                    // Start new forming session with incremented session number
-                    let mut new_forming = promoted_session;
-                    new_forming.session_number = next_session + 1;
-
-                    // Persist new forming session
-                    self.storage
-                        .save_forming_session(
-                            *service_type,
-                            new_forming.session_number,
-                            &new_forming.providers,
-                        )
-                        .await
-                        .map_err(MembershipError::Other)?;
-
-                    self.forming_sessions.insert(*service_type, new_forming);
-                } else {
-                    // Just persist the updated forming session
-                    self.storage
-                        .save_forming_session(
-                            *service_type,
-                            forming_session.session_number,
-                            &forming_session.providers,
-                        )
-                        .await
-                        .map_err(MembershipError::Other)?;
-                }
+        for service_type in service_types {
+            if let Some(promoted) = self.handle_session_promotion(service_type, block_number)? {
+                completed_sessions.insert(service_type, promoted);
             }
         }
 
@@ -149,6 +87,57 @@ where
         } else {
             Some(completed_sessions)
         })
+    }
+
+    fn handle_session_promotion(
+        &mut self,
+        service_type: ServiceType,
+        block_number: BlockNumber,
+    ) -> Result<Option<Session>, MembershipError> {
+        let session_size = *self
+            .session_sizes
+            .get(&service_type)
+            .ok_or(MembershipError::ConfigurationMissing(service_type))?;
+        let current_forming = self
+            .forming_sessions
+            .remove(&service_type)
+            .ok_or(MembershipError::SessionStateMissing(block_number))?;
+
+        let next_session_num = (block_number + 1) / BlockNumber::from(session_size);
+        let mut promoted_session: Option<Session> = None;
+
+        let next_forming = if current_forming.session_number <= next_session_num {
+            let new_active = current_forming;
+            self.storage
+                .save_active_session(
+                    service_type,
+                    new_active.session_number,
+                    &new_active.providers,
+                )
+                .map_err(MembershipError::Other)?;
+            self.active_sessions
+                .insert(service_type, new_active.clone());
+
+            promoted_session = Some(new_active);
+
+            Session {
+                session_number: next_session_num + 1,
+                providers: promoted_session.as_ref().unwrap().providers.clone(),
+            }
+        } else {
+            current_forming
+        };
+
+        self.storage
+            .save_forming_session(
+                service_type,
+                next_forming.session_number,
+                &next_forming.providers,
+            )
+            .map_err(MembershipError::Other)?;
+        self.forming_sessions.insert(service_type, next_forming);
+
+        Ok(promoted_session)
     }
 
     pub fn get_latest_providers(
@@ -170,7 +159,6 @@ mod tests {
         sync::{Arc, Mutex},
     };
 
-    use async_trait::async_trait;
     use multiaddr::multiaddr;
     use nomos_core::{
         block::{BlockNumber, SessionNumber},
@@ -221,8 +209,8 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn init_returns_seeded_session_zero() {
+    #[test]
+    fn init_returns_seeded_session_zero() {
         let storage = InMemoryStorageArc::new();
 
         let service = ServiceType::DataAvailability;
@@ -248,8 +236,8 @@ mod tests {
         assert_eq!(session_state.providers.get(&p1).unwrap(), &p1_locs);
     }
 
-    #[tokio::test]
-    async fn forming_promotes_on_last_block_of_session() {
+    #[test]
+    fn forming_promotes_on_last_block_of_session() {
         let storage = InMemoryStorageArc::new();
         let service = ServiceType::DataAvailability;
 
@@ -258,7 +246,7 @@ mod tests {
         let p1_locs = locs::<2>(1);
 
         let mut session0_providers = HashMap::new();
-        session0_providers.insert(service, HashMap::from([(p1, p1_locs.clone())]));
+        session0_providers.insert(service, HashMap::from([(p1, p1_locs)]));
 
         let settings = MembershipConfig {
             session_sizes: HashMap::from([(service, 3)]),
@@ -280,7 +268,7 @@ mod tests {
                 p2_locs.clone(),
             )],
         };
-        let r1 = pmembership.update(ev1).await.unwrap();
+        let r1 = pmembership.update(ev1).unwrap();
         assert!(r1.is_none(), "No promotion before session boundary");
 
         // Active snapshot still session 0 (only P1)
@@ -302,7 +290,7 @@ mod tests {
         };
 
         // For block=2, block+1=3 -> 3/3==1 => forming_session_id==1 -> promote now.
-        let r2 = pmembership.update(ev2).await.unwrap();
+        let r2 = pmembership.update(ev2).unwrap();
         let promoted = r2.expect("Promotion should occur at the end of session 0");
 
         // The returned snapshot should be the new active (session 1) view
@@ -317,8 +305,8 @@ mod tests {
         assert_eq!(s_2.providers, s_promoted.providers);
     }
 
-    #[tokio::test]
-    async fn multiple_service_types_with_different_session_sizes() {
+    #[test]
+    fn multiple_service_types_with_different_session_sizes() {
         let storage = InMemoryStorageArc::new();
         let service_da = ServiceType::DataAvailability;
         let service_mp = ServiceType::BlendNetwork;
@@ -331,8 +319,8 @@ mod tests {
 
         // Session 0 providers: P1 in DA, P2 in BlendNetwork
         let mut session0_providers = HashMap::new();
-        session0_providers.insert(service_da, HashMap::from([(p1, p1_locs.clone())]));
-        session0_providers.insert(service_mp, HashMap::from([(p2, p2_locs.clone())]));
+        session0_providers.insert(service_da, HashMap::from([(p1, p1_locs)]));
+        session0_providers.insert(service_mp, HashMap::from([(p2, p2_locs)]));
 
         // Different session sizes: DA=3 blocks, BlendNetwork=5 blocks
         let settings = MembershipConfig {
@@ -354,21 +342,11 @@ mod tests {
         let ev1 = FinalizedBlockEvent {
             block_number: 1,
             updates: vec![
-                update(
-                    service_da,
-                    p3,
-                    FinalizedDeclarationState::Active,
-                    p3_locs.clone(),
-                ),
-                update(
-                    service_mp,
-                    p4,
-                    FinalizedDeclarationState::Active,
-                    p4_locs.clone(),
-                ),
+                update(service_da, p3, FinalizedDeclarationState::Active, p3_locs),
+                update(service_mp, p4, FinalizedDeclarationState::Active, p4_locs),
             ],
         };
-        pmembership.update(ev1).await.unwrap();
+        pmembership.update(ev1).unwrap();
 
         // Block 2: DA should promote after this (end of session 0), Blend Network
         // should not
@@ -376,7 +354,7 @@ mod tests {
             block_number: 2,
             updates: vec![],
         };
-        let result2 = pmembership.update(ev2).await.unwrap();
+        let result2 = pmembership.update(ev2).unwrap();
 
         // Only DA should have promoted
         let promoted = result2.expect("DA should promote at block 2");
@@ -401,7 +379,7 @@ mod tests {
             block_number: 4,
             updates: vec![],
         };
-        let result3 = pmembership.update(ev3).await.unwrap();
+        let result3 = pmembership.update(ev3).unwrap();
 
         // Only Blend Network should promote
         let promoted = result3.expect("Blend Network should promote at block 4");
@@ -438,9 +416,8 @@ mod tests {
         }
     }
 
-    #[async_trait]
     impl super::MembershipStorage for InMemoryStorageArc {
-        async fn save_active_session(
+        fn save_active_session(
             &mut self,
             service_type: ServiceType,
             session_id: SessionNumber,
@@ -454,7 +431,7 @@ mod tests {
             Ok(())
         }
 
-        async fn load_active_session(
+        fn load_active_session(
             &mut self,
             service_type: ServiceType,
         ) -> Result<Option<(SessionNumber, HashMap<ProviderId, BTreeSet<Locator>>)>, DynError>
@@ -468,16 +445,16 @@ mod tests {
                 .cloned())
         }
 
-        async fn save_latest_block(&mut self, block_number: BlockNumber) -> Result<(), DynError> {
+        fn save_latest_block(&mut self, block_number: BlockNumber) -> Result<(), DynError> {
             self.data.lock().unwrap().latest_block = Some(block_number);
             Ok(())
         }
 
-        async fn load_latest_block(&mut self) -> Result<Option<BlockNumber>, DynError> {
+        fn load_latest_block(&mut self) -> Result<Option<BlockNumber>, DynError> {
             Ok(self.data.lock().unwrap().latest_block)
         }
 
-        async fn save_forming_session(
+        fn save_forming_session(
             &mut self,
             service_type: ServiceType,
             session_id: SessionNumber,
@@ -491,7 +468,7 @@ mod tests {
             Ok(())
         }
 
-        async fn load_forming_session(
+        fn load_forming_session(
             &mut self,
             service_type: ServiceType,
         ) -> Result<Option<(SessionNumber, HashMap<ProviderId, BTreeSet<Locator>>)>, DynError>
