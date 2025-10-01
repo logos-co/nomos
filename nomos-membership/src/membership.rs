@@ -9,7 +9,7 @@ use crate::{
     MembershipConfig, MembershipError, NewSesssion, session::Session, storage::MembershipStorage,
 };
 
-pub struct PersistentMembership<S: MembershipStorage> {
+pub struct Membership<S: MembershipStorage> {
     storage: S,
     active_sessions: HashMap<ServiceType, Session>,
     forming_sessions: HashMap<ServiceType, Session>,
@@ -17,7 +17,7 @@ pub struct PersistentMembership<S: MembershipStorage> {
     session_sizes: HashMap<ServiceType, u32>,
 }
 
-impl<S> PersistentMembership<S>
+impl<S> Membership<S>
 where
     S: MembershipStorage,
 {
@@ -182,7 +182,7 @@ mod tests {
 
     use crate::{
         DynError,
-        membership::{MembershipConfig, PersistentMembership},
+        membership::{Membership, MembershipConfig},
     };
 
     fn pid(seed: u8) -> ProviderId {
@@ -239,7 +239,7 @@ mod tests {
             session_zero_providers: session0_providers,
         };
 
-        let pmembership = PersistentMembership::new(settings, storage);
+        let pmembership = Membership::new(settings, storage);
 
         // Active snapshot is seeded session 0
         let session_state = pmembership.get_latest_providers(service).unwrap();
@@ -264,7 +264,7 @@ mod tests {
             session_sizes: HashMap::from([(service, 3)]),
             session_zero_providers: session0_providers,
         };
-        let mut pmembership = PersistentMembership::new(settings, storage);
+        let mut pmembership = Membership::new(settings, storage);
 
         // Forming session 1 updates across blocks 1..2 (still session 0 time)
         let p2 = pid(2);
@@ -342,7 +342,7 @@ mod tests {
             ]),
             session_zero_providers: session0_providers,
         };
-        let mut pmembership = PersistentMembership::new(settings, storage);
+        let mut pmembership = Membership::new(settings, storage);
 
         // Add new providers to forming sessions
         let p3 = pid(3);
