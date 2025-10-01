@@ -178,7 +178,7 @@ where
             current.members().into_iter(),
             &self.positive_opinions,
             &self.negative_opinions,
-            true,
+            true, // Always include self peer id in new_opinions, per spec
         );
 
         let old_opinions = self.calculate_opinions_map(
@@ -188,7 +188,9 @@ where
             previous
                 .members()
                 .into_iter()
-                .any(|id| id == self.local_peer_id),
+                .any(|id| id == self.local_peer_id), /* only include local peer id in old
+                                                      * opinions if it was participating in the
+                                                      * previous session */
         );
 
         Some(Opinions {
