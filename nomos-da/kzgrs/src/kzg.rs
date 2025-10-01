@@ -61,7 +61,7 @@ pub fn verify_element_proof(
     let v = element;
     let commitment_check_g1 = verification_key.g.mul(v) - commitment.0 - proof.w.mul(u);
     let qap = Bls12_381::multi_miller_loop(
-        [commitment_check_g1, proof.w.into()],
+        [commitment_check_g1.into(), proof.w],
         [
             verification_key.prepared_h.clone(),
             verification_key.prepared_beta_h.clone(),
@@ -81,7 +81,7 @@ mod test {
         univariate::DensePolynomial,
     };
     use ark_poly_commit::kzg10::{KZG10, UniversalParams, VerifierKey};
-    use rand::{Fill as _, thread_rng};
+    use rand::{Fill as _, SeedableRng as _, thread_rng};
     use rayon::{
         iter::{IndexedParallelIterator as _, ParallelIterator as _},
         prelude::IntoParallelRefIterator as _,
@@ -95,12 +95,17 @@ mod test {
 
     const COEFFICIENTS_SIZE: usize = 16;
     static PROVING_KEY: LazyLock<UniversalParams<Bls12_381>> = LazyLock::new(|| {
-        let mut rng = thread_rng();
+        let mut rng = rand::rngs::StdRng::seed_from_u64(1998);
         KZG10::<Bls12_381, DensePolynomial<Fr>>::setup(COEFFICIENTS_SIZE - 1, true, &mut rng)
             .unwrap()
     });
-    static VERIFICATION_KEY: LazyLock<VerifierKey<Bls12_381>> =
-        LazyLock::new(|| verification_key_proving_key(&PROVING_KEY));
+    static VERIFICATION_KEY: LazyLock<VerifierKey<Bls12_381>> = LazyLock::new(|| {
+        let mut rng = rand::rngs::StdRng::seed_from_u64(1998);
+        let proving_key =
+            KZG10::<Bls12_381, DensePolynomial<Fr>>::setup(COEFFICIENTS_SIZE - 1, true, &mut rng)
+                .unwrap();
+        verification_key_proving_key(&proving_key)
+    });
 
     static DOMAIN: LazyLock<GeneralEvaluationDomain<Fr>> =
         LazyLock::new(|| GeneralEvaluationDomain::new(COEFFICIENTS_SIZE).unwrap());

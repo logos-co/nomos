@@ -5,15 +5,18 @@ pub use kzgrs::{
     ProvingKey, VerificationKey, proving_key_from_file, proving_key_from_randomness,
     verification_key_proving_key,
 };
+use rand::SeedableRng as _;
 
 pub static PROVING_KEY: LazyLock<ProvingKey> = LazyLock::new(|| {
-    println!("WARNING: Proving key is randomly generated. Use for development only.");
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rngs::StdRng::seed_from_u64(1998);
     proving_key_from_randomness(&mut rng)
 });
 
-pub static VERIFICATION_KEY: LazyLock<VerificationKey> =
-    LazyLock::new(|| verification_key_proving_key(&PROVING_KEY));
+pub static VERIFICATION_KEY: LazyLock<VerificationKey> = LazyLock::new(|| {
+    let mut rng = rand::rngs::StdRng::seed_from_u64(1998);
+    let proving_key = proving_key_from_randomness(&mut rng);
+    verification_key_proving_key(&proving_key)
+});
 
 #[cfg(test)]
 mod tests {

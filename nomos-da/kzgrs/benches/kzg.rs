@@ -25,6 +25,7 @@ fn main() {
 // static ALLOC: AllocProfiler = AllocProfiler::system();
 
 static PROVING_KEY: LazyLock<UniversalParams<Bls12_381>> = LazyLock::new(|| {
+    println!("WARNING: Proving key is randomly generated. Use for development only.");
     let mut rng = rand::thread_rng();
     KZG10::<Bls12_381, DensePolynomial<Fr>>::setup(4096, true, &mut rng).unwrap()
 });
