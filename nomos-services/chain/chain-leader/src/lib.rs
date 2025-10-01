@@ -108,7 +108,7 @@ pub struct CryptarchiaLeader<
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync + 'static,
     CryptarchiaService: CryptarchiaServiceData,
-    Wallet: nomos_wallet::api::WalletApi,
+    Wallet: nomos_wallet::api::WalletServiceData,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     winning_pol_epoch_slots_sender: broadcast::Sender<LeaderPrivate>,
@@ -158,7 +158,7 @@ where
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync + 'static,
     CryptarchiaService: CryptarchiaServiceData,
-    Wallet: nomos_wallet::api::WalletApi,
+    Wallet: nomos_wallet::api::WalletServiceData,
 {
     type Settings = LeaderSettings<TxS::Settings, BlendService::BroadcastSettings>;
     type State = overwatch::services::state::NoState<Self::Settings>;
@@ -231,7 +231,7 @@ where
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync + 'static,
     CryptarchiaService: CryptarchiaServiceData<Tx = Mempool::Item>,
-    Wallet: nomos_wallet::api::WalletApi,
+    Wallet: nomos_wallet::api::WalletServiceData,
     RuntimeServiceId: Debug
         + Send
         + Sync
@@ -304,11 +304,12 @@ where
 
         let leader = Leader::new(leader_config.sk, ledger_config);
 
-        let wallet_relay = self
-            .service_resources_handle
-            .overwatch_handle
-            .relay::<Wallet>()
-            .await?;
+        let wallet_api = nomos_wallet::api::WalletApi::<Wallet, RuntimeServiceId>::new(
+            self.service_resources_handle
+                .overwatch_handle
+                .relay::<Wallet>()
+                .await?,
+        );
 
         let tx_selector = TxS::new(transaction_selector_settings);
 
@@ -387,23 +388,10 @@ where
                         };
 
                         // Query wallet for eligible UTXOs for leadership
-                        let (utxo_sender, utxo_receiver) = oneshot::channel();
-                        if let Err(e) = wallet_relay.send(nomos_wallet::WalletMsg::GetLeaderAgedNotes {
-                            tip: parent,
-                            tx: utxo_sender,
-                        }).await {
-                            error!("Failed to request UTXOs from wallet: {:?}", e);
-                            continue;
-                        }
-
-                        let eligible_utxos = match utxo_receiver.await {
-                            Ok(Ok(utxos)) => utxos,
-                            Ok(Err(e)) => {
-                                error!("Wallet error fetching eligible UTXOs: {:?}", e);
-                                continue;
-                            }
+                        let eligible_utxos = match wallet_api.get_leader_aged_notes(parent).await {
+                            Ok(utxos) => utxos,
                             Err(e) => {
-                                error!("Failed to receive UTXOs from wallet: {:?}", e);
+                                error!("Failed to fetch leader aged notes from wallet: {:?}", e);
                                 continue;
                             }
                         };
@@ -517,7 +505,7 @@ where
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
     CryptarchiaService: CryptarchiaServiceData<Tx = Mempool::Item>,
-    Wallet: nomos_wallet::api::WalletApi,
+    Wallet: nomos_wallet::api::WalletServiceData,
 {
     #[expect(clippy::allow_attributes_without_reason)]
     #[instrument(level = "debug", skip(tx_selector, relays))]
