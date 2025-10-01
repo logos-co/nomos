@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-use futures::StreamExt as _;
+use futures::{StreamExt as _, stream::pending};
 use nomos_blend_scheduling::{
     EncapsulatedMessage,
     membership::Membership,
@@ -72,6 +72,7 @@ pub async fn spawn_run(
                 // [`SessionEvent::TransitionPeriodExpired`] will be ignored anyway.
                 Duration::ZERO,
             ),
+            pending(),
             ReceiverStream::new(msg_receiver),
             &settings(local_node, minimal_network_size, node_id_sender),
             &overwatch_handle(),

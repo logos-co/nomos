@@ -38,7 +38,7 @@ use tracing::{debug, error, info};
 
 use crate::{
     edge::handlers::{Error, MessageHandler},
-    epoch::{ChainApi, EpochStream},
+    epoch::{ChainApi, EpochInfo, EpochStream},
     membership,
     message::{NetworkMessage, ServiceMessage},
     mock_poq_inputs_stream,
@@ -129,7 +129,7 @@ where
     membership::ServiceMessage<MembershipAdapter>: Send + Sync + 'static,
     ProofsGenerator: ProofsGeneratorTrait + Send,
     TimeBackend: nomos_time::backends::TimeBackend + Send,
-    ChainService: ChainApi<RuntimeServiceId> + Send,
+    ChainService: ChainApi<RuntimeServiceId> + Clone + Send + Unpin + 'static,
     RuntimeServiceId: AsServiceId<<MembershipAdapter as membership::Adapter>::Service>
         + AsServiceId<Self>
         + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>
@@ -138,6 +138,7 @@ where
         + Clone
         + Send
         + Sync
+        + Unpin
         + 'static,
 {
     fn init(
@@ -181,7 +182,9 @@ where
         .subscribe()
         .await?;
 
-        let _epoch_state_stream = async {
+        // TODO: Change this to also be a `UninitializedStream` which is expected to
+        // yield within a certain amount of time.
+        let epoch_state_stream = async {
             let chain_service = ChainService::new(&overwatch_handle).await;
             let time_relay = overwatch_handle
                 .relay::<TimeService<_, _>>()
@@ -192,7 +195,9 @@ where
                 .send(TimeServiceMessage::Subscribe { sender })
                 .await
                 .expect("Failed to subscribe to slot clock.");
-            let slot_stream = receiver.await;
+            let slot_stream = receiver
+                .await
+                .expect("Should not fail to receive slot stream from time service.");
             EpochStream::<_, _, RuntimeServiceId>::new(slot_stream, chain_service)
         }
         .await;
@@ -233,6 +238,7 @@ where
 
         run::<Backend, _, ProofsGenerator, _>(
             uninitialized_session_stream,
+            epoch_state_stream,
             messages_to_blend,
             &settings,
             &overwatch_handle,
@@ -269,6 +275,7 @@ async fn run<Backend, NodeId, ProofsGenerator, RuntimeServiceId>(
     session_stream: UninitializedSessionEventStream<
         impl Stream<Item = SessionInfo<NodeId>> + Unpin,
     >,
+    mut epoch_stream: impl Stream<Item = EpochInfo> + Unpin,
     mut messages_to_blend: impl Stream<Item = Vec<u8>> + Send + Unpin,
     settings: &Settings<Backend, NodeId, RuntimeServiceId>,
     overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
@@ -308,6 +315,9 @@ where
             }
             Some(message) = messages_to_blend.next() => {
                 message_handler.handle_messages_to_blend(message).await;
+            }
+            Some(_) = epoch_stream.next() => {
+                tracing::trace!(target: LOG_TARGET, "New epoch started.");
             }
         }
     }

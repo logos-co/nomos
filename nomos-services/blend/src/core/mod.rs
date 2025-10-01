@@ -158,7 +158,7 @@ where
     ProofsGenerator: ProofsGeneratorTrait + Send,
     ProofsVerifier: ProofsVerifierTrait + Clone + Send,
     TimeBackend: nomos_time::backends::TimeBackend + Send,
-    ChainService: ChainApi<RuntimeServiceId> + Send,
+    ChainService: ChainApi<RuntimeServiceId> + Clone + Send + Unpin + 'static,
     RuntimeServiceId: AsServiceId<NetworkService<Network::Backend, RuntimeServiceId>>
         + AsServiceId<<MembershipAdapter as membership::Adapter>::Service>
         + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>
@@ -168,6 +168,7 @@ where
         + Display
         + Sync
         + Send
+        + Unpin
         + 'static,
 {
     fn init(
@@ -218,7 +219,9 @@ where
         .await
         .expect("Membership service should be ready");
 
-        let _epoch_state_stream = async {
+        // TODO: Change this to also be a `UninitializedStream` which is expected to
+        // yield within a certain amount of time.
+        let mut epoch_state_stream = async {
             let chain_service = ChainService::new(overwatch_handle).await;
             let time_relay = overwatch_handle
                 .relay::<TimeService<_, _>>()
@@ -229,7 +232,9 @@ where
                 .send(TimeServiceMessage::Subscribe { sender })
                 .await
                 .expect("Failed to subscribe to slot clock.");
-            let slot_stream = receiver.await;
+            let slot_stream = receiver
+                .await
+                .expect("Should not fail to receive slot stream from time service.");
             EpochStream::<_, _, RuntimeServiceId>::new(slot_stream, chain_service)
         }
         .await;
@@ -361,6 +366,9 @@ where
                 }
                 Some(round_info) = message_scheduler.next() => {
                     handle_release_round(round_info, &mut crypto_processor, &mut rng, &backend, &network_adapter).await;
+                }
+                Some(_) = epoch_state_stream.next() => {
+                    tracing::trace!(target: LOG_TARGET, "New epoch started.");
                 }
                 Some(session_event) = service_session_stream.next() => {
                     match handle_session_event(session_event, crypto_processor, &blend_config) {

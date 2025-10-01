@@ -135,6 +135,14 @@ pub struct ChainService<CryptarchiaSamplingAdapter, OutboundMsg>(
     PhantomData<CryptarchiaSamplingAdapter>,
 );
 
+impl<CryptarchiaSamplingAdapter, OutboundMsg> Clone
+    for ChainService<CryptarchiaSamplingAdapter, OutboundMsg>
+{
+    fn clone(&self) -> Self {
+        Self(self.0.clone(), self.1)
+    }
+}
+
 impl<CryptarchiaSamplingAdapter, OutboundMsg>
     ChainService<CryptarchiaSamplingAdapter, OutboundMsg>
 {
