@@ -8,16 +8,6 @@ use nomos_core::{
     header::HeaderId,
     mantle::mock::{MockTransaction, MockTxId},
 };
-use nomos_mempool::{
-    MempoolMsg, TxMempoolSettings,
-    backend::mockpool::MockPool,
-    network::{
-        NetworkAdapter,
-        adapters::mock::{MOCK_TX_CONTENT_TOPIC, MockAdapter},
-    },
-    processor::noop::NoOpPayloadProcessor,
-    tx::{service::GenericTxMempoolService, state::TxMempoolState},
-};
 use nomos_network::{
     NetworkService,
     backends::mock::{Mock, MockBackendMessage, MockConfig, MockMessage},
@@ -32,6 +22,16 @@ use rand::distributions::{Alphanumeric, DistString as _};
 use services_utils::{
     overwatch::{JsonFileBackend, recovery::operators::RecoveryBackend as _},
     traits::FromSettings as _,
+};
+use tx_service::{
+    MempoolMsg, TxMempoolSettings,
+    backend::mockpool::MockPool,
+    network::{
+        NetworkAdapter,
+        adapters::mock::{MOCK_TX_CONTENT_TOPIC, MockAdapter},
+    },
+    processor::noop::NoOpPayloadProcessor,
+    tx::{service::GenericTxMempoolService, state::TxMempoolState},
 };
 
 type NoProcessor<NetworkAdapter> = NoOpPayloadProcessor<NoService, NetworkAdapter>;

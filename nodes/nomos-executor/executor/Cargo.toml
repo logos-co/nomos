@@ -34,7 +34,6 @@ nomos-da-verifier        = { workspace = true }
 nomos-http-api-common    = { workspace = true }
 nomos-libp2p             = { workspace = true }
 nomos-membership         = { workspace = true }
-nomos-mempool            = { workspace = true }
 nomos-network            = { workspace = true }
 nomos-node               = { workspace = true }
 nomos-storage            = { workspace = true }
@@ -48,6 +47,7 @@ tokio                    = { features = ["net"], version = "1" }
 tower                    = { default-features = false, features = ["limit"], version = "0.4" }
 tower-http               = { default-features = false, features = ["cors", "limit", "timeout", "trace"], version = "0.5" }
 tracing                  = { workspace = true }
+tx-service               = { workspace = true }
 utoipa                   = { workspace = true }
 utoipa-swagger-ui        = { workspace = true }
 

@@ -19,7 +19,6 @@ nomos-blend-service = { workspace = true }
 nomos-core          = { workspace = true }
 nomos-da-sampling   = { workspace = true }
 nomos-ledger        = { features = ["serde"], workspace = true }
-nomos-mempool       = { workspace = true }
 nomos-time          = { workspace = true }
 num-bigint          = { version = "0.4", default-features = false }
 overwatch           = { workspace = true }
@@ -29,6 +28,7 @@ thiserror           = "1.0"
 tokio               = { default-features = false, version = "1" }
 tracing             = { workspace = true }
 tracing-futures     = { default-features = false, version = "0.2" }
+tx-service          = { workspace = true }
 
 [features]
 default      = []

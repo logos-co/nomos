@@ -19,10 +19,6 @@ use nomos_core::{
 use nomos_da_sampling::{
     DaSamplingService, DaSamplingServiceMsg, backend::DaSamplingServiceBackend,
 };
-use nomos_mempool::{
-    MempoolMsg, TxMempoolService, backend::RecoverableMempool,
-    network::NetworkAdapter as MempoolAdapter,
-};
 use nomos_time::{SlotTick, TimeService, TimeServiceMessage};
 use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
@@ -34,6 +30,10 @@ use thiserror::Error;
 use tokio::sync::oneshot;
 use tracing::{Level, debug, error, info, instrument, span};
 use tracing_futures::Instrument as _;
+use tx_service::{
+    MempoolMsg, TxMempoolService, backend::RecoverableMempool,
+    network::NetworkAdapter as MempoolAdapter,
+};
 
 use crate::{blend::BlendAdapter, leadership::Leader, relays::CryptarchiaConsensusRelays};
 

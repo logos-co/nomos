@@ -37,7 +37,6 @@ nomos-http-api-common    = { workspace = true }
 nomos-ledger             = { features = ["serde"], workspace = true }
 nomos-libp2p             = { workspace = true }
 nomos-membership         = { workspace = true }
-nomos-mempool            = { features = ["libp2p", "mock"], workspace = true }
 nomos-network            = { features = ["libp2p"], workspace = true }
 nomos-node               = { default-features = false, features = ["testing"], workspace = true }
 nomos-time               = { workspace = true }
@@ -58,6 +57,7 @@ tempfile                 = { workspace = true }
 time                     = { default-features = false, version = "0.3" }
 tokio                    = "1"
 tracing                  = { workspace = true }
+tx-service               = { features = ["libp2p", "mock"], workspace = true }
 
 [[test]]
 name = "test_cryptarchia_happy_path"

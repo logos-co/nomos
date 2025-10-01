@@ -16,32 +16,31 @@ use nomos_da_verifier::{backend::kzgrs::KzgrsDaVerifier, mempool::kzgrs::KzgrsMe
 use nomos_membership::{
     adapters::sdp::ledger::LedgerSdpAdapter, backends::membership::PersistentMembershipBackend,
 };
-use nomos_mempool::backend::mockpool::MockPool;
 use nomos_sdp::backends::mock::MockSdpBackend;
 use nomos_storage::backends::rocksdb::RocksBackend;
 use nomos_time::backends::NtpTimeBackend;
+use tx_service::backend::mockpool::MockPool;
 
 use crate::{MB16, generic_services::blend::BlendService};
 
 pub mod blend;
 
-pub type TxMempoolService<SamplingNetworkAdapter, RuntimeServiceId> =
-    nomos_mempool::TxMempoolService<
-        nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
-            SignedMantleTx,
-            <SignedMantleTx as Transaction>::Hash,
-            RuntimeServiceId,
-        >,
-        SamplingNetworkAdapter,
-        nomos_da_sampling::storage::adapters::rocksdb::RocksAdapter<DaShare, DaStorageConverter>,
-        MockPool<HeaderId, SignedMantleTx, <SignedMantleTx as Transaction>::Hash>,
+pub type TxMempoolService<SamplingNetworkAdapter, RuntimeServiceId> = tx_service::TxMempoolService<
+    tx_service::network::adapters::libp2p::Libp2pAdapter<
+        SignedMantleTx,
+        <SignedMantleTx as Transaction>::Hash,
         RuntimeServiceId,
-    >;
+    >,
+    SamplingNetworkAdapter,
+    nomos_da_sampling::storage::adapters::rocksdb::RocksAdapter<DaShare, DaStorageConverter>,
+    MockPool<HeaderId, SignedMantleTx, <SignedMantleTx as Transaction>::Hash>,
+    RuntimeServiceId,
+>;
 
 pub type TimeService<RuntimeServiceId> = nomos_time::TimeService<NtpTimeBackend, RuntimeServiceId>;
 
 pub type VerifierMempoolAdapter<NetworkAdapter, RuntimeServiceId> = KzgrsMempoolAdapter<
-    nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
+    tx_service::network::adapters::libp2p::Libp2pAdapter<
         SignedMantleTx,
         <SignedMantleTx as Transaction>::Hash,
         RuntimeServiceId,
@@ -74,7 +73,7 @@ pub type DaSamplingService<SamplingAdapter, RuntimeServiceId> =
     >;
 
 pub type Mempool = MockPool<HeaderId, SignedMantleTx, <SignedMantleTx as Transaction>::Hash>;
-pub type MempoolAdapter<RuntimeServiceId> = nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
+pub type MempoolAdapter<RuntimeServiceId> = tx_service::network::adapters::libp2p::Libp2pAdapter<
     SignedMantleTx,
     <SignedMantleTx as Transaction>::Hash,
     RuntimeServiceId,

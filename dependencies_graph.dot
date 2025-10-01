@@ -36,7 +36,7 @@ digraph {
     34 [ label = "nomos-da-network-service" shape = box]
     35 [ label = "common-http-client" shape = box]
     36 [ label = "nomos-tracing" shape = box]
-    37 [ label = "nomos-mempool" shape = box]
+    37 [ label = "tx-service" shape = box]
     38 [ label = "nomos-tracing-service" shape = box]
     39 [ label = "nomos-time" shape = box]
     40 [ label = "nomos-da-dispersal" shape = box]

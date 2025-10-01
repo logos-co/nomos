@@ -7,16 +7,16 @@ use nomos_core::{
     mantle::{AuthenticatedMantleTx, TxHash},
 };
 use nomos_da_sampling::{DaSamplingService, backend::DaSamplingServiceBackend};
-use nomos_mempool::{
-    MempoolMsg, TxMempoolService, backend::RecoverableMempool,
-    network::NetworkAdapter as MempoolAdapter,
-};
 use nomos_time::{TimeService, TimeServiceMessage, backends::TimeBackend as TimeBackendTrait};
 use overwatch::{
     OpaqueServiceResourcesHandle,
     services::{AsServiceId, ServiceData, relay::OutboundRelay},
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use tx_service::{
+    MempoolMsg, TxMempoolService, backend::RecoverableMempool,
+    network::NetworkAdapter as MempoolAdapter,
+};
 
 use crate::SamplingRelay;
 
@@ -26,8 +26,8 @@ type MempoolRelay<Mempool, MempoolNetAdapter, RuntimeServiceId> = OutboundRelay<
     MempoolMsg<
         HeaderId,
         <MempoolNetAdapter as MempoolAdapter<RuntimeServiceId>>::Payload,
-        <Mempool as nomos_mempool::backend::Mempool>::Item,
-        <Mempool as nomos_mempool::backend::Mempool>::Key,
+        <Mempool as tx_service::backend::Mempool>::Item,
+        <Mempool as tx_service::backend::Mempool>::Key,
     >,
 >;
 type TimeRelay = OutboundRelay<TimeServiceMessage>;
@@ -40,7 +40,7 @@ pub struct CryptarchiaConsensusRelays<
     RuntimeServiceId,
 > where
     BlendService: ServiceData,
-    Mempool: nomos_mempool::backend::Mempool,
+    Mempool: tx_service::backend::Mempool,
     MempoolNetAdapter: MempoolAdapter<RuntimeServiceId>,
     SamplingBackend: DaSamplingServiceBackend,
 {

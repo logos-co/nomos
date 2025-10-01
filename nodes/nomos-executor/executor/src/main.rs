@@ -4,12 +4,12 @@ use nomos_core::mantle::SignedMantleTx;
 use nomos_executor::{
     NomosExecutor, NomosExecutorServiceSettings, RuntimeServiceId, config::Config as ExecutorConfig,
 };
-use nomos_mempool::{processor::tx::SignedTxProcessorSettings, tx::settings::TxMempoolSettings};
 use nomos_node::{
     CryptarchiaLeaderArgs, HttpArgs, LogArgs, MANTLE_TOPIC, MempoolAdapterSettings, NetworkArgs,
     Transaction, config::BlendArgs,
 };
 use overwatch::overwatch::{Error as OverwatchError, Overwatch, OverwatchRunner};
+use tx_service::{processor::tx::SignedTxProcessorSettings, tx::settings::TxMempoolSettings};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
