@@ -20,9 +20,8 @@ use tracing::Level;
 use crate::{
     ApiService, CryptarchiaLeaderService, CryptarchiaService, DaNetworkService, DaSamplingService,
     DaVerifierService, NetworkService, RuntimeServiceId, StorageService, TimeService,
-    WalletService,
     config::mempool::MempoolConfig,
-    generic_services::{MembershipService, SdpService},
+    generic_services::{MembershipService, SdpService, WalletService},
 };
 
 pub mod blend;
@@ -245,7 +244,7 @@ pub struct Config {
     pub time: <TimeService as ServiceData>::Settings,
     pub storage: <StorageService as ServiceData>::Settings,
     pub mempool: MempoolConfig,
-    pub wallet: <WalletService as ServiceData>::Settings,
+    pub wallet: <WalletService<CryptarchiaService, RuntimeServiceId> as ServiceData>::Settings,
 
     #[cfg(feature = "testing")]
     pub testing_http: <ApiService as ServiceData>::Settings,

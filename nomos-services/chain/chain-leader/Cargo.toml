@@ -20,6 +20,7 @@ nomos-core          = { workspace = true }
 nomos-da-sampling   = { workspace = true }
 nomos-ledger        = { features = ["serde"], workspace = true }
 nomos-time          = { workspace = true }
+nomos-wallet        = { workspace = true }
 num-bigint          = { version = "0.4", default-features = false }
 overwatch           = { workspace = true }
 serde               = { default-features = false, version = "1" }

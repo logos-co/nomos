@@ -565,6 +565,9 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
         },
         membership: config.membership_config.service_settings,
         sdp: (),
+        wallet: nomos_wallet::WalletServiceSettings {
+            known_keys: HashSet::default(),
+        },
 
         testing_http: nomos_api::ApiServiceSettings {
             backend_settings: AxumBackendSettings {

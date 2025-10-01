@@ -135,13 +135,17 @@ pub(crate) type DaNetworkAdapter = nomos_da_sampling::network::adapters::validat
 pub(crate) type CryptarchiaService =
     generic_services::CryptarchiaService<DaNetworkAdapter, RuntimeServiceId>;
 
-pub(crate) type CryptarchiaLeaderService =
-    generic_services::CryptarchiaLeaderService<DaNetworkAdapter, RuntimeServiceId>;
+pub(crate) type WalletService =
+    generic_services::WalletService<CryptarchiaService, RuntimeServiceId>;
+
+pub(crate) type CryptarchiaLeaderService = generic_services::CryptarchiaLeaderService<
+    CryptarchiaService,
+    WalletService,
+    DaNetworkAdapter,
+    RuntimeServiceId,
+>;
 
 pub(crate) type TimeService = generic_services::TimeService<RuntimeServiceId>;
-
-pub(crate) type WalletService =
-    nomos_wallet::WalletService<CryptarchiaService, SignedMantleTx, RocksBackend, RuntimeServiceId>;
 
 pub(crate) type ApiStorageAdapter<RuntimeServiceId> =
     nomos_api::http::storage::adapters::rocksdb::RocksAdapter<RuntimeServiceId>;
