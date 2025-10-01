@@ -123,7 +123,7 @@ impl<'de> Deserialize<'de> for GenesisTx {
         D: serde::Deserializer<'de>,
     {
         // Deserialize as an unverified SignedMantleTx since genesis transactions
-        // don't require signature verification for Blob/Inscription operations
+        // don't require signature verification for the genesis params inscription
         #[derive(Deserialize)]
         struct GenesisTxHelper {
             mantle_tx: MantleTx,
