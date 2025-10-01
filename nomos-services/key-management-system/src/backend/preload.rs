@@ -25,6 +25,8 @@ mod errors {
     pub enum PreloadBackendError {
         #[error("Key({0}) was not registered")]
         KeyNotRegistered(String),
+        #[error("Keys({0:?}) were not registered")]
+        KeysNotRegistered(Vec<String>),
         #[error("KeyType mismatch: {0:?} != {1:?}")]
         KeyTypeMismatch(keys::PreloadKeyKind, keys::PreloadKeyKind),
     }
@@ -246,6 +248,29 @@ mod backends {
                 .ok_or(errors::PreloadBackendError::KeyNotRegistered(key_id))?
                 .sign(&payload)
                 .map_err(|error| DynError::from(format!("{error:?}")))
+        }
+
+        fn sign_multiple(
+            &self,
+            key_ids: Vec<Self::KeyId>,
+            _payload: <Self::Key as SecuredKey>::Payload,
+        ) -> Result<<Self::Key as SecuredKey>::Signature, Self::Error> {
+            let mut missing_key_ids = Vec::new();
+            let _keys = key_ids
+                .into_iter()
+                .filter_map(|key_id| {
+                    self.keys.get(&key_id).or_else(|| {
+                        missing_key_ids.push(key_id);
+                        None
+                    })
+                })
+                .collect::<Vec<_>>();
+
+            if !missing_key_ids.is_empty() {
+                return Err(errors::PreloadBackendError::KeysNotRegistered(missing_key_ids).into());
+            }
+
+            unimplemented!("Validate all keys are of the same type. Then sign.")
         }
 
         async fn execute(
