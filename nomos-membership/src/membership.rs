@@ -6,8 +6,7 @@ use nomos_core::{
 };
 
 use crate::{
-    Membership, MembershipConfig, MembershipError, NewSesssion, session::Session,
-    storage::MembershipStorage,
+    MembershipConfig, MembershipError, NewSesssion, session::Session, storage::MembershipStorage,
 };
 
 pub struct PersistentMembership<S: MembershipStorage> {
@@ -18,14 +17,11 @@ pub struct PersistentMembership<S: MembershipStorage> {
     session_sizes: HashMap<ServiceType, u32>,
 }
 
-#[async_trait::async_trait]
-impl<S> Membership for PersistentMembership<S>
+impl<S> PersistentMembership<S>
 where
-    S: MembershipStorage + Send + Clone,
+    S: MembershipStorage,
 {
-    type Storage = S;
-
-    fn new(settings: MembershipConfig, storage_adapter: Self::Storage) -> Self {
+    fn new(settings: MembershipConfig, storage_adapter: S) -> Self {
         let mut active_sessions = HashMap::new();
         let mut forming_sessions = HashMap::new();
 
@@ -166,15 +162,25 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{BTreeSet, HashMap};
-
-    use multiaddr::multiaddr;
-    use nomos_core::sdp::{
-        FinalizedBlockEvent, FinalizedBlockEventUpdate, FinalizedDeclarationState, Locator,
-        ProviderId, ServiceType,
+    use std::{
+        collections::{BTreeSet, HashMap},
+        sync::{Arc, Mutex},
     };
 
-    use crate::Membership as _;
+    use async_trait::async_trait;
+    use multiaddr::multiaddr;
+    use nomos_core::{
+        block::{BlockNumber, SessionNumber},
+        sdp::{
+            FinalizedBlockEvent, FinalizedBlockEventUpdate, FinalizedDeclarationState, Locator,
+            ProviderId, ServiceType,
+        },
+    };
+
+    use crate::{
+        DynError,
+        membership::{MembershipConfig, PersistentMembership},
+    };
 
     fn pid(seed: u8) -> ProviderId {
         use ed25519_dalek::SigningKey;
@@ -405,16 +411,6 @@ mod tests {
         assert!(mp_ss.providers.contains_key(&p4));
         assert!(mp_ss.providers.contains_key(&p2)); // P2 still there
     }
-
-    use std::sync::{Arc, Mutex};
-
-    use async_trait::async_trait;
-    use nomos_core::block::{BlockNumber, SessionNumber};
-
-    use crate::{
-        DynError,
-        membership::{MembershipConfig, PersistentMembership},
-    };
 
     #[derive(Clone)]
     pub struct InMemoryStorageArc {

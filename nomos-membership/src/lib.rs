@@ -1,7 +1,6 @@
 use std::collections::{BTreeSet, HashMap};
 
-use async_trait::async_trait;
-use nomos_core::sdp::{FinalizedBlockEvent, Locator, ProviderId, ServiceType};
+use nomos_core::sdp::{Locator, ProviderId, ServiceType};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -31,16 +30,4 @@ pub enum MembershipError {
 
     #[error("Not found")]
     NotFound,
-}
-
-#[async_trait]
-pub trait Membership {
-    type Storage;
-
-    fn new(settings: MembershipConfig, storage_adapter: Self::Storage) -> Self;
-
-    fn get_latest_providers(&self, service_type: ServiceType) -> Result<Session, MembershipError>;
-
-    async fn update(&mut self, update: FinalizedBlockEvent)
-    -> Result<NewSesssion, MembershipError>;
 }
