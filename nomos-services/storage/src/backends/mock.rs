@@ -220,10 +220,21 @@ impl StorageDaApi for MockStorage {
         unimplemented!()
     }
 
+    async fn store_providerid_mappings(
+        &mut self,
+        _mappings: HashMap<Self::Id, ProviderId>,
+    ) -> Result<(), Self::Error> {
+        unimplemented!()
+    }
+
     async fn get_assignations(
         &mut self,
         _session_id: SessionNumber,
     ) -> Result<Option<HashMap<Self::NetworkId, HashSet<Self::Id>>>, Self::Error> {
+        unimplemented!()
+    }
+
+    async fn get_provider_id(&mut self, _id: Self::Id) -> Result<Option<ProviderId>, Self::Error> {
         unimplemented!()
     }
 

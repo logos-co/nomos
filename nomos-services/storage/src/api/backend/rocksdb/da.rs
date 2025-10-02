@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use libp2p_identity::PeerId;
 use multiaddr::Multiaddr;
-use nomos_core::{block::SessionNumber, da::BlobId};
+use nomos_core::{block::SessionNumber, da::BlobId, sdp::ProviderId};
 use rocksdb::Error;
 use tracing::{debug, error};
 
@@ -23,6 +23,7 @@ pub const DA_SHARE_PREFIX: &str = concat!("da/verified/", "bl");
 pub const DA_ASSIGNATIONS_PREFIX: &str = concat!("da/membership/", "as");
 pub const DA_ADDRESSBOOK_PREFIX: &str = concat!("da/membership/", "ab");
 pub const DA_TX_PREFIX: &str = concat!("da/verified/", "tx");
+pub const DA_PROVIDER_MAPPINGS_PREFIX: &str = concat!("da/membership/", "pm");
 
 #[async_trait]
 impl StorageDaApi for RocksBackend {
@@ -195,6 +196,47 @@ impl StorageDaApi for RocksBackend {
 
                 debug!("Successfully loaded assignations for session {}", sesion_id);
                 Ok(Some(assignations))
+            },
+        )
+    }
+
+    async fn store_providerid_mappings(
+        &mut self,
+        mappings: HashMap<Self::Id, ProviderId>,
+    ) -> Result<(), Self::Error> {
+        let mut key_provider_map = HashMap::new();
+
+        for (peer_id, provider_id) in mappings {
+            let provider_key = key_bytes(DA_PROVIDER_MAPPINGS_PREFIX, peer_id.to_bytes());
+            let serialized_provider_id =
+                <()>::serialize(&provider_id).expect("Serialization of ProviderId should not fail");
+            key_provider_map.insert(provider_key, serialized_provider_id);
+        }
+
+        self.bulk_store(key_provider_map).await.map_err(|e| {
+            error!("Failed to store provider mappings: {:?}", e);
+            e
+        })?;
+
+        debug!("Successfully stored provider mappings");
+        Ok(())
+    }
+
+    async fn get_provider_id(&mut self, id: Self::Id) -> Result<Option<ProviderId>, Self::Error> {
+        let provider_key = key_bytes(DA_PROVIDER_MAPPINGS_PREFIX, id.to_bytes());
+        let provider_bytes = self.load(&provider_key).await?;
+
+        provider_bytes.map_or_else(
+            || {
+                debug!("No ProviderId found for {}", id);
+                Ok(None)
+            },
+            |bytes| match <ProviderId as SerdeOp>::deserialize(&bytes) {
+                Ok(provider_id) => Ok(Some(provider_id)),
+                Err(e) => {
+                    error!("Failed to deserialize ProviderId for {}: {:?}", id, e);
+                    Ok(None)
+                }
             },
         )
     }
