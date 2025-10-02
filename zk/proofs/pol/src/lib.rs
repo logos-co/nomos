@@ -39,6 +39,7 @@ use std::error::Error;
 pub use chain_inputs::{PolChainInputs, PolChainInputsData};
 use groth16::{
     CompressedGroth16Proof, Groth16Input, Groth16InputDeser, Groth16Proof, Groth16ProofJsonDeser,
+    groth16_batch_verify,
 };
 pub use inputs::{PolVerifierInput, PolWitnessInputs};
 use thiserror::Error;
@@ -128,6 +129,24 @@ pub fn verify(proof: &PoLProof, public_inputs: &PolVerifierInput) -> Result<bool
     let inputs = public_inputs.to_inputs();
     let expanded_proof = Groth16Proof::try_from(proof).map_err(|_| VerifyError::Expansion)?;
     groth16::groth16_verify(verification_key::POL_VK.as_ref(), &expanded_proof, &inputs)
+        .map_err(|e| VerifyError::ProofVerify(Box::new(e)))
+}
+
+pub fn batch_verify(
+    proofs: &[PoLProof],
+    public_inputs: &[PolVerifierInput],
+) -> Result<bool, VerifyError> {
+    let inputs: Vec<Vec<_>> = public_inputs
+        .iter()
+        .map(|pi| pi.to_inputs().to_vec())
+        .collect();
+
+    let expanded_proofs: Vec<Groth16Proof> = proofs
+        .iter()
+        .map(|p| Groth16Proof::try_from(p).map_err(|_| VerifyError::Expansion))
+        .collect::<Result<Vec<_>, _>>()?; // short-circuits on first failure
+
+    groth16_batch_verify(verification_key::POL_VK.as_ref(), &expanded_proofs, &inputs)
         .map_err(|e| VerifyError::ProofVerify(Box::new(e)))
 }
 
@@ -307,5 +326,6 @@ mod tests {
 
         let (proof, inputs) = prove(&witness_inputs).unwrap();
         assert!(verify(&proof, &inputs).unwrap());
+        assert!(batch_verify(&[proof, proof], &[inputs.clone(), inputs]).unwrap());
     }
 }

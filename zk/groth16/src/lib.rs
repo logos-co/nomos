@@ -19,18 +19,13 @@ pub use ark_bn254::{Bn254, Fr};
 pub use ark_ff::Field;
 use ark_ff::{BigInteger as _, PrimeField};
 use num_bigint::BigUint;
-
 pub use verifier::{groth16_batch_verify, groth16_verify};
-const BN254_G1_COMPRESSED_SIZE: usize = 32;
-const BN254_G2_COMPRESSED_SIZE: usize = 64;
-
 
 impl CompressSize for Bn254 {
     type G1CompressedSize = generic_array::typenum::U32;
     type G2CompressedSize = generic_array::typenum::U64;
 }
 
->>>>>>> tl/optimize_v1
 pub type Groth16Proof = proof::Proof<Bn254>;
 pub type CompressedGroth16Proof = CompressedProof<Bn254>;
 #[cfg(feature = "deser")]

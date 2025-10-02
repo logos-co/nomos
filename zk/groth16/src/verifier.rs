@@ -7,6 +7,7 @@ use ark_bn254::{Bn254, Fr, G1Affine, G1Projective};
 use ark_ec::{CurveGroup as _, VariableBaseMSM as _, pairing::Pairing};
 use ark_ff::{One as _, UniformRand as _};
 use ark_groth16::{Groth16, r1cs_to_qap::LibsnarkReduction};
+use ark_relations::r1cs::{Result as R1CSResult, SynthesisError};
 use ark_std::rand::thread_rng;
 
 use crate::{proof::Proof, verification_key::PreparedVerificationKey};
@@ -25,7 +26,7 @@ pub fn groth16_batch_verify(
     vk: &PreparedVerificationKey<Bn254>,
     proofs: &[Proof<Bn254>],
     public_inputs: &[Vec<Fr>],
-) -> bool {
+) -> R1CSResult<bool> {
     let mut rng = thread_rng();
     let r = Fr::rand(&mut rng);
     let r_roots = compute_r_powers(r, proofs.len());
@@ -65,8 +66,8 @@ pub fn groth16_batch_verify(
 
     let qap = Bn254::multi_miller_loop(g1_terms, g2_terms);
 
-    let test = Bn254::final_exponentiation(qap).unwrap();
-    test.0.is_one()
+    let test = Bn254::final_exponentiation(qap).ok_or(SynthesisError::UnexpectedIdentity)?;
+    Ok(test.0.is_one())
 }
 
 fn compute_r_powers(r: Fr, size: usize) -> Vec<Fr> {
