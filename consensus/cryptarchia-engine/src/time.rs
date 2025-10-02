@@ -16,6 +16,13 @@ use tokio::time::{Interval, MissedTickBehavior};
 #[derive(Clone, Debug, Eq, PartialEq, Copy, Hash, PartialOrd, Ord)]
 pub struct Slot(u64);
 
+impl Epoch {
+    #[must_use]
+    pub const fn new(inner: u32) -> Self {
+        Self(inner)
+    }
+}
+
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, Eq, PartialEq, Copy, Hash, PartialOrd, Ord)]
 pub struct Epoch(u32);

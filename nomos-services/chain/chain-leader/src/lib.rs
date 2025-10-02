@@ -36,7 +36,11 @@ use tx_service::{
     network::NetworkAdapter as MempoolAdapter,
 };
 
-use crate::{blend::BlendAdapter, leadership::Leader, relays::CryptarchiaConsensusRelays};
+use crate::{
+    blend::BlendAdapter,
+    leadership::{Leader, PoLNotifier},
+    relays::CryptarchiaConsensusRelays,
+};
 
 type SamplingRelay<BlobId> = OutboundRelay<DaSamplingServiceMsg<BlobId>>;
 
@@ -304,6 +308,7 @@ where
         // TODO: check active slot coeff is exactly 1/30
 
         let leader = Leader::new(leader_config.sk, ledger_config);
+        let pol_notifier = PoLNotifier::new(&leader, &self.winning_pol_epoch_slots_sender);
 
         let wallet_api = nomos_wallet::api::WalletApi::<Wallet, RuntimeServiceId>::new(
             self.service_resources_handle
@@ -347,7 +352,19 @@ where
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
 
+        wait_until_services_are_ready!(
+            &self.service_resources_handle.overwatch_handle,
+            Some(Duration::from_secs(60)),
+            BlendService,
+            TxMempoolService<_, _, _, _, _>,
+            DaSamplingService<_, _, _, _>,
+            TimeService<_, _>,
+            CryptarchiaService
+        )
+        .await?;
+
         let mut _last_processed_epoch: Option<Epoch> = None;
+
         let async_loop = async {
             loop {
                 tokio::select! {
@@ -397,17 +414,7 @@ where
                             }
                         };
 
-                        // // If we are in the same epoch that we already processed, skip. Else, pre-compute proofs and send them to subcribers.
-                        // if let Some(processed_epoch) = last_processed_epoch && processed_epoch == epoch {} else {
-                        //     debug!("Pre-computing PoL private inputs for message blending.");
-                        //     processed_epoch = Some(epoch);
-                        //     let leader = leader.clone();
-                        //     let sender = self.winning_pol_epoch_slots_sender.clone();
-                        //     let epoch_state = epoch_state.clone();
-                        //     spawn_blocking(move {
-
-                        //     });
-                        // }
+                        pol_notifier.process_epoch(&epoch_state);
 
                         if let Some(proof) = leader.build_proof_for(&eligible_utxos, aged_tree, latest_tree, &epoch_state, slot).await {
                             // TODO: spawn as a separate task?
