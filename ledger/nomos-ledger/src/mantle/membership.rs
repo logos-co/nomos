@@ -39,10 +39,14 @@ pub enum MembershipError {
     ActiveSessionNotFound(ServiceType),
     #[error("Forming session for service {0:?} not found")]
     FormingSessionNotFound(ServiceType),
+    #[error("Session parameters for {0:?} not found")]
+    SessionParamsNotFound(ServiceType),
     #[error("Declaration state error: {0:?}")]
     DeclarationStateError(#[from] DeclarationStateError),
     #[error("Service parameters are missing for {0:?}")]
     ServiceParamsNotFound(ServiceType),
+    #[error("Can't update genesis state during different block number")]
+    NotGenesisBlock,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -113,6 +117,26 @@ impl Membership {
         Ok(self)
     }
 
+    /// Updates selected service active session with a provider which is set to
+    /// active. Should only be used when updating membership during genesis
+    /// block.
+    pub fn update_from_genesis(
+        mut self,
+        block_number: BlockNumber,
+        service_type: &ServiceType,
+        provider_id: ProviderId,
+    ) -> Result<Self, MembershipError> {
+        if block_number != 0 {
+            return Err(MembershipError::NotGenesisBlock);
+        }
+        let Some(active_session) = self.active_sessions.get_mut(service_type) else {
+            return Err(MembershipError::ActiveSessionNotFound(*service_type));
+        };
+        active_session.update(provider_id, &FinalizedDeclarationState::Active);
+
+        Ok(self)
+    }
+
     pub fn promote(
         mut self,
         block_number: BlockNumber,
@@ -123,11 +147,11 @@ impl Membership {
 
         for service_type in ServiceType::iter() {
             let Some(config) = session_configs.get(&service_type) else {
-                continue;
+                return Err(MembershipError::SessionParamsNotFound(service_type));
             };
 
             let Some(forming_session) = new_forming_sessions.get(&service_type) else {
-                continue;
+                return Err(MembershipError::FormingSessionNotFound(service_type));
             };
 
             let expected_active_session_num = block_number / config.size;
