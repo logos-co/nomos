@@ -1,8 +1,8 @@
 use std::{io::Cursor, ops::Mul as _};
 
-use ark_bls12_381::{Fr, G1Projective};
+use ark_bls12_381::{Fr, G1Affine, G1Projective};
 use ark_ec::CurveGroup as _;
-use ark_ff::PrimeField as _;
+use ark_ff::{Field as _, PrimeField as _};
 use ark_poly::EvaluationDomain as _;
 use ark_poly_commit::kzg10::Commitment as KzgCommitment;
 use ark_serialize::CanonicalSerialize as _;
@@ -13,7 +13,9 @@ use blake2::{
 #[cfg(feature = "parallel")]
 use rayon::iter::{IntoParallelIterator as _, ParallelIterator as _};
 
-use super::{Commitment, Evaluations, GlobalParameters, PolynomialEvaluationDomain, Proof, kzg};
+use super::{
+    Commitment, Evaluations, PolynomialEvaluationDomain, Proof, ProvingKey, VerificationKey, kzg,
+};
 use crate::fk20::{Toeplitz1Cache, fk20_batch_generate_elements_proofs};
 
 const ROW_HASH_SIZE: usize = 31;
@@ -163,7 +165,7 @@ pub fn generate_combined_proof(
     polynomials: &[Evaluations],
     commitments: &[Commitment],
     domain: PolynomialEvaluationDomain,
-    global_parameters: &GlobalParameters,
+    global_parameters: &ProvingKey,
     toeplitz1cache: Option<&Toeplitz1Cache>,
 ) -> Vec<Proof> {
     let rows_commitments_hash = generate_row_commitments_hash(commitments);
@@ -207,7 +209,7 @@ pub fn verify_column(
     row_commitments: &[Commitment],
     column_proof: &Proof,
     domain: PolynomialEvaluationDomain,
-    global_parameters: &GlobalParameters,
+    verification_key: &VerificationKey,
 ) -> bool {
     let row_commitments_hash = generate_row_commitments_hash(row_commitments);
     let h = Fr::from_le_bytes_mod_order(&row_commitments_hash);
@@ -217,11 +219,9 @@ pub fn verify_column(
         .enumerate()
         .map(|(i, x)| x.mul(&h_roots[i]))
         .sum();
-    let aggregated_commitments: G1Projective = row_commitments
-        .iter()
-        .enumerate()
-        .map(|(i, c)| c.0.mul(&h_roots[i]))
-        .sum();
+    let bases_agg_commit: Vec<G1Affine> = row_commitments.iter().map(|c| c.0).collect();
+    let aggregated_commitments: G1Projective =
+        ark_ec::VariableBaseMSM::msm(&bases_agg_commit, &h_roots).unwrap();
     let commitment = KzgCommitment(aggregated_commitments.into_affine());
     kzg::verify_element_proof(
         column_idx,
@@ -229,12 +229,12 @@ pub fn verify_column(
         &commitment,
         column_proof,
         domain,
-        global_parameters,
+        verification_key,
     )
 }
 
 fn compute_h_roots(h: Fr, size: usize) -> Vec<Fr> {
-    std::iter::successors(Some(Fr::from(1)), |x| Some(h * x))
+    std::iter::successors(Some(Fr::ONE), |x| Some(h * x))
         .take(size)
         .collect()
 }

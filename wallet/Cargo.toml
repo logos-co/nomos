@@ -10,7 +10,7 @@ workspace = true
 [dependencies]
 nomos-core   = { workspace = true }
 nomos-ledger = { workspace = true }
-num-bigint   = { version = "0.4", default-features = false }
+num-bigint   = { default-features = false, version = "0.4" }
 rpds         = { default-features = false, version = "1.1.1" }
 thiserror    = { workspace = true }
 tracing      = { workspace = true }
