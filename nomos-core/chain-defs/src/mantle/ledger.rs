@@ -1,14 +1,14 @@
-use std::{str::FromStr as _, sync::LazyLock};
+use std::sync::LazyLock;
 
 use bytes::Bytes;
-use groth16::{serde::serde_fr, Fr};
+use groth16::{Fr, fr_from_bytes, serde::serde_fr};
 use num_bigint::BigUint;
 use poseidon2::Digest;
 use serde::{Deserialize, Serialize};
 
 use crate::{
     crypto::ZkHasher,
-    mantle::{gas::GasConstants, keys::PublicKey, tx::TxHash, Transaction, TransactionHasher},
+    mantle::{Transaction, TransactionHasher, gas::GasConstants, keys::PublicKey, tx::TxHash},
 };
 
 pub type Value = u64;
@@ -25,7 +25,7 @@ impl NoteId {
 
     #[must_use]
     pub fn as_bytes(&self) -> Bytes {
-        self.0 .0 .0.iter().flat_map(|b| b.to_le_bytes()).collect()
+        self.0.0.0.iter().flat_map(|b| b.to_le_bytes()).collect()
     }
 }
 
@@ -72,15 +72,20 @@ pub struct Utxo {
     pub note: Note,
 }
 
-static NOMOS_NOTE_ID_V1: LazyLock<Fr> =
-    // Constant for Fr(b"NOMOS_NOTE_ID_V1")
-    LazyLock::new(|| {
-        BigUint::from_str("65580641562429851895355409762135920462")
-            .expect("BigUint should load from constant string")
-            .into()
-    });
+static NOMOS_NOTE_ID_V1: LazyLock<Fr> = LazyLock::new(|| {
+    fr_from_bytes(b"NOMOS_NOTE_ID_V1").expect("BigUint should load from constant string")
+});
 
 impl Utxo {
+    #[must_use]
+    pub const fn new(tx_hash: TxHash, output_index: usize, note: Note) -> Self {
+        Self {
+            tx_hash,
+            output_index,
+            note,
+        }
+    }
+
     #[must_use]
     pub fn id(&self) -> NoteId {
         // constants and structure as defined in the Mantle spec:
@@ -88,10 +93,10 @@ impl Utxo {
 
         let mut hasher = ZkHasher::default();
         let tx_hash: Fr = *self.tx_hash.as_ref();
-        let output_index: Fr =
-            BigUint::from_bytes_le(self.output_index.to_le_bytes().as_slice()).into();
+        let output_index =
+            fr_from_bytes(self.output_index.to_le_bytes().as_slice()).expect("usize fits in Fr");
         let note_value: Fr =
-            BigUint::from_bytes_le(self.note.value.to_le_bytes().as_slice()).into();
+            fr_from_bytes(self.note.value.to_le_bytes().as_slice()).expect("u64 fits in Fr");
         let note_pk: Fr = self.note.pk.into();
         <ZkHasher as Digest>::update(&mut hasher, &NOMOS_NOTE_ID_V1);
         <ZkHasher as Digest>::update(&mut hasher, &tx_hash);
@@ -104,10 +109,12 @@ impl Utxo {
     }
 }
 
-static NOMOS_LEDGER_TXHASH_V1_FR: LazyLock<Fr> =
-    LazyLock::new(|| BigUint::from_bytes_le(b"NOMOS_LEDGER_TXHASH_V1").into());
+static NOMOS_LEDGER_TXHASH_V1_FR: LazyLock<Fr> = LazyLock::new(|| {
+    fr_from_bytes(b"NOMOS_LEDGER_TXHASH_V1").expect("Constant should be valid Fr")
+});
 
-static INOUT_SEP_FR: LazyLock<Fr> = LazyLock::new(|| BigUint::from_bytes_le(b"INOUT_SEP").into());
+static INOUT_SEP_FR: LazyLock<Fr> =
+    LazyLock::new(|| fr_from_bytes(b"INOUT_SEP").expect("Constant should be valid Fr"));
 
 impl Tx {
     #[must_use]

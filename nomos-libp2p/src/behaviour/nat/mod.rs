@@ -2,14 +2,13 @@ use std::task::{Context, Poll};
 
 use either::Either;
 use libp2p::{
-    autonat,
-    core::{transport::PortUse, Endpoint},
+    Multiaddr, PeerId, autonat,
+    core::{Endpoint, transport::PortUse},
     swarm::{
-        behaviour::toggle::{Toggle, ToggleConnectionHandler},
         ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, NewListenAddr, THandler,
         THandlerInEvent, THandlerOutEvent, ToSwarm,
+        behaviour::toggle::{Toggle, ToggleConnectionHandler},
     },
-    Multiaddr, PeerId,
 };
 use rand::RngCore;
 
@@ -38,17 +37,18 @@ pub struct Behaviour<Rng: RngCore + 'static> {
 
 impl<Rng: RngCore + 'static> Behaviour<Rng> {
     pub fn new(rng: Rng, nat_config: &NatSettings) -> Self {
-        let static_listen_addr = nat_config.static_external_address.clone();
-
-        let inner_behaviour = if static_listen_addr.is_some() {
-            Toggle::from(None)
-        } else {
-            Toggle::from(Some(InnerNatBehaviour::new(rng, nat_config)))
-        };
-
-        Self {
-            static_listen_addr,
-            inner_behaviour,
+        match nat_config {
+            NatSettings::Static { external_address } => Self {
+                static_listen_addr: Some(external_address.clone()),
+                inner_behaviour: Toggle::from(None),
+            },
+            NatSettings::Traversal(traversal_settings) => Self {
+                static_listen_addr: None,
+                inner_behaviour: Toggle::from(Some(InnerNatBehaviour::new(
+                    rng,
+                    traversal_settings,
+                ))),
+            },
         }
     }
 }
@@ -161,13 +161,14 @@ impl<Rng: RngCore + 'static> NetworkBehaviour for Behaviour<Rng> {
 mod tests {
     use std::time::Duration;
 
-    use libp2p::{identify, identity, swarm::SwarmEvent, Swarm};
+    use libp2p::{Swarm, identify, identity, swarm::SwarmEvent};
     use libp2p_swarm_test::SwarmExt as _;
     use rand::rngs::OsRng;
     use tokio::time::timeout;
-    use tracing_subscriber::{fmt::TestWriter, EnvFilter};
+    use tracing_subscriber::{EnvFilter, fmt::TestWriter};
 
     use super::*;
+    use crate::config::AutonatClientSettings;
 
     #[derive(NetworkBehaviour)]
     pub struct Client {
@@ -177,8 +178,13 @@ mod tests {
 
     impl Client {
         pub fn new(public_key: identity::PublicKey) -> Self {
-            let mut settings = NatSettings::default();
-            settings.autonat.probe_interval_millisecs = Some(10);
+            let settings = NatSettings::Traversal(crate::config::TraversalSettings {
+                autonat: AutonatClientSettings {
+                    probe_interval_millisecs: Some(10),
+                    ..Default::default()
+                },
+                ..Default::default()
+            });
 
             let nat = Behaviour::new(OsRng, &settings);
             let identify =
@@ -205,6 +211,27 @@ mod tests {
         }
     }
 
+    async fn new_swarm_with_tcp<B, F>(behaviour_fn: F) -> (Swarm<B>, Multiaddr)
+    where
+        B: NetworkBehaviour + Send,
+        B::ToSwarm: std::fmt::Debug,
+        F: FnOnce(identity::PublicKey) -> B,
+    {
+        let mut swarm = Swarm::new_ephemeral_tokio(|keypair| behaviour_fn(keypair.public()));
+        swarm
+            .listen_on("/ip4/127.0.0.1/tcp/0".parse().unwrap())
+            .unwrap();
+
+        let addr = swarm
+            .wait(|e| match e {
+                SwarmEvent::NewListenAddr { address, .. } => Some(address),
+                _ => None,
+            })
+            .await;
+
+        (swarm, addr)
+    }
+
     #[tokio::test]
     async fn test_external_address_is_confirmed_by_autonat_server() {
         const _500MS: Duration = Duration::from_millis(500);
@@ -213,26 +240,24 @@ mod tests {
             .compact()
             .with_writer(TestWriter::default())
             .try_init();
-        let mut client = Swarm::new_ephemeral_tokio(|keypair| Client::new(keypair.public()));
-        let mut server = Swarm::new_ephemeral_tokio(|keypair| Server::new(keypair.public()));
 
-        let (_, client_addr) = client.listen().await;
-        let _ = server.listen().with_tcp_addr_external().await;
+        let (mut client, client_addr) = new_swarm_with_tcp(Client::new).await;
+        let (mut server, server_addr) = new_swarm_with_tcp(Server::new).await;
+
+        client.dial(server_addr).unwrap();
 
         let client_addr_clone = client_addr.clone();
 
-        client.connect(&mut server).await;
-
         let client_task = timeout(_500MS, async move {
-            // The address candidate is automatically taken by Identify from the address
-            // observed by the server.
             let confirmed = client
                 .wait(|e| match e {
                     SwarmEvent::ExternalAddrConfirmed { address } => Some(address),
                     _ => None,
                 })
                 .await;
+
             assert_eq!(confirmed, client_addr);
+
             let autonat::v2::client::Event {
                 tested_addr,
                 result,
@@ -243,8 +268,9 @@ mod tests {
                     _ => None,
                 })
                 .await;
-            assert_eq!(tested_addr, client_addr);
-            assert!(result.is_ok(), "Result: {result:?}");
+
+            assert_eq!(tested_addr, confirmed);
+            assert!(result.is_ok());
         });
 
         let server_task = timeout(_500MS, async move {
@@ -258,8 +284,9 @@ mod tests {
                     _ => None,
                 })
                 .await;
+
             assert_eq!(tested_addr, client_addr_clone);
-            assert!(result.is_ok(), "Result: {result:?}");
+            assert!(result.is_ok());
         });
 
         let (client_result, server_result) = tokio::join!(client_task, server_task);
@@ -270,9 +297,8 @@ mod tests {
     #[test]
     fn test_static_address() {
         let addr: Multiaddr = "/ip4/192.0.2.1/udp/8080/quic-v1".parse().unwrap();
-        let settings = NatSettings {
-            static_external_address: Some(addr.clone()),
-            ..Default::default()
+        let settings = NatSettings::Static {
+            external_address: addr.clone(),
         };
 
         let mut behavior = Behaviour::new(OsRng, &settings);

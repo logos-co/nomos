@@ -1,6 +1,5 @@
 [workspace]
 # Make sure any excluded crates are still clipped in our CI. Also, make sure they use the same Clippy and rustc lints we specify in this file down below.
-exclude = ["nomos-core/proof_statements", "nomos-core/risc0_proofs"]
 members = [
   "consensus/cryptarchia-engine",
   "consensus/cryptarchia-sync",
@@ -15,6 +14,7 @@ members = [
   "nomos-blend/network",
   "nomos-blend/scheduling",
   "nomos-bundler",
+  "nomos-c",
   "nomos-cli",
   "nomos-core/chain-defs",
   "nomos-da/kzgrs",
@@ -25,26 +25,31 @@ members = [
   "nomos-libp2p",
   "nomos-services/api",
   "nomos-services/blend",
-  "nomos-services/chain-service",
+  "nomos-services/chain/broadcast-service",
+  "nomos-services/chain/chain-common",
+  "nomos-services/chain/chain-leader",
+  "nomos-services/chain/chain-service",
   "nomos-services/data-availability/dispersal",
   "nomos-services/data-availability/network",
   "nomos-services/data-availability/sampling",
   "nomos-services/data-availability/verifier",
   "nomos-services/key-management-system",
   "nomos-services/membership",
-  "nomos-services/mempool",
   "nomos-services/network",
   "nomos-services/sdp",
   "nomos-services/storage",
   "nomos-services/system-sig",
   "nomos-services/time",
   "nomos-services/tracing",
+  "nomos-services/tx-service",
   "nomos-services/utils",
+  "nomos-services/wallet",
   "nomos-tracing",
   "nomos-utils",
   "testnet/cfgsync",
   "tests",
   "utxotree",
+  "wallet",
   "zk/circuits/prover",
   "zk/circuits/utils",
   "zk/circuits/verifier",
@@ -60,9 +65,12 @@ resolver = "2"
 
 [workspace.dependencies]
 # Internal
+broadcast-service        = { default-features = false, path = "./nomos-services/chain/broadcast-service" }
 bundler                  = { default-features = false, path = "./nomos-bundler" }
 cfgsync                  = { default-features = false, path = "./testnet/cfgsync" }
-chain-service            = { default-features = false, path = "./nomos-services/chain-service" }
+chain-common             = { default-features = false, path = "./nomos-services/chain/chain-common" }
+chain-leader             = { default-features = false, path = "./nomos-services/chain/chain-leader" }
+chain-service            = { default-features = false, path = "./nomos-services/chain/chain-service" }
 circuits-prover          = { default-features = false, path = "./zk/circuits/prover" }
 circuits-utils           = { default-features = false, path = "./zk/circuits/utils" }
 circuits-verifier        = { default-features = false, path = "./zk/circuits/verifier" }
@@ -94,7 +102,6 @@ nomos-ledger             = { default-features = false, path = "./ledger/nomos-le
 nomos-libp2p             = { default-features = false, path = "./nomos-libp2p" }
 nomos-mantle-core        = { default-features = false, path = "./nomos-mantle" }
 nomos-membership         = { default-features = false, path = "./nomos-services/membership" }
-nomos-mempool            = { default-features = false, path = "./nomos-services/mempool" }
 nomos-network            = { default-features = false, path = "./nomos-services/network" }
 nomos-node               = { default-features = false, path = "./nodes/nomos-node/node" }
 nomos-sdp                = { default-features = false, path = "./nomos-services/sdp" }
@@ -104,7 +111,7 @@ nomos-time               = { default-features = false, path = "./nomos-services/
 nomos-tracing            = { default-features = false, path = "./nomos-tracing" }
 nomos-tracing-service    = { default-features = false, path = "./nomos-services/tracing" }
 nomos-utils              = { default-features = false, path = "./nomos-utils" }
-nomos_proof_statements   = { default-features = false, path = "./nomos-core/proof_statements" }
+nomos-wallet             = { default-features = false, path = "./nomos-services/wallet" }
 poc                      = { default-features = false, path = "./zk/proofs/poc" }
 pol                      = { default-features = false, path = "./zk/proofs/pol" }
 poq                      = { default-features = false, path = "zk/proofs/poq" }
@@ -112,8 +119,11 @@ poseidon2                = { default-features = false, path = "./zk/poseidon2" }
 services-utils           = { default-features = false, path = "./nomos-services/utils" }
 subnetworks-assignations = { default-features = false, path = "./nomos-da/network/subnetworks-assignations" }
 tests                    = { default-features = false, path = "./tests" }
+tx-service               = { default-features = false, path = "./nomos-services/tx-service" }
 utxotree                 = { default-features = false, path = "./utxotree" }
+wallet                   = { default-features = false, path = "./wallet" }
 witness-generator        = { default-features = false, path = "zk/circuits/witness-generator" }
+zeroize                  = { default-features = false, features = ["zeroize_derive"], version = "1" }
 zksign                   = { default-features = false, path = "./zk/proofs/zksign" }
 
 # External
@@ -127,11 +137,12 @@ overwatch         = { default-features = false, git = "https://github.com/logos-
 overwatch-derive  = { default-features = false, git = "https://github.com/logos-co/Overwatch", rev = "f5a9902" }
 rand              = { default-features = false, version = "0.8" }
 reqwest           = { default-features = false, version = "0.12" }
-risc0-zkvm        = { default-features = false, version = "2.3.2" }
 serde_json        = { default-features = false, version = "1.0" }
 serde_with        = { default-features = false, version = "3.14.0" }
+serde_yaml        = { default-features = false, version = "0.9.33" }
 tempfile          = { default-features = false, version = "3" }
 thiserror         = { default-features = false, version = "2.0" }
+tokio             = { default-features = false, version = "1" }
 tracing           = { default-features = false, version = "0.1" }
 utoipa            = { default-features = false, version = "4.0" }
 utoipa-swagger-ui = { default-features = false, version = "7.0" }
@@ -212,6 +223,7 @@ cast_possible_truncation    = { level = "allow" }
 cast_possible_wrap          = { level = "allow" }
 cast_precision_loss         = { level = "allow" }
 cast_sign_loss              = { level = "allow" }
+doc_broken_link             = { level = "allow" }
 error_impl_error            = { level = "allow" }
 impl_trait_in_params        = { level = "allow" }
 indexing_slicing            = { level = "allow" }
@@ -261,34 +273,26 @@ unused_qualifications         = { level = "warn" }
 
 # TODO: Address these allow-by-default Rustc lints at some point by either allowing them permanently or enforce them, and move them to the relative section according to the decision.
 # When doing so, please update the same table for all crates that are not part of the workspace.
-absolute_paths_not_starting_with_crate       = { level = "allow" }
-ambiguous_negative_literals                  = { level = "allow" }
-closure_returning_async_block                = { level = "allow" }
-deprecated_safe_2024                         = { level = "allow" }
-deref_into_dyn_supertrait                    = { level = "allow" }
-edition_2024_expr_fragment_specifier         = { level = "allow" }
-elided_lifetimes_in_paths                    = { level = "allow" }
-ffi_unwind_calls                             = { level = "allow" }
-impl_trait_overcaptures                      = { level = "allow" }
-let_underscore_drop                          = { level = "allow" }
-linker_messages                              = { level = "allow" }
-macro_use_extern_crate                       = { level = "allow" }
-missing_copy_implementations                 = { level = "allow" }
-missing_debug_implementations                = { level = "allow" }
-missing_docs                                 = { level = "allow" }
-rust_2021_incompatible_closure_captures      = { level = "allow" }
-rust_2021_incompatible_or_patterns           = { level = "allow" }
-rust_2021_prefixes_incompatible_syntax       = { level = "allow" }
-rust_2021_prelude_collisions                 = { level = "allow" }
-rust_2024_guarded_string_incompatible_syntax = { level = "allow" }
-rust_2024_incompatible_pat                   = { level = "allow" }
-rust_2024_prelude_collisions                 = { level = "allow" }
-tail_expr_drop_order                         = { level = "allow" }
-trivial_casts                                = { level = "allow" }
-unit_bindings                                = { level = "allow" }
-unreachable_pub                              = { level = "allow" }
-unsafe_code                                  = { level = "allow" }
-variant_size_differences                     = { level = "allow" }
+absolute_paths_not_starting_with_crate = { level = "allow" }
+ambiguous_negative_literals            = { level = "allow" }
+closure_returning_async_block          = { level = "allow" }
+deref_into_dyn_supertrait              = { level = "allow" }
+elided_lifetimes_in_paths              = { level = "allow" }
+ffi_unwind_calls                       = { level = "allow" }
+impl_trait_overcaptures                = { level = "allow" }
+let_underscore_drop                    = { level = "allow" }
+linker_messages                        = { level = "allow" }
+macro_use_extern_crate                 = { level = "allow" }
+missing_copy_implementations           = { level = "allow" }
+missing_debug_implementations          = { level = "allow" }
+missing_docs                           = { level = "allow" }
+tail_expr_drop_order                   = { level = "allow" }
+trivial_casts                          = { level = "allow" }
+unit_bindings                          = { level = "allow" }
+unreachable_pub                        = { level = "allow" }
+unsafe_code                            = { level = "allow" }
+variant_size_differences               = { level = "allow" }
 
 [workspace.package]
+edition = "2024"
 license = "MIT or Apache-2.0"

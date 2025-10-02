@@ -1,5 +1,5 @@
 [package]
-edition = "2021"
+edition = { workspace = true }
 license = { workspace = true }
 name    = "nomos-membership"
 version = "0.1.0"
@@ -12,6 +12,7 @@ async-trait    = "0.1"
 futures        = { default-features = false, version = "0.3" }
 nomos-core     = { workspace = true }
 nomos-sdp      = { workspace = true }
+nomos-storage  = { workspace = true }
 overwatch      = { workspace = true }
 serde          = { default-features = false, version = "1.0" }
 services-utils = { workspace = true }

@@ -546,6 +546,16 @@ impl<Id> PrunedBlocks<Id> {
         }
     }
 
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.stale_blocks.is_empty() && self.immutable_blocks.is_empty()
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.stale_blocks.len() + self.immutable_blocks.len()
+    }
+
     /// Returns an iterator over all pruned blocks, both stale and immutable.
     pub fn all(&self) -> impl Iterator<Item = &Id> + '_ {
         self.stale_blocks
@@ -583,7 +593,7 @@ pub mod tests {
         num::NonZero,
     };
 
-    use super::{maxvalid_bg, Cryptarchia, Error, Slot};
+    use super::{Cryptarchia, Error, Slot, maxvalid_bg};
     use crate::{Config, State};
 
     #[must_use]

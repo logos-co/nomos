@@ -1,25 +1,29 @@
 use std::{io::Cursor, ops::Mul as _};
 
-use ark_bls12_381::{Fr, G1Projective};
+use ark_bls12_381::{Fr, G1Affine, G1Projective};
 use ark_ec::CurveGroup as _;
 use ark_ff::{Field as _, PrimeField as _};
 use ark_poly::EvaluationDomain as _;
 use ark_poly_commit::kzg10::Commitment as KzgCommitment;
 use ark_serialize::CanonicalSerialize as _;
 use blake2::{
-    digest::{Update as _, VariableOutput as _},
     Blake2bVar,
+    digest::{Update as _, VariableOutput as _},
 };
 #[cfg(feature = "parallel")]
 use rayon::iter::{IntoParallelIterator as _, ParallelIterator as _};
 
-use super::{kzg, Commitment, Evaluations, GlobalParameters, PolynomialEvaluationDomain, Proof};
-use crate::fk20::{fk20_batch_generate_elements_proofs, Toeplitz1Cache};
+use super::{
+    Commitment, Evaluations, PolynomialEvaluationDomain, Proof, ProvingKey, VerificationKey, kzg,
+};
+use crate::fk20::{Toeplitz1Cache, fk20_batch_generate_elements_proofs};
+
+const ROW_HASH_SIZE: usize = 31;
 
 /// Generate a hash of the row commitments using the `Blake2bVar` hashing
 /// algorithm.
 ///
-/// This function hashes a list of commitments into a constant-size (32 bytes)
+/// This function hashes a list of commitments into a constant-size (31 bytes)
 /// hash vector. The hashing process involves serializing each commitment in an
 /// uncompressed format and feeding the serialized data into the `Blake2bVar`
 /// hasher.
@@ -30,7 +34,7 @@ use crate::fk20::{fk20_batch_generate_elements_proofs, Toeplitz1Cache};
 ///
 /// # Returns
 ///
-/// A `Vec<u8>` representing the 32-byte hash of the input commitments.
+/// A `Vec<u8>` representing the 31-byte hash of the input commitments.
 ///
 /// # Panics
 ///
@@ -40,7 +44,7 @@ use crate::fk20::{fk20_batch_generate_elements_proofs, Toeplitz1Cache};
 /// - The hash finalization process fails.
 #[must_use]
 pub fn generate_row_commitments_hash(commitments: &[Commitment]) -> Vec<u8> {
-    let mut hasher = Blake2bVar::new(32).expect("Hasher should be able to build");
+    let mut hasher = Blake2bVar::new(ROW_HASH_SIZE).expect("Hasher should be able to build");
     // add dst for hashing
     hasher.update(b"NOMOS_DA_V1");
     for c in commitments {
@@ -49,7 +53,7 @@ pub fn generate_row_commitments_hash(commitments: &[Commitment]) -> Vec<u8> {
             .expect("serialization");
         hasher.update(&buffer.into_inner());
     }
-    let mut buffer = [0; 32];
+    let mut buffer = [0; ROW_HASH_SIZE];
     hasher
         .finalize_variable(&mut buffer)
         .expect("Hashing should succeed");
@@ -105,7 +109,6 @@ pub fn compute_combined_polynomial(
             }
             #[cfg(feature = "parallel")]
             {
-                use rayon::iter::IntoParallelIterator as _;
                 (0..domain.size()).into_par_iter()
             }
         }
@@ -162,7 +165,7 @@ pub fn generate_combined_proof(
     polynomials: &[Evaluations],
     commitments: &[Commitment],
     domain: PolynomialEvaluationDomain,
-    global_parameters: &GlobalParameters,
+    global_parameters: &ProvingKey,
     toeplitz1cache: Option<&Toeplitz1Cache>,
 ) -> Vec<Proof> {
     let rows_commitments_hash = generate_row_commitments_hash(commitments);
@@ -206,7 +209,7 @@ pub fn verify_column(
     row_commitments: &[Commitment],
     column_proof: &Proof,
     domain: PolynomialEvaluationDomain,
-    global_parameters: &GlobalParameters,
+    verification_key: &VerificationKey,
 ) -> bool {
     let row_commitments_hash = generate_row_commitments_hash(row_commitments);
     let h = Fr::from_le_bytes_mod_order(&row_commitments_hash);
@@ -216,11 +219,9 @@ pub fn verify_column(
         .enumerate()
         .map(|(i, x)| x.mul(&h_roots[i]))
         .sum();
-    let aggregated_commitments: G1Projective = row_commitments
-        .iter()
-        .enumerate()
-        .map(|(i, c)| c.0.mul(&h_roots[i]))
-        .sum();
+    let bases_agg_commit: Vec<G1Affine> = row_commitments.iter().map(|c| c.0).collect();
+    let aggregated_commitments: G1Projective =
+        ark_ec::VariableBaseMSM::msm(&bases_agg_commit, &h_roots).unwrap();
     let commitment = KzgCommitment(aggregated_commitments.into_affine());
     kzg::verify_element_proof(
         column_idx,
@@ -228,21 +229,12 @@ pub fn verify_column(
         &commitment,
         column_proof,
         domain,
-        global_parameters,
+        verification_key,
     )
 }
 
 fn compute_h_roots(h: Fr, size: usize) -> Vec<Fr> {
-    {
-        #[cfg(feature = "parallel")]
-        {
-            (0..size as u64).into_par_iter()
-        }
-        #[cfg(not(feature = "parallel"))]
-        {
-            0..size as u64
-        }
-    }
-    .map(|i| h.pow([i]))
-    .collect()
+    std::iter::successors(Some(Fr::ONE), |x| Some(h * x))
+        .take(size)
+        .collect()
 }

@@ -3,8 +3,8 @@ mod config;
 pub(crate) mod swarm;
 
 pub use nomos_libp2p::{
-    libp2p::gossipsub::{Message, TopicHash},
     PeerId,
+    libp2p::gossipsub::{Message, TopicHash},
 };
 use overwatch::overwatch::handle::OverwatchHandle;
 use rand::SeedableRng as _;

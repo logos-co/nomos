@@ -2,17 +2,17 @@ use core::{fmt::Debug, num::NonZeroUsize, ops::RangeInclusive, time::Duration};
 use std::collections::{HashMap, VecDeque};
 
 use async_trait::async_trait;
-use futures::{select, Stream, StreamExt as _};
-use libp2p::{identity::Keypair, Multiaddr, PeerId, Swarm};
+use futures::{Stream, StreamExt as _, select};
+use libp2p::{Multiaddr, PeerId, Swarm, identity::Keypair};
 use libp2p_swarm_test::SwarmExt as _;
-use nomos_blend_message::crypto::Ed25519PrivateKey;
+use nomos_blend_message::encap;
 use nomos_blend_scheduling::membership::{Membership, Node};
 use nomos_libp2p::{NetworkBehaviour, SwarmEvent};
 use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
 
 use crate::core::{
-    tests::utils::{TestSwarm, PROTOCOL_NAME},
+    tests::utils::{AlwaysTrueVerifier, PROTOCOL_NAME, TestSwarm, default_poq_verification_inputs},
     with_core::behaviour::{Behaviour, Event, IntervalStreamProvider},
 };
 
@@ -88,7 +88,7 @@ impl BehaviourBuilder {
         self
     }
 
-    pub fn build(self) -> Behaviour<IntervalProvider> {
+    pub fn build(self) -> Behaviour<AlwaysTrueVerifier, IntervalProvider> {
         let local_peer_id = match (self.local_peer_id, self.identity) {
             (None, None) => PeerId::random(),
             (Some(peer_id), None) => peer_id,
@@ -112,6 +112,8 @@ impl BehaviourBuilder {
                 .minimum_network_size
                 .unwrap_or_else(|| 1usize.try_into().unwrap()),
             old_session: None,
+            session_poq_verification_inputs: default_poq_verification_inputs(),
+            poq_verifier: AlwaysTrueVerifier,
         }
     }
 }
@@ -124,7 +126,10 @@ pub trait SwarmExt: libp2p_swarm_test::SwarmExt {
 }
 
 #[async_trait]
-impl SwarmExt for Swarm<Behaviour<IntervalProvider>> {
+impl<ProofsVerifier> SwarmExt for Swarm<Behaviour<ProofsVerifier, IntervalProvider>>
+where
+    ProofsVerifier: encap::ProofsVerifier + Send + 'static,
+{
     async fn connect_and_wait_for_outbound_upgrade<T>(&mut self, other: &mut Swarm<T>)
     where
         T: NetworkBehaviour<ToSwarm: Debug> + Send,
@@ -132,10 +137,8 @@ impl SwarmExt for Swarm<Behaviour<IntervalProvider>> {
         self.connect(other).await;
         select! {
             swarm_event = self.select_next_some() => {
-                if let SwarmEvent::Behaviour(Event::OutboundConnectionUpgradeSucceeded(peer_id)) = swarm_event {
-                    if peer_id == *other.local_peer_id() {
-                        return;
-                    }
+                if let SwarmEvent::Behaviour(Event::OutboundConnectionUpgradeSucceeded(peer_id)) = swarm_event && peer_id == *other.local_peer_id() {
+                    return;
                 }
             }
             // Drive other swarm to keep polling
@@ -152,7 +155,7 @@ pub fn build_memberships<Behaviour: NetworkBehaviour>(
         .map(|swarm| Node {
             id: *swarm.local_peer_id(),
             address: Multiaddr::empty(),
-            public_key: Ed25519PrivateKey::generate().public_key(),
+            public_key: [0; _].try_into().unwrap(),
         })
         .collect::<Vec<_>>();
     nodes

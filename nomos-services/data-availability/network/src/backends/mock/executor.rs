@@ -4,17 +4,22 @@ use futures::{Stream, StreamExt as _};
 use kzgrs_backend::common::{build_blob_id, share::DaShare};
 use libp2p::PeerId;
 use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId};
-use nomos_da_network_core::SubnetworkId;
+use nomos_da_network_core::{
+    SubnetworkId, protocols::sampling::opinions::OpinionEvent, swarm::BalancerStats,
+};
 use overwatch::{overwatch::handle::OverwatchHandle, services::state::NoState};
 use serde::{Deserialize, Serialize};
 use subnetworks_assignations::MembershipHandler;
 use tokio::sync::{
     broadcast::{self},
-    mpsc,
+    mpsc::{self, UnboundedSender},
 };
 use tokio_stream::wrappers::BroadcastStream;
 
-use crate::{backends::NetworkBackend, DaAddressbook};
+use crate::{
+    DaAddressbook,
+    backends::{ConnectionStatus, NetworkBackend},
+};
 
 const BUFFER_SIZE: usize = 64;
 
@@ -84,6 +89,8 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for MockExecutorBackend 
         _membership: Self::Membership,
         _addressbook: Self::Addressbook,
         _subnet_refresh_signal: impl Stream<Item = ()> + Send + 'static,
+        _stats_sender: UnboundedSender<BalancerStats>,
+        _opinion_sender: UnboundedSender<OpinionEvent>,
     ) -> Self {
         let (commands_tx, _) = mpsc::channel(BUFFER_SIZE);
         let (events_tx, _) = broadcast::channel(BUFFER_SIZE);
@@ -113,6 +120,8 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for MockExecutorBackend 
             }
         }
     }
+
+    fn update_status(&mut self, _: ConnectionStatus) {}
 
     async fn subscribe(
         &mut self,
@@ -168,6 +177,10 @@ impl MembershipHandler for MockMembership {
     fn subnetworks(
         &self,
     ) -> subnetworks_assignations::SubnetworkAssignations<Self::NetworkId, Self::Id> {
+        todo!()
+    }
+
+    fn session_id(&self) -> SessionNumber {
         todo!()
     }
 }

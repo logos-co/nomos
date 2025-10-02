@@ -1,10 +1,17 @@
-use groth16::{serde::serde_fr, Fr};
-use num_bigint::BigUint;
-use serde::{Deserialize, Serialize};
+use std::sync::LazyLock;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+use groth16::{Fr, serde::serde_fr};
+use num_bigint::BigUint;
+use poseidon2::{Digest as _, Poseidon2Bn254Hasher};
+use serde::{Deserialize, Serialize};
+use zeroize::ZeroizeOnDrop;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, ZeroizeOnDrop)]
 #[serde(transparent)]
 pub struct SecretKey(#[serde(with = "serde_fr")] Fr);
+
+static NOMOS_KDF_V1: LazyLock<Fr> =
+    LazyLock::new(|| BigUint::from_bytes_le(b"NOMOS_KDF_V1").into());
 
 impl SecretKey {
     #[must_use]
@@ -19,7 +26,12 @@ impl SecretKey {
 
     #[must_use]
     pub fn to_public_key(&self) -> PublicKey {
-        unimplemented!("Conversion from SecretKey to PublicKey is not implemented yet")
+        PublicKey(Poseidon2Bn254Hasher::digest(&[*NOMOS_KDF_V1, self.0]))
+    }
+
+    #[must_use]
+    pub fn sign(&self, _data: &Fr) -> Fr {
+        unimplemented!("Signing is not implemented yet")
     }
 }
 

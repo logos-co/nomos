@@ -2,13 +2,15 @@ use futures::AsyncWriteExt as _;
 use libp2p::{PeerId, Stream};
 use nomos_da_messages::{
     packing::{pack_to_writer, unpack_from_reader},
-    sampling,
+    sampling::{self, SampleResponse},
 };
 
 use super::{
-    errors::SamplingError, BehaviourSampleReq, ResponseChannel, SampleFutureError,
-    SampleRequestFutureSuccess, SampleResponseFutureSuccess,
+    BehaviourSampleReq, ResponseChannel, SampleRequestFutureSuccess, errors::SamplingError,
 };
+use crate::protocols::sampling::SampleRequestFutureError;
+
+type StreamSampleResponse = (PeerId, SampleResponse, SampleStream);
 
 /// Auxiliary struct that binds a stream with the corresponding `PeerId`
 #[derive(Debug)]
@@ -22,7 +24,7 @@ pub struct SampleStream {
 pub async fn stream_sample(
     mut stream: SampleStream,
     message: sampling::SampleRequest,
-) -> Result<SampleResponseFutureSuccess, SampleFutureError> {
+) -> Result<StreamSampleResponse, SampleRequestFutureError> {
     let peer_id = stream.peer_id;
     if let Err(error) = pack_to_writer(&message, &mut stream.stream).await {
         return Err((
@@ -68,7 +70,7 @@ pub async fn stream_sample(
 pub async fn handle_incoming_stream(
     mut stream: SampleStream,
     channel: ResponseChannel,
-) -> Result<SampleRequestFutureSuccess, SampleFutureError> {
+) -> Result<SampleRequestFutureSuccess, SampleRequestFutureError> {
     let peer_id = stream.peer_id;
     let request: sampling::SampleRequest = match unpack_from_reader(&mut stream.stream).await {
         Ok(req) => req,
@@ -101,7 +103,7 @@ pub async fn handle_incoming_stream(
         ));
     }
 
-    let response: sampling::SampleResponse = match channel.response_receiver.await {
+    let response: SampleResponse = match channel.response_receiver.await {
         Ok(resp) => resp.into(),
         Err(error) => {
             return Err((

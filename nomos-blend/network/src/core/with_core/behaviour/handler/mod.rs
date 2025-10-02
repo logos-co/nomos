@@ -4,16 +4,16 @@ use core::{
 };
 use std::{collections::VecDeque, io};
 
-use futures::{future::BoxFuture, FutureExt as _};
+use futures::{FutureExt as _, future::BoxFuture};
 use libp2p::{
+    Stream, StreamProtocol,
     core::upgrade::ReadyUpgrade,
     swarm::{
+        ConnectionHandlerEvent, SubstreamProtocol,
         handler::{
             ConnectionEvent, DialUpgradeError, FullyNegotiatedInbound, FullyNegotiatedOutbound,
         },
-        ConnectionHandlerEvent, SubstreamProtocol,
     },
-    Stream, StreamProtocol,
 };
 
 use crate::{

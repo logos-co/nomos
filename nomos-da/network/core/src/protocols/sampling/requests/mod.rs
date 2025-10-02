@@ -2,7 +2,7 @@ use kzgrs_backend::common::share::{DaLightShare, DaSharesCommitments};
 use nomos_core::da::BlobId;
 use subnetworks_assignations::SubnetworkId;
 
-use crate::protocols::sampling::errors::SamplingError;
+use crate::protocols::sampling::{errors::SamplingError, opinions::OpinionEvent};
 
 pub mod request_behaviour;
 
@@ -21,4 +21,5 @@ pub enum SamplingEvent {
     SamplingError {
         error: SamplingError,
     },
+    Opinion(OpinionEvent),
 }

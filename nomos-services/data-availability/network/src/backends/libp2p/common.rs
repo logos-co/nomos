@@ -5,12 +5,12 @@ use std::{
 };
 
 use futures::{
-    channel::oneshot::{Receiver, Sender},
     StreamExt,
+    channel::oneshot::{Receiver, Sender},
 };
 use kzgrs_backend::common::{
-    share::{DaLightShare, DaShare, DaSharesCommitments},
     ShareIndex,
+    share::{DaLightShare, DaShare, DaSharesCommitments},
 };
 use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId, mantle::SignedMantleTx};
 use nomos_da_messages::common::Share;
@@ -19,22 +19,22 @@ use nomos_da_network_core::{
     protocols::{
         dispersal::validator::behaviour::DispersalEvent,
         sampling::{
-            self,
+            self, BehaviourSampleReq, BehaviourSampleRes, SubnetsConfig,
             errors::{HistoricSamplingError, SamplingError},
-            BehaviourSampleReq, BehaviourSampleRes, SubnetsConfig,
+            opinions::OpinionEvent,
         },
     },
     swarm::{
-        validator::{SampleArgs, ValidatorEventsStream},
         DAConnectionMonitorSettings, DAConnectionPolicySettings, DispersalValidationError,
         DispersalValidationResult, DispersalValidatorEvent, ReplicationConfig,
+        validator::{SampleArgs, ValidatorEventsStream},
     },
 };
-use nomos_libp2p::{ed25519, secret_key_serde, Multiaddr};
+use nomos_libp2p::{Multiaddr, ed25519, secret_key_serde};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{
     broadcast,
-    mpsc::{self, error::SendError, UnboundedSender},
+    mpsc::{self, UnboundedSender, error::SendError},
     oneshot,
 };
 use tracing::error;
@@ -184,6 +184,7 @@ pub(crate) async fn handle_validator_events_stream(
     commitments_broadcast_sender: broadcast::Sender<CommitmentsEvent>,
     validation_broadcast_sender: broadcast::Sender<VerificationEvent>,
     historic_sample_broadcast_sender: broadcast::Sender<HistoricSamplingEvent>,
+    opinion_sender: UnboundedSender<OpinionEvent>,
 ) {
     let ValidatorEventsStream {
         mut sampling_events_receiver,
@@ -195,7 +196,7 @@ pub(crate) async fn handle_validator_events_stream(
         // safe set: https://docs.rs/tokio/latest/tokio/macro.select.html#cancellation-safety
         tokio::select! {
             Some(sampling_event) = StreamExt::next(&mut sampling_events_receiver) => {
-                handle_sampling_event(&sampling_broadcast_sender, &commitments_broadcast_sender, &historic_sample_broadcast_sender, sampling_event).await;
+                handle_sampling_event(&sampling_broadcast_sender, &commitments_broadcast_sender, &historic_sample_broadcast_sender,&opinion_sender, sampling_event).await;
             }
             Some(dispersal_event) = StreamExt::next(&mut validation_events_receiver) => {
                 handle_dispersal_event(&validation_broadcast_sender, dispersal_event).await;
@@ -310,6 +311,7 @@ async fn handle_sampling_event(
     sampling_broadcast_sender: &broadcast::Sender<SamplingEvent>,
     commitments_broadcast_sender: &broadcast::Sender<CommitmentsEvent>,
     historic_sample_broadcast_sender: &broadcast::Sender<HistoricSamplingEvent>,
+    opinion_sender: &UnboundedSender<OpinionEvent>,
     sampling_event: sampling::SamplingEvent,
 ) {
     match sampling_event {
@@ -370,6 +372,18 @@ async fn handle_sampling_event(
         sampling::SamplingEvent::HistoricSamplingError { block_id, error } => {
             handle_historic_sample_error(block_id, error, historic_sample_broadcast_sender);
         }
+        sampling::SamplingEvent::Opinion(opinion_event) => {
+            handle_opinion_event(opinion_sender, opinion_event);
+        }
+    }
+}
+
+fn handle_opinion_event(
+    opinion_sender: &UnboundedSender<OpinionEvent>,
+    opinion_event: OpinionEvent,
+) {
+    if let Err(e) = opinion_sender.send(opinion_event) {
+        error!("Error in internal broadcast of opinion event: {e:?}");
     }
 }
 
@@ -545,10 +559,12 @@ pub(crate) async fn handle_historic_sample_request<Membership>(
     block_id: HeaderId,
     membership: Membership,
 ) {
-    if let Err(SendError((blob_id, session_id, block_id, _))) =
-        historic_sample_request_channel.send((blob_ids, session_id, block_id, membership))
+    if let Err(SendError((blob_id, block_id, _))) =
+        historic_sample_request_channel.send((blob_ids, block_id, membership))
     {
-        error!("Error requesting historic sample for blob_id: {blob_id:?}, session_id: {session_id:?}, block_id: {block_id:?}");
+        error!(
+            "Error requesting historic sample for blob_id: {blob_id:?}, session_id: {session_id:?}, block_id: {block_id:?}"
+        );
     }
 }
 

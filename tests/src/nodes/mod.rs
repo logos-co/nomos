@@ -1,14 +1,12 @@
 pub mod executor;
 pub mod validator;
 
-use std::{ops::Range, sync::LazyLock};
+use std::sync::LazyLock;
 
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
 use tempfile::TempDir;
 
-const DA_GET_TESTING_ENDPOINT_ERROR: &str =
-    "Failed to connect to testing endpoint. The binary was likely built without the 'testing' feature. Try: cargo build --workspace --all-features";
+const DA_GET_TESTING_ENDPOINT_ERROR: &str = "Failed to connect to testing endpoint. The binary was likely built without the 'testing' feature. Try: cargo build --workspace --all-features";
 
 const LOGS_PREFIX: &str = "__logs";
 static CLIENT: LazyLock<Client> = LazyLock::new(Client::new);
@@ -30,10 +28,4 @@ fn persist_tempdir(tempdir: &mut TempDir, label: &str) -> std::io::Result<()> {
     let dir = std::mem::replace(tempdir, tempfile::tempdir()?);
     let _ = dir.keep();
     Ok(())
-}
-
-#[derive(Serialize, Deserialize)]
-struct GetRangeReq {
-    pub app_id: [u8; 32],
-    pub range: Range<[u8; 8]>,
 }

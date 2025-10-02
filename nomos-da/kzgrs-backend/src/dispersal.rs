@@ -1,8 +1,8 @@
 use std::hash::{Hash, Hasher};
 
 use nomos_core::da::{
-    blob::{self, metadata::Next},
     BlobId,
+    blob::{self, metadata::Next},
 };
 use serde::{Deserialize, Serialize};
 
@@ -109,15 +109,15 @@ impl AsRef<[u8]> for Index {
 
 #[cfg(test)]
 mod tests {
-    use nomos_core::da::{blob::Share as _, DaEncoder as _};
+    use nomos_core::da::{DaEncoder as _, blob::Share as _};
 
     use crate::{
         common::share::DaShare,
         encoder::{
-            test::{rand_data, ENCODER},
             EncodedData,
+            test::{ENCODER, rand_data},
         },
-        global::GLOBAL_PARAMETERS,
+        kzg_keys::VERIFICATION_KEY,
         verifier::DaVerifier,
     };
 
@@ -145,7 +145,7 @@ mod tests {
         let encoder = &ENCODER;
         let data = rand_data(8);
         let verifiers: Vec<DaVerifier> =
-            std::iter::repeat_with(|| DaVerifier::new(GLOBAL_PARAMETERS.clone()))
+            std::iter::repeat_with(|| DaVerifier::new(VERIFICATION_KEY.clone()))
                 .take(16)
                 .collect();
 

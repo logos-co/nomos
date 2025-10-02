@@ -1,5 +1,5 @@
 [package]
-edition = "2021"
+edition = { workspace = true }
 license = { workspace = true }
 name    = "nomos-executor"
 version = "0.1.0"
@@ -19,12 +19,12 @@ workspace = true
 [dependencies]
 async-trait              = "0.1"
 axum                     = { default-features = false, features = ["http1", "http2", "json", "query", "tokio"], version = "0.7.5" }
+broadcast-service        = { workspace = true }
 clap                     = { default-features = false, features = ["derive"], version = "4.5.13" }
 color-eyre               = { default-features = false, version = "0.6.0" }
 futures                  = { default-features = false, version = "0.3" }
 kzgrs-backend            = { workspace = true }
 nomos-api                = { workspace = true }
-nomos-blend-service      = { workspace = true }
 nomos-core               = { workspace = true }
 nomos-da-dispersal       = { workspace = true }
 nomos-da-network-core    = { workspace = true }
@@ -34,7 +34,6 @@ nomos-da-verifier        = { workspace = true }
 nomos-http-api-common    = { workspace = true }
 nomos-libp2p             = { workspace = true }
 nomos-membership         = { workspace = true }
-nomos-mempool            = { workspace = true }
 nomos-network            = { workspace = true }
 nomos-node               = { workspace = true }
 nomos-storage            = { workspace = true }
@@ -48,11 +47,13 @@ tokio                    = { features = ["net"], version = "1" }
 tower                    = { default-features = false, features = ["limit"], version = "0.4" }
 tower-http               = { default-features = false, features = ["cors", "limit", "timeout", "trace"], version = "0.5" }
 tracing                  = { workspace = true }
+tx-service               = { workspace = true }
 utoipa                   = { workspace = true }
 utoipa-swagger-ui        = { workspace = true }
 
 [features]
 default         = ["tracing"]
 instrumentation = ["nomos-node/instrumentation"]
+profiling       = ["nomos-http-api-common/profiling", "nomos-node/profiling"]
 testing         = []
 tracing         = ["nomos-node/tracing"]

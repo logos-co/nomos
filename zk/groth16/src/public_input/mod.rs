@@ -62,7 +62,7 @@ impl From<&Input<Bn254>> for InputDeser {
 
 #[cfg(test)]
 mod tests {
-
+    
     #[cfg(feature = "deser")]
     #[test]
     fn serialize_zero() {

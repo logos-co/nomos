@@ -4,11 +4,11 @@ use std::{
 };
 
 use blend::BlendConfig;
-use clap::{builder::OsStr, Parser, ValueEnum};
-use color_eyre::eyre::{eyre, Result};
+use clap::{Parser, ValueEnum, builder::OsStr};
+use color_eyre::eyre::{Result, eyre};
 use hex::FromHex as _;
 use nomos_core::mantle::{Note, TxHash, Utxo};
-use nomos_libp2p::{ed25519::SecretKey, Multiaddr};
+use nomos_libp2p::{Multiaddr, ed25519::SecretKey};
 use nomos_network::backends::libp2p::Libp2p as NetworkBackend;
 use nomos_tracing::logging::{gelf::GelfConfig, local::FileConfig};
 use nomos_tracing_service::{LoggerLayer, Tracing};
@@ -18,10 +18,11 @@ use serde::{Deserialize, Serialize};
 use tracing::Level;
 
 use crate::{
+    ApiService, CryptarchiaLeaderService, CryptarchiaService, DaNetworkService, DaSamplingService,
+    DaVerifierService, NetworkService, RuntimeServiceId, StorageService, TimeService,
+    WalletService,
     config::mempool::MempoolConfig,
     generic_services::{MembershipService, SdpService},
-    ApiService, CryptarchiaService, DaNetworkService, DaSamplingService, DaVerifierService,
-    NetworkService, RuntimeServiceId, StorageService, TimeService,
 };
 
 pub mod blend;
@@ -51,7 +52,7 @@ pub struct CliArgs {
     #[clap(flatten)]
     http: HttpArgs,
     #[clap(flatten)]
-    cryptarchia: CryptarchiaArgs,
+    cryptarchia_leader: CryptarchiaLeaderArgs,
     #[clap(flatten)]
     da: DaArgs,
 }
@@ -183,7 +184,7 @@ pub struct HttpArgs {
 }
 
 #[derive(Parser, Debug, Clone)]
-pub struct CryptarchiaArgs {
+pub struct CryptarchiaLeaderArgs {
     #[clap(
         long = "consensus-utxo-sk",
         env = "CONSENSUS_UTXO_SK",
@@ -240,9 +241,11 @@ pub struct Config {
     pub da_sampling: <DaSamplingService as ServiceData>::Settings,
     pub http: <ApiService as ServiceData>::Settings,
     pub cryptarchia: <CryptarchiaService as ServiceData>::Settings,
+    pub cryptarchia_leader: <CryptarchiaLeaderService as ServiceData>::Settings,
     pub time: <TimeService as ServiceData>::Settings,
     pub storage: <StorageService as ServiceData>::Settings,
     pub mempool: MempoolConfig,
+    pub wallet: <WalletService as ServiceData>::Settings,
 
     #[cfg(feature = "testing")]
     pub testing_http: <ApiService as ServiceData>::Settings,
@@ -255,14 +258,14 @@ impl Config {
             http: http_args,
             network: network_args,
             blend: blend_args,
-            cryptarchia: cryptarchia_args,
+            cryptarchia_leader: cryptarchia_leader_args,
             ..
         } = args;
         update_tracing(&mut self.tracing, log_args)?;
         update_network::<RuntimeServiceId>(&mut self.network, network_args)?;
         update_blend(&mut self.blend, blend_args)?;
         update_http(&mut self.http, http_args)?;
-        update_cryptarchia_consensus(&mut self.cryptarchia, cryptarchia_args)?;
+        update_cryptarchia_leader_consensus(&mut self.cryptarchia_leader, cryptarchia_leader_args)?;
         Ok(self)
     }
 }
@@ -387,11 +390,11 @@ pub fn update_http(
     Ok(())
 }
 
-pub fn update_cryptarchia_consensus(
-    cryptarchia: &mut <CryptarchiaService as ServiceData>::Settings,
-    consensus_args: CryptarchiaArgs,
+pub fn update_cryptarchia_leader_consensus(
+    leader: &mut <CryptarchiaLeaderService as ServiceData>::Settings,
+    consensus_args: CryptarchiaLeaderArgs,
 ) -> Result<()> {
-    let CryptarchiaArgs {
+    let CryptarchiaLeaderArgs {
         secret_key,
         value,
         tx_hash,
@@ -407,12 +410,12 @@ pub fn update_cryptarchia_consensus(
     let sk = nomos_core::mantle::keys::SecretKey::from(BigUint::from_bytes_le(
         &<[u8; 16]>::from_hex(secret_key)?,
     ));
-    cryptarchia.leader_config.sk = sk;
-
     let pk = sk.to_public_key();
 
+    leader.leader_config.sk = sk;
+
     let tx_hash: TxHash = BigUint::from_bytes_le(&<[u8; 32]>::from_hex(tx_hash)?).into();
-    cryptarchia.leader_config.utxos.push(Utxo {
+    leader.leader_config.utxos.push(Utxo {
         tx_hash,
         output_index,
         note: Note { value, pk },

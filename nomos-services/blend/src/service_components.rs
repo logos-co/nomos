@@ -1,6 +1,6 @@
 use overwatch::services::ServiceData;
 
-use crate::{core, edge, BlendService};
+use crate::{BlendService, core, edge};
 
 /// Exposes associated types for external modules that depend on
 /// [`BlendService`], without requiring them to specify its generic parameters.

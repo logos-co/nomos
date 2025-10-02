@@ -7,16 +7,15 @@ use std::{
     time::Duration,
 };
 
-use axum::{routing, Router};
+use axum::{Router, routing};
 use nomos_api::{ApiService, ApiServiceSettings, Backend};
 use overwatch::{
-    derive_services,
-    overwatch::{handle::OverwatchHandle, OverwatchRunner},
-    DynError,
+    DynError, derive_services,
+    overwatch::{OverwatchRunner, handle::OverwatchHandle},
 };
 use utoipa::{
-    openapi::security::{ApiKey, ApiKeyValue, SecurityScheme},
     Modify, OpenApi,
+    openapi::security::{ApiKey, ApiKeyValue, SecurityScheme},
 };
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -143,9 +142,9 @@ mod todo {
     use std::sync::{Arc, Mutex};
 
     use axum::{
+        Json,
         extract::{Path, Query, State},
         response::IntoResponse,
-        Json,
     };
     use hyper::{HeaderMap, StatusCode};
     use serde::{Deserialize, Serialize};

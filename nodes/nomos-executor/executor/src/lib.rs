@@ -3,27 +3,20 @@ pub mod config;
 
 use api::backend::AxumBackend;
 use kzgrs_backend::common::share::DaShare;
-use nomos_blend_service::{
-    core::{
-        backends::libp2p::Libp2pBlendBackend as BlendBackend,
-        network::libp2p::Libp2pAdapter as BlendNetworkAdapter,
-    },
-    membership::service::Adapter as BlendMembershipAdapter,
-};
 use nomos_core::mantle::SignedMantleTx;
 use nomos_da_dispersal::{
+    DispersalService,
     adapters::{
         network::libp2p::Libp2pNetworkAdapter as DispersalNetworkAdapter,
         wallet::mock::MockWalletAdapter as DispersalWalletAdapter,
     },
     backend::kzgrs::DispersalKZGRSBackend,
-    DispersalService,
 };
 use nomos_da_network_service::backends::libp2p::executor::DaNetworkExecutorBackend;
 use nomos_da_sampling::{
     backend::kzgrs::KzgrsSamplingBackend,
     storage::adapters::rocksdb::{
-        converter::DaStorageConverter, RocksAdapter as SamplingStorageAdapter,
+        RocksAdapter as SamplingStorageAdapter, converter::DaStorageConverter,
     },
 };
 use nomos_da_verifier::{
@@ -31,16 +24,14 @@ use nomos_da_verifier::{
     network::adapters::executor::Libp2pAdapter as VerifierNetworkAdapter,
     storage::adapters::rocksdb::RocksAdapter as VerifierStorageAdapter,
 };
-use nomos_libp2p::PeerId;
 #[cfg(feature = "tracing")]
 use nomos_node::Tracing;
 use nomos_node::{
+    BlobInfo, DaNetworkApiAdapter, NetworkBackend, NomosDaMembership, RocksBackend, SystemSig,
     generic_services::{
         DaMembershipAdapter, DaMembershipStorageGeneric, MembershipService, SdpService,
         VerifierMempoolAdapter,
     },
-    BlobInfo, DaNetworkApiAdapter, NetworkBackend, NomosDaMembership, RocksBackend, SystemSig,
-    Wire, MB16,
 };
 use nomos_time::backends::NtpTimeBackend;
 use overwatch::derive_services;
@@ -52,26 +43,13 @@ type DaMembershipStorage = DaMembershipStorageGeneric<RuntimeServiceId>;
 
 pub(crate) type NetworkService = nomos_network::NetworkService<NetworkBackend, RuntimeServiceId>;
 
-pub(crate) type BlendCoreService = nomos_blend_service::core::BlendService<
-    BlendBackend,
-    PeerId,
-    BlendNetworkAdapter<RuntimeServiceId>,
-    BlendMembershipAdapter<MembershipService<RuntimeServiceId>, PeerId>,
-    RuntimeServiceId,
->;
+pub(crate) type BlendCoreService =
+    nomos_node::generic_services::blend::BlendCoreService<RuntimeServiceId>;
+pub(crate) type BlendEdgeService =
+    nomos_node::generic_services::blend::BlendEdgeService<RuntimeServiceId>;
+pub(crate) type BlendService = nomos_node::generic_services::blend::BlendService<RuntimeServiceId>;
 
-pub(crate) type BlendEdgeService = nomos_blend_service::edge::BlendService<
-    nomos_blend_service::edge::backends::libp2p::Libp2pBlendBackend,
-    PeerId,
-    <BlendNetworkAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<
-        RuntimeServiceId,
-    >>::BroadcastSettings,
-    BlendMembershipAdapter<MembershipService<RuntimeServiceId>, PeerId>,
-    RuntimeServiceId,
->;
-
-pub(crate) type BlendService =
-    nomos_blend_service::BlendService<BlendCoreService, BlendEdgeService, RuntimeServiceId>;
+pub(crate) type BlockBroadcastService = broadcast_service::BlockBroadcastService<RuntimeServiceId>;
 
 pub(crate) type DaDispersalService = DispersalService<
     DispersalKZGRSBackend<
@@ -127,7 +105,7 @@ pub(crate) type DaNetworkService = nomos_da_network_service::NetworkService<
     RuntimeServiceId,
 >;
 
-pub(crate) type ClMempoolService = nomos_node::generic_services::TxMempoolService<
+pub(crate) type MempoolService = nomos_node::generic_services::TxMempoolService<
     nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
         NomosDaMembership,
         DaMembershipAdapter<RuntimeServiceId>,
@@ -146,21 +124,16 @@ pub(crate) type DaNetworkAdapter = nomos_da_sampling::network::adapters::executo
     RuntimeServiceId,
 >;
 
-pub(crate) type CryptarchiaService = nomos_node::generic_services::CryptarchiaService<
-    nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
-        NomosDaMembership,
-        DaMembershipAdapter<RuntimeServiceId>,
-        DaMembershipStorage,
-        DaNetworkApiAdapter,
-        RuntimeServiceId,
-    >,
-    RuntimeServiceId,
->;
+pub(crate) type CryptarchiaService =
+    nomos_node::generic_services::CryptarchiaService<DaNetworkAdapter, RuntimeServiceId>;
+
+pub(crate) type CryptarchiaLeaderService =
+    nomos_node::generic_services::CryptarchiaLeaderService<DaNetworkAdapter, RuntimeServiceId>;
 
 pub(crate) type TimeService = nomos_node::generic_services::TimeService<RuntimeServiceId>;
 
-pub(crate) type ApiStorageAdapter<StorageOp, RuntimeServiceId> =
-    nomos_api::http::storage::adapters::rocksdb::RocksAdapter<StorageOp, RuntimeServiceId>;
+pub(crate) type ApiStorageAdapter<RuntimeServiceId> =
+    nomos_api::http::storage::adapters::rocksdb::RocksAdapter<RuntimeServiceId>;
 
 pub(crate) type ApiService = nomos_api::ApiService<
     AxumBackend<
@@ -178,9 +151,8 @@ pub(crate) type ApiService = nomos_api::ApiService<
             DaNetworkApiAdapter,
             RuntimeServiceId,
         >,
-        VerifierStorageAdapter<DaShare, Wire, DaStorageConverter>,
+        VerifierStorageAdapter<DaShare, DaStorageConverter>,
         SignedMantleTx,
-        Wire,
         DaStorageConverter,
         DispersalKZGRSBackend<
             DispersalNetworkAdapter<
@@ -208,18 +180,16 @@ pub(crate) type ApiService = nomos_api::ApiService<
             DaNetworkApiAdapter,
             RuntimeServiceId,
         >,
-        SamplingStorageAdapter<DaShare, Wire, DaStorageConverter>,
+        SamplingStorageAdapter<DaShare, DaStorageConverter>,
         VerifierMempoolAdapter<DaNetworkAdapter, RuntimeServiceId>,
         NtpTimeBackend,
         DaNetworkApiAdapter,
-        ApiStorageAdapter<Wire, RuntimeServiceId>,
-        MB16,
+        ApiStorageAdapter<RuntimeServiceId>,
     >,
     RuntimeServiceId,
 >;
 
-pub(crate) type StorageService =
-    nomos_storage::StorageService<RocksBackend<Wire>, RuntimeServiceId>;
+pub(crate) type StorageService = nomos_storage::StorageService<RocksBackend, RuntimeServiceId>;
 
 pub(crate) type SystemSigService = SystemSig<RuntimeServiceId>;
 
@@ -241,8 +211,10 @@ pub struct NomosExecutor {
     da_network: DaNetworkService,
     membership: MembershipService<RuntimeServiceId>,
     sdp: SdpService<RuntimeServiceId>,
-    cl_mempool: ClMempoolService,
+    mempool: MempoolService,
     cryptarchia: CryptarchiaService,
+    cryptarchia_leader: CryptarchiaLeaderService,
+    block_broadcast: BlockBroadcastService,
     time: TimeService,
     http: ApiService,
     storage: StorageService,

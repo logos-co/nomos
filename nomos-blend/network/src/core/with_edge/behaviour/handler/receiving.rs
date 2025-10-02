@@ -4,8 +4,8 @@ use futures::FutureExt as _;
 use libp2p::swarm::ConnectionHandlerEvent;
 
 use crate::core::with_edge::behaviour::handler::{
-    dropped::DroppedState, ConnectionState, FailureReason, MessageReceiveFuture, PollResult,
-    StateTrait, TimerFuture, ToBehaviour, LOG_TARGET,
+    ConnectionState, FailureReason, LOG_TARGET, MessageReceiveFuture, PollResult, StateTrait,
+    TimerFuture, ToBehaviour, dropped::DroppedState,
 };
 
 /// State representing the moment in which a new message is being received from

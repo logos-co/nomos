@@ -1,8 +1,8 @@
 use std::{num::NonZero, pin::Pin};
 
 use cryptarchia_engine::{
-    time::{SlotConfig, SlotTimer},
     EpochConfig, Slot,
+    time::{SlotConfig, SlotTimer},
 };
 use futures::StreamExt as _;
 use time::OffsetDateTime;

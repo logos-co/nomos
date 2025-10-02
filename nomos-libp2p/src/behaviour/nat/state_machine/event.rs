@@ -1,7 +1,6 @@
 use libp2p::{
-    autonat,
-    swarm::{behaviour::ExternalAddrConfirmed, FromSwarm, NewExternalAddrCandidate},
-    Multiaddr,
+    Multiaddr, autonat,
+    swarm::{FromSwarm, NewListenAddr, behaviour::ExternalAddrConfirmed},
 };
 
 use crate::behaviour::nat::address_mapper;
@@ -21,7 +20,7 @@ pub enum Event {
     },
     ExternalAddressConfirmed(Multiaddr),
     LocalAddressChanged(Multiaddr),
-    NewExternalAddressCandidate(Multiaddr),
+    NewListenAddress(Multiaddr),
     NewExternalMappedAddress {
         local_address: Multiaddr,
         external_address: Multiaddr,
@@ -83,8 +82,8 @@ impl TryFrom<FromSwarm<'_>> for Event {
 
     fn try_from(event: FromSwarm<'_>) -> Result<Self, Self::Error> {
         match event {
-            FromSwarm::NewExternalAddrCandidate(NewExternalAddrCandidate { addr }) => {
-                Ok(Self::NewExternalAddressCandidate(addr.clone()))
+            FromSwarm::NewListenAddr(NewListenAddr { addr, .. }) => {
+                Ok(Self::NewListenAddress(addr.clone()))
             }
             FromSwarm::ExternalAddrConfirmed(ExternalAddrConfirmed { addr }) => {
                 Ok(Self::ExternalAddressConfirmed(addr.clone()))

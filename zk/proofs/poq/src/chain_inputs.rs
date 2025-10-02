@@ -14,6 +14,7 @@ pub struct PoQChainInputs {
     pol_t1: Groth16Input,
 }
 
+#[derive(Clone, Copy)]
 pub struct PoQChainInputsData {
     pub session: u64,
     pub core_root: Fr,
@@ -82,6 +83,10 @@ impl From<&PoQChainInputs> for PoQChainInputsJson {
 pub enum PoQInputsFromDataError {
     #[error("Session number is greater than P")]
     SessionGreaterThanP,
+    #[error("Core quota is greater than 20 bits")]
+    CoreQuotaMoreThan20Bits,
+    #[error("Leader quota is greater than 20 bits")]
+    LeaderQuotaMoreThan20Bits,
 }
 
 impl TryFrom<PoQChainInputsData> for PoQChainInputs {

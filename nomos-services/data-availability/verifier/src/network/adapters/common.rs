@@ -30,13 +30,8 @@ macro_rules! adapter_for {
         }
 
         #[async_trait::async_trait]
-        impl<
-                Membership,
-                MembershipServiceAdapter,
-                StorageAdapter,
-                ApiAdapter,
-                RuntimeServiceId,
-            > NetworkAdapter<RuntimeServiceId>
+        impl<Membership, MembershipServiceAdapter, StorageAdapter, ApiAdapter, RuntimeServiceId>
+            NetworkAdapter<RuntimeServiceId>
             for Libp2pAdapter<
                 Membership,
                 MembershipServiceAdapter,

@@ -1,6 +1,6 @@
 use kzgrs::BYTES_PER_FIELD_ELEMENT;
 
-use crate::common::{share::DaShare, Chunk};
+use crate::common::{Chunk, share::DaShare};
 
 /// Reconstruct original data from a set of `DaShare`
 /// Warning! This does not interpolate so it should not be used on blobs which
@@ -36,8 +36,8 @@ mod test {
     use nomos_core::da::DaEncoder as _;
 
     use crate::{
-        common::{share::DaShare, ShareIndex},
-        encoder::{test::rand_data, DaEncoder, DaEncoderParams, EncodedData},
+        common::{ShareIndex, share::DaShare},
+        encoder::{DaEncoder, DaEncoderParams, EncodedData, test::rand_data},
         reconstruction::reconstruct_without_missing_data,
     };
 

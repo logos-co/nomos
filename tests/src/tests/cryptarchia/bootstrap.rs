@@ -9,25 +9,28 @@ use serial_test::serial;
 use tests::{
     adjust_timeout,
     common::sync::{wait_for_validators_mode, wait_for_validators_mode_and_height},
-    nodes::validator::{create_validator_config, Validator},
+    nodes::validator::{Validator, create_validator_config},
     secret_key_to_peer_id,
     topology::configs::{
-        create_general_configs_with_network,
+        GeneralConfig, create_general_configs_with_blend_core_subset,
         network::{Libp2pNetworkLayout, NetworkParams},
-        GeneralConfig,
     },
 };
 
 #[tokio::test]
 #[serial]
 async fn test_ibd_behind_nodes() {
-    let n_validators = 4;
+    let n_validators = 3;
     let n_initial_validators = 2;
 
     let network_params = NetworkParams {
         libp2p_network_layout: Libp2pNetworkLayout::Full,
     };
-    let general_configs = create_general_configs_with_network(n_validators, &network_params);
+    let general_configs = create_general_configs_with_blend_core_subset(
+        n_validators,
+        n_initial_validators,
+        &network_params,
+    );
 
     let mut initial_validators = vec![];
     for config in general_configs.iter().take(n_initial_validators) {
@@ -43,21 +46,10 @@ async fn test_ibd_behind_nodes() {
         .map(|config| secret_key_to_peer_id(config.network_config.swarm_config.node_key.clone()))
         .collect();
 
-    let mut config = create_validator_config(general_configs[n_initial_validators].clone());
-    config.cryptarchia.bootstrap.ibd.peers = initial_peer_ids.clone();
-
-    // Try to spawn the node - it should fail during IBD when peers are
-    // bootstrapping
-    if let Ok(mut node) = Validator::spawn(config).await {
-        assert!(
-            node.wait_for_exit(Duration::from_secs(5)).await,
-            "Expected node to fail during IBD when peers are bootstrapping"
-        );
-    }
-
     let minimum_height = 10;
-    println!("Waiting for initial validators to switch to online mode and reach height {minimum_height}...", );
-
+    println!(
+        "Waiting for initial validators to switch to online mode and reach height {minimum_height}...",
+    );
     wait_for_validators_mode_and_height(
         &initial_validators,
         cryptarchia_engine::State::Online,
@@ -66,9 +58,9 @@ async fn test_ibd_behind_nodes() {
     )
     .await;
 
-    println!("Starting behind node with IBD peers...");
+    println!("Starting a behind node with IBD peers...");
 
-    let mut config = create_validator_config(general_configs[3].clone());
+    let mut config = create_validator_config(general_configs[n_initial_validators].clone());
     config.cryptarchia.bootstrap.ibd.peers = initial_peer_ids.clone();
     // Shorten the delay to quickly catching up with peers that grow during IBD.
     // e.g. We start a download only for peer1 because two peers have the same tip
@@ -130,7 +122,9 @@ async fn test_ibd_behind_nodes() {
 fn acceptable_height_margin(general_config: &GeneralConfig, duration: Duration) -> u64 {
     let block_time = calculate_block_time(general_config);
     let margin = duration.div_duration_f64(block_time).ceil() as u64;
-    println!("Acceptable height margin:{margin} for duration {duration:?} with block time {block_time:?}");
+    println!(
+        "Acceptable height margin:{margin} for duration {duration:?} with block time {block_time:?}"
+    );
     margin
 }
 

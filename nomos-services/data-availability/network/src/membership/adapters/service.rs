@@ -1,31 +1,31 @@
 use std::{collections::HashMap, marker::PhantomData};
 
 use futures::StreamExt as _;
-use libp2p::{core::signed_envelope::DecodingError, Multiaddr, PeerId};
+use libp2p::{Multiaddr, PeerId, core::signed_envelope::DecodingError};
 use nomos_core::sdp::ServiceType;
 use nomos_libp2p::ed25519;
 use nomos_membership::{MembershipMessage, MembershipService, MembershipSnapshotStream};
-use overwatch::services::{relay::OutboundRelay, ServiceData};
+use overwatch::services::{ServiceData, relay::OutboundRelay};
 use tokio::sync::oneshot;
 
 use crate::membership::{MembershipAdapter, MembershipAdapterError, PeerMultiaddrStream};
 
-pub struct MembershipServiceAdapter<Backend, SdpAdapter, RuntimeServiceId>
+pub struct MembershipServiceAdapter<Backend, SdpAdapter, StorageAdapter, RuntimeServiceId>
 where
     Backend: nomos_membership::backends::MembershipBackend,
     Backend::Settings: Clone,
-    SdpAdapter: nomos_membership::adapters::SdpAdapter,
+    SdpAdapter: nomos_membership::adapters::sdp::SdpAdapter,
 {
     relay: OutboundRelay<
-        <MembershipService<Backend, SdpAdapter, RuntimeServiceId> as ServiceData>::Message,
+        <MembershipService<Backend, SdpAdapter, StorageAdapter, RuntimeServiceId> as ServiceData>::Message,
     >,
     phantom: PhantomData<(Backend, SdpAdapter, RuntimeServiceId)>,
 }
 
-impl<Backend, SdpAdapter, RuntimeServiceId>
-    MembershipServiceAdapter<Backend, SdpAdapter, RuntimeServiceId>
+impl<Backend, SdpAdapter, StorageAdapter, RuntimeServiceId>
+    MembershipServiceAdapter<Backend, SdpAdapter, StorageAdapter, RuntimeServiceId>
 where
-    SdpAdapter: nomos_membership::adapters::SdpAdapter + Send + Sync + 'static,
+    SdpAdapter: nomos_membership::adapters::sdp::SdpAdapter + Send + Sync + 'static,
     Backend: nomos_membership::backends::MembershipBackend + Send + Sync + 'static,
     Backend::Settings: Clone,
     RuntimeServiceId: Send + Sync + 'static,
@@ -44,25 +44,24 @@ where
             .await
             .map_err(|(e, _)| MembershipAdapterError::Other(e.into()))?;
 
-        let res = receiver
+        receiver
             .await
             .map_err(|e| MembershipAdapterError::Other(e.into()))?
-            .map_err(MembershipAdapterError::Backend);
-
-        res
+            .map_err(MembershipAdapterError::Backend)
     }
 }
 
 #[async_trait::async_trait]
-impl<Backend, SdpAdapter, RuntimeServiceId> MembershipAdapter
-    for MembershipServiceAdapter<Backend, SdpAdapter, RuntimeServiceId>
+impl<Backend, SdpAdapter, StorageAdapter, RuntimeServiceId> MembershipAdapter
+    for MembershipServiceAdapter<Backend, SdpAdapter, StorageAdapter, RuntimeServiceId>
 where
-    SdpAdapter: nomos_membership::adapters::SdpAdapter + Send + Sync + 'static,
+    SdpAdapter: nomos_membership::adapters::sdp::SdpAdapter + Send + Sync + 'static,
     Backend: nomos_membership::backends::MembershipBackend + Send + Sync + 'static,
     Backend::Settings: Clone,
     RuntimeServiceId: Send + Sync + 'static,
 {
-    type MembershipService = MembershipService<Backend, SdpAdapter, RuntimeServiceId>;
+    type MembershipService =
+        MembershipService<Backend, SdpAdapter, StorageAdapter, RuntimeServiceId>;
     type Id = PeerId;
 
     fn new(relay: OutboundRelay<<Self::MembershipService as ServiceData>::Message>) -> Self {

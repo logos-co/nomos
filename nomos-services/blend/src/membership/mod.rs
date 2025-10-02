@@ -4,9 +4,9 @@ pub mod service;
 use std::pin::Pin;
 
 use futures::Stream;
-use nomos_blend_message::crypto::Ed25519PublicKey;
+use nomos_blend_message::crypto::keys::Ed25519PublicKey;
 use nomos_blend_scheduling::membership::Membership;
-use overwatch::services::{relay::OutboundRelay, ServiceData};
+use overwatch::services::{ServiceData, relay::OutboundRelay};
 
 pub type MembershipStream<NodeId> =
     Pin<Box<dyn Stream<Item = Membership<NodeId>> + Send + Sync + 'static>>;

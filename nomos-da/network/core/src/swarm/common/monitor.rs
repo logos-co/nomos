@@ -21,7 +21,7 @@ use crate::{
             },
         },
         replication::behaviour::{ReplicationError, ReplicationEvent},
-        sampling::{errors::SamplingError, SamplingEvent},
+        sampling::{SamplingEvent, errors::SamplingError},
     },
 };
 
@@ -97,7 +97,8 @@ impl From<&SamplingEvent> for MonitorEvent {
             | SamplingEvent::IncomingSample { .. }
             | SamplingEvent::CommitmentsSuccess { .. }
             | SamplingEvent::HistoricSamplingSuccess { .. }
-            | SamplingEvent::HistoricSamplingError { .. } => Self::Noop,
+            | SamplingEvent::HistoricSamplingError { .. }
+            | SamplingEvent::Opinion(_) => Self::Noop,
         }
     }
 }
@@ -378,7 +379,7 @@ mod tests {
     use subnetworks_assignations::versions::v1::FillFromNodeList;
 
     use super::*;
-    use crate::swarm::{common::policy::DAConnectionPolicy, DAConnectionPolicySettings};
+    use crate::swarm::{DAConnectionPolicySettings, common::policy::DAConnectionPolicy};
 
     fn setup_monitor(peer_id: PeerId) -> DAConnectionMonitor<DAConnectionPolicy<FillFromNodeList>> {
         let monitor_settings = DAConnectionMonitorSettings {
@@ -397,7 +398,7 @@ mod tests {
             monitor_settings,
             DAConnectionPolicy::new(
                 policy_settings,
-                FillFromNodeList::new(&[PeerId::random()], 0, 0),
+                FillFromNodeList::new(0, &[PeerId::random()], 0, 0),
                 peer_id,
             ),
         )

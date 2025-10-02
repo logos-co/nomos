@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use libp2p::{Multiaddr, PeerId};
 use nomos_core::block::SessionNumber;
 use nomos_da_network_core::SubnetworkId;
-use nomos_storage::{backends::StorageBackend, StorageMsg, StorageService};
-use overwatch::{services::relay::OutboundRelay, DynError};
+use nomos_storage::{StorageMsg, StorageService, backends::StorageBackend};
+use overwatch::{DynError, services::relay::OutboundRelay};
 
 use crate::{membership::Assignations, storage::MembershipStorageAdapter};
 

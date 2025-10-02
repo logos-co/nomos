@@ -1,15 +1,15 @@
 use clap::Parser;
-use color_eyre::eyre::{eyre, Result};
+use color_eyre::eyre::{Result, eyre};
 use nomos_core::mantle::SignedMantleTx;
 use nomos_executor::{
-    config::Config as ExecutorConfig, NomosExecutor, NomosExecutorServiceSettings, RuntimeServiceId,
+    NomosExecutor, NomosExecutorServiceSettings, RuntimeServiceId, config::Config as ExecutorConfig,
 };
-use nomos_mempool::{processor::tx::SignedTxProcessorSettings, tx::settings::TxMempoolSettings};
 use nomos_node::{
-    config::BlendArgs, CryptarchiaArgs, HttpArgs, LogArgs, MempoolAdapterSettings, NetworkArgs,
-    Transaction, CL_TOPIC,
+    CryptarchiaLeaderArgs, HttpArgs, LogArgs, MANTLE_TOPIC, MempoolAdapterSettings, NetworkArgs,
+    Transaction, config::BlendArgs,
 };
 use overwatch::overwatch::{Error as OverwatchError, Overwatch, OverwatchRunner};
+use tx_service::{processor::tx::SignedTxProcessorSettings, tx::settings::TxMempoolSettings};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -33,7 +33,7 @@ struct Args {
     #[clap(flatten)]
     http: HttpArgs,
     #[clap(flatten)]
-    cryptarchia: CryptarchiaArgs,
+    cryptarchia_leader: CryptarchiaLeaderArgs,
 }
 
 #[tokio::main]
@@ -44,7 +44,7 @@ async fn main() -> Result<()> {
         http: http_args,
         network: network_args,
         blend: blend_args,
-        cryptarchia: cryptarchia_args,
+        cryptarchia_leader: cryptarchia_args,
         check_config_only,
     } = Args::parse();
     let config = serde_yaml::from_reader::<_, ExecutorConfig>(std::fs::File::open(config)?)?
@@ -73,25 +73,27 @@ async fn main() -> Result<()> {
             blend: blend_config,
             blend_core: blend_core_config,
             blend_edge: blend_edge_config,
+            block_broadcast: (),
             #[cfg(feature = "tracing")]
             tracing: config.tracing,
             http: config.http,
-            cl_mempool: TxMempoolSettings {
+            mempool: TxMempoolSettings {
                 pool: (),
                 network_adapter: MempoolAdapterSettings {
-                    topic: String::from(CL_TOPIC),
+                    topic: String::from(MANTLE_TOPIC),
                     id: <SignedMantleTx as Transaction>::hash,
                 },
                 processor: SignedTxProcessorSettings {
                     trigger_sampling_delay: config.mempool.trigger_sampling_delay,
                 },
-                recovery_path: config.mempool.cl_pool_recovery_path,
+                recovery_path: config.mempool.pool_recovery_path,
             },
             da_dispersal: config.da_dispersal,
             da_network: config.da_network,
             da_sampling: config.da_sampling,
             da_verifier: config.da_verifier,
             cryptarchia: config.cryptarchia,
+            cryptarchia_leader: config.cryptarchia_leader,
             time: config.time,
             storage: config.storage,
             system_sig: (),

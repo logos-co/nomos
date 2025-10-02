@@ -1,8 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
 use nomos_libp2p::{
-    libp2p::kad::{self, PeerInfo, ProgressStep, QueryId},
     Multiaddr, PeerId, Protocol,
+    libp2p::kad::{self, PeerInfo, ProgressStep, QueryId},
 };
 use rand::RngCore;
 use tokio::sync::oneshot;
@@ -110,10 +110,10 @@ impl<R: Clone + Send + RngCore + 'static> SwarmHandler<R> {
                 if let Some(query_data) = self.pending_queries.get_mut(&id) {
                     query_data.accumulated_results.extend(result.peers);
 
-                    if step.last {
-                        if let Some(query_data) = self.pending_queries.remove(&id) {
-                            let _ = query_data.sender.send(query_data.accumulated_results);
-                        }
+                    if step.last
+                        && let Some(query_data) = self.pending_queries.remove(&id)
+                    {
+                        let _ = query_data.sender.send(query_data.accumulated_results);
                     }
                 }
             }

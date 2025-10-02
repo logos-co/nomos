@@ -1,6 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
-    marker::PhantomData,
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     num::NonZeroUsize,
     ops::RangeInclusive,
 };
@@ -10,11 +9,18 @@ use bytes::Bytes;
 use cryptarchia_engine::Slot;
 use libp2p_identity::PeerId;
 use multiaddr::Multiaddr;
-use nomos_core::{block::SessionNumber, header::HeaderId};
+use nomos_core::{
+    block::{BlockNumber, SessionNumber},
+    header::HeaderId,
+    sdp::{Locator, ProviderId, ServiceType},
+};
+use overwatch::DynError;
 use thiserror::Error;
 
-use super::{StorageBackend, StorageSerde, StorageTransaction};
-use crate::api::{chain::StorageChainApi, da::StorageDaApi, StorageBackendApi};
+use super::{StorageBackend, StorageTransaction};
+use crate::api::{
+    StorageBackendApi, chain::StorageChainApi, da::StorageDaApi, membership::StorageMembershipApi,
+};
 
 #[derive(Debug, Error)]
 #[error("Errors in MockStorage should not happen")]
@@ -28,28 +34,25 @@ impl StorageTransaction for MockStorageTransaction {
 }
 
 //
-pub struct MockStorage<SerdeOp> {
+pub struct MockStorage {
     inner: HashMap<Bytes, Bytes>,
-    _serde_op: PhantomData<SerdeOp>,
 }
 
-impl<SerdeOp> core::fmt::Debug for MockStorage<SerdeOp> {
+impl core::fmt::Debug for MockStorage {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         format!("MockStorage {{ inner: {:?} }}", self.inner).fmt(f)
     }
 }
 
 #[async_trait]
-impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for MockStorage<SerdeOp> {
+impl StorageBackend for MockStorage {
     type Settings = ();
     type Error = MockStorageError;
     type Transaction = MockStorageTransaction;
-    type SerdeOperator = SerdeOp;
 
     fn new(_config: Self::Settings) -> Result<Self, <Self as StorageBackend>::Error> {
         Ok(Self {
             inner: HashMap::new(),
-            _serde_op: PhantomData,
         })
     }
 
@@ -103,7 +106,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackend for MockStora
 }
 
 #[async_trait]
-impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageChainApi for MockStorage<SerdeOp> {
+impl StorageChainApi for MockStorage {
     type Error = MockStorageError;
     type Block = Bytes;
 
@@ -153,7 +156,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageChainApi for MockStor
 }
 
 #[async_trait]
-impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for MockStorage<SerdeOp> {
+impl StorageDaApi for MockStorage {
     type Error = MockStorageError;
     type BlobId = [u8; 32];
     type Share = Bytes;
@@ -253,4 +256,47 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageDaApi for MockStorage
 }
 
 #[async_trait]
-impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageBackendApi for MockStorage<SerdeOp> {}
+impl StorageBackendApi for MockStorage {}
+
+#[async_trait]
+impl StorageMembershipApi for MockStorage {
+    async fn save_active_session(
+        &mut self,
+        _service_type: ServiceType,
+        _session_id: SessionNumber,
+        _providers: &HashMap<ProviderId, BTreeSet<Locator>>,
+    ) -> Result<(), DynError> {
+        unimplemented!()
+    }
+
+    async fn load_active_session(
+        &mut self,
+        _service_type: ServiceType,
+    ) -> Result<Option<(SessionNumber, HashMap<ProviderId, BTreeSet<Locator>>)>, DynError> {
+        unimplemented!()
+    }
+
+    async fn save_latest_block(&mut self, _block_number: BlockNumber) -> Result<(), DynError> {
+        unimplemented!()
+    }
+
+    async fn load_latest_block(&mut self) -> Result<Option<BlockNumber>, DynError> {
+        unimplemented!()
+    }
+
+    async fn save_forming_session(
+        &mut self,
+        _service_type: ServiceType,
+        _session_id: SessionNumber,
+        _providers: &HashMap<ProviderId, BTreeSet<Locator>>,
+    ) -> Result<(), DynError> {
+        unimplemented!()
+    }
+
+    async fn load_forming_session(
+        &mut self,
+        _service_type: ServiceType,
+    ) -> Result<Option<(SessionNumber, HashMap<ProviderId, BTreeSet<Locator>>)>, DynError> {
+        unimplemented!()
+    }
+}

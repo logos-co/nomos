@@ -1,22 +1,24 @@
 use std::{collections::HashSet, fmt::Debug, marker::PhantomData, pin::Pin};
 
 use futures::{
-    stream::{AbortHandle, Abortable},
     Stream, StreamExt as _,
+    stream::{AbortHandle, Abortable},
 };
 use kzgrs_backend::common::share::DaShare;
 use libp2p::PeerId;
 use log::error;
 use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId, mantle::SignedMantleTx};
 use nomos_da_network_core::{
+    SubnetworkId,
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
-    protocols::dispersal::executor::behaviour::DispersalExecutorEvent,
+    protocols::{
+        dispersal::executor::behaviour::DispersalExecutorEvent, sampling::opinions::OpinionEvent,
+    },
     swarm::{
+        BalancerStats, MonitorStats,
         executor::ExecutorSwarm,
         validator::{SampleArgs, SwarmSettings},
-        BalancerStats, MonitorStats,
     },
-    SubnetworkId,
 };
 use nomos_libp2p::ed25519;
 use nomos_tracing::info_with_id;
@@ -25,22 +27,22 @@ use serde::{Deserialize, Serialize};
 use subnetworks_assignations::MembershipHandler;
 use tokio::sync::{broadcast, mpsc::UnboundedSender, oneshot};
 use tokio_stream::wrappers::{
-    errors::BroadcastStreamRecvError, BroadcastStream, UnboundedReceiverStream,
+    BroadcastStream, UnboundedReceiverStream, errors::BroadcastStreamRecvError,
 };
 use tracing::instrument;
 
 use super::common::{CommitmentsEvent, VerificationEvent};
 use crate::{
+    DaAddressbook,
     backends::{
+        ConnectionStatus, NetworkBackend, ProcessingError,
         libp2p::common::{
+            BROADCAST_CHANNEL_SIZE, DaNetworkBackendSettings, HistoricSamplingEvent, SamplingEvent,
             handle_balancer_command, handle_historic_sample_request, handle_monitor_command,
-            handle_sample_request, handle_validator_events_stream, DaNetworkBackendSettings,
-            HistoricSamplingEvent, SamplingEvent, BROADCAST_CHANNEL_SIZE,
+            handle_sample_request, handle_validator_events_stream,
         },
-        NetworkBackend,
     },
     membership::handler::{DaMembershipHandler, SharedMembershipHandler},
-    DaAddressbook,
 };
 
 /// Message that the backend replies to
@@ -56,10 +58,12 @@ pub enum ExecutorDaNetworkMessage<BalancerStats, MonitorStats> {
     RequestShareDispersal {
         subnetwork_id: SubnetworkId,
         da_share: Box<DaShare>,
+        sender: oneshot::Sender<Result<(), ProcessingError>>,
     },
     RequestTxDispersal {
         subnetwork_id: SubnetworkId,
         tx: Box<SignedMantleTx>,
+        sender: oneshot::Sender<Result<(), ProcessingError>>,
     },
     MonitorRequest(ConnectionMonitorCommand<MonitorStats>),
     BalancerStats(oneshot::Sender<BalancerStats>),
@@ -117,6 +121,7 @@ where
     dispersal_tx_sender: UnboundedSender<(Membership::NetworkId, SignedMantleTx)>,
     balancer_command_sender: UnboundedSender<ConnectionBalancerCommand<BalancerStats>>,
     monitor_command_sender: UnboundedSender<ConnectionMonitorCommand<MonitorStats>>,
+    connection_status: ConnectionStatus,
     _membership: PhantomData<Membership>,
 }
 
@@ -147,6 +152,8 @@ where
         membership: Self::Membership,
         addressbook: Self::Addressbook,
         subnet_refresh_signal: impl Stream<Item = ()> + Send + 'static,
+        balancer_stats_sender: UnboundedSender<BalancerStats>,
+        opinion_sender: UnboundedSender<OpinionEvent>,
     ) -> Self {
         let keypair = libp2p::identity::Keypair::from(ed25519::Keypair::from(
             config.validator_settings.node_key.clone(),
@@ -164,6 +171,7 @@ where
                 subnets_settings: config.validator_settings.subnets_settings,
             },
             subnet_refresh_signal,
+            balancer_stats_sender,
         );
         let address = config.validator_settings.listening_address;
         // put swarm to listen at the specified configuration address
@@ -207,6 +215,7 @@ where
                 commitments_broadcast_sender,
                 verifying_broadcast_sender,
                 historic_sampling_broadcast_sender,
+                opinion_sender,
             ),
             verifier_replies_task_abort_registration,
         ));
@@ -222,6 +231,7 @@ where
         ));
 
         Self {
+            connection_status: ConnectionStatus::InsufficientSubnetworkConnections,
             task_abort_handle,
             verifier_replies_task_abort_handle,
             executor_replies_task_abort_handle,
@@ -267,7 +277,12 @@ where
             ExecutorDaNetworkMessage::RequestShareDispersal {
                 subnetwork_id,
                 da_share,
+                sender,
             } => {
+                if !matches!(self.connection_status, ConnectionStatus::Ready) {
+                    let _ = sender.send(Err(ProcessingError::InsufficientSubnetworkConnections));
+                    return;
+                }
                 info_with_id!(&da_share.blob_id(), "RequestShareDispersal");
                 if let Err(e) = self
                     .dispersal_shares_sender
@@ -275,11 +290,21 @@ where
                 {
                     error!("Could not send internal blob to underlying dispersal behaviour: {e}");
                 }
+                let _ = sender.send(Ok(()));
             }
-            ExecutorDaNetworkMessage::RequestTxDispersal { subnetwork_id, tx } => {
+            ExecutorDaNetworkMessage::RequestTxDispersal {
+                subnetwork_id,
+                tx,
+                sender,
+            } => {
+                if !matches!(self.connection_status, ConnectionStatus::Ready) {
+                    let _ = sender.send(Err(ProcessingError::InsufficientSubnetworkConnections));
+                    return;
+                }
                 if let Err(e) = self.dispersal_tx_sender.send((subnetwork_id, *tx)) {
                     error!("Could not send internal tx to underlying dispersal behaviour: {e}");
                 }
+                let _ = sender.send(Ok(()));
             }
             ExecutorDaNetworkMessage::MonitorRequest(command) => {
                 match command.peer_id() {
@@ -297,6 +322,10 @@ where
                 handle_balancer_command(&self.balancer_command_sender, response_sender).await;
             }
         }
+    }
+
+    fn update_status(&mut self, status: ConnectionStatus) {
+        self.connection_status = status;
     }
 
     async fn subscribe(

@@ -1,12 +1,12 @@
 use futures::channel::oneshot::Canceled;
 use libp2p::PeerId;
 use libp2p_stream::OpenStreamError;
-use nomos_core::{da::BlobId, wire};
+use nomos_core::{codec, da::BlobId};
 use nomos_da_messages::sampling;
 use thiserror::Error;
 
 use super::BehaviourSampleReq;
-use crate::SubnetworkId;
+use crate::{SubnetworkId, protocols::sampling::opinions::OpinionEvent};
 
 #[derive(Debug, Error)]
 pub enum SamplingError {
@@ -37,7 +37,7 @@ pub enum SamplingError {
         blob_id: BlobId,
         subnetwork_id: SubnetworkId,
         peer_id: PeerId,
-        error: wire::Error,
+        error: codec::Error,
     },
     #[error("Error sending request: {request:?}")]
     RequestChannel {
@@ -188,7 +188,7 @@ impl Clone for SamplingError {
 #[derive(Error, Debug, Clone)]
 pub enum HistoricSamplingError {
     #[error("Historic sampling failed")]
-    SamplingFailed,
+    SamplingFailed(OpinionEvent),
     #[error("Internal server error: {0}")]
     InternalServerError(String),
 }

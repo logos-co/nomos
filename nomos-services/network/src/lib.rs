@@ -3,11 +3,11 @@ use std::fmt::{Debug, Display};
 use async_trait::async_trait;
 use backends::NetworkBackend;
 use overwatch::{
-    services::{
-        state::{NoOperator, NoState},
-        AsServiceId, ServiceCore, ServiceData,
-    },
     OpaqueServiceResourcesHandle,
+    services::{
+        AsServiceId, ServiceCore, ServiceData,
+        state::{NoOperator, NoState},
+    },
 };
 
 use crate::{config::NetworkConfig, message::BackendNetworkMsg};

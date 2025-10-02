@@ -9,8 +9,8 @@ use tokio::{select, time::sleep};
 use crate::core::{
     tests::utils::{TestEncapsulatedMessage, TestSwarm},
     with_core::behaviour::{
-        tests::utils::{BehaviourBuilder, IntervalProviderBuilder, SwarmExt as _},
         Event, NegotiatedPeerState, SpamReason,
+        tests::utils::{BehaviourBuilder, IntervalProviderBuilder, SwarmExt as _},
     },
 };
 
@@ -116,13 +116,15 @@ async fn detect_unhealthy_peer() {
         }
     }
 
-    assert!(listening_swarm
-        .behaviour()
-        .negotiated_peers
-        .get(dialing_swarm.local_peer_id())
-        .unwrap()
-        .negotiated_state
-        .is_unhealthy());
+    assert!(
+        listening_swarm
+            .behaviour()
+            .negotiated_peers
+            .get(dialing_swarm.local_peer_id())
+            .unwrap()
+            .negotiated_state
+            .is_unhealthy()
+    );
 }
 
 #[test(tokio::test)]
@@ -165,11 +167,13 @@ async fn restore_healthy_peer() {
         }
     }
 
-    assert!(listening_swarm
-        .behaviour()
-        .negotiated_peers
-        .get(dialing_swarm.local_peer_id())
-        .unwrap()
-        .negotiated_state
-        .is_healthy());
+    assert!(
+        listening_swarm
+            .behaviour()
+            .negotiated_peers
+            .get(dialing_swarm.local_peer_id())
+            .unwrap()
+            .negotiated_state
+            .is_healthy()
+    );
 }

@@ -1,6 +1,6 @@
 use common_http_client::CommonHttpClient;
 use nomos_core::{
-    mantle::{ledger::Tx as LedgerTx, MantleTx, SignedMantleTx, Transaction as _},
+    mantle::{MantleTx, SignedMantleTx, Transaction as _, ledger::Tx as LedgerTx},
     proofs::zksig::{DummyZkSignature, ZkSignaturePublic},
 };
 use reqwest::Url;

@@ -1,15 +1,16 @@
 use std::{collections::HashSet, fmt::Debug, marker::PhantomData, pin::Pin, time::Duration};
 
-use futures::{stream::BoxStream, Stream, StreamExt as _};
+use futures::{Stream, StreamExt as _, stream::BoxStream};
 use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};
 use nomos_core::{da::BlobId, mantle::SignedMantleTx};
 use nomos_da_network_core::{
+    PeerId, SubnetworkId,
     protocols::{
         dispersal::executor::behaviour::DispersalExecutorEvent, sampling::errors::SamplingError,
     },
-    PeerId, SubnetworkId,
 };
 use nomos_da_network_service::{
+    DaNetworkMsg, NetworkService,
     api::ApiAdapter as ApiAdapterTrait,
     backends::libp2p::{
         common::SamplingEvent,
@@ -18,11 +19,10 @@ use nomos_da_network_service::{
         },
     },
     membership::MembershipAdapter,
-    DaNetworkMsg, NetworkService,
 };
 use overwatch::{
-    services::{relay::OutboundRelay, ServiceData},
     DynError,
+    services::{ServiceData, relay::OutboundRelay},
 };
 use subnetworks_assignations::MembershipHandler;
 use tokio::sync::oneshot;
@@ -132,15 +132,18 @@ where
         subnetwork_id: Self::SubnetworkId,
         da_share: DaShare,
     ) -> Result<(), DynError> {
+        let (sender, rx) = oneshot::channel();
         self.outbound_relay
             .send(DaNetworkMsg::Process(
                 ExecutorDaNetworkMessage::RequestShareDispersal {
                     subnetwork_id,
                     da_share: Box::new(da_share),
+                    sender,
                 },
             ))
             .await
-            .map_err(|(e, _)| Box::new(e) as DynError)
+            .map_err(|(e, _)| Box::new(e) as DynError)?;
+        rx.await?.map_err(|e| Box::new(e) as DynError)
     }
 
     async fn disperse_tx(
@@ -148,15 +151,18 @@ where
         subnetwork_id: Self::SubnetworkId,
         tx: SignedMantleTx,
     ) -> Result<(), DynError> {
+        let (sender, rx) = oneshot::channel();
         self.outbound_relay
             .send(DaNetworkMsg::Process(
                 ExecutorDaNetworkMessage::RequestTxDispersal {
                     subnetwork_id,
                     tx: Box::new(tx),
+                    sender,
                 },
             ))
             .await
-            .map_err(|(e, _)| Box::new(e) as DynError)
+            .map_err(|(e, _)| Box::new(e) as DynError)?;
+        rx.await?.map_err(|e| Box::new(e) as DynError)
     }
 
     async fn dispersal_events_stream(

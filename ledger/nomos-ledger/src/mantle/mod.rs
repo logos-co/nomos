@@ -8,8 +8,8 @@ use ed25519::signature::Verifier as _;
 use nomos_core::{
     block::BlockNumber,
     mantle::{
-        ops::{leader_claim::VoucherCm, Op, OpProof},
-        AuthenticatedMantleTx, GasConstants, NoteId,
+        AuthenticatedMantleTx, GasConstants, GenesisTx, NoteId,
+        ops::{Op, OpProof, leader_claim::VoucherCm},
     },
     proofs::zksig::{self, ZkSignatureProof as _},
     sdp::state::DeclarationStateError,
@@ -69,6 +69,15 @@ impl LedgerState {
         }
     }
 
+    pub fn from_genesis_tx<Constants: GasConstants>(
+        tx: impl GenesisTx,
+        config: &Config,
+        utxo_tree: &UtxoTree,
+    ) -> Result<Self, Error> {
+        let (ledger, _) = Self::new().try_apply_tx::<Constants>(0, config, utxo_tree, tx)?;
+        Ok(ledger)
+    }
+
     #[must_use]
     pub const fn locked_notes(&self) -> &locked_notes::LockedNotes {
         &self.locked_notes
@@ -90,20 +99,18 @@ impl LedgerState {
         let mut balance = 0;
         for (op, proof) in tx.ops_with_proof() {
             match (op, proof) {
-                (Op::ChannelBlob(op), Some(OpProof::Ed25519Sig(sig))) => {
-                    // these proofs could be verified even before reaching this point
-                    // as you only need the op itself to validate the signature
-                    op.signer
-                        .verify(tx_hash.as_signing_bytes().as_ref(), sig)
-                        .map_err(|_| Error::InvalidSignature)?;
+                (Op::ChannelBlob(op), None) => {
+                    // The signature could be verified even before reaching this point,
+                    // as you only need the signer's public key and tx hash
+                    // Callers are expected to validate the proof before calling this function.
                     self.channels =
                         self.channels
                             .apply_msg(op.channel, &op.parent, op.id(), &op.signer)?;
                 }
-                (Op::ChannelInscribe(op), Some(OpProof::Ed25519Sig(sig))) => {
-                    op.signer
-                        .verify(tx_hash.as_signing_bytes().as_ref(), sig)
-                        .map_err(|_| Error::InvalidSignature)?;
+                (Op::ChannelInscribe(op), None) => {
+                    // The signature could be verified even before reaching this point,
+                    // as you only need the signer's public key and tx hash
+                    // Callers are expected to validate the proof before calling this function.
                     self.channels =
                         self.channels
                             .apply_msg(op.channel_id, &op.parent, op.id(), &op.signer)?;
@@ -118,11 +125,11 @@ impl LedgerState {
                         ed25519_sig,
                     }),
                 ) => {
-                    let Some((note, _)) = utxo_tree.utxos().get(&op.locked_note_id) else {
+                    let Some((utxo, _)) = utxo_tree.utxos().get(&op.locked_note_id) else {
                         return Err(Error::NoteNotFound(op.locked_note_id));
                     };
                     if !zk_sig.verify(&zksig::ZkSignaturePublic {
-                        pks: vec![note.pk.into(), op.zk_id.0],
+                        pks: vec![utxo.note.pk.into(), op.zk_id.0],
                         msg_hash: tx_hash.0,
                     }) {
                         return Err(Error::InvalidSignature);
@@ -141,11 +148,11 @@ impl LedgerState {
                 }
                 (Op::SDPActive(op), Some(OpProof::ZkSig(sig))) => {
                     let declaration = self.sdp.get_declaration(&op.declaration_id)?;
-                    let Some((note, _)) = utxo_tree.utxos().get(&declaration.locked_note_id) else {
+                    let Some((utxo, _)) = utxo_tree.utxos().get(&declaration.locked_note_id) else {
                         return Err(Error::NoteNotFound(declaration.locked_note_id));
                     };
                     if !sig.verify(&zksig::ZkSignaturePublic {
-                        pks: vec![note.pk.into(), declaration.zk_id.0],
+                        pks: vec![utxo.note.pk.into(), declaration.zk_id.0],
                         msg_hash: tx_hash.0,
                     }) {
                         return Err(Error::InvalidSignature);
@@ -158,11 +165,11 @@ impl LedgerState {
                 }
                 (Op::SDPWithdraw(op), Some(OpProof::ZkSig(sig))) => {
                     let declaration = self.sdp.get_declaration(&op.declaration_id)?;
-                    let Some((note, _)) = utxo_tree.utxos().get(&declaration.locked_note_id) else {
+                    let Some((utxo, _)) = utxo_tree.utxos().get(&declaration.locked_note_id) else {
                         return Err(Error::NoteNotFound(declaration.locked_note_id));
                     };
                     if !sig.verify(&zksig::ZkSignaturePublic {
-                        pks: vec![note.pk.into(), declaration.zk_id.0],
+                        pks: vec![utxo.note.pk.into(), declaration.zk_id.0],
                         msg_hash: tx_hash.0,
                     }) {
                         return Err(Error::InvalidSignature);
@@ -200,18 +207,18 @@ mod tests {
     use ed25519_dalek::{Signer as _, SigningKey, VerifyingKey};
     use nomos_core::{
         mantle::{
+            MantleTx, SignedMantleTx, Transaction as _,
             gas::MainnetGasConstants,
             ledger::Tx as LedgerTx,
             ops::{
                 channel::{
-                    blob::BlobOp, inscribe::InscriptionOp, set_keys::SetKeysOp, ChannelId, MsgId,
+                    ChannelId, MsgId, blob::BlobOp, inscribe::InscriptionOp, set_keys::SetKeysOp,
                 },
                 sdp::{SDPActiveOp, SDPDeclareOp, SDPWithdrawOp},
             },
-            MantleTx, SignedMantleTx, Transaction as _,
         },
         proofs::zksig::DummyZkSignature,
-        sdp::{state::ActiveStateError, ProviderId, ServiceType, ZkPublicKey},
+        sdp::{ProviderId, ServiceType, ZkPublicKey, state::ActiveStateError},
     };
     use num_bigint::BigUint;
 
@@ -252,14 +259,16 @@ mod tests {
     }
 
     fn create_multi_signed_tx(ops: Vec<Op>, signing_keys: Vec<&SigningKey>) -> SignedMantleTx {
-        let mut tx = create_test_tx_with_ops(ops);
+        let mut tx = create_test_tx_with_ops(ops.clone());
         let tx_hash = tx.hash();
         tx.ops_proofs = signing_keys
             .into_iter()
-            .map(|key| {
-                Some(OpProof::Ed25519Sig(
+            .zip(ops)
+            .map(|(key, op)| match op {
+                Op::ChannelSetKeys(_) => Some(OpProof::Ed25519Sig(
                     key.sign(tx_hash.as_signing_bytes().as_ref()),
-                ))
+                )),
+                _ => None,
             })
             .collect();
         tx
@@ -351,34 +360,6 @@ mod tests {
     }
 
     #[test]
-    fn test_invalid_signature_error() {
-        let cryptarchia_state = genesis_state(&[utxo()]);
-        let test_config = config();
-        let ledger_state = LedgerState::new();
-        let (_, verifying_key) = create_test_keys_with_seed(1);
-        let (wrong_signing_key, _) = create_test_keys_with_seed(2);
-        let channel_id = ChannelId::from([4; 32]);
-
-        let blob_op = BlobOp {
-            channel: channel_id,
-            blob: [42; 32],
-            blob_size: 1024,
-            da_storage_gas_price: 10,
-            parent: MsgId::root(),
-            signer: verifying_key,
-        };
-
-        let tx = create_signed_tx(Op::ChannelBlob(blob_op), &wrong_signing_key);
-        let result = ledger_state.try_apply_tx::<MainnetGasConstants>(
-            0,
-            &test_config,
-            cryptarchia_state.latest_commitments(),
-            tx,
-        );
-        assert_eq!(result, Err(Error::InvalidSignature));
-    }
-
-    #[test]
     fn test_unsupported_operation() {
         let cryptarchia_state = genesis_state(&[utxo()]);
         let test_config = config();
@@ -405,16 +386,12 @@ mod tests {
         let (_, verifying_key) = create_test_keys();
         let channel_id = ChannelId::from([5; 32]);
 
-        let blob_op = BlobOp {
+        let set_keys_op = SetKeysOp {
             channel: channel_id,
-            blob: [42; 32],
-            blob_size: 1024,
-            da_storage_gas_price: 10,
-            parent: MsgId::root(),
-            signer: verifying_key,
+            keys: vec![verifying_key],
         };
 
-        let op = Op::ChannelBlob(blob_op);
+        let op = Op::ChannelSetKeys(set_keys_op);
         let mut tx = create_test_tx_with_ops(vec![op]);
         tx.ops_proofs = vec![None]; // Missing proof
 
@@ -657,6 +634,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(clippy::too_many_lines, reason = "Test function.")]
     fn test_sdp_withdraw_operation() {
         // First, declare a service to activate.
         let utxo = utxo();
@@ -696,9 +674,11 @@ mod tests {
             .0;
 
         assert!(ledger_state.sdp.get_declaration(&declaration_id).is_ok());
-        assert!(ledger_state
-            .locked_notes
-            .contains(&declare_op.locked_note_id));
+        assert!(
+            ledger_state
+                .locked_notes
+                .contains(&declare_op.locked_note_id)
+        );
 
         // Apply the active operation.
         let active_op = SDPActiveOp {
@@ -769,9 +749,11 @@ mod tests {
             .0;
 
         let declaration = ledger_state.sdp.get_declaration(&declaration_id).unwrap();
-        assert!(!ledger_state
-            .locked_notes
-            .contains(&declare_op.locked_note_id));
+        assert!(
+            !ledger_state
+                .locked_notes
+                .contains(&declare_op.locked_note_id)
+        );
         assert_eq!(declaration.active, 1);
         assert_eq!(declaration.withdrawn, Some(11));
         assert_eq!(declaration.nonce, 2);
