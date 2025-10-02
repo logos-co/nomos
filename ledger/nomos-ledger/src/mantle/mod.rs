@@ -1,6 +1,7 @@
 pub mod channel;
 pub mod leader;
 pub mod locked_notes;
+pub mod membership;
 pub mod sdp;
 
 use cryptarchia_engine::Epoch;
