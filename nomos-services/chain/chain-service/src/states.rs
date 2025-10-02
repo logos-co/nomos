@@ -98,6 +98,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[expect(clippy::too_many_lines, reason = "A big test case")]
     fn save_prunable_forks() {
         let genesis_header_id: HeaderId = [0; 32].into();
         // We don't prune fork stemming from the block before the current tip.
@@ -122,6 +123,7 @@ mod tests {
                             inactivity_period: 20,
                             retention_period: 100,
                             timestamp: 0,
+                            session_duration: 10,
                         },
                     ),
                     (
@@ -131,6 +133,7 @@ mod tests {
                             inactivity_period: 20,
                             retention_period: 100,
                             timestamp: 0,
+                            session_duration: 10,
                         },
                     ),
                 ]

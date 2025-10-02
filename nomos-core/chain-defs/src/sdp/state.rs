@@ -221,6 +221,7 @@ mod tests {
             inactivity_period: 20,
             retention_period: 100,
             timestamp: 0,
+            session_duration: 10,
         }
     }
 
@@ -522,6 +523,7 @@ mod tests {
             inactivity_period: 5,
             retention_period: 30,
             timestamp: 0,
+            session_duration: 10,
         };
         let mut declaration_state = DeclarationState::new(
             0,

@@ -226,7 +226,7 @@ impl LedgerState {
         current_block_number: BlockNumber,
         config: &Config,
     ) -> Result<Self, Error> {
-        self.membership = self.membership.update(
+        self.membership = self.membership.try_update(
             current_block_number,
             &self.sdp.declarations,
             &config.service_params,

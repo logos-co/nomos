@@ -1,6 +1,10 @@
 pub mod state;
 
-use std::{collections::BTreeSet, hash::Hash, ops::Deref};
+use std::{
+    collections::{BTreeSet, HashSet},
+    hash::Hash,
+    ops::Deref,
+};
 
 use blake2::{Blake2b, Digest as _};
 use bytes::{Bytes, BytesMut};
@@ -10,7 +14,10 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use state::TransientDeclarationState;
 use strum::EnumIter;
 
-use crate::{block::BlockNumber, mantle::NoteId};
+use crate::{
+    block::{BlockNumber, SessionNumber},
+    mantle::NoteId,
+};
 
 pub type StakeThreshold = u64;
 
@@ -26,6 +33,7 @@ pub struct ServiceParameters {
     pub inactivity_period: u64,
     pub retention_period: u64,
     pub timestamp: BlockNumber,
+    pub session_duration: BlockNumber,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -352,4 +360,23 @@ pub struct FinalizedBlockEventUpdate {
     pub provider_id: ProviderId,
     pub state: FinalizedDeclarationState,
     pub locators: BTreeSet<Locator>,
+}
+
+#[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
+pub struct Session {
+    pub session_number: SessionNumber,
+    pub declarations: HashSet<DeclarationId>,
+}
+
+impl Session {
+    pub fn update(&mut self, declaration_id: DeclarationId, state: &FinalizedDeclarationState) {
+        match state {
+            FinalizedDeclarationState::Active => {
+                self.declarations.insert(declaration_id);
+            }
+            FinalizedDeclarationState::Inactive | FinalizedDeclarationState::Withdrawn => {
+                self.declarations.remove(&declaration_id);
+            }
+        }
+    }
 }
