@@ -36,7 +36,11 @@ use tx_service::{
     network::NetworkAdapter as MempoolAdapter,
 };
 
-use crate::{blend::BlendAdapter, leadership::Leader, relays::CryptarchiaConsensusRelays};
+use crate::{
+    blend::BlendAdapter,
+    leadership::{Leader, PoLNotifier},
+    relays::CryptarchiaConsensusRelays,
+};
 
 type SamplingRelay<BlobId> = OutboundRelay<DaSamplingServiceMsg<BlobId>>;
 
@@ -297,6 +301,7 @@ where
         // TODO: check active slot coeff is exactly 1/30
 
         let leader = Leader::new(leader_config.utxos.clone(), leader_config.sk, ledger_config);
+        let pol_notifier = PoLNotifier::new(&leader, &self.winning_pol_epoch_slots_sender);
 
         let tx_selector = TxS::new(transaction_selector_settings);
 
@@ -331,8 +336,6 @@ where
             CryptarchiaService
         )
         .await?;
-
-        let mut _last_processed_epoch: Option<Epoch> = None;
 
         let async_loop = async {
             loop {
@@ -375,17 +378,7 @@ where
                             }
                         };
 
-                        // // If we are in the same epoch that we already processed, skip. Else, pre-compute proofs and send them to subcribers.
-                        // if let Some(processed_epoch) = last_processed_epoch && processed_epoch == epoch {} else {
-                        //     debug!("Pre-computing PoL private inputs for message blending.");
-                        //     processed_epoch = Some(epoch);
-                        //     let leader = leader.clone();
-                        //     let sender = self.winning_pol_epoch_slots_sender.clone();
-                        //     let epoch_state = epoch_state.clone();
-                        //     spawn_blocking(move {
-
-                        //     });
-                        // }
+                        pol_notifier.process_epoch(&epoch_state);
 
                         if let Some(proof) = leader.build_proof_for(aged_tree, latest_tree, &epoch_state, slot).await {
                             debug!("proposing block...");

@@ -225,12 +225,17 @@ pub struct LeaderPrivate {
 
 impl LeaderPrivate {
     #[must_use]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Refactor when actual proofs are generated."
+    )]
     pub fn new(
         public: LeaderPublic,
         note: Utxo,
         aged_path: &MerklePath<Fr>,
         latest_path: &MerklePath<Fr>,
         slot_secret: Fr,
+        slot_secret_path: &MerklePath<Fr>,
         starting_slot: u64,
         leader_pk: &ed25519_dalek::VerifyingKey,
     ) -> Self {
@@ -259,7 +264,7 @@ impl LeaderPrivate {
                 .map(|n| matches!(n, MerkleNode::Right(_)))
                 .collect(),
             slot_secret,
-            slot_secret_path: vec![], // TODO: implement
+            slot_secret_path: slot_secret_path.iter().map(|n| *n.item()).collect(),
             starting_slot,
         };
         let input = pol::PolWitnessInputsData::from_chain_and_wallet_data(chain, wallet);
