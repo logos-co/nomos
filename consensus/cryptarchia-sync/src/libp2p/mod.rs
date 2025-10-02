@@ -4,4 +4,5 @@ pub mod errors;
 pub mod messages;
 mod packing;
 pub mod provider;
+mod stream;
 mod utils;

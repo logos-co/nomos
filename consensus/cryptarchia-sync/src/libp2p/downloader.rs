@@ -11,7 +11,8 @@ use crate::{
         errors::{ChainSyncError, ChainSyncErrorKind},
         messages::{DownloadBlocksResponse, RequestMessage},
         packing::unpack_from_reader,
-        utils::{self, open_stream, send_message},
+        stream::{Stream, StreamCloser},
+        utils::send_message,
     },
     messages::SerialisedBlock,
 };
@@ -23,14 +24,18 @@ impl Downloader {
         peer_id: PeerId,
         control: &mut Control,
         reply_sender: oneshot::Sender<Result<GetTipResponse, ChainSyncError>>,
-    ) -> Result<TipRequestStream, ChainSyncError> {
-        let mut stream = open_stream(peer_id, control).await?;
+    ) -> Result<(TipRequestStream, StreamCloser), ChainSyncError> {
+        let (mut stream, stream_closer) = Stream::open(peer_id, control).await?;
 
         let tip_request = RequestMessage::GetTip;
-        send_message(peer_id, &mut stream, &tip_request).await?;
+        if let Err(e) = send_message(peer_id, &mut stream, &tip_request).await {
+            drop(stream);
+            stream_closer.await;
+            return Err(e);
+        }
 
         let request_stream = TipRequestStream::new(peer_id, stream, reply_sender);
-        Ok(request_stream)
+        Ok((request_stream, stream_closer))
     }
 
     pub async fn send_download_request(
@@ -38,15 +43,19 @@ impl Downloader {
         mut control: Control,
         request: DownloadBlocksRequest,
         reply_sender: oneshot::Sender<BoxedStream<Result<SerialisedBlock, ChainSyncError>>>,
-    ) -> Result<BlocksRequestStream, ChainSyncError> {
-        let mut stream = open_stream(peer_id, &mut control).await?;
+    ) -> Result<(BlocksRequestStream, StreamCloser), ChainSyncError> {
+        let (mut stream, stream_closer) = Stream::open(peer_id, &mut control).await?;
 
         let download_request = RequestMessage::DownloadBlocksRequest(request);
 
-        send_message(peer_id, &mut stream, &download_request).await?;
+        if let Err(e) = send_message(peer_id, &mut stream, &download_request).await {
+            drop(stream);
+            stream_closer.await;
+            return Err(e);
+        }
 
         let request_stream = BlocksRequestStream::new(peer_id, stream, reply_sender);
-        Ok(request_stream)
+        Ok((request_stream, stream_closer))
     }
 
     pub async fn receive_tip(
@@ -77,46 +86,34 @@ impl Downloader {
             }),
         });
 
-        if let Err(e) = reply_channel.send(response) {
-            error!("Failed to send tip response to peer {peer_id}: {e:?}");
-        }
-
-        utils::close_stream(peer_id, stream).await
+        reply_channel.send(response).map_err(|e| ChainSyncError {
+            peer: peer_id,
+            kind: ChainSyncErrorKind::ChannelSendError(format!(
+                "Failed to send tip response result to {peer_id:?}: {e:?}"
+            )),
+        })
     }
 
     pub async fn receive_blocks(
         request_stream: BlocksRequestStream,
         timeout: Duration,
     ) -> Result<(), ChainSyncError> {
-        let libp2p_stream = request_stream.stream;
+        let stream = request_stream.stream;
         let peer_id = request_stream.peer_id;
         let reply_channel = request_stream.reply_channel;
 
-        let stream = stream::try_unfold(libp2p_stream, move |mut stream| async move {
+        let stream = stream::try_unfold(stream, move |mut stream| async move {
             let response = time::timeout(timeout, unpack_from_reader(&mut stream)).await;
 
             match response {
                 Ok(Ok(DownloadBlocksResponse::Block(block))) => Ok(Some((block, stream))),
-                Ok(Ok(DownloadBlocksResponse::NoMoreBlocks)) => {
-                    utils::close_stream(peer_id, stream).await?;
-                    Ok(None)
-                }
-                Ok(Ok(DownloadBlocksResponse::Failure(reason))) => {
-                    utils::close_stream(peer_id, stream).await?;
-
-                    Err(ChainSyncError {
-                        peer: peer_id,
-                        kind: ChainSyncErrorKind::RequestBlocksDownloadError(reason),
-                    })
-                }
-                Ok(Err(e)) => {
-                    let _ = utils::close_stream(peer_id, stream).await;
-                    Err(ChainSyncError::from((peer_id, e)))
-                }
-                Err(e) => {
-                    let _ = utils::close_stream(peer_id, stream).await;
-                    Err(ChainSyncError::from((peer_id, e)))
-                }
+                Ok(Ok(DownloadBlocksResponse::NoMoreBlocks)) => Ok(None),
+                Ok(Ok(DownloadBlocksResponse::Failure(reason))) => Err(ChainSyncError {
+                    peer: peer_id,
+                    kind: ChainSyncErrorKind::RequestBlocksDownloadError(reason),
+                }),
+                Ok(Err(e)) => Err(ChainSyncError::from((peer_id, e))),
+                Err(e) => Err(ChainSyncError::from((peer_id, e))),
             }
         });
 
