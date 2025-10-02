@@ -7,6 +7,7 @@ use bytes::{Bytes, BytesMut};
 use groth16::{Fr, serde::serde_fr};
 use multiaddr::Multiaddr;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use strum::EnumIter;
 
 use crate::{block::BlockNumber, mantle::NoteId};
 
@@ -43,7 +44,7 @@ impl AsRef<Multiaddr> for Locator {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize, EnumIter)]
 pub enum ServiceType {
     #[serde(rename = "BN")]
     BlendNetwork,
