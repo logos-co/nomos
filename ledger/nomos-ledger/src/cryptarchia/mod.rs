@@ -480,6 +480,7 @@ pub mod tests {
                             inactivity_period: 20,
                             retention_period: 100,
                             timestamp: 0,
+                            session_duration: 10,
                         },
                     ),
                     (
@@ -489,6 +490,7 @@ pub mod tests {
                             inactivity_period: 20,
                             retention_period: 100,
                             timestamp: 0,
+                            session_duration: 10,
                         },
                     ),
                 ]

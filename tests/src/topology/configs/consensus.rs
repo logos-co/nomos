@@ -83,6 +83,7 @@ pub fn create_consensus_configs(
                         inactivity_period: 20,
                         retention_period: 100,
                         timestamp: 0,
+                        session_duration: 1000,
                     },
                 ),
                 (
@@ -92,6 +93,7 @@ pub fn create_consensus_configs(
                         inactivity_period: 20,
                         retention_period: 100,
                         timestamp: 0,
+                        session_duration: 1000,
                     },
                 ),
             ]
