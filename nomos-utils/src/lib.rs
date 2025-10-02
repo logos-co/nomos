@@ -3,6 +3,9 @@ pub mod math;
 pub mod net;
 pub mod noop_service;
 
+#[cfg(feature = "types")]
+pub mod types;
+
 #[cfg(feature = "rng")]
 pub mod blake_rng;
 

@@ -18,6 +18,13 @@ impl SecuredKey for Ed25519Key {
         Ok(self.0.sign(payload.iter().as_slice()))
     }
 
+    fn sign_multiple(
+        _keys: &[&Self],
+        _payload: &Self::Payload,
+    ) -> Result<Self::Signature, Self::Error> {
+        unimplemented!("Multi-key signature is not implemented for Ed25519 keys.")
+    }
+
     fn as_public_key(&self) -> VerifyingKey {
         self.0.verifying_key()
     }

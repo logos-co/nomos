@@ -48,6 +48,12 @@ type KeyDescriptor<Backend> = (
     <<Backend as KMSBackend>::Key as SecuredKey>::PublicKey,
 );
 
+#[derive(Debug)]
+pub enum KMSSigningStrategy<KeyId> {
+    Single(KeyId),
+    Multi(Vec<KeyId>),
+}
+
 pub enum KMSMessage<Backend, Payload, Signature, PublicKey, KeyError, OperatorError>
 where
     Backend: KMSBackend,
@@ -62,8 +68,8 @@ where
         reply_channel: oneshot::Sender<PublicKey>,
     },
     Sign {
-        key_id: Backend::KeyId,
-        data: Payload,
+        signing_strategy: KMSSigningStrategy<Backend::KeyId>,
+        payload: Payload,
         reply_channel: oneshot::Sender<Signature>,
     },
     Execute {
@@ -100,8 +106,10 @@ where
             Self::PublicKey { key_id, .. } => {
                 write!(f, "KMS-PublicKey {{ KeyId: {key_id:?} }}")
             }
-            Self::Sign { key_id, .. } => {
-                write!(f, "KMS-Sign {{ KeyId: {key_id:?} }}")
+            Self::Sign {
+                signing_strategy, ..
+            } => {
+                write!(f, "KMS-Sign {{ KeyId: {signing_strategy:?} }}")
             }
             Self::Execute { .. } => {
                 write!(f, "KMS-Execute")
@@ -230,13 +238,16 @@ where
                 }
             }
             KMSMessage::Sign {
-                key_id,
-                data,
+                signing_strategy,
+                payload,
                 reply_channel,
             } => {
-                let Ok(signature) = backend.sign(key_id, data) else {
-                    panic!("Could not sign.")
-                };
+                let signature = match signing_strategy {
+                    KMSSigningStrategy::Single(key) => backend.sign(key, payload),
+                    KMSSigningStrategy::Multi(keys) => backend.sign_multiple(keys, payload),
+                }
+                .expect("Could not sign.");
+
                 if let Err(_signature) = reply_channel.send(signature) {
                     error!("Could not reply to the public key request channel");
                 }

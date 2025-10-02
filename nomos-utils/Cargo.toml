@@ -23,6 +23,7 @@ time        = { default-features = false, features = ["serde-human-readable"], o
 rng   = ["dep:blake2"]
 serde = ["serde/alloc"]
 time  = ["dep:humantime", "dep:serde", "dep:serde_with", "dep:time"]
+types = []
 
 [dev-dependencies]
 nistrs      = "0.1.2"
