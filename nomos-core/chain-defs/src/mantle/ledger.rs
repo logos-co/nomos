@@ -57,6 +57,11 @@ impl Note {
     pub fn as_fr_components(&self) -> [Fr; 2] {
         [BigUint::from(self.value).into(), *self.pk.as_fr()]
     }
+
+    #[must_use]
+    pub fn id(&self) -> Fr {
+        BigUint::from(1u8).into() // placeholder for note ID, replace after mantle notes format update
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

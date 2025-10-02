@@ -154,6 +154,12 @@ impl EpochConfig {
             .try_into()
             .expect("Epoch should build from a correct configuration")
     }
+
+    #[must_use]
+    pub fn starting_slot(&self, _epoch: &Epoch) -> Slot {
+        // TODO: get actual starting slot
+        0.into()
+    }
 }
 
 #[cfg_attr(feature = "serde", cfg_eval::cfg_eval, serde_with::serde_as)]

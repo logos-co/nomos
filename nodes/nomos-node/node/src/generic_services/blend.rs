@@ -19,7 +19,7 @@ use nomos_blend_message::crypto::{
 };
 use nomos_blend_scheduling::message_blend::{BlendLayerProof, SessionInfo};
 use nomos_blend_service::{
-    ProofOfLeadershipQuotaInputs, ProofsGenerator, ProofsVerifier,
+    ProofsGenerator, ProofsVerifier,
     epoch_info::{PolEpochInfo, PolInfoProvider as PolInfoProviderTrait},
     membership::service::Adapter,
 };
@@ -28,7 +28,6 @@ use nomos_da_sampling::network::NetworkAdapter;
 use nomos_libp2p::PeerId;
 use nomos_time::backends::NtpTimeBackend;
 use overwatch::{overwatch::OverwatchHandle, services::AsServiceId};
-use pol::{PolChainInputsData, PolWalletInputsData, PolWitnessInputsData};
 use services_utils::wait_until_services_are_ready;
 use tokio::sync::oneshot::channel;
 use tokio_stream::wrappers::BroadcastStream;
@@ -198,23 +197,7 @@ where
     async fn subscribe(
         overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
     ) -> Option<Self::Stream> {
-        use groth16::Field as _;
-
-        wait_until_services_are_ready!(
-            overwatch_handle,
-            Some(Duration::from_secs(3)),
-            CryptarchiaLeaderService<
-                CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
-                WalletService<
-                    CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
-                    RuntimeServiceId,
-                >,
-                SamplingAdapter,
-                RuntimeServiceId,
-            >
-        )
-        .await
-        .ok()?;
+        wait_until_services_are_ready!(overwatch_handle, Some(Duration::from_secs(3)), CryptarchiaLeaderService<SamplingAdapter, RuntimeServiceId>).await.ok()?;
         let cryptarchia_service_relay = overwatch_handle
             .relay::<CryptarchiaLeaderService<
                 CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
@@ -235,45 +218,12 @@ where
         let pol_winning_slot_receiver = receiver.await.ok()?;
         Some(Box::new(
             BroadcastStream::new(pol_winning_slot_receiver).filter_map(|res| {
-                let Ok(private) = res else {
+                let Ok((poq_private_inputs, epoch)) = res else {
                     return ready(None);
                 };
-                let PolWitnessInputsData {
-                    chain:
-                        PolChainInputsData {
-                            epoch_nonce,
-                            slot_number,
-                            ..
-                        },
-                    wallet:
-                        PolWalletInputsData {
-                            note_value,
-                            transaction_hash,
-                            output_number,
-                            aged_path,
-                            aged_selector,
-                            slot_secret,
-                            slot_secret_path,
-                            starting_slot,
-                            ..
-                        },
-                } = PolWitnessInputsData::from(private);
                 ready(Some(PolEpochInfo {
-                    epoch_nonce,
-                    poq_private_inputs: ProofOfLeadershipQuotaInputs {
-                        aged_path,
-                        aged_selector,
-                        note_value,
-                        output_number,
-                        // TODO: Replace with actual value once `LeaderPrivate` will include the
-                        // note secret key.
-                        pol_secret_key: ZkHash::ZERO,
-                        slot: slot_number,
-                        slot_secret,
-                        slot_secret_path,
-                        starting_slot,
-                        transaction_hash,
-                    },
+                    epoch,
+                    poq_private_inputs,
                 }))
             }),
         ))
