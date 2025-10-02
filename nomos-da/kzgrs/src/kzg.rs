@@ -1,6 +1,7 @@
 use std::{borrow::Cow, ops::Mul as _};
 
-use ark_bls12_381::{Bls12_381, Fr};
+use ark_bls12_381::{Bls12_381, Fr, G1Affine};
+use ark_ec::bls12::G1Prepared;
 use ark_ec::pairing::Pairing as _;
 use ark_poly::{
     DenseUVPolynomial as _, EvaluationDomain as _, GeneralEvaluationDomain,
@@ -61,13 +62,13 @@ pub fn verify_element_proof(
     let v = element;
     let commitment_check_g1 = verification_key.g.mul(v) - commitment.0 - proof.w.mul(u);
     let qap = Bls12_381::multi_miller_loop(
-        [commitment_check_g1.into(), proof.w],
+        [<G1Affine as Into<G1Prepared<_>>>::into(proof.w), commitment_check_g1.into()],
         [
-            verification_key.prepared_h.clone(),
             verification_key.prepared_beta_h.clone(),
+            verification_key.prepared_h.clone(),
         ],
     );
-    let test = Bls12_381::final_exponentiation(qap).unwrap();
+    let test = Bls12_381::final_exponentiation(qap).expect("Malformed Fr elements");
     test.is_zero()
 }
 

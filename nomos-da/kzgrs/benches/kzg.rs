@@ -133,7 +133,7 @@ fn compute_parallelize_batch_proofs(bencher: Bencher, element_count: usize) {
         });
 }
 
-#[divan::bench]
+#[divan::bench(sample_count = 100, sample_size = 10)]
 fn verify_single_proof(bencher: Bencher) {
     bencher
         .with_inputs(|| {
