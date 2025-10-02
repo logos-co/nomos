@@ -130,7 +130,6 @@ mod tests {
     use std::str::FromStr as _;
 
     use num_bigint::BigUint;
-    use pol::batch_verify;
 
     use super::*;
 
@@ -230,7 +229,7 @@ mod tests {
             session: chain_data.session,
             total_stake: chain_data.total_stake,
         };
-        let inputs = recomputed_verify_inputs.into();
+        let inputs : PoQVerifierInput = recomputed_verify_inputs.into();
         assert!(verify(&proof, inputs.clone()).unwrap());
         assert!(batch_verify(&[proof, proof], &[inputs.clone(), inputs]).unwrap());
     }
@@ -383,7 +382,7 @@ mod tests {
             session: chain_data.session,
             total_stake: chain_data.total_stake,
         };
-        let inputs = recomputed_verify_inputs.into();
+        let inputs : PoQVerifierInput = recomputed_verify_inputs.into();
         assert!(verify(&proof, inputs.clone()).unwrap());
         assert!(batch_verify(&[proof, proof], &[inputs.clone(), inputs]).unwrap());
     }

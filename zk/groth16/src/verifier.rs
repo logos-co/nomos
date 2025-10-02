@@ -21,7 +21,7 @@ pub fn groth16_verify<E: Pairing>(
     Groth16::<E, LibsnarkReduction>::verify_proof(vk.as_ref(), &proof, public_inputs)
 }
 
-#[must_use]
+
 pub fn groth16_batch_verify(
     vk: &PreparedVerificationKey<Bn254>,
     proofs: &[Proof<Bn254>],

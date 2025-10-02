@@ -62,7 +62,7 @@ impl From<&Input<Bn254>> for InputDeser {
 
 #[cfg(test)]
 mod tests {
-    use ark_ff::Field;
+    use ark_ff::Field as _;
 
     use super::*;
 

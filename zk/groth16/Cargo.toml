@@ -9,6 +9,7 @@ ark-bn254     = { default-features = false, features = ["curve"], version = "0.4
 ark-ec        = "0.4"
 ark-ff        = { version = "0.4" }
 ark-groth16   = { default-features = false, features = ["std"], version = "0.4" }
+ark-relations = "0.4.0"
 ark-serialize = { default-features = false, version = "0.4.2" }
 ark-std       = { default-features = false, version = "0.4.0" }
 generic-array = { default-features = false, version = "1.2" }
@@ -18,7 +19,6 @@ rand          = { default-features = false, features = ["std", "std_rng"], versi
 serde         = { default-features = false, features = ["derive"], optional = true, version = "1.0" }
 serde_json    = { default-features = false, features = ["alloc"], optional = true, version = "1.0" }
 thiserror     = { default-features = false, version = "2.0" }
-ark-relations = "0.4.0"
 
 [dev-dependencies]
 bincode    = { default-features = false, version = "1.3" }

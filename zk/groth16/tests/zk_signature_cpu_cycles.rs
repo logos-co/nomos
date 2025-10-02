@@ -372,7 +372,7 @@ fn zk_signature_cpu_cycles() {
     let iters = 100u64;
     let pre = unsafe { core::arch::x86_64::_rdtsc() };
     for _ in 0..iters {
-        black_box(groth16_verify(&pvk, &proof, &pi).expect("success"));
+        let _ = black_box(groth16_verify(&pvk, &proof, &pi).expect("success"));
     }
     let post = unsafe { core::arch::x86_64::_rdtsc() };
     let cycles = (post - pre) / iters;
@@ -394,7 +394,7 @@ fn zk_signature_cpu_cycles() {
             .collect();
         let pre = unsafe { core::arch::x86_64::_rdtsc() };
         for _ in 0..iters {
-            black_box(groth16_batch_verify(&pvk, &proofs_batch, &pi_batch));
+            let _ = black_box(groth16_batch_verify(&pvk, &proofs_batch, &pi_batch));
         }
         let post = unsafe { core::arch::x86_64::_rdtsc() };
         let cycles = (post - pre) / iters;
@@ -417,7 +417,7 @@ fn zk_signature_cpu_cycles() {
             .collect();
         let pre = unsafe { core::arch::x86_64::_rdtsc() };
         for _ in 0..iters {
-            black_box(groth16_batch_verify(&pvk, &proofs_batch, &pi_batch));
+            let _ = black_box(groth16_batch_verify(&pvk, &proofs_batch, &pi_batch));
         }
         let post = unsafe { core::arch::x86_64::_rdtsc() };
         let cycles = (post - pre) / iters;
