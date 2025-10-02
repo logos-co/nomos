@@ -117,7 +117,7 @@ mod tests {
             EncodedData,
             test::{ENCODER, rand_data},
         },
-        global::GLOBAL_PARAMETERS,
+        kzg_keys::VERIFICATION_KEY,
         verifier::DaVerifier,
     };
 
@@ -145,7 +145,7 @@ mod tests {
         let encoder = &ENCODER;
         let data = rand_data(8);
         let verifiers: Vec<DaVerifier> =
-            std::iter::repeat_with(|| DaVerifier::new(GLOBAL_PARAMETERS.clone()))
+            std::iter::repeat_with(|| DaVerifier::new(VERIFICATION_KEY.clone()))
                 .take(16)
                 .collect();
 

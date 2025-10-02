@@ -6,7 +6,7 @@ use divan::{Bencher, counter::BytesCount};
 use kzgrs::{common::field_element_from_bytes_le, decode, rs::points_to_bytes};
 use kzgrs_backend::{
     encoder::{DaEncoder, DaEncoderParams},
-    global::GLOBAL_PARAMETERS,
+    kzg_keys::PROVING_KEY,
 };
 use nomos_core::da::DaEncoder as _;
 use rand::{RngCore as _, prelude::IteratorRandom as _, thread_rng};
@@ -27,7 +27,7 @@ pub fn rand_data(elements_count: usize) -> Vec<u8> {
 fn reconstruct<const SIZE: usize>(bencher: Bencher, column_size: usize) {
     bencher
         .with_inputs(|| {
-            let params = DaEncoderParams::new(column_size, true, GLOBAL_PARAMETERS.clone());
+            let params = DaEncoderParams::new(column_size, true, PROVING_KEY.clone());
             let data = rand_data(SIZE * MB / DaEncoderParams::MAX_BLS12_381_ENCODING_CHUNK_SIZE);
             let encoder = DaEncoder::new(params);
             encoder.encode(&data).unwrap()

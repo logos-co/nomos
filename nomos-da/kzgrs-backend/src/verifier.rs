@@ -1,6 +1,6 @@
 use ark_ff::PrimeField as _;
 use ark_poly::EvaluationDomain as _;
-use kzgrs::{FieldElement, GlobalParameters, PolynomialEvaluationDomain, Proof};
+use kzgrs::{FieldElement, GlobalParameters, PolynomialEvaluationDomain, Proof, VerificationKey};
 
 use crate::common::{
     Chunk,
@@ -9,13 +9,13 @@ use crate::common::{
 
 #[derive(Clone)]
 pub struct DaVerifier {
-    pub global_parameters: GlobalParameters,
+    pub verification_key: VerificationKey,
 }
 
 impl DaVerifier {
     #[must_use]
-    pub const fn new(global_parameters: GlobalParameters) -> Self {
-        Self { global_parameters }
+    pub const fn new(verification_key: VerificationKey) -> Self {
+        Self { verification_key }
     }
 
     #[must_use]
@@ -38,7 +38,7 @@ impl DaVerifier {
             &commitments.rows_commitments,
             &share.combined_column_proof,
             rows_domain,
-            &self.global_parameters,
+            &self.verification_key,
         )
     }
 
@@ -90,16 +90,17 @@ mod test {
 
     use crate::{
         encoder::{DaEncoder, DaEncoderParams, test::rand_data},
-        global::GLOBAL_PARAMETERS,
+        kzg_keys::VERIFICATION_KEY,
         verifier::DaVerifier,
     };
+    use crate::common::share::{DaLightShare, DaSharesCommitments};
 
     #[test]
     fn test_verify() {
         let encoder = DaEncoder::new(DaEncoderParams::default_with(2));
         let data = rand_data(32);
         let domain_size = 2usize;
-        let verifier = DaVerifier::new(GLOBAL_PARAMETERS.clone());
+        let verifier = DaVerifier::new(VERIFICATION_KEY.clone());
         let encoded_data = encoder.encode(&data).unwrap();
         for share in &encoded_data {
             let (light_share, commitments) = share.into_share_and_commitments();
@@ -153,7 +154,7 @@ mod test {
         let domain_size = 2048usize;
         let encoder = DaEncoder::new(DaEncoderParams::default_with(domain_size));
         let data = rand_data(configuration.elements_count);
-        let verifier = DaVerifier::new(GLOBAL_PARAMETERS.clone());
+        let verifier = DaVerifier::new(VERIFICATION_KEY.clone());
         let encoded_data = encoder.encode(&data).unwrap();
 
         let share = encoded_data.iter().next().unwrap();
@@ -195,7 +196,7 @@ mod test {
         let encoder = DaEncoder::new(DaEncoderParams::default_with(domain_size));
         let mut shares: Vec<DaLightShare> = vec![];
         let mut commitmentss: Vec<DaSharesCommitments> = vec![];
-        let verifier = DaVerifier::new(GLOBAL_PARAMETERS.clone());
+        let verifier = DaVerifier::new(VERIFICATION_KEY.clone());
         for _ in 0..max_batch_size {
             let data = rand_data(configuration.elements_count);
             let encoded_data = encoder.encode(&data).unwrap();

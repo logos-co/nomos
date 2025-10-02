@@ -283,10 +283,9 @@ where
         wallet_adapter: Self::WalletAdapter,
     ) -> Self {
         let encoder_settings = &settings.encoder_settings;
-        let global_params = kzgrs_backend::global::global_parameters_from_file(
-            &encoder_settings.global_params_path,
-        )
-        .expect("Global encoder params should be available");
+        let global_params =
+            kzgrs_backend::kzg_keys::proving_key_from_file(&encoder_settings.global_params_path)
+                .expect("Global encoder params should be available");
         let encoder = Self::Encoder::new(DaEncoderParams::new(
             encoder_settings.num_columns,
             encoder_settings.with_cache,
