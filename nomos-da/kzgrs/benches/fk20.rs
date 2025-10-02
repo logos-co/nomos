@@ -5,7 +5,7 @@ use ark_poly::{EvaluationDomain as _, GeneralEvaluationDomain, univariate::Dense
 use ark_poly_commit::kzg10::KZG10;
 use divan::{Bencher, counter::ItemsCount};
 use kzgrs::{
-    BYTES_PER_FIELD_ELEMENT, GlobalParameters, bytes_to_polynomial,
+    BYTES_PER_FIELD_ELEMENT, ProvingKey, bytes_to_polynomial,
     fk20::{Toeplitz1Cache, fk20_batch_generate_elements_proofs},
 };
 use rand::SeedableRng as _;
@@ -16,7 +16,7 @@ fn main() {
     divan::main();
 }
 
-static GLOBAL_PARAMETERS: LazyLock<GlobalParameters> = LazyLock::new(|| {
+static PROVING_KEY: LazyLock<ProvingKey> = LazyLock::new(|| {
     let mut rng = rand::rngs::StdRng::seed_from_u64(1987);
     KZG10::<Bls12_381, DensePolynomial<Fr>>::setup(4096, true, &mut rng).unwrap()
 });
@@ -37,7 +37,7 @@ fn compute_fk20_proofs_for_size(bencher: Bencher, size: usize) {
         .bench_refs(|poly| {
             black_box(fk20_batch_generate_elements_proofs(
                 poly,
-                &GLOBAL_PARAMETERS,
+                &PROVING_KEY,
                 None,
             ))
         });
@@ -60,7 +60,7 @@ fn compute_parallel_fk20_proofs_for_size(bencher: Bencher, size: usize) {
         .input_counter(move |_| ItemsCount::new(size * thread_count))
         .bench_refs(|poly| {
             (0..thread_count).into_par_iter().for_each(|_| {
-                let _ = fk20_batch_generate_elements_proofs(poly, &GLOBAL_PARAMETERS, None);
+                let _ = fk20_batch_generate_elements_proofs(poly, &PROVING_KEY, None);
             });
             black_box(());
         });
@@ -76,14 +76,14 @@ fn compute_fk20_proofs_for_size_with_cache(bencher: Bencher, size: usize) {
                 .collect();
             let domain = GeneralEvaluationDomain::new(size).unwrap();
             let (_, poly) = bytes_to_polynomial::<BYTES_PER_FIELD_ELEMENT>(&buff, domain).unwrap();
-            let cache = Toeplitz1Cache::with_size(&GLOBAL_PARAMETERS, size);
+            let cache = Toeplitz1Cache::with_size(&PROVING_KEY, size);
             (poly, cache)
         })
         .input_counter(move |_| ItemsCount::new(size))
         .bench_refs(|(poly, cache)| {
             black_box(fk20_batch_generate_elements_proofs(
                 poly,
-                &GLOBAL_PARAMETERS,
+                &PROVING_KEY,
                 Some(cache),
             ))
         });
@@ -101,13 +101,13 @@ fn compute_parallel_fk20_proofs_for_size_with_cache(bencher: Bencher, size: usiz
                 .collect();
             let domain = GeneralEvaluationDomain::new(size).unwrap();
             let (_, poly) = bytes_to_polynomial::<BYTES_PER_FIELD_ELEMENT>(&buff, domain).unwrap();
-            let cache = Toeplitz1Cache::with_size(&GLOBAL_PARAMETERS, size);
+            let cache = Toeplitz1Cache::with_size(&PROVING_KEY, size);
             (poly, cache)
         })
         .input_counter(move |_| ItemsCount::new(size * thread_count))
         .bench_refs(|(poly, cache)| {
             (0..thread_count).into_par_iter().for_each(|_| {
-                let _ = fk20_batch_generate_elements_proofs(poly, &GLOBAL_PARAMETERS, Some(cache));
+                let _ = fk20_batch_generate_elements_proofs(poly, &PROVING_KEY, Some(cache));
             });
             black_box(());
         });
