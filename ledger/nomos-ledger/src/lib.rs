@@ -104,7 +104,7 @@ where
         states.insert(id, new_state);
         Ok(Self {
             states,
-            config: self.config,
+            config: self.config.clone(),
         })
     }
 

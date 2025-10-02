@@ -90,10 +90,10 @@ pub struct LastEngineState {
 
 #[cfg(test)]
 mod tests {
-    use std::num::NonZero;
+    use std::{num::NonZero, sync::Arc};
 
     use cryptarchia_engine::State::Bootstrapping;
-    use nomos_core::sdp::{MinStake, ServiceParameters};
+    use nomos_core::sdp::{MinStake, ServiceParameters, ServiceType};
 
     use super::*;
 
@@ -113,12 +113,29 @@ mod tests {
                 epoch_period_nonce_stabilization: 1.try_into().unwrap(),
             },
             consensus_config: cryptarchia_engine_config,
-            service_params: ServiceParameters {
-                lock_period: 10,
-                inactivity_period: 20,
-                retention_period: 100,
-                timestamp: 0,
-            },
+            service_params: Arc::new(
+                [
+                    (
+                        ServiceType::BlendNetwork,
+                        ServiceParameters {
+                            lock_period: 10,
+                            inactivity_period: 20,
+                            retention_period: 100,
+                            timestamp: 0,
+                        },
+                    ),
+                    (
+                        ServiceType::DataAvailability,
+                        ServiceParameters {
+                            lock_period: 10,
+                            inactivity_period: 20,
+                            retention_period: 100,
+                            timestamp: 0,
+                        },
+                    ),
+                ]
+                .into(),
+            ),
             min_stake: MinStake {
                 threshold: 1,
                 timestamp: 0,

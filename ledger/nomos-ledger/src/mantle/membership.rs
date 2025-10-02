@@ -3,13 +3,13 @@ use std::collections::{HashMap, HashSet};
 use nomos_core::{
     block::{BlockNumber, SessionNumber},
     sdp::{
-        DeclarationState, FinalizedDeclarationState, ProviderId, ServiceParameters, ServiceType,
+        DeclarationId, DeclarationState, FinalizedDeclarationState, ServiceParameters, ServiceType,
         state::{DeclarationStateError, TransientDeclarationState},
     },
 };
 use strum::IntoEnumIterator as _;
 
-pub struct SessionConfig {
+pub struct SessionParams {
     size: BlockNumber,
 }
 
@@ -17,17 +17,17 @@ pub struct SessionConfig {
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct Session {
     pub session_number: SessionNumber,
-    pub providers: HashSet<ProviderId>,
+    pub declarations: HashSet<DeclarationId>,
 }
 
 impl Session {
-    pub fn update(&mut self, provider_id: ProviderId, state: &FinalizedDeclarationState) {
+    pub fn update(&mut self, declaration_id: DeclarationId, state: &FinalizedDeclarationState) {
         match state {
             FinalizedDeclarationState::Active => {
-                self.providers.insert(provider_id);
+                self.declarations.insert(declaration_id);
             }
             FinalizedDeclarationState::Inactive | FinalizedDeclarationState::Withdrawn => {
-                self.providers.remove(&provider_id);
+                self.declarations.remove(&declaration_id);
             }
         }
     }
@@ -71,11 +71,11 @@ impl Membership {
         for service_type in ServiceType::iter() {
             let initial_active_session = Session {
                 session_number: 0,
-                providers: HashSet::new(),
+                declarations: HashSet::new(),
             };
             let initial_forming_session = Session {
                 session_number: 1,
-                providers: HashSet::new(),
+                declarations: HashSet::new(),
             };
 
             active_sessions = active_sessions.insert(service_type, initial_active_session);
@@ -91,10 +91,10 @@ impl Membership {
     pub fn update(
         mut self,
         block_number: BlockNumber,
-        declarations: &rpds::HashTrieMapSync<ProviderId, DeclarationState>,
+        declarations: &rpds::HashTrieMapSync<DeclarationId, DeclarationState>,
         service_params: &HashMap<ServiceType, ServiceParameters>,
     ) -> Result<Self, MembershipError> {
-        for (provider_id, current_state) in declarations.iter() {
+        for (declaration_id, current_state) in declarations.iter() {
             let Some(params) = service_params.get(&current_state.service_type) else {
                 return Err(MembershipError::ServiceParamsNotFound(
                     current_state.service_type,
@@ -111,7 +111,7 @@ impl Membership {
                     current_state.service_type,
                 ));
             };
-            forming_session.update(*provider_id, &finalized_state);
+            forming_session.update(*declaration_id, &finalized_state);
         }
 
         Ok(self)
@@ -124,7 +124,7 @@ impl Membership {
         mut self,
         block_number: BlockNumber,
         service_type: &ServiceType,
-        provider_id: ProviderId,
+        declaration_id: DeclarationId,
     ) -> Result<Self, MembershipError> {
         if block_number != 0 {
             return Err(MembershipError::NotGenesisBlock);
@@ -132,7 +132,7 @@ impl Membership {
         let Some(active_session) = self.active_sessions.get_mut(service_type) else {
             return Err(MembershipError::ActiveSessionNotFound(*service_type));
         };
-        active_session.update(provider_id, &FinalizedDeclarationState::Active);
+        active_session.update(declaration_id, &FinalizedDeclarationState::Active);
 
         Ok(self)
     }
@@ -140,13 +140,13 @@ impl Membership {
     pub fn promote(
         mut self,
         block_number: BlockNumber,
-        session_configs: &HashMap<ServiceType, SessionConfig>,
+        session_params: &HashMap<ServiceType, SessionParams>,
     ) -> Result<Self, MembershipError> {
         let mut new_active_sessions = self.active_sessions;
         let mut new_forming_sessions = self.forming_sessions;
 
         for service_type in ServiceType::iter() {
-            let Some(config) = session_configs.get(&service_type) else {
+            let Some(config) = session_params.get(&service_type) else {
                 return Err(MembershipError::SessionParamsNotFound(service_type));
             };
 
@@ -183,7 +183,7 @@ mod tests {
     use super::*;
     use crate::cryptarchia::tests::utxo;
 
-    impl SessionConfig {
+    impl SessionParams {
         fn new(size: BlockNumber) -> Self {
             Self { size }
         }
@@ -191,12 +191,12 @@ mod tests {
 
     fn setup() -> (
         Membership,
-        HashMap<ServiceType, SessionConfig>,
+        HashMap<ServiceType, SessionParams>,
         HashMap<ServiceType, ServiceParameters>,
     ) {
         let mut configs = HashMap::new();
-        configs.insert(ServiceType::BlendNetwork, SessionConfig::new(10));
-        configs.insert(ServiceType::DataAvailability, SessionConfig::new(5));
+        configs.insert(ServiceType::BlendNetwork, SessionParams::new(10));
+        configs.insert(ServiceType::DataAvailability, SessionParams::new(5));
 
         let mut params = HashMap::new();
         params.insert(
@@ -227,7 +227,7 @@ mod tests {
     fn test_update_active_provider() {
         let (membership, _, service_params) = setup();
         let service_a = ServiceType::BlendNetwork;
-        let provider_id = ProviderId::try_from([1; 32]).unwrap();
+        let declaration_id = DeclarationId([0; 32]);
         let block_number = 5;
         let utxo = utxo();
         let note_id = utxo.id();
@@ -241,22 +241,23 @@ mod tests {
             withdrawn: None,
             nonce: 0,
         };
-        let declarations = rpds::HashTrieMapSync::new_sync().insert(provider_id, declaration_state);
+        let declarations =
+            rpds::HashTrieMapSync::new_sync().insert(declaration_id, declaration_state);
 
         let updated_membership = membership
             .update(block_number, &declarations, &service_params)
             .unwrap();
 
         let forming_session = updated_membership.forming_sessions.get(&service_a).unwrap();
-        assert!(forming_session.providers.contains(&provider_id));
-        assert_eq!(forming_session.providers.len(), 1);
+        assert!(forming_session.declarations.contains(&declaration_id));
+        assert_eq!(forming_session.declarations.len(), 1);
     }
 
     #[test]
     fn test_update_inactive_provider() {
         let (membership, _, service_params) = setup();
         let service_a = ServiceType::BlendNetwork;
-        let provider_id = ProviderId::try_from([1; 32]).unwrap();
+        let declaration_id = DeclarationId([0; 32]);
         let utxo = utxo();
         let note_id = utxo.id();
 
@@ -269,7 +270,8 @@ mod tests {
             withdrawn: None,
             nonce: 0,
         };
-        let declarations = rpds::HashTrieMapSync::new_sync().insert(provider_id, declaration_state);
+        let declarations =
+            rpds::HashTrieMapSync::new_sync().insert(declaration_id, declaration_state);
 
         let with_provider = membership
             .update(5, &declarations, &service_params)
@@ -279,8 +281,8 @@ mod tests {
                 .forming_sessions
                 .get(&service_a)
                 .unwrap()
-                .providers
-                .contains(&provider_id)
+                .declarations
+                .contains(&declaration_id)
         );
 
         let without_provider = with_provider
@@ -288,15 +290,15 @@ mod tests {
             .unwrap();
 
         let forming_session = without_provider.forming_sessions.get(&service_a).unwrap();
-        assert!(!forming_session.providers.contains(&provider_id));
-        assert!(forming_session.providers.is_empty());
+        assert!(!forming_session.declarations.contains(&declaration_id));
+        assert!(forming_session.declarations.is_empty());
     }
 
     #[test]
     fn test_promote_session_with_updated_provider() {
         let (membership, configs, service_params) = setup();
         let service_a = ServiceType::BlendNetwork;
-        let provider_id = ProviderId::try_from([1; 32]).unwrap();
+        let declaration_id = DeclarationId([0; 32]);
         let utxo = utxo();
         let note_id = utxo.id();
 
@@ -309,7 +311,8 @@ mod tests {
             withdrawn: None,
             nonce: 0,
         };
-        let declarations = rpds::HashTrieMapSync::new_sync().insert(provider_id, declaration_state);
+        let declarations =
+            rpds::HashTrieMapSync::new_sync().insert(declaration_id, declaration_state);
         let updated_membership = membership
             .update(1, &declarations, &service_params)
             .unwrap();
@@ -318,14 +321,14 @@ mod tests {
 
         let active_session = promoted_membership.active_sessions.get(&service_a).unwrap();
         assert_eq!(active_session.session_number, 1);
-        assert!(active_session.providers.contains(&provider_id));
+        assert!(active_session.declarations.contains(&declaration_id));
 
         let forming_session = promoted_membership
             .forming_sessions
             .get(&service_a)
             .unwrap();
         assert_eq!(forming_session.session_number, 2);
-        assert!(forming_session.providers.contains(&provider_id));
+        assert!(forming_session.declarations.contains(&declaration_id));
     }
 
     #[test]
@@ -335,7 +338,7 @@ mod tests {
         let promoted_membership = membership.promote(9, &configs).unwrap();
         let active_session = promoted_membership.active_sessions.get(&service_a).unwrap();
         assert_eq!(active_session.session_number, 0);
-        assert!(active_session.providers.is_empty());
+        assert!(active_session.declarations.is_empty());
         let forming_session = promoted_membership
             .forming_sessions
             .get(&service_a)
