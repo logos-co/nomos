@@ -33,7 +33,9 @@ use services_utils::wait_until_services_are_ready;
 use tokio::sync::oneshot::channel;
 use tokio_stream::wrappers::BroadcastStream;
 
-use crate::generic_services::{CryptarchiaLeaderService, CryptarchiaService, MembershipService};
+use crate::generic_services::{
+    CryptarchiaLeaderService, CryptarchiaService, MembershipService, WalletService,
+};
 
 // TODO: Replace this with the actual verifier once the verification inputs are
 // successfully fetched by the Blend service.
@@ -175,8 +177,17 @@ impl<SamplingAdapter, RuntimeServiceId> PolInfoProviderTrait<RuntimeServiceId>
     for PolInfoProvider<SamplingAdapter>
 where
     SamplingAdapter: NetworkAdapter<RuntimeServiceId> + 'static,
-    RuntimeServiceId: AsServiceId<CryptarchiaLeaderService<SamplingAdapter, RuntimeServiceId>>
-        + Debug
+    RuntimeServiceId: AsServiceId<
+            CryptarchiaLeaderService<
+                CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
+                WalletService<
+                    CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
+                    RuntimeServiceId,
+                >,
+                SamplingAdapter,
+                RuntimeServiceId,
+            >,
+        > + Debug
         + Display
         + Send
         + Sync
@@ -189,9 +200,31 @@ where
     ) -> Option<Self::Stream> {
         use groth16::Field as _;
 
-        wait_until_services_are_ready!(overwatch_handle, Some(Duration::from_secs(3)), CryptarchiaLeaderService<SamplingAdapter, RuntimeServiceId>).await.ok()?;
+        wait_until_services_are_ready!(
+            overwatch_handle,
+            Some(Duration::from_secs(3)),
+            CryptarchiaLeaderService<
+                CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
+                WalletService<
+                    CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
+                    RuntimeServiceId,
+                >,
+                SamplingAdapter,
+                RuntimeServiceId,
+            >
+        )
+        .await
+        .ok()?;
         let cryptarchia_service_relay = overwatch_handle
-            .relay::<CryptarchiaLeaderService<SamplingAdapter, RuntimeServiceId>>()
+            .relay::<CryptarchiaLeaderService<
+                CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
+                WalletService<
+                    CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
+                    RuntimeServiceId,
+                >,
+                SamplingAdapter,
+                RuntimeServiceId,
+            >>()
             .await
             .ok()?;
         let (sender, receiver) = channel();
