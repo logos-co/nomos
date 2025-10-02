@@ -1,6 +1,6 @@
 use std::{
     borrow::Cow,
-    ops::{Mul as _, Neg as _},
+    ops::Mul as _,
 };
 
 use ark_bls12_381::{Bls12_381, Fr, G1Affine};

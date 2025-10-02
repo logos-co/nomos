@@ -1,10 +1,11 @@
 use std::{
     io::Cursor,
-    ops::{Mul as _, Neg as _},
+    ops::Mul as _,
 };
 
 use ark_bls12_381::{Bls12_381, Fr, G1Affine, G1Projective};
 use ark_ec::{CurveGroup as _, VariableBaseMSM as _, pairing::Pairing as _};
+use ark_ec::bls12::G1Prepared;
 use ark_ff::{Field as _, PrimeField as _, UniformRand as _};
 use ark_poly::EvaluationDomain as _;
 use ark_poly_commit::kzg10::Commitment as KzgCommitment;
@@ -226,7 +227,7 @@ pub fn verify_column(
         .sum();
     let bases_agg_commit: Vec<G1Affine> = row_commitments.iter().map(|c| c.0).collect();
     let aggregated_commitments: G1Projective =
-        ark_ec::VariableBaseMSM::msm(&bases_agg_commit, &h_roots).unwrap();
+        ark_ec::VariableBaseMSM::msm(&bases_agg_commit, &h_roots).expect("invalid msm");
     let commitment = KzgCommitment(aggregated_commitments.into_affine());
     kzg::verify_element_proof(
         column_idx,
@@ -270,17 +271,16 @@ pub fn verify_multiple_columns(
                 .sum()
         })
         .collect();
-    let aggregated_commitments: Vec<ark_bls12_381::G1Affine> = row_commitments
+    let aggregated_commitments : Vec<G1Projective> = row_commitments
         .iter()
         .enumerate()
         .map(|(i, commits)| {
-            let bases: Vec<ark_bls12_381::G1Affine> = commits
+            let bases: Vec<G1Affine> = commits
                 .iter()
                 .map(|c| c.0) // use .0 instead of .comm
                 .collect();
             G1Projective::msm(&bases, &h_roots[i])
-                .unwrap()
-                .into_affine()
+                .expect("invalid msm")
         })
         .collect();
 
@@ -290,9 +290,8 @@ pub fn verify_multiple_columns(
     let r: Fr = Fr::rand(&mut rng);
     let r_roots = compute_h_roots(r, column_proofs.len());
 
-    let batched_commitment = G1Projective::msm(&aggregated_commitments, &r_roots)
-        .unwrap()
-        .into_affine();
+    let batched_commitment = G1Projective::msm(&G1Projective::normalize_batch(&aggregated_commitments), &r_roots)
+        .expect("invalid msm");
 
     let batched_elements: Fr = aggregated_elements
         .iter()
@@ -300,7 +299,7 @@ pub fn verify_multiple_columns(
         .map(|(i, x)| x.mul(&r_roots[i]))
         .sum();
 
-    let batched_proof = G1Projective::msm(&proofs, &r_roots).unwrap();
+    let batched_proof = G1Projective::msm(&proofs, &r_roots).expect("invalid msm");
 
     let batched_index = G1Projective::msm(
         &proofs,
@@ -310,22 +309,23 @@ pub fn verify_multiple_columns(
             .map(|(i, r)| r.mul(&domain.element(column_idxs[i])))
             .collect::<Vec<Fr>>(),
     )
-    .unwrap()
-    .into_affine();
+    .expect("invalid msm");
 
-    let commitment_check_g1 =
-        batched_commitment + verification_key.g.mul(batched_elements).neg() + batched_index;
+    let commitment_check_g1 : G1Projective =
+        batched_commitment - verification_key.g * batched_elements + batched_index;
+
+    let affine_points= G1Projective::normalize_batch(&[commitment_check_g1, batched_proof]);
     let qap = Bls12_381::multi_miller_loop(
-        [commitment_check_g1, batched_proof],
         [
-            verification_key.h.neg(), /* This could be precomputed and included in the global
-                                       * parameter instead */
-            verification_key.beta_h,
+            <G1Affine as Into<G1Prepared<_>>>::into(affine_points[1]),
+            commitment_check_g1.into(),
+        ],
+        [
+            verification_key.prepared_beta_h.clone(),
+            verification_key.prepared_h.clone(),
         ],
     );
-
-    let test = Bls12_381::final_exponentiation(qap).unwrap();
-
+    let test = Bls12_381::final_exponentiation(qap).expect("Malformed Fr elements");
     test.is_zero()
 }
 
