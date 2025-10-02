@@ -4,7 +4,7 @@ use nomos_core::{header::HeaderId, mantle::TxHash};
 use overwatch::services::relay::OutboundRelay;
 use tx_service::MempoolMsg;
 
-use super::MempoolAdapterTrait;
+use super::MempoolAdapter as MempoolAdapterTrait;
 
 pub struct MempoolAdapter<Payload, Tx> {
     mempool_relay: OutboundRelay<MempoolMsg<HeaderId, Payload, Tx, TxHash>>,

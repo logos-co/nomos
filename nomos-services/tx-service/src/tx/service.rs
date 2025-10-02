@@ -5,8 +5,10 @@ pub mod openapi {
 }
 
 use std::{
+    collections::BTreeSet,
     fmt::{Debug, Display},
     marker::PhantomData,
+    pin::Pin,
     time::Duration,
 };
 
@@ -486,9 +488,7 @@ where
     async fn handle_view_message(
         pool: &Pool,
         ancestor_hint: Pool::BlockId,
-        reply_channel: oneshot::Sender<
-            std::pin::Pin<Box<dyn futures::Stream<Item = Pool::Item> + Send>>,
-        >,
+        reply_channel: oneshot::Sender<Pin<Box<dyn futures::Stream<Item = Pool::Item> + Send>>>,
     ) {
         let pending_items = pool.pending_item_count();
         tracing::trace!(pending_items, "Handling mempool View message");
@@ -528,13 +528,11 @@ where
 
     async fn handle_get_transactions_message(
         pool: &Pool,
-        hashes: Vec<Pool::Key>,
-        reply_channel: oneshot::Sender<
-            std::pin::Pin<Box<dyn futures::Stream<Item = Pool::Item> + Send>>,
-        >,
+        hashes: BTreeSet<Pool::Key>,
+        reply_channel: oneshot::Sender<Pin<Box<dyn futures::Stream<Item = Pool::Item> + Send>>>,
     ) {
         let transactions = pool
-            .get_items_by_keys(&hashes)
+            .get_items_by_keys(hashes)
             .await
             .unwrap_or_else(|_| Box::pin(futures::stream::iter(Vec::new())));
 

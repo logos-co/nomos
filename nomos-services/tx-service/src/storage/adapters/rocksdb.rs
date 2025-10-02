@@ -1,4 +1,8 @@
-use std::{collections::HashMap, marker::PhantomData, pin::Pin};
+use std::{
+    collections::{BTreeSet, HashMap},
+    marker::PhantomData,
+    pin::Pin,
+};
 
 use async_trait::async_trait;
 use futures::{Stream, StreamExt as _};
@@ -61,13 +65,13 @@ where
 
     async fn get_items(
         &self,
-        keys: &[Self::Key],
+        keys: BTreeSet<Self::Key>,
     ) -> Result<Pin<Box<dyn Stream<Item = Self::Item> + Send>>, Self::Error> {
         if keys.is_empty() {
             return Ok(Box::pin(futures::stream::empty()));
         }
 
-        let tx_hashes: Vec<TxHash> = keys.iter().cloned().map(Into::into).collect();
+        let tx_hashes: BTreeSet<TxHash> = keys.into_iter().map(Into::into).collect();
 
         let (reply_channel, reply_rx) = tokio::sync::oneshot::channel();
         self.storage_relay

@@ -1,6 +1,6 @@
 pub mod pool;
 
-use std::pin::Pin;
+use std::{collections::BTreeSet, pin::Pin};
 
 use futures::Stream;
 pub use pool::{Mempool, PoolRecoveryState};
@@ -49,7 +49,7 @@ pub trait MemPool {
     /// Get multiple items by their keys from the mempool via storage lookup
     async fn get_items_by_keys(
         &self,
-        keys: &[Self::Key],
+        keys: BTreeSet<Self::Key>,
     ) -> Result<Pin<Box<dyn Stream<Item = Self::Item> + Send>>, MempoolError>;
 
     /// Record that a set of items were included in a block

@@ -7,7 +7,7 @@ use nomos_core::header::HeaderId;
 pub mod adapter;
 
 #[async_trait]
-pub trait MempoolAdapterTrait<Tx>: Send + Sync {
+pub trait MempoolAdapter<Tx>: Send + Sync {
     async fn get_mempool_view(
         &self,
         ancestor_hint: HeaderId,

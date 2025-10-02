@@ -6,7 +6,7 @@ use overwatch::services::relay::OutboundRelay;
 use tokio::sync::oneshot;
 use tx_service::MempoolMsg;
 
-use super::MempoolAdapterTrait;
+use super::MempoolAdapter as MempoolAdapterTrait;
 
 pub struct MempoolAdapter<Payload, Tx> {
     mempool_relay: OutboundRelay<MempoolMsg<HeaderId, Payload, Tx, TxHash>>,

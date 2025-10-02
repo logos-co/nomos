@@ -6,6 +6,7 @@ pub mod tx;
 pub mod verify;
 
 use std::{
+    collections::BTreeSet,
     fmt::{Debug, Error, Formatter},
     pin::Pin,
 };
@@ -40,7 +41,7 @@ pub enum MempoolMsg<BlockId, Payload, Item, Key> {
         reply_channel: Sender<Vec<Status<BlockId>>>,
     },
     GetTransactionsByHashes {
-        hashes: Vec<Key>,
+        hashes: BTreeSet<Key>,
         reply_channel: Sender<Pin<Box<dyn Stream<Item = Item> + Send>>>,
     },
 }

@@ -39,7 +39,7 @@ use tx_service::{
 };
 
 use crate::{
-    blend::BlendAdapter, leadership::Leader, mempool::MempoolAdapterTrait as _,
+    blend::BlendAdapter, leadership::Leader, mempool::MempoolAdapter as _,
     relays::CryptarchiaConsensusRelays,
 };
 

@@ -116,14 +116,13 @@ where
         &self,
         _ancestor_hint: BlockId,
     ) -> Result<Pin<Box<dyn Stream<Item = Self::Item> + Send>>, MempoolError> {
-        let keys: Vec<Key> = self.pending_items.iter().cloned().collect();
-
-        self.get_items_by_keys(&keys).await
+        let keys: BTreeSet<Key> = self.pending_items.iter().cloned().collect();
+        self.get_items_by_keys(keys).await
     }
 
     async fn get_items_by_keys(
         &self,
-        keys: &[Self::Key],
+        keys: BTreeSet<Self::Key>,
     ) -> Result<Pin<Box<dyn Stream<Item = Self::Item> + Send>>, MempoolError> {
         self.storage_adapter
             .get_items(keys)
