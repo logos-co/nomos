@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     marker::PhantomData,
     pin::Pin,
 };
@@ -166,15 +166,12 @@ where
 
     async fn get_transactions(
         &self,
-        tx_hashes: &[TxHash],
+        tx_hashes: BTreeSet<TxHash>,
     ) -> Result<Pin<Box<dyn Stream<Item = Self::Tx> + Send>>, overwatch::DynError> {
         let (sender, receiver) = oneshot::channel();
 
         self.storage_relay
-            .send(StorageMsg::get_transactions_request(
-                tx_hashes.to_vec(),
-                sender,
-            ))
+            .send(StorageMsg::get_transactions_request(tx_hashes, sender))
             .await
             .map_err(|_| "Failed to send get transactions request")?;
 

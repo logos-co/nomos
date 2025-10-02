@@ -70,7 +70,7 @@ use crate::{
         ibd::{self, InitialBlockDownload},
         state::choose_engine_state,
     },
-    mempool::MempoolAdapterTrait as _,
+    mempool::MempoolAdapter as _,
     relays::CryptarchiaConsensusRelays,
     states::CryptarchiaConsensusState,
     storage::{StorageAdapter as _, adapters::StorageAdapter},

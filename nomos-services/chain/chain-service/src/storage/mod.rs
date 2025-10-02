@@ -1,6 +1,9 @@
 pub mod adapters;
 
-use std::{collections::BTreeMap, pin::Pin};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    pin::Pin,
+};
 
 use cryptarchia_engine::Slot;
 use futures::{Stream, future::join_all};
@@ -75,7 +78,7 @@ pub trait StorageAdapter<RuntimeServiceId> {
 
     async fn get_transactions(
         &self,
-        tx_hashes: &[TxHash],
+        tx_hashes: BTreeSet<TxHash>,
     ) -> Result<Pin<Box<dyn Stream<Item = Self::Tx> + Send>>, overwatch::DynError>;
 
     async fn remove_transactions(&self, tx_hashes: &[TxHash]) -> Result<(), overwatch::DynError>;

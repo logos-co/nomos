@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     num::NonZeroUsize,
     ops::RangeInclusive,
     pin::Pin,
@@ -113,7 +113,7 @@ impl StorageChainApi for RocksBackend {
     ) -> Result<(), Self::Error> {
         let batch_items: HashMap<Bytes, Bytes> = transactions
             .into_iter()
-            .map(|(tx_hash, tx_bytes)| (Bytes::copy_from_slice(&tx_hash.as_bytes()), tx_bytes))
+            .map(|(tx_hash, tx_bytes)| (tx_hash.into(), tx_bytes))
             .collect();
 
         self.bulk_store(batch_items).await.map_err(Into::into)
@@ -121,18 +121,18 @@ impl StorageChainApi for RocksBackend {
 
     async fn get_transactions(
         &mut self,
-        tx_hashes: &[TxHash],
+        tx_hashes: BTreeSet<TxHash>,
     ) -> Result<Pin<Box<dyn Stream<Item = Self::Tx> + Send>>, Self::Error> {
         if tx_hashes.is_empty() {
             return Ok(Box::pin(stream::empty()));
         }
 
-        let stream = stream::iter(tx_hashes.to_vec()).filter_map({
+        let stream = stream::iter(tx_hashes).filter_map({
             let backend = self.clone();
             move |tx_hash| {
                 let mut backend = backend.clone();
                 async move {
-                    let key = Bytes::copy_from_slice(&tx_hash.as_bytes());
+                    let key: Bytes = tx_hash.into();
                     match backend.load(&key).await {
                         Ok(Some(tx)) => Some(tx),
                         Ok(None) => {
@@ -154,10 +154,7 @@ impl StorageChainApi for RocksBackend {
     }
 
     async fn remove_transactions(&mut self, tx_hashes: &[TxHash]) -> Result<(), Self::Error> {
-        let keys: Vec<Bytes> = tx_hashes
-            .iter()
-            .map(|&tx_hash| Bytes::copy_from_slice(&tx_hash.as_bytes()))
-            .collect();
+        let keys: Vec<Bytes> = tx_hashes.iter().map(|&tx_hash| tx_hash.into()).collect();
 
         let txn = self.txn(move |db| {
             let mut batch = WriteBatch::default();
@@ -175,6 +172,8 @@ impl StorageChainApi for RocksBackend {
 
 #[cfg(test)]
 mod tests {
+    use std::iter;
+
     use futures::StreamExt as _;
     use tempfile::TempDir;
 
@@ -269,13 +268,19 @@ mod tests {
         transactions.insert(tx_hash, tx_bytes.clone());
         backend.store_transactions(transactions).await.unwrap();
 
-        let retrieved_stream = backend.get_transactions(&[tx_hash]).await.unwrap();
+        let retrieved_stream = backend
+            .get_transactions(iter::once(tx_hash).collect())
+            .await
+            .unwrap();
         let retrieved: Vec<_> = retrieved_stream.collect().await;
         assert_eq!(retrieved, vec![tx_bytes]);
 
         backend.remove_transactions(&[tx_hash]).await.unwrap();
 
-        let empty_stream = backend.get_transactions(&[tx_hash]).await.unwrap();
+        let empty_stream = backend
+            .get_transactions(iter::once(tx_hash).collect())
+            .await
+            .unwrap();
         let empty: Vec<_> = empty_stream.collect().await;
         assert!(empty.is_empty());
     }

@@ -1,4 +1,4 @@
-use crate::mempool::MempoolAdapterTrait as _;
+use crate::mempool::MempoolAdapter as _;
 mod blend;
 mod leadership;
 mod mempool;

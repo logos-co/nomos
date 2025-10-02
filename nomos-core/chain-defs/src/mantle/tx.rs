@@ -49,6 +49,12 @@ impl AsRef<ZkHash> for TxHash {
     }
 }
 
+impl From<TxHash> for Bytes {
+    fn from(tx_hash: TxHash) -> Self {
+        Self::copy_from_slice(&fr_to_bytes(&tx_hash.0))
+    }
+}
+
 impl TxHash {
     /// For testing purposes
     #[cfg(test)]
@@ -59,11 +65,6 @@ impl TxHash {
     #[must_use]
     pub fn as_signing_bytes(&self) -> Bytes {
         self.0.0.0.iter().flat_map(|b| b.to_le_bytes()).collect()
-    }
-
-    #[must_use]
-    pub fn as_bytes(&self) -> [u8; 32] {
-        fr_to_bytes(&self.0)
     }
 }
 

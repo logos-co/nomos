@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     fmt::Display,
     num::NonZeroUsize,
     ops::RangeInclusive,
@@ -46,7 +46,7 @@ pub enum ChainApiRequest<Backend: StorageBackend> {
         transactions: HashMap<TxHash, <Backend as StorageChainApi>::Tx>,
     },
     GetTransactions {
-        tx_hashes: Vec<TxHash>,
+        tx_hashes: BTreeSet<TxHash>,
         response_tx: Sender<Pin<Box<dyn Stream<Item = <Backend as StorageChainApi>::Tx> + Send>>>,
     },
     RemoveTransactions {
@@ -282,7 +282,7 @@ impl<Api: StorageBackend> StorageMsg<Api> {
 
     #[must_use]
     pub const fn get_transactions_request(
-        tx_hashes: Vec<TxHash>,
+        tx_hashes: BTreeSet<TxHash>,
         response_tx: Sender<Pin<Box<dyn Stream<Item = <Api as StorageChainApi>::Tx> + Send>>>,
     ) -> Self {
         Self::Api {
@@ -314,11 +314,11 @@ async fn handle_store_transactions<Backend: StorageBackend>(
 
 async fn handle_get_transactions<Backend: StorageBackend>(
     backend: &mut Backend,
-    tx_hashes: Vec<TxHash>,
+    tx_hashes: BTreeSet<TxHash>,
     response_tx: Sender<Pin<Box<dyn Stream<Item = <Backend as StorageChainApi>::Tx> + Send>>>,
 ) -> Result<(), StorageServiceError> {
     let result = backend
-        .get_transactions(&tx_hashes)
+        .get_transactions(tx_hashes)
         .await
         .map_err(|e| StorageServiceError::BackendError(e.into()))?;
 

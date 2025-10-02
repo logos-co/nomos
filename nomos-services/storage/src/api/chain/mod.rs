@@ -1,7 +1,7 @@
 pub mod requests;
 
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     error::Error,
     num::NonZeroUsize,
     ops::RangeInclusive,
@@ -53,7 +53,7 @@ pub trait StorageChainApi {
 
     async fn get_transactions(
         &mut self,
-        tx_hashes: &[TxHash],
+        tx_hashes: BTreeSet<TxHash>,
     ) -> Result<Pin<Box<dyn Stream<Item = Self::Tx> + Send>>, Self::Error>;
 
     async fn remove_transactions(&mut self, tx_hashes: &[TxHash]) -> Result<(), Self::Error>;
