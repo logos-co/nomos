@@ -13,6 +13,7 @@ use std::{
 };
 
 use backends::BlendBackend;
+use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 use futures::{Stream, StreamExt as _};
 use nomos_blend_scheduling::{
     message_blend::{ProofsGenerator as ProofsGeneratorTrait, SessionInfo as PoQSessionInfo},
@@ -38,7 +39,7 @@ use tracing::{debug, error, info};
 
 use crate::{
     edge::handlers::{Error, MessageHandler},
-    epoch::{ChainApi, EpochInfo, EpochStream},
+    epoch::{EpochInfo, EpochStream},
     membership,
     message::{NetworkMessage, ServiceMessage},
     mock_poq_inputs_stream,
@@ -129,10 +130,11 @@ where
     membership::ServiceMessage<MembershipAdapter>: Send + Sync + 'static,
     ProofsGenerator: ProofsGeneratorTrait + Send,
     TimeBackend: nomos_time::backends::TimeBackend + Send,
-    ChainService: ChainApi<RuntimeServiceId> + Clone + Send + Unpin + 'static,
+    ChainService: CryptarchiaServiceData<Tx: Send + Sync>,
     RuntimeServiceId: AsServiceId<<MembershipAdapter as membership::Adapter>::Service>
         + AsServiceId<Self>
         + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>
+        + AsServiceId<ChainService>
         + Display
         + Debug
         + Clone
@@ -185,7 +187,10 @@ where
         // TODO: Change this to also be a `UninitializedStream` which is expected to
         // yield within a certain amount of time.
         let epoch_state_stream = async {
-            let chain_service = ChainService::new(&overwatch_handle).await;
+            let chain_service_api =
+                CryptarchiaServiceApi::<ChainService, _>::new(&overwatch_handle)
+                    .await
+                    .expect("Failed to open an outbound channel with chain service");
             let time_relay = overwatch_handle
                 .relay::<TimeService<_, _>>()
                 .await
@@ -198,7 +203,7 @@ where
             let slot_stream = receiver
                 .await
                 .expect("Should not fail to receive slot stream from time service.");
-            EpochStream::<_, _, RuntimeServiceId>::new(slot_stream, chain_service)
+            EpochStream::<_, _, RuntimeServiceId>::new(slot_stream, chain_service_api)
         }
         .await;
 

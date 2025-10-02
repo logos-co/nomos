@@ -9,6 +9,7 @@ workspace = true
 
 [dependencies]
 async-trait              = "0.1"
+chain-service            = { workspace = true }
 cryptarchia-engine       = { workspace = true }
 fork_stream              = { workspace = true }
 futures                  = { default-features = false, version = "0.3" }

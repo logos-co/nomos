@@ -1,6 +1,7 @@
 use nomos_core::{block::Block, header::HeaderId};
 use overwatch::{
-    DynError, OpaqueServiceResourcesHandle,
+    DynError,
+    overwatch::OverwatchHandle,
     services::{AsServiceId, ServiceData, relay::OutboundRelay},
 };
 use tokio::sync::{broadcast, oneshot};
@@ -27,32 +28,41 @@ where
     _id: std::marker::PhantomData<RuntimeServiceId>,
 }
 
+impl<Cryptarchia, RuntimeServiceId> Clone for CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>
+where
+    Cryptarchia: CryptarchiaServiceData,
+{
+    fn clone(&self) -> Self {
+        Self {
+            relay: self.relay.clone(),
+            _id: std::marker::PhantomData,
+        }
+    }
+}
+
 impl<Cryptarchia, RuntimeServiceId> CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>
 where
-    Cryptarchia: CryptarchiaServiceData<Tx: Send + Sync + 'static>,
+    Cryptarchia: CryptarchiaServiceData,
     RuntimeServiceId: AsServiceId<Cryptarchia> + std::fmt::Debug + std::fmt::Display + Sync,
 {
     /// Create a new API instance
-    pub async fn new<S>(
-        service_resources_handle: &OpaqueServiceResourcesHandle<S, RuntimeServiceId>,
-    ) -> Result<Self, DynError>
-    where
-        S: ServiceData,
-        S::Message: Send + Sync,
-        S::State: Send + Sync,
-        S::Settings: Send + Sync,
-    {
-        let relay = service_resources_handle
-            .overwatch_handle
-            .relay::<Cryptarchia>()
-            .await?;
+    pub async fn new(
+        overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
+    ) -> Result<Self, DynError> {
+        let relay = overwatch_handle.relay::<Cryptarchia>().await?;
 
         Ok(Self {
             relay,
             _id: std::marker::PhantomData,
         })
     }
+}
 
+impl<Cryptarchia, RuntimeServiceId> CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>
+where
+    Cryptarchia: CryptarchiaServiceData<Tx: Send + Sync>,
+    RuntimeServiceId: Sync,
+{
     /// Get the current consensus info including LIB, tip, slot, height, and
     /// mode
     pub async fn info(&self) -> Result<CryptarchiaInfo, DynError> {

@@ -263,9 +263,9 @@ where
         .await;
 
         // Create the API wrapper for chain service communication
-        let cryptarchia_api = CryptarchiaServiceApi::<CryptarchiaService, RuntimeServiceId>::new::<
-            Self,
-        >(&self.service_resources_handle)
+        let cryptarchia_api = CryptarchiaServiceApi::<CryptarchiaService, _>::new(
+            &self.service_resources_handle.overwatch_handle,
+        )
         .await?;
 
         let LeaderSettings {
