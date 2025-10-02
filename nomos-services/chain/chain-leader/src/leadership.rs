@@ -134,6 +134,10 @@ impl Leader {
     const fn secret_for_slot(&self, _slot: Slot) -> Fr {
         *self.sk.as_fr()
     }
+
+    fn slot_secret_key(&self, _slot: Slot) -> SecretKey {
+        self.sk.clone()
+    }
 }
 
 fn leader_pk() -> VerifyingKey {
@@ -144,7 +148,7 @@ const fn path_for_aged_utxo(_utxo: &Utxo) -> MerklePath<Fr> {
     MerklePath::new() // Placeholder for aged path
 }
 
-/// Process every tick and reacts on the very first one received or the first
+/// Process every tick and reacts to the very first one received and the first
 /// one of every new epoch.
 ///
 /// Reacting to a tick means pre-calculating the winning slots for the epoch and
@@ -168,17 +172,23 @@ impl<'service> PoLNotifier<'service> {
     }
 
     pub(super) fn process_epoch(&self, epoch_state: &EpochState) {
-        if let Some(last_processed_epoch) = self.last_processed_epoch
-            && last_processed_epoch == epoch_state.epoch
-        {
-            tracing::trace!("Skipping already processed epoch.");
-            return;
+        if let Some(last_processed_epoch) = self.last_processed_epoch {
+            if last_processed_epoch == epoch_state.epoch {
+                tracing::trace!("Skipping already processed epoch.");
+                return;
+            } else if last_processed_epoch > epoch_state.epoch {
+                tracing::error!(
+                    "Received an epoch smaller than the last process one. This is invalid."
+                );
+                return;
+            }
         }
+        tracing::debug!("Processing new epoch: {:?}", epoch_state.epoch);
 
-        self.check_utxos(epoch_state);
+        self.check_epoch_winning_utxos(epoch_state);
     }
 
-    fn check_utxos(&self, epoch_state: &EpochState) {
+    fn check_epoch_winning_utxos(&self, epoch_state: &EpochState) {
         use groth16::Field as _;
 
         let slots_per_epoch = self.leader.config.epoch_length();
@@ -191,8 +201,6 @@ impl<'service> PoLNotifier<'service> {
         let aged_root = epoch_state.utxos.root();
         let epoch_nonce = epoch_state.nonce();
         let total_stake = epoch_state.total_stake();
-        let secret_key = self.leader.sk.clone();
-        let secret_key_fr = secret_key.as_fr();
         // Not used to check if a slot wins the lottery.
         let latest_root = Fr::ZERO;
 
@@ -202,15 +210,16 @@ impl<'service> PoLNotifier<'service> {
                 let slot = epoch_starting_slot
                     .checked_add(offset)
                     .expect("Slot calculation overflow.");
+                let secret_key = self.leader.slot_secret_key(slot.into());
                 let leader_public =
                     LeaderPublic::new(aged_root, latest_root, *epoch_nonce, slot, total_stake);
-                if !leader_public.check_winning(utxo.note.value, note_id, *secret_key_fr) {
+                if !leader_public.check_winning(utxo.note.value, note_id, *secret_key.as_fr()) {
                     continue;
                 }
                 tracing::debug!("Found winning utxo with ID {:?} for slot {slot}", utxo.id());
 
                 let aged_path = path_for_aged_utxo(utxo);
-                let slot_secret = self.leader.secret_for_slot(Slot::new(slot));
+                let slot_secret = self.leader.secret_for_slot(slot.into());
 
                 let leader_private = LeaderPrivate::new(
                     leader_public,
