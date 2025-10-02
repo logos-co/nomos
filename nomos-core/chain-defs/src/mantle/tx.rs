@@ -123,6 +123,11 @@ pub enum VerificationError {
         op_type: &'static str,
         op_index: usize,
     },
+    #[error("Number of proofs ({proofs_count}) does not match number of operations ({ops_count})")]
+    ProofCountMismatch {
+        ops_count: usize,
+        proofs_count: usize,
+    },
 }
 
 impl SignedMantleTx {
@@ -168,6 +173,14 @@ impl SignedMantleTx {
     // TODO: might drop proofs after verification
     fn verify_ops_proofs(&self) -> Result<(), VerificationError> {
         use ed25519::signature::Verifier as _;
+
+        // Check that we have the same number of proofs as ops
+        if self.mantle_tx.ops.len() != self.ops_proofs.len() {
+            return Err(VerificationError::ProofCountMismatch {
+                ops_count: self.mantle_tx.ops.len(),
+                proofs_count: self.ops_proofs.len(),
+            });
+        }
 
         let tx_hash = self.hash();
         let tx_hash_bytes = tx_hash.as_signing_bytes();
@@ -637,5 +650,41 @@ mod tests {
         assert!(deserialized.is_err());
         let err_msg = deserialized.unwrap_err().to_string();
         assert!(err_msg.contains("Invalid signature"));
+    }
+
+    #[test]
+    fn test_signed_mantle_tx_new_proof_count_mismatch() {
+        let signing_key = SigningKey::from_bytes(&[1; 32]);
+        let blob_op = create_test_blob_op(&signing_key);
+        let mantle_tx = create_test_mantle_tx(vec![Op::ChannelBlob(blob_op)]);
+        let tx_hash = mantle_tx.hash().as_signing_bytes();
+        let signature = signing_key.sign(&tx_hash);
+
+        // Test too few proofs
+        let result = SignedMantleTx::new(mantle_tx.clone(), vec![], dummy_zk_signature());
+        assert!(matches!(
+            result,
+            Err(VerificationError::ProofCountMismatch {
+                ops_count: 1,
+                proofs_count: 0
+            })
+        ));
+
+        // Test too many proofs
+        let result = SignedMantleTx::new(
+            mantle_tx,
+            vec![
+                Some(OpProof::Ed25519Sig(signature)),
+                Some(OpProof::Ed25519Sig(signature)),
+            ],
+            dummy_zk_signature(),
+        );
+        assert!(matches!(
+            result,
+            Err(VerificationError::ProofCountMismatch {
+                ops_count: 1,
+                proofs_count: 2
+            })
+        ));
     }
 }
