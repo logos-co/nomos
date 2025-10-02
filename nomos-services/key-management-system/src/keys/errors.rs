@@ -10,12 +10,14 @@ use crate::keys::secured_key::SecuredKey;
 )]
 #[allow(
     dead_code,
-    reason = "Variants' usage depends on feature gates: At any point in time, at least one will be unused. E.g.: `NoKeysEnabled` is only used when no keys have been enabled, and vice versa."
+    reason = "Variants' usage depends on feature gates: At any point in time, at least one will be unused."
 )]
 #[derive(Error, Debug)]
 pub enum KeyError {
     #[error(transparent)]
     Encoding(EncodingError),
+    #[error("Unsupported multikey: {0}")]
+    UnsupportedKey(String),
 }
 
 impl From<EncodingError> for KeyError {

@@ -17,6 +17,13 @@ impl SecuredKey for ZkKey {
         Ok(self.0.sign(payload))
     }
 
+    fn sign_multiple(
+        _keys: &[&Self],
+        _payload: &Self::Payload,
+    ) -> Result<Self::Signature, Self::Error> {
+        unimplemented!("Multi-key signature is not implemented for Zk keys.")
+    }
+
     fn as_public_key(&self) -> Self::PublicKey {
         self.0.to_public_key()
     }

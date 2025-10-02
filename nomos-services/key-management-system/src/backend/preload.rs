@@ -13,6 +13,8 @@ mod errors {
     pub enum PreloadKeyError {
         #[expect(dead_code, reason = "No errors are expected in these tests.")]
         KeyError(KeyError),
+        UnsupportedKey,
+        MultiKeyRequiresSameVariant,
     }
 
     impl From<KeyError> for PreloadKeyError {
@@ -129,6 +131,43 @@ mod keys {
             }
         }
 
+        fn sign_multiple(
+            keys: &[&Self],
+            payload: &Self::Payload,
+        ) -> Result<Self::Signature, Self::Error> {
+            let [head, tail @ ..] = keys else {
+                return Err(PreloadKeyError::UnsupportedKey);
+            };
+
+            let head_discriminant = std::mem::discriminant::<Self>(head);
+            let mut tail_discriminants =
+                tail.iter().map(|item| std::mem::discriminant::<Self>(item));
+
+            let all_same = tail_discriminants.all(|discriminant| discriminant == head_discriminant);
+            if !all_same {
+                return Err(PreloadKeyError::MultiKeyRequiresSameVariant);
+            }
+
+            match (head, payload) {
+                (Self::Ed25519(key_head), PreloadEncoding::Bytes(bytes)) => {
+                    let key_tails = tail.iter().map(|item| {
+                        // Tail items are guaranteed to be of the same type as the head.
+                        match item {
+                            Self::Ed25519(key_item) => key_item,
+                        }
+                    });
+
+                    let keys = std::iter::once(key_head)
+                        .chain(key_tails)
+                        .collect::<Vec<_>>();
+
+                    Ed25519Key::sign_multiple(keys.as_slice(), bytes)
+                        .map(PreloadEncoding::from)
+                        .map_err(PreloadKeyError::KeyError)
+                }
+            }
+        }
+
         fn as_public_key(&self) -> Self::PublicKey {
             match self {
                 Self::Ed25519(key) => PreloadEncoding::from(key.as_public_key()),
@@ -157,6 +196,13 @@ mod keys {
         type Error = <PreloadKey as SecuredKey>::Error;
 
         fn sign(&self, _data: &Self::Payload) -> Result<Self::Signature, Self::Error> {
+            unimplemented!("Not needed.")
+        }
+
+        fn sign_multiple(
+            _keys: &[&Self],
+            _payload: &Self::Payload,
+        ) -> Result<Self::Signature, Self::Error> {
             unimplemented!("Not needed.")
         }
 
