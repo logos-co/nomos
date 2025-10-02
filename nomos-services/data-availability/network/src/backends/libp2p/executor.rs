@@ -7,7 +7,9 @@ use futures::{
 use kzgrs_backend::common::share::DaShare;
 use libp2p::PeerId;
 use log::error;
-use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId, mantle::SignedMantleTx};
+use nomos_core::{
+    block::SessionNumber, da::BlobId, header::HeaderId, mantle::SignedMantleTx, sdp::ProviderId,
+};
 use nomos_da_network_core::{
     SubnetworkId,
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
@@ -123,6 +125,7 @@ where
     monitor_command_sender: UnboundedSender<ConnectionMonitorCommand<MonitorStats>>,
     connection_status: ConnectionStatus,
     local_peer_id: PeerId,
+    local_provider_id: ProviderId,
     _membership: PhantomData<Membership>,
 }
 
@@ -156,9 +159,11 @@ where
         balancer_stats_sender: UnboundedSender<BalancerStats>,
         opinion_sender: UnboundedSender<OpinionEvent>,
     ) -> Self {
-        let keypair = libp2p::identity::Keypair::from(ed25519::Keypair::from(
-            config.validator_settings.node_key.clone(),
-        ));
+        let ed_keypair = ed25519::Keypair::from(config.validator_settings.node_key.clone());
+        let local_provider_id = ProviderId::try_from(ed_keypair.public().to_bytes())
+            .expect("Valid Ed25519 public key from keypair");
+        let keypair = libp2p::identity::Keypair::from(ed_keypair);
+
         let (mut executor_swarm, executor_events_stream) = ExecutorSwarm::new(
             keypair,
             membership,
@@ -235,6 +240,7 @@ where
 
         Self {
             local_peer_id,
+            local_provider_id,
             connection_status: ConnectionStatus::InsufficientSubnetworkConnections,
             task_abort_handle,
             verifier_replies_task_abort_handle,
@@ -382,8 +388,8 @@ where
         .await;
     }
 
-    fn local_peer_id(&self) -> PeerId {
-        self.local_peer_id
+    fn local_peer_id(&self) -> (PeerId, ProviderId) {
+        (self.local_peer_id, self.local_provider_id)
     }
 }
 
