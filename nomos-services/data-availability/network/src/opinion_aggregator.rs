@@ -305,13 +305,11 @@ mod tests {
         let mut aggregator =
             OpinionAggregator::new(Arc::clone(&storage), local_peer_id, local_provider_id);
 
-        // Store provider mappings
         let mappings: HashMap<PeerId, ProviderId> = peers
             .iter()
             .map(|(peer, provider)| (*peer, *provider))
             .collect();
 
-        // Create membership using HistoryAware
         let peer_ids: HashSet<PeerId> = peers.iter().map(|(p, _)| *p).collect();
         let base_membership = HistoryAware::new(1, SUBNETWORK_COUNT, REPLICATION_FACTOR);
         let membership1 = base_membership.update(1, peer_ids.clone(), &mut rng);
