@@ -613,7 +613,7 @@ where
         {
             Ok(Some(opinions)) => {
                 tracing::debug!(
-                    "Processing opinions - session_id: {}, new_opionions: {}, old_opinions: {}",
+                    "Processing opinions - session_id: {}, new_opinions: {}, old_opinions: {}",
                     opinions.session_id,
                     opinions.new_opinions,
                     opinions.old_opinions
