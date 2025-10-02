@@ -3,9 +3,9 @@ use std::{
     task::{Context, Poll},
 };
 
-use futures::{AsyncWriteExt as _, FutureExt as _, StreamExt as _, future::BoxFuture};
+use futures::{FutureExt as _, StreamExt as _, future::BoxFuture};
 use libp2p::{
-    Multiaddr, PeerId, Stream as Libp2pStream, Stream, StreamProtocol,
+    Multiaddr, PeerId, StreamProtocol,
     core::{Endpoint, transport::PortUse},
     futures::stream::FuturesUnordered,
     swarm::{
@@ -16,7 +16,7 @@ use libp2p::{
 use libp2p_stream::{Behaviour as StreamBehaviour, Control, IncomingStreams};
 use nomos_core::header::HeaderId;
 use tokio::sync::{mpsc, mpsc::Sender, oneshot};
-use tracing::{debug, error};
+use tracing::error;
 
 use crate::{
     BlocksResponse, DownloadBlocksRequest, TipResponse,
@@ -26,6 +26,7 @@ use crate::{
         errors::ChainSyncError,
         messages::RequestMessage,
         provider::{MAX_ADDITIONAL_BLOCKS, Provider, ReceivingRequestStream},
+        stream::{Stream, StreamCloser},
     },
     messages::{GetTipResponse, SerialisedBlock},
 };
@@ -37,9 +38,11 @@ pub const SYNC_PROTOCOL: StreamProtocol = StreamProtocol::new(SYNC_PROTOCOL_ID);
 
 const MAX_INCOMING_REQUESTS: usize = 4;
 
-type SendingBlocksRequestsFuture = BoxFuture<'static, Result<BlocksRequestStream, ChainSyncError>>;
+type SendingBlocksRequestsFuture =
+    BoxFuture<'static, Result<(BlocksRequestStream, StreamCloser), ChainSyncError>>;
 
-type SendingTipRequestFuture = BoxFuture<'static, Result<TipRequestStream, ChainSyncError>>;
+type SendingTipRequestFuture =
+    BoxFuture<'static, Result<(TipRequestStream, StreamCloser), ChainSyncError>>;
 
 type ReceivingBlocksResponsesFuture = BoxFuture<'static, Result<(), ChainSyncError>>;
 
@@ -60,7 +63,7 @@ type ToSwarmEvent = ToSwarm<
 
 pub struct BlocksRequestStream {
     pub peer_id: PeerId,
-    pub stream: Libp2pStream,
+    pub stream: Stream,
     pub reply_channel: oneshot::Sender<BoxedStream<Result<SerialisedBlock, ChainSyncError>>>,
 }
 
@@ -80,7 +83,7 @@ impl BlocksRequestStream {
 
 pub struct TipRequestStream {
     pub peer_id: PeerId,
-    pub stream: Libp2pStream,
+    pub stream: Stream,
     pub reply_channel: oneshot::Sender<Result<GetTipResponse, ChainSyncError>>,
 }
 
@@ -146,9 +149,8 @@ pub struct Behaviour {
     /// Futures for managing the progress of externally initiated tip
     /// requests.
     sending_tip_responses: FuturesUnordered<SendingTipResponsesFuture>,
-    /// Futures for closing incoming streams that were rejected due to excess
-    /// requests.
-    incoming_streams_to_close: FuturesUnordered<BoxFuture<'static, ()>>,
+    /// Futures for closing libp2p streams when dropped.
+    stream_closers: FuturesUnordered<StreamCloser>,
     /// Waker to notify the behaviour when `request_tip` or
     /// `start_blocks_download` is called.
     waker: Option<std::task::Waker>,
@@ -171,11 +173,11 @@ impl Behaviour {
             receiving_block_responses: FuturesUnordered::new(),
             sending_block_responses: FuturesUnordered::new(),
             receiving_requests: FuturesUnordered::new(),
-            incoming_streams_to_close: FuturesUnordered::new(),
             sending_block_requests: FuturesUnordered::new(),
             sending_tip_requests: FuturesUnordered::new(),
             receiving_tip_responses: FuturesUnordered::new(),
             sending_tip_responses: FuturesUnordered::new(),
+            stream_closers: FuturesUnordered::new(),
             waker: None,
             config,
         }
@@ -224,7 +226,7 @@ impl Behaviour {
         Ok(())
     }
 
-    fn handle_tip_request(&self, peer_id: PeerId, stream: Libp2pStream) -> Poll<ToSwarmEvent> {
+    fn handle_tip_request(&self, peer_id: PeerId, stream: Stream) -> Poll<ToSwarmEvent> {
         let (reply_sender, reply_receiver) = mpsc::channel(1);
 
         self.sending_tip_responses.push(
@@ -240,18 +242,10 @@ impl Behaviour {
         &self,
         peer_id: PeerId,
         request: DownloadBlocksRequest,
-        mut stream: Libp2pStream,
+        stream: Stream,
     ) -> Poll<ToSwarmEvent> {
         if request.known_blocks.additional_blocks.len() > MAX_ADDITIONAL_BLOCKS {
             error!("Received excessive number of additional blocks");
-
-            self.incoming_streams_to_close.push(
-                async move {
-                    let _ = stream.close().await;
-                }
-                .boxed(),
-            );
-
             return Poll::Pending;
         }
 
@@ -270,18 +264,15 @@ impl Behaviour {
         }))
     }
 
-    fn handle_incoming_stream(&self, peer_id: PeerId, mut stream: Libp2pStream) {
+    fn handle_incoming_stream(&self, peer_id: PeerId, stream: libp2p::Stream) {
+        let (stream, stream_closer) = Stream::new(stream);
+        self.stream_closers.push(stream_closer);
+
         let concurrent_requests = self.receiving_requests.len()
             + self.sending_block_responses.len()
             + self.sending_tip_responses.len();
 
         if concurrent_requests >= MAX_INCOMING_REQUESTS {
-            self.incoming_streams_to_close.push(
-                async move {
-                    let _ = stream.close().await;
-                }
-                .boxed(),
-            );
             error!("Rejected excess pending incoming request");
         } else {
             self.receiving_requests
@@ -426,13 +417,12 @@ impl NetworkBehaviour for Behaviour {
     ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         self.waker = Some(cx.waker().clone());
 
-        if self.incoming_streams_to_close.poll_next_unpin(cx) == Poll::Ready(Some(())) {
-            debug!("Incoming stream closed");
-        }
+        let _ = self.stream_closers.poll_next_unpin(cx);
 
         if let Poll::Ready(Some(result)) = self.sending_block_requests.poll_next_unpin(cx) {
             match result {
-                Ok(request_stream) => {
+                Ok((request_stream, stream_closer)) => {
+                    self.stream_closers.push(stream_closer);
                     self.handle_blocks_request_available(request_stream);
                 }
                 Err(e) => {
@@ -445,7 +435,8 @@ impl NetworkBehaviour for Behaviour {
 
         if let Poll::Ready(Some(result)) = self.sending_tip_requests.poll_next_unpin(cx) {
             match result {
-                Ok(request_stream) => {
+                Ok((request_stream, stream_closer)) => {
+                    self.stream_closers.push(stream_closer);
                     self.handle_tip_request_available(request_stream);
                 }
                 Err(e) => {
