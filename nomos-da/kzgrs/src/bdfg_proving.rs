@@ -4,9 +4,7 @@ use std::{
 };
 
 use ark_bls12_381::{Bls12_381, Fr, G1Affine, G1Projective};
-use ark_ec::CurveGroup as _;
-use ark_ff::{Field as _, PrimeField as _};
-use ark_ec::{pairing::Pairing as _, CurveGroup as _, VariableBaseMSM as _};
+use ark_ec::{CurveGroup as _, VariableBaseMSM as _, pairing::Pairing as _};
 use ark_ff::{Field as _, PrimeField as _, UniformRand as _};
 use ark_poly::EvaluationDomain as _;
 use ark_poly_commit::kzg10::Commitment as KzgCommitment;
@@ -286,7 +284,7 @@ pub fn verify_multiple_columns(
         })
         .collect();
 
-    let proofs: Vec<ark_bls12_381::G1Affine> = column_proofs.iter().map(|proof| proof.w).collect();
+    let proofs: Vec<G1Affine> = column_proofs.iter().map(|proof| proof.w).collect();
 
     let mut rng = thread_rng();
     let r: Fr = Fr::rand(&mut rng);
@@ -315,14 +313,13 @@ pub fn verify_multiple_columns(
     .unwrap()
     .into_affine();
 
-    let commitment_check_g1 = batched_commitment
-        + verification_key.powers_of_g[0].mul(batched_elements).neg()
-        + batched_index;
+    let commitment_check_g1 =
+        batched_commitment + verification_key.g.mul(batched_elements).neg() + batched_index;
     let qap = Bls12_381::multi_miller_loop(
         [commitment_check_g1, batched_proof],
         [
             verification_key.h.neg(), /* This could be precomputed and included in the global
-                                        * parameter instead */
+                                       * parameter instead */
             verification_key.beta_h,
         ],
     );

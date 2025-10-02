@@ -1,6 +1,6 @@
 use ark_ff::PrimeField as _;
 use ark_poly::EvaluationDomain as _;
-use kzgrs::{FieldElement, GlobalParameters, PolynomialEvaluationDomain, Proof, VerificationKey};
+use kzgrs::{FieldElement, PolynomialEvaluationDomain, Proof, VerificationKey};
 
 use crate::common::{
     Chunk,
@@ -76,7 +76,7 @@ impl DaVerifier {
                 .map(|share| share.combined_column_proof)
                 .collect::<Vec<Proof>>(),
             rows_domain,
-            &self.global_parameters,
+            &self.verification_key,
         )
     }
 }
@@ -89,11 +89,11 @@ mod test {
     use nomos_core::da::{DaEncoder as _, blob::Share as _};
 
     use crate::{
+        common::share::{DaLightShare, DaSharesCommitments},
         encoder::{DaEncoder, DaEncoderParams, test::rand_data},
         kzg_keys::VERIFICATION_KEY,
         verifier::DaVerifier,
     };
-    use crate::common::share::{DaLightShare, DaSharesCommitments};
 
     #[test]
     fn test_verify() {
