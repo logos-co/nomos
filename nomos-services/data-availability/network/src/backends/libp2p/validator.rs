@@ -5,7 +5,7 @@ use futures::{
     future::{AbortHandle, Abortable},
 };
 use libp2p::PeerId;
-use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId};
+use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId, sdp::ProviderId};
 use nomos_da_network_core::{
     SubnetworkId,
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
@@ -94,6 +94,7 @@ pub struct DaNetworkValidatorBackend<Membership> {
     verifying_broadcast_receiver: broadcast::Receiver<VerificationEvent>,
     historic_sampling_broadcast_receiver: broadcast::Receiver<HistoricSamplingEvent>,
     local_peer_id: PeerId,
+    local_provider_id: ProviderId,
     _membership: PhantomData<Membership>,
 }
 
@@ -127,8 +128,11 @@ where
         balancer_stats_sender: UnboundedSender<BalancerStats>,
         opinion_sender: UnboundedSender<OpinionEvent>,
     ) -> Self {
-        let keypair =
-            libp2p::identity::Keypair::from(ed25519::Keypair::from(config.node_key.clone()));
+        let ed_keypair = ed25519::Keypair::from(config.node_key.clone());
+        let local_provider_id = ProviderId::try_from(ed_keypair.public().to_bytes())
+            .expect("Valid Ed25519 public key from keypair");
+        let keypair = libp2p::identity::Keypair::from(ed_keypair);
+
         let (mut validator_swarm, validator_events_stream) = ValidatorSwarm::new(
             keypair,
             membership,
@@ -191,6 +195,7 @@ where
 
         Self {
             local_peer_id,
+            local_provider_id,
             connection_status: ConnectionStatus::InsufficientSubnetworkConnections,
             task_abort_handle,
             replies_task_abort_handle,
@@ -295,7 +300,7 @@ where
         .await;
     }
 
-    fn local_peer_id(&self) -> PeerId {
-        self.local_peer_id
+    fn local_peer_id(&self) -> (PeerId, ProviderId) {
+        (self.local_peer_id, self.local_provider_id)
     }
 }

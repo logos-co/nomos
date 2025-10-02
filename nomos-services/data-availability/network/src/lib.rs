@@ -10,6 +10,7 @@ use std::{
     fmt::{self, Debug, Display},
     marker::PhantomData,
     pin::Pin,
+    sync::Arc,
     time::Duration,
 };
 
@@ -345,13 +346,18 @@ where
             .relay::<StorageAdapter::StorageService>()
             .await?;
 
-        let storage_adapter = StorageAdapter::new(storage_service_relay);
-        let membership_storage =
-            MembershipStorage::new(storage_adapter, membership.clone(), addressbook.clone());
+        let storage_adapter = Arc::new(StorageAdapter::new(storage_service_relay));
+        let membership_storage = MembershipStorage::new(
+            Arc::clone(&storage_adapter),
+            membership.clone(),
+            addressbook.clone(),
+        );
 
         let membership_service_adapter = MembershipServiceAdapter::new(membership_service_relay);
 
-        let mut opinion_aggregator = OpinionAggregator::<Membership>::new(backend.local_peer_id());
+        let (local_peer_id, local_provider_id) = backend.local_peer_id();
+        let mut opinion_aggregator =
+            OpinionAggregator::new(storage_adapter, local_peer_id, local_provider_id);
 
         wait_until_services_are_ready!(
             &self.service_resources_handle.overwatch_handle,
@@ -402,11 +408,7 @@ where
 
                     ).await {
                         Ok(current_membership) => {
-                            let opinions = opinion_aggregator.handle_session_change(current_membership);
-                            if let Some(opinions) = opinions {
-                                tracing::debug!("Processing opinions {opinions:?}");
-                                // todo: sdp_adapter.process_opinions(opinions).await;
-                            }
+                            Self::handle_opinion_session_change(&mut opinion_aggregator, current_membership).await;
                             let _ = subnet_refresh_sender.send(()).await;
                         }
                         Err(e) => {
@@ -481,7 +483,7 @@ where
     async fn handle_network_service_message(
         msg: DaNetworkMsg<Backend, DaSharesCommitments, RuntimeServiceId>,
         backend: &mut Backend,
-        membership_storage: &MembershipStorage<StorageAdapter, Membership, DaAddressbook>,
+        membership_storage: &MembershipStorage<Arc<StorageAdapter>, Membership, DaAddressbook>,
         api_adapter: &ApiAdapter,
         addressbook: &DaAddressbook,
     ) {
@@ -568,7 +570,7 @@ where
     async fn handle_membership_update(
         session_id: SessionNumber,
         update: HashMap<Membership::Id, Multiaddr>,
-        storage: &MembershipStorage<StorageAdapter, Membership, DaAddressbook>,
+        storage: &MembershipStorage<Arc<StorageAdapter>, Membership, DaAddressbook>,
         provider_mappings: HashMap<Membership::Id, ProviderId>,
     ) -> Result<Membership, DynError> {
         let current_membership = storage
@@ -579,7 +581,7 @@ where
 
     async fn handle_historic_sample_request(
         backend: &Backend,
-        membership_storage: &MembershipStorage<StorageAdapter, Membership, AddressBook>,
+        membership_storage: &MembershipStorage<Arc<StorageAdapter>, Membership, AddressBook>,
         session_id: SessionNumber,
         block_id: HeaderId,
         blob_ids: HashSet<[u8; 32]>,
@@ -598,6 +600,32 @@ where
             send.await;
         } else {
             tracing::error!("No membership found for session {session_id}");
+        }
+    }
+
+    async fn handle_opinion_session_change(
+        opinion_aggregator: &mut OpinionAggregator<Membership, Arc<StorageAdapter>>,
+        current_membership: Membership,
+    ) {
+        match opinion_aggregator
+            .handle_session_change(current_membership)
+            .await
+        {
+            Ok(Some(opinions)) => {
+                tracing::debug!(
+                    "Processing opinions - session_id: {}, new_opionions: {}, old_opinions: {}",
+                    opinions.session_id,
+                    opinions.new_opinions,
+                    opinions.old_opinions
+                );
+                // todo: sdp_adapter.process_opinions(opinions).await;
+            }
+            Ok(None) => {
+                tracing::debug!("No opinions generated yet");
+            }
+            Err(e) => {
+                tracing::error!("Failed to generate opinions: {e}");
+            }
         }
     }
 }
