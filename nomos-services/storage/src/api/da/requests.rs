@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use multiaddr::Multiaddr;
-use nomos_core::block::SessionNumber;
+use nomos_core::{block::SessionNumber, sdp::ProviderId};
 use overwatch::DynError;
 use tokio::sync::oneshot::Sender;
 
@@ -60,9 +60,17 @@ pub enum DaApiRequest<Backend: StorageBackend> {
         session_id: SessionNumber,
         assignations: AssignationsMap<Backend>,
     },
+    GetProviderId {
+        id: Backend::Id,
+        response_tx: Sender<Option<ProviderId>>,
+    },
+    StoreProviderMappings {
+        mappings: HashMap<Backend::Id, ProviderId>,
+    },
     StoreAddresses {
         ids: AddressbookRequest<Backend>,
     },
+
     GetAddress {
         id: Backend::Id,
         response_tx: Sender<Option<Multiaddr>>,
@@ -114,10 +122,16 @@ where
                 session_id,
                 assignations,
             } => handle_store_assignations(backend, session_id, assignations).await,
+            Self::StoreProviderMappings { mappings } => {
+                handle_store_providerid_mappings(backend, mappings).await
+            }
             Self::GetAssignations {
                 session_id,
                 response_tx,
             } => handle_get_assignations(backend, session_id, response_tx).await,
+            Self::GetProviderId { id, response_tx } => {
+                handler_get_provider_id(backend, id, response_tx).await
+            }
             Self::StoreAddresses { ids } => handle_store_addresses(backend, ids).await,
             Self::GetAddress { id, response_tx } => {
                 handle_get_address(backend, id, response_tx).await
@@ -243,6 +257,16 @@ async fn handle_store_assignations<Backend: StorageBackend>(
         .map_err(|e| StorageServiceError::BackendError(e.into()))
 }
 
+async fn handle_store_providerid_mappings<Backend: StorageBackend>(
+    backend: &mut Backend,
+    mappings: HashMap<Backend::Id, ProviderId>,
+) -> Result<(), StorageServiceError> {
+    backend
+        .store_providerid_mappings(mappings)
+        .await
+        .map_err(|e| StorageServiceError::BackendError(e.into()))
+}
+
 async fn handle_store_tx<Backend: StorageBackend>(
     backend: &mut Backend,
     blob_id: Backend::BlobId,
@@ -270,6 +294,25 @@ async fn handle_get_assignations<Backend: StorageBackend>(
             message: "Failed to send reply for get assignations request".to_owned(),
         });
     }
+    Ok(())
+}
+
+async fn handler_get_provider_id<Backend: StorageBackend>(
+    backend: &mut Backend,
+    id: Backend::Id,
+    response_tx: Sender<Option<ProviderId>>,
+) -> Result<(), StorageServiceError> {
+    let result = backend
+        .get_provider_id(id)
+        .await
+        .map_err(|e| StorageServiceError::BackendError(e.into()))?;
+
+    if response_tx.send(result).is_err() {
+        return Err(StorageServiceError::ReplyError {
+            message: "Failed to send reply for get provider id request".to_owned(),
+        });
+    }
+
     Ok(())
 }
 
@@ -437,6 +480,15 @@ impl<Backend: StorageBackend> StorageMsg<Backend> {
     }
 
     #[must_use]
+    pub const fn store_provider_mappings_request(
+        mappings: HashMap<Backend::Id, ProviderId>,
+    ) -> Self {
+        Self::Api {
+            request: StorageApiRequest::Da(DaApiRequest::StoreProviderMappings { mappings }),
+        }
+    }
+
+    #[must_use]
     pub const fn store_addresses_request(ids: AddressbookRequest<Backend>) -> Self {
         Self::Api {
             request: StorageApiRequest::Da(DaApiRequest::StoreAddresses { ids }),
@@ -450,6 +502,16 @@ impl<Backend: StorageBackend> StorageMsg<Backend> {
     ) -> Self {
         Self::Api {
             request: StorageApiRequest::Da(DaApiRequest::GetAddress { id, response_tx }),
+        }
+    }
+
+    #[must_use]
+    pub const fn get_provider_id_request(
+        id: Backend::Id,
+        response_tx: Sender<Option<ProviderId>>,
+    ) -> Self {
+        Self::Api {
+            request: StorageApiRequest::Da(DaApiRequest::GetProviderId { id, response_tx }),
         }
     }
 

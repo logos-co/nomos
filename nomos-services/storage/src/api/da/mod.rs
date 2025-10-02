@@ -5,7 +5,7 @@ use std::{
 
 use async_trait::async_trait;
 use multiaddr::Multiaddr;
-use nomos_core::{block::SessionNumber, da::blob::Share};
+use nomos_core::{block::SessionNumber, da::blob::Share, sdp::ProviderId};
 
 pub mod requests;
 
@@ -116,10 +116,17 @@ pub trait StorageDaApi {
         assignations: HashMap<Self::NetworkId, HashSet<Self::Id>>,
     ) -> Result<(), Self::Error>;
 
+    async fn store_providerid_mappings(
+        &mut self,
+        mappings: HashMap<Self::Id, ProviderId>,
+    ) -> Result<(), Self::Error>;
+
     async fn get_assignations(
         &mut self,
         session_id: SessionNumber,
     ) -> Result<Option<HashMap<Self::NetworkId, HashSet<Self::Id>>>, Self::Error>;
+
+    async fn get_provider_id(&mut self, id: Self::Id) -> Result<Option<ProviderId>, Self::Error>;
 
     async fn store_addresses(
         &mut self,
