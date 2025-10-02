@@ -184,14 +184,13 @@ where
         .subscribe()
         .await?;
 
-        // // TODO: Change this to also be a `UninitializedStream` which is expected to
-        // // yield within a certain amount of time.
         // TODO: Change this to also be a `UninitializedStream` which is expected to
         // yield within a certain amount of time.
+        let chain_service = CryptarchiaServiceApi::<ChainService, _>::new(&overwatch_handle)
+            .await
+            .expect("Failed to establish channel with chain service.");
+        let mut epoch_stream = EpochStream::<_, RuntimeServiceId>::new(chain_service);
         let epoch_state_stream = async {
-            let chain_service = CryptarchiaServiceApi::<ChainService, _>::new(&overwatch_handle)
-                .await
-                .expect("Failed to establish channel with chain service.");
             let time_relay = overwatch_handle
                 .relay::<TimeService<_, _>>()
                 .await
@@ -201,14 +200,10 @@ where
                 .send(TimeServiceMessage::Subscribe { sender })
                 .await
                 .expect("Failed to subscribe to slot clock.");
-            let _slot_stream = receiver
+            let slot_stream = receiver
                 .await
                 .expect("Should not fail to receive slot stream from time service.");
-            let _stream = EpochStream::<_, RuntimeServiceId>::new(chain_service);
-            Box::new(pending::<EpochInfo>())
-            // slot_stream.scan(EpochStream::new(chain_service), |mut state,
-            // tick| {     state.tick(tick)
-            // })
+            slot_stream.scan(epoch_stream, |mut state, tick| state.tick(tick))
         }
         .await;
 
@@ -285,7 +280,7 @@ async fn run<Backend, NodeId, ProofsGenerator, RuntimeServiceId>(
     session_stream: UninitializedSessionEventStream<
         impl Stream<Item = SessionInfo<NodeId>> + Unpin,
     >,
-    mut epoch_stream: impl Stream<Item = EpochInfo> + Unpin,
+    epoch_stream: impl Stream<Item = EpochInfo>,
     mut messages_to_blend: impl Stream<Item = Vec<u8>> + Send + Unpin,
     settings: &Settings<Backend, NodeId, RuntimeServiceId>,
     overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
@@ -318,6 +313,7 @@ where
 
     notify_ready();
 
+    let mut pinned_epoch_stream = Box::pin(epoch_stream);
     loop {
         tokio::select! {
             Some(SessionEvent::NewSession(session_info)) = session_stream.next() => {
@@ -326,7 +322,7 @@ where
             Some(message) = messages_to_blend.next() => {
                 message_handler.handle_messages_to_blend(message).await;
             }
-            Some(_) = epoch_stream.next() => {
+            Some(_) = pinned_epoch_stream.next() => {
                 tracing::trace!(target: LOG_TARGET, "New epoch started.");
             }
         }

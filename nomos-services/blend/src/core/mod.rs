@@ -223,10 +223,11 @@ where
 
         // TODO: Change this to also be a `UninitializedStream` which is expected to
         // yield within a certain amount of time.
-        let mut epoch_state_stream = async {
-            let chain_service = CryptarchiaServiceApi::<ChainService, _>::new(overwatch_handle)
-                .await
-                .expect("Failed to establish channel with chain service.");
+        let chain_service = CryptarchiaServiceApi::<ChainService, _>::new(&overwatch_handle)
+            .await
+            .expect("Failed to establish channel with chain service.");
+        let mut epoch_stream = EpochStream::<_, RuntimeServiceId>::new(chain_service);
+        let epoch_state_stream = async {
             let time_relay = overwatch_handle
                 .relay::<TimeService<_, _>>()
                 .await
@@ -236,14 +237,10 @@ where
                 .send(TimeServiceMessage::Subscribe { sender })
                 .await
                 .expect("Failed to subscribe to slot clock.");
-            let _slot_stream = receiver
+            let slot_stream = receiver
                 .await
                 .expect("Should not fail to receive slot stream from time service.");
-            let _stream = EpochStream::<_, RuntimeServiceId>::new(chain_service);
-            Box::new(pending::<EpochInfo>())
-            // slot_stream.scan(EpochStream::new(chain_service), |mut state,
-            // tick| {     state.tick(tick)
-            // })
+            slot_stream.scan(epoch_stream, |mut state, tick| state.tick(tick))
         }
         .await;
 
