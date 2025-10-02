@@ -42,7 +42,7 @@ impl GeneralTracingConfig {
                     host_identifier,
                 }),
                 console: ConsoleLayer::None,
-                level: Level::TRACE,
+                level: Level::DEBUG,
             },
         }
     }
