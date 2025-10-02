@@ -399,6 +399,7 @@ where
                         update.peers,
                         &membership_storage,
                         update.provider_mappings,
+
                     ).await {
                         Ok(current_membership) => {
                             let opinions = opinion_aggregator.handle_session_change(current_membership);
