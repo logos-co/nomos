@@ -1,11 +1,7 @@
-use std::{
-    io::Cursor,
-    ops::Mul as _,
-};
+use std::{io::Cursor, ops::Mul as _};
 
 use ark_bls12_381::{Bls12_381, Fr, G1Affine, G1Projective};
-use ark_ec::{CurveGroup as _, VariableBaseMSM as _, pairing::Pairing as _};
-use ark_ec::bls12::G1Prepared;
+use ark_ec::{CurveGroup as _, VariableBaseMSM as _, bls12::G1Prepared, pairing::Pairing as _};
 use ark_ff::{Field as _, PrimeField as _, UniformRand as _};
 use ark_poly::EvaluationDomain as _;
 use ark_poly_commit::kzg10::Commitment as KzgCommitment;
@@ -271,7 +267,7 @@ pub fn verify_multiple_columns(
                 .sum()
         })
         .collect();
-    let aggregated_commitments : Vec<G1Projective> = row_commitments
+    let aggregated_commitments: Vec<G1Projective> = row_commitments
         .iter()
         .enumerate()
         .map(|(i, commits)| {
@@ -279,8 +275,7 @@ pub fn verify_multiple_columns(
                 .iter()
                 .map(|c| c.0) // use .0 instead of .comm
                 .collect();
-            G1Projective::msm(&bases, &h_roots[i])
-                .expect("invalid msm")
+            G1Projective::msm(&bases, &h_roots[i]).expect("invalid msm")
         })
         .collect();
 
@@ -290,8 +285,11 @@ pub fn verify_multiple_columns(
     let r: Fr = Fr::rand(&mut rng);
     let r_roots = compute_h_roots(r, column_proofs.len());
 
-    let batched_commitment = G1Projective::msm(&G1Projective::normalize_batch(&aggregated_commitments), &r_roots)
-        .expect("invalid msm");
+    let batched_commitment = G1Projective::msm(
+        &G1Projective::normalize_batch(&aggregated_commitments),
+        &r_roots,
+    )
+    .expect("invalid msm");
 
     let batched_elements: Fr = aggregated_elements
         .iter()
@@ -311,10 +309,10 @@ pub fn verify_multiple_columns(
     )
     .expect("invalid msm");
 
-    let commitment_check_g1 : G1Projective =
+    let commitment_check_g1: G1Projective =
         batched_commitment - verification_key.g * batched_elements + batched_index;
 
-    let affine_points= G1Projective::normalize_batch(&[commitment_check_g1, batched_proof]);
+    let affine_points = G1Projective::normalize_batch(&[commitment_check_g1, batched_proof]);
     let qap = Bls12_381::multi_miller_loop(
         [
             <G1Affine as Into<G1Prepared<_>>>::into(affine_points[1]),

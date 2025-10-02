@@ -1,7 +1,4 @@
-use std::{
-    borrow::Cow,
-    ops::Mul as _,
-};
+use std::{borrow::Cow, ops::Mul as _};
 
 use ark_bls12_381::{Bls12_381, Fr, G1Affine};
 use ark_ec::{bls12::G1Prepared, pairing::Pairing as _};
