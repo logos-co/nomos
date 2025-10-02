@@ -9,13 +9,12 @@ use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 use cryptarchia_engine::{Epoch, Slot};
 use futures::{StreamExt as _, TryFutureExt as _};
 pub use leadership::LeaderConfig;
-use nomos_blend_service::ProofOfLeadershipQuotaInputs;
 use nomos_core::{
     block::Block,
     da,
     header::{Header, HeaderId},
-    mantle::{AuthenticatedMantleTx, Op, Transaction, TxHash, TxSelect},
-    proofs::leader_proof::Groth16LeaderProof,
+    mantle::{AuthenticatedMantleTx, Op, Transaction, TxHash, TxSelect, keys::SecretKey},
+    proofs::leader_proof::{Groth16LeaderProof, LeaderPrivate},
 };
 use nomos_da_sampling::{
     DaSamplingService, DaSamplingServiceMsg, backend::DaSamplingServiceBackend,
@@ -68,7 +67,7 @@ pub enum LeaderMsg {
     /// * this service has just started mid-epoch -> winning slots for the
     ///   current epoch
     WinningPolEpochSlotStreamSubscribe {
-        sender: oneshot::Sender<broadcast::Receiver<(ProofOfLeadershipQuotaInputs, Epoch)>>,
+        sender: oneshot::Sender<broadcast::Receiver<(LeaderPrivate, SecretKey, Epoch)>>,
     },
 }
 
@@ -116,7 +115,7 @@ pub struct CryptarchiaLeader<
     Wallet: nomos_wallet::api::WalletServiceData,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-    winning_pol_epoch_slots_sender: broadcast::Sender<(ProofOfLeadershipQuotaInputs, Epoch)>,
+    winning_pol_epoch_slots_sender: broadcast::Sender<(LeaderPrivate, SecretKey, Epoch)>,
 }
 
 impl<
@@ -609,7 +608,7 @@ where
 
 fn handle_inbound_message(
     msg: LeaderMsg,
-    winning_pol_epoch_slots_sender: &broadcast::Sender<(ProofOfLeadershipQuotaInputs, Epoch)>,
+    winning_pol_epoch_slots_sender: &broadcast::Sender<(LeaderPrivate, SecretKey, Epoch)>,
 ) {
     let LeaderMsg::WinningPolEpochSlotStreamSubscribe { sender } = msg;
 

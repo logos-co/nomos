@@ -19,7 +19,7 @@ use nomos_blend_message::crypto::{
 };
 use nomos_blend_scheduling::message_blend::{BlendLayerProof, SessionInfo};
 use nomos_blend_service::{
-    ProofsGenerator, ProofsVerifier,
+    ProofOfLeadershipQuotaInputs, ProofsGenerator, ProofsVerifier,
     epoch_info::{PolEpochInfo, PolInfoProvider as PolInfoProviderTrait},
     membership::service::Adapter,
 };
@@ -28,6 +28,7 @@ use nomos_da_sampling::network::NetworkAdapter;
 use nomos_libp2p::PeerId;
 use nomos_time::backends::NtpTimeBackend;
 use overwatch::{overwatch::OverwatchHandle, services::AsServiceId};
+use pol::{PolChainInputsData, PolWalletInputsData, PolWitnessInputsData};
 use services_utils::wait_until_services_are_ready;
 use tokio::sync::oneshot::channel;
 use tokio_stream::wrappers::BroadcastStream;
@@ -218,12 +219,38 @@ where
         let pol_winning_slot_receiver = receiver.await.ok()?;
         Some(Box::new(
             BroadcastStream::new(pol_winning_slot_receiver).filter_map(|res| {
-                let Ok((poq_private_inputs, epoch)) = res else {
+                let Ok((leader_private, secret_key, epoch)) = res else {
                     return ready(None);
                 };
+                let PolWitnessInputsData {
+                    wallet:
+                        PolWalletInputsData {
+                            aged_path,
+                            aged_selector,
+                            note_value,
+                            output_number,
+                            slot_secret,
+                            slot_secret_path,
+                            starting_slot,
+                            transaction_hash,
+                            ..
+                        },
+                    chain: PolChainInputsData { slot_number, .. },
+                } = leader_private.input();
                 ready(Some(PolEpochInfo {
                     epoch,
-                    poq_private_inputs,
+                    poq_private_inputs: ProofOfLeadershipQuotaInputs {
+                        aged_path: aged_path.clone(),
+                        aged_selector: aged_selector.clone(),
+                        note_value: *note_value,
+                        output_number: *output_number,
+                        pol_secret_key: *secret_key.as_fr(),
+                        slot: *slot_number,
+                        slot_secret: *slot_secret,
+                        slot_secret_path: slot_secret_path.clone(),
+                        starting_slot: *starting_slot,
+                        transaction_hash: *transaction_hash,
+                    },
                 }))
             }),
         ))

@@ -1,6 +1,6 @@
 use cryptarchia_engine::{Epoch, Slot};
+use ed25519_dalek::VerifyingKey;
 use groth16::Fr;
-use nomos_blend_service::ProofOfLeadershipQuotaInputs;
 use nomos_core::{
     mantle::{
         Utxo,
@@ -8,7 +8,7 @@ use nomos_core::{
         ops::leader_claim::VoucherCm,
     },
     proofs::leader_proof::{Groth16LeaderProof, LeaderPrivate, LeaderPublic},
-    utils::merkle::{MerkleNode, MerklePath},
+    utils::merkle::MerklePath,
 };
 use nomos_ledger::{EpochState, UtxoTree};
 use serde::{Deserialize, Serialize};
@@ -85,13 +85,13 @@ impl Leader {
                 // TODO: Get the actual witness paths and leader key
                 let aged_path = path_for_aged_utxo(utxo);
                 let latest_path = Vec::new();
-                let (slot_secret, slot_secret_path) = self.secret_for_slot(slot);
+                let slot_secret = self.secret_for_slot(slot);
                 let starting_slot: u64 = self
                     .config
                     .epoch_config
                     .starting_slot(&epoch_state.epoch)
                     .into();
-                let leader_pk = ed25519_dalek::VerifyingKey::from_bytes(&[0; 32]).unwrap(); // TODO: get actual leader public key
+                let leader_pk = leader_pk();
 
                 let private_inputs = LeaderPrivate::new(
                     public_inputs,
@@ -99,7 +99,6 @@ impl Leader {
                     &aged_path,
                     &latest_path,
                     slot_secret,
-                    &slot_secret_path,
                     starting_slot,
                     &leader_pk,
                 );
@@ -132,9 +131,13 @@ impl Leader {
         None
     }
 
-    const fn secret_for_slot(&self, _slot: Slot) -> (Fr, MerklePath<Fr>) {
-        (*self.sk.as_fr(), MerklePath::new())
+    const fn secret_for_slot(&self, _slot: Slot) -> Fr {
+        *self.sk.as_fr()
     }
+}
+
+fn leader_pk() -> VerifyingKey {
+    VerifyingKey::from_bytes(&[0; 32]).unwrap() // TODO: get actual leader public key
 }
 
 const fn path_for_aged_utxo(_utxo: &Utxo) -> MerklePath<Fr> {
@@ -148,14 +151,14 @@ const fn path_for_aged_utxo(_utxo: &Utxo) -> MerklePath<Fr> {
 /// notifying all consumers via the provided sender channel.
 pub struct PoLNotifier<'service> {
     leader: &'service Leader,
-    sender: &'service Sender<(ProofOfLeadershipQuotaInputs, Epoch)>,
+    sender: &'service Sender<(LeaderPrivate, SecretKey, Epoch)>,
     last_processed_epoch: Option<Epoch>,
 }
 
 impl<'service> PoLNotifier<'service> {
     pub(super) const fn new(
         leader: &'service Leader,
-        sender: &'service Sender<(ProofOfLeadershipQuotaInputs, Epoch)>,
+        sender: &'service Sender<(LeaderPrivate, SecretKey, Epoch)>,
     ) -> Self {
         Self {
             leader,
@@ -188,7 +191,8 @@ impl<'service> PoLNotifier<'service> {
         let aged_root = epoch_state.utxos.root();
         let epoch_nonce = epoch_state.nonce();
         let total_stake = epoch_state.total_stake();
-        let secret_key = *self.leader.sk.as_fr();
+        let secret_key = self.leader.sk.clone();
+        let secret_key_fr = secret_key.as_fr();
         // Not used to check if a slot wins the lottery.
         let latest_root = Fr::ZERO;
 
@@ -200,33 +204,26 @@ impl<'service> PoLNotifier<'service> {
                     .expect("Slot calculation overflow.");
                 let leader_public =
                     LeaderPublic::new(aged_root, latest_root, *epoch_nonce, slot, total_stake);
-                if !leader_public.check_winning(utxo.note.value, note_id, secret_key) {
+                if !leader_public.check_winning(utxo.note.value, note_id, *secret_key_fr) {
                     continue;
                 }
                 tracing::debug!("Found winning utxo with ID {:?} for slot {slot}", utxo.id());
 
                 let aged_path = path_for_aged_utxo(utxo);
-                let aged_selector = aged_path
-                    .iter()
-                    .map(|n| matches!(n, MerkleNode::Right(_)))
-                    .collect();
-                let (slot_secret, slot_secret_path) = self.leader.secret_for_slot(Slot::new(slot));
+                let slot_secret = self.leader.secret_for_slot(Slot::new(slot));
 
-                let poq_private_pol_inputs = ProofOfLeadershipQuotaInputs {
-                    aged_path: aged_path.into_iter().map(|n| *n.item()).collect(),
-                    aged_selector,
-                    note_value: utxo.note.value,
-                    output_number: utxo.output_index as u64,
-                    pol_secret_key: secret_key,
-                    slot,
+                let leader_private = LeaderPrivate::new(
+                    leader_public,
+                    *utxo,
+                    &aged_path,
+                    &vec![],
                     slot_secret,
-                    slot_secret_path: slot_secret_path.into_iter().map(|n| *n.item()).collect(),
-                    starting_slot: epoch_starting_slot,
-                    transaction_hash: utxo.tx_hash.0,
-                };
-                if let Err(err) = self
-                    .sender
-                    .send((poq_private_pol_inputs, epoch_state.epoch))
+                    epoch_starting_slot,
+                    &leader_pk(),
+                );
+                if let Err(err) =
+                    self.sender
+                        .send((leader_private, secret_key.clone(), epoch_state.epoch))
                 {
                     tracing::error!(
                         "Failed to send pre-calculated PoL winning slots to receivers. Error: {err:?}"
