@@ -1,14 +1,8 @@
-use core::{
-    fmt::Debug,
-    marker::PhantomData,
-    pin::Pin,
-    task::{Context, Poll},
-};
+use core::{fmt::Debug, marker::PhantomData};
 
 use async_trait::async_trait;
 use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 use cryptarchia_engine::{Epoch, Slot};
-use futures::{FutureExt as _, Stream, StreamExt as _};
 use nomos_core::crypto::ZkHash;
 use nomos_ledger::EpochState;
 use nomos_time::SlotTick;
@@ -66,122 +60,56 @@ where
     }
 }
 
-type GetEpochForSlotFuture = Pin<Box<dyn Future<Output = Option<EpochState>> + Send>>;
-
 /// A stream that listens to slot ticks, and on the first slot tick received as
 /// well as the first slot tick of each new epoch, fetches the epoch state from
 /// the provided chain service adapter.
 ///
 /// In case the epoch state for a given slot is not found, it will retry on
 /// subsequent slots until one is successfully received.
-pub struct EpochStream<SlotStream, ChainService, RuntimeServiceId> {
-    slot_stream: SlotStream,
+pub struct EpochStream<ChainService, RuntimeServiceId> {
     chain_service: ChainService,
     current_epoch: Option<Epoch>,
-    epoch_state_future: Option<GetEpochForSlotFuture>,
     _phantom: PhantomData<RuntimeServiceId>,
 }
 
-impl<SlotStream, ChainService, RuntimeServiceId>
-    EpochStream<SlotStream, ChainService, RuntimeServiceId>
-{
-    pub fn new(slot_stream: SlotStream, chain_service: ChainService) -> Self {
+impl<ChainService, RuntimeServiceId> EpochStream<ChainService, RuntimeServiceId> {
+    pub const fn new(chain_service: ChainService) -> Self {
         Self {
-            slot_stream,
             chain_service,
             current_epoch: None,
-            epoch_state_future: None,
             _phantom: PhantomData,
         }
     }
 }
 
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "It's better to keep all the polling logic together."
-)]
-impl<SlotStream, ChainService, RuntimeServiceId> Stream
-    for EpochStream<SlotStream, ChainService, RuntimeServiceId>
+impl<ChainService, RuntimeServiceId> EpochStream<ChainService, RuntimeServiceId>
 where
-    SlotStream: Stream<Item = SlotTick> + Unpin,
-    ChainService: ChainApi<RuntimeServiceId> + Clone + Unpin + Send + 'static,
-    RuntimeServiceId: Unpin,
+    ChainService: ChainApi<RuntimeServiceId>,
 {
-    type Item = EpochInfo;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        tracing::debug!(target: LOG_TARGET, "Polling epoch stream for next epoch info...");
-        let this = self.as_mut().get_mut();
-
-        if let Some(ref mut pending_fut) = this.epoch_state_future {
-            tracing::trace!(target: LOG_TARGET, "Pending future found to fetch state for current epoch...");
-            match pending_fut.poll_unpin(cx) {
-                Poll::Pending => {
-                    tracing::trace!(target: LOG_TARGET, "Future not completed yet.");
-                    return Poll::Pending;
-                }
-                Poll::Ready(epoch_state) => {
-                    tracing::debug!(target: LOG_TARGET, "Future ready with result: {epoch_state:?}.");
-                    this.epoch_state_future = None;
-                    let Some(epoch_state) = epoch_state else {
-                        // If we could not fetch the epoch state for the given slot, we reset
-                        // `current_epoch` so we try again on the next slot tick.
-                        tracing::warn!(target: LOG_TARGET, "No epoch state for given slot. Retrying on the next slot tick.");
-                        this.current_epoch = None;
-                        // We wake so we poll for the next slot tick.
-                        cx.waker().wake_by_ref();
-                        return Poll::Pending;
-                    };
-                    return Poll::Ready(Some(epoch_state.into()));
-                }
-            }
+    pub async fn tick(&mut self, SlotTick { epoch, slot }: SlotTick) -> Option<EpochInfo> {
+        if let Some(last_processed_epoch) = self.current_epoch
+            && last_processed_epoch == epoch
+        {
+            tracing::debug!(target: LOG_TARGET, "New slot for current epoch. Skipping...");
+            return None;
         }
-        tracing::debug!(target: LOG_TARGET, "Polling slot stream \u{1f555}...");
-        match this.slot_stream.poll_next_unpin(cx) {
-            Poll::Ready(None) => {
-                tracing::debug!(target: LOG_TARGET, "Slot stream completed with `None`.");
-                Poll::Ready(None)
-            }
-            Poll::Pending => {
-                tracing::trace!(target: LOG_TARGET, "Slot stream not ready yet.");
-                Poll::Pending
-            }
-            Poll::Ready(Some(SlotTick { epoch, slot })) => {
-                // Same epoch as the already processed one, we don't yield anything new.
-                if let Some(current_epoch) = this.current_epoch
-                    && current_epoch == epoch
-                {
-                    tracing::debug!(target: LOG_TARGET, "New slot for current epoch. Skipping...");
-                    // We wake so we poll for the next slot tick.
-                    cx.waker().wake_by_ref();
-                    return Poll::Pending;
-                }
-                this.current_epoch = Some(epoch);
-                let chain_service_clone = this.chain_service.clone();
-                self.epoch_state_future = Some(Box::pin(async move {
-                    chain_service_clone.get_epoch_state_for_slot(slot).await
-                }));
-                tracing::debug!(target: LOG_TARGET, "Found new epoch unseen before. Polling for its state...");
-                // We wake so we poll for the next slot tick.
-                cx.waker().wake_by_ref();
-                Poll::Pending
-            }
-        }
+
+        tracing::debug!(target: LOG_TARGET, "Found new epoch unseen before. Polling for its state...");
+        let Some(epoch_state_for_slot) = self.chain_service.get_epoch_state_for_slot(slot).await
+        else {
+            tracing::warn!(target: LOG_TARGET, "No epoch state for given slot. Retrying on the next slot tick.");
+            return None;
+        };
+
+        self.current_epoch = Some(epoch);
+        Some(epoch_state_for_slot.into())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use core::task::{Context, Poll};
-
     use async_trait::async_trait;
     use cryptarchia_engine::Slot;
-    use futures::{
-        StreamExt as _,
-        future::ready,
-        stream::{empty, once},
-        task::noop_waker_ref,
-    };
     use nomos_core::crypto::ZkHash;
     use nomos_ledger::{EpochState, UtxoTree};
     use nomos_time::SlotTick;
@@ -222,141 +150,62 @@ mod tests {
     }
 
     #[test(tokio::test)]
-    async fn manual_polling() {
-        let slot_stream = once(ready(SlotTick {
-            epoch: 1.into(),
-            slot: 1.into(),
-        }))
-        // New slot same epoch
-        .chain(once(ready(SlotTick {
-            epoch: 1.into(),
-            slot: 2.into(),
-        })))
-        // New slot new epoch
-        .chain(once(ready(SlotTick {
-            epoch: 2.into(),
-            slot: 3.into(),
-        })))
-        // New slot new epoch, but no associated epoch state
-        .chain(once(ready(SlotTick {
-            epoch: 3.into(),
-            slot: NON_EXISTING_EPOCH_STATE_SLOT,
-        })))
-        // New slot same epoch, but with associated epoch state
-        .chain(once(ready(SlotTick {
-            epoch: 3.into(),
-            slot: 5.into(),
-        })));
-        let mut stream = EpochStream::new(slot_stream, ChainService);
+    async fn epoch_transition() {
+        let ticks = vec![
+            SlotTick {
+                epoch: 1.into(),
+                slot: 1.into(),
+            },
+            // New slot same epoch
+            SlotTick {
+                epoch: 1.into(),
+                slot: 2.into(),
+            },
+            // New slot new epoch
+            SlotTick {
+                epoch: 2.into(),
+                slot: 3.into(),
+            },
+            // New slot new epoch, but no associated epoch state
+            SlotTick {
+                epoch: 3.into(),
+                slot: NON_EXISTING_EPOCH_STATE_SLOT,
+            },
+            // New slot same epoch, but with associated epoch state
+            SlotTick {
+                epoch: 3.into(),
+                slot: 5.into(),
+            },
+        ];
+        let mut ticks_iter = ticks.into_iter();
+        let mut stream = EpochStream::new(ChainService);
 
-        let mut cx = Context::from_waker(noop_waker_ref());
-        // First poll of the stream will set the epoch info future to fetch the
-        // information.
-        let poll_next = stream.poll_next_unpin(&mut cx);
-        assert_eq!(poll_next, Poll::Pending);
-        assert!(stream.epoch_state_future.is_some());
+        // First poll of the stream will set the epoch info and return the retrieved
+        // state.
+        let next_tick = stream.tick(ticks_iter.next().unwrap()).await;
+        assert_eq!(stream.current_epoch, Some(1.into()));
+        assert_eq!(next_tick, Some(default_epoch_state().into()));
+
+        // Second poll of the stream will not return anything since it's in the same
+        // epoch.
+        let next_tick = stream.tick(ticks_iter.next().unwrap()).await;
+        assert!(next_tick.is_none());
         assert_eq!(stream.current_epoch, Some(1.into()));
 
-        // We wait until the inner future completes
-        let result = stream.next().await;
-        assert_eq!(result, Some(default_epoch_state().into()));
-        assert!(stream.epoch_state_future.is_none());
-        assert_eq!(stream.current_epoch, Some(1.into()));
-
-        // A new slot for the same epoch is used here, so nothing changes.
-        let poll_next = stream.poll_next_unpin(&mut cx);
-        assert_eq!(poll_next, Poll::Pending);
-        assert!(stream.epoch_state_future.is_none());
-        assert_eq!(stream.current_epoch, Some(1.into()));
-
-        // A new epoch is returned here, so the new future is set up and polled.
-        let poll_next = stream.poll_next_unpin(&mut cx);
-        assert_eq!(poll_next, Poll::Pending);
-        assert!(stream.epoch_state_future.is_some());
+        // Third poll of the stream will yield a new element since we're in a new epoch.
+        let next_tick = stream.tick(ticks_iter.next().unwrap()).await;
         assert_eq!(stream.current_epoch, Some(2.into()));
+        assert_eq!(next_tick, Some(default_epoch_state().into()));
 
-        // We wait until the inner future completes
-        let result = stream.next().await;
-        assert_eq!(result, Some(default_epoch_state().into()));
-        assert!(stream.epoch_state_future.is_none());
+        // Fourth poll of the stream will not yield anything since there was no state
+        // for the new epoch, and the epoch info is not updated.
+        let next_tick = stream.tick(ticks_iter.next().unwrap()).await;
         assert_eq!(stream.current_epoch, Some(2.into()));
+        assert!(next_tick.is_none());
 
-        // Next poll for new epoch, we spawn the future.
-        let poll_next = stream.poll_next_unpin(&mut cx);
-        assert_eq!(poll_next, Poll::Pending);
-        assert!(stream.epoch_state_future.is_some());
+        // Fifth poll updates epoch and return state as expected.
+        let next_tick = stream.tick(ticks_iter.next().unwrap()).await;
         assert_eq!(stream.current_epoch, Some(3.into()));
-
-        // Once the future completes, it will return `None`, so the next slot will be
-        // polled.
-        loop {
-            let poll_next = stream.poll_next_unpin(&mut cx);
-            // React to the fact that `None` was received by the future.
-            if stream.current_epoch.is_none() {
-                assert_eq!(poll_next, Poll::Pending);
-                assert!(stream.epoch_state_future.is_none());
-                break;
-            }
-        }
-
-        // Lastly, a new slot for the same epoch as the previous `None` is received, and
-        // the expected state is yielded.
-        let result = stream.next().await;
-        assert_eq!(result, Some(default_epoch_state().into()));
-        assert!(stream.epoch_state_future.is_none());
-        assert_eq!(stream.current_epoch, Some(3.into()));
-    }
-
-    #[test(tokio::test)]
-    async fn stream_api() {
-        let slot_stream = once(ready(SlotTick {
-            epoch: 1.into(),
-            slot: 1.into(),
-        }))
-        // New slot same epoch
-        .chain(once(ready(SlotTick {
-            epoch: 1.into(),
-            slot: 2.into(),
-        })))
-        // New slot new epoch
-        .chain(once(ready(SlotTick {
-            epoch: 2.into(),
-            slot: 3.into(),
-        })))
-        // New slot new epoch, but no associated epoch state
-        .chain(once(ready(SlotTick {
-            epoch: 3.into(),
-            slot: NON_EXISTING_EPOCH_STATE_SLOT,
-        })))
-        // New slot new epoch, but with associated epoch state
-        .chain(once(ready(SlotTick {
-            epoch: 4.into(),
-            slot: 5.into(),
-        })))
-        // We stop the iteration here
-        .chain(empty());
-        let mut stream = EpochStream::new(slot_stream, ChainService);
-
-        // Epoch 1
-        let next = stream.next().await;
-        assert_eq!(next, Some(default_epoch_state().into()));
-        assert_eq!(stream.current_epoch, Some(1.into()));
-        assert!(stream.epoch_state_future.is_none());
-
-        // Epoch 2
-        let next = stream.next().await;
-        assert_eq!(next, Some(default_epoch_state().into()));
-        assert_eq!(stream.current_epoch, Some(2.into()));
-        assert!(stream.epoch_state_future.is_none());
-
-        // Epoch 4 (skipping epoch 3 because no epoch state was found for it)
-        let next = stream.next().await;
-        assert_eq!(next, Some(default_epoch_state().into()));
-        assert_eq!(stream.current_epoch, Some(4.into()));
-        assert!(stream.epoch_state_future.is_none());
-
-        // Epoch 5 - should return `Ready(None)`
-        let next = stream.next().await;
-        assert!(next.is_none());
+        assert_eq!(next_tick, Some(default_epoch_state().into()));
     }
 }

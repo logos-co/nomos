@@ -14,7 +14,7 @@ use async_trait::async_trait;
 use backends::BlendBackend;
 use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 use fork_stream::StreamExt as _;
-use futures::{Stream, StreamExt as _, future::join_all};
+use futures::{Stream, StreamExt as _, future::join_all, stream::pending};
 use network::NetworkAdapter;
 use nomos_blend_message::{
     PayloadType,
@@ -52,7 +52,7 @@ use crate::{
         processor::{CoreCryptographicProcessor, Error},
         settings::BlendConfig,
     },
-    epoch::EpochStream,
+    epoch::{EpochInfo, EpochStream},
     membership,
     message::{NetworkMessage, ProcessedMessage, ServiceMessage},
     mock_poq_inputs_stream,
@@ -236,10 +236,14 @@ where
                 .send(TimeServiceMessage::Subscribe { sender })
                 .await
                 .expect("Failed to subscribe to slot clock.");
-            let slot_stream = receiver
+            let _slot_stream = receiver
                 .await
                 .expect("Should not fail to receive slot stream from time service.");
-            EpochStream::<_, _, RuntimeServiceId>::new(slot_stream, chain_service)
+            let _stream = EpochStream::<_, RuntimeServiceId>::new(chain_service);
+            Box::new(pending::<EpochInfo>())
+            // slot_stream.scan(EpochStream::new(chain_service), |mut state,
+            // tick| {     state.tick(tick)
+            // })
         }
         .await;
 

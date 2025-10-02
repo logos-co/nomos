@@ -14,7 +14,7 @@ use std::{
 
 use backends::BlendBackend;
 use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
-use futures::{Stream, StreamExt as _};
+use futures::{Stream, StreamExt as _, stream::pending};
 use nomos_blend_scheduling::{
     message_blend::{ProofsGenerator as ProofsGeneratorTrait, SessionInfo as PoQSessionInfo},
     session::{SessionEvent, UninitializedSessionEventStream},
@@ -184,6 +184,8 @@ where
         .subscribe()
         .await?;
 
+        // // TODO: Change this to also be a `UninitializedStream` which is expected to
+        // // yield within a certain amount of time.
         // TODO: Change this to also be a `UninitializedStream` which is expected to
         // yield within a certain amount of time.
         let epoch_state_stream = async {
@@ -199,10 +201,14 @@ where
                 .send(TimeServiceMessage::Subscribe { sender })
                 .await
                 .expect("Failed to subscribe to slot clock.");
-            let slot_stream = receiver
+            let _slot_stream = receiver
                 .await
                 .expect("Should not fail to receive slot stream from time service.");
-            EpochStream::<_, _, RuntimeServiceId>::new(slot_stream, chain_service)
+            let _stream = EpochStream::<_, RuntimeServiceId>::new(chain_service);
+            Box::new(pending::<EpochInfo>())
+            // slot_stream.scan(EpochStream::new(chain_service), |mut state,
+            // tick| {     state.tick(tick)
+            // })
         }
         .await;
 
