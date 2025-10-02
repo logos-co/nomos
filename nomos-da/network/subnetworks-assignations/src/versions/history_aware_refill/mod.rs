@@ -4,12 +4,13 @@ use std::{
     hash::Hash,
 };
 
+use nomos_core::block::SessionNumber;
 use rand::RngCore;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::{
-    versions::history_aware_refill::assignations::HistoryAwareRefill, MembershipCreator,
-    MembershipHandler, SubnetworkAssignations, SubnetworkId,
+    MembershipCreator, MembershipHandler, SubnetworkAssignations, SubnetworkId,
+    versions::history_aware_refill::assignations::HistoryAwareRefill,
 };
 
 pub mod assignations;
@@ -25,16 +26,22 @@ where
     assignations: assignations::Assignations<Id>,
     subnetwork_size: usize,
     replication_factor: usize,
+    session_id: SessionNumber,
 }
 
 impl<Id: Ord> HistoryAware<Id> {
-    pub fn new(subnetwork_size: usize, replication_factor: usize) -> Self {
+    pub fn new(
+        session_id: SessionNumber,
+        subnetwork_size: usize,
+        replication_factor: usize,
+    ) -> Self {
         Self {
             assignations: std::iter::repeat_with(BTreeSet::new)
                 .take(subnetwork_size)
                 .collect(),
             subnetwork_size,
             replication_factor,
+            session_id,
         }
     }
 }
@@ -51,11 +58,17 @@ where
         struct HistoryAwareHelper {
             subnetwork_size: usize,
             replication_factor: usize,
+            #[serde(default)]
+            session_id: SessionNumber,
         }
 
         let helper = HistoryAwareHelper::deserialize(deserializer)?;
 
-        Ok(Self::new(helper.subnetwork_size, helper.replication_factor))
+        Ok(Self::new(
+            helper.session_id,
+            helper.subnetwork_size,
+            helper.replication_factor,
+        ))
     }
 }
 
@@ -88,13 +101,11 @@ where
     }
 
     fn members_of(&self, network_id: &Self::NetworkId) -> HashSet<Self::Id> {
-        let res = self
-            .assignations
+        self.assignations
             .get(*network_id as usize)
             .map_or_else(HashSet::new, |subnetwork| {
                 subnetwork.iter().copied().collect()
-            });
-        res
+            })
     }
 
     fn members(&self) -> HashSet<Self::Id> {
@@ -117,13 +128,21 @@ where
             })
             .collect()
     }
+
+    fn session_id(&self) -> SessionNumber {
+        self.session_id
+    }
 }
 
 impl<Id> MembershipCreator for HistoryAware<Id>
 where
     for<'id> Id: Ord + PartialOrd + Eq + Copy + Hash + Debug + 'id,
 {
-    fn init(&self, peer_addresses: SubnetworkAssignations<Self::NetworkId, Self::Id>) -> Self {
+    fn init(
+        &self,
+        session_id: SessionNumber,
+        peer_addresses: SubnetworkAssignations<Self::NetworkId, Self::Id>,
+    ) -> Self {
         let mut assignations: Vec<_> = peer_addresses.into_iter().collect();
         assignations.sort_by_key(|(id, _)| *id);
         let assignations: Vec<_> = assignations
@@ -134,14 +153,21 @@ where
             assignations,
             subnetwork_size: self.subnetwork_size,
             replication_factor: self.replication_factor,
+            session_id,
         }
     }
 
-    fn update<Rng: RngCore>(&self, new_nodes: HashSet<Self::Id>, rng: &mut Rng) -> Self {
+    fn update<Rng: RngCore>(
+        &self,
+        session_id: SessionNumber,
+        new_nodes: HashSet<Self::Id>,
+        rng: &mut Rng,
+    ) -> Self {
         let Self {
             assignations,
             subnetwork_size,
             replication_factor,
+            ..
         } = self.clone();
         let new_nodes: Vec<_> = new_nodes.into_iter().collect();
 
@@ -155,6 +181,7 @@ where
             assignations,
             subnetwork_size,
             replication_factor,
+            session_id,
         }
     }
 }

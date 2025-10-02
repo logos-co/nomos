@@ -1,8 +1,8 @@
 use std::io;
 
 use futures::{AsyncReadExt, AsyncWriteExt};
-use nomos_core::wire;
-use serde::{de::DeserializeOwned, Serialize};
+use nomos_core::codec::{self, SerdeOp};
+use serde::{Serialize, de::DeserializeOwned};
 use thiserror::Error;
 
 type Result<T> = std::result::Result<T, PackingError>;
@@ -20,15 +20,15 @@ pub enum PackingError {
     Io(#[from] io::Error),
 
     #[error("Serialization error")]
-    Serialization(#[from] wire::Error),
+    Serialization(#[from] codec::Error),
 }
 
 pub async fn pack_to_writer<Message, Writer>(message: &Message, writer: &mut Writer) -> Result<()>
 where
-    Message: Serialize + Sync,
+    Message: Serialize + DeserializeOwned + Sync,
     Writer: AsyncWriteExt + Send + Unpin,
 {
-    let packed_message = wire::serialize(message)?;
+    let packed_message = <Message as SerdeOp>::serialize(message)?;
 
     let length_prefix: LenType =
         packed_message
@@ -40,7 +40,7 @@ where
             })?;
 
     writer
-        .write_all(&length_prefix.to_be_bytes())
+        .write_all(&length_prefix.to_le_bytes())
         .await
         .map_err(Into::<PackingError>::into)?;
 
@@ -53,16 +53,16 @@ where
 {
     let mut length_prefix = [0u8; MAX_MSG_LEN_BYTES];
     reader.read_exact(&mut length_prefix).await?;
-    Ok(LenType::from_be_bytes(length_prefix) as usize)
+    Ok(LenType::from_le_bytes(length_prefix) as usize)
 }
 
 pub async fn unpack_from_reader<Message, R>(reader: &mut R) -> Result<Message>
 where
-    Message: DeserializeOwned,
+    Message: DeserializeOwned + Serialize,
     R: AsyncReadExt + Unpin,
 {
     let data_length = read_data_length(reader).await?;
     let mut data = vec![0u8; data_length];
     reader.read_exact(&mut data).await?;
-    Ok(wire::deserialize(&data)?)
+    Ok(<Message as SerdeOp>::deserialize(&data)?)
 }

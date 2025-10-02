@@ -1,0 +1,49 @@
+[package]
+edition = { workspace = true }
+license = { workspace = true }
+name    = "tx-service"
+version = "0.1.0"
+
+[package.metadata.cargo-machete]
+# False positives.
+ignored = [
+  # Required by `utoipa`.
+  "serde_json",
+]
+
+[lints]
+workspace = true
+
+[dependencies]
+async-trait       = "0.1"
+futures           = { default-features = false, version = "0.3" }
+linked-hash-map   = { default-features = false, optional = true, version = "0.5.6" }
+nomos-core        = { workspace = true }
+nomos-da-sampling = { workspace = true }
+nomos-network     = { workspace = true }
+overwatch         = { workspace = true }
+rand              = { workspace = true }
+serde             = { default-features = false, version = "1.0" }
+serde_json        = { default-features = false, optional = true, version = "1" }
+services-utils    = { workspace = true }
+thiserror         = "1.0"
+tokio             = { default-features = false, version = "1" }
+tokio-stream      = { default-features = false, version = "0.1" }
+tracing           = { workspace = true }
+utoipa            = { optional = true, workspace = true }
+
+[dev-dependencies]
+nomos-tracing-service = { workspace = true }
+nomos-utils           = { workspace = true }
+overwatch-derive      = { workspace = true }
+tokio                 = { default-features = false, version = "1" }
+tx-service            = { features = ["mock"], path = "." }
+
+[features]
+default         = []
+instrumentation = []
+libp2p          = ["nomos-network/libp2p"]
+mock            = ["dep:linked-hash-map", "nomos-core/mock", "nomos-network/mock"]
+
+# enable to help generate OpenAPI
+openapi = ["dep:serde_json", "dep:utoipa"]

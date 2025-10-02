@@ -1,5 +1,5 @@
 [package]
-edition = "2021"
+edition = { workspace = true }
 license = { workspace = true }
 name    = "nomos-da-network-core"
 version = "0.1.0"
@@ -12,7 +12,7 @@ cached                   = { workspace = true }
 either                   = { default-features = false, version = "1.13.0" }
 fixed                    = { default-features = false, features = ["serde-str"], version = "1" }
 futures                  = { default-features = false, version = "0.3" }
-indexmap                 = { default-features = false, version = "2.2" }
+indexmap                 = { default-features = false, version = "2.2", features = ["std"] }
 kzgrs-backend            = { workspace = true }
 libp2p                   = { features = ["macros", "quic", "tokio"], workspace = true }
 libp2p-stream            = "0.3.0-alpha"
@@ -20,7 +20,7 @@ log                      = "0.4"
 nomos-core               = { workspace = true }
 nomos-da-messages        = { workspace = true }
 nomos-utils              = { workspace = true }
-rand                     = { default-features = false, version = "0.8" }
+rand                     = { default-features = false, version = "0.9" }
 serde                    = { default-features = false, version = "1.0" }
 serde_with               = { workspace = true }
 subnetworks-assignations = { workspace = true }

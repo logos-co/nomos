@@ -1,12 +1,12 @@
-use blake2::{digest::consts::U32, Blake2b, Digest as _};
+use blake2::{Blake2b, Digest as _, digest::consts::U32};
 use kzgrs::Proof;
-use nomos_core::da::{blob, BlobId};
+use nomos_core::da::{BlobId, blob};
 use serde::{Deserialize, Serialize};
 
-use super::{build_blob_id, ShareIndex};
+use super::{ShareIndex, build_blob_id};
 use crate::common::{
-    deserialize_canonical, deserialize_vec_canonical, serialize_canonical, serialize_vec_canonical,
-    Column, Commitment,
+    Column, Commitment, deserialize_canonical, deserialize_vec_canonical, serialize_canonical,
+    serialize_vec_canonical,
 };
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
@@ -68,7 +68,7 @@ impl blob::Share for DaShare {
     }
 
     fn share_idx(&self) -> Self::ShareIndex {
-        self.share_idx.to_be_bytes()
+        self.share_idx.to_le_bytes()
     }
 
     fn into_share_and_commitments(self) -> (Self::LightShare, Self::SharesCommitments) {
@@ -112,7 +112,7 @@ impl blob::LightShare for DaLightShare {
     type ShareIndex = [u8; 2];
 
     fn share_idx(&self) -> Self::ShareIndex {
-        self.share_idx.to_be_bytes()
+        self.share_idx.to_le_bytes()
     }
 }
 

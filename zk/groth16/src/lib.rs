@@ -3,6 +3,7 @@ mod curve;
 #[cfg(feature = "deser")]
 mod from_json_error;
 mod proof;
+pub use proof::{CompressSize, CompressedProof};
 #[cfg(feature = "deser")]
 mod protocol;
 mod public_input;
@@ -21,11 +22,13 @@ use ark_ff::{BigInteger as _, PrimeField};
 use num_bigint::BigUint;
 pub use verifier::groth16_verify;
 
-const BN254_G1_COMPRESSED_SIZE: usize = 32;
-const BN254_G2_COMPRESSED_SIZE: usize = 64;
+impl CompressSize for Bn254 {
+    type G1CompressedSize = generic_array::typenum::U32;
+    type G2CompressedSize = generic_array::typenum::U64;
+}
+
 pub type Groth16Proof = proof::Proof<Bn254>;
-pub type CompressedGroth16Proof =
-    proof::CompressedProof<BN254_G1_COMPRESSED_SIZE, BN254_G2_COMPRESSED_SIZE, Bn254>;
+pub type CompressedGroth16Proof = CompressedProof<Bn254>;
 #[cfg(feature = "deser")]
 pub type Groth16ProofJsonDeser = proof::ProofJsonDeser;
 pub type Groth16VerificationKey = verification_key::VerificationKey<Bn254>;
@@ -39,8 +42,9 @@ pub type Groth16InputDeser = public_input::InputDeser;
 pub type FrBytes = [u8; 32];
 
 #[must_use]
-pub fn fr_to_bytes(fr: Fr) -> FrBytes {
-    fr.into_bigint()
+pub fn fr_to_bytes(fr: &Fr) -> FrBytes {
+    (*fr)
+        .into_bigint()
         .to_bytes_le()
         .try_into()
         .expect("Bn254 Fr to bytes should fit in 32 bytes")
@@ -53,7 +57,7 @@ pub struct FrFromBytesError {
     pub modulus: String,
 }
 
-pub fn fr_from_bytes(fr: &FrBytes) -> Result<Fr, impl Error> {
+pub fn fr_from_bytes(fr: &[u8]) -> Result<Fr, impl Error + use<>> {
     let n = BigUint::from_bytes_le(fr);
     if n > <Fr as PrimeField>::MODULUS.into() {
         return Err(FrFromBytesError {
@@ -62,6 +66,13 @@ pub fn fr_from_bytes(fr: &FrBytes) -> Result<Fr, impl Error> {
         });
     }
     Ok(n.into())
+}
+
+/// To be used only in cases where a random or pseudo-random `Fr` value is
+/// needed.
+#[must_use]
+pub fn fr_from_bytes_unchecked(fr: &[u8]) -> Fr {
+    BigUint::from_bytes_le(fr).into()
 }
 
 #[cfg(test)]
@@ -74,7 +85,7 @@ mod tests {
     #[test]
     fn fr_to_from_bytes() {
         let value: Fr = BigUint::from(1_234_567_890_123_456_789u64).into();
-        let bytes = fr_to_bytes(value);
+        let bytes = fr_to_bytes(&value);
         let value2 = fr_from_bytes(&bytes).unwrap();
         assert_eq!(value, value2);
     }

@@ -5,7 +5,7 @@ use std::{
 use nomos_da_network_core::swarm::{
     DAConnectionMonitorSettings, DAConnectionPolicySettings, ReplicationConfig,
 };
-use nomos_libp2p::{ed25519, Multiaddr, PeerId};
+use nomos_libp2p::{Multiaddr, PeerId, ed25519};
 use nomos_node::NomosDaMembership;
 use subnetworks_assignations::MembershipHandler as _;
 
@@ -125,7 +125,8 @@ pub fn create_da_configs(
         listening_addresses.push(listening_address);
     }
 
-    let membership = NomosDaMembership::new(da_params.subnetwork_size, da_params.dispersal_factor);
+    let membership =
+        NomosDaMembership::new(0, da_params.subnetwork_size, da_params.dispersal_factor);
 
     ids.iter()
         .zip(node_keys)

@@ -1,5 +1,5 @@
 [package]
-edition = "2021"
+edition = { workspace = true }
 license = { workspace = true }
 name    = "nomos-node"
 version = "0.1.0"
@@ -16,26 +16,29 @@ workspace = true
 
 [dependencies]
 async-trait              = "0.1"
-bytes                    = { workspace = true }
+broadcast-service        = { workspace = true }
+chain-leader             = { workspace = true }
 chain-service            = { workspace = true }
 clap                     = { default-features = false, features = ["derive", "env", "std"], version = "4" }
 color-eyre               = { default-features = false, version = "0.6.0" }
 futures                  = { default-features = false, version = "0.3" }
+groth16                  = { workspace = true }
 hex                      = { default-features = false, version = "0.4.3" }
-http                     = "0.2.9"
+http                     = "1.3"
 kzgrs-backend            = { workspace = true }
 nomos-api                = { workspace = true }
-nomos-blend-service      = { workspace = true }
+nomos-blend-message      = { workspace = true }
+nomos-blend-scheduling   = { workspace = true }
+nomos-blend-service      = { features = ["libp2p"], workspace = true }
 nomos-core               = { workspace = true }
 nomos-da-messages        = { workspace = true }
 nomos-da-network-core    = { workspace = true }
 nomos-da-network-service = { workspace = true }
 nomos-da-sampling        = { features = ["libp2p", "rocksdb-backend"], workspace = true }
 nomos-da-verifier        = { features = ["libp2p"], workspace = true }
-nomos-http-api-common    = { workspace = true }
+nomos-http-api-common    = { workspace = true, features = ["profiling"] }
 nomos-libp2p             = { workspace = true }
-nomos-membership         = { workspace = true }
-nomos-mempool            = { workspace = true }
+nomos-membership-service = { workspace = true }
 nomos-network            = { workspace = true }
 nomos-sdp                = { workspace = true }
 nomos-storage            = { workspace = true }
@@ -43,14 +46,19 @@ nomos-system-sig         = { workspace = true }
 nomos-time               = { features = ["ntp", "serde"], workspace = true }
 nomos-tracing            = { workspace = true }
 nomos-tracing-service    = { workspace = true }
+nomos-wallet             = { workspace = true }
 num-bigint               = { version = "0.4", default-features = false }
 overwatch                = { workspace = true }
+pol                      = { workspace = true }
 serde                    = { default-features = false, version = "1" }
-serde_yaml               = "0.9"
+serde_json               = { workspace = true }
+serde_yaml               = { workspace = true }
 services-utils           = { workspace = true }
 subnetworks-assignations = { workspace = true }
 tokio                    = "1"
+tokio-stream             = { default-features = false, version = "0.1" }
 tracing                  = { workspace = true }
+tx-service               = { workspace = true }
 
 # openapi related dependencies
 utoipa            = { workspace = true }
@@ -65,5 +73,6 @@ tower-http = { default-features = false, features = ["cors", "limit", "timeout",
 [features]
 default         = ["tracing"]
 instrumentation = []
+profiling       = ["nomos-http-api-common/profiling", "nomos-tracing-service/profiling"]
 testing         = []
 tracing         = []

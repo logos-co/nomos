@@ -2,7 +2,7 @@ use nomos_tracing::{
     logging::loki::LokiConfig, metrics::otlp::OtlpMetricsConfig, tracing::otlp::OtlpTracingConfig,
 };
 use nomos_tracing_service::{
-    FilterLayer, LoggerLayer, MetricsLayer, TracingLayer, TracingSettings,
+    ConsoleLayer, FilterLayer, LoggerLayer, MetricsLayer, TracingLayer, TracingSettings,
 };
 use tracing::Level;
 
@@ -29,8 +29,8 @@ impl GeneralTracingConfig {
                 }),
                 filter: FilterLayer::EnvFilter(nomos_tracing::filter::envfilter::EnvFilterConfig {
                     // Allow events only from modules that matches the regex, if it matches - use
-                    // provided tracing level. Libp2p and risc0 related crates are very log
-                    // intensive in debug mode.
+                    // provided tracing level. Libp2p related crates are very log intensive in debug
+                    // mode.
                     filters: std::iter::once(&("nomos", "debug"))
                         .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
                         .collect(),
@@ -41,6 +41,7 @@ impl GeneralTracingConfig {
                         .unwrap(),
                     host_identifier,
                 }),
+                console: ConsoleLayer::None,
                 level: Level::DEBUG,
             },
         }

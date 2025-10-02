@@ -2,15 +2,15 @@ use core::task::{Context, Poll, Waker};
 
 use futures::{FutureExt as _, TryFutureExt as _};
 use libp2p::{
-    core::upgrade::ReadyUpgrade,
-    swarm::{handler::InboundUpgradeSend, ConnectionHandlerEvent},
     StreamProtocol,
+    core::upgrade::ReadyUpgrade,
+    swarm::{ConnectionHandlerEvent, handler::InboundUpgradeSend},
 };
 
 use crate::{
     core::with_edge::behaviour::handler::{
-        dropped::DroppedState, receiving::ReceivingState, ConnectionState, FailureReason,
-        FromBehaviour, PollResult, StateTrait, TimerFuture, ToBehaviour, LOG_TARGET,
+        ConnectionState, FailureReason, FromBehaviour, LOG_TARGET, PollResult, StateTrait,
+        TimerFuture, ToBehaviour, dropped::DroppedState, receiving::ReceivingState,
     },
     recv_msg,
 };

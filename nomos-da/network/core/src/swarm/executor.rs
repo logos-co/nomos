@@ -1,31 +1,35 @@
 use std::{io, marker::PhantomData, time::Duration};
 
 use futures::{
-    stream::{self, FuturesUnordered},
     StreamExt as _,
+    stream::{self, FuturesUnordered},
 };
 use kzgrs_backend::common::share::DaShare;
 use libp2p::{
+    Multiaddr, PeerId, Swarm, SwarmBuilder, TransportError,
     core::transport::ListenerId,
     identity::Keypair,
     swarm::{DialError, SwarmEvent},
-    Multiaddr, PeerId, Swarm, SwarmBuilder, TransportError,
 };
 use log::debug;
 use nomos_core::{da::BlobId, mantle::SignedMantleTx};
 use nomos_da_messages::replication::ReplicationRequest;
 use subnetworks_assignations::MembershipHandler;
 use tokio::{
-    sync::mpsc::{unbounded_channel, UnboundedSender},
+    sync::mpsc::{UnboundedSender, unbounded_channel},
     time::interval,
 };
 use tokio_stream::wrappers::{IntervalStream, UnboundedReceiverStream};
 
-use super::common::handlers::{handle_validator_dispersal_event, ValidationTask};
+use super::common::handlers::{ValidationTask, handle_validator_dispersal_event};
 use crate::{
+    SubnetworkId,
     addressbook::AddressBookHandler,
     behaviour::executor::{ExecutorBehaviour, ExecutorBehaviourEvent},
-    maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
+    maintenance::{
+        balancer::{ConnectionBalancer as Balancer, ConnectionBalancerCommand},
+        monitor::ConnectionMonitorCommand,
+    },
     protocols::{
         dispersal::{
             executor::behaviour::DispersalExecutorEvent, validator::behaviour::DispersalEvent,
@@ -34,16 +38,15 @@ use crate::{
         sampling::{SamplingEvent, SubnetsConfig},
     },
     swarm::{
+        BalancerStats, ConnectionBalancer, ConnectionMonitor, DispersalValidatorEvent,
+        MonitorStats,
         common::{
             handlers::{handle_replication_event, handle_sampling_event, monitor_event},
             monitor::MonitorEvent,
             policy::DAConnectionPolicy,
         },
         validator::{SampleArgs, SwarmSettings, ValidatorEventsStream},
-        BalancerStats, ConnectionBalancer, ConnectionMonitor, DispersalValidatorEvent,
-        MonitorStats,
     },
-    SubnetworkId,
 };
 
 // Metrics
@@ -103,6 +106,7 @@ where
             subnets_settings: subnets_config,
         }: SwarmSettings,
         refresh_signal: impl futures::Stream<Item = ()> + Send + 'static,
+        balancer_stats_sender: UnboundedSender<<ConnectionBalancer<Membership> as Balancer>::Stats>,
     ) -> (Self, ExecutorEventsStream) {
         let (sampling_events_sender, sampling_events_receiver) = unbounded_channel();
         let (validation_events_sender, validation_events_receiver) = unbounded_channel();
@@ -141,6 +145,7 @@ where
                     replication_config,
                     subnets_config,
                     refresh_signal,
+                    balancer_stats_sender,
                 ),
                 sampling_events_sender,
                 validation_events_sender,
@@ -167,6 +172,7 @@ where
         replication_config: ReplicationConfig,
         subnets_config: SubnetsConfig,
         refresh_signal: impl futures::Stream<Item = ()> + Send + 'static,
+        balancer_stats_sender: UnboundedSender<<ConnectionBalancer<Membership> as Balancer>::Stats>,
     ) -> ExecutorSwarmType<Membership, HistoricMembership, Addressbook> {
         SwarmBuilder::with_existing_identity(key)
             .with_tokio()
@@ -182,6 +188,7 @@ where
                     replication_config,
                     subnets_config,
                     refresh_signal,
+                    balancer_stats_sender,
                 )
             })
             .expect("Validator behaviour should build")

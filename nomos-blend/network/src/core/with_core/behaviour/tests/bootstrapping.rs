@@ -3,7 +3,7 @@ use core::time::Duration;
 use futures::StreamExt as _;
 use libp2p::{
     core::Endpoint,
-    swarm::{dummy, ConnectionId},
+    swarm::{ConnectionId, dummy},
 };
 use libp2p_swarm_test::SwarmExt as _;
 use nomos_libp2p::SwarmEvent;
@@ -11,10 +11,10 @@ use test_log::test;
 use tokio::{select, time::sleep};
 
 use crate::core::{
-    tests::utils::{largest_peer_id, smallest_peer_id, TestSwarm},
+    tests::utils::{TestSwarm, largest_peer_id, smallest_peer_id},
     with_core::behaviour::{
-        tests::utils::{BehaviourBuilder, SwarmExt as _},
         Event,
+        tests::utils::{BehaviourBuilder, SwarmExt as _},
     },
 };
 

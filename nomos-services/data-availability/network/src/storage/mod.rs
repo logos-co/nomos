@@ -4,20 +4,20 @@ use std::{
     hash::Hash,
 };
 
-use blake2::{digest::Update as BlakeUpdate, Blake2b512, Digest as _};
+use blake2::{Blake2b512, Digest as _, digest::Update as BlakeUpdate};
 use multiaddr::Multiaddr;
 use nomos_core::block::SessionNumber;
 use nomos_utils::blake_rng::BlakeRng;
 use overwatch::{
-    services::{relay::OutboundRelay, ServiceData},
     DynError,
+    services::{ServiceData, relay::OutboundRelay},
 };
 use rand::SeedableRng as _;
 use subnetworks_assignations::{MembershipCreator, MembershipHandler};
 
 use crate::{
     addressbook::{AddressBookMut, AddressBookSnapshot},
-    membership::{handler::DaMembershipHandler, Assignations},
+    membership::{Assignations, handler::DaMembershipHandler},
 };
 
 #[async_trait::async_trait]
@@ -75,7 +75,7 @@ where
         &self,
         session_id: SessionNumber,
         new_members: AddressBookSnapshot<Membership::Id>,
-    ) -> Result<(), DynError> {
+    ) -> Result<Membership, DynError> {
         let mut hasher = Blake2b512::default();
         BlakeUpdate::update(&mut hasher, session_id.to_le_bytes().as_slice());
         let seed: [u8; 64] = hasher.finalize().into();
@@ -88,7 +88,7 @@ where
             let updated_membership = self
                 .membership_handler
                 .membership()
-                .update(update, &mut rng);
+                .update(session_id, update, &mut rng);
             let assignations = updated_membership.subnetworks();
             (updated_membership, assignations)
         };
@@ -96,14 +96,16 @@ where
         tracing::debug!("Updating membership at session {session_id} with {assignations:?}");
 
         // update in-memory latest membership
-        self.membership_handler.update(updated_membership);
+        self.membership_handler.update(updated_membership.clone());
         self.addressbook.update(new_members.clone());
 
         // update membership storage
         self.membership_adapter
             .store(session_id, assignations)
             .await?;
-        self.membership_adapter.store_addresses(new_members).await
+        self.membership_adapter.store_addresses(new_members).await?;
+
+        Ok(updated_membership)
     }
 
     pub async fn get_historic_membership(
@@ -113,7 +115,11 @@ where
         let mut membership = None;
 
         if let Some(assignations) = self.membership_adapter.get(session_id).await? {
-            membership = Some(self.membership_handler.membership().init(assignations));
+            membership = Some(
+                self.membership_handler
+                    .membership()
+                    .init(session_id, assignations),
+            );
         }
 
         if membership.is_none() {

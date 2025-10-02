@@ -3,26 +3,26 @@ pub mod configs;
 use std::time::Duration;
 
 use configs::{
-    da::{create_da_configs, DaParams},
-    network::{create_network_configs, NetworkParams},
-    tracing::create_tracing_configs,
     GeneralConfig,
+    da::{DaParams, create_da_configs},
+    network::{NetworkParams, create_network_configs},
+    tracing::create_tracing_configs,
 };
 use nomos_da_network_core::swarm::DAConnectionPolicySettings;
 use nomos_utils::net::get_available_udp_port;
-use rand::{thread_rng, Rng as _};
+use rand::{Rng as _, thread_rng};
 
 use crate::{
     nodes::{
-        executor::{create_executor_config, Executor},
-        validator::{create_validator_config, Validator},
+        executor::{Executor, create_executor_config},
+        validator::{Validator, create_validator_config},
     },
     topology::configs::{
         api::create_api_configs,
         blend::create_blend_configs,
-        bootstrap::create_bootstrap_configs,
-        consensus::{create_consensus_configs, ConsensusParams},
-        membership::{create_empty_membership_configs, create_membership_configs},
+        bootstrap::{SHORT_PROLONGED_BOOTSTRAP_PERIOD, create_bootstrap_configs},
+        consensus::{ConsensusParams, create_consensus_configs},
+        membership::{MembershipNode, create_membership_configs},
         time::default_time_config,
     },
 };
@@ -117,18 +117,31 @@ impl Topology {
         // * coin nonce
         // * libp2p node key
         let mut ids = vec![[0; 32]; n_participants];
-        let mut ports = vec![];
+        let mut da_ports = vec![];
+        let mut blend_ports = vec![];
         for id in &mut ids {
             thread_rng().fill(id);
-            ports.push(get_available_udp_port().unwrap());
+            da_ports.push(get_available_udp_port().unwrap());
+            blend_ports.push(get_available_udp_port().unwrap());
         }
 
         let consensus_configs = create_consensus_configs(&ids, &config.consensus_params);
-        let bootstrapping_config = create_bootstrap_configs(&ids, Duration::from_secs(30));
-        let da_configs = create_da_configs(&ids, &config.da_params, &ports);
-        let membership_configs = create_membership_configs(ids.as_slice(), &ports);
+        let bootstrapping_config = create_bootstrap_configs(&ids, SHORT_PROLONGED_BOOTSTRAP_PERIOD);
+        let da_configs = create_da_configs(&ids, &config.da_params, &da_ports);
+        let membership_configs = create_membership_configs(
+            ids.iter()
+                .zip(&da_ports)
+                .zip(&blend_ports)
+                .map(|((&id, &da_port), &blend_port)| MembershipNode {
+                    id,
+                    da_port: Some(da_port),
+                    blend_port: Some(blend_port),
+                })
+                .collect::<Vec<_>>()
+                .as_slice(),
+        );
         let network_configs = create_network_configs(&ids, &config.network_params);
-        let blend_configs = create_blend_configs(&ids);
+        let blend_configs = create_blend_configs(&ids, &blend_ports);
         let api_configs = create_api_configs(&ids);
         let tracing_configs = create_tracing_configs(&ids);
         let time_config = default_time_config();
@@ -162,17 +175,29 @@ impl Topology {
     pub async fn spawn_with_empty_membership(
         config: TopologyConfig,
         ids: &[[u8; 32]],
-        ports: &[u16],
+        da_ports: &[u16],
+        blend_ports: &[u16],
     ) -> Self {
         let n_participants = config.n_validators + config.n_executors;
 
         let consensus_configs = create_consensus_configs(ids, &config.consensus_params);
-        let bootstrapping_config = create_bootstrap_configs(ids, Duration::from_secs(60));
-        let da_configs = create_da_configs(ids, &config.da_params, ports);
+        let bootstrapping_config = create_bootstrap_configs(ids, SHORT_PROLONGED_BOOTSTRAP_PERIOD);
+        let da_configs = create_da_configs(ids, &config.da_params, da_ports);
         let network_configs = create_network_configs(ids, &config.network_params);
-        let blend_configs = create_blend_configs(ids);
+        let blend_configs = create_blend_configs(ids, blend_ports);
         let api_configs = create_api_configs(ids);
-        let membership_configs = create_empty_membership_configs(n_participants);
+        // Create membership configs without DA nodes.
+        let membership_configs = create_membership_configs(
+            ids.iter()
+                .zip(blend_ports)
+                .map(|(&id, &blend_port)| MembershipNode {
+                    id,
+                    da_port: None,
+                    blend_port: Some(blend_port),
+                })
+                .collect::<Vec<_>>()
+                .as_slice(),
+        );
         let tracing_configs = create_tracing_configs(ids);
         let time_config = default_time_config();
 

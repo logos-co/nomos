@@ -13,8 +13,7 @@ use channel::{
     inscribe::InscriptionOp,
     set_keys::SetKeysOp,
 };
-use groth16::Fr;
-use num_bigint::BigUint;
+use groth16::{Fr, fr_from_bytes};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::{
@@ -137,10 +136,10 @@ impl Op {
     #[must_use]
     pub fn as_signing_fr(&self) -> Vec<Fr> {
         let mut buff = Vec::new();
-        buff.push(BigUint::from(self.opcode()).into());
+        buff.push(fr_from_bytes(&[self.opcode()]).expect("single byte fits in Fr"));
 
         for chunk in self.payload_bytes().chunks(31) {
-            buff.push(BigUint::from_bytes_le(chunk).into());
+            buff.push(fr_from_bytes(chunk).expect("31 bytes fit in Fr"));
         }
         buff
     }
@@ -183,8 +182,8 @@ mod tests {
 
     use serde_json::json;
 
-    use super::{channel::blob::BlobOp, Op};
-    use crate::wire;
+    use super::{Op, channel::blob::BlobOp};
+    use crate::codec;
 
     // nothing special, just some valid bytes
     static VK: LazyLock<ed25519_dalek::VerifyingKey> = LazyLock::new(|| {
@@ -242,9 +241,10 @@ mod tests {
         };
         let op = Op::ChannelBlob(blob_op);
 
-        let serialized = wire::serialize(&op).unwrap();
-        assert_eq!(serialized, expected_bincode);
-        let deserialized = wire::deserialize::<Op>(&serialized).unwrap();
+        let serialized =
+            <Op as codec::SerdeOp>::serialize(&op).expect("Op should be able to be serialized");
+        assert_eq!(serialized.to_vec(), expected_bincode);
+        let deserialized: Op = <Op as codec::SerdeOp>::deserialize(&serialized).unwrap();
         assert_eq!(deserialized, op);
     }
 }

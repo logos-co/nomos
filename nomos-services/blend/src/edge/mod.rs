@@ -13,68 +13,111 @@ use std::{
 };
 
 use backends::BlendBackend;
-use futures::{Stream, StreamExt as _};
+use futures::{FutureExt as _, Stream, StreamExt as _};
 use nomos_blend_scheduling::{
-    membership::Membership,
+    message_blend::{ProofsGenerator as ProofsGeneratorTrait, SessionInfo as PoQSessionInfo},
     session::{SessionEvent, UninitializedSessionEventStream},
 };
-use nomos_core::wire;
+use nomos_core::codec::SerdeOp;
 use overwatch::{
+    OpaqueServiceResourcesHandle,
     overwatch::OverwatchHandle,
     services::{
+        AsServiceId, ServiceCore, ServiceData,
         resources::ServiceResourcesHandle,
         state::{NoOperator, NoState},
-        AsServiceId, ServiceCore, ServiceData,
     },
-    OpaqueServiceResourcesHandle,
 };
-use serde::Serialize;
+use serde::{Serialize, de::DeserializeOwned};
 pub(crate) use service_components::ServiceComponents;
 use services_utils::wait_until_services_are_ready;
 use settings::BlendConfig;
+use tokio::time::timeout;
 use tracing::{debug, error, info};
 
 use crate::{
     edge::handlers::{Error, MessageHandler},
+    epoch_info::PolInfoProvider as PolInfoProviderTrait,
     membership,
-    message::ServiceMessage,
-    settings::constant_session_stream,
+    message::{NetworkMessage, ServiceMessage},
+    mock_poq_inputs_stream,
+    session::SessionInfo,
+    settings::FIRST_SESSION_READY_TIMEOUT,
 };
 
 const LOG_TARGET: &str = "blend::service::edge";
 
-pub struct BlendService<Backend, NodeId, BroadcastSettings, MembershipAdapter, RuntimeServiceId>
-where
+pub struct BlendService<
+    Backend,
+    NodeId,
+    BroadcastSettings,
+    MembershipAdapter,
+    ProofsGenerator,
+    PolInfoProvider,
+    RuntimeServiceId,
+> where
     Backend: BlendBackend<NodeId, RuntimeServiceId>,
     NodeId: Clone,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-    _phantom: PhantomData<MembershipAdapter>,
+    _phantom: PhantomData<(MembershipAdapter, ProofsGenerator, PolInfoProvider)>,
 }
 
-impl<Backend, NodeId, BroadcastSettings, MembershipAdapter, RuntimeServiceId> ServiceData
-    for BlendService<Backend, NodeId, BroadcastSettings, MembershipAdapter, RuntimeServiceId>
+impl<
+    Backend,
+    NodeId,
+    BroadcastSettings,
+    MembershipAdapter,
+    ProofsGenerator,
+    PolInfoProvider,
+    RuntimeServiceId,
+> ServiceData
+    for BlendService<
+        Backend,
+        NodeId,
+        BroadcastSettings,
+        MembershipAdapter,
+        ProofsGenerator,
+        PolInfoProvider,
+        RuntimeServiceId,
+    >
 where
     Backend: BlendBackend<NodeId, RuntimeServiceId>,
     NodeId: Clone,
 {
-    type Settings = BlendConfig<Backend::Settings, NodeId>;
+    type Settings = BlendConfig<Backend::Settings>;
     type State = NoState<Self::Settings>;
     type StateOperator = NoOperator<Self::State>;
     type Message = ServiceMessage<BroadcastSettings>;
 }
 
 #[async_trait::async_trait]
-impl<Backend, NodeId, BroadcastSettings, MembershipAdapter, RuntimeServiceId>
-    ServiceCore<RuntimeServiceId>
-    for BlendService<Backend, NodeId, BroadcastSettings, MembershipAdapter, RuntimeServiceId>
+impl<
+    Backend,
+    NodeId,
+    BroadcastSettings,
+    MembershipAdapter,
+    ProofsGenerator,
+    PolInfoProvider,
+    RuntimeServiceId,
+> ServiceCore<RuntimeServiceId>
+    for BlendService<
+        Backend,
+        NodeId,
+        BroadcastSettings,
+        MembershipAdapter,
+        ProofsGenerator,
+        PolInfoProvider,
+        RuntimeServiceId,
+    >
 where
     Backend: BlendBackend<NodeId, RuntimeServiceId> + Send + Sync,
     NodeId: Clone + Eq + Hash + Send + Sync + 'static,
-    BroadcastSettings: Serialize + Send,
-    MembershipAdapter: membership::Adapter + Send,
+    BroadcastSettings: Serialize + DeserializeOwned + Send,
+    MembershipAdapter: membership::Adapter<NodeId = NodeId, Error: Send + Sync + 'static> + Send,
     membership::ServiceMessage<MembershipAdapter>: Send + Sync + 'static,
-    <MembershipAdapter as membership::Adapter>::Error: Send + Sync + 'static,
+    ProofsGenerator: ProofsGeneratorTrait + Send,
+    PolInfoProvider: PolInfoProviderTrait<RuntimeServiceId, Stream: Send + Unpin + 'static> + Send,
     RuntimeServiceId: AsServiceId<<MembershipAdapter as membership::Adapter>::Service>
         + AsServiceId<Self>
         + Display
@@ -108,28 +151,6 @@ where
         } = self;
 
         let settings = settings_handle.notifier().get_updated_settings();
-        let membership = settings.membership();
-
-        let _membership_stream = MembershipAdapter::new(
-            overwatch_handle
-                .relay::<<MembershipAdapter as membership::Adapter>::Service>()
-                .await?,
-            settings.crypto.signing_private_key.public_key(),
-        )
-        .subscribe()
-        .await?;
-        // TODO: Use membership_stream once the membership/SDP services are ready to provide the real membership: https://github.com/logos-co/nomos/issues/1532
-
-        let session_stream = constant_session_stream(
-            membership.clone(),
-            settings.time.session_duration(),
-            settings.time.session_transition_period(),
-        );
-
-        let messages_to_blend = inbound_relay.map(|ServiceMessage::Blend(message)| {
-            wire::serialize(&message)
-                .expect("Message from internal services should not fail to serialize")
-        });
 
         wait_until_services_are_ready!(
             &overwatch_handle,
@@ -138,8 +159,51 @@ where
         )
         .await?;
 
-        run::<Backend, _, _>(
-            session_stream,
+        let membership_stream = MembershipAdapter::new(
+            overwatch_handle
+                .relay::<<MembershipAdapter as membership::Adapter>::Service>()
+                .await?,
+            settings.crypto.non_ephemeral_signing_key.public_key(),
+        )
+        .subscribe()
+        .await?;
+
+        // TODO: Replace with actual service usage.
+        let poq_input_stream = mock_poq_inputs_stream();
+
+        // Stream combining the membership stream with the stream yielding PoQ
+        // generation and verification material.
+        let aggregated_session_stream = membership_stream.zip(poq_input_stream).map(
+            |(membership, (poq_public_inputs, poq_private_inputs))| {
+                let local_node_index = membership.local_index();
+                let membership_size = membership.size();
+
+                SessionInfo {
+                    membership,
+                    poq_generation_and_verification_inputs: PoQSessionInfo {
+                        local_node_index,
+                        membership_size,
+                        private_inputs: poq_private_inputs,
+                        public_inputs: poq_public_inputs,
+                    },
+                }
+            },
+        );
+
+        let uninitialized_session_stream = UninitializedSessionEventStream::new(
+            aggregated_session_stream,
+            FIRST_SESSION_READY_TIMEOUT,
+            settings.time.session_transition_period(),
+        );
+
+        let messages_to_blend = inbound_relay.map(|ServiceMessage::Blend(message)| {
+            <NetworkMessage<BroadcastSettings> as SerdeOp>::serialize(&message)
+                .expect("NetworkMessage should be able to be serialized")
+                .to_vec()
+        });
+
+        run::<Backend, _, ProofsGenerator, PolInfoProvider, _>(
+            uninitialized_session_stream,
             messages_to_blend,
             &settings,
             &overwatch_handle,
@@ -172,8 +236,10 @@ where
 /// - If the initial membership is not yielded immediately from the session
 ///   stream.
 /// - If the initial membership does not satisfy the edge node condition.
-async fn run<Backend, NodeId, RuntimeServiceId>(
-    session_stream: UninitializedSessionEventStream<impl Stream<Item = Membership<NodeId>> + Unpin>,
+async fn run<Backend, NodeId, ProofsGenerator, PolInfoProvider, RuntimeServiceId>(
+    session_stream: UninitializedSessionEventStream<
+        impl Stream<Item = SessionInfo<NodeId>> + Unpin,
+    >,
     mut messages_to_blend: impl Stream<Item = Vec<u8>> + Send + Unpin,
     settings: &Settings<Backend, NodeId, RuntimeServiceId>,
     overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
@@ -182,27 +248,48 @@ async fn run<Backend, NodeId, RuntimeServiceId>(
 where
     Backend: BlendBackend<NodeId, RuntimeServiceId> + Sync,
     NodeId: Clone + Eq + Hash + Send + Sync + 'static,
+    ProofsGenerator: ProofsGeneratorTrait,
+    PolInfoProvider: PolInfoProviderTrait<RuntimeServiceId>,
     RuntimeServiceId: Clone,
 {
-    let (membership, mut session_stream) = session_stream
+    let (session_info, mut session_stream) = session_stream
         .await_first_ready()
         .await
         .expect("The current session must be ready");
 
+    info!(
+        target: LOG_TARGET,
+        "The current membership is ready: {} nodes.",
+        session_info.membership.size()
+    );
+
     let mut message_handler =
-        MessageHandler::<Backend, NodeId, RuntimeServiceId>::try_new_with_edge_condition_check(
+        MessageHandler::<Backend, NodeId, ProofsGenerator, RuntimeServiceId>::try_new_with_edge_condition_check(
             settings,
-            membership,
+            session_info,
             overwatch_handle.clone(),
         )
         .expect("The initial membership should satisfy the edge node condition");
 
     notify_ready();
 
+    // There might be services that depend on Blend to be ready before starting, so
+    // we cannot wait for the stream to be sent before we signal we are
+    // ready, hence this should always be called after `notify_ready();`.
+    // Also, Blend services start even if such a stream is not immediately
+    // available, since they will simply keep blending cover messages.
+    let _pol_epoch_stream = timeout(
+        Duration::from_secs(3),
+        PolInfoProvider::subscribe(overwatch_handle)
+            .map(|r| r.expect("PoL slot info provider failed to return a usable stream.")),
+    )
+    .await
+    .expect("PoL slot info provider not received within the expected timeout.");
+
     loop {
         tokio::select! {
-            Some(SessionEvent::NewSession(membership)) = session_stream.next() => {
-                message_handler = handle_new_session(membership, settings, overwatch_handle)?;
+            Some(SessionEvent::NewSession(session_info)) = session_stream.next() => {
+              message_handler = handle_new_session(session_info, settings, overwatch_handle)?;
             }
             Some(message) = messages_to_blend.next() => {
                 message_handler.handle_messages_to_blend(message).await;
@@ -215,23 +302,24 @@ where
 ///
 /// It creates a new [`MessageHandler`] if the membership satisfies all the edge
 /// node condition. Otherwise, it returns [`Error`].
-fn handle_new_session<Backend, NodeId, RuntimeServiceId>(
-    membership: Membership<NodeId>,
+fn handle_new_session<Backend, NodeId, ProofsGenerator, RuntimeServiceId>(
+    session_info: SessionInfo<NodeId>,
     settings: &Settings<Backend, NodeId, RuntimeServiceId>,
     overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
-) -> Result<MessageHandler<Backend, NodeId, RuntimeServiceId>, Error>
+) -> Result<MessageHandler<Backend, NodeId, ProofsGenerator, RuntimeServiceId>, Error>
 where
     Backend: BlendBackend<NodeId, RuntimeServiceId>,
     NodeId: Clone + Eq + Hash + Send + 'static,
+    ProofsGenerator: ProofsGeneratorTrait,
     RuntimeServiceId: Clone,
 {
     debug!(target: LOG_TARGET, "Trying to create a new message handler");
-    MessageHandler::<Backend, NodeId, RuntimeServiceId>::try_new_with_edge_condition_check(
+    MessageHandler::<Backend, NodeId, ProofsGenerator, RuntimeServiceId>::try_new_with_edge_condition_check(
         settings,
-        membership,
+        session_info,
         overwatch_handle.clone(),
     )
 }
 
 type Settings<Backend, NodeId, RuntimeServiceId> =
-    BlendConfig<<Backend as BlendBackend<NodeId, RuntimeServiceId>>::Settings, NodeId>;
+    BlendConfig<<Backend as BlendBackend<NodeId, RuntimeServiceId>>::Settings>;

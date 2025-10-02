@@ -40,12 +40,12 @@ pub use chain_inputs::{PolChainInputs, PolChainInputsData};
 use groth16::{
     CompressedGroth16Proof, Groth16Input, Groth16InputDeser, Groth16Proof, Groth16ProofJsonDeser,
 };
-pub use inputs::{PolVerifierInput, PolWitnessInputs};
+pub use inputs::{PolVerifierInput, PolWitnessInputs, PolWitnessInputsData};
 use thiserror::Error;
 pub use wallet_inputs::{PolWalletInputs, PolWalletInputsData};
 pub use witness::Witness;
 
-pub use crate::lottery::{P, compute_lottery_values};
+pub use crate::lottery::{P, T0_CONSTANT, T1_CONSTANT, compute_lottery_values};
 use crate::{inputs::PolVerifierInputJson, proving_key::POL_PROVING_KEY_PATH};
 
 pub type PoLProof = CompressedGroth16Proof;
@@ -303,9 +303,10 @@ mod tests {
             .collect(),
             starting_slot: 16,
         };
-        let witness_inputs = PolWitnessInputs::from_chain_and_wallet_data(chain_data, wallet_data);
+        let witness_inputs =
+            PolWitnessInputsData::from_chain_and_wallet_data(chain_data, wallet_data);
 
-        let (proof, inputs) = prove(&witness_inputs).unwrap();
+        let (proof, inputs) = prove(&witness_inputs.into()).unwrap();
         assert!(verify(&proof, &inputs).unwrap());
     }
 }

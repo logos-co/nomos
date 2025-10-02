@@ -6,19 +6,19 @@ use std::{
 
 use either::Either;
 use futures::{
-    stream::{BoxStream, FuturesUnordered},
     AsyncWriteExt as _, FutureExt as _, StreamExt as _,
+    stream::{BoxStream, FuturesUnordered},
 };
 use libp2p::{
-    core::{transport::PortUse, Endpoint},
-    swarm::{
-        dial_opts::DialOpts, ConnectionDenied, ConnectionId, DialFailure, FromSwarm,
-        NetworkBehaviour, THandler, THandlerInEvent, THandlerOutEvent, ToSwarm,
-    },
     Multiaddr, PeerId,
+    core::{Endpoint, transport::PortUse},
+    swarm::{
+        ConnectionDenied, ConnectionId, DialFailure, FromSwarm, NetworkBehaviour, THandler,
+        THandlerInEvent, THandlerOutEvent, ToSwarm, dial_opts::DialOpts,
+    },
 };
 use libp2p_stream::Control;
-use nomos_core::da::BlobId;
+use nomos_core::{block::SessionNumber, da::BlobId};
 use nomos_da_messages::{sampling, sampling::SampleResponse};
 use rand::{rngs::ThreadRng, seq::IteratorRandom as _};
 use subnetworks_assignations::MembershipHandler;
@@ -27,16 +27,17 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::warn;
 
 use crate::{
+    SubnetworkId,
     addressbook::AddressBookHandler,
     protocol::SAMPLING_PROTOCOL,
     protocols::sampling::{
+        SamplingResponseStreamFuture, SubnetsConfig,
         connections::Connections,
         errors::SamplingError,
+        opinions::{Opinion, OpinionEvent},
         requests::SamplingEvent,
         streams::{self, SampleStream},
-        SamplingResponseStreamFuture, SubnetsConfig,
     },
-    SubnetworkId,
 };
 
 type AttemptNumber = usize;
@@ -88,6 +89,10 @@ where
     connections: Connections,
     /// Waker for sampling polling
     waker: Option<Waker>,
+    /// Queue of opinion events to be emitted
+    opinion_events: VecDeque<OpinionEvent>,
+    /// Current session
+    current_session: SessionNumber,
 }
 
 impl<Membership, Addressbook> RequestSamplingBehaviour<Membership, Addressbook>
@@ -110,6 +115,7 @@ where
         let to_sample = HashMap::new();
         let to_retry = VecDeque::new();
         let to_close = VecDeque::new();
+        let opinion_events = VecDeque::new();
 
         let sampling_peers = HashMap::new();
         let (shares_request_sender, receiver) = mpsc::unbounded_channel();
@@ -121,6 +127,7 @@ where
 
         let subnet_refresh_signal = Box::pin(refresh_signal);
         let connections = Connections::new(subnets_config.shares_retry_limit);
+        let current_session = membership.session_id();
 
         Self {
             local_peer_id,
@@ -142,6 +149,8 @@ where
             subnet_refresh_signal,
             connections,
             waker: None,
+            opinion_events,
+            current_session,
         }
     }
 
@@ -182,6 +191,8 @@ where
     /// Schedule a new task for sample the blob, if stream is not available
     /// queue messages for later processing.
     fn sample_share(&mut self, blob_id: BlobId) {
+        let current_session = self.current_session;
+
         for (subnetwork_id, peer_id) in &self.sampling_peers {
             let subnetwork_id = *subnetwork_id;
             let peer_id = *peer_id;
@@ -197,8 +208,12 @@ where
                 // established.
                 let stream = Self::open_stream(peer_id, control)
                     .await
-                    .map_err(|err| (err, None))?;
-                streams::stream_sample(stream, sample_request).await
+                    .map_err(|err| (err, None, current_session))?;
+                let (peer, response, stream) = streams::stream_sample(stream, sample_request)
+                    .await
+                    .map_err(|(err, maybe_stream)| (err, maybe_stream, current_session))?;
+
+                Ok((current_session, peer, response, stream))
             }
             .boxed();
             self.stream_tasks.push(with_dial_task);
@@ -208,14 +223,19 @@ where
     }
 
     fn sample_commitments(&mut self, blob_id: BlobId) {
-        if let Some((_, &peer_id)) = &self.sampling_peers.iter().choose(&mut rand::thread_rng()) {
+        let current_session = self.current_session;
+        if let &Some((_, &peer_id)) = &self.sampling_peers.iter().choose(&mut rand::rng()) {
             let control = self.control.clone();
             let sample_request = sampling::SampleRequest::new_commitments(blob_id);
             let with_dial_task: SamplingResponseStreamFuture = async move {
                 let stream = Self::open_stream(peer_id, control)
                     .await
-                    .map_err(|err| (err, None))?;
-                streams::stream_sample(stream, sample_request).await
+                    .map_err(|err| (err, None, current_session))?;
+                let (peer, response, stream) = streams::stream_sample(stream, sample_request)
+                    .await
+                    .map_err(|(err, maybe_stream)| (err, maybe_stream, current_session))?;
+
+                Ok((current_session, peer, response, stream))
             }
             .boxed();
             self.commitments_requests
@@ -227,6 +247,7 @@ where
     }
 
     fn try_peer_sample_share(&mut self, peer_id: PeerId) {
+        let current_session = self.current_session;
         if let Some(sample_request) = self
             .to_sample
             .get_mut(&peer_id)
@@ -236,8 +257,12 @@ where
             let open_stream_task: SamplingResponseStreamFuture = async move {
                 let stream = Self::open_stream(peer_id, control)
                     .await
-                    .map_err(|err| (err, None))?;
-                streams::stream_sample(stream, sample_request).await
+                    .map_err(|err| (err, None, current_session))?;
+                let (peer, response, stream) = streams::stream_sample(stream, sample_request)
+                    .await
+                    .map_err(|(err, maybe_stream)| (err, maybe_stream, current_session))?;
+
+                Ok((current_session, peer, response, stream))
             }
             .boxed();
             self.stream_tasks.push(open_stream_task);
@@ -246,16 +271,21 @@ where
     }
 
     fn try_subnetwork_sample_share(&mut self, blob_id: BlobId, subnetwork_id: SubnetworkId) {
+        let current_session = self.current_session;
         if self.connections.should_retry(subnetwork_id) {
-            let mut rng = rand::thread_rng();
+            let mut rng = rand::rng();
             if let Some(peer_id) = self.pick_subnetwork_peer(subnetwork_id, &mut rng) {
                 let control = self.control.clone();
                 let sample_request = sampling::SampleRequest::new_share(blob_id, subnetwork_id);
                 let open_stream_task: SamplingResponseStreamFuture = async move {
                     let stream = Self::open_stream(peer_id, control)
                         .await
-                        .map_err(|err| (err, None))?;
-                    streams::stream_sample(stream, sample_request).await
+                        .map_err(|err| (err, None, current_session))?;
+                    let (peer, response, stream) = streams::stream_sample(stream, sample_request)
+                        .await
+                        .map_err(|(err, maybe_stream)| (err, maybe_stream, current_session))?;
+
+                    Ok((current_session, peer, response, stream))
                 }
                 .boxed();
                 self.stream_tasks.push(open_stream_task);
@@ -270,8 +300,9 @@ where
         // Previously selected subnetworks and their peers won't be used anymore.
         self.sampling_peers.clear();
         self.connections.clear();
+        self.current_session = self.membership.session_id();
 
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let subnets: Vec<SubnetworkId> = (0..self.membership.last_subnetwork_id())
             .choose_multiple(&mut rng, self.subnets_config.num_of_subnets);
 
@@ -298,10 +329,9 @@ where
             .choose(rng)
     }
 
-    /// Handle outgoing stream
-    /// Schedule a new task if its available or drop the stream if not
     fn schedule_outgoing_stream_task(&mut self, stream: SampleStream) {
         let peer_id = stream.peer_id;
+        let current_session = self.current_session; // Capture session
 
         // If there is a pending task schedule next one
         if let Some(sample_request) = self
@@ -309,8 +339,16 @@ where
             .get_mut(&peer_id)
             .and_then(VecDeque::pop_front)
         {
-            self.stream_tasks
-                .push(streams::stream_sample(stream, sample_request).boxed());
+            let task: SamplingResponseStreamFuture = async move {
+                let (peer, response, stream) = streams::stream_sample(stream, sample_request)
+                    .await
+                    .map_err(|(err, maybe_stream)| (err, maybe_stream, current_session))?;
+
+                Ok((current_session, peer, response, stream))
+            }
+            .boxed();
+
+            self.stream_tasks.push(task);
         } else {
             // if not pop stream from connected ones
             self.to_close.push_back(stream);
@@ -355,10 +393,33 @@ where
 
     fn handle_stream_response(
         &mut self,
+        session_id: SessionNumber,
         peer_id: PeerId,
         sample_response: SampleResponse,
         stream: SampleStream,
     ) -> Poll<ToSwarm<<Self as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self>>> {
+        match &sample_response {
+            SampleResponse::Share(_) | SampleResponse::Commitments(_) => {
+                self.opinion_events.push_back(OpinionEvent {
+                    opinions: vec![Opinion::Positive {
+                        peer_id,
+                        session_id,
+                    }],
+                });
+            }
+            SampleResponse::Error(
+                sampling::SampleError::Share(_) | sampling::SampleError::Commitments(_),
+            ) => {
+                // Only share and commitments error variant is not found at the moment
+                self.opinion_events.push_back(OpinionEvent {
+                    opinions: vec![Opinion::Negative {
+                        peer_id,
+                        session_id,
+                    }],
+                });
+            }
+        }
+
         // Handle the free stream then return the response.
         self.schedule_outgoing_stream_task(stream);
         Self::handle_sample_response(sample_response, peer_id)
@@ -368,7 +429,10 @@ where
         &mut self,
         error: SamplingError,
         maybe_stream: Option<SampleStream>,
+        session_id: SessionNumber,
     ) -> Option<Poll<ToSwarm<<Self as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self>>>> {
+        self.record_error_opinion(&error, session_id);
+
         match error {
             SamplingError::Io {
                 error,
@@ -432,15 +496,55 @@ where
         if let Poll::Ready(Some(future_result)) = self.stream_tasks.poll_next_unpin(cx) {
             cx.waker().wake_by_ref();
             match future_result {
-                Ok((peer_id, stream_response, stream)) => {
-                    return Some(self.handle_stream_response(peer_id, stream_response, stream));
+                Ok((session_id, peer_id, stream_response, stream)) => {
+                    return Some(self.handle_stream_response(
+                        session_id,
+                        peer_id,
+                        stream_response,
+                        stream,
+                    ));
                 }
-                Err((error, maybe_stream)) => {
-                    return self.handle_stream_error(error, maybe_stream);
+                Err((error, maybe_stream, session_id)) => {
+                    return self.handle_stream_error(error, maybe_stream, session_id);
                 }
             }
         }
         None
+    }
+
+    fn record_error_opinion(&mut self, error: &SamplingError, session_id: SessionNumber) {
+        match error {
+            // Blacklist for invalid/malicious data
+            SamplingError::InvalidBlobId { peer_id, .. }
+            | SamplingError::Deserialize { peer_id, .. } => {
+                self.opinion_events.push_back(OpinionEvent {
+                    opinions: vec![Opinion::Blacklist {
+                        peer_id: *peer_id,
+                        session_id,
+                    }],
+                });
+            }
+
+            // Negative opinion for all other errors with a peer
+            SamplingError::Io { peer_id, .. }
+            | SamplingError::Share { peer_id, .. }
+            | SamplingError::Commitments { peer_id, .. }
+            | SamplingError::OpenStream { peer_id, .. }
+            | SamplingError::RequestChannel { peer_id, .. }
+            | SamplingError::BlobNotFound { peer_id, .. }
+            | SamplingError::ResponseChannel { peer_id, .. }
+            | SamplingError::MismatchSubnetwork { peer_id, .. } => {
+                self.opinion_events.push_back(OpinionEvent {
+                    opinions: vec![Opinion::Negative {
+                        peer_id: *peer_id,
+                        session_id,
+                    }],
+                });
+            }
+
+            // No opinion needed - no peer to evaluate
+            SamplingError::NoSubnetworkPeers { .. } => {}
+        }
     }
 }
 
@@ -522,6 +626,14 @@ where
     ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         self.waker = Some(cx.waker().clone());
 
+        // poll and emit opinion events
+        if let Some(opinion_event) = self.opinion_events.pop_front() {
+            cx.waker().wake_by_ref();
+            return Poll::Ready(ToSwarm::GenerateEvent(SamplingEvent::Opinion(
+                opinion_event,
+            )));
+        }
+
         // Check if a new set of subnets and peers need to be selected.
         if self.subnet_refresh_signal.poll_next_unpin(cx) == Poll::Ready(Some(())) {
             self.refresh_subnets();
@@ -564,11 +676,11 @@ where
         }
 
         // Discard stream, if still pending pushback to close later.
-        if let Some(mut stream) = self.to_close.pop_front() {
-            if stream.stream.close().poll_unpin(cx).is_pending() {
-                self.to_close.push_back(stream);
-                cx.waker().wake_by_ref();
-            }
+        if let Some(mut stream) = self.to_close.pop_front()
+            && stream.stream.close().poll_unpin(cx).is_pending()
+        {
+            self.to_close.push_back(stream);
+            cx.waker().wake_by_ref();
         }
 
         Poll::Pending

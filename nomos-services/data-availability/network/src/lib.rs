@@ -2,6 +2,7 @@ pub mod addressbook;
 pub mod api;
 pub mod backends;
 pub mod membership;
+mod opinion_aggregator;
 pub mod storage;
 
 use std::{
@@ -13,18 +14,22 @@ use std::{
 };
 
 use async_trait::async_trait;
-use backends::NetworkBackend;
-use futures::{stream::select, Stream};
+use backends::{ConnectionStatus, NetworkBackend};
+use futures::{Stream, stream::select};
 use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};
 use libp2p::{Multiaddr, PeerId};
 use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId};
-use nomos_da_network_core::{addressbook::AddressBookHandler as _, SubnetworkId};
+use nomos_da_network_core::{
+    SubnetworkId, addressbook::AddressBookHandler as _,
+    protocols::sampling::opinions::OpinionEvent, swarm::BalancerStats,
+};
+use nomos_libp2p::cryptarchia_sync::DynError;
 use overwatch::{
-    services::{
-        state::{NoOperator, ServiceState},
-        AsServiceId, ServiceCore, ServiceData,
-    },
     OpaqueServiceResourcesHandle,
+    services::{
+        AsServiceId, ServiceCore, ServiceData,
+        state::{NoOperator, ServiceState},
+    },
 };
 use serde::{Deserialize, Serialize};
 use services_utils::wait_until_services_are_ready;
@@ -35,17 +40,18 @@ use tokio::sync::{
     oneshot,
 };
 use tokio_stream::{
-    wrappers::{IntervalStream, ReceiverStream},
     StreamExt as _,
+    wrappers::{IntervalStream, ReceiverStream, UnboundedReceiverStream},
 };
 
 use crate::{
     addressbook::{AddressBook, AddressBookSnapshot},
     api::ApiAdapter as ApiAdapterTrait,
     membership::{
-        handler::{DaMembershipHandler, SharedMembershipHandler},
         MembershipAdapter,
+        handler::{DaMembershipHandler, SharedMembershipHandler},
     },
+    opinion_aggregator::OpinionAggregator,
 };
 
 pub type DaAddressbook = AddressBook;
@@ -128,14 +134,13 @@ pub struct NetworkConfig<
     pub membership: Membership,
     pub api_adapter_settings: ApiAdapterSettings,
     pub subnet_refresh_interval: Duration,
+    // Number of connected subnetworks that the node requires to have in order to operate
+    // correctly.
+    pub subnet_threshold: usize,
 }
 
-impl<
-        Backend: NetworkBackend<RuntimeServiceId>,
-        Membership,
-        ApiAdapterSettings,
-        RuntimeServiceId,
-    > Debug for NetworkConfig<Backend, Membership, ApiAdapterSettings, RuntimeServiceId>
+impl<Backend: NetworkBackend<RuntimeServiceId>, Membership, ApiAdapterSettings, RuntimeServiceId>
+    Debug for NetworkConfig<Backend, Membership, ApiAdapterSettings, RuntimeServiceId>
 where
     Membership: Clone + Debug,
 {
@@ -163,6 +168,8 @@ pub struct NetworkService<
     api_adapter: ApiAdapter,
     phantom: PhantomData<MembershipServiceAdapter>,
     subnet_refresh_sender: Sender<()>,
+    balancer_stats_stream: UnboundedReceiverStream<BalancerStats>,
+    opinion_stream: UnboundedReceiverStream<OpinionEvent>,
 }
 
 pub struct NetworkState<
@@ -184,14 +191,8 @@ pub struct NetworkState<
     )>,
 }
 
-impl<
-        Backend,
-        Membership,
-        MembershipServiceAdapter,
-        StorageAdapter,
-        ApiAdapter,
-        RuntimeServiceId,
-    > ServiceData
+impl<Backend, Membership, MembershipServiceAdapter, StorageAdapter, ApiAdapter, RuntimeServiceId>
+    ServiceData
     for NetworkService<
         Backend,
         Membership,
@@ -219,14 +220,8 @@ where
 }
 
 #[async_trait]
-impl<
-        Backend,
-        Membership,
-        MembershipServiceAdapter,
-        StorageAdapter,
-        ApiAdapter,
-        RuntimeServiceId,
-    > ServiceCore<RuntimeServiceId>
+impl<Backend, Membership, MembershipServiceAdapter, StorageAdapter, ApiAdapter, RuntimeServiceId>
+    ServiceCore<RuntimeServiceId>
     for NetworkService<
         Backend,
         Membership,
@@ -297,6 +292,10 @@ where
         let refresh_ticker = IntervalStream::new(interval).map(|_| ());
         let refresh_signal = ReceiverStream::new(refresh_rx);
         let subnet_refresh_signal = select(refresh_ticker, refresh_signal);
+        let (balancer_stats_sender, balancer_stats_receiver) = mpsc::unbounded_channel();
+        let balancer_stats_stream = UnboundedReceiverStream::new(balancer_stats_receiver);
+        let (opinion_sender, opinion_receiver) = mpsc::unbounded_channel();
+        let opinion_stream = UnboundedReceiverStream::new(opinion_receiver);
 
         Ok(Self {
             backend: <Backend as NetworkBackend<RuntimeServiceId>>::new(
@@ -305,6 +304,8 @@ where
                 membership.clone(),
                 addressbook.clone(),
                 subnet_refresh_signal,
+                balancer_stats_sender,
+                opinion_sender,
             ),
             service_resources_handle,
             membership,
@@ -312,6 +313,8 @@ where
             api_adapter,
             phantom: PhantomData,
             subnet_refresh_sender,
+            balancer_stats_stream,
+            opinion_stream,
         })
     }
 
@@ -329,6 +332,8 @@ where
             ref api_adapter,
             ref addressbook,
             ref subnet_refresh_sender,
+            ref mut balancer_stats_stream,
+            ref mut opinion_stream,
             ..
         } = self;
 
@@ -346,6 +351,8 @@ where
 
         let membership_service_adapter = MembershipServiceAdapter::new(membership_service_relay);
 
+        let mut opinion_aggregator = OpinionAggregator::<Membership>::new(backend.local_peer_id());
+
         wait_until_services_are_ready!(
             &self.service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
@@ -359,6 +366,13 @@ where
                 e
             })?;
 
+        let subnet_threshold = self
+            .service_resources_handle
+            .settings_handle
+            .notifier()
+            .get_updated_settings()
+            .subnet_threshold;
+
         status_updater.notify_ready();
         tracing::info!(
             "Service '{}' is ready.",
@@ -371,26 +385,49 @@ where
                     Self::handle_network_service_message(msg, backend, &membership_storage, api_adapter, addressbook).await;
                 }
                 Some((session_id, providers)) = membership_updates_stream.next() => {
+                    if providers.is_empty() {
+                        // todo: this is a short term fix, handle empty providers in assignations
+                        tracing::error!("Received empty membership for session {session_id}: skipping session update");
+                        continue
+                    }
                     tracing::debug!(
                         "Received membership update for session {}: {:?}",
                         session_id, providers
                     );
-                    Self::handle_membership_update(session_id, providers, &membership_storage).await;
-                    let _ = subnet_refresh_sender.send(()).await;
+                    match Self::handle_membership_update(session_id, providers, &membership_storage).await {
+                        Ok(current_membership) => {
+                            let opinions = opinion_aggregator.handle_session_change(current_membership);
+                            if let Some(opinions) = opinions {
+                                tracing::debug!("Processing opinions {opinions:?}");
+                                // todo: sdp_adapter.process_opinions(opinions).await;
+                            }
+                            let _ = subnet_refresh_sender.send(()).await;
+                        }
+                        Err(e) => {
+                            tracing::error!("Error handling membership update for session {session_id}: {e}");
+                        }
+                    }
+                }
+                Some(stats) = balancer_stats_stream.next() => {
+                    let connected_subnetworks = stats.values()
+                        .filter(|stats| stats.inbound > 0 || stats.outbound > 0)
+                        .count();
+                    if connected_subnetworks < subnet_threshold {
+                        backend.update_status(ConnectionStatus::InsufficientSubnetworkConnections);
+                    } else {
+                        backend.update_status(ConnectionStatus::Ready);
+                    }
+                }
+                Some(opinion_event) = opinion_stream.next() => {
+                    opinion_aggregator.record_opinion(opinion_event);
                 }
             }
         }
     }
 }
 
-impl<
-        Backend,
-        Membership,
-        MembershipServiceAdapter,
-        StorageAdapter,
-        ApiAdapter,
-        RuntimeServiceId,
-    > Drop
+impl<Backend, Membership, MembershipServiceAdapter, StorageAdapter, ApiAdapter, RuntimeServiceId>
+    Drop
     for NetworkService<
         Backend,
         Membership,
@@ -409,14 +446,7 @@ where
     }
 }
 
-impl<
-        Backend,
-        Membership,
-        MembershipServiceAdapter,
-        StorageAdapter,
-        ApiAdapter,
-        RuntimeServiceId,
-    >
+impl<Backend, Membership, MembershipServiceAdapter, StorageAdapter, ApiAdapter, RuntimeServiceId>
     NetworkService<
         Backend,
         Membership,
@@ -533,13 +563,9 @@ where
         session_id: SessionNumber,
         update: HashMap<Membership::Id, Multiaddr>,
         storage: &MembershipStorage<StorageAdapter, Membership, DaAddressbook>,
-    ) {
-        storage
-            .update(session_id, update)
-            .await
-            .unwrap_or_else(|e| {
-                tracing::error!("Failed to update membership for session {session_id}: {e}");
-            });
+    ) -> Result<Membership, DynError> {
+        let current_membership = storage.update(session_id, update).await?;
+        Ok(current_membership)
     }
     async fn handle_historic_sample_request(
         backend: &Backend,
@@ -566,12 +592,8 @@ where
     }
 }
 
-impl<
-        Backend: NetworkBackend<RuntimeServiceId>,
-        Membership,
-        ApiAdapterSettings,
-        RuntimeServiceId,
-    > Clone for NetworkConfig<Backend, Membership, ApiAdapterSettings, RuntimeServiceId>
+impl<Backend: NetworkBackend<RuntimeServiceId>, Membership, ApiAdapterSettings, RuntimeServiceId>
+    Clone for NetworkConfig<Backend, Membership, ApiAdapterSettings, RuntimeServiceId>
 where
     Membership: Clone,
     ApiAdapterSettings: Clone,
@@ -582,18 +604,19 @@ where
             membership: self.membership.clone(),
             api_adapter_settings: self.api_adapter_settings.clone(),
             subnet_refresh_interval: self.subnet_refresh_interval,
+            subnet_threshold: self.subnet_threshold,
         }
     }
 }
 
 impl<
-        Backend: NetworkBackend<RuntimeServiceId>,
-        Membership,
-        MembershipServiceAdapter,
-        StorageAdapter,
-        ApiAdapter,
-        RuntimeServiceId,
-    > Clone
+    Backend: NetworkBackend<RuntimeServiceId>,
+    Membership,
+    MembershipServiceAdapter,
+    StorageAdapter,
+    ApiAdapter,
+    RuntimeServiceId,
+> Clone
     for NetworkState<
         Backend,
         Membership,
@@ -612,13 +635,13 @@ impl<
 }
 
 impl<
-        Backend: NetworkBackend<RuntimeServiceId>,
-        Membership,
-        MembershipServiceAdapter,
-        StorageAdapter,
-        ApiAdapter,
-        RuntimeServiceId,
-    > ServiceState
+    Backend: NetworkBackend<RuntimeServiceId>,
+    Membership,
+    MembershipServiceAdapter,
+    StorageAdapter,
+    ApiAdapter,
+    RuntimeServiceId,
+> ServiceState
     for NetworkState<
         Backend,
         Membership,

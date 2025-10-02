@@ -10,14 +10,14 @@ use nomos_core::{
     sdp::{FinalizedBlockEvent, FinalizedBlockEventUpdate, Locator, ProviderId},
 };
 use nomos_utils::net::get_available_udp_port;
-use rand::{thread_rng, Rng as _};
+use rand::{Rng as _, thread_rng};
 use serial_test::serial;
 use tests::{
-    common::da::{disseminate_with_metadata, wait_for_blob_onchain, APP_ID},
+    common::da::{APP_ID, disseminate_with_metadata, wait_for_blob_onchain},
     nodes::{executor::Executor, validator::Validator},
     topology::{
-        configs::membership::{create_membership_configs, GeneralMembershipConfig},
         Topology, TopologyConfig,
+        configs::membership::{GeneralMembershipConfig, MembershipNode, create_membership_configs},
     },
 };
 
@@ -27,10 +27,24 @@ async fn update_membership_and_disseminate() {
     let topology_config = TopologyConfig::validator_and_executor();
     let n_participants = topology_config.n_validators + topology_config.n_executors;
 
-    let (ids, ports) = generate_test_ids_and_ports(n_participants);
-    let topology = Topology::spawn_with_empty_membership(topology_config, &ids, &ports).await;
+    let (ids, da_ports, blend_ports) = generate_test_ids_and_ports(n_participants);
+    let topology =
+        Topology::spawn_with_empty_membership(topology_config, &ids, &da_ports, &blend_ports).await;
 
-    let membership_config = create_membership_configs(&ids, &ports)[0].clone();
+    // Create a new membership with DA nodes.
+    let membership_config = create_membership_configs(
+        ids.iter()
+            .zip(&da_ports)
+            .zip(&blend_ports)
+            .map(|((&id, &da_port), &blend_port)| MembershipNode {
+                id,
+                da_port: Some(da_port),
+                blend_port: Some(blend_port),
+            })
+            .collect::<Vec<_>>()
+            .as_slice(),
+    )[0]
+    .clone();
     let finalize_block_event = create_finalized_block_event(&membership_config);
 
     update_all_validators(&topology, &finalize_block_event).await;
@@ -42,16 +56,18 @@ async fn update_membership_and_disseminate() {
     perform_dissemination_tests(&topology.executors()[0]).await;
 }
 
-fn generate_test_ids_and_ports(n_participants: usize) -> (Vec<[u8; 32]>, Vec<u16>) {
+fn generate_test_ids_and_ports(n_participants: usize) -> (Vec<[u8; 32]>, Vec<u16>, Vec<u16>) {
     let mut ids = vec![[0; 32]; n_participants];
-    let mut ports = vec![];
+    let mut da_ports = vec![];
+    let mut blend_ports = vec![];
 
     for id in &mut ids {
         thread_rng().fill(id);
-        ports.push(get_available_udp_port().unwrap());
+        da_ports.push(get_available_udp_port().unwrap());
+        blend_ports.push(get_available_udp_port().unwrap());
     }
 
-    (ids, ports)
+    (ids, da_ports, blend_ports)
 }
 
 fn create_finalized_block_event(

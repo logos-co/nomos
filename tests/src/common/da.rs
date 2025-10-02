@@ -24,7 +24,9 @@ pub async fn disseminate_with_metadata(
     let client = ExecutorHttpClient::new(None);
     let exec_url = Url::parse(&format!("http://{backend_address}")).unwrap();
 
-    client.publish_blob(exec_url, data.to_vec(), metadata).await
+    client
+        .publish_blob(exec_url, [0u8; 32].into(), data.to_vec(), metadata)
+        .await
 }
 
 /// `wait_for_blob_onchain` tracks the latest chain updates, if new blocks
@@ -34,8 +36,8 @@ pub async fn wait_for_blob_onchain(executor: &Executor, blob_id: BlobId) {
         let mut onchain = false;
         while !onchain {
             let CryptarchiaInfo { tip, .. } = executor.consensus_info().await;
-            if let Some(block) = executor.get_block(tip).await {
-                if block
+            if let Some(block) = executor.get_block(tip).await
+                && block
                     .transactions()
                     .flat_map(|tx| tx.mantle_tx().ops.iter())
                     .filter_map(|op| {
@@ -46,9 +48,8 @@ pub async fn wait_for_blob_onchain(executor: &Executor, blob_id: BlobId) {
                         }
                     })
                     .any(|blob| blob == blob_id)
-                {
-                    onchain = true;
-                }
+            {
+                onchain = true;
             }
             tokio::time::sleep(Duration::from_millis(200)).await;
         }

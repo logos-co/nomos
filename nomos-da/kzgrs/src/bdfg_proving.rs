@@ -11,20 +11,22 @@ use ark_poly_commit::kzg10::Commitment as KzgCommitment;
 use ark_serialize::CanonicalSerialize as _;
 use ark_std::rand::thread_rng;
 use blake2::{
-    digest::{Update as _, VariableOutput as _},
     Blake2bVar,
+    digest::{Update as _, VariableOutput as _},
 };
 use num_traits::Zero as _;
 #[cfg(feature = "parallel")]
 use rayon::iter::{IntoParallelIterator as _, ParallelIterator as _};
 
-use super::{kzg, Commitment, Evaluations, GlobalParameters, PolynomialEvaluationDomain, Proof};
-use crate::fk20::{fk20_batch_generate_elements_proofs, Toeplitz1Cache};
+use super::{Commitment, Evaluations, GlobalParameters, PolynomialEvaluationDomain, Proof, kzg};
+use crate::fk20::{Toeplitz1Cache, fk20_batch_generate_elements_proofs};
+
+const ROW_HASH_SIZE: usize = 31;
 
 /// Generate a hash of the row commitments using the `Blake2bVar` hashing
 /// algorithm.
 ///
-/// This function hashes a list of commitments into a constant-size (32 bytes)
+/// This function hashes a list of commitments into a constant-size (31 bytes)
 /// hash vector. The hashing process involves serializing each commitment in an
 /// uncompressed format and feeding the serialized data into the `Blake2bVar`
 /// hasher.
@@ -35,7 +37,7 @@ use crate::fk20::{fk20_batch_generate_elements_proofs, Toeplitz1Cache};
 ///
 /// # Returns
 ///
-/// A `Vec<u8>` representing the 32-byte hash of the input commitments.
+/// A `Vec<u8>` representing the 31-byte hash of the input commitments.
 ///
 /// # Panics
 ///
@@ -45,7 +47,7 @@ use crate::fk20::{fk20_batch_generate_elements_proofs, Toeplitz1Cache};
 /// - The hash finalization process fails.
 #[must_use]
 pub fn generate_row_commitments_hash(commitments: &[Commitment]) -> Vec<u8> {
-    let mut hasher = Blake2bVar::new(32).expect("Hasher should be able to build");
+    let mut hasher = Blake2bVar::new(ROW_HASH_SIZE).expect("Hasher should be able to build");
     // add dst for hashing
     hasher.update(b"NOMOS_DA_V1");
     for c in commitments {
@@ -54,7 +56,7 @@ pub fn generate_row_commitments_hash(commitments: &[Commitment]) -> Vec<u8> {
             .expect("serialization");
         hasher.update(&buffer.into_inner());
     }
-    let mut buffer = [0; 32];
+    let mut buffer = [0; ROW_HASH_SIZE];
     hasher
         .finalize_variable(&mut buffer)
         .expect("Hashing should succeed");
@@ -110,7 +112,6 @@ pub fn compute_combined_polynomial(
             }
             #[cfg(feature = "parallel")]
             {
-                use rayon::iter::IntoParallelIterator as _;
                 (0..domain.size()).into_par_iter()
             }
         }
@@ -330,16 +331,7 @@ pub fn verify_multiple_columns(
 }
 
 fn compute_h_roots(h: Fr, size: usize) -> Vec<Fr> {
-    {
-        #[cfg(feature = "parallel")]
-        {
-            (0..size as u64).into_par_iter()
-        }
-        #[cfg(not(feature = "parallel"))]
-        {
-            0..size as u64
-        }
-    }
-    .map(|i| h.pow([i]))
-    .collect()
+    std::iter::successors(Some(Fr::from(1)), |x| Some(h * x))
+        .take(size)
+        .collect()
 }

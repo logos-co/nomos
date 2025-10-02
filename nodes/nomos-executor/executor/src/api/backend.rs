@@ -8,24 +8,25 @@ use std::{
 };
 
 use axum::{
+    Router,
     http::{
-        header::{CONTENT_TYPE, USER_AGENT},
         HeaderValue,
+        header::{CONTENT_TYPE, USER_AGENT},
     },
-    routing, Router,
+    routing,
 };
 use nomos_api::{
+    Backend,
     http::{
         consensus::Cryptarchia,
         da::{DaDispersal, DaVerifier},
         storage,
     },
-    Backend,
 };
 use nomos_core::{
     da::{
-        blob::{info::DispersedBlobInfo, metadata, LightShare, Share},
         DaVerifier as CoreDaVerifier,
+        blob::{LightShare, Share, info::DispersedBlobInfo, metadata},
     },
     header::HeaderId,
     mantle::{AuthenticatedMantleTx, SignedMantleTx, Transaction},
@@ -35,25 +36,23 @@ use nomos_da_network_service::{
     backends::libp2p::executor::DaNetworkExecutorBackend, membership::MembershipAdapter,
     storage::MembershipStorageAdapter,
 };
-use nomos_da_sampling::{backend::DaSamplingServiceBackend, DaSamplingService};
+use nomos_da_sampling::{DaSamplingService, backend::DaSamplingServiceBackend};
 use nomos_da_verifier::{backend::VerifierBackend, mempool::DaMempoolAdapter};
 pub use nomos_http_api_common::settings::AxumBackendSettings;
 use nomos_http_api_common::{paths, utils::create_rate_limit_layer};
 use nomos_libp2p::PeerId;
-use nomos_mempool::{
-    backend::mockpool::MockPool, tx::service::openapi::Status, MempoolMetrics, TxMempoolService,
-};
 use nomos_node::{
-    api::handlers::{
-        add_share, add_tx, balancer_stats, blacklisted_peers, block, block_peer, cl_metrics,
-        cl_status, cryptarchia_headers, cryptarchia_info, da_get_commitments, da_get_light_share,
-        da_get_shares, da_get_storage_commitments, libp2p_info, monitor_stats, unblock_peer,
-    },
     RocksBackend,
+    api::handlers::{
+        add_share, add_tx, balancer_stats, blacklisted_peers, block, block_peer,
+        cryptarchia_headers, cryptarchia_info, da_get_commitments, da_get_light_share,
+        da_get_shares, da_get_storage_commitments, libp2p_info, mantle_metrics, mantle_status,
+        monitor_stats, unblock_peer,
+    },
 };
-use nomos_storage::{api::da, backends::StorageSerde, StorageService};
-use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId, DynError};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use nomos_storage::{StorageService, api::da};
+use overwatch::{DynError, overwatch::handle::OverwatchHandle, services::AsServiceId};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use services_utils::wait_until_services_are_ready;
 use subnetworks_assignations::MembershipHandler;
 use tokio::net::TcpListener;
@@ -64,14 +63,16 @@ use tower_http::{
     timeout::TimeoutLayer,
     trace::TraceLayer,
 };
+use tx_service::{
+    MempoolMetrics, TxMempoolService, backend::mockpool::MockPool, tx::service::openapi::Status,
+};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 use super::handlers::disperse_data;
 
-type DaStorageBackend<SerdeOp> = RocksBackend<SerdeOp>;
-type DaStorageService<DaStorageSerializer, RuntimeServiceId> =
-    StorageService<DaStorageBackend<DaStorageSerializer>, RuntimeServiceId>;
+type DaStorageBackend = RocksBackend;
+type DaStorageService<RuntimeServiceId> = StorageService<DaStorageBackend, RuntimeServiceId>;
 
 pub struct AxumBackend<
     DaShare,
@@ -84,7 +85,6 @@ pub struct AxumBackend<
     DaVerifierNetwork,
     DaVerifierStorage,
     Tx,
-    DaStorageSerializer,
     DaStorageConverter,
     DispersalBackend,
     DispersalNetworkAdapter,
@@ -96,7 +96,6 @@ pub struct AxumBackend<
     TimeBackend,
     ApiAdapter,
     HttpStorageAdapter,
-    const SIZE: usize,
 > {
     settings: AxumBackendSettings,
     #[expect(clippy::allow_attributes_without_reason)]
@@ -112,7 +111,6 @@ pub struct AxumBackend<
         DaVerifierNetwork,
         DaVerifierStorage,
         Tx,
-        DaStorageSerializer,
         DaStorageConverter,
         DispersalBackend,
         DispersalNetworkAdapter,
@@ -142,31 +140,29 @@ struct ApiDoc;
 
 #[async_trait::async_trait]
 impl<
-        DaShare,
-        DaBlobInfo,
-        Membership,
-        DaMembershipAdapter,
-        DaMembershipStorage,
-        DaVerifiedBlobInfo,
-        DaVerifierBackend,
-        DaVerifierNetwork,
-        DaVerifierStorage,
-        Tx,
-        DaStorageSerializer,
-        DaStorageConverter,
-        DispersalBackend,
-        DispersalNetworkAdapter,
-        Metadata,
-        SamplingBackend,
-        SamplingNetworkAdapter,
-        SamplingStorage,
-        VerifierMempoolAdapter,
-        TimeBackend,
-        ApiAdapter,
-        StorageAdapter,
-        const SIZE: usize,
-        RuntimeServiceId,
-    > Backend<RuntimeServiceId>
+    DaShare,
+    DaBlobInfo,
+    Membership,
+    DaMembershipAdapter,
+    DaMembershipStorage,
+    DaVerifiedBlobInfo,
+    DaVerifierBackend,
+    DaVerifierNetwork,
+    DaVerifierStorage,
+    Tx,
+    DaStorageConverter,
+    DispersalBackend,
+    DispersalNetworkAdapter,
+    Metadata,
+    SamplingBackend,
+    SamplingNetworkAdapter,
+    SamplingStorage,
+    VerifierMempoolAdapter,
+    TimeBackend,
+    ApiAdapter,
+    StorageAdapter,
+    RuntimeServiceId,
+> Backend<RuntimeServiceId>
     for AxumBackend<
         DaShare,
         DaBlobInfo,
@@ -178,7 +174,6 @@ impl<
         DaVerifierNetwork,
         DaVerifierStorage,
         Tx,
-        DaStorageSerializer,
         DaStorageConverter,
         DispersalBackend,
         DispersalNetworkAdapter,
@@ -190,7 +185,6 @@ impl<
         TimeBackend,
         ApiAdapter,
         StorageAdapter,
-        SIZE,
     >
 where
     DaShare: Share + Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
@@ -260,9 +254,7 @@ where
         + 'static,
     <Tx as Transaction>::Hash:
         Serialize + for<'de> Deserialize<'de> + Ord + Debug + Send + Sync + 'static,
-    DaStorageSerializer: StorageSerde + Send + Sync + 'static,
-    <DaStorageSerializer as StorageSerde>::Error: Send + Sync,
-    DaStorageConverter: da::DaConverter<DaStorageBackend<DaStorageSerializer>, Share = DaShare, Tx = SignedMantleTx>
+    DaStorageConverter: da::DaConverter<DaStorageBackend, Share = DaShare, Tx = SignedMantleTx>
         + Send
         + Sync
         + 'static,
@@ -298,8 +290,7 @@ where
     TimeBackend: nomos_time::backends::TimeBackend + Send + 'static,
     TimeBackend::Settings: Clone + Send + Sync,
     ApiAdapter: nomos_da_network_service::api::ApiAdapter + Send + Sync + 'static,
-    StorageAdapter:
-        storage::StorageAdapter<DaStorageSerializer, RuntimeServiceId> + Send + Sync + 'static,
+    StorageAdapter: storage::StorageAdapter<RuntimeServiceId> + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Send
@@ -309,13 +300,11 @@ where
         + AsServiceId<
             Cryptarchia<
                 Tx,
-                DaStorageSerializer,
                 SamplingBackend,
                 SamplingNetworkAdapter,
                 SamplingStorage,
                 TimeBackend,
                 RuntimeServiceId,
-                SIZE,
             >,
         >
         + AsServiceId<
@@ -323,7 +312,6 @@ where
                 DaShare,
                 DaVerifierNetwork,
                 DaVerifierBackend,
-                DaStorageSerializer,
                 DaStorageConverter,
                 VerifierMempoolAdapter,
                 RuntimeServiceId,
@@ -345,10 +333,10 @@ where
                 RuntimeServiceId,
             >,
         >
-        + AsServiceId<DaStorageService<DaStorageSerializer, RuntimeServiceId>>
+        + AsServiceId<DaStorageService<RuntimeServiceId>>
         + AsServiceId<
             TxMempoolService<
-                nomos_mempool::network::adapters::libp2p::Libp2pAdapter<
+                tx_service::network::adapters::libp2p::Libp2pAdapter<
                     Tx,
                     <Tx as Transaction>::Hash,
                     RuntimeServiceId,
@@ -391,11 +379,11 @@ where
         wait_until_services_are_ready!(
             &overwatch_handle,
             Some(Duration::from_secs(60)),
-            Cryptarchia<_, _, _, _, _, _, _, SIZE>,
-            DaVerifier<_, _, _, _, _, _, _>,
+            Cryptarchia<_, _, _, _, _, _>,
+            DaVerifier<_, _, _, _, _, _>,
             nomos_da_network_service::NetworkService<_, _, _,_, _, _>,
             nomos_network::NetworkService<_, _>,
-            DaStorageService<_, _>,
+            DaStorageService<_>,
             TxMempoolService<_, _, _, _, _>,
             DaDispersal<_, _, _, _>
         )
@@ -421,15 +409,15 @@ where
         let app = Router::new()
             .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
             .route(
-                paths::CL_METRICS,
+                paths::MANTLE_METRICS,
                 routing::get(
-                    cl_metrics::<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>,
+                    mantle_metrics::<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>,
                 ),
             )
             .route(
-                paths::CL_STATUS,
+                paths::MANTLE_STATUS,
                 routing::post(
-                    cl_status::<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>,
+                    mantle_status::<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>,
                 ),
             )
             .route(
@@ -437,13 +425,11 @@ where
                 routing::get(
                     cryptarchia_info::<
                         Tx,
-                        DaStorageSerializer,
                         SamplingBackend,
                         SamplingNetworkAdapter,
                         SamplingStorage,
                         TimeBackend,
                         RuntimeServiceId,
-                        SIZE,
                     >,
                 ),
             )
@@ -452,13 +438,11 @@ where
                 routing::get(
                     cryptarchia_headers::<
                         Tx,
-                        DaStorageSerializer,
                         SamplingBackend,
                         SamplingNetworkAdapter,
                         SamplingStorage,
                         TimeBackend,
                         RuntimeServiceId,
-                        SIZE,
                     >,
                 ),
             )
@@ -469,7 +453,6 @@ where
                         DaShare,
                         DaVerifierNetwork,
                         DaVerifierBackend,
-                        DaStorageSerializer,
                         DaStorageConverter,
                         VerifierMempoolAdapter,
                         RuntimeServiceId,
@@ -518,7 +501,7 @@ where
             .route(paths::NETWORK_INFO, routing::get(libp2p_info))
             .route(
                 paths::STORAGE_BLOCK,
-                routing::post(block::<DaStorageSerializer, StorageAdapter, Tx, RuntimeServiceId>),
+                routing::post(block::<StorageAdapter, Tx, RuntimeServiceId>),
             )
             .route(
                 paths::MEMPOOL_ADD_TX,
@@ -553,7 +536,6 @@ where
                 paths::DA_GET_STORAGE_SHARES_COMMITMENTS,
                 routing::get(
                     da_get_storage_commitments::<
-                        DaStorageSerializer,
                         DaStorageConverter,
                         StorageAdapter,
                         DaShare,
@@ -565,7 +547,6 @@ where
                 paths::DA_GET_LIGHT_SHARE,
                 routing::get(
                     da_get_light_share::<
-                        DaStorageSerializer,
                         DaStorageConverter,
                         StorageAdapter,
                         DaShare,
@@ -576,13 +557,7 @@ where
             .route(
                 paths::DA_GET_SHARES,
                 routing::get(
-                    da_get_shares::<
-                        DaStorageSerializer,
-                        DaStorageConverter,
-                        StorageAdapter,
-                        DaShare,
-                        RuntimeServiceId,
-                    >,
+                    da_get_shares::<DaStorageConverter, StorageAdapter, DaShare, RuntimeServiceId>,
                 ),
             )
             .route(
@@ -611,19 +586,29 @@ where
                     >,
                 ),
             )
-            .with_state(handle)
+            .with_state(handle.clone())
             .layer(TimeoutLayer::new(self.settings.timeout))
             .layer(RequestBodyLimitLayer::new(self.settings.max_body_size))
             .layer(ConcurrencyLimitLayer::new(
                 self.settings.max_concurrent_requests,
             ))
             .layer(create_rate_limit_layer(&self.settings))
-            .layer(TraceLayer::new_for_http())
-            .layer(
-                builder
-                    .allow_headers(vec![CONTENT_TYPE, USER_AGENT])
-                    .allow_methods(Any),
-            );
+            .layer(TraceLayer::new_for_http());
+
+        let cors_layer = builder
+            .allow_headers(vec![CONTENT_TYPE, USER_AGENT])
+            .allow_methods(Any);
+
+        let app = app.layer(cors_layer.clone());
+
+        #[cfg(feature = "profiling")]
+        let app = {
+            let pprof_routes = nomos_http_api_common::pprof::create_pprof_router()
+                .layer(TraceLayer::new_for_http())
+                .layer(cors_layer);
+
+            app.merge(pprof_routes)
+        };
 
         let listener = TcpListener::bind(&self.settings.address)
             .await

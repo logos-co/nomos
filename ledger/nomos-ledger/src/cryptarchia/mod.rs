@@ -1,13 +1,17 @@
-use cryptarchia_engine::{Epoch, Slot};
-use groth16::Fr;
-use nomos_core::{
-    crypto::{Digest as _, Hasher, ZkHasher},
-    mantle::{gas::GasConstants, AuthenticatedMantleTx, Note, NoteId, Utxo, Value},
-    proofs::{leader_proof, zksig::ZkSignatureProof as _},
-};
-use nomos_proof_statements::{leadership::LeaderPublic, zksig::ZkSignaturePublic};
+use std::sync::LazyLock;
 
-pub type UtxoTree = utxotree::UtxoTree<NoteId, Note, ZkHasher>;
+use cryptarchia_engine::{Epoch, Slot};
+use groth16::{Fr, fr_from_bytes};
+use nomos_core::{
+    crypto::{ZkDigest, ZkHasher},
+    mantle::{AuthenticatedMantleTx, NoteId, Utxo, Value, gas::GasConstants},
+    proofs::{
+        leader_proof::{self, LeaderPublic},
+        zksig::{ZkSignatureProof as _, ZkSignaturePublic},
+    },
+};
+
+pub type UtxoTree = utxotree::UtxoTree<NoteId, Utxo, ZkHasher>;
 use super::{Balance, Config, LedgerError};
 use crate::mantle::locked_notes::LockedNotes;
 
@@ -18,7 +22,8 @@ pub struct EpochState {
     pub epoch: Epoch,
     // value of the ledger nonce after 'epoch_period_nonce_buffer' slots from the beginning of the
     // epoch
-    pub nonce: [u8; 32],
+    #[cfg_attr(feature = "serde", serde(with = "groth16::serde::serde_fr"))]
+    pub nonce: Fr,
     // stake distribution snapshot taken at the beginning of the epoch
     // (in practice, this is equivalent to the utxos the are spendable at the beginning of the
     // epoch)
@@ -55,7 +60,7 @@ impl EpochState {
     }
 
     #[must_use]
-    pub const fn nonce(&self) -> &[u8; 32] {
+    pub const fn nonce(&self) -> &Fr {
         &self.nonce
     }
 
@@ -73,7 +78,8 @@ pub struct LedgerState {
     // All available Unspent Transtaction Outputs (UTXOs) at the current slot
     pub utxos: UtxoTree,
     // randomness contribution
-    pub nonce: [u8; 32],
+    #[cfg_attr(feature = "serde", serde(with = "groth16::serde::serde_fr"))]
+    pub nonce: Fr,
     pub slot: Slot,
     // rolling snapshot of the state for the next epoch, used for epoch transitions
     pub next_epoch_state: EpochState,
@@ -162,10 +168,8 @@ impl LedgerState {
         let public_inputs = LeaderPublic::new(
             self.aged_commitments().root(),
             self.latest_commitments().root(),
-            proof.entropy(),
             self.epoch_state.nonce,
             slot.into(),
-            config.consensus_config.active_slot_coeff,
             self.epoch_state.total_stake,
         );
         if !proof.verify(&public_inputs) {
@@ -187,7 +191,7 @@ impl LedgerState {
         Ok(self
             .update_epoch_state(slot, config)?
             .try_apply_proof(slot, proof, config)?
-            .update_nonce(proof.entropy(), slot))
+            .update_nonce(&proof.entropy(), slot))
     }
 
     pub fn try_apply_tx<Id, Constants: GasConstants>(
@@ -202,15 +206,15 @@ impl LedgerState {
             if locked_notes.contains(input) {
                 return Err(LedgerError::LockedNote(*input));
             }
-            let note;
-            (self.utxos, note) = self
+            let utxo;
+            (self.utxos, utxo) = self
                 .utxos
                 .remove(input)
                 .map_err(|_| LedgerError::InvalidNote(*input))?;
             balance = balance
-                .checked_add(note.value.into())
+                .checked_add(utxo.note.value.into())
                 .ok_or(LedgerError::Overflow)?;
-            pks.push(note.pk.into());
+            pks.push(utxo.note.pk.into());
         }
 
         if !tx.ledger_tx_proof().verify(&ZkSignaturePublic {
@@ -221,30 +225,30 @@ impl LedgerState {
         }
 
         for utxo in ledger_tx.utxos() {
-            let note = utxo.note;
-            if note.value == 0 {
+            if utxo.note.value == 0 {
                 return Err(LedgerError::ZeroValueNote);
             }
             balance = balance
-                .checked_sub(note.value.into())
+                .checked_sub(utxo.note.value.into())
                 .ok_or(LedgerError::Overflow)?;
-            self.utxos = self.utxos.insert(utxo.id(), note).0;
+            self.utxos = self.utxos.insert(utxo.id(), utxo).0;
         }
 
         Ok((self, balance))
     }
 
-    fn update_nonce(self, contrib: [u8; 32], slot: Slot) -> Self {
+    fn update_nonce(self, contrib: &Fr, slot: Slot) -> Self {
         // constants and structure as defined in the Mantle spec:
         // https://www.notion.so/Cryptarchia-v1-Protocol-Specification-21c261aa09df810cb85eff1c76e5798c
-        const EPOCH_NONCE_V1: &[u8] = b"EPOCH_NONCE_V1";
-        let mut hasher = Hasher::new();
-        hasher.update(EPOCH_NONCE_V1);
-        hasher.update(self.nonce);
-        hasher.update(contrib);
-        hasher.update(slot.to_le_bytes());
+        static EPOCH_NONCE_V1: LazyLock<Fr> =
+            LazyLock::new(|| fr_from_bytes(b"EPOCH_NONCE_V1").unwrap());
+        let mut hasher = ZkHasher::new();
+        <ZkHasher as ZkDigest>::update(&mut hasher, &EPOCH_NONCE_V1);
+        <ZkHasher as ZkDigest>::update(&mut hasher, &self.nonce);
+        <ZkHasher as ZkDigest>::update(&mut hasher, contrib);
+        <ZkHasher as ZkDigest>::update(&mut hasher, &Fr::from(u64::from(slot)));
 
-        let nonce: [u8; 32] = hasher.finalize().into();
+        let nonce: Fr = hasher.finalize();
         Self { nonce, ..self }
     }
 
@@ -273,29 +277,45 @@ impl LedgerState {
         &self.epoch_state.utxos
     }
 
-    pub fn from_utxos(utxos: impl IntoIterator<Item = Utxo>) -> Self {
+    pub fn from_genesis_tx<Id>(
+        tx: impl AuthenticatedMantleTx,
+        epoch_nonce: Fr,
+    ) -> Result<Self, LedgerError<Id>> {
+        if !tx.mantle_tx().ledger_tx.inputs.is_empty() {
+            return Err(LedgerError::InputInGenesis(
+                tx.mantle_tx().ledger_tx.inputs[0],
+            ));
+        }
+
+        Ok(Self::from_utxos(
+            tx.mantle_tx().ledger_tx.utxos(),
+            epoch_nonce,
+        ))
+    }
+
+    pub fn from_utxos(utxos: impl IntoIterator<Item = Utxo>, nonce: Fr) -> Self {
         let utxos = utxos
             .into_iter()
-            .map(|utxo| (utxo.id(), utxo.note))
+            .map(|utxo| (utxo.id(), utxo))
             .collect::<UtxoTree>();
         let total_stake = utxos
             .utxos()
             .iter()
-            .map(|(_, (note, _))| note.value)
+            .map(|(_, (utxo, _))| utxo.note.value)
             .sum::<Value>();
         Self {
             utxos: utxos.clone(),
-            nonce: [0; 32],
+            nonce,
             slot: 0.into(),
             next_epoch_state: EpochState {
                 epoch: 1.into(),
-                nonce: [0; 32],
+                nonce,
                 utxos: utxos.clone(),
                 total_stake,
             },
             epoch_state: EpochState {
                 epoch: 0.into(),
-                nonce: [0; 32],
+                nonce,
                 utxos,
                 total_stake,
             },
@@ -322,19 +342,20 @@ pub mod tests {
     use std::num::NonZero;
 
     use cryptarchia_engine::EpochConfig;
-    use crypto_bigint::U256;
+    use groth16::Field as _;
     use nomos_core::{
+        crypto::{Digest as _, Hasher},
         mantle::{
+            GasCost as _, MantleTx, Note, SignedMantleTx, Transaction as _,
             gas::MainnetGasConstants, ledger::Tx as LedgerTx, ops::leader_claim::VoucherCm,
-            GasCost as _, MantleTx, SignedMantleTx, Transaction as _,
         },
         proofs::zksig::DummyZkSignature,
     };
     use num_bigint::BigUint;
-    use rand::{thread_rng, RngCore as _};
+    use rand::{RngCore as _, thread_rng};
 
     use super::*;
-    use crate::{leader_proof::LeaderProof, Ledger};
+    use crate::{Ledger, leader_proof::LeaderProof};
 
     type HeaderId = [u8; 32];
 
@@ -348,15 +369,28 @@ pub mod tests {
         }
     }
 
-    pub struct DummyProof(pub LeaderPublic);
+    pub struct DummyProof {
+        pub public: LeaderPublic,
+        pub leader_key: ed25519_dalek::VerifyingKey,
+        pub voucher_cm: VoucherCm,
+    }
 
     impl LeaderProof for DummyProof {
         fn verify(&self, public_inputs: &LeaderPublic) -> bool {
-            &self.0 == public_inputs
+            &self.public == public_inputs
         }
 
-        fn entropy(&self) -> [u8; 32] {
-            self.0.entropy
+        fn entropy(&self) -> Fr {
+            // For dummy proof, return zero entropy
+            Fr::from(0u8)
+        }
+
+        fn leader_key(&self) -> &ed25519_dalek::VerifyingKey {
+            &self.leader_key
+        }
+
+        fn voucher_cm(&self) -> &VoucherCm {
+            &self.voucher_cm
         }
     }
 
@@ -374,9 +408,8 @@ pub mod tests {
             .cryptarchia_ledger
             .update_epoch_state::<HeaderId>(slot, ledger.config())
             .unwrap();
-        let config = ledger.config();
         let id = make_id(parent, slot, utxo);
-        let proof = generate_proof(&ledger_state, &utxo, slot, config);
+        let proof = generate_proof(&ledger_state, &utxo, slot);
         *ledger = ledger.try_update::<_, MainnetGasConstants>(
             id,
             parent,
@@ -391,7 +424,7 @@ pub mod tests {
     fn make_id(parent: HeaderId, slot: impl Into<Slot>, utxo: Utxo) -> HeaderId {
         Hasher::new()
             .chain_update(parent)
-            .chain_update(slot.into().to_be_bytes())
+            .chain_update(slot.into().to_le_bytes())
             .chain_update(utxo.id().as_bytes())
             .finalize()
             .into()
@@ -399,34 +432,30 @@ pub mod tests {
 
     // produce a proof for a note
     #[must_use]
-    pub fn generate_proof(
-        ledger_state: &LedgerState,
-        utxo: &Utxo,
-        slot: Slot,
-        config: &Config,
-    ) -> DummyProof {
+    pub fn generate_proof(ledger_state: &LedgerState, utxo: &Utxo, slot: Slot) -> DummyProof {
         let latest_tree = ledger_state.latest_commitments();
         let aged_tree = ledger_state.aged_commitments();
-
-        DummyProof(LeaderPublic::new(
-            if aged_tree.contains(&utxo.id()) {
-                aged_tree.root()
-            } else {
-                println!("Note not found in latest commitments, using zero root");
-                BigUint::from(0u8).into()
-            },
-            if latest_tree.contains(&utxo.id()) {
-                latest_tree.root()
-            } else {
-                println!("Note not found in latest commitments, using zero root");
-                BigUint::from(0u8).into()
-            },
-            [1; 32],
-            ledger_state.epoch_state.nonce,
-            slot.into(),
-            config.consensus_config.active_slot_coeff,
-            ledger_state.epoch_state.total_stake,
-        ))
+        DummyProof {
+            public: LeaderPublic::new(
+                if aged_tree.contains(&utxo.id()) {
+                    aged_tree.root()
+                } else {
+                    println!("Note not found in aged commitments, using zero root");
+                    Fr::from(0u8)
+                },
+                if latest_tree.contains(&utxo.id()) {
+                    latest_tree.root()
+                } else {
+                    println!("Note not found in latest commitments, using zero root");
+                    Fr::from(0u8)
+                },
+                ledger_state.epoch_state.nonce,
+                slot.into(),
+                ledger_state.epoch_state.total_stake,
+            ),
+            leader_key: ed25519_dalek::VerifyingKey::from_bytes(&[0u8; 32]).unwrap(),
+            voucher_cm: VoucherCm::default(),
+        }
     }
 
     #[must_use]
@@ -459,21 +488,21 @@ pub mod tests {
         let total_stake = utxos.iter().map(|u| u.note.value).sum();
         let utxos = utxos
             .iter()
-            .map(|utxo| (utxo.id(), utxo.note))
+            .map(|utxo| (utxo.id(), *utxo))
             .collect::<UtxoTree>();
         LedgerState {
             utxos: utxos.clone(),
-            nonce: [0; 32],
+            nonce: Fr::ZERO,
             slot: 0.into(),
             next_epoch_state: EpochState {
                 epoch: 1.into(),
-                nonce: [0; 32],
+                nonce: Fr::ZERO,
                 utxos: utxos.clone(),
                 total_stake,
             },
             epoch_state: EpochState {
                 epoch: 0.into(),
-                nonce: [0; 32],
+                nonce: Fr::ZERO,
                 utxos,
                 total_stake,
             },
@@ -508,7 +537,7 @@ pub mod tests {
         // spendable commitments and test epoch snapshotting is by doing this
         // manually
         let mut block_state = ledger.states[&id].clone().cryptarchia_ledger;
-        block_state.utxos = block_state.utxos.insert(utxo_add.id(), utxo_add.note).0;
+        block_state.utxos = block_state.utxos.insert(utxo_add.id(), utxo_add).0;
         ledger.states.insert(id, full_ledger_state(block_state));
         id
     }
@@ -650,14 +679,17 @@ pub mod tests {
         let (ledger, genesis) = ledger(&[utxo]);
         let ledger_state = ledger.state(&genesis).unwrap().clone().cryptarchia_ledger;
         let slot = Slot::genesis() + 1;
-        let proof = DummyProof(LeaderPublic {
-            aged_root: BigUint::from(1u8).into(), // Invalid aged root
-            latest_root: ledger_state.latest_commitments().root(),
-            epoch_nonce: ledger_state.epoch_state.nonce,
-            slot: slot.into(),
-            entropy: [1; 32],
-            scaled_phi_approx: (U256::from(1u32), U256::from(1u32)),
-        });
+        let proof = DummyProof {
+            public: LeaderPublic {
+                aged_root: Fr::from(0u8), // Invalid aged root
+                latest_root: ledger_state.latest_commitments().root(),
+                epoch_nonce: ledger_state.epoch_state.nonce,
+                slot: slot.into(),
+                total_stake: ledger_state.epoch_state.total_stake,
+            },
+            leader_key: ed25519_dalek::VerifyingKey::from_bytes(&[0u8; 32]).unwrap(),
+            voucher_cm: VoucherCm::default(),
+        };
         let update_err = ledger_state
             .try_apply_proof::<_, ()>(slot, &proof, ledger.config())
             .err();
@@ -671,14 +703,17 @@ pub mod tests {
         let (ledger, genesis) = ledger(&[utxo]);
         let ledger_state = ledger.state(&genesis).unwrap().clone().cryptarchia_ledger;
         let slot = Slot::genesis() + 1;
-        let proof = DummyProof(LeaderPublic {
-            aged_root: ledger_state.aged_commitments().root(),
-            latest_root: BigUint::from(1u8).into(), // Invalid latest root
-            epoch_nonce: ledger_state.epoch_state.nonce,
-            slot: slot.into(),
-            entropy: [1; 32],
-            scaled_phi_approx: (U256::from(1u32), U256::from(1u32)),
-        });
+        let proof = DummyProof {
+            public: LeaderPublic {
+                aged_root: ledger_state.aged_commitments().root(),
+                latest_root: BigUint::from(1u8).into(), // Invalid latest root
+                epoch_nonce: ledger_state.epoch_state.nonce,
+                slot: slot.into(),
+                total_stake: ledger_state.epoch_state.total_stake,
+            },
+            leader_key: ed25519_dalek::VerifyingKey::from_bytes(&[0u8; 32]).unwrap(),
+            voucher_cm: VoucherCm::default(),
+        };
         let update_err = ledger_state
             .try_apply_proof::<_, ()>(slot, &proof, ledger.config())
             .err();
@@ -722,7 +757,7 @@ pub mod tests {
         let output_note2 = Note::new(3000, Fr::from(BigUint::from(3u8)).into());
 
         let locked_notes = LockedNotes::new();
-        let ledger_state = LedgerState::from_utxos([input_utxo]);
+        let ledger_state = LedgerState::from_utxos([input_utxo], Fr::ZERO);
         let tx = create_tx(&[&input_utxo], vec![output_note1, output_note2]);
 
         let _fees = tx.gas_cost::<MainnetGasConstants>();
@@ -787,7 +822,7 @@ pub mod tests {
             note: Note::new(999, Fr::from(BigUint::from(1u8)).into()),
         };
 
-        let ledger_state = LedgerState::from_utxos([input_utxo]);
+        let ledger_state = LedgerState::from_utxos([input_utxo], Fr::ZERO);
 
         let invalid_utxos = [
             non_existent_utxo_1,
@@ -817,7 +852,7 @@ pub mod tests {
         let output_note = Note::new(1, Fr::from(BigUint::from(2u8)).into());
 
         let locked_notes = LockedNotes::new();
-        let ledger_state = LedgerState::from_utxos([input_utxo]);
+        let ledger_state = LedgerState::from_utxos([input_utxo], Fr::ZERO);
         let tx = create_tx(&[&input_utxo], vec![output_note, output_note]);
 
         let (_, balance) = ledger_state
@@ -846,7 +881,7 @@ pub mod tests {
         };
 
         let locked_notes = LockedNotes::new();
-        let ledger_state = LedgerState::from_utxos([input_utxo]);
+        let ledger_state = LedgerState::from_utxos([input_utxo], Fr::ZERO);
         let tx = create_tx(&[&input_utxo], vec![]);
 
         let _fees = tx.gas_cost::<MainnetGasConstants>();
@@ -869,7 +904,7 @@ pub mod tests {
         };
 
         let locked_notes = LockedNotes::new();
-        let ledger_state = LedgerState::from_utxos([input_utxo]);
+        let ledger_state = LedgerState::from_utxos([input_utxo], Fr::ZERO);
         let tx = create_tx(
             &[&input_utxo],
             vec![Note::new(0, Fr::from(BigUint::from(2u8)).into())],
@@ -877,5 +912,34 @@ pub mod tests {
 
         let result = ledger_state.try_apply_tx::<(), MainnetGasConstants>(&locked_notes, tx);
         assert!(matches!(result, Err(LedgerError::ZeroValueNote)));
+    }
+
+    #[test]
+    fn test_input_in_genesis() {
+        let input_utxo = Utxo {
+            tx_hash: Fr::from(BigUint::from(1u8)).into(),
+            output_index: 0,
+            note: Note::new(10000, Fr::from(BigUint::from(1u8)).into()),
+        };
+
+        let tx = create_tx(
+            &[&input_utxo],
+            vec![Note::new(0, Fr::from(BigUint::from(2u8)).into())],
+        );
+
+        assert!(matches!(
+            LedgerState::from_genesis_tx::<()>(tx, Fr::ZERO),
+            Err(LedgerError::InputInGenesis(_))
+        ));
+        let tx = create_tx(
+            &[],
+            vec![Note::new(10000, Fr::from(BigUint::from(2u8)).into())],
+        );
+        assert_eq!(
+            LedgerState::from_genesis_tx::<()>(tx, Fr::ONE)
+                .unwrap()
+                .nonce,
+            Fr::ONE
+        );
     }
 }

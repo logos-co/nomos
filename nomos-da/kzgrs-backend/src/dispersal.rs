@@ -1,8 +1,8 @@
 use std::hash::{Hash, Hasher};
 
 use nomos_core::da::{
-    blob::{self, metadata::Next},
     BlobId,
+    blob::{self, metadata::Next},
 };
 use serde::{Deserialize, Serialize};
 
@@ -52,7 +52,7 @@ pub struct Index([u8; 8]);
 impl Index {
     #[must_use]
     pub const fn to_u64(self) -> u64 {
-        u64::from_be_bytes(self.0)
+        u64::from_le_bytes(self.0)
     }
 }
 
@@ -89,15 +89,15 @@ impl blob::metadata::Metadata for Metadata {
 
 impl From<u64> for Index {
     fn from(value: u64) -> Self {
-        Self(value.to_be_bytes())
+        Self(value.to_le_bytes())
     }
 }
 
 impl Next for Index {
     fn next(self) -> Self {
-        let num = u64::from_be_bytes(self.0);
+        let num = u64::from_le_bytes(self.0);
         let incremented_num = num.wrapping_add(1);
-        Self(incremented_num.to_be_bytes())
+        Self(incremented_num.to_le_bytes())
     }
 }
 
@@ -109,13 +109,13 @@ impl AsRef<[u8]> for Index {
 
 #[cfg(test)]
 mod tests {
-    use nomos_core::da::{blob::Share as _, DaEncoder as _};
+    use nomos_core::da::{DaEncoder as _, blob::Share as _};
 
     use crate::{
         common::share::DaShare,
         encoder::{
-            test::{rand_data, ENCODER},
             EncodedData,
+            test::{ENCODER, rand_data},
         },
         global::GLOBAL_PARAMETERS,
         verifier::DaVerifier,

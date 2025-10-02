@@ -1,5 +1,4 @@
 use core::{
-    future::Future,
     pin::Pin,
     task::{Context, Poll, Waker},
     time::Duration,
@@ -7,9 +6,9 @@ use core::{
 use std::io;
 
 use libp2p::{
+    StreamProtocol,
     core::upgrade::{DeniedUpgrade, ReadyUpgrade},
     swarm::{ConnectionHandlerEvent, SubstreamProtocol},
-    StreamProtocol,
 };
 
 use crate::core::with_edge::behaviour::handler::{

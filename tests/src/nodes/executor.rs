@@ -8,13 +8,15 @@ use std::{
     time::Duration,
 };
 
+use broadcast_service::BlockInfo;
+use chain_leader::LeaderSettings;
 use chain_service::{CryptarchiaInfo, CryptarchiaSettings, OrphanConfig, SyncConfig};
 use common_http_client::CommonHttpClient;
 use cryptarchia_engine::time::SlotConfig;
 use futures::Stream;
 use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
 use nomos_api::http::membership::MembershipUpdateRequest;
-use nomos_blend_scheduling::message_blend::CryptographicProcessorSettings;
+use nomos_blend_scheduling::message_blend::SessionCryptographicProcessorSettings;
 use nomos_blend_service::{
     core::settings::{CoverTrafficSettingsExt, MessageDelayerSettingsExt, SchedulerSettingsExt},
     settings::TimingSettings,
@@ -27,45 +29,44 @@ use nomos_core::{
     sdp::FinalizedBlockEvent,
 };
 use nomos_da_dispersal::{
-    backend::kzgrs::{DispersalKZGRSBackendSettings, EncoderSettings},
     DispersalServiceSettings,
+    backend::kzgrs::{DispersalKZGRSBackendSettings, EncoderSettings},
 };
 use nomos_da_network_core::{
     protocols::sampling::SubnetsConfig,
     swarm::{BalancerStats, MonitorStats},
 };
 use nomos_da_network_service::{
+    MembershipResponse, NetworkConfig as DaNetworkConfig,
     api::http::ApiAdapterSettings,
     backends::libp2p::{
         common::DaNetworkBackendSettings, executor::DaNetworkExecutorBackendSettings,
     },
-    MembershipResponse, NetworkConfig as DaNetworkConfig,
 };
 use nomos_da_sampling::{
-    backend::kzgrs::KzgrsSamplingBackendSettings,
+    DaSamplingServiceSettings, backend::kzgrs::KzgrsSamplingBackendSettings,
     verifier::kzgrs::KzgrsDaVerifierSettings as SamplingVerifierSettings,
-    DaSamplingServiceSettings,
 };
 use nomos_da_verifier::{
+    DaVerifierServiceSettings,
     backend::{kzgrs::KzgrsDaVerifierSettings, trigger::MempoolPublishTriggerConfig},
     storage::adapters::rocksdb::RocksAdapterSettings as VerifierStorageAdapterSettings,
-    DaVerifierServiceSettings,
 };
 use nomos_executor::{api::backend::AxumBackendSettings, config::Config};
 use nomos_http_api_common::paths::{
-    CL_METRICS, CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_BLACKLISTED_PEERS, DA_BLOCK_PEER,
-    DA_GET_MEMBERSHIP, DA_GET_SHARES_COMMITMENTS, DA_HISTORIC_SAMPLING, DA_MONITOR_STATS,
-    DA_UNBLOCK_PEER, STORAGE_BLOCK, UPDATE_MEMBERSHIP,
+    CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_BLACKLISTED_PEERS, DA_BLOCK_PEER, DA_GET_MEMBERSHIP,
+    DA_GET_SHARES_COMMITMENTS, DA_HISTORIC_SAMPLING, DA_MONITOR_STATS, DA_UNBLOCK_PEER,
+    MANTLE_METRICS, STORAGE_BLOCK, UPDATE_MEMBERSHIP,
 };
 use nomos_network::{backends::libp2p::Libp2pConfig, config::NetworkConfig};
 use nomos_node::{
+    RocksBackendSettings,
     api::testing::handlers::HistoricSamplingRequest,
     config::{blend::BlendConfig, mempool::MempoolConfig},
-    RocksBackendSettings,
 };
 use nomos_time::{
-    backends::{ntp::async_client::NTPClientSettings, NtpTimeBackendSettings},
     TimeServiceSettings,
+    backends::{NtpTimeBackendSettings, ntp::async_client::NTPClientSettings},
 };
 use nomos_tracing::logging::local::FileConfig;
 use nomos_tracing_service::LoggerLayer;
@@ -73,12 +74,11 @@ use nomos_utils::{math::NonNegativeF64, net::get_available_tcp_port};
 use reqwest::Url;
 use tempfile::NamedTempFile;
 
-use super::{create_tempdir, persist_tempdir, CLIENT};
+use super::{CLIENT, create_tempdir, persist_tempdir};
 use crate::{
-    adjust_timeout,
+    IS_DEBUG_TRACING, adjust_timeout,
     nodes::{DA_GET_TESTING_ENDPOINT_ERROR, LOGS_PREFIX},
     topology::configs::GeneralConfig,
-    IS_DEBUG_TRACING,
 };
 
 const BIN_PATH: &str = "../target/debug/nomos-executor";
@@ -94,10 +94,10 @@ pub struct Executor {
 
 impl Drop for Executor {
     fn drop(&mut self) {
-        if std::thread::panicking() {
-            if let Err(e) = persist_tempdir(&mut self.tempdir, "nomos-executor") {
-                println!("failed to persist tempdir: {e}");
-            }
+        if std::thread::panicking()
+            && let Err(e) = persist_tempdir(&mut self.tempdir, "nomos-executor")
+        {
+            println!("failed to persist tempdir: {e}");
         }
 
         if let Err(e) = self.child.kill() {
@@ -191,7 +191,7 @@ impl Executor {
 
     async fn wait_online(&self) {
         loop {
-            let res = self.get(CL_METRICS).await;
+            let res = self.get(MANTLE_METRICS).await;
             if res.is_ok() && res.unwrap().status().is_success() {
                 break;
             }
@@ -365,6 +365,14 @@ impl Executor {
         let success: bool = response.json().await?;
         Ok(success)
     }
+
+    pub async fn get_lib_stream(
+        &self,
+    ) -> Result<impl Stream<Item = BlockInfo>, common_http_client::Error> {
+        self.http_client
+            .get_lib_stream(Url::from_str(&format!("http://{}", self.addr))?)
+            .await
+    }
 }
 
 #[must_use]
@@ -383,8 +391,8 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
         },
         blend: BlendConfig::new(nomos_blend_service::core::settings::BlendConfig {
             backend: config.blend_config.backend,
-            crypto: CryptographicProcessorSettings {
-                signing_private_key: config.blend_config.private_key.clone(),
+            crypto: SessionCryptographicProcessorSettings {
+                non_ephemeral_signing_key: config.blend_config.private_key.clone(),
                 num_blend_layers: 1,
             },
             time: TimingSettings {
@@ -411,23 +419,16 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                         .expect("Maximum release delay between rounds cannot be zero."),
                 },
             },
-            membership: config.blend_config.membership,
             minimum_network_size: 1
                 .try_into()
                 .expect("Minimum Blend network size cannot be zero."),
         }),
         cryptarchia: CryptarchiaSettings {
-            leader_config: config.consensus_config.leader_config,
             config: config.consensus_config.ledger_config,
             genesis_id: HeaderId::from([0; 32]),
             genesis_state: config.consensus_config.genesis_state,
-            transaction_selector_settings: (),
             network_adapter_settings:
                 chain_service::network::adapters::libp2p::LibP2pAdapterSettings {
-                    topic: String::from(nomos_node::CONSENSUS_TOPIC),
-                },
-            blend_broadcast_settings:
-                nomos_blend_service::core::network::libp2p::Libp2pBroadcastSettings {
                     topic: String::from(nomos_node::CONSENSUS_TOPIC),
                 },
             recovery_file: PathBuf::from("./recovery/cryptarchia.json"),
@@ -449,6 +450,15 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                         .expect("Max orphan cache size must be non-zero"),
                 },
             },
+        },
+        cryptarchia_leader: LeaderSettings {
+            transaction_selector_settings: (),
+            config: config.consensus_config.ledger_config,
+            leader_config: config.consensus_config.leader_config,
+            blend_broadcast_settings:
+                nomos_blend_service::core::network::libp2p::Libp2pBroadcastSettings {
+                    topic: String::from(nomos_node::CONSENSUS_TOPIC),
+                },
         },
         da_network: DaNetworkConfig {
             backend: DaNetworkExecutorBackendSettings {
@@ -474,6 +484,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                 is_secure: false,
             },
             subnet_refresh_interval: config.da_config.subnets_refresh_interval,
+            subnet_threshold: config.da_config.num_subnets as usize,
         },
         da_verifier: DaVerifierServiceSettings {
             share_verifier_settings: KzgrsDaVerifierSettings {
@@ -528,6 +539,8 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                     global_params_path: config.da_config.global_params_path,
                 },
                 dispersal_timeout: Duration::from_secs(20),
+                retry_cooldown: Duration::from_secs(3),
+                retry_limit: 2,
             },
         },
         time: TimeServiceSettings {
@@ -547,7 +560,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
             },
         },
         mempool: MempoolConfig {
-            cl_pool_recovery_path: "./recovery/cl_mempool.json".into(),
+            pool_recovery_path: "./recovery/mempool.json".into(),
             trigger_sampling_delay: adjust_timeout(Duration::from_secs(5)),
         },
         membership: config.membership_config.service_settings,

@@ -1,8 +1,8 @@
 use std::io;
 
 use futures::{AsyncReadExt, AsyncWriteExt};
-use nomos_core::wire;
-use serde::{de::DeserializeOwned, Serialize};
+use nomos_core::codec::SerdeOp;
+use serde::{Serialize, de::DeserializeOwned};
 
 use crate::Result;
 
@@ -26,9 +26,9 @@ impl From<MessageTooLargeError> for io::Error {
 
 pub fn pack<Message>(message: &Message) -> Result<Vec<u8>>
 where
-    Message: Serialize,
+    Message: Serialize + DeserializeOwned,
 {
-    wire::serialize(message).map_err(io::Error::from)
+    Ok(<Message as SerdeOp>::serialize(message)?.into())
 }
 
 fn get_packed_message_size(packed_message: &[u8]) -> Result<usize> {
@@ -42,14 +42,14 @@ fn get_packed_message_size(packed_message: &[u8]) -> Result<usize> {
 fn prepare_message_for_writer(packed_message: &[u8]) -> Result<Vec<u8>> {
     let data_length = get_packed_message_size(packed_message)?;
     let mut buffer = Vec::with_capacity(MAX_MSG_LEN_BYTES + data_length);
-    buffer.extend_from_slice(&(data_length as LenType).to_be_bytes());
+    buffer.extend_from_slice(&(data_length as LenType).to_le_bytes());
     buffer.extend_from_slice(packed_message);
     Ok(buffer)
 }
 
 pub async fn pack_to_writer<Message, Writer>(message: &Message, writer: &mut Writer) -> Result<()>
 where
-    Message: Serialize + Sync,
+    Message: Serialize + DeserializeOwned + Sync,
     Writer: AsyncWriteExt + Send + Unpin,
 {
     let packed_message = pack(message)?;
@@ -63,17 +63,17 @@ where
 {
     let mut length_prefix = [0u8; MAX_MSG_LEN_BYTES];
     reader.read_exact(&mut length_prefix).await?;
-    let s = LenType::from_be_bytes(length_prefix) as usize;
+    let s = LenType::from_le_bytes(length_prefix) as usize;
     Ok(s)
 }
 
-pub fn unpack<M: DeserializeOwned>(data: &[u8]) -> Result<M> {
-    wire::deserialize(data).map_err(io::Error::from)
+pub fn unpack<M: DeserializeOwned + Serialize>(data: &[u8]) -> Result<M> {
+    <M as SerdeOp>::deserialize(data).map_err(io::Error::from)
 }
 
 pub async fn unpack_from_reader<Message, R>(reader: &mut R) -> Result<Message>
 where
-    Message: DeserializeOwned,
+    Message: DeserializeOwned + Serialize,
     R: AsyncReadExt + Unpin,
 {
     let data_length = read_data_length(reader).await?;

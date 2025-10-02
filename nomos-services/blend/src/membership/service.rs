@@ -1,20 +1,20 @@
 use std::{collections::BTreeSet, hash::Hash, marker::PhantomData};
 
 use futures::StreamExt as _;
-use nomos_blend_message::crypto::Ed25519PublicKey;
+use nomos_blend_message::crypto::keys::Ed25519PublicKey;
 use nomos_blend_scheduling::membership::{Membership, Node};
 use nomos_core::sdp::{Locator, ProviderId, ServiceType};
-use nomos_membership::{
-    backends::MembershipBackendError, MembershipMessage, MembershipSnapshotStream,
+use nomos_membership_service::{
+    MembershipMessage, MembershipSnapshotStream, backends::MembershipBackendError,
 };
 use overwatch::{
-    services::{relay::OutboundRelay, ServiceData},
     DynError,
+    services::{ServiceData, relay::OutboundRelay},
 };
 use tokio::sync::oneshot;
 use tracing::warn;
 
-use crate::membership::{node_id, MembershipStream, ServiceMessage};
+use crate::membership::{MembershipStream, ServiceMessage, node_id};
 
 pub struct Adapter<Service, NodeId>
 where

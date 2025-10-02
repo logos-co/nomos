@@ -4,7 +4,7 @@ use bundler::utils::{
     get_formatted_cargo_package_version, get_project_identifier,
     get_target_directory_for_current_profile, get_workspace_root,
 };
-use clap::{arg, Parser};
+use clap::{Parser, arg};
 use log::{error, info};
 use tauri_bundler::{
     AppImageSettings, DebianSettings, DmgSettings, IosSettings, MacOsSettings, RpmSettings,

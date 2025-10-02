@@ -1,20 +1,21 @@
 use std::{
     collections::VecDeque,
     convert::Infallible,
+    fmt::Debug,
     task::{Context, Poll, Waker},
 };
 
 use libp2p::{
+    Multiaddr, PeerId,
     core::{
-        transport::PortUse,
         ConnectedPoint::{Dialer, Listener},
         Endpoint,
+        transport::PortUse,
     },
     swarm::{
-        dial_opts::DialOpts, dummy, ConnectionClosed, ConnectionDenied, ConnectionId, FromSwarm,
-        NetworkBehaviour, THandlerInEvent, THandlerOutEvent, ToSwarm,
+        ConnectionClosed, ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour,
+        THandlerInEvent, THandlerOutEvent, ToSwarm, dial_opts::DialOpts, dummy,
     },
-    Multiaddr, PeerId,
 };
 use tokio::sync::{
     mpsc::{self, UnboundedReceiver, UnboundedSender},
@@ -55,6 +56,7 @@ where
         UnboundedSender<ConnectionBalancerCommand<<Balancer as ConnectionBalancer>::Stats>>,
     command_receiver:
         UnboundedReceiver<ConnectionBalancerCommand<<Balancer as ConnectionBalancer>::Stats>>,
+    stats_sender: Option<UnboundedSender<<Balancer as ConnectionBalancer>::Stats>>,
     waker: Option<Waker>,
 }
 
@@ -63,7 +65,11 @@ where
     Balancer: ConnectionBalancer,
     Addressbook: AddressBookHandler,
 {
-    pub fn new(addressbook: Addressbook, balancer: Balancer) -> Self {
+    pub fn new(
+        addressbook: Addressbook,
+        balancer: Balancer,
+        stats_sender: Option<UnboundedSender<<Balancer as ConnectionBalancer>::Stats>>,
+    ) -> Self {
         let (command_sender, command_receiver) = mpsc::unbounded_channel();
 
         Self {
@@ -72,12 +78,18 @@ where
             peers_to_dial: VecDeque::new(),
             command_sender,
             command_receiver,
+            stats_sender,
             waker: None,
         }
     }
 
     fn record_event(&mut self, event: ConnectionEvent) {
         self.balancer.record_event(event);
+        if let Some(stats_sender) = &self.stats_sender
+            && let Err(err) = stats_sender.send(self.balancer.stats())
+        {
+            tracing::error!("Error while sending response to a channel: {err:?}");
+        }
         if let Some(waker) = self.waker.take() {
             waker.wake();
         }
@@ -93,6 +105,7 @@ where
 impl<Balancer, Addressbook> NetworkBehaviour for ConnectionBalancerBehaviour<Balancer, Addressbook>
 where
     Balancer: ConnectionBalancer + 'static,
+    Balancer::Stats: Debug,
     Addressbook: AddressBookHandler<Id = PeerId> + 'static,
 {
     type ConnectionHandler = dummy::ConnectionHandler;
@@ -156,27 +169,29 @@ where
             match cmd {
                 ConnectionBalancerCommand::Stats(response) => {
                     let stats = self.balancer.stats();
-                    let _ = response.send(stats);
+                    if let Err(err) = response.send(stats) {
+                        tracing::error!("Error while sending response to a channel: {err:?}");
+                    }
                 }
             }
 
             cx.waker().wake_by_ref();
         }
 
-        if self.peers_to_dial.is_empty() {
-            if let Poll::Ready(peers) = self.balancer.poll(cx) {
-                self.peers_to_dial = peers;
-            }
+        if self.peers_to_dial.is_empty()
+            && let Poll::Ready(peers) = self.balancer.poll(cx)
+        {
+            self.peers_to_dial = peers;
         }
 
-        if let Some(peer) = self.peers_to_dial.pop_front() {
-            if let Some(addr) = self.addressbook.get_address(&peer) {
-                let opts = DialOpts::peer_id(peer)
-                    .addresses(vec![addr])
-                    .extend_addresses_through_behaviour()
-                    .build();
-                return Poll::Ready(ToSwarm::Dial { opts });
-            }
+        if let Some(peer) = self.peers_to_dial.pop_front()
+            && let Some(addr) = self.addressbook.get_address(&peer)
+        {
+            let opts = DialOpts::peer_id(peer)
+                .addresses(vec![addr])
+                .extend_addresses_through_behaviour()
+                .build();
+            return Poll::Ready(ToSwarm::Dial { opts });
         }
 
         Poll::Pending
@@ -238,11 +253,19 @@ mod tests {
         let membership_dialer = AllNeighbours::default();
 
         let mut dialer = Swarm::new_ephemeral_tokio(|_| {
-            ConnectionBalancerBehaviour::new(membership_dialer.clone(), MockBalancer::default())
+            ConnectionBalancerBehaviour::new(
+                membership_dialer.clone(),
+                MockBalancer::default(),
+                None,
+            )
         });
 
         let mut listener = Swarm::new_ephemeral_tokio(|_| {
-            ConnectionBalancerBehaviour::new(AllNeighbours::default(), MockBalancer::default())
+            ConnectionBalancerBehaviour::new(
+                AllNeighbours::default(),
+                MockBalancer::default(),
+                None,
+            )
         });
 
         let dialer_peer = *dialer.local_peer_id();
@@ -302,7 +325,11 @@ mod tests {
         let membership_dialer = AllNeighbours::default();
 
         let mut dialer = Swarm::new_ephemeral_tokio(|_| {
-            ConnectionBalancerBehaviour::new(membership_dialer.clone(), MockBalancer::default())
+            ConnectionBalancerBehaviour::new(
+                membership_dialer.clone(),
+                MockBalancer::default(),
+                None,
+            )
         });
 
         let peer1 = PeerId::random();

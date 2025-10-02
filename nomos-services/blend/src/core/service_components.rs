@@ -1,7 +1,7 @@
 use nomos_utils::blake_rng::BlakeRng;
 
 use crate::{
-    core::{backends::BlendBackend, BlendService},
+    core::{BlendService, backends::BlendBackend},
     message::ServiceMessage,
 };
 
@@ -13,19 +13,38 @@ pub trait ServiceComponents<RuntimeServiceId> {
     type BlendBackend;
     type NodeId;
     type Rng;
+    type ProofsGenerator;
 }
 
-impl<Backend, NodeId, Network, MembershipAdapter, RuntimeServiceId>
-    ServiceComponents<RuntimeServiceId>
-    for BlendService<Backend, NodeId, Network, MembershipAdapter, RuntimeServiceId>
+impl<
+    Backend,
+    NodeId,
+    Network,
+    MembershipAdapter,
+    ProofsGenerator,
+    ProofsVerifier,
+    PolInfoProvider,
+    RuntimeServiceId,
+> ServiceComponents<RuntimeServiceId>
+    for BlendService<
+        Backend,
+        NodeId,
+        Network,
+        MembershipAdapter,
+        ProofsGenerator,
+        ProofsVerifier,
+        PolInfoProvider,
+        RuntimeServiceId,
+    >
 where
-    Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId>,
+    Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId>,
     Network: crate::core::network::NetworkAdapter<RuntimeServiceId>,
 {
     type NetworkAdapter = Network;
     type BlendBackend = Backend;
     type NodeId = NodeId;
     type Rng = BlakeRng;
+    type ProofsGenerator = ProofsGenerator;
 }
 
 pub type NetworkBackendOfService<Service, RuntimeServiceId> = <<Service as ServiceComponents<

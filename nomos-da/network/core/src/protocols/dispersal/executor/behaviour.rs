@@ -5,21 +5,21 @@ use std::{
 
 use either::Either;
 use futures::{
+    AsyncWriteExt as _, FutureExt as _, StreamExt as _, TryFutureExt as _,
     future::BoxFuture,
     stream::{BoxStream, FuturesUnordered},
-    AsyncWriteExt as _, FutureExt as _, StreamExt as _, TryFutureExt as _,
 };
 use kzgrs_backend::common::share::DaShare;
 use libp2p::{
-    core::{transport::PortUse, Endpoint},
-    swarm::{
-        behaviour::ConnectionClosed, dial_opts::DialOpts, ConnectionDenied, ConnectionId,
-        FromSwarm, NetworkBehaviour, THandler, THandlerInEvent, THandlerOutEvent, ToSwarm,
-    },
     Multiaddr, PeerId, Stream,
+    core::{Endpoint, transport::PortUse},
+    swarm::{
+        ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent,
+        THandlerOutEvent, ToSwarm, behaviour::ConnectionClosed, dial_opts::DialOpts,
+    },
 };
 use libp2p_stream::{Control, OpenStreamError};
-use nomos_core::{da::BlobId, mantle::SignedMantleTx, wire};
+use nomos_core::{codec, da::BlobId, mantle::SignedMantleTx};
 use nomos_da_messages::{
     dispersal,
     packing::{pack_to_writer, unpack_from_reader},
@@ -30,7 +30,7 @@ use tokio::sync::{mpsc, mpsc::UnboundedSender};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::error;
 
-use crate::{addressbook::AddressBookHandler, protocol::DISPERSAL_PROTOCOL, SubnetworkId};
+use crate::{SubnetworkId, addressbook::AddressBookHandler, protocol::DISPERSAL_PROTOCOL};
 
 #[derive(Debug, Error)]
 pub enum DispersalError {
@@ -43,7 +43,7 @@ pub enum DispersalError {
     },
     #[error("Could not serialized: {error}")]
     Serialization {
-        error: wire::Error,
+        error: codec::Error,
         blob_id: BlobId,
         subnetwork_id: SubnetworkId,
     },
@@ -555,10 +555,10 @@ where
     fn poll_dial_requests<Out, In>(&mut self, cx: &mut Context<'_>) -> Option<ToSwarm<Out, In>> {
         if let Poll::Ready(ToSwarm::Dial { mut opts }) = self.stream_behaviour.poll(cx) {
             // Attach a known peer address if possible.
-            if let Some(peer_id) = opts.get_peer_id() {
-                if let Some(address) = self.addressbook.get_address(&peer_id) {
-                    opts = DialOpts::peer_id(peer_id).addresses(vec![address]).build();
-                }
+            if let Some(peer_id) = opts.get_peer_id()
+                && let Some(address) = self.addressbook.get_address(&peer_id)
+            {
+                opts = DialOpts::peer_id(peer_id).addresses(vec![address]).build();
             }
             Some(ToSwarm::Dial { opts })
         } else {

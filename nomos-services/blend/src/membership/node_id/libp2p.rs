@@ -1,4 +1,4 @@
-use libp2p::{identity::DecodingError, PeerId};
+use libp2p::{PeerId, identity::DecodingError};
 use nomos_libp2p::ed25519;
 
 impl super::TryFrom for PeerId {

@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DurationMilliSeconds};
+use serde_with::{DurationMilliSeconds, serde_as};
 
 const DEFAULT_RESPONSE_TIMEOUT: Duration = Duration::from_secs(5);
 

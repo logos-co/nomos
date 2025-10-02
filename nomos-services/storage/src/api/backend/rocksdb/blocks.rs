@@ -8,16 +8,16 @@ use rocksdb::WriteBatch;
 
 use crate::{
     api::{
-        backend::rocksdb::{utils::key_bytes, Error},
+        backend::rocksdb::{Error, utils::key_bytes},
         chain::StorageChainApi,
     },
-    backends::{rocksdb::RocksBackend, StorageBackend as _, StorageSerde},
+    backends::{StorageBackend as _, rocksdb::RocksBackend},
 };
 
 const IMMUTABLE_BLOCK_PREFIX: &str = "immutable_block/slot/";
 
 #[async_trait]
-impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageChainApi for RocksBackend<SerdeOp> {
+impl StorageChainApi for RocksBackend {
     type Error = Error;
     type Block = Bytes;
     async fn get_block(&mut self, header_id: HeaderId) -> Result<Option<Self::Block>, Self::Error> {
@@ -52,6 +52,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageChainApi for RocksBac
         let txn = self.txn(move |db| {
             let mut batch = WriteBatch::default();
             for (slot, header_id) in ids {
+                // use be_bytes to keep prefix ordering
                 let key = key_bytes(IMMUTABLE_BLOCK_PREFIX, slot.to_be_bytes());
                 let header_id: [u8; 32] = header_id.into();
                 batch.put(key, Bytes::copy_from_slice(&header_id));
@@ -68,6 +69,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageChainApi for RocksBac
         &mut self,
         slot: Slot,
     ) -> Result<Option<HeaderId>, Self::Error> {
+        // use be_bytes to keep prefix ordering
         let key = key_bytes(IMMUTABLE_BLOCK_PREFIX, slot.to_be_bytes());
         self.load(&key)
             .await?
@@ -80,6 +82,7 @@ impl<SerdeOp: StorageSerde + Send + Sync + 'static> StorageChainApi for RocksBac
         slot_range: RangeInclusive<Slot>,
         limit: NonZeroUsize,
     ) -> Result<Vec<HeaderId>, Self::Error> {
+        // use be_bytes to keep prefix ordering
         let start_key = slot_range.start().to_be_bytes();
         let end_key = slot_range.end().to_be_bytes();
         let result = self
@@ -103,12 +106,12 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
-    use crate::backends::{rocksdb::RocksBackendSettings, testing::NoStorageSerde};
+    use crate::backends::rocksdb::RocksBackendSettings;
 
     #[tokio::test]
     async fn immutable_block_ids() {
         let temp_dir = TempDir::new().unwrap();
-        let mut backend = RocksBackend::<NoStorageSerde>::new(RocksBackendSettings {
+        let mut backend = RocksBackend::new(RocksBackendSettings {
             db_path: temp_dir.path().to_path_buf(),
             read_only: false,
             column_family: None,

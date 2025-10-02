@@ -6,15 +6,15 @@ use kzgrs_backend::common::share::DaShare;
 use nomos_core::da::blob::LightShare as _;
 use nomos_da_network_service::membership::adapters::service::peer_id_from_provider_id;
 use nomos_libp2p::ed25519;
-use rand::{rngs::OsRng, RngCore as _};
+use rand::{RngCore as _, rngs::OsRng};
 use reqwest::Url;
 use serial_test::serial;
 use tests::{
     adjust_timeout,
-    common::da::{disseminate_with_metadata, wait_for_blob_onchain, APP_ID, DA_TESTS_TIMEOUT},
-    nodes::validator::{create_validator_config, Validator},
+    common::da::{APP_ID, DA_TESTS_TIMEOUT, disseminate_with_metadata, wait_for_blob_onchain},
+    nodes::validator::{Validator, create_validator_config},
     secret_key_to_peer_id,
-    topology::{configs::create_general_configs, Topology, TopologyConfig},
+    topology::{Topology, TopologyConfig, configs::create_general_configs},
 };
 
 #[tokio::test]
@@ -201,7 +201,7 @@ async fn test_get_shares() {
     let shares = shares_stream.collect::<Vec<_>>().await;
     assert_eq!(shares.len(), num_subnets);
     assert!(shares.iter().any(|share| share.share_idx() == [0, 0]));
-    assert!(shares.iter().any(|share| share.share_idx() == [0, 1]));
+    assert!(shares.iter().any(|share| share.share_idx() == [1, 0]));
 
     // Test case 2: Request only the first share
     let shares_stream = client
@@ -233,7 +233,7 @@ async fn test_get_shares() {
     let shares = shares_stream.collect::<Vec<_>>().await;
     assert_eq!(shares.len(), num_subnets);
     assert!(shares.iter().any(|share| share.share_idx() == [0, 0]));
-    assert!(shares.iter().any(|share| share.share_idx() == [0, 1]));
+    assert!(shares.iter().any(|share| share.share_idx() == [1, 0]));
 
     // Test case 4: Request all shares and filter out the second share
     let shares_stream = client
@@ -241,7 +241,7 @@ async fn test_get_shares() {
             exec_url.clone(),
             blob_id,
             HashSet::new(),
-            HashSet::from([[0, 1]]),
+            HashSet::from([[1, 0]]),
             true,
         )
         .await
@@ -255,7 +255,7 @@ async fn test_get_shares() {
         .get_shares::<DaShare>(
             exec_url.clone(),
             blob_id,
-            HashSet::from([[0, 2]]),
+            HashSet::from([[2, 0]]),
             HashSet::new(),
             false,
         )

@@ -1,90 +1,51 @@
 use std::fmt::{Debug, Display};
 
 use chain_service::{
-    network::adapters::libp2p::LibP2pAdapter as ConsensusNetworkAdapter, ConsensusMsg,
-    CryptarchiaConsensus, CryptarchiaInfo,
+    ConsensusMsg, CryptarchiaConsensus, CryptarchiaInfo,
+    network::adapters::libp2p::LibP2pAdapter as ConsensusNetworkAdapter,
 };
-use kzgrs_backend::dispersal::Metadata;
 use nomos_core::{
     da::BlobId,
     header::HeaderId,
-    mantle::{select::FillSize as FillSizeWithTx, AuthenticatedMantleTx, Transaction},
+    mantle::{AuthenticatedMantleTx, Transaction},
 };
 use nomos_da_sampling::backend::DaSamplingServiceBackend;
-use nomos_libp2p::PeerId;
-use nomos_membership::{
-    adapters::sdp::LedgerSdpAdapter, backends::mock::MockMembershipBackend, MembershipService,
-};
-use nomos_mempool::{
+use nomos_storage::backends::rocksdb::RocksBackend;
+use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use tokio::sync::oneshot;
+use tx_service::{
     backend::mockpool::MockPool, network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
 };
-use nomos_sdp::backends::mock::MockSdpBackend;
-use nomos_storage::backends::{rocksdb::RocksBackend, StorageSerde};
-use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use tokio::sync::oneshot;
 
 use crate::http::DynError;
 
 pub type Cryptarchia<
     Tx,
-    SS,
     SamplingBackend,
     SamplingNetworkAdapter,
     SamplingStorage,
     TimeBackend,
     RuntimeServiceId,
-    const SIZE: usize,
 > = CryptarchiaConsensus<
     ConsensusNetworkAdapter<Tx, RuntimeServiceId>,
-    BlendService<RuntimeServiceId>,
     MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
     MempoolNetworkAdapter<Tx, <Tx as Transaction>::Hash, RuntimeServiceId>,
-    FillSizeWithTx<SIZE, Tx>,
-    RocksBackend<SS>,
+    RocksBackend,
     SamplingBackend,
     SamplingNetworkAdapter,
     SamplingStorage,
     TimeBackend,
     RuntimeServiceId,
->;
-
-type BlendService<RuntimeServiceId> = nomos_blend_service::BlendService<
-    nomos_blend_service::core::BlendService<
-        nomos_blend_service::core::backends::libp2p::Libp2pBlendBackend,
-        PeerId,
-        nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
-        BlendMembershipAdapter<RuntimeServiceId>,
-        RuntimeServiceId,
-    >,
-    nomos_blend_service::edge::BlendService<
-        nomos_blend_service::edge::backends::libp2p::Libp2pBlendBackend,
-        PeerId,
-        <nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<RuntimeServiceId>>::BroadcastSettings,
-        BlendMembershipAdapter<RuntimeServiceId>,
-        RuntimeServiceId
-    >,
-    RuntimeServiceId,
->;
-
-type BlendMembershipAdapter<RuntimeServiceId> = nomos_blend_service::membership::service::Adapter<
-    MembershipService<
-        MockMembershipBackend,
-        LedgerSdpAdapter<MockSdpBackend, Metadata, RuntimeServiceId>,
-        RuntimeServiceId,
-    >,
-    PeerId,
 >;
 
 pub async fn cryptarchia_info<
     Tx,
-    SS,
     SamplingBackend,
     SamplingNetworkAdapter,
     SamplingStorage,
     TimeBackend,
     RuntimeServiceId,
-    const SIZE: usize,
 >(
     handle: &OverwatchHandle<RuntimeServiceId>,
 ) -> Result<CryptarchiaInfo, DynError>
@@ -100,7 +61,6 @@ where
         + 'static,
     <Tx as Transaction>::Hash:
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
-    SS: StorageSerde + Send + Sync + 'static,
     SamplingBackend: DaSamplingServiceBackend<BlobId = BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
@@ -117,13 +77,11 @@ where
         + AsServiceId<
             Cryptarchia<
                 Tx,
-                SS,
                 SamplingBackend,
                 SamplingNetworkAdapter,
                 SamplingStorage,
                 TimeBackend,
                 RuntimeServiceId,
-                SIZE,
             >,
         >,
 {
@@ -139,13 +97,11 @@ where
 
 pub async fn cryptarchia_headers<
     Tx,
-    SS,
     SamplingBackend,
     SamplingNetworkAdapter,
     SamplingStorage,
     TimeBackend,
     RuntimeServiceId,
-    const SIZE: usize,
 >(
     handle: &OverwatchHandle<RuntimeServiceId>,
     from: Option<HeaderId>,
@@ -163,7 +119,6 @@ where
         + 'static,
     <Tx as Transaction>::Hash:
         Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
-    SS: StorageSerde + Send + Sync + 'static,
     SamplingBackend: DaSamplingServiceBackend<BlobId = BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
@@ -180,13 +135,11 @@ where
         + AsServiceId<
             Cryptarchia<
                 Tx,
-                SS,
                 SamplingBackend,
                 SamplingNetworkAdapter,
                 SamplingStorage,
                 TimeBackend,
                 RuntimeServiceId,
-                SIZE,
             >,
         >,
 {

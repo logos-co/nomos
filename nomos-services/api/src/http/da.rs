@@ -8,38 +8,34 @@ use std::{
 use kzgrs_backend::common::share::DaSharesCommitments;
 use nomos_core::{
     block::SessionNumber,
-    da::{blob::Share, DaVerifier as CoreDaVerifier},
+    da::{DaVerifier as CoreDaVerifier, blob::Share},
     header::HeaderId,
-    mantle::SignedMantleTx,
+    mantle::{SignedMantleTx, ops::channel::ChannelId},
 };
 use nomos_da_dispersal::{
-    adapters::network::DispersalNetworkAdapter, backend::DispersalBackend, DaDispersalMsg,
-    DispersalService,
+    DaDispersalMsg, DispersalService, adapters::network::DispersalNetworkAdapter,
+    backend::DispersalBackend,
 };
-use nomos_da_network_core::{maintenance::monitor::ConnectionMonitorCommand, SubnetworkId};
+use nomos_da_network_core::{SubnetworkId, maintenance::monitor::ConnectionMonitorCommand};
 use nomos_da_network_service::{
+    DaNetworkMsg, MembershipResponse, NetworkService,
     api::ApiAdapter as ApiAdapterTrait,
     backends::{
-        libp2p::{executor::ExecutorDaNetworkMessage, validator::DaNetworkMessage},
         NetworkBackend,
+        libp2p::{executor::ExecutorDaNetworkMessage, validator::DaNetworkMessage},
     },
-    DaNetworkMsg, MembershipResponse, NetworkService,
 };
 use nomos_da_sampling::{
-    backend::DaSamplingServiceBackend, DaSamplingService, DaSamplingServiceMsg,
+    DaSamplingService, DaSamplingServiceMsg, backend::DaSamplingServiceBackend,
 };
 use nomos_da_verifier::{
-    backend::VerifierBackend, mempool::DaMempoolAdapter,
-    storage::adapters::rocksdb::RocksAdapter as VerifierStorageAdapter, DaVerifierMsg,
-    DaVerifierService,
+    DaVerifierMsg, DaVerifierService, backend::VerifierBackend, mempool::DaMempoolAdapter,
+    storage::adapters::rocksdb::RocksAdapter as VerifierStorageAdapter,
 };
 use nomos_libp2p::PeerId;
-use nomos_storage::{
-    api::da::DaConverter,
-    backends::{rocksdb::RocksBackend, StorageSerde},
-};
-use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId, DynError};
-use serde::{de::DeserializeOwned, Serialize};
+use nomos_storage::{api::da::DaConverter, backends::rocksdb::RocksBackend};
+use overwatch::{DynError, overwatch::handle::OverwatchHandle, services::AsServiceId};
+use serde::{Serialize, de::DeserializeOwned};
 use subnetworks_assignations::MembershipHandler;
 use tokio::sync::oneshot;
 
@@ -47,14 +43,13 @@ pub type DaVerifier<
     Blob,
     NetworkAdapter,
     VerifierBackend,
-    StorageSerializer,
     DaStorageConverter,
     VerifierMempoolAdapter,
     RuntimeServiceId,
 > = DaVerifierService<
     VerifierBackend,
     NetworkAdapter,
-    VerifierStorageAdapter<Blob, StorageSerializer, DaStorageConverter>,
+    VerifierStorageAdapter<Blob, DaStorageConverter>,
     VerifierMempoolAdapter,
     RuntimeServiceId,
 >;
@@ -82,7 +77,6 @@ pub async fn add_share<
     DaShare,
     VerifierNetwork,
     ShareVerifier,
-    SerdeOp,
     DaStorageConverter,
     VerifierMempoolAdapter,
     RuntimeServiceId,
@@ -102,11 +96,8 @@ where
     ShareVerifier: VerifierBackend + CoreDaVerifier<DaShare = DaShare>,
     <ShareVerifier as VerifierBackend>::Settings: Clone,
     <ShareVerifier as CoreDaVerifier>::Error: Error,
-    SerdeOp: StorageSerde + Send + Sync + 'static,
-    DaStorageConverter: DaConverter<RocksBackend<SerdeOp>, Share = DaShare, Tx = SignedMantleTx>
-        + Send
-        + Sync
-        + 'static,
+    DaStorageConverter:
+        DaConverter<RocksBackend, Share = DaShare, Tx = SignedMantleTx> + Send + Sync + 'static,
     VerifierMempoolAdapter: DaMempoolAdapter,
     RuntimeServiceId: Debug
         + Sync
@@ -116,7 +107,6 @@ where
                 DaShare,
                 VerifierNetwork,
                 ShareVerifier,
-                SerdeOp,
                 DaStorageConverter,
                 VerifierMempoolAdapter,
                 RuntimeServiceId,
@@ -171,6 +161,7 @@ where
 
 pub async fn disperse_data<Backend, NetworkAdapter, Membership, RuntimeServiceId>(
     handle: &OverwatchHandle<RuntimeServiceId>,
+    channel_id: ChannelId,
     data: Vec<u8>,
 ) -> Result<Backend::BlobId, DynError>
 where
@@ -193,6 +184,7 @@ where
     let (sender, receiver) = oneshot::channel();
     relay
         .send(DaDispersalMsg::Disperse {
+            channel_id,
             data,
             reply_channel: sender,
         })

@@ -1,18 +1,19 @@
 use std::{collections::HashSet, fmt::Debug, marker::PhantomData, pin::Pin};
 
 use futures::{
-    future::{AbortHandle, Abortable},
     Stream, StreamExt as _,
+    future::{AbortHandle, Abortable},
 };
 use libp2p::PeerId;
 use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId};
 use nomos_da_network_core::{
-    maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
-    swarm::{
-        validator::{SampleArgs, SwarmSettings, ValidatorSwarm},
-        BalancerStats, MonitorStats,
-    },
     SubnetworkId,
+    maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
+    protocols::sampling::opinions::OpinionEvent,
+    swarm::{
+        BalancerStats, MonitorStats,
+        validator::{SampleArgs, SwarmSettings, ValidatorSwarm},
+    },
 };
 use nomos_libp2p::ed25519;
 use nomos_tracing::info_with_id;
@@ -24,17 +25,17 @@ use tokio_stream::wrappers::BroadcastStream;
 use tracing::instrument;
 
 use crate::{
+    DaAddressbook,
     backends::{
+        ConnectionStatus, NetworkBackend,
         libp2p::common::{
-            handle_balancer_command, handle_historic_sample_request, handle_monitor_command,
-            handle_sample_request, handle_validator_events_stream, CommitmentsEvent,
-            DaNetworkBackendSettings, HistoricSamplingEvent, SamplingEvent, VerificationEvent,
-            BROADCAST_CHANNEL_SIZE,
+            BROADCAST_CHANNEL_SIZE, CommitmentsEvent, DaNetworkBackendSettings,
+            HistoricSamplingEvent, SamplingEvent, VerificationEvent, handle_balancer_command,
+            handle_historic_sample_request, handle_monitor_command, handle_sample_request,
+            handle_validator_events_stream,
         },
-        NetworkBackend,
     },
     membership::handler::{DaMembershipHandler, SharedMembershipHandler},
-    DaAddressbook,
 };
 
 /// Message that the backend replies to
@@ -79,6 +80,7 @@ pub enum DaNetworkEvent {
 /// It forwards network messages to the corresponding subscription
 /// channels/streams
 pub struct DaNetworkValidatorBackend<Membership> {
+    connection_status: ConnectionStatus,
     task_abort_handle: AbortHandle,
     replies_task_abort_handle: AbortHandle,
     shares_request_channel: UnboundedSender<BlobId>,
@@ -91,6 +93,7 @@ pub struct DaNetworkValidatorBackend<Membership> {
     commitments_broadcast_receiver: broadcast::Receiver<CommitmentsEvent>,
     verifying_broadcast_receiver: broadcast::Receiver<VerificationEvent>,
     historic_sampling_broadcast_receiver: broadcast::Receiver<HistoricSamplingEvent>,
+    local_peer_id: PeerId,
     _membership: PhantomData<Membership>,
 }
 
@@ -121,6 +124,8 @@ where
         membership: Self::Membership,
         addressbook: Self::Addressbook,
         subnet_refresh_signal: impl Stream<Item = ()> + Send + 'static,
+        balancer_stats_sender: UnboundedSender<BalancerStats>,
+        opinion_sender: UnboundedSender<OpinionEvent>,
     ) -> Self {
         let keypair =
             libp2p::identity::Keypair::from(ed25519::Keypair::from(config.node_key.clone()));
@@ -137,7 +142,11 @@ where
                 subnets_settings: config.subnets_settings,
             },
             subnet_refresh_signal,
+            balancer_stats_sender,
         );
+
+        let local_peer_id = *validator_swarm.local_peer_id();
+
         let address = config.listening_address;
         // put swarm to listen at the specified configuration address
         validator_swarm
@@ -164,7 +173,6 @@ where
             broadcast::channel(BROADCAST_CHANNEL_SIZE);
         let (verifying_broadcast_sender, verifying_broadcast_receiver) =
             broadcast::channel(BROADCAST_CHANNEL_SIZE);
-
         let (historic_sampling_broadcast_sender, historic_sampling_broadcast_receiver) =
             broadcast::channel(BROADCAST_CHANNEL_SIZE);
 
@@ -176,11 +184,14 @@ where
                 commitments_broadcast_sender,
                 verifying_broadcast_sender,
                 historic_sampling_broadcast_sender,
+                opinion_sender,
             ),
             replies_task_abort_registration,
         ));
 
         Self {
+            local_peer_id,
+            connection_status: ConnectionStatus::InsufficientSubnetworkConnections,
             task_abort_handle,
             replies_task_abort_handle,
             shares_request_channel,
@@ -235,6 +246,10 @@ where
         }
     }
 
+    fn update_status(&mut self, status: ConnectionStatus) {
+        self.connection_status = status;
+    }
+
     async fn subscribe(
         &mut self,
         event: Self::EventKind,
@@ -278,5 +293,9 @@ where
             membership,
         )
         .await;
+    }
+
+    fn local_peer_id(&self) -> PeerId {
+        self.local_peer_id
     }
 }

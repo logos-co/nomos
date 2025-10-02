@@ -1,5 +1,5 @@
 [package]
-edition = "2021"
+edition = { workspace = true }
 license = { workspace = true }
 name    = "tests"
 publish = false
@@ -10,6 +10,8 @@ workspace = true
 
 [dependencies]
 blst                     = { version = "0.3.11" }
+broadcast-service        = { workspace = true }
+chain-leader             = { workspace = true }
 chain-service            = { workspace = true }
 common-http-client       = { workspace = true }
 cryptarchia-engine       = { features = ["serde"], workspace = true }
@@ -34,14 +36,14 @@ nomos-executor           = { default-features = false, features = ["testing", "t
 nomos-http-api-common    = { workspace = true }
 nomos-ledger             = { features = ["serde"], workspace = true }
 nomos-libp2p             = { workspace = true }
-nomos-membership         = { workspace = true }
-nomos-mempool            = { features = ["libp2p", "mock"], workspace = true }
+nomos-membership-service = { workspace = true }
 nomos-network            = { features = ["libp2p"], workspace = true }
 nomos-node               = { default-features = false, features = ["testing"], workspace = true }
 nomos-time               = { workspace = true }
 nomos-tracing            = { workspace = true }
 nomos-tracing-service    = { workspace = true }
 nomos-utils              = { workspace = true }
+nomos-wallet             = { workspace = true }
 num-bigint               = { version = "0.4", default-features = false }
 rand                     = { workspace = true }
 rand_core                = { version = "^0.9" }
@@ -55,6 +57,7 @@ tempfile                 = { workspace = true }
 time                     = { default-features = false, version = "0.3" }
 tokio                    = "1"
 tracing                  = { workspace = true }
+tx-service               = { features = ["libp2p", "mock"], workspace = true }
 
 [[test]]
 name = "test_cryptarchia_happy_path"
@@ -67,6 +70,10 @@ path = "src/tests/cryptarchia/bootstrap.rs"
 [[test]]
 name = "test_orphan_handling"
 path = "src/tests/cryptarchia/orphan.rs"
+
+[[test]]
+name = "test_immutable_blocks"
+path = "src/tests/cryptarchia/immutable_blocks.rs"
 
 [[test]]
 name = "test_da"

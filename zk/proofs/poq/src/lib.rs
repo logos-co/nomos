@@ -10,20 +10,17 @@ mod witness;
 use std::error::Error;
 
 pub use blend_inputs::{PoQBlendInputs, PoQBlendInputsData};
-pub use chain_inputs::{PoQChainInputs, PoQChainInputsData};
+pub use chain_inputs::{PoQChainInputs, PoQChainInputsData, PoQInputsFromDataError};
 pub use common_inputs::{PoQCommonInputs, PoQCommonInputsData};
 use groth16::{
     CompressedGroth16Proof, Groth16Input, Groth16InputDeser, Groth16Proof, Groth16ProofJsonDeser,
 };
-pub use inputs::PoQWitnessInputs;
+pub use inputs::{PoQVerifierInput, PoQVerifierInputData, PoQWitnessInputs};
 use thiserror::Error;
 pub use wallet_inputs::{PoQWalletInputs, PoQWalletInputsData};
 pub use witness::Witness;
 
-use crate::{
-    inputs::{PoQVerifierInput, PoQVerifierInputJson},
-    proving_key::POQ_PROVING_KEY_PATH,
-};
+use crate::{inputs::PoQVerifierInputJson, proving_key::POQ_PROVING_KEY_PATH};
 
 pub type PoQProof = CompressedGroth16Proof;
 
@@ -101,7 +98,7 @@ pub enum VerifyError {
 ///
 /// - Returns an error if there is an issue with the verification key or the
 ///   underlying verification process fails.
-pub fn verify(proof: &PoQProof, public_inputs: &PoQVerifierInput) -> Result<bool, VerifyError> {
+pub fn verify(proof: &PoQProof, public_inputs: PoQVerifierInput) -> Result<bool, VerifyError> {
     let inputs = public_inputs.to_inputs();
     let expanded_proof = Groth16Proof::try_from(proof).map_err(|_| VerifyError::Expansion)?;
     groth16::groth16_verify(verification_key::POQ_VK.as_ref(), &expanded_proof, &inputs)
@@ -191,15 +188,28 @@ mod tests {
             index: 5,
         };
 
-        let witness_inputs = PoQWitnessInputs::from_core_node_data(
-            chain_data.try_into().unwrap(),
-            common_data.into(),
-            blend_data.into(),
-        )
-        .unwrap();
-
+        let witness_inputs =
+            PoQWitnessInputs::from_core_node_data(chain_data, common_data, blend_data).unwrap();
         let (proof, inputs) = prove(&witness_inputs).unwrap();
-        assert!(verify(&proof, &inputs).unwrap());
+        let key_nullifier = inputs.key_nullifier.into_inner();
+        // Test that verifying with the inputs returned by `prove` works.
+        assert!(verify(&proof, inputs).unwrap());
+
+        // Test that verifying with the reconstructed inputs inside the verifier context
+        // works.
+        let recomputed_verify_inputs = PoQVerifierInputData {
+            core_quota: common_data.core_quota,
+            core_root: chain_data.core_root,
+            k_part_one: common_data.message_key.0,
+            k_part_two: common_data.message_key.1,
+            key_nullifier,
+            leader_quota: common_data.leader_quota,
+            pol_epoch_nonce: chain_data.pol_epoch_nonce,
+            pol_ledger_aged: chain_data.pol_ledger_aged,
+            session: chain_data.session,
+            total_stake: chain_data.total_stake,
+        };
+        assert!(verify(&proof, recomputed_verify_inputs.into()).unwrap());
     }
 
     #[expect(clippy::too_many_lines, reason = "For the sake of the test let it be")]
@@ -331,8 +341,25 @@ mod tests {
 
         let witness_inputs =
             PoQWitnessInputs::from_leader_data(chain_data, common_data, wallet_data).unwrap();
-
         let (proof, inputs) = prove(&witness_inputs).unwrap();
-        assert!(verify(&proof, &inputs).unwrap());
+        let key_nullifier = inputs.key_nullifier.into_inner();
+        // Test that verifying with the inputs returned by `prove` works.
+        assert!(verify(&proof, inputs).unwrap());
+
+        // Test that verifying with the reconstructed inputs inside the verifier context
+        // works.
+        let recomputed_verify_inputs = PoQVerifierInputData {
+            core_quota: common_data.core_quota,
+            core_root: chain_data.core_root,
+            k_part_one: common_data.message_key.0,
+            k_part_two: common_data.message_key.1,
+            key_nullifier,
+            leader_quota: common_data.leader_quota,
+            pol_epoch_nonce: chain_data.pol_epoch_nonce,
+            pol_ledger_aged: chain_data.pol_ledger_aged,
+            session: chain_data.session,
+            total_stake: chain_data.total_stake,
+        };
+        assert!(verify(&proof, recomputed_verify_inputs.into()).unwrap());
     }
 }

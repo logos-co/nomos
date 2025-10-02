@@ -3,9 +3,9 @@ use std::convert::Infallible;
 use nomos_core::{
     da::BlobId,
     mantle::{
-        ledger::Tx as LedgerTx,
-        ops::channel::{blob::BlobOp, ChannelId, Ed25519PublicKey, MsgId},
         MantleTx, Note, Op, SignedMantleTx, Transaction as _, Utxo,
+        ledger::Tx as LedgerTx,
+        ops::channel::{ChannelId, Ed25519PublicKey, MsgId, blob::BlobOp},
     },
     proofs::zksig::{DummyZkSignature, ZkSignaturePublic},
 };
@@ -24,6 +24,7 @@ impl DaWalletAdapter for MockWalletAdapter {
 
     fn blob_tx(
         &self,
+        channel_id: ChannelId,
         parent_msg_id: MsgId,
         blob: BlobId,
         blob_size: usize,
@@ -40,7 +41,7 @@ impl DaWalletAdapter for MockWalletAdapter {
         };
 
         let blob_op = BlobOp {
-            channel: ChannelId::from([0; 32]),
+            channel: channel_id,
             blob,
             blob_size: blob_size as u64,
             da_storage_gas_price: 3000,

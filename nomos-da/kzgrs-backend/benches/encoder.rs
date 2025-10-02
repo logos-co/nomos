@@ -1,6 +1,6 @@
 use std::hint::black_box;
 
-use divan::{counter::BytesCount, Bencher};
+use divan::{Bencher, counter::BytesCount};
 use kzgrs_backend::{
     encoder::{DaEncoder, DaEncoderParams},
     global::GLOBAL_PARAMETERS,

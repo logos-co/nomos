@@ -2,14 +2,14 @@ use std::{collections::HashSet, hint::black_box};
 
 use ark_bls12_381::Fr;
 use ark_poly::{EvaluationDomain as _, GeneralEvaluationDomain};
-use divan::{counter::BytesCount, Bencher};
+use divan::{Bencher, counter::BytesCount};
 use kzgrs::{common::field_element_from_bytes_le, decode, rs::points_to_bytes};
 use kzgrs_backend::{
     encoder::{DaEncoder, DaEncoderParams},
     global::GLOBAL_PARAMETERS,
 };
 use nomos_core::da::DaEncoder as _;
-use rand::{prelude::IteratorRandom as _, thread_rng, RngCore as _};
+use rand::{RngCore as _, prelude::IteratorRandom as _, thread_rng};
 
 fn main() {
     divan::main();

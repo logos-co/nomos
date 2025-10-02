@@ -5,17 +5,16 @@ use std::{
 
 use either::Either;
 use futures::{
-    future::{BoxFuture, Fuse, OptionFuture},
     FutureExt as _,
+    future::{BoxFuture, Fuse, OptionFuture},
 };
 use libp2p::{
-    autonat,
-    core::{transport::PortUse, Endpoint},
+    Multiaddr, PeerId, autonat,
+    core::{Endpoint, transport::PortUse},
     swarm::{
         ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent,
         THandlerOutEvent, ToSwarm,
     },
-    Multiaddr, PeerId,
 };
 use rand::RngCore;
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -24,13 +23,13 @@ use tracing::{error, info};
 use crate::{
     behaviour::nat::{
         address_mapper,
-        address_mapper::{protocols::ProtocolManager, AddressMapperBehaviour, NatMapper},
+        address_mapper::{AddressMapperBehaviour, NatMapper, protocols::ProtocolManager},
         gateway_monitor::{
             GatewayDetector, GatewayMonitor, GatewayMonitorEvent, SystemGatewayDetector,
         },
         state_machine::{Command, StateMachine},
     },
-    config::NatSettings,
+    config::TraversalSettings,
 };
 
 type Task = BoxFuture<'static, Multiaddr>;
@@ -69,14 +68,14 @@ where
 pub type NatBehaviour<Rng> = InnerNatBehaviour<Rng, ProtocolManager, SystemGatewayDetector>;
 
 impl<Rng: RngCore + 'static> NatBehaviour<Rng> {
-    pub fn new(rng: Rng, nat_config: &NatSettings) -> Self {
+    pub fn new(rng: Rng, settings: &TraversalSettings) -> Self {
         let address_mapper_behaviour =
-            AddressMapperBehaviour::<ProtocolManager>::new(nat_config.mapping);
+            AddressMapperBehaviour::<ProtocolManager>::new(settings.mapping);
 
         let gateway_monitor =
-            GatewayMonitor::<SystemGatewayDetector>::new(nat_config.gateway_monitor);
+            GatewayMonitor::<SystemGatewayDetector>::new(settings.gateway_monitor);
 
-        Self::create(rng, nat_config, address_mapper_behaviour, gateway_monitor)
+        Self::create(rng, settings, address_mapper_behaviour, gateway_monitor)
     }
 }
 
@@ -86,19 +85,19 @@ where
 {
     fn create(
         rng: Rng,
-        nat_config: &NatSettings,
+        settings: &TraversalSettings,
         address_mapper_behaviour: AddressMapperBehaviour<Mapper>,
         gateway_monitor: GatewayMonitor<Detector>,
     ) -> Self {
-        let autonat_client_behaviour =
-            autonat::v2::client::Behaviour::new(rng, nat_config.autonat.to_libp2p_config());
+        let autonat_config = settings.autonat.to_libp2p_config();
+        let autonat_client_tick_interval = settings
+            .autonat
+            .retest_successful_external_addresses_interval;
+
+        let autonat_client_behaviour = autonat::v2::client::Behaviour::new(rng, autonat_config);
 
         let (command_tx, command_rx) = tokio::sync::mpsc::unbounded_channel();
         let state_machine = StateMachine::new(command_tx);
-
-        let autonat_client_tick_interval = nat_config
-            .autonat
-            .retest_successful_external_addresses_interval;
 
         Self {
             autonat_client_behaviour,
@@ -183,6 +182,10 @@ where
     }
 
     fn on_swarm_event(&mut self, event: FromSwarm) {
+        if let FromSwarm::NewListenAddr(addr_event) = &event {
+            self.local_address = Some(addr_event.addr.clone());
+        }
+
         self.state_machine.on_event(event);
         self.autonat_client_behaviour.on_swarm_event(event);
     }
@@ -202,7 +205,10 @@ where
         cx: &mut Context<'_>,
     ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         if let Poll::Ready(to_swarm) = self.autonat_client_behaviour.poll(cx) {
-            if let ToSwarm::GenerateEvent(event) = &to_swarm {
+            if let ToSwarm::GenerateEvent(event) = &to_swarm
+                && let Some(ref local_addr) = self.local_address
+                && &event.tested_addr == local_addr
+            {
                 self.state_machine.on_event(event);
             }
 
