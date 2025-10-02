@@ -99,7 +99,7 @@ impl LedgerState {
         let mut balance = 0;
         for (op, proof) in tx.ops_with_proof() {
             match (op, proof) {
-                (Op::ChannelBlob(op), None) => {
+                (Op::ChannelBlob(op), Some(OpProof::Ed25519Sig(_sig))) => {
                     // The signature could be verified even before reaching this point,
                     // as you only need the signer's public key and tx hash
                     // Callers are expected to validate the proof before calling this function.
@@ -107,7 +107,7 @@ impl LedgerState {
                         self.channels
                             .apply_msg(op.channel, &op.parent, op.id(), &op.signer)?;
                 }
-                (Op::ChannelInscribe(op), None) => {
+                (Op::ChannelInscribe(op), Some(OpProof::Ed25519Sig(_sig))) => {
                     // The signature could be verified even before reaching this point,
                     // as you only need the signer's public key and tx hash
                     // Callers are expected to validate the proof before calling this function.
@@ -244,14 +244,14 @@ mod tests {
             storage_gas_price: 1,
         };
 
-        SignedMantleTx {
-            ops_proofs: vec![None; mantle_tx.ops.len()],
-            ledger_tx_proof: DummyZkSignature::prove(zksig::ZkSignaturePublic {
+        SignedMantleTx::new_unverified(
+            mantle_tx.clone(),
+            vec![None; mantle_tx.ops.len()],
+            DummyZkSignature::prove(zksig::ZkSignaturePublic {
                 pks: vec![],
                 msg_hash: mantle_tx.hash().into(),
             }),
-            mantle_tx,
-        }
+        )
     }
 
     fn create_signed_tx(op: Op, signing_key: &SigningKey) -> SignedMantleTx {
@@ -259,19 +259,33 @@ mod tests {
     }
 
     fn create_multi_signed_tx(ops: Vec<Op>, signing_keys: Vec<&SigningKey>) -> SignedMantleTx {
-        let mut tx = create_test_tx_with_ops(ops.clone());
-        let tx_hash = tx.hash();
-        tx.ops_proofs = signing_keys
+        let ledger_tx = LedgerTx::new(vec![], vec![]);
+        let mantle_tx = MantleTx {
+            ops: ops.clone(),
+            ledger_tx,
+            execution_gas_price: 1,
+            storage_gas_price: 1,
+        };
+
+        let tx_hash = mantle_tx.hash();
+        let ops_proofs = signing_keys
             .into_iter()
             .zip(ops)
             .map(|(key, op)| match op {
-                Op::ChannelSetKeys(_) => Some(OpProof::Ed25519Sig(
-                    key.sign(tx_hash.as_signing_bytes().as_ref()),
-                )),
+                Op::ChannelSetKeys(_) | Op::ChannelBlob(_) | Op::ChannelInscribe(_) => Some(
+                    OpProof::Ed25519Sig(key.sign(tx_hash.as_signing_bytes().as_ref())),
+                ),
                 _ => None,
             })
             .collect();
-        tx
+
+        let ledger_tx_proof = DummyZkSignature::prove(zksig::ZkSignaturePublic {
+            pks: vec![],
+            msg_hash: tx_hash.into(),
+        });
+
+        SignedMantleTx::new(mantle_tx, ops_proofs, ledger_tx_proof)
+            .expect("Test transaction should have valid signatures")
     }
 
     #[test]
@@ -392,8 +406,7 @@ mod tests {
         };
 
         let op = Op::ChannelSetKeys(set_keys_op);
-        let mut tx = create_test_tx_with_ops(vec![op]);
-        tx.ops_proofs = vec![None]; // Missing proof
+        let tx = create_test_tx_with_ops(vec![op]); // Missing proof
 
         let result = ledger_state.try_apply_tx::<MainnetGasConstants>(
             0,
