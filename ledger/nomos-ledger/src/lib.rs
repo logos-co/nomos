@@ -218,6 +218,9 @@ impl LedgerState {
                 Ordering::Equal => {} // OK!
             }
         }
+        self.mantle_ledger = self
+            .mantle_ledger
+            .try_update_membership(self.block_number, config)?;
         Ok(self)
     }
 

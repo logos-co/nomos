@@ -13,7 +13,6 @@ ed25519            = { default-features = false, version = "2.2.3" }
 groth16            = { workspace = true }
 mmr                = { features = ["serde"], workspace = true }
 nomos-core         = { workspace = true }
-nomos-membership   = { workspace = true }
 nomos-utils        = { features = ["serde"], optional = true, workspace = true }
 num-bigint         = { version = "0.4", default-features = false }
 rand               = { workspace = true }
