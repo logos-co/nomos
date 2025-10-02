@@ -165,6 +165,7 @@ impl SignedMantleTx {
         }
     }
 
+    // TODO: might drop proofs after verification
     fn verify_ops_proofs(&self) -> Result<(), VerificationError> {
         use ed25519::signature::Verifier as _;
 

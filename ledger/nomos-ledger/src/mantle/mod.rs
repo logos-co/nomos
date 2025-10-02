@@ -99,7 +99,7 @@ impl LedgerState {
         let mut balance = 0;
         for (op, proof) in tx.ops_with_proof() {
             match (op, proof) {
-                (Op::ChannelBlob(op), None) => {
+                (Op::ChannelBlob(op), Some(OpProof::Ed25519Sig(_sig))) => {
                     // The signature could be verified even before reaching this point,
                     // as you only need the signer's public key and tx hash
                     // Callers are expected to validate the proof before calling this function.
@@ -107,7 +107,7 @@ impl LedgerState {
                         self.channels
                             .apply_msg(op.channel, &op.parent, op.id(), &op.signer)?;
                 }
-                (Op::ChannelInscribe(op), None) => {
+                (Op::ChannelInscribe(op), Some(OpProof::Ed25519Sig(_sig))) => {
                     // The signature could be verified even before reaching this point,
                     // as you only need the signer's public key and tx hash
                     // Callers are expected to validate the proof before calling this function.
@@ -272,9 +272,9 @@ mod tests {
             .into_iter()
             .zip(ops)
             .map(|(key, op)| match op {
-                Op::ChannelSetKeys(_) => Some(OpProof::Ed25519Sig(
-                    key.sign(tx_hash.as_signing_bytes().as_ref()),
-                )),
+                Op::ChannelSetKeys(_) | Op::ChannelBlob(_) | Op::ChannelInscribe(_) => Some(
+                    OpProof::Ed25519Sig(key.sign(tx_hash.as_signing_bytes().as_ref())),
+                ),
                 _ => None,
             })
             .collect();
