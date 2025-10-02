@@ -7,28 +7,29 @@ use tokio::sync::{broadcast, oneshot};
 
 use crate::{ConsensusMsg, CryptarchiaInfo, LibUpdate};
 
-pub trait CryptarchiaServiceData<Tx>:
-    ServiceData<Message = ConsensusMsg<Tx>> + Send + 'static
+pub trait CryptarchiaServiceData:
+    ServiceData<Message = ConsensusMsg<Self::Tx>> + Send + 'static
 {
+    type Tx;
 }
-impl<T, Tx> CryptarchiaServiceData<Tx> for T where
-    T: ServiceData<Message = ConsensusMsg<Tx>> + Send + 'static
+impl<T, Tx> CryptarchiaServiceData for T
+where
+    T: ServiceData<Message = ConsensusMsg<Tx>> + Send + 'static,
 {
+    type Tx = Tx;
 }
 
-pub struct CryptarchiaServiceApi<Cryptarchia, Tx, RuntimeServiceId>
+pub struct CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>
 where
-    Cryptarchia: CryptarchiaServiceData<Tx>,
+    Cryptarchia: CryptarchiaServiceData,
 {
     relay: OutboundRelay<Cryptarchia::Message>,
     _id: std::marker::PhantomData<RuntimeServiceId>,
-    _tx: std::marker::PhantomData<Tx>,
 }
 
-impl<Cryptarchia, Tx, RuntimeServiceId> CryptarchiaServiceApi<Cryptarchia, Tx, RuntimeServiceId>
+impl<Cryptarchia, RuntimeServiceId> CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>
 where
-    Tx: Send + Sync + 'static,
-    Cryptarchia: CryptarchiaServiceData<Tx>,
+    Cryptarchia: CryptarchiaServiceData<Tx: Send + Sync + 'static>,
     RuntimeServiceId: AsServiceId<Cryptarchia> + std::fmt::Debug + std::fmt::Display + Sync,
 {
     /// Create a new API instance
@@ -49,7 +50,6 @@ where
         Ok(Self {
             relay,
             _id: std::marker::PhantomData,
-            _tx: std::marker::PhantomData,
         })
     }
 
@@ -149,7 +149,10 @@ where
     }
 
     /// Process a block through the chain service
-    pub async fn process_leader_block(&self, block: Block<Tx>) -> Result<(), DynError> {
+    pub async fn process_leader_block(
+        &self,
+        block: Block<Cryptarchia::Tx>,
+    ) -> Result<(), DynError> {
         let (tx, rx) = oneshot::channel();
 
         let boxed_block = Box::new(block);

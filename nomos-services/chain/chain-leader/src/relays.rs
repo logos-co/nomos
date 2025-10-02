@@ -135,7 +135,7 @@ where
             >
             + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>
             + AsServiceId<CryptarchiaService>,
-        CryptarchiaService: CryptarchiaServiceData<Mempool::Item>,
+        CryptarchiaService: CryptarchiaServiceData<Tx = Mempool::Item>,
     {
         let blend_relay = service_resources_handle
             .overwatch_handle

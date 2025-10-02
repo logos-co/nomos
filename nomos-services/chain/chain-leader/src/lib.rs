@@ -98,7 +98,7 @@ pub struct CryptarchiaLeader<
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync + 'static,
-    CryptarchiaService: CryptarchiaServiceData<Mempool::Item>,
+    CryptarchiaService: CryptarchiaServiceData,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
 }
@@ -144,7 +144,7 @@ where
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync + 'static,
-    CryptarchiaService: CryptarchiaServiceData<Mempool::Item>,
+    CryptarchiaService: CryptarchiaServiceData,
 {
     type Settings = LeaderSettings<TxS::Settings, BlendService::BroadcastSettings>;
     type State = overwatch::services::state::NoState<Self::Settings>;
@@ -214,7 +214,7 @@ where
         nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync + 'static,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync + 'static,
-    CryptarchiaService: CryptarchiaServiceData<Mempool::Item>,
+    CryptarchiaService: CryptarchiaServiceData<Tx = Mempool::Item>,
     RuntimeServiceId: Debug
         + Send
         + Sync
@@ -263,11 +263,9 @@ where
         .await;
 
         // Create the API wrapper for chain service communication
-        let cryptarchia_api = CryptarchiaServiceApi::<
-            CryptarchiaService,
-            Mempool::Item,
-            RuntimeServiceId,
-        >::new::<Self>(&self.service_resources_handle)
+        let cryptarchia_api = CryptarchiaServiceApi::<CryptarchiaService, RuntimeServiceId>::new::<
+            Self,
+        >(&self.service_resources_handle)
         .await?;
 
         let LeaderSettings {
@@ -466,7 +464,7 @@ where
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
-    CryptarchiaService: CryptarchiaServiceData<Mempool::Item>,
+    CryptarchiaService: CryptarchiaServiceData<Tx = Mempool::Item>,
 {
     #[expect(clippy::allow_attributes_without_reason)]
     #[instrument(level = "debug", skip(tx_selector, relays))]
