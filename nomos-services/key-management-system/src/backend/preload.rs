@@ -89,6 +89,7 @@ mod encodings {
 mod keys {
     use std::fmt::{Debug, Formatter};
 
+    use nomos_utils::types::enumerated::is_same_variant;
     use serde::{Deserialize, Serialize};
     use zeroize::ZeroizeOnDrop;
 
@@ -136,15 +137,10 @@ mod keys {
             payload: &Self::Payload,
         ) -> Result<Self::Signature, Self::Error> {
             let [head, tail @ ..] = keys else {
-                return Err(PreloadKeyError::UnsupportedKey);
+                return Err(Self::Error::UnsupportedKey);
             };
 
-            let head_discriminant = std::mem::discriminant::<Self>(head);
-            let mut tail_discriminants =
-                tail.iter().map(|item| std::mem::discriminant::<Self>(item));
-
-            let all_same = tail_discriminants.all(|discriminant| discriminant == head_discriminant);
-            if !all_same {
+            if !is_same_variant(keys) {
                 return Err(PreloadKeyError::MultiKeyRequiresSameVariant);
             }
 
