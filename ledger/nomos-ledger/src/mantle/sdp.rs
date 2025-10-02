@@ -75,8 +75,12 @@ impl SdpLedger {
             return Err(SdpLedgerError::SdpInvalidNonce(op.nonce).into());
         }
 
-        TransientDeclarationState::try_from_state(block_number, current_state, service_params)?
-            .try_into_active(block_number)?;
+        TransientDeclarationState::try_from_state(
+            block_number,
+            &mut *current_state,
+            service_params,
+        )?
+        .try_into_active(block_number)?;
 
         current_state.nonce = op.nonce;
 
@@ -97,8 +101,12 @@ impl SdpLedger {
             return Err(SdpLedgerError::SdpInvalidNonce(op.nonce).into());
         }
 
-        TransientDeclarationState::try_from_state(block_number, current_state, service_params)?
-            .try_into_withdrawn(block_number, service_params)?;
+        TransientDeclarationState::try_from_state(
+            block_number,
+            &mut *current_state,
+            service_params,
+        )?
+        .try_into_withdrawn(block_number, service_params)?;
 
         current_state.nonce = op.nonce;
 

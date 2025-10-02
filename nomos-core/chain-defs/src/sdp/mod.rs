@@ -1,12 +1,13 @@
 pub mod state;
 
-use std::{collections::BTreeSet, hash::Hash};
+use std::{collections::BTreeSet, hash::Hash, ops::Deref};
 
 use blake2::{Blake2b, Digest as _};
 use bytes::{Bytes, BytesMut};
 use groth16::{Fr, serde::serde_fr};
 use multiaddr::Multiaddr;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use state::TransientDeclarationState;
 use strum::EnumIter;
 
 use crate::{block::BlockNumber, mantle::NoteId};
@@ -324,6 +325,19 @@ pub enum FinalizedDeclarationState {
     Active,
     Inactive,
     Withdrawn,
+}
+
+impl<D> From<&TransientDeclarationState<D>> for FinalizedDeclarationState
+where
+    D: Deref<Target = DeclarationState>,
+{
+    fn from(transient: &TransientDeclarationState<D>) -> Self {
+        match transient {
+            TransientDeclarationState::Active(_) => Self::Active,
+            TransientDeclarationState::Inactive(_) => Self::Inactive,
+            TransientDeclarationState::Withdrawn(_) => Self::Withdrawn,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

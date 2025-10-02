@@ -51,6 +51,7 @@ pub struct LedgerState {
     sdp: sdp::SdpLedger,
     locked_notes: locked_notes::LockedNotes,
     leaders: leader::LeaderState,
+    membership: membership::Membership,
 }
 
 impl Default for LedgerState {
@@ -67,6 +68,7 @@ impl LedgerState {
             sdp: sdp::SdpLedger::new(),
             locked_notes: locked_notes::LockedNotes::new(),
             leaders: leader::LeaderState::new(),
+            membership: membership::Membership::new(),
         }
     }
 
