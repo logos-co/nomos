@@ -14,13 +14,13 @@ use std::{
 
 use backends::BlendBackend;
 use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
-use futures::{Stream, StreamExt as _, stream::pending};
+use futures::{Stream, StreamExt as _};
 use nomos_blend_scheduling::{
     message_blend::{ProofsGenerator as ProofsGeneratorTrait, SessionInfo as PoQSessionInfo},
     session::{SessionEvent, UninitializedSessionEventStream},
 };
 use nomos_core::codec::SerdeOp;
-use nomos_time::{TimeService, TimeServiceMessage};
+use nomos_time::{SlotTick, TimeService, TimeServiceMessage};
 use overwatch::{
     OpaqueServiceResourcesHandle,
     overwatch::OverwatchHandle,
@@ -39,7 +39,7 @@ use tracing::{debug, error, info};
 
 use crate::{
     edge::handlers::{Error, MessageHandler},
-    epoch::{EpochInfo, EpochStream},
+    epoch::{ChainApi, EpochHandler},
     membership,
     message::{NetworkMessage, ServiceMessage},
     mock_poq_inputs_stream,
@@ -184,13 +184,17 @@ where
         .subscribe()
         .await?;
 
+        let epoch_handler = async {
+            let chain_service = CryptarchiaServiceApi::<ChainService, _>::new(&overwatch_handle)
+                .await
+                .expect("Failed to establish channel with chain service.");
+            EpochHandler::new(chain_service)
+        }
+        .await;
+
         // TODO: Change this to also be a `UninitializedStream` which is expected to
         // yield within a certain amount of time.
-        let chain_service = CryptarchiaServiceApi::<ChainService, _>::new(&overwatch_handle)
-            .await
-            .expect("Failed to establish channel with chain service.");
-        let mut epoch_stream = EpochStream::<_, RuntimeServiceId>::new(chain_service);
-        let epoch_state_stream = async {
+        let clock_stream = async {
             let time_relay = overwatch_handle
                 .relay::<TimeService<_, _>>()
                 .await
@@ -200,10 +204,9 @@ where
                 .send(TimeServiceMessage::Subscribe { sender })
                 .await
                 .expect("Failed to subscribe to slot clock.");
-            let slot_stream = receiver
+            receiver
                 .await
-                .expect("Should not fail to receive slot stream from time service.");
-            slot_stream.scan(epoch_stream, |mut state, tick| state.tick(tick))
+                .expect("Should not fail to receive slot stream from time service.")
         }
         .await;
 
@@ -241,9 +244,10 @@ where
                 .to_vec()
         });
 
-        run::<Backend, _, ProofsGenerator, _>(
+        run::<Backend, _, ProofsGenerator, _, _>(
             uninitialized_session_stream,
-            epoch_state_stream,
+            clock_stream,
+            epoch_handler,
             messages_to_blend,
             &settings,
             &overwatch_handle,
@@ -276,11 +280,12 @@ where
 /// - If the initial membership is not yielded immediately from the session
 ///   stream.
 /// - If the initial membership does not satisfy the edge node condition.
-async fn run<Backend, NodeId, ProofsGenerator, RuntimeServiceId>(
+async fn run<Backend, NodeId, ProofsGenerator, ChainService, RuntimeServiceId>(
     session_stream: UninitializedSessionEventStream<
         impl Stream<Item = SessionInfo<NodeId>> + Unpin,
     >,
-    epoch_stream: impl Stream<Item = EpochInfo>,
+    mut clock_stream: impl Stream<Item = SlotTick> + Unpin,
+    mut epoch_handler: EpochHandler<ChainService, RuntimeServiceId>,
     mut messages_to_blend: impl Stream<Item = Vec<u8>> + Send + Unpin,
     settings: &Settings<Backend, NodeId, RuntimeServiceId>,
     overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
@@ -290,6 +295,7 @@ where
     Backend: BlendBackend<NodeId, RuntimeServiceId> + Sync,
     NodeId: Clone + Eq + Hash + Send + Sync + 'static,
     ProofsGenerator: ProofsGeneratorTrait,
+    ChainService: ChainApi<RuntimeServiceId>,
     RuntimeServiceId: Clone,
 {
     let (session_info, mut session_stream) = session_stream
@@ -313,7 +319,6 @@ where
 
     notify_ready();
 
-    let mut pinned_epoch_stream = Box::pin(epoch_stream);
     loop {
         tokio::select! {
             Some(SessionEvent::NewSession(session_info)) = session_stream.next() => {
@@ -322,8 +327,11 @@ where
             Some(message) = messages_to_blend.next() => {
                 message_handler.handle_messages_to_blend(message).await;
             }
-            Some(_) = pinned_epoch_stream.next() => {
-                tracing::trace!(target: LOG_TARGET, "New epoch started.");
+            Some(tick) = clock_stream.next() => {
+                let new_epoch_info = epoch_handler.tick(tick).await;
+                if let Some(new_epoch_info) = new_epoch_info {
+                    tracing::trace!(target: LOG_TARGET, "New epoch info received. {new_epoch_info:?}");
+                }
             }
         }
     }

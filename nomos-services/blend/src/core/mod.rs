@@ -14,7 +14,7 @@ use async_trait::async_trait;
 use backends::BlendBackend;
 use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 use fork_stream::StreamExt as _;
-use futures::{Stream, StreamExt as _, future::join_all, stream::pending};
+use futures::{Stream, StreamExt as _, future::join_all};
 use network::NetworkAdapter;
 use nomos_blend_message::{
     PayloadType,
@@ -52,7 +52,7 @@ use crate::{
         processor::{CoreCryptographicProcessor, Error},
         settings::BlendConfig,
     },
-    epoch::{EpochInfo, EpochStream},
+    epoch::{EpochHandler, EpochInfo},
     membership,
     message::{NetworkMessage, ProcessedMessage, ServiceMessage},
     mock_poq_inputs_stream,
@@ -221,13 +221,17 @@ where
         .await
         .expect("Membership service should be ready");
 
+        let mut epoch_handler = async {
+            let chain_service = CryptarchiaServiceApi::<ChainService, _>::new(overwatch_handle)
+                .await
+                .expect("Failed to establish channel with chain service.");
+            EpochHandler::new(chain_service)
+        }
+        .await;
+
         // TODO: Change this to also be a `UninitializedStream` which is expected to
         // yield within a certain amount of time.
-        let chain_service = CryptarchiaServiceApi::<ChainService, _>::new(&overwatch_handle)
-            .await
-            .expect("Failed to establish channel with chain service.");
-        let mut epoch_stream = EpochStream::<_, RuntimeServiceId>::new(chain_service);
-        let epoch_state_stream = async {
+        let mut clock_stream = async {
             let time_relay = overwatch_handle
                 .relay::<TimeService<_, _>>()
                 .await
@@ -237,10 +241,9 @@ where
                 .send(TimeServiceMessage::Subscribe { sender })
                 .await
                 .expect("Failed to subscribe to slot clock.");
-            let slot_stream = receiver
+            receiver
                 .await
-                .expect("Should not fail to receive slot stream from time service.");
-            slot_stream.scan(epoch_stream, |mut state, tick| state.tick(tick))
+                .expect("Should not fail to receive slot stream from time service.")
         }
         .await;
 
@@ -372,8 +375,11 @@ where
                 Some(round_info) = message_scheduler.next() => {
                     handle_release_round(round_info, &mut crypto_processor, &mut rng, &backend, &network_adapter).await;
                 }
-                Some(_) = epoch_state_stream.next() => {
-                    tracing::trace!(target: LOG_TARGET, "New epoch started.");
+                Some(tick) = clock_stream.next() => {
+                    let new_epoch_info = epoch_handler.tick(tick).await;
+                    if let Some(new_epoch_info) = new_epoch_info {
+                        tracing::trace!(target: LOG_TARGET, "New epoch info received. {new_epoch_info:?}");
+                    }
                 }
                 Some(session_event) = service_session_stream.next() => {
                     match handle_session_event(session_event, crypto_processor, &blend_config) {

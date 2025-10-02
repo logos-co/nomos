@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 use cryptarchia_engine::Slot;
 use nomos_core::crypto::ZkHash;
-use nomos_ledger::EpochState;
+use nomos_ledger::{EpochState, UtxoTree};
 use nomos_time::SlotTick;
 use overwatch::overwatch::OverwatchHandle;
 
@@ -42,6 +42,43 @@ pub trait ChainApi<RuntimeServiceId> {
     async fn get_epoch_state_for_slot(&self, slot: Slot) -> Option<EpochState>;
 }
 
+pub(crate) struct AlwaysNoneChainApi;
+
+#[async_trait]
+impl<RuntimeServiceId> ChainApi<RuntimeServiceId> for AlwaysNoneChainApi {
+    async fn new(_: &OverwatchHandle<RuntimeServiceId>) -> Self {
+        Self
+    }
+
+    async fn get_epoch_state_for_slot(&self, _: Slot) -> Option<EpochState> {
+        None
+    }
+}
+
+pub(crate) struct DefaultChainApi;
+
+pub(crate) fn default_epoch_state() -> EpochState {
+    use groth16::Field as _;
+
+    EpochState {
+        epoch: 1.into(),
+        nonce: ZkHash::ZERO,
+        total_stake: 1_000,
+        utxos: UtxoTree::new(),
+    }
+}
+
+#[async_trait]
+impl<RuntimeServiceId> ChainApi<RuntimeServiceId> for DefaultChainApi {
+    async fn new(_: &OverwatchHandle<RuntimeServiceId>) -> Self {
+        Self
+    }
+
+    async fn get_epoch_state_for_slot(&self, _: Slot) -> Option<EpochState> {
+        Some(default_epoch_state())
+    }
+}
+
 #[async_trait]
 impl<Cryptarchia, RuntimeServiceId> ChainApi<RuntimeServiceId>
     for CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>
@@ -66,13 +103,13 @@ where
 ///
 /// In case the epoch state for a given slot is not found, it will retry on
 /// subsequent slots until one is successfully received.
-pub struct EpochStream<ChainService, RuntimeServiceId> {
+pub struct EpochHandler<ChainService, RuntimeServiceId> {
     chain_service: ChainService,
     last_processed_tick: Option<SlotTick>,
     _phantom: PhantomData<RuntimeServiceId>,
 }
 
-impl<ChainService, RuntimeServiceId> EpochStream<ChainService, RuntimeServiceId> {
+impl<ChainService, RuntimeServiceId> EpochHandler<ChainService, RuntimeServiceId> {
     pub const fn new(chain_service: ChainService) -> Self {
         Self {
             chain_service,
@@ -82,7 +119,7 @@ impl<ChainService, RuntimeServiceId> EpochStream<ChainService, RuntimeServiceId>
     }
 }
 
-impl<ChainService, RuntimeServiceId> EpochStream<ChainService, RuntimeServiceId>
+impl<ChainService, RuntimeServiceId> EpochHandler<ChainService, RuntimeServiceId>
 where
     ChainService: ChainApi<RuntimeServiceId>,
 {
@@ -139,38 +176,7 @@ mod tests {
     use overwatch::overwatch::OverwatchHandle;
     use test_log::test;
 
-    use crate::epoch::{ChainApi, EpochStream};
-
-    const NON_EXISTING_EPOCH_STATE_SLOT: Slot = Slot::new(4);
-
-    fn default_epoch_state() -> EpochState {
-        use groth16::Field as _;
-
-        EpochState {
-            epoch: 1.into(),
-            nonce: ZkHash::ZERO,
-            total_stake: 1_000,
-            utxos: UtxoTree::new(),
-        }
-    }
-
-    #[derive(Clone)]
-    struct ChainService;
-
-    #[async_trait]
-    impl ChainApi<()> for ChainService {
-        async fn new(_: &OverwatchHandle<()>) -> Self {
-            Self
-        }
-
-        async fn get_epoch_state_for_slot(&self, slot: Slot) -> Option<EpochState> {
-            if slot == NON_EXISTING_EPOCH_STATE_SLOT {
-                None
-            } else {
-                Some(default_epoch_state())
-            }
-        }
-    }
+    use crate::epoch::{ChainApi, EpochHandler, default_epoch_state};
 
     #[test(tokio::test)]
     async fn epoch_transition() {
@@ -201,7 +207,7 @@ mod tests {
             },
         ];
         let mut ticks_iter = ticks.into_iter();
-        let mut stream = EpochStream::new(ChainService);
+        let mut stream = EpochHandler::new(ChainService);
 
         // First poll of the stream will set the epoch info and return the retrieved
         // state.
@@ -264,7 +270,7 @@ mod tests {
 
     #[test(tokio::test)]
     async fn slot_not_increasing() {
-        let mut stream = EpochStream::new(ChainService);
+        let mut stream = EpochHandler::new(ChainService);
         stream
             .tick(SlotTick {
                 epoch: 2.into(),
@@ -307,7 +313,7 @@ mod tests {
 
     #[test(tokio::test)]
     async fn epoch_not_increasing() {
-        let mut stream = EpochStream::new(ChainService);
+        let mut stream = EpochHandler::new(ChainService);
         stream
             .tick(SlotTick {
                 epoch: 2.into(),
