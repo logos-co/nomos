@@ -7,7 +7,6 @@ use blend::BlendConfig;
 use clap::{Parser, ValueEnum, builder::OsStr};
 use color_eyre::eyre::{Result, eyre};
 use hex::FromHex as _;
-use nomos_core::mantle::{Note, TxHash, Utxo};
 use nomos_libp2p::{Multiaddr, ed25519::SecretKey};
 use nomos_network::backends::libp2p::Libp2p as NetworkBackend;
 use nomos_tracing::logging::{gelf::GelfConfig, local::FileConfig};
@@ -20,9 +19,8 @@ use tracing::Level;
 use crate::{
     ApiService, CryptarchiaLeaderService, CryptarchiaService, DaNetworkService, DaSamplingService,
     DaVerifierService, NetworkService, RuntimeServiceId, StorageService, TimeService,
-    WalletService,
     config::mempool::MempoolConfig,
-    generic_services::{MembershipService, SdpService},
+    generic_services::{MembershipService, SdpService, WalletService},
 };
 
 pub mod blend;
@@ -185,33 +183,8 @@ pub struct HttpArgs {
 
 #[derive(Parser, Debug, Clone)]
 pub struct CryptarchiaLeaderArgs {
-    #[clap(
-        long = "consensus-utxo-sk",
-        env = "CONSENSUS_UTXO_SK",
-        requires = "value"
-    )]
+    #[clap(long = "consensus-utxo-sk", env = "CONSENSUS_UTXO_SK")]
     pub secret_key: Option<String>,
-
-    #[clap(
-        long = "consensus-utxo-value",
-        env = "CONSENSUS_UTXO_VALUE",
-        requires = "secret_key"
-    )]
-    value: Option<u64>,
-
-    #[clap(
-        long = "consensus-utxo-txhash",
-        env = "CONSENSUS_UTXO_TXHASH",
-        requires = "value"
-    )]
-    tx_hash: Option<String>,
-
-    #[clap(
-        long = "consensus-utxo-output-index",
-        env = "CONSENSUS_UTXO_OUTPUT_INDEX",
-        requires = "value"
-    )]
-    output_index: Option<usize>,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -245,7 +218,7 @@ pub struct Config {
     pub time: <TimeService as ServiceData>::Settings,
     pub storage: <StorageService as ServiceData>::Settings,
     pub mempool: MempoolConfig,
-    pub wallet: <WalletService as ServiceData>::Settings,
+    pub wallet: <WalletService<CryptarchiaService, RuntimeServiceId> as ServiceData>::Settings,
 
     #[cfg(feature = "testing")]
     pub testing_http: <ApiService as ServiceData>::Settings,
@@ -394,16 +367,8 @@ pub fn update_cryptarchia_leader_consensus(
     leader: &mut <CryptarchiaLeaderService as ServiceData>::Settings,
     consensus_args: CryptarchiaLeaderArgs,
 ) -> Result<()> {
-    let CryptarchiaLeaderArgs {
-        secret_key,
-        value,
-        tx_hash,
-        output_index,
-    } = consensus_args;
-
-    let (Some(secret_key), Some(value), Some(tx_hash), Some(output_index)) =
-        (secret_key, value, tx_hash, output_index)
-    else {
+    let CryptarchiaLeaderArgs { secret_key } = consensus_args;
+    let Some(secret_key) = secret_key else {
         return Ok(());
     };
 
@@ -413,13 +378,7 @@ pub fn update_cryptarchia_leader_consensus(
     let pk = sk.to_public_key();
 
     leader.leader_config.sk = sk;
-
-    let tx_hash: TxHash = BigUint::from_bytes_le(&<[u8; 32]>::from_hex(tx_hash)?).into();
-    leader.leader_config.utxos.push(Utxo {
-        tx_hash,
-        output_index,
-        note: Note { value, pk },
-    });
+    leader.leader_config.pk = pk;
 
     Ok(())
 }

@@ -2,7 +2,10 @@ use std::num::NonZero;
 
 use chain_leader::LeaderConfig;
 use cryptarchia_engine::EpochConfig;
-use nomos_core::mantle::{Note, Utxo, keys::SecretKey};
+use nomos_core::mantle::{
+    Note, Utxo,
+    keys::{PublicKey, SecretKey},
+};
 use nomos_ledger::LedgerState;
 use num_bigint::BigUint;
 
@@ -43,24 +46,26 @@ pub fn create_consensus_configs(
     ids: &[[u8; 32]],
     consensus_params: &ConsensusParams,
 ) -> Vec<GeneralConsensusConfig> {
-    let sks = ids
+    let keys = ids
         .iter()
         .map(|&id| {
             let mut sk = [0; 16];
             sk.copy_from_slice(&id[0..16]);
-            SecretKey::from(BigUint::from_bytes_le(&sk))
+            let sk = SecretKey::from(BigUint::from_bytes_le(&sk));
+            let pk = PublicKey::from(BigUint::from(0u8)); // TODO: derive from sk
+            (pk, sk)
         })
         .collect::<Vec<_>>();
 
-    let utxos = sks
+    let utxos = keys
         .iter()
-        .map(|_| Utxo {
-            note: Note::new(1, BigUint::from(0u8).into()), // TODO: replace with proper public key
+        .map(|(pk, _)| Utxo {
+            note: Note::new(1, *pk),
             tx_hash: BigUint::from(0u8).into(),
             output_index: 0,
         })
         .collect::<Vec<_>>();
-    let genesis_state = LedgerState::from_utxos(utxos.clone());
+    let genesis_state = LedgerState::from_utxos(utxos);
     let ledger_config = nomos_ledger::Config {
         epoch_config: EpochConfig {
             epoch_stake_distribution_stabilization: NonZero::new(3).unwrap(),
@@ -83,14 +88,9 @@ pub fn create_consensus_configs(
         },
     };
 
-    utxos
-        .into_iter()
-        .zip(sks)
-        .map(|(utxo, sk)| GeneralConsensusConfig {
-            leader_config: LeaderConfig {
-                utxos: vec![utxo],
-                sk,
-            },
+    keys.into_iter()
+        .map(|(pk, sk)| GeneralConsensusConfig {
+            leader_config: LeaderConfig { pk, sk },
             ledger_config,
             genesis_state: genesis_state.clone(),
         })

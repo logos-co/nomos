@@ -1,19 +1,19 @@
 use cryptarchia_engine::Slot;
 use groth16::Fr;
 use nomos_core::{
-    mantle::{Utxo, keys::SecretKey, ops::leader_claim::VoucherCm},
+    mantle::{
+        Utxo,
+        keys::{PublicKey, SecretKey},
+        ops::leader_claim::VoucherCm,
+    },
     proofs::leader_proof::{Groth16LeaderProof, LeaderPrivate, LeaderPublic},
 };
 use nomos_ledger::{EpochState, UtxoTree};
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 
-/// TODO: this is a temporary solution until we have a proper wallet
-/// implementation. Most notably, it can't track when initial notes are spent
-/// and moved
 #[derive(Clone)]
 pub struct Leader {
-    utxos: Vec<Utxo>,
     sk: SecretKey,
     #[cfg_attr(
         not(feature = "pol-dev-mode"),
@@ -24,14 +24,13 @@ pub struct Leader {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct LeaderConfig {
-    pub utxos: Vec<Utxo>,
-    // this is common to every note
+    pub pk: PublicKey,
     pub sk: SecretKey,
 }
 
 impl Leader {
-    pub const fn new(utxos: Vec<Utxo>, sk: SecretKey, config: nomos_ledger::Config) -> Self {
-        Self { utxos, sk, config }
+    pub const fn new(sk: SecretKey, config: nomos_ledger::Config) -> Self {
+        Self { sk, config }
     }
 
     #[expect(
@@ -40,12 +39,13 @@ impl Leader {
     )]
     pub async fn build_proof_for(
         &self,
+        utxos: &[Utxo],
         aged_tree: &UtxoTree,
         latest_tree: &UtxoTree,
         epoch_state: &EpochState,
         slot: Slot,
     ) -> Option<Groth16LeaderProof> {
-        for utxo in &self.utxos {
+        for utxo in utxos {
             let Some(_aged_witness) = aged_tree.witness(&utxo.id()) else {
                 continue;
             };
