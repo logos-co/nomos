@@ -1,8 +1,13 @@
 [package]
-edition = { workspace = true }
-license = { workspace = true }
-name    = "nomos-http-api-common"
-version = "0.1.0"
+categories  = { workspace = true }
+description = { workspace = true }
+edition     = { workspace = true }
+keywords    = { workspace = true }
+license     = { workspace = true }
+name        = "nomos-http-api-common"
+readme      = { workspace = true }
+repository  = { workspace = true }
+version     = { workspace = true }
 
 [lints]
 workspace = true
@@ -11,16 +16,16 @@ workspace = true
 axum = { default-features = false, features = ["http1", "http2", "json", "query", "tokio"], version = "0.7.5" }
 governor = { default-features = false, version = "0.6" }
 nomos-core = { workspace = true }
-pprof = { default-features = false, version = "0.15", features = [
+pprof = { default-features = false, features = [
   "criterion",
   "flamegraph",
   "protobuf-codec",
-], optional = true }
+], optional = true, version = "0.15" }
 serde = { default-features = false, features = ["alloc", "derive"], version = "1.0" }
 serde_with = { default-features = false, features = ["macros"], workspace = true }
-tokio = { default-features = false, version = "1", features = ["time"], optional = true }
+tokio = { default-features = false, features = ["time"], optional = true, version = "1" }
 tower_governor = { default-features = false, features = ["axum"], version = "0.3" }
-tracing = { default-features = false, workspace = true, optional = true }
+tracing = { default-features = false, optional = true, workspace = true }
 
 [features]
 profiling = ["pprof", "tokio", "tracing"]
