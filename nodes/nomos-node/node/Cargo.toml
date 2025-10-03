@@ -58,7 +58,7 @@ subnetworks-assignations = { workspace = true }
 tokio                    = "1"
 tokio-stream             = { default-features = false, version = "0.1" }
 tracing                  = { workspace = true }
-tx-service               = { workspace = true }
+tx-service               = { features = ["rocksdb-backend"], workspace = true }
 
 # openapi related dependencies
 utoipa            = { workspace = true }
