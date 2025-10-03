@@ -161,7 +161,7 @@ mod tests {
     use test_log::test;
 
     use crate::{
-        epoch::EpochHandler,
+        epoch_info::EpochHandler,
         test_utils::epoch::{NON_EXISTING_EPOCH_STATE_SLOT, TestChainService, default_epoch_state},
     };
 

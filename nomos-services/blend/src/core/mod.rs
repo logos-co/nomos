@@ -52,7 +52,7 @@ use crate::{
         processor::{CoreCryptographicProcessor, Error},
         settings::BlendConfig,
     },
-    epoch::{EpochHandler, PolInfoProvider as PolInfoProviderTrait},
+    epoch_info::{EpochHandler, PolInfoProvider as PolInfoProviderTrait},
     membership,
     message::{NetworkMessage, ProcessedMessage, ServiceMessage},
     mock_poq_inputs_stream,

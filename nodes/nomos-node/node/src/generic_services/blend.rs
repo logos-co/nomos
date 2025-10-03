@@ -20,7 +20,7 @@ use nomos_blend_message::crypto::{
 use nomos_blend_scheduling::message_blend::{BlendLayerProof, SessionInfo};
 use nomos_blend_service::{
     ProofOfLeadershipQuotaInputs, ProofsGenerator, ProofsVerifier,
-    epoch::{PolEpochInfo, PolInfoProvider as PolInfoProviderTrait},
+    epoch_info::{PolEpochInfo, PolInfoProvider as PolInfoProviderTrait},
     membership::service::Adapter,
 };
 use nomos_core::{codec::SerdeOp as _, crypto::ZkHash};

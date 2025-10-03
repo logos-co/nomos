@@ -3,7 +3,7 @@ use chain_service::Slot;
 use nomos_ledger::EpochState;
 use overwatch::overwatch::OverwatchHandle;
 
-use crate::epoch::ChainApi;
+use crate::epoch_info::ChainApi;
 
 pub const NON_EXISTING_EPOCH_STATE_SLOT: Slot = Slot::new(4);
 

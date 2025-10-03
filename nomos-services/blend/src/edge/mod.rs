@@ -39,7 +39,7 @@ use tracing::{debug, error, info};
 
 use crate::{
     edge::handlers::{Error, MessageHandler},
-    epoch::{ChainApi, EpochHandler, PolInfoProvider as PolInfoProviderTrait},
+    epoch_info::{ChainApi, EpochHandler, PolInfoProvider as PolInfoProviderTrait},
     membership,
     message::{NetworkMessage, ServiceMessage},
     mock_poq_inputs_stream,

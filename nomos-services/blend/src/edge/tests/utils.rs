@@ -23,7 +23,7 @@ use tokio_stream::wrappers::ReceiverStream;
 
 use crate::{
     edge::{backends::BlendBackend, handlers::Error, run, settings::BlendConfig},
-    epoch::{EpochHandler, PolEpochInfo, PolInfoProvider},
+    epoch_info::{EpochHandler, PolEpochInfo, PolInfoProvider},
     mock_poq_inputs_stream,
     session::SessionInfo,
     settings::{FIRST_SESSION_READY_TIMEOUT, TimingSettings},

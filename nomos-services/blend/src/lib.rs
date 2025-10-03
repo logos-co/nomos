@@ -43,7 +43,7 @@ use crate::{
 
 pub mod core;
 pub mod edge;
-pub mod epoch;
+pub mod epoch_info;
 pub mod membership;
 pub mod message;
 pub mod session;
