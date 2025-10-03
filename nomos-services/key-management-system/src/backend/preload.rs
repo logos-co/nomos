@@ -7,7 +7,7 @@
 
 #[cfg(test)]
 mod errors {
-    use crate::{backend::preload::keys, keys::KeyError};
+    use crate::{backend::preload::keys, keys::errors::KeyError};
 
     #[derive(Debug)]
     pub enum PreloadKeyError {
@@ -90,7 +90,7 @@ mod keys {
 
     use crate::{
         backend::preload::{encodings::PreloadEncoding, errors::PreloadKeyError},
-        keys::{Ed25519Key, SecuredKey},
+        keys::{Ed25519Key, secured_key::SecuredKey},
     };
 
     impl Debug for Ed25519Key {
@@ -129,7 +129,7 @@ mod keys {
 
         fn as_public_key(&self) -> Self::PublicKey {
             match self {
-                Self::Ed25519(key) => key.as_public_key().into(),
+                Self::Ed25519(key) => PreloadEncoding::from(key.as_public_key()),
             }
         }
     }

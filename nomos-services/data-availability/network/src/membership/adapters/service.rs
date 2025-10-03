@@ -4,7 +4,7 @@ use futures::StreamExt as _;
 use libp2p::{Multiaddr, PeerId, core::signed_envelope::DecodingError};
 use nomos_core::sdp::ServiceType;
 use nomos_libp2p::ed25519;
-use nomos_membership::{MembershipMessage, MembershipService, MembershipSnapshotStream};
+use nomos_membership_service::{MembershipMessage, MembershipService, MembershipSnapshotStream};
 use overwatch::services::{ServiceData, relay::OutboundRelay};
 use tokio::sync::oneshot;
 
@@ -12,9 +12,9 @@ use crate::membership::{MembershipAdapter, MembershipAdapterError, PeerMultiaddr
 
 pub struct MembershipServiceAdapter<Backend, SdpAdapter, StorageAdapter, RuntimeServiceId>
 where
-    Backend: nomos_membership::backends::MembershipBackend,
+    Backend: nomos_membership_service::backends::MembershipBackend,
     Backend::Settings: Clone,
-    SdpAdapter: nomos_membership::adapters::sdp::SdpAdapter,
+    SdpAdapter: nomos_membership_service::adapters::sdp::SdpAdapter,
 {
     relay: OutboundRelay<
         <MembershipService<Backend, SdpAdapter, StorageAdapter, RuntimeServiceId> as ServiceData>::Message,
@@ -25,8 +25,8 @@ where
 impl<Backend, SdpAdapter, StorageAdapter, RuntimeServiceId>
     MembershipServiceAdapter<Backend, SdpAdapter, StorageAdapter, RuntimeServiceId>
 where
-    SdpAdapter: nomos_membership::adapters::sdp::SdpAdapter + Send + Sync + 'static,
-    Backend: nomos_membership::backends::MembershipBackend + Send + Sync + 'static,
+    SdpAdapter: nomos_membership_service::adapters::sdp::SdpAdapter + Send + Sync + 'static,
+    Backend: nomos_membership_service::backends::MembershipBackend + Send + Sync + 'static,
     Backend::Settings: Clone,
     RuntimeServiceId: Send + Sync + 'static,
 {
@@ -55,8 +55,8 @@ where
 impl<Backend, SdpAdapter, StorageAdapter, RuntimeServiceId> MembershipAdapter
     for MembershipServiceAdapter<Backend, SdpAdapter, StorageAdapter, RuntimeServiceId>
 where
-    SdpAdapter: nomos_membership::adapters::sdp::SdpAdapter + Send + Sync + 'static,
-    Backend: nomos_membership::backends::MembershipBackend + Send + Sync + 'static,
+    SdpAdapter: nomos_membership_service::adapters::sdp::SdpAdapter + Send + Sync + 'static,
+    Backend: nomos_membership_service::backends::MembershipBackend + Send + Sync + 'static,
     Backend::Settings: Clone,
     RuntimeServiceId: Send + Sync + 'static,
 {

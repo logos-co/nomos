@@ -32,12 +32,13 @@ pub enum Error {
 }
 
 impl Groth16LeaderProof {
-    pub fn prove(witness: &LeaderPrivate, voucher_cm: VoucherCm) -> Result<Self, Error> {
+    pub fn prove(witness: LeaderPrivate, voucher_cm: VoucherCm) -> Result<Self, Error> {
         let start_t = std::time::Instant::now();
+        #[cfg(feature = "pol-dev-mode")]
+        let public = witness.public;
+        let leader_key = witness.pk;
         let (proof, entropy_contribution) = Self::generate_proof(witness)?;
         tracing::debug!("groth16 prover time: {:.2?}", start_t.elapsed(),);
-
-        let leader_key = witness.pk;
 
         Ok(Self {
             proof,
@@ -45,11 +46,11 @@ impl Groth16LeaderProof {
             leader_key,
             voucher_cm,
             #[cfg(feature = "pol-dev-mode")]
-            public: witness.public,
+            public,
         })
     }
 
-    fn generate_proof(private: &LeaderPrivate) -> Result<(pol::PoLProof, Fr), Error> {
+    fn generate_proof(private: LeaderPrivate) -> Result<(pol::PoLProof, Fr), Error> {
         if cfg!(feature = "pol-dev-mode") && std::env::var(POL_PROOF_DEV_MODE).is_ok() {
             tracing::warn!(
                 "Proofs are being generated in dev mode. This should never be used in production."
@@ -62,7 +63,8 @@ impl Groth16LeaderProof {
 
             return Ok((proof, Fr::ZERO));
         }
-        let (proof, verif_inputs) = pol::prove(&private.input).map_err(Error::PoLProofFailed)?;
+        let (proof, verif_inputs) =
+            pol::prove(&private.input.into()).map_err(Error::PoLProofFailed)?;
         Ok((proof, verif_inputs.entropy_contribution.into_inner()))
     }
 
@@ -215,7 +217,7 @@ impl LeaderPublic {
 
 #[derive(Debug, Clone)]
 pub struct LeaderPrivate {
-    input: pol::PolWitnessInputs,
+    input: pol::PolWitnessInputsData,
     pk: ed25519_dalek::VerifyingKey,
     #[cfg(feature = "pol-dev-mode")]
     public: LeaderPublic,
@@ -260,13 +262,19 @@ impl LeaderPrivate {
             slot_secret_path: vec![], // TODO: implement
             starting_slot,
         };
-        let input = pol::PolWitnessInputs::from_chain_and_wallet_data(chain, wallet);
+        let input = pol::PolWitnessInputsData::from_chain_and_wallet_data(chain, wallet);
         Self {
             input,
             pk: public_key,
             #[cfg(feature = "pol-dev-mode")]
             public,
         }
+    }
+}
+
+impl From<LeaderPrivate> for pol::PolWitnessInputsData {
+    fn from(value: LeaderPrivate) -> Self {
+        value.input
     }
 }
 

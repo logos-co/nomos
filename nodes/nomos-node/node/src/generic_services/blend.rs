@@ -1,6 +1,14 @@
-use core::convert::Infallible;
+use core::{
+    convert::Infallible,
+    fmt::{Debug, Display},
+    future::ready,
+    marker::PhantomData,
+    time::Duration,
+};
 
 use async_trait::async_trait;
+use chain_leader::LeaderMsg;
+use futures::{Stream, StreamExt as _};
 use nomos_blend_message::crypto::{
     keys::Ed25519PrivateKey,
     proofs::{
@@ -10,11 +18,21 @@ use nomos_blend_message::crypto::{
     random_sized_bytes,
 };
 use nomos_blend_scheduling::message_blend::{BlendLayerProof, SessionInfo};
-use nomos_blend_service::{ProofsGenerator, ProofsVerifier, membership::service::Adapter};
+use nomos_blend_service::{
+    ProofOfLeadershipQuotaInputs, ProofsGenerator, ProofsVerifier,
+    epoch_info::{PolEpochInfo, PolInfoProvider as PolInfoProviderTrait},
+    membership::service::Adapter,
+};
 use nomos_core::{codec::SerdeOp as _, crypto::ZkHash};
+use nomos_da_sampling::network::NetworkAdapter;
 use nomos_libp2p::PeerId;
+use overwatch::{overwatch::OverwatchHandle, services::AsServiceId};
+use pol::{PolChainInputsData, PolWalletInputsData, PolWitnessInputsData};
+use services_utils::wait_until_services_are_ready;
+use tokio::sync::oneshot::channel;
+use tokio_stream::wrappers::BroadcastStream;
 
-use crate::generic_services::MembershipService;
+use crate::generic_services::{CryptarchiaLeaderService, MembershipService};
 
 // TODO: Replace this with the actual verifier once the verification inputs are
 // successfully fetched by the Blend service.
@@ -117,25 +135,109 @@ fn loop_until_valid_proof(
 
 pub type BlendMembershipAdapter<RuntimeServiceId> =
     Adapter<MembershipService<RuntimeServiceId>, PeerId>;
-pub type BlendCoreService<RuntimeServiceId> = nomos_blend_service::core::BlendService<
-    nomos_blend_service::core::backends::libp2p::Libp2pBlendBackend,
-    PeerId,
-    nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
-    BlendMembershipAdapter<RuntimeServiceId>,
-    BlendProofsGenerator,
-    BlendProofsVerifier,
-    RuntimeServiceId,
->;
-pub type BlendEdgeService<RuntimeServiceId> = nomos_blend_service::edge::BlendService<
+pub type BlendCoreService<SamplingAdapter, RuntimeServiceId> =
+    nomos_blend_service::core::BlendService<
+        nomos_blend_service::core::backends::libp2p::Libp2pBlendBackend,
+        PeerId,
+        nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
+        BlendMembershipAdapter<RuntimeServiceId>,
+        BlendProofsGenerator,
+        BlendProofsVerifier,
+        PolInfoProvider<SamplingAdapter>,
+        RuntimeServiceId,
+    >;
+pub type BlendEdgeService<SamplingAdapter, RuntimeServiceId> = nomos_blend_service::edge::BlendService<
         nomos_blend_service::edge::backends::libp2p::Libp2pBlendBackend,
         PeerId,
         <nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<RuntimeServiceId>>::BroadcastSettings,
         BlendMembershipAdapter<RuntimeServiceId>,
         BlendProofsGenerator,
+        PolInfoProvider<SamplingAdapter>,
         RuntimeServiceId
     >;
-pub type BlendService<RuntimeServiceId> = nomos_blend_service::BlendService<
-    BlendCoreService<RuntimeServiceId>,
-    BlendEdgeService<RuntimeServiceId>,
+pub type BlendService<SamplingAdapter, RuntimeServiceId> = nomos_blend_service::BlendService<
+    BlendCoreService<SamplingAdapter, RuntimeServiceId>,
+    BlendEdgeService<SamplingAdapter, RuntimeServiceId>,
     RuntimeServiceId,
 >;
+
+/// The provider of a stream of winning `PoL` epoch slots for the Blend service,
+/// without introducing a cyclic dependency from Blend service to chain service.
+pub struct PolInfoProvider<SamplingAdapter>(PhantomData<SamplingAdapter>);
+
+#[async_trait]
+impl<SamplingAdapter, RuntimeServiceId> PolInfoProviderTrait<RuntimeServiceId>
+    for PolInfoProvider<SamplingAdapter>
+where
+    SamplingAdapter: NetworkAdapter<RuntimeServiceId> + 'static,
+    RuntimeServiceId: AsServiceId<CryptarchiaLeaderService<SamplingAdapter, RuntimeServiceId>>
+        + Debug
+        + Display
+        + Send
+        + Sync
+        + 'static,
+{
+    type Stream = Box<dyn Stream<Item = PolEpochInfo> + Send + Unpin>;
+
+    async fn subscribe(
+        overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
+    ) -> Option<Self::Stream> {
+        use groth16::Field as _;
+
+        wait_until_services_are_ready!(overwatch_handle, Some(Duration::from_secs(3)), CryptarchiaLeaderService<SamplingAdapter, RuntimeServiceId>).await.ok()?;
+        let cryptarchia_service_relay = overwatch_handle
+            .relay::<CryptarchiaLeaderService<SamplingAdapter, RuntimeServiceId>>()
+            .await
+            .ok()?;
+        let (sender, receiver) = channel();
+        cryptarchia_service_relay
+            .send(LeaderMsg::WinningPolEpochSlotStreamSubscribe { sender })
+            .await
+            .ok()?;
+        let pol_winning_slot_receiver = receiver.await.ok()?;
+        Some(Box::new(
+            BroadcastStream::new(pol_winning_slot_receiver).filter_map(|res| {
+                let Ok(private) = res else {
+                    return ready(None);
+                };
+                let PolWitnessInputsData {
+                    chain:
+                        PolChainInputsData {
+                            epoch_nonce,
+                            slot_number,
+                            ..
+                        },
+                    wallet:
+                        PolWalletInputsData {
+                            note_value,
+                            transaction_hash,
+                            output_number,
+                            aged_path,
+                            aged_selector,
+                            slot_secret,
+                            slot_secret_path,
+                            starting_slot,
+                            ..
+                        },
+                } = PolWitnessInputsData::from(private);
+                ready(Some(PolEpochInfo {
+                    epoch_nonce,
+                    poq_private_inputs: ProofOfLeadershipQuotaInputs {
+                        aged_path,
+                        aged_selector,
+                        note_value,
+                        output_number,
+                        // TODO: Replace with actual value once `LeaderPrivate` will include the
+                        // note secret key.
+                        pol_secret_key: ZkHash::ZERO,
+                        slot: slot_number,
+                        slot_secret,
+                        slot_secret_path,
+                        starting_slot,
+                        transaction_hash,
+                    },
+                }))
+            }),
+        ))
+    }
+}

@@ -424,7 +424,7 @@ pub mod tests {
     fn make_id(parent: HeaderId, slot: impl Into<Slot>, utxo: Utxo) -> HeaderId {
         Hasher::new()
             .chain_update(parent)
-            .chain_update(slot.into().to_be_bytes())
+            .chain_update(slot.into().to_le_bytes())
             .chain_update(utxo.id().as_bytes())
             .finalize()
             .into()

@@ -14,7 +14,7 @@ use nomos_core::{
     da,
     header::{Header, HeaderId},
     mantle::{AuthenticatedMantleTx, Op, Transaction, TxHash, TxSelect},
-    proofs::leader_proof::Groth16LeaderProof,
+    proofs::leader_proof::{Groth16LeaderProof, LeaderPrivate},
 };
 use nomos_da_sampling::{
     DaSamplingService, DaSamplingServiceMsg, backend::DaSamplingServiceBackend,
@@ -27,7 +27,7 @@ use overwatch::{
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use services_utils::wait_until_services_are_ready;
 use thiserror::Error;
-use tokio::sync::oneshot;
+use tokio::sync::{broadcast, oneshot};
 use tracing::{Level, debug, error, info, instrument, span};
 use tracing_futures::Instrument as _;
 use tx_service::{
@@ -55,8 +55,16 @@ pub enum Error {
 
 #[derive(Debug)]
 pub enum LeaderMsg {
-    // Empty enum - leader service doesn't handle external messages
-    // Block production is driven by slot ticks, not messages
+    /// Request a new broadcast receiver that will yield all winning slots of
+    /// the future epochs.
+    ///
+    /// The stream will yield items in one of two cases:
+    /// * a new epoch starts -> winning slots for the new epoch
+    /// * this service has just started mid-epoch -> winning slots for the
+    ///   current epoch
+    WinningPolEpochSlotStreamSubscribe {
+        sender: oneshot::Sender<broadcast::Receiver<LeaderPrivate>>,
+    },
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -101,6 +109,7 @@ pub struct CryptarchiaLeader<
     CryptarchiaService: CryptarchiaServiceData<Mempool::Item>,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
+    winning_pol_epoch_slots_sender: broadcast::Sender<LeaderPrivate>,
 }
 
 impl<
@@ -246,8 +255,11 @@ where
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
         _initial_state: Self::State,
     ) -> Result<Self, DynError> {
+        let (winning_pol_epoch_slots_sender, _) = broadcast::channel(16);
+
         Ok(Self {
             service_resources_handle,
+            winning_pol_epoch_slots_sender,
         })
     }
 
@@ -387,9 +399,8 @@ where
                         }
                     }
 
-                    // Leader service doesn't handle external messages
-                    Some(_msg) = self.service_resources_handle.inbound_relay.next() => {
-                        // Ignore all messages - leader is driven by slot ticks only
+                    Some(msg) = self.service_resources_handle.inbound_relay.next() => {
+                        handle_inbound_message(msg, &self.winning_pol_epoch_slots_sender);
                     }
                 }
             }
@@ -547,4 +558,17 @@ where
         .await
         .map_err(|(error, _)| Box::new(error) as DynError)?;
     receiver.await.map_err(|error| Box::new(error) as DynError)
+}
+
+fn handle_inbound_message(
+    msg: LeaderMsg,
+    winning_pol_epoch_slots_sender: &broadcast::Sender<LeaderPrivate>,
+) {
+    let LeaderMsg::WinningPolEpochSlotStreamSubscribe { sender } = msg;
+
+    sender
+        .send(winning_pol_epoch_slots_sender.subscribe())
+        .unwrap_or_else(|_| {
+            error!("Could not subscribe to POL epoch winning slots channel.");
+        });
 }

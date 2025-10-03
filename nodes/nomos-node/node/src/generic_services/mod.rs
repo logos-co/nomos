@@ -13,7 +13,7 @@ use nomos_da_sampling::{
     backend::kzgrs::KzgrsSamplingBackend, storage::adapters::rocksdb::converter::DaStorageConverter,
 };
 use nomos_da_verifier::{backend::kzgrs::KzgrsDaVerifier, mempool::kzgrs::KzgrsMempoolAdapter};
-use nomos_membership::{
+use nomos_membership_service::{
     adapters::sdp::ledger::LedgerSdpAdapter, backends::membership::PersistentMembershipBackend,
 };
 use nomos_sdp::backends::mock::MockSdpBackend;
@@ -92,7 +92,7 @@ pub type CryptarchiaService<SamplingAdapter, RuntimeServiceId> = CryptarchiaCons
 >;
 
 pub type CryptarchiaLeaderService<SamplingAdapter, RuntimeServiceId> = CryptarchiaLeader<
-    BlendService<RuntimeServiceId>,
+    BlendService<SamplingAdapter, RuntimeServiceId>,
     Mempool,
     MempoolAdapter<RuntimeServiceId>,
     nomos_core::mantle::select::FillSize<MB16, SignedMantleTx>,
@@ -105,7 +105,7 @@ pub type CryptarchiaLeaderService<SamplingAdapter, RuntimeServiceId> = Cryptarch
 >;
 
 pub type MembershipStorageGeneric<RuntimeServiceId> =
-    nomos_membership::adapters::storage::rocksdb::MembershipRocksAdapter<
+    nomos_membership_service::adapters::storage::rocksdb::MembershipRocksAdapter<
         RocksBackend,
         RuntimeServiceId,
     >;
@@ -113,7 +113,7 @@ pub type MembershipStorageGeneric<RuntimeServiceId> =
 pub type MembershipBackend<RuntimeServiceId> =
     PersistentMembershipBackend<MembershipStorageGeneric<RuntimeServiceId>>;
 
-pub type MembershipService<RuntimeServiceId> = nomos_membership::MembershipService<
+pub type MembershipService<RuntimeServiceId> = nomos_membership_service::MembershipService<
     MembershipBackend<RuntimeServiceId>,
     MembershipSdp<RuntimeServiceId>,
     MembershipStorageGeneric<RuntimeServiceId>,

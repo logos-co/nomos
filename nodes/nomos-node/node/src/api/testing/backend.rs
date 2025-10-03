@@ -25,7 +25,7 @@ use nomos_http_api_common::{
     paths::{DA_GET_MEMBERSHIP, DA_HISTORIC_SAMPLING, UPDATE_MEMBERSHIP},
     utils::create_rate_limit_layer,
 };
-use nomos_membership::MembershipService as MembershipServiceTrait;
+use nomos_membership_service::MembershipService as MembershipServiceTrait;
 pub use nomos_network::backends::libp2p::Libp2p as NetworkBackend;
 use overwatch::{DynError, overwatch::handle::OverwatchHandle, services::AsServiceId};
 use services_utils::wait_until_services_are_ready;

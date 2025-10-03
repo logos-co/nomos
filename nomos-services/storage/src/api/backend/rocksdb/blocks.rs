@@ -52,6 +52,7 @@ impl StorageChainApi for RocksBackend {
         let txn = self.txn(move |db| {
             let mut batch = WriteBatch::default();
             for (slot, header_id) in ids {
+                // use be_bytes to keep prefix ordering
                 let key = key_bytes(IMMUTABLE_BLOCK_PREFIX, slot.to_be_bytes());
                 let header_id: [u8; 32] = header_id.into();
                 batch.put(key, Bytes::copy_from_slice(&header_id));
@@ -68,6 +69,7 @@ impl StorageChainApi for RocksBackend {
         &mut self,
         slot: Slot,
     ) -> Result<Option<HeaderId>, Self::Error> {
+        // use be_bytes to keep prefix ordering
         let key = key_bytes(IMMUTABLE_BLOCK_PREFIX, slot.to_be_bytes());
         self.load(&key)
             .await?
@@ -80,6 +82,7 @@ impl StorageChainApi for RocksBackend {
         slot_range: RangeInclusive<Slot>,
         limit: NonZeroUsize,
     ) -> Result<Vec<HeaderId>, Self::Error> {
+        // use be_bytes to keep prefix ordering
         let start_key = slot_range.start().to_be_bytes();
         let end_key = slot_range.end().to_be_bytes();
         let result = self

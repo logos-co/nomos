@@ -2,7 +2,7 @@ use nomos_core::mantle::keys::{PublicKey, SecretKey};
 use serde::{Deserialize, Serialize};
 use zeroize::ZeroizeOnDrop;
 
-use crate::keys::{KeyError, secured_key::SecuredKey};
+use crate::keys::{errors::KeyError, secured_key::SecuredKey};
 
 #[derive(Serialize, Deserialize, ZeroizeOnDrop)]
 pub struct ZkKey(pub(crate) SecretKey);

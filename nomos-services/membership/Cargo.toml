@@ -4,7 +4,7 @@ description = { workspace = true }
 edition     = { workspace = true }
 keywords    = { workspace = true }
 license     = { workspace = true }
-name        = "nomos-membership"
+name        = "nomos-membership-service"
 readme      = { workspace = true }
 repository  = { workspace = true }
 version     = { workspace = true }

@@ -13,8 +13,10 @@ version     = { workspace = true }
 workspace = true
 
 [dependencies]
-arc-swap                 = "1"
-async-trait              = "0.1"
+arc-swap    = "1"
+async-trait = "0.1"
+bitvec      = "1"
+
 blake2                   = { workspace = true }
 common-http-client       = { workspace = true }
 futures                  = { default-features = false, version = "0.3" }
@@ -27,7 +29,7 @@ nomos-core               = { workspace = true }
 nomos-da-messages        = { workspace = true }
 nomos-da-network-core    = { workspace = true }
 nomos-libp2p             = { workspace = true }
-nomos-membership         = { workspace = true }
+nomos-membership-service = { workspace = true }
 nomos-storage            = { workspace = true }
 nomos-tracing            = { workspace = true }
 nomos-utils              = { features = ["rng"], workspace = true }

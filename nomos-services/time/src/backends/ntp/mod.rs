@@ -71,7 +71,15 @@ impl TimeBackend for NtpTimeBackend {
             IntervalStream::new(update_interval)
                 .zip(futures::stream::repeat((client, ntp_server)))
                 .filter_map(move |(_, (client, ntp_server))| {
-                    Box::pin(async move { client.request_timestamp(ntp_server).await.ok() })
+                    Box::pin(async move {
+                        match client.request_timestamp(ntp_server.clone()).await {
+                            Ok(result) => Some(result),
+                            Err(e) => {
+                                tracing::warn!("NTP sync failed from {ntp_server}: {e}");
+                                None
+                            }
+                        }
+                    })
                 }),
         ));
         // compute the initial slot ticking stream

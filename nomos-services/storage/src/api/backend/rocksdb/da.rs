@@ -147,7 +147,7 @@ impl StorageDaApi for RocksBackend {
         sesion_id: SessionNumber,
         assignations: HashMap<Self::NetworkId, HashSet<Self::Id>>,
     ) -> Result<(), Self::Error> {
-        let session_bytes = sesion_id.to_be_bytes();
+        let session_bytes = sesion_id.to_le_bytes();
         let assignations_key = key_bytes(DA_ASSIGNATIONS_PREFIX, session_bytes);
         let serialized_assignations =
             <()>::serialize(&assignations).expect("Serialization of HashMap should not fail");
@@ -171,7 +171,7 @@ impl StorageDaApi for RocksBackend {
         &mut self,
         sesion_id: SessionNumber,
     ) -> Result<Option<HashMap<Self::NetworkId, HashSet<Self::Id>>>, Self::Error> {
-        let session_bytes = sesion_id.to_be_bytes();
+        let session_bytes = sesion_id.to_le_bytes();
         let assignations_key = key_bytes(DA_ASSIGNATIONS_PREFIX, session_bytes);
         let assignations_bytes = self.load(&assignations_key).await?;
 
@@ -250,7 +250,7 @@ impl StorageDaApi for RocksBackend {
             <()>::serialize(&tx).expect("Serialization of transaction should not fail");
 
         let mut serialized_tx = Vec::with_capacity(2 + serialized_tx_body.len());
-        serialized_tx.extend_from_slice(&assignations.to_be_bytes());
+        serialized_tx.extend_from_slice(&assignations.to_le_bytes());
         serialized_tx.extend_from_slice(&serialized_tx_body);
 
         self.store(tx_key, serialized_tx.into()).await
@@ -276,7 +276,7 @@ impl StorageDaApi for RocksBackend {
             }
         };
 
-        let assignations = u16::from_be_bytes(assignations_arr);
+        let assignations = u16::from_le_bytes(assignations_arr);
 
         let tx = match <Bytes as SerdeOp>::deserialize(&tx_bytes) {
             Ok(tx) => Some((assignations, tx)),

@@ -82,7 +82,7 @@ impl StorageMembershipApi for RocksBackend {
     }
 
     async fn save_latest_block(&mut self, block_number: BlockNumber) -> Result<(), DynError> {
-        let block_bytes = block_number.to_be_bytes();
+        let block_bytes = block_number.to_le_bytes();
 
         match self
             .store(
@@ -117,7 +117,7 @@ impl StorageMembershipApi for RocksBackend {
                 }
 
                 let block_bytes: [u8; 8] = bytes[..8].try_into().unwrap();
-                let block_number = BlockNumber::from_be_bytes(block_bytes);
+                let block_number = BlockNumber::from_le_bytes(block_bytes);
                 debug!("Successfully loaded latest block {}", block_number);
                 Ok(Some(block_number))
             }

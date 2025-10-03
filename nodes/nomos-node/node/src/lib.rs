@@ -81,12 +81,22 @@ pub(crate) type TracingService = Tracing<RuntimeServiceId>;
 
 pub(crate) type NetworkService = nomos_network::NetworkService<NetworkBackend, RuntimeServiceId>;
 
-pub(crate) type BlendCoreService = generic_services::blend::BlendCoreService<RuntimeServiceId>;
-pub(crate) type BlendEdgeService = generic_services::blend::BlendEdgeService<RuntimeServiceId>;
-pub(crate) type BlendService = generic_services::blend::BlendService<RuntimeServiceId>;
+pub(crate) type DaSamplingAdapter = SamplingLibp2pAdapter<
+    NomosDaMembership,
+    DaMembershipAdapter<RuntimeServiceId>,
+    DaMembershipStorage,
+    DaNetworkApiAdapter,
+    RuntimeServiceId,
+>;
+
+pub(crate) type BlendCoreService =
+    generic_services::blend::BlendCoreService<DaSamplingAdapter, RuntimeServiceId>;
+pub(crate) type BlendEdgeService =
+    generic_services::blend::BlendEdgeService<DaSamplingAdapter, RuntimeServiceId>;
+pub(crate) type BlendService =
+    generic_services::blend::BlendService<DaSamplingAdapter, RuntimeServiceId>;
 
 pub(crate) type BlockBroadcastService = broadcast_service::BlockBroadcastService<RuntimeServiceId>;
-
 pub(crate) type DaVerifierService = generic_services::DaVerifierService<
     VerifierNetworkAdapter<
         NomosDaMembership,
@@ -99,16 +109,8 @@ pub(crate) type DaVerifierService = generic_services::DaVerifierService<
     RuntimeServiceId,
 >;
 
-pub(crate) type DaSamplingService = generic_services::DaSamplingService<
-    SamplingLibp2pAdapter<
-        NomosDaMembership,
-        DaMembershipAdapter<RuntimeServiceId>,
-        DaMembershipStorage,
-        DaNetworkApiAdapter,
-        RuntimeServiceId,
-    >,
-    RuntimeServiceId,
->;
+pub(crate) type DaSamplingService =
+    generic_services::DaSamplingService<DaSamplingAdapter, RuntimeServiceId>;
 
 pub(crate) type DaNetworkService = nomos_da_network_service::NetworkService<
     DaNetworkValidatorBackend<NomosDaMembership>,
@@ -119,16 +121,8 @@ pub(crate) type DaNetworkService = nomos_da_network_service::NetworkService<
     RuntimeServiceId,
 >;
 
-pub(crate) type MempoolService = generic_services::TxMempoolService<
-    SamplingLibp2pAdapter<
-        NomosDaMembership,
-        DaMembershipAdapter<RuntimeServiceId>,
-        DaMembershipStorage,
-        DaNetworkApiAdapter,
-        RuntimeServiceId,
-    >,
-    RuntimeServiceId,
->;
+pub(crate) type MempoolService =
+    generic_services::TxMempoolService<DaSamplingAdapter, RuntimeServiceId>;
 
 pub(crate) type DaNetworkAdapter = nomos_da_sampling::network::adapters::validator::Libp2pAdapter<
     NomosDaMembership,
