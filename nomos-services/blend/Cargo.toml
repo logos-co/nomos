@@ -9,6 +9,7 @@ workspace = true
 
 [dependencies]
 async-trait              = "0.1"
+cryptarchia-engine       = { workspace = true }
 fork_stream              = { workspace = true }
 futures                  = { default-features = false, version = "0.3" }
 groth16                  = { default-features = false, workspace = true }

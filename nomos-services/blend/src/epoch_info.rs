@@ -1,12 +1,12 @@
 use async_trait::async_trait;
+use cryptarchia_engine::Epoch;
 use futures::Stream;
 use nomos_blend_message::crypto::proofs::quota::inputs::prove::private::ProofOfLeadershipQuotaInputs;
-use nomos_core::crypto::ZkHash;
 use overwatch::overwatch::OverwatchHandle;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PolEpochInfo {
-    pub epoch_nonce: ZkHash,
+    pub epoch: Epoch,
     pub poq_private_inputs: ProofOfLeadershipQuotaInputs,
 }
 
