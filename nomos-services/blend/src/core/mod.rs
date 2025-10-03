@@ -358,7 +358,7 @@ where
         // ready, hence this should always be called after `notify_ready();`.
         // Also, Blend services start even if such a stream is not immediately
         // available, since they will simply keep blending cover messages.
-        let _pol_epoch_stream = timeout(
+        let mut pol_epoch_stream = timeout(
             Duration::from_secs(3),
             PolInfoProvider::subscribe(overwatch_handle)
                 .map(|r| r.expect("PoL slot info provider failed to return a usable stream.")),
@@ -400,6 +400,9 @@ where
                     if let Some(new_epoch_info) = new_epoch_info {
                         tracing::trace!(target: LOG_TARGET, "New epoch info received. {new_epoch_info:?}");
                     }
+                }
+                Some(pol_info) = pol_epoch_stream.next() => {
+                    tracing::trace!(target: LOG_TARGET, "Received new winning slot info: {:?}", pol_info);
                 }
                 Some(session_event) = service_session_stream.next() => {
                     match handle_session_event(session_event, crypto_processor, &blend_config) {

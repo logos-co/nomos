@@ -10,7 +10,7 @@ use nomos_ledger::EpochState;
 use nomos_time::SlotTick;
 use overwatch::overwatch::OverwatchHandle;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PolEpochInfo {
     pub epoch: Epoch,
     pub poq_private_inputs: ProofOfLeadershipQuotaInputs,
