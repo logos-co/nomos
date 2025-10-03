@@ -14,6 +14,12 @@ use crate::storage::MembershipStorageAdapter;
 
 const OPINION_THRESHOLD: u32 = 10;
 
+pub enum OpinionResult {
+    Opinions(Opinions),
+    InsufficientData, // Not enough sessions to form opinions yet
+    Error(DynError),
+}
+
 pub struct OpinionAggregator<Membership, Storage> {
     storage: Storage,
 
@@ -139,19 +145,20 @@ where
         }
     }
 
-    pub async fn handle_session_change(
-        &mut self,
-        new_membership: Membership,
-    ) -> Result<Option<Opinions>, DynError> {
+    pub async fn handle_session_change(&mut self, new_membership: Membership) -> OpinionResult {
         self.previous_membership = self.current_membership.take();
         self.current_membership = Some(new_membership);
 
+        // Need both current and previous to generate opinions
         let opinions = match (
             self.current_membership.as_ref(),
             self.previous_membership.as_ref(),
         ) {
-            (Some(_), Some(_)) => Some(self.generate_opinions().await?),
-            _ => None,
+            (Some(_), Some(_)) => match self.generate_opinions().await {
+                Ok(opinions) => OpinionResult::Opinions(opinions),
+                Err(e) => return OpinionResult::Error(e),
+            },
+            _ => return OpinionResult::InsufficientData,
         };
 
         self.positive_opinions.clear();
@@ -177,7 +184,7 @@ where
             }
         }
 
-        Ok(opinions)
+        opinions
     }
 
     async fn generate_opinions(&self) -> Result<Opinions, DynError> {
@@ -320,10 +327,17 @@ mod tests {
             .unwrap();
 
         // First session
-        let result = aggregator.handle_session_change(membership1.clone()).await; // ← Also add .clone() here
-        assert!(result.unwrap().is_none());
+        let result = aggregator.handle_session_change(membership1.clone()).await;
+        match result {
+            OpinionResult::InsufficientData => {
+                // Expected: cannot form valid Activity Proof with only one
+                // session
+            }
+            OpinionResult::Opinions(_) => panic!("Should not have opinions on first session"),
+            OpinionResult::Error(e) => panic!("Unexpected error: {e}"),
+        }
 
-        // Second session - FIX: update FROM membership1, not base_membership
+        // Second session - should generate valid opinions with both new and old
         let membership2 = membership1.update(2, peer_ids, &mut rng);
         storage
             .store(2, membership2.subnetworks(), mappings)
@@ -331,14 +345,16 @@ mod tests {
             .unwrap();
 
         let result = aggregator.handle_session_change(membership2).await;
-        assert!(result.is_ok());
-
-        let opinions = result.unwrap();
-        assert!(opinions.is_some());
-
-        let opinions = opinions.unwrap();
-        assert_eq!(opinions.session_id, 2);
-        assert_eq!(opinions.new_opinions.len(), peers.len());
-        assert_eq!(opinions.old_opinions.len(), peers.len());
+        match result {
+            OpinionResult::Opinions(opinions) => {
+                assert_eq!(opinions.session_id, 2);
+                assert_eq!(opinions.new_opinions.len(), peers.len());
+                assert_eq!(opinions.old_opinions.len(), peers.len());
+            }
+            OpinionResult::InsufficientData => {
+                panic!("Should have sufficient data on second session")
+            }
+            OpinionResult::Error(e) => panic!("Unexpected error: {e}"),
+        }
     }
 }

@@ -52,7 +52,7 @@ use crate::{
         MembershipAdapter,
         handler::{DaMembershipHandler, SharedMembershipHandler},
     },
-    opinion_aggregator::OpinionAggregator,
+    opinion_aggregator::{OpinionAggregator, OpinionResult},
 };
 
 pub type DaAddressbook = AddressBook;
@@ -611,19 +611,21 @@ where
             .handle_session_change(current_membership)
             .await
         {
-            Ok(Some(opinions)) => {
+            OpinionResult::Opinions(opinions) => {
                 tracing::debug!(
-                    "Processing opinions - session_id: {}, new_opinions: {}, old_opinions: {}",
+                    "Generated opinions - session_id: {}, new_opinions: {}, old_opinions: {}",
                     opinions.session_id,
                     opinions.new_opinions,
                     opinions.old_opinions
                 );
                 // todo: sdp_adapter.process_opinions(opinions).await;
             }
-            Ok(None) => {
-                tracing::debug!("No opinions generated yet");
+            OpinionResult::InsufficientData => {
+                tracing::debug!(
+                    "Insufficient data to generate opinions (first session), skip forming session"
+                );
             }
-            Err(e) => {
+            OpinionResult::Error(e) => {
                 tracing::error!("Failed to generate opinions: {e}");
             }
         }
