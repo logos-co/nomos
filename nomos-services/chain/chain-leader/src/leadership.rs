@@ -17,10 +17,6 @@ use tokio::sync::broadcast::Sender;
 #[derive(Clone)]
 pub struct Leader {
     sk: SecretKey,
-    #[cfg_attr(
-        not(feature = "pol-dev-mode"),
-        expect(dead_code, reason = "Config is only used in pol-dev-mode")
-    )]
     config: nomos_ledger::Config,
 }
 
