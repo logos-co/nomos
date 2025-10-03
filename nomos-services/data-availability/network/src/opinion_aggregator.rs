@@ -180,18 +180,9 @@ where
     }
 
     async fn generate_opinions(&self) -> OpinionResult {
-        // Check if we have both memberships needed for valid Activity Proof
-        let (Some(current), Some(previous)) = (
-            self.current_membership.as_ref(),
-            self.previous_membership.as_ref(),
-        ) else {
+        let Some(current) = self.current_membership.as_ref() else {
             return OpinionResult::InsufficientData;
         };
-
-        let include_self_in_old = previous
-            .members()
-            .into_iter()
-            .any(|id| id == self.local_peer_id);
 
         let new_opinions = match self
             .peer_opinions_to_provider_bitvec(
@@ -206,17 +197,28 @@ where
             Err(e) => return OpinionResult::Error(e),
         };
 
-        let old_opinions = match self
-            .peer_opinions_to_provider_bitvec(
-                previous.members().into_iter(),
-                &self.old_positive_opinions,
-                &self.old_negative_opinions,
-                include_self_in_old,
-            )
-            .await
-        {
-            Ok(bv) => bv,
-            Err(e) => return OpinionResult::Error(e),
+        let old_opinions = if let Some(previous) = self.previous_membership.as_ref() {
+            let include_self_in_old = previous
+                .members()
+                .into_iter()
+                .any(|id| id == self.local_peer_id);
+
+            match self
+                .peer_opinions_to_provider_bitvec(
+                    previous.members().into_iter(),
+                    &self.old_positive_opinions,
+                    &self.old_negative_opinions,
+                    include_self_in_old,
+                )
+                .await
+            {
+                Ok(bv) => bv,
+                Err(e) => return OpinionResult::Error(e),
+            }
+        } else {
+            // First session after genesis: empty bitvec (the case when there are no
+            // previous session opinions)
+            BitVec::new()
         };
 
         OpinionResult::Opinions(Opinions {
@@ -328,14 +330,17 @@ mod tests {
             .await
             .unwrap();
 
-        // First session
+        // First session - should return opinions with empty old_opinions
         let result = aggregator.handle_session_change(membership1.clone()).await;
         match result {
             OpinionResult::InsufficientData => {
-                // Expected: cannot form valid Activity Proof with only one
-                // session
+                panic!("Should return proof with empty vec for old opinions")
             }
-            OpinionResult::Opinions(_) => panic!("Should not have opinions on first session"),
+            OpinionResult::Opinions(opinions) => {
+                assert_eq!(opinions.session_id, 1);
+                assert_eq!(opinions.new_opinions.len(), peers.len());
+                assert_eq!(opinions.old_opinions.len(), 0);
+            }
             OpinionResult::Error(e) => panic!("Unexpected error: {e}"),
         }
 
