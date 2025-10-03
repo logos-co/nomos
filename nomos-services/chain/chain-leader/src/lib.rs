@@ -391,7 +391,6 @@ where
                             }
                         };
 
-                        let aged_tree = tip_state.aged_commitments();
                         let latest_tree = tip_state.latest_commitments();
 
                         let epoch_state = match cryptarchia_api.get_epoch_state(slot).await {
@@ -416,7 +415,7 @@ where
 
                         winning_pol_slot_notifier.process_epoch(&epoch_state);
 
-                        if let Some(proof) = leader.build_proof_for(&eligible_utxos, aged_tree, latest_tree, &epoch_state, slot).await {
+                        if let Some(proof) = leader.build_proof_for(&eligible_utxos, latest_tree, &epoch_state, slot).await {
                             // TODO: spawn as a separate task?
                             let block = Self::propose_block(
                                 parent,

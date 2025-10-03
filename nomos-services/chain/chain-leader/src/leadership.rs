@@ -1,6 +1,4 @@
 use cryptarchia_engine::{Epoch, Slot};
-use ed25519_dalek::VerifyingKey;
-use groth16::Fr;
 use nomos_core::{
     mantle::{
         Utxo,
@@ -8,7 +6,6 @@ use nomos_core::{
         ops::leader_claim::VoucherCm,
     },
     proofs::leader_proof::{Groth16LeaderProof, LeaderPrivate, LeaderPublic},
-    utils::merkle::MerklePath,
 };
 use nomos_ledger::{EpochState, UtxoTree};
 use serde::{Deserialize, Serialize};
@@ -44,31 +41,24 @@ impl Leader {
         slot: Slot,
     ) -> Option<Groth16LeaderProof> {
         for utxo in utxos {
-            let Some(_aged_witness) = aged_tree.witness(&utxo.id()) else {
-                continue;
-            };
-            let Some(_latest_witness) = latest_tree.witness(&utxo.id()) else {
+            let Some(public_inputs) = public_inputs_for_utxo(utxo, epoch_state, slot, latest_tree)
+            else {
                 continue;
             };
 
             let note_id = utxo.note.id();
-            let public_inputs = LeaderPublic::new(
-                aged_tree.root(),
-                latest_tree.root(),
-                epoch_state.nonce,
-                slot.into(),
-                epoch_state.total_stake(),
-            );
+            let secret_key = self.slot_secret_key(slot);
 
             #[cfg(feature = "pol-dev-mode")]
             let winning = public_inputs.check_winning_dev(
                 utxo.note.value,
                 note_id,
-                *self.sk.as_fr(),
+                *secret_key.as_fr(),
                 self.config.consensus_config.active_slot_coeff,
             );
             #[cfg(not(feature = "pol-dev-mode"))]
-            let winning = public_inputs.check_winning(utxo.note.value, note_id, *self.sk.as_fr());
+            let winning =
+                public_inputs.check_winning(utxo.note.value, note_id, *secret_key.as_fr());
 
             if winning {
                 tracing::debug!(
@@ -78,26 +68,12 @@ impl Leader {
                     epoch_state.total_stake()
                 );
 
-                // TODO: Get the actual witness paths and leader key
-                let aged_path = path_for_aged_utxo(utxo);
-                let latest_path = Vec::new();
-                let slot_secret = self.secret_for_slot(slot);
-                let starting_slot: u64 = self
-                    .config
-                    .epoch_config
-                    .starting_slot(&epoch_state.epoch)
-                    .into();
-                let leader_pk = leader_pk();
-
-                let private_inputs = LeaderPrivate::new(
+                let private_inputs = self.private_inputs_for_winning_utxo_and_slot(
+                    utxo,
+                    epoch_state.epoch,
                     public_inputs,
-                    *utxo,
-                    &aged_path,
-                    &latest_path,
-                    slot_secret,
-                    starting_slot,
-                    &leader_pk,
                 );
+
                 let res = tokio::task::spawn_blocking(move || {
                     Groth16LeaderProof::prove(
                         private_inputs,
@@ -127,8 +103,28 @@ impl Leader {
         None
     }
 
-    const fn secret_for_slot(&self, _slot: Slot) -> Fr {
-        *self.sk.as_fr()
+    fn private_inputs_for_winning_utxo_and_slot(
+        &self,
+        utxo: &Utxo,
+        epoch: Epoch,
+        public_inputs: LeaderPublic,
+    ) -> LeaderPrivate {
+        // TODO: Get the actual witness paths and leader key
+        let aged_path = Vec::new(); // Placeholder for aged path
+        let latest_path = Vec::new();
+        let slot_secret = *self.sk.as_fr();
+        let starting_slot = self.config.epoch_config.starting_slot(&epoch).into();
+        let leader_pk = ed25519_dalek::VerifyingKey::from_bytes(&[0; 32]).unwrap(); // TODO: get actual leader public key
+
+        LeaderPrivate::new(
+            public_inputs,
+            *utxo,
+            &aged_path,
+            &latest_path,
+            slot_secret,
+            starting_slot,
+            &leader_pk,
+        )
     }
 
     fn slot_secret_key(&self, _slot: Slot) -> SecretKey {
@@ -136,12 +132,21 @@ impl Leader {
     }
 }
 
-fn leader_pk() -> VerifyingKey {
-    VerifyingKey::from_bytes(&[0; 32]).unwrap() // TODO: get actual leader public key
-}
-
-const fn path_for_aged_utxo(_utxo: &Utxo) -> MerklePath<Fr> {
-    MerklePath::new() // Placeholder for aged path
+fn public_inputs_for_utxo(
+    utxo: &Utxo,
+    epoch_state: &EpochState,
+    slot: Slot,
+    latest_tree: &UtxoTree,
+) -> Option<LeaderPublic> {
+    let () = epoch_state.utxos.witness(&utxo.id())?;
+    let () = latest_tree.witness(&utxo.id())?;
+    Some(LeaderPublic::new(
+        epoch_state.utxos.root(),
+        latest_tree.root(),
+        epoch_state.nonce,
+        slot.into(),
+        epoch_state.total_stake(),
+    ))
 }
 
 /// Process every tick and reacts to the very first one received and the first
@@ -185,8 +190,6 @@ impl<'service> WinningPoLSlotNotifier<'service> {
     }
 
     fn check_epoch_winning_utxos(&mut self, epoch_state: &EpochState) {
-        use groth16::Field as _;
-
         let slots_per_epoch = self.leader.config.epoch_length();
         let epoch_starting_slot: u64 = self
             .leader
@@ -194,38 +197,34 @@ impl<'service> WinningPoLSlotNotifier<'service> {
             .epoch_config
             .starting_slot(&epoch_state.epoch)
             .into();
-        let aged_root = epoch_state.utxos.root();
-        let epoch_nonce = epoch_state.nonce();
-        let total_stake = epoch_state.total_stake();
         // Not used to check if a slot wins the lottery.
-        let latest_root = Fr::ZERO;
+        let latest_tree = UtxoTree::new();
 
         for utxo in &self.leader.utxos {
             let note_id = utxo.note.id();
+
             for offset in 0..slots_per_epoch {
                 let slot = epoch_starting_slot
                     .checked_add(offset)
                     .expect("Slot calculation overflow.");
                 let secret_key = self.leader.slot_secret_key(slot.into());
-                let leader_public =
-                    LeaderPublic::new(aged_root, latest_root, *epoch_nonce, slot, total_stake);
-                if !leader_public.check_winning(utxo.note.value, note_id, *secret_key.as_fr()) {
+
+                let Some(public_inputs) =
+                    public_inputs_for_utxo(utxo, epoch_state, slot.into(), &latest_tree)
+                else {
+                    continue;
+                };
+                if !public_inputs.check_winning(utxo.note.value, note_id, *secret_key.as_fr()) {
                     continue;
                 }
                 tracing::debug!("Found winning utxo with ID {:?} for slot {slot}", utxo.id());
 
-                let aged_path = path_for_aged_utxo(utxo);
-                let slot_secret = self.leader.secret_for_slot(slot.into());
-
-                let leader_private = LeaderPrivate::new(
-                    leader_public,
-                    *utxo,
-                    &aged_path,
-                    &vec![],
-                    slot_secret,
-                    epoch_starting_slot,
-                    &leader_pk(),
+                let leader_private = self.leader.private_inputs_for_winning_utxo_and_slot(
+                    utxo,
+                    epoch_state.epoch,
+                    public_inputs,
                 );
+
                 if let Err(err) =
                     self.sender
                         .send((leader_private, secret_key.clone(), epoch_state.epoch))
