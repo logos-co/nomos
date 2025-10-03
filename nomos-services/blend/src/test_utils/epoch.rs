@@ -21,10 +21,10 @@ pub fn default_epoch_state() -> EpochState {
 }
 
 #[derive(Clone)]
-pub struct ChainService;
+pub struct TestChainService;
 
 #[async_trait]
-impl<RuntimeServiceId> ChainApi<RuntimeServiceId> for ChainService {
+impl<RuntimeServiceId> ChainApi<RuntimeServiceId> for TestChainService {
     async fn new(_: &OverwatchHandle<RuntimeServiceId>) -> Self {
         Self
     }

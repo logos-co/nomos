@@ -19,10 +19,11 @@ use tokio_stream::wrappers::ReceiverStream;
 
 use crate::{
     edge::{backends::BlendBackend, handlers::Error, run, settings::BlendConfig},
+    epoch::EpochHandler,
     mock_poq_inputs_stream,
     session::SessionInfo,
     settings::{FIRST_SESSION_READY_TIMEOUT, TimingSettings},
-    test_utils::{crypto::MockProofsGenerator, membership::key},
+    test_utils::{crypto::MockProofsGenerator, epoch::TestChainService, membership::key},
 };
 
 pub async fn spawn_run(
@@ -64,7 +65,7 @@ pub async fn spawn_run(
         });
 
     let join_handle = tokio::spawn(async move {
-        run::<TestBackend, _, MockProofsGenerator, _>(
+        run::<TestBackend, _, MockProofsGenerator, _, _>(
             UninitializedSessionEventStream::new(
                 aggregated_session_stream,
                 FIRST_SESSION_READY_TIMEOUT,
@@ -73,6 +74,7 @@ pub async fn spawn_run(
                 Duration::ZERO,
             ),
             pending(),
+            EpochHandler::new(TestChainService),
             ReceiverStream::new(msg_receiver),
             &settings(local_node, minimal_network_size, node_id_sender),
             &overwatch_handle(),
