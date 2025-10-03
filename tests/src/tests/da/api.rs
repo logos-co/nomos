@@ -201,7 +201,7 @@ async fn test_get_shares() {
     let shares = shares_stream.collect::<Vec<_>>().await;
     assert_eq!(shares.len(), num_subnets);
     assert!(shares.iter().any(|share| share.share_idx() == [0, 0]));
-    assert!(shares.iter().any(|share| share.share_idx() == [0, 1]));
+    assert!(shares.iter().any(|share| share.share_idx() == [1, 0]));
 
     // Test case 2: Request only the first share
     let shares_stream = client
@@ -233,7 +233,7 @@ async fn test_get_shares() {
     let shares = shares_stream.collect::<Vec<_>>().await;
     assert_eq!(shares.len(), num_subnets);
     assert!(shares.iter().any(|share| share.share_idx() == [0, 0]));
-    assert!(shares.iter().any(|share| share.share_idx() == [0, 1]));
+    assert!(shares.iter().any(|share| share.share_idx() == [1, 0]));
 
     // Test case 4: Request all shares and filter out the second share
     let shares_stream = client
@@ -241,7 +241,7 @@ async fn test_get_shares() {
             exec_url.clone(),
             blob_id,
             HashSet::new(),
-            HashSet::from([[0, 1]]),
+            HashSet::from([[1, 0]]),
             true,
         )
         .await
@@ -255,7 +255,7 @@ async fn test_get_shares() {
         .get_shares::<DaShare>(
             exec_url.clone(),
             blob_id,
-            HashSet::from([[0, 2]]),
+            HashSet::from([[2, 0]]),
             HashSet::new(),
             false,
         )

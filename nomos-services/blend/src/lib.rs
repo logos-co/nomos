@@ -7,7 +7,12 @@ use std::{
 
 use async_trait::async_trait;
 use futures::{Stream, StreamExt as _};
-pub use nomos_blend_message::{crypto::proofs::RealProofsVerifier, encap::ProofsVerifier};
+pub use nomos_blend_message::{
+    crypto::proofs::{
+        RealProofsVerifier, quota::inputs::prove::private::ProofOfLeadershipQuotaInputs,
+    },
+    encap::ProofsVerifier,
+};
 pub use nomos_blend_scheduling::message_blend::{ProofsGenerator, RealProofsGenerator};
 use nomos_blend_scheduling::{
     message_blend::{PrivateInputs, PublicInputs},

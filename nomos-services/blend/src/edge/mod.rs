@@ -14,7 +14,7 @@ use std::{
 
 use backends::BlendBackend;
 use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
-use futures::{Stream, StreamExt as _};
+use futures::{FutureExt as _, Stream, StreamExt as _};
 use nomos_blend_scheduling::{
     message_blend::{ProofsGenerator as ProofsGeneratorTrait, SessionInfo as PoQSessionInfo},
     session::{SessionEvent, UninitializedSessionEventStream},
@@ -34,12 +34,12 @@ use serde::{Serialize, de::DeserializeOwned};
 pub(crate) use service_components::ServiceComponents;
 use services_utils::wait_until_services_are_ready;
 use settings::BlendConfig;
-use tokio::sync::oneshot;
+use tokio::{sync::oneshot, time::timeout};
 use tracing::{debug, error, info};
 
 use crate::{
     edge::handlers::{Error, MessageHandler},
-    epoch::{ChainApi, EpochHandler},
+    epoch::{ChainApi, EpochHandler, PolInfoProvider as PolInfoProviderTrait},
     membership,
     message::{NetworkMessage, ServiceMessage},
     mock_poq_inputs_stream,
@@ -57,6 +57,7 @@ pub struct BlendService<
     ProofsGenerator,
     TimeBackend,
     ChainService,
+    PolInfoProvider,
     RuntimeServiceId,
 > where
     Backend: BlendBackend<NodeId, RuntimeServiceId>,
@@ -68,6 +69,7 @@ pub struct BlendService<
         ProofsGenerator,
         TimeBackend,
         ChainService,
+        PolInfoProvider,
     )>,
 }
 
@@ -79,6 +81,7 @@ impl<
     ProofsGenerator,
     TimeBackend,
     ChainService,
+    PolInfoProvider,
     RuntimeServiceId,
 > ServiceData
     for BlendService<
@@ -89,6 +92,7 @@ impl<
         ProofsGenerator,
         TimeBackend,
         ChainService,
+        PolInfoProvider,
         RuntimeServiceId,
     >
 where
@@ -110,6 +114,7 @@ impl<
     ProofsGenerator,
     TimeBackend,
     ChainService,
+    PolInfoProvider,
     RuntimeServiceId,
 > ServiceCore<RuntimeServiceId>
     for BlendService<
@@ -120,6 +125,7 @@ impl<
         ProofsGenerator,
         TimeBackend,
         ChainService,
+        PolInfoProvider,
         RuntimeServiceId,
     >
 where
@@ -131,6 +137,7 @@ where
     ProofsGenerator: ProofsGeneratorTrait + Send,
     TimeBackend: nomos_time::backends::TimeBackend + Send,
     ChainService: CryptarchiaServiceData<Tx: Send + Sync>,
+    PolInfoProvider: PolInfoProviderTrait<RuntimeServiceId, Stream: Send + Unpin + 'static> + Send,
     RuntimeServiceId: AsServiceId<<MembershipAdapter as membership::Adapter>::Service>
         + AsServiceId<Self>
         + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>
@@ -244,7 +251,7 @@ where
                 .to_vec()
         });
 
-        run::<Backend, _, ProofsGenerator, _, _>(
+        run::<Backend, _, ProofsGenerator, _, PolInfoProvider, _>(
             uninitialized_session_stream,
             clock_stream,
             epoch_handler,
@@ -280,7 +287,7 @@ where
 /// - If the initial membership is not yielded immediately from the session
 ///   stream.
 /// - If the initial membership does not satisfy the edge node condition.
-async fn run<Backend, NodeId, ProofsGenerator, ChainService, RuntimeServiceId>(
+async fn run<Backend, NodeId, ProofsGenerator, ChainService, PolInfoProvider, RuntimeServiceId>(
     session_stream: UninitializedSessionEventStream<
         impl Stream<Item = SessionInfo<NodeId>> + Unpin,
     >,
@@ -296,6 +303,7 @@ where
     NodeId: Clone + Eq + Hash + Send + Sync + 'static,
     ProofsGenerator: ProofsGeneratorTrait,
     ChainService: ChainApi<RuntimeServiceId>,
+    PolInfoProvider: PolInfoProviderTrait<RuntimeServiceId>,
     RuntimeServiceId: Clone,
 {
     let (session_info, mut session_stream) = session_stream
@@ -318,6 +326,19 @@ where
         .expect("The initial membership should satisfy the edge node condition");
 
     notify_ready();
+
+    // There might be services that depend on Blend to be ready before starting, so
+    // we cannot wait for the stream to be sent before we signal we are
+    // ready, hence this should always be called after `notify_ready();`.
+    // Also, Blend services start even if such a stream is not immediately
+    // available, since they will simply keep blending cover messages.
+    let _pol_epoch_stream = timeout(
+        Duration::from_secs(3),
+        PolInfoProvider::subscribe(overwatch_handle)
+            .map(|r| r.expect("PoL slot info provider failed to return a usable stream.")),
+    )
+    .await
+    .expect("PoL slot info provider not received within the expected timeout.");
 
     loop {
         tokio::select! {

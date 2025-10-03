@@ -42,7 +42,7 @@ fn get_packed_message_size(packed_message: &[u8]) -> Result<usize> {
 fn prepare_message_for_writer(packed_message: &[u8]) -> Result<Vec<u8>> {
     let data_length = get_packed_message_size(packed_message)?;
     let mut buffer = Vec::with_capacity(MAX_MSG_LEN_BYTES + data_length);
-    buffer.extend_from_slice(&(data_length as LenType).to_be_bytes());
+    buffer.extend_from_slice(&(data_length as LenType).to_le_bytes());
     buffer.extend_from_slice(packed_message);
     Ok(buffer)
 }
@@ -63,7 +63,7 @@ where
 {
     let mut length_prefix = [0u8; MAX_MSG_LEN_BYTES];
     reader.read_exact(&mut length_prefix).await?;
-    let s = LenType::from_be_bytes(length_prefix) as usize;
+    let s = LenType::from_le_bytes(length_prefix) as usize;
     Ok(s)
 }
 

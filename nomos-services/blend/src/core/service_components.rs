@@ -25,6 +25,7 @@ impl<
     ProofsVerifier,
     TimeBackend,
     ChainService,
+    PolInfoProvider,
     RuntimeServiceId,
 > ServiceComponents<RuntimeServiceId>
     for BlendService<
@@ -36,6 +37,7 @@ impl<
         ProofsVerifier,
         TimeBackend,
         ChainService,
+        PolInfoProvider,
         RuntimeServiceId,
     >
 where

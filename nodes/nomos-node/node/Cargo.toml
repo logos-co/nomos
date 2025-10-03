@@ -49,12 +49,14 @@ nomos-tracing-service    = { workspace = true }
 nomos-wallet             = { workspace = true }
 num-bigint               = { version = "0.4", default-features = false }
 overwatch                = { workspace = true }
+pol                      = { workspace = true }
 serde                    = { default-features = false, version = "1" }
 serde_json               = { workspace = true }
 serde_yaml               = { workspace = true }
 services-utils           = { workspace = true }
 subnetworks-assignations = { workspace = true }
 tokio                    = "1"
+tokio-stream             = { default-features = false, version = "0.1" }
 tracing                  = { workspace = true }
 tx-service               = { workspace = true }
 

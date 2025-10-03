@@ -14,7 +14,7 @@ use async_trait::async_trait;
 use backends::BlendBackend;
 use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 use fork_stream::StreamExt as _;
-use futures::{Stream, StreamExt as _, future::join_all};
+use futures::{FutureExt as _, Stream, StreamExt as _, future::join_all};
 use network::NetworkAdapter;
 use nomos_blend_message::{
     PayloadType,
@@ -43,7 +43,7 @@ use overwatch::{
 use rand::{RngCore, SeedableRng as _, seq::SliceRandom as _};
 use serde::{Deserialize, Serialize};
 use services_utils::wait_until_services_are_ready;
-use tokio::sync::oneshot;
+use tokio::{sync::oneshot, time::timeout};
 use tracing::info;
 
 use crate::{
@@ -52,7 +52,7 @@ use crate::{
         processor::{CoreCryptographicProcessor, Error},
         settings::BlendConfig,
     },
-    epoch::EpochHandler,
+    epoch::{EpochHandler, PolInfoProvider as PolInfoProviderTrait},
     membership,
     message::{NetworkMessage, ProcessedMessage, ServiceMessage},
     mock_poq_inputs_stream,
@@ -80,6 +80,7 @@ pub struct BlendService<
     ProofsVerifier,
     TimeBackend,
     ChainService,
+    PolInfoProvider,
     RuntimeServiceId,
 > where
     Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId>,
@@ -92,6 +93,7 @@ pub struct BlendService<
         ProofsGenerator,
         TimeBackend,
         ChainService,
+        PolInfoProvider,
     )>,
 }
 
@@ -104,6 +106,7 @@ impl<
     ProofsVerifier,
     TimeBackend,
     ChainService,
+    PolInfoProvider,
     RuntimeServiceId,
 > ServiceData
     for BlendService<
@@ -115,6 +118,7 @@ impl<
         ProofsVerifier,
         TimeBackend,
         ChainService,
+        PolInfoProvider,
         RuntimeServiceId,
     >
 where
@@ -137,6 +141,7 @@ impl<
     ProofsVerifier,
     TimeBackend,
     ChainService,
+    PolInfoProvider,
     RuntimeServiceId,
 > ServiceCore<RuntimeServiceId>
     for BlendService<
@@ -148,6 +153,7 @@ impl<
         ProofsVerifier,
         TimeBackend,
         ChainService,
+        PolInfoProvider,
         RuntimeServiceId,
     >
 where
@@ -160,6 +166,7 @@ where
     ProofsVerifier: ProofsVerifierTrait + Clone + Send,
     TimeBackend: nomos_time::backends::TimeBackend + Send,
     ChainService: CryptarchiaServiceData<Tx: Send + Sync>,
+    PolInfoProvider: PolInfoProviderTrait<RuntimeServiceId, Stream: Send + Unpin + 'static> + Send,
     RuntimeServiceId: AsServiceId<NetworkService<Network::Backend, RuntimeServiceId>>
         + AsServiceId<<MembershipAdapter as membership::Adapter>::Service>
         + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>
@@ -345,6 +352,19 @@ where
             "Service '{}' is ready.",
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
+
+        // There might be services that depend on Blend to be ready before starting, so
+        // we cannot wait for the stream to be sent before we signal we are
+        // ready, hence this should always be called after `notify_ready();`.
+        // Also, Blend services start even if such a stream is not immediately
+        // available, since they will simply keep blending cover messages.
+        let _pol_epoch_stream = timeout(
+            Duration::from_secs(3),
+            PolInfoProvider::subscribe(overwatch_handle)
+                .map(|r| r.expect("PoL slot info provider failed to return a usable stream.")),
+        )
+        .await
+        .expect("PoL slot info provider not received within the expected timeout.");
 
         // Maps the original (membership, session info) by transforming the tuple into
         // the required struct, nothing else.

@@ -98,7 +98,7 @@ impl Leader {
                 );
                 let res = tokio::task::spawn_blocking(move || {
                     Groth16LeaderProof::prove(
-                        &private_inputs,
+                        private_inputs,
                         VoucherCm::default(), // TODO: use actual voucher commitment
                     )
                 })

@@ -3,10 +3,27 @@ use core::{cmp::Ordering, fmt::Debug, marker::PhantomData};
 use async_trait::async_trait;
 use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 use cryptarchia_engine::Slot;
+use futures::Stream;
+use nomos_blend_message::crypto::proofs::quota::inputs::prove::private::ProofOfLeadershipQuotaInputs;
 use nomos_core::crypto::ZkHash;
 use nomos_ledger::EpochState;
 use nomos_time::SlotTick;
 use overwatch::overwatch::OverwatchHandle;
+
+#[derive(Clone)]
+pub struct PolEpochInfo {
+    pub epoch_nonce: ZkHash,
+    pub poq_private_inputs: ProofOfLeadershipQuotaInputs,
+}
+
+#[async_trait]
+pub trait PolInfoProvider<RuntimeServiceId> {
+    type Stream: Stream<Item = PolEpochInfo>;
+
+    async fn subscribe(
+        overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
+    ) -> Option<Self::Stream>;
+}
 
 const LOG_TARGET: &str = "blend::service::epoch";
 
