@@ -37,7 +37,7 @@ use tx_service::{
 
 use crate::{
     blend::BlendAdapter,
-    leadership::{Leader, PoLNotifier},
+    leadership::{Leader, WinningPoLSlotNotifier},
     relays::CryptarchiaConsensusRelays,
 };
 
@@ -300,7 +300,8 @@ where
         // TODO: check active slot coeff is exactly 1/30
 
         let leader = Leader::new(leader_config.utxos.clone(), leader_config.sk, ledger_config);
-        let pol_notifier = PoLNotifier::new(&leader, &self.winning_pol_epoch_slots_sender);
+        let mut winning_pol_slot_notifier =
+            WinningPoLSlotNotifier::new(&leader, &self.winning_pol_epoch_slots_sender);
 
         let tx_selector = TxS::new(transaction_selector_settings);
 
@@ -377,7 +378,7 @@ where
                             }
                         };
 
-                        pol_notifier.process_epoch(&epoch_state);
+                        winning_pol_slot_notifier.process_epoch(&epoch_state);
 
                         if let Some(proof) = leader.build_proof_for(aged_tree, latest_tree, &epoch_state, slot).await {
                             debug!("proposing block...");

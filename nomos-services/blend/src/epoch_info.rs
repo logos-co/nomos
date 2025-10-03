@@ -4,7 +4,7 @@ use futures::Stream;
 use nomos_blend_message::crypto::proofs::quota::inputs::prove::private::ProofOfLeadershipQuotaInputs;
 use overwatch::overwatch::OverwatchHandle;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PolEpochInfo {
     pub epoch: Epoch,
     pub poq_private_inputs: ProofOfLeadershipQuotaInputs,

@@ -149,13 +149,13 @@ const fn path_for_aged_utxo(_utxo: &Utxo) -> MerklePath<Fr> {
 ///
 /// Reacting to a tick means pre-calculating the winning slots for the epoch and
 /// notifying all consumers via the provided sender channel.
-pub struct PoLNotifier<'service> {
+pub struct WinningPoLSlotNotifier<'service> {
     leader: &'service Leader,
     sender: &'service Sender<(LeaderPrivate, SecretKey, Epoch)>,
     last_processed_epoch: Option<Epoch>,
 }
 
-impl<'service> PoLNotifier<'service> {
+impl<'service> WinningPoLSlotNotifier<'service> {
     pub(super) const fn new(
         leader: &'service Leader,
         sender: &'service Sender<(LeaderPrivate, SecretKey, Epoch)>,
@@ -167,7 +167,7 @@ impl<'service> PoLNotifier<'service> {
         }
     }
 
-    pub(super) fn process_epoch(&self, epoch_state: &EpochState) {
+    pub(super) fn process_epoch(&mut self, epoch_state: &EpochState) {
         if let Some(last_processed_epoch) = self.last_processed_epoch {
             if last_processed_epoch == epoch_state.epoch {
                 tracing::trace!("Skipping already processed epoch.");
@@ -184,7 +184,7 @@ impl<'service> PoLNotifier<'service> {
         self.check_epoch_winning_utxos(epoch_state);
     }
 
-    fn check_epoch_winning_utxos(&self, epoch_state: &EpochState) {
+    fn check_epoch_winning_utxos(&mut self, epoch_state: &EpochState) {
         use groth16::Field as _;
 
         let slots_per_epoch = self.leader.config.epoch_length();
@@ -236,5 +236,6 @@ impl<'service> PoLNotifier<'service> {
                 }
             }
         }
+        self.last_processed_epoch = Some(epoch_state.epoch);
     }
 }
