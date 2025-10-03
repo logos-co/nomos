@@ -89,7 +89,6 @@ mod test {
     use nomos_core::da::{DaEncoder as _, blob::Share as _};
 
     use crate::{
-        common::share::{DaLightShare, DaSharesCommitments},
         encoder::{DaEncoder, DaEncoderParams, test::rand_data},
         kzg_keys::VERIFICATION_KEY,
         verifier::DaVerifier,
@@ -192,6 +191,8 @@ mod test {
         max_batch_size: usize,
         configuration: &utils::Configuration,
     ) {
+        use crate::common::share::{DaLightShare, DaSharesCommitments};
+
         let domain_size = 2048usize;
         let encoder = DaEncoder::new(DaEncoderParams::default_with(domain_size));
         let mut shares: Vec<DaLightShare> = vec![];
