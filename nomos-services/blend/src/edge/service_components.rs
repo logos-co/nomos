@@ -17,6 +17,8 @@ impl<
     BroadcastSettings,
     MembershipAdapter,
     ProofsGenerator,
+    TimeBackend,
+    ChainService,
     PolInfoProvider,
     RuntimeServiceId,
 > ServiceComponents
@@ -26,6 +28,8 @@ impl<
         BroadcastSettings,
         MembershipAdapter,
         ProofsGenerator,
+        TimeBackend,
+        ChainService,
         PolInfoProvider,
         RuntimeServiceId,
     >

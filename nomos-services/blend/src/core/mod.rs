@@ -12,6 +12,7 @@ use std::{
 
 use async_trait::async_trait;
 use backends::BlendBackend;
+use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 use fork_stream::StreamExt as _;
 use futures::{FutureExt as _, Stream, StreamExt as _, future::join_all};
 use network::NetworkAdapter;
@@ -30,6 +31,7 @@ use nomos_blend_scheduling::{
 };
 use nomos_core::codec::SerdeOp;
 use nomos_network::NetworkService;
+use nomos_time::{TimeService, TimeServiceMessage};
 use nomos_utils::blake_rng::BlakeRng;
 use overwatch::{
     OpaqueServiceResourcesHandle,
@@ -41,7 +43,7 @@ use overwatch::{
 use rand::{RngCore, SeedableRng as _, seq::SliceRandom as _};
 use serde::{Deserialize, Serialize};
 use services_utils::wait_until_services_are_ready;
-use tokio::time::timeout;
+use tokio::{sync::oneshot, time::timeout};
 use tracing::info;
 
 use crate::{
@@ -50,7 +52,7 @@ use crate::{
         processor::{CoreCryptographicProcessor, Error},
         settings::BlendConfig,
     },
-    epoch_info::PolInfoProvider as PolInfoProviderTrait,
+    epoch_info::{EpochHandler, PolInfoProvider as PolInfoProviderTrait},
     membership,
     message::{NetworkMessage, ProcessedMessage, ServiceMessage},
     mock_poq_inputs_stream,
@@ -76,6 +78,8 @@ pub struct BlendService<
     MembershipAdapter,
     ProofsGenerator,
     ProofsVerifier,
+    TimeBackend,
+    ChainService,
     PolInfoProvider,
     RuntimeServiceId,
 > where
@@ -83,7 +87,14 @@ pub struct BlendService<
     Network: NetworkAdapter<RuntimeServiceId>,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-    _phantom: PhantomData<(Backend, MembershipAdapter, ProofsGenerator, PolInfoProvider)>,
+    _phantom: PhantomData<(
+        Backend,
+        MembershipAdapter,
+        ProofsGenerator,
+        TimeBackend,
+        ChainService,
+        PolInfoProvider,
+    )>,
 }
 
 impl<
@@ -93,6 +104,8 @@ impl<
     MembershipAdapter,
     ProofsGenerator,
     ProofsVerifier,
+    TimeBackend,
+    ChainService,
     PolInfoProvider,
     RuntimeServiceId,
 > ServiceData
@@ -103,6 +116,8 @@ impl<
         MembershipAdapter,
         ProofsGenerator,
         ProofsVerifier,
+        TimeBackend,
+        ChainService,
         PolInfoProvider,
         RuntimeServiceId,
     >
@@ -124,6 +139,8 @@ impl<
     MembershipAdapter,
     ProofsGenerator,
     ProofsVerifier,
+    TimeBackend,
+    ChainService,
     PolInfoProvider,
     RuntimeServiceId,
 > ServiceCore<RuntimeServiceId>
@@ -134,6 +151,8 @@ impl<
         MembershipAdapter,
         ProofsGenerator,
         ProofsVerifier,
+        TimeBackend,
+        ChainService,
         PolInfoProvider,
         RuntimeServiceId,
     >
@@ -145,15 +164,20 @@ where
     membership::ServiceMessage<MembershipAdapter>: Send + Sync + 'static,
     ProofsGenerator: ProofsGeneratorTrait + Send,
     ProofsVerifier: ProofsVerifierTrait + Clone + Send,
+    TimeBackend: nomos_time::backends::TimeBackend + Send,
+    ChainService: CryptarchiaServiceData<Tx: Send + Sync>,
     PolInfoProvider: PolInfoProviderTrait<RuntimeServiceId, Stream: Send + Unpin + 'static> + Send,
     RuntimeServiceId: AsServiceId<NetworkService<Network::Backend, RuntimeServiceId>>
         + AsServiceId<<MembershipAdapter as membership::Adapter>::Service>
+        + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>
+        + AsServiceId<ChainService>
         + AsServiceId<Self>
         + Clone
         + Debug
         + Display
         + Sync
         + Send
+        + Unpin
         + 'static,
 {
     fn init(
@@ -186,6 +210,7 @@ where
             &overwatch_handle,
             Some(Duration::from_secs(60)),
             NetworkService<_, _>,
+            TimeService<_, _>,
             <MembershipAdapter as membership::Adapter>::Service
         )
         .await?;
@@ -202,6 +227,32 @@ where
         .subscribe()
         .await
         .expect("Membership service should be ready");
+
+        let mut epoch_handler = async {
+            let chain_service = CryptarchiaServiceApi::<ChainService, _>::new(overwatch_handle)
+                .await
+                .expect("Failed to establish channel with chain service.");
+            EpochHandler::new(chain_service)
+        }
+        .await;
+
+        // TODO: Change this to also be a `UninitializedStream` which is expected to
+        // yield within a certain amount of time.
+        let mut clock_stream = async {
+            let time_relay = overwatch_handle
+                .relay::<TimeService<_, _>>()
+                .await
+                .expect("Relay with time service should be available.");
+            let (sender, receiver) = oneshot::channel();
+            time_relay
+                .send(TimeServiceMessage::Subscribe { sender })
+                .await
+                .expect("Failed to subscribe to slot clock.");
+            receiver
+                .await
+                .expect("Should not fail to receive slot stream from time service.")
+        }
+        .await;
 
         // TODO: Replace with actual service usage.
         let poq_input_stream = mock_poq_inputs_stream();
@@ -343,6 +394,12 @@ where
                 }
                 Some(round_info) = message_scheduler.next() => {
                     handle_release_round(round_info, &mut crypto_processor, &mut rng, &backend, &network_adapter).await;
+                }
+                Some(tick) = clock_stream.next() => {
+                    let new_epoch_info = epoch_handler.tick(tick).await;
+                    if let Some(new_epoch_info) = new_epoch_info {
+                        tracing::trace!(target: LOG_TARGET, "New epoch info received. {new_epoch_info:?}");
+                    }
                 }
                 Some(session_event) = service_session_stream.next() => {
                     match handle_session_event(session_event, crypto_processor, &blend_config) {
