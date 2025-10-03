@@ -5,11 +5,12 @@ use blake2::{
     digest::{Update as _, VariableOutput as _},
 };
 use groth16::Fr;
+use num_bigint::BigUint;
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::{
     codec::SerdeOp,
-    mantle::{Transaction, TransactionHasher},
+    mantle::{Transaction, TransactionHasher, TxHash},
 };
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, serde::Serialize, serde::Deserialize)]
@@ -111,5 +112,13 @@ impl TryFrom<&[u8]> for MockTxId {
 impl<M> From<&MockTransaction<M>> for MockTxId {
     fn from(msg: &MockTransaction<M>) -> Self {
         msg.id
+    }
+}
+
+impl From<MockTxId> for TxHash {
+    fn from(id: MockTxId) -> Self {
+        let bytes = id.0;
+        let big_uint = BigUint::from_bytes_be(&bytes);
+        Self::from(big_uint)
     }
 }

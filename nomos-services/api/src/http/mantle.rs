@@ -5,49 +5,68 @@ use broadcast_service::{BlockBroadcastMsg, BlockBroadcastService, BlockInfo};
 use futures::{Stream, StreamExt as _};
 use nomos_core::{
     header::HeaderId,
-    mantle::{AuthenticatedMantleTx, Transaction},
+    mantle::{SignedMantleTx, Transaction},
 };
 use overwatch::services::AsServiceId;
-use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 use tokio_stream::wrappers::BroadcastStream;
 use tx_service::{
-    MempoolMetrics, MempoolMsg, TxMempoolService, backend::mockpool::MockPool,
+    MempoolMetrics, MempoolMsg, TxMempoolService, backend::Mempool,
     network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
     tx::service::openapi::Status,
 };
 
-pub type MempoolService<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId> =
+pub type MempoolService<SamplingNetworkAdapter, SamplingStorage, StorageAdapter, RuntimeServiceId> =
     TxMempoolService<
-        MempoolNetworkAdapter<Tx, <Tx as Transaction>::Hash, RuntimeServiceId>,
+        MempoolNetworkAdapter<
+            SignedMantleTx,
+            <SignedMantleTx as Transaction>::Hash,
+            RuntimeServiceId,
+        >,
         SamplingNetworkAdapter,
         SamplingStorage,
-        MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
+        Mempool<
+            HeaderId,
+            SignedMantleTx,
+            <SignedMantleTx as Transaction>::Hash,
+            StorageAdapter,
+            RuntimeServiceId,
+        >,
+        StorageAdapter,
         RuntimeServiceId,
     >;
 
-pub async fn mantle_mempool_metrics<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>(
+pub async fn mantle_mempool_metrics<
+    SamplingNetworkAdapter,
+    SamplingStorage,
+    StorageAdapter,
+    RuntimeServiceId,
+>(
     handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
 ) -> Result<MempoolMetrics, super::DynError>
 where
-    Tx: AuthenticatedMantleTx
-        + Clone
-        + Debug
-        + Serialize
-        + for<'de> Deserialize<'de>
-        + Send
-        + Sync
-        + 'static,
-    <Tx as Transaction>::Hash:
-        Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     SamplingNetworkAdapter:
         nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
+    StorageAdapter: tx_service::storage::MempoolStorageAdapter<
+            RuntimeServiceId,
+            Key = <SignedMantleTx as Transaction>::Hash,
+            Item = SignedMantleTx,
+        > + Clone
+        + 'static,
+    StorageAdapter::Error: Debug,
     RuntimeServiceId: Debug
         + Sync
         + Send
         + Display
-        + AsServiceId<MempoolService<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>>,
+        + AsServiceId<
+            MempoolService<
+                SamplingNetworkAdapter,
+                SamplingStorage,
+                StorageAdapter,
+                RuntimeServiceId,
+            >,
+        >,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
@@ -61,29 +80,38 @@ where
     receiver.await.map_err(|e| Box::new(e) as super::DynError)
 }
 
-pub async fn mantle_mempool_status<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>(
+pub async fn mantle_mempool_status<
+    SamplingNetworkAdapter,
+    SamplingStorage,
+    StorageAdapter,
+    RuntimeServiceId,
+>(
     handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
-    items: Vec<<Tx as Transaction>::Hash>,
+    items: Vec<<SignedMantleTx as Transaction>::Hash>,
 ) -> Result<Vec<Status<HeaderId>>, super::DynError>
 where
-    Tx: AuthenticatedMantleTx
-        + Clone
-        + Debug
-        + Serialize
-        + for<'de> Deserialize<'de>
-        + Send
-        + Sync
-        + 'static,
-    <Tx as Transaction>::Hash:
-        Ord + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     SamplingNetworkAdapter:
         nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
+    StorageAdapter: tx_service::storage::MempoolStorageAdapter<
+            RuntimeServiceId,
+            Key = <SignedMantleTx as Transaction>::Hash,
+            Item = SignedMantleTx,
+        > + Clone
+        + 'static,
+    StorageAdapter::Error: Debug,
     RuntimeServiceId: Debug
         + Sync
         + Send
         + Display
-        + AsServiceId<MempoolService<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>>,
+        + AsServiceId<
+            MempoolService<
+                SamplingNetworkAdapter,
+                SamplingStorage,
+                StorageAdapter,
+                RuntimeServiceId,
+            >,
+        >,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();

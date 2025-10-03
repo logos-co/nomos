@@ -1,10 +1,12 @@
 use std::{
-    collections::HashSet,
+    collections::{BTreeSet, HashMap, HashSet},
     path::{Path, PathBuf},
     sync::Arc,
 };
 
+use futures::StreamExt as _;
 use nomos_core::{
+    codec::SerdeOp as _,
     header::HeaderId,
     mantle::mock::{MockTransaction, MockTxId},
 };
@@ -14,6 +16,7 @@ use nomos_network::{
     config::NetworkConfig,
     message::NetworkMsg,
 };
+use nomos_storage::{StorageService, backends::rocksdb::RocksBackend};
 use nomos_tracing_service::{Tracing, TracingSettings};
 use nomos_utils::noop_service::NoService;
 use overwatch::overwatch::OverwatchRunner;
@@ -23,28 +26,38 @@ use services_utils::{
     overwatch::{JsonFileBackend, recovery::operators::RecoveryBackend as _},
     traits::FromSettings as _,
 };
+use tempfile::TempDir;
 use tx_service::{
     MempoolMsg, TxMempoolSettings,
-    backend::mockpool::MockPool,
+    backend::{Mempool, PoolRecoveryState},
     network::{
         NetworkAdapter,
         adapters::mock::{MOCK_TX_CONTENT_TOPIC, MockAdapter},
     },
     processor::noop::NoOpPayloadProcessor,
+    storage::adapters::rocksdb::RocksStorageAdapter,
     tx::{service::GenericTxMempoolService, state::TxMempoolState},
 };
 
 type NoProcessor<NetworkAdapter> = NoOpPayloadProcessor<NoService, NetworkAdapter>;
 
 type MockRecoveryBackend = JsonFileBackend<
-    TxMempoolState<MockPool<HeaderId, MockTransaction<MockMessage>, MockTxId>, (), (), ()>,
+    TxMempoolState<PoolRecoveryState<HeaderId, MockTxId>, (), (), ()>,
     TxMempoolSettings<(), (), ()>,
 >;
+
 type MockMempoolService = GenericTxMempoolService<
-    MockPool<HeaderId, MockTransaction<MockMessage>, MockTxId>,
+    Mempool<
+        HeaderId,
+        MockTransaction<MockMessage>,
+        MockTxId,
+        RocksStorageAdapter<MockTransaction<MockMessage>, MockTxId>,
+        RuntimeServiceId,
+    >,
     MockAdapter<RuntimeServiceId>,
     NoProcessor<<MockAdapter<RuntimeServiceId> as NetworkAdapter<RuntimeServiceId>>::Payload>,
     MockRecoveryBackend,
+    RocksStorageAdapter<MockTransaction<MockMessage>, MockTxId>,
     RuntimeServiceId,
 >;
 
@@ -52,6 +65,7 @@ type MockMempoolService = GenericTxMempoolService<
 struct MockPoolNode {
     logging: Tracing<RuntimeServiceId>,
     network: NetworkService<Mock, RuntimeServiceId>,
+    storage: StorageService<RocksBackend, RuntimeServiceId>,
     mockpool: MockMempoolService,
     no_service: NoService,
 }
@@ -63,6 +77,34 @@ fn run_with_recovery_teardown(recovery_path: &Path, run: impl Fn()) {
 
 fn get_test_random_path() -> PathBuf {
     PathBuf::from(Alphanumeric.sample_string(&mut rand::thread_rng(), 5)).with_extension(".json")
+}
+
+#[test]
+fn test_mock_pool_recovery_state() {
+    let recovery_state = PoolRecoveryState::<HeaderId, MockTxId> {
+        pending_items: BTreeSet::new(),
+        in_block_items: HashMap::new(),
+        in_block_items_by_id: HashMap::new(),
+        last_item_timestamp: 1_234_567_890,
+    };
+
+    let serialized = PoolRecoveryState::<HeaderId, MockTxId>::serialize(&recovery_state)
+        .expect("Should serialize");
+
+    let deserialized: PoolRecoveryState<HeaderId, MockTxId> =
+        PoolRecoveryState::<HeaderId, MockTxId>::deserialize(&serialized)
+            .expect("Should deserialize");
+
+    assert_eq!(deserialized.pending_items, recovery_state.pending_items);
+    assert_eq!(deserialized.in_block_items, recovery_state.in_block_items);
+    assert_eq!(
+        deserialized.in_block_items_by_id,
+        recovery_state.in_block_items_by_id
+    );
+    assert_eq!(
+        deserialized.last_item_timestamp,
+        recovery_state.last_item_timestamp
+    );
 }
 
 #[test]
@@ -90,6 +132,9 @@ fn test_mock_mempool() {
 
         let exp_txns: HashSet<MockMessage> = predefined_messages.iter().cloned().collect();
 
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let db_path = temp_dir.path().join("test_db");
+
         let settings = MockPoolNodeServiceSettings {
             network: NetworkConfig {
                 backend: MockConfig {
@@ -99,6 +144,11 @@ fn test_mock_mempool() {
                     version: 1,
                     weights: None,
                 },
+            },
+            storage: nomos_storage::backends::rocksdb::RocksBackendSettings {
+                db_path,
+                read_only: false,
+                column_family: None,
             },
             mockpool: TxMempoolSettings {
                 pool: (),
@@ -152,7 +202,8 @@ fn test_mock_mempool() {
                     .await
                     .unwrap()
                     .map(|msg| msg.message().clone())
-                    .collect();
+                    .collect()
+                    .await;
 
                 if items.len() == exp_txns.len() {
                     assert_eq!(exp_txns, items);
@@ -175,9 +226,9 @@ fn test_mock_mempool() {
         let recovered_state = recovery_backend
             .load_state()
             .expect("Should not fail to load the state.");
-        assert_eq!(recovered_state.pool().unwrap().pending_items().len(), 2);
-        assert_eq!(recovered_state.pool().unwrap().in_block_items().len(), 0);
-        assert!(recovered_state.pool().unwrap().last_item_timestamp() > 0);
+        assert_eq!(recovered_state.pool().unwrap().pending_items.len(), 2);
+        assert_eq!(recovered_state.pool().unwrap().in_block_items.len(), 0);
+        assert!(recovered_state.pool().unwrap().last_item_timestamp > 0);
 
         let _ = app.runtime().handle().block_on(app.handle().shutdown());
         app.blocking_wait_finished();

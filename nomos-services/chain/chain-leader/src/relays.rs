@@ -15,21 +15,12 @@ use overwatch::{
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tx_service::{
     MempoolMsg, TxMempoolService, backend::RecoverableMempool,
-    network::NetworkAdapter as MempoolAdapter,
+    network::NetworkAdapter as MempoolNetworkAdapter, storage::MempoolStorageAdapter,
 };
 
-use crate::SamplingRelay;
+use crate::{SamplingRelay, mempool::adapter};
 
 type BlendRelay<BlendService> = OutboundRelay<<BlendService as ServiceData>::Message>;
-
-type MempoolRelay<Mempool, MempoolNetAdapter, RuntimeServiceId> = OutboundRelay<
-    MempoolMsg<
-        HeaderId,
-        <MempoolNetAdapter as MempoolAdapter<RuntimeServiceId>>::Payload,
-        <Mempool as tx_service::backend::Mempool>::Item,
-        <Mempool as tx_service::backend::Mempool>::Key,
-    >,
->;
 type TimeRelay = OutboundRelay<TimeServiceMessage>;
 
 pub struct CryptarchiaConsensusRelays<
@@ -40,14 +31,15 @@ pub struct CryptarchiaConsensusRelays<
     RuntimeServiceId,
 > where
     BlendService: ServiceData,
-    Mempool: tx_service::backend::Mempool,
-    MempoolNetAdapter: MempoolAdapter<RuntimeServiceId>,
+    Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash>,
+    MempoolNetAdapter: MempoolNetworkAdapter<RuntimeServiceId>,
     SamplingBackend: DaSamplingServiceBackend,
 {
     blend_relay: BlendRelay<BlendService>,
-    mempool_relay: MempoolRelay<Mempool, MempoolNetAdapter, RuntimeServiceId>,
+    mempool_adapter: adapter::MempoolAdapter<Mempool::Item, Mempool::Item>,
     sampling_relay: SamplingRelay<SamplingBackend::BlobId>,
     time_relay: TimeRelay,
+    _mempool_adapter: std::marker::PhantomData<(MempoolNetAdapter, RuntimeServiceId)>,
 }
 
 impl<BlendService, Mempool, MempoolNetAdapter, SamplingBackend, RuntimeServiceId>
@@ -60,28 +52,40 @@ impl<BlendService, Mempool, MempoolNetAdapter, SamplingBackend, RuntimeServiceId
     >
 where
     BlendService: ServiceData,
-    Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash>,
+    Mempool: Send + Sync + RecoverableMempool<BlockId = HeaderId, Key = TxHash>,
+    Mempool::Storage: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
     Mempool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    Mempool::Item: Debug + Serialize + DeserializeOwned + Eq + Clone + Send + Sync + 'static,
-    Mempool::Item: AuthenticatedMantleTx,
+    Mempool::Item: Debug
+        + Serialize
+        + DeserializeOwned
+        + Eq
+        + Clone
+        + Send
+        + Sync
+        + 'static
+        + AuthenticatedMantleTx,
     Mempool::Settings: Clone,
-    MempoolNetAdapter:
-        MempoolAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>,
+    MempoolNetAdapter: MempoolNetworkAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>
+        + Send
+        + Sync,
+    MempoolNetAdapter::Settings: Send + Sync,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
 {
     pub const fn new(
         blend_relay: BlendRelay<BlendService>,
-        mempool_relay: MempoolRelay<Mempool, MempoolNetAdapter, RuntimeServiceId>,
+        mempool_relay: OutboundRelay<MempoolMsg<HeaderId, Mempool::Item, Mempool::Item, TxHash>>,
         sampling_relay: SamplingRelay<SamplingBackend::BlobId>,
         time_relay: TimeRelay,
     ) -> Self {
+        let mempool_adapter = adapter::MempoolAdapter::new(mempool_relay);
         Self {
             blend_relay,
-            mempool_relay,
+            mempool_adapter,
             sampling_relay,
             time_relay,
+            _mempool_adapter: std::marker::PhantomData,
         }
     }
 
@@ -101,6 +105,8 @@ where
         <S as ServiceData>::Settings: Send + Sync + 'static,
         <S as ServiceData>::State: Send + Sync + 'static,
         Mempool::Key: Send,
+        Mempool::Storage: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
+        Mempool::Settings: Sync,
         BlendService: nomos_blend_service::ServiceComponents,
         BlendService::BroadcastSettings: Send + Sync,
         <BlendService as ServiceData>::Message: Send + 'static,
@@ -122,6 +128,7 @@ where
                     SamplingNetworkAdapter,
                     SamplingStorage,
                     Mempool,
+                    Mempool::Storage,
                     RuntimeServiceId,
                 >,
             >
@@ -148,7 +155,7 @@ where
 
         let mempool_relay = service_resources_handle
             .overwatch_handle
-            .relay::<TxMempoolService<_, _, _, _, _>>()
+            .relay::<TxMempoolService<_, _, _, _, _, _>>()
             .await
             .expect("Relay connection with MempoolService should succeed");
 
@@ -171,10 +178,8 @@ where
         &self.blend_relay
     }
 
-    pub const fn mempool_relay(
-        &self,
-    ) -> &MempoolRelay<Mempool, MempoolNetAdapter, RuntimeServiceId> {
-        &self.mempool_relay
+    pub const fn mempool_adapter(&self) -> &adapter::MempoolAdapter<Mempool::Item, Mempool::Item> {
+        &self.mempool_adapter
     }
 
     pub const fn sampling_relay(&self) -> &SamplingRelay<SamplingBackend::BlobId> {

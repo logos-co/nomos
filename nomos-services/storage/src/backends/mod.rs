@@ -1,6 +1,3 @@
-#[cfg(feature = "mock")]
-pub mod mock;
-
 #[cfg(feature = "rocksdb-backend")]
 pub mod rocksdb;
 

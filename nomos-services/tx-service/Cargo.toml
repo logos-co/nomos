@@ -17,10 +17,10 @@ workspace = true
 [dependencies]
 async-trait       = "0.1"
 futures           = { default-features = false, version = "0.3" }
-linked-hash-map   = { default-features = false, optional = true, version = "0.5.6" }
 nomos-core        = { workspace = true }
 nomos-da-sampling = { workspace = true }
 nomos-network     = { workspace = true }
+nomos-storage     = { workspace = true }
 overwatch         = { workspace = true }
 rand              = { workspace = true }
 serde             = { default-features = false, version = "1.0" }
@@ -36,6 +36,7 @@ utoipa            = { optional = true, workspace = true }
 nomos-tracing-service = { workspace = true }
 nomos-utils           = { workspace = true }
 overwatch-derive      = { workspace = true }
+tempfile              = "3"
 tokio                 = { default-features = false, version = "1" }
 tx-service            = { features = ["mock"], path = "." }
 
@@ -43,7 +44,8 @@ tx-service            = { features = ["mock"], path = "." }
 default         = []
 instrumentation = []
 libp2p          = ["nomos-network/libp2p"]
-mock            = ["dep:linked-hash-map", "nomos-core/mock", "nomos-network/mock"]
+mock            = ["nomos-core/mock", "nomos-network/mock"]
+rocksdb-backend = ["nomos-storage/rocksdb-backend"]
 
 # enable to help generate OpenAPI
 openapi = ["dep:serde_json", "dep:utoipa"]

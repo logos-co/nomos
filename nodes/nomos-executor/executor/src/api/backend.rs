@@ -29,7 +29,7 @@ use nomos_core::{
         blob::{LightShare, Share, info::DispersedBlobInfo, metadata},
     },
     header::HeaderId,
-    mantle::{AuthenticatedMantleTx, SignedMantleTx, Transaction},
+    mantle::{SignedMantleTx, Transaction},
 };
 use nomos_da_network_core::SubnetworkId;
 use nomos_da_network_service::{
@@ -52,7 +52,7 @@ use nomos_node::{
 };
 use nomos_storage::{StorageService, api::da};
 use overwatch::{DynError, overwatch::handle::OverwatchHandle, services::AsServiceId};
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{Serialize, de::DeserializeOwned};
 use services_utils::wait_until_services_are_ready;
 use subnetworks_assignations::MembershipHandler;
 use tokio::net::TcpListener;
@@ -64,7 +64,7 @@ use tower_http::{
     trace::TraceLayer,
 };
 use tx_service::{
-    MempoolMetrics, TxMempoolService, backend::mockpool::MockPool, tx::service::openapi::Status,
+    MempoolMetrics, TxMempoolService, backend::Mempool, tx::service::openapi::Status,
 };
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -84,7 +84,6 @@ pub struct AxumBackend<
     DaVerifierBackend,
     DaVerifierNetwork,
     DaVerifierStorage,
-    Tx,
     DaStorageConverter,
     DispersalBackend,
     DispersalNetworkAdapter,
@@ -96,6 +95,7 @@ pub struct AxumBackend<
     TimeBackend,
     ApiAdapter,
     HttpStorageAdapter,
+    MempoolStorageAdapter,
 > {
     settings: AxumBackendSettings,
     #[expect(clippy::allow_attributes_without_reason)]
@@ -110,7 +110,6 @@ pub struct AxumBackend<
         DaVerifierBackend,
         DaVerifierNetwork,
         DaVerifierStorage,
-        Tx,
         DaStorageConverter,
         DispersalBackend,
         DispersalNetworkAdapter,
@@ -122,6 +121,7 @@ pub struct AxumBackend<
         TimeBackend,
         ApiAdapter,
         HttpStorageAdapter,
+        MempoolStorageAdapter,
     )>,
 }
 
@@ -149,7 +149,6 @@ impl<
     DaVerifierBackend,
     DaVerifierNetwork,
     DaVerifierStorage,
-    Tx,
     DaStorageConverter,
     DispersalBackend,
     DispersalNetworkAdapter,
@@ -161,6 +160,7 @@ impl<
     TimeBackend,
     ApiAdapter,
     StorageAdapter,
+    MempoolStorageAdapter,
     RuntimeServiceId,
 > Backend<RuntimeServiceId>
     for AxumBackend<
@@ -173,7 +173,6 @@ impl<
         DaVerifierBackend,
         DaVerifierNetwork,
         DaVerifierStorage,
-        Tx,
         DaStorageConverter,
         DispersalBackend,
         DispersalNetworkAdapter,
@@ -185,6 +184,7 @@ impl<
         TimeBackend,
         ApiAdapter,
         StorageAdapter,
+        MempoolStorageAdapter,
     >
 where
     DaShare: Share + Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
@@ -243,17 +243,6 @@ where
     DaVerifierStorage::Settings: Clone,
     DaMembershipAdapter: MembershipAdapter + Send + Sync + 'static,
     DaMembershipStorage: MembershipStorageAdapter<PeerId, SubnetworkId> + Send + Sync + 'static,
-    Tx: AuthenticatedMantleTx
-        + Clone
-        + Debug
-        + Eq
-        + Serialize
-        + for<'de> Deserialize<'de>
-        + Send
-        + Sync
-        + 'static,
-    <Tx as Transaction>::Hash:
-        Serialize + for<'de> Deserialize<'de> + Ord + Debug + Send + Sync + 'static,
     DaStorageConverter: da::DaConverter<DaStorageBackend, Share = DaShare, Tx = SignedMantleTx>
         + Send
         + Sync
@@ -291,6 +280,15 @@ where
     TimeBackend::Settings: Clone + Send + Sync,
     ApiAdapter: nomos_da_network_service::api::ApiAdapter + Send + Sync + 'static,
     StorageAdapter: storage::StorageAdapter<RuntimeServiceId> + Send + Sync + 'static,
+    MempoolStorageAdapter: tx_service::storage::MempoolStorageAdapter<
+            RuntimeServiceId,
+            Key = <SignedMantleTx as Transaction>::Hash,
+            Item = SignedMantleTx,
+        > + Send
+        + Sync
+        + Clone
+        + 'static,
+    MempoolStorageAdapter::Error: Debug,
     RuntimeServiceId: Debug
         + Sync
         + Send
@@ -299,10 +297,10 @@ where
         + 'static
         + AsServiceId<
             Cryptarchia<
-                Tx,
                 SamplingBackend,
                 SamplingNetworkAdapter,
                 SamplingStorage,
+                MempoolStorageAdapter,
                 TimeBackend,
                 RuntimeServiceId,
             >,
@@ -337,13 +335,20 @@ where
         + AsServiceId<
             TxMempoolService<
                 tx_service::network::adapters::libp2p::Libp2pAdapter<
-                    Tx,
-                    <Tx as Transaction>::Hash,
+                    SignedMantleTx,
+                    <SignedMantleTx as Transaction>::Hash,
                     RuntimeServiceId,
                 >,
                 SamplingNetworkAdapter,
                 SamplingStorage,
-                MockPool<HeaderId, Tx, <Tx as Transaction>::Hash>,
+                Mempool<
+                    HeaderId,
+                    SignedMantleTx,
+                    <SignedMantleTx as Transaction>::Hash,
+                    MempoolStorageAdapter,
+                    RuntimeServiceId,
+                >,
+                MempoolStorageAdapter,
                 RuntimeServiceId,
             >,
         >
@@ -384,7 +389,7 @@ where
             nomos_da_network_service::NetworkService<_, _, _,_, _, _>,
             nomos_network::NetworkService<_, _>,
             DaStorageService<_>,
-            TxMempoolService<_, _, _, _, _>,
+            TxMempoolService<_, _, _, _, _, _>,
             DaDispersal<_, _, _, _>
         )
         .await
@@ -411,23 +416,33 @@ where
             .route(
                 paths::MANTLE_METRICS,
                 routing::get(
-                    mantle_metrics::<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>,
+                    mantle_metrics::<
+                        SamplingNetworkAdapter,
+                        SamplingStorage,
+                        MempoolStorageAdapter,
+                        RuntimeServiceId,
+                    >,
                 ),
             )
             .route(
                 paths::MANTLE_STATUS,
                 routing::post(
-                    mantle_status::<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>,
+                    mantle_status::<
+                        SamplingNetworkAdapter,
+                        SamplingStorage,
+                        MempoolStorageAdapter,
+                        RuntimeServiceId,
+                    >,
                 ),
             )
             .route(
                 paths::CRYPTARCHIA_INFO,
                 routing::get(
                     cryptarchia_info::<
-                        Tx,
                         SamplingBackend,
                         SamplingNetworkAdapter,
                         SamplingStorage,
+                        MempoolStorageAdapter,
                         TimeBackend,
                         RuntimeServiceId,
                     >,
@@ -437,10 +452,10 @@ where
                 paths::CRYPTARCHIA_HEADERS,
                 routing::get(
                     cryptarchia_headers::<
-                        Tx,
                         SamplingBackend,
                         SamplingNetworkAdapter,
                         SamplingStorage,
+                        MempoolStorageAdapter,
                         TimeBackend,
                         RuntimeServiceId,
                     >,
@@ -501,12 +516,17 @@ where
             .route(paths::NETWORK_INFO, routing::get(libp2p_info))
             .route(
                 paths::STORAGE_BLOCK,
-                routing::post(block::<StorageAdapter, Tx, RuntimeServiceId>),
+                routing::post(block::<StorageAdapter, RuntimeServiceId>),
             )
             .route(
                 paths::MEMPOOL_ADD_TX,
                 routing::post(
-                    add_tx::<Tx, SamplingNetworkAdapter, SamplingStorage, RuntimeServiceId>,
+                    add_tx::<
+                        SamplingNetworkAdapter,
+                        SamplingStorage,
+                        MempoolStorageAdapter,
+                        RuntimeServiceId,
+                    >,
                 ),
             )
             .route(
