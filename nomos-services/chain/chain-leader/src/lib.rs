@@ -362,7 +362,6 @@ where
                             }
                         };
 
-                        let aged_tree = tip_state.aged_commitments();
                         let latest_tree = tip_state.latest_commitments();
                         debug!("ticking for slot {}", u64::from(slot));
 
@@ -380,7 +379,7 @@ where
 
                         winning_pol_slot_notifier.process_epoch(&epoch_state);
 
-                        if let Some(proof) = leader.build_proof_for(aged_tree, latest_tree, &epoch_state, slot).await {
+                        if let Some(proof) = leader.build_proof_for(latest_tree, &epoch_state, slot).await {
                             debug!("proposing block...");
                             // TODO: spawn as a separate task?
                             let block = Self::propose_block(
