@@ -339,7 +339,7 @@ impl core::fmt::Debug for LedgerState {
 
 #[cfg(test)]
 pub mod tests {
-    use std::num::NonZero;
+    use std::{num::NonZero, sync::Arc};
 
     use cryptarchia_engine::EpochConfig;
     use groth16::Field as _;
@@ -350,6 +350,7 @@ pub mod tests {
             gas::MainnetGasConstants, ledger::Tx as LedgerTx, ops::leader_claim::VoucherCm,
         },
         proofs::zksig::DummyZkSignature,
+        sdp::{ServiceParameters, ServiceType},
     };
     use num_bigint::BigUint;
     use rand::{RngCore as _, thread_rng};
@@ -459,7 +460,7 @@ pub mod tests {
     }
 
     #[must_use]
-    pub const fn config() -> Config {
+    pub fn config() -> Config {
         Config {
             epoch_config: EpochConfig {
                 epoch_stake_distribution_stabilization: NonZero::new(4).unwrap(),
@@ -470,12 +471,31 @@ pub mod tests {
                 security_param: NonZero::new(1).unwrap(),
                 active_slot_coeff: 1.0,
             },
-            service_params: nomos_core::sdp::ServiceParameters {
-                lock_period: 10,
-                inactivity_period: 20,
-                retention_period: 100,
-                timestamp: 0,
-            },
+            service_params: Arc::new(
+                [
+                    (
+                        ServiceType::BlendNetwork,
+                        ServiceParameters {
+                            lock_period: 10,
+                            inactivity_period: 20,
+                            retention_period: 100,
+                            timestamp: 0,
+                            session_duration: 10,
+                        },
+                    ),
+                    (
+                        ServiceType::DataAvailability,
+                        ServiceParameters {
+                            lock_period: 10,
+                            inactivity_period: 20,
+                            retention_period: 100,
+                            timestamp: 0,
+                            session_duration: 10,
+                        },
+                    ),
+                ]
+                .into(),
+            ),
             min_stake: nomos_core::sdp::MinStake {
                 threshold: 1,
                 timestamp: 0,

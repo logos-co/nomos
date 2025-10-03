@@ -1,14 +1,23 @@
 pub mod state;
 
-use std::{collections::BTreeSet, hash::Hash};
+use std::{
+    collections::{BTreeSet, HashSet},
+    hash::Hash,
+    ops::Deref,
+};
 
 use blake2::{Blake2b, Digest as _};
 use bytes::{Bytes, BytesMut};
 use groth16::{Fr, serde::serde_fr};
 use multiaddr::Multiaddr;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use state::TransientDeclarationState;
+use strum::EnumIter;
 
-use crate::{block::BlockNumber, mantle::NoteId};
+use crate::{
+    block::{BlockNumber, SessionNumber},
+    mantle::NoteId,
+};
 
 pub type StakeThreshold = u64;
 
@@ -24,6 +33,7 @@ pub struct ServiceParameters {
     pub inactivity_period: u64,
     pub retention_period: u64,
     pub timestamp: BlockNumber,
+    pub session_duration: BlockNumber,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -43,7 +53,7 @@ impl AsRef<Multiaddr> for Locator {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize, EnumIter)]
 pub enum ServiceType {
     #[serde(rename = "BN")]
     BlendNetwork,
@@ -325,6 +335,19 @@ pub enum FinalizedDeclarationState {
     Withdrawn,
 }
 
+impl<D> From<&TransientDeclarationState<D>> for FinalizedDeclarationState
+where
+    D: Deref<Target = DeclarationState>,
+{
+    fn from(transient: &TransientDeclarationState<D>) -> Self {
+        match transient {
+            TransientDeclarationState::Active(_) => Self::Active,
+            TransientDeclarationState::Inactive(_) => Self::Inactive,
+            TransientDeclarationState::Withdrawn(_) => Self::Withdrawn,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FinalizedBlockEvent {
     pub block_number: BlockNumber,
@@ -337,4 +360,23 @@ pub struct FinalizedBlockEventUpdate {
     pub provider_id: ProviderId,
     pub state: FinalizedDeclarationState,
     pub locators: BTreeSet<Locator>,
+}
+
+#[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
+pub struct Session {
+    pub session_number: SessionNumber,
+    pub declarations: HashSet<DeclarationId>,
+}
+
+impl Session {
+    pub fn update(&mut self, declaration_id: DeclarationId, state: &FinalizedDeclarationState) {
+        match state {
+            FinalizedDeclarationState::Active => {
+                self.declarations.insert(declaration_id);
+            }
+            FinalizedDeclarationState::Inactive | FinalizedDeclarationState::Withdrawn => {
+                self.declarations.remove(&declaration_id);
+            }
+        }
+    }
 }

@@ -104,7 +104,7 @@ where
         states.insert(id, new_state);
         Ok(Self {
             states,
-            config: self.config,
+            config: self.config.clone(),
         })
     }
 
@@ -218,6 +218,9 @@ impl LedgerState {
                 Ordering::Equal => {} // OK!
             }
         }
+        self.mantle_ledger = self
+            .mantle_ledger
+            .try_update_membership(self.block_number, config)?;
         Ok(self)
     }
 

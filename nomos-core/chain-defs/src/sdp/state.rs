@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use thiserror::Error;
 
 use super::{DeclarationState, ServiceParameters};
@@ -10,9 +12,9 @@ pub enum ActiveStateError {
 }
 
 #[derive(Debug, Eq, PartialEq)]
-pub struct ActiveState<'a>(&'a mut DeclarationState);
+pub struct ActiveState<D>(D);
 
-impl<'a> ActiveState<'a> {
+impl<'a> ActiveState<&'a mut DeclarationState> {
     const fn into_updated(self, block_number: BlockNumber) -> Self {
         self.0.active = block_number;
         self
@@ -22,7 +24,7 @@ impl<'a> ActiveState<'a> {
         self,
         current_block_number: BlockNumber,
         service_params: &'_ ServiceParameters,
-    ) -> Result<WithdrawnState<'a>, ActiveStateError> {
+    ) -> Result<WithdrawnState<&'a mut DeclarationState>, ActiveStateError> {
         let Some(unlocked_at_block_number) = self.0.created.checked_add(service_params.lock_period)
         else {
             panic!("Adding lock period overflowed unlocked_at_block_number");
@@ -31,7 +33,7 @@ impl<'a> ActiveState<'a> {
             return Err(ActiveStateError::WithdrawalWhileLocked);
         }
         self.0.withdrawn = Some(current_block_number);
-        Ok(WithdrawnState::<'a>(self.0))
+        Ok(WithdrawnState(self.0))
     }
 }
 
@@ -42,10 +44,10 @@ pub enum InactiveStateError {
 }
 
 #[derive(Debug, Eq, PartialEq)]
-pub struct InactiveState<'a>(&'a mut DeclarationState);
+pub struct InactiveState<D>(D);
 
-impl<'a> InactiveState<'a> {
-    const fn into_active(self, block_number: BlockNumber) -> ActiveState<'a> {
+impl<'a> InactiveState<&'a mut DeclarationState> {
+    const fn into_active(self, block_number: BlockNumber) -> ActiveState<&'a mut DeclarationState> {
         self.0.active = block_number;
         ActiveState(self.0)
     }
@@ -54,7 +56,7 @@ impl<'a> InactiveState<'a> {
         self,
         current_block_number: BlockNumber,
         service_params: &ServiceParameters,
-    ) -> Result<WithdrawnState<'a>, InactiveStateError> {
+    ) -> Result<WithdrawnState<&'a mut DeclarationState>, InactiveStateError> {
         let Some(unlocked_at_block_number) = self.0.created.checked_add(service_params.lock_period)
         else {
             panic!("Adding lock period overflowed unlocked_at_block_number");
@@ -68,7 +70,7 @@ impl<'a> InactiveState<'a> {
 }
 
 #[derive(Debug, Eq, PartialEq)]
-pub struct WithdrawnState<'a>(&'a mut DeclarationState);
+pub struct WithdrawnState<D>(D);
 
 #[derive(Error, Clone, PartialEq, Eq, Debug)]
 pub enum DeclarationStateError {
@@ -83,16 +85,19 @@ pub enum DeclarationStateError {
 }
 
 #[derive(Debug, Eq, PartialEq)]
-pub enum TransientDeclarationState<'a> {
-    Active(ActiveState<'a>),
-    Inactive(InactiveState<'a>),
-    Withdrawn(WithdrawnState<'a>),
+pub enum TransientDeclarationState<D> {
+    Active(ActiveState<D>),
+    Inactive(InactiveState<D>),
+    Withdrawn(WithdrawnState<D>),
 }
 
-impl<'a> TransientDeclarationState<'a> {
+impl<D> TransientDeclarationState<D>
+where
+    D: Deref<Target = DeclarationState>,
+{
     pub fn try_from_state(
         current_block_number: BlockNumber,
-        declaration_state: &'a mut DeclarationState,
+        declaration_state: D,
         service_params: &ServiceParameters,
     ) -> Result<Self, DeclarationStateError> {
         if declaration_state.created > current_block_number {
@@ -130,18 +135,20 @@ impl<'a> TransientDeclarationState<'a> {
     }
 
     #[must_use]
-    const fn last_block_number(&self) -> BlockNumber {
+    fn last_block_number(&self) -> BlockNumber {
         let declaration_state: &DeclarationState = match self {
-            Self::Active(active_state) => active_state.0,
-            Self::Inactive(inactive_state) => inactive_state.0,
-            Self::Withdrawn(withdrawn_state) => withdrawn_state.0,
+            Self::Active(active_state) => &active_state.0,
+            Self::Inactive(inactive_state) => &inactive_state.0,
+            Self::Withdrawn(withdrawn_state) => &withdrawn_state.0,
         };
         if let Some(withdrawn_timestamp) = declaration_state.withdrawn {
             return withdrawn_timestamp;
         }
         declaration_state.active
     }
+}
 
+impl TransientDeclarationState<&mut DeclarationState> {
     pub fn try_into_active(
         self,
         current_block_number: BlockNumber,
@@ -180,20 +187,20 @@ impl<'a> TransientDeclarationState<'a> {
     }
 }
 
-impl<'a> From<ActiveState<'a>> for TransientDeclarationState<'a> {
-    fn from(state: ActiveState<'a>) -> Self {
+impl<D> From<ActiveState<D>> for TransientDeclarationState<D> {
+    fn from(state: ActiveState<D>) -> Self {
         Self::Active(state)
     }
 }
 
-impl<'a> From<InactiveState<'a>> for TransientDeclarationState<'a> {
-    fn from(state: InactiveState<'a>) -> Self {
+impl<D> From<InactiveState<D>> for TransientDeclarationState<D> {
+    fn from(state: InactiveState<D>) -> Self {
         Self::Inactive(state)
     }
 }
 
-impl<'a> From<WithdrawnState<'a>> for TransientDeclarationState<'a> {
-    fn from(state: WithdrawnState<'a>) -> Self {
+impl<D> From<WithdrawnState<D>> for TransientDeclarationState<D> {
+    fn from(state: WithdrawnState<D>) -> Self {
         Self::Withdrawn(state)
     }
 }
@@ -214,6 +221,7 @@ mod tests {
             inactivity_period: 20,
             retention_period: 100,
             timestamp: 0,
+            session_duration: 10,
         }
     }
 
@@ -515,6 +523,7 @@ mod tests {
             inactivity_period: 5,
             retention_period: 30,
             timestamp: 0,
+            session_duration: 10,
         };
         let mut declaration_state = DeclarationState::new(
             0,

@@ -18,6 +18,7 @@ num-bigint         = { version = "0.4", default-features = false }
 rand               = { workspace = true }
 rpds               = { default-features = false, version = "1.1.1" }
 serde              = { default-features = false, features = ["derive"], optional = true, version = "1.0" }
+strum              = { version = "0.27" }
 thiserror          = "1"
 utxotree           = { workspace = true }
 
