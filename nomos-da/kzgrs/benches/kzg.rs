@@ -2,11 +2,12 @@ use std::sync::LazyLock;
 
 use ark_bls12_381::{Bls12_381, Fr};
 use ark_poly::{EvaluationDomain as _, GeneralEvaluationDomain, univariate::DensePolynomial};
-use ark_poly_commit::kzg10::{KZG10, UniversalParams};
+use ark_poly_commit::kzg10::{KZG10, UniversalParams, VerifierKey};
 use divan::{Bencher, black_box, counter::ItemsCount};
 use kzgrs::{
     common::bytes_to_polynomial_unchecked,
     kzg::{commit_polynomial, generate_element_proof, verify_element_proof},
+    verification_key_proving_key,
 };
 use rand::RngCore as _;
 #[cfg(feature = "parallel")]
@@ -23,10 +24,14 @@ fn main() {
 // #[global_allocator]
 // static ALLOC: AllocProfiler = AllocProfiler::system();
 
-static GLOBAL_PARAMETERS: LazyLock<UniversalParams<Bls12_381>> = LazyLock::new(|| {
+static PROVING_KEY: LazyLock<UniversalParams<Bls12_381>> = LazyLock::new(|| {
+    println!("WARNING: Proving key is randomly generated. Use for development only.");
     let mut rng = rand::thread_rng();
     KZG10::<Bls12_381, DensePolynomial<Fr>>::setup(4096, true, &mut rng).unwrap()
 });
+
+static VERIFICATION_KEY: LazyLock<VerifierKey<Bls12_381>> =
+    LazyLock::new(|| verification_key_proving_key(&PROVING_KEY));
 
 fn rand_data_elements(elements_count: usize, chunk_size: usize) -> Vec<u8> {
     let mut buff = vec![0u8; elements_count * chunk_size];
@@ -45,7 +50,7 @@ fn commit_single_polynomial_with_element_count(bencher: Bencher, element_count: 
             bytes_to_polynomial_unchecked::<CHUNK_SIZE>(&data, domain)
         })
         .input_counter(move |(_evals, _poly)| ItemsCount::new(1usize))
-        .bench_refs(|(_evals, poly)| black_box(commit_polynomial(poly, &GLOBAL_PARAMETERS)));
+        .bench_refs(|(_evals, poly)| black_box(commit_polynomial(poly, &PROVING_KEY)));
 }
 
 #[cfg(feature = "parallel")]
@@ -62,7 +67,7 @@ fn commit_polynomial_with_element_count_parallelized(bencher: Bencher, element_c
         .bench_refs(|(_evals, poly)| {
             let _commitments: Vec<_> = (0..threads)
                 .into_par_iter()
-                .map(|_| commit_polynomial(poly, &GLOBAL_PARAMETERS))
+                .map(|_| commit_polynomial(poly, &PROVING_KEY))
                 .collect();
         });
 }
@@ -79,14 +84,8 @@ fn compute_single_proof(bencher: Bencher, element_count: usize) {
             )
         })
         .input_counter(|_| ItemsCount::new(1usize))
-        .bench_refs(|((evals, poly), domain)| {
-            black_box(generate_element_proof(
-                7,
-                poly,
-                evals,
-                &GLOBAL_PARAMETERS,
-                *domain,
-            ))
+        .bench_refs(|((_, poly), domain)| {
+            black_box(generate_element_proof(7, poly, &PROVING_KEY, *domain))
         });
 }
 
@@ -102,11 +101,9 @@ fn compute_batch_proofs(bencher: Bencher, element_count: usize) {
             )
         })
         .input_counter(move |_| ItemsCount::new(element_count))
-        .bench_refs(|((evals, poly), domain)| {
+        .bench_refs(|((_, poly), domain)| {
             for i in 0..element_count {
-                black_box(
-                    generate_element_proof(i, poly, evals, &GLOBAL_PARAMETERS, *domain).unwrap(),
-                );
+                black_box(generate_element_proof(i, poly, &PROVING_KEY, *domain).unwrap());
             }
         });
 }
@@ -128,15 +125,15 @@ fn compute_parallelize_batch_proofs(bencher: Bencher, element_count: usize) {
             )
         })
         .input_counter(move |_| ItemsCount::new(element_count))
-        .bench_refs(|((evals, poly), domain)| {
+        .bench_refs(|((_, poly), domain)| {
             (0..element_count).into_par_iter().for_each(|i| {
-                generate_element_proof(i, poly, evals, &GLOBAL_PARAMETERS, *domain).unwrap();
+                generate_element_proof(i, poly, &PROVING_KEY, *domain).unwrap();
             });
             black_box(());
         });
 }
 
-#[divan::bench]
+#[divan::bench(sample_count = 100, sample_size = 10)]
 fn verify_single_proof(bencher: Bencher) {
     bencher
         .with_inputs(|| {
@@ -144,9 +141,8 @@ fn verify_single_proof(bencher: Bencher) {
             let domain = GeneralEvaluationDomain::new(element_count).unwrap();
             let data = rand_data_elements(element_count, CHUNK_SIZE);
             let (eval, poly) = bytes_to_polynomial_unchecked::<CHUNK_SIZE>(&data, domain);
-            let commitment = commit_polynomial(&poly, &GLOBAL_PARAMETERS).unwrap();
-            let proof =
-                generate_element_proof(0, &poly, &eval, &GLOBAL_PARAMETERS, domain).unwrap();
+            let commitment = commit_polynomial(&poly, &PROVING_KEY).unwrap();
+            let proof = generate_element_proof(0, &poly, &PROVING_KEY, domain).unwrap();
             (0usize, eval.evals[0], commitment, proof, domain)
         })
         .input_counter(|_| ItemsCount::new(1usize))
@@ -157,7 +153,7 @@ fn verify_single_proof(bencher: Bencher) {
                 commitment,
                 proof,
                 *domain,
-                &GLOBAL_PARAMETERS,
+                &VERIFICATION_KEY,
             ))
         });
 }
