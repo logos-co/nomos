@@ -149,17 +149,9 @@ where
         self.previous_membership = self.current_membership.take();
         self.current_membership = Some(new_membership);
 
-        // Need both current and previous to generate opinions
-        let opinions = match (
-            self.current_membership.as_ref(),
-            self.previous_membership.as_ref(),
-        ) {
-            (Some(_), Some(_)) => match self.generate_opinions().await {
-                Ok(opinions) => OpinionResult::Opinions(opinions),
-                Err(e) => return OpinionResult::Error(e),
-            },
-            _ => return OpinionResult::InsufficientData,
-        };
+        // Try to generate opinions - will return InsufficientData if missing
+        // memberships
+        let result = self.generate_opinions().await;
 
         self.positive_opinions.clear();
         self.negative_opinions.clear();
@@ -184,43 +176,50 @@ where
             }
         }
 
-        opinions
+        result
     }
 
-    async fn generate_opinions(&self) -> Result<Opinions, DynError> {
-        let current = self
-            .current_membership
-            .as_ref()
-            .ok_or_else(|| DynError::from("No current membership"))?;
-        let previous = self
-            .previous_membership
-            .as_ref()
-            .ok_or_else(|| DynError::from("No previous membership"))?;
+    async fn generate_opinions(&self) -> OpinionResult {
+        // Check if we have both memberships needed for valid Activity Proof
+        let (Some(current), Some(previous)) = (
+            self.current_membership.as_ref(),
+            self.previous_membership.as_ref(),
+        ) else {
+            return OpinionResult::InsufficientData;
+        };
 
         let include_self_in_old = previous
             .members()
             .into_iter()
             .any(|id| id == self.local_peer_id);
 
-        let new_opinions = self
+        let new_opinions = match self
             .peer_opinions_to_provider_bitvec(
                 current.members().into_iter(),
                 &self.positive_opinions,
                 &self.negative_opinions,
-                true, // Always include self in new_opinions
+                true,
             )
-            .await?;
+            .await
+        {
+            Ok(bv) => bv,
+            Err(e) => return OpinionResult::Error(e),
+        };
 
-        let old_opinions = self
+        let old_opinions = match self
             .peer_opinions_to_provider_bitvec(
                 previous.members().into_iter(),
                 &self.old_positive_opinions,
                 &self.old_negative_opinions,
                 include_self_in_old,
             )
-            .await?;
+            .await
+        {
+            Ok(bv) => bv,
+            Err(e) => return OpinionResult::Error(e),
+        };
 
-        Ok(Opinions {
+        OpinionResult::Opinions(Opinions {
             session_id: current.session_id(),
             new_opinions,
             old_opinions,
@@ -234,21 +233,24 @@ where
         negative: &HashMap<PeerId, u32>,
         include_self: bool,
     ) -> Result<BitVec, DynError> {
-        // BtreeMap so it is sorted
+        // BTreeMap so it is sorted
         let mut provider_opinions: BTreeMap<ProviderId, bool> = BTreeMap::new();
 
         for peer_id in peers {
-            // Get ProviderId from storage
             let provider_id = if peer_id == self.local_peer_id {
                 self.local_provider_id
-            } else if let Some(pid) = self.storage.get_provider_id(peer_id).await? {
-                pid
             } else {
-                tracing::warn!("No ProviderId found for PeerId {}, skipping", peer_id);
-                continue;
+                match self.storage.get_provider_id(peer_id).await {
+                    Ok(Some(pid)) => pid,
+                    Ok(None) => {
+                        return Err(DynError::from(format!(
+                            "ProviderId not found for PeerId {peer_id}"
+                        )));
+                    }
+                    Err(e) => return Err(e),
+                }
             };
 
-            // Calculate opinion
             let opinion = if include_self && peer_id == self.local_peer_id {
                 true
             } else {
