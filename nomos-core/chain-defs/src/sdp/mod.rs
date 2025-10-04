@@ -1,7 +1,7 @@
 pub mod state;
 
 use std::{
-    collections::{BTreeSet, HashSet},
+    collections::{BTreeSet, HashMap, HashSet},
     hash::Hash,
     ops::Deref,
 };
@@ -391,4 +391,10 @@ impl Session {
             }
         }
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct SessionUpdate {
+    pub session_number: SessionNumber,
+    pub providers: HashMap<ProviderId, ProviderInfo>,
 }

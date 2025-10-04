@@ -22,17 +22,17 @@ use bytes::Bytes;
 use cryptarchia_engine::PrunedBlocks;
 pub use cryptarchia_engine::{Epoch, Slot};
 use cryptarchia_sync::{GetTipResponse, ProviderResponse};
-use futures::StreamExt as _;
+use futures::{FutureExt as _, StreamExt as _};
 use network::NetworkAdapter;
 use nomos_core::{
-    block::{Block, SessionNumber},
+    block::Block,
     da,
     header::{Header, HeaderId},
     mantle::{
         AuthenticatedMantleTx, SignedMantleTx, Transaction, TxHash, gas::MainnetGasConstants,
         ops::leader_claim::VoucherCm,
     },
-    sdp::{ProviderId, ProviderInfo, ServiceType},
+    sdp::{ProviderId, ProviderInfo, ServiceType, SessionUpdate},
 };
 use nomos_da_sampling::{
     DaSamplingService, DaSamplingServiceMsg, backend::DaSamplingServiceBackend,
@@ -172,12 +172,6 @@ impl PrunedBlocksInfo {
             .chain(self.immutable_blocks.values())
             .copied()
     }
-}
-
-#[derive(Clone)]
-pub struct MembershipUpdate {
-    pub session_number: SessionNumber,
-    pub providers: HashMap<ProviderId, ProviderInfo>,
 }
 
 #[derive(Clone)]
@@ -387,8 +381,6 @@ pub struct CryptarchiaConsensus<
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     new_block_subscription_sender: broadcast::Sender<HeaderId>,
     lib_subscription_sender: broadcast::Sender<LibUpdate>,
-    bn_subscription_sender: broadcast::Sender<MembershipUpdate>,
-    da_subscription_sender: broadcast::Sender<MembershipUpdate>,
     initial_state: <Self as ServiceData>::State,
 }
 
@@ -540,15 +532,11 @@ where
     ) -> Result<Self, DynError> {
         let (new_block_subscription_sender, _) = broadcast::channel(16);
         let (lib_subscription_sender, _) = broadcast::channel(16);
-        let (bn_subscription_sender, _) = broadcast::channel(16);
-        let (da_subscription_sender, _) = broadcast::channel(16);
 
         Ok(Self {
             service_resources_handle,
             new_block_subscription_sender,
             lib_subscription_sender,
-            bn_subscription_sender,
-            da_subscription_sender,
             initial_state,
         })
     }
@@ -633,8 +621,6 @@ where
                 let state_updater = &self.service_resources_handle.state_updater;
                 let new_block_subscription_sender = &self.new_block_subscription_sender;
                 let lib_subscription_sender = &self.lib_subscription_sender;
-                let bn_subscription_sender = &self.bn_subscription_sender;
-                let da_subscription_sender = &self.da_subscription_sender;
                 async move {
                     Self::process_block_and_update_state(
                         cryptarchia,
@@ -645,8 +631,6 @@ where
                         relays,
                         new_block_subscription_sender,
                         lib_subscription_sender,
-                        bn_subscription_sender,
-                        da_subscription_sender,
                         state_updater,
                     )
                     .await
@@ -751,8 +735,6 @@ where
                                     &relays,
                                     &self.new_block_subscription_sender,
                                     &self.lib_subscription_sender,
-                                    &self.bn_subscription_sender,
-                                    &self.da_subscription_sender,
                                     &self.service_resources_handle.state_updater,
                                 ).await {
                             Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
@@ -789,8 +771,6 @@ where
                                     &relays,
                                     &self.new_block_subscription_sender,
                                     &self.lib_subscription_sender,
-                                    &self.bn_subscription_sender,
-                                    &self.da_subscription_sender,
                                     &self.service_resources_handle.state_updater,
                                 ).await {
                                 Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
@@ -837,8 +817,6 @@ where
                             &relays,
                             &self.new_block_subscription_sender,
                             &self.lib_subscription_sender,
-                            &self.bn_subscription_sender,
-                            &self.da_subscription_sender,
                             &self.service_resources_handle.state_updater
                         ).await {
                             Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
@@ -1057,8 +1035,6 @@ where
         >,
         new_block_subscription_sender: &broadcast::Sender<HeaderId>,
         lib_subscription_sender: &broadcast::Sender<LibUpdate>,
-        bn_subscription_sender: &broadcast::Sender<MembershipUpdate>,
-        da_subscription_sender: &broadcast::Sender<MembershipUpdate>,
         state_updater: &StateUpdater<
             Option<CryptarchiaConsensusState<NetAdapter::PeerId, NetAdapter::Settings>>,
         >,
@@ -1070,8 +1046,6 @@ where
             relays,
             new_block_subscription_sender,
             lib_subscription_sender,
-            bn_subscription_sender,
-            da_subscription_sender,
         )
         .await?;
 
@@ -1114,7 +1088,6 @@ where
     /// Try to add a [`Block`] to [`Cryptarchia`].
     /// A [`Block`] is only added if it's valid
     #[expect(clippy::allow_attributes_without_reason)]
-    #[expect(clippy::too_many_arguments)]
     #[instrument(level = "debug", skip(cryptarchia, relays, blob_validation))]
     async fn process_block(
         cryptarchia: Cryptarchia,
@@ -1130,8 +1103,6 @@ where
         >,
         new_block_subscription_sender: &broadcast::Sender<HeaderId>,
         lib_broadcaster: &broadcast::Sender<LibUpdate>,
-        bn_session_broadcaster: &broadcast::Sender<MembershipUpdate>,
-        da_session_broadcaster: &broadcast::Sender<MembershipUpdate>,
     ) -> Result<(Cryptarchia, PrunedBlocks<HeaderId>), Error> {
         debug!("received proposal {:?}", block);
 
@@ -1225,24 +1196,28 @@ where
                         continue;
                     }
 
-                    let broadcaster = match service {
-                        ServiceType::BlendNetwork => &bn_session_broadcaster,
-                        ServiceType::DataAvailability => &da_session_broadcaster,
-                    };
-
                     let Ok(providers) = cryptarchia.active_session_providers(&new_lib, *service)
                     else {
                         error!("Could not get session providers for service: {service:?}");
                         continue;
                     };
 
-                    let update = MembershipUpdate {
+                    let update = SessionUpdate {
                         session_number: *session_number,
                         providers,
                     };
 
-                    if let Err(e) = broadcaster.send(update) {
-                        error!("Could not broadcast new session for service {service:?}: {e}");
+                    let broadcast_future = match service {
+                        ServiceType::BlendNetwork => {
+                            broadcast_blend_session(relays.broadcast_relay(), update).boxed()
+                        }
+                        ServiceType::DataAvailability => {
+                            broadcast_da_session(relays.broadcast_relay(), update).boxed()
+                        }
+                    };
+
+                    if let Err(e) = broadcast_future.await {
+                        error!("Failed to broadcast session update for {service:?}: {e}");
                     }
                 }
             }
@@ -1373,8 +1348,6 @@ where
                 relays,
                 &self.new_block_subscription_sender,
                 &self.lib_subscription_sender,
-                &self.bn_subscription_sender,
-                &self.da_subscription_sender,
             )
             .await
             {
@@ -1581,6 +1554,26 @@ async fn broadcast_finalized_block(
 ) -> Result<(), DynError> {
     broadcast_relay
         .send(BlockBroadcastMsg::BroadcastFinalizedBlock(block_info))
+        .await
+        .map_err(|(error, _)| Box::new(error) as DynError)
+}
+
+async fn broadcast_blend_session(
+    broadcast_relay: &BroadcastRelay,
+    session: SessionUpdate,
+) -> Result<(), DynError> {
+    broadcast_relay
+        .send(BlockBroadcastMsg::BroadcastBlendSession(session))
+        .await
+        .map_err(|(error, _)| Box::new(error) as DynError)
+}
+
+async fn broadcast_da_session(
+    broadcast_relay: &BroadcastRelay,
+    session: SessionUpdate,
+) -> Result<(), DynError> {
+    broadcast_relay
+        .send(BlockBroadcastMsg::BroadcastDASession(session))
         .await
         .map_err(|(error, _)| Box::new(error) as DynError)
 }
