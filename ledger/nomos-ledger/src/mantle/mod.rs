@@ -3,6 +3,8 @@ pub mod leader;
 pub mod locked_notes;
 pub mod sdp;
 
+use std::collections::HashMap;
+
 use cryptarchia_engine::Epoch;
 use ed25519::signature::Verifier as _;
 use nomos_core::{
@@ -12,7 +14,7 @@ use nomos_core::{
         ops::{Op, OpProof, leader_claim::VoucherCm},
     },
     proofs::zksig::{self, ZkSignatureProof as _},
-    sdp::{ServiceType, state::DeclarationStateError},
+    sdp::{ProviderId, ProviderInfo, ServiceType, state::DeclarationStateError},
 };
 use sdp::SdpLedgerError;
 
@@ -83,6 +85,34 @@ impl LedgerState {
     #[must_use]
     pub const fn locked_notes(&self) -> &locked_notes::LockedNotes {
         &self.locked_notes
+    }
+
+    #[must_use]
+    pub const fn active_sessions(&self) -> &membership::Sessions {
+        &self.membership.active_sessions
+    }
+
+    #[must_use]
+    pub fn active_session_providers(
+        &self,
+        service: &ServiceType,
+    ) -> Option<HashMap<ProviderId, ProviderInfo>> {
+        let session = self.membership.active_sessions.get(service)?;
+        let providers = session
+            .declarations
+            .iter()
+            .filter_map(|declaration_id| {
+                let declaration_state = self.sdp.declarations.get(declaration_id)?;
+                Some((
+                    declaration_state.provider_id,
+                    ProviderInfo {
+                        zk_id: declaration_state.zk_id,
+                        locators: declaration_state.locators.clone(),
+                    },
+                ))
+            })
+            .collect();
+        Some(providers)
     }
 
     pub fn try_apply_header(mut self, epoch: Epoch, voucher: VoucherCm) -> Result<Self, Error> {
@@ -245,7 +275,7 @@ mod tests {
             },
         },
         proofs::zksig::DummyZkSignature,
-        sdp::{ProviderId, ZkPublicKey, state::ActiveStateError},
+        sdp::{ZkPublicKey, state::ActiveStateError},
     };
     use num_bigint::BigUint;
 

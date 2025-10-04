@@ -13,7 +13,7 @@ use cryptarchia::LedgerState as CryptarchiaLedger;
 pub use cryptarchia::{EpochState, UtxoTree};
 use cryptarchia_engine::Slot;
 use groth16::{Field as _, Fr};
-use mantle::LedgerState as MantleLedger;
+use mantle::{LedgerState as MantleLedger, membership::Sessions};
 use nomos_core::{
     block::BlockNumber,
     mantle::{
@@ -21,6 +21,7 @@ use nomos_core::{
         ops::leader_claim::VoucherCm,
     },
     proofs::leader_proof,
+    sdp::{ProviderId, ProviderInfo, ServiceType},
 };
 use thiserror::Error;
 
@@ -273,6 +274,19 @@ impl LedgerState {
     #[must_use]
     pub const fn aged_commitments(&self) -> &UtxoTree {
         self.cryptarchia_ledger.aged_commitments()
+    }
+
+    #[must_use]
+    pub const fn active_sessions(&self) -> &Sessions {
+        self.mantle_ledger.active_sessions()
+    }
+
+    #[must_use]
+    pub fn active_session_providers(
+        &self,
+        service_type: ServiceType,
+    ) -> Option<HashMap<ProviderId, ProviderInfo>> {
+        self.mantle_ledger.active_session_providers(&service_type)
     }
 }
 

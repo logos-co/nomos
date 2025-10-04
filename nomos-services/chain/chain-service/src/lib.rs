@@ -10,7 +10,7 @@ mod sync;
 
 use core::fmt::Debug;
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fmt::Display,
     hash::Hash,
     path::PathBuf,
@@ -25,13 +25,14 @@ use cryptarchia_sync::{GetTipResponse, ProviderResponse};
 use futures::StreamExt as _;
 use network::NetworkAdapter;
 use nomos_core::{
-    block::Block,
+    block::{Block, SessionNumber},
     da,
     header::{Header, HeaderId},
     mantle::{
         AuthenticatedMantleTx, SignedMantleTx, Transaction, TxHash, gas::MainnetGasConstants,
         ops::leader_claim::VoucherCm,
     },
+    sdp::{ProviderId, ProviderInfo, ServiceType},
 };
 use nomos_da_sampling::{
     DaSamplingService, DaSamplingServiceMsg, backend::DaSamplingServiceBackend,
@@ -52,12 +53,13 @@ use services_utils::{
     overwatch::{JsonFileBackend, RecoveryOperator, recovery::backends::FileBackendSettings},
     wait_until_services_are_ready,
 };
+use strum::IntoEnumIterator as _;
 use thiserror::Error;
 use tokio::{
     sync::{broadcast, mpsc, oneshot},
     time::Instant,
 };
-use tracing::{Level, debug, error, info, instrument, span};
+use tracing::{Level, debug, error, info, instrument, span, warn};
 use tracing_futures::Instrument as _;
 use tx_service::{
     TxMempoolService, backend::RecoverableMempool,
@@ -101,6 +103,10 @@ pub enum Error {
     Mempool(String),
     #[error("Blob validation failed: {0}")]
     BlobValidationFailed(#[from] blob::Error),
+    #[error("Block header not found: {0}")]
+    HeaderNotFound(HeaderId),
+    #[error("Service session not found: {0:?}")]
+    ServiceSessionNotFound(ServiceType),
 }
 
 #[derive(Debug)]
@@ -166,6 +172,12 @@ impl PrunedBlocksInfo {
             .chain(self.immutable_blocks.values())
             .copied()
     }
+}
+
+#[derive(Clone)]
+pub struct MembershipUpdate {
+    pub session_number: SessionNumber,
+    pub providers: HashMap<ProviderId, ProviderInfo>,
 }
 
 #[derive(Clone)]
@@ -280,6 +292,37 @@ impl Cryptarchia {
     fn has_block(&self, block_id: &HeaderId) -> bool {
         self.consensus.branches().get(block_id).is_some()
     }
+
+    fn active_session_providers(
+        &self,
+        block_id: &HeaderId,
+        service_type: ServiceType,
+    ) -> Result<HashMap<ProviderId, ProviderInfo>, Error> {
+        let ledger = self
+            .ledger
+            .state(block_id)
+            .ok_or(Error::HeaderNotFound(*block_id))?;
+
+        ledger
+            .active_session_providers(service_type)
+            .ok_or(Error::ServiceSessionNotFound(service_type))
+    }
+
+    fn active_sessions_numbers(
+        &self,
+        block_id: &HeaderId,
+    ) -> Result<HashMap<ServiceType, u64>, Error> {
+        let ledger = self
+            .ledger
+            .state(block_id)
+            .ok_or(Error::HeaderNotFound(*block_id))?;
+
+        Ok(ledger
+            .active_sessions()
+            .iter()
+            .map(|(service, session)| (*service, session.session_number))
+            .collect())
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -344,6 +387,8 @@ pub struct CryptarchiaConsensus<
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     new_block_subscription_sender: broadcast::Sender<HeaderId>,
     lib_subscription_sender: broadcast::Sender<LibUpdate>,
+    bn_subscription_sender: broadcast::Sender<MembershipUpdate>,
+    da_subscription_sender: broadcast::Sender<MembershipUpdate>,
     initial_state: <Self as ServiceData>::State,
 }
 
@@ -495,11 +540,15 @@ where
     ) -> Result<Self, DynError> {
         let (new_block_subscription_sender, _) = broadcast::channel(16);
         let (lib_subscription_sender, _) = broadcast::channel(16);
+        let (bn_subscription_sender, _) = broadcast::channel(16);
+        let (da_subscription_sender, _) = broadcast::channel(16);
 
         Ok(Self {
             service_resources_handle,
             new_block_subscription_sender,
             lib_subscription_sender,
+            bn_subscription_sender,
+            da_subscription_sender,
             initial_state,
         })
     }
@@ -584,6 +633,8 @@ where
                 let state_updater = &self.service_resources_handle.state_updater;
                 let new_block_subscription_sender = &self.new_block_subscription_sender;
                 let lib_subscription_sender = &self.lib_subscription_sender;
+                let bn_subscription_sender = &self.bn_subscription_sender;
+                let da_subscription_sender = &self.da_subscription_sender;
                 async move {
                     Self::process_block_and_update_state(
                         cryptarchia,
@@ -594,6 +645,8 @@ where
                         relays,
                         new_block_subscription_sender,
                         lib_subscription_sender,
+                        bn_subscription_sender,
+                        da_subscription_sender,
                         state_updater,
                     )
                     .await
@@ -698,6 +751,8 @@ where
                                     &relays,
                                     &self.new_block_subscription_sender,
                                     &self.lib_subscription_sender,
+                                    &self.bn_subscription_sender,
+                                    &self.da_subscription_sender,
                                     &self.service_resources_handle.state_updater,
                                 ).await {
                             Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
@@ -734,6 +789,8 @@ where
                                     &relays,
                                     &self.new_block_subscription_sender,
                                     &self.lib_subscription_sender,
+                                    &self.bn_subscription_sender,
+                                    &self.da_subscription_sender,
                                     &self.service_resources_handle.state_updater,
                                 ).await {
                                 Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
@@ -780,6 +837,8 @@ where
                             &relays,
                             &self.new_block_subscription_sender,
                             &self.lib_subscription_sender,
+                            &self.bn_subscription_sender,
+                            &self.da_subscription_sender,
                             &self.service_resources_handle.state_updater
                         ).await {
                             Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
@@ -998,6 +1057,8 @@ where
         >,
         new_block_subscription_sender: &broadcast::Sender<HeaderId>,
         lib_subscription_sender: &broadcast::Sender<LibUpdate>,
+        bn_subscription_sender: &broadcast::Sender<MembershipUpdate>,
+        da_subscription_sender: &broadcast::Sender<MembershipUpdate>,
         state_updater: &StateUpdater<
             Option<CryptarchiaConsensusState<NetAdapter::PeerId, NetAdapter::Settings>>,
         >,
@@ -1009,6 +1070,8 @@ where
             relays,
             new_block_subscription_sender,
             lib_subscription_sender,
+            bn_subscription_sender,
+            da_subscription_sender,
         )
         .await?;
 
@@ -1051,6 +1114,7 @@ where
     /// Try to add a [`Block`] to [`Cryptarchia`].
     /// A [`Block`] is only added if it's valid
     #[expect(clippy::allow_attributes_without_reason)]
+    #[expect(clippy::too_many_arguments)]
     #[instrument(level = "debug", skip(cryptarchia, relays, blob_validation))]
     async fn process_block(
         cryptarchia: Cryptarchia,
@@ -1066,6 +1130,8 @@ where
         >,
         new_block_subscription_sender: &broadcast::Sender<HeaderId>,
         lib_broadcaster: &broadcast::Sender<LibUpdate>,
+        bn_session_broadcaster: &broadcast::Sender<MembershipUpdate>,
+        da_session_broadcaster: &broadcast::Sender<MembershipUpdate>,
     ) -> Result<(Cryptarchia, PrunedBlocks<HeaderId>), Error> {
         debug!("received proposal {:?}", block);
 
@@ -1140,6 +1206,45 @@ where
 
             if let Err(e) = lib_broadcaster.send(lib_update) {
                 error!("Could not notify LIB update to services: {e}");
+            }
+
+            let previous_session_numbers = match cryptarchia.active_sessions_numbers(&prev_lib) {
+                Ok(session_numbers) => session_numbers,
+                Err(e) => {
+                    warn!("Error getting previous session numbers: {e}");
+                    ServiceType::iter().map(|s| (s, 0)).collect()
+                }
+            };
+
+            if let Ok(sessions) = cryptarchia.active_sessions_numbers(&new_lib) {
+                for (service, session_number) in &sessions {
+                    let prev_session_num =
+                        previous_session_numbers.get(service).copied().unwrap_or(0);
+
+                    if session_number == &prev_session_num {
+                        continue;
+                    }
+
+                    let broadcaster = match service {
+                        ServiceType::BlendNetwork => &bn_session_broadcaster,
+                        ServiceType::DataAvailability => &da_session_broadcaster,
+                    };
+
+                    let Ok(providers) = cryptarchia.active_session_providers(&new_lib, *service)
+                    else {
+                        error!("Could not get session providers for service: {service:?}");
+                        continue;
+                    };
+
+                    let update = MembershipUpdate {
+                        session_number: *session_number,
+                        providers,
+                    };
+
+                    if let Err(e) = broadcaster.send(update) {
+                        error!("Could not broadcast new session for service {service:?}: {e}");
+                    }
+                }
             }
         }
 
@@ -1268,6 +1373,8 @@ where
                 relays,
                 &self.new_block_subscription_sender,
                 &self.lib_subscription_sender,
+                &self.bn_subscription_sender,
+                &self.da_subscription_sender,
             )
             .await
             {

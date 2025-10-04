@@ -90,7 +90,14 @@ impl SdpLedger {
 
         self.declarations = self.declarations.insert(
             declaration_id,
-            DeclarationState::new(block_number, op.service_type, op.locked_note_id, op.zk_id),
+            DeclarationState::new(
+                block_number,
+                op.provider_id,
+                op.locators.clone(),
+                op.service_type,
+                op.locked_note_id,
+                op.zk_id,
+            ),
         );
 
         Ok(self)

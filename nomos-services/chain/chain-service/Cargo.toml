@@ -30,6 +30,7 @@ rand               = { default-features = false, version = "0.8" }
 serde              = { default-features = false, version = "1" }
 serde_with         = { workspace = true }
 services-utils     = { workspace = true }
+strum              = "0.27"
 thiserror          = "1.0"
 tokio              = { default-features = false, version = "1" }
 tokio-stream       = { default-features = false, version = "0.1" }

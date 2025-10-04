@@ -187,7 +187,9 @@ impl DeclarationInfo {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeclarationState {
     pub service_type: ServiceType,
+    pub provider_id: ProviderId,
     pub locked_note_id: NoteId,
+    pub locators: Vec<Locator>,
     pub zk_id: ZkPublicKey,
     pub created: BlockNumber,
     pub active: BlockNumber,
@@ -195,10 +197,18 @@ pub struct DeclarationState {
     pub nonce: Nonce,
 }
 
+#[derive(Debug, Clone)]
+pub struct ProviderInfo {
+    pub locators: Vec<Locator>,
+    pub zk_id: ZkPublicKey,
+}
+
 impl DeclarationState {
     #[must_use]
     pub const fn new(
         block_number: BlockNumber,
+        provider_id: ProviderId,
+        locators: Vec<Locator>,
         service_type: ServiceType,
         locked_note_id: NoteId,
         zk_id: ZkPublicKey,
@@ -207,6 +217,8 @@ impl DeclarationState {
             service_type,
             locked_note_id,
             zk_id,
+            provider_id,
+            locators,
             created: block_number,
             active: block_number,
             withdrawn: None,

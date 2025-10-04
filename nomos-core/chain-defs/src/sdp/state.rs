@@ -212,7 +212,7 @@ mod tests {
     use super::*;
     use crate::{
         mantle::NoteId,
-        sdp::{ServiceType, ZkPublicKey},
+        sdp::{ProviderId, ServiceType, ZkPublicKey},
     };
 
     const fn default_service_params() -> ServiceParameters {
@@ -230,6 +230,8 @@ mod tests {
         let service_params = default_service_params();
         let mut declaration_state = DeclarationState::new(
             0,
+            ProviderId::try_from([0; 32]).unwrap(),
+            Vec::new(),
             ServiceType::BlendNetwork,
             NoteId(BigUint::from(0u8).into()),
             ZkPublicKey(BigUint::from(0u8).into()),
@@ -249,6 +251,8 @@ mod tests {
         let service_params = default_service_params();
         let mut declaration_state = DeclarationState::new(
             100,
+            ProviderId::try_from([0; 32]).unwrap(),
+            Vec::new(),
             ServiceType::BlendNetwork,
             NoteId(BigUint::from(0u8).into()),
             ZkPublicKey(BigUint::from(0u8).into()),
@@ -270,6 +274,8 @@ mod tests {
         let service_params = default_service_params();
         let mut declaration_state = DeclarationState::new(
             100,
+            ProviderId::try_from([0; 32]).unwrap(),
+            Vec::new(),
             ServiceType::BlendNetwork,
             NoteId(BigUint::from(0u8).into()),
             ZkPublicKey(BigUint::from(0u8).into()),
@@ -286,6 +292,8 @@ mod tests {
         let service_params = default_service_params();
         let mut declaration_state = DeclarationState::new(
             100,
+            ProviderId::try_from([0; 32]).unwrap(),
+            Vec::new(),
             ServiceType::BlendNetwork,
             NoteId(BigUint::from(0u8).into()),
             ZkPublicKey(BigUint::from(0u8).into()),
@@ -307,6 +315,8 @@ mod tests {
         let service_params = default_service_params();
         let mut declaration_state = DeclarationState::new(
             100,
+            ProviderId::try_from([0; 32]).unwrap(),
+            Vec::new(),
             ServiceType::BlendNetwork,
             NoteId(BigUint::from(0u8).into()),
             ZkPublicKey(BigUint::from(0u8).into()),
@@ -329,6 +339,8 @@ mod tests {
         let service_params = default_service_params();
         let mut declaration_state = DeclarationState::new(
             3,
+            ProviderId::try_from([0; 32]).unwrap(),
+            Vec::new(),
             ServiceType::BlendNetwork,
             NoteId(BigUint::from(0u8).into()),
             ZkPublicKey(BigUint::from(0u8).into()),
@@ -353,6 +365,8 @@ mod tests {
         let service_params = default_service_params();
         let mut declaration_state = DeclarationState::new(
             0,
+            ProviderId::try_from([0; 32]).unwrap(),
+            Vec::new(),
             ServiceType::BlendNetwork,
             NoteId(BigUint::from(0u8).into()),
             ZkPublicKey(BigUint::from(0u8).into()),
@@ -375,6 +389,8 @@ mod tests {
         let service_params = default_service_params();
         let mut declaration_state = DeclarationState::new(
             0,
+            ProviderId::try_from([0; 32]).unwrap(),
+            Vec::new(),
             ServiceType::BlendNetwork,
             NoteId(BigUint::from(0u8).into()),
             ZkPublicKey(BigUint::from(0u8).into()),
@@ -398,6 +414,8 @@ mod tests {
         let service_params = default_service_params();
         let mut declaration_state = DeclarationState::new(
             0,
+            ProviderId::try_from([0; 32]).unwrap(),
+            Vec::new(),
             ServiceType::BlendNetwork,
             NoteId(BigUint::from(0u8).into()),
             ZkPublicKey(BigUint::from(0u8).into()),
@@ -433,6 +451,8 @@ mod tests {
         // Withdrawal can't be activity recorded in future.
         let mut declaration_state = DeclarationState::new(
             0,
+            ProviderId::try_from([0; 32]).unwrap(),
+            Vec::new(),
             ServiceType::BlendNetwork,
             NoteId(BigUint::from(0u8).into()),
             ZkPublicKey(BigUint::from(0u8).into()),
@@ -454,6 +474,8 @@ mod tests {
         let service_params = default_service_params();
         let mut declaration_state = DeclarationState::new(
             0,
+            ProviderId::try_from([0; 32]).unwrap(),
+            Vec::new(),
             ServiceType::BlendNetwork,
             NoteId(BigUint::from(0u8).into()),
             ZkPublicKey(BigUint::from(0u8).into()),
@@ -474,6 +496,8 @@ mod tests {
         let service_params = default_service_params();
         let mut declaration_state = DeclarationState::new(
             0,
+            ProviderId::try_from([0; 32]).unwrap(),
+            Vec::new(),
             ServiceType::BlendNetwork,
             NoteId(BigUint::from(0u8).into()),
             ZkPublicKey(BigUint::from(0u8).into()),
@@ -496,6 +520,8 @@ mod tests {
         let service_params = default_service_params();
         let mut declaration_state = DeclarationState::new(
             0,
+            ProviderId::try_from([0; 32]).unwrap(),
+            Vec::new(),
             ServiceType::BlendNetwork,
             NoteId(BigUint::from(0u8).into()),
             ZkPublicKey(BigUint::from(0u8).into()),
@@ -527,6 +553,8 @@ mod tests {
         };
         let mut declaration_state = DeclarationState::new(
             0,
+            ProviderId::try_from([0; 32]).unwrap(),
+            Vec::new(),
             ServiceType::BlendNetwork,
             NoteId(BigUint::from(0u8).into()),
             ZkPublicKey(BigUint::from(0u8).into()),
@@ -550,6 +578,8 @@ mod tests {
         let service_params = default_service_params();
         let mut declaration_state = DeclarationState::new(
             0,
+            ProviderId::try_from([0; 32]).unwrap(),
+            Vec::new(),
             ServiceType::BlendNetwork,
             NoteId(BigUint::from(0u8).into()),
             ZkPublicKey(BigUint::from(0u8).into()),
