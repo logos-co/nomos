@@ -10,6 +10,7 @@ mod test {
         time::Duration,
     };
 
+    use ed25519_dalek::{Signer as _, SigningKey};
     use futures::StreamExt as _;
     use kzgrs_backend::testutils;
     use libp2p::{
@@ -26,8 +27,8 @@ mod test {
             MantleTx, SignedMantleTx, Transaction as _,
             ledger::Tx as LedgerTx,
             ops::{
-                Op,
-                channel::{ChannelId, Ed25519PublicKey, MsgId, blob::BlobOp},
+                Op, OpProof,
+                channel::{ChannelId, MsgId, blob::BlobOp},
             },
         },
         proofs::zksig::{DummyZkSignature, ZkSignaturePublic},
@@ -325,7 +326,9 @@ mod test {
         let k1 = Keypair::generate_ed25519();
         let k2 = Keypair::generate_ed25519();
         let peer_id2 = PeerId::from_public_key(&k2.public());
-        let signer_bytes_k2 = get_ed25519_bytes(k1.public()).expect("Public key must be Ed25519");
+        let signing_key = SigningKey::from_bytes(
+            &get_ed25519_bytes(k2.public()).expect("SigningKey should be created from valid bytes"),
+        );
 
         let neighbours = make_neighbours(&[&k1, &k2]);
 
@@ -338,7 +341,7 @@ mod test {
             blob_size: 0,
             da_storage_gas_price: 0,
             parent: MsgId::root(),
-            signer: Ed25519PublicKey::from_bytes(&signer_bytes_k2).unwrap(),
+            signer: signing_key.verifying_key(),
         });
 
         let base_mantle_tx = MantleTx {
@@ -346,15 +349,6 @@ mod test {
             ledger_tx: LedgerTx::new(vec![], vec![]),
             storage_gas_price: 0,
             execution_gas_price: 0,
-        };
-
-        let base_signed_tx = SignedMantleTx {
-            ops_proofs: Vec::new(),
-            ledger_tx_proof: DummyZkSignature::prove(ZkSignaturePublic {
-                msg_hash: base_mantle_tx.hash().into(),
-                pks: vec![],
-            }),
-            mantle_tx: base_mantle_tx,
         };
 
         let addr1 = multiaddr!(
@@ -368,10 +362,23 @@ mod test {
             swarm2.dial_and_wait(addr1).await;
 
             for i in 0..TX_COUNT {
-                let mut unique_signed_tx = base_signed_tx.clone();
+                let mut unique_mantle_tx = base_mantle_tx.clone();
                 // Mantle op payload is not yet included in the signed bytes for tx hash, but
                 // storage_gas_price also affect the hash and is enough in this test case.
-                unique_signed_tx.mantle_tx.storage_gas_price = i;
+                unique_mantle_tx.storage_gas_price = i;
+
+                let tx_hash = unique_mantle_tx.hash();
+                let signature = signing_key.sign(&tx_hash.as_signing_bytes());
+
+                let unique_signed_tx = SignedMantleTx::new(
+                    unique_mantle_tx,
+                    vec![Some(OpProof::Ed25519Sig(signature))],
+                    DummyZkSignature::prove(ZkSignaturePublic {
+                        msg_hash: tx_hash.into(),
+                        pks: vec![],
+                    }),
+                )
+                .expect("Transaction with valid proofs should be valid");
 
                 let tx_message = ReplicationRequest::from(unique_signed_tx.clone());
 
