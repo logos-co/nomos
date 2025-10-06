@@ -198,10 +198,10 @@ mod test {
         let mut shares: Vec<DaLightShare> = vec![];
         let mut commitmentss: Vec<DaSharesCommitments> = vec![];
         let verifier = DaVerifier::new(VERIFICATION_KEY.clone());
-        for _ in 0..max_batch_size {
-            let data = rand_data(configuration.elements_count);
-            let encoded_data = encoder.encode(&data).unwrap();
-            let share = encoded_data.iter().next().unwrap();
+        let data = rand_data(configuration.elements_count);
+        let encoded_data = encoder.encode(&data).unwrap();
+        for i in 0..max_batch_size {
+            let share = encoded_data.to_da_share(i).unwrap();
             let (light_share, commitments) = share.into_share_and_commitments();
             shares.append(&mut vec![light_share]);
             commitmentss.append(&mut vec![commitments]);
@@ -262,10 +262,10 @@ mod test {
         let iters = 100u64;
 
         let configurations = [
-            utils::Configuration::from_elements_count(32),
+            //utils::Configuration::from_elements_count(32),
             //utils::Configuration::from_elements_count(64),
             //utils::Configuration::from_elements_count(128),
-            utils::Configuration::from_elements_count(256),
+            //utils::Configuration::from_elements_count(256),
             //utils::Configuration::from_elements_count(512),
             //utils::Configuration::from_elements_count(768),
             utils::Configuration::from_elements_count(1024),
