@@ -55,10 +55,8 @@ where
             block.try_into().ok()
         } else {
             tracing::error!("Failed to receive block from storage relay");
-            return None;
-        };
-
-        None
+            None
+        }
     }
 
     async fn store_block(

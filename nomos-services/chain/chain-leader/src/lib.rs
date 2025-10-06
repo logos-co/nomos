@@ -313,25 +313,9 @@ where
 
         let tx_selector = TxS::new(transaction_selector_settings);
 
-        let mut slot_timer = {
-            let (sender, receiver) = oneshot::channel();
-            relays
-                .time_relay()
-                .send(TimeServiceMessage::Subscribe { sender })
-                .await
-                .expect("Request time subscription to time service should succeed");
-            receiver.await?
-        };
-
         let blend_adapter = BlendAdapter::<BlendService>::new(
             relays.blend_relay().clone(),
             blend_broadcast_settings.clone(),
-        );
-
-        self.service_resources_handle.status_updater.notify_ready();
-        info!(
-            "Service '{}' is ready.",
-            <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
 
         wait_until_services_are_ready!(
@@ -346,10 +330,27 @@ where
         )
         .await?;
 
+        let mut slot_timer = {
+            let (sender, receiver) = oneshot::channel();
+            relays
+                .time_relay()
+                .send(TimeServiceMessage::Subscribe { sender })
+                .await
+                .expect("Request time subscription to time service should succeed");
+            receiver.await?
+        };
+
+        self.service_resources_handle.status_updater.notify_ready();
+        info!(
+            "Service '{}' is ready.",
+            <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
+        );
+
         let async_loop = async {
             loop {
                 tokio::select! {
-                    Some(SlotTick { slot, .. }) = slot_timer.next() => {
+                    Some(SlotTick { slot, epoch }) = slot_timer.next() => {
+                        info!("Received SlotTick for slot {}, ep {}", u64::from(slot), u32::from(epoch));
                         let chain_info = match cryptarchia_api.info().await {
                             Ok(info) => info,
                             Err(e) => {
@@ -373,7 +374,6 @@ where
 
                         let aged_tree = tip_state.aged_commitments();
                         let latest_tree = tip_state.latest_commitments();
-                        debug!("ticking for slot {}", u64::from(slot));
 
                         let epoch_state = match cryptarchia_api.get_epoch_state(slot).await {
                             Ok(Some(state)) => state,
@@ -387,7 +387,6 @@ where
                             }
                         };
 
-                        // Query wallet for eligible UTXOs for leadership
                         let eligible_utxos = match wallet_api.get_leader_aged_notes(parent).await {
                             Ok(utxos) => utxos,
                             Err(e) => {
@@ -397,7 +396,6 @@ where
                         };
 
                         if let Some(proof) = leader.build_proof_for(&eligible_utxos, aged_tree, latest_tree, &epoch_state, slot).await {
-                            debug!("proposing block...");
                             // TODO: spawn as a separate task?
                             let block = Self::propose_block(
                                 parent,
@@ -540,7 +538,7 @@ where
 
                 // TODO: this should probably be a proposal or be transformed into a proposal
                 let block = Block::new(Header::new(parent, content_id, slot, proof), txs);
-                debug!("proposed block with id {:?}", block.header().id());
+                info!("proposed block with id {:?}", block.header().id());
                 output = Some(block);
             }
             Err(e) => {
