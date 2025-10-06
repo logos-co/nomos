@@ -151,7 +151,8 @@ impl StorageDaApi for RocksBackend {
         let session_bytes = sesion_id.to_le_bytes();
         let assignations_key = key_bytes(DA_ASSIGNATIONS_PREFIX, session_bytes);
         let serialized_assignations =
-            <()>::serialize(&assignations).expect("Serialization of HashMap should not fail");
+            <HashMap<Self::NetworkId, HashSet<Self::Id>>>::serialize(&assignations)
+                .expect("Serialization of HashMap should not fail");
 
         match self.store(assignations_key, serialized_assignations).await {
             Ok(()) => {
@@ -208,8 +209,8 @@ impl StorageDaApi for RocksBackend {
 
         for (peer_id, provider_id) in mappings {
             let provider_key = key_bytes(DA_PROVIDER_MAPPINGS_PREFIX, peer_id.to_bytes());
-            let serialized_provider_id =
-                <()>::serialize(&provider_id).expect("Serialization of ProviderId should not fail");
+            let serialized_provider_id = <ProviderId>::serialize(&provider_id)
+                .expect("Serialization of ProviderId should not fail");
             key_provider_map.insert(provider_key, serialized_provider_id);
         }
 
@@ -250,7 +251,7 @@ impl StorageDaApi for RocksBackend {
         for (id, addr) in ids {
             let addressbook_key = key_bytes(DA_ADDRESSBOOK_PREFIX, id.to_bytes());
             let serialized_address =
-                <()>::serialize(&addr).expect("Serialization of Multiaddr should not fail");
+                <Multiaddr>::serialize(&addr).expect("Serialization of Multiaddr should not fail");
             key_address_map.insert(addressbook_key, serialized_address);
         }
 
@@ -289,7 +290,7 @@ impl StorageDaApi for RocksBackend {
     ) -> Result<(), Self::Error> {
         let tx_key = key_bytes(DA_TX_PREFIX, blob_id.as_ref());
         let serialized_tx_body =
-            <()>::serialize(&tx).expect("Serialization of transaction should not fail");
+            <Self::Tx>::serialize(&tx).expect("Serialization of transaction should not fail");
 
         let mut serialized_tx = Vec::with_capacity(2 + serialized_tx_body.len());
         serialized_tx.extend_from_slice(&assignations.to_le_bytes());
