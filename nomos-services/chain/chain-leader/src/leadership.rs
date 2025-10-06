@@ -41,10 +41,7 @@ impl Leader {
         slot: Slot,
     ) -> Option<Groth16LeaderProof> {
         for utxo in utxos {
-            let Some(public_inputs) = public_inputs_for_utxo(utxo, epoch_state, slot, latest_tree)
-            else {
-                continue;
-            };
+            let public_inputs = public_inputs_for_slot(epoch_state, slot, latest_tree);
 
             let note_id = utxo.id().0;
             let secret_key = self.slot_secret_key(slot);
@@ -70,8 +67,9 @@ impl Leader {
 
                 let private_inputs = self.private_inputs_for_winning_utxo_and_slot(
                     utxo,
-                    epoch_state.epoch,
+                    epoch_state,
                     public_inputs,
+                    latest_tree,
                 );
 
                 let res = tokio::task::spawn_blocking(move || {
@@ -106,17 +104,20 @@ impl Leader {
     fn private_inputs_for_winning_utxo_and_slot(
         &self,
         utxo: &Utxo,
-        epoch: Epoch,
+        // TODO: Use aged tree to compute `aged_path`
+        epoch_state: &EpochState,
         public_inputs: LeaderPublic,
+        // TODO: Use latest tree to compute `latest_path`
+        _latest_tree: &UtxoTree,
     ) -> LeaderPrivate {
         // TODO: Get the actual witness paths and leader key
-        let aged_path = Vec::new(); // Placeholder for aged path
+        let aged_path = Vec::new(); // Placeholder for aged path, aged UTXO tree is included in `EpochState`.
         let latest_path = Vec::new();
         let slot_secret = *self.sk.as_fr();
         let starting_slot = self
             .config
             .epoch_config
-            .starting_slot(&epoch, self.config.base_period_length())
+            .starting_slot(&epoch_state.epoch, self.config.base_period_length())
             .into();
         let leader_pk = ed25519_dalek::VerifyingKey::from_bytes(&[0; 32]).unwrap(); // TODO: get actual leader public key
 
@@ -136,21 +137,18 @@ impl Leader {
     }
 }
 
-fn public_inputs_for_utxo(
-    utxo: &Utxo,
+fn public_inputs_for_slot(
     epoch_state: &EpochState,
     slot: Slot,
     latest_tree: &UtxoTree,
-) -> Option<LeaderPublic> {
-    let () = epoch_state.utxos.witness(&utxo.id())?;
-    let () = latest_tree.witness(&utxo.id())?;
-    Some(LeaderPublic::new(
+) -> LeaderPublic {
+    LeaderPublic::new(
         epoch_state.utxos.root(),
         latest_tree.root(),
         epoch_state.nonce,
         slot.into(),
         epoch_state.total_stake(),
-    ))
+    )
 }
 
 /// Process every tick and reacts to the very first one received and the first
@@ -213,11 +211,7 @@ impl<'service> WinningPoLSlotNotifier<'service> {
                     .expect("Slot calculation overflow.");
                 let secret_key = self.leader.slot_secret_key(slot.into());
 
-                let Some(public_inputs) =
-                    public_inputs_for_utxo(utxo, epoch_state, slot.into(), &latest_tree)
-                else {
-                    continue;
-                };
+                let public_inputs = public_inputs_for_slot(epoch_state, slot.into(), &latest_tree);
                 if !public_inputs.check_winning(utxo.note.value, note_id, *secret_key.as_fr()) {
                     continue;
                 }
@@ -225,8 +219,9 @@ impl<'service> WinningPoLSlotNotifier<'service> {
 
                 let leader_private = self.leader.private_inputs_for_winning_utxo_and_slot(
                     utxo,
-                    epoch_state.epoch,
+                    epoch_state,
                     public_inputs,
+                    &latest_tree,
                 );
 
                 if let Err(err) =
