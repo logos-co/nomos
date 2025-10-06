@@ -405,7 +405,6 @@ where
                         update.peers,
                         &membership_storage,
                         update.provider_mappings,
-
                     ).await {
                         Ok(current_membership) => {
                             Self::handle_opinion_session_change(&mut opinion_aggregator, current_membership).await;
