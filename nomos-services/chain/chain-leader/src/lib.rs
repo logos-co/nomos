@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use services_utils::wait_until_services_are_ready;
 use thiserror::Error;
 use tokio::sync::{broadcast, oneshot};
-use tracing::{Level, debug, error, info, instrument, span};
+use tracing::{Level, error, info, instrument, span};
 use tracing_futures::Instrument as _;
 use tx_service::{
     MempoolMsg, TxMempoolService, backend::RecoverableMempool,
