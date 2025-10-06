@@ -159,11 +159,17 @@ mod test {
         let share = encoded_data.iter().next().unwrap();
         let len = share.column.len();
         let (light_share, commitments) = share.into_share_and_commitments();
-        let t0 = unsafe { core::arch::x86_64::_rdtsc() };
+        let t0 = {
+            unsafe { core::arch::x86_64::_mm_lfence() };
+            unsafe { core::arch::x86_64::_rdtsc() }
+        };
         for _ in 0..iters {
             black_box(verifier.verify(&light_share, &commitments, domain_size));
         }
-        let t1 = unsafe { core::arch::x86_64::_rdtsc() };
+        let t1 = {
+            unsafe { core::arch::x86_64::_mm_lfence() };
+            unsafe { core::arch::x86_64::_rdtsc() }
+        };
 
         let cycles_diff = t1 - t0;
         let cycles_per_run = (t1 - t0) / iters;
@@ -209,7 +215,10 @@ mod test {
         println!("data generated, starting tests");
 
         for batch_size in (10..201).step_by(10) {
-            let t0 = unsafe { core::arch::x86_64::_rdtsc() };
+            let t0 = {
+                unsafe { core::arch::x86_64::_mm_lfence() };
+                unsafe { core::arch::x86_64::_rdtsc() }
+            };
             for _ in 0..iters {
                 black_box(verifier.batch_verify(
                     &shares[0..batch_size],
@@ -217,7 +226,10 @@ mod test {
                     domain_size,
                 ));
             }
-            let t1 = unsafe { core::arch::x86_64::_rdtsc() };
+            let t1 = {
+                unsafe { core::arch::x86_64::_mm_lfence() };
+                unsafe { core::arch::x86_64::_rdtsc() }
+            };
 
             let cycles_diff = t1 - t0;
             let cycles_per_run = (t1 - t0) / iters;
@@ -262,12 +274,12 @@ mod test {
         let iters = 100u64;
 
         let configurations = [
-            //utils::Configuration::from_elements_count(32),
-            //utils::Configuration::from_elements_count(64),
-            //utils::Configuration::from_elements_count(128),
-            //utils::Configuration::from_elements_count(256),
-            //utils::Configuration::from_elements_count(512),
-            //utils::Configuration::from_elements_count(768),
+            utils::Configuration::from_elements_count(32),
+            utils::Configuration::from_elements_count(64),
+            utils::Configuration::from_elements_count(128),
+            utils::Configuration::from_elements_count(256),
+            utils::Configuration::from_elements_count(512),
+            utils::Configuration::from_elements_count(768),
             utils::Configuration::from_elements_count(1024),
         ];
 
