@@ -352,19 +352,6 @@ where
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
 
-        wait_until_services_are_ready!(
-            &self.service_resources_handle.overwatch_handle,
-            Some(Duration::from_secs(60)),
-            BlendService,
-            TxMempoolService<_, _, _, _, _>,
-            DaSamplingService<_, _, _, _>,
-            TimeService<_, _>,
-            CryptarchiaService
-        )
-        .await?;
-
-        let mut _last_processed_epoch: Option<Epoch> = None;
-
         let async_loop = async {
             loop {
                 tokio::select! {
@@ -413,7 +400,7 @@ where
                             }
                         };
 
-                        winning_pol_slot_notifier.process_epoch(&epoch_state);
+                        winning_pol_slot_notifier.process_epoch(&eligible_utxos, &epoch_state);
 
                         if let Some(proof) = leader.build_proof_for(&eligible_utxos, latest_tree, &epoch_state, slot).await {
                             // TODO: spawn as a separate task?

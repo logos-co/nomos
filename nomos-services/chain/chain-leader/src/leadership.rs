@@ -35,7 +35,6 @@ impl Leader {
     pub async fn build_proof_for(
         &self,
         utxos: &[Utxo],
-        aged_tree: &UtxoTree,
         latest_tree: &UtxoTree,
         epoch_state: &EpochState,
         slot: Slot,
@@ -174,7 +173,7 @@ impl<'service> WinningPoLSlotNotifier<'service> {
         }
     }
 
-    pub(super) fn process_epoch(&mut self, epoch_state: &EpochState) {
+    pub(super) fn process_epoch(&mut self, utxos: &[Utxo], epoch_state: &EpochState) {
         if let Some(last_processed_epoch) = self.last_processed_epoch {
             if last_processed_epoch == epoch_state.epoch {
                 tracing::trace!("Skipping already processed epoch.");
@@ -188,10 +187,10 @@ impl<'service> WinningPoLSlotNotifier<'service> {
         }
         tracing::debug!("Processing new epoch: {:?}", epoch_state.epoch);
 
-        self.check_epoch_winning_utxos(epoch_state);
+        self.check_epoch_winning_utxos(utxos, epoch_state);
     }
 
-    fn check_epoch_winning_utxos(&mut self, epoch_state: &EpochState) {
+    fn check_epoch_winning_utxos(&mut self, utxos: &[Utxo], epoch_state: &EpochState) {
         let slots_per_epoch = self.leader.config.epoch_length();
         let epoch_starting_slot: u64 = self
             .leader
@@ -202,7 +201,7 @@ impl<'service> WinningPoLSlotNotifier<'service> {
         // Not used to check if a slot wins the lottery.
         let latest_tree = UtxoTree::new();
 
-        for utxo in &self.leader.utxos {
+        for utxo in utxos {
             let note_id = utxo.id().0;
 
             for offset in 0..slots_per_epoch {

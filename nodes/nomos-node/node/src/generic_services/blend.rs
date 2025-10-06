@@ -198,7 +198,21 @@ where
     async fn subscribe(
         overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
     ) -> Option<Self::Stream> {
-        wait_until_services_are_ready!(overwatch_handle, Some(Duration::from_secs(3)), CryptarchiaLeaderService<SamplingAdapter, RuntimeServiceId>).await.ok()?;
+        wait_until_services_are_ready!(
+            overwatch_handle,
+            Some(Duration::from_secs(3)),
+            CryptarchiaLeaderService<
+                CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
+                WalletService<
+                    CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
+                    RuntimeServiceId,
+                >,
+                SamplingAdapter,
+                RuntimeServiceId,
+            >
+        )
+        .await
+        .ok()?;
         let cryptarchia_service_relay = overwatch_handle
             .relay::<CryptarchiaLeaderService<
                 CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
