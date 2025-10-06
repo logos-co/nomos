@@ -66,6 +66,11 @@ pub struct PublicKey(#[serde(with = "serde_fr")] Fr);
 
 impl PublicKey {
     #[must_use]
+    pub const fn zero() -> Self {
+        Self(Fr::ZERO)
+    }
+
+    #[must_use]
     pub const fn new(key: Fr) -> Self {
         Self(key)
     }
@@ -77,8 +82,19 @@ impl PublicKey {
 
     #[must_use]
     pub fn verify(&self, data: &Fr, signature: &Signature) -> bool {
-        let mut pks = [Fr::ZERO; 32];
-        pks[0] = self.0;
+        let mut pks = [const { Self::zero() }; 32];
+        pks[0] = *self;
+        Self::verify_multi(&pks, data, signature)
+    }
+
+    #[must_use]
+    pub fn verify_multi(pks: &[Self; 32], data: &Fr, signature: &Signature) -> bool {
+        let pks = pks
+            .iter()
+            .map(|pk| pk.0)
+            .collect::<Vec<_>>()
+            .try_into()
+            .expect("Size is correct from method signature");
         let inputs = ZkSignVerifierInputs::new_from_msg_and_pks(*data, &pks);
         verify(signature.as_proof(), &inputs).unwrap_or_else(|e| {
             error!("Error verifying signature: {e:?}");
