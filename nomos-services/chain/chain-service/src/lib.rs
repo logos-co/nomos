@@ -103,8 +103,8 @@ pub enum Error {
     Mempool(String),
     #[error("Blob validation failed: {0}")]
     BlobValidationFailed(#[from] blob::Error),
-    #[error("Block header not found: {0}")]
-    HeaderNotFound(HeaderId),
+    #[error("Block header id not found: {0}")]
+    HeaderIdNotFound(HeaderId),
     #[error("Service session not found: {0:?}")]
     ServiceSessionNotFound(ServiceType),
 }
@@ -295,7 +295,7 @@ impl Cryptarchia {
         let ledger = self
             .ledger
             .state(block_id)
-            .ok_or(Error::HeaderNotFound(*block_id))?;
+            .ok_or(Error::HeaderIdNotFound(*block_id))?;
 
         ledger
             .active_session_providers(service_type)
@@ -309,7 +309,7 @@ impl Cryptarchia {
         let ledger = self
             .ledger
             .state(block_id)
-            .ok_or(Error::HeaderNotFound(*block_id))?;
+            .ok_or(Error::HeaderIdNotFound(*block_id))?;
 
         Ok(ledger
             .active_sessions()
@@ -1113,6 +1113,14 @@ where
         let id = header.id();
         let prev_lib = cryptarchia.lib();
 
+        let previous_session_numbers = match cryptarchia.active_sessions_numbers(&prev_lib) {
+            Ok(session_numbers) => session_numbers,
+            Err(e) => {
+                warn!("Error getting previous session numbers: {e}");
+                ServiceType::iter().map(|s| (s, 0)).collect()
+            }
+        };
+
         let (cryptarchia, pruned_blocks) = cryptarchia.try_apply_header(header)?;
         let new_lib = cryptarchia.lib();
 
@@ -1178,14 +1186,6 @@ where
             if let Err(e) = lib_broadcaster.send(lib_update) {
                 error!("Could not notify LIB update to services: {e}");
             }
-
-            let previous_session_numbers = match cryptarchia.active_sessions_numbers(&prev_lib) {
-                Ok(session_numbers) => session_numbers,
-                Err(e) => {
-                    warn!("Error getting previous session numbers: {e}");
-                    ServiceType::iter().map(|s| (s, 0)).collect()
-                }
-            };
 
             let sessions = cryptarchia.active_sessions_numbers(&new_lib)?;
             for (service, session_number) in &sessions {
