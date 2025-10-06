@@ -10,7 +10,7 @@ use overwatch::{
     },
 };
 use serde::{Deserialize, Serialize};
-use tokio::sync::{broadcast, oneshot};
+use tokio::sync::{broadcast, oneshot, watch};
 use tracing::{error, info};
 
 const BROADCAST_CHANNEL_SIZE: usize = 128;
@@ -30,18 +30,18 @@ pub enum BlockBroadcastMsg {
         result_sender: oneshot::Sender<broadcast::Receiver<BlockInfo>>,
     },
     SubscribeBlendSession {
-        result_sender: oneshot::Sender<broadcast::Receiver<SessionUpdate>>,
+        result_sender: oneshot::Sender<watch::Receiver<Option<SessionUpdate>>>,
     },
     SubscribeDASession {
-        result_sender: oneshot::Sender<broadcast::Receiver<SessionUpdate>>,
+        result_sender: oneshot::Sender<watch::Receiver<Option<SessionUpdate>>>,
     },
 }
 
 pub struct BlockBroadcastService<RuntimeServiceId> {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     finalized_blocks: broadcast::Sender<BlockInfo>,
-    blend_session: broadcast::Sender<SessionUpdate>,
-    da_session: broadcast::Sender<SessionUpdate>,
+    blend_session: watch::Sender<Option<SessionUpdate>>,
+    da_session: watch::Sender<Option<SessionUpdate>>,
 }
 
 impl<RuntimeServiceId> ServiceData for BlockBroadcastService<RuntimeServiceId> {
@@ -61,8 +61,8 @@ where
         _initial_state: Self::State,
     ) -> Result<Self, overwatch::DynError> {
         let (finalized_blocks, _) = broadcast::channel(BROADCAST_CHANNEL_SIZE);
-        let (blend_session, _) = broadcast::channel(BROADCAST_CHANNEL_SIZE);
-        let (da_session, _) = broadcast::channel(BROADCAST_CHANNEL_SIZE);
+        let (blend_session, _) = watch::channel(None);
+        let (da_session, _) = watch::channel(None);
 
         Ok(Self {
             service_resources_handle,
@@ -87,12 +87,12 @@ where
                     }
                 }
                 BlockBroadcastMsg::BroadcastBlendSession(session) => {
-                    if let Err(err) = self.blend_session.send(session) {
+                    if let Err(err) = self.blend_session.send(Some(session)) {
                         error!("Could not send to new blocks channel: {err}");
                     }
                 }
                 BlockBroadcastMsg::BroadcastDASession(session) => {
-                    if let Err(err) = self.blend_session.send(session) {
+                    if let Err(err) = self.da_session.send(Some(session)) {
                         error!("Could not send to new blocks channel: {err}");
                     }
                 }
