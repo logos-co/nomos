@@ -26,13 +26,14 @@ use nomos_blend_service::{
 use nomos_core::{codec::SerdeOp as _, crypto::ZkHash};
 use nomos_da_sampling::network::NetworkAdapter;
 use nomos_libp2p::PeerId;
+use nomos_time::backends::NtpTimeBackend;
 use overwatch::{overwatch::OverwatchHandle, services::AsServiceId};
 use pol::{PolChainInputsData, PolWalletInputsData, PolWitnessInputsData};
 use services_utils::wait_until_services_are_ready;
 use tokio::sync::oneshot::channel;
 use tokio_stream::wrappers::BroadcastStream;
 
-use crate::generic_services::{CryptarchiaLeaderService, MembershipService};
+use crate::generic_services::{CryptarchiaLeaderService, CryptarchiaService, MembershipService};
 
 // TODO: Replace this with the actual verifier once the verification inputs are
 // successfully fetched by the Blend service.
@@ -143,6 +144,8 @@ pub type BlendCoreService<SamplingAdapter, RuntimeServiceId> =
         BlendMembershipAdapter<RuntimeServiceId>,
         BlendProofsGenerator,
         BlendProofsVerifier,
+        NtpTimeBackend,
+        CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
         PolInfoProvider<SamplingAdapter>,
         RuntimeServiceId,
     >;
@@ -152,6 +155,8 @@ pub type BlendEdgeService<SamplingAdapter, RuntimeServiceId> = nomos_blend_servi
         <nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<RuntimeServiceId>>::BroadcastSettings,
         BlendMembershipAdapter<RuntimeServiceId>,
         BlendProofsGenerator,
+        NtpTimeBackend,
+        CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
         PolInfoProvider<SamplingAdapter>,
         RuntimeServiceId
     >;

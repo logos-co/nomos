@@ -18,7 +18,8 @@ use std::{
 
 use broadcast_service::{BlockBroadcastMsg, BlockBroadcastService, BlockInfo};
 use bytes::Bytes;
-use cryptarchia_engine::{PrunedBlocks, Slot};
+use cryptarchia_engine::PrunedBlocks;
+pub use cryptarchia_engine::{Epoch, Slot};
 use cryptarchia_sync::{GetTipResponse, ProviderResponse};
 use futures::StreamExt as _;
 use network::NetworkAdapter;
@@ -34,7 +35,8 @@ use nomos_core::{
 use nomos_da_sampling::{
     DaSamplingService, DaSamplingServiceMsg, backend::DaSamplingServiceBackend,
 };
-use nomos_ledger::{EpochState, LedgerState};
+pub use nomos_ledger::EpochState;
+use nomos_ledger::LedgerState;
 use nomos_network::{NetworkService, message::ChainSyncEvent};
 use nomos_storage::{StorageService, api::chain::StorageChainApi, backends::StorageBackend};
 use nomos_time::TimeService;

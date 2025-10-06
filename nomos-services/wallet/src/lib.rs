@@ -87,7 +87,7 @@ impl<Cryptarchia, Tx, Storage, RuntimeServiceId> ServiceCore<RuntimeServiceId>
     for WalletService<Cryptarchia, Tx, Storage, RuntimeServiceId>
 where
     Tx: AuthenticatedMantleTx + Send + Sync + Clone + Eq + Serialize + DeserializeOwned + 'static,
-    Cryptarchia: CryptarchiaServiceData<Tx>,
+    Cryptarchia: CryptarchiaServiceData<Tx = Tx>,
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as nomos_storage::api::chain::StorageChainApi>::Block:
         TryFrom<Block<Tx>> + TryInto<Block<Tx>>,
@@ -136,11 +136,10 @@ where
             .await?;
 
         // Create the API wrapper for cleaner communication
-        let cryptarchia_api =
-            CryptarchiaServiceApi::<Cryptarchia, Tx, RuntimeServiceId>::new::<Self>(
-                &service_resources_handle,
-            )
-            .await?;
+        let cryptarchia_api = CryptarchiaServiceApi::<Cryptarchia, RuntimeServiceId>::new(
+            &service_resources_handle.overwatch_handle,
+        )
+        .await?;
 
         // Create StorageAdapter for cleaner block operations
         let storage_adapter =
@@ -218,7 +217,7 @@ impl<Cryptarchia, Tx, Storage, RuntimeServiceId>
     WalletService<Cryptarchia, Tx, Storage, RuntimeServiceId>
 where
     Tx: AuthenticatedMantleTx + Send + Sync + Clone + Eq + Serialize + DeserializeOwned + 'static,
-    Cryptarchia: CryptarchiaServiceData<Tx> + Send + 'static,
+    Cryptarchia: CryptarchiaServiceData<Tx = Tx> + Send + 'static,
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as nomos_storage::api::chain::StorageChainApi>::Block:
         TryFrom<Block<Tx>> + TryInto<Block<Tx>>,
@@ -228,7 +227,7 @@ where
         msg: WalletMsg,
         wallet: &mut Wallet,
         storage_adapter: &StorageAdapter<Storage, Tx, RuntimeServiceId>,
-        cryptarchia_api: &CryptarchiaServiceApi<Cryptarchia, Tx, RuntimeServiceId>,
+        cryptarchia_api: &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
     ) {
         match msg {
             WalletMsg::GetBalance { tip, pk, tx } => {
@@ -260,7 +259,7 @@ where
         tx: oneshot::Sender<Result<Vec<Utxo>, WalletServiceError>>,
         wallet: &mut Wallet,
         storage_adapter: &StorageAdapter<Storage, Tx, RuntimeServiceId>,
-        cryptarchia_api: &CryptarchiaServiceApi<Cryptarchia, Tx, RuntimeServiceId>,
+        cryptarchia_api: &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
     ) {
         // Get the ledger state at the specified tip
         let Ok(Some(ledger_state)) = cryptarchia_api.get_ledger_state(tip).await else {
@@ -329,7 +328,7 @@ where
         missing_block: HeaderId,
         wallet: &mut Wallet,
         storage_adapter: &StorageAdapter<Storage, Tx, RuntimeServiceId>,
-        cryptarchia_api: &CryptarchiaServiceApi<Cryptarchia, Tx, RuntimeServiceId>,
+        cryptarchia_api: &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
     ) -> Result<(), WalletServiceError> {
         let headers = cryptarchia_api.get_headers_to_lib(missing_block).await?;
 

@@ -6,7 +6,10 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures::{Stream, StreamExt as _, stream::empty};
+use futures::{
+    Stream, StreamExt as _,
+    stream::{empty, pending},
+};
 use nomos_blend_scheduling::{
     EncapsulatedMessage,
     membership::Membership,
@@ -20,11 +23,11 @@ use tokio_stream::wrappers::ReceiverStream;
 
 use crate::{
     edge::{backends::BlendBackend, handlers::Error, run, settings::BlendConfig},
-    epoch_info::{PolEpochInfo, PolInfoProvider},
+    epoch_info::{EpochHandler, PolEpochInfo, PolInfoProvider},
     mock_poq_inputs_stream,
     session::SessionInfo,
     settings::{FIRST_SESSION_READY_TIMEOUT, TimingSettings},
-    test_utils::{crypto::MockProofsGenerator, membership::key},
+    test_utils::{crypto::MockProofsGenerator, epoch::TestChainService, membership::key},
 };
 
 struct EmptyPolStreamProvider;
@@ -79,7 +82,7 @@ pub async fn spawn_run(
         });
 
     let join_handle = tokio::spawn(async move {
-        run::<TestBackend, _, MockProofsGenerator, EmptyPolStreamProvider, _>(
+        run::<TestBackend, _, MockProofsGenerator, _, EmptyPolStreamProvider, _>(
             UninitializedSessionEventStream::new(
                 aggregated_session_stream,
                 FIRST_SESSION_READY_TIMEOUT,
@@ -87,6 +90,8 @@ pub async fn spawn_run(
                 // [`SessionEvent::TransitionPeriodExpired`] will be ignored anyway.
                 Duration::ZERO,
             ),
+            pending(),
+            EpochHandler::new(TestChainService),
             ReceiverStream::new(msg_receiver),
             &settings(local_node, minimal_network_size, node_id_sender),
             &overwatch_handle(),
