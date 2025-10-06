@@ -1,11 +1,16 @@
 [package]
-edition = { workspace = true }
-license = { workspace = true }
-name    = "cryptarchia-sync"
-version = "0.1.0"
+categories  = { workspace = true }
+description = { workspace = true }
+edition     = { workspace = true }
+keywords    = { workspace = true }
+license     = { workspace = true }
+name        = "cryptarchia-sync"
+readme      = { workspace = true }
+repository  = { workspace = true }
+version     = { workspace = true }
 
 [dependencies]
-bytes              = { workspace = true, features = ["serde"] }
+bytes              = { features = ["serde"], workspace = true }
 cryptarchia-engine = { workspace = true }
 futures            = { default-features = false, version = "0.3" }
 libp2p             = { optional = true, workspace = true }
