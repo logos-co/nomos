@@ -9,6 +9,8 @@ workspace = true
 
 [dependencies]
 async-trait              = "0.1"
+ed25519                  = { default-features = false, version = "2.2.3" }
+ed25519-dalek            = { default-features = false, version = "2.2.0" }
 futures                  = { default-features = false, version = "0.3" }
 kzgrs-backend            = { workspace = true }
 nomos-core               = { workspace = true }

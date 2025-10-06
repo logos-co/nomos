@@ -129,13 +129,16 @@ where
         blob_id: BlobId,
         num_columns: usize,
         original_size: usize,
-        signer: Ed25519PublicKey,
+        _signer: Ed25519PublicKey,
     ) -> Result<SignedMantleTx, Self::Error> {
         let wallet_adapter = self.wallet_adapter.as_ref();
         let network_adapter = self.network_adapter.as_ref();
 
+        // Note: The signer parameter is ignored here as the wallet adapter
+        // uses a hardcoded signing key for testing. In production, the wallet
+        // would use the signer parameter or derive it from configuration.
         let tx = wallet_adapter
-            .blob_tx(channel_id, parent_msg_id, blob_id, original_size, signer)
+            .blob_tx(channel_id, parent_msg_id, blob_id, original_size)
             .map_err(Box::new)?;
         let responses_stream = network_adapter.dispersal_events_stream().await?;
         for subnetwork_id in 0..num_columns {
