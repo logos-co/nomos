@@ -30,7 +30,7 @@ pub enum Version {
 
 impl Version {
     #[must_use]
-    pub const fn to_le_bytes(self) -> [u8; 1] {
+    pub const fn to_bytes(self) -> [u8; 1] {
         [self as u8]
     }
 }
@@ -57,7 +57,7 @@ impl Header {
 
     fn update_hasher(&self, h: &mut Hasher) {
         h.update(b"BLOCK_ID_V1");
-        h.update(self.version.to_le_bytes());
+        h.update(self.version.to_bytes());
         h.update(self.parent_block.0);
         h.update(self.slot.to_le_bytes());
         h.update(self.block_root.0);

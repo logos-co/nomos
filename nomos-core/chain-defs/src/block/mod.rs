@@ -1,4 +1,5 @@
 use core::fmt::Debug;
+use std::sync::Arc;
 
 use ::serde::{Deserialize, Serialize, de::DeserializeOwned};
 use bytes::Bytes;
@@ -23,7 +24,11 @@ pub enum Error {
     #[error("Failed to serialize: {0}")]
     Serialisation(#[from] crate::codec::Error),
     #[error("Signature error: {0}")]
-    Signature(String),
+    Signature(Arc<ed25519_dalek::SignatureError>),
+    #[error("Too many transactions: {count} exceeds maximum of {max}")]
+    TooManyTxs { count: usize, max: usize },
+    #[error("Block root mismatch: calculated content does not match header")]
+    BlockRootMismatch,
     #[error("Validation error: {0}")]
     Validation(String),
 }
@@ -84,9 +89,10 @@ impl<Tx> Block<Tx> {
         Tx: Transaction<Hash = TxHash>,
     {
         if transactions.len() > MAX_TRANSACTIONS {
-            return Err(Error::Validation(format!(
-                "Too many transactions (max {MAX_TRANSACTIONS})"
-            )));
+            return Err(Error::TooManyTxs {
+                count: transactions.len(),
+                max: MAX_TRANSACTIONS,
+            });
         }
 
         let block_root = Self::calculate_content_id(&transactions, service_reward.as_ref());
@@ -113,17 +119,16 @@ impl<Tx> Block<Tx> {
         Tx: Transaction<Hash = TxHash>,
     {
         if transactions.len() > MAX_TRANSACTIONS {
-            return Err(Error::Validation(format!(
-                "Too many transactions (max {MAX_TRANSACTIONS})"
-            )));
+            return Err(Error::TooManyTxs {
+                count: transactions.len(),
+                max: MAX_TRANSACTIONS,
+            });
         }
 
         let calculated_content_id =
             Self::calculate_content_id(&transactions, service_reward.as_ref());
         if header.block_root() != &calculated_content_id {
-            return Err(Error::Validation(
-                "Block root mismatch with transactions".to_owned(),
-            ));
+            return Err(Error::BlockRootMismatch);
         }
 
         let leader_public_key = header.leader_proof().leader_key();
@@ -131,7 +136,7 @@ impl<Tx> Block<Tx> {
 
         leader_public_key
             .verify(&header_bytes, &signature)
-            .map_err(|e| Error::Signature(format!("Invalid signature: {e}")))?;
+            .map_err(|e| Error::Signature(Arc::new(e)))?;
 
         Ok(Self {
             header,
@@ -151,7 +156,6 @@ impl<Tx> Block<Tx> {
             .map(Transaction::hash)
             .collect();
 
-        // TODO: check if padding needed
         let root_hash = merkle::calculate_merkle_root(&tx_hashes, MAX_TRANSACTIONS);
         ContentId::from(root_hash)
     }

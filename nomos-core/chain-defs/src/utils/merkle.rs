@@ -42,22 +42,21 @@ where
         .map(|element| leaf(&element.into()))
         .collect();
 
-    if leaves.len() < pad_to {
-        let zero_element = T::default();
-        let zero_leaf = leaf(&zero_element.into());
-        leaves.resize(pad_to, zero_leaf);
+    let target_size = leaves.len().max(pad_to).max(1).next_power_of_two();
+
+    if leaves.len() < target_size {
+        let zero_leaf = leaf(&T::default().into());
+        leaves.resize(target_size, zero_leaf);
     }
 
-    let leaves_count = leaves.len();
+    while leaves.len() > 1 {
+        leaves = leaves
+            .chunks(2)
+            .map(|pair| node(pair[0], pair[1]))
+            .collect();
+    }
 
-    assert!(
-        leaves_count >= 2 && leaves_count.is_power_of_two(),
-        "Input must be full binary tree"
-    );
-
-    (0..leaves_count.ilog2()).fold(leaves, |level, _| {
-        level.chunks(2).map(|pair| node(pair[0], pair[1])).collect()
-    })[0]
+    leaves[0]
 }
 
 #[cfg(test)]
@@ -101,12 +100,5 @@ mod tests {
         let expected = node(branch1, branch2);
 
         assert_eq!(result, expected);
-    }
-
-    #[test]
-    #[should_panic(expected = "Input must be full binary tree")]
-    fn test_root_invalid_padding_size() {
-        let elements = vec![TxHash::from(Fr::from(1u64)), TxHash::from(Fr::from(2u64))];
-        calculate_merkle_root(&elements, 3);
     }
 }
