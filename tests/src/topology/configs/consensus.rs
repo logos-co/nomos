@@ -1,10 +1,13 @@
-use std::num::NonZero;
+use std::{num::NonZero, sync::Arc};
 
 use chain_leader::LeaderConfig;
 use cryptarchia_engine::EpochConfig;
-use nomos_core::mantle::{
-    Note, Utxo,
-    keys::{PublicKey, SecretKey},
+use nomos_core::{
+    mantle::{
+        Note, Utxo,
+        keys::{PublicKey, SecretKey},
+    },
+    sdp::{ServiceParameters, ServiceType},
 };
 use nomos_ledger::LedgerState;
 use num_bigint::BigUint;
@@ -76,12 +79,29 @@ pub fn create_consensus_configs(
             security_param: consensus_params.security_param,
             active_slot_coeff: consensus_params.active_slot_coeff,
         },
-        service_params: nomos_core::sdp::ServiceParameters {
-            lock_period: 10,
-            inactivity_period: 20,
-            retention_period: 100,
-            timestamp: 0,
-        },
+        service_params: Arc::new(
+            [
+                (
+                    ServiceType::BlendNetwork,
+                    ServiceParameters {
+                        lock_period: 10,
+                        inactivity_period: 20,
+                        retention_period: 100,
+                        timestamp: 0,
+                    },
+                ),
+                (
+                    ServiceType::DataAvailability,
+                    ServiceParameters {
+                        lock_period: 10,
+                        inactivity_period: 20,
+                        retention_period: 100,
+                        timestamp: 0,
+                    },
+                ),
+            ]
+            .into(),
+        ),
         min_stake: nomos_core::sdp::MinStake {
             threshold: 1,
             timestamp: 0,
@@ -91,7 +111,7 @@ pub fn create_consensus_configs(
     keys.into_iter()
         .map(|(pk, sk)| GeneralConsensusConfig {
             leader_config: LeaderConfig { pk, sk },
-            ledger_config,
+            ledger_config: ledger_config.clone(),
             genesis_state: genesis_state.clone(),
         })
         .collect()

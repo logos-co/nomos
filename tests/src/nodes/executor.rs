@@ -424,7 +424,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                 .expect("Minimum Blend network size cannot be zero."),
         }),
         cryptarchia: CryptarchiaSettings {
-            config: config.consensus_config.ledger_config,
+            config: config.consensus_config.ledger_config.clone(),
             genesis_id: HeaderId::from([0; 32]),
             genesis_state: config.consensus_config.genesis_state,
             network_adapter_settings:
@@ -453,7 +453,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
         },
         cryptarchia_leader: LeaderSettings {
             transaction_selector_settings: (),
-            config: config.consensus_config.ledger_config,
+            config: config.consensus_config.ledger_config.clone(),
             leader_config: config.consensus_config.leader_config.clone(),
             blend_broadcast_settings:
                 nomos_blend_service::core::network::libp2p::Libp2pBroadcastSettings {
