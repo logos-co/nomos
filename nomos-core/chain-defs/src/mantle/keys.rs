@@ -21,6 +21,10 @@ static NOMOS_KDF_V1: LazyLock<Fr> =
 
 impl SecretKey {
     #[must_use]
+    pub const fn zero() -> Self {
+        Self(Fr::ZERO)
+    }
+    #[must_use]
     pub const fn new(key: Fr) -> Self {
         Self(key)
     }
@@ -37,8 +41,19 @@ impl SecretKey {
 
     #[must_use]
     pub fn sign(&self, data: &Fr) -> Signature {
-        let mut keys = [Fr::ZERO; 32];
-        keys[0] = self.0;
+        let mut keys = [const { Self::zero() }; 32];
+        keys[0] = self.clone();
+        Self::multi_sign(&keys, data)
+    }
+
+    #[must_use]
+    pub fn multi_sign(keys: &[Self; 32], data: &Fr) -> Signature {
+        let keys: [_; 32] = keys
+            .iter()
+            .map(|k| k.0)
+            .collect::<Vec<_>>()
+            .try_into()
+            .expect("Size is correct from method signature");
         let inputs = ZkSignWitnessInputs::from_witness_data_and_message_hash(keys.into(), *data);
         let (signature, _) = prove(&inputs).expect("Signature should succeed");
         Signature(signature)

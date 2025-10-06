@@ -18,6 +18,8 @@ pub enum KeyError {
     Encoding(EncodingError),
     #[error("Unsupported multikey: {0}")]
     UnsupportedKey(String),
+    #[error("Multisignature support only {0} keys, got {1}")]
+    UnsupportedMultisignatureSize(usize, usize),
 }
 
 impl From<EncodingError> for KeyError {
