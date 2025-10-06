@@ -156,9 +156,8 @@ impl EpochConfig {
     }
 
     #[must_use]
-    pub fn starting_slot(&self, _epoch: &Epoch) -> Slot {
-        // TODO: get actual starting slot
-        0.into()
+    pub fn starting_slot(&self, epoch: &Epoch, base_period_length: NonZero<u64>) -> Slot {
+        Slot::from(u64::from(u32::from(*epoch)) * self.epoch_length(base_period_length))
     }
 }
 

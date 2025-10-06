@@ -113,7 +113,11 @@ impl Leader {
         let aged_path = Vec::new(); // Placeholder for aged path
         let latest_path = Vec::new();
         let slot_secret = *self.sk.as_fr();
-        let starting_slot = self.config.epoch_config.starting_slot(&epoch).into();
+        let starting_slot = self
+            .config
+            .epoch_config
+            .starting_slot(&epoch, self.config.base_period_length())
+            .into();
         let leader_pk = ed25519_dalek::VerifyingKey::from_bytes(&[0; 32]).unwrap(); // TODO: get actual leader public key
 
         LeaderPrivate::new(
@@ -195,7 +199,7 @@ impl<'service> WinningPoLSlotNotifier<'service> {
             .leader
             .config
             .epoch_config
-            .starting_slot(&epoch_state.epoch)
+            .starting_slot(&epoch_state.epoch, self.leader.config.base_period_length())
             .into();
         // Not used to check if a slot wins the lottery.
         let latest_tree = UtxoTree::new();
