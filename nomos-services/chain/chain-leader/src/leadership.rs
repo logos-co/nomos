@@ -46,7 +46,7 @@ impl Leader {
                 continue;
             };
 
-            let note_id = utxo.note.id();
+            let note_id = utxo.id().0;
             let secret_key = self.slot_secret_key(slot);
 
             #[cfg(feature = "pol-dev-mode")]
@@ -201,7 +201,7 @@ impl<'service> WinningPoLSlotNotifier<'service> {
         let latest_tree = UtxoTree::new();
 
         for utxo in &self.leader.utxos {
-            let note_id = utxo.note.id();
+            let note_id = utxo.id().0;
 
             for offset in 0..slots_per_epoch {
                 let slot = epoch_starting_slot
