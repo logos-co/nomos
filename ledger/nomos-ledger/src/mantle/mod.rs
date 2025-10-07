@@ -1,12 +1,10 @@
 pub mod channel;
 pub mod leader;
 pub mod locked_notes;
-pub mod membership;
 pub mod sdp;
 
 use cryptarchia_engine::Epoch;
 use ed25519::signature::Verifier as _;
-use membership::MembershipError;
 use nomos_core::{
     block::BlockNumber,
     mantle::{
@@ -38,8 +36,6 @@ pub enum Error {
     NoteNotFound(NoteId),
     #[error("Service parameters not found for service {0:?}")]
     ServiceParamsNotFound(ServiceType),
-    #[error("Membership error: {0:?}")]
-    MembershipError(#[from] MembershipError),
 }
 
 impl From<DeclarationStateError> for Error {
@@ -56,7 +52,6 @@ pub struct LedgerState {
     sdp: sdp::SdpLedger,
     locked_notes: locked_notes::LockedNotes,
     leaders: leader::LeaderState,
-    membership: membership::Membership,
 }
 
 impl Default for LedgerState {
@@ -73,7 +68,6 @@ impl LedgerState {
             sdp: sdp::SdpLedger::new(),
             locked_notes: locked_notes::LockedNotes::new(),
             leaders: leader::LeaderState::new(),
-            membership: membership::Membership::new(),
         }
     }
 
@@ -226,11 +220,9 @@ impl LedgerState {
         current_block_number: BlockNumber,
         config: &Config,
     ) -> Result<Self, Error> {
-        self.membership = self.membership.try_update(
-            current_block_number,
-            &self.sdp.declarations,
-            &config.service_params,
-        )?;
+        self.sdp = self
+            .sdp
+            .try_update_session(current_block_number, &config.service_params)?;
         Ok(self)
     }
 }

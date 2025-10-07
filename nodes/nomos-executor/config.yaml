@@ -226,6 +226,8 @@ cryptarchia:
         channels: { }
       sdp:
         declarations: { }
+        active_sessions: { }
+        forming_sessions: { }
       locked_notes:
         locked_notes: { }
       leaders:
@@ -236,9 +238,6 @@ cryptarchia:
         claimable_rewards: 0
         vouchers:
           roots: [ ]
-      membership:
-        active_sessions: { }
-        forming_sessions: { }
   time:
     slot_duration: [ 2, 0 ]
     chain_start_time: [ 2025, 41, 9, 38, 29, 993653000, 0, 0, 0 ]
