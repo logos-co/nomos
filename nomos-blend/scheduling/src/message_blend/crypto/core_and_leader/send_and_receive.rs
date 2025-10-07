@@ -22,10 +22,12 @@ use crate::{
     },
 };
 
-/// [`SessionCryptographicProcessor`] is responsible for wrapping and unwrapping
-/// messages for the message indistinguishability.
+/// [`SessionCryptographicProcessor`] is responsible for wrapping both cover and
+/// data messages and unwrapping messages for the message indistinguishability.
 ///
 /// Each instance is meant to be used during a single session.
+///
+/// This processor is suitable for core nodes.
 pub struct SessionCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier> {
     sender_processor: SenderSessionCryptographicProcessor<NodeId, ProofsGenerator>,
     proofs_verifier: ProofsVerifier,

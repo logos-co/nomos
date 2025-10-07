@@ -1,3 +1,5 @@
+use core::mem::swap;
+
 use async_trait::async_trait;
 use nomos_blend_message::{
     crypto::{
@@ -16,10 +18,7 @@ use nomos_blend_message::{
     encap::encapsulated::PoQVerificationInputsMinusSigningKey,
 };
 use tokio::{
-    sync::{
-        mpsc::{Receiver, Sender, channel},
-        oneshot,
-    },
+    sync::mpsc::{Receiver, Sender, channel},
     task::spawn_blocking,
 };
 
@@ -27,17 +26,23 @@ use crate::message_blend::provers::{BlendLayerProof, ProofsGeneratorSettings};
 
 const LOG_TARGET: &str = "blend::scheduling::proofs::core";
 
+/// Proof generator for core `PoQ` variants.
 #[async_trait]
 pub trait CoreProofsGenerator: Sized {
+    /// Instantiate a new generator for the duration of a session.
     fn new(settings: ProofsGeneratorSettings, private_inputs: ProofOfCoreQuotaInputs) -> Self;
+    /// Notify the proof generator that a new epoch has started mid-session.
+    /// This will trigger proof re-generation due to the change in the set of
+    /// public inputs.
     fn rotate_epoch(&mut self, new_epoch_public: LeaderInputs);
+    /// Request a new core proof from the prover. It returns `None` if the
+    /// maximum core quota has already been reached for this session.
     async fn get_next_proof(&mut self) -> Option<BlendLayerProof>;
 }
 
 pub struct RealCoreProofsGenerator {
     remaining_quota: u64,
     proofs_receiver: Receiver<BlendLayerProof>,
-    proof_generation_task_termination_sender: Option<oneshot::Sender<()>>,
     pub(super) settings: ProofsGeneratorSettings,
     pub(super) private_inputs: ProofOfCoreQuotaInputs,
 }
@@ -47,7 +52,6 @@ impl CoreProofsGenerator for RealCoreProofsGenerator {
     fn new(settings: ProofsGeneratorSettings, private_inputs: ProofOfCoreQuotaInputs) -> Self {
         let mut self_instance = Self {
             private_inputs,
-            proof_generation_task_termination_sender: None,
             // Will be replaced by the `spawn_new_proof_generation_task` below.
             proofs_receiver: channel(1).1,
             remaining_quota: settings.public_inputs.core.quota,
@@ -61,6 +65,7 @@ impl CoreProofsGenerator for RealCoreProofsGenerator {
 
     fn rotate_epoch(&mut self, new_epoch_public: LeaderInputs) {
         tracing::info!(target: LOG_TARGET, "Rotating epoch...");
+        // Kill previous blocking task before spawning a new one.
         self.terminate_proof_generation_task();
 
         // On epoch rotation, we maintain the remaining session quota for core proofs
@@ -69,6 +74,7 @@ impl CoreProofsGenerator for RealCoreProofsGenerator {
         let settings = {
             let mut settings = self.settings;
             settings.public_inputs.leader = new_epoch_public;
+            // Tweak the stored settings to use the leftover quota.
             settings.public_inputs.core.quota = self.remaining_quota;
             settings
         };
@@ -86,33 +92,20 @@ impl CoreProofsGenerator for RealCoreProofsGenerator {
 
 impl RealCoreProofsGenerator {
     fn terminate_proof_generation_task(&mut self) {
-        let Some(proof_generation_task_termination_sender) =
-            self.proof_generation_task_termination_sender.take()
-        else {
-            tracing::debug!(target: LOG_TARGET, "No outstanding task to terminate.");
-            return;
-        };
-        if proof_generation_task_termination_sender.send(()).is_err() {
-            tracing::debug!(target: LOG_TARGET, "Outstanding task has already terminated on its own.");
-        } else {
-            tracing::debug!(target: LOG_TARGET, "Outstanding task killed.");
-        }
+        // Drop the previous channel so we don't get any of the old proofs anymore. This
+        // will instruct the spawned task to abort as well.
+        swap(&mut self.proofs_receiver, &mut channel(1).1);
     }
 
     fn spawn_new_proof_generation_task(&mut self) {
         let (proofs_sender, proofs_receiver) = channel(self.remaining_quota as usize);
-        let (proof_generation_task_termination_sender, proof_generation_task_termination_receiver) =
-            oneshot::channel();
         spawn_core_proof_generation_task(
             proofs_sender,
             self.settings.public_inputs,
             self.private_inputs.clone(),
-            proof_generation_task_termination_receiver,
         );
 
         self.proofs_receiver = proofs_receiver;
-        self.proof_generation_task_termination_sender =
-            Some(proof_generation_task_termination_sender);
     }
 }
 
@@ -126,15 +119,10 @@ fn spawn_core_proof_generation_task(
     sender_channel: Sender<BlendLayerProof>,
     public_inputs: PoQVerificationInputsMinusSigningKey,
     private_inputs: ProofOfCoreQuotaInputs,
-    termination_receiver: oneshot::Receiver<()>,
 ) {
     spawn_blocking(move || {
         tracing::trace!(target: LOG_TARGET, "Generating {} core quota proofs", public_inputs.core.quota);
         for key_index in 0..public_inputs.core.quota {
-            if !termination_receiver.is_empty() {
-                tracing::debug!(target: LOG_TARGET, "Aborting core quota generation task");
-                return;
-            }
             let ephemeral_signing_key = Ed25519PrivateKey::generate();
             let Ok((proof_of_quota, secret_selection_randomness)) = ProofOfQuota::new(
                 &PublicInputs {
@@ -148,12 +136,16 @@ fn spawn_core_proof_generation_task(
                 continue;
             };
             let proof_of_selection = ProofOfSelection::new(secret_selection_randomness);
-            if let Err(err) = sender_channel.blocking_send(BlendLayerProof {
-                proof_of_quota,
-                proof_of_selection,
-                ephemeral_signing_key,
-            }) {
-                tracing::error!(target: LOG_TARGET, "Failed to send proof to consumer. Error: {err:?}");
+            if sender_channel
+                .blocking_send(BlendLayerProof {
+                    proof_of_quota,
+                    proof_of_selection,
+                    ephemeral_signing_key,
+                })
+                .is_err()
+            {
+                tracing::debug!(target: LOG_TARGET, "Failed to send proof to consumer due to channel being dropped. Aborting...");
+                return;
             }
         }
     });

@@ -43,7 +43,7 @@ pub struct EncapsulatedMessage<const ENCAPSULATION_COUNT: usize> {
 
 /// The inputs required to verify a Proof of Quota, without the signing key,
 /// which is retrieved from the public header of the message layer being
-/// veified.
+/// verified.
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(test, derive(Default))]
 pub struct PoQVerificationInputsMinusSigningKey {

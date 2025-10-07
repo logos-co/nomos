@@ -24,9 +24,12 @@ use crate::{
 };
 
 /// [`SessionCryptographicProcessor`] is responsible for only wrapping
-/// messages for the message indistinguishability.
+/// cover and data messages for the message indistinguishability.
 ///
 /// Each instance is meant to be used during a single session.
+///
+/// This processor is suitable for non-core nodes that want to generate noise
+/// (i.e., cover) traffic along with data payloads.
 pub struct SessionCryptographicProcessor<NodeId, ProofsGenerator> {
     num_blend_layers: u64,
     /// The non-ephemeral encryption key (NEK) for decapsulating messages.
