@@ -26,16 +26,16 @@ impl TryFrom<Inputs> for PoQWitnessInputs {
         let (signing_key_first_half, signing_key_second_half) =
             split_ephemeral_signing_key(value.public.signing_key);
         let chain_input_data = PoQChainInputsData {
-            core_root: value.public.core_root,
-            pol_epoch_nonce: value.public.pol_epoch_nonce,
-            pol_ledger_aged: value.public.pol_ledger_aged,
+            core_root: value.public.core.zk_root,
+            pol_epoch_nonce: value.public.leader.pol_epoch_nonce,
+            pol_ledger_aged: value.public.leader.pol_ledger_aged,
             session: value.public.session,
-            total_stake: value.public.total_stake,
+            total_stake: value.public.leader.total_stake,
         };
         let common_input_data = PoQCommonInputsData {
-            core_quota: value.public.core_quota,
+            core_quota: value.public.core.quota,
             index: value.private.key_index,
-            leader_quota: value.public.leader_quota,
+            leader_quota: value.public.leader.message_quota,
             message_key: (
                 fr_from_bytes(&signing_key_first_half[..]).expect(
                     "First half of signing public key does not represent a valid `Fr` point.",

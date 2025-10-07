@@ -22,4 +22,6 @@ pub enum Error {
     NotCoreNodeReceiver,
     #[error("Node has generated the maximum number of allowed Proof of Quota this session")]
     NoMoreProofOfQuotas,
+    #[error("Attempted to generate a leadership proof without any secret PoL info provided.")]
+    NoLeadershipInfoProvided,
 }
