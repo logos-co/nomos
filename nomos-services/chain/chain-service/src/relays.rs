@@ -4,6 +4,7 @@ use std::{
 };
 
 use broadcast_service::{BlockBroadcastMsg, BlockBroadcastService};
+use bytes::Bytes;
 use nomos_core::{
     block::Block,
     da,
@@ -51,6 +52,7 @@ pub struct CryptarchiaConsensusRelays<
     MempoolNetAdapter: tx_service::network::NetworkAdapter<RuntimeServiceId>,
     NetworkAdapter: network::NetworkAdapter<RuntimeServiceId>,
     Storage: StorageBackend + Send + Sync + 'static,
+    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
     SamplingBackend: DaSamplingServiceBackend,
 {
     network_relay: NetworkRelay<NetworkAdapter::Backend, RuntimeServiceId>,
@@ -95,9 +97,9 @@ where
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
     Storage: StorageBackend + Send + Sync + 'static,
+    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
     <Storage as StorageChainApi>::Block:
         TryFrom<Block<Mempool::Item>> + TryInto<Block<Mempool::Item>>,
-    <Storage as StorageChainApi>::Tx: TryFrom<Mempool::Item> + TryInto<Mempool::Item>,
 {
     pub async fn new(
         network_relay: NetworkRelay<NetworkAdapter::Backend, RuntimeServiceId>,

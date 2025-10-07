@@ -4,10 +4,12 @@ use std::{
     pin::Pin,
 };
 
+use bytes::Bytes;
 use cryptarchia_engine::Slot;
 use futures::{Stream, StreamExt as _};
 use nomos_core::{
     block::Block,
+    codec::SerdeOp,
     header::HeaderId,
     mantle::{Transaction, TxHash},
 };
@@ -47,7 +49,7 @@ impl<Storage, Tx, RuntimeServiceId> StorageAdapterTrait<RuntimeServiceId>
 where
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as StorageChainApi>::Block: TryFrom<Block<Tx>> + TryInto<Block<Tx>>,
-    <Storage as StorageChainApi>::Tx: TryFrom<Tx> + TryInto<Tx>,
+    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
     Tx: Clone
         + Eq
         + Serialize
@@ -150,8 +152,8 @@ where
             .into_iter()
             .map(|tx| {
                 let hash = tx.hash();
-                tx.try_into()
-                    .map(|storage_tx| (hash, storage_tx))
+                <Tx as SerdeOp>::serialize(&tx)
+                    .map(|bytes| (hash, bytes.into()))
                     .map_err(|_| "Failed to convert transaction to storage format".into())
             })
             .collect::<Result<HashMap<_, _>, overwatch::DynError>>()?;
@@ -179,8 +181,9 @@ where
             .await
             .map_err(|_| "Failed to receive transactions stream from storage")?;
 
-        let mapped_stream =
-            storage_stream.filter_map(|storage_tx| async move { storage_tx.try_into().ok() });
+        let mapped_stream = storage_stream.filter_map(|storage_tx| async move {
+            <Tx as SerdeOp>::deserialize(storage_tx.as_ref()).ok()
+        });
 
         Ok(Box::pin(mapped_stream))
     }

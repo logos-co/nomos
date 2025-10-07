@@ -56,7 +56,7 @@ impl StorageChainApi for RocksBackend {
         &mut self,
         ids: BTreeMap<Slot, HeaderId>,
     ) -> Result<(), Self::Error> {
-        let txn = self.txn(move |db| {
+        let db_transaction = self.txn(move |db| {
             let mut batch = WriteBatch::default();
             for (slot, header_id) in ids {
                 // use be_bytes to keep prefix ordering
@@ -67,7 +67,7 @@ impl StorageChainApi for RocksBackend {
             db.write(batch)?;
             Ok(None)
         });
-        let _ = self.execute(txn).await?;
+        let _ = self.execute(db_transaction).await?;
 
         Ok(())
     }
@@ -156,7 +156,7 @@ impl StorageChainApi for RocksBackend {
     async fn remove_transactions(&mut self, tx_hashes: &[TxHash]) -> Result<(), Self::Error> {
         let keys: Vec<Bytes> = tx_hashes.iter().map(|&tx_hash| tx_hash.into()).collect();
 
-        let txn = self.txn(move |db| {
+        let db_transaction = self.txn(move |db| {
             let mut batch = WriteBatch::default();
             for key in keys {
                 batch.delete(key);
@@ -165,7 +165,7 @@ impl StorageChainApi for RocksBackend {
             Ok(None)
         });
 
-        let _ = self.execute(txn).await?;
+        let _ = self.execute(db_transaction).await?;
         Ok(())
     }
 }

@@ -3,6 +3,7 @@ pub mod api;
 use std::{collections::HashSet, time::Duration};
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use chain_service::{
     LibUpdate,
     api::{CryptarchiaServiceApi, CryptarchiaServiceData},
@@ -92,7 +93,7 @@ where
     Cryptarchia: CryptarchiaServiceData<Tx = Tx>,
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as StorageChainApi>::Block: TryFrom<Block<Tx>> + TryInto<Block<Tx>>,
-    <Storage as StorageChainApi>::Tx: TryFrom<Tx> + TryInto<Tx>,
+    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
     RuntimeServiceId: AsServiceId<Self>
         + AsServiceId<Cryptarchia>
         + AsServiceId<nomos_storage::StorageService<Storage, RuntimeServiceId>>
@@ -221,7 +222,7 @@ where
     Cryptarchia: CryptarchiaServiceData<Tx = Tx> + Send + 'static,
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as StorageChainApi>::Block: TryFrom<Block<Tx>> + TryInto<Block<Tx>>,
-    <Storage as StorageChainApi>::Tx: TryFrom<Tx> + TryInto<Tx>,
+    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
     RuntimeServiceId: AsServiceId<Cryptarchia> + std::fmt::Debug + std::fmt::Display + Sync,
 {
     async fn handle_wallet_message(

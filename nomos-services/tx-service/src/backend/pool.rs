@@ -17,11 +17,11 @@ use crate::{
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(bound(serialize = "BlockId: Serialize, Key: Serialize"))]
-#[serde(bound(
-    deserialize = "BlockId: serde::de::DeserializeOwned + Hash + Eq, Key: serde::de::DeserializeOwned + Hash + Eq + Ord"
-))]
-pub struct PoolRecoveryState<BlockId, Key> {
+pub struct PoolRecoveryState<BlockId, Key>
+where
+    Key: Hash + Eq + Ord,
+    BlockId: Hash + Eq,
+{
     pub pending_items: BTreeSet<Key>,
     pub in_block_items: HashMap<BlockId, Vec<Key>>,
     pub in_block_items_by_id: HashMap<Key, BlockId>,

@@ -317,22 +317,6 @@ impl<'de> Deserialize<'de> for SignedMantleTx {
     }
 }
 
-impl TryFrom<SignedMantleTx> for Bytes {
-    type Error = crate::codec::Error;
-
-    fn try_from(tx: SignedMantleTx) -> Result<Self, Self::Error> {
-        <SignedMantleTx as SerdeOp>::serialize(&tx)
-    }
-}
-
-impl TryFrom<Bytes> for SignedMantleTx {
-    type Error = crate::codec::Error;
-
-    fn try_from(bytes: Bytes) -> Result<Self, Self::Error> {
-        <Self as SerdeOp>::deserialize(&bytes)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use ed25519::signature::Signer as _;
