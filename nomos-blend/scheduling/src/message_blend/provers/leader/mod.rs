@@ -1,3 +1,5 @@
+use core::mem::swap;
+
 use async_trait::async_trait;
 use nomos_blend_message::{
     crypto::{
@@ -76,8 +78,11 @@ impl LeaderProofsGenerator for RealLeaderProofsGenerator {
         new_private: ProofOfLeadershipQuotaInputs,
     ) {
         tracing::info!(target: LOG_TARGET, "Rotating epoch...");
+        // Kill previous blocking task before spawning a new one.
         self.terminate_proof_generation_task();
 
+        // On epoch rotation, we maintain the current session info and only change the
+        // PoL relevant parts.
         let settings = {
             let mut settings = self.settings;
             settings.public_inputs.leader = new_epoch_public;
@@ -98,7 +103,7 @@ impl LeaderProofsGenerator for RealLeaderProofsGenerator {
 }
 
 impl RealLeaderProofsGenerator {
-    fn terminate_proof_generation_task(&mut self) {
+    pub(super) fn terminate_proof_generation_task(&mut self) {
         let Some(proof_generation_task_termination_sender) =
             self.proof_generation_task_termination_sender.take()
         else {
@@ -110,6 +115,9 @@ impl RealLeaderProofsGenerator {
         } else {
             tracing::debug!(target: LOG_TARGET, "Outstanding task killed.");
         }
+        // Drop the previous channel so we don't get any of the old proofs anymore. This
+        // will instruct the spawned task to abort as well.
+        swap(&mut self.proofs_receiver, &mut channel(1).1);
     }
 
     fn spawn_new_proof_generation_task(&mut self, private_inputs: ProofOfLeadershipQuotaInputs) {
@@ -117,18 +125,13 @@ impl RealLeaderProofsGenerator {
         // one set of proofs is generated, a new one is pre-computed.
         let (proofs_sender, proofs_receiver) =
             channel((self.settings.public_inputs.leader.message_quota * 2) as usize);
-        let (proof_generation_task_termination_sender, proof_generation_task_termination_receiver) =
-            oneshot::channel();
         spawn_leader_proof_generation_task(
             proofs_sender,
             self.settings.public_inputs,
             private_inputs,
-            proof_generation_task_termination_receiver,
         );
 
         self.proofs_receiver = proofs_receiver;
-        self.proof_generation_task_termination_sender =
-            Some(proof_generation_task_termination_sender);
     }
 }
 
@@ -142,17 +145,12 @@ fn spawn_leader_proof_generation_task(
     sender_channel: Sender<BlendLayerProof>,
     public_inputs: PoQVerificationInputsMinusSigningKey,
     private_inputs: ProofOfLeadershipQuotaInputs,
-    termination_receiver: oneshot::Receiver<()>,
 ) {
     spawn_blocking(move || {
-        // This task never stops, since we don't know how many proofs are actually
-        // needed by a block proposer within an epoch.
+        // This task never stops (unless explicitly killed), since we don't know how
+        // many proofs are actually needed by a block proposer within an epoch.
         loop {
             for encapsulation_layer in 0..public_inputs.leader.message_quota {
-                if !termination_receiver.is_empty() {
-                    tracing::debug!(target: LOG_TARGET, "Aborting leadership quota generation task");
-                    return;
-                }
                 let ephemeral_signing_key = Ed25519PrivateKey::generate();
                 let Ok((proof_of_quota, secret_selection_randomness)) = ProofOfQuota::new(
                     &PublicInputs {
@@ -172,12 +170,16 @@ fn spawn_leader_proof_generation_task(
                 // `blocking_send` will actually stop when the channel is full. Next time a
                 // message is to be blended, `N` proofs will be retrieved from the channel,
                 // opening the way for more to be generated and pushed.
-                if let Err(err) = sender_channel.blocking_send(BlendLayerProof {
-                    proof_of_quota,
-                    proof_of_selection,
-                    ephemeral_signing_key,
-                }) {
-                    tracing::error!(target: LOG_TARGET, "Failed to send proof to consumer. Error: {err:?}");
+                if sender_channel
+                    .blocking_send(BlendLayerProof {
+                        proof_of_quota,
+                        proof_of_selection,
+                        ephemeral_signing_key,
+                    })
+                    .is_err()
+                {
+                    tracing::debug!(target: LOG_TARGET, "Failed to send proof to consumer due to channel being dropped. Aborting...");
+                    return;
                 }
             }
         }

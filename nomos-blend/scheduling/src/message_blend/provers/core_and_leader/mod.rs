@@ -13,17 +13,35 @@ use crate::message_blend::provers::{
 
 const LOG_TARGET: &str = "blend::scheduling::proofs::core-and-leader";
 
+/// Proof generator for core and leader `PoQ` variants.
+///
+/// Because leader `PoQ` variants require secret `PoL` info, and because a core
+/// node with very little stake might not even have a winning slot for a given
+/// epoch, the process of providing secret `PoL` info is different from that of
+/// providing new (public) epoch information, so as not to block cover message
+/// generation for those nodes with low stake.
 #[async_trait]
 pub trait CoreAndLeaderProofsGenerator: Sized {
+    /// Instantiate a new generator for the duration of a session.
     fn new(settings: ProofsGeneratorSettings, private_inputs: ProofOfCoreQuotaInputs) -> Self;
+    /// Notify the proof generator that a new epoch has started mid-session.
+    /// This will trigger core proof re-generation due to the change in the set
+    /// of public inputs.
     fn rotate_epoch(&mut self, new_epoch_public: LeaderInputs);
+    /// Notify the proof generator about winning `PoL` slots and their related
+    /// info. After this information is provided for a new epoch, the generator
+    /// will be able to provide leadership `PoQ` variants.
     fn set_epoch_private(
         &mut self,
         new_epoch_private: ProofOfLeadershipQuotaInputs,
         epoch_nonce: ZkHash,
     );
 
+    /// Request a new core proof from the prover. It returns `None` if the
+    /// maximum core quota has already been reached for this session.
     async fn get_next_core_proof(&mut self) -> Option<BlendLayerProof>;
+    /// Request a new leadership proof from the prover. It returns `None` if no
+    /// secret `PoL` info has been provided for the current epoch.
     async fn get_next_leader_proof(&mut self) -> Option<BlendLayerProof>;
 }
 
@@ -59,11 +77,14 @@ impl CoreAndLeaderProofsGenerator for RealCoreAndLeaderProofsGenerator {
         // generator, or a proof generator are already present, override with the new
         // public epoch info. Else, if there are secret inputs set but no
         // generator yet, create a new generator with the public + private info.
-        let leader_proofs_generator = match &self.leader_proofs_generator {
-            LeaderProofsGeneratorState::NotSet
-            | LeaderProofsGeneratorState::PublicInputsSet(_)
-            | LeaderProofsGeneratorState::Set(_) => {
+        let leader_proofs_generator = match &mut self.leader_proofs_generator {
+            LeaderProofsGeneratorState::NotSet | LeaderProofsGeneratorState::PublicInputsSet(_) => {
                 tracing::trace!(target: LOG_TARGET, "Setting new public inputs for epoch rotation.");
+                LeaderProofsGeneratorState::PublicInputsSet(new_epoch_public)
+            }
+            LeaderProofsGeneratorState::Set(leader_proofs_generator) => {
+                tracing::trace!(target: LOG_TARGET, "Setting new public inputs for epoch rotation and discarding old proofs.");
+                leader_proofs_generator.terminate_proof_generation_task();
                 LeaderProofsGeneratorState::PublicInputsSet(new_epoch_public)
             }
             LeaderProofsGeneratorState::SecretInputsSet {
@@ -96,11 +117,18 @@ impl CoreAndLeaderProofsGenerator for RealCoreAndLeaderProofsGenerator {
         // with the new secret epoch info. Else, if there are public inputs set
         // but no generator yet, create a new generator with the public +
         // private info.
-        let leader_proofs_generator = match &self.leader_proofs_generator {
+        let leader_proofs_generator = match &mut self.leader_proofs_generator {
             LeaderProofsGeneratorState::NotSet
-            | LeaderProofsGeneratorState::SecretInputsSet { .. }
-            | LeaderProofsGeneratorState::Set(_) => {
+            | LeaderProofsGeneratorState::SecretInputsSet { .. } => {
                 tracing::trace!(target: LOG_TARGET, "Setting new secret inputs for epoch rotation.");
+                LeaderProofsGeneratorState::SecretInputsSet {
+                    epoch_nonce,
+                    inputs: new_epoch_private,
+                }
+            }
+            LeaderProofsGeneratorState::Set(leader_proofs_generator) => {
+                tracing::trace!(target: LOG_TARGET, "Setting new secret inputs for epoch rotation and discarding old proofs.");
+                leader_proofs_generator.terminate_proof_generation_task();
                 LeaderProofsGeneratorState::SecretInputsSet {
                     epoch_nonce,
                     inputs: new_epoch_private,

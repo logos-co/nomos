@@ -16,10 +16,13 @@ use crate::{
     serialize_encapsulated_message,
 };
 
-/// [`SessionCryptographicProcessor`] is responsible for only wrapping
-/// messages for the message indistinguishability.
+/// [`SessionCryptographicProcessor`] is responsible for only wrapping data
+/// messages (no cover messages) for the message indistinguishability.
 ///
 /// Each instance is meant to be used during a single session.
+///
+/// This processor is suitable for non-core nodes that do not need to generate
+/// any cover traffic and are hence only interested in blending data messages.
 pub struct SessionCryptographicProcessor<NodeId, ProofsGenerator> {
     num_blend_layers: u64,
     membership: Membership<NodeId>,
