@@ -2,7 +2,9 @@ use core::hash::Hash;
 
 use nomos_blend_message::{
     Error, PayloadType,
-    crypto::proofs::quota::inputs::prove::private::ProofOfLeadershipQuotaInputs,
+    crypto::proofs::quota::inputs::prove::{
+        private::ProofOfLeadershipQuotaInputs, public::LeaderInputs,
+    },
     input::EncapsulationInput,
 };
 
@@ -45,6 +47,15 @@ where
             membership,
             proofs_generator: ProofsGenerator::new(public_info, private_info),
         }
+    }
+
+    pub fn rotate_epoch(
+        &mut self,
+        new_epoch_public: LeaderInputs,
+        new_private_inputs: ProofOfLeadershipQuotaInputs,
+    ) {
+        self.proofs_generator
+            .rotate_epoch(new_epoch_public, new_private_inputs);
     }
 }
 

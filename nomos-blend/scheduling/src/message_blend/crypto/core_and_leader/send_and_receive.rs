@@ -2,7 +2,7 @@ use core::ops::{Deref, DerefMut};
 
 use nomos_blend_message::{
     Error,
-    crypto::proofs::quota::inputs::prove::private::ProofOfCoreQuotaInputs,
+    crypto::proofs::quota::inputs::prove::{private::ProofOfCoreQuotaInputs, public::LeaderInputs},
     encap::{
         ProofsVerifier as ProofsVerifierTrait,
         validated::RequiredProofOfSelectionVerificationInputs,
@@ -55,6 +55,19 @@ where
             ),
             proofs_verifier,
         }
+    }
+}
+
+impl<NodeId, ProofsGenerator, ProofsVerifier>
+    SessionCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
+where
+    ProofsGenerator: CoreAndLeaderProofsGenerator,
+    ProofsVerifier: ProofsVerifierTrait,
+{
+    pub fn rotate_epoch(&mut self, new_epoch_public: LeaderInputs) {
+        self.sender_processor.rotate_epoch(new_epoch_public);
+        self.proofs_verifier
+            .start_epoch_transition(new_epoch_public);
     }
 }
 
