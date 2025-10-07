@@ -38,6 +38,7 @@ impl<NodeId, ProofsGenerator, ProofsVerifier>
     SessionCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
 where
     ProofsGenerator: CoreAndLeaderProofsGenerator,
+    ProofsVerifier: ProofsVerifierTrait,
 {
     #[must_use]
     pub fn new(
@@ -45,7 +46,6 @@ where
         membership: Membership<NodeId>,
         public_core_info: ProofsGeneratorSettings,
         private_core_info: ProofOfCoreQuotaInputs,
-        proofs_verifier: ProofsVerifier,
     ) -> Self {
         Self {
             sender_processor: SenderSessionCryptographicProcessor::new(
@@ -54,7 +54,7 @@ where
                 public_core_info,
                 private_core_info,
             ),
-            proofs_verifier,
+            proofs_verifier: ProofsVerifier::new(public_core_info.public_inputs),
         }
     }
 }
@@ -138,18 +138,15 @@ impl<NodeId, ProofsGenerator, ProofsVerifier> DerefMut
 mod test {
     use groth16::Field as _;
     use multiaddr::{Multiaddr, PeerId};
-    use nomos_blend_message::{
-        crypto::{
-            keys::Ed25519PrivateKey,
-            proofs::{
-                PoQVerificationInputsMinusSigningKey,
-                quota::inputs::prove::{
-                    private::ProofOfCoreQuotaInputs,
-                    public::{CoreInputs, LeaderInputs},
-                },
+    use nomos_blend_message::crypto::{
+        keys::Ed25519PrivateKey,
+        proofs::{
+            PoQVerificationInputsMinusSigningKey,
+            quota::inputs::prove::{
+                private::ProofOfCoreQuotaInputs,
+                public::{CoreInputs, LeaderInputs},
             },
         },
-        encap::ProofsVerifier as _,
     };
     use nomos_core::crypto::ZkHash;
 
@@ -172,7 +169,7 @@ mod test {
         let mut processor = SessionCryptographicProcessor::<
             _,
             TestEpochChangeCoreAndLeaderProofsGenerator,
-            _,
+            TestEpochChangeProofsVerifier,
         >::new(
             &SessionCryptographicProcessorSettings {
                 non_ephemeral_signing_key: Ed25519PrivateKey::generate(),
@@ -205,19 +202,6 @@ mod test {
                 core_path_selectors: vec![],
                 core_sk: ZkHash::ZERO,
             },
-            TestEpochChangeProofsVerifier::new(PoQVerificationInputsMinusSigningKey {
-                session: 1,
-                core: CoreInputs {
-                    quota: 1,
-                    zk_root: ZkHash::ZERO,
-                },
-                leader: LeaderInputs {
-                    message_quota: 1,
-                    pol_epoch_nonce: ZkHash::ZERO,
-                    pol_ledger_aged: ZkHash::ZERO,
-                    total_stake: 1,
-                },
-            }),
         );
 
         let new_leader_inputs = LeaderInputs {
