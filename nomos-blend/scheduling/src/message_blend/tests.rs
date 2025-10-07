@@ -1,143 +1,109 @@
-use nomos_blend_message::crypto::{
-    keys::Ed25519PublicKey,
-    proofs::{
-        quota::{
-            fixtures::{valid_proof_of_core_quota_inputs, valid_proof_of_leadership_quota_inputs},
-            inputs::prove::{
-                PrivateInputs as PoQPrivateInputs, PublicInputs as PoQPublicInputs,
-                private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs, ProofType},
+use nomos_blend_message::{
+    crypto::{
+        keys::Ed25519PublicKey,
+        proofs::{
+            quota::{
+                fixtures::{
+                    valid_proof_of_core_quota_inputs, valid_proof_of_leadership_quota_inputs,
+                },
+                inputs::prove::{
+                    PublicInputs as PoQPublicInputs,
+                    private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs},
+                },
             },
+            selection::inputs::VerifyInputs,
         },
-        selection::inputs::VerifyInputs,
     },
+    encap::encapsulated::PoQVerificationInputsMinusSigningKey,
 };
 
-use crate::message_blend::{
-    PrivateInputs, ProofsGenerator as _, PublicInputs, RealProofsGenerator, SessionInfo,
+use crate::message_blend::provers::{
+    ProofsGeneratorSettings,
+    core::{CoreProofsGenerator as _, RealCoreProofsGenerator},
+    leader::{LeaderProofsGenerator as _, RealLeaderProofsGenerator},
 };
 
 const fn poq_public_inputs_from_session_public_inputs_and_signing_key(
     (
-        PublicInputs {
-            core_quota,
-            core_root,
-            leader_quota,
-            pol_epoch_nonce,
-            pol_ledger_aged,
+        PoQVerificationInputsMinusSigningKey {
+            core,
+            leader,
             session,
-            total_stake,
         },
         signing_key,
-    ): (PublicInputs, Ed25519PublicKey),
+    ): (PoQVerificationInputsMinusSigningKey, Ed25519PublicKey),
 ) -> PoQPublicInputs {
     PoQPublicInputs {
-        core_quota,
-        core_root,
-        leader_quota,
-        pol_epoch_nonce,
-        pol_ledger_aged,
-        session,
-        total_stake,
         signing_key,
+        core,
+        leader,
+        session,
     }
 }
 
-// We combine the relevant fields for each of the valid proof fixtures, to
-// return inputs that can be used to generate either PoQ type.
 fn valid_proof_of_quota_inputs(
     core_quota: u64,
-    leader_quota: u64,
-) -> (PublicInputs, PrivateInputs) {
-    // We use key index of `0` for both proofs, but we will replace it inside the
-    // proof generator, since it's not part of the fixtures.
-    let (
-        PoQPublicInputs { core_root, .. },
-        PoQPrivateInputs {
-            proof_type: core_proof_type,
-            ..
-        },
-    ) = valid_proof_of_core_quota_inputs([0; _].try_into().unwrap(), core_quota, 0);
+) -> (PoQVerificationInputsMinusSigningKey, ProofOfCoreQuotaInputs) {
     let (
         PoQPublicInputs {
-            pol_epoch_nonce,
-            pol_ledger_aged,
+            core,
+            leader,
             session,
-            total_stake,
             ..
         },
-        PoQPrivateInputs {
-            proof_type: leadership_proof_type,
+        private_inputs,
+    ) = valid_proof_of_core_quota_inputs([0; _].try_into().unwrap(), core_quota);
+    (
+        PoQVerificationInputsMinusSigningKey {
+            core,
+            leader,
+            session,
+        },
+        private_inputs,
+    )
+}
+
+fn valid_proof_of_leader_inputs(
+    leader_quota: u64,
+) -> (
+    PoQVerificationInputsMinusSigningKey,
+    ProofOfLeadershipQuotaInputs,
+) {
+    let (
+        PoQPublicInputs {
+            core,
+            leader,
+            session,
             ..
         },
-    ) = valid_proof_of_leadership_quota_inputs([0; _].try_into().unwrap(), leader_quota, 0);
-
-    let ProofType::CoreQuota(ProofOfCoreQuotaInputs {
-        core_path,
-        core_path_selectors,
-        core_sk,
-    }) = core_proof_type
-    else {
-        panic!("Core proof private inputs of wrong type.");
-    };
-    let ProofType::LeadershipQuota(ProofOfLeadershipQuotaInputs {
-        aged_path,
-        aged_selector,
-        note_value,
-        output_number,
-        pol_secret_key,
-        slot,
-        slot_secret,
-        slot_secret_path,
-        starting_slot,
-        transaction_hash,
-    }) = leadership_proof_type
-    else {
-        panic!("Leadership proof private inputs of wrong type.");
-    };
-
-    let public_inputs = PublicInputs {
-        session,
-        core_root,
-        pol_ledger_aged,
-        pol_epoch_nonce,
-        core_quota,
-        leader_quota,
-        total_stake,
-    };
-    let private_inputs = PrivateInputs {
-        core_sk,
-        core_path,
-        core_path_selectors,
-        slot,
-        note_value,
-        transaction_hash,
-        output_number,
-        aged_path,
-        aged_selector,
-        slot_secret,
-        slot_secret_path,
-        starting_slot,
-        pol_secret_key,
-    };
-
-    (public_inputs, private_inputs)
+        private_inputs,
+    ) = valid_proof_of_leadership_quota_inputs([0; _].try_into().unwrap(), leader_quota);
+    (
+        PoQVerificationInputsMinusSigningKey {
+            core,
+            leader,
+            session,
+        },
+        private_inputs,
+    )
 }
 
 #[tokio::test]
-async fn real_proof_generation() {
+async fn real_core_proof_generation() {
     let core_quota = 10;
-    let leadership_quota = 15;
-    let (public_inputs, private_inputs) = valid_proof_of_quota_inputs(core_quota, leadership_quota);
+    let (public_inputs, private_inputs) = valid_proof_of_quota_inputs(core_quota);
 
-    let mut proofs_generator = RealProofsGenerator::new(SessionInfo {
-        local_node_index: None,
-        membership_size: 1,
+    let mut core_proofs_generator = RealCoreProofsGenerator::new(
+        ProofsGeneratorSettings {
+            local_node_index: None,
+            membership_size: 1,
+            public_inputs,
+        },
         private_inputs,
-        public_inputs,
-    });
+    );
 
     for _ in 0..core_quota {
-        let proof = proofs_generator.get_next_core_proof().await.unwrap();
+        let proof = core_proofs_generator.get_next_proof().await.unwrap();
         let key_nullifier = proof
             .proof_of_quota
             .verify(
@@ -159,10 +125,25 @@ async fn real_proof_generation() {
     }
 
     // Next proof should be `None` since we ran out of core quota.
-    assert!(proofs_generator.get_next_core_proof().await.is_none());
+    assert!(core_proofs_generator.get_next_proof().await.is_none());
+}
+
+#[tokio::test]
+async fn real_leader_proof_generation() {
+    let leadership_quota = 15;
+    let (public_inputs, private_inputs) = valid_proof_of_leader_inputs(leadership_quota);
+
+    let mut leader_proofs_generator = RealLeaderProofsGenerator::new(
+        ProofsGeneratorSettings {
+            local_node_index: None,
+            membership_size: 1,
+            public_inputs,
+        },
+        private_inputs,
+    );
 
     for _ in 0..leadership_quota {
-        let proof = proofs_generator.get_next_leadership_proof().await.unwrap();
+        let proof = leader_proofs_generator.get_next_proof().await;
         let key_nullifier = proof
             .proof_of_quota
             .verify(
@@ -182,7 +163,4 @@ async fn real_proof_generation() {
             })
             .unwrap();
     }
-
-    // Next proof should be `None` since we ran out of leadership quota.
-    assert!(proofs_generator.get_next_leadership_proof().await.is_none());
 }

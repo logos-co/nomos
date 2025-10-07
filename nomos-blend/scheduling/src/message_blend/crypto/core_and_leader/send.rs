@@ -1,15 +1,24 @@
 use core::hash::Hash;
 
 use nomos_blend_message::{
-    Error, PayloadType, crypto::keys::X25519PrivateKey, input::EncapsulationInput,
+    Error, PayloadType,
+    crypto::{
+        keys::X25519PrivateKey,
+        proofs::quota::inputs::prove::{
+            private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs},
+            public::LeaderInputs,
+        },
+    },
+    input::EncapsulationInput,
 };
+use nomos_core::crypto::ZkHash;
 
 use crate::{
     EncapsulatedMessage,
     membership::Membership,
     message_blend::{
-        ProofsGenerator as ProofsGeneratorTrait, SessionCryptographicProcessorSettings,
-        SessionInfo, crypto::EncapsulationInputs,
+        crypto::{EncapsulationInputs, SessionCryptographicProcessorSettings},
+        provers::{ProofsGeneratorSettings, core_and_leader::CoreAndLeaderProofsGenerator},
     },
     serialize_encapsulated_message,
 };
@@ -38,13 +47,14 @@ impl<NodeId, ProofsGenerator> SessionCryptographicProcessor<NodeId, ProofsGenera
 
 impl<NodeId, ProofsGenerator> SessionCryptographicProcessor<NodeId, ProofsGenerator>
 where
-    ProofsGenerator: ProofsGeneratorTrait,
+    ProofsGenerator: CoreAndLeaderProofsGenerator,
 {
     #[must_use]
     pub fn new(
         settings: &SessionCryptographicProcessorSettings,
         membership: Membership<NodeId>,
-        session_info: SessionInfo,
+        public_core_info: ProofsGeneratorSettings,
+        private_core_info: ProofOfCoreQuotaInputs,
     ) -> Self {
         // Derive the non-ephemeral encryption key
         // from the non-ephemeral signing key.
@@ -53,15 +63,28 @@ where
             num_blend_layers: settings.num_blend_layers,
             non_ephemeral_encryption_key,
             membership,
-            proofs_generator: ProofsGenerator::new(session_info),
+            proofs_generator: ProofsGenerator::new(public_core_info, private_core_info),
         }
+    }
+
+    pub fn rotate_epoch(&mut self, new_epoch_public_info: LeaderInputs) {
+        self.proofs_generator.rotate_epoch(new_epoch_public_info);
+    }
+
+    pub fn set_epoch_private(
+        &mut self,
+        new_epoch_private: ProofOfLeadershipQuotaInputs,
+        epoch_nonce: ZkHash,
+    ) {
+        self.proofs_generator
+            .set_epoch_private(new_epoch_private, epoch_nonce);
     }
 }
 
 impl<NodeId, ProofsGenerator> SessionCryptographicProcessor<NodeId, ProofsGenerator>
 where
     NodeId: Eq + Hash + 'static,
-    ProofsGenerator: ProofsGeneratorTrait,
+    ProofsGenerator: CoreAndLeaderProofsGenerator,
 {
     pub async fn encapsulate_cover_payload(
         &mut self,
@@ -117,9 +140,8 @@ where
             }
             PayloadType::Data => {
                 for _ in 0..self.num_blend_layers {
-                    let Some(proof) = self.proofs_generator.get_next_leadership_proof().await
-                    else {
-                        return Err(Error::NoMoreProofOfQuotas);
+                    let Some(proof) = self.proofs_generator.get_next_leader_proof().await else {
+                        return Err(Error::NoLeadershipInfoProvided);
                     };
                     proofs.push(proof);
                 }
