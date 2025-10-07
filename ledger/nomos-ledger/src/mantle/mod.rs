@@ -88,8 +88,8 @@ impl LedgerState {
     }
 
     #[must_use]
-    pub const fn active_sessions(&self) -> &membership::Sessions {
-        &self.membership.active_sessions
+    pub const fn active_sessions(&self) -> &sdp::Sessions {
+        &self.sdp.active_sessions
     }
 
     #[must_use]
@@ -97,7 +97,7 @@ impl LedgerState {
         &self,
         service: &ServiceType,
     ) -> Option<HashMap<ProviderId, ProviderInfo>> {
-        let session = self.membership.active_sessions.get(service)?;
+        let session = self.sdp.active_sessions.get(service)?;
         let providers = session
             .declarations
             .iter()

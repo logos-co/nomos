@@ -13,7 +13,7 @@ use cryptarchia::LedgerState as CryptarchiaLedger;
 pub use cryptarchia::{EpochState, UtxoTree};
 use cryptarchia_engine::Slot;
 use groth16::{Field as _, Fr};
-use mantle::{LedgerState as MantleLedger, membership::Sessions};
+use mantle::{LedgerState as MantleLedger, sdp::Sessions};
 use nomos_core::{
     block::BlockNumber,
     mantle::{

@@ -1191,31 +1191,29 @@ where
             for (service, session_number) in &sessions {
                 let prev_session_num = previous_session_numbers.get(service).copied().unwrap_or(0);
 
-                if session_number == &prev_session_num {
-                    continue;
-                }
+                if session_number != &prev_session_num {
+                    if let Ok(providers) = cryptarchia.active_session_providers(&new_lib, *service)
+                    {
+                        let update = SessionUpdate {
+                            session_number: *session_number,
+                            providers,
+                        };
 
-                let Ok(providers) = cryptarchia.active_session_providers(&new_lib, *service) else {
-                    error!("Could not get session providers for service: {service:?}");
-                    continue;
-                };
+                        let broadcast_future = match service {
+                            ServiceType::BlendNetwork => {
+                                broadcast_blend_session(relays.broadcast_relay(), update).boxed()
+                            }
+                            ServiceType::DataAvailability => {
+                                broadcast_da_session(relays.broadcast_relay(), update).boxed()
+                            }
+                        };
 
-                let update = SessionUpdate {
-                    session_number: *session_number,
-                    providers,
-                };
-
-                let broadcast_future = match service {
-                    ServiceType::BlendNetwork => {
-                        broadcast_blend_session(relays.broadcast_relay(), update).boxed()
+                        if let Err(e) = broadcast_future.await {
+                            error!("Failed to broadcast session update for {service:?}: {e}");
+                        }
+                    } else {
+                        error!("Could not get session providers for service: {service:?}");
                     }
-                    ServiceType::DataAvailability => {
-                        broadcast_da_session(relays.broadcast_relay(), update).boxed()
-                    }
-                };
-
-                if let Err(e) = broadcast_future.await {
-                    error!("Failed to broadcast session update for {service:?}: {e}");
                 }
             }
         }

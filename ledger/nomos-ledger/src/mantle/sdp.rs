@@ -15,6 +15,8 @@ use strum::IntoEnumIterator as _;
 
 use super::Error;
 
+pub type Sessions = rpds::HashTrieMapSync<ServiceType, Session>;
+
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
 pub enum SdpLedgerError {
     #[error("Invalid Sdp state transition: {0:?}")]
@@ -41,8 +43,8 @@ pub enum SdpLedgerError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SdpLedger {
     pub declarations: rpds::HashTrieMapSync<DeclarationId, DeclarationState>,
-    active_sessions: rpds::HashTrieMapSync<ServiceType, Session>,
-    forming_sessions: rpds::HashTrieMapSync<ServiceType, Session>,
+    pub active_sessions: Sessions,
+    forming_sessions: Sessions,
 }
 
 impl Default for SdpLedger {
