@@ -1,4 +1,4 @@
-use core::num::NonZeroUsize;
+use core::{mem::swap, num::NonZeroUsize};
 use std::{
     collections::{HashSet, VecDeque},
     convert::Infallible,
@@ -17,11 +17,16 @@ use libp2p::{
         dummy::ConnectionHandler as DummyConnectionHandler,
     },
 };
-use nomos_blend_message::{Error, crypto::proofs::quota, encap};
+use nomos_blend_message::{
+    Error,
+    crypto::proofs::quota::{self, inputs::prove::public::LeaderInputs},
+    encap,
+};
 use nomos_blend_scheduling::{
     EncapsulatedMessage, deserialize_encapsulated_message, membership::Membership,
     message_blend::crypto::IncomingEncapsulatedMessageWithValidatedPublicHeader,
 };
+use nomos_core::crypto::ZkHash;
 
 use crate::core::with_edge::behaviour::handler::{ConnectionHandler, FromBehaviour, ToBehaviour};
 
@@ -87,7 +92,29 @@ impl<ProofsVerifier> Behaviour<ProofsVerifier> {
         }
     }
 
-    pub fn finish_session_transition(&mut self) {
+    pub(crate) fn start_new_session(
+        &mut self,
+        new_membership: Membership<PeerId>,
+        new_verifier: ProofsVerifier,
+    ) {
+        self.current_membership = Some(new_membership);
+        // Close all the connections without waiting for the transition period,
+        // so that edge nodes can retry with the new membership.
+        let peers = mem::take(&mut self.upgraded_edge_peers);
+        for conn in &peers {
+            self.close_substream(*conn);
+        }
+
+        let old_verifier = {
+            let mut new_verifier = new_verifier;
+            swap(&mut new_verifier, &mut self.current_session_poq_verifier);
+            new_verifier
+        };
+
+        self.previous_session_poq_verifier = Some(old_verifier);
+    }
+
+    pub(crate) fn finish_session_transition(&mut self) {
         self.previous_session_poq_verifier = None;
     }
 
@@ -143,30 +170,6 @@ impl<ProofsVerifier> Behaviour<ProofsVerifier> {
 
 impl<ProofsVerifier> Behaviour<ProofsVerifier>
 where
-    ProofsVerifier: Clone,
-{
-    pub fn start_new_session(
-        &mut self,
-        new_membership: Membership<PeerId>,
-        new_verifier: ProofsVerifier,
-    ) {
-        self.current_membership = Some(new_membership);
-        // Close all the connections without waiting for the transition period,
-        // so that edge nodes can retry with the new membership.
-        let peers = mem::take(&mut self.upgraded_edge_peers);
-        for conn in &peers {
-            self.close_substream(*conn);
-        }
-
-        let old_verifier = self.current_session_poq_verifier.clone();
-
-        self.previous_session_poq_verifier = Some(old_verifier);
-        self.current_session_poq_verifier = new_verifier;
-    }
-}
-
-impl<ProofsVerifier> Behaviour<ProofsVerifier>
-where
     ProofsVerifier: encap::ProofsVerifier,
 {
     fn handle_received_serialized_encapsulated_message(&mut self, serialized_message: &[u8]) {
@@ -204,6 +207,22 @@ where
                 };
                 message.verify_public_header(previous_session_verifier)
             })
+    }
+
+    pub(crate) fn start_new_epoch(&mut self, new_pol_inputs: LeaderInputs) {
+        self.current_session_poq_verifier
+            .start_epoch_transition(new_pol_inputs);
+        if let Some(previous_session_poq_verifier) = &mut self.previous_session_poq_verifier {
+            previous_session_poq_verifier.start_epoch_transition(new_pol_inputs);
+        }
+    }
+
+    pub(crate) fn finish_epoch_transition(&mut self, old_epoch_nonce: ZkHash) {
+        self.current_session_poq_verifier
+            .complete_epoch_transition(old_epoch_nonce);
+        if let Some(previous_session_poq_verifier) = &mut self.previous_session_poq_verifier {
+            previous_session_poq_verifier.complete_epoch_transition(old_epoch_nonce);
+        }
     }
 }
 
