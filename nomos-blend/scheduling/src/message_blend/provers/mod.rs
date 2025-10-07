@@ -1,12 +1,10 @@
-use nomos_blend_message::{
-    crypto::{
-        keys::Ed25519PrivateKey,
-        proofs::{
-            quota::{ProofOfQuota, inputs::prove::public::CoreInputs},
-            selection::ProofOfSelection,
-        },
+use nomos_blend_message::crypto::{
+    keys::Ed25519PrivateKey,
+    proofs::{
+        PoQVerificationInputsMinusSigningKey,
+        quota::{ProofOfQuota, inputs::prove::public::CoreInputs},
+        selection::ProofOfSelection,
     },
-    encap::encapsulated::PoQVerificationInputsMinusSigningKey,
 };
 
 pub mod core;

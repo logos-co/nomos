@@ -1,20 +1,16 @@
-use nomos_blend_message::{
-    crypto::{
-        keys::Ed25519PublicKey,
-        proofs::{
-            quota::{
-                fixtures::{
-                    valid_proof_of_core_quota_inputs, valid_proof_of_leadership_quota_inputs,
-                },
-                inputs::prove::{
-                    PublicInputs as PoQPublicInputs,
-                    private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs},
-                },
+use nomos_blend_message::crypto::{
+    keys::Ed25519PublicKey,
+    proofs::{
+        PoQVerificationInputsMinusSigningKey,
+        quota::{
+            fixtures::{valid_proof_of_core_quota_inputs, valid_proof_of_leadership_quota_inputs},
+            inputs::prove::{
+                PublicInputs as PoQPublicInputs,
+                private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs},
             },
-            selection::inputs::VerifyInputs,
         },
+        selection::inputs::VerifyInputs,
     },
-    encap::encapsulated::PoQVerificationInputsMinusSigningKey,
 };
 
 use crate::message_blend::provers::{

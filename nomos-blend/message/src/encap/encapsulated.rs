@@ -12,13 +12,7 @@ use crate::{
     crypto::{
         keys::{Ed25519PrivateKey, Ed25519PublicKey, SharedKey},
         proofs::{
-            quota::{
-                self, ProofOfQuota,
-                inputs::prove::{
-                    PublicInputs,
-                    public::{CoreInputs, LeaderInputs},
-                },
-            },
+            quota::{self, ProofOfQuota},
             selection::{self, ProofOfSelection, inputs::VerifyInputs},
         },
         random_sized_bytes,
@@ -42,17 +36,6 @@ pub struct EncapsulatedMessage<const ENCAPSULATION_COUNT: usize> {
     public_header: PublicHeader,
     /// Encapsulated parts
     encapsulated_part: EncapsulatedPart<ENCAPSULATION_COUNT>,
-}
-
-/// The inputs required to verify a Proof of Quota, without the signing key,
-/// which is retrieved from the public header of the message layer being
-/// verified.
-#[derive(Debug, Clone, Copy)]
-#[cfg_attr(test, derive(Default))]
-pub struct PoQVerificationInputsMinusSigningKey {
-    pub session: u64,
-    pub core: CoreInputs,
-    pub leader: LeaderInputs,
 }
 
 impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> {
@@ -120,11 +103,6 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
     /// Verify the message public header.
     pub fn verify_public_header<Verifier>(
         self,
-        PoQVerificationInputsMinusSigningKey {
-            core,
-            leader,
-            session,
-        }: &PoQVerificationInputsMinusSigningKey,
         verifier: &Verifier,
     ) -> Result<IncomingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>, Error>
     where
@@ -138,17 +116,7 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
         let (_, signing_key, proof_of_quota, signature) = self.public_header.into_components();
         // Verify the Proof of Quota according to the Blend spec: <https://www.notion.so/nomos-tech/Blend-Protocol-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81b593ddce00cffd24a8>.
         verifier
-            .verify_proof_of_quota(
-                proof_of_quota,
-                &PublicInputs {
-                    core: *core,
-                    leader: *leader,
-                    session: *session,
-                    // Signing key taken from the public header after the signature has been
-                    // successfully verified.
-                    signing_key,
-                },
-            )
+            .verify_proof_of_quota(proof_of_quota, &signing_key)
             .map_err(|_| Error::ProofOfQuotaVerificationFailed(quota::Error::InvalidProof))?;
         Ok(
             IncomingEncapsulatedMessageWithValidatedPublicHeader::from_message(
