@@ -9,13 +9,13 @@ use libp2p::{
     PeerId,
     swarm::{ConnectionId, NotifyHandler, ToSwarm},
 };
-use nomos_blend_message::{
-    MessageIdentifier,
-    encap::{self, encapsulated::PoQVerificationInputsMinusSigningKey},
-};
+use nomos_blend_message::{MessageIdentifier, encap};
 use nomos_blend_scheduling::{
-    deserialize_encapsulated_message,
-    message_blend::crypto::OutgoingEncapsulatedMessageWithValidatedPublicHeader,
+    EncapsulatedMessage, deserialize_encapsulated_message,
+    message_blend::crypto::{
+        IncomingEncapsulatedMessageWithValidatedPublicHeader,
+        OutgoingEncapsulatedMessageWithValidatedPublicHeader,
+    },
     serialize_encapsulated_message,
 };
 
@@ -31,8 +31,21 @@ pub struct OldSession<ProofsVerifier> {
     exchanged_message_identifiers: HashMap<PeerId, HashSet<MessageIdentifier>>,
     events: VecDeque<ToSwarm<Event, Either<FromBehaviour, Infallible>>>,
     waker: Option<Waker>,
-    poq_verification_inputs: PoQVerificationInputsMinusSigningKey,
     poq_verifier: ProofsVerifier,
+}
+
+impl<ProofsVerifier> OldSession<ProofsVerifier>
+where
+    ProofsVerifier: encap::ProofsVerifier,
+{
+    pub fn verify_encapsulated_message_public_header(
+        &self,
+        message: EncapsulatedMessage,
+    ) -> Result<IncomingEncapsulatedMessageWithValidatedPublicHeader, Error> {
+        message
+            .verify_public_header(&self.poq_verifier)
+            .map_err(|_| Error::InvalidMessage)
+    }
 }
 
 impl<ProofsVerifier> OldSession<ProofsVerifier> {
@@ -40,7 +53,6 @@ impl<ProofsVerifier> OldSession<ProofsVerifier> {
     pub const fn new(
         negotiated_peers: HashMap<PeerId, ConnectionId>,
         exchanged_message_identifiers: HashMap<PeerId, HashSet<MessageIdentifier>>,
-        poq_verification_inputs: PoQVerificationInputsMinusSigningKey,
         poq_verifier: ProofsVerifier,
     ) -> Self {
         Self {
@@ -48,7 +60,6 @@ impl<ProofsVerifier> OldSession<ProofsVerifier> {
             exchanged_message_identifiers,
             events: VecDeque::new(),
             waker: None,
-            poq_verification_inputs,
             poq_verifier,
         }
     }
@@ -216,7 +227,7 @@ where
 
         // Verify the message public header
         let validated_message = deserialized_encapsulated_message
-            .verify_public_header(&self.poq_verification_inputs, &self.poq_verifier)
+            .verify_public_header(&self.poq_verifier)
             .map_err(|_| Error::InvalidMessage)?;
 
         // Notify the swarm about the received message, so that it can be further

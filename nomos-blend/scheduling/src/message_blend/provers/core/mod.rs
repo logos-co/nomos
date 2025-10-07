@@ -1,21 +1,18 @@
 use core::mem::swap;
 
 use async_trait::async_trait;
-use nomos_blend_message::{
-    crypto::{
-        keys::Ed25519PrivateKey,
-        proofs::{
-            quota::{
-                ProofOfQuota,
-                inputs::prove::{
-                    PrivateInputs, PublicInputs, private::ProofOfCoreQuotaInputs,
-                    public::LeaderInputs,
-                },
+use nomos_blend_message::crypto::{
+    keys::Ed25519PrivateKey,
+    proofs::{
+        PoQVerificationInputsMinusSigningKey,
+        quota::{
+            ProofOfQuota,
+            inputs::prove::{
+                PrivateInputs, PublicInputs, private::ProofOfCoreQuotaInputs, public::LeaderInputs,
             },
-            selection::ProofOfSelection,
         },
+        selection::ProofOfSelection,
     },
-    encap::encapsulated::PoQVerificationInputsMinusSigningKey,
 };
 use tokio::{
     sync::mpsc::{Receiver, Sender, channel},

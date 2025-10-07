@@ -17,10 +17,7 @@ use libp2p::{
         dummy::ConnectionHandler as DummyConnectionHandler,
     },
 };
-use nomos_blend_message::{
-    MessageIdentifier,
-    encap::{self, encapsulated::PoQVerificationInputsMinusSigningKey},
-};
+use nomos_blend_message::{MessageIdentifier, encap};
 use nomos_blend_scheduling::{
     EncapsulatedMessage, deserialize_encapsulated_message,
     membership::Membership,
@@ -125,9 +122,6 @@ pub struct Behaviour<ProofsVerifier, ObservationWindowClockProvider> {
     /// States for processing messages from the old session
     /// before the transition period has passed.
     old_session: Option<OldSession<ProofsVerifier>>,
-    /// The public inputs to use when verifying incoming messages' `PoQ`s. They
-    /// are updated on every session change.
-    session_poq_verification_inputs: PoQVerificationInputsMinusSigningKey,
     /// Verifier of the incoming messages' `PoQ`s that uses the
     /// `session_poq_verification_inputs` public inputs for verification. This
     /// is set on initialization and does not change across sessions.
@@ -201,7 +195,6 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
         current_membership: Option<Membership<PeerId>>,
         local_peer_id: PeerId,
         protocol_name: StreamProtocol,
-        current_poq_verification_inputs: PoQVerificationInputsMinusSigningKey,
         poq_verifier: ProofsVerifier,
     ) -> Self {
         Self {
@@ -222,7 +215,6 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
             protocol_name,
             minimum_network_size: config.minimum_network_size,
             old_session: None,
-            session_poq_verification_inputs: current_poq_verification_inputs,
             poq_verifier,
         }
     }
@@ -757,26 +749,24 @@ where
     pub fn start_new_session(
         &mut self,
         new_membership: Membership<PeerId>,
-        new_poq_verification_inputs: PoQVerificationInputsMinusSigningKey,
+        new_verifier: ProofsVerifier,
     ) {
         self.connections_waiting_upgrade.clear();
         self.current_membership = Some(new_membership);
-        let (old_poq_verification_inputs, new_poq_verification_inputs) = (
-            self.session_poq_verification_inputs,
-            new_poq_verification_inputs,
-        );
 
         self.stop_old_session();
+
+        let old_verifier = self.poq_verifier.clone();
+
         self.old_session = Some(OldSession::new(
             mem::take(&mut self.negotiated_peers)
                 .into_iter()
                 .map(|(peer_id, details)| (peer_id, details.connection_id))
                 .collect(),
             mem::take(&mut self.exchanged_message_identifiers),
-            old_poq_verification_inputs,
-            self.poq_verifier.clone(),
+            old_verifier,
         ));
-        self.session_poq_verification_inputs = new_poq_verification_inputs;
+        self.poq_verifier = new_verifier;
     }
 }
 
@@ -793,11 +783,26 @@ where
         &mut self,
         message: EncapsulatedMessage,
     ) -> Result<(), Error> {
-        let validated_message = message
-            .verify_public_header(&self.session_poq_verification_inputs, &self.poq_verifier)
+        let validated_message = self
+            .validate_encapsulated_message_public_header(message)
             .map_err(|_| Error::InvalidMessage)?;
         self.forward_validated_message_and_maybe_exclude(&validated_message.into(), None)?;
         Ok(())
+    }
+
+    fn validate_encapsulated_message_public_header(
+        &self,
+        message: EncapsulatedMessage,
+    ) -> Result<IncomingEncapsulatedMessageWithValidatedPublicHeader, Error> {
+        message
+            .clone()
+            .verify_public_header(&self.poq_verifier)
+            .or_else(|_| {
+                let Some(old_session) = &self.old_session else {
+                    return Err(Error::InvalidMessage);
+                };
+                old_session.verify_encapsulated_message_public_header(message)
+            })
     }
 
     fn handle_received_serialized_encapsulated_message(
@@ -846,8 +851,8 @@ where
             return;
         };
         // Verify the message public header, or else mark the peer as malicious: https://www.notion.so/nomos-tech/Blend-Protocol-Version-1-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81859cebf5e3d2a5cd8f.
-        let Ok(validated_message) = deserialized_encapsulated_message
-            .verify_public_header(&self.session_poq_verification_inputs, &self.poq_verifier)
+        let Ok(validated_message) =
+            self.validate_encapsulated_message_public_header(deserialized_encapsulated_message)
         else {
             tracing::debug!(target: LOG_TARGET, "Neighbor sent us a message with an invalid public header. Marking it as spammy.");
             self.close_spammy_connection(

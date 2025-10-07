@@ -17,9 +17,9 @@ use libp2p::{
         dummy::ConnectionHandler as DummyConnectionHandler,
     },
 };
-use nomos_blend_message::encap::{self, encapsulated::PoQVerificationInputsMinusSigningKey};
+use nomos_blend_message::{Error, crypto::proofs::quota, encap};
 use nomos_blend_scheduling::{
-    deserialize_encapsulated_message, membership::Membership,
+    EncapsulatedMessage, deserialize_encapsulated_message, membership::Membership,
     message_blend::crypto::IncomingEncapsulatedMessageWithValidatedPublicHeader,
 };
 
@@ -61,8 +61,8 @@ pub struct Behaviour<ProofsVerifier> {
     max_incoming_connections: usize,
     protocol_name: StreamProtocol,
     minimum_network_size: NonZeroUsize,
-    session_poq_verification_inputs: PoQVerificationInputsMinusSigningKey,
-    poq_verifier: ProofsVerifier,
+    current_session_poq_verifier: ProofsVerifier,
+    previous_session_poq_verifier: Option<ProofsVerifier>,
 }
 
 impl<ProofsVerifier> Behaviour<ProofsVerifier> {
@@ -71,7 +71,6 @@ impl<ProofsVerifier> Behaviour<ProofsVerifier> {
         config: &Config,
         current_membership: Option<Membership<PeerId>>,
         protocol_name: StreamProtocol,
-        current_poq_verification_inputs: PoQVerificationInputsMinusSigningKey,
         poq_verifier: ProofsVerifier,
     ) -> Self {
         Self {
@@ -83,24 +82,13 @@ impl<ProofsVerifier> Behaviour<ProofsVerifier> {
             max_incoming_connections: config.max_incoming_connections,
             protocol_name,
             minimum_network_size: config.minimum_network_size,
-            session_poq_verification_inputs: current_poq_verification_inputs,
-            poq_verifier,
+            current_session_poq_verifier: poq_verifier,
+            previous_session_poq_verifier: None,
         }
     }
 
-    pub fn start_new_session(
-        &mut self,
-        new_membership: Membership<PeerId>,
-        new_poq_verification_inputs: PoQVerificationInputsMinusSigningKey,
-    ) {
-        self.current_membership = Some(new_membership);
-        // Close all the connections without waiting for the transition period,
-        // so that edge nodes can retry with the new membership.
-        let peers = mem::take(&mut self.upgraded_edge_peers);
-        for conn in &peers {
-            self.close_substream(*conn);
-        }
-        self.session_poq_verification_inputs = new_poq_verification_inputs;
+    pub fn finish_session_transition(&mut self) {
+        self.previous_session_poq_verifier = None;
     }
 
     fn try_wake(&mut self) {
@@ -155,6 +143,30 @@ impl<ProofsVerifier> Behaviour<ProofsVerifier> {
 
 impl<ProofsVerifier> Behaviour<ProofsVerifier>
 where
+    ProofsVerifier: Clone,
+{
+    pub fn start_new_session(
+        &mut self,
+        new_membership: Membership<PeerId>,
+        new_verifier: ProofsVerifier,
+    ) {
+        self.current_membership = Some(new_membership);
+        // Close all the connections without waiting for the transition period,
+        // so that edge nodes can retry with the new membership.
+        let peers = mem::take(&mut self.upgraded_edge_peers);
+        for conn in &peers {
+            self.close_substream(*conn);
+        }
+
+        let old_verifier = self.current_session_poq_verifier.clone();
+
+        self.previous_session_poq_verifier = Some(old_verifier);
+        self.current_session_poq_verifier = new_verifier;
+    }
+}
+
+impl<ProofsVerifier> Behaviour<ProofsVerifier>
+where
     ProofsVerifier: encap::ProofsVerifier,
 {
     fn handle_received_serialized_encapsulated_message(&mut self, serialized_message: &[u8]) {
@@ -165,8 +177,8 @@ where
             return;
         };
 
-        let Ok(validated_message) = deserialized_encapsulated_message
-            .verify_public_header(&self.session_poq_verification_inputs, &self.poq_verifier)
+        let Ok(validated_message) =
+            self.validate_encapsulated_message_public_header(deserialized_encapsulated_message)
         else {
             tracing::trace!(target: LOG_TARGET, "Failed to validate public header of received message. Ignoring...");
             return;
@@ -175,6 +187,23 @@ where
         self.events
             .push_back(ToSwarm::GenerateEvent(Event::Message(validated_message)));
         self.try_wake();
+    }
+
+    fn validate_encapsulated_message_public_header(
+        &self,
+        message: EncapsulatedMessage,
+    ) -> Result<IncomingEncapsulatedMessageWithValidatedPublicHeader, Error> {
+        message
+            .clone()
+            .verify_public_header(&self.current_session_poq_verifier)
+            .or_else(|_| {
+                let Some(previous_session_verifier) = &self.previous_session_poq_verifier else {
+                    return Err(Error::ProofOfQuotaVerificationFailed(
+                        quota::Error::InvalidProof,
+                    ));
+                };
+                message.verify_public_header(previous_session_verifier)
+            })
     }
 }
 
