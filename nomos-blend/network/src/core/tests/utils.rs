@@ -5,7 +5,6 @@ use core::{
     ops::{Deref, DerefMut},
 };
 
-use groth16::Field as _;
 use libp2p::{
     PeerId, StreamProtocol, Swarm,
     identity::{Keypair, ed25519::PublicKey},
@@ -14,20 +13,15 @@ use libp2p_swarm_test::SwarmExt as _;
 use nomos_blend_message::{
     PayloadType,
     crypto::{
-        keys::Ed25519PrivateKey,
+        keys::{Ed25519PrivateKey, Ed25519PublicKey},
         proofs::{
-            quota::{
-                ProofOfQuota,
-                inputs::prove::{
-                    PublicInputs,
-                    public::{CoreInputs, LeaderInputs},
-                },
-            },
+            PoQVerificationInputsMinusSigningKey,
+            quota::{ProofOfQuota, inputs::prove::public::LeaderInputs},
             selection::{ProofOfSelection, inputs::VerifyInputs},
         },
         signatures::{SIGNATURE_SIZE, Signature},
     },
-    encap::{ProofsVerifier, encapsulated::PoQVerificationInputsMinusSigningKey},
+    encap::ProofsVerifier,
     input::EncapsulationInput,
 };
 use nomos_blend_scheduling::{EncapsulatedMessage, message_blend::crypto::EncapsulationInputs};
@@ -146,15 +140,21 @@ pub struct AlwaysTrueVerifier;
 impl ProofsVerifier for AlwaysTrueVerifier {
     type Error = Infallible;
 
-    fn new() -> Self {
+    fn new(_public_inputs: PoQVerificationInputsMinusSigningKey) -> Self {
         Self
     }
 
+    fn start_epoch_transition(&mut self, _new_pol_inputs: LeaderInputs) {}
+
+    fn complete_epoch_transition(&mut self, _old_epoch_nonce: ZkHash) {}
+
     fn verify_proof_of_quota(
         &self,
-        _: ProofOfQuota,
-        _: &PublicInputs,
+        _proof: ProofOfQuota,
+        _signing_key: &Ed25519PublicKey,
     ) -> Result<ZkHash, Self::Error> {
+        use groth16::Field as _;
+
         Ok(ZkHash::ZERO)
     }
 
@@ -164,21 +164,5 @@ impl ProofsVerifier for AlwaysTrueVerifier {
         _: &VerifyInputs,
     ) -> Result<(), Self::Error> {
         Ok(())
-    }
-}
-
-pub fn default_poq_verification_inputs() -> PoQVerificationInputsMinusSigningKey {
-    PoQVerificationInputsMinusSigningKey {
-        core: CoreInputs {
-            quota: 0,
-            zk_root: ZkHash::ZERO,
-        },
-        leader: LeaderInputs {
-            message_quota: 0,
-            pol_epoch_nonce: ZkHash::ZERO,
-            pol_ledger_aged: ZkHash::ZERO,
-            total_stake: 0,
-        },
-        session: 0,
     }
 }
