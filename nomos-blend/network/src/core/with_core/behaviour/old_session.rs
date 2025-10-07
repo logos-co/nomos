@@ -11,7 +11,7 @@ use libp2p::{
 };
 use nomos_blend_message::{
     MessageIdentifier,
-    encap::{self, encapsulated::PoQVerificationInputMinusSigningKey},
+    encap::{self, encapsulated::PoQVerificationInputsMinusSigningKey},
 };
 use nomos_blend_scheduling::{
     deserialize_encapsulated_message,
@@ -31,7 +31,7 @@ pub struct OldSession<ProofsVerifier> {
     exchanged_message_identifiers: HashMap<PeerId, HashSet<MessageIdentifier>>,
     events: VecDeque<ToSwarm<Event, Either<FromBehaviour, Infallible>>>,
     waker: Option<Waker>,
-    poq_verification_inputs: PoQVerificationInputMinusSigningKey,
+    poq_verification_inputs: PoQVerificationInputsMinusSigningKey,
     poq_verifier: ProofsVerifier,
 }
 
@@ -40,7 +40,7 @@ impl<ProofsVerifier> OldSession<ProofsVerifier> {
     pub const fn new(
         negotiated_peers: HashMap<PeerId, ConnectionId>,
         exchanged_message_identifiers: HashMap<PeerId, HashSet<MessageIdentifier>>,
-        poq_verification_inputs: PoQVerificationInputMinusSigningKey,
+        poq_verification_inputs: PoQVerificationInputsMinusSigningKey,
         poq_verifier: ProofsVerifier,
     ) -> Self {
         Self {

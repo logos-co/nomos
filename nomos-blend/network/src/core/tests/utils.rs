@@ -16,12 +16,18 @@ use nomos_blend_message::{
     crypto::{
         keys::Ed25519PrivateKey,
         proofs::{
-            quota::{ProofOfQuota, inputs::prove::PublicInputs},
+            quota::{
+                ProofOfQuota,
+                inputs::prove::{
+                    PublicInputs,
+                    public::{CoreInputs, LeaderInputs},
+                },
+            },
             selection::{ProofOfSelection, inputs::VerifyInputs},
         },
         signatures::{SIGNATURE_SIZE, Signature},
     },
-    encap::{ProofsVerifier, encapsulated::PoQVerificationInputMinusSigningKey},
+    encap::{ProofsVerifier, encapsulated::PoQVerificationInputsMinusSigningKey},
     input::EncapsulationInput,
 };
 use nomos_blend_scheduling::{EncapsulatedMessage, message_blend::crypto::EncapsulationInputs};
@@ -161,14 +167,18 @@ impl ProofsVerifier for AlwaysTrueVerifier {
     }
 }
 
-pub fn default_poq_verification_inputs() -> PoQVerificationInputMinusSigningKey {
-    PoQVerificationInputMinusSigningKey {
-        core_quota: 0,
-        core_root: ZkHash::ZERO,
-        leader_quota: 0,
-        pol_epoch_nonce: ZkHash::ZERO,
-        pol_ledger_aged: ZkHash::ZERO,
+pub fn default_poq_verification_inputs() -> PoQVerificationInputsMinusSigningKey {
+    PoQVerificationInputsMinusSigningKey {
+        core: CoreInputs {
+            quota: 0,
+            zk_root: ZkHash::ZERO,
+        },
+        leader: LeaderInputs {
+            message_quota: 0,
+            pol_epoch_nonce: ZkHash::ZERO,
+            pol_ledger_aged: ZkHash::ZERO,
+            total_stake: 0,
+        },
         session: 0,
-        total_stake: 0,
     }
 }
