@@ -11,6 +11,9 @@ use crate::message_blend::provers::{
     leader::{LeaderProofsGenerator as _, RealLeaderProofsGenerator},
 };
 
+#[cfg(test)]
+mod tests;
+
 const LOG_TARGET: &str = "blend::scheduling::proofs::core-and-leader";
 
 /// Proof generator for core and leader `PoQ` variants.

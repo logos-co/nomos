@@ -21,6 +21,9 @@ use tokio::{
 
 use crate::message_blend::provers::{BlendLayerProof, ProofsGeneratorSettings};
 
+#[cfg(test)]
+mod tests;
+
 const LOG_TARGET: &str = "blend::scheduling::proofs::core";
 
 /// Proof generator for core `PoQ` variants.

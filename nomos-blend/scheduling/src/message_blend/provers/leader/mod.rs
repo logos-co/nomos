@@ -25,6 +25,9 @@ use tokio::{
 
 use crate::message_blend::provers::{BlendLayerProof, ProofsGeneratorSettings};
 
+#[cfg(test)]
+mod tests;
+
 const LOG_TARGET: &str = "blend::scheduling::proofs::leader";
 
 /// A `PoQ` generator that deals only with leadership proofs, suitable for edge
