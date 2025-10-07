@@ -12,7 +12,13 @@ use crate::{
     crypto::{
         keys::{Ed25519PrivateKey, Ed25519PublicKey, SharedKey},
         proofs::{
-            quota::{self, ProofOfQuota, inputs::prove::PublicInputs},
+            quota::{
+                self, ProofOfQuota,
+                inputs::prove::{
+                    PublicInputs,
+                    public::{CoreInputs, LeaderInputs},
+                },
+            },
             selection::{self, ProofOfSelection, inputs::VerifyInputs},
         },
         random_sized_bytes,
@@ -41,16 +47,12 @@ pub struct EncapsulatedMessage<const ENCAPSULATION_COUNT: usize> {
 /// The inputs required to verify a Proof of Quota, without the signing key,
 /// which is retrieved from the public header of the message layer being
 /// veified.
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 #[cfg_attr(test, derive(Default))]
-pub struct PoQVerificationInputMinusSigningKey {
+pub struct PoQVerificationInputsMinusSigningKey {
     pub session: u64,
-    pub core_root: ZkHash,
-    pub pol_ledger_aged: ZkHash,
-    pub pol_epoch_nonce: ZkHash,
-    pub core_quota: u64,
-    pub leader_quota: u64,
-    pub total_stake: u64,
+    pub core: CoreInputs,
+    pub leader: LeaderInputs,
 }
 
 impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> {
@@ -118,15 +120,11 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
     /// Verify the message public header.
     pub fn verify_public_header<Verifier>(
         self,
-        PoQVerificationInputMinusSigningKey {
-            core_quota,
-            core_root,
-            leader_quota,
-            pol_epoch_nonce,
-            pol_ledger_aged,
+        PoQVerificationInputsMinusSigningKey {
+            core,
+            leader,
             session,
-            total_stake,
-        }: &PoQVerificationInputMinusSigningKey,
+        }: &PoQVerificationInputsMinusSigningKey,
         verifier: &Verifier,
     ) -> Result<IncomingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>, Error>
     where
@@ -143,16 +141,12 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
             .verify_proof_of_quota(
                 proof_of_quota,
                 &PublicInputs {
-                    core_quota: *core_quota,
-                    core_root: *core_root,
-                    leader_quota: *leader_quota,
-                    pol_epoch_nonce: *pol_epoch_nonce,
-                    pol_ledger_aged: *pol_ledger_aged,
+                    core: *core,
+                    leader: *leader,
                     session: *session,
                     // Signing key taken from the public header after the signature has been
                     // successfully verified.
                     signing_key,
-                    total_stake: *total_stake,
                 },
             )
             .map_err(|_| Error::ProofOfQuotaVerificationFailed(quota::Error::InvalidProof))?;
