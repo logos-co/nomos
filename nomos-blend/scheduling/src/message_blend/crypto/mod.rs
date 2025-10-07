@@ -22,6 +22,9 @@ pub use self::core_and_leader::{
 pub mod leader;
 pub use self::leader::send::SessionCryptographicProcessor as LeaderSenderOnlySessionCryptographicProcessor;
 
+#[cfg(test)]
+mod test_utils;
+
 const ENCAPSULATION_COUNT: usize = 3;
 pub type EncapsulatedMessage = InternalEncapsulatedMessage<ENCAPSULATION_COUNT>;
 pub type EncapsulationInputs = InternalEncapsulationInputs<ENCAPSULATION_COUNT>;
