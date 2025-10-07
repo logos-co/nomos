@@ -2,6 +2,7 @@ use core::ops::{Deref, DerefMut};
 
 use nomos_blend_message::{
     Error,
+    crypto::proofs::quota::inputs::prove::private::ProofOfCoreQuotaInputs,
     encap::{
         ProofsVerifier as ProofsVerifierTrait,
         validated::RequiredProofOfSelectionVerificationInputs,
@@ -12,12 +13,12 @@ use crate::{
     DecapsulationOutput,
     membership::Membership,
     message_blend::{
-        ProofsGenerator as ProofsGeneratorTrait, SessionCryptographicProcessorSettings,
-        SessionInfo,
         crypto::{
             IncomingEncapsulatedMessageWithValidatedPublicHeader,
-            send::SessionCryptographicProcessor as SenderSessionCryptographicProcessor,
+            SessionCryptographicProcessorSettings,
+            core_and_leader::send::SessionCryptographicProcessor as SenderSessionCryptographicProcessor,
         },
+        provers::{ProofsGeneratorSettings, core_and_leader::CoreAndLeaderProofsGenerator},
     },
 };
 
@@ -33,20 +34,22 @@ pub struct SessionCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier
 impl<NodeId, ProofsGenerator, ProofsVerifier>
     SessionCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
 where
-    ProofsGenerator: ProofsGeneratorTrait,
+    ProofsGenerator: CoreAndLeaderProofsGenerator,
 {
     #[must_use]
     pub fn new(
         settings: &SessionCryptographicProcessorSettings,
         membership: Membership<NodeId>,
-        session_info: SessionInfo,
+        public_core_info: ProofsGeneratorSettings,
+        private_core_info: ProofOfCoreQuotaInputs,
         proofs_verifier: ProofsVerifier,
     ) -> Self {
         Self {
             sender_processor: SenderSessionCryptographicProcessor::new(
                 settings,
                 membership,
-                session_info,
+                public_core_info,
+                private_core_info,
             ),
             proofs_verifier,
         }
