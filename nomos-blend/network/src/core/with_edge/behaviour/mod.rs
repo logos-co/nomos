@@ -17,7 +17,7 @@ use libp2p::{
         dummy::ConnectionHandler as DummyConnectionHandler,
     },
 };
-use nomos_blend_message::encap::{self, encapsulated::PoQVerificationInputMinusSigningKey};
+use nomos_blend_message::encap::{self, encapsulated::PoQVerificationInputsMinusSigningKey};
 use nomos_blend_scheduling::{
     deserialize_encapsulated_message, membership::Membership,
     message_blend::crypto::IncomingEncapsulatedMessageWithValidatedPublicHeader,
@@ -61,7 +61,7 @@ pub struct Behaviour<ProofsVerifier> {
     max_incoming_connections: usize,
     protocol_name: StreamProtocol,
     minimum_network_size: NonZeroUsize,
-    session_poq_verification_inputs: PoQVerificationInputMinusSigningKey,
+    session_poq_verification_inputs: PoQVerificationInputsMinusSigningKey,
     poq_verifier: ProofsVerifier,
 }
 
@@ -71,7 +71,7 @@ impl<ProofsVerifier> Behaviour<ProofsVerifier> {
         config: &Config,
         current_membership: Option<Membership<PeerId>>,
         protocol_name: StreamProtocol,
-        current_poq_verification_inputs: PoQVerificationInputMinusSigningKey,
+        current_poq_verification_inputs: PoQVerificationInputsMinusSigningKey,
         poq_verifier: ProofsVerifier,
     ) -> Self {
         Self {
@@ -91,7 +91,7 @@ impl<ProofsVerifier> Behaviour<ProofsVerifier> {
     pub fn start_new_session(
         &mut self,
         new_membership: Membership<PeerId>,
-        new_poq_verification_inputs: PoQVerificationInputMinusSigningKey,
+        new_poq_verification_inputs: PoQVerificationInputsMinusSigningKey,
     ) {
         self.current_membership = Some(new_membership);
         // Close all the connections without waiting for the transition period,
