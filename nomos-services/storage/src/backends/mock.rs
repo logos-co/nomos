@@ -65,10 +65,10 @@ impl StorageBackend for MockStorage {
         Ok(())
     }
 
-    async fn bulk_store(
-        &mut self,
-        items: HashMap<Bytes, Bytes>,
-    ) -> Result<(), <Self as StorageBackend>::Error> {
+    async fn bulk_store<I>(&mut self, items: I) -> Result<(), <Self as StorageBackend>::Error>
+    where
+        I: IntoIterator<Item = (Bytes, Bytes)> + Send + 'static,
+    {
         for (key, value) in items {
             let _ = self.inner.insert(key, value);
         }
