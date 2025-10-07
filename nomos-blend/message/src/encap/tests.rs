@@ -15,7 +15,7 @@ use crate::{
     encap::{
         ProofsVerifier,
         decapsulated::DecapsulationOutput,
-        encapsulated::{EncapsulatedMessage, PoQVerificationInputMinusSigningKey},
+        encapsulated::{EncapsulatedMessage, PoQVerificationInputsMinusSigningKey},
         validated::RequiredProofOfSelectionVerificationInputs,
     },
     input::{EncapsulationInput, EncapsulationInputs},
@@ -122,7 +122,7 @@ fn encapsulate_and_decapsulate() {
 
     // We can decapsulate with the correct private key.
     let DecapsulationOutput::Incompleted(msg) = msg
-        .verify_public_header(&PoQVerificationInputMinusSigningKey::default(), &verifier)
+        .verify_public_header(&PoQVerificationInputsMinusSigningKey::default(), &verifier)
         .unwrap()
         .decapsulate(
             blend_node_enc_keys.last().unwrap(),
@@ -138,7 +138,7 @@ fn encapsulate_and_decapsulate() {
     // which we already used for the first decapsulation.
     assert!(
         msg.clone()
-            .verify_public_header(&PoQVerificationInputMinusSigningKey::default(), &verifier)
+            .verify_public_header(&PoQVerificationInputsMinusSigningKey::default(), &verifier)
             .unwrap()
             .decapsulate(
                 blend_node_enc_keys.last().unwrap(),
@@ -151,7 +151,7 @@ fn encapsulate_and_decapsulate() {
     // We can decapsulate with the correct private key
     // and the fully-decapsulated payload is correct.
     let DecapsulationOutput::Completed(decapsulated_message) = msg
-        .verify_public_header(&PoQVerificationInputMinusSigningKey::default(), &verifier)
+        .verify_public_header(&PoQVerificationInputsMinusSigningKey::default(), &verifier)
         .unwrap()
         .decapsulate(
             blend_node_enc_keys.first().unwrap(),
@@ -199,7 +199,7 @@ fn invalid_public_header_signature() {
     };
 
     let public_header_verification_result = msg_with_invalid_signature
-        .verify_public_header(&PoQVerificationInputMinusSigningKey::default(), &verifier);
+        .verify_public_header(&PoQVerificationInputsMinusSigningKey::default(), &verifier);
     assert!(matches!(
         public_header_verification_result,
         Err(Error::SignatureVerificationFailed)
@@ -219,7 +219,7 @@ fn invalid_public_header_proof_of_quota() {
             .unwrap();
 
     let public_header_verification_result =
-        msg.verify_public_header(&PoQVerificationInputMinusSigningKey::default(), &verifier);
+        msg.verify_public_header(&PoQVerificationInputsMinusSigningKey::default(), &verifier);
     assert!(matches!(
         public_header_verification_result,
         Err(Error::ProofOfQuotaVerificationFailed(
@@ -241,7 +241,7 @@ fn invalid_blend_header_proof_of_selection() {
             .unwrap();
 
     let validated_message = msg
-        .verify_public_header(&PoQVerificationInputMinusSigningKey::default(), &verifier)
+        .verify_public_header(&PoQVerificationInputsMinusSigningKey::default(), &verifier)
         .unwrap();
 
     let validated_message_decapsulation_result = validated_message.decapsulate(
