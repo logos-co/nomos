@@ -256,15 +256,13 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
     }
 
     fn stop_old_session(&mut self) {
-        let Some(old_session) = self.old_session.take() else {
-            return;
-        };
-
-        let mut events = old_session.stop();
-        let num_events = events.len();
-        self.events.append(&mut events);
-        if num_events > 0 {
-            self.try_wake();
+        if let Some(old_session) = self.old_session.take() {
+            let mut events = old_session.stop();
+            let num_events = events.len();
+            self.events.append(&mut events);
+            if num_events > 0 {
+                self.try_wake();
+            }
         }
     }
 
@@ -795,6 +793,9 @@ where
         Ok(())
     }
 
+    // Try to validate an encapsulated public header with the current session
+    // verifier, and on fail if tries with with previous one, if the session
+    // transition period is not over yet.
     fn validate_encapsulated_message_public_header(
         &self,
         message: EncapsulatedMessage,
@@ -876,6 +877,8 @@ where
         self.try_wake();
     }
 
+    /// Instruct both current and past session proof verifier (if present) of a
+    /// new epoch.
     pub(crate) fn start_new_epoch(&mut self, new_pol_inputs: LeaderInputs) {
         self.poq_verifier.start_epoch_transition(new_pol_inputs);
         if let Some(old_session) = &mut self.old_session {
@@ -883,6 +886,8 @@ where
         }
     }
 
+    /// Instruct both current and past session proof verifier (if present) that
+    /// the epoch transition period is over.
     pub(crate) fn finish_epoch_transition(&mut self, old_epoch_nonce: ZkHash) {
         self.poq_verifier.complete_epoch_transition(old_epoch_nonce);
         if let Some(old_session) = &mut self.old_session {
