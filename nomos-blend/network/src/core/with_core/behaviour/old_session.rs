@@ -9,7 +9,9 @@ use libp2p::{
     PeerId,
     swarm::{ConnectionId, NotifyHandler, ToSwarm},
 };
-use nomos_blend_message::{MessageIdentifier, encap};
+use nomos_blend_message::{
+    MessageIdentifier, crypto::proofs::quota::inputs::prove::public::LeaderInputs, encap,
+};
 use nomos_blend_scheduling::{
     EncapsulatedMessage, deserialize_encapsulated_message,
     message_blend::crypto::{
@@ -18,6 +20,7 @@ use nomos_blend_scheduling::{
     },
     serialize_encapsulated_message,
 };
+use nomos_core::crypto::ZkHash;
 
 use crate::core::with_core::{
     behaviour::{Event, handler::FromBehaviour},
@@ -45,6 +48,14 @@ where
         message
             .verify_public_header(&self.poq_verifier)
             .map_err(|_| Error::InvalidMessage)
+    }
+
+    pub(super) fn start_new_epoch(&mut self, new_pol_inputs: LeaderInputs) {
+        self.poq_verifier.start_epoch_transition(new_pol_inputs);
+    }
+
+    pub(super) fn finish_epoch_transition(&mut self, old_epoch_nonce: ZkHash) {
+        self.poq_verifier.complete_epoch_transition(old_epoch_nonce);
     }
 }
 
