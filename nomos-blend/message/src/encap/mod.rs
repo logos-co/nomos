@@ -20,9 +20,15 @@ mod tests;
 pub trait ProofsVerifier {
     type Error;
 
+    /// Create a new proof verifier with the public inputs corresponding to the
+    /// current Blend session and cryptarchia epoch.
     fn new(public_inputs: PoQVerificationInputsMinusSigningKey) -> Self;
 
+    /// Start a new epoch while still maintaining the old one around for
+    /// messages that are propagated around the bound between two epochs.
     fn start_epoch_transition(&mut self, new_pol_inputs: LeaderInputs);
+    /// Complete the transition period and discard any messages generated in the
+    /// previous epoch.
     fn complete_epoch_transition(&mut self, old_epoch_nonce: ZkHash);
 
     /// Proof of Quota verification logic.

@@ -210,7 +210,12 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPart<ENCAPSULATION_COUNT> {
         {
             PrivateHeaderDecapsulationOutput::Incompleted((private_header, public_header)) => {
                 let payload = self.payload.decapsulate(key);
-                verify_reconstructed_public_header(&public_header, &private_header, &payload)?;
+                verify_reconstructed_public_header(
+                    &public_header,
+                    &private_header,
+                    &payload,
+                    verifier,
+                )?;
                 Ok(PartDecapsulationOutput::Incompleted((
                     Self {
                         private_header,
@@ -221,7 +226,12 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPart<ENCAPSULATION_COUNT> {
             }
             PrivateHeaderDecapsulationOutput::Completed((private_header, public_header)) => {
                 let payload = self.payload.decapsulate(key);
-                verify_reconstructed_public_header(&public_header, &private_header, &payload)?;
+                verify_reconstructed_public_header(
+                    &public_header,
+                    &private_header,
+                    &payload,
+                    verifier,
+                )?;
                 Ok(PartDecapsulationOutput::Completed(
                     payload.try_deserialize()?,
                 ))
@@ -237,13 +247,19 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPart<ENCAPSULATION_COUNT> {
 
 /// Verify the public header reconstructed when decapsulating the private
 /// header.
-fn verify_reconstructed_public_header<const ENCAPSULATION_COUNT: usize>(
+fn verify_reconstructed_public_header<Verifier, const ENCAPSULATION_COUNT: usize>(
     public_header: &PublicHeader,
     private_header: &EncapsulatedPrivateHeader<ENCAPSULATION_COUNT>,
     payload: &EncapsulatedPayload,
-) -> Result<(), Error> {
+    verifier: &Verifier,
+) -> Result<(), Error>
+where
+    Verifier: ProofsVerifier,
+{
     // Verify the signature in the reconstructed public header
-    public_header.verify_signature(&signing_body(private_header, payload))
+    public_header.verify_signature(&signing_body(private_header, payload))?;
+    public_header.verify_proof_of_quota(verifier)?;
+    Ok(())
 }
 
 /// Returns the body that should be signed.

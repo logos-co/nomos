@@ -5,7 +5,9 @@ pub mod with_edge;
 mod tests;
 
 use libp2p::{PeerId, StreamProtocol};
+use nomos_blend_message::{crypto::proofs::quota::inputs::prove::public::LeaderInputs, encap};
 use nomos_blend_scheduling::membership::Membership;
+use nomos_core::crypto::ZkHash;
 
 use self::{
     with_core::behaviour::Behaviour as CoreToCoreBehaviour,
@@ -82,5 +84,39 @@ where
                 poq_verifier,
             ),
         }
+    }
+
+    pub fn start_new_session(
+        &mut self,
+        new_membership: Membership<PeerId>,
+        new_verifier: ProofsVerifier,
+    ) {
+        self.with_core_mut()
+            .start_new_session(new_membership.clone(), new_verifier.clone());
+        self.with_edge_mut()
+            .start_new_session(new_membership, new_verifier);
+    }
+
+    pub fn finish_session_transition(&mut self) {
+        self.with_core_mut().finish_session_transition();
+        self.with_edge_mut().finish_session_transition();
+    }
+}
+
+impl<ProofsVerifier, ObservationWindowClockProvider>
+    NetworkBehaviour<ProofsVerifier, ObservationWindowClockProvider>
+where
+    ProofsVerifier: encap::ProofsVerifier,
+{
+    pub fn start_new_epoch(&mut self, new_pol_inputs: LeaderInputs) {
+        self.with_core_mut().start_new_epoch(new_pol_inputs);
+        self.with_edge_mut().start_new_epoch(new_pol_inputs);
+    }
+
+    pub fn finish_epoch_transition(&mut self, old_epoch_nonce: ZkHash) {
+        self.with_core_mut()
+            .finish_epoch_transition(old_epoch_nonce);
+        self.with_edge_mut()
+            .finish_epoch_transition(old_epoch_nonce);
     }
 }
