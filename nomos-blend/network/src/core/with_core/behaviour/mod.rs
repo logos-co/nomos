@@ -19,7 +19,7 @@ use libp2p::{
 };
 use nomos_blend_message::{
     MessageIdentifier,
-    encap::{self, encapsulated::PoQVerificationInputMinusSigningKey},
+    encap::{self, encapsulated::PoQVerificationInputsMinusSigningKey},
 };
 use nomos_blend_scheduling::{
     EncapsulatedMessage, deserialize_encapsulated_message,
@@ -127,7 +127,7 @@ pub struct Behaviour<ProofsVerifier, ObservationWindowClockProvider> {
     old_session: Option<OldSession<ProofsVerifier>>,
     /// The public inputs to use when verifying incoming messages' `PoQ`s. They
     /// are updated on every session change.
-    session_poq_verification_inputs: PoQVerificationInputMinusSigningKey,
+    session_poq_verification_inputs: PoQVerificationInputsMinusSigningKey,
     /// Verifier of the incoming messages' `PoQ`s that uses the
     /// `session_poq_verification_inputs` public inputs for verification. This
     /// is set on initialization and does not change across sessions.
@@ -201,7 +201,7 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
         current_membership: Option<Membership<PeerId>>,
         local_peer_id: PeerId,
         protocol_name: StreamProtocol,
-        current_poq_verification_inputs: PoQVerificationInputMinusSigningKey,
+        current_poq_verification_inputs: PoQVerificationInputsMinusSigningKey,
         poq_verifier: ProofsVerifier,
     ) -> Self {
         Self {
@@ -757,7 +757,7 @@ where
     pub fn start_new_session(
         &mut self,
         new_membership: Membership<PeerId>,
-        new_poq_verification_inputs: PoQVerificationInputMinusSigningKey,
+        new_poq_verification_inputs: PoQVerificationInputsMinusSigningKey,
     ) {
         self.connections_waiting_upgrade.clear();
         self.current_membership = Some(new_membership);

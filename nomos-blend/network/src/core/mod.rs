@@ -5,7 +5,7 @@ pub mod with_edge;
 mod tests;
 
 use libp2p::{PeerId, StreamProtocol};
-use nomos_blend_message::encap::encapsulated::PoQVerificationInputMinusSigningKey;
+use nomos_blend_message::encap::encapsulated::PoQVerificationInputsMinusSigningKey;
 use nomos_blend_scheduling::membership::Membership;
 
 use self::{
@@ -65,7 +65,7 @@ where
         current_membership: Option<Membership<PeerId>>,
         local_peer_id: PeerId,
         protocol_name: StreamProtocol,
-        poq_verification_inputs: PoQVerificationInputMinusSigningKey,
+        poq_verification_inputs: PoQVerificationInputsMinusSigningKey,
         poq_verifier: ProofsVerifier,
     ) -> Self {
         Self {
