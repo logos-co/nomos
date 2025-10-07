@@ -123,3 +123,104 @@ where
         ))
     }
 }
+
+#[cfg(test)]
+mod test {
+    use groth16::Field as _;
+    use multiaddr::{Multiaddr, PeerId};
+    use nomos_blend_message::crypto::{
+        keys::Ed25519PrivateKey,
+        proofs::{
+            PoQVerificationInputsMinusSigningKey,
+            quota::inputs::prove::{
+                private::ProofOfLeadershipQuotaInputs,
+                public::{CoreInputs, LeaderInputs},
+            },
+        },
+    };
+    use nomos_core::crypto::ZkHash;
+
+    use super::SessionCryptographicProcessor;
+    use crate::{
+        membership::{Membership, Node},
+        message_blend::{
+            crypto::{
+                SessionCryptographicProcessorSettings,
+                test_utils::TestEpochChangeLeaderProofsGenerator,
+            },
+            provers::ProofsGeneratorSettings,
+        },
+    };
+
+    #[test]
+    fn epoch_rotation() {
+        let mut processor =
+            SessionCryptographicProcessor::<_, TestEpochChangeLeaderProofsGenerator>::new(
+                &SessionCryptographicProcessorSettings {
+                    non_ephemeral_signing_key: Ed25519PrivateKey::generate(),
+                    num_blend_layers: 1,
+                },
+                Membership::new_without_local(&[Node {
+                    address: Multiaddr::empty(),
+                    id: PeerId::random(),
+                    public_key: [0; _].try_into().unwrap(),
+                }]),
+                ProofsGeneratorSettings {
+                    local_node_index: None,
+                    membership_size: 1,
+                    public_inputs: PoQVerificationInputsMinusSigningKey {
+                        session: 1,
+                        core: CoreInputs {
+                            quota: 1,
+                            zk_root: ZkHash::ZERO,
+                        },
+                        leader: LeaderInputs {
+                            message_quota: 1,
+                            pol_epoch_nonce: ZkHash::ZERO,
+                            pol_ledger_aged: ZkHash::ZERO,
+                            total_stake: 1,
+                        },
+                    },
+                },
+                ProofOfLeadershipQuotaInputs {
+                    aged_path: vec![],
+                    aged_selector: vec![],
+                    note_value: 1,
+                    output_number: 1,
+                    pol_secret_key: ZkHash::ZERO,
+                    slot: 1,
+                    slot_secret: ZkHash::ZERO,
+                    slot_secret_path: vec![],
+                    starting_slot: 1,
+                    transaction_hash: ZkHash::ZERO,
+                },
+            );
+
+        let new_leader_inputs = LeaderInputs {
+            pol_ledger_aged: ZkHash::ONE,
+            pol_epoch_nonce: ZkHash::ONE,
+            message_quota: 2,
+            total_stake: 2,
+        };
+        let new_private_inputs = ProofOfLeadershipQuotaInputs {
+            aged_path: vec![ZkHash::ONE],
+            aged_selector: vec![true],
+            note_value: 2,
+            output_number: 2,
+            pol_secret_key: ZkHash::ONE,
+            slot: 2,
+            slot_secret: ZkHash::ONE,
+            slot_secret_path: vec![ZkHash::ONE],
+            starting_slot: 2,
+            transaction_hash: ZkHash::ONE,
+        };
+
+        processor.rotate_epoch(new_leader_inputs, new_private_inputs.clone());
+
+        assert_eq!(
+            processor.proofs_generator.0.public_inputs.leader,
+            new_leader_inputs
+        );
+        assert_eq!(processor.proofs_generator.1, new_private_inputs);
+    }
+}

@@ -30,7 +30,7 @@ pub struct CoreInputs {
     pub quota: u64,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(test, derive(Default))]
 pub struct LeaderInputs {
     pub pol_ledger_aged: ZkHash,
