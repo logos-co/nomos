@@ -48,6 +48,11 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
     pub const fn with_edge_mut(&mut self) -> &mut CoreToEdgeBehaviour<ProofsVerifier> {
         &mut self.with_edge
     }
+
+    pub fn finish_session_transition(&mut self) {
+        self.with_core_mut().finish_session_transition();
+        self.with_edge_mut().finish_session_transition();
+    }
 }
 
 pub struct Config {
@@ -95,11 +100,6 @@ where
             .start_new_session(new_membership.clone(), new_verifier.clone());
         self.with_edge_mut()
             .start_new_session(new_membership, new_verifier);
-    }
-
-    pub fn finish_session_transition(&mut self) {
-        self.with_core_mut().finish_session_transition();
-        self.with_edge_mut().finish_session_transition();
     }
 }
 

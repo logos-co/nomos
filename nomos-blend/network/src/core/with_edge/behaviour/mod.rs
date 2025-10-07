@@ -192,6 +192,9 @@ where
         self.try_wake();
     }
 
+    // Try to validate an encapsulated public header with the current session
+    // verifier, and on fail if tries with with previous one, if the session
+    // transition period is not over yet.
     fn validate_encapsulated_message_public_header(
         &self,
         message: EncapsulatedMessage,
@@ -209,6 +212,8 @@ where
             })
     }
 
+    /// Instruct both current and past session proof verifier (if present) of a
+    /// new epoch.
     pub(crate) fn start_new_epoch(&mut self, new_pol_inputs: LeaderInputs) {
         self.current_session_poq_verifier
             .start_epoch_transition(new_pol_inputs);
@@ -217,6 +222,8 @@ where
         }
     }
 
+    /// Instruct both current and past session proof verifier (if present) that
+    /// the epoch transition period is over.
     pub(crate) fn finish_epoch_transition(&mut self, old_epoch_nonce: ZkHash) {
         self.current_session_poq_verifier
             .complete_epoch_transition(old_epoch_nonce);

@@ -237,9 +237,8 @@ where
         )?;
 
         // Verify the message public header
-        let validated_message = deserialized_encapsulated_message
-            .verify_public_header(&self.poq_verifier)
-            .map_err(|_| Error::InvalidMessage)?;
+        let validated_message =
+            self.verify_encapsulated_message_public_header(deserialized_encapsulated_message)?;
 
         // Notify the swarm about the received message, so that it can be further
         // processed by the core protocol module.
