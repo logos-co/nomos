@@ -49,10 +49,10 @@ use crate::{
     addressbook::{AddressBook, AddressBookSnapshot},
     api::ApiAdapter as ApiAdapterTrait,
     membership::{
-        MembershipAdapter,
+        MembershipAdapter, SubnetworkPeers,
         handler::{DaMembershipHandler, SharedMembershipHandler},
     },
-    opinion_aggregator::{OpinionAggregator, OpinionResult},
+    opinion_aggregator::{OpinionAggregator, OpinionError},
 };
 
 pub type DaAddressbook = AddressBook;
@@ -400,14 +400,15 @@ where
                         "Received membership update for session {}: {:?}",
                         update.session_id, update.peers
                     );
+
+                    Self::handle_opinion_session_change(&mut opinion_aggregator, &update).await;
                     match Self::handle_membership_update(
                         update.session_id,
                         update.peers,
                         &membership_storage,
                         update.provider_mappings,
                     ).await {
-                        Ok(current_membership) => {
-                            Self::handle_opinion_session_change(&mut opinion_aggregator, current_membership).await;
+                        Ok(_) => {
                             let _ = subnet_refresh_sender.send(()).await;
                         }
                         Err(e) => {
@@ -603,28 +604,28 @@ where
     }
 
     async fn handle_opinion_session_change(
-        opinion_aggregator: &mut OpinionAggregator<Membership, Arc<StorageAdapter>>,
-        current_membership: Membership,
+        opinion_aggregator: &mut OpinionAggregator<Arc<StorageAdapter>>,
+        new_providers: &SubnetworkPeers<Membership::Id>,
     ) {
         match opinion_aggregator
-            .handle_session_change(current_membership)
+            .handle_session_change(new_providers)
             .await
         {
-            OpinionResult::Opinions(opinions) => {
+            Ok(opinions) => {
                 tracing::debug!(
                     "Generated opinions - session_id: {}, new_opinions: {}, old_opinions: {}",
                     opinions.session_id,
-                    opinions.new_opinions,
-                    opinions.old_opinions
+                    opinions.new_opinions.len(),
+                    opinions.old_opinions.len()
                 );
                 // todo: sdp_adapter.process_opinions(opinions).await;
             }
-            OpinionResult::InsufficientData => {
+            Err(OpinionError::InsufficientData) => {
                 tracing::debug!(
                     "Insufficient data to generate opinions (first session), skip forming session"
                 );
             }
-            OpinionResult::Error(e) => {
+            Err(OpinionError::Error(e)) => {
                 tracing::error!("Failed to generate opinions: {e}");
             }
         }
