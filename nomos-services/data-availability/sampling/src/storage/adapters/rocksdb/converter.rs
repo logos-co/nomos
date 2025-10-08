@@ -42,7 +42,7 @@ impl DaConverter<RocksBackend> for DaStorageConverter {
     }
 
     fn share_from_storage(backend_share: Bytes) -> Result<DaLightShare, Self::Error> {
-        <DaLightShare>::from_bytes(&backend_share)
+        DaLightShare::from_bytes(&backend_share)
     }
 
     fn commitments_to_storage(
@@ -54,7 +54,7 @@ impl DaConverter<RocksBackend> for DaStorageConverter {
     fn commitments_from_storage(
         backend_commitments: Bytes,
     ) -> Result<DaSharesCommitments, Self::Error> {
-        <DaSharesCommitments>::from_bytes(&backend_commitments)
+        DaSharesCommitments::from_bytes(&backend_commitments)
     }
 
     fn tx_to_storage(
@@ -66,6 +66,6 @@ impl DaConverter<RocksBackend> for DaStorageConverter {
     fn tx_from_storage(
         backend_tx: <RocksBackend as StorageDaApi>::Tx,
     ) -> Result<SignedMantleTx, Self::Error> {
-        <SignedMantleTx>::from_bytes(&backend_tx)
+        SignedMantleTx::from_bytes(&backend_tx)
     }
 }
