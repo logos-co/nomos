@@ -1,3 +1,5 @@
+use core::mem::swap;
+
 use nomos_core::crypto::{ZkHash, ZkHasher};
 use thiserror::Error;
 
@@ -58,18 +60,16 @@ impl ProofsVerifier for RealProofsVerifier {
     }
 
     fn start_epoch_transition(&mut self, new_pol_inputs: LeaderInputs) {
-        let old_epoch_inputs = self.current_inputs.leader;
-        self.current_inputs.leader = new_pol_inputs;
+        let old_epoch_inputs = {
+            let mut new_pol_inputs = new_pol_inputs;
+            swap(&mut self.current_inputs.leader, &mut new_pol_inputs);
+            new_pol_inputs
+        };
         self.previous_epoch_inputs = Some(old_epoch_inputs);
     }
 
-    fn complete_epoch_transition(&mut self, old_epoch_nonce: ZkHash) {
-        let Some(old_epoch_info) = self.previous_epoch_inputs else {
-            return;
-        };
-        if old_epoch_info.pol_epoch_nonce == old_epoch_nonce {
-            self.previous_epoch_inputs = None;
-        }
+    fn complete_epoch_transition(&mut self) {
+        self.previous_epoch_inputs = None;
     }
 
     fn verify_proof_of_quota(

@@ -113,10 +113,8 @@ where
         self.with_edge_mut().start_new_epoch(new_pol_inputs);
     }
 
-    pub fn finish_epoch_transition(&mut self, old_epoch_nonce: ZkHash) {
-        self.with_core_mut()
-            .finish_epoch_transition(old_epoch_nonce);
-        self.with_edge_mut()
-            .finish_epoch_transition(old_epoch_nonce);
+    pub fn finish_epoch_transition(&mut self) {
+        self.with_core_mut().finish_epoch_transition();
+        self.with_edge_mut().finish_epoch_transition();
     }
 }

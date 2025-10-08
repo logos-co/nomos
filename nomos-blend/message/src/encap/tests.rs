@@ -34,7 +34,7 @@ impl ProofsVerifier for NeverFailingProofsVerifier {
 
     fn start_epoch_transition(&mut self, _new_pol_inputs: LeaderInputs) {}
 
-    fn complete_epoch_transition(&mut self, _old_epoch_nonce: ZkHash) {}
+    fn complete_epoch_transition(&mut self) {}
 
     fn verify_proof_of_quota(
         &self,
@@ -66,7 +66,7 @@ impl ProofsVerifier for AlwaysFailingProofOfQuotaVerifier {
 
     fn start_epoch_transition(&mut self, _new_pol_inputs: LeaderInputs) {}
 
-    fn complete_epoch_transition(&mut self, _old_epoch_nonce: ZkHash) {}
+    fn complete_epoch_transition(&mut self) {}
 
     fn verify_proof_of_quota(
         &self,
@@ -96,7 +96,7 @@ impl ProofsVerifier for AlwaysFailingProofOfSelectionVerifier {
 
     fn start_epoch_transition(&mut self, _new_pol_inputs: LeaderInputs) {}
 
-    fn complete_epoch_transition(&mut self, _old_epoch_nonce: ZkHash) {}
+    fn complete_epoch_transition(&mut self) {}
 
     fn verify_proof_of_quota(
         &self,
