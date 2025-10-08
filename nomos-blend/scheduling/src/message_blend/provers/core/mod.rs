@@ -158,6 +158,7 @@ fn spawn_core_proof_generation_task(
                 },
                 PrivateInputs::new_proof_of_core_quota_inputs(key_index, private_inputs.clone()),
             ) else {
+                tracing::error!(target: LOG_TARGET, "Core PoQ generation failed for the provided public and private inputs.");
                 continue;
             };
             let proof_of_selection = ProofOfSelection::new(secret_selection_randomness);

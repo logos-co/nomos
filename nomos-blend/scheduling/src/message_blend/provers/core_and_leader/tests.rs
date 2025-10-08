@@ -13,13 +13,13 @@ use crate::message_blend::provers::{
 #[test(tokio::test)]
 async fn proof_generation() {
     let core_quota = 10;
-    let (public_inputs, core_private_inputs) = valid_proof_of_quota_inputs(core_quota);
+    let (core_public_inputs, core_private_inputs) = valid_proof_of_quota_inputs(core_quota);
 
     let mut core_and_leader_proofs_generator = RealCoreAndLeaderProofsGenerator::new(
         ProofsGeneratorSettings {
             local_node_index: None,
             membership_size: 1,
-            public_inputs,
+            public_inputs: core_public_inputs,
         },
         core_private_inputs,
     );
@@ -33,7 +33,7 @@ async fn proof_generation() {
             .proof_of_quota
             .verify(
                 &poq_public_inputs_from_session_public_inputs_and_signing_key((
-                    public_inputs,
+                    core_public_inputs,
                     proof.ephemeral_signing_key.public_key(),
                 )),
             )
@@ -58,12 +58,15 @@ async fn proof_generation() {
     );
 
     let leadership_quota = 15;
-    let (public_inputs, leadership_private_inputs) = valid_proof_of_leader_inputs(leadership_quota);
+    let (leadership_public_inputs, leadership_private_inputs) =
+        valid_proof_of_leader_inputs(leadership_quota);
 
+    // We override all the settings since we fixtures for core and leadership proofs
+    // use a different set of public inputs.
     core_and_leader_proofs_generator.override_settings(ProofsGeneratorSettings {
         local_node_index: None,
         membership_size: 1,
-        public_inputs,
+        public_inputs: leadership_public_inputs,
     });
     core_and_leader_proofs_generator.set_epoch_private(leadership_private_inputs);
 
@@ -76,7 +79,7 @@ async fn proof_generation() {
             .proof_of_quota
             .verify(
                 &poq_public_inputs_from_session_public_inputs_and_signing_key((
-                    public_inputs,
+                    leadership_public_inputs,
                     proof.ephemeral_signing_key.public_key(),
                 )),
             )
@@ -84,7 +87,6 @@ async fn proof_generation() {
         proof
             .proof_of_selection
             .verify(&VerifyInputs {
-                // Membership of 1 -> only a single index can be included
                 expected_node_index: 0,
                 key_nullifier,
                 total_membership_size: 1,
@@ -196,21 +198,48 @@ async fn epoch_private_info() {
         ProofsGeneratorSettings {
             local_node_index: None,
             membership_size: 1,
-            public_inputs: core_public_inputs,
+            public_inputs: leadership_public_inputs,
         },
         core_private_inputs.clone(),
     );
 
-    core_and_leader_proofs_generator.rotate_epoch(leadership_public_inputs.leader);
+    let old_leader_proof_generation_task_handle = core_and_leader_proofs_generator
+        .set_epoch_private_and_return_old_leader_task(leadership_private_inputs.clone());
+
+    // Old task should not exist since it's the first time we set private info.
+    assert!(old_leader_proof_generation_task_handle.is_none());
+
+    // Leadership proof should be generated and verified correctly.
+    let proof = core_and_leader_proofs_generator
+        .get_next_leader_proof()
+        .await
+        .unwrap();
+    let key_nullifier = proof
+        .proof_of_quota
+        .verify(
+            &poq_public_inputs_from_session_public_inputs_and_signing_key((
+                leadership_public_inputs,
+                proof.ephemeral_signing_key.public_key(),
+            )),
+        )
+        .unwrap();
+    proof
+        .proof_of_selection
+        .verify(&VerifyInputs {
+            expected_node_index: 0,
+            key_nullifier,
+            total_membership_size: 1,
+        })
+        .unwrap();
 
     let old_leader_proof_generation_task_handle = core_and_leader_proofs_generator
-        .set_epoch_private_and_return_old_leader_task(leadership_private_inputs)
+        .set_epoch_private_and_return_old_leader_task(leadership_private_inputs.clone())
         .unwrap();
 
     // Old task should abort.
     old_leader_proof_generation_task_handle.await.unwrap();
 
-    // Leadership proof should be generated and verified correctly.
+    // New proof should verify successfully.
     let proof = core_and_leader_proofs_generator
         .get_next_leader_proof()
         .await
@@ -234,5 +263,36 @@ async fn epoch_private_info() {
         })
         .unwrap();
 
-    // TODO: Add core quota generation and verification
+    // We override all the settings since we fixtures for core and leadership proofs
+    // use a different set of public inputs.
+    core_and_leader_proofs_generator.override_settings(ProofsGeneratorSettings {
+        local_node_index: None,
+        membership_size: 1,
+        public_inputs: core_public_inputs,
+    });
+    core_and_leader_proofs_generator.rotate_epoch(core_public_inputs.leader);
+
+    // We test that core proof generation still works fine
+    let proof = core_and_leader_proofs_generator
+        .get_next_core_proof()
+        .await
+        .unwrap();
+    let key_nullifier = proof
+        .proof_of_quota
+        .verify(
+            &poq_public_inputs_from_session_public_inputs_and_signing_key((
+                core_public_inputs,
+                proof.ephemeral_signing_key.public_key(),
+            )),
+        )
+        .unwrap();
+    proof
+        .proof_of_selection
+        .verify(&VerifyInputs {
+            // Membership of 1 -> only a single index can be included
+            expected_node_index: 0,
+            key_nullifier,
+            total_membership_size: 1,
+        })
+        .unwrap();
 }
