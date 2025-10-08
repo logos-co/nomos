@@ -1,4 +1,4 @@
-use core::{cmp::Ordering, fmt::Debug, marker::PhantomData};
+use core::{cmp::Ordering, fmt::Debug, marker::PhantomData, num::NonZeroU64};
 
 use async_trait::async_trait;
 use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
@@ -27,7 +27,7 @@ pub trait PolInfoProvider<RuntimeServiceId> {
 
 const LOG_TARGET: &str = "blend::service::epoch";
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EpochInfo {
     nonce: ZkHash,
     ledger_aged: ZkHash,
@@ -77,6 +77,17 @@ where
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EpochEvent {
+    /// Generated if the handler is initialized in the middle of an
+    /// ongoing-epoch.
+    OngoingEpochInfo(EpochInfo),
+    /// Generated when a new epoch actually starts.
+    NewEpochInfo(EpochInfo),
+    /// Generated when the transition period for the previous epoch has expired.
+    OldEpochTransitionPeriodExpired,
+}
+
 /// A stream that listens to slot ticks, and on the first slot tick received as
 /// well as the first slot tick of each new epoch, fetches the epoch state from
 /// the provided chain service adapter.
@@ -86,14 +97,21 @@ where
 pub struct EpochHandler<ChainService, RuntimeServiceId> {
     chain_service: ChainService,
     last_processed_tick: Option<SlotTick>,
+    epoch_transition_period_in_slots: NonZeroU64,
+    new_epoch_first_slot: Option<Slot>,
     _phantom: PhantomData<RuntimeServiceId>,
 }
 
 impl<ChainService, RuntimeServiceId> EpochHandler<ChainService, RuntimeServiceId> {
-    pub const fn new(chain_service: ChainService) -> Self {
+    pub const fn new(
+        chain_service: ChainService,
+        epoch_transition_period_in_slots: NonZeroU64,
+    ) -> Self {
         Self {
             chain_service,
             last_processed_tick: None,
+            epoch_transition_period_in_slots,
+            new_epoch_first_slot: None,
             _phantom: PhantomData,
         }
     }
@@ -109,7 +127,17 @@ where
             epoch: new_epoch,
             slot: new_slot,
         }: SlotTick,
-    ) -> Option<EpochInfo> {
+    ) -> Option<EpochEvent> {
+        // If we have witnessed a new epoch being transitioned and we have passed its
+        // transition period, notify the consumers.
+        if let Some(new_epoch_first_slot) = self.new_epoch_first_slot
+            && new_slot.into_inner() - new_epoch_first_slot.into_inner()
+                >= self.epoch_transition_period_in_slots.get()
+        {
+            self.new_epoch_first_slot = None;
+            return Some(EpochEvent::OldEpochTransitionPeriodExpired);
+        }
+
         if let Some(SlotTick { epoch, slot }) = self.last_processed_tick {
             match (epoch.cmp(&new_epoch), slot.cmp(&new_slot)) {
                 // Bail early if epoch is smaller or slot is not strictly larger.
@@ -126,17 +154,28 @@ where
                     });
                     return None;
                 }
-                (Ordering::Less, Ordering::Less) => {}
+                (Ordering::Less, Ordering::Less) => {
+                    tracing::debug!(target: LOG_TARGET, "Found epoch unseen before. Polling for its state...");
+                    self.new_epoch_first_slot = Some(slot);
+                    let epoch_state = self
+                        .fetch_and_process_epoch_info(SlotTick {
+                            epoch: new_epoch,
+                            slot: new_slot,
+                        })
+                        .await?;
+                    return Some(EpochEvent::NewEpochInfo(epoch_state.into()));
+                }
             }
         }
 
-        tracing::debug!(target: LOG_TARGET, "Found new epoch unseen before. Polling for its state...");
-        self.fetch_and_process_epoch_info(SlotTick {
-            epoch: new_epoch,
-            slot: new_slot,
-        })
-        .await
-        .map(Into::into)
+        tracing::debug!(target: LOG_TARGET, "Found ongoing epoch. Polling for its state...");
+        let epoch_state = self
+            .fetch_and_process_epoch_info(SlotTick {
+                epoch: new_epoch,
+                slot: new_slot,
+            })
+            .await?;
+        Some(EpochEvent::OngoingEpochInfo(epoch_state.into()))
     }
 
     async fn fetch_and_process_epoch_info(
@@ -161,7 +200,7 @@ mod tests {
     use test_log::test;
 
     use crate::{
-        epoch_info::EpochHandler,
+        epoch_info::{EpochEvent, EpochHandler},
         test_utils::epoch::{NON_EXISTING_EPOCH_STATE_SLOT, TestChainService, default_epoch_state},
     };
 
@@ -196,7 +235,7 @@ mod tests {
             },
         ];
         let mut ticks_iter = ticks.into_iter();
-        let mut stream = TestEpochHandler::new(TestChainService);
+        let mut stream = TestEpochHandler::new(TestChainService, u64::MAX.try_into().unwrap());
 
         // First poll of the stream will set the epoch info and return the retrieved
         // state.
@@ -208,7 +247,10 @@ mod tests {
                 slot: 1.into()
             })
         );
-        assert_eq!(next_tick, Some(default_epoch_state().into()));
+        assert_eq!(
+            next_tick,
+            Some(EpochEvent::OngoingEpochInfo(default_epoch_state().into()))
+        );
 
         // Second poll of the stream will not return anything since it's in the same
         // epoch.
@@ -231,7 +273,10 @@ mod tests {
                 slot: 3.into()
             })
         );
-        assert_eq!(next_tick, Some(default_epoch_state().into()));
+        assert_eq!(
+            next_tick,
+            Some(EpochEvent::NewEpochInfo(default_epoch_state().into()))
+        );
 
         // Fourth poll of the stream will not yield anything since there was no state
         // for the new epoch, and the epoch info is not updated.
@@ -254,12 +299,15 @@ mod tests {
                 slot: 5.into()
             })
         );
-        assert_eq!(next_tick, Some(default_epoch_state().into()));
+        assert_eq!(
+            next_tick,
+            Some(EpochEvent::NewEpochInfo(default_epoch_state().into()))
+        );
     }
 
     #[test(tokio::test)]
     async fn slot_not_increasing() {
-        let mut stream = TestEpochHandler::new(TestChainService);
+        let mut stream = TestEpochHandler::new(TestChainService, u64::MAX.try_into().unwrap());
         stream
             .tick(SlotTick {
                 epoch: 2.into(),
@@ -302,7 +350,7 @@ mod tests {
 
     #[test(tokio::test)]
     async fn epoch_not_increasing() {
-        let mut stream = TestEpochHandler::new(TestChainService);
+        let mut stream = TestEpochHandler::new(TestChainService, u64::MAX.try_into().unwrap());
         stream
             .tick(SlotTick {
                 epoch: 2.into(),
