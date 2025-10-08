@@ -91,8 +91,7 @@ fn test_mock_pool_recovery_state() {
     let serialized = recovery_state.to_bytes().expect("Should serialize");
 
     let deserialized: PoolRecoveryState<HeaderId, MockTxId> =
-        PoolRecoveryState::<HeaderId, MockTxId>::from_bytes(&serialized)
-            .expect("Should deserialize");
+        PoolRecoveryState::from_bytes(&serialized).expect("Should deserialize");
 
     assert_eq!(deserialized.pending_items, recovery_state.pending_items);
     assert_eq!(deserialized.in_block_items, recovery_state.in_block_items);
