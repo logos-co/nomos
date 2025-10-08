@@ -134,7 +134,7 @@ where
         }
         let stream = receiver.await.map_err(Box::new)?;
         Ok(Box::new(stream.filter_map(|message| match message {
-            Ok(message) => <NetworkMessage<Tx> as SerdeOp>::deserialize(&message.data).map_or_else(
+            Ok(message) => NetworkMessage::<Tx>::from_bytes(&message.data).map_or_else(
                 |_| {
                     tracing::debug!("unrecognized gossipsub message");
                     None
@@ -218,7 +218,7 @@ where
         let stream = stream.map_err(|e| Box::new(e) as DynError).map(|result| {
             let block = result?;
             let block: Self::Block =
-                <Block<Tx> as SerdeOp>::deserialize(&block).map_err(|e| Box::new(e) as DynError)?;
+                Block::<Tx>::from_bytes(&block).map_err(|e| Box::new(e) as DynError)?;
             Ok((block.header().id(), block))
         });
 

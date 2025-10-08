@@ -7,7 +7,7 @@ use poseidon2::{Digest, ZkHash};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    codec::SerdeOp,
+    codec::SerdeOp as _,
     crypto::ZkHasher,
     mantle::{
         AuthenticatedMantleTx, Transaction, TransactionHasher,
@@ -249,7 +249,7 @@ impl SignedMantleTx {
     }
 
     fn serialized_size(&self) -> u64 {
-        <Self as SerdeOp>::serialized_size(self)
+        self.bytes_size()
             .expect("Failed to calculate serialized size for signed mantle tx")
     }
 }

@@ -43,11 +43,12 @@ pub struct SessionCryptographicProcessorSettings {
 
 #[must_use]
 pub fn serialize_encapsulated_message(message: &EncapsulatedMessage) -> Vec<u8> {
-    EncapsulatedMessage::serialize(message)
+    message
+        .to_bytes()
         .expect("EncapsulatedMessage should be serializable")
         .to_vec()
 }
 
 pub fn deserialize_encapsulated_message(message: &[u8]) -> Result<EncapsulatedMessage, Error> {
-    EncapsulatedMessage::deserialize(message).map_err(|_| Error::DeserializationFailed)
+    EncapsulatedMessage::from_bytes(message).map_err(|_| Error::DeserializationFailed)
 }

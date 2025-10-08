@@ -8,7 +8,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use backends::{SerdeOp, StorageBackend, StorageTransaction};
+use backends::{SerdeOp as _, StorageBackend, StorageTransaction};
 use bytes::Bytes;
 use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
@@ -89,8 +89,7 @@ impl<Backend: StorageBackend> StorageReplyReceiver<Option<Bytes>, Backend> {
             // in infallible.
             .map(|maybe_bytes| {
                 maybe_bytes.map(|bytes| {
-                    <Output as SerdeOp>::deserialize(&bytes)
-                        .expect("Recovery from storage should never fail")
+                    <Output>::from_bytes(&bytes).expect("Recovery from storage should never fail")
                 })
             })
     }
@@ -109,7 +108,7 @@ impl<Backend: StorageBackend> StorageMsg<Backend> {
         key: Bytes,
         value: &V,
     ) -> Result<Self, nomos_core::codec::Error> {
-        let value = <V as SerdeOp>::serialize(value)?;
+        let value = value.to_bytes()?;
         Ok(Self::Store { key, value })
     }
 

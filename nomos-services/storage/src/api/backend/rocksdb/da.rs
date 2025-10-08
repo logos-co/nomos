@@ -13,7 +13,7 @@ use crate::{
         backend::rocksdb::utils::{create_share_idx, key_bytes},
         da::StorageDaApi,
     },
-    backends::{SerdeOp, StorageBackend as _, rocksdb::RocksBackend},
+    backends::{SerdeOp as _, StorageBackend as _, rocksdb::RocksBackend},
 };
 
 pub const DA_VID_KEY_PREFIX: &str = "da/vid/";
@@ -68,7 +68,7 @@ impl StorageDaApi for RocksBackend {
         let index_key = key_bytes(DA_BLOB_SHARES_INDEX_PREFIX, blob_id.as_ref());
         let indices_bytes = self.load(&index_key).await?;
         let indices = indices_bytes.map(|bytes| {
-            <HashSet<Self::ShareIndex> as SerdeOp>::deserialize(&bytes).unwrap_or_else(|e| {
+            <HashSet<Self::ShareIndex>>::from_bytes(&bytes).unwrap_or_else(|e| {
                 error!("Failed to deserialize indices: {:?}", e);
                 HashSet::new()
             })
@@ -93,7 +93,7 @@ impl StorageDaApi for RocksBackend {
             }
 
             let mut indices = db.get(&index_key)?.map_or_else(HashSet::new, |bytes| {
-                <HashSet<[u8; 2]> as SerdeOp>::deserialize(&bytes).unwrap_or_else(|e| {
+                <HashSet<[u8; 2]>>::from_bytes(&bytes).unwrap_or_else(|e| {
                     error!("Failed to deserialize indices: {:?}", e);
                     HashSet::new()
                 })
@@ -101,7 +101,8 @@ impl StorageDaApi for RocksBackend {
 
             indices.insert(share_idx);
 
-            let serialized_indices = <HashSet<[u8; 2]> as SerdeOp>::serialize(&indices)
+            let serialized_indices = indices
+                .to_bytes()
                 .expect("Serialization of HashSet should not fail");
 
             if let Err(e) = db.put(&index_key, &serialized_indices) {
@@ -149,8 +150,9 @@ impl StorageDaApi for RocksBackend {
     ) -> Result<(), Self::Error> {
         let session_bytes = sesion_id.to_le_bytes();
         let assignations_key = key_bytes(DA_ASSIGNATIONS_PREFIX, session_bytes);
-        let serialized_assignations =
-            <()>::serialize(&assignations).expect("Serialization of HashMap should not fail");
+        let serialized_assignations = assignations
+            .to_bytes()
+            .expect("Serialization of HashMap should not fail");
 
         match self.store(assignations_key, serialized_assignations).await {
             Ok(()) => {
@@ -182,16 +184,14 @@ impl StorageDaApi for RocksBackend {
             },
             |assignations_data| {
                 let assignations =
-                    <HashMap<Self::NetworkId, HashSet<Self::Id>> as SerdeOp>::deserialize(
-                        &assignations_data,
-                    )
-                    .unwrap_or_else(|e| {
-                        error!(
-                            "Failed to deserialize assignations for session {}: {:?}",
-                            sesion_id, e
-                        );
-                        HashMap::new()
-                    });
+                    <HashMap<Self::NetworkId, HashSet<Self::Id>>>::from_bytes(&assignations_data)
+                        .unwrap_or_else(|e| {
+                            error!(
+                                "Failed to deserialize assignations for session {}: {:?}",
+                                sesion_id, e
+                            );
+                            HashMap::new()
+                        });
 
                 debug!("Successfully loaded assignations for session {}", sesion_id);
                 Ok(Some(assignations))
@@ -207,8 +207,9 @@ impl StorageDaApi for RocksBackend {
 
         for (id, addr) in ids {
             let addressbook_key = key_bytes(DA_ADDRESSBOOK_PREFIX, id.to_bytes());
-            let serialized_address =
-                <()>::serialize(&addr).expect("Serialization of Multiaddr should not fail");
+            let serialized_address = addr
+                .to_bytes()
+                .expect("Serialization of Multiaddr should not fail");
             key_address_map.insert(addressbook_key, serialized_address);
         }
 
@@ -230,7 +231,7 @@ impl StorageDaApi for RocksBackend {
                 Ok(None)
             },
             |bytes| {
-                let address = <Multiaddr as SerdeOp>::deserialize(&bytes).unwrap_or_else(|e| {
+                let address = <Multiaddr>::from_bytes(&bytes).unwrap_or_else(|e| {
                     error!("Failed to deserialize address for {}: {:?}", id, e);
                     Multiaddr::empty()
                 });
@@ -246,8 +247,9 @@ impl StorageDaApi for RocksBackend {
         tx: Self::Tx,
     ) -> Result<(), Self::Error> {
         let tx_key = key_bytes(DA_TX_PREFIX, blob_id.as_ref());
-        let serialized_tx_body =
-            <()>::serialize(&tx).expect("Serialization of transaction should not fail");
+        let serialized_tx_body = tx
+            .to_bytes()
+            .expect("Serialization of transaction should not fail");
 
         let mut serialized_tx = Vec::with_capacity(2 + serialized_tx_body.len());
         serialized_tx.extend_from_slice(&assignations.to_le_bytes());
@@ -278,7 +280,7 @@ impl StorageDaApi for RocksBackend {
 
         let assignations = u16::from_le_bytes(assignations_arr);
 
-        let tx = match <Bytes as SerdeOp>::deserialize(&tx_bytes) {
+        let tx = match <Bytes>::from_bytes(&tx_bytes) {
             Ok(tx) => Some((assignations, tx)),
             Err(e) => {
                 error!("Failed to deserialize tx: {:?}", e);

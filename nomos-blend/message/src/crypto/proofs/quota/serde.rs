@@ -22,8 +22,8 @@ mod tests {
     fn serialize_deserialize() {
         let proof = ProofOfQuota::from_bytes_unchecked([0; _]);
 
-        let serialized_proof = ProofOfQuota::serialize(&proof).unwrap();
-        let deserialized_proof = ProofOfQuota::deserialize(&serialized_proof[..]).unwrap();
+        let serialized_proof = &proof.to_bytes().unwrap();
+        let deserialized_proof = ProofOfQuota::from_bytes(&serialized_proof[..]).unwrap();
 
         assert!(proof == deserialized_proof);
     }

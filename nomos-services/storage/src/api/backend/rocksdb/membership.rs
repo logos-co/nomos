@@ -10,7 +10,7 @@ use tracing::{debug, error};
 
 use crate::{
     api::{backend::rocksdb::utils::key_bytes, membership::StorageMembershipApi},
-    backends::{SerdeOp, StorageBackend as _, rocksdb::RocksBackend},
+    backends::{SerdeOp as _, StorageBackend as _, rocksdb::RocksBackend},
 };
 
 pub const MEMBERSHIP_ACTIVE_SESSION_PREFIX: &str = "membership/active/";
@@ -27,13 +27,15 @@ impl StorageMembershipApi for RocksBackend {
         session_id: SessionNumber,
         providers: &HashMap<ProviderId, BTreeSet<Locator>>,
     ) -> Result<(), DynError> {
-        let service_bytes =
-            <()>::serialize(&service_type).expect("Serialization of ServiceType should not fail");
+        let service_bytes = service_type
+            .to_bytes()
+            .expect("Serialization of ServiceType should not fail");
         let key = key_bytes(MEMBERSHIP_ACTIVE_SESSION_PREFIX, service_bytes);
 
         let session_data = (session_id, providers);
-        let serialized_data =
-            <()>::serialize(&session_data).expect("Serialization of session data should not fail");
+        let serialized_data = session_data
+            .to_bytes()
+            .expect("Serialization of session data should not fail");
 
         match self.store(key, serialized_data).await {
             Ok(()) => {
@@ -54,8 +56,9 @@ impl StorageMembershipApi for RocksBackend {
         &mut self,
         service_type: ServiceType,
     ) -> Result<Option<MembershipProviders>, DynError> {
-        let service_bytes =
-            <()>::serialize(&service_type).expect("Serialization of ServiceType should not fail");
+        let service_bytes = service_type
+            .to_bytes()
+            .expect("Serialization of ServiceType should not fail");
         let key = key_bytes(MEMBERSHIP_ACTIVE_SESSION_PREFIX, service_bytes);
 
         let data = self.load(&key).await?;
@@ -65,7 +68,7 @@ impl StorageMembershipApi for RocksBackend {
                 debug!("No active session found for service {:?}", service_type);
                 Ok(None)
             },
-            |bytes| match <MembershipProviders as SerdeOp>::deserialize(&bytes) {
+            |bytes| match MembershipProviders::from_bytes(&bytes) {
                 Ok(session_data) => {
                     debug!(
                         "Successfully loaded active session for service {:?}",
@@ -130,13 +133,15 @@ impl StorageMembershipApi for RocksBackend {
         session_id: SessionNumber,
         providers: &HashMap<ProviderId, BTreeSet<Locator>>,
     ) -> Result<(), DynError> {
-        let service_bytes =
-            <()>::serialize(&service_type).expect("Serialization of ServiceType should not fail");
+        let service_bytes = service_type
+            .to_bytes()
+            .expect("Serialization of ServiceType should not fail");
         let key = key_bytes(MEMBERSHIP_FORMING_SESSION_PREFIX, service_bytes);
 
         let session_data = (session_id, providers);
-        let serialized_data =
-            <()>::serialize(&session_data).expect("Serialization of session data should not fail");
+        let serialized_data = session_data
+            .to_bytes()
+            .expect("Serialization of session data should not fail");
 
         match self.store(key, serialized_data).await {
             Ok(()) => {
@@ -157,8 +162,9 @@ impl StorageMembershipApi for RocksBackend {
         &mut self,
         service_type: ServiceType,
     ) -> Result<Option<MembershipProviders>, DynError> {
-        let service_bytes =
-            <()>::serialize(&service_type).expect("Serialization of ServiceType should not fail");
+        let service_bytes = service_type
+            .to_bytes()
+            .expect("Serialization of ServiceType should not fail");
         let key = key_bytes(MEMBERSHIP_FORMING_SESSION_PREFIX, service_bytes);
 
         let data = self.load(&key).await?;
@@ -168,7 +174,7 @@ impl StorageMembershipApi for RocksBackend {
                 debug!("No forming session found for service {:?}", service_type);
                 Ok(None)
             },
-            |bytes| match <MembershipProviders as SerdeOp>::deserialize(&bytes) {
+            |bytes| match <MembershipProviders>::from_bytes(&bytes) {
                 Ok(session_data) => {
                     debug!(
                         "Successfully loaded forming session for service {:?}",

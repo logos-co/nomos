@@ -1,7 +1,7 @@
 use core::iter::repeat_n;
 
 use itertools::Itertools as _;
-use nomos_core::{codec::SerdeOp, crypto::ZkHash};
+use nomos_core::{codec::SerdeOp as _, crypto::ZkHash};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -478,7 +478,8 @@ impl EncapsulatedBlendingHeader {
     /// [`BlendingHeader`] without any encapsulation.
     fn initialize(header: &BlendingHeader) -> Self {
         Self(
-            <BlendingHeader as SerdeOp>::serialize(header)
+            header
+                .to_bytes()
                 .expect("BlendingHeader should be able to be serialized")
                 .to_vec(),
         )
@@ -488,7 +489,7 @@ impl EncapsulatedBlendingHeader {
     /// If there is no encapsulation left, and if the bytes are valid,
     /// the deserialization will succeed.
     fn try_deserialize(&self) -> Result<BlendingHeader, Error> {
-        <BlendingHeader as SerdeOp>::deserialize(&self.0).map_err(|_| Error::DeserializationFailed)
+        BlendingHeader::from_bytes(&self.0).map_err(|_| Error::DeserializationFailed)
     }
 
     /// Add a layer of encapsulation.
@@ -516,7 +517,8 @@ impl EncapsulatedPayload {
     /// without any encapsulation.
     fn initialize(payload: &Payload) -> Self {
         Self(
-            <Payload as SerdeOp>::serialize(payload)
+            payload
+                .to_bytes()
                 .expect("Payload should be able to be serialized")
                 .to_vec(),
         )
@@ -526,7 +528,7 @@ impl EncapsulatedPayload {
     /// If there is no encapsulation left, and if the bytes are valid,
     /// the deserialization will succeed.
     fn try_deserialize(&self) -> Result<Payload, Error> {
-        <Payload as SerdeOp>::deserialize(&self.0).map_err(|_| Error::DeserializationFailed)
+        Payload::from_bytes(&self.0).map_err(|_| Error::DeserializationFailed)
     }
 
     /// Add a layer of encapsulation.
