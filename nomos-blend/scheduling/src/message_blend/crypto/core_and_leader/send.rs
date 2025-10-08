@@ -11,7 +11,6 @@ use nomos_blend_message::{
     },
     input::EncapsulationInput,
 };
-use nomos_core::crypto::ZkHash;
 
 use crate::{
     EncapsulatedMessage,
@@ -79,13 +78,8 @@ where
         self.proofs_generator.rotate_epoch(new_epoch_public_info);
     }
 
-    pub fn set_epoch_private(
-        &mut self,
-        new_epoch_private: ProofOfLeadershipQuotaInputs,
-        epoch_nonce: ZkHash,
-    ) {
-        self.proofs_generator
-            .set_epoch_private(new_epoch_private, epoch_nonce);
+    pub fn set_epoch_private(&mut self, new_epoch_private: ProofOfLeadershipQuotaInputs) {
+        self.proofs_generator.set_epoch_private(new_epoch_private);
     }
 }
 
@@ -327,7 +321,7 @@ mod test {
             transaction_hash: ZkHash::ONE,
         };
 
-        processor.set_epoch_private(new_private_inputs.clone(), ZkHash::ZERO);
+        processor.set_epoch_private(new_private_inputs.clone());
 
         assert_eq!(processor.proofs_generator.1, Some(new_private_inputs));
     }

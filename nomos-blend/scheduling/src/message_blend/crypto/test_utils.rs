@@ -72,11 +72,7 @@ impl CoreAndLeaderProofsGenerator for TestEpochChangeCoreAndLeaderProofsGenerato
         self.0.public_inputs.leader = new_epoch_public;
     }
 
-    fn set_epoch_private(
-        &mut self,
-        new_epoch_private: ProofOfLeadershipQuotaInputs,
-        _epoch_nonce: ZkHash,
-    ) {
+    fn set_epoch_private(&mut self, new_epoch_private: ProofOfLeadershipQuotaInputs) {
         self.1 = Some(new_epoch_private);
     }
 

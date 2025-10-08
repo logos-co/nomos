@@ -11,6 +11,9 @@ pub mod core;
 pub mod core_and_leader;
 pub mod leader;
 
+#[cfg(test)]
+mod test_utils;
+
 /// A single proof to be attached to one layer of a Blend message.
 pub struct BlendLayerProof {
     /// `PoQ`
