@@ -16,11 +16,8 @@ use nomos_blend_message::crypto::{
     },
 };
 use tokio::{
-    sync::{
-        mpsc::{Receiver, Sender, channel},
-        oneshot,
-    },
-    task::spawn_blocking,
+    sync::mpsc::{Receiver, Sender, channel},
+    task::{JoinHandle, spawn_blocking},
 };
 
 use crate::message_blend::provers::{BlendLayerProof, ProofsGeneratorSettings};
@@ -51,8 +48,8 @@ pub trait LeaderProofsGenerator: Sized {
 
 pub struct RealLeaderProofsGenerator {
     proofs_receiver: Receiver<BlendLayerProof>,
-    proof_generation_task_termination_sender: Option<oneshot::Sender<()>>,
-    settings: ProofsGeneratorSettings,
+    pub(super) settings: ProofsGeneratorSettings,
+    proof_generation_task_handle: Option<JoinHandle<()>>,
 }
 
 #[async_trait]
@@ -62,10 +59,10 @@ impl LeaderProofsGenerator for RealLeaderProofsGenerator {
         private_inputs: ProofOfLeadershipQuotaInputs,
     ) -> Self {
         let mut self_instance = Self {
-            proof_generation_task_termination_sender: None,
             // Will be replaced by the `spawn_new_proof_generation_task` below.
             proofs_receiver: channel(1).1,
             settings,
+            proof_generation_task_handle: None,
         };
 
         self_instance.spawn_new_proof_generation_task(private_inputs);
@@ -79,8 +76,6 @@ impl LeaderProofsGenerator for RealLeaderProofsGenerator {
         new_private: ProofOfLeadershipQuotaInputs,
     ) {
         tracing::info!(target: LOG_TARGET, "Rotating epoch...");
-        // Kill previous blocking task before spawning a new one.
-        self.terminate_proof_generation_task();
 
         // On epoch rotation, we maintain the current session info and only change the
         // PoL relevant parts.
@@ -104,21 +99,11 @@ impl LeaderProofsGenerator for RealLeaderProofsGenerator {
 }
 
 impl RealLeaderProofsGenerator {
-    pub(super) fn terminate_proof_generation_task(&mut self) {
-        let Some(proof_generation_task_termination_sender) =
-            self.proof_generation_task_termination_sender.take()
-        else {
-            tracing::debug!(target: LOG_TARGET, "No outstanding task to terminate.");
-            return;
-        };
-        if proof_generation_task_termination_sender.send(()).is_err() {
-            tracing::debug!(target: LOG_TARGET, "Outstanding task has already terminated on its own.");
-        } else {
-            tracing::debug!(target: LOG_TARGET, "Outstanding task killed.");
-        }
+    pub(super) fn terminate_proof_generation_task(&mut self) -> Option<JoinHandle<()>> {
         // Drop the previous channel so we don't get any of the old proofs anymore. This
         // will instruct the spawned task to abort as well.
         swap(&mut self.proofs_receiver, &mut channel(1).1);
+        self.proof_generation_task_handle.take()
     }
 
     fn spawn_new_proof_generation_task(&mut self, private_inputs: ProofOfLeadershipQuotaInputs) {
@@ -126,13 +111,24 @@ impl RealLeaderProofsGenerator {
         // one set of proofs is generated, a new one is pre-computed.
         let (proofs_sender, proofs_receiver) =
             channel((self.settings.public_inputs.leader.message_quota * 2) as usize);
-        spawn_leader_proof_generation_task(
+        self.proof_generation_task_handle = Some(spawn_leader_proof_generation_task(
             proofs_sender,
             self.settings.public_inputs,
             private_inputs,
-        );
+        ));
 
         self.proofs_receiver = proofs_receiver;
+    }
+
+    #[cfg(test)]
+    fn rotate_epoch_and_return_old_task(
+        &mut self,
+        new_epoch_public: LeaderInputs,
+        new_private: ProofOfLeadershipQuotaInputs,
+    ) -> Option<JoinHandle<()>> {
+        let old_handle = self.terminate_proof_generation_task();
+        self.rotate_epoch(new_epoch_public, new_private);
+        old_handle
     }
 }
 
@@ -146,7 +142,7 @@ fn spawn_leader_proof_generation_task(
     sender_channel: Sender<BlendLayerProof>,
     public_inputs: PoQVerificationInputsMinusSigningKey,
     private_inputs: ProofOfLeadershipQuotaInputs,
-) {
+) -> JoinHandle<()> {
     spawn_blocking(move || {
         // This task never stops (unless explicitly killed), since we don't know how
         // many proofs are actually needed by a block proposer within an epoch.
@@ -184,5 +180,5 @@ fn spawn_leader_proof_generation_task(
                 }
             }
         }
-    });
+    })
 }
