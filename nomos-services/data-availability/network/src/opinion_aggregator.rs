@@ -193,7 +193,7 @@ where
     ) -> Result<Opinions, OpinionError> {
         let new_session_id = new_membership.session_id;
 
-        // Case 1: Service is starting (current membership is None)
+        // Case: Service is starting (current membership is None)
         if self.current_membership.is_none() {
             // Case 1.1: Session 0 (genesis)
             if new_session_id == 0 {
@@ -203,7 +203,7 @@ where
                 return Err(OpinionError::InsufficientData);
             }
 
-            // Case 1.2: Regular restart (session > 0)
+            // Case: Regular restart (session > 0)
             // Restore current membership (session we're generating opinions for)
             let current_session_id = new_session_id - 1;
 
@@ -246,14 +246,12 @@ where
             }
         }
 
-        // Generate opinions from current and previous memberships
         let result = self.generate_opinions();
 
         // Rotate memberships: previous <- current, current <- new
         self.previous_membership = self.current_membership.take();
         self.current_membership = Some(Membership::from(new_membership));
 
-        // Reset opinion maps for next round
         self.reset_opinion_maps();
 
         result
@@ -283,7 +281,7 @@ where
 
         // Generate old opinions from previous membership
         let old_opinions = if previous.is_empty() {
-            // Previous session was non-operational or genesis
+            // Previous session was non-operational
             BitVec::new()
         } else {
             let include_self_in_old = previous.members().contains(&self.local_peer_id);
@@ -314,13 +312,12 @@ where
     ) -> Result<Membership, DynError> {
         let mut provider_mappings = HashMap::new();
 
-        // Collect all unique peer IDs from all subnetworks
         let all_peer_ids: HashSet<PeerId> = assignations
             .values()
             .flat_map(|peers_set| peers_set.iter().copied())
             .collect();
 
-        // Get provider mappings for each peer
+        // Get provider mappings for each peer from store
         for peer_id in &all_peer_ids {
             if let Some(provider_id) = self.storage.get_provider_id(*peer_id).await? {
                 provider_mappings.insert(*peer_id, provider_id);
@@ -334,7 +331,6 @@ where
         })
     }
 
-    // Helper method to reset opinion maps (if you don't have it already)
     fn reset_opinion_maps(&mut self) {
         self.positive_opinions.clear();
         self.negative_opinions.clear();
