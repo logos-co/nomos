@@ -156,6 +156,7 @@ fn spawn_leader_proof_generation_task(
                         private_inputs.clone(),
                     ),
                 ) else {
+                    tracing::error!(target: LOG_TARGET, "Leadership PoQ generation failed for the provided public and private inputs.");
                     continue;
                 };
                 let proof_of_selection = ProofOfSelection::new(secret_selection_randomness);
