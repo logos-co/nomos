@@ -49,7 +49,7 @@ impl From<(BlobId, SubnetworkId)> for ReplicationResponseId {
     fn from((blob_id, subnetwork_id): (BlobId, SubnetworkId)) -> Self {
         let mut id = [0; 34];
         id[..32].copy_from_slice(&blob_id);
-        id[32..].copy_from_slice(&subnetwork_id.to_be_bytes());
+        id[32..].copy_from_slice(&subnetwork_id.to_le_bytes());
         Self(id)
     }
 }

@@ -2,6 +2,7 @@ pub mod addressbook;
 pub mod api;
 pub mod backends;
 pub mod membership;
+mod opinion_aggregator;
 pub mod storage;
 
 use std::{
@@ -17,11 +18,12 @@ use backends::{ConnectionStatus, NetworkBackend};
 use futures::{Stream, stream::select};
 use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};
 use libp2p::{Multiaddr, PeerId};
-use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId};
+use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId, sdp::ProviderId};
 use nomos_da_network_core::{
     SubnetworkId, addressbook::AddressBookHandler as _,
     protocols::sampling::opinions::OpinionEvent, swarm::BalancerStats,
 };
+use nomos_libp2p::cryptarchia_sync::DynError;
 use overwatch::{
     OpaqueServiceResourcesHandle,
     services::{
@@ -49,6 +51,7 @@ use crate::{
         MembershipAdapter,
         handler::{DaMembershipHandler, SharedMembershipHandler},
     },
+    opinion_aggregator::OpinionAggregator,
 };
 
 pub type DaAddressbook = AddressBook;
@@ -348,6 +351,8 @@ where
 
         let membership_service_adapter = MembershipServiceAdapter::new(membership_service_relay);
 
+        let mut opinion_aggregator = OpinionAggregator::<Membership>::new(backend.local_peer_id());
+
         wait_until_services_are_ready!(
             &self.service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
@@ -379,18 +384,34 @@ where
                 Some(msg) = inbound_relay.recv() => {
                     Self::handle_network_service_message(msg, backend, &membership_storage, api_adapter, addressbook).await;
                 }
-                Some((session_id, providers)) = membership_updates_stream.next() => {
-                    if providers.is_empty() {
+                Some(update) = membership_updates_stream.next() => {
+                    if update.peers.is_empty() {
                         // todo: this is a short term fix, handle empty providers in assignations
-                        tracing::error!("Received empty membership for session {session_id}: skipping session update");
+                        tracing::error!("Received empty membership for session {}: skipping session update", update.session_id);
                         continue
                     }
                     tracing::debug!(
                         "Received membership update for session {}: {:?}",
-                        session_id, providers
+                        update.session_id, update.peers
                     );
-                    Self::handle_membership_update(session_id, providers, &membership_storage).await;
-                    let _ = subnet_refresh_sender.send(()).await;
+                    match Self::handle_membership_update(
+                        update.session_id,
+                        update.peers,
+                        &membership_storage,
+                        update.provider_mappings,
+                    ).await {
+                        Ok(current_membership) => {
+                            let opinions = opinion_aggregator.handle_session_change(current_membership);
+                            if let Some(opinions) = opinions {
+                                tracing::debug!("Processing opinions {opinions:?}");
+                                // todo: sdp_adapter.process_opinions(opinions).await;
+                            }
+                            let _ = subnet_refresh_sender.send(()).await;
+                        }
+                        Err(e) => {
+                            tracing::error!("Error handling membership update for session {}: {e}", update.session_id);
+                        }
+                    }
                 }
                 Some(stats) = balancer_stats_stream.next() => {
                     let connected_subnetworks = stats.values()
@@ -402,10 +423,8 @@ where
                         backend.update_status(ConnectionStatus::Ready);
                     }
                 }
-                Some(_) = opinion_stream.next() => {
-                    // todo: aggregate opinions
-                    // opinion_tracker.reportOpinion()
-                    // opinion tracker also needs to track session change and create results
+                Some(opinion_event) = opinion_stream.next() => {
+                    opinion_aggregator.record_opinion(opinion_event);
                 }
             }
         }
@@ -549,14 +568,14 @@ where
         session_id: SessionNumber,
         update: HashMap<Membership::Id, Multiaddr>,
         storage: &MembershipStorage<StorageAdapter, Membership, DaAddressbook>,
-    ) {
-        storage
-            .update(session_id, update)
-            .await
-            .unwrap_or_else(|e| {
-                tracing::error!("Failed to update membership for session {session_id}: {e}");
-            });
+        provider_mappings: HashMap<Membership::Id, ProviderId>,
+    ) -> Result<Membership, DynError> {
+        let current_membership = storage
+            .update(session_id, update, provider_mappings)
+            .await?;
+        Ok(current_membership)
     }
+
     async fn handle_historic_sample_request(
         backend: &Backend,
         membership_storage: &MembershipStorage<StorageAdapter, Membership, AddressBook>,

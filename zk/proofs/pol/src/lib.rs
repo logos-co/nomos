@@ -41,7 +41,7 @@ use groth16::{
     CompressedGroth16Proof, Groth16Input, Groth16InputDeser, Groth16Proof, Groth16ProofJsonDeser,
     groth16_batch_verify,
 };
-pub use inputs::{PolVerifierInput, PolWitnessInputs};
+pub use inputs::{PolVerifierInput, PolWitnessInputs, PolWitnessInputsData};
 use thiserror::Error;
 pub use wallet_inputs::{PolWalletInputs, PolWalletInputsData};
 pub use witness::Witness;
@@ -322,9 +322,10 @@ mod tests {
             .collect(),
             starting_slot: 16,
         };
-        let witness_inputs = PolWitnessInputs::from_chain_and_wallet_data(chain_data, wallet_data);
+        let witness_inputs =
+            PolWitnessInputsData::from_chain_and_wallet_data(chain_data, wallet_data);
 
-        let (proof, inputs) = prove(&witness_inputs).unwrap();
+        let (proof, inputs) = prove(&witness_inputs.into()).unwrap();
         assert!(verify(&proof, &inputs).unwrap());
         assert!(batch_verify(&[proof, proof], &[inputs.clone(), inputs]).unwrap());
     }

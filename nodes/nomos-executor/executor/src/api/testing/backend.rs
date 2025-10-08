@@ -26,7 +26,7 @@ use nomos_http_api_common::{
     settings::AxumBackendSettings,
     utils::create_rate_limit_layer,
 };
-use nomos_membership::MembershipService as MembershipServiceTrait;
+use nomos_membership_service::MembershipService as MembershipServiceTrait;
 use nomos_node::{
     DaNetworkApiAdapter, NomosDaMembership,
     api::testing::handlers::{da_get_membership, da_historic_sampling, update_membership},

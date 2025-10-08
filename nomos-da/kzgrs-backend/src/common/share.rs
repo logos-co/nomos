@@ -68,7 +68,7 @@ impl blob::Share for DaShare {
     }
 
     fn share_idx(&self) -> Self::ShareIndex {
-        self.share_idx.to_be_bytes()
+        self.share_idx.to_le_bytes()
     }
 
     fn into_share_and_commitments(self) -> (Self::LightShare, Self::SharesCommitments) {
@@ -112,7 +112,7 @@ impl blob::LightShare for DaLightShare {
     type ShareIndex = [u8; 2];
 
     fn share_idx(&self) -> Self::ShareIndex {
-        self.share_idx.to_be_bytes()
+        self.share_idx.to_le_bytes()
     }
 }
 

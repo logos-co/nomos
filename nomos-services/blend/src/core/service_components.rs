@@ -16,8 +16,18 @@ pub trait ServiceComponents<RuntimeServiceId> {
     type ProofsGenerator;
 }
 
-impl<Backend, NodeId, Network, MembershipAdapter, ProofsGenerator, ProofsVerifier, RuntimeServiceId>
-    ServiceComponents<RuntimeServiceId>
+impl<
+    Backend,
+    NodeId,
+    Network,
+    MembershipAdapter,
+    ProofsGenerator,
+    ProofsVerifier,
+    TimeBackend,
+    ChainService,
+    PolInfoProvider,
+    RuntimeServiceId,
+> ServiceComponents<RuntimeServiceId>
     for BlendService<
         Backend,
         NodeId,
@@ -25,6 +35,9 @@ impl<Backend, NodeId, Network, MembershipAdapter, ProofsGenerator, ProofsVerifie
         MembershipAdapter,
         ProofsGenerator,
         ProofsVerifier,
+        TimeBackend,
+        ChainService,
+        PolInfoProvider,
         RuntimeServiceId,
     >
 where

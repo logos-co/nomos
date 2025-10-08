@@ -122,6 +122,7 @@ where
     balancer_command_sender: UnboundedSender<ConnectionBalancerCommand<BalancerStats>>,
     monitor_command_sender: UnboundedSender<ConnectionMonitorCommand<MonitorStats>>,
     connection_status: ConnectionStatus,
+    local_peer_id: PeerId,
     _membership: PhantomData<Membership>,
 }
 
@@ -173,6 +174,8 @@ where
             subnet_refresh_signal,
             balancer_stats_sender,
         );
+
+        let local_peer_id = *executor_swarm.local_peer_id();
         let address = config.validator_settings.listening_address;
         // put swarm to listen at the specified configuration address
         executor_swarm
@@ -231,6 +234,7 @@ where
         ));
 
         Self {
+            local_peer_id,
             connection_status: ConnectionStatus::InsufficientSubnetworkConnections,
             task_abort_handle,
             verifier_replies_task_abort_handle,
@@ -376,6 +380,10 @@ where
             membership,
         )
         .await;
+    }
+
+    fn local_peer_id(&self) -> PeerId {
+        self.local_peer_id
     }
 }
 

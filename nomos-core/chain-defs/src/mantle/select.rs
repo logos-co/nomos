@@ -1,4 +1,6 @@
-use std::marker::PhantomData;
+use std::{marker::PhantomData, pin::Pin};
+
+use futures::Stream;
 
 use crate::{
     mantle::{Transaction, TxSelect},
@@ -17,7 +19,7 @@ impl<const SIZE: usize, Tx> FillSize<SIZE, Tx> {
     }
 }
 
-impl<const SIZE: usize, Tx: Transaction> TxSelect for FillSize<SIZE, Tx> {
+impl<const SIZE: usize, Tx: Transaction + Send> TxSelect for FillSize<SIZE, Tx> {
     type Tx = Tx;
     type Settings = ();
 
@@ -25,10 +27,11 @@ impl<const SIZE: usize, Tx: Transaction> TxSelect for FillSize<SIZE, Tx> {
         Self::new()
     }
 
-    fn select_tx_from<'i, I: Iterator<Item = Self::Tx> + 'i>(
-        &self,
-        txs: I,
-    ) -> impl Iterator<Item = Self::Tx> + 'i {
-        utils::select::select_from_till_fill_size::<SIZE, Self::Tx>(|_| 1, txs)
+    fn select_tx_from<'i, S>(&self, txs: S) -> Pin<Box<dyn Stream<Item = Self::Tx> + Send + 'i>>
+    where
+        S: Stream<Item = Self::Tx> + Send + 'i,
+    {
+        let stream = utils::select::select_from_till_fill_size_stream::<SIZE, Self::Tx>(|_| 1, txs);
+        Box::pin(stream)
     }
 }

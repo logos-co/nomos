@@ -26,7 +26,7 @@ nomos-da-network-service = { workspace = true }
 nomos-da-sampling        = { workspace = true }
 nomos-da-verifier        = { features = ["rocksdb-backend"], workspace = true }
 nomos-libp2p             = { workspace = true }
-nomos-membership         = { workspace = true }
+nomos-membership-service = { workspace = true }
 nomos-network            = { workspace = true }
 nomos-storage            = { features = ["rocksdb-backend"], workspace = true }
 nomos-time               = { workspace = true }

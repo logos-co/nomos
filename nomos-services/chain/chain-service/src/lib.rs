@@ -1,6 +1,7 @@
 pub mod api;
 mod blob;
 mod bootstrap;
+mod mempool;
 pub mod network;
 mod relays;
 mod states;
@@ -18,7 +19,8 @@ use std::{
 
 use broadcast_service::{BlockBroadcastMsg, BlockBroadcastService, BlockInfo};
 use bytes::Bytes;
-use cryptarchia_engine::{PrunedBlocks, Slot};
+use cryptarchia_engine::PrunedBlocks;
+pub use cryptarchia_engine::{Epoch, Slot};
 use cryptarchia_sync::{GetTipResponse, ProviderResponse};
 use futures::StreamExt as _;
 use network::NetworkAdapter;
@@ -34,7 +36,8 @@ use nomos_core::{
 use nomos_da_sampling::{
     DaSamplingService, DaSamplingServiceMsg, backend::DaSamplingServiceBackend,
 };
-use nomos_ledger::{EpochState, LedgerState};
+pub use nomos_ledger::EpochState;
+use nomos_ledger::LedgerState;
 use nomos_network::{NetworkService, message::ChainSyncEvent};
 use nomos_storage::{StorageService, api::chain::StorageChainApi, backends::StorageBackend};
 use nomos_time::TimeService;
@@ -56,7 +59,10 @@ use tokio::{
 };
 use tracing::{Level, debug, error, info, instrument, span};
 use tracing_futures::Instrument as _;
-use tx_service::{MempoolMsg, TxMempoolService, backend::RecoverableMempool};
+use tx_service::{
+    TxMempoolService, backend::RecoverableMempool,
+    network::NetworkAdapter as MempoolNetworkAdapter, storage::MempoolStorageAdapter,
+};
 
 use crate::{
     blob::{BlobValidation, RecentBlobValidation, SkipBlobValidation},
@@ -64,6 +70,7 @@ use crate::{
         ibd::{self, InitialBlockDownload},
         state::choose_engine_state,
     },
+    mempool::MempoolAdapter as _,
     relays::CryptarchiaConsensusRelays,
     states::CryptarchiaConsensusState,
     storage::{StorageAdapter as _, adapters::StorageAdapter},
@@ -90,6 +97,8 @@ pub enum Error {
     Consensus(#[from] cryptarchia_engine::Error<HeaderId>),
     #[error("Storage error: {0}")]
     Storage(String),
+    #[error("Mempool error: {0}")]
+    Mempool(String),
     #[error("Blob validation failed: {0}")]
     BlobValidationFailed(#[from] blob::Error),
 }
@@ -314,15 +323,16 @@ pub struct CryptarchiaConsensus<
     NetAdapter::Settings: Send,
     NetAdapter::PeerId: Clone + Eq + Hash,
     Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash>,
-    Mempool::RecoveryState: Serialize + DeserializeOwned,
+    Mempool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     Mempool::Settings: Clone,
-    Mempool::Item: AuthenticatedMantleTx + Clone + Eq + Debug + 'static,
-    MempoolNetAdapter: tx_service::network::NetworkAdapter<
-            RuntimeServiceId,
-            Payload = Mempool::Item,
-            Key = Mempool::Key,
-        >,
+    Mempool::Storage: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
+    Mempool::Item: Clone + Eq + Debug + 'static,
+    Mempool::Item: AuthenticatedMantleTx,
+    MempoolNetAdapter:
+        MempoolNetworkAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>,
+    MempoolNetAdapter::Settings: Send + Sync,
     Storage: StorageBackend + Send + Sync + 'static,
+    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
@@ -364,15 +374,15 @@ where
     NetAdapter::Settings: Send,
     NetAdapter::PeerId: Clone + Eq + Hash,
     Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash>,
-    Mempool::RecoveryState: Serialize + DeserializeOwned,
+    Mempool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     Mempool::Settings: Clone,
+    Mempool::Storage: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
     Mempool::Item: AuthenticatedMantleTx + Clone + Eq + Debug,
-    MempoolNetAdapter: tx_service::network::NetworkAdapter<
-            RuntimeServiceId,
-            Payload = Mempool::Item,
-            Key = Mempool::Key,
-        >,
+    MempoolNetAdapter:
+        MempoolNetworkAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>,
+    MempoolNetAdapter::Settings: Send + Sync,
     Storage: StorageBackend + Send + Sync + 'static,
+    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
@@ -419,9 +429,11 @@ where
     NetAdapter::Settings: Send + Sync + 'static,
     NetAdapter::PeerId: Clone + Eq + Hash + Copy + Debug + Send + Sync + Unpin + 'static,
     Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash> + Send + Sync + 'static,
-    Mempool::RecoveryState: Serialize + DeserializeOwned,
+    Mempool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     Mempool::Settings: Clone + Send + Sync + 'static,
-    Mempool::Item: AuthenticatedMantleTx
+    Mempool::Storage: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
+    Mempool::Item: Transaction<Hash = Mempool::Key>
+        + AuthenticatedMantleTx
         + Debug
         + Clone
         + Eq
@@ -431,15 +443,15 @@ where
         + Sync
         + Unpin
         + 'static,
-    MempoolNetAdapter: tx_service::network::NetworkAdapter<
-            RuntimeServiceId,
-            Payload = Mempool::Item,
-            Key = Mempool::Key,
-        > + Send
+    MempoolNetAdapter: MempoolNetworkAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>
+        + Send
         + Sync
         + 'static,
-    Storage: StorageChainApi + StorageBackend + Send + Sync + 'static,
-    Storage::Block: TryFrom<Block<Mempool::Item>> + TryInto<Block<Mempool::Item>> + Into<Bytes>,
+    MempoolNetAdapter::Settings: Send + Sync,
+    Storage: StorageBackend + Send + Sync + 'static,
+    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
+    <Storage as StorageChainApi>::Block:
+        TryFrom<Block<Mempool::Item>> + TryInto<Block<Mempool::Item>> + Into<Bytes>,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + Send + 'static,
@@ -462,6 +474,7 @@ where
                 SamplingNetworkAdapter,
                 SamplingStorage,
                 Mempool,
+                Mempool::Storage,
                 RuntimeServiceId,
             >,
         >
@@ -550,7 +563,7 @@ where
             &self.service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
             NetworkService<_, _>,
-            TxMempoolService<_, _, _, _, _>,
+            TxMempoolService<_, _, _, _, _, _>,
             DaSamplingService<_, _, _, _>,
             StorageService<_, _>,
             TimeService<_, _>
@@ -840,9 +853,11 @@ where
     NetAdapter::Settings: Send + Sync + 'static,
     NetAdapter::PeerId: Clone + Eq + Hash + Copy + Debug + Send + Sync,
     Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash> + Send + Sync + 'static,
-    Mempool::RecoveryState: Serialize + DeserializeOwned,
+    Mempool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     Mempool::Settings: Clone + Send + Sync + 'static,
-    Mempool::Item: AuthenticatedMantleTx
+    Mempool::Storage: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
+    Mempool::Item: Transaction<Hash = Mempool::Key>
+        + AuthenticatedMantleTx
         + Debug
         + Clone
         + Eq
@@ -851,15 +866,15 @@ where
         + Send
         + Sync
         + 'static,
-    MempoolNetAdapter: tx_service::network::NetworkAdapter<
-            RuntimeServiceId,
-            Payload = Mempool::Item,
-            Key = Mempool::Key,
-        > + Send
+    MempoolNetAdapter: MempoolNetworkAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>
+        + Send
         + Sync
         + 'static,
-    Storage: StorageChainApi + StorageBackend + Send + Sync + 'static,
-    Storage::Block: TryFrom<Block<Mempool::Item>> + TryInto<Block<Mempool::Item>> + Into<Bytes>,
+    MempoolNetAdapter::Settings: Send + Sync,
+    Storage: StorageBackend + Send + Sync + 'static,
+    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
+    <Storage as StorageChainApi>::Block:
+        TryFrom<Block<Mempool::Item>> + TryInto<Block<Mempool::Item>> + Into<Bytes>,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
@@ -1065,12 +1080,17 @@ where
         let new_lib = cryptarchia.lib();
 
         // remove included content from mempool
-        mark_in_block(
-            relays.mempool_relay().clone(),
-            block.transactions().map(Transaction::hash),
-            id,
-        )
-        .await;
+        relays
+            .mempool_adapter()
+            .mark_transactions_in_block(
+                &block
+                    .transactions()
+                    .map(Transaction::hash)
+                    .collect::<Vec<_>>(),
+                id,
+            )
+            .await
+            .unwrap_or_else(|e| error!("Could not mark transactions in block: {e}"));
 
         mark_blob_in_block(
             relays.sampling_relay().clone(),
@@ -1434,23 +1454,6 @@ where
 
         (cryptarchia, storage_blocks_to_remove)
     }
-}
-
-async fn mark_in_block<Payload, Item, Key>(
-    mempool: OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>,
-    ids: impl Iterator<Item = Key>,
-    block: HeaderId,
-) where
-    Key: Send,
-    Payload: Send,
-{
-    mempool
-        .send(MempoolMsg::MarkInBlock {
-            ids: ids.collect(),
-            block,
-        })
-        .await
-        .unwrap_or_else(|(e, _)| error!("Could not mark items in block: {e}"));
 }
 
 async fn mark_blob_in_block<BlobId: Debug + Send>(

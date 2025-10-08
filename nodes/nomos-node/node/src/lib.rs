@@ -16,7 +16,7 @@ pub use nomos_blend_service::{
 pub use nomos_core::{
     codec,
     header::HeaderId,
-    mantle::{SignedMantleTx, Transaction, select::FillSize as FillSizeWithTx},
+    mantle::{SignedMantleTx, Transaction, TxHash, select::FillSize as FillSizeWithTx},
 };
 pub use nomos_da_network_service::backends::libp2p::validator::DaNetworkValidatorBackend;
 use nomos_da_network_service::{
@@ -49,6 +49,7 @@ use overwatch::{
     overwatch::{Error as OverwatchError, Overwatch, OverwatchRunner},
 };
 use subnetworks_assignations::versions::history_aware_refill::HistoryAware;
+use tx_service::storage::adapters::RocksStorageAdapter;
 pub use tx_service::{
     network::adapters::libp2p::{
         Libp2pAdapter as MempoolNetworkAdapter, Settings as MempoolAdapterSettings,
@@ -81,12 +82,22 @@ pub(crate) type TracingService = Tracing<RuntimeServiceId>;
 
 pub(crate) type NetworkService = nomos_network::NetworkService<NetworkBackend, RuntimeServiceId>;
 
-pub(crate) type BlendCoreService = generic_services::blend::BlendCoreService<RuntimeServiceId>;
-pub(crate) type BlendEdgeService = generic_services::blend::BlendEdgeService<RuntimeServiceId>;
-pub(crate) type BlendService = generic_services::blend::BlendService<RuntimeServiceId>;
+pub(crate) type DaSamplingAdapter = SamplingLibp2pAdapter<
+    NomosDaMembership,
+    DaMembershipAdapter<RuntimeServiceId>,
+    DaMembershipStorage,
+    DaNetworkApiAdapter,
+    RuntimeServiceId,
+>;
+
+pub(crate) type BlendCoreService =
+    generic_services::blend::BlendCoreService<DaSamplingAdapter, RuntimeServiceId>;
+pub(crate) type BlendEdgeService =
+    generic_services::blend::BlendEdgeService<DaSamplingAdapter, RuntimeServiceId>;
+pub(crate) type BlendService =
+    generic_services::blend::BlendService<DaSamplingAdapter, RuntimeServiceId>;
 
 pub(crate) type BlockBroadcastService = broadcast_service::BlockBroadcastService<RuntimeServiceId>;
-
 pub(crate) type DaVerifierService = generic_services::DaVerifierService<
     VerifierNetworkAdapter<
         NomosDaMembership,
@@ -99,16 +110,8 @@ pub(crate) type DaVerifierService = generic_services::DaVerifierService<
     RuntimeServiceId,
 >;
 
-pub(crate) type DaSamplingService = generic_services::DaSamplingService<
-    SamplingLibp2pAdapter<
-        NomosDaMembership,
-        DaMembershipAdapter<RuntimeServiceId>,
-        DaMembershipStorage,
-        DaNetworkApiAdapter,
-        RuntimeServiceId,
-    >,
-    RuntimeServiceId,
->;
+pub(crate) type DaSamplingService =
+    generic_services::DaSamplingService<DaSamplingAdapter, RuntimeServiceId>;
 
 pub(crate) type DaNetworkService = nomos_da_network_service::NetworkService<
     DaNetworkValidatorBackend<NomosDaMembership>,
@@ -119,16 +122,8 @@ pub(crate) type DaNetworkService = nomos_da_network_service::NetworkService<
     RuntimeServiceId,
 >;
 
-pub(crate) type MempoolService = generic_services::TxMempoolService<
-    SamplingLibp2pAdapter<
-        NomosDaMembership,
-        DaMembershipAdapter<RuntimeServiceId>,
-        DaMembershipStorage,
-        DaNetworkApiAdapter,
-        RuntimeServiceId,
-    >,
-    RuntimeServiceId,
->;
+pub(crate) type MempoolService =
+    generic_services::TxMempoolService<DaSamplingAdapter, RuntimeServiceId>;
 
 pub(crate) type DaNetworkAdapter = nomos_da_sampling::network::adapters::validator::Libp2pAdapter<
     NomosDaMembership,
@@ -141,13 +136,17 @@ pub(crate) type DaNetworkAdapter = nomos_da_sampling::network::adapters::validat
 pub(crate) type CryptarchiaService =
     generic_services::CryptarchiaService<DaNetworkAdapter, RuntimeServiceId>;
 
-pub(crate) type CryptarchiaLeaderService =
-    generic_services::CryptarchiaLeaderService<DaNetworkAdapter, RuntimeServiceId>;
+pub(crate) type WalletService =
+    generic_services::WalletService<CryptarchiaService, RuntimeServiceId>;
+
+pub(crate) type CryptarchiaLeaderService = generic_services::CryptarchiaLeaderService<
+    CryptarchiaService,
+    WalletService,
+    DaNetworkAdapter,
+    RuntimeServiceId,
+>;
 
 pub(crate) type TimeService = generic_services::TimeService<RuntimeServiceId>;
-
-pub(crate) type WalletService =
-    nomos_wallet::WalletService<CryptarchiaService, SignedMantleTx, RocksBackend, RuntimeServiceId>;
 
 pub(crate) type ApiStorageAdapter<RuntimeServiceId> =
     nomos_api::http::storage::adapters::rocksdb::RocksAdapter<RuntimeServiceId>;
@@ -167,7 +166,6 @@ pub(crate) type ApiService = nomos_api::ApiService<
             RuntimeServiceId,
         >,
         VerifierStorageAdapter<DaShare, DaStorageConverter>,
-        SignedMantleTx,
         DaStorageConverter,
         KzgrsSamplingBackend,
         nomos_da_sampling::network::adapters::validator::Libp2pAdapter<
@@ -182,6 +180,7 @@ pub(crate) type ApiService = nomos_api::ApiService<
         NtpTimeBackend,
         DaNetworkApiAdapter,
         ApiStorageAdapter<RuntimeServiceId>,
+        RocksStorageAdapter<SignedMantleTx, TxHash>,
     >,
     RuntimeServiceId,
 >;
