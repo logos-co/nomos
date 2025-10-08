@@ -198,6 +198,7 @@ where
             // Case 1.1: Session 0 (genesis)
             if new_session_id == 0 {
                 self.current_membership = Some(Membership::from(new_membership));
+                self.previous_membership = Some(Membership::empty(0));
                 self.reset_opinion_maps();
                 return Err(OpinionError::InsufficientData);
             }
