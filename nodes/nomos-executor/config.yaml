@@ -264,12 +264,7 @@ cryptarchia_leader:
       threshold: 1
       timestamp: 0
   leader_config:
-    utxos:
-      - tx_hash: "0000000000000000000000000000000000000000000000000000000000000000"
-        output_index: 0
-        note:
-          value: 1
-          pk: "0000000000000000000000000000000000000000000000000000000000000000"
+    pk: "0000000000000000000000000000000000000000000000000000000000000000"
     sk: 3cf3335017304dcfce45124a0633829f00000000000000000000000000000000
   blend_broadcast_settings:
     topic: /cryptarchia/proto
@@ -288,3 +283,6 @@ membership:
       DA: 4320  # DataAvailability - 4320 blocks per session
     session_zero_providers: { }
 sdp:
+wallet:
+  known_keys:
+    - "0000000000000000000000000000000000000000000000000000000000000000"

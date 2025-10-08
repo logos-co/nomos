@@ -20,7 +20,19 @@ pub struct Slot(u64);
 #[derive(Clone, Debug, Eq, PartialEq, Copy, Hash, PartialOrd, Ord)]
 pub struct Epoch(u32);
 
+impl Epoch {
+    #[must_use]
+    pub const fn new(inner: u32) -> Self {
+        Self(inner)
+    }
+}
+
 impl Slot {
+    #[must_use]
+    pub const fn new(inner: u64) -> Self {
+        Self(inner)
+    }
+
     #[must_use]
     pub const fn to_le_bytes(&self) -> [u8; 8] {
         self.0.to_le_bytes()
@@ -141,6 +153,11 @@ impl EpochConfig {
         (u64::from(slot) / self.epoch_length(base_period_length))
             .try_into()
             .expect("Epoch should build from a correct configuration")
+    }
+
+    #[must_use]
+    pub fn starting_slot(&self, epoch: &Epoch, base_period_length: NonZero<u64>) -> Slot {
+        Slot::from(u64::from(u32::from(*epoch)) * self.epoch_length(base_period_length))
     }
 }
 

@@ -26,13 +26,16 @@ use nomos_blend_service::{
 use nomos_core::{codec::SerdeOp as _, crypto::ZkHash};
 use nomos_da_sampling::network::NetworkAdapter;
 use nomos_libp2p::PeerId;
+use nomos_time::backends::NtpTimeBackend;
 use overwatch::{overwatch::OverwatchHandle, services::AsServiceId};
 use pol::{PolChainInputsData, PolWalletInputsData, PolWitnessInputsData};
 use services_utils::wait_until_services_are_ready;
 use tokio::sync::oneshot::channel;
 use tokio_stream::wrappers::BroadcastStream;
 
-use crate::generic_services::{CryptarchiaLeaderService, MembershipService};
+use crate::generic_services::{
+    CryptarchiaLeaderService, CryptarchiaService, MembershipService, WalletService,
+};
 
 // TODO: Replace this with the actual verifier once the verification inputs are
 // successfully fetched by the Blend service.
@@ -143,6 +146,8 @@ pub type BlendCoreService<SamplingAdapter, RuntimeServiceId> =
         BlendMembershipAdapter<RuntimeServiceId>,
         BlendProofsGenerator,
         BlendProofsVerifier,
+        NtpTimeBackend,
+        CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
         PolInfoProvider<SamplingAdapter>,
         RuntimeServiceId,
     >;
@@ -152,6 +157,8 @@ pub type BlendEdgeService<SamplingAdapter, RuntimeServiceId> = nomos_blend_servi
         <nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<RuntimeServiceId>>::BroadcastSettings,
         BlendMembershipAdapter<RuntimeServiceId>,
         BlendProofsGenerator,
+        NtpTimeBackend,
+        CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
         PolInfoProvider<SamplingAdapter>,
         RuntimeServiceId
     >;
@@ -170,8 +177,17 @@ impl<SamplingAdapter, RuntimeServiceId> PolInfoProviderTrait<RuntimeServiceId>
     for PolInfoProvider<SamplingAdapter>
 where
     SamplingAdapter: NetworkAdapter<RuntimeServiceId> + 'static,
-    RuntimeServiceId: AsServiceId<CryptarchiaLeaderService<SamplingAdapter, RuntimeServiceId>>
-        + Debug
+    RuntimeServiceId: AsServiceId<
+            CryptarchiaLeaderService<
+                CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
+                WalletService<
+                    CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
+                    RuntimeServiceId,
+                >,
+                SamplingAdapter,
+                RuntimeServiceId,
+            >,
+        > + Debug
         + Display
         + Send
         + Sync
@@ -182,11 +198,31 @@ where
     async fn subscribe(
         overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
     ) -> Option<Self::Stream> {
-        use groth16::Field as _;
-
-        wait_until_services_are_ready!(overwatch_handle, Some(Duration::from_secs(3)), CryptarchiaLeaderService<SamplingAdapter, RuntimeServiceId>).await.ok()?;
+        wait_until_services_are_ready!(
+            overwatch_handle,
+            Some(Duration::from_secs(3)),
+            CryptarchiaLeaderService<
+                CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
+                WalletService<
+                    CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
+                    RuntimeServiceId,
+                >,
+                SamplingAdapter,
+                RuntimeServiceId,
+            >
+        )
+        .await
+        .ok()?;
         let cryptarchia_service_relay = overwatch_handle
-            .relay::<CryptarchiaLeaderService<SamplingAdapter, RuntimeServiceId>>()
+            .relay::<CryptarchiaLeaderService<
+                CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
+                WalletService<
+                    CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
+                    RuntimeServiceId,
+                >,
+                SamplingAdapter,
+                RuntimeServiceId,
+            >>()
             .await
             .ok()?;
         let (sender, receiver) = channel();
@@ -197,44 +233,37 @@ where
         let pol_winning_slot_receiver = receiver.await.ok()?;
         Some(Box::new(
             BroadcastStream::new(pol_winning_slot_receiver).filter_map(|res| {
-                let Ok(private) = res else {
+                let Ok((leader_private, secret_key, epoch)) = res else {
                     return ready(None);
                 };
                 let PolWitnessInputsData {
-                    chain:
-                        PolChainInputsData {
-                            epoch_nonce,
-                            slot_number,
-                            ..
-                        },
                     wallet:
                         PolWalletInputsData {
-                            note_value,
-                            transaction_hash,
-                            output_number,
                             aged_path,
                             aged_selector,
+                            note_value,
+                            output_number,
                             slot_secret,
                             slot_secret_path,
                             starting_slot,
+                            transaction_hash,
                             ..
                         },
-                } = PolWitnessInputsData::from(private);
+                    chain: PolChainInputsData { slot_number, .. },
+                } = leader_private.input();
                 ready(Some(PolEpochInfo {
-                    epoch_nonce,
+                    epoch,
                     poq_private_inputs: ProofOfLeadershipQuotaInputs {
-                        aged_path,
-                        aged_selector,
-                        note_value,
-                        output_number,
-                        // TODO: Replace with actual value once `LeaderPrivate` will include the
-                        // note secret key.
-                        pol_secret_key: ZkHash::ZERO,
-                        slot: slot_number,
-                        slot_secret,
-                        slot_secret_path,
-                        starting_slot,
-                        transaction_hash,
+                        aged_path: aged_path.clone(),
+                        aged_selector: aged_selector.clone(),
+                        note_value: *note_value,
+                        output_number: *output_number,
+                        pol_secret_key: *secret_key.as_fr(),
+                        slot: *slot_number,
+                        slot_secret: *slot_secret,
+                        slot_secret_path: slot_secret_path.clone(),
+                        starting_slot: *starting_slot,
+                        transaction_hash: *transaction_hash,
                     },
                 }))
             }),

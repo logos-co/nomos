@@ -6,13 +6,13 @@
 /ledger/ @zeegomo @danielSanchezQ @davidrusu @bacv
 
 # Blend
-/nomos-blend/  @youngjoon-lee @ntn-x2
-/nomos-services/blend @youngjoon-lee @ntn-x2
+/nomos-blend/  @youngjoon-lee @ntn-x2 @danielSanchezQ
+/nomos-services/blend @youngjoon-lee @ntn-x2 @danielSanchezQ
 
 # DA
 /nomos-services/data-availability @danielSanchezQ @bacv @pradovic
 /nomos-da/ @danielSanchezQ @bacv @pradovic
 
 # SDP
-/nomos-sdp/ @bacv @pradovic
-/nomos-services/sdp @bacv @pradovic
+/nomos-sdp/ @bacv @pradovic @danielSanchezQ
+/nomos-services/sdp @bacv @pradovic @danielSanchezQ

@@ -13,6 +13,8 @@ mod errors {
     pub enum PreloadKeyError {
         #[expect(dead_code, reason = "No errors are expected in these tests.")]
         KeyError(KeyError),
+        UnsupportedKey,
+        MultiKeyRequiresSameVariant,
     }
 
     impl From<KeyError> for PreloadKeyError {
@@ -25,6 +27,8 @@ mod errors {
     pub enum PreloadBackendError {
         #[error("Key({0}) was not registered")]
         KeyNotRegistered(String),
+        #[error("Keys({0:?}) were not registered")]
+        KeysNotRegistered(Vec<String>),
         #[error("KeyType mismatch: {0:?} != {1:?}")]
         KeyTypeMismatch(keys::PreloadKeyKind, keys::PreloadKeyKind),
     }
@@ -85,6 +89,7 @@ mod encodings {
 mod keys {
     use std::fmt::{Debug, Formatter};
 
+    use nomos_utils::types::enumerated::is_same_variant;
     use serde::{Deserialize, Serialize};
     use zeroize::ZeroizeOnDrop;
 
@@ -127,6 +132,38 @@ mod keys {
             }
         }
 
+        fn sign_multiple(
+            keys: &[&Self],
+            payload: &Self::Payload,
+        ) -> Result<Self::Signature, Self::Error> {
+            let [head, tail @ ..] = keys else {
+                return Err(Self::Error::UnsupportedKey);
+            };
+
+            if !is_same_variant(keys) {
+                return Err(PreloadKeyError::MultiKeyRequiresSameVariant);
+            }
+
+            match (head, payload) {
+                (Self::Ed25519(key_head), PreloadEncoding::Bytes(bytes)) => {
+                    let key_tails = tail.iter().map(|item| {
+                        // Tail items are guaranteed to be of the same type as the head.
+                        match item {
+                            Self::Ed25519(key_item) => key_item,
+                        }
+                    });
+
+                    let keys = std::iter::once(key_head)
+                        .chain(key_tails)
+                        .collect::<Vec<_>>();
+
+                    Ed25519Key::sign_multiple(keys.as_slice(), bytes)
+                        .map(PreloadEncoding::from)
+                        .map_err(PreloadKeyError::KeyError)
+                }
+            }
+        }
+
         fn as_public_key(&self) -> Self::PublicKey {
             match self {
                 Self::Ed25519(key) => PreloadEncoding::from(key.as_public_key()),
@@ -155,6 +192,13 @@ mod keys {
         type Error = <PreloadKey as SecuredKey>::Error;
 
         fn sign(&self, _data: &Self::Payload) -> Result<Self::Signature, Self::Error> {
+            unimplemented!("Not needed.")
+        }
+
+        fn sign_multiple(
+            _keys: &[&Self],
+            _payload: &Self::Payload,
+        ) -> Result<Self::Signature, Self::Error> {
             unimplemented!("Not needed.")
         }
 
@@ -246,6 +290,29 @@ mod backends {
                 .ok_or(errors::PreloadBackendError::KeyNotRegistered(key_id))?
                 .sign(&payload)
                 .map_err(|error| DynError::from(format!("{error:?}")))
+        }
+
+        fn sign_multiple(
+            &self,
+            key_ids: Vec<Self::KeyId>,
+            _payload: <Self::Key as SecuredKey>::Payload,
+        ) -> Result<<Self::Key as SecuredKey>::Signature, Self::Error> {
+            let mut missing_key_ids = Vec::new();
+            let _keys = key_ids
+                .into_iter()
+                .filter_map(|key_id| {
+                    self.keys.get(&key_id).or_else(|| {
+                        missing_key_ids.push(key_id);
+                        None
+                    })
+                })
+                .collect::<Vec<_>>();
+
+            if !missing_key_ids.is_empty() {
+                return Err(errors::PreloadBackendError::KeysNotRegistered(missing_key_ids).into());
+            }
+
+            unimplemented!("Validate all keys are of the same type. Then sign.")
         }
 
         async fn execute(

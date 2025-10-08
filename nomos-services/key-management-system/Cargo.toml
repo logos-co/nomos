@@ -15,6 +15,7 @@ groth16                      = { workspace = true }
 key-management-system-macros = { workspace = true }
 log                          = "0.4.22"
 nomos-core                   = { workspace = true }
+nomos-utils                  = { workspace = true, features = ["types"] }
 overwatch                    = { workspace = true }
 serde                        = { default-features = false, features = ["derive"], version = "1" }
 thiserror                    = { default-features = false, version = "2" }

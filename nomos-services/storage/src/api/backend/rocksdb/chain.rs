@@ -1,9 +1,15 @@
-use std::{collections::BTreeMap, num::NonZeroUsize, ops::RangeInclusive};
+use std::{
+    collections::{BTreeMap, BTreeSet, HashMap},
+    num::NonZeroUsize,
+    ops::RangeInclusive,
+    pin::Pin,
+};
 
 use async_trait::async_trait;
 use bytes::Bytes;
 use cryptarchia_engine::Slot;
-use nomos_core::header::HeaderId;
+use futures::{Stream, StreamExt as _, stream};
+use nomos_core::{header::HeaderId, mantle::TxHash};
 use rocksdb::WriteBatch;
 
 use crate::{
@@ -20,6 +26,7 @@ const IMMUTABLE_BLOCK_PREFIX: &str = "immutable_block/slot/";
 impl StorageChainApi for RocksBackend {
     type Error = Error;
     type Block = Bytes;
+    type Tx = Bytes;
     async fn get_block(&mut self, header_id: HeaderId) -> Result<Option<Self::Block>, Self::Error> {
         let header_id: [u8; 32] = header_id.into();
         let key = Bytes::copy_from_slice(&header_id);
@@ -49,7 +56,7 @@ impl StorageChainApi for RocksBackend {
         &mut self,
         ids: BTreeMap<Slot, HeaderId>,
     ) -> Result<(), Self::Error> {
-        let txn = self.txn(move |db| {
+        let db_transaction = self.txn(move |db| {
             let mut batch = WriteBatch::default();
             for (slot, header_id) in ids {
                 // use be_bytes to keep prefix ordering
@@ -60,7 +67,7 @@ impl StorageChainApi for RocksBackend {
             db.write(batch)?;
             Ok(None)
         });
-        let _ = self.execute(txn).await?;
+        let _ = self.execute(db_transaction).await?;
 
         Ok(())
     }
@@ -99,10 +106,75 @@ impl StorageChainApi for RocksBackend {
             .map(|bytes| bytes.as_ref().try_into().map_err(Into::into))
             .collect::<Result<Vec<HeaderId>, Error>>()
     }
+
+    async fn store_transactions(
+        &mut self,
+        transactions: HashMap<TxHash, Self::Tx>,
+    ) -> Result<(), Self::Error> {
+        let batch_items: HashMap<Bytes, Bytes> = transactions
+            .into_iter()
+            .map(|(tx_hash, tx_bytes)| (tx_hash.into(), tx_bytes))
+            .collect();
+
+        self.bulk_store(batch_items).await.map_err(Into::into)
+    }
+
+    async fn get_transactions(
+        &mut self,
+        tx_hashes: BTreeSet<TxHash>,
+    ) -> Result<Pin<Box<dyn Stream<Item = Self::Tx> + Send>>, Self::Error> {
+        if tx_hashes.is_empty() {
+            return Ok(Box::pin(stream::empty()));
+        }
+
+        let stream = stream::iter(tx_hashes).filter_map({
+            let backend = self.clone();
+            move |tx_hash| {
+                let mut backend = backend.clone();
+                async move {
+                    let key: Bytes = tx_hash.into();
+                    match backend.load(&key).await {
+                        Ok(Some(tx)) => Some(tx),
+                        Ok(None) => {
+                            tracing::debug!("Transaction not found: {tx_hash:?}");
+                            None
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                "Database error loading transaction {tx_hash:?}: {e:?}",
+                            );
+                            None
+                        }
+                    }
+                }
+            }
+        });
+
+        Ok(Box::pin(stream))
+    }
+
+    async fn remove_transactions(&mut self, tx_hashes: &[TxHash]) -> Result<(), Self::Error> {
+        let keys: Vec<Bytes> = tx_hashes.iter().map(|&tx_hash| tx_hash.into()).collect();
+
+        let db_transaction = self.txn(move |db| {
+            let mut batch = WriteBatch::default();
+            for key in keys {
+                batch.delete(key);
+            }
+            db.write(batch)?;
+            Ok(None)
+        });
+
+        let _ = self.execute(db_transaction).await?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::iter;
+
+    use futures::StreamExt as _;
     use tempfile::TempDir;
 
     use super::*;
@@ -177,5 +249,39 @@ mod tests {
                 .unwrap(),
             vec![[1u8; 32].into()]
         );
+    }
+
+    #[tokio::test]
+    async fn test_transaction_basic_flow() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut backend = RocksBackend::new(RocksBackendSettings {
+            db_path: temp_dir.path().to_path_buf(),
+            read_only: false,
+            column_family: None,
+        })
+        .unwrap();
+
+        let tx_hash = TxHash::default();
+        let tx_bytes = Bytes::from(vec![0x01, 0x02, 0x03]);
+
+        let mut transactions = HashMap::new();
+        transactions.insert(tx_hash, tx_bytes.clone());
+        backend.store_transactions(transactions).await.unwrap();
+
+        let retrieved_stream = backend
+            .get_transactions(iter::once(tx_hash).collect())
+            .await
+            .unwrap();
+        let retrieved: Vec<_> = retrieved_stream.collect().await;
+        assert_eq!(retrieved, vec![tx_bytes]);
+
+        backend.remove_transactions(&[tx_hash]).await.unwrap();
+
+        let empty_stream = backend
+            .get_transactions(iter::once(tx_hash).collect())
+            .await
+            .unwrap();
+        let empty: Vec<_> = empty_stream.collect().await;
+        assert!(empty.is_empty());
     }
 }

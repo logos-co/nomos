@@ -123,6 +123,8 @@ fn build_key_enum_impl_secured_key(
 ) -> TokenStream {
     let key_enum_impl_secured_key_method_sign =
         build_key_enum_impl_secured_key_method_sign(key_enum_variants);
+    let key_enum_impl_secured_key_method_sign_multiple =
+        build_key_enum_impl_secured_key_method_sign_multiple(key_enum_variants);
     let key_enum_impl_secured_key_method_as_public_key =
         build_key_enum_impl_secured_key_method_as_public_key(key_enum_variants);
 
@@ -135,6 +137,7 @@ fn build_key_enum_impl_secured_key(
             type Error = crate::keys::errors::KeyError;
 
             #key_enum_impl_secured_key_method_sign
+            #key_enum_impl_secured_key_method_sign_multiple
             #key_enum_impl_secured_key_method_as_public_key
         }
     }
@@ -143,39 +146,86 @@ fn build_key_enum_impl_secured_key(
 fn build_key_enum_impl_secured_key_method_sign(
     key_enum_variants: &Punctuated<Variant, Comma>,
 ) -> TokenStream {
-    let match_block = if key_enum_variants.is_empty() {
-        quote! {
-            Err(Self::Error::NoKeysEnabled)
-        }
-    } else {
-        let sign_arms_ok = key_enum_variants.iter().map(|variant| {
-            let variant_ident = &variant.ident;
-            let variant_attributes_cfg: Vec<Attribute> =
-                get_cfg_attributes(&variant.attrs).collect();
+    let sign_arms_ok = key_enum_variants.iter().map(|variant| {
+        let variant_ident = &variant.ident;
+        let variant_attributes_cfg: Vec<Attribute> = get_cfg_attributes(&variant.attrs).collect();
 
-            quote! {
-                #(#variant_attributes_cfg)*
-                (Self::#variant_ident(key), Self::Payload::#variant_ident(payload)) => {
-                    key.sign(payload).map(Self::Signature::#variant_ident)
-                }
+        quote! {
+            #(#variant_attributes_cfg)*
+            (Self::#variant_ident(key), Self::Payload::#variant_ident(payload)) => {
+                key.sign(payload).map(Self::Signature::#variant_ident)
             }
-        });
+        }
+    });
 
-        let sign_arm_error = quote! {
-            (key, payload) => Err(crate::keys::errors::EncodingError::requires(key, payload).into()),
-        };
+    let sign_arm_error = quote! {
+        (key, payload) => Err(crate::keys::errors::EncodingError::requires(key, payload).into()),
+    };
 
-        quote! {
+    quote! {
+        fn sign(&self, payload: &Self::Payload) -> Result<Self::Signature, Self::Error> {
             match (self, payload) {
                 #(#sign_arms_ok)*
                 #sign_arm_error
             }
         }
+    }
+}
+
+fn build_key_enum_impl_secured_key_method_sign_multiple(
+    key_enum_variants: &Punctuated<Variant, Comma>,
+) -> TokenStream {
+    let unpack_keys = quote! {
+        let [head, tail @ ..] = keys else {
+            let error_message = String::from("Multi-key signature requires at least two keys.");
+            return Err(Self::Error::UnsupportedKey(error_message));
+        };
+    };
+
+    let verify_same_variant = quote! {
+        if !nomos_utils::types::enumerated::is_same_variant(keys) {
+            let error_message = String::from("Multi-key signature requires all keys to have the same variant.");
+            return Err(Self::Error::UnsupportedKey(error_message));
+        }
+    };
+
+    let sign_arms_ok = key_enum_variants.iter().map(|variant| {
+        let variant_ident = &variant.ident;
+        let variant_attributes_cfg: Vec<Attribute> = get_cfg_attributes(&variant.attrs).collect();
+        let wrapped_key = &get_wrapped_key_as_ref(variant).ty;
+
+        quote! {
+            #(#variant_attributes_cfg)*
+            (Self::#variant_ident(key_head), Self::Payload::#variant_ident(payload)) => {
+                let key_tails = tail.iter().map(|tail_item| {
+                    // Tail items are guaranteed to be of the same type as the head.
+                    match tail_item {
+                        Self::#variant_ident(key_tail_item) => key_tail_item,
+                        _ => unreachable!("Validated in `validate_variants`"),
+                    }
+                });
+
+                let keys = std::iter::once(key_head).chain(key_tails).collect::<Vec<_>>();
+
+                <#wrapped_key as crate::keys::secured_key::SecuredKey>::sign_multiple(
+                    keys.as_slice(), payload
+                ).map(Self::Signature::#variant_ident)
+            }
+        }
+    });
+
+    let sign_arm_error = quote! {
+        (key_head, payload) => Err(crate::keys::errors::EncodingError::requires(*key_head, payload).into()),
     };
 
     quote! {
-        fn sign(&self, payload: &Self::Payload) -> Result<Self::Signature, Self::Error> {
-            #match_block
+        fn sign_multiple(keys: &[&Self], payload: &Self::Payload) -> Result<Self::Signature, Self::Error> {
+            #unpack_keys
+            #verify_same_variant
+            match (head, payload) {
+                #(#sign_arms_ok)*
+                #sign_arm_error
+            }
         }
     }
 }

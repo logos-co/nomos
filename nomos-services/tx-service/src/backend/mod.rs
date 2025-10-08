@@ -1,28 +1,35 @@
-#[cfg(feature = "mock")]
-pub mod mockpool;
+pub mod pool;
 
+use std::{collections::BTreeSet, pin::Pin};
+
+use futures::Stream;
+pub use pool::{Mempool, PoolRecoveryState};
 use serde::{Deserialize, Serialize};
 
 #[derive(thiserror::Error, Debug)]
 pub enum MempoolError {
     #[error("Item already in mempool")]
     ExistingItem,
+    #[error("Storage operation failed: {0}")]
+    StorageError(String),
     #[error(transparent)]
     DynamicPoolError(#[from] overwatch::DynError),
 }
 
-pub trait Mempool {
-    type Settings;
-    type Item;
-    type Key;
-    type BlockId;
+#[async_trait::async_trait]
+pub trait MemPool {
+    type Settings: Send;
+    type Item: Send;
+    type Key: Send + Sync;
+    type BlockId: Send;
+    type Storage: Send;
 
-    /// Construct a new empty pool
-    fn new(settings: Self::Settings) -> Self;
+    /// Construct a new empty pool with storage
+    fn new(settings: Self::Settings, storage: Self::Storage) -> Self;
 
     /// Add a new item to the mempool, for example because we received it from
-    /// the network
-    fn add_item<I: Into<Self::Item>>(
+    /// the network. The item is stored in external storage.
+    async fn add_item<I: Into<Self::Item> + Send>(
         &mut self,
         key: Self::Key,
         item: I,
@@ -34,21 +41,23 @@ pub trait Mempool {
     /// The hint on the ancestor *can* be used by the implementation to display
     /// additional items that were not included up to that point if
     /// available.
-    fn view(&self, ancestor_hint: Self::BlockId) -> Box<dyn Iterator<Item = Self::Item> + Send>;
+    async fn view(
+        &self,
+        ancestor_hint: Self::BlockId,
+    ) -> Result<Pin<Box<dyn Stream<Item = Self::Item> + Send>>, MempoolError>;
+
+    /// Get multiple items by their keys from the mempool via storage lookup
+    async fn get_items_by_keys(
+        &self,
+        keys: BTreeSet<Self::Key>,
+    ) -> Result<Pin<Box<dyn Stream<Item = Self::Item> + Send>>, MempoolError>;
 
     /// Record that a set of items were included in a block
     fn mark_in_block(&mut self, items: &[Self::Key], block: Self::BlockId);
 
-    /// Returns all of the transactions for the block
-    #[cfg(test)]
-    fn block_items(
-        &self,
-        block: Self::BlockId,
-    ) -> Option<Box<dyn Iterator<Item = Self::Item> + Send>>;
-
     /// Signal that a set of transactions can't be possibly requested anymore
     /// and can be discarded.
-    fn prune(&mut self, items: &[Self::Key]);
+    async fn prune(&mut self, items: &[Self::Key]);
 
     fn pending_item_count(&self) -> usize;
     fn last_item_timestamp(&self) -> u64;
@@ -57,18 +66,6 @@ pub trait Mempool {
     // This is a best effort attempt, and implementations are free to return
     // `Unknown` for all of them.
     fn status(&self, items: &[Self::Key]) -> Vec<Status<Self::BlockId>>;
-}
-
-/// A mempool with recovery capabilities.
-pub trait RecoverableMempool: Mempool {
-    /// The state that is serialized and deserialized and from which the pool
-    /// state is recreated.
-    type RecoveryState;
-
-    /// Restore the mempool from the provided settings and state.
-    fn recover(settings: Self::Settings, state: Self::RecoveryState) -> Self;
-    /// Save some state for later recovery.
-    fn save(&self) -> Self::RecoveryState;
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -90,4 +87,19 @@ pub enum Status<BlockId> {
         )
     )]
     InBlock { block: BlockId },
+}
+
+/// Trait for mempools that can be recovered from saved state
+pub trait RecoverableMempool: MemPool {
+    type RecoveryState: Send + Sync + Serialize + for<'de> Deserialize<'de>;
+
+    /// Save current state for recovery
+    fn save(&self) -> Self::RecoveryState;
+
+    /// Recover from saved state with storage
+    fn recover(
+        settings: <Self as MemPool>::Settings,
+        state: Self::RecoveryState,
+        storage: <Self as MemPool>::Storage,
+    ) -> Self;
 }

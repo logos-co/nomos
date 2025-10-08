@@ -1,58 +1,68 @@
 use nomos_core::{block::Block, header::HeaderId};
 use overwatch::{
-    DynError, OpaqueServiceResourcesHandle,
+    DynError,
+    overwatch::OverwatchHandle,
     services::{AsServiceId, ServiceData, relay::OutboundRelay},
 };
 use tokio::sync::{broadcast, oneshot};
 
 use crate::{ConsensusMsg, CryptarchiaInfo, LibUpdate};
 
-pub trait CryptarchiaServiceData<Tx>:
-    ServiceData<Message = ConsensusMsg<Tx>> + Send + 'static
+pub trait CryptarchiaServiceData:
+    ServiceData<Message = ConsensusMsg<Self::Tx>> + Send + 'static
 {
+    type Tx;
 }
-impl<T, Tx> CryptarchiaServiceData<Tx> for T where
-    T: ServiceData<Message = ConsensusMsg<Tx>> + Send + 'static
+impl<T, Tx> CryptarchiaServiceData for T
+where
+    T: ServiceData<Message = ConsensusMsg<Tx>> + Send + 'static,
 {
+    type Tx = Tx;
 }
 
-pub struct CryptarchiaServiceApi<Cryptarchia, Tx, RuntimeServiceId>
+pub struct CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>
 where
-    Cryptarchia: CryptarchiaServiceData<Tx>,
+    Cryptarchia: CryptarchiaServiceData,
 {
     relay: OutboundRelay<Cryptarchia::Message>,
     _id: std::marker::PhantomData<RuntimeServiceId>,
-    _tx: std::marker::PhantomData<Tx>,
 }
 
-impl<Cryptarchia, Tx, RuntimeServiceId> CryptarchiaServiceApi<Cryptarchia, Tx, RuntimeServiceId>
+impl<Cryptarchia, RuntimeServiceId> Clone for CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>
 where
-    Tx: Send + Sync + 'static,
-    Cryptarchia: CryptarchiaServiceData<Tx>,
+    Cryptarchia: CryptarchiaServiceData,
+{
+    fn clone(&self) -> Self {
+        Self {
+            relay: self.relay.clone(),
+            _id: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<Cryptarchia, RuntimeServiceId> CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>
+where
+    Cryptarchia: CryptarchiaServiceData,
     RuntimeServiceId: AsServiceId<Cryptarchia> + std::fmt::Debug + std::fmt::Display + Sync,
 {
     /// Create a new API instance
-    pub async fn new<S>(
-        service_resources_handle: &OpaqueServiceResourcesHandle<S, RuntimeServiceId>,
-    ) -> Result<Self, DynError>
-    where
-        S: ServiceData,
-        S::Message: Send + Sync,
-        S::State: Send + Sync,
-        S::Settings: Send + Sync,
-    {
-        let relay = service_resources_handle
-            .overwatch_handle
-            .relay::<Cryptarchia>()
-            .await?;
+    pub async fn new(
+        overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
+    ) -> Result<Self, DynError> {
+        let relay = overwatch_handle.relay::<Cryptarchia>().await?;
 
         Ok(Self {
             relay,
             _id: std::marker::PhantomData,
-            _tx: std::marker::PhantomData,
         })
     }
+}
 
+impl<Cryptarchia, RuntimeServiceId> CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>
+where
+    Cryptarchia: CryptarchiaServiceData<Tx: Send + Sync>,
+    RuntimeServiceId: Sync,
+{
     /// Get the current consensus info including LIB, tip, slot, height, and
     /// mode
     pub async fn info(&self) -> Result<CryptarchiaInfo, DynError> {
@@ -149,7 +159,10 @@ where
     }
 
     /// Process a block through the chain service
-    pub async fn process_leader_block(&self, block: Block<Tx>) -> Result<(), DynError> {
+    pub async fn process_leader_block(
+        &self,
+        block: Block<Cryptarchia::Tx>,
+    ) -> Result<(), DynError> {
         let (tx, rx) = oneshot::channel();
 
         let boxed_block = Box::new(block);

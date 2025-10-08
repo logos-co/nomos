@@ -8,13 +8,18 @@ use nomos_da_sampling::backend::DaSamplingServiceBackend;
 use overwatch::services::{ServiceData, relay::OutboundRelay};
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
-use tx_service::{MempoolMsg, TxMempoolService, backend::RecoverableMempool};
+use tx_service::{
+    MempoolMsg, TxMempoolService,
+    backend::{MemPool, RecoverableMempool},
+    network::NetworkAdapter as MempoolNetworkAdapter,
+    storage::MempoolStorageAdapter,
+};
 
 use super::{DaMempoolAdapter, MempoolAdapterError};
 
 type MempoolRelay<Item, Key> = OutboundRelay<MempoolMsg<HeaderId, Item, Item, Key>>;
 
-pub struct KzgrsMempoolAdapter<
+pub struct KzgrsMempoolNetworkAdapter<
     MempoolNetAdapter,
     Mempool,
     SamplingBackend,
@@ -22,8 +27,8 @@ pub struct KzgrsMempoolAdapter<
     SamplingStorage,
     RuntimeServiceId,
 > where
-    Mempool: tx_service::backend::Mempool<BlockId = HeaderId>,
-    MempoolNetAdapter: tx_service::network::NetworkAdapter<RuntimeServiceId, Key = Mempool::Key>,
+    Mempool: MemPool<BlockId = HeaderId, Key = TxHash>,
+    MempoolNetAdapter: MempoolNetworkAdapter<RuntimeServiceId, Key = Mempool::Key>,
     Mempool::Item: Clone + Eq + Debug + 'static,
     Mempool::Key: Debug + 'static,
 {
@@ -46,7 +51,7 @@ impl<
     SamplingStorage,
     RuntimeServiceId,
 > DaMempoolAdapter
-    for KzgrsMempoolAdapter<
+    for KzgrsMempoolNetworkAdapter<
         MempoolNetAdapter,
         Mempool,
         SamplingBackend,
@@ -55,11 +60,15 @@ impl<
         RuntimeServiceId,
     >
 where
-    Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash, Item = SignedMantleTx>,
+    Mempool:
+        RecoverableMempool<BlockId = HeaderId, Key = TxHash, Item = SignedMantleTx> + Send + Sync,
     Mempool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    Mempool::Settings: Clone,
-    MempoolNetAdapter:
-        tx_service::network::NetworkAdapter<RuntimeServiceId, Key = Mempool::Key> + Sync,
+    Mempool::Settings: Clone + Send + Sync,
+    Mempool::Storage: MempoolStorageAdapter<RuntimeServiceId> + Send + Sync + Clone,
+    MempoolNetAdapter: MempoolNetworkAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>
+        + Send
+        + Sync,
+    MempoolNetAdapter::Settings: Send + Sync,
     SamplingBackend: DaSamplingServiceBackend + Send + Sync,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
@@ -74,6 +83,7 @@ where
         SamplingNetworkAdapter,
         SamplingStorage,
         Mempool,
+        Mempool::Storage,
         RuntimeServiceId,
     >;
     type Tx = SignedMantleTx;
