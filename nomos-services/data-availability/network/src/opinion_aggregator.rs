@@ -75,7 +75,7 @@ pub struct OpinionAggregator<Storage> {
     local_peer_id: PeerId,
     local_provider_id: ProviderId,
 
-    // store opinions to load after restart of the service mid session
+    // todo: store opinions to load after restart of the service mid session
     positive_opinions: HashMap<PeerId, u32>,
     negative_opinions: HashMap<PeerId, u32>,
     blacklist: HashSet<PeerId>,
