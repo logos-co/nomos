@@ -50,6 +50,7 @@ impl Membership {
     }
 
     fn is_empty(&self) -> bool {
+        // todo: < minimum operational nodes
         self.peers.is_empty()
     }
 
@@ -74,6 +75,7 @@ pub struct OpinionAggregator<Storage> {
     local_peer_id: PeerId,
     local_provider_id: ProviderId,
 
+    // store opinions to load after restart of the service mid session
     positive_opinions: HashMap<PeerId, u32>,
     negative_opinions: HashMap<PeerId, u32>,
     blacklist: HashSet<PeerId>,
@@ -208,7 +210,7 @@ where
             match self.storage.get(current_session_id).await {
                 Ok(Some(assignations)) => {
                     let membership = self
-                        .assignations_to_membership(assignations, current_session_id)
+                        .assignations_to_membership_fetch_mappings(assignations, current_session_id)
                         .await?;
                     self.current_membership = Some(membership);
                 }
@@ -225,7 +227,10 @@ where
                 match self.storage.get(prev_session_id).await {
                     Ok(Some(assignations)) => {
                         let membership = self
-                            .assignations_to_membership(assignations, prev_session_id)
+                            .assignations_to_membership_fetch_mappings(
+                                assignations,
+                                prev_session_id,
+                            )
                             .await?;
                         self.previous_membership = Some(membership);
                     }
@@ -301,7 +306,7 @@ where
         })
     }
 
-    async fn assignations_to_membership(
+    async fn assignations_to_membership_fetch_mappings(
         &self,
         assignations: Assignations<PeerId, SubnetworkId>,
         session_id: SessionNumber,
