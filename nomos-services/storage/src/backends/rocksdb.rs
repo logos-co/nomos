@@ -1,4 +1,4 @@
-use std::{collections::HashMap, num::NonZeroUsize, path::PathBuf, sync::Arc};
+use std::{num::NonZeroUsize, path::PathBuf, sync::Arc};
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -113,23 +113,27 @@ impl StorageBackend for RocksBackend {
         self.rocks.put(key, value)
     }
 
-    async fn bulk_store(
-        &mut self,
-        items: HashMap<Bytes, Bytes>,
-    ) -> Result<(), <Self as StorageBackend>::Error> {
-        if items.is_empty() {
-            return Ok(());
-        }
-
+    async fn bulk_store<I>(&mut self, items: I) -> Result<(), <Self as StorageBackend>::Error>
+    where
+        I: IntoIterator<Item = (Bytes, Bytes)> + Send + 'static,
+    {
         let rocks_db = Arc::clone(&self.rocks);
 
         // Use spawn_blocking to avoid blocking the async runtime during the bulk
         // operation
         tokio::task::spawn_blocking(move || {
             let mut batch = rocksdb::WriteBatch::default();
+            let mut has_items = false;
+
             for (key, value) in items {
                 batch.put(key, value);
+                has_items = true;
             }
+
+            if !has_items {
+                return Ok(());
+            }
+
             rocks_db.write(batch)
         })
         .await
