@@ -60,7 +60,7 @@ impl CoreProofsGenerator for RealCoreProofsGenerator {
             proof_generation_task_handle: None,
         };
 
-        self_instance.spawn_new_proof_generation_task();
+        self_instance.spawn_new_proof_generation_task(0);
 
         self_instance
     }
@@ -71,17 +71,17 @@ impl CoreProofsGenerator for RealCoreProofsGenerator {
         // On epoch rotation, we maintain the remaining session quota for core proofs
         // and we only update the PoL part of the public inputs, before regenerating all
         // proofs.
-        let settings = {
-            let mut settings = self.settings;
-            settings.public_inputs.leader = new_epoch_public;
-            // Tweak the stored settings to use the leftover quota.
-            settings.public_inputs.core.quota = self.remaining_quota;
-            settings
-        };
-        self.settings = settings;
+        self.settings.public_inputs.leader = new_epoch_public;
+        let next_key_index = self
+            .settings
+            .public_inputs
+            .core
+            .quota
+            .checked_sub(self.remaining_quota)
+            .expect("Remaining quota should never be larger than total quota.");
 
         // Compute new proofs with the updated settings.
-        self.spawn_new_proof_generation_task();
+        self.spawn_new_proof_generation_task(next_key_index);
     }
 
     async fn get_next_proof(&mut self) -> Option<BlendLayerProof> {
@@ -101,7 +101,7 @@ impl RealCoreProofsGenerator {
     // This will kill the previous running task, if any, since we swap the receiver
     // channel, hence the old task will fail to send new proofs and will abort on
     // its own.
-    fn spawn_new_proof_generation_task(&mut self) {
+    fn spawn_new_proof_generation_task(&mut self, starting_key_index: u64) {
         if self.remaining_quota == 0 {
             return;
         }
@@ -111,13 +111,14 @@ impl RealCoreProofsGenerator {
             proofs_sender,
             self.settings.public_inputs,
             self.private_inputs.clone(),
+            starting_key_index,
         ));
 
         self.proofs_receiver = proofs_receiver;
     }
 
     #[cfg(test)]
-    fn rotate_epoch_and_return_old_task(
+    pub(super) fn rotate_epoch_and_return_old_task(
         &mut self,
         new_epoch_public: LeaderInputs,
     ) -> Option<JoinHandle<()>> {
@@ -137,10 +138,16 @@ fn spawn_core_proof_generation_task(
     sender_channel: Sender<BlendLayerProof>,
     public_inputs: PoQVerificationInputsMinusSigningKey,
     private_inputs: ProofOfCoreQuotaInputs,
+    starting_key_index: u64,
 ) -> JoinHandle<()> {
     spawn_blocking(move || {
-        tracing::trace!(target: LOG_TARGET, "Generating {} core quota proofs", public_inputs.core.quota);
-        for key_index in 0..public_inputs.core.quota {
+        let proofs_to_generate = public_inputs
+            .core
+            .quota
+            .checked_sub(starting_key_index)
+            .expect("Starting key index should never be larger than core quota.");
+        tracing::trace!(target: LOG_TARGET, "Generating {proofs_to_generate} core quota proofs starting from index: {starting_key_index}.");
+        for key_index in starting_key_index..public_inputs.core.quota {
             let ephemeral_signing_key = Ed25519PrivateKey::generate();
             let Ok((proof_of_quota, secret_selection_randomness)) = ProofOfQuota::new(
                 &PublicInputs {
