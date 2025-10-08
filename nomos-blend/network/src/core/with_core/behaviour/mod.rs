@@ -888,10 +888,10 @@ where
 
     /// Instruct both current and past session proof verifier (if present) that
     /// the epoch transition period is over.
-    pub(crate) fn finish_epoch_transition(&mut self, old_epoch_nonce: ZkHash) {
-        self.poq_verifier.complete_epoch_transition(old_epoch_nonce);
+    pub(crate) fn finish_epoch_transition(&mut self) {
+        self.poq_verifier.complete_epoch_transition();
         if let Some(old_session) = &mut self.old_session {
-            old_session.finish_epoch_transition(old_epoch_nonce);
+            old_session.finish_epoch_transition();
         }
     }
 }

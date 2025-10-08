@@ -54,8 +54,8 @@ where
         self.poq_verifier.start_epoch_transition(new_pol_inputs);
     }
 
-    pub(super) fn finish_epoch_transition(&mut self, old_epoch_nonce: ZkHash) {
-        self.poq_verifier.complete_epoch_transition(old_epoch_nonce);
+    pub(super) fn finish_epoch_transition(&mut self) {
+        self.poq_verifier.complete_epoch_transition();
     }
 }
 
