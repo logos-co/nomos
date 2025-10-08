@@ -3,7 +3,6 @@ use nomos_blend_message::crypto::proofs::quota::inputs::prove::{
     private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs},
     public::LeaderInputs,
 };
-use nomos_core::crypto::ZkHash;
 
 use crate::message_blend::provers::{
     BlendLayerProof, ProofsGeneratorSettings,
@@ -29,16 +28,13 @@ pub trait CoreAndLeaderProofsGenerator: Sized {
     fn new(settings: ProofsGeneratorSettings, private_inputs: ProofOfCoreQuotaInputs) -> Self;
     /// Notify the proof generator that a new epoch has started mid-session.
     /// This will trigger core proof re-generation due to the change in the set
-    /// of public inputs.
+    /// of public inputs. Previously computed leader proofs are discarded and
+    /// re-computation is halted until the new epoch private info are provided.
     fn rotate_epoch(&mut self, new_epoch_public: LeaderInputs);
     /// Notify the proof generator about winning `PoL` slots and their related
     /// info. After this information is provided for a new epoch, the generator
     /// will be able to provide leadership `PoQ` variants.
-    fn set_epoch_private(
-        &mut self,
-        new_epoch_private: ProofOfLeadershipQuotaInputs,
-        epoch_nonce: ZkHash,
-    );
+    fn set_epoch_private(&mut self, new_epoch_private: ProofOfLeadershipQuotaInputs);
 
     /// Request a new core proof from the prover. It returns `None` if the
     /// maximum core quota has already been reached for this session.
@@ -48,19 +44,19 @@ pub trait CoreAndLeaderProofsGenerator: Sized {
     async fn get_next_leader_proof(&mut self) -> Option<BlendLayerProof>;
 }
 
-enum LeaderProofsGeneratorState {
-    NotSet,
-    PublicInputsSet(LeaderInputs),
-    SecretInputsSet {
-        inputs: ProofOfLeadershipQuotaInputs,
-        epoch_nonce: ZkHash,
-    },
-    Set(RealLeaderProofsGenerator),
-}
-
 pub struct RealCoreAndLeaderProofsGenerator {
     core_proofs_generator: RealCoreProofsGenerator,
-    leader_proofs_generator: LeaderProofsGeneratorState,
+    leader_proofs_generator: Option<RealLeaderProofsGenerator>,
+}
+
+impl RealCoreAndLeaderProofsGenerator {
+    #[cfg(test)]
+    pub const fn override_settings(&mut self, new_settings: ProofsGeneratorSettings) {
+        self.core_proofs_generator.settings = new_settings;
+        if let Some(leader_proofs_generator) = &mut self.leader_proofs_generator {
+            leader_proofs_generator.settings = new_settings;
+        }
+    }
 }
 
 #[async_trait]
@@ -68,94 +64,29 @@ impl CoreAndLeaderProofsGenerator for RealCoreAndLeaderProofsGenerator {
     fn new(settings: ProofsGeneratorSettings, private_inputs: ProofOfCoreQuotaInputs) -> Self {
         Self {
             core_proofs_generator: RealCoreProofsGenerator::new(settings, private_inputs),
-            leader_proofs_generator: LeaderProofsGeneratorState::NotSet,
+            leader_proofs_generator: None,
         }
     }
 
     fn rotate_epoch(&mut self, new_epoch_public: LeaderInputs) {
         tracing::info!(target: LOG_TARGET, "Rotating epoch...");
         self.core_proofs_generator.rotate_epoch(new_epoch_public);
-
-        // If no epoch info is set, an old epoch info is set without an actual proof
-        // generator, or a proof generator are already present, override with the new
-        // public epoch info. Else, if there are secret inputs set but no
-        // generator yet, create a new generator with the public + private info.
-        let leader_proofs_generator = match &mut self.leader_proofs_generator {
-            LeaderProofsGeneratorState::NotSet | LeaderProofsGeneratorState::PublicInputsSet(_) => {
-                tracing::trace!(target: LOG_TARGET, "Setting new public inputs for epoch rotation.");
-                LeaderProofsGeneratorState::PublicInputsSet(new_epoch_public)
-            }
-            LeaderProofsGeneratorState::Set(leader_proofs_generator) => {
-                tracing::trace!(target: LOG_TARGET, "Setting new public inputs for epoch rotation and discarding old proofs.");
-                leader_proofs_generator.terminate_proof_generation_task();
-                LeaderProofsGeneratorState::PublicInputsSet(new_epoch_public)
-            }
-            LeaderProofsGeneratorState::SecretInputsSet {
-                inputs,
-                epoch_nonce,
-            } if *epoch_nonce == new_epoch_public.pol_epoch_nonce => {
-                tracing::trace!(target: LOG_TARGET, "Setting secret PoL info for a new, transitioned epoch. New leader proofs will be generated.");
-                let leader_proofs_generator = RealLeaderProofsGenerator::new(
-                    self.core_proofs_generator.settings,
-                    inputs.clone(),
-                );
-                LeaderProofsGeneratorState::Set(leader_proofs_generator)
-            }
-            LeaderProofsGeneratorState::SecretInputsSet { .. } => {
-                LeaderProofsGeneratorState::PublicInputsSet(new_epoch_public)
-            }
-        };
-
-        self.leader_proofs_generator = leader_proofs_generator;
+        self.leader_proofs_generator = None;
     }
 
-    fn set_epoch_private(
-        &mut self,
-        new_epoch_private: ProofOfLeadershipQuotaInputs,
-        epoch_nonce: ZkHash,
-    ) {
+    fn set_epoch_private(&mut self, new_epoch_private: ProofOfLeadershipQuotaInputs) {
         tracing::info!(target: LOG_TARGET, "Setting epoch secret PoL info...");
-        // If no epoch info is set, an old secret epoch info is set without an actual
-        // proof generator, or a proof generator are already present, override
-        // with the new secret epoch info. Else, if there are public inputs set
-        // but no generator yet, create a new generator with the public +
-        // private info.
-        let leader_proofs_generator = match &mut self.leader_proofs_generator {
-            LeaderProofsGeneratorState::NotSet
-            | LeaderProofsGeneratorState::SecretInputsSet { .. } => {
-                tracing::trace!(target: LOG_TARGET, "Setting new secret inputs for epoch rotation.");
-                LeaderProofsGeneratorState::SecretInputsSet {
-                    epoch_nonce,
-                    inputs: new_epoch_private,
-                }
-            }
-            LeaderProofsGeneratorState::Set(leader_proofs_generator) => {
-                tracing::trace!(target: LOG_TARGET, "Setting new secret inputs for epoch rotation and discarding old proofs.");
-                leader_proofs_generator.terminate_proof_generation_task();
-                LeaderProofsGeneratorState::SecretInputsSet {
-                    epoch_nonce,
-                    inputs: new_epoch_private,
-                }
-            }
-            LeaderProofsGeneratorState::PublicInputsSet(public_inputs)
-                if epoch_nonce == public_inputs.pol_epoch_nonce =>
-            {
-                tracing::trace!(target: LOG_TARGET, "Setting public epoch info for a new, transitioned epoch. New leader proofs will be generated.");
-                let leader_proofs_generator = RealLeaderProofsGenerator::new(
-                    self.core_proofs_generator.settings,
-                    new_epoch_private,
-                );
-                LeaderProofsGeneratorState::Set(leader_proofs_generator)
-            }
-            LeaderProofsGeneratorState::PublicInputsSet(_) => {
-                LeaderProofsGeneratorState::SecretInputsSet {
-                    epoch_nonce,
-                    inputs: new_epoch_private,
-                }
-            }
-        };
-
-        self.leader_proofs_generator = leader_proofs_generator;
+        if let Some(leader_proofs_generator) = &mut self.leader_proofs_generator {
+            leader_proofs_generator.rotate_epoch(
+                self.core_proofs_generator.settings.public_inputs.leader,
+                new_epoch_private,
+            );
+        } else {
+            self.leader_proofs_generator = Some(RealLeaderProofsGenerator::new(
+                self.core_proofs_generator.settings,
+                new_epoch_private,
+            ));
+        }
     }
 
     async fn get_next_core_proof(&mut self) -> Option<BlendLayerProof> {
@@ -163,9 +94,7 @@ impl CoreAndLeaderProofsGenerator for RealCoreAndLeaderProofsGenerator {
     }
 
     async fn get_next_leader_proof(&mut self) -> Option<BlendLayerProof> {
-        let LeaderProofsGeneratorState::Set(leader_proofs_generator) =
-            &mut self.leader_proofs_generator
-        else {
+        let Some(leader_proofs_generator) = &mut self.leader_proofs_generator else {
             return None;
         };
         Some(leader_proofs_generator.get_next_proof().await)

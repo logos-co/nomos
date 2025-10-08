@@ -127,7 +127,7 @@ where
 #[cfg(test)]
 mod test {
     use groth16::Field as _;
-    use multiaddr::{Multiaddr, PeerId};
+    use libp2p::{Multiaddr, PeerId};
     use nomos_blend_message::crypto::{
         keys::Ed25519PrivateKey,
         proofs::{

@@ -16,7 +16,7 @@ use nomos_blend_message::crypto::{
 };
 use tokio::{
     sync::mpsc::{Receiver, Sender, channel},
-    task::spawn_blocking,
+    task::{JoinHandle, spawn_blocking},
 };
 
 use crate::message_blend::provers::{BlendLayerProof, ProofsGeneratorSettings};
@@ -45,6 +45,7 @@ pub struct RealCoreProofsGenerator {
     proofs_receiver: Receiver<BlendLayerProof>,
     pub(super) settings: ProofsGeneratorSettings,
     pub(super) private_inputs: ProofOfCoreQuotaInputs,
+    proof_generation_task_handle: Option<JoinHandle<()>>,
 }
 
 #[async_trait]
@@ -56,6 +57,7 @@ impl CoreProofsGenerator for RealCoreProofsGenerator {
             proofs_receiver: channel(1).1,
             remaining_quota: settings.public_inputs.core.quota,
             settings,
+            proof_generation_task_handle: None,
         };
 
         self_instance.spawn_new_proof_generation_task();
@@ -65,8 +67,6 @@ impl CoreProofsGenerator for RealCoreProofsGenerator {
 
     fn rotate_epoch(&mut self, new_epoch_public: LeaderInputs) {
         tracing::info!(target: LOG_TARGET, "Rotating epoch...");
-        // Kill previous blocking task before spawning a new one.
-        self.terminate_proof_generation_task();
 
         // On epoch rotation, we maintain the remaining session quota for core proofs
         // and we only update the PoL part of the public inputs, before regenerating all
@@ -91,21 +91,39 @@ impl CoreProofsGenerator for RealCoreProofsGenerator {
 }
 
 impl RealCoreProofsGenerator {
-    fn terminate_proof_generation_task(&mut self) {
+    fn terminate_proof_generation_task(&mut self) -> Option<JoinHandle<()>> {
         // Drop the previous channel so we don't get any of the old proofs anymore. This
         // will instruct the spawned task to abort as well.
         swap(&mut self.proofs_receiver, &mut channel(1).1);
+        self.proof_generation_task_handle.take()
     }
 
+    // This will kill the previous running task, if any, since we swap the receiver
+    // channel, hence the old task will fail to send new proofs and will abort on
+    // its own.
     fn spawn_new_proof_generation_task(&mut self) {
+        if self.remaining_quota == 0 {
+            return;
+        }
+
         let (proofs_sender, proofs_receiver) = channel(self.remaining_quota as usize);
-        spawn_core_proof_generation_task(
+        self.proof_generation_task_handle = Some(spawn_core_proof_generation_task(
             proofs_sender,
             self.settings.public_inputs,
             self.private_inputs.clone(),
-        );
+        ));
 
         self.proofs_receiver = proofs_receiver;
+    }
+
+    #[cfg(test)]
+    fn rotate_epoch_and_return_old_task(
+        &mut self,
+        new_epoch_public: LeaderInputs,
+    ) -> Option<JoinHandle<()>> {
+        let old_handle = self.terminate_proof_generation_task();
+        self.rotate_epoch(new_epoch_public);
+        old_handle
     }
 }
 
@@ -119,7 +137,7 @@ fn spawn_core_proof_generation_task(
     sender_channel: Sender<BlendLayerProof>,
     public_inputs: PoQVerificationInputsMinusSigningKey,
     private_inputs: ProofOfCoreQuotaInputs,
-) {
+) -> JoinHandle<()> {
     spawn_blocking(move || {
         tracing::trace!(target: LOG_TARGET, "Generating {} core quota proofs", public_inputs.core.quota);
         for key_index in 0..public_inputs.core.quota {
@@ -148,5 +166,5 @@ fn spawn_core_proof_generation_task(
                 return;
             }
         }
-    });
+    })
 }
