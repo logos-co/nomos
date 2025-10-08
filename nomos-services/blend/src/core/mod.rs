@@ -29,7 +29,7 @@ use nomos_blend_scheduling::{
     message_scheduler::{MessageScheduler, round_info::RoundInfo},
     session::{SessionEvent, UninitializedSessionEventStream},
 };
-use nomos_core::codec::SerdeOp;
+use nomos_core::codec::SerdeOp as _;
 use nomos_network::NetworkService;
 use nomos_time::{TimeService, TimeServiceMessage};
 use nomos_utils::blake_rng::BlakeRng;
@@ -491,10 +491,9 @@ async fn handle_local_data_message<
 {
     let ServiceMessage::Blend(message_payload) = local_data_message;
 
-    let serialized_data_message =
-        <NetworkMessage<BroadcastSettings> as SerdeOp>::serialize(&message_payload)
-            .expect("NetworkMessage should be able to be serialized")
-            .to_vec();
+    let serialized_data_message = NetworkMessage::<BroadcastSettings>::to_bytes(&message_payload)
+        .expect("NetworkMessage should be able to be serialized")
+        .to_vec();
 
     let Ok(wrapped_message) = cryptographic_processor
         .encapsulate_data_payload(&serialized_data_message)
@@ -541,9 +540,7 @@ fn handle_incoming_blend_message<
                 (PayloadType::Data, serialized_data_message) => {
                     tracing::debug!(target: LOG_TARGET, "Processing a fully decapsulated data message.");
                     if let Ok(deserialized_network_message) =
-                        <NetworkMessage<BroadcastSettings> as SerdeOp>::deserialize::<
-                            NetworkMessage<BroadcastSettings>,
-                        >(&serialized_data_message)
+                        NetworkMessage::<BroadcastSettings>::from_bytes(&serialized_data_message)
                     {
                         scheduler.schedule_message(deserialized_network_message.into());
                     } else {

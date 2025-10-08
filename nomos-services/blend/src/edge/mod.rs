@@ -19,7 +19,7 @@ use nomos_blend_scheduling::{
     message_blend::{ProofsGenerator as ProofsGeneratorTrait, SessionInfo as PoQSessionInfo},
     session::{SessionEvent, UninitializedSessionEventStream},
 };
-use nomos_core::codec::SerdeOp;
+use nomos_core::codec::SerdeOp as _;
 use nomos_time::{SlotTick, TimeService, TimeServiceMessage};
 use overwatch::{
     OpaqueServiceResourcesHandle,
@@ -246,7 +246,7 @@ where
         );
 
         let messages_to_blend = inbound_relay.map(|ServiceMessage::Blend(message)| {
-            <NetworkMessage<BroadcastSettings> as SerdeOp>::serialize(&message)
+            NetworkMessage::<BroadcastSettings>::to_bytes(&message)
                 .expect("NetworkMessage should be able to be serialized")
                 .to_vec()
         });

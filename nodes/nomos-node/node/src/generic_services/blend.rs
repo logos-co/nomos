@@ -114,11 +114,11 @@ fn loop_until_valid_proof(
     // be a minimum network size that is larger than 2.
     loop {
         let Ok(proof_of_quota) =
-            ProofOfQuota::deserialize(&random_sized_bytes::<{ size_of::<ProofOfQuota>() }>()[..])
+            ProofOfQuota::from_bytes(&random_sized_bytes::<{ size_of::<ProofOfQuota>() }>()[..])
         else {
             continue;
         };
-        let Ok(proof_of_selection) = ProofOfSelection::deserialize::<ProofOfSelection>(
+        let Ok(proof_of_selection) = ProofOfSelection::from_bytes(
             &random_sized_bytes::<{ size_of::<ProofOfSelection>() }>()[..],
         ) else {
             continue;
