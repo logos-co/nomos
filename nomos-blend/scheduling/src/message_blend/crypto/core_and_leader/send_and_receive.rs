@@ -77,9 +77,8 @@ impl<NodeId, ProofsGenerator, ProofsVerifier>
 where
     ProofsVerifier: ProofsVerifierTrait,
 {
-    pub fn complete_epoch_transition(&mut self, old_epoch_nonce: ZkHash) {
-        self.proofs_verifier
-            .complete_epoch_transition(old_epoch_nonce);
+    pub fn complete_epoch_transition(&mut self) {
+        self.proofs_verifier.complete_epoch_transition();
     }
 }
 
@@ -228,7 +227,7 @@ mod test {
             new_leader_inputs
         );
 
-        processor.complete_epoch_transition(ZkHash::ZERO);
+        processor.complete_epoch_transition();
 
         assert!(processor.proofs_verifier.1.is_none());
     }

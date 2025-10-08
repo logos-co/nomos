@@ -29,7 +29,7 @@ pub trait ProofsVerifier {
     fn start_epoch_transition(&mut self, new_pol_inputs: LeaderInputs);
     /// Complete the transition period and discard any messages generated in the
     /// previous epoch.
-    fn complete_epoch_transition(&mut self, old_epoch_nonce: ZkHash);
+    fn complete_epoch_transition(&mut self);
 
     /// Proof of Quota verification logic.
     fn verify_proof_of_quota(

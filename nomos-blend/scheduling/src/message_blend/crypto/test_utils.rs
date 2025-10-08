@@ -103,7 +103,7 @@ impl ProofsVerifier for TestEpochChangeProofsVerifier {
         self.0.leader = new_pol_inputs;
     }
 
-    fn complete_epoch_transition(&mut self, _old_epoch_nonce: ZkHash) {
+    fn complete_epoch_transition(&mut self) {
         self.1 = None;
     }
 
