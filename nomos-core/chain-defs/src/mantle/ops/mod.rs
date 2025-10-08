@@ -183,7 +183,7 @@ mod tests {
     use serde_json::json;
 
     use super::{Op, channel::blob::BlobOp};
-    use crate::codec::SerdeOp as _;
+    use crate::codec::{DeserializeOp as _, SerializeOp as _};
 
     // nothing special, just some valid bytes
     static VK: LazyLock<ed25519_dalek::VerifyingKey> = LazyLock::new(|| {

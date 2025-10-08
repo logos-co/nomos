@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use chain_common::NetworkMessage as ChainNetworkMessage;
 use nomos_blend_service::message::{NetworkMessage, ServiceMessage};
-use nomos_core::{block::Block, codec::SerdeOp as _};
+use nomos_core::{block::Block, codec::SerializeOp as _};
 use overwatch::services::{ServiceData, relay::OutboundRelay};
 use serde::Serialize;
 use tracing::error;

@@ -130,7 +130,7 @@ pub enum Error {
 
 #[test]
 fn test_serde() {
-    use crate::codec::SerdeOp as _;
+    use crate::codec::{DeserializeOp as _, SerializeOp as _};
     let header = HeaderId([0; 32]);
     assert_eq!(
         HeaderId::from_bytes(

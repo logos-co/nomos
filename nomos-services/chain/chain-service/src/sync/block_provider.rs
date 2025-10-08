@@ -558,7 +558,7 @@ mod tests {
     use futures::StreamExt as _;
     use groth16::Fr;
     use nomos_core::{
-        codec::SerdeOp as _,
+        codec::DeserializeOp as _,
         header::Header,
         mantle::{Note, SignedMantleTx, ledger::Utxo},
         proofs::leader_proof::{LeaderPrivate, LeaderPublic},

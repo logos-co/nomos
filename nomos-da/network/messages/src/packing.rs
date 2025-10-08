@@ -1,7 +1,7 @@
 use std::io;
 
 use futures::{AsyncReadExt, AsyncWriteExt};
-use nomos_core::codec::SerdeOp as _;
+use nomos_core::codec::{DeserializeOp as _, SerializeOp as _};
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::Result;

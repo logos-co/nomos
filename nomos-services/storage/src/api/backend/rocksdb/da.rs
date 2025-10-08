@@ -4,7 +4,12 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use libp2p_identity::PeerId;
 use multiaddr::Multiaddr;
-use nomos_core::{block::SessionNumber, da::BlobId, sdp::ProviderId};
+use nomos_core::{
+    block::SessionNumber,
+    codec::{DeserializeOp as _, SerializeOp as _},
+    da::BlobId,
+    sdp::ProviderId,
+};
 use rocksdb::Error;
 use tracing::{debug, error};
 
@@ -13,7 +18,7 @@ use crate::{
         backend::rocksdb::utils::{create_share_idx, key_bytes},
         da::StorageDaApi,
     },
-    backends::{SerdeOp as _, StorageBackend as _, rocksdb::RocksBackend},
+    backends::{StorageBackend as _, rocksdb::RocksBackend},
 };
 
 pub const DA_VID_KEY_PREFIX: &str = "da/vid/";

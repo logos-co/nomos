@@ -14,7 +14,7 @@ pub(super) mod proof {
 
 #[cfg(test)]
 mod tests {
-    use nomos_core::codec::SerdeOp as _;
+    use nomos_core::codec::{DeserializeOp as _, SerializeOp as _};
 
     use crate::crypto::proofs::quota::ProofOfQuota;
 

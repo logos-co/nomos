@@ -2,7 +2,10 @@ use ::serde::{Deserialize, Serialize, de::DeserializeOwned};
 use bytes::Bytes;
 use poseidon2::Fr;
 
-use crate::{codec::SerdeOp as _, header::Header};
+use crate::{
+    codec::{DeserializeOp as _, SerializeOp as _},
+    header::Header,
+};
 pub type TxHash = [u8; 32];
 pub type BlockNumber = u64;
 pub type SessionNumber = u64;

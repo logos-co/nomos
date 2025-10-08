@@ -12,7 +12,7 @@ use nomos_blend_message::{
     },
     input::EncapsulationInputs as InternalEncapsulationInputs,
 };
-use nomos_core::codec::SerdeOp as _;
+use nomos_core::codec::{DeserializeOp as _, SerializeOp as _};
 
 pub mod send;
 pub use self::send::SessionCryptographicProcessor as SenderOnlySessionCryptographicProcessor;

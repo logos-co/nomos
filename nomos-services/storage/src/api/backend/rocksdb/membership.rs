@@ -3,6 +3,7 @@ use std::collections::{BTreeSet, HashMap};
 use async_trait::async_trait;
 use nomos_core::{
     block::{BlockNumber, SessionNumber},
+    codec::{DeserializeOp as _, SerializeOp as _},
     sdp::{Locator, ProviderId, ServiceType},
 };
 use overwatch::DynError;
@@ -10,7 +11,7 @@ use tracing::{debug, error};
 
 use crate::{
     api::{backend::rocksdb::utils::key_bytes, membership::StorageMembershipApi},
-    backends::{SerdeOp as _, StorageBackend as _, rocksdb::RocksBackend},
+    backends::{StorageBackend as _, rocksdb::RocksBackend},
 };
 
 pub const MEMBERSHIP_ACTIVE_SESSION_PREFIX: &str = "membership/active/";

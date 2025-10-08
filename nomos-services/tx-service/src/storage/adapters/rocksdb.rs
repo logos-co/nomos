@@ -6,7 +6,10 @@ use std::{
 
 use async_trait::async_trait;
 use futures::{Stream, StreamExt as _};
-use nomos_core::{codec::SerdeOp as _, mantle::TxHash};
+use nomos_core::{
+    codec::{DeserializeOp as _, SerializeOp as _},
+    mantle::TxHash,
+};
 use nomos_storage::{StorageMsg, StorageService, backends::rocksdb::RocksBackend};
 use overwatch::services::{ServiceData, relay::OutboundRelay};
 use serde::{Deserialize, Serialize};

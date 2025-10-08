@@ -19,7 +19,7 @@ use nomos_blend_scheduling::{
     message_blend::{ProofsGenerator as ProofsGeneratorTrait, SessionInfo as PoQSessionInfo},
     session::{SessionEvent, UninitializedSessionEventStream},
 };
-use nomos_core::codec::SerdeOp as _;
+use nomos_core::codec::SerializeOp as _;
 use nomos_time::{SlotTick, TimeService, TimeServiceMessage};
 use overwatch::{
     OpaqueServiceResourcesHandle,

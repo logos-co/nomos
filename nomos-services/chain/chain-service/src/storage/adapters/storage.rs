@@ -9,7 +9,7 @@ use cryptarchia_engine::Slot;
 use futures::{Stream, StreamExt as _};
 use nomos_core::{
     block::Block,
-    codec::SerdeOp as _,
+    codec::{DeserializeOp as _, SerializeOp as _},
     header::HeaderId,
     mantle::{Transaction, TxHash},
 };

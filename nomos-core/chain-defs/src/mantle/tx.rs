@@ -7,7 +7,7 @@ use poseidon2::{Digest, ZkHash};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    codec::SerdeOp as _,
+    codec::SerializeOp as _,
     crypto::ZkHasher,
     mantle::{
         AuthenticatedMantleTx, Transaction, TransactionHasher,

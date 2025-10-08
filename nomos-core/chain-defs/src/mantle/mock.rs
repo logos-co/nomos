@@ -9,7 +9,7 @@ use num_bigint::BigUint;
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::{
-    codec::SerdeOp as _,
+    codec::SerializeOp as _,
     mantle::{Transaction, TransactionHasher, TxHash},
 };
 

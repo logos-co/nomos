@@ -6,7 +6,7 @@ use std::{
 
 use futures::StreamExt as _;
 use nomos_core::{
-    codec::SerdeOp as _,
+    codec::{DeserializeOp as _, SerializeOp as _},
     header::HeaderId,
     mantle::mock::{MockTransaction, MockTxId},
 };

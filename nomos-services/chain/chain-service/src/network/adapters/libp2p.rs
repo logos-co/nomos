@@ -3,7 +3,7 @@ use std::{collections::HashSet, fmt::Debug, hash::Hash, marker::PhantomData};
 use chain_common::NetworkMessage;
 use cryptarchia_sync::GetTipResponse;
 use futures::{FutureExt as _, TryStreamExt as _, future::select_ok};
-use nomos_core::{block::Block, codec::SerdeOp as _, header::HeaderId};
+use nomos_core::{block::Block, codec::DeserializeOp as _, header::HeaderId};
 use nomos_network::{
     NetworkService,
     backends::libp2p::{

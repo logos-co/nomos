@@ -1,5 +1,5 @@
 use futures::Stream;
-use nomos_core::codec::SerdeOp as _;
+use nomos_core::codec::{DeserializeOp as _, SerializeOp as _};
 use nomos_network::{
     NetworkService,
     backends::libp2p::{Command, Libp2p, Message, PubSubCommand, TopicHash},

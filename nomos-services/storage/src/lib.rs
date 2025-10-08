@@ -8,8 +8,9 @@ use std::{
 };
 
 use async_trait::async_trait;
-use backends::{SerdeOp as _, StorageBackend, StorageTransaction};
+use backends::{StorageBackend, StorageTransaction};
 use bytes::Bytes;
+use nomos_core::codec::{DeserializeOp as _, SerializeOp as _};
 use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
     services::{

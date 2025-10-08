@@ -1,12 +1,13 @@
 use bytes::Bytes;
 use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
 use nomos_core::{
+    codec::{DeserializeOp as _, SerializeOp as _},
     da::{BlobId, blob::Share},
     mantle::SignedMantleTx,
 };
 use nomos_storage::{
     api::da::{DaConverter, StorageDaApi},
-    backends::{SerdeOp as _, rocksdb::RocksBackend},
+    backends::rocksdb::RocksBackend,
 };
 
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]

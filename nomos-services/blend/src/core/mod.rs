@@ -29,7 +29,7 @@ use nomos_blend_scheduling::{
     message_scheduler::{MessageScheduler, round_info::RoundInfo},
     session::{SessionEvent, UninitializedSessionEventStream},
 };
-use nomos_core::codec::SerdeOp as _;
+use nomos_core::codec::{DeserializeOp as _, SerializeOp as _};
 use nomos_network::NetworkService;
 use nomos_time::{TimeService, TimeServiceMessage};
 use nomos_utils::blake_rng::BlakeRng;

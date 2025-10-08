@@ -23,7 +23,7 @@ use nomos_blend_service::{
     epoch_info::{PolEpochInfo, PolInfoProvider as PolInfoProviderTrait},
     membership::service::Adapter,
 };
-use nomos_core::{codec::SerdeOp as _, crypto::ZkHash};
+use nomos_core::{codec::DeserializeOp as _, crypto::ZkHash};
 use nomos_da_sampling::network::NetworkAdapter;
 use nomos_libp2p::PeerId;
 use nomos_time::backends::NtpTimeBackend;
