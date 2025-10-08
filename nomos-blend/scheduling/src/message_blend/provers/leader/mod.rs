@@ -79,12 +79,7 @@ impl LeaderProofsGenerator for RealLeaderProofsGenerator {
 
         // On epoch rotation, we maintain the current session info and only change the
         // PoL relevant parts.
-        let settings = {
-            let mut settings = self.settings;
-            settings.public_inputs.leader = new_epoch_public;
-            settings
-        };
-        self.settings = settings;
+        self.settings.public_inputs.leader = new_epoch_public;
 
         // Compute new proofs with the updated settings.
         self.spawn_new_proof_generation_task(new_private);
@@ -121,7 +116,7 @@ impl RealLeaderProofsGenerator {
     }
 
     #[cfg(test)]
-    fn rotate_epoch_and_return_old_task(
+    pub(super) fn rotate_epoch_and_return_old_task(
         &mut self,
         new_epoch_public: LeaderInputs,
         new_private: ProofOfLeadershipQuotaInputs,
