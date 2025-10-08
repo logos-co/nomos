@@ -882,7 +882,7 @@ mod tests {
             if let Some(ProviderResponse::Available(mut stream)) = rx.recv().await {
                 while let Some(res) = &stream.next().await {
                     if let Ok(bytes) = &res {
-                        let block = Block::<()>::from_bytes(bytes).unwrap();
+                        let block: Block<()> = Block::from_bytes(bytes).unwrap();
                         blocks.push(block.header().id());
                     } else {
                         break;

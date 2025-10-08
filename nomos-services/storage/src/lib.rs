@@ -89,7 +89,7 @@ impl<Backend: StorageBackend> StorageReplyReceiver<Option<Bytes>, Backend> {
             // in infallible.
             .map(|maybe_bytes| {
                 maybe_bytes.map(|bytes| {
-                    <Output>::from_bytes(&bytes).expect("Recovery from storage should never fail")
+                    Output::from_bytes(&bytes).expect("Recovery from storage should never fail")
                 })
             })
     }

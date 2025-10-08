@@ -540,7 +540,7 @@ fn handle_incoming_blend_message<
                 (PayloadType::Data, serialized_data_message) => {
                     tracing::debug!(target: LOG_TARGET, "Processing a fully decapsulated data message.");
                     if let Ok(deserialized_network_message) =
-                        NetworkMessage::<BroadcastSettings>::from_bytes(&serialized_data_message)
+                        NetworkMessage::from_bytes(&serialized_data_message)
                     {
                         scheduler.schedule_message(deserialized_network_message.into());
                     } else {

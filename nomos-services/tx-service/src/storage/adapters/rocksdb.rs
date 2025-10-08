@@ -90,7 +90,7 @@ where
         })?;
 
         let item_stream =
-            tx_stream.filter_map(|bytes| async move { <Self::Item>::from_bytes(&bytes).ok() });
+            tx_stream.filter_map(|bytes| async move { Self::Item::from_bytes(&bytes).ok() });
 
         Ok(Box::pin(item_stream))
     }

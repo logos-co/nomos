@@ -68,7 +68,7 @@ impl StorageDaApi for RocksBackend {
         let index_key = key_bytes(DA_BLOB_SHARES_INDEX_PREFIX, blob_id.as_ref());
         let indices_bytes = self.load(&index_key).await?;
         let indices = indices_bytes.map(|bytes| {
-            <HashSet<Self::ShareIndex>>::from_bytes(&bytes).unwrap_or_else(|e| {
+            HashSet::from_bytes(&bytes).unwrap_or_else(|e| {
                 error!("Failed to deserialize indices: {:?}", e);
                 HashSet::new()
             })
@@ -93,7 +93,7 @@ impl StorageDaApi for RocksBackend {
             }
 
             let mut indices = db.get(&index_key)?.map_or_else(HashSet::new, |bytes| {
-                <HashSet<[u8; 2]>>::from_bytes(&bytes).unwrap_or_else(|e| {
+                HashSet::from_bytes(&bytes).unwrap_or_else(|e| {
                     error!("Failed to deserialize indices: {:?}", e);
                     HashSet::new()
                 })
@@ -183,15 +183,13 @@ impl StorageDaApi for RocksBackend {
                 Ok(None)
             },
             |assignations_data| {
-                let assignations =
-                    <HashMap<Self::NetworkId, HashSet<Self::Id>>>::from_bytes(&assignations_data)
-                        .unwrap_or_else(|e| {
-                            error!(
-                                "Failed to deserialize assignations for session {}: {:?}",
-                                sesion_id, e
-                            );
-                            HashMap::new()
-                        });
+                let assignations = HashMap::from_bytes(&assignations_data).unwrap_or_else(|e| {
+                    error!(
+                        "Failed to deserialize assignations for session {}: {:?}",
+                        sesion_id, e
+                    );
+                    HashMap::new()
+                });
 
                 debug!("Successfully loaded assignations for session {}", sesion_id);
                 Ok(Some(assignations))
@@ -231,7 +229,7 @@ impl StorageDaApi for RocksBackend {
                 Ok(None)
             },
             |bytes| {
-                let address = <Multiaddr>::from_bytes(&bytes).unwrap_or_else(|e| {
+                let address = Multiaddr::from_bytes(&bytes).unwrap_or_else(|e| {
                     error!("Failed to deserialize address for {}: {:?}", id, e);
                     Multiaddr::empty()
                 });
