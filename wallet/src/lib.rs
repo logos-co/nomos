@@ -204,6 +204,11 @@ impl Wallet {
         &self.known_keys
     }
 
+    #[must_use]
+    pub fn has_processed_block(&self, block_id: HeaderId) -> bool {
+        self.wallet_states.contains_key(&block_id)
+    }
+
     pub fn apply_block(&mut self, block: &WalletBlock) -> Result<(), WalletError> {
         if self.wallet_states.contains_key(&block.id) {
             // Already processed this block
@@ -230,9 +235,10 @@ impl Wallet {
         Ok(self.wallet_state_at(tip)?.utxos_for_amount(amount, pks))
     }
 
-    pub fn wallet_state_at(&self, tip: HeaderId) -> Result<&WalletState, WalletError> {
+    pub fn wallet_state_at(&self, tip: HeaderId) -> Result<WalletState, WalletError> {
         self.wallet_states
             .get(&tip)
+            .cloned()
             .ok_or(WalletError::UnknownBlock)
     }
 

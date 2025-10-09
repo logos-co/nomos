@@ -6,7 +6,7 @@ use std::{
 
 use nomos_core::sdp::{Locator, ServiceType};
 use nomos_libp2p::{Multiaddr, ed25519, multiaddr};
-use nomos_membership::{
+use nomos_membership_service::{
     MembershipServiceSettings, backends::membership::MembershipBackendSettings,
 };
 use nomos_tracing_service::{LoggerLayer, MetricsLayer, TracingLayer, TracingSettings};

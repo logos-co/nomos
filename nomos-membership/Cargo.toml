@@ -1,0 +1,20 @@
+[package]
+edition = { workspace = true }
+license = { workspace = true }
+name    = "nomos-membership"
+version = "0.1.0"
+
+[lints]
+workspace = true
+
+[dependencies]
+async-trait = { default-features = false, version = "0.1" }
+nomos-core  = { workspace = true }
+serde       = { default-features = false, features = ["derive"], version = "1" }
+thiserror   = "1"
+tracing     = { workspace = true }
+
+[dev-dependencies]
+ed25519-dalek = { default-features = false, version = "2.0.0" }
+multiaddr     = { default-features = false, version = "0.18" }
+tokio         = { features = ["macros", "test-util"], version = "1" }

@@ -11,6 +11,7 @@ workspace = true
 async-trait        = "0.1"
 bytes              = { workspace = true, features = ["serde"] }
 cryptarchia-engine = { workspace = true }
+futures            = { default-features = false, version = "0.3" }
 libp2p-identity    = { default-features = false, features = ["serde"], version = "0.2" }
 multiaddr          = { default-features = false, version = "0.18" }
 nomos-core         = { workspace = true }

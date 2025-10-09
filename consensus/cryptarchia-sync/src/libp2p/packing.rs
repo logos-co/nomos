@@ -40,7 +40,7 @@ where
             })?;
 
     writer
-        .write_all(&length_prefix.to_be_bytes())
+        .write_all(&length_prefix.to_le_bytes())
         .await
         .map_err(Into::<PackingError>::into)?;
 
@@ -53,7 +53,7 @@ where
 {
     let mut length_prefix = [0u8; MAX_MSG_LEN_BYTES];
     reader.read_exact(&mut length_prefix).await?;
-    Ok(LenType::from_be_bytes(length_prefix) as usize)
+    Ok(LenType::from_le_bytes(length_prefix) as usize)
 }
 
 pub async fn unpack_from_reader<Message, R>(reader: &mut R) -> Result<Message>

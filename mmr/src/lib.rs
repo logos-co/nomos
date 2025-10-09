@@ -187,7 +187,7 @@ mod test {
         assert!(b.len() <= 32);
         let len = b.len().min(32);
         repr[..len].copy_from_slice(&b[..len]);
-        Fr::from_be_bytes_mod_order(&repr)
+        Fr::from_le_bytes_mod_order(&repr)
     }
 
     pub fn leaf(data: &[u8]) -> Fr {

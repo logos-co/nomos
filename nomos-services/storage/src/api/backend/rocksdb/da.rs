@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use libp2p_identity::PeerId;
 use multiaddr::Multiaddr;
-use nomos_core::{block::SessionNumber, da::BlobId};
+use nomos_core::{block::SessionNumber, da::BlobId, sdp::ProviderId};
 use rocksdb::Error;
 use tracing::{debug, error};
 
@@ -23,6 +23,7 @@ pub const DA_SHARE_PREFIX: &str = concat!("da/verified/", "bl");
 pub const DA_ASSIGNATIONS_PREFIX: &str = concat!("da/membership/", "as");
 pub const DA_ADDRESSBOOK_PREFIX: &str = concat!("da/membership/", "ab");
 pub const DA_TX_PREFIX: &str = concat!("da/verified/", "tx");
+pub const DA_PROVIDER_MAPPINGS_PREFIX: &str = concat!("da/membership/", "pm");
 
 #[async_trait]
 impl StorageDaApi for RocksBackend {
@@ -147,10 +148,11 @@ impl StorageDaApi for RocksBackend {
         sesion_id: SessionNumber,
         assignations: HashMap<Self::NetworkId, HashSet<Self::Id>>,
     ) -> Result<(), Self::Error> {
-        let session_bytes = sesion_id.to_be_bytes();
+        let session_bytes = sesion_id.to_le_bytes();
         let assignations_key = key_bytes(DA_ASSIGNATIONS_PREFIX, session_bytes);
         let serialized_assignations =
-            <()>::serialize(&assignations).expect("Serialization of HashMap should not fail");
+            <HashMap<Self::NetworkId, HashSet<Self::Id>>>::serialize(&assignations)
+                .expect("Serialization of HashMap should not fail");
 
         match self.store(assignations_key, serialized_assignations).await {
             Ok(()) => {
@@ -171,7 +173,7 @@ impl StorageDaApi for RocksBackend {
         &mut self,
         sesion_id: SessionNumber,
     ) -> Result<Option<HashMap<Self::NetworkId, HashSet<Self::Id>>>, Self::Error> {
-        let session_bytes = sesion_id.to_be_bytes();
+        let session_bytes = sesion_id.to_le_bytes();
         let assignations_key = key_bytes(DA_ASSIGNATIONS_PREFIX, session_bytes);
         let assignations_bytes = self.load(&assignations_key).await?;
 
@@ -199,6 +201,47 @@ impl StorageDaApi for RocksBackend {
         )
     }
 
+    async fn store_providerid_mappings(
+        &mut self,
+        mappings: HashMap<Self::Id, ProviderId>,
+    ) -> Result<(), Self::Error> {
+        let mut key_provider_map = HashMap::new();
+
+        for (peer_id, provider_id) in mappings {
+            let provider_key = key_bytes(DA_PROVIDER_MAPPINGS_PREFIX, peer_id.to_bytes());
+            let serialized_provider_id = <ProviderId>::serialize(&provider_id)
+                .expect("Serialization of ProviderId should not fail");
+            key_provider_map.insert(provider_key, serialized_provider_id);
+        }
+
+        self.bulk_store(key_provider_map).await.map_err(|e| {
+            error!("Failed to store provider mappings: {:?}", e);
+            e
+        })?;
+
+        debug!("Successfully stored provider mappings");
+        Ok(())
+    }
+
+    async fn get_provider_id(&mut self, id: Self::Id) -> Result<Option<ProviderId>, Self::Error> {
+        let provider_key = key_bytes(DA_PROVIDER_MAPPINGS_PREFIX, id.to_bytes());
+        let provider_bytes = self.load(&provider_key).await?;
+
+        provider_bytes.map_or_else(
+            || {
+                debug!("No ProviderId found for {}", id);
+                Ok(None)
+            },
+            |bytes| match <ProviderId as SerdeOp>::deserialize(&bytes) {
+                Ok(provider_id) => Ok(Some(provider_id)),
+                Err(e) => {
+                    error!("Failed to deserialize ProviderId for {}: {:?}", id, e);
+                    Ok(None)
+                }
+            },
+        )
+    }
+
     async fn store_addresses(
         &mut self,
         ids: HashMap<Self::Id, Multiaddr>,
@@ -208,7 +251,7 @@ impl StorageDaApi for RocksBackend {
         for (id, addr) in ids {
             let addressbook_key = key_bytes(DA_ADDRESSBOOK_PREFIX, id.to_bytes());
             let serialized_address =
-                <()>::serialize(&addr).expect("Serialization of Multiaddr should not fail");
+                <Multiaddr>::serialize(&addr).expect("Serialization of Multiaddr should not fail");
             key_address_map.insert(addressbook_key, serialized_address);
         }
 
@@ -247,10 +290,10 @@ impl StorageDaApi for RocksBackend {
     ) -> Result<(), Self::Error> {
         let tx_key = key_bytes(DA_TX_PREFIX, blob_id.as_ref());
         let serialized_tx_body =
-            <()>::serialize(&tx).expect("Serialization of transaction should not fail");
+            <Self::Tx>::serialize(&tx).expect("Serialization of transaction should not fail");
 
         let mut serialized_tx = Vec::with_capacity(2 + serialized_tx_body.len());
-        serialized_tx.extend_from_slice(&assignations.to_be_bytes());
+        serialized_tx.extend_from_slice(&assignations.to_le_bytes());
         serialized_tx.extend_from_slice(&serialized_tx_body);
 
         self.store(tx_key, serialized_tx.into()).await
@@ -276,7 +319,7 @@ impl StorageDaApi for RocksBackend {
             }
         };
 
-        let assignations = u16::from_be_bytes(assignations_arr);
+        let assignations = u16::from_le_bytes(assignations_arr);
 
         let tx = match <Bytes as SerdeOp>::deserialize(&tx_bytes) {
             Ok(tx) => Some((assignations, tx)),

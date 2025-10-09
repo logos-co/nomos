@@ -1,6 +1,6 @@
 use groth16::Fr;
 use poseidon2::Digest;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     crypto::ZkHasher,
@@ -117,6 +117,31 @@ impl GasCost for GenesisTx {
     }
 }
 
+impl<'de> Deserialize<'de> for GenesisTx {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        // Deserialize as an unverified SignedMantleTx since genesis transactions
+        // don't require signature verification for the genesis params inscription
+        #[derive(Deserialize)]
+        struct GenesisTxHelper {
+            mantle_tx: MantleTx,
+            ops_proofs: Vec<Option<OpProof>>,
+            ledger_tx_proof: crate::proofs::zksig::DummyZkSignature,
+        }
+
+        let helper = GenesisTxHelper::deserialize(deserializer)?;
+        let signed_tx = SignedMantleTx::new_unverified(
+            helper.mantle_tx,
+            helper.ops_proofs,
+            helper.ledger_tx_proof,
+        );
+
+        Self::from_tx(signed_tx).map_err(serde::de::Error::custom)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use ed25519_dalek::VerifyingKey;
@@ -173,6 +198,7 @@ mod tests {
     }
 
     // Helper function to create a basic signed transaction
+    // Genesis transactions don't need verified proofs for Blob/Inscription ops
     fn create_signed_tx(ops: Vec<Op>) -> SignedMantleTx {
         let ledger_tx = LedgerTx::new(vec![], vec![create_test_note(1000)]);
         let ops_proofs_len = ops.len();
@@ -183,14 +209,14 @@ mod tests {
             storage_gas_price: 0,
         };
 
-        SignedMantleTx {
+        SignedMantleTx::new_unverified(
             mantle_tx,
-            ops_proofs: vec![None; ops_proofs_len],
-            ledger_tx_proof: DummyZkSignature::prove(ZkSignaturePublic {
+            vec![None; ops_proofs_len],
+            DummyZkSignature::prove(ZkSignaturePublic {
                 msg_hash: Fr::from(0u64),
                 pks: vec![],
             }),
-        }
+        )
     }
 
     #[test]

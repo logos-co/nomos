@@ -6,6 +6,7 @@ version = "0.1.0"
 
 [dependencies]
 async-trait = "0.1"
+bytes       = "1.0"
 futures     = { default-features = false, version = "0.3" }
 serde       = { features = ["derive"], version = "1.0" }
 thiserror   = "1.0"

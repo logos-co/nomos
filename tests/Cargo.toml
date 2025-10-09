@@ -36,7 +36,7 @@ nomos-executor           = { default-features = false, features = ["testing", "t
 nomos-http-api-common    = { workspace = true }
 nomos-ledger             = { features = ["serde"], workspace = true }
 nomos-libp2p             = { workspace = true }
-nomos-membership         = { workspace = true }
+nomos-membership-service = { workspace = true }
 nomos-network            = { features = ["libp2p"], workspace = true }
 nomos-node               = { default-features = false, features = ["testing"], workspace = true }
 nomos-time               = { workspace = true }

@@ -7,6 +7,19 @@ pub struct ZkSignVerifierInputs {
 }
 
 impl ZkSignVerifierInputs {
+    #[must_use]
+    pub fn new_from_msg_and_pks(msg: Fr, pks: &[Fr; 32]) -> Self {
+        Self {
+            msg: msg.into(),
+            public_keys: pks
+                .iter()
+                .map(|pk| (*pk).into())
+                .collect::<Vec<_>>()
+                .try_into()
+                .expect("Size is already check from the function signature"),
+        }
+    }
+
     pub fn as_inputs(&self) -> [Fr; 33] {
         let mut buff = [Fr::ZERO; 33];
         buff[..32].copy_from_slice(self.public_keys.map(Groth16Input::into_inner).as_ref());

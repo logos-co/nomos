@@ -1,10 +1,13 @@
 pub mod adapters;
 
-use std::collections::BTreeMap;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    pin::Pin,
+};
 
 use cryptarchia_engine::Slot;
-use futures::future::join_all;
-use nomos_core::header::HeaderId;
+use futures::{Stream, future::join_all};
+use nomos_core::{header::HeaderId, mantle::TxHash};
 use nomos_storage::{StorageService, backends::StorageBackend};
 use overwatch::services::{ServiceData, relay::OutboundRelay};
 
@@ -12,6 +15,7 @@ use overwatch::services::{ServiceData, relay::OutboundRelay};
 pub trait StorageAdapter<RuntimeServiceId> {
     type Backend: StorageBackend + Send + Sync + 'static;
     type Block: Send;
+    type Tx: Send;
 
     async fn new(
         network_relay: OutboundRelay<
@@ -66,4 +70,16 @@ pub trait StorageAdapter<RuntimeServiceId> {
         &self,
         blocks: BTreeMap<Slot, HeaderId>,
     ) -> Result<(), overwatch::DynError>;
+
+    async fn store_transactions(
+        &self,
+        transactions: Vec<Self::Tx>,
+    ) -> Result<(), overwatch::DynError>;
+
+    async fn get_transactions(
+        &self,
+        tx_hashes: BTreeSet<TxHash>,
+    ) -> Result<Pin<Box<dyn Stream<Item = Self::Tx> + Send>>, overwatch::DynError>;
+
+    async fn remove_transactions(&self, tx_hashes: &[TxHash]) -> Result<(), overwatch::DynError>;
 }

@@ -38,7 +38,7 @@ nomos-da-sampling        = { features = ["libp2p", "rocksdb-backend"], workspace
 nomos-da-verifier        = { features = ["libp2p"], workspace = true }
 nomos-http-api-common    = { workspace = true, features = ["profiling"] }
 nomos-libp2p             = { workspace = true }
-nomos-membership         = { workspace = true }
+nomos-membership-service = { workspace = true }
 nomos-network            = { workspace = true }
 nomos-sdp                = { workspace = true }
 nomos-storage            = { workspace = true }
@@ -49,14 +49,16 @@ nomos-tracing-service    = { workspace = true }
 nomos-wallet             = { workspace = true }
 num-bigint               = { version = "0.4", default-features = false }
 overwatch                = { workspace = true }
+pol                      = { workspace = true }
 serde                    = { default-features = false, version = "1" }
 serde_json               = { workspace = true }
 serde_yaml               = { workspace = true }
 services-utils           = { workspace = true }
 subnetworks-assignations = { workspace = true }
 tokio                    = "1"
+tokio-stream             = { default-features = false, version = "0.1" }
 tracing                  = { workspace = true }
-tx-service               = { workspace = true }
+tx-service               = { features = ["rocksdb-backend"], workspace = true }
 
 # openapi related dependencies
 utoipa            = { workspace = true }

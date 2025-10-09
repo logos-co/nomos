@@ -614,7 +614,7 @@ pub mod tests {
         t.hash(&mut s);
         let hash = s.finish();
         let mut res = [0; 32];
-        res[..8].copy_from_slice(&hash.to_be_bytes());
+        res[..8].copy_from_slice(&hash.to_le_bytes());
         res
     }
 

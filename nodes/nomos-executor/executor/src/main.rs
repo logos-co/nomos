@@ -99,6 +99,7 @@ async fn main() -> Result<()> {
             system_sig: (),
             sdp: (),
             membership: config.membership,
+            wallet: config.wallet,
             #[cfg(feature = "testing")]
             testing_http: config.testing_http,
         },

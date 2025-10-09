@@ -14,13 +14,12 @@ chain-service       = { workspace = true }
 cryptarchia-engine  = { workspace = true }
 ed25519-dalek       = { default-features = false, features = ["serde"], version = "2.2.0" }
 futures             = { default-features = false, version = "0.3" }
-groth16             = { workspace = true }
 nomos-blend-service = { workspace = true }
 nomos-core          = { workspace = true }
 nomos-da-sampling   = { workspace = true }
 nomos-ledger        = { features = ["serde"], workspace = true }
 nomos-time          = { workspace = true }
-num-bigint          = { version = "0.4", default-features = false }
+nomos-wallet        = { workspace = true }
 overwatch           = { workspace = true }
 serde               = { default-features = false, version = "1" }
 services-utils      = { workspace = true }
