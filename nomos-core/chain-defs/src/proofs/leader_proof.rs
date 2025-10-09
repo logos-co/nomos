@@ -50,6 +50,18 @@ impl Groth16LeaderProof {
         })
     }
 
+    #[must_use]
+    pub fn genesis() -> Self {
+        Self {
+            proof: pol::PoLProof::from_bytes(&[0u8; 128]),
+            entropy_contribution: Fr::ZERO,
+            leader_key: ed25519_dalek::VerifyingKey::from_bytes(&[0u8; 32]).unwrap(),
+            voucher_cm: VoucherCm::default(),
+            #[cfg(feature = "pol-dev-mode")]
+            public: LeaderPublic::new(Fr::ZERO, Fr::ZERO, Fr::ZERO, 0, 0),
+        }
+    }
+
     fn generate_proof(private: LeaderPrivate) -> Result<(pol::PoLProof, Fr), Error> {
         if cfg!(feature = "pol-dev-mode") && std::env::var(POL_PROOF_DEV_MODE).is_ok() {
             tracing::warn!(
@@ -77,6 +89,8 @@ impl Groth16LeaderProof {
 pub trait LeaderProof {
     /// Verify the proof against the public inputs.
     fn verify(&self, public_inputs: &LeaderPublic) -> bool;
+
+    fn verify_genesis(&self) -> bool;
 
     /// Get the entropy used in the proof.
     fn entropy(&self) -> Fr;
@@ -110,6 +124,13 @@ impl LeaderProof for Groth16LeaderProof {
             ),
         )
         .is_ok()
+    }
+
+    fn verify_genesis(&self) -> bool {
+        self.proof == pol::PoLProof::from_bytes(&[0u8; 128])
+            && self.entropy_contribution == Fr::ZERO
+            && self.leader_key == ed25519_dalek::VerifyingKey::from_bytes(&[0u8; 32]).unwrap()
+            && self.voucher_cm == VoucherCm::default()
     }
 
     fn entropy(&self) -> Fr {

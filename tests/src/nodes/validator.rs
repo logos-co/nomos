@@ -10,10 +10,13 @@ use std::{
 
 use broadcast_service::BlockInfo;
 use chain_leader::LeaderSettings;
-use chain_service::{CryptarchiaInfo, CryptarchiaSettings, OrphanConfig, SyncConfig};
+use chain_service::{
+    CryptarchiaInfo, CryptarchiaSettings, OrphanConfig, StartingState, SyncConfig,
+};
 use common_http_client::CommonHttpClient;
 use cryptarchia_engine::time::SlotConfig;
 use futures::Stream;
+use groth16::Field as _;
 use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
 use nomos_api::http::membership::MembershipUpdateRequest;
 use nomos_blend_scheduling::message_blend::SessionCryptographicProcessorSettings;
@@ -450,8 +453,15 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
         }),
         cryptarchia: CryptarchiaSettings {
             config: config.consensus_config.ledger_config.clone(),
-            genesis_id: HeaderId::from([0; 32]),
-            genesis_state: config.consensus_config.genesis_state,
+            starting_state: {
+                let genesis_tx = config.consensus_config.genesis_tx;
+                let genesis_nonce = groth16::Fr::ZERO;
+
+                StartingState::Genesis {
+                    genesis_tx,
+                    genesis_nonce,
+                }
+            },
             network_adapter_settings:
                 chain_service::network::adapters::libp2p::LibP2pAdapterSettings {
                     topic: String::from(nomos_node::CONSENSUS_TOPIC),

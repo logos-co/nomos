@@ -381,6 +381,10 @@ pub mod tests {
             &self.public == public_inputs
         }
 
+        fn verify_genesis(&self) -> bool {
+            true
+        }
+
         fn entropy(&self) -> Fr {
             // For dummy proof, return zero entropy
             Fr::from(0u8)

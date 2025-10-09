@@ -20,6 +20,7 @@ ed25519-dalek            = { version = "3.0.0-pre.0", features = ["rand_core", "
 executor-http-client     = { workspace = true }
 futures                  = { default-features = false, version = "0.3" }
 futures-util             = { default-features = false, version = "0.3.31" }
+groth16                  = { workspace = true }
 hex                      = { default-features = false, version = "0.4.3" }
 kzgrs-backend            = { workspace = true }
 nomos-api                = { workspace = true }

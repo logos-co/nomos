@@ -117,6 +117,16 @@ impl GasCost for GenesisTx {
     }
 }
 
+impl crate::mantle::GenesisTx for GenesisTx {
+    fn genesis_inscription(&self) -> &InscriptionOp {
+        // Safe to unwrap because we validated this in from_tx
+        match &self.0.mantle_tx().ops[0] {
+            Op::ChannelInscribe(op) => op,
+            _ => unreachable!("GenesisTx always has a valid inscription as first op"),
+        }
+    }
+}
+
 impl<'de> Deserialize<'de> for GenesisTx {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
