@@ -9,7 +9,7 @@ workspace = true
 
 [dependencies]
 async-trait        = "0.1"
-bytes              = { features = ["serde"], workspace = true }
+bytes              = { workspace = true, features = ["serde"] }
 cryptarchia-engine = { workspace = true }
 futures            = { default-features = false, version = "0.3" }
 libp2p-identity    = { default-features = false, features = ["serde"], version = "0.2" }

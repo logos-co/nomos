@@ -348,7 +348,7 @@ static PI: LazyLock<Value> = LazyLock::new(|| {
 )]
 #[ignore = "This test is just for calculation the cycles for the above set of proofs. This will be moved to the pertinent proof in the future."]
 #[test]
-fn zk_signature_cpu_cycles() {
+fn zk_git signature_cpu_cycles() {
     let proof: Groth16Proof =
         serde_json::from_value::<Groth16ProofJsonDeser>(PROOF.deref().clone())
             .unwrap()

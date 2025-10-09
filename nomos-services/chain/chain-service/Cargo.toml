@@ -24,7 +24,7 @@ nomos-network      = { workspace = true }
 nomos-storage      = { workspace = true }
 nomos-time         = { workspace = true }
 nomos-utils        = { workspace = true }
-num-bigint         = { default-features = false, version = "0.4" }
+num-bigint         = { version = "0.4", default-features = false }
 overwatch          = { workspace = true }
 rand               = { default-features = false, version = "0.8" }
 serde              = { default-features = false, version = "1" }

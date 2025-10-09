@@ -14,6 +14,7 @@ chain-service       = { workspace = true }
 cryptarchia-engine  = { workspace = true }
 ed25519-dalek       = { default-features = false, features = ["serde"], version = "2.2.0" }
 futures             = { default-features = false, version = "0.3" }
+groth16             = { workspace = true }
 nomos-blend-service = { workspace = true }
 nomos-core          = { workspace = true }
 nomos-da-sampling   = { workspace = true }

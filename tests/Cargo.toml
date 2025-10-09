@@ -16,7 +16,7 @@ chain-service            = { workspace = true }
 common-http-client       = { workspace = true }
 cryptarchia-engine       = { features = ["serde"], workspace = true }
 cryptarchia-sync         = { workspace = true }
-ed25519-dalek            = { features = ["rand_core", "serde"], version = "3.0.0-pre.0" }
+ed25519-dalek            = { version = "3.0.0-pre.0", features = ["rand_core", "serde"] }
 executor-http-client     = { workspace = true }
 futures                  = { default-features = false, version = "0.3" }
 futures-util             = { default-features = false, version = "0.3.31" }
@@ -44,11 +44,11 @@ nomos-tracing            = { workspace = true }
 nomos-tracing-service    = { workspace = true }
 nomos-utils              = { workspace = true }
 nomos-wallet             = { workspace = true }
-num-bigint               = { default-features = false, version = "0.4" }
+num-bigint               = { version = "0.4", default-features = false }
 rand                     = { workspace = true }
 rand_core                = { version = "^0.9" }
-reqwest                  = { features = ["json"], workspace = true }
-serde                    = { features = ["derive"], version = "1" }
+reqwest                  = { workspace = true, features = ["json"] }
+serde                    = { version = "1", features = ["derive"] }
 serde_json               = "1.0"
 serde_yaml               = "0.9"
 serial_test              = "3.1.1"

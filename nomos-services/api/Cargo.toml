@@ -40,13 +40,13 @@ tracing                  = { default-features = false, version = "0.1" }
 tx-service               = { features = ["libp2p", "mock", "openapi"], workspace = true }
 
 # axum related dependencies
-axum = { default-features = false, features = [
+axum = { default-features = false, optional = true, features = [
   "http1",
   "http2",
   "json",
   "query",
   "tokio",
-], optional = true, version = "0.7.5" }
+], version = "0.7.5" }
 hyper = { default-features = false, optional = true, version = "1.0" }
 
 # openapi related dependencies
