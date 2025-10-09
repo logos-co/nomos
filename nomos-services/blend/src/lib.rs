@@ -14,7 +14,10 @@ pub use nomos_blend_message::{
     encap::ProofsVerifier,
 };
 pub use nomos_blend_scheduling::message_blend::{ProofsGenerator, RealProofsGenerator};
-use nomos_blend_scheduling::session::UninitializedSessionEventStream;
+use nomos_blend_scheduling::{
+    message_blend::{PrivateInputs, PublicInputs},
+    session::UninitializedSessionEventStream,
+};
 use nomos_network::NetworkService;
 use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
@@ -190,17 +193,16 @@ where
 
         loop {
             tokio::select! {
-                            Some(event) = session_stream.next() => {
-                                debug!(target: LOG_TARGET, "Received a new session
-            event");                     instance = instance.handle_session_event(event,
-            overwatch_handle, minimal_network_size).await?;                 },
-                            Some(message) = inbound_relay.next() => {
-                                if let Err(e) =
-            instance.handle_inbound_message(message).await {
-            error!(target: LOG_TARGET, "Failed to handle inbound message: {e:?}");
-                                }
-                            },
-                        }
+                Some(event) = session_stream.next() => {
+                    debug!(target: LOG_TARGET, "Received a new session event");
+                    instance = instance.handle_session_event(event, overwatch_handle, minimal_network_size).await?;
+                },
+                Some(message) = inbound_relay.next() => {
+                    if let Err(e) = instance.handle_inbound_message(message).await {
+                        error!(target: LOG_TARGET, "Failed to handle inbound message: {e:?}");
+                    }
+                },
+            }
         }
     }
 }
