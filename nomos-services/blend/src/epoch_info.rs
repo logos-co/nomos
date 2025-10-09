@@ -92,12 +92,27 @@ where
 /// Event related to a given epoch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EpochEvent {
-    /// A new epoch is available, which is either ongoing (if the node is
+    /// A new epoch is available, which is either ongoing (if the handler is
     /// started mid-epoch) or has just started.
     NewEpoch(EpochInfo),
-    /// The information about the previous epoch the node was tracking can now
-    /// be discarded since its transition period has elapsed.
+    /// The information about the previous epoch the handler was tracking can
+    /// now be discarded since its transition period has elapsed.
     OldEpochTransitionPeriodExpired,
+    /// A new epoch comes just as the previous epoch transition is over. This
+    /// can happen in one of two cases:
+    /// * The epoch transition period is set to 1s, which means that an epoch
+    ///   can be discarded as soon as it is over, or
+    /// * The epoch transition period has the same duration as an epoch, which
+    ///   means that when a new epoch starts, the epoch before the one that just
+    ///   elapsed can be discarded, with the rotate one that will be remembered
+    ///   until a new epoch starts.
+    ///
+    /// Consumers of this event will need to consider that any calls to
+    /// `terminate_epoch_transition` should precede any calls to
+    /// `rotate_session`, where `terminate_epoch_transition` would invalidate
+    /// the epoch that can now be discarded, while `rotate_session` session
+    /// would move from the previous epoch to the new one that is notified about
+    /// in this event.
     NewEpochAndOldEpochTransitionExpired(EpochInfo),
 }
 
@@ -107,14 +122,42 @@ impl From<EpochInfo> for EpochEvent {
     }
 }
 
+/// A slot tick whose values against the previous tick have been validated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ValidatedSlotTick(SlotTick);
+
+impl ValidatedSlotTick {
+    fn transition_to(self, slot_tick: SlotTick) -> Result<Self, ()> {
+        if self.epoch > slot_tick.epoch || self.slot >= slot_tick.slot {
+            return Err(());
+        }
+        Ok(slot_tick.into())
+    }
+}
+
+impl From<SlotTick> for ValidatedSlotTick {
+    fn from(value: SlotTick) -> Self {
+        Self(value)
+    }
+}
+
+impl Deref for ValidatedSlotTick {
+    type Target = SlotTick;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 /// Internal tracking state for epoch information.
 enum EpochTrackingState {
-    /// The node has received the first epoch information from the chain API.
+    /// The handler (which was most likely just started) has received the first
+    /// epoch information from the chain API.
     FirstEpoch { current_epoch: Epoch },
-    /// The node has witnessed an epoch change, and it keeps minimal info about
-    /// the previous epoch, to notify consumer when the configured epoch
-    /// transition period has elapsed.
+    /// The handler has witnessed an epoch change, and it keeps minimal info
+    /// about the previous epoch, to notify consumer when the configured
+    /// epoch transition period has elapsed.
     SecondOrLaterEpoch {
         /// The last slot of the previous epoch. `None` when the consumers have
         /// been notified of the previous epoch, and `Some` for the time between
@@ -152,23 +195,6 @@ impl EpochTrackingState {
                 *current_epoch
             }
         }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ValidatedSlotTick(SlotTick);
-
-impl Deref for ValidatedSlotTick {
-    type Target = SlotTick;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl From<SlotTick> for ValidatedSlotTick {
-    fn from(value: SlotTick) -> Self {
-        Self(value)
     }
 }
 
@@ -214,7 +240,16 @@ where
     RuntimeServiceId: Sync,
 {
     pub async fn tick(&mut self, new_tick: SlotTick) -> Option<EpochEvent> {
-        let validated_slot_tick = self.validate_new_tick(new_tick).ok()?;
+        // We try to validate the new tick, else we restore the last valid one that we
+        // had.
+        let validated_slot_tick = if let Some(last_slot_tick) = self.last_processed_tick.take() {
+            last_slot_tick.transition_to(new_tick).inspect_err(|()| {
+                tracing::error!(target: LOG_TARGET, "Slot ticks are assumed to be always increasing, and epoch ticks are assumed to never be decreasing.");
+                self.last_processed_tick = Some(last_slot_tick);
+            }).ok()?
+        } else {
+            new_tick.into()
+        };
         self.last_processed_tick = Some(validated_slot_tick);
 
         if let Some(last_processed_epoch) = self
@@ -225,7 +260,7 @@ where
         {
             tracing::trace!(target: LOG_TARGET, "New slot for same epoch. Skipping...");
             // We know we're in the same epoch, so we only check if the previous epoch is
-            // expired.
+            // expired, and notify consumers about it.
             if self.check_and_consume_past_epoch_transition_period(validated_slot_tick) {
                 return Some(EpochEvent::OldEpochTransitionPeriodExpired);
             }
@@ -238,13 +273,24 @@ where
             .get_epoch_state_for_slot(new_tick.slot)
             .await;
 
-        // We check if the epoch before the previous one is expired, and remember if we
-        // need to notify consumers.
-        let should_also_notify_about_two_epochs_back_transition =
-            self.check_and_consume_past_epoch_transition_period(validated_slot_tick);
+        // This is true if epochs are shorter than transition periods. It's not likely
+        // to happen in production, but we must still account for this
+        // possibility. In this case, we consider an old epoch expired if another one
+        // after it was replaced with a new, current one.
+        let should_notify_about_two_epochs_back =
+            if let Some(EpochTrackingState::SecondOrLaterEpoch {
+                previous_epoch_last_slot,
+                ..
+            }) = self.epoch_tracking_state
+                && previous_epoch_last_slot.is_some()
+            {
+                true
+            } else {
+                false
+            };
 
         // If we have already previously processed an epoch, keep track of its last
-        // slot, so we can signal consumer when the transition period is over.
+        // slot, so we can signal consumers when the transition period is over.
         if let Some(current_epoch_state) = self.epoch_tracking_state.take() {
             self.epoch_tracking_state =
                 Some(current_epoch_state.transition_to_new_epoch(validated_slot_tick));
@@ -252,34 +298,19 @@ where
             self.epoch_tracking_state = Some(EpochTrackingState::new(validated_slot_tick));
         }
 
-        // We check if the previous is expired, and remember if we need to notify
+        // We check if the previous epoch is expired, and remember if we need to notify
         // consumers.
-        let should_also_notify_about_past_epoch_transition =
+        let should_notify_about_past_epoch_transition =
             self.check_and_consume_past_epoch_transition_period(validated_slot_tick);
 
-        let epoch_event = if should_also_notify_about_two_epochs_back_transition
-            || should_also_notify_about_past_epoch_transition
-        {
-            EpochEvent::NewEpochAndOldEpochTransitionExpired(epoch_state.into())
-        } else {
-            EpochEvent::NewEpoch(epoch_state.into())
-        };
+        let epoch_event =
+            if should_notify_about_two_epochs_back || should_notify_about_past_epoch_transition {
+                EpochEvent::NewEpochAndOldEpochTransitionExpired(epoch_state.into())
+            } else {
+                EpochEvent::NewEpoch(epoch_state.into())
+            };
 
         Some(epoch_event)
-    }
-
-    // Input sanity check. Aka we bail early if input is invalid, like epoch is
-    // smaller or slot is not strictly larger.
-    fn validate_new_tick(&self, slot_tick: SlotTick) -> Result<ValidatedSlotTick, ()> {
-        if let Some(last_processed_tick) = &self.last_processed_tick
-            && (last_processed_tick.epoch > slot_tick.epoch
-                || last_processed_tick.slot >= slot_tick.slot)
-        {
-            tracing::error!(target: LOG_TARGET, "Slot ticks are assumed to be always increasing, and epoch ticks are assumed to never be decreasing.");
-            return Err(());
-        }
-
-        Ok(slot_tick.into())
     }
 
     // If we have witnessed a new epoch being transitioned and we have passed its
