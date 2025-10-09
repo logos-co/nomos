@@ -109,8 +109,8 @@ pub enum EpochEvent {
     ///
     /// Consumers of this event will need to consider that any calls to
     /// `terminate_epoch_transition` should precede any calls to
-    /// `rotate_session`, where `terminate_epoch_transition` would invalidate
-    /// the epoch that can now be discarded, while `rotate_session` session
+    /// `rotate_epoch`, where `terminate_epoch_transition` would invalidate
+    /// the epoch that can now be discarded, while `rotate_epoch`
     /// would move from the previous epoch to the new one that is notified about
     /// in this event.
     NewEpochAndOldEpochTransitionExpired(EpochInfo),
@@ -209,7 +209,7 @@ pub struct EpochHandler<ChainService, RuntimeServiceId> {
     /// i.e., ensuring slots are always increasing and epochs are not
     /// decreasing.
     last_processed_tick: Option<ValidatedSlotTick>,
-    /// Information about the current epoch, and whether the past epoch session
+    /// Information about the current epoch, and whether the past epoch epoch
     /// transition has already elapsed.
     epoch_tracking_state: Option<EpochTrackingState>,
     /// The chain service API providing epoch state for a given slot.
@@ -553,7 +553,7 @@ mod tests {
                 epoch: 3.into(),
                 slot: 5.into(),
             },
-            // New slot new epoch (will trigger a new epoch event and a session transition
+            // New slot new epoch (will trigger a new epoch event and a epoch transition
             // together)
             SlotTick {
                 epoch: 4.into(),
