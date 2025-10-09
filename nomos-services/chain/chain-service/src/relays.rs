@@ -4,6 +4,7 @@ use std::{
 };
 
 use broadcast_service::{BlockBroadcastMsg, BlockBroadcastService};
+use bytes::Bytes;
 use nomos_core::{
     block::Block,
     da,
@@ -21,25 +22,21 @@ use overwatch::{
     services::{AsServiceId, relay::OutboundRelay},
 };
 use serde::{Serialize, de::DeserializeOwned};
-use tx_service::{MempoolMsg, TxMempoolService, backend::RecoverableMempool};
+use tx_service::{
+    MempoolMsg, TxMempoolService, backend::RecoverableMempool,
+    network::NetworkAdapter as MempoolNetworkAdapter, storage::MempoolStorageAdapter,
+};
 
 use crate::{
-    CryptarchiaConsensus, SamplingRelay, network,
+    CryptarchiaConsensus, SamplingRelay,
+    mempool::adapter::MempoolAdapter,
+    network,
     storage::{StorageAdapter as _, adapters::StorageAdapter},
 };
 
 type NetworkRelay<NetworkBackend, RuntimeServiceId> =
     OutboundRelay<BackendNetworkMsg<NetworkBackend, RuntimeServiceId>>;
 pub type BroadcastRelay = OutboundRelay<BlockBroadcastMsg>;
-
-type MempoolRelay<Mempool, MempoolNetAdapter, RuntimeServiceId> = OutboundRelay<
-    MempoolMsg<
-        HeaderId,
-        <MempoolNetAdapter as tx_service::network::NetworkAdapter<RuntimeServiceId>>::Payload,
-        <Mempool as tx_service::backend::Mempool>::Item,
-        <Mempool as tx_service::backend::Mempool>::Key,
-    >,
->;
 
 pub type StorageRelay<Storage> = OutboundRelay<StorageMsg<Storage>>;
 
@@ -51,17 +48,19 @@ pub struct CryptarchiaConsensusRelays<
     Storage,
     RuntimeServiceId,
 > where
-    Mempool: tx_service::backend::Mempool,
+    Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash> + Send + Sync,
     MempoolNetAdapter: tx_service::network::NetworkAdapter<RuntimeServiceId>,
     NetworkAdapter: network::NetworkAdapter<RuntimeServiceId>,
     Storage: StorageBackend + Send + Sync + 'static,
+    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
     SamplingBackend: DaSamplingServiceBackend,
 {
     network_relay: NetworkRelay<NetworkAdapter::Backend, RuntimeServiceId>,
     broadcast_relay: BroadcastRelay,
-    mempool_relay: MempoolRelay<Mempool, MempoolNetAdapter, RuntimeServiceId>,
+    mempool_adapter: MempoolAdapter<Mempool::Item, Mempool::Item>,
     storage_adapter: StorageAdapter<Storage, Mempool::Item, RuntimeServiceId>,
     sampling_relay: SamplingRelay<SamplingBackend::BlobId>,
+    _mempool_adapter: std::marker::PhantomData<MempoolNetAdapter>,
 }
 
 impl<Mempool, MempoolNetAdapter, NetworkAdapter, SamplingBackend, Storage, RuntimeServiceId>
@@ -74,40 +73,51 @@ impl<Mempool, MempoolNetAdapter, NetworkAdapter, SamplingBackend, Storage, Runti
         RuntimeServiceId,
     >
 where
-    Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash>,
+    Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash> + Send + Sync,
     Mempool::RecoveryState: Serialize + DeserializeOwned,
-    Mempool::Item: Debug + Serialize + DeserializeOwned + Eq + Clone + Send + Sync + 'static,
-    Mempool::Item: AuthenticatedMantleTx,
-    Mempool::Settings: Clone,
-    MempoolNetAdapter: tx_service::network::NetworkAdapter<
-            RuntimeServiceId,
-            Payload = Mempool::Item,
-            Key = Mempool::Key,
-        >,
+    Mempool::Item: Debug
+        + Serialize
+        + DeserializeOwned
+        + Eq
+        + Clone
+        + Send
+        + Sync
+        + 'static
+        + AuthenticatedMantleTx,
+    Mempool::Settings: Clone + Send + Sync,
+    Mempool::Storage: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
+    MempoolNetAdapter: MempoolNetworkAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>
+        + Send
+        + Sync,
+    MempoolNetAdapter::Settings: Send + Sync,
     NetworkAdapter: network::NetworkAdapter<RuntimeServiceId>,
     NetworkAdapter::Settings: Send,
     NetworkAdapter::PeerId: Clone + Eq + Hash + Send + Sync,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
-    Storage: StorageChainApi + StorageBackend + Send + Sync + 'static,
-    Storage::Block: TryFrom<Block<Mempool::Item>> + TryInto<Block<Mempool::Item>>,
+    Storage: StorageBackend + Send + Sync + 'static,
+    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
+    <Storage as StorageChainApi>::Block:
+        TryFrom<Block<Mempool::Item>> + TryInto<Block<Mempool::Item>>,
 {
     pub async fn new(
         network_relay: NetworkRelay<NetworkAdapter::Backend, RuntimeServiceId>,
         broadcast_relay: BroadcastRelay,
-        mempool_relay: MempoolRelay<Mempool, MempoolNetAdapter, RuntimeServiceId>,
+        mempool_relay: OutboundRelay<MempoolMsg<HeaderId, Mempool::Item, Mempool::Item, TxHash>>,
         sampling_relay: SamplingRelay<SamplingBackend::BlobId>,
         storage_relay: StorageRelay<Storage>,
     ) -> Self {
         let storage_adapter =
             StorageAdapter::<Storage, Mempool::Item, RuntimeServiceId>::new(storage_relay).await;
+        let mempool_adapter = MempoolAdapter::new(mempool_relay);
         Self {
             network_relay,
             broadcast_relay,
-            mempool_relay,
+            mempool_adapter,
             storage_adapter,
             sampling_relay,
+            _mempool_adapter: std::marker::PhantomData,
         }
     }
 
@@ -155,6 +165,7 @@ where
                     SamplingNetworkAdapter,
                     SamplingStorage,
                     Mempool,
+                    Mempool::Storage,
                     RuntimeServiceId,
                 >,
             >
@@ -186,7 +197,7 @@ where
 
         let mempool_relay = service_resources_handle
             .overwatch_handle
-            .relay::<TxMempoolService<_, _, _, _, _>>()
+            .relay::<TxMempoolService<_, _, _, _, _, _>>()
             .await
             .expect("Relay connection with MempoolService should succeed");
 
@@ -220,10 +231,8 @@ where
         &self.broadcast_relay
     }
 
-    pub const fn mempool_relay(
-        &self,
-    ) -> &MempoolRelay<Mempool, MempoolNetAdapter, RuntimeServiceId> {
-        &self.mempool_relay
+    pub const fn mempool_adapter(&self) -> &MempoolAdapter<Mempool::Item, Mempool::Item> {
+        &self.mempool_adapter
     }
 
     pub const fn sampling_relay(&self) -> &SamplingRelay<SamplingBackend::BlobId> {

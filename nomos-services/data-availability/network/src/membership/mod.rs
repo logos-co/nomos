@@ -8,7 +8,7 @@ use std::{
 
 use futures::Stream;
 use libp2p::Multiaddr;
-use nomos_core::block::SessionNumber;
+use nomos_core::{block::SessionNumber, sdp::ProviderId};
 use nomos_membership_service::backends::MembershipBackendError;
 use overwatch::{
     DynError,
@@ -18,7 +18,11 @@ use thiserror::Error;
 
 pub type Assignations<Id, NetworkId> = HashMap<NetworkId, HashSet<Id>>;
 
-pub type SubnetworkPeers<Id> = (SessionNumber, HashMap<Id, Multiaddr>);
+pub struct SubnetworkPeers<Id> {
+    pub session_id: SessionNumber,
+    pub peers: HashMap<Id, Multiaddr>,
+    pub provider_mappings: HashMap<Id, ProviderId>,
+}
 
 pub type PeerMultiaddrStream<Id> =
     Pin<Box<dyn Stream<Item = SubnetworkPeers<Id>> + Send + Sync + 'static>>;

@@ -1,6 +1,9 @@
+pub mod api;
+
 use std::{collections::HashSet, time::Duration};
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use chain_service::{
     LibUpdate,
     api::{CryptarchiaServiceApi, CryptarchiaServiceData},
@@ -11,7 +14,7 @@ use nomos_core::{
     header::HeaderId,
     mantle::{AuthenticatedMantleTx, Utxo, Value, keys::PublicKey},
 };
-use nomos_storage::backends::StorageBackend;
+use nomos_storage::{api::chain::StorageChainApi, backends::StorageBackend};
 use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
     services::{
@@ -23,7 +26,7 @@ use serde::{Serialize, de::DeserializeOwned};
 use services_utils::wait_until_services_are_ready;
 use tokio::sync::oneshot;
 use tracing::{debug, error, info, trace};
-use wallet::{Wallet, WalletBlock, WalletError};
+use wallet::{Wallet, WalletBlock, WalletError, WalletState};
 
 #[derive(Debug, thiserror::Error)]
 pub enum WalletServiceError {
@@ -87,10 +90,10 @@ impl<Cryptarchia, Tx, Storage, RuntimeServiceId> ServiceCore<RuntimeServiceId>
     for WalletService<Cryptarchia, Tx, Storage, RuntimeServiceId>
 where
     Tx: AuthenticatedMantleTx + Send + Sync + Clone + Eq + Serialize + DeserializeOwned + 'static,
-    Cryptarchia: CryptarchiaServiceData<Tx>,
+    Cryptarchia: CryptarchiaServiceData<Tx = Tx>,
     Storage: StorageBackend + Send + Sync + 'static,
-    <Storage as nomos_storage::api::chain::StorageChainApi>::Block:
-        TryFrom<Block<Tx>> + TryInto<Block<Tx>>,
+    <Storage as StorageChainApi>::Block: TryFrom<Block<Tx>> + TryInto<Block<Tx>>,
+    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
     RuntimeServiceId: AsServiceId<Self>
         + AsServiceId<Cryptarchia>
         + AsServiceId<nomos_storage::StorageService<Storage, RuntimeServiceId>>
@@ -136,11 +139,10 @@ where
             .await?;
 
         // Create the API wrapper for cleaner communication
-        let cryptarchia_api =
-            CryptarchiaServiceApi::<Cryptarchia, Tx, RuntimeServiceId>::new::<Self>(
-                &service_resources_handle,
-            )
-            .await?;
+        let cryptarchia_api = CryptarchiaServiceApi::<Cryptarchia, RuntimeServiceId>::new(
+            &service_resources_handle.overwatch_handle,
+        )
+        .await?;
 
         // Create StorageAdapter for cleaner block operations
         let storage_adapter =
@@ -174,10 +176,9 @@ where
         let mut wallet = Wallet::from_lib(settings.known_keys.clone(), lib, &lib_ledger);
 
         Self::backfill_missing_blocks(
-            chain_info.tip,
+            &Self::fetch_missing_headers(chain_info.tip, &cryptarchia_api).await?,
             &mut wallet,
             &storage_adapter,
-            &cryptarchia_api,
         )
         .await?;
 
@@ -202,7 +203,7 @@ where
                         Err(WalletError::UnknownBlock) => {
 
                             info!(block_id = ?header_id, "Missing block in wallet, backfilling");
-                            Self::backfill_missing_blocks(wallet_block.id, &mut wallet, &storage_adapter, &cryptarchia_api).await?;
+                            Self::backfill_missing_blocks(&Self::fetch_missing_headers(wallet_block.id, &cryptarchia_api).await?, &mut wallet, &storage_adapter).await?;
                         }
                     }
                 }
@@ -218,17 +219,17 @@ impl<Cryptarchia, Tx, Storage, RuntimeServiceId>
     WalletService<Cryptarchia, Tx, Storage, RuntimeServiceId>
 where
     Tx: AuthenticatedMantleTx + Send + Sync + Clone + Eq + Serialize + DeserializeOwned + 'static,
-    Cryptarchia: CryptarchiaServiceData<Tx> + Send + 'static,
+    Cryptarchia: CryptarchiaServiceData<Tx = Tx> + Send + 'static,
     Storage: StorageBackend + Send + Sync + 'static,
-    <Storage as nomos_storage::api::chain::StorageChainApi>::Block:
-        TryFrom<Block<Tx>> + TryInto<Block<Tx>>,
+    <Storage as StorageChainApi>::Block: TryFrom<Block<Tx>> + TryInto<Block<Tx>>,
+    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
     RuntimeServiceId: AsServiceId<Cryptarchia> + std::fmt::Debug + std::fmt::Display + Sync,
 {
     async fn handle_wallet_message(
         msg: WalletMsg,
         wallet: &mut Wallet,
         storage_adapter: &StorageAdapter<Storage, Tx, RuntimeServiceId>,
-        cryptarchia_api: &CryptarchiaServiceApi<Cryptarchia, Tx, RuntimeServiceId>,
+        cryptarchia_api: &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
     ) {
         match msg {
             WalletMsg::GetBalance { tip, pk, tx } => {
@@ -260,7 +261,7 @@ where
         tx: oneshot::Sender<Result<Vec<Utxo>, WalletServiceError>>,
         wallet: &mut Wallet,
         storage_adapter: &StorageAdapter<Storage, Tx, RuntimeServiceId>,
-        cryptarchia_api: &CryptarchiaServiceApi<Cryptarchia, Tx, RuntimeServiceId>,
+        cryptarchia_api: &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
     ) {
         // Get the ledger state at the specified tip
         let Ok(Some(ledger_state)) = cryptarchia_api.get_ledger_state(tip).await else {
@@ -268,36 +269,22 @@ where
             return;
         };
 
-        let wallet_state = match wallet.wallet_state_at(tip) {
+        let wallet_state = match Self::fetch_wallet_state_with_backfill(
+            tip,
+            wallet,
+            storage_adapter,
+            cryptarchia_api,
+        )
+        .await
+        {
             Ok(wallet_state) => wallet_state,
-            Err(WalletError::UnknownBlock) => {
-                // There may be a race condition here where the caller knows a more recent
-                // tip than the wallet. In that case, we will have received a
-                // LedgerState for the tip from Cryptarchia, but we would be missing the
-                // WalletState for that tip.
-                //
-                // To resolve this, we do a JIT backfill to try to sync the wallet with
-                // cryptarchia. If that still can't find the corresponding wallet state
-                // after the backfill, we return an error to the caller
-                if let Err(e) =
-                    Self::backfill_missing_blocks(tip, wallet, storage_adapter, cryptarchia_api)
-                        .await
-                {
-                    error!(
-                        err = ?e,
-                        "Failed to backfill wallet while fetching aged notes"
-                    );
-
-                    Self::send_err(tx, e);
-                    return;
-                }
-
-                let Ok(wallet_state) = wallet.wallet_state_at(tip) else {
-                    Self::send_err(tx, WalletServiceError::WalletStateNotFound(tip));
-                    return;
-                };
-
-                wallet_state
+            Err(err) => {
+                error!(
+                    err = ?err,
+                    "Failed to fetch wallet state"
+                );
+                Self::send_err(tx, err);
+                return;
             }
         };
 
@@ -314,6 +301,37 @@ where
         }
     }
 
+    async fn fetch_wallet_state_with_backfill(
+        tip: HeaderId,
+        wallet: &mut Wallet,
+        storage_adapter: &StorageAdapter<Storage, Tx, RuntimeServiceId>,
+        cryptarchia_api: &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
+    ) -> Result<WalletState, WalletServiceError> {
+        let wallet_state = match wallet.wallet_state_at(tip) {
+            Ok(wallet_state) => wallet_state,
+            Err(WalletError::UnknownBlock) => {
+                // There may be a race condition here where the caller knows a more recent
+                // tip than the wallet. In that case, we will have received a
+                // LedgerState for the tip from Cryptarchia, but we would be missing the
+                // WalletState for that tip.
+                //
+                // To resolve this, we do a JIT backfill to try to sync the wallet with
+                // cryptarchia. If that still can't find the corresponding wallet state
+                // after the backfill, we return an error to the caller
+                let headers = Self::fetch_missing_headers(tip, cryptarchia_api).await?;
+                Self::backfill_missing_blocks(&headers, wallet, storage_adapter).await?;
+
+                let Ok(wallet_state) = wallet.wallet_state_at(tip) else {
+                    return Err(WalletServiceError::WalletStateNotFound(tip));
+                };
+
+                wallet_state
+            }
+        };
+
+        Ok(wallet_state)
+    }
+
     fn handle_lib_update(lib_update: &LibUpdate, wallet: &mut Wallet) {
         debug!(
             new_lib = ?lib_update.new_lib,
@@ -325,20 +343,24 @@ where
         wallet.prune_states(lib_update.pruned_blocks.all());
     }
 
-    async fn backfill_missing_blocks(
+    async fn fetch_missing_headers(
         missing_block: HeaderId,
+        cryptarchia_api: &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
+    ) -> Result<Vec<HeaderId>, WalletServiceError> {
+        Ok(cryptarchia_api.get_headers_to_lib(missing_block).await?)
+    }
+
+    async fn backfill_missing_blocks(
+        headers: &[HeaderId],
         wallet: &mut Wallet,
         storage_adapter: &StorageAdapter<Storage, Tx, RuntimeServiceId>,
-        cryptarchia_api: &CryptarchiaServiceApi<Cryptarchia, Tx, RuntimeServiceId>,
     ) -> Result<(), WalletServiceError> {
-        let headers = cryptarchia_api.get_headers_to_lib(missing_block).await?;
+        for header_id in headers.iter().rev().copied() {
+            if wallet.has_processed_block(header_id) {
+                info!("skipping already processed block");
+                continue;
+            }
 
-        debug!(
-            backfill_size = headers.len(),
-            "Received headers for backfill"
-        );
-
-        for header_id in headers.into_iter().rev() {
             let Some(block) = storage_adapter.get_block(&header_id).await else {
                 error!(block_id = ?header_id, "Block not found in storage during wallet sync");
                 return Err(WalletServiceError::BlockNotFoundInStorage(header_id));

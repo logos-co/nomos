@@ -270,6 +270,11 @@ impl LeaderPrivate {
             public,
         }
     }
+
+    #[must_use]
+    pub const fn input(&self) -> &pol::PolWitnessInputsData {
+        &self.input
+    }
 }
 
 impl From<LeaderPrivate> for pol::PolWitnessInputsData {

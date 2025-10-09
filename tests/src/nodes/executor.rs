@@ -454,7 +454,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
         cryptarchia_leader: LeaderSettings {
             transaction_selector_settings: (),
             config: config.consensus_config.ledger_config,
-            leader_config: config.consensus_config.leader_config,
+            leader_config: config.consensus_config.leader_config.clone(),
             blend_broadcast_settings:
                 nomos_blend_service::core::network::libp2p::Libp2pBroadcastSettings {
                     topic: String::from(nomos_node::CONSENSUS_TOPIC),
@@ -565,6 +565,9 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
         },
         membership: config.membership_config.service_settings,
         sdp: (),
+        wallet: nomos_wallet::WalletServiceSettings {
+            known_keys: HashSet::from_iter([config.consensus_config.leader_config.pk]),
+        },
 
         testing_http: nomos_api::ApiServiceSettings {
             backend_settings: AxumBackendSettings {

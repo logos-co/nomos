@@ -13,12 +13,14 @@ use std::{
 };
 
 use backends::BlendBackend;
+use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 use futures::{FutureExt as _, Stream, StreamExt as _};
 use nomos_blend_scheduling::{
     message_blend::{ProofsGenerator as ProofsGeneratorTrait, SessionInfo as PoQSessionInfo},
     session::{SessionEvent, UninitializedSessionEventStream},
 };
 use nomos_core::codec::SerdeOp;
+use nomos_time::{SlotTick, TimeService, TimeServiceMessage};
 use overwatch::{
     OpaqueServiceResourcesHandle,
     overwatch::OverwatchHandle,
@@ -32,12 +34,12 @@ use serde::{Serialize, de::DeserializeOwned};
 pub(crate) use service_components::ServiceComponents;
 use services_utils::wait_until_services_are_ready;
 use settings::BlendConfig;
-use tokio::time::timeout;
+use tokio::{sync::oneshot, time::timeout};
 use tracing::{debug, error, info};
 
 use crate::{
     edge::handlers::{Error, MessageHandler},
-    epoch_info::PolInfoProvider as PolInfoProviderTrait,
+    epoch_info::{ChainApi, EpochHandler, PolInfoProvider as PolInfoProviderTrait},
     membership,
     message::{NetworkMessage, ServiceMessage},
     mock_poq_inputs_stream,
@@ -53,6 +55,8 @@ pub struct BlendService<
     BroadcastSettings,
     MembershipAdapter,
     ProofsGenerator,
+    TimeBackend,
+    ChainService,
     PolInfoProvider,
     RuntimeServiceId,
 > where
@@ -60,7 +64,13 @@ pub struct BlendService<
     NodeId: Clone,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-    _phantom: PhantomData<(MembershipAdapter, ProofsGenerator, PolInfoProvider)>,
+    _phantom: PhantomData<(
+        MembershipAdapter,
+        ProofsGenerator,
+        TimeBackend,
+        ChainService,
+        PolInfoProvider,
+    )>,
 }
 
 impl<
@@ -69,6 +79,8 @@ impl<
     BroadcastSettings,
     MembershipAdapter,
     ProofsGenerator,
+    TimeBackend,
+    ChainService,
     PolInfoProvider,
     RuntimeServiceId,
 > ServiceData
@@ -78,6 +90,8 @@ impl<
         BroadcastSettings,
         MembershipAdapter,
         ProofsGenerator,
+        TimeBackend,
+        ChainService,
         PolInfoProvider,
         RuntimeServiceId,
     >
@@ -98,6 +112,8 @@ impl<
     BroadcastSettings,
     MembershipAdapter,
     ProofsGenerator,
+    TimeBackend,
+    ChainService,
     PolInfoProvider,
     RuntimeServiceId,
 > ServiceCore<RuntimeServiceId>
@@ -107,6 +123,8 @@ impl<
         BroadcastSettings,
         MembershipAdapter,
         ProofsGenerator,
+        TimeBackend,
+        ChainService,
         PolInfoProvider,
         RuntimeServiceId,
     >
@@ -117,14 +135,19 @@ where
     MembershipAdapter: membership::Adapter<NodeId = NodeId, Error: Send + Sync + 'static> + Send,
     membership::ServiceMessage<MembershipAdapter>: Send + Sync + 'static,
     ProofsGenerator: ProofsGeneratorTrait + Send,
+    TimeBackend: nomos_time::backends::TimeBackend + Send,
+    ChainService: CryptarchiaServiceData<Tx: Send + Sync>,
     PolInfoProvider: PolInfoProviderTrait<RuntimeServiceId, Stream: Send + Unpin + 'static> + Send,
     RuntimeServiceId: AsServiceId<<MembershipAdapter as membership::Adapter>::Service>
         + AsServiceId<Self>
+        + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>
+        + AsServiceId<ChainService>
         + Display
         + Debug
         + Clone
         + Send
         + Sync
+        + Unpin
         + 'static,
 {
     fn init(
@@ -168,6 +191,32 @@ where
         .subscribe()
         .await?;
 
+        let epoch_handler = async {
+            let chain_service = CryptarchiaServiceApi::<ChainService, _>::new(&overwatch_handle)
+                .await
+                .expect("Failed to establish channel with chain service.");
+            EpochHandler::new(chain_service)
+        }
+        .await;
+
+        // TODO: Change this to also be a `UninitializedStream` which is expected to
+        // yield within a certain amount of time.
+        let clock_stream = async {
+            let time_relay = overwatch_handle
+                .relay::<TimeService<_, _>>()
+                .await
+                .expect("Relay with time service should be available.");
+            let (sender, receiver) = oneshot::channel();
+            time_relay
+                .send(TimeServiceMessage::Subscribe { sender })
+                .await
+                .expect("Failed to subscribe to slot clock.");
+            receiver
+                .await
+                .expect("Should not fail to receive slot stream from time service.")
+        }
+        .await;
+
         // TODO: Replace with actual service usage.
         let poq_input_stream = mock_poq_inputs_stream();
 
@@ -202,8 +251,10 @@ where
                 .to_vec()
         });
 
-        run::<Backend, _, ProofsGenerator, PolInfoProvider, _>(
+        run::<Backend, _, ProofsGenerator, _, PolInfoProvider, _>(
             uninitialized_session_stream,
+            clock_stream,
+            epoch_handler,
             messages_to_blend,
             &settings,
             &overwatch_handle,
@@ -236,10 +287,12 @@ where
 /// - If the initial membership is not yielded immediately from the session
 ///   stream.
 /// - If the initial membership does not satisfy the edge node condition.
-async fn run<Backend, NodeId, ProofsGenerator, PolInfoProvider, RuntimeServiceId>(
+async fn run<Backend, NodeId, ProofsGenerator, ChainService, PolInfoProvider, RuntimeServiceId>(
     session_stream: UninitializedSessionEventStream<
         impl Stream<Item = SessionInfo<NodeId>> + Unpin,
     >,
+    mut clock_stream: impl Stream<Item = SlotTick> + Unpin,
+    mut epoch_handler: EpochHandler<ChainService, RuntimeServiceId>,
     mut messages_to_blend: impl Stream<Item = Vec<u8>> + Send + Unpin,
     settings: &Settings<Backend, NodeId, RuntimeServiceId>,
     overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
@@ -249,6 +302,7 @@ where
     Backend: BlendBackend<NodeId, RuntimeServiceId> + Sync,
     NodeId: Clone + Eq + Hash + Send + Sync + 'static,
     ProofsGenerator: ProofsGeneratorTrait,
+    ChainService: ChainApi<RuntimeServiceId>,
     PolInfoProvider: PolInfoProviderTrait<RuntimeServiceId>,
     RuntimeServiceId: Clone,
 {
@@ -293,6 +347,12 @@ where
             }
             Some(message) = messages_to_blend.next() => {
                 message_handler.handle_messages_to_blend(message).await;
+            }
+            Some(tick) = clock_stream.next() => {
+                let new_epoch_info = epoch_handler.tick(tick).await;
+                if let Some(new_epoch_info) = new_epoch_info {
+                    tracing::trace!(target: LOG_TARGET, "New epoch info received. {new_epoch_info:?}");
+                }
             }
         }
     }

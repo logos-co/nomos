@@ -23,6 +23,8 @@ impl<
     MembershipAdapter,
     ProofsGenerator,
     ProofsVerifier,
+    TimeBackend,
+    ChainService,
     PolInfoProvider,
     RuntimeServiceId,
 > ServiceComponents<RuntimeServiceId>
@@ -33,6 +35,8 @@ impl<
         MembershipAdapter,
         ProofsGenerator,
         ProofsVerifier,
+        TimeBackend,
+        ChainService,
         PolInfoProvider,
         RuntimeServiceId,
     >
