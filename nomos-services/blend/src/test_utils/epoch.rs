@@ -27,7 +27,7 @@ impl<RuntimeServiceId> ChainApi<RuntimeServiceId> for TestChainService {
         Self
     }
 
-    async fn get_epoch_state_for_slot(&self, slot: Slot) -> EpochState {
+    async fn get_epoch_state_for_slot(&self, _slot: Slot) -> EpochState {
         default_epoch_state()
     }
 }

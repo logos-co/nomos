@@ -10,14 +10,14 @@ use nomos_ledger::EpochState;
 use nomos_time::SlotTick;
 use overwatch::overwatch::OverwatchHandle;
 
-/// Secret PoL info associated to an epoch, as returned by the PoL info
+/// Secret `PoL` info associated to an epoch, as returned by the `PoL` info
 /// provider.
 #[derive(Clone, Debug)]
 pub struct PolEpochInfo {
     /// Epoch the info refers to.
     pub epoch: Epoch,
-    /// The PoL secret inputs that are found to be winning at least one slot in
-    /// the current epoch.
+    /// The `PoL` secret inputs that are found to be winning at least one slot
+    /// in the current epoch.
     pub poq_private_inputs: ProofOfLeadershipQuotaInputs,
 }
 
@@ -32,7 +32,7 @@ pub trait PolInfoProvider<RuntimeServiceId> {
 
 const LOG_TARGET: &str = "blend::service::epoch";
 
-/// Public PoL info associated to an epoch, as returned by the chain API
+/// Public `PoL` info associated to an epoch, as returned by the chain API
 /// implementor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EpochInfo {
@@ -98,6 +98,7 @@ pub enum EpochEvent {
     /// The information about the previous epoch the node was tracking can now
     /// be discarded since its transition period has elapsed.
     OldEpochTransitionPeriodExpired,
+    NewEpochAndOldEpochTransitionExpired(EpochInfo),
 }
 
 impl From<EpochInfo> for EpochEvent {
@@ -125,7 +126,7 @@ enum EpochTrackingState {
 }
 
 impl EpochTrackingState {
-    fn new(ValidatedSlotTick(SlotTick { epoch, .. }): ValidatedSlotTick) -> Self {
+    const fn new(ValidatedSlotTick(SlotTick { epoch, .. }): ValidatedSlotTick) -> Self {
         Self::FirstEpoch {
             current_epoch: epoch,
         }
@@ -133,6 +134,7 @@ impl EpochTrackingState {
 
     /// Use the slot before the provided one to mark the currently tracked epoch
     /// as passed, and takes the new provided epoch as the new ongoing one.
+    #[expect(clippy::unused_self, reason = "We want to consume the input.")]
     fn transition_to_new_epoch(
         self,
         ValidatedSlotTick(SlotTick { epoch, slot }): ValidatedSlotTick,
@@ -144,7 +146,7 @@ impl EpochTrackingState {
     }
 
     /// Return the currently tracked epoch.
-    fn last_processed_epoch(&self) -> Epoch {
+    const fn last_processed_epoch(&self) -> Epoch {
         match self {
             Self::FirstEpoch { current_epoch } | Self::SecondOrLaterEpoch { current_epoch, .. } => {
                 *current_epoch
@@ -172,9 +174,10 @@ impl From<SlotTick> for ValidatedSlotTick {
 
 /// A stream that listens to slot ticks, and on the first slot tick received as
 /// well as the first slot tick of each new epoch, fetches the epoch state from
-/// the provided chain service adapter. Then, when the configured transition
-/// period elapses for the past epoch, it notifies consumers about it, once for
-/// each epoch.
+/// the provided chain service adapter.
+///
+/// Then, when the configured transition period elapses for the past epoch, it
+/// notifies consumers about it, once for each epoch.
 pub struct EpochHandler<ChainService, RuntimeServiceId> {
     /// A tracked of the last processed tick, to perform input tick sanitation,
     /// i.e., ensuring slots are always increasing and epochs are not
@@ -235,6 +238,11 @@ where
             .get_epoch_state_for_slot(new_tick.slot)
             .await;
 
+        // We check if the epoch before the previous one is expired, and remember if we
+        // need to notify consumers.
+        let should_also_notify_about_two_epochs_back_transition =
+            self.check_and_consume_past_epoch_transition_period(validated_slot_tick);
+
         // If we have already previously processed an epoch, keep track of its last
         // slot, so we can signal consumer when the transition period is over.
         if let Some(current_epoch_state) = self.epoch_tracking_state.take() {
@@ -244,20 +252,25 @@ where
             self.epoch_tracking_state = Some(EpochTrackingState::new(validated_slot_tick));
         }
 
-        let should_also_notify_about_epoch_transition =
+        // We check if the previous is expired, and remember if we need to notify
+        // consumers.
+        let should_also_notify_about_past_epoch_transition =
             self.check_and_consume_past_epoch_transition_period(validated_slot_tick);
 
-        let epoch_event = if should_also_notify_about_epoch_transition {
+        let epoch_event = if should_also_notify_about_two_epochs_back_transition
+            || should_also_notify_about_past_epoch_transition
+        {
             EpochEvent::NewEpochAndOldEpochTransitionExpired(epoch_state.into())
         } else {
             EpochEvent::NewEpoch(epoch_state.into())
         };
+
         Some(epoch_event)
     }
 
     // Input sanity check. Aka we bail early if input is invalid, like epoch is
     // smaller or slot is not strictly larger.
-    fn validate_new_tick(&mut self, slot_tick: SlotTick) -> Result<ValidatedSlotTick, ()> {
+    fn validate_new_tick(&self, slot_tick: SlotTick) -> Result<ValidatedSlotTick, ()> {
         if let Some(last_processed_tick) = &self.last_processed_tick
             && (last_processed_tick.epoch > slot_tick.epoch
                 || last_processed_tick.slot >= slot_tick.slot)
@@ -271,7 +284,7 @@ where
 
     // If we have witnessed a new epoch being transitioned and we have passed its
     // transition period, notify the consumers.
-    fn check_and_consume_past_epoch_transition_period(
+    const fn check_and_consume_past_epoch_transition_period(
         &mut self,
         ValidatedSlotTick(SlotTick { slot, .. }): ValidatedSlotTick,
     ) -> bool {
@@ -414,10 +427,10 @@ mod tests {
                 epoch: 2.into(),
                 slot: 3.into(),
             },
-            // New slot same epoch (will trigger epoch transition and new epoch event because of 1s
+            // New slot new epoch (will trigger epoch transition and new epoch event because of 1s
             // transition period)
             SlotTick {
-                epoch: 2.into(),
+                epoch: 3.into(),
                 slot: 4.into(),
             },
         ];
@@ -452,24 +465,23 @@ mod tests {
         assert_eq!(
             next_tick,
             Some(EpochEvent::NewEpochAndOldEpochTransitionExpired(
-                EpochInfo::from(default_epoch_state()).into()
+                default_epoch_state().into()
             ))
         );
         assert_eq!(
             stream.epoch_tracking_state,
             Some(EpochTrackingState::SecondOrLaterEpoch {
                 current_epoch: 2.into(),
-                // `None` since we are notifying in this tick about its expiration.
                 previous_epoch_last_slot: None
             })
         );
 
-        // Fourth tick: new epoch new slot, old epoch transition expired
+        // Fourth tick: new epoch same slot, old epoch transition expired
         let next_tick = stream.tick(ticks_iter.next().unwrap()).await;
         assert_eq!(
             next_tick,
             Some(EpochEvent::NewEpochAndOldEpochTransitionExpired(
-                EpochInfo::from(default_epoch_state()).into()
+                default_epoch_state().into()
             ))
         );
         assert_eq!(
@@ -503,18 +515,23 @@ mod tests {
             // New slot same epoch (will trigger an epoch transition only)
             SlotTick {
                 epoch: 2.into(),
-                slot: 3.into(),
+                slot: 4.into(),
             },
             // New slot new epoch (will trigger a new epoch event only)
             SlotTick {
                 epoch: 3.into(),
-                slot: 4.into(),
+                slot: 5.into(),
             },
             // New slot new epoch (will trigger a new epoch event and a session transition
             // together)
             SlotTick {
                 epoch: 4.into(),
-                slot: 5.into(),
+                slot: 6.into(),
+            },
+            // New slot same epoch ((will trigger an epoch transition only)
+            SlotTick {
+                epoch: 4.into(),
+                slot: 7.into(),
             },
         ];
         let mut ticks_iter = ticks.into_iter();
@@ -543,13 +560,11 @@ mod tests {
             })
         );
 
-        // Third tick: new epoch new slot, new epoch event generateds
+        // Third tick: new epoch new slot, new epoch event generated
         let next_tick = stream.tick(ticks_iter.next().unwrap()).await;
         assert_eq!(
             next_tick,
-            Some(EpochEvent::NewEpoch(
-                EpochInfo::from(default_epoch_state()).into()
-            ))
+            Some(EpochEvent::NewEpoch(default_epoch_state().into()))
         );
         assert_eq!(
             stream.epoch_tracking_state,
@@ -575,15 +590,13 @@ mod tests {
         let next_tick = stream.tick(ticks_iter.next().unwrap()).await;
         assert_eq!(
             next_tick,
-            Some(EpochEvent::NewEpoch(
-                EpochInfo::from(default_epoch_state()).into()
-            ))
+            Some(EpochEvent::NewEpoch(default_epoch_state().into()))
         );
         assert_eq!(
             stream.epoch_tracking_state,
             Some(EpochTrackingState::SecondOrLaterEpoch {
                 current_epoch: 3.into(),
-                previous_epoch_last_slot: Some(3.into())
+                previous_epoch_last_slot: Some(4.into())
             })
         );
 
@@ -593,14 +606,27 @@ mod tests {
         assert_eq!(
             next_tick,
             Some(EpochEvent::NewEpochAndOldEpochTransitionExpired(
-                EpochInfo::from(default_epoch_state()).into()
+                default_epoch_state().into()
             ))
         );
         assert_eq!(
             stream.epoch_tracking_state,
             Some(EpochTrackingState::SecondOrLaterEpoch {
                 current_epoch: 4.into(),
-                previous_epoch_last_slot: Some(4.into())
+                // Not `None` because we notified consumers about the epoch before the one that was
+                // just rotated, so this one will be notified next.
+                previous_epoch_last_slot: Some(5.into())
+            })
+        );
+
+        // Seventh tick: new slot same epoch, the past epoch can now be discarded.
+        let next_tick = stream.tick(ticks_iter.next().unwrap()).await;
+        assert_eq!(next_tick, Some(EpochEvent::OldEpochTransitionPeriodExpired));
+        assert_eq!(
+            stream.epoch_tracking_state,
+            Some(EpochTrackingState::SecondOrLaterEpoch {
+                current_epoch: 4.into(),
+                previous_epoch_last_slot: None
             })
         );
     }
