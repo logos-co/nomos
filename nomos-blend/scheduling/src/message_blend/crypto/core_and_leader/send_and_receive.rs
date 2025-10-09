@@ -8,7 +8,6 @@ use nomos_blend_message::{
         validated::RequiredProofOfSelectionVerificationInputs,
     },
 };
-use nomos_core::crypto::ZkHash;
 
 use crate::{
     DecapsulationOutput,
