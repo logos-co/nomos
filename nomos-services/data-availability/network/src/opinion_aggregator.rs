@@ -49,11 +49,6 @@ impl Membership {
         }
     }
 
-    fn is_empty(&self) -> bool {
-        // todo: < minimum operational nodes
-        self.peers.is_empty()
-    }
-
     fn members(&self) -> Vec<PeerId> {
         self.peers.iter().copied().collect()
     }
@@ -258,45 +253,24 @@ where
     }
 
     fn generate_opinions(&self) -> Result<Opinions, OpinionError> {
-        // Both memberships are guaranteed to be Some at this point
         let current = self.current_membership.as_ref().unwrap();
         let previous = self.previous_membership.as_ref().unwrap();
 
-        // Generate new opinions from current membership
-        let new_opinions = if current.is_empty() {
-            // Non-operational session - return empty BitVec
-            BitVec::new()
-        } else {
-            match self.peer_opinions_to_provider_bitvec(
-                current.members().into_iter(),
-                &self.positive_opinions,
-                &self.negative_opinions,
-                &current.provider_mappings,
-                true, // Include self
-            ) {
-                Ok(bv) => bv,
-                Err(e) => return Err(OpinionError::Error(e)),
-            }
-        };
+        let new_opinions = self.peer_opinions_to_provider_bitvec(
+            current.members().into_iter(),
+            &self.positive_opinions,
+            &self.negative_opinions,
+            &current.provider_mappings,
+            true,
+        )?;
 
-        // Generate old opinions from previous membership
-        let old_opinions = if previous.is_empty() {
-            // Previous session was non-operational
-            BitVec::new()
-        } else {
-            let include_self_in_old = previous.members().contains(&self.local_peer_id);
-
-            match self.peer_opinions_to_provider_bitvec(
-                previous.members().into_iter(),
-                &self.prev_session_positive_opinions,
-                &self.prev_session_negative_opinions,
-                &previous.provider_mappings,
-                include_self_in_old,
-            ) {
-                Ok(bv) => bv,
-                Err(e) => return Err(OpinionError::Error(e)),
-            }
-        };
+        let old_opinions = self.peer_opinions_to_provider_bitvec(
+            previous.members().into_iter(),
+            &self.prev_session_positive_opinions,
+            &self.prev_session_negative_opinions,
+            &previous.provider_mappings,
+            previous.members().contains(&self.local_peer_id),
+        )?;
 
         Ok(Opinions {
             session_id: current.session_id,
