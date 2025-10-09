@@ -2,7 +2,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     Error,
-    crypto::{keys::Ed25519PublicKey, proofs::quota::ProofOfQuota, signatures::Signature},
+    crypto::{
+        keys::Ed25519PublicKey,
+        proofs::quota::{self, ProofOfQuota},
+        signatures::Signature,
+    },
+    encap::ProofsVerifier,
 };
 
 const LATEST_BLEND_MESSAGE_VERSION: u8 = 1;
@@ -36,6 +41,16 @@ impl PublicHeader {
         } else {
             Err(Error::SignatureVerificationFailed)
         }
+    }
+
+    pub fn verify_proof_of_quota<Verifier>(&self, verifier: &Verifier) -> Result<(), Error>
+    where
+        Verifier: ProofsVerifier,
+    {
+        verifier
+            .verify_proof_of_quota(self.proof_of_quota, &self.signing_pubkey)
+            .map_err(|_| Error::ProofOfQuotaVerificationFailed(quota::Error::InvalidProof))?;
+        Ok(())
     }
 
     pub const fn signing_pubkey(&self) -> &Ed25519PublicKey {
