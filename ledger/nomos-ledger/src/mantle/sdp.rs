@@ -220,17 +220,16 @@ impl SdpLedger {
             };
 
             let expected_active_session_num = block_number / params.session_duration;
-            if forming_session.session_number > expected_active_session_num {
-                continue;
+
+            if forming_session.session_number <= expected_active_session_num {
+                let new_active_session = forming_session.clone();
+
+                let mut next_forming_session = new_active_session.clone();
+                next_forming_session.session_number += 1;
+                new_active_sessions = new_active_sessions.insert(service_type, new_active_session);
+                new_forming_sessions =
+                    new_forming_sessions.insert(service_type, next_forming_session);
             }
-
-            let new_active_session = forming_session.clone();
-
-            let mut next_forming_session = new_active_session.clone();
-            next_forming_session.session_number += 1;
-
-            new_active_sessions = new_active_sessions.insert(service_type, new_active_session);
-            new_forming_sessions = new_forming_sessions.insert(service_type, next_forming_session);
         }
 
         self.active_sessions = new_active_sessions;

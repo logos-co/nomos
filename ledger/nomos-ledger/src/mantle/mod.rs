@@ -215,6 +215,8 @@ impl LedgerState {
         Ok((self, balance))
     }
 
+    // This method should be called once per block to ensure that state of previous
+    // declarations is reevaluated.
     pub fn try_update_membership(
         mut self,
         current_block_number: BlockNumber,
