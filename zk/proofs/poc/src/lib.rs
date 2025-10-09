@@ -39,6 +39,7 @@ use std::error::Error;
 pub use chain_inputs::{PoCChainInputs, PoCChainInputsData};
 use groth16::{
     CompressedGroth16Proof, Groth16Input, Groth16InputDeser, Groth16Proof, Groth16ProofJsonDeser,
+    groth16_batch_verify,
 };
 pub use inputs::PoCWitnessInputs;
 use thiserror::Error;
@@ -133,6 +134,24 @@ pub fn verify(proof: &PoCProof, public_inputs: &PoCVerifierInput) -> Result<bool
         .map_err(|e| VerifyError::ProofVerify(Box::new(e)))
 }
 
+pub fn batch_verify(
+    proofs: &[PoCProof],
+    public_inputs: &[PoCVerifierInput],
+) -> Result<bool, VerifyError> {
+    let inputs: Vec<Vec<_>> = public_inputs
+        .iter()
+        .map(|pi| pi.to_inputs().to_vec())
+        .collect();
+
+    let expanded_proofs: Vec<Groth16Proof> = proofs
+        .iter()
+        .map(|p| Groth16Proof::try_from(p).map_err(|_| VerifyError::Expansion))
+        .collect::<Result<Vec<_>, _>>()?; // short-circuits on first failure
+
+    groth16_batch_verify(verification_key::POC_VK.as_ref(), &expanded_proofs, &inputs)
+        .map_err(|e| VerifyError::ProofVerify(Box::new(e)))
+}
+
 #[cfg(test)]
 mod tests {
     use std::str::FromStr as _;
@@ -214,5 +233,6 @@ mod tests {
 
         let (proof, inputs) = prove(&witness_inputs).unwrap();
         assert!(verify(&proof, &inputs).unwrap());
+        assert!(batch_verify(&[proof, proof], &[inputs.clone(), inputs]).unwrap());
     }
 }
