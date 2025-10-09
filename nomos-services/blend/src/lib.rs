@@ -13,11 +13,8 @@ pub use nomos_blend_message::{
     },
     encap::ProofsVerifier,
 };
-pub use nomos_blend_scheduling::message_blend::{ProofsGenerator, RealProofsGenerator};
-use nomos_blend_scheduling::{
-    message_blend::{PrivateInputs, PublicInputs},
-    session::UninitializedSessionEventStream,
-};
+// pub use nomos_blend_scheduling::message_blend::{ProofsGenerator, RealProofsGenerator};
+use nomos_blend_scheduling::session::UninitializedSessionEventStream;
 // use nomos_network::NetworkService;
 // use overwatch::{
 //     DynError, OpaqueServiceResourcesHandle,
@@ -218,40 +215,40 @@ mod test_utils;
 // type MembershipService<EdgeService> =
 //     <MembershipAdapter<EdgeService> as membership::Adapter>::Service;
 
-const fn mock_poq_inputs() -> (PublicInputs, PrivateInputs) {
-    use groth16::Field as _;
-    use nomos_core::crypto::ZkHash;
+// const fn mock_poq_inputs() -> (PublicInputs, PrivateInputs) {
+//     use groth16::Field as _;
+//     use nomos_core::crypto::ZkHash;
 
-    (
-        PublicInputs {
-            core_quota: 0,
-            core_root: ZkHash::ZERO,
-            leader_quota: 0,
-            pol_epoch_nonce: ZkHash::ZERO,
-            pol_ledger_aged: ZkHash::ZERO,
-            session: 0,
-            total_stake: 0,
-        },
-        PrivateInputs {
-            aged_path: vec![],
-            aged_selector: vec![],
-            core_path: vec![],
-            core_path_selectors: vec![],
-            core_sk: ZkHash::ZERO,
-            note_value: 0,
-            output_number: 0,
-            pol_secret_key: ZkHash::ZERO,
-            slot: 0,
-            slot_secret: ZkHash::ZERO,
-            slot_secret_path: vec![],
-            starting_slot: 0,
-            transaction_hash: ZkHash::ZERO,
-        },
-    )
-}
-
-// fn mock_poq_inputs_stream() -> impl Stream<Item = (PublicInputs,
-// PrivateInputs)> {     use futures::stream::repeat;
-
-//     repeat(mock_poq_inputs())
+//     (
+//         PublicInputs {
+//             core_quota: 0,
+//             core_root: ZkHash::ZERO,
+//             leader_quota: 0,
+//             pol_epoch_nonce: ZkHash::ZERO,
+//             pol_ledger_aged: ZkHash::ZERO,
+//             session: 0,
+//             total_stake: 0,
+//         },
+//         PrivateInputs {
+//             aged_path: vec![],
+//             aged_selector: vec![],
+//             core_path: vec![],
+//             core_path_selectors: vec![],
+//             core_sk: ZkHash::ZERO,
+//             note_value: 0,
+//             output_number: 0,
+//             pol_secret_key: ZkHash::ZERO,
+//             slot: 0,
+//             slot_secret: ZkHash::ZERO,
+//             slot_secret_path: vec![],
+//             starting_slot: 0,
+//             transaction_hash: ZkHash::ZERO,
+//         },
+//     )
 // }
+
+// // fn mock_poq_inputs_stream() -> impl Stream<Item = (PublicInputs,
+// // PrivateInputs)> {     use futures::stream::repeat;
+
+// //     repeat(mock_poq_inputs())
+// // }
