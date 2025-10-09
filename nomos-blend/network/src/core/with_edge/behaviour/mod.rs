@@ -26,7 +26,6 @@ use nomos_blend_scheduling::{
     EncapsulatedMessage, deserialize_encapsulated_message, membership::Membership,
     message_blend::crypto::IncomingEncapsulatedMessageWithValidatedPublicHeader,
 };
-use nomos_core::crypto::ZkHash;
 
 use crate::core::with_edge::behaviour::handler::{ConnectionHandler, FromBehaviour, ToBehaviour};
 

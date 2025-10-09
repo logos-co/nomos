@@ -7,7 +7,6 @@ mod tests;
 use libp2p::{PeerId, StreamProtocol};
 use nomos_blend_message::{crypto::proofs::quota::inputs::prove::public::LeaderInputs, encap};
 use nomos_blend_scheduling::membership::Membership;
-use nomos_core::crypto::ZkHash;
 
 use self::{
     with_core::behaviour::Behaviour as CoreToCoreBehaviour,
