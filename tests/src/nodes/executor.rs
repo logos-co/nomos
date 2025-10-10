@@ -428,14 +428,9 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
         }),
         cryptarchia: CryptarchiaSettings {
             config: config.consensus_config.ledger_config.clone(),
-            starting_state: {
-                let genesis_tx = config.consensus_config.genesis_tx;
-                let genesis_nonce = groth16::Fr::ZERO;
-
-                StartingState::Genesis {
-                    genesis_tx,
-                    genesis_nonce,
-                }
+            starting_state: StartingState::Genesis {
+                genesis_tx: config.consensus_config.genesis_tx,
+                genesis_nonce: groth16::Fr::ZERO,
             },
             network_adapter_settings:
                 chain_service::network::adapters::libp2p::LibP2pAdapterSettings {

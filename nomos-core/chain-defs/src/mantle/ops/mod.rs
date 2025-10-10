@@ -34,6 +34,7 @@ use crate::{
         wire::OpWireVisitor,
     },
     proofs::zksig,
+    utils::ed25519_serde,
 };
 
 /// Core set of supported Mantle operations.
@@ -61,10 +62,11 @@ pub enum Op {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OpProof {
-    Ed25519Sig(ed25519::Signature),
+    Ed25519Sig(#[serde(with = "ed25519_serde::sig_hex")] ed25519::Signature),
     ZkSig(zksig::DummyZkSignature),
     ZkAndEd25519Sigs {
         zk_sig: zksig::DummyZkSignature,
+        #[serde(with = "ed25519_serde::sig_hex")]
         ed25519_sig: ed25519::Signature,
     },
 }
