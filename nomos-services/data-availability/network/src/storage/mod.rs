@@ -2,6 +2,7 @@ pub mod adapters;
 use std::{
     collections::{HashMap, HashSet},
     hash::Hash,
+    sync::Arc,
 };
 
 use blake2::{Blake2b512, Digest as _, digest::Update as BlakeUpdate};
@@ -135,5 +136,53 @@ where
         }
 
         Ok(Some(membership.unwrap()))
+    }
+}
+
+#[async_trait::async_trait]
+impl<Id, NetworkId, T> MembershipStorageAdapter<Id, NetworkId> for Arc<T>
+where
+    T: MembershipStorageAdapter<Id, NetworkId> + Send + Sync,
+    Id: Send + Sync + 'static,
+    NetworkId: Send + Sync + 'static,
+{
+    type StorageService = T::StorageService;
+
+    fn new(relay: OutboundRelay<<Self::StorageService as ServiceData>::Message>) -> Self {
+        Self::new(T::new(relay))
+    }
+
+    async fn store(
+        &self,
+        session_id: SessionNumber,
+        assignations: Assignations<Id, NetworkId>,
+        provider_mappings: HashMap<Id, ProviderId>,
+    ) -> Result<(), DynError> {
+        (**self)
+            .store(session_id, assignations, provider_mappings)
+            .await
+    }
+
+    async fn get(
+        &self,
+        session_id: SessionNumber,
+    ) -> Result<Option<Assignations<Id, NetworkId>>, DynError> {
+        (**self).get(session_id).await
+    }
+
+    async fn store_addresses(&self, ids: HashMap<Id, Multiaddr>) -> Result<(), DynError> {
+        (**self).store_addresses(ids).await
+    }
+
+    async fn get_address(&self, id: Id) -> Result<Option<Multiaddr>, DynError> {
+        (**self).get_address(id).await
+    }
+
+    async fn get_provider_id(&self, id: Id) -> Result<Option<ProviderId>, DynError> {
+        (**self).get_provider_id(id).await
+    }
+
+    async fn prune(&self) {
+        (**self).prune().await;
     }
 }
