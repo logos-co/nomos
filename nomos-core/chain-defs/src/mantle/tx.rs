@@ -163,7 +163,6 @@ impl SignedMantleTx {
     /// Create a `SignedMantleTx` without verifying proofs.
     /// This should only be used for `GenesisTx` or in tests.
     #[doc(hidden)]
-    #[cfg(any(test, debug_assertions))]
     #[must_use]
     pub const fn new_unverified(
         mantle_tx: MantleTx,
