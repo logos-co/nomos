@@ -1,37 +1,38 @@
 use core::fmt::Debug;
 use std::fmt::Display;
-#[cfg(feature = "block-explorer")]
-use std::{num::NonZeroUsize, ops::RangeInclusive};
 
 use broadcast_service::{BlockBroadcastMsg, BlockBroadcastService, BlockInfo};
-#[cfg(feature = "block-explorer")]
-use chain_service::{ConsensusMsg, Slot};
 use futures::{Stream, StreamExt as _};
-#[cfg(feature = "block-explorer")]
-use futures::{TryStreamExt as _, future::join_all};
 use nomos_core::{
     header::HeaderId,
     mantle::{SignedMantleTx, Transaction},
 };
-#[cfg(feature = "block-explorer")]
-use nomos_storage::{
-    StorageMsg, StorageService,
-    api::{
-        StorageApiRequest,
-        chain::{StorageChainApi, requests::ChainApiRequest},
-    },
-};
 use overwatch::services::AsServiceId;
-#[cfg(feature = "block-explorer")]
-use overwatch::services::{ServiceData, relay::OutboundRelay};
 use tokio::sync::oneshot;
 use tokio_stream::wrappers::BroadcastStream;
-#[cfg(feature = "block-explorer")]
-use tracing::warn;
 use tx_service::{
     MempoolMetrics, MempoolMsg, TxMempoolService, backend::Mempool,
     network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
     tx::service::openapi::Status,
+};
+#[cfg(feature = "block-explorer")]
+use {
+    bytes::Bytes,
+    chain_service::storage::StorageAdapter as _,
+    chain_service::storage::adapters::StorageAdapter,
+    chain_service::{ConsensusMsg, Slot},
+    futures::future::join_all,
+    nomos_core::{block::Block, mantle::TxHash},
+    nomos_storage::{
+        StorageMsg, StorageService,
+        api::{
+            StorageApiRequest,
+            chain::{StorageChainApi, requests::ChainApiRequest},
+        },
+    },
+    overwatch::services::ServiceData,
+    serde::{Serialize, de::DeserializeOwned},
+    std::{num::NonZeroUsize, ops::RangeInclusive},
 };
 
 pub type MempoolService<StorageAdapter, RuntimeServiceId> = TxMempoolService<
@@ -166,23 +167,37 @@ where
 }
 
 #[cfg(feature = "block-explorer")]
-pub async fn get_new_blocks_stream<Transaction, ConsensusService, Backend, RuntimeServiceId>(
+pub async fn get_new_blocks_stream<
+    Transaction,
+    StorageBackend,
+    ConsensusService,
+    RuntimeServiceId,
+>(
     handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
 ) -> Result<
-    impl Stream<Item = Result<<Backend as StorageChainApi>::Block, crate::http::DynError>>
+    impl Stream<Item = Block<Transaction>>
     + Send
-    + Sync
-    + use<Transaction, ConsensusService, Backend, RuntimeServiceId>,
+    + use<Transaction, StorageBackend, ConsensusService, RuntimeServiceId>,
     super::DynError,
 >
 where
-    Transaction: Send + 'static,
-    Backend: nomos_storage::backends::StorageBackend + Send + Sync + 'static,
+    Transaction: Clone
+        + Eq
+        + Serialize
+        + DeserializeOwned
+        + Send
+        + Sync
+        + 'static
+        + nomos_core::mantle::Transaction<Hash = TxHash>,
+    StorageBackend: nomos_storage::backends::StorageBackend + Send + Sync + 'static,
+    <StorageBackend as StorageChainApi>::Block:
+        TryFrom<Block<Transaction>> + TryInto<Block<Transaction>>,
+    <StorageBackend as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
     ConsensusService: ServiceData<Message = ConsensusMsg<Transaction>>,
     RuntimeServiceId: Debug
         + Sync
         + Display
-        + AsServiceId<StorageService<Backend, RuntimeServiceId>>
+        + AsServiceId<StorageService<StorageBackend, RuntimeServiceId>>
         + AsServiceId<ConsensusService>,
 {
     let new_header_ids_stream =
@@ -190,12 +205,17 @@ where
             .await?;
 
     let relay = handle
-        .relay::<StorageService<Backend, RuntimeServiceId>>()
+        .relay::<StorageService<StorageBackend, RuntimeServiceId>>()
         .await?;
+    let storage_adapter =
+        StorageAdapter::<StorageBackend, Transaction, RuntimeServiceId>::new(relay).await;
 
-    let new_blocks_stream = new_header_ids_stream.and_then(move |header_id| {
-        let relay = relay.clone();
-        async move { get_block_from_storage::<Backend>(&relay, header_id).await }
+    let new_blocks_stream = new_header_ids_stream.filter_map(move |header_id| {
+        let storage_adapter = storage_adapter.clone();
+        async move {
+            let header_id = header_id.ok()?;
+            storage_adapter.get_block(&header_id).await
+        }
     });
 
     Ok(new_blocks_stream)
@@ -275,74 +295,41 @@ where
 ///
 /// If successful, returns a `Vec` containing the blocks for the specified slot
 /// range. If any error occurs during processing, returns a boxed `DynError`.
-// TODO: Improve error handling.
-pub async fn get_blocks<Backend, RuntimeServiceId>(
+pub async fn get_blocks<Transaction, StorageBackend, RuntimeServiceId>(
     handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
     from_slot: usize,
     to_slot: usize,
-) -> Result<Vec<<Backend as StorageChainApi>::Block>, super::DynError>
+) -> Result<Vec<Block<Transaction>>, super::DynError>
 where
-    Backend: nomos_storage::backends::StorageBackend + Send + Sync + 'static,
+    Transaction: Clone
+        + Eq
+        + Serialize
+        + DeserializeOwned
+        + Send
+        + Sync
+        + 'static
+        + nomos_core::mantle::Transaction<Hash = TxHash>,
+    StorageBackend: nomos_storage::backends::StorageBackend + Send + Sync + 'static,
+    <StorageBackend as StorageChainApi>::Block:
+        TryFrom<Block<Transaction>> + TryInto<Block<Transaction>>,
+    <StorageBackend as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
     RuntimeServiceId:
-        Debug + Sync + Display + AsServiceId<StorageService<Backend, RuntimeServiceId>>,
+        Debug + Sync + Display + AsServiceId<StorageService<StorageBackend, RuntimeServiceId>>,
 {
     let header_ids = get_blocks_header_ids(handle, from_slot, to_slot).await?;
+
     let relay = handle.relay().await?;
+    let storage_adapter = StorageAdapter::<_, _, RuntimeServiceId>::new(relay).await;
 
     let blocks_futures = header_ids
-        .into_iter()
-        .map(|header_id| get_block_from_storage(&relay, header_id));
-    let block_results = join_all(blocks_futures).await;
+        .iter()
+        .map(|header_id| storage_adapter.get_block(header_id));
 
-    let blocks = block_results
+    let blocks = join_all(blocks_futures)
+        .await
         .into_iter()
-        .filter_map(|item| {
-            if let Err(error) = &item {
-                warn!("Failed to retrieve block: {}", error);
-            }
-            item.ok()
-        })
+        .flatten()
         .collect::<Vec<_>>();
 
     Ok(blocks)
-}
-
-#[cfg(feature = "block-explorer")]
-/// Get a block from the chain storage
-///
-/// # Parameters
-///
-/// - `relay`: An `OutboundRelay` instance used to send the message.
-/// - `header_id`: An identifier for the header of the block to retrieve.
-///
-/// # Returns
-///
-/// A `Result` containing either:
-/// - `Ok(Some(Block))`: The requested block, if it exists.
-/// - `Ok(None)`: If the block does not exist.
-/// - `Err`: An error of type `super::DynError` if the operation fails at any
-///   point (e.g. issues with sending the request or receiving the response).
-async fn get_block_from_storage<Backend>(
-    relay: &OutboundRelay<StorageMsg<Backend>>,
-    header_id: HeaderId,
-) -> Result<<Backend as StorageChainApi>::Block, super::DynError>
-where
-    Backend: nomos_storage::backends::StorageBackend,
-{
-    let (response_tx, response_rx) = oneshot::channel();
-
-    relay
-        .send(StorageMsg::Api {
-            request: StorageApiRequest::Chain(ChainApiRequest::GetBlock {
-                header_id,
-                response_tx,
-            }),
-        })
-        .await
-        .map_err(|(error, _)| error)?;
-
-    response_rx
-        .await
-        .map_err(|error| Box::new(error) as super::DynError)?
-        .ok_or_else(|| format!("Block with header id {header_id} not found").into())
 }

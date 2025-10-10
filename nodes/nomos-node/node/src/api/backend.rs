@@ -16,8 +16,6 @@ use axum::{
     routing,
 };
 use broadcast_service::BlockBroadcastService;
-#[cfg(feature = "block-explorer")]
-use chain_service::CryptarchiaConsensus;
 use nomos_api::{
     Backend,
     http::{consensus::Cryptarchia, da::DaVerifier},
@@ -59,6 +57,11 @@ use tx_service::{
 };
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
+#[cfg(feature = "block-explorer")]
+use {
+    super::handlers::{blocks, blocks_stream},
+    chain_service::CryptarchiaConsensus,
+};
 
 use super::handlers::{
     add_share, add_tx, balancer_stats, blacklisted_peers, block, block_peer, cryptarchia_headers,
@@ -66,8 +69,6 @@ use super::handlers::{
     da_get_shares, da_get_storage_commitments, libp2p_info, mantle_metrics, mantle_status,
     monitor_stats, unblock_peer,
 };
-#[cfg(feature = "block-explorer")]
-use super::handlers::{blocks, blocks_stream};
 use crate::api::handlers::{post_activity, post_declaration, post_withdrawal};
 
 pub(crate) type DaStorageBackend = RocksBackend;
@@ -571,15 +572,15 @@ where
         let app = app
             .route(
                 paths::BLOCKS,
-                routing::get(blocks::<DaStorageBackend, RuntimeServiceId>),
+                routing::get(blocks::<SignedMantleTx, DaStorageBackend, RuntimeServiceId>),
             )
             .route(
                 paths::BLOCKS_STREAM,
                 routing::get(
                     blocks_stream::<
                         SignedMantleTx,
-                        CryptarchiaConsensus<_, _, _, _, _, _, _, _, _, _>,
                         DaStorageBackend,
+                        CryptarchiaConsensus<_, _, _, _, _, _, _, _, _, _>,
                         RuntimeServiceId,
                     >,
                 ),
