@@ -73,7 +73,7 @@ tower      = { default-features = false, features = ["limit"], version = "0.4" }
 tower-http = { default-features = false, features = ["cors", "limit", "timeout", "trace"], version = "0.5" }
 
 [features]
-block-explorer  = []
+block-explorer  = ["nomos-api/block-explorer"]
 default         = ["tracing"]
 instrumentation = []
 profiling       = ["nomos-http-api-common/profiling", "nomos-tracing-service/profiling"]

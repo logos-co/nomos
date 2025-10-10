@@ -1,13 +1,19 @@
 use core::fmt::Debug;
-use std::{fmt::Display, num::NonZeroUsize, ops::RangeInclusive};
+use std::fmt::Display;
+#[cfg(feature = "block-explorer")]
+use std::{num::NonZeroUsize, ops::RangeInclusive};
 
 use broadcast_service::{BlockBroadcastMsg, BlockBroadcastService, BlockInfo};
+#[cfg(feature = "block-explorer")]
 use chain_service::{ConsensusMsg, Slot};
-use futures::{Stream, StreamExt as _, TryStreamExt as _, future::join_all};
+use futures::{Stream, StreamExt as _};
+#[cfg(feature = "block-explorer")]
+use futures::{TryStreamExt as _, future::join_all};
 use nomos_core::{
     header::HeaderId,
     mantle::{SignedMantleTx, Transaction},
 };
+#[cfg(feature = "block-explorer")]
 use nomos_storage::{
     StorageMsg, StorageService,
     api::{
@@ -15,9 +21,12 @@ use nomos_storage::{
         chain::{StorageChainApi, requests::ChainApiRequest},
     },
 };
-use overwatch::services::{AsServiceId, ServiceData, relay::OutboundRelay};
+use overwatch::services::AsServiceId;
+#[cfg(feature = "block-explorer")]
+use overwatch::services::{ServiceData, relay::OutboundRelay};
 use tokio::sync::oneshot;
 use tokio_stream::wrappers::BroadcastStream;
+#[cfg(feature = "block-explorer")]
 use tracing::warn;
 use tx_service::{
     MempoolMetrics, MempoolMsg, TxMempoolService, backend::Mempool,
@@ -123,6 +132,7 @@ where
     Ok(stream)
 }
 
+#[cfg(feature = "block-explorer")]
 pub async fn get_new_header_ids_stream<Transaction, Service, RuntimeServiceId>(
     handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
 ) -> Result<
@@ -155,6 +165,7 @@ where
     Ok(new_header_ids_stream)
 }
 
+#[cfg(feature = "block-explorer")]
 pub async fn get_new_blocks_stream<Transaction, ConsensusService, Backend, RuntimeServiceId>(
     handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
 ) -> Result<
@@ -190,6 +201,7 @@ where
     Ok(new_blocks_stream)
 }
 
+#[cfg(feature = "block-explorer")]
 /// Fetch block header ids in range.
 ///
 /// # Arguments
@@ -247,6 +259,7 @@ where
         .map_err(|error| Box::new(error) as super::DynError)
 }
 
+#[cfg(feature = "block-explorer")]
 /// Fetch blocks in range
 ///
 /// # Parameters
@@ -294,6 +307,7 @@ where
     Ok(blocks)
 }
 
+#[cfg(feature = "block-explorer")]
 /// Get a block from the chain storage
 ///
 /// # Parameters
