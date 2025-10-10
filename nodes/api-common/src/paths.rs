@@ -18,6 +18,9 @@ pub const STORAGE_BLOCK: &str = "/storage/block";
 pub const MEMPOOL_ADD_TX: &str = "/mempool/add/tx";
 pub const DISPERSE_DATA: &str = "/disperse-data";
 
+pub const BLOCKS: &str = "/cryptarchia/blocks";
+pub const BLOCKS_STREAM: &str = "/cryptarchia/blocks/stream";
+
 // testing paths
 pub const UPDATE_MEMBERSHIP: &str = "/test/membership/update";
 pub const DA_GET_MEMBERSHIP: &str = "/test/da/membership";
