@@ -16,6 +16,7 @@ use axum::{
     routing,
 };
 use broadcast_service::BlockBroadcastService;
+use chain_service::CryptarchiaConsensus;
 use nomos_api::{
     Backend,
     http::{consensus::Cryptarchia, da::DaVerifier},
@@ -59,10 +60,10 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 use super::handlers::{
-    add_share, add_tx, balancer_stats, blacklisted_peers, block, block_peer, cryptarchia_headers,
-    cryptarchia_info, cryptarchia_lib_stream, da_get_commitments, da_get_light_share,
-    da_get_shares, da_get_storage_commitments, libp2p_info, mantle_metrics, mantle_status,
-    monitor_stats, unblock_peer,
+    add_share, add_tx, balancer_stats, blacklisted_peers, block, block_peer, blocks, blocks_stream,
+    cryptarchia_headers, cryptarchia_info, cryptarchia_lib_stream, da_get_commitments,
+    da_get_light_share, da_get_shares, da_get_storage_commitments, libp2p_info, mantle_metrics,
+    mantle_status, monitor_stats, unblock_peer,
 };
 use crate::api::handlers::{post_activity, post_declaration, post_withdrawal};
 
@@ -561,7 +562,27 @@ where
             .route(
                 paths::SDP_POST_WITHDRAWAL,
                 routing::post(post_withdrawal::<SdpMempool, RuntimeServiceId>),
+            );
+
+        #[cfg(feature = "block-explorer")]
+        let app = app
+            .route(
+                paths::BLOCKS,
+                routing::get(blocks::<DaStorageBackend, RuntimeServiceId>),
             )
+            .route(
+                paths::BLOCKS_STREAM,
+                routing::get(
+                    blocks_stream::<
+                        SignedMantleTx,
+                        CryptarchiaConsensus<_, _, _, _, _, _, _, _, _, _>,
+                        DaStorageBackend,
+                        RuntimeServiceId,
+                    >,
+                ),
+            );
+
+        let app = app
             .with_state(handle.clone())
             .layer(TimeoutLayer::new(self.settings.timeout))
             .layer(RequestBodyLimitLayer::new(self.settings.max_body_size))

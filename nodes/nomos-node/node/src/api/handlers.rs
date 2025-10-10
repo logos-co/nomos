@@ -12,9 +12,8 @@ use axum::{
     response::{IntoResponse as _, Response},
 };
 use broadcast_service::BlockBroadcastService;
-use futures::StreamExt as _;
+use chain_service::ConsensusMsg;
 use nomos_api::http::{
-    DynError,
     consensus::{self, Cryptarchia},
     da::{self, BalancerMessageFactory, DaVerifier, MonitorMessageFactory},
     libp2p, mantle, mempool,
@@ -39,7 +38,10 @@ use nomos_libp2p::PeerId;
 use nomos_network::backends::libp2p::Libp2p as Libp2pNetworkBackend;
 use nomos_sdp::adapters::mempool::SdpMempoolAdapter;
 use nomos_storage::{StorageService, api::da::DaConverter, backends::rocksdb::RocksBackend};
-use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId};
+use overwatch::{
+    overwatch::handle::OverwatchHandle,
+    services::{AsServiceId, ServiceData},
+};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use subnetworks_assignations::MembershipHandler;
 use tx_service::{
@@ -47,7 +49,7 @@ use tx_service::{
     network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
 };
 
-use crate::api::backend::DaStorageBackend;
+use crate::api::{backend::DaStorageBackend, queries::BlockRangeQuery, responses};
 
 #[macro_export]
 macro_rules! make_request_and_return_response {
@@ -318,26 +320,8 @@ where
     RuntimeServiceId:
         Debug + Sync + Display + AsServiceId<BlockBroadcastService<RuntimeServiceId>> + 'static,
 {
-    match mantle::lib_block_stream(&handle).await {
-        Ok(shares) => {
-            let stream = shares.map(|res| {
-                let info = res?;
-                let mut bytes = serde_json::to_vec(&info).map_err(|e| Box::new(e) as DynError)?;
-                bytes.push(b'\n');
-                Ok::<_, DynError>(bytes)
-            });
-
-            let body = Body::from_stream(stream);
-
-            Response::builder()
-                .status(StatusCode::OK)
-                .header("content-type", "application/x-ndjson")
-                .body(body)
-                .unwrap()
-                .into_response()
-        }
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
-    }
+    let stream = mantle::lib_block_stream(&handle).await;
+    responses::ndjson::from_stream_result(stream)
 }
 
 #[utoipa::path(
@@ -1021,4 +1005,54 @@ where
         MempoolAdapter,
         RuntimeServiceId,
     >(handle, declaration_id))
+}
+
+#[utoipa::path(
+    get,
+    path = paths::BLOCKS,
+    params(BlockRangeQuery),
+    responses(
+        (status = 200, description = "Get blocks"),
+        (status = 500, description = "Internal server error", body = String),
+    )
+)]
+pub async fn blocks<Backend, RuntimeServiceId>(
+    State(handle): State<OverwatchHandle<RuntimeServiceId>>,
+    Query(query): Query<BlockRangeQuery>,
+) -> Response
+where
+    Backend: nomos_storage::backends::StorageBackend + Send + Sync + 'static,
+    Backend::Block: Serialize,
+    RuntimeServiceId:
+        Debug + Sync + Display + 'static + AsServiceId<StorageService<Backend, RuntimeServiceId>>,
+{
+    make_request_and_return_response!(mantle::get_blocks(&handle, query.slot_from, query.slot_to))
+}
+
+#[utoipa::path(
+    get,
+    path = paths::BLOCKS_STREAM,
+    responses(
+        (status = 200, description = "Get blocks"),
+        (status = 500, description = "Internal server error", body = String),
+    )
+)]
+pub async fn blocks_stream<Transaction, ConsensusService, Backend, RuntimeServiceId>(
+    State(handle): State<OverwatchHandle<RuntimeServiceId>>,
+) -> Response
+where
+    Transaction: Send + 'static,
+    Backend: nomos_storage::backends::StorageBackend + Send + Sync + 'static,
+    Backend::Block: Serialize,
+    ConsensusService: ServiceData<Message = ConsensusMsg<Transaction>> + 'static,
+    RuntimeServiceId: Debug
+        + Sync
+        + Display
+        + 'static
+        + AsServiceId<ConsensusService>
+        + AsServiceId<StorageService<Backend, RuntimeServiceId>>,
+{
+    let stream =
+        mantle::get_new_blocks_stream::<Transaction, ConsensusService, _, _>(&handle).await;
+    responses::ndjson::from_stream_result(stream)
 }
