@@ -203,7 +203,8 @@ mod tests {
             0, 0, 0
         ]);
         let zero_string = "0000000000000000000000000000000000000000000000000000000000000000";
-        let payload = json!({"channel": zero_string, "blob": zeros, "blob_size": 0, "parent": zero_string, "signer": *VK, "da_storage_gas_price": 0});
+        let vk_hex = hex::encode(VK.as_bytes());
+        let payload = json!({"channel": zero_string, "blob": zeros, "blob_size": 0, "parent": zero_string, "signer": vk_hex, "da_storage_gas_price": 0});
         let repr = json!({"opcode": 0x01, "payload": payload});
         println!("{:?}", serde_json::to_string(&repr).unwrap());
         let op = Op::ChannelBlob(BlobOp {
