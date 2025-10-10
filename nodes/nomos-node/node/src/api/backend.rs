@@ -16,6 +16,7 @@ use axum::{
     routing,
 };
 use broadcast_service::BlockBroadcastService;
+#[cfg(feature = "block-explorer")]
 use chain_service::CryptarchiaConsensus;
 use nomos_api::{
     Backend,
@@ -59,11 +60,13 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 use super::handlers::{
-    add_share, add_tx, balancer_stats, blacklisted_peers, block, block_peer, blocks, blocks_stream,
-    cryptarchia_headers, cryptarchia_info, cryptarchia_lib_stream, da_get_commitments,
-    da_get_light_share, da_get_shares, da_get_storage_commitments, libp2p_info, mantle_metrics,
-    mantle_status, monitor_stats, unblock_peer,
+    add_share, add_tx, balancer_stats, blacklisted_peers, block, block_peer, cryptarchia_headers,
+    cryptarchia_info, cryptarchia_lib_stream, da_get_commitments, da_get_light_share,
+    da_get_shares, da_get_storage_commitments, libp2p_info, mantle_metrics, mantle_status,
+    monitor_stats, unblock_peer,
 };
+#[cfg(feature = "block-explorer")]
+use super::handlers::{blocks, blocks_stream};
 
 pub(crate) type DaStorageBackend = RocksBackend;
 type DaStorageService<RuntimeServiceId> = StorageService<DaStorageBackend, RuntimeServiceId>;
