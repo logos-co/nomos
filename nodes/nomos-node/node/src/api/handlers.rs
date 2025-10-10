@@ -12,6 +12,7 @@ use axum::{
     response::{IntoResponse as _, Response},
 };
 use broadcast_service::BlockBroadcastService;
+#[cfg(feature = "block-explorer")]
 use chain_service::ConsensusMsg;
 use nomos_api::http::{
     consensus::{self, Cryptarchia},
@@ -36,10 +37,9 @@ use nomos_http_api_common::paths;
 use nomos_libp2p::PeerId;
 use nomos_network::backends::libp2p::Libp2p as Libp2pNetworkBackend;
 use nomos_storage::{StorageService, api::da::DaConverter, backends::rocksdb::RocksBackend};
-use overwatch::{
-    overwatch::handle::OverwatchHandle,
-    services::{AsServiceId, ServiceData},
-};
+#[cfg(feature = "block-explorer")]
+use overwatch::services::ServiceData;
+use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use subnetworks_assignations::MembershipHandler;
 use tx_service::{
@@ -47,7 +47,9 @@ use tx_service::{
     network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
 };
 
-use crate::api::{backend::DaStorageBackend, queries::BlockRangeQuery, responses};
+#[cfg(feature = "block-explorer")]
+use crate::api::queries::BlockRangeQuery;
+use crate::api::{backend::DaStorageBackend, responses};
 
 #[macro_export]
 macro_rules! make_request_and_return_response {
@@ -926,6 +928,7 @@ where
     >(&handle, tx, Transaction::hash))
 }
 
+#[cfg(feature = "block-explorer")]
 #[utoipa::path(
     get,
     path = paths::BLOCKS,
@@ -948,6 +951,7 @@ where
     make_request_and_return_response!(mantle::get_blocks(&handle, query.slot_from, query.slot_to))
 }
 
+#[cfg(feature = "block-explorer")]
 #[utoipa::path(
     get,
     path = paths::BLOCKS_STREAM,
