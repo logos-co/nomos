@@ -79,6 +79,12 @@ impl<T: AuthenticatedMantleTx> AuthenticatedMantleTx for &T {
     }
 }
 
+impl<T: GenesisTx> GenesisTx for &T {
+    fn genesis_inscription(&self) -> &InscriptionOp {
+        T::genesis_inscription(self)
+    }
+}
+
 pub trait TxSelect {
     type Tx: Transaction;
     type Settings: Clone;

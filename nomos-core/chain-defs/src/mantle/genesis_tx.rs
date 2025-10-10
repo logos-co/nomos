@@ -16,6 +16,7 @@ use crate::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(transparent)]
 pub struct GenesisTx(SignedMantleTx);
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
@@ -114,6 +115,16 @@ impl AuthenticatedMantleTx for GenesisTx {
 impl GasCost for GenesisTx {
     fn gas_cost<Constants: GasConstants>(&self) -> Gas {
         self.0.gas_cost::<Constants>()
+    }
+}
+
+impl crate::mantle::GenesisTx for GenesisTx {
+    fn genesis_inscription(&self) -> &InscriptionOp {
+        // Safe to unwrap because we validated this in from_tx
+        match &self.0.mantle_tx().ops[0] {
+            Op::ChannelInscribe(op) => op,
+            _ => unreachable!("GenesisTx always has a valid inscription as first op"),
+        }
     }
 }
 
@@ -413,5 +424,26 @@ mod tests {
         tx.mantle_tx.execution_gas_price = 1;
         let result = GenesisTx::from_tx(tx);
         assert_eq!(result, Err(Error::InvalidGenesisGasPrice));
+    }
+
+    #[test]
+    fn test_genesis_tx_serde() {
+        // Create a genesis transaction with inscription (no signature proof required)
+        let tx = create_signed_tx(vec![Op::ChannelInscribe(inscription_op(
+            ChannelId::from([0; 32]),
+            MsgId::root(),
+            VerifyingKey::from_bytes(&[0; 32]).unwrap(),
+        ))]);
+        let genesis_tx = GenesisTx::from_tx(tx).expect("Valid genesis transaction");
+
+        // Serialize to JSON
+        let json_str = serde_json::to_string(&genesis_tx).expect("Serialization should succeed");
+
+        // Deserialize from JSON
+        let deserialized: GenesisTx =
+            serde_json::from_str(&json_str).expect("Deserialization should succeed");
+
+        // Verify they're equal
+        assert_eq!(genesis_tx, deserialized);
     }
 }
