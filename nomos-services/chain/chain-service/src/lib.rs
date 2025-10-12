@@ -210,7 +210,7 @@ impl Cryptarchia {
         let genesis_id = genesis_header.id();
         let consensus_config = ledger_config.consensus_config;
         // Use Ledger::from_genesis to properly validate the genesis proof
-        let ledger = nomos_ledger::Ledger::from_genesis::<_, MainnetGasConstants>(
+        let ledger = nomos_ledger::Ledger::from_genesis(
             genesis_id,
             genesis_tx,
             ledger_config,

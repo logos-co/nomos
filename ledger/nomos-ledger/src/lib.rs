@@ -73,7 +73,7 @@ where
         }
     }
 
-    pub fn from_genesis<LeaderProof, Constants>(
+    pub fn from_genesis<LeaderProof>(
         id: Id,
         tx: impl GenesisTx,
         config: Config,
@@ -81,13 +81,12 @@ where
         proof: &LeaderProof,
     ) -> Result<Self, LedgerError<Id>>
     where
-        Constants: GasConstants,
         LeaderProof: leader_proof::LeaderProof,
     {
         if !proof.verify_genesis() {
             return Err(LedgerError::InvalidProof);
         }
-        let state = LedgerState::from_genesis_tx::<_, Constants>(tx, &config, epoch_nonce)?;
+        let state = LedgerState::from_genesis_tx(tx, &config, epoch_nonce)?;
         Ok(Self::new(id, state, config))
     }
 
@@ -251,17 +250,14 @@ impl LedgerState {
         }
     }
 
-    pub fn from_genesis_tx<Id, Constants: GasConstants>(
+    pub fn from_genesis_tx<Id>(
         tx: impl GenesisTx,
         config: &Config,
         epoch_nonce: Fr,
     ) -> Result<Self, LedgerError<Id>> {
         let cryptarchia_ledger = CryptarchiaLedger::from_genesis_tx(&tx, epoch_nonce)?;
-        let mantle_ledger = MantleLedger::from_genesis_tx::<Constants>(
-            tx,
-            config,
-            cryptarchia_ledger.latest_commitments(),
-        )?;
+        let mantle_ledger =
+            MantleLedger::from_genesis_tx(tx, config, cryptarchia_ledger.latest_commitments())?;
         Ok(Self {
             block_number: 0,
             cryptarchia_ledger,

@@ -153,6 +153,7 @@ impl Validator {
             .arg(&config_path)
             .current_dir(dir.path())
             .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
             .spawn()
             .unwrap();
         let node = Self {

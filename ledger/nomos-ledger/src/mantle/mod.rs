@@ -10,7 +10,7 @@ use ed25519::signature::Verifier as _;
 use nomos_core::{
     block::BlockNumber,
     mantle::{
-        AuthenticatedMantleTx, GasConstants, GenesisTx, NoteId,
+        AuthenticatedMantleTx, GasConstants, GenesisTx, NoteId, TxHash,
         ops::{Op, OpProof, leader_claim::VoucherCm},
     },
     proofs::zksig::{self, ZkSignatureProof as _},
@@ -73,13 +73,27 @@ impl LedgerState {
         }
     }
 
-    pub fn from_genesis_tx<Constants: GasConstants>(
+    pub fn from_genesis_tx(
         tx: impl GenesisTx,
         config: &Config,
         utxo_tree: &UtxoTree,
     ) -> Result<Self, Error> {
-        let (ledger, _) = Self::new().try_apply_tx::<Constants>(0, config, utxo_tree, tx)?;
+        let tx_hash = tx.hash();
+        let ops = tx.mantle_tx().ops.iter().map(|op| (op, None));
+        let (ledger, _) = Self::new().try_apply_ops(0, config, utxo_tree, tx_hash, ops)?;
         Ok(ledger)
+    }
+
+    pub fn try_apply_tx<Constants: GasConstants>(
+        self,
+        current_block_number: BlockNumber,
+        config: &Config,
+        utxo_tree: &UtxoTree,
+        tx: impl AuthenticatedMantleTx,
+    ) -> Result<(Self, Balance), Error> {
+        let tx_hash = tx.hash();
+        let ops = tx.ops_with_proof();
+        self.try_apply_ops(current_block_number, config, utxo_tree, tx_hash, ops)
     }
 
     #[must_use]
@@ -120,33 +134,26 @@ impl LedgerState {
         Ok(self)
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "All operations handled in one method"
-    )]
-    pub fn try_apply_tx<Constants: GasConstants>(
+    fn try_apply_ops<'a>(
         mut self,
         current_block_number: BlockNumber,
         config: &Config,
         utxo_tree: &UtxoTree,
-        tx: impl AuthenticatedMantleTx,
+        tx_hash: TxHash,
+        ops: impl Iterator<Item = (&'a Op, Option<&'a OpProof>)> + 'a,
     ) -> Result<(Self, Balance), Error> {
-        let tx_hash = tx.hash();
         let mut balance = 0;
-        for (op, proof) in tx.ops_with_proof() {
+        for (op, proof) in ops {
             match (op, proof) {
-                (Op::ChannelBlob(op), Some(OpProof::Ed25519Sig(_sig))) => {
-                    // The signature could be verified even before reaching this point,
-                    // as you only need the signer's public key and tx hash
-                    // Callers are expected to validate the proof before calling this function.
+                // The signature for channel ops can be verified before reaching this point,
+                // as you only need the signer's public key and tx hash
+                // Callers are expected to validate the proof before calling this function.
+                (Op::ChannelBlob(op), None) => {
                     self.channels =
                         self.channels
                             .apply_msg(op.channel, &op.parent, op.id(), &op.signer)?;
                 }
-                (Op::ChannelInscribe(op), Some(OpProof::Ed25519Sig(_sig))) => {
-                    // The signature could be verified even before reaching this point,
-                    // as you only need the signer's public key and tx hash
-                    // Callers are expected to validate the proof before calling this function.
+                (Op::ChannelInscribe(op), None) => {
                     self.channels =
                         self.channels
                             .apply_msg(op.channel_id, &op.parent, op.id(), &op.signer)?;

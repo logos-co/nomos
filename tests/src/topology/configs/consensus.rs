@@ -2,10 +2,9 @@ use std::{num::NonZero, sync::Arc};
 
 use chain_leader::LeaderConfig;
 use cryptarchia_engine::EpochConfig;
-use groth16::Fr;
 use nomos_core::{
     mantle::{
-        MantleTx, Note, SignedMantleTx, Utxo,
+        MantleTx, Note, Utxo,
         genesis_tx::GenesisTx,
         keys::{PublicKey, SecretKey},
         ledger::Tx as LedgerTx,
@@ -14,7 +13,6 @@ use nomos_core::{
             channel::{ChannelId, Ed25519PublicKey, MsgId, inscribe::InscriptionOp},
         },
     },
-    proofs::zksig::{DummyZkSignature, ZkSignaturePublic},
     sdp::{ServiceParameters, ServiceType},
 };
 use num_bigint::BigUint;
@@ -72,18 +70,8 @@ fn create_genesis_tx(utxos: &[Utxo]) -> GenesisTx {
         storage_gas_price: 0,
     };
 
-    // Create signed transaction with dummy proof
-    let signed_tx = SignedMantleTx::new_unverified(
-        mantle_tx,
-        vec![None], // One proof slot for the inscription op
-        DummyZkSignature::prove(ZkSignaturePublic {
-            msg_hash: Fr::from(0u64),
-            pks: vec![],
-        }),
-    );
-
     // Wrap in GenesisTx
-    GenesisTx::from_tx(signed_tx).expect("Invalid genesis transaction")
+    GenesisTx::from_tx(mantle_tx).expect("Invalid genesis transaction")
 }
 
 #[must_use]
