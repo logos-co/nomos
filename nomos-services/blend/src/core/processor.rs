@@ -4,7 +4,9 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use nomos_blend_message::crypto::proofs::PoQVerificationInputsMinusSigningKey;
+use nomos_blend_message::crypto::proofs::{
+    PoQVerificationInputsMinusSigningKey, quota::inputs::prove::private::ProofOfCoreQuotaInputs,
+};
 use nomos_blend_scheduling::{
     membership::Membership,
     message_blend::{
@@ -30,7 +32,7 @@ where
         minimum_network_size: NonZeroU64,
         settings: &SessionCryptographicProcessorSettings,
         public_info: PoQVerificationInputsMinusSigningKey,
-        proofs_verifier: ProofsVerifier,
+        private_core_info: ProofOfCoreQuotaInputs,
     ) -> Result<Self, Error>
     where
         NodeId: Eq + Hash,
@@ -42,9 +44,9 @@ where
         } else {
             Ok(Self::new(
                 membership,
-                session_info,
                 settings,
-                proofs_verifier,
+                public_info,
+                private_core_info,
             ))
         }
     }
@@ -52,14 +54,14 @@ where
     fn new(
         membership: Membership<NodeId>,
         settings: &SessionCryptographicProcessorSettings,
-        public_info
-        proofs_verifier: ProofsVerifier,
+        public_info: PoQVerificationInputsMinusSigningKey,
+        private_core_info: ProofOfCoreQuotaInputs,
     ) -> Self {
         Self(SessionCryptographicProcessor::new(
             settings,
             membership,
-            session_info,
-            proofs_verifier,
+            public_info,
+            private_core_info,
         ))
     }
 }
@@ -102,22 +104,84 @@ pub enum Error {
 
 #[cfg(test)]
 mod tests {
+    use async_trait::async_trait;
+    use nomos_blend_message::crypto::proofs::quota::inputs::prove::{
+        private::ProofOfLeadershipQuotaInputs,
+        public::{CoreInputs, LeaderInputs},
+    };
+    use nomos_blend_scheduling::message_blend::provers::{
+        BlendLayerProof, ProofsGeneratorSettings,
+    };
+    use nomos_core::crypto::ZkHash;
+
     use super::*;
     use crate::test_utils::{
-        crypto::{MockProofsGenerator, MockProofsVerifier},
-        membership::{key, membership, mock_session_info},
+        crypto::mock_blend_proof,
+        membership::{key, membership},
     };
+
+    pub struct MockCoreAndLeaderProofsGenerator;
+
+    #[async_trait]
+    impl CoreAndLeaderProofsGenerator for MockCoreAndLeaderProofsGenerator {
+        fn new(
+            _settings: ProofsGeneratorSettings,
+            _private_inputs: ProofOfCoreQuotaInputs,
+        ) -> Self {
+            Self
+        }
+
+        fn rotate_epoch(&mut self, new_epoch_public: LeaderInputs) {}
+
+        fn set_epoch_private(&mut self, new_epoch_private: ProofOfLeadershipQuotaInputs) {}
+
+        async fn get_next_core_proof(&mut self) -> Option<BlendLayerProof> {
+            Some(mock_blend_proof())
+        }
+
+        async fn get_next_leader_proof(&mut self) -> Option<BlendLayerProof> {
+            Some(mock_blend_proof())
+        }
+    }
+
+    fn mock_verification_inputs() -> PoQVerificationInputsMinusSigningKey {
+        use groth16::Field as _;
+
+        PoQVerificationInputsMinusSigningKey {
+            session: 1,
+            core: CoreInputs {
+                quota: 1,
+                zk_root: ZkHash::ZERO,
+            },
+            leader: LeaderInputs {
+                pol_ledger_aged: ZkHash::ZERO,
+                pol_epoch_nonce: ZkHash::ZERO,
+                message_quota: 1,
+                total_stake: 1,
+            },
+        }
+    }
+
+    fn mock_core_poq_inputs() -> ProofOfCoreQuotaInputs {
+        use groth16::Field as _;
+
+        ProofOfCoreQuotaInputs {
+            core_sk: ZkHash::ZERO,
+            core_path: vec![],
+            core_path_selectors: vec![],
+        }
+    }
 
     #[test]
     fn try_new_with_valid_membership() {
         let local_id = NodeId(1);
         let core_nodes = [NodeId(1)];
-        CoreCryptographicProcessor::<_, MockProofsGenerator, _>::try_new_with_core_condition_check(
+        CoreCryptographicProcessor::<_, MockCoreAndLeaderProofsGenerator, _>::try_new_with_core_condition_check(
             membership(&core_nodes, local_id),
             NonZeroU64::new(1).unwrap(),
             &settings(local_id),
-            mock_session_info(),
-            MockProofsVerifier,
+            mock_verification_inputs(),
+            mock_core_poq_inputs()
         )
         .unwrap();
     }
@@ -126,12 +190,12 @@ mod tests {
     fn try_new_with_small_membership() {
         let local_id = NodeId(1);
         let core_nodes = [NodeId(1)];
-        let result = CoreCryptographicProcessor::<_, MockProofsGenerator, _>::try_new_with_core_condition_check(
+        let result = CoreCryptographicProcessor::<_, MockCoreAndLeaderProofsGenerator, _>::try_new_with_core_condition_check(
             membership(&core_nodes, local_id),
             NonZeroU64::new(2).unwrap(),
             &settings(local_id),
-            mock_session_info(),
-            MockProofsVerifier
+            mock_verification_inputs(),
+            mock_core_poq_inputs()
         );
         assert!(matches!(result, Err(Error::NetworkIsTooSmall(1))));
     }
@@ -140,12 +204,12 @@ mod tests {
     fn try_new_with_local_node_not_core() {
         let local_id = NodeId(1);
         let core_nodes = [NodeId(2)];
-        let result = CoreCryptographicProcessor::<_, MockProofsGenerator, _>::try_new_with_core_condition_check(
+        let result = CoreCryptographicProcessor::<_, MockCoreAndLeaderProofsGenerator, _>::try_new_with_core_condition_check(
             membership(&core_nodes, local_id),
             NonZeroU64::new(1).unwrap(),
             &settings(local_id),
-            mock_session_info(),
-            MockProofsVerifier
+            mock_verification_inputs(),
+            mock_core_poq_inputs()
         );
         assert!(matches!(result, Err(Error::LocalIsNotCoreNode)));
     }

@@ -2,7 +2,7 @@ use std::num::NonZeroU64;
 
 use futures::{Stream, StreamExt as _};
 use nomos_blend_scheduling::{
-    membership::Membership, message_blend::SessionCryptographicProcessorSettings,
+    membership::Membership, message_blend::crypto::SessionCryptographicProcessorSettings,
     message_scheduler::session_info::SessionInfo, session::SessionEvent,
 };
 use nomos_utils::math::NonNegativeF64;
@@ -225,6 +225,7 @@ mod tests {
                 round_duration: std::time::Duration::from_secs(1),
                 rounds_per_observation_window: NonZeroU64::new(1).unwrap(),
                 rounds_per_session_transition_period: NonZeroU64::new(1).unwrap(),
+                epoch_transition_period_in_slots: NonZeroU64::new(1).unwrap(),
             },
             minimum_network_size: NonZeroU64::new(1).unwrap(),
         }
