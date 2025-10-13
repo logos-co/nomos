@@ -201,34 +201,6 @@ impl Cryptarchia {
         }
     }
 
-    pub fn from_genesis(
-        genesis_tx: GenesisTx,
-        genesis_nonce: groth16::Fr,
-        ledger_config: nomos_ledger::Config,
-    ) -> Result<Self, Error> {
-        let genesis_header = Header::genesis(&genesis_tx);
-        let genesis_id = genesis_header.id();
-        let consensus_config = ledger_config.consensus_config;
-        // Use Ledger::from_genesis to properly validate the genesis proof
-        let ledger = nomos_ledger::Ledger::from_genesis(
-            genesis_id,
-            genesis_tx,
-            ledger_config,
-            genesis_nonce,
-            genesis_header.leader_proof(),
-        )?;
-
-        Ok(Self {
-            consensus: <cryptarchia_engine::Cryptarchia<_>>::from_lib(
-                genesis_id,
-                consensus_config,
-                cryptarchia_engine::State::Bootstrapping,
-            ),
-            ledger,
-            genesis_id,
-        })
-    }
-
     const fn tip(&self) -> HeaderId {
         self.consensus.tip()
     }
@@ -617,16 +589,14 @@ where
             .get_updated_settings();
 
         // TODO: check active slot coeff is exactly 1/30
-
-        // These are blocks that have been pruned by the cryptarchia engine but have not
-        // yet been deleted from the storage layer.
-        let storage_blocks_to_remove = self.state.storage_blocks_to_remove();
         let (cryptarchia, pruned_blocks) = self
             .initialize_cryptarchia(&bootstrap_config, ledger_config, &relays)
             .await;
+        // These are blocks that have been pruned by the cryptarchia engine but have not
+        // yet been deleted from the storage layer.
         let storage_blocks_to_remove = Self::delete_pruned_blocks_from_storage(
             pruned_blocks.stale_blocks().copied(),
-            storage_blocks_to_remove,
+            &self.state.storage_blocks_to_remove,
             relays.storage_adapter(),
         )
         .await;
@@ -1356,71 +1326,53 @@ where
             RuntimeServiceId,
         >,
     ) -> (Cryptarchia, PrunedBlocks<HeaderId>) {
-        match &self.state {
-            CryptarchiaConsensusState::Lib {
-                lib: lib_id,
-                genesis_id,
-                lib_ledger_state,
-                last_engine_state,
-                tip,
-                ..
-            } => {
-                let state = choose_engine_state(
-                    *lib_id,
-                    *genesis_id,
-                    bootstrap_config,
-                    last_engine_state.as_ref(),
-                );
-                let mut cryptarchia = Cryptarchia::from_lib(
-                    *lib_id,
-                    *lib_ledger_state.clone(),
-                    *genesis_id,
-                    ledger_config,
-                    state,
-                );
+        let lib_id = self.state.lib;
+        let genesis_id = self.state.genesis_id;
+        let state = choose_engine_state(
+            lib_id,
+            genesis_id,
+            bootstrap_config,
+            self.state.last_engine_state.as_ref(),
+        );
+        let mut cryptarchia = Cryptarchia::from_lib(
+            lib_id,
+            self.state.lib_ledger_state.clone(),
+            genesis_id,
+            ledger_config,
+            state,
+        );
 
-                // We reapply blocks here instead of saving ledger states to correcly make use
-                // of structural sharing If forking is low, this might not be
-                // necessary
-                let blocks =
-                    Self::get_blocks_in_range(*lib_id, *tip, relays.storage_adapter()).await;
+        // We reapply blocks here instead of saving ledger states to correcly make use
+        // of structural sharing If forking is low, this might not be necessary
+        let blocks =
+            Self::get_blocks_in_range(lib_id, self.state.tip, relays.storage_adapter()).await;
 
-                // Skip LIB block since it's already applied
-                let blocks = blocks.into_iter().skip(1);
+        // Skip LIB block since it's already applied
+        let blocks = blocks.into_iter().skip(1);
 
-                let mut pruned_blocks = PrunedBlocks::new();
-                for block in blocks {
-                    match Self::process_block(
-                        cryptarchia.clone(),
-                        block,
-                        &SkipBlobValidation,
-                        relays,
-                        &self.new_block_subscription_sender,
-                        &self.lib_subscription_sender,
-                    )
-                    .await
-                    {
-                        Ok((new_cryptarchia, new_pruned_blocks)) => {
-                            cryptarchia = new_cryptarchia;
-                            pruned_blocks.extend(&new_pruned_blocks);
-                        }
-                        Err(e) => {
-                            error!(target: LOG_TARGET, "Error processing block: {:?}", e);
-                        }
-                    }
+        let mut pruned_blocks = PrunedBlocks::new();
+        for block in blocks {
+            match Self::process_block(
+                cryptarchia.clone(),
+                block,
+                &SkipBlobValidation,
+                relays,
+                &self.new_block_subscription_sender,
+                &self.lib_subscription_sender,
+            )
+            .await
+            {
+                Ok((new_cryptarchia, new_pruned_blocks)) => {
+                    cryptarchia = new_cryptarchia;
+                    pruned_blocks.extend(&new_pruned_blocks);
                 }
-
-                (cryptarchia, pruned_blocks)
+                Err(e) => {
+                    error!(target: LOG_TARGET, "Error processing block: {:?}", e);
+                }
             }
-            CryptarchiaConsensusState::Genesis {
-                genesis_tx,
-                genesis_nonce,
-            } => (
-                Cryptarchia::from_genesis(genesis_tx.clone(), *genesis_nonce, ledger_config)
-                    .expect("Failed to create cryptarchia from genesis"),
-                PrunedBlocks::default(),
-            ),
         }
+
+        (cryptarchia, pruned_blocks)
     }
 
     /// Remove the pruned blocks from the storage layer.

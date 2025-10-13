@@ -1,8 +1,6 @@
-use std::{
-    collections::HashSet, hash::Hash, marker::PhantomData, sync::LazyLock, time::SystemTime,
-};
+use std::{collections::HashSet, hash::Hash, marker::PhantomData, time::SystemTime};
 
-use nomos_core::{header::HeaderId, mantle::genesis_tx::GenesisTx};
+use nomos_core::header::{Header, HeaderId};
 use nomos_ledger::LedgerState;
 use overwatch::{DynError, services::state::ServiceState};
 use serde::{Deserialize, Serialize};
@@ -10,30 +8,21 @@ use serde::{Deserialize, Serialize};
 use crate::{Cryptarchia, CryptarchiaSettings, Error, StartingState};
 
 #[derive(Clone, Serialize, Deserialize)]
-pub enum CryptarchiaConsensusState<NodeId, NetworkAdapterSettings> {
-    Lib {
-        tip: HeaderId,
-        lib: HeaderId,
-        lib_ledger_state: Box<LedgerState>,
-        lib_block_length: u64,
-        genesis_id: HeaderId,
-        /// Set of blocks that have been pruned from the engine but have not yet
-        /// been deleted from the persistence layer because of some unexpected
-        /// error.
-        storage_blocks_to_remove: HashSet<HeaderId>,
-        /// Last engine state and timestamp for offline grace period tracking
-        last_engine_state: Option<LastEngineState>,
-        // Only neededed for the service state trait
-        _markers: PhantomData<(NodeId, NetworkAdapterSettings)>,
-    },
-    Genesis {
-        genesis_tx: GenesisTx,
-        #[serde(with = "groth16::serde::serde_fr")]
-        genesis_nonce: groth16::Fr, // TODO: recover from genesis tx
-    },
+pub struct CryptarchiaConsensusState<NodeId, NetworkAdapterSettings> {
+    pub(crate) tip: HeaderId,
+    pub(crate) lib: HeaderId,
+    pub(crate) lib_ledger_state: LedgerState,
+    pub(crate) lib_block_length: u64,
+    pub(crate) genesis_id: HeaderId,
+    /// Set of blocks that have been pruned from the engine but have not yet
+    /// been deleted from the persistence layer because of some unexpected
+    /// error.
+    pub(crate) storage_blocks_to_remove: HashSet<HeaderId>,
+    /// Last engine state and timestamp for offline grace period tracking
+    pub(crate) last_engine_state: Option<LastEngineState>,
+    // Only neededed for the service state trait
+    _markers: PhantomData<(NodeId, NetworkAdapterSettings)>,
 }
-
-static EMPTY_HASHSET: LazyLock<HashSet<HeaderId>> = LazyLock::new(HashSet::new);
 
 impl<NodeId, NetworkAdapterSettings> CryptarchiaConsensusState<NodeId, NetworkAdapterSettings> {
     /// Re-create the [`CryptarchiaConsensusState`]
@@ -54,11 +43,11 @@ impl<NodeId, NetworkAdapterSettings> CryptarchiaConsensusState<NodeId, NetworkAd
         };
         let lib_block_length = lib.length();
 
-        Ok(Self::Lib {
+        Ok(Self {
             tip: cryptarchia.consensus.tip_branch().id(),
             lib: lib.id(),
             genesis_id: cryptarchia.genesis_id,
-            lib_ledger_state: Box::new(lib_ledger_state),
+            lib_ledger_state,
             lib_block_length,
             storage_blocks_to_remove,
             last_engine_state: Some(LastEngineState {
@@ -67,16 +56,6 @@ impl<NodeId, NetworkAdapterSettings> CryptarchiaConsensusState<NodeId, NetworkAd
             }),
             _markers: PhantomData,
         })
-    }
-
-    pub(crate) fn storage_blocks_to_remove(&self) -> &HashSet<HeaderId> {
-        match self {
-            Self::Lib {
-                storage_blocks_to_remove,
-                ..
-            } => storage_blocks_to_remove,
-            Self::Genesis { .. } => &EMPTY_HASHSET,
-        }
     }
 }
 
@@ -91,29 +70,36 @@ where
     fn from_settings(
         settings: &<Self as ServiceState>::Settings,
     ) -> Result<Self, <Self as ServiceState>::Error> {
-        match &settings.starting_state {
+        let (lib_id, genesis_id, lib_ledger_state) = match &settings.starting_state {
             StartingState::Genesis {
                 genesis_tx,
                 genesis_nonce,
-            } => Ok(Self::Genesis {
-                genesis_tx: genesis_tx.clone(),
-                genesis_nonce: *genesis_nonce,
-            }),
+            } => {
+                let lib_id = Header::genesis(genesis_tx).id();
+                let ledger = LedgerState::from_genesis_tx(
+                    genesis_tx.clone(),
+                    &settings.config,
+                    *genesis_nonce,
+                )?;
+                (lib_id, lib_id, ledger)
+            }
             StartingState::Lib {
                 lib_id,
-                lib_ledger_state,
                 genesis_id,
-            } => Ok(Self::Lib {
-                tip: *lib_id,
-                lib: *lib_id,
-                genesis_id: *genesis_id,
-                lib_ledger_state: lib_ledger_state.clone(),
-                lib_block_length: 0,
-                storage_blocks_to_remove: HashSet::new(),
-                last_engine_state: None,
-                _markers: PhantomData,
-            }),
-        }
+                lib_ledger_state,
+            } => (*lib_id, *genesis_id, lib_ledger_state.as_ref().clone()),
+        };
+
+        Ok(Self {
+            tip: lib_id,
+            lib: lib_id,
+            lib_ledger_state,
+            lib_block_length: 0,
+            genesis_id,
+            storage_blocks_to_remove: HashSet::new(),
+            last_engine_state: None,
+            _markers: PhantomData,
+        })
     }
 }
 
@@ -257,15 +243,10 @@ mod tests {
             )
             .unwrap();
 
-        match recovery_state {
-            CryptarchiaConsensusState::Lib { tip, lib, .. } => {
-                assert_eq!(tip, cryptarchia_engine.tip());
-                assert_eq!(lib, cryptarchia_engine.lib());
-            }
-            CryptarchiaConsensusState::Genesis { .. } => panic!("Expected Lib variant"),
-        }
+        assert_eq!(recovery_state.tip, cryptarchia_engine.tip());
+        assert_eq!(recovery_state.lib, cryptarchia_engine.lib());
         assert_eq!(
-            recovery_state.storage_blocks_to_remove(),
+            &recovery_state.storage_blocks_to_remove,
             &pruned_stale_blocks
         );
     }

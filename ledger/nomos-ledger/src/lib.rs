@@ -73,23 +73,6 @@ where
         }
     }
 
-    pub fn from_genesis<LeaderProof>(
-        id: Id,
-        tx: impl GenesisTx,
-        config: Config,
-        epoch_nonce: Fr,
-        proof: &LeaderProof,
-    ) -> Result<Self, LedgerError<Id>>
-    where
-        LeaderProof: leader_proof::LeaderProof,
-    {
-        if !proof.verify_genesis() {
-            return Err(LedgerError::InvalidProof);
-        }
-        let state = LedgerState::from_genesis_tx(tx, &config, epoch_nonce)?;
-        Ok(Self::new(id, state, config))
-    }
-
     /// Create a new [`Ledger`] with the updated state.
     #[must_use = "Returns a new instance with the updated state, without modifying the original."]
     pub fn try_update<LeaderProof, Constants>(
