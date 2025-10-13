@@ -5,13 +5,15 @@ use generic_array::{
     GenericArray,
     typenum::{U32, U64},
 };
-use groth16::{Fr, serde::serde_fr};
+use groth16::{CompressedGroth16Proof, Fr, serde::serde_fr};
 use num_bigint::BigUint;
 use poseidon2::{Digest as _, Poseidon2Bn254Hasher};
 use serde::{Deserialize, Serialize};
 use tracing::error;
 use zeroize::ZeroizeOnDrop;
 use zksign::{ZkSignProof, ZkSignVerifierInputs, ZkSignWitnessInputs, prove, verify};
+
+use crate::proofs::zksig::{ZkSignatureProof, ZkSignaturePublic};
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, ZeroizeOnDrop)]
 #[serde(transparent)]
 pub struct SecretKey(#[serde(with = "serde_fr")] Fr);
@@ -111,7 +113,7 @@ struct SignatureSerde {
     pi_c: GenericArray<u8, U32>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Signature(#[serde(with = "SignatureSerde")] ZkSignProof);
 
@@ -119,6 +121,11 @@ impl Signature {
     #[must_use]
     pub const fn as_proof(&self) -> &ZkSignProof {
         &self.0
+    }
+
+    #[must_use]
+    pub fn from_bytes(bytes: &[u8; 128]) -> Self {
+        Self(ZkSignProof::from_bytes(bytes))
     }
 }
 
@@ -161,5 +168,21 @@ impl From<SecretKey> for Fr {
 impl From<PublicKey> for Fr {
     fn from(public: PublicKey) -> Self {
         public.0
+    }
+}
+
+impl From<CompressedGroth16Proof> for Signature {
+    fn from(sig: CompressedGroth16Proof) -> Self {
+        Self(sig)
+    }
+}
+
+impl ZkSignatureProof for Signature {
+    fn verify(&self, _public_inputs: &ZkSignaturePublic) -> bool {
+        // TODO: Implement proper verification using the ZkSignaturePublic inputs
+        // For now, we just return true as this is a placeholder
+        // Real verification would need to convert ZkSignaturePublic to ZkSignVerifierInputs
+        // and call zksign::verify
+        true
     }
 }

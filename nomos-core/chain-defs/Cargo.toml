@@ -22,6 +22,7 @@ futures            = { version = "0.3", default-features = false, features = ["a
 generic-array      = "1.2.0"
 groth16            = { workspace = true, features = ["deser"] }
 multiaddr          = { default-features = false, version = "0.18" }
+nom                = { version = "7", default-features = false, features = ["alloc"] }
 num-bigint         = { version = "0.4", default-features = false }
 pol                = { workspace = true }
 poseidon2          = { workspace = true }

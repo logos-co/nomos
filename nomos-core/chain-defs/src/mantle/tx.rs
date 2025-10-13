@@ -12,10 +12,11 @@ use crate::{
     mantle::{
         AuthenticatedMantleTx, Transaction, TransactionHasher,
         gas::{Gas, GasConstants, GasCost},
+        keys::Signature as ZkSignature,
         ledger::Tx as LedgerTx,
         ops::{Op, OpProof},
     },
-    proofs::zksig::{DummyZkSignature as ZkSignature, ZkSignatureProof},
+    proofs::zksig::ZkSignatureProof,
 };
 
 /// The hash of a transaction
@@ -323,19 +324,14 @@ mod tests {
     use ed25519_dalek::SigningKey;
 
     use super::*;
-    use crate::{
-        mantle::{
-            ledger::Tx as LedgerTx,
-            ops::channel::{blob::BlobOp, inscribe::InscriptionOp},
-        },
-        proofs::zksig::ZkSignaturePublic,
+    use crate::mantle::{
+        ledger::Tx as LedgerTx,
+        ops::channel::{blob::BlobOp, inscribe::InscriptionOp},
     };
 
     fn dummy_zk_signature() -> ZkSignature {
-        ZkSignature::prove(ZkSignaturePublic {
-            msg_hash: Fr::default(),
-            pks: vec![],
-        })
+        // Create a dummy signature with all-zero proof bytes
+        ZkSignature::from_bytes(&[0u8; 128])
     }
 
     fn create_test_mantle_tx(ops: Vec<Op>) -> MantleTx {

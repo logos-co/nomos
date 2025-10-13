@@ -1,7 +1,7 @@
 use std::sync::LazyLock;
 
 use bytes::Bytes;
-use groth16::{Fr, fr_from_bytes, serde::serde_fr};
+use groth16::{Fr, fr_from_bytes, fr_to_bytes, serde::serde_fr};
 use num_bigint::BigUint;
 use poseidon2::Digest;
 use serde::{Deserialize, Serialize};
@@ -25,7 +25,7 @@ impl NoteId {
 
     #[must_use]
     pub fn as_bytes(&self) -> Bytes {
-        self.0.0.0.iter().flat_map(|b| b.to_le_bytes()).collect()
+        fr_to_bytes(&self.0).to_vec().into()
     }
 }
 

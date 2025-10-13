@@ -128,7 +128,7 @@ impl<'de> Deserialize<'de> for GenesisTx {
         struct GenesisTxHelper {
             mantle_tx: MantleTx,
             ops_proofs: Vec<Option<OpProof>>,
-            ledger_tx_proof: crate::proofs::zksig::DummyZkSignature,
+            ledger_tx_proof: crate::mantle::keys::Signature,
         }
 
         let helper = GenesisTxHelper::deserialize(deserializer)?;
@@ -154,7 +154,6 @@ mod tests {
             ledger::{Note, Tx as LedgerTx, Utxo, Value},
             ops::{channel::blob::BlobOp, sdp::SDPDeclareOp},
         },
-        proofs::zksig::{DummyZkSignature, ZkSignaturePublic},
         sdp::{ProviderId, ServiceType, ZkPublicKey},
     };
 
@@ -212,10 +211,7 @@ mod tests {
         SignedMantleTx::new_unverified(
             mantle_tx,
             vec![None; ops_proofs_len],
-            DummyZkSignature::prove(ZkSignaturePublic {
-                msg_hash: Fr::from(0u64),
-                pks: vec![],
-            }),
+            crate::mantle::keys::Signature::from_bytes(&[0u8; 128]),
         )
     }
 
