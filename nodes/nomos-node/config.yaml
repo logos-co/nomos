@@ -187,7 +187,6 @@ cryptarchia:
             pk: d204000000000000000000000000000000000000000000000000000000000000
       execution_gas_price: 0
       storage_gas_price: 0
-    genesis_nonce: "0000000000000000000000000000000000000000000000000000000000000000"
   network_adapter_settings:
     topic: /cryptarchia/proto
   recovery_file: ./recovery/cryptarchia.json

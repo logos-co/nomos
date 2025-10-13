@@ -344,8 +344,6 @@ where
 pub enum StartingState {
     Genesis {
         genesis_tx: GenesisTx,
-        #[serde(with = "groth16::serde::serde_fr")]
-        genesis_nonce: groth16::Fr, // TODO: recover from genesis tx
     },
     Lib {
         lib_id: HeaderId,

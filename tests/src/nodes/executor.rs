@@ -16,7 +16,6 @@ use chain_service::{
 use common_http_client::CommonHttpClient;
 use cryptarchia_engine::time::SlotConfig;
 use futures::Stream;
-use groth16::Field as _;
 use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
 use nomos_api::http::membership::MembershipUpdateRequest;
 use nomos_blend_scheduling::message_blend::SessionCryptographicProcessorSettings;
@@ -430,7 +429,6 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
             config: config.consensus_config.ledger_config.clone(),
             starting_state: StartingState::Genesis {
                 genesis_tx: config.consensus_config.genesis_tx,
-                genesis_nonce: groth16::Fr::ZERO,
             },
             network_adapter_settings:
                 chain_service::network::adapters::libp2p::LibP2pAdapterSettings {

@@ -1,5 +1,6 @@
 use std::{collections::HashSet, hash::Hash, marker::PhantomData, time::SystemTime};
 
+use groth16::{Field as _, Fr};
 use nomos_core::header::{Header, HeaderId};
 use nomos_ledger::LedgerState;
 use overwatch::{DynError, services::state::ServiceState};
@@ -71,15 +72,12 @@ where
         settings: &<Self as ServiceState>::Settings,
     ) -> Result<Self, <Self as ServiceState>::Error> {
         let (lib_id, genesis_id, lib_ledger_state) = match &settings.starting_state {
-            StartingState::Genesis {
-                genesis_tx,
-                genesis_nonce,
-            } => {
+            StartingState::Genesis { genesis_tx } => {
                 let lib_id = Header::genesis(genesis_tx).id();
                 let ledger = LedgerState::from_genesis_tx(
                     genesis_tx.clone(),
                     &settings.config,
-                    *genesis_nonce,
+                    Fr::ZERO, // TODO: recover from genesis tx
                 )?;
                 (lib_id, lib_id, ledger)
             }
