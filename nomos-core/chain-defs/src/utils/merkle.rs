@@ -32,6 +32,33 @@ pub fn node(left: impl AsRef<[u8]>, right: impl AsRef<[u8]>) -> [u8; 32] {
     hasher.finalize().into()
 }
 
+/// Calculates a 32-byte Merkle root for the given elements, with deterministic
+/// padding.
+///
+/// Padding rules:
+/// - Target size = `max(elements.len()`, `pad_to.unwrap_or(elements.len())`, 1)
+/// - Then rounded up to the next power of two
+/// - Missing leaves are filled using the default value of `T`
+/// - Special case: single leaf (`target_size` = 1) returns leaf hash directly
+///
+/// Examples:
+/// - 0 elements: 1 leaf → `leaf(default_element)`
+/// - 1 element: 1 leaf → leaf(element)
+/// - 2 elements: 2 leaves → node(leaf1, leaf2)
+/// - 3 elements: 4 leaves (padded) → full binary tree structure
+///
+/// Parameters:
+/// - `elements`: Items included in the tree; each converts to a 32-byte leaf.
+/// - `pad_to`: Optional minimum leaf count before rounding up to a power of
+///   two.
+///
+/// Returns:
+/// - The Merkle root as a 32-byte array.
+///
+/// Notes:
+/// - Using a fixed `pad_to` keeps the tree height consistent across varying
+///   input sizes.
+/// - Powers of two that are already satisfied don't trigger padding.
 pub fn calculate_merkle_root<T>(elements: &[T], pad_to: Option<usize>) -> [u8; 32]
 where
     T: Into<[u8; 32]> + Default + Clone,
@@ -47,10 +74,8 @@ where
         .max(1)
         .next_power_of_two();
 
-    if leaves.len() < target_size {
-        let zero_leaf = leaf(&T::default().into());
-        leaves.resize(target_size, zero_leaf);
-    }
+    let zero_leaf = leaf(&T::default().into());
+    leaves.resize(target_size, zero_leaf);
 
     while leaves.len() > 1 {
         leaves = leaves
@@ -115,6 +140,29 @@ mod tests {
         let leaf1 = leaf(&bytes1);
         let leaf2 = leaf(&bytes2);
         let expected = node(leaf1, leaf2);
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_root_single_element() {
+        let elements = vec![TxHash::from(Fr::from(42u64))];
+        let result = calculate_merkle_root(&elements, None);
+
+        let bytes: [u8; 32] = elements[0].into();
+        let expected = leaf(&bytes);
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_root_empty_elements() {
+        let elements: Vec<TxHash> = vec![];
+        let result = calculate_merkle_root(&elements, None);
+
+        let zero_hash = TxHash::default();
+        let zero_bytes: [u8; 32] = zero_hash.into();
+        let expected = leaf(&zero_bytes);
 
         assert_eq!(result, expected);
     }
