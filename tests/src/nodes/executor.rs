@@ -10,7 +10,9 @@ use std::{
 
 use broadcast_service::BlockInfo;
 use chain_leader::LeaderSettings;
-use chain_service::{CryptarchiaInfo, CryptarchiaSettings, OrphanConfig, SyncConfig};
+use chain_service::{
+    CryptarchiaInfo, CryptarchiaSettings, OrphanConfig, StartingState, SyncConfig,
+};
 use common_http_client::CommonHttpClient;
 use cryptarchia_engine::time::SlotConfig;
 use futures::Stream;
@@ -425,8 +427,9 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
         }),
         cryptarchia: CryptarchiaSettings {
             config: config.consensus_config.ledger_config.clone(),
-            genesis_id: HeaderId::from([0; 32]),
-            genesis_state: config.consensus_config.genesis_state,
+            starting_state: StartingState::Genesis {
+                genesis_tx: config.consensus_config.genesis_tx,
+            },
             network_adapter_settings:
                 chain_service::network::adapters::libp2p::LibP2pAdapterSettings {
                     topic: String::from(nomos_node::CONSENSUS_TOPIC),

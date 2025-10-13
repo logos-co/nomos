@@ -52,8 +52,9 @@ pub trait AuthenticatedMantleTx: Transaction<Hash = TxHash> + GasCost {
 
 /// A genesis transaction as specified in
 //  https://www.notion.so/nomos-tech/Bedrock-Genesis-Block-21d261aa09df80bb8dc3c768802eb527?d=27a261aa09df808e9c66001cf0585dee
-pub trait GenesisTx: AuthenticatedMantleTx {
+pub trait GenesisTx: Transaction<Hash = TxHash> {
     fn genesis_inscription(&self) -> &InscriptionOp;
+    fn mantle_tx(&self) -> &MantleTx;
 }
 
 impl<T: Transaction> Transaction for &T {
@@ -76,6 +77,16 @@ impl<T: AuthenticatedMantleTx> AuthenticatedMantleTx for &T {
 
     fn ops_with_proof(&self) -> impl Iterator<Item = (&Op, Option<&OpProof>)> {
         T::ops_with_proof(self)
+    }
+}
+
+impl<T: GenesisTx> GenesisTx for &T {
+    fn genesis_inscription(&self) -> &InscriptionOp {
+        T::genesis_inscription(self)
+    }
+
+    fn mantle_tx(&self) -> &MantleTx {
+        T::mantle_tx(self)
     }
 }
 

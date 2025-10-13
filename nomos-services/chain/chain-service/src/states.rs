@@ -1,24 +1,26 @@
 use std::{collections::HashSet, hash::Hash, marker::PhantomData, time::SystemTime};
 
-use nomos_core::header::HeaderId;
+use groth16::{Field as _, Fr};
+use nomos_core::header::{Header, HeaderId};
 use nomos_ledger::LedgerState;
 use overwatch::{DynError, services::state::ServiceState};
 use serde::{Deserialize, Serialize};
 
-use crate::{Cryptarchia, CryptarchiaSettings, Error};
+use crate::{Cryptarchia, CryptarchiaSettings, Error, StartingState};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CryptarchiaConsensusState<NodeId, NetworkAdapterSettings> {
-    pub tip: HeaderId,
-    pub lib: HeaderId,
-    pub lib_ledger_state: LedgerState,
-    pub lib_block_length: u64,
+    pub(crate) tip: HeaderId,
+    pub(crate) lib: HeaderId,
+    pub(crate) lib_ledger_state: LedgerState,
+    pub(crate) lib_block_length: u64,
+    pub(crate) genesis_id: HeaderId,
     /// Set of blocks that have been pruned from the engine but have not yet
     /// been deleted from the persistence layer because of some unexpected
     /// error.
     pub(crate) storage_blocks_to_remove: HashSet<HeaderId>,
     /// Last engine state and timestamp for offline grace period tracking
-    pub last_engine_state: Option<LastEngineState>,
+    pub(crate) last_engine_state: Option<LastEngineState>,
     // Only neededed for the service state trait
     _markers: PhantomData<(NodeId, NetworkAdapterSettings)>,
 }
@@ -45,6 +47,7 @@ impl<NodeId, NetworkAdapterSettings> CryptarchiaConsensusState<NodeId, NetworkAd
         Ok(Self {
             tip: cryptarchia.consensus.tip_branch().id(),
             lib: lib.id(),
+            genesis_id: cryptarchia.genesis_id,
             lib_ledger_state,
             lib_block_length,
             storage_blocks_to_remove,
@@ -68,16 +71,32 @@ where
     fn from_settings(
         settings: &<Self as ServiceState>::Settings,
     ) -> Result<Self, <Self as ServiceState>::Error> {
-        Ok({
-            Self {
-                tip: settings.genesis_id,
-                lib: settings.genesis_id,
-                lib_ledger_state: settings.genesis_state.clone(),
-                lib_block_length: 0,
-                storage_blocks_to_remove: HashSet::new(),
-                last_engine_state: None,
-                _markers: PhantomData,
+        let (lib_id, genesis_id, lib_ledger_state) = match &settings.starting_state {
+            StartingState::Genesis { genesis_tx } => {
+                let lib_id = Header::genesis(genesis_tx).id();
+                let ledger = LedgerState::from_genesis_tx(
+                    genesis_tx.clone(),
+                    &settings.config,
+                    Fr::ZERO, // TODO: recover from genesis tx
+                )?;
+                (lib_id, lib_id, ledger)
             }
+            StartingState::Lib {
+                lib_id,
+                genesis_id,
+                lib_ledger_state,
+            } => (*lib_id, *genesis_id, lib_ledger_state.as_ref().clone()),
+        };
+
+        Ok(Self {
+            tip: lib_id,
+            lib: lib_id,
+            lib_ledger_state,
+            lib_block_length: 0,
+            genesis_id,
+            storage_blocks_to_remove: HashSet::new(),
+            last_engine_state: None,
+            _markers: PhantomData,
         })
     }
 }
@@ -216,6 +235,7 @@ mod tests {
                 &Cryptarchia {
                     ledger: ledger_state,
                     consensus: cryptarchia_engine.clone(),
+                    genesis_id: genesis_header_id,
                 },
                 pruned_stale_blocks.clone(),
             )
@@ -223,6 +243,9 @@ mod tests {
 
         assert_eq!(recovery_state.tip, cryptarchia_engine.tip());
         assert_eq!(recovery_state.lib, cryptarchia_engine.lib());
-        assert_eq!(recovery_state.storage_blocks_to_remove, pruned_stale_blocks);
+        assert_eq!(
+            &recovery_state.storage_blocks_to_remove,
+            &pruned_stale_blocks
+        );
     }
 }

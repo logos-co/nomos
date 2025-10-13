@@ -4,12 +4,17 @@ use chain_leader::LeaderConfig;
 use cryptarchia_engine::EpochConfig;
 use nomos_core::{
     mantle::{
-        Note, Utxo,
+        MantleTx, Note, Utxo,
+        genesis_tx::GenesisTx,
         keys::{PublicKey, SecretKey},
+        ledger::Tx as LedgerTx,
+        ops::{
+            Op,
+            channel::{ChannelId, Ed25519PublicKey, MsgId, inscribe::InscriptionOp},
+        },
     },
     sdp::{ServiceParameters, ServiceType},
 };
-use nomos_ledger::LedgerState;
 use num_bigint::BigUint;
 
 #[derive(Clone)]
@@ -41,7 +46,32 @@ impl ConsensusParams {
 pub struct GeneralConsensusConfig {
     pub leader_config: LeaderConfig,
     pub ledger_config: nomos_ledger::Config,
-    pub genesis_state: LedgerState,
+    pub genesis_tx: GenesisTx,
+}
+
+fn create_genesis_tx(utxos: &[Utxo]) -> GenesisTx {
+    // Create a genesis inscription op (similar to config.yaml)
+    let inscription = InscriptionOp {
+        channel_id: ChannelId::from([0; 32]),
+        inscription: vec![103, 101, 110, 101, 115, 105, 115], // "genesis" in bytes
+        parent: MsgId::root(),
+        signer: Ed25519PublicKey::from_bytes(&[0; 32]).unwrap(),
+    };
+
+    // Create ledger transaction with the utxos as outputs
+    let outputs: Vec<Note> = utxos.iter().map(|u| u.note).collect();
+    let ledger_tx = LedgerTx::new(vec![], outputs);
+
+    // Create the mantle transaction
+    let mantle_tx = MantleTx {
+        ops: vec![Op::ChannelInscribe(inscription)],
+        ledger_tx,
+        execution_gas_price: 0,
+        storage_gas_price: 0,
+    };
+
+    // Wrap in GenesisTx
+    GenesisTx::from_tx(mantle_tx).expect("Invalid genesis transaction")
 }
 
 #[must_use]
@@ -68,7 +98,7 @@ pub fn create_consensus_configs(
             output_index: 0,
         })
         .collect::<Vec<_>>();
-    let genesis_state = LedgerState::from_utxos(utxos);
+    let genesis_tx = create_genesis_tx(&utxos);
     let ledger_config = nomos_ledger::Config {
         epoch_config: EpochConfig {
             epoch_stake_distribution_stabilization: NonZero::new(3).unwrap(),
@@ -114,7 +144,7 @@ pub fn create_consensus_configs(
         .map(|(pk, sk)| GeneralConsensusConfig {
             leader_config: LeaderConfig { pk, sk },
             ledger_config: ledger_config.clone(),
-            genesis_state: genesis_state.clone(),
+            genesis_tx: genesis_tx.clone(),
         })
         .collect()
 }

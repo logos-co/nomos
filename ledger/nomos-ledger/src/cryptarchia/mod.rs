@@ -4,7 +4,7 @@ use cryptarchia_engine::{Epoch, Slot};
 use groth16::{Fr, fr_from_bytes};
 use nomos_core::{
     crypto::{ZkDigest, ZkHasher},
-    mantle::{AuthenticatedMantleTx, NoteId, Utxo, Value, gas::GasConstants},
+    mantle::{AuthenticatedMantleTx, GenesisTx, NoteId, Utxo, Value, gas::GasConstants},
     proofs::{
         leader_proof::{self, LeaderPublic},
         zksig::{ZkSignatureProof as _, ZkSignaturePublic},
@@ -278,7 +278,7 @@ impl LedgerState {
     }
 
     pub fn from_genesis_tx<Id>(
-        tx: impl AuthenticatedMantleTx,
+        tx: impl GenesisTx,
         epoch_nonce: Fr,
     ) -> Result<Self, LedgerError<Id>> {
         if !tx.mantle_tx().ledger_tx.inputs.is_empty() {
@@ -379,6 +379,10 @@ pub mod tests {
     impl LeaderProof for DummyProof {
         fn verify(&self, public_inputs: &LeaderPublic) -> bool {
             &self.public == public_inputs
+        }
+
+        fn verify_genesis(&self) -> bool {
+            true
         }
 
         fn entropy(&self) -> Fr {
@@ -932,34 +936,5 @@ pub mod tests {
 
         let result = ledger_state.try_apply_tx::<(), MainnetGasConstants>(&locked_notes, tx);
         assert!(matches!(result, Err(LedgerError::ZeroValueNote)));
-    }
-
-    #[test]
-    fn test_input_in_genesis() {
-        let input_utxo = Utxo {
-            tx_hash: Fr::from(BigUint::from(1u8)).into(),
-            output_index: 0,
-            note: Note::new(10000, Fr::from(BigUint::from(1u8)).into()),
-        };
-
-        let tx = create_tx(
-            &[&input_utxo],
-            vec![Note::new(0, Fr::from(BigUint::from(2u8)).into())],
-        );
-
-        assert!(matches!(
-            LedgerState::from_genesis_tx::<()>(tx, Fr::ZERO),
-            Err(LedgerError::InputInGenesis(_))
-        ));
-        let tx = create_tx(
-            &[],
-            vec![Note::new(10000, Fr::from(BigUint::from(2u8)).into())],
-        );
-        assert_eq!(
-            LedgerState::from_genesis_tx::<()>(tx, Fr::ONE)
-                .unwrap()
-                .nonce,
-            Fr::ONE
-        );
     }
 }

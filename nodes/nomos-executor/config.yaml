@@ -158,7 +158,6 @@ time:
       timeout: [ 5, 0 ]
       listening_interface: 0.0.0.0
 cryptarchia:
-  blob_selector_settings: null
   config:
     epoch_config:
       epoch_stake_distribution_stabilization: 3
@@ -183,64 +182,22 @@ cryptarchia:
     min_stake:
       threshold: 1
       timestamp: 0
-  genesis_id: 0x0000000000000000000000000000000000000000000000000000000000000000
-  genesis_state:
-    block_number: 0
-    cryptarchia_ledger:
-      utxos:
-        0:
-          - 43cf2ab23e09036421231d523bc98b14d2f9cdf6dc6eb86d589b8fc79dac8304
-          - tx_hash: "0000000000000000000000000000000000000000000000000000000000000000"
-            output_index: 0
-            note:
-              value: 1
-              pk: "0000000000000000000000000000000000000000000000000000000000000000"
-      nonce: "0000000000000000000000000000000000000000000000000000000000000000"
-      slot: 0
-      next_epoch_state:
-        epoch: 1
-        nonce: "0000000000000000000000000000000000000000000000000000000000000000"
-        utxos:
-          0:
-            - 43cf2ab23e09036421231d523bc98b14d2f9cdf6dc6eb86d589b8fc79dac8304
-            - tx_hash: "0000000000000000000000000000000000000000000000000000000000000000"
-              output_index: 0
-              note:
-                value: 1
-                pk: "0000000000000000000000000000000000000000000000000000000000000000"
-        total_stake: 1
-      epoch_state:
-        epoch: 0
-        nonce: "0000000000000000000000000000000000000000000000000000000000000000"
-        utxos:
-          0:
-            - 43cf2ab23e09036421231d523bc98b14d2f9cdf6dc6eb86d589b8fc79dac8304
-            - tx_hash: "0000000000000000000000000000000000000000000000000000000000000000"
-              output_index: 0
-              note:
-                value: 1
-                pk: "0000000000000000000000000000000000000000000000000000000000000000"
-        total_stake: 1
-    mantle_ledger:
-      channels:
-        channels: { }
-      sdp:
-        declarations: { }
-        active_sessions: { }
-        forming_sessions: { }
-      locked_notes:
-        locked_notes: { }
-      leaders:
-        epoch: 0
-        claimable_vouchers_root: "0000000000000000000000000000000000000000000000000000000000000000"
-        n_claimable_vouchers: 0
-        nfs: [ ]
-        claimable_rewards: 0
-        vouchers:
-          roots: [ ]
-  time:
-    slot_duration: [ 2, 0 ]
-    chain_start_time: [ 2025, 41, 9, 38, 29, 993653000, 0, 0, 0 ]
+  starting_state: !Genesis
+    genesis_tx:
+      ops:
+        - opcode: 0
+          payload:
+            channel_id: "0000000000000000000000000000000000000000000000000000000000000000"
+            inscription: [ 103, 101, 110, 101, 115, 105, 115 ]  # "genesis" in bytes
+            parent: "0000000000000000000000000000000000000000000000000000000000000000"
+            signer: "0000000000000000000000000000000000000000000000000000000000000000"
+      ledger_tx:
+        inputs: []
+        outputs:
+          - value: 1
+            pk: d204000000000000000000000000000000000000000000000000000000000000
+      execution_gas_price: 0
+      storage_gas_price: 0
   network_adapter_settings:
     topic: /cryptarchia/proto
   recovery_file: ./recovery/cryptarchia.json
