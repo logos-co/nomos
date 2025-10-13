@@ -1,5 +1,4 @@
 use libp2p::{PeerId, allow_block_list::BlockedPeers, connection_limits::ConnectionLimits};
-use nomos_blend_message::encap::encapsulated::PoQVerificationInputMinusSigningKey;
 use nomos_blend_scheduling::membership::Membership;
 use nomos_libp2p::NetworkBehaviour;
 
@@ -25,7 +24,6 @@ where
     pub fn new(
         config: &BlendConfig<Libp2pBlendBackendSettings>,
         current_membership: Membership<PeerId>,
-        poq_verification_inputs: PoQVerificationInputMinusSigningKey,
         poq_verifier: ProofsVerifier,
     ) -> Self {
         let observation_window_interval_provider =
@@ -53,7 +51,6 @@ where
                 Some(current_membership),
                 config.backend.peer_id(),
                 config.backend.protocol_name.clone().into_inner(),
-                poq_verification_inputs,
                 poq_verifier,
             ),
             limits: libp2p::connection_limits::Behaviour::new(

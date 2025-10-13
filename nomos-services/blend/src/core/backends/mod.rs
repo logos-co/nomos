@@ -4,7 +4,7 @@ pub mod libp2p;
 use std::{fmt::Debug, pin::Pin};
 
 use futures::Stream;
-use nomos_blend_message::encap::encapsulated::PoQVerificationInputMinusSigningKey;
+use nomos_blend_message::crypto::proofs::PoQVerificationInputsMinusSigningKey;
 use nomos_blend_scheduling::{
     EncapsulatedMessage, membership::Membership,
     message_blend::crypto::IncomingEncapsulatedMessageWithValidatedPublicHeader,
@@ -16,7 +16,7 @@ use crate::core::settings::BlendConfig;
 
 pub struct SessionInfo<NodeId> {
     pub membership: Membership<NodeId>,
-    pub poq_verification_inputs: PoQVerificationInputMinusSigningKey,
+    pub poq_verification_inputs: PoQVerificationInputsMinusSigningKey,
 }
 
 pub type SessionStream<NodeId> =

@@ -7,6 +7,7 @@ use std::{
 
 use async_trait::async_trait;
 use futures::{Stream, StreamExt as _};
+use nomos_blend_message::crypto::proofs::quota::inputs::prove::private::ProofOfCoreQuotaInputs;
 pub use nomos_blend_message::{
     crypto::proofs::{
         RealProofsVerifier, quota::inputs::prove::private::ProofOfLeadershipQuotaInputs,
@@ -38,7 +39,7 @@ use crate::{
     },
     instance::{Instance, Mode},
     membership::Adapter as _,
-    settings::{FIRST_SESSION_READY_TIMEOUT, Settings},
+    settings::{FIRST_STREAM_ITEM_READY_TIMEOUT, Settings},
 };
 
 pub mod core;
@@ -165,7 +166,7 @@ where
 
         let (membership, mut session_stream) = UninitializedSessionEventStream::new(
             membership_stream,
-            FIRST_SESSION_READY_TIMEOUT,
+            FIRST_STREAM_ITEM_READY_TIMEOUT,
             settings.time.session_transition_period(),
         )
         .await_first_ready()
@@ -215,40 +216,19 @@ type MembershipAdapter<EdgeService> = <EdgeService as edge::ServiceComponents>::
 type MembershipService<EdgeService> =
     <MembershipAdapter<EdgeService> as membership::Adapter>::Service;
 
-const fn mock_poq_inputs() -> (PublicInputs, PrivateInputs) {
+const fn mock_poq_core_secret_inputs() -> ProofOfCoreQuotaInputs {
     use groth16::Field as _;
     use nomos_core::crypto::ZkHash;
 
-    (
-        PublicInputs {
-            core_quota: 0,
-            core_root: ZkHash::ZERO,
-            leader_quota: 0,
-            pol_epoch_nonce: ZkHash::ZERO,
-            pol_ledger_aged: ZkHash::ZERO,
-            session: 0,
-            total_stake: 0,
-        },
-        PrivateInputs {
-            aged_path: vec![],
-            aged_selector: vec![],
-            core_path: vec![],
-            core_path_selectors: vec![],
-            core_sk: ZkHash::ZERO,
-            note_value: 0,
-            output_number: 0,
-            pol_secret_key: ZkHash::ZERO,
-            slot: 0,
-            slot_secret: ZkHash::ZERO,
-            slot_secret_path: vec![],
-            starting_slot: 0,
-            transaction_hash: ZkHash::ZERO,
-        },
-    )
+    ProofOfCoreQuotaInputs {
+        core_sk: ZkHash::ZERO,
+        core_path: vec![],
+        core_path_selectors: vec![],
+    }
 }
 
-fn mock_poq_inputs_stream() -> impl Stream<Item = (PublicInputs, PrivateInputs)> {
+fn mock_poq_secret_inputs_stream() -> impl Stream<Item = ProofOfCoreQuotaInputs> {
     use futures::stream::repeat;
 
-    repeat(mock_poq_inputs())
+    repeat(mock_poq_core_secret_inputs())
 }

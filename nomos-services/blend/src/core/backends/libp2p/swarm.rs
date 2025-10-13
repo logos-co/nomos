@@ -12,9 +12,7 @@ use libp2p::{
     Multiaddr, PeerId, Swarm, SwarmBuilder,
     swarm::{ConnectionId, dial_opts::PeerCondition},
 };
-use nomos_blend_message::encap::{
-    ProofsVerifier as ProofsVerifierTrait, encapsulated::PoQVerificationInputMinusSigningKey,
-};
+use nomos_blend_message::encap::ProofsVerifier as ProofsVerifierTrait;
 use nomos_blend_network::core::{
     NetworkBehaviourEvent,
     with_core::behaviour::{Event as CoreToCoreEvent, IntervalStreamProvider, NegotiatedPeerState},
@@ -94,7 +92,6 @@ pub struct SwarmParams<'config, SessionStream, Rng, ProofsVerifier> {
     pub incoming_message_sender:
         broadcast::Sender<IncomingEncapsulatedMessageWithValidatedPublicHeader>,
     pub minimum_network_size: NonZeroUsize,
-    pub current_poq_verification_inputs: PoQVerificationInputMinusSigningKey,
     pub proofs_verifier: ProofsVerifier,
 }
 
@@ -118,7 +115,6 @@ where
             swarm_message_receiver: swarm_messages_receiver,
             incoming_message_sender,
             minimum_network_size,
-            current_poq_verification_inputs,
             proofs_verifier,
         }: SwarmParams<SessionStream, Rng, ProofsVerifier>,
     ) -> Self {
@@ -128,12 +124,7 @@ where
             .with_tokio()
             .with_quic()
             .with_behaviour(|_| {
-                BlendBehaviour::new(
-                    config,
-                    current_membership.clone(),
-                    current_poq_verification_inputs,
-                    proofs_verifier,
-                )
+                BlendBehaviour::new(config, current_membership.clone(), proofs_verifier)
             })
             .expect("Blend Behaviour should be built")
             .with_swarm_config(|cfg| {
@@ -566,11 +557,10 @@ where
                 match event {
                     SessionEvent::NewSession(SessionInfo { membership, poq_verification_inputs }) => {
                         self.latest_session_info = membership.clone();
-                        self.swarm.behaviour_mut().blend.with_core_mut().start_new_session(membership.clone(), poq_verification_inputs);
-                        self.swarm.behaviour_mut().blend.with_edge_mut().start_new_session(membership, poq_verification_inputs);
+                        self.swarm.behaviour_mut().start_new_session(membership, poq_verification_inputs);
                     },
                     SessionEvent::TransitionPeriodExpired => {
-                        self.swarm.behaviour_mut().blend.with_core_mut().finish_session_transition();
+                        self.swarm.behaviour_mut().finish_session_transition();
                     },
                 }
                 false

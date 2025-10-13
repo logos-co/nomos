@@ -2,8 +2,9 @@ use core::hash::Hash;
 
 use nomos_blend_message::{
     Error, PayloadType,
-    crypto::proofs::quota::inputs::prove::{
-        private::ProofOfLeadershipQuotaInputs, public::LeaderInputs,
+    crypto::proofs::{
+        PoQVerificationInputsMinusSigningKey,
+        quota::inputs::prove::{private::ProofOfLeadershipQuotaInputs, public::LeaderInputs},
     },
     input::EncapsulationInput,
 };
@@ -39,13 +40,18 @@ where
     pub fn new(
         settings: &SessionCryptographicProcessorSettings,
         membership: Membership<NodeId>,
-        public_info: ProofsGeneratorSettings,
+        public_info: PoQVerificationInputsMinusSigningKey,
         private_info: ProofOfLeadershipQuotaInputs,
     ) -> Self {
+        let generator_settings = ProofsGeneratorSettings {
+            local_node_index: membership.local_index(),
+            membership_size: membership.size(),
+            public_inputs: public_info,
+        };
         Self {
             num_blend_layers: settings.num_blend_layers,
             membership,
-            proofs_generator: ProofsGenerator::new(public_info, private_info),
+            proofs_generator: ProofsGenerator::new(generator_settings, private_info),
         }
     }
 
@@ -143,12 +149,8 @@ mod test {
     use super::SessionCryptographicProcessor;
     use crate::{
         membership::{Membership, Node},
-        message_blend::{
-            crypto::{
-                SessionCryptographicProcessorSettings,
-                test_utils::TestEpochChangeLeaderProofsGenerator,
-            },
-            provers::ProofsGeneratorSettings,
+        message_blend::crypto::{
+            SessionCryptographicProcessorSettings, test_utils::TestEpochChangeLeaderProofsGenerator,
         },
     };
 
@@ -165,21 +167,17 @@ mod test {
                     id: PeerId::random(),
                     public_key: [0; _].try_into().unwrap(),
                 }]),
-                ProofsGeneratorSettings {
-                    local_node_index: None,
-                    membership_size: 1,
-                    public_inputs: PoQVerificationInputsMinusSigningKey {
-                        session: 1,
-                        core: CoreInputs {
-                            quota: 1,
-                            zk_root: ZkHash::ZERO,
-                        },
-                        leader: LeaderInputs {
-                            message_quota: 1,
-                            pol_epoch_nonce: ZkHash::ZERO,
-                            pol_ledger_aged: ZkHash::ZERO,
-                            total_stake: 1,
-                        },
+                PoQVerificationInputsMinusSigningKey {
+                    session: 1,
+                    core: CoreInputs {
+                        quota: 1,
+                        zk_root: ZkHash::ZERO,
+                    },
+                    leader: LeaderInputs {
+                        message_quota: 1,
+                        pol_epoch_nonce: ZkHash::ZERO,
+                        pol_ledger_aged: ZkHash::ZERO,
+                        total_stake: 1,
                     },
                 },
                 ProofOfLeadershipQuotaInputs {

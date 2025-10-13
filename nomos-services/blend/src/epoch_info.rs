@@ -4,7 +4,9 @@ use async_trait::async_trait;
 use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 use cryptarchia_engine::{Epoch, Slot};
 use futures::Stream;
-use nomos_blend_message::crypto::proofs::quota::inputs::prove::private::ProofOfLeadershipQuotaInputs;
+use nomos_blend_message::crypto::proofs::quota::inputs::prove::{
+    private::ProofOfLeadershipQuotaInputs, public::LeaderInputs,
+};
 use nomos_core::crypto::ZkHash;
 use nomos_ledger::EpochState;
 use nomos_time::SlotTick;
@@ -14,8 +16,8 @@ use overwatch::overwatch::OverwatchHandle;
 /// provider.
 #[derive(Clone, Debug)]
 pub struct PolEpochInfo {
-    /// Epoch the info refers to.
-    pub epoch: Epoch,
+    /// Epoch nonce.
+    pub nonce: ZkHash,
     /// The `PoL` secret inputs that are found to be winning at least one slot
     /// in the current epoch.
     pub poq_private_inputs: ProofOfLeadershipQuotaInputs,
@@ -31,36 +33,6 @@ pub trait PolInfoProvider<RuntimeServiceId> {
 }
 
 const LOG_TARGET: &str = "blend::service::epoch";
-
-/// Public `PoL` info associated to an epoch, as returned by the chain API
-/// implementor.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct EpochInfo {
-    /// Nonce of the current epoch.
-    nonce: ZkHash,
-    /// Merkle root of the tree of aged utxos.
-    ledger_aged: ZkHash,
-    /// Total stake, used to calculate lottery constants `t0` and `t1`, as per
-    /// the Cryptarchia spec.
-    total_stake: u64,
-}
-
-impl From<EpochState> for EpochInfo {
-    fn from(
-        EpochState {
-            total_stake,
-            utxos,
-            nonce,
-            ..
-        }: EpochState,
-    ) -> Self {
-        Self {
-            ledger_aged: utxos.root(),
-            nonce,
-            total_stake,
-        }
-    }
-}
 
 /// A trait that provides the needed functionalities for the epoch stream to
 /// fetch the epoch state for a given slot.
@@ -94,7 +66,7 @@ where
 pub enum EpochEvent {
     /// A new epoch is available, which is either ongoing (if the handler is
     /// started mid-epoch) or has just started.
-    NewEpoch(EpochInfo),
+    NewEpoch(LeaderInputs),
     /// The information about the previous epoch the handler was tracking can
     /// now be discarded since its transition period has elapsed.
     OldEpochTransitionPeriodExpired,
@@ -113,11 +85,11 @@ pub enum EpochEvent {
     /// the epoch that can now be discarded, while `rotate_epoch`
     /// would move from the previous epoch to the new one that is notified about
     /// in this event.
-    NewEpochAndOldEpochTransitionExpired(EpochInfo),
+    NewEpochAndOldEpochTransitionExpired(LeaderInputs),
 }
 
-impl From<EpochInfo> for EpochEvent {
-    fn from(value: EpochInfo) -> Self {
+impl From<LeaderInputs> for EpochEvent {
+    fn from(value: LeaderInputs) -> Self {
         Self::NewEpoch(value)
     }
 }
@@ -337,11 +309,12 @@ where
 #[cfg(test)]
 mod tests {
 
+    use nomos_blend_message::crypto::proofs::quota::inputs::prove::public::LeaderInputs;
     use nomos_time::SlotTick;
     use test_log::test;
 
     use crate::{
-        epoch_info::{EpochEvent, EpochHandler, EpochInfo, EpochTrackingState},
+        epoch_info::{EpochEvent, EpochHandler, EpochTrackingState},
         test_utils::epoch::{TestChainService, default_epoch_state},
     };
 
@@ -383,7 +356,7 @@ mod tests {
         );
         assert_eq!(
             next_tick,
-            Some(EpochInfo::from(default_epoch_state()).into())
+            Some(LeaderInputs::from(default_epoch_state()).into())
         );
         assert_eq!(
             stream.epoch_tracking_state,
@@ -427,7 +400,7 @@ mod tests {
         );
         assert_eq!(
             next_tick,
-            Some(EpochInfo::from(default_epoch_state()).into())
+            Some(LeaderInputs::from(default_epoch_state()).into())
         );
         assert_eq!(
             stream.epoch_tracking_state,
@@ -471,7 +444,7 @@ mod tests {
         let next_tick = stream.tick(ticks_iter.next().unwrap()).await;
         assert_eq!(
             next_tick,
-            Some(EpochInfo::from(default_epoch_state()).into())
+            Some(LeaderInputs::from(default_epoch_state()).into())
         );
         assert_eq!(
             stream.epoch_tracking_state,
@@ -571,7 +544,7 @@ mod tests {
         let next_tick = stream.tick(ticks_iter.next().unwrap()).await;
         assert_eq!(
             next_tick,
-            Some(EpochInfo::from(default_epoch_state()).into())
+            Some(LeaderInputs::from(default_epoch_state()).into())
         );
         assert_eq!(
             stream.epoch_tracking_state,

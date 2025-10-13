@@ -56,8 +56,8 @@ use crate::{
     membership,
     message::{NetworkMessage, ProcessedMessage, ServiceMessage},
     mock_poq_inputs_stream,
-    session::SessionInfo as ProcessorSessionInfo,
-    settings::FIRST_SESSION_READY_TIMEOUT,
+    session::CoreSessionPublicInfo as ProcessorSessionInfo,
+    settings::FIRST_STREAM_ITEM_READY_TIMEOUT,
 };
 
 pub(super) mod service_components;
@@ -260,7 +260,7 @@ where
         let ((current_membership, (public_poq_inputs, private_poq_inputs)), session_stream) =
             UninitializedSessionEventStream::new(
                 membership_stream.zip(poq_input_stream),
-                FIRST_SESSION_READY_TIMEOUT,
+                FIRST_STREAM_ITEM_READY_TIMEOUT,
                 blend_config.time.session_transition_period(),
             )
             .await_first_ready()

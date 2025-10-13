@@ -6,16 +6,23 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures::{
-    Stream, StreamExt as _,
-    stream::{empty, pending},
+use futures::{Stream, StreamExt as _, future::ready, stream::empty};
+use nomos_blend_message::crypto::proofs::quota::inputs::prove::{
+    private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs},
+    public::LeaderInputs,
 };
 use nomos_blend_scheduling::{
     EncapsulatedMessage,
     membership::Membership,
-    message_blend::{SessionCryptographicProcessorSettings, SessionInfo as PoQSessionInfo},
+    message_blend::{
+        crypto::SessionCryptographicProcessorSettings,
+        provers::{BlendLayerProof, ProofsGeneratorSettings, leader::LeaderProofsGenerator},
+    },
     session::UninitializedSessionEventStream,
+    stream::UninitializedFirstReadyStream,
 };
+use nomos_core::crypto::ZkHash;
+use nomos_time::SlotTick;
 use overwatch::overwatch::{OverwatchHandle, commands::OverwatchCommand};
 use rand::{RngCore, rngs::OsRng};
 use tokio::{sync::mpsc, task::JoinHandle};
@@ -23,11 +30,10 @@ use tokio_stream::wrappers::ReceiverStream;
 
 use crate::{
     edge::{backends::BlendBackend, handlers::Error, run, settings::BlendConfig},
-    epoch_info::{EpochHandler, PolEpochInfo, PolInfoProvider},
-    mock_poq_inputs_stream,
-    session::SessionInfo,
-    settings::{FIRST_SESSION_READY_TIMEOUT, TimingSettings},
-    test_utils::{crypto::MockProofsGenerator, epoch::TestChainService, membership::key},
+    epoch_info::{PolEpochInfo, PolInfoProvider},
+    session::CoreSessionPublicInfo,
+    settings::{FIRST_STREAM_ITEM_READY_TIMEOUT, TimingSettings},
+    test_utils::{crypto::mock_blend_proof, epoch::TestChainService, membership::key},
 };
 
 struct EmptyPolStreamProvider;
@@ -40,6 +46,29 @@ impl<RuntimeServiceId> PolInfoProvider<RuntimeServiceId> for EmptyPolStreamProvi
         _overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
     ) -> Option<Self::Stream> {
         Some(Box::new(empty()))
+    }
+}
+
+pub struct MockLeaderProofsGenerator;
+
+#[async_trait]
+impl LeaderProofsGenerator for MockLeaderProofsGenerator {
+    fn new(
+        _settings: ProofsGeneratorSettings,
+        _private_inputs: ProofOfLeadershipQuotaInputs,
+    ) -> Self {
+        Self
+    }
+
+    fn rotate_epoch(
+        &mut self,
+        _new_epoch_public: LeaderInputs,
+        _new_private_inputs: ProofOfLeadershipQuotaInputs,
+    ) {
+    }
+
+    async fn get_next_proof(&mut self) -> BlendLayerProof {
+        mock_blend_proof()
     }
 }
 
@@ -64,36 +93,37 @@ pub async fn spawn_run(
             .expect("channel opened");
     }
 
-    let aggregated_session_stream = ReceiverStream::new(session_receiver)
-        .zip(mock_poq_inputs_stream())
-        .map(|(membership, (public_inputs, private_inputs))| {
-            let local_node_index = membership.local_index();
-            let membership_size = membership.size();
-
-            SessionInfo {
-                membership,
-                poq_generation_and_verification_inputs: PoQSessionInfo {
-                    local_node_index,
-                    membership_size,
-                    private_inputs,
-                    public_inputs,
-                },
-            }
+    let aggregated_session_stream =
+        ReceiverStream::new(session_receiver).map(|membership| CoreSessionPublicInfo {
+            membership,
+            session: 10,
+            poq_core_inputs: ProofOfCoreQuotaInputs {
+                core_path: ZkHash::ZERO,
+                core_path_selectors: vec![],
+                core_sk: vec![],
+            },
         });
 
+    let settings = settings(local_node, minimal_network_size, node_id_sender);
     let join_handle = tokio::spawn(async move {
-        run::<TestBackend, _, MockProofsGenerator, _, EmptyPolStreamProvider, _>(
+        run::<TestBackend, _, MockLeaderProofsGenerator, _, EmptyPolStreamProvider, _>(
             UninitializedSessionEventStream::new(
                 aggregated_session_stream,
-                FIRST_SESSION_READY_TIMEOUT,
+                FIRST_STREAM_ITEM_READY_TIMEOUT,
                 // Set 0 for the session transition period since
                 // [`SessionEvent::TransitionPeriodExpired`] will be ignored anyway.
                 Duration::ZERO,
             ),
-            pending(),
-            EpochHandler::new(TestChainService),
+            UninitializedFirstReadyStream::new(
+                ready(SlotTick {
+                    epoch: 1.into(),
+                    slot: 1.into(),
+                }),
+                Duration::ZERO,
+            ),
+            settings.time.epoch_handler(TestChainService),
             ReceiverStream::new(msg_receiver),
-            &settings(local_node, minimal_network_size, node_id_sender),
+            &settings,
             &overwatch_handle(),
             || {},
         )
@@ -121,6 +151,7 @@ pub fn settings(
             round_duration: Duration::from_secs(1),
             rounds_per_observation_window: NonZeroU64::new(1).unwrap(),
             rounds_per_session_transition_period: NonZeroU64::new(1).unwrap(),
+            epoch_transition_period_in_slots: NonZeroU64::new(1),
         },
         crypto: SessionCryptographicProcessorSettings {
             non_ephemeral_signing_key: key(local_id).0,

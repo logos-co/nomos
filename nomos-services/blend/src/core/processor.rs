@@ -4,11 +4,15 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
+use nomos_blend_message::crypto::proofs::PoQVerificationInputsMinusSigningKey;
 use nomos_blend_scheduling::{
     membership::Membership,
     message_blend::{
-        ProofsGenerator as ProofsGeneratorTrait, SessionCryptographicProcessorSettings,
-        SessionInfo, crypto::send_and_receive::SessionCryptographicProcessor,
+        crypto::{
+            SessionCryptographicProcessorSettings,
+            core_and_leader::send_and_receive::SessionCryptographicProcessor,
+        },
+        provers::core_and_leader::CoreAndLeaderProofsGenerator,
     },
 };
 
@@ -19,13 +23,13 @@ pub struct CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>(
 impl<NodeId, ProofsGenerator, ProofsVerifier>
     CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
 where
-    ProofsGenerator: ProofsGeneratorTrait,
+    ProofsGenerator: CoreAndLeaderProofsGenerator,
 {
     pub fn try_new_with_core_condition_check(
         membership: Membership<NodeId>,
         minimum_network_size: NonZeroU64,
         settings: &SessionCryptographicProcessorSettings,
-        session_info: SessionInfo,
+        public_info: PoQVerificationInputsMinusSigningKey,
         proofs_verifier: ProofsVerifier,
     ) -> Result<Self, Error>
     where
@@ -47,8 +51,8 @@ where
 
     fn new(
         membership: Membership<NodeId>,
-        session_info: SessionInfo,
         settings: &SessionCryptographicProcessorSettings,
+        public_info
         proofs_verifier: ProofsVerifier,
     ) -> Self {
         Self(SessionCryptographicProcessor::new(

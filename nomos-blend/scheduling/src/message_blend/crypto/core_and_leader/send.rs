@@ -4,9 +4,12 @@ use nomos_blend_message::{
     Error, PayloadType,
     crypto::{
         keys::X25519PrivateKey,
-        proofs::quota::inputs::prove::{
-            private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs},
-            public::LeaderInputs,
+        proofs::{
+            PoQVerificationInputsMinusSigningKey,
+            quota::inputs::prove::{
+                private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs},
+                public::LeaderInputs,
+            },
         },
     },
     input::EncapsulationInput,
@@ -60,17 +63,22 @@ where
     pub fn new(
         settings: &SessionCryptographicProcessorSettings,
         membership: Membership<NodeId>,
-        public_core_info: ProofsGeneratorSettings,
+        public_info: PoQVerificationInputsMinusSigningKey,
         private_core_info: ProofOfCoreQuotaInputs,
     ) -> Self {
         // Derive the non-ephemeral encryption key
         // from the non-ephemeral signing key.
         let non_ephemeral_encryption_key = settings.non_ephemeral_signing_key.derive_x25519();
+        let generator_settings = ProofsGeneratorSettings {
+            local_node_index: membership.local_index(),
+            membership_size: membership.size(),
+            public_inputs: public_info,
+        };
         Self {
             num_blend_layers: settings.num_blend_layers,
             non_ephemeral_encryption_key,
             membership,
-            proofs_generator: ProofsGenerator::new(public_core_info, private_core_info),
+            proofs_generator: ProofsGenerator::new(generator_settings, private_core_info),
         }
     }
 
@@ -232,21 +240,17 @@ mod test {
                     id: PeerId::random(),
                     public_key: [0; _].try_into().unwrap(),
                 }]),
-                ProofsGeneratorSettings {
-                    local_node_index: None,
-                    membership_size: 1,
-                    public_inputs: PoQVerificationInputsMinusSigningKey {
-                        session: 1,
-                        core: CoreInputs {
-                            quota: 1,
-                            zk_root: ZkHash::ZERO,
-                        },
-                        leader: LeaderInputs {
-                            message_quota: 1,
-                            pol_epoch_nonce: ZkHash::ZERO,
-                            pol_ledger_aged: ZkHash::ZERO,
-                            total_stake: 1,
-                        },
+                PoQVerificationInputsMinusSigningKey {
+                    session: 1,
+                    core: CoreInputs {
+                        quota: 1,
+                        zk_root: ZkHash::ZERO,
+                    },
+                    leader: LeaderInputs {
+                        message_quota: 1,
+                        pol_epoch_nonce: ZkHash::ZERO,
+                        pol_ledger_aged: ZkHash::ZERO,
+                        total_stake: 1,
                     },
                 },
                 ProofOfCoreQuotaInputs {
@@ -284,21 +288,17 @@ mod test {
                     id: PeerId::random(),
                     public_key: [0; _].try_into().unwrap(),
                 }]),
-                ProofsGeneratorSettings {
-                    local_node_index: None,
-                    membership_size: 1,
-                    public_inputs: PoQVerificationInputsMinusSigningKey {
-                        session: 1,
-                        core: CoreInputs {
-                            quota: 1,
-                            zk_root: ZkHash::ZERO,
-                        },
-                        leader: LeaderInputs {
-                            message_quota: 1,
-                            pol_epoch_nonce: ZkHash::ZERO,
-                            pol_ledger_aged: ZkHash::ZERO,
-                            total_stake: 1,
-                        },
+                PoQVerificationInputsMinusSigningKey {
+                    session: 1,
+                    core: CoreInputs {
+                        quota: 1,
+                        zk_root: ZkHash::ZERO,
+                    },
+                    leader: LeaderInputs {
+                        message_quota: 1,
+                        pol_epoch_nonce: ZkHash::ZERO,
+                        pol_ledger_aged: ZkHash::ZERO,
+                        total_stake: 1,
                     },
                 },
                 ProofOfCoreQuotaInputs {
