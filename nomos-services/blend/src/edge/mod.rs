@@ -15,11 +15,12 @@ use std::{
 use backends::BlendBackend;
 use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 use futures::{FutureExt as _, Stream, StreamExt as _};
+use groth16::Field as _;
 use nomos_blend_message::crypto::proofs::{
     PoQVerificationInputsMinusSigningKey,
     quota::inputs::prove::{
         private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs},
-        public::LeaderInputs,
+        public::{CoreInputs, LeaderInputs},
     },
 };
 use nomos_blend_scheduling::{
@@ -196,10 +197,12 @@ where
             let membership_stream = MembershipAdapter::new(
                 overwatch_handle
                     .relay::<<MembershipAdapter as membership::Adapter>::Service>()
-                    .await?,
+                    .await
+                    .expect("Failed to get relay channel with membership service."),
                 settings.crypto.non_ephemeral_signing_key.public_key(),
             )
             .subscribe()
+            .await
             .expect("Failed to get membership stream from membership service.");
 
             membership_stream.map(|membership| CoreSessionInfo {
@@ -207,16 +210,20 @@ where
                 // TODO: Replace with actual session value
                 session: 10,
                 // TODO: Replace with actual ZK key and merkle path calculation.
-                poq_core_public_inputs: ProofOfCoreQuotaInputs {
-                    core_path: ZkHash::ZERO,
+                poq_core_public_inputs: CoreInputs {
+                    quota: 1,
+                    zk_root: ZkHash::ZERO,
+                },
+                poq_core_private_inputs: ProofOfCoreQuotaInputs {
+                    core_path: vec![],
                     core_path_selectors: vec![],
-                    core_sk: vec![],
+                    core_sk: ZkHash::ZERO,
                 },
             })
         }
         .await;
 
-        let mut epoch_handler = async {
+        let epoch_handler = async {
             let chain_service = CryptarchiaServiceApi::<ChainService, _>::new(&overwatch_handle)
                 .await
                 .expect("Failed to establish channel with chain service.");
@@ -308,24 +315,30 @@ where
     Backend: BlendBackend<NodeId, RuntimeServiceId> + Sync,
     NodeId: Clone + Eq + Hash + Send + Sync + 'static,
     ProofsGenerator: LeaderProofsGenerator,
-    ChainService: ChainApi<RuntimeServiceId>,
+    ChainService: ChainApi<RuntimeServiceId> + Sync,
     PolInfoProvider: PolInfoProviderTrait<RuntimeServiceId>,
-    RuntimeServiceId: Clone,
+    RuntimeServiceId: Clone + Sync,
 {
     let (current_session_info, session_stream) = session_stream
         .await_first_ready()
         .await
         .expect("The current session info must be available.");
 
-    let (mut current_epoch_info, mut epoch_stream) = clock_stream
-        .first()
-        .expect("The node clock must be ready and must yield the first slot.")
-        .map(|tick| {
-            epoch_handler
-                .tick(tick)
-                .expect("The epoch state for the first tick must be available.")
-        })
-        .await;
+    let (mut current_epoch_info, mut epoch_stream) = async {
+        let (first_tick, epoch_stream) = clock_stream
+            .first()
+            .await
+            .expect("The node clock must be ready and must yield the first slot.");
+        let epoch_state = epoch_handler
+            .tick(first_tick)
+            .await
+            .expect("The epoch state for the first tick must be available.");
+        let EpochEvent::NewEpoch(new_epoch_info) = epoch_state else {
+            panic!("First tick expected to be a new epoch info.");
+        };
+        (new_epoch_info, epoch_stream)
+    }
+    .await;
 
     info!(
         target: LOG_TARGET,

@@ -1,10 +1,7 @@
-use nomos_blend_message::crypto::proofs::{
-    PoQVerificationInputsMinusSigningKey,
-    quota::inputs::prove::{private::ProofOfCoreQuotaInputs, public::CoreInputs},
+use nomos_blend_message::crypto::proofs::quota::inputs::prove::{
+    private::ProofOfCoreQuotaInputs, public::CoreInputs,
 };
 use nomos_blend_scheduling::membership::Membership;
-
-use crate::core::backends::SessionInfo;
 
 #[derive(Clone)]
 /// All info that Blend services need to be available on new sessions.
