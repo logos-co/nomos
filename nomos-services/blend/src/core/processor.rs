@@ -4,8 +4,11 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use nomos_blend_message::crypto::proofs::{
-    PoQVerificationInputsMinusSigningKey, quota::inputs::prove::private::ProofOfCoreQuotaInputs,
+use nomos_blend_message::{
+    crypto::proofs::{
+        PoQVerificationInputsMinusSigningKey, quota::inputs::prove::private::ProofOfCoreQuotaInputs,
+    },
+    encap::ProofsVerifier as ProofsVerifierTrait,
 };
 use nomos_blend_scheduling::{
     membership::Membership,
@@ -26,6 +29,7 @@ impl<NodeId, ProofsGenerator, ProofsVerifier>
     CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
 where
     ProofsGenerator: CoreAndLeaderProofsGenerator,
+    ProofsVerifier: ProofsVerifierTrait,
 {
     pub fn try_new_with_core_condition_check(
         membership: Membership<NodeId>,
@@ -131,9 +135,9 @@ mod tests {
             Self
         }
 
-        fn rotate_epoch(&mut self, new_epoch_public: LeaderInputs) {}
+        fn rotate_epoch(&mut self, _new_epoch_public: LeaderInputs) {}
 
-        fn set_epoch_private(&mut self, new_epoch_private: ProofOfLeadershipQuotaInputs) {}
+        fn set_epoch_private(&mut self, _new_epoch_private: ProofOfLeadershipQuotaInputs) {}
 
         async fn get_next_core_proof(&mut self) -> Option<BlendLayerProof> {
             Some(mock_blend_proof())

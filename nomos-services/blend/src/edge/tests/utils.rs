@@ -31,7 +31,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use crate::{
     edge::{backends::BlendBackend, handlers::Error, run, settings::BlendConfig},
     epoch_info::{PolEpochInfo, PolInfoProvider},
-    session::CoreSessionPublicInfo,
+    session::CoreSessionInfo,
     settings::{FIRST_STREAM_ITEM_READY_TIMEOUT, TimingSettings},
     test_utils::{crypto::mock_blend_proof, epoch::TestChainService, membership::key},
 };
@@ -94,10 +94,10 @@ pub async fn spawn_run(
     }
 
     let aggregated_session_stream =
-        ReceiverStream::new(session_receiver).map(|membership| CoreSessionPublicInfo {
+        ReceiverStream::new(session_receiver).map(|membership| CoreSessionInfo {
             membership,
             session: 10,
-            poq_core_inputs: ProofOfCoreQuotaInputs {
+            poq_core_public_inputs: ProofOfCoreQuotaInputs {
                 core_path: ZkHash::ZERO,
                 core_path_selectors: vec![],
                 core_sk: vec![],

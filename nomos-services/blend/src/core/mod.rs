@@ -14,22 +14,36 @@ use async_trait::async_trait;
 use backends::BlendBackend;
 use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 use fork_stream::StreamExt as _;
-use futures::{FutureExt as _, Stream, StreamExt as _, future::join_all};
+use futures::{FutureExt as _, Stream, StreamExt as _, future::join_all, stream::pending};
+use groth16::Field as _;
 use network::NetworkAdapter;
 use nomos_blend_message::{
     PayloadType,
-    crypto::random_sized_bytes,
+    crypto::{
+        proofs::{
+            PoQVerificationInputsMinusSigningKey,
+            quota::inputs::prove::{
+                private::ProofOfCoreQuotaInputs,
+                public::{CoreInputs, LeaderInputs},
+            },
+        },
+        random_sized_bytes,
+    },
     encap::{ProofsVerifier as ProofsVerifierTrait, decapsulated::DecapsulationOutput},
 };
 use nomos_blend_scheduling::{
     message_blend::{
-        ProofsGenerator as ProofsGeneratorTrait, SessionInfo as PoQSessionInfo,
         crypto::IncomingEncapsulatedMessageWithValidatedPublicHeader,
+        provers::core_and_leader::CoreAndLeaderProofsGenerator,
     },
     message_scheduler::{MessageScheduler, round_info::RoundInfo},
     session::{SessionEvent, UninitializedSessionEventStream},
+    stream::UninitializedFirstReadyStream,
 };
-use nomos_core::codec::{DeserializeOp as _, SerializeOp as _};
+use nomos_core::{
+    codec::{DeserializeOp as _, SerializeOp as _},
+    crypto::ZkHash,
+};
 use nomos_network::NetworkService;
 use nomos_time::{TimeService, TimeServiceMessage};
 use nomos_utils::blake_rng::BlakeRng;
@@ -43,7 +57,7 @@ use overwatch::{
 use rand::{RngCore, SeedableRng as _, seq::SliceRandom as _};
 use serde::{Deserialize, Serialize};
 use services_utils::wait_until_services_are_ready;
-use tokio::{sync::oneshot, time::timeout};
+use tokio::sync::oneshot;
 use tracing::info;
 
 use crate::{
@@ -52,11 +66,12 @@ use crate::{
         processor::{CoreCryptographicProcessor, Error},
         settings::BlendConfig,
     },
-    epoch_info::{EpochHandler, PolInfoProvider as PolInfoProviderTrait},
+    epoch_info::{
+        EpochEvent, EpochHandler, LeaderInputsMinusQuota, PolInfoProvider as PolInfoProviderTrait,
+    },
     membership,
     message::{NetworkMessage, ProcessedMessage, ServiceMessage},
-    mock_poq_inputs_stream,
-    session::CoreSessionPublicInfo as ProcessorSessionInfo,
+    session::CoreSessionInfo,
     settings::FIRST_STREAM_ITEM_READY_TIMEOUT,
 };
 
@@ -162,7 +177,7 @@ where
     Network: NetworkAdapter<RuntimeServiceId, BroadcastSettings: Unpin> + Send + Sync,
     MembershipAdapter: membership::Adapter<NodeId = NodeId, Error: Send + Sync + 'static> + Send,
     membership::ServiceMessage<MembershipAdapter>: Send + Sync + 'static,
-    ProofsGenerator: ProofsGeneratorTrait + Send,
+    ProofsGenerator: CoreAndLeaderProofsGenerator + Send,
     ProofsVerifier: ProofsVerifierTrait + Clone + Send,
     TimeBackend: nomos_time::backends::TimeBackend + Send,
     ChainService: CryptarchiaServiceData<Tx: Send + Sync>,
@@ -215,30 +230,58 @@ where
         )
         .await?;
 
-        let network_relay = overwatch_handle.relay::<NetworkService<_, _>>().await?;
-        let network_adapter = Network::new(network_relay);
-
-        let membership_stream = MembershipAdapter::new(
-            overwatch_handle
-                .relay::<<MembershipAdapter as membership::Adapter>::Service>()
-                .await?,
-            blend_config.crypto.non_ephemeral_signing_key.public_key(),
-        )
-        .subscribe()
-        .await
-        .expect("Membership service should be ready");
-
-        let mut epoch_handler = async {
-            let chain_service = CryptarchiaServiceApi::<ChainService, _>::new(overwatch_handle)
-                .await
-                .expect("Failed to establish channel with chain service.");
-            EpochHandler::new(chain_service)
+        let network_adapter = async {
+            let network_relay = overwatch_handle.relay::<NetworkService<_, _>>().await?;
+            Network::new(network_relay)
         }
         .await;
 
-        // TODO: Change this to also be a `UninitializedStream` which is expected to
-        // yield within a certain amount of time.
-        let mut clock_stream = async {
+        let session_stream = async {
+            let membership_stream = MembershipAdapter::new(
+                overwatch_handle
+                    .relay::<<MembershipAdapter as membership::Adapter>::Service>()
+                    .await
+                    .expect("Failed to get relay channel with membership service."),
+                blend_config.crypto.non_ephemeral_signing_key.public_key(),
+            )
+            .subscribe()
+            .await
+            .expect("Failed to get membership stream from membership service.");
+
+            membership_stream.map(|membership| {
+                let membership_size = membership.size();
+                CoreSessionInfo {
+                    membership,
+                    // TODO: Replace with actual session value
+                    session: 10,
+                    poq_core_public_inputs: CoreInputs {
+                        // TODO: Replace with actual membership returned value
+                        zk_root: ZkHash::ZERO,
+                        quota: blend_config.session_quota(membership_size),
+                    },
+                    // TODO: Replace with actual ZK key and merkle path calculation.
+                    poq_core_private_inputs: ProofOfCoreQuotaInputs {
+                        core_path: vec![],
+                        core_path_selectors: vec![],
+                        core_sk: ZkHash::ZERO,
+                    },
+                }
+            })
+        }
+        .await;
+
+        let mut epoch_handler = async {
+            let chain_service = CryptarchiaServiceApi::<ChainService, _>::new(&overwatch_handle)
+                .await
+                .expect("Failed to establish channel with chain service.");
+            EpochHandler::new(
+                chain_service,
+                blend_config.time.epoch_transition_period_in_slots,
+            )
+        }
+        .await;
+
+        let clock_stream = async {
             let time_relay = overwatch_handle
                 .relay::<TimeService<_, _>>()
                 .await
@@ -254,90 +297,85 @@ where
         }
         .await;
 
-        // TODO: Replace with actual service usage.
-        let poq_input_stream = mock_poq_inputs_stream();
+        let (current_session_info, session_stream) = UninitializedSessionEventStream::new(
+            session_stream,
+            FIRST_STREAM_ITEM_READY_TIMEOUT,
+            blend_config.time.session_transition_period(),
+        )
+        .await_first_ready()
+        .await
+        .expect("The current session info must be available.");
 
-        let ((current_membership, (public_poq_inputs, private_poq_inputs)), session_stream) =
-            UninitializedSessionEventStream::new(
-                membership_stream.zip(poq_input_stream),
-                FIRST_STREAM_ITEM_READY_TIMEOUT,
-                blend_config.time.session_transition_period(),
-            )
-            .await_first_ready()
-            .await
-            .expect("The current session must be ready");
-        let current_poq_session_info = PoQSessionInfo {
-            local_node_index: current_membership.local_index(),
-            membership_size: current_membership.size(),
-            private_inputs: private_poq_inputs,
-            public_inputs: public_poq_inputs,
-        };
+        let session_stream = session_stream.fork();
+
+        let (mut current_epoch_info, mut epoch_stream) = async {
+            let (first_tick, epoch_stream) =
+                UninitializedFirstReadyStream::new(clock_stream, FIRST_STREAM_ITEM_READY_TIMEOUT)
+                    .first()
+                    .await
+                    .expect("The node clock must be ready and must yield the first slot.");
+            let epoch_state = epoch_handler
+                .tick(first_tick)
+                .await
+                .expect("The epoch state for the first tick must be available.");
+            let EpochEvent::NewEpoch(new_epoch_info) = epoch_state else {
+                panic!("First tick expected to be a new epoch info.");
+            };
+            (new_epoch_info, epoch_stream)
+        }
+        .await;
 
         info!(
             target: LOG_TARGET,
             "The current membership is ready: {} nodes.",
-            current_membership.size()
+            current_session_info.membership.size()
         );
 
-        let session_stream = session_stream.fork();
-        let proofs_verifier = ProofsVerifier::new();
-
+        let public_inputs = PoQVerificationInputsMinusSigningKey {
+            core: current_session_info.poq_core_public_inputs,
+            leader: LeaderInputs {
+                message_quota: blend_config.crypto.num_blend_layers,
+                pol_epoch_nonce: current_epoch_info.pol_epoch_nonce,
+                pol_ledger_aged: current_epoch_info.pol_ledger_aged,
+                total_stake: current_epoch_info.total_stake,
+            },
+            session: current_session_info.session,
+        };
         let mut crypto_processor =
             CoreCryptographicProcessor::<_, ProofsGenerator, _>::try_new_with_core_condition_check(
-                current_membership.clone(),
+                current_session_info.membership.clone(),
                 blend_config.minimum_network_size,
                 &blend_config.crypto,
-                current_poq_session_info.clone(),
-                proofs_verifier.clone(),
+                public_inputs,
+                current_session_info.poq_core_private_inputs,
             )
             .expect("The initial membership should satisfy the core node condition");
 
-        // Yields once every randomly-scheduled release round. It takes the original
-        // (membership, session info) stream and discards session info.
-        let membership_info_stream =
-            map_session_event_stream(session_stream.clone(), |(membership, _)| membership);
-        let (initial_scheduler_session_info, scheduler_session_info_stream) =
-            blend_config.session_info_stream(&current_membership, membership_info_stream);
-        let mut message_scheduler =
+        let mut message_scheduler = {
+            let membership_info_stream =
+                map_session_event_stream(session_stream.clone(), |(membership, _)| membership);
+            let (initial_scheduler_session_info, scheduler_session_info_stream) = blend_config
+                .session_info_stream(&current_session_info.membership, membership_info_stream);
+
             MessageScheduler::<_, _, ProcessedMessage<Network::BroadcastSettings>>::new(
                 scheduler_session_info_stream,
                 initial_scheduler_session_info,
                 BlakeRng::from_entropy(),
                 blend_config.scheduler_settings(),
-            );
-
-        // Maps the original (membership, session info) stream into a (membership, PoQ
-        // verification) stream, where the PoQ proving components are discarded since
-        // they are not used by the swarm.
-        let swarm_backend_stream = map_session_event_stream(
-            session_stream.clone(),
-            |(membership, (poq_public_inputs, poq_private_inputs))| {
-                let local_node_index = membership.local_index();
-                let membership_size = membership.size();
-                SessionInfo {
-                    membership,
-                    poq_verification_inputs: PoQSessionInfo {
-                        local_node_index,
-                        membership_size,
-                        private_inputs: poq_private_inputs,
-                        public_inputs: poq_public_inputs,
-                    }
-                    .into(),
-                }
-            },
-        );
-        let poq_verification_info = SessionInfo {
-            membership: current_membership,
-            poq_verification_inputs: current_poq_session_info.into(),
+            )
         };
+
         let mut backend =
             <Backend as BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId>>::new(
                 blend_config.clone(),
                 overwatch_handle.clone(),
-                poq_verification_info,
-                swarm_backend_stream.boxed(),
+                SessionInfo {
+                    membership: current_session_info.membership,
+                    poq_verification_inputs: public_inputs,
+                },
+                // TODO: Replace with actual combined stream.
+                pending().boxed(),
                 BlakeRng::from_entropy(),
-                proofs_verifier,
             );
 
         // Yields new messages received via Blend peers.
@@ -358,32 +396,10 @@ where
         // ready, hence this should always be called after `notify_ready();`.
         // Also, Blend services start even if such a stream is not immediately
         // available, since they will simply keep blending cover messages.
-        let mut pol_epoch_stream = timeout(
-            Duration::from_secs(3),
-            PolInfoProvider::subscribe(overwatch_handle)
-                .map(|r| r.expect("PoL slot info provider failed to return a usable stream.")),
-        )
-        .await
-        .expect("PoL slot info provider not received within the expected timeout.");
+        let secret_pol_info_stream = PolInfoProvider::subscribe(&overwatch_handle)
+            .await
+            .expect("Should not fail to subscribe to secret PoL info stream.");
 
-        // Maps the original (membership, session info) by transforming the tuple into
-        // the required struct, nothing else.
-        let mut service_session_stream = map_session_event_stream(
-            session_stream,
-            |(membership, (poq_public_inputs, poq_private_inputs))| {
-                let local_node_index = membership.local_index();
-                let membership_size = membership.size();
-                ProcessorSessionInfo {
-                    membership,
-                    poq_generation_and_verification_inputs: PoQSessionInfo {
-                        local_node_index,
-                        membership_size,
-                        private_inputs: poq_private_inputs,
-                        public_inputs: poq_public_inputs,
-                    },
-                }
-            },
-        );
         loop {
             tokio::select! {
                 Some(local_data_message) = inbound_relay.next() => {
@@ -396,15 +412,15 @@ where
                     handle_release_round(round_info, &mut crypto_processor, &mut rng, &backend, &network_adapter).await;
                 }
                 Some(tick) = clock_stream.next() => {
-                    let new_epoch_info = epoch_handler.tick(tick).await;
-                    if let Some(new_epoch_info) = new_epoch_info {
-                        tracing::trace!(target: LOG_TARGET, "New epoch info received. {new_epoch_info:?}");
-                    }
+                    let Some(epoch_event) = epoch_handler.tick(tick).await else {
+                        continue;
+                    };
+                    handle_epoch_event(epoch_event, &mut crypto_processor, &mut backend);
                 }
-                Some(pol_info) = pol_epoch_stream.next() => {
+                Some(pol_info) = secret_pol_info_stream.next() => {
                     tracing::trace!(target: LOG_TARGET, "Received new winning slot info: {:?}", pol_info);
                 }
-                Some(session_event) = service_session_stream.next() => {
+                Some(session_event) = session_stream.next() => {
                     match handle_session_event(session_event, crypto_processor, &blend_config) {
                         Ok(new_crypto_processor) => crypto_processor = new_crypto_processor,
                         Err(e) => {
@@ -429,29 +445,43 @@ where
 /// It ignores the transition period expiration event and returns the previous
 /// cryptographic processor as is.
 fn handle_session_event<NodeId, ProofsGenerator, ProofsVerifier, BackendSettings>(
-    event: SessionEvent<ProcessorSessionInfo<NodeId>>,
+    event: SessionEvent<CoreSessionInfo<NodeId>>,
     cryptographic_processor: CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
+    current_epoch_info: &LeaderInputsMinusQuota,
     settings: &BlendConfig<BackendSettings>,
 ) -> Result<CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>, Error>
 where
     NodeId: Eq + Hash + Send,
-    ProofsGenerator: ProofsGeneratorTrait,
+    ProofsGenerator: CoreAndLeaderProofsGenerator,
     ProofsVerifier: ProofsVerifierTrait,
 {
     match event {
-        SessionEvent::NewSession(ProcessorSessionInfo {
+        SessionEvent::NewSession(CoreSessionInfo {
             membership,
-            poq_generation_and_verification_inputs: poq_verification_inputs,
-        }) => Ok(
-            CoreCryptographicProcessor::try_new_with_core_condition_check(
-                membership,
-                settings.minimum_network_size,
-                &settings.crypto,
-                poq_verification_inputs,
-                // We move the verifier instance from the old processor instance to the new one.
-                cryptographic_processor.into_inner().take_verifier(),
-            )?,
-        ),
+            poq_core_private_inputs,
+            poq_core_public_inputs,
+            session,
+        }) => {
+            let new_public_inputs = PoQVerificationInputsMinusSigningKey {
+                core: poq_core_public_inputs,
+                leader: LeaderInputs {
+                    pol_ledger_aged: current_epoch_info.pol_ledger_aged,
+                    pol_epoch_nonce: current_epoch_info.pol_epoch_nonce,
+                    message_quota: settings.crypto.num_blend_layers,
+                    total_stake: current_epoch_info.total_stake,
+                },
+                session,
+            };
+            Ok(
+                CoreCryptographicProcessor::try_new_with_core_condition_check(
+                    membership,
+                    settings.minimum_network_size,
+                    &settings.crypto,
+                    new_public_inputs,
+                    poq_core_private_inputs,
+                )?,
+            )
+        }
         SessionEvent::TransitionPeriodExpired => Ok(cryptographic_processor),
     }
 }
@@ -487,7 +517,7 @@ async fn handle_local_data_message<
     Rng: RngCore + Send,
     Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId> + Sync,
     BroadcastSettings: Serialize + for<'de> Deserialize<'de> + Send,
-    ProofsGenerator: ProofsGeneratorTrait,
+    ProofsGenerator: CoreAndLeaderProofsGenerator,
 {
     let ServiceMessage::Blend(message_payload) = local_data_message;
 
@@ -588,7 +618,7 @@ async fn handle_release_round<
     NodeId: Eq + Hash + 'static,
     Rng: RngCore + Send,
     Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId> + Sync,
-    ProofsGenerator: ProofsGeneratorTrait,
+    ProofsGenerator: CoreAndLeaderProofsGenerator,
     NetAdapter: NetworkAdapter<RuntimeServiceId> + Sync,
 {
     let mut processed_messages_relay_futures = processed_messages
@@ -621,6 +651,50 @@ async fn handle_release_round<
     // Release all messages concurrently, and wait for all of them to be sent.
     join_all(processed_messages_relay_futures).await;
     tracing::debug!(target: LOG_TARGET, "Sent out {total_message_count} processed and/or cover messages at this release window.");
+}
+
+fn handle_epoch_event<NodeId, ProofsGenerator, ProofsVerifier, Backend, Rng, RuntimeServiceId>(
+    epoch_event: EpochEvent,
+    cryptographic_processor: &mut CoreCryptographicProcessor<
+        NodeId,
+        ProofsGenerator,
+        ProofsVerifier,
+    >,
+    backend: &mut Backend,
+    settings: &BlendConfig<Backend::Settings>,
+) where
+    ProofsGenerator: CoreAndLeaderProofsGenerator,
+    ProofsVerifier: ProofsVerifierTrait,
+    Backend: BlendBackend<NodeId, Rng, ProofsVerifier, RuntimeServiceId>,
+{
+    match epoch_event {
+        EpochEvent::NewEpoch(new_epoch_public_info) => {
+            let new_inputs = LeaderInputs {
+                message_quota: settings.crypto.num_blend_layers,
+                pol_epoch_nonce: new_epoch_public_info.pol_epoch_nonce,
+                pol_ledger_aged: new_epoch_public_info.pol_ledger_aged,
+                total_stake: new_epoch_public_info.total_stake,
+            };
+            cryptographic_processor.rotate_epoch(new_inputs);
+            backend.rotate_epoch(new_inputs);
+        }
+        EpochEvent::OldEpochTransitionPeriodExpired => {
+            cryptographic_processor.complete_epoch_transition();
+            backend.complete_epoch_transition();
+        }
+        EpochEvent::NewEpochAndOldEpochTransitionExpired(new_epoch_public_info) => {
+            let new_inputs = LeaderInputs {
+                message_quota: settings.crypto.num_blend_layers,
+                pol_epoch_nonce: new_epoch_public_info.pol_epoch_nonce,
+                pol_ledger_aged: new_epoch_public_info.pol_ledger_aged,
+                total_stake: new_epoch_public_info.total_stake,
+            };
+            cryptographic_processor.complete_epoch_transition();
+            backend.complete_epoch_transition();
+            cryptographic_processor.rotate_epoch(new_inputs);
+            backend.rotate_epoch(new_inputs);
+        }
+    }
 }
 
 fn map_session_event_stream<InputStream, Input, Output, MappingFn>(

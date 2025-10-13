@@ -128,6 +128,12 @@ impl<BackendSettings> BlendConfig<BackendSettings> {
         (initial_session_info, session_info_stream)
     }
 
+    pub fn session_quota(&self, membership_size: usize) -> u64 {
+        self.scheduler
+            .cover
+            .session_quota(&self.crypto, &self.time, membership_size)
+    }
+
     pub(super) fn scheduler_settings(&self) -> nomos_blend_scheduling::message_scheduler::Settings {
         nomos_blend_scheduling::message_scheduler::Settings {
             additional_safety_intervals: self.scheduler.cover.intervals_for_safety_buffer,

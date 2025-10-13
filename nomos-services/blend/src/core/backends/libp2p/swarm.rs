@@ -12,7 +12,10 @@ use libp2p::{
     Multiaddr, PeerId, Swarm, SwarmBuilder,
     swarm::{ConnectionId, dial_opts::PeerCondition},
 };
-use nomos_blend_message::encap::ProofsVerifier as ProofsVerifierTrait;
+use nomos_blend_message::{
+    crypto::proofs::quota::inputs::prove::public::LeaderInputs,
+    encap::ProofsVerifier as ProofsVerifierTrait,
+};
 use nomos_blend_network::core::{
     NetworkBehaviourEvent,
     with_core::behaviour::{Event as CoreToCoreEvent, IntervalStreamProvider, NegotiatedPeerState},
@@ -45,6 +48,8 @@ use crate::core::{
 #[derive(Debug)]
 pub enum BlendSwarmMessage {
     Publish(EncapsulatedMessage),
+    StartNewEpoch(LeaderInputs),
+    CompleteEpochTransition,
 }
 
 pub struct DialAttempt {
@@ -409,6 +414,15 @@ where
         match msg {
             BlendSwarmMessage::Publish(msg) => {
                 self.handle_publish_swarm_message(msg);
+            }
+            BlendSwarmMessage::StartNewEpoch(new_epoch_public) => {
+                self.swarm
+                    .behaviour_mut()
+                    .blend
+                    .start_new_epoch(new_epoch_public);
+            }
+            BlendSwarmMessage::CompleteEpochTransition => {
+                self.swarm.behaviour_mut().blend.finish_epoch_transition();
             }
         }
     }

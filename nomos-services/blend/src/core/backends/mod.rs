@@ -4,7 +4,9 @@ pub mod libp2p;
 use std::{fmt::Debug, pin::Pin};
 
 use futures::Stream;
-use nomos_blend_message::crypto::proofs::PoQVerificationInputsMinusSigningKey;
+use nomos_blend_message::crypto::proofs::{
+    PoQVerificationInputsMinusSigningKey, quota::inputs::prove::public::LeaderInputs,
+};
 use nomos_blend_scheduling::{
     EncapsulatedMessage, membership::Membership,
     message_blend::crypto::IncomingEncapsulatedMessageWithValidatedPublicHeader,
@@ -33,11 +35,12 @@ pub trait BlendBackend<NodeId, Rng, ProofsVerifier, RuntimeServiceId> {
         current_session_info: SessionInfo<NodeId>,
         session_stream: SessionStream<NodeId>,
         rng: Rng,
-        proofs_verifier: ProofsVerifier,
     ) -> Self;
     fn shutdown(self);
     /// Publish a message to the blend network.
     async fn publish(&self, msg: EncapsulatedMessage);
+    async fn rotate_epoch(&mut self, new_epoch_public_info: LeaderInputs);
+    async fn complete_epoch_transition(&mut self);
     /// Listen to messages received from the blend network.
     fn listen_to_incoming_messages(
         &mut self,

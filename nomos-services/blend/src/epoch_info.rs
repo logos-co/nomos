@@ -61,12 +61,37 @@ where
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(test, derive(Default))]
+pub struct LeaderInputsMinusQuota {
+    pub pol_ledger_aged: ZkHash,
+    pub pol_epoch_nonce: ZkHash,
+    pub total_stake: u64,
+}
+
+impl From<LeaderInputs> for LeaderInputsMinusQuota {
+    fn from(
+        LeaderInputs {
+            pol_epoch_nonce,
+            pol_ledger_aged,
+            total_stake,
+            ..
+        }: LeaderInputs,
+    ) -> Self {
+        Self {
+            pol_epoch_nonce,
+            pol_ledger_aged,
+            total_stake,
+        }
+    }
+}
+
 /// Event related to a given epoch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EpochEvent {
     /// A new epoch is available, which is either ongoing (if the handler is
     /// started mid-epoch) or has just started.
-    NewEpoch(LeaderInputs),
+    NewEpoch(LeaderInputsMinusQuota),
     /// The information about the previous epoch the handler was tracking can
     /// now be discarded since its transition period has elapsed.
     OldEpochTransitionPeriodExpired,
@@ -85,11 +110,11 @@ pub enum EpochEvent {
     /// the epoch that can now be discarded, while `rotate_epoch`
     /// would move from the previous epoch to the new one that is notified about
     /// in this event.
-    NewEpochAndOldEpochTransitionExpired(LeaderInputs),
+    NewEpochAndOldEpochTransitionExpired(LeaderInputsMinusQuota),
 }
 
-impl From<LeaderInputs> for EpochEvent {
-    fn from(value: LeaderInputs) -> Self {
+impl From<LeaderInputsMinusQuota> for EpochEvent {
+    fn from(value: LeaderInputsMinusQuota) -> Self {
         Self::NewEpoch(value)
     }
 }
@@ -309,12 +334,11 @@ where
 #[cfg(test)]
 mod tests {
 
-    use nomos_blend_message::crypto::proofs::quota::inputs::prove::public::LeaderInputs;
     use nomos_time::SlotTick;
     use test_log::test;
 
     use crate::{
-        epoch_info::{EpochEvent, EpochHandler, EpochTrackingState},
+        epoch_info::{EpochEvent, EpochHandler, EpochTrackingState, LeaderInputsMinusQuota},
         test_utils::epoch::{TestChainService, default_epoch_state},
     };
 
@@ -356,7 +380,7 @@ mod tests {
         );
         assert_eq!(
             next_tick,
-            Some(LeaderInputs::from(default_epoch_state()).into())
+            Some(LeaderInputsMinusQuota::from(default_epoch_state()).into())
         );
         assert_eq!(
             stream.epoch_tracking_state,
@@ -400,7 +424,7 @@ mod tests {
         );
         assert_eq!(
             next_tick,
-            Some(LeaderInputs::from(default_epoch_state()).into())
+            Some(LeaderInputsMinusQuota::from(default_epoch_state()).into())
         );
         assert_eq!(
             stream.epoch_tracking_state,
@@ -444,7 +468,7 @@ mod tests {
         let next_tick = stream.tick(ticks_iter.next().unwrap()).await;
         assert_eq!(
             next_tick,
-            Some(LeaderInputs::from(default_epoch_state()).into())
+            Some(LeaderInputsMinusQuota::from(default_epoch_state()).into())
         );
         assert_eq!(
             stream.epoch_tracking_state,
@@ -544,7 +568,7 @@ mod tests {
         let next_tick = stream.tick(ticks_iter.next().unwrap()).await;
         assert_eq!(
             next_tick,
-            Some(LeaderInputs::from(default_epoch_state()).into())
+            Some(LeaderInputsMinusQuota::from(default_epoch_state()).into())
         );
         assert_eq!(
             stream.epoch_tracking_state,
