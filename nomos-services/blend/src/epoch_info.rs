@@ -298,17 +298,16 @@ where
             self.epoch_tracking_state = Some(EpochTrackingState::new(validated_slot_tick));
         }
 
-        // We check if the previous epoch is expired only if two epochs in the past are
-        // not, since the two conditions cannot exist at the same time.
-        let should_notify_about_past_epoch_transition = should_notify_about_two_epochs_back
-            || self.check_and_consume_past_epoch_transition_period(validated_slot_tick);
-
-        let epoch_event =
-            if should_notify_about_two_epochs_back || should_notify_about_past_epoch_transition {
-                EpochEvent::NewEpochAndOldEpochTransitionExpired(epoch_state.into())
-            } else {
-                EpochEvent::NewEpoch(epoch_state.into())
-            };
+        // We need to notify about epoch transitioncheck if the previous epoch is
+        // expired only if two epochs in the past are not, since the two
+        // conditions cannot exist at the same time.
+        let epoch_event = if should_notify_about_two_epochs_back
+            || self.check_and_consume_past_epoch_transition_period(validated_slot_tick)
+        {
+            EpochEvent::NewEpochAndOldEpochTransitionExpired(epoch_state.into())
+        } else {
+            EpochEvent::NewEpoch(epoch_state.into())
+        };
 
         Some(epoch_event)
     }
