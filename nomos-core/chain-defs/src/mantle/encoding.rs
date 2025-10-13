@@ -87,17 +87,13 @@ fn decode_op(input: &[u8]) -> IResult<&[u8], Op> {
     let (input, opcode) = decode_byte(input)?;
 
     match opcode {
-        0x00 => map(decode_channel_inscribe, Op::ChannelInscribe)(input),
-        0x01 => map(decode_channel_blob, Op::ChannelBlob)(input),
-        0x02 => map(decode_channel_set_keys, Op::ChannelSetKeys)(input),
-        0x03 => {
-            // Native operation - currently unimplemented
-            Err(nom::Err::Error(Error::new(input, ErrorKind::Fail)))
-        }
-        0x04 => map(decode_sdp_declare, Op::SDPDeclare)(input),
-        0x05 => map(decode_sdp_withdraw, Op::SDPWithdraw)(input),
-        0x06 => map(decode_sdp_active, Op::SDPActive)(input),
-        0x07 => map(decode_leader_claim, Op::LeaderClaim)(input),
+        opcode::INSCRIBE => map(decode_channel_inscribe, Op::ChannelInscribe)(input),
+        opcode::BLOB => map(decode_channel_blob, Op::ChannelBlob)(input),
+        opcode::SET_CHANNEL_KEYS => map(decode_channel_set_keys, Op::ChannelSetKeys)(input),
+        opcode::SDP_DECLARE => map(decode_sdp_declare, Op::SDPDeclare)(input),
+        opcode::SDP_WITHDRAW => map(decode_sdp_withdraw, Op::SDPWithdraw)(input),
+        opcode::SDP_ACTIVE => map(decode_sdp_active, Op::SDPActive)(input),
+        opcode::LEADER_CLAIM => map(decode_leader_claim, Op::LeaderClaim)(input),
         _ => Err(nom::Err::Error(Error::new(input, ErrorKind::Fail))),
     }
 }
@@ -107,8 +103,9 @@ fn decode_op(input: &[u8]) -> IResult<&[u8], Op> {
 // ==============================================================================
 
 fn decode_channel_inscribe(input: &[u8]) -> IResult<&[u8], InscriptionOp> {
-    // ChannelInscribe = ChannelId Inscription Parent Ed25519PublicKey
+    // ChannelInscribe = ChannelId Inscription Parent Signer
     // Inscription = UINT32 *BYTE
+    // Signer = Ed25519PublicKey
     let (input, channel_id) = map(decode_hash32, ChannelId::from)(input)?;
     let (input, inscription_len) = decode_uint32(input)?;
     let (input, inscription) = map(take(inscription_len as usize), |b: &[u8]| b.to_vec())(input)?;
@@ -127,7 +124,8 @@ fn decode_channel_inscribe(input: &[u8]) -> IResult<&[u8], InscriptionOp> {
 }
 
 fn decode_channel_blob(input: &[u8]) -> IResult<&[u8], BlobOp> {
-    // ChannelBlob = ChannelId BlobId BlobSize DaStorageGasPrice Parent Ed25519PublicKey
+    // ChannelBlob = ChannelId BlobId BlobSize DaStorageGasPrice Parent Signer
+    // Signer = Ed25519PublicKey
     let (input, channel) = map(decode_hash32, ChannelId::from)(input)?;
     let (input, blob) = decode_hash32(input)?;
     let (input, blob_size) = decode_uint64(input)?;
@@ -303,7 +301,7 @@ fn decode_ledger_tx(input: &[u8]) -> IResult<&[u8], LedgerTx> {
 // Proof Decoders
 // ==============================================================================
 
-fn decode_ops_proofs<'a>(input: &'a [u8], ops: &[Op]) -> IResult<&'a [u8], Vec<Option<OpProof>>> {
+fn decode_ops_proofs<'a>(input: &'a [u8], ops: &[Op]) -> IResult<&'a [u8], Vec<OpProof>> {
     let mut remaining = input;
     let mut proofs = Vec::with_capacity(ops.len());
 
@@ -316,12 +314,12 @@ fn decode_ops_proofs<'a>(input: &'a [u8], ops: &[Op]) -> IResult<&'a [u8], Vec<O
     Ok((remaining, proofs))
 }
 
-fn decode_op_proof<'a>(input: &'a [u8], op: &Op) -> IResult<&'a [u8], Option<OpProof>> {
+fn decode_op_proof<'a>(input: &'a [u8], op: &Op) -> IResult<&'a [u8], OpProof> {
     match op {
         // Ed25519SigProof = Ed25519Signature
-        Op::ChannelInscribe(_) | Op::ChannelBlob(_) => map(decode_ed25519_signature, |sig| {
-            Some(OpProof::Ed25519Sig(sig))
-        })(input),
+        Op::ChannelInscribe(_) | Op::ChannelBlob(_) => {
+            map(decode_ed25519_signature, |sig| OpProof::Ed25519Sig(sig))(input)
+        }
 
         // ZkAndEd25519SigsProof = ZkSignature Ed25519Signature
         Op::ChannelSetKeys(_) => {
@@ -329,24 +327,22 @@ fn decode_op_proof<'a>(input: &'a [u8], op: &Op) -> IResult<&'a [u8], Option<OpP
             let (input, ed25519_sig) = decode_ed25519_signature(input)?;
             Ok((
                 input,
-                Some(OpProof::ZkAndEd25519Sigs {
+                OpProof::ZkAndEd25519Sigs {
                     zk_sig,
                     ed25519_sig,
-                }),
+                },
             ))
         }
 
         // ZkSigProof = ZkSignature
         Op::SDPDeclare(_) | Op::SDPWithdraw(_) | Op::SDPActive(_) => {
-            map(decode_zk_signature, |sig| Some(OpProof::ZkSig(sig)))(input)
+            map(decode_zk_signature, |sig| OpProof::ZkSig(sig))(input)
         }
 
         // ProofOfClaimProof = Groth16
         Op::LeaderClaim(_) => map(decode_groth16, |_proof| {
             panic!("OpProof::LeaderClaimProof not yet implemented");
         })(input),
-
-        Op::Native(_) => panic!("TODO: drop native proof"),
     }
 }
 
@@ -431,6 +427,8 @@ fn decode_byte(input: &[u8]) -> IResult<&[u8], u8> {
 // ==============================================================================
 
 use groth16::fr_to_bytes;
+
+use super::ops::opcode;
 
 /// Encode primitives
 fn encode_uint64(value: u64) -> Vec<u8> {
@@ -603,35 +601,31 @@ fn encode_op(op: &Op) -> Vec<u8> {
     let mut bytes = Vec::new();
     match op {
         Op::ChannelInscribe(op) => {
-            bytes.extend(encode_byte(0x00));
+            bytes.extend(encode_byte(opcode::INSCRIBE));
             bytes.extend(encode_channel_inscribe(op));
         }
         Op::ChannelBlob(op) => {
-            bytes.extend(encode_byte(0x01));
+            bytes.extend(encode_byte(opcode::BLOB));
             bytes.extend(encode_channel_blob(op));
         }
         Op::ChannelSetKeys(op) => {
-            bytes.extend(encode_byte(0x02));
+            bytes.extend(encode_byte(opcode::SET_CHANNEL_KEYS));
             bytes.extend(encode_channel_set_keys(op));
         }
-        Op::Native(_) => {
-            bytes.extend(encode_byte(0x03));
-            // Native operation encoding not implemented
-        }
         Op::SDPDeclare(op) => {
-            bytes.extend(encode_byte(0x04));
+            bytes.extend(encode_byte(opcode::SDP_DECLARE));
             bytes.extend(encode_sdp_declare(op));
         }
         Op::SDPWithdraw(op) => {
-            bytes.extend(encode_byte(0x05));
+            bytes.extend(encode_byte(opcode::SDP_WITHDRAW));
             bytes.extend(encode_sdp_withdraw(op));
         }
         Op::SDPActive(op) => {
-            bytes.extend(encode_byte(0x06));
+            bytes.extend(encode_byte(opcode::SDP_ACTIVE));
             bytes.extend(encode_sdp_active(op));
         }
         Op::LeaderClaim(op) => {
-            bytes.extend(encode_byte(0x07));
+            bytes.extend(encode_byte(opcode::LEADER_CLAIM));
             bytes.extend(encode_leader_claim(op));
         }
     }
@@ -648,42 +642,35 @@ fn encode_ops(ops: &[Op]) -> Vec<u8> {
 }
 
 /// Encode proofs
-fn encode_op_proof(proof: &Option<OpProof>, op: &Op) -> Vec<u8> {
+fn encode_op_proof(proof: &OpProof, op: &Op) -> Vec<u8> {
     match (proof, op) {
-        (Some(OpProof::Ed25519Sig(sig)), Op::ChannelInscribe(_) | Op::ChannelBlob(_)) => {
+        (OpProof::Ed25519Sig(sig), Op::ChannelInscribe(_) | Op::ChannelBlob(_)) => {
             encode_ed25519_signature(sig)
         }
         (
-            Some(OpProof::ZkAndEd25519Sigs {
+            OpProof::ZkAndEd25519Sigs {
                 zk_sig,
                 ed25519_sig,
-            }),
+            },
             Op::ChannelSetKeys(_),
         ) => {
             let mut bytes = encode_zk_signature(zk_sig);
             bytes.extend(encode_ed25519_signature(ed25519_sig));
             bytes
         }
-        (Some(OpProof::ZkSig(sig)), Op::SDPDeclare(_) | Op::SDPWithdraw(_) | Op::SDPActive(_)) => {
+        (OpProof::ZkSig(sig), Op::SDPDeclare(_) | Op::SDPWithdraw(_) | Op::SDPActive(_)) => {
             encode_zk_signature(sig)
         }
-        (None, Op::LeaderClaim(_)) => {
-            // LeaderClaim requires ProofOfClaimProof (Groth16)
-            // Return empty for now - TODO: implement proper proof encoding
-            vec![0u8; 128]
-        }
-        (None, Op::Native(_)) => {
-            // Native operations don't have proofs
-            vec![]
+        (_, Op::LeaderClaim(_)) => {
+            unimplemented!("ProofOfClaimProof not implemented");
         }
         _ => {
-            // Mismatch between proof type and operation type
-            vec![]
+            panic!("Mismatch between proof type and operation type");
         }
     }
 }
 
-fn encode_ops_proofs(proofs: &[Option<OpProof>], ops: &[Op]) -> Vec<u8> {
+fn encode_ops_proofs(proofs: &[OpProof], ops: &[Op]) -> Vec<u8> {
     let mut bytes = Vec::new();
     for (proof, op) in proofs.iter().zip(ops.iter()) {
         bytes.extend(encode_op_proof(proof, op));
@@ -865,9 +852,9 @@ mod tests {
                     execution_gas_price: 100,
                     storage_gas_price: 50
                 },
-                ops_proofs: vec![Some(OpProof::Ed25519Sig(Signature::from_bytes(
+                ops_proofs: vec![OpProof::Ed25519Sig(Signature::from_bytes(
                     &[0xCC; 64]
-                )))],
+                ))],
                 ledger_tx_proof: ZkSignature::from_bytes(&[0xDD; 128]),
             }
         );
@@ -954,9 +941,9 @@ mod tests {
                     execution_gas_price: 100,
                     storage_gas_price: 50
                 },
-                ops_proofs: vec![Some(OpProof::Ed25519Sig(Signature::from_bytes(
+                ops_proofs: vec![OpProof::Ed25519Sig(Signature::from_bytes(
                     &[0xDD; 64]
-                )))],
+                ))],
                 ledger_tx_proof: ZkSignature::from_bytes(&[0xEE; 128]),
             }
         );
@@ -1082,8 +1069,8 @@ mod tests {
                     storage_gas_price: 50
                 },
                 ops_proofs: vec![
-                    Some(OpProof::Ed25519Sig(Signature::from_bytes(&[0xAA; 64]))),
-                    Some(OpProof::Ed25519Sig(Signature::from_bytes(&[0xBB; 64])))
+                    OpProof::Ed25519Sig(Signature::from_bytes(&[0xAA; 64])),
+                    OpProof::Ed25519Sig(Signature::from_bytes(&[0xBB; 64]))
                 ],
                 ledger_tx_proof: ZkSignature::from_bytes(&[0xCC; 128]),
             }

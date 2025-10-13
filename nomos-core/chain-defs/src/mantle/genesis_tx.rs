@@ -106,7 +106,7 @@ impl AuthenticatedMantleTx for GenesisTx {
         self.0.ledger_tx_proof()
     }
 
-    fn ops_with_proof(&self) -> impl Iterator<Item = (&Op, Option<&OpProof>)> {
+    fn ops_with_proof(&self) -> impl Iterator<Item = (&Op, &OpProof)> {
         self.0.ops_with_proof()
     }
 }
@@ -127,7 +127,7 @@ impl<'de> Deserialize<'de> for GenesisTx {
         #[derive(Deserialize)]
         struct GenesisTxHelper {
             mantle_tx: MantleTx,
-            ops_proofs: Vec<Option<OpProof>>,
+            ops_proofs: Vec<OpProof>,
             ledger_tx_proof: crate::mantle::keys::Signature,
         }
 
@@ -200,7 +200,24 @@ mod tests {
     // Genesis transactions don't need verified proofs for Blob/Inscription ops
     fn create_signed_tx(ops: Vec<Op>) -> SignedMantleTx {
         let ledger_tx = LedgerTx::new(vec![], vec![create_test_note(1000)]);
-        let ops_proofs_len = ops.len();
+        let ops_proofs = ops
+            .iter()
+            .map(|op| match op {
+                Op::ChannelInscribe(_) | Op::ChannelBlob(_) => {
+                    OpProof::Ed25519Sig(ed25519::Signature::from_bytes(&[0u8; 64]))
+                }
+                Op::SDPDeclare(_) | Op::SDPWithdraw(_) | Op::SDPActive(_) => {
+                    OpProof::ZkSig(crate::mantle::keys::Signature::from_bytes(&[0u8; 128]))
+                }
+                Op::ChannelSetKeys(_) => OpProof::ZkAndEd25519Sigs {
+                    zk_sig: crate::mantle::keys::Signature::from_bytes(&[0u8; 128]),
+                    ed25519_sig: ed25519::Signature::from_bytes(&[0u8; 64]),
+                },
+                Op::LeaderClaim(_) => {
+                    panic!("LeaderClaim not used in genesis");
+                }
+            })
+            .collect();
         let mantle_tx = MantleTx {
             ops,
             ledger_tx,
@@ -210,7 +227,7 @@ mod tests {
 
         SignedMantleTx::new_unverified(
             mantle_tx,
-            vec![None; ops_proofs_len],
+            ops_proofs,
             crate::mantle::keys::Signature::from_bytes(&[0u8; 128]),
         )
     }

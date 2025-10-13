@@ -181,8 +181,8 @@ impl ZkSignatureProof for Signature {
     fn verify(&self, _public_inputs: &ZkSignaturePublic) -> bool {
         // TODO: Implement proper verification using the ZkSignaturePublic inputs
         // For now, we just return true as this is a placeholder
-        // Real verification would need to convert ZkSignaturePublic to ZkSignVerifierInputs
-        // and call zksign::verify
+        // Real verification would need to convert ZkSignaturePublic to
+        // ZkSignVerifierInputs and call zksign::verify
         true
     }
 }
