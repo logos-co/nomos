@@ -20,7 +20,6 @@ use nomos_blend_scheduling::{
     },
     serialize_encapsulated_message,
 };
-use nomos_core::crypto::ZkHash;
 
 use crate::core::with_core::{
     behaviour::{Event, handler::FromBehaviour},

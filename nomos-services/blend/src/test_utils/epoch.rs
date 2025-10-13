@@ -5,8 +5,6 @@ use overwatch::overwatch::OverwatchHandle;
 
 use crate::epoch_info::ChainApi;
 
-pub const NON_EXISTING_EPOCH_STATE_SLOT: Slot = Slot::new(4);
-
 pub fn default_epoch_state() -> EpochState {
     use groth16::Field as _;
     use nomos_core::crypto::ZkHash;
@@ -29,11 +27,7 @@ impl<RuntimeServiceId> ChainApi<RuntimeServiceId> for TestChainService {
         Self
     }
 
-    async fn get_epoch_state_for_slot(&self, slot: Slot) -> Option<EpochState> {
-        if slot == NON_EXISTING_EPOCH_STATE_SLOT {
-            None
-        } else {
-            Some(default_epoch_state())
-        }
+    async fn get_epoch_state_for_slot(&self, _slot: Slot) -> EpochState {
+        default_epoch_state()
     }
 }
