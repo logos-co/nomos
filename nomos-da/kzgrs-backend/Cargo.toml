@@ -11,7 +11,7 @@ workspace = true
 ark-ff        = "0.4"
 ark-poly      = "0.4.2"
 ark-serialize = "0.4.2"
-blake2        = { default-features = false, version = "0.10" }
+blake2        = { default-features = false, workspace = true }
 itertools     = { default-features = false, version = "0.12" }
 kzgrs         = { workspace = true }
 nomos-core    = { workspace = true }
