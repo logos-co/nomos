@@ -267,7 +267,7 @@ where
             return None;
         }
 
-        tracing::debug!(target: LOG_TARGET, "Found epoch unseen before. Polling for its state...");
+        tracing::debug!(target: LOG_TARGET, "Found epoch unseen before. Retrieving for its state...");
         let epoch_state = self
             .chain_service
             .get_epoch_state_for_slot(new_tick.slot)
