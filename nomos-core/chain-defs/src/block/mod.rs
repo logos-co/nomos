@@ -1,5 +1,4 @@
 use core::fmt::Debug;
-use std::sync::Arc;
 
 use ::serde::{Deserialize, Serialize, de::DeserializeOwned};
 use bytes::Bytes;
@@ -19,16 +18,18 @@ const MAX_TRANSACTIONS: usize = 1024;
 pub type BlockNumber = u64;
 pub type SessionNumber = u64;
 
-#[derive(Clone, Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("Failed to serialize: {0}")]
     Serialisation(#[from] crate::codec::Error),
     #[error("Signature error: {0}")]
-    Signature(Arc<ed25519_dalek::SignatureError>),
+    Signature(Box<ed25519_dalek::SignatureError>),
     #[error("Too many transactions: {count} exceeds maximum of {max}")]
     TooManyTxs { count: usize, max: usize },
     #[error("Block root mismatch: calculated content does not match header")]
     BlockRootMismatch,
+    #[error("Signing key does not match the leader key in proof of leadership")]
+    KeyMismatch,
     #[error("Validation error: {0}")]
     Validation(String),
 }
@@ -88,6 +89,12 @@ impl<Tx> Block<Tx> {
     where
         Tx: Transaction<Hash = TxHash>,
     {
+        let expected_public_key = proof_of_leadership.leader_key();
+        let actual_public_key = signing_key.verifying_key();
+        if expected_public_key != &actual_public_key {
+            return Err(Error::KeyMismatch);
+        }
+
         if transactions.len() > MAX_TRANSACTIONS {
             return Err(Error::TooManyTxs {
                 count: transactions.len(),
@@ -136,7 +143,7 @@ impl<Tx> Block<Tx> {
 
         leader_public_key
             .verify(&header_bytes, &signature)
-            .map_err(|e| Error::Signature(Arc::new(e)))?;
+            .map_err(|e| Error::Signature(Box::new(e)))?;
 
         Ok(Self {
             header,
@@ -156,7 +163,7 @@ impl<Tx> Block<Tx> {
             .map(Transaction::hash)
             .collect();
 
-        let root_hash = merkle::calculate_merkle_root(&tx_hashes, MAX_TRANSACTIONS);
+        let root_hash = merkle::calculate_merkle_root(&tx_hashes, None);
         ContentId::from(root_hash)
     }
 
@@ -350,9 +357,11 @@ mod tests {
         );
 
         assert!(invalid_block_result.is_err());
-        let error_msg = invalid_block_result.unwrap_err().to_string();
+        let error = invalid_block_result.unwrap_err();
 
-        assert!(error_msg.contains("Too many transactions"));
-        assert!(error_msg.contains(&MAX_TRANSACTIONS.to_string()));
+        let expected_count = MAX_TRANSACTIONS + 1;
+        assert!(
+            matches!(error, Error::TooManyTxs { count, max } if count == expected_count && max == MAX_TRANSACTIONS)
+        );
     }
 }

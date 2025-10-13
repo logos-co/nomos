@@ -32,27 +32,7 @@ pub fn node(left: impl AsRef<[u8]>, right: impl AsRef<[u8]>) -> [u8; 32] {
     hasher.finalize().into()
 }
 
-/// Calculates a 32-byte Merkle root for the given elements, with deterministic
-/// padding.
-///
-/// Padding rules:
-/// - The leaf count expands to the next power of two, respecting at least
-///   `pad_to`, and treating an empty input as having one leaf.
-/// - Missing leaves are filled using the default value of `T`, ensuring stable
-///   roots.
-///
-/// Parameters:
-/// - `elements`: Items included in the tree; each converts to a 32-byte leaf.
-/// - `pad_to`: Minimum leaf count before rounding up to a power of two.
-///
-/// Returns:
-/// - The Merkle root as a 32-byte array.
-///
-/// Notes:
-/// - Using a fixed `pad_to` keeps the tree height consistent across varying
-///   input sizes.
-/// - For an empty `elements`, the root corresponds to a single default leaf.
-pub fn calculate_merkle_root<T>(elements: &[T], pad_to: usize) -> [u8; 32]
+pub fn calculate_merkle_root<T>(elements: &[T], pad_to: Option<usize>) -> [u8; 32]
 where
     T: Into<[u8; 32]> + Default + Clone,
 {
@@ -62,7 +42,10 @@ where
         .map(|element| leaf(&element.into()))
         .collect();
 
-    let target_size = leaves.len().max(pad_to).max(1).next_power_of_two();
+    let target_size = pad_to
+        .map_or(leaves.len(), |padding| leaves.len().max(padding))
+        .max(1)
+        .next_power_of_two();
 
     if leaves.len() < target_size {
         let zero_leaf = leaf(&T::default().into());
@@ -89,7 +72,7 @@ mod tests {
     #[test]
     fn test_root_two_elements() {
         let elements = vec![TxHash::from(Fr::from(1u64)), TxHash::from(Fr::from(2u64))];
-        let result = calculate_merkle_root(&elements, 2);
+        let result = calculate_merkle_root(&elements, Some(2));
 
         let bytes1: [u8; 32] = elements[0].into();
         let bytes2: [u8; 32] = elements[1].into();
@@ -103,7 +86,7 @@ mod tests {
     #[test]
     fn test_root_with_padding() {
         let elements = vec![TxHash::from(Fr::from(1u64)), TxHash::from(Fr::from(2u64))];
-        let result = calculate_merkle_root(&elements, 4);
+        let result = calculate_merkle_root(&elements, Some(4));
 
         let bytes1: [u8; 32] = elements[0].into();
         let bytes2: [u8; 32] = elements[1].into();
@@ -118,6 +101,20 @@ mod tests {
         let branch1 = node(leaf1, leaf2);
         let branch2 = node(leaf3, leaf4);
         let expected = node(branch1, branch2);
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_root_without_padding() {
+        let elements = vec![TxHash::from(Fr::from(1u64)), TxHash::from(Fr::from(2u64))];
+        let result = calculate_merkle_root(&elements, None);
+
+        let bytes1: [u8; 32] = elements[0].into();
+        let bytes2: [u8; 32] = elements[1].into();
+        let leaf1 = leaf(&bytes1);
+        let leaf2 = leaf(&bytes2);
+        let expected = node(leaf1, leaf2);
 
         assert_eq!(result, expected);
     }
