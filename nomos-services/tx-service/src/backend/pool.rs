@@ -130,6 +130,13 @@ where
             .map_err(|e| MempoolError::StorageError(format!("{e:?}")))
     }
 
+    fn get_item(&self, _key: &Self::Key) -> Option<&Self::Item> {
+        // The storage adapter only provides async access via get_items()
+        // This mempool implementation doesn't maintain an in-memory cache of items
+        // Synchronous access to individual items is not supported
+        None
+    }
+
     fn mark_in_block(&mut self, keys: &[Self::Key], block: BlockId) {
         let keys_in_block: Vec<_> = keys
             .iter()

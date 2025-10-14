@@ -1,10 +1,7 @@
-use nomos_core::block::Block;
+use nomos_core::block::Proposal;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
-pub enum NetworkMessage<Tx>
-where
-    Tx: Clone + Eq,
-{
-    Block(Block<Tx>),
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum NetworkMessage {
+    Proposal(Proposal),
 }

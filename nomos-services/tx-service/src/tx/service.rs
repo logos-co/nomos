@@ -5,7 +5,6 @@ pub mod openapi {
 }
 
 use std::{
-    collections::BTreeSet,
     fmt::{Debug, Display},
     marker::PhantomData,
     pin::Pin,
@@ -342,7 +341,15 @@ where
                 hashes,
                 reply_channel,
             } => {
-                Self::handle_get_transactions_message(pool, hashes, reply_channel).await;
+                let (found_transactions, not_found_hashes) =
+                    Self::partition_transactions_by_availability(pool, hashes);
+
+                let response =
+                    crate::TransactionsByHashesResponse::new(found_transactions, not_found_hashes);
+
+                if let Err(_e) = reply_channel.send(response) {
+                    tracing::debug!("Failed to send transactions reply");
+                }
             }
             MempoolMsg::MarkInBlock { ids, block } => {
                 pool.mark_in_block(&ids, block);
@@ -440,19 +447,24 @@ where
         }
     }
 
-    async fn handle_get_transactions_message(
+    fn partition_transactions_by_availability(
         pool: &Pool,
-        hashes: BTreeSet<Pool::Key>,
-        reply_channel: oneshot::Sender<Pin<Box<dyn futures::Stream<Item = Pool::Item> + Send>>>,
-    ) {
-        let transactions = pool
-            .get_items_by_keys(hashes)
-            .await
-            .unwrap_or_else(|_| Box::pin(futures::stream::iter(Vec::new())));
-
-        if let Err(_e) = reply_channel.send(transactions) {
-            tracing::debug!("Failed to send transactions reply");
-        }
+        hashes: Vec<Pool::Key>,
+    ) -> (Vec<Pool::Item>, Vec<Pool::Key>)
+    where
+        Pool::Item: Clone,
+    {
+        hashes.into_iter().fold(
+            (Vec::new(), Vec::new()),
+            |(mut found_transactions, mut not_found_hashes), hash| {
+                if let Some(transaction) = pool.get_item(&hash).cloned() {
+                    found_transactions.push(transaction);
+                } else {
+                    not_found_hashes.push(hash);
+                }
+                (found_transactions, not_found_hashes)
+            },
+        )
     }
 
     fn handle_add_success(

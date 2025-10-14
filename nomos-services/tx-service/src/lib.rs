@@ -5,7 +5,6 @@ pub mod tx;
 pub mod verify;
 
 use std::{
-    collections::BTreeSet,
     fmt::{Debug, Error, Formatter},
     pin::Pin,
 };
@@ -14,6 +13,40 @@ use backend::{MempoolError, Status};
 use futures::Stream;
 use tokio::sync::{broadcast, oneshot::Sender};
 pub use tx::{service::TxMempoolService, settings::TxMempoolSettings};
+
+/// Response for `GetTransactionsByHashes` request
+#[derive(Debug, Clone)]
+pub struct TransactionsByHashesResponse<Item, Key> {
+    /// Transactions that were found in the mempool
+    found: Vec<Item>,
+    /// Hashes of transactions that were not found in the mempool
+    not_found: Vec<Key>,
+}
+
+impl<Item, Key> TransactionsByHashesResponse<Item, Key> {
+    #[must_use]
+    pub const fn new(found_transactions: Vec<Item>, not_found_hashes: Vec<Key>) -> Self {
+        Self {
+            found: found_transactions,
+            not_found: not_found_hashes,
+        }
+    }
+
+    #[must_use]
+    pub const fn all_found(&self) -> bool {
+        self.not_found.is_empty()
+    }
+
+    #[must_use]
+    pub fn not_found(&self) -> &[Key] {
+        &self.not_found
+    }
+
+    #[must_use]
+    pub fn into_found(self) -> Vec<Item> {
+        self.found
+    }
+}
 
 pub enum MempoolMsg<BlockId, Payload, Item, Key> {
     Add {
@@ -24,6 +57,13 @@ pub enum MempoolMsg<BlockId, Payload, Item, Key> {
     View {
         ancestor_hint: BlockId,
         reply_channel: Sender<Pin<Box<dyn Stream<Item = Item> + Send>>>,
+    },
+    /// Get specific transactions from mempool by their hashes
+    ///
+    /// Returns both found transactions and not found hashes.
+    GetTransactionsByHashes {
+        hashes: Vec<Key>,
+        reply_channel: Sender<TransactionsByHashesResponse<Item, Key>>,
     },
     Prune {
         ids: Vec<Key>,
@@ -38,10 +78,6 @@ pub enum MempoolMsg<BlockId, Payload, Item, Key> {
     Status {
         items: Vec<Key>,
         reply_channel: Sender<Vec<Status<BlockId>>>,
-    },
-    GetTransactionsByHashes {
-        hashes: BTreeSet<Key>,
-        reply_channel: Sender<Pin<Box<dyn Stream<Item = Item> + Send>>>,
     },
     Subscribe {
         reply_channel: Sender<broadcast::Receiver<Item>>,
@@ -60,6 +96,12 @@ where
             Self::View { ancestor_hint, .. } => {
                 write!(f, "MempoolMsg::View {{ ancestor_hint: {ancestor_hint:?} }}")
             }
+            Self::GetTransactionsByHashes { hashes, .. } => {
+                write!(
+                    f,
+                    "MempoolMsg::GetTransactionsByHashes{{hashes: {hashes:?}}}"
+                )
+            }
             Self::Add { payload, .. } => write!(f, "MempoolMsg::Add{{payload: {payload:?}}}"),
             Self::Prune { ids } => write!(f, "MempoolMsg::Prune{{ids: {ids:?}}}"),
             Self::MarkInBlock { ids, block } => {
@@ -70,10 +112,6 @@ where
             }
             Self::Metrics { .. } => write!(f, "MempoolMsg::Metrics"),
             Self::Status { items, .. } => write!(f, "MempoolMsg::Status{{items: {items:?}}}"),
-            Self::GetTransactionsByHashes { hashes, .. } => write!(
-                f,
-                "MempoolMsg::GetTransactionsByHashes{{hashes: {hashes:?}}}"
-            ),
             Self::Subscribe { .. } => write!(f, "MempoolMsg::Subscribe"),
         }
     }

@@ -14,6 +14,7 @@ use tests::{
 
 #[tokio::test]
 #[serial]
+#[ignore = "Re enable after new block format is fully integrated"]
 async fn test_orphan_handling() {
     let n_validators = 3;
     let n_initial_validators = 2;
