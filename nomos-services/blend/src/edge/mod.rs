@@ -284,8 +284,8 @@ where
 /// - If the initial membership does not satisfy the edge node condition.
 /// - If the initial epoch public info is not yielded immediately by the epoch
 ///   handler.
-/// - If the secret `PoL` info is not yielded immediately by the `PoL` info
-///   provider.
+/// - If the initial secret `PoL` info is not yielded immediately by the `PoL`
+///   info provider.
 async fn run<Backend, NodeId, ProofsGenerator, ChainService, PolInfoProvider, RuntimeServiceId>(
     session_stream: UninitializedSessionEventStream<
         impl Stream<Item = MembershipInfo<NodeId>> + Unpin,
@@ -305,13 +305,13 @@ where
     PolInfoProvider: PolInfoProviderTrait<RuntimeServiceId, Stream: Unpin>,
     RuntimeServiceId: Clone + Send + Sync,
 {
-    let (current_membership_info, mut session_stream) = session_stream
+    let (current_membership_info, mut remaining_session_stream) = session_stream
         .await_first_ready()
         .await
         .expect("The current session info must be available.");
 
-    let (current_epoch_info, mut clock_stream) = async {
-        let (slot_tick, clock_stream) = clock_stream
+    let (current_epoch_info, mut remaining_clock_stream) = async {
+        let (slot_tick, remaining_clock_stream) = clock_stream
             .first()
             .await
             .expect("The clock system must be available.");
@@ -334,7 +334,7 @@ where
                 pol_ledger_aged,
                 total_stake,
             },
-            clock_stream,
+            remaining_clock_stream,
         )
     }
     .await;
@@ -363,10 +363,11 @@ where
     // be mid-epoch. So we can then change this to be an
     // `UninitializedFirstReadyStream` where we expect the latest info to be
     // available immediately.
-    let (mut current_private_leader_info, mut secret_pol_info_stream) = secret_pol_info_stream
-        .first()
-        .await
-        .expect("The current epoch secret info must be available.");
+    let (mut current_private_leader_info, mut remaining_secret_pol_info_stream) =
+        secret_pol_info_stream
+            .first()
+            .await
+            .expect("The current epoch secret info must be available.");
 
     let mut current_public_inputs = PoQVerificationInputsMinusSigningKey {
         core: CoreInputs {
@@ -378,7 +379,7 @@ where
         session: current_membership_info.session_number,
     };
 
-    let mut current_message_handler =
+    let mut message_handler =
         MessageHandler::<Backend, _, ProofsGenerator, _>::try_new_with_edge_condition_check(
             settings,
             current_membership_info.membership.clone(),
@@ -390,17 +391,17 @@ where
 
     loop {
         tokio::select! {
-            Some(SessionEvent::NewSession(new_session_info)) = session_stream.next() => {
-              handle_new_session(new_session_info, settings, current_private_leader_info.poq_private_inputs.clone(), overwatch_handle.clone(), &mut current_public_inputs, &mut current_message_handler)?;
+            Some(SessionEvent::NewSession(new_session_info)) = remaining_session_stream.next() => {
+              handle_new_session(new_session_info, settings, current_private_leader_info.poq_private_inputs.clone(), overwatch_handle.clone(), &mut current_public_inputs, &mut message_handler)?;
             }
             Some(message) = incoming_message_stream.next() => {
-                current_message_handler.handle_messages_to_blend(message).await;
+                message_handler.handle_messages_to_blend(message).await;
             }
-            Some(clock_tick) = clock_stream.next() => {
-                handle_clock_event(clock_tick, settings, &current_private_leader_info, overwatch_handle, &current_membership_info.membership, &mut epoch_handler, &mut current_public_inputs, &mut current_message_handler).await;
+            Some(clock_tick) = remaining_clock_stream.next() => {
+                handle_clock_event(clock_tick, settings, &current_private_leader_info, overwatch_handle, &current_membership_info.membership, &mut epoch_handler, &mut current_public_inputs, &mut message_handler).await;
             }
-            Some(new_secret_pol_info) = secret_pol_info_stream.next() => {
-                handle_new_secret_epoch_info(new_secret_pol_info, settings, &current_public_inputs, overwatch_handle, &current_membership_info.membership, &mut current_private_leader_info, &mut current_message_handler);
+            Some(new_secret_pol_info) = remaining_secret_pol_info_stream.next() => {
+                handle_new_secret_epoch_info(new_secret_pol_info, settings, &current_public_inputs, overwatch_handle, &current_membership_info.membership, &mut current_private_leader_info, &mut message_handler);
             }
         }
     }

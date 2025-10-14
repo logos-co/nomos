@@ -309,15 +309,16 @@ where
         }
         .await;
 
-        let (current_membership_info, mut session_stream) = UninitializedSessionEventStream::new(
-            session_stream,
-            FIRST_STREAM_ITEM_READY_TIMEOUT,
-            blend_config.time.session_transition_period(),
-        )
-        .await_first_ready()
-        .await
-        .map(|(i, s)| (i, s.fork()))
-        .expect("The current session info must be available.");
+        let (current_membership_info, mut remaining_session_stream) =
+            UninitializedSessionEventStream::new(
+                session_stream,
+                FIRST_STREAM_ITEM_READY_TIMEOUT,
+                blend_config.time.session_transition_period(),
+            )
+            .await_first_ready()
+            .await
+            .map(|(i, s)| (i, s.fork()))
+            .expect("The current session info must be available.");
 
         let (
             LeaderInputsMinusQuota {
@@ -325,9 +326,9 @@ where
                 pol_ledger_aged,
                 total_stake,
             },
-            mut clock_stream,
+            mut remaining_clock_stream,
         ) = async {
-            let (clock_tick, clock_stream) =
+            let (clock_tick, remaining_clock_stream) =
                 UninitializedFirstReadyStream::new(clock_stream, FIRST_STREAM_ITEM_READY_TIMEOUT)
                     .first()
                     .await
@@ -336,7 +337,7 @@ where
             else {
                 panic!("First poll result of epoch stream should be a `NewEpoch` event.");
             };
-            (new_epoch_info, clock_stream)
+            (new_epoch_info, remaining_clock_stream)
         }
         .await;
 
@@ -357,7 +358,7 @@ where
             session: current_membership_info.public.session,
         };
 
-        let mut current_crypto_processor =
+        let mut crypto_processor =
             CoreCryptographicProcessor::<_, ProofsGenerator, _>::try_new_with_core_condition_check(
                 current_membership_info.public.membership.clone(),
                 blend_config.minimum_network_size,
@@ -367,8 +368,9 @@ where
             )
             .expect("The initial membership should satisfy the core node condition");
 
-        let mut current_message_scheduler = {
-            let session_stream = session_stream.clone();
+        let mut message_scheduler = {
+            let session_stream = remaining_session_stream.clone();
+            // Take only the membership out of `CoreSessionInfo`.
             let membership_stream = map_session_event_stream(
                 session_stream,
                 |CoreSessionInfo {
@@ -390,20 +392,21 @@ where
             )
         };
 
-        let mut current_backend = Backend::new(
+        let mut backend = Backend::new(
             blend_config.clone(),
             overwatch_handle.clone(),
             SessionInfo {
                 membership: current_membership_info.public.membership,
                 poq_verification_inputs: current_public_inputs,
             },
-            // TODO: Replace with actual combined stream.
+            // TODO: Replace with actual combined stream. We need a stream that combines the new
+            // session-related info with the existing epoch-related one.
             pending().boxed(),
             BlakeRng::from_entropy(),
         );
 
         // Yields new messages received via Blend peers.
-        let mut blend_messages = current_backend.listen_to_incoming_messages();
+        let mut blend_messages = backend.listen_to_incoming_messages();
 
         // Rng for releasing messages.
         let mut rng = BlakeRng::from_entropy();
@@ -427,22 +430,22 @@ where
         loop {
             tokio::select! {
                 Some(local_data_message) = inbound_relay.next() => {
-                    handle_local_data_message(local_data_message, &mut current_crypto_processor, &current_backend, &mut current_message_scheduler).await;
+                    handle_local_data_message(local_data_message, &mut crypto_processor, &backend, &mut message_scheduler).await;
                 }
                 Some(incoming_message) = blend_messages.next() => {
-                    handle_incoming_blend_message(incoming_message, &mut current_message_scheduler, &current_crypto_processor);
+                    handle_incoming_blend_message(incoming_message, &mut message_scheduler, &crypto_processor);
                 }
-                Some(round_info) = current_message_scheduler.next() => {
-                    handle_release_round(round_info, &mut current_crypto_processor, &mut rng, &current_backend, &network_adapter).await;
+                Some(round_info) = message_scheduler.next() => {
+                    handle_release_round(round_info, &mut crypto_processor, &mut rng, &backend, &network_adapter).await;
                 }
-                Some(clock_tick) = clock_stream.next() => {
-                    handle_clock_event(clock_tick, &blend_config, &mut epoch_handler, &mut current_crypto_processor, &mut current_backend, &mut current_public_inputs).await;
+                Some(clock_tick) = remaining_clock_stream.next() => {
+                    handle_clock_event(clock_tick, &blend_config, &mut epoch_handler, &mut crypto_processor, &mut backend, &mut current_public_inputs).await;
                 }
                 Some(pol_info) = secret_pol_info_stream.next() => {
-                    handle_new_secret_epoch_info(pol_info.poq_private_inputs, &mut current_crypto_processor);
+                    handle_new_secret_epoch_info(pol_info.poq_private_inputs, &mut crypto_processor);
                 }
-                Some(session_event) = session_stream.next() => {
-                    if let Err(e) = handle_session_event(session_event, &blend_config, &mut current_crypto_processor, &mut current_public_inputs) {
+                Some(session_event) = remaining_session_stream.next() => {
+                    if let Err(e) = handle_session_event(session_event, &blend_config, &mut crypto_processor, &mut current_public_inputs) {
                         tracing::error!(
                                 target: LOG_TARGET,
                                 "Terminating the '{}' service as the new membership does not satisfy the core node condition: {e:?}",
