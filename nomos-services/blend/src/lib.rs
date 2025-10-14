@@ -159,7 +159,7 @@ where
         .subscribe()
         .await?;
 
-        let (MembershipInfo { membership, .. }, mut session_stream) =
+        let (MembershipInfo { membership, .. }, mut remaining_session_stream) =
             UninitializedSessionEventStream::new(
                 membership_stream,
                 FIRST_STREAM_ITEM_READY_TIMEOUT,
@@ -190,9 +190,9 @@ where
 
         loop {
             tokio::select! {
-                Some(event) = session_stream.next() => {
+                Some(session_event) = remaining_session_stream.next() => {
                     debug!(target: LOG_TARGET, "Received a new session event");
-                    instance = instance.handle_session_event(event, overwatch_handle, minimal_network_size).await?;
+                    instance = instance.handle_session_event(session_event, overwatch_handle, minimal_network_size).await?;
                 },
                 Some(message) = inbound_relay.next() => {
                     if let Err(e) = instance.handle_inbound_message(message).await {

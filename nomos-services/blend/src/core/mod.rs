@@ -317,7 +317,9 @@ where
             )
             .await_first_ready()
             .await
-            .map(|(i, s)| (i, s.fork()))
+            .map(|(membership_info, remaining_session_stream)| {
+                (membership_info, remaining_session_stream.fork())
+            })
             .expect("The current session info must be available.");
 
         let (
@@ -349,13 +351,13 @@ where
 
         let mut current_public_inputs = PoQVerificationInputsMinusSigningKey {
             core: current_membership_info.public.poq_core_public_inputs,
+            session: current_membership_info.public.session,
             leader: LeaderInputs {
                 message_quota: blend_config.crypto.num_blend_layers,
                 pol_epoch_nonce,
                 pol_ledger_aged,
                 total_stake,
             },
-            session: current_membership_info.public.session,
         };
 
         let mut crypto_processor =
@@ -399,8 +401,8 @@ where
                 membership: current_membership_info.public.membership,
                 poq_verification_inputs: current_public_inputs,
             },
-            // TODO: Replace with actual combined stream. We need a stream that combines the new
-            // session-related info with the existing epoch-related one.
+            // TODO: Replace with stream that yields on every session with the latest epoch info.
+            // It will most likely be a mapping of the session and epoch stream iterators.
             pending().boxed(),
             BlakeRng::from_entropy(),
         );
@@ -445,6 +447,10 @@ where
                     handle_new_secret_epoch_info(pol_info.poq_private_inputs, &mut crypto_processor);
                 }
                 Some(session_event) = remaining_session_stream.next() => {
+                    match handle_session_event(session_event, &blend_config, &mut crypto_processor, &mut current_public_inputs) {
+                        // TODO: Continue from here
+                        Ok(new_crypto_processor) =
+                    }
                     if let Err(e) = handle_session_event(session_event, &blend_config, &mut crypto_processor, &mut current_public_inputs) {
                         tracing::error!(
                                 target: LOG_TARGET,
@@ -461,45 +467,39 @@ where
 
 /// Handles a [`SessionEvent`].
 ///
-/// It consumes the previous cryptographic processor and creates a new one
+/// It modifies the cryptographic processor by creating a new one
 /// on a new session with its new membership.
 /// It ignores the transition period expiration event and returns the previous
 /// cryptographic processor as is.
 fn handle_session_event<NodeId, ProofsGenerator, ProofsVerifier, BackendSettings>(
     event: SessionEvent<CoreSessionInfo<NodeId>>,
     settings: &BlendConfig<BackendSettings>,
-    cryptographic_processor: &mut CoreCryptographicProcessor<
-        NodeId,
-        ProofsGenerator,
-        ProofsVerifier,
-    >,
+    cryptographic_processor: CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
     current_public_inputs: &mut PoQVerificationInputsMinusSigningKey,
-) -> Result<(), Error>
+) -> Result<CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>, Error>
 where
     NodeId: Eq + Hash + Send,
     ProofsGenerator: CoreAndLeaderProofsGenerator,
     ProofsVerifier: ProofsVerifierTrait,
 {
-    match event {
+    let new_processor = match event {
         SessionEvent::NewSession(CoreSessionInfo { private, public }) => {
             *current_public_inputs = PoQVerificationInputsMinusSigningKey {
                 session: public.session,
                 core: public.poq_core_public_inputs,
                 leader: current_public_inputs.leader,
             };
-            *cryptographic_processor =
-                CoreCryptographicProcessor::try_new_with_core_condition_check(
-                    public.membership,
-                    settings.minimum_network_size,
-                    &settings.crypto,
-                    *current_public_inputs,
-                    private,
-                )?;
+            CoreCryptographicProcessor::try_new_with_core_condition_check(
+                public.membership,
+                settings.minimum_network_size,
+                &settings.crypto,
+                *current_public_inputs,
+                private,
+            )?
         }
-        SessionEvent::TransitionPeriodExpired => {}
-    }
-
-    Ok(())
+        SessionEvent::TransitionPeriodExpired => cryptographic_processor,
+    };
+    Ok(new_processor)
 }
 
 /// Blend a new message received from another service.
@@ -669,6 +669,12 @@ async fn handle_release_round<
     tracing::debug!(target: LOG_TARGET, "Sent out {total_message_count} processed and/or cover messages at this release window.");
 }
 
+/// Handle a clock event by calling into the epoch handler and process the
+/// resulting epoch event, if any.
+///
+/// On a new epoch, it will update the cryptographic processor and the current
+/// public inputs. On the end of an epoch transition period, it will interact
+/// with the Blend components to communicate the end of the transition period.
 async fn handle_clock_event<
     NodeId,
     ProofsGenerator,
@@ -741,6 +747,8 @@ async fn handle_clock_event<
     }
 }
 
+/// Handle the availability of new secret `PoL` info by passing it to the
+/// cryptographic processor.
 fn handle_new_secret_epoch_info<NodeId, ProofsGenerator, ProofsVerifier>(
     new_pol_info: ProofOfLeadershipQuotaInputs,
     cryptographic_processor: &mut CoreCryptographicProcessor<

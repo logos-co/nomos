@@ -392,7 +392,7 @@ where
     loop {
         tokio::select! {
             Some(SessionEvent::NewSession(new_session_info)) = remaining_session_stream.next() => {
-              handle_new_session(new_session_info, settings, current_private_leader_info.poq_private_inputs.clone(), overwatch_handle.clone(), &mut current_public_inputs, &mut message_handler)?;
+              message_handler = handle_new_session(new_session_info, settings, current_private_leader_info.poq_private_inputs.clone(), overwatch_handle.clone(), &mut current_public_inputs, message_handler)?;
             }
             Some(message) = incoming_message_stream.next() => {
                 message_handler.handle_messages_to_blend(message).await;
@@ -421,13 +421,8 @@ fn handle_new_session<Backend, NodeId, ProofsGenerator, RuntimeServiceId>(
     current_epoch_private_info: ProofOfLeadershipQuotaInputs,
     overwatch_handle: OverwatchHandle<RuntimeServiceId>,
     current_public_inputs: &mut PoQVerificationInputsMinusSigningKey,
-    current_message_handler: &mut MessageHandler<
-        Backend,
-        NodeId,
-        ProofsGenerator,
-        RuntimeServiceId,
-    >,
-) -> Result<(), Error>
+    current_message_handler: MessageHandler<Backend, NodeId, ProofsGenerator, RuntimeServiceId>,
+) -> Result<MessageHandler<Backend, NodeId, ProofsGenerator, RuntimeServiceId>, Error>
 where
     Backend: BlendBackend<NodeId, RuntimeServiceId>,
     NodeId: Clone + Eq + Hash + Send + 'static,
@@ -447,15 +442,14 @@ where
     };
     // Replace the old message handler with a new one that is created with the new
     // inputs.
-    *current_message_handler = MessageHandler::try_new_with_edge_condition_check(
+
+    Ok(MessageHandler::try_new_with_edge_condition_check(
         settings,
         new_membership,
         *current_public_inputs,
         current_epoch_private_info,
         overwatch_handle,
-    )?;
-
-    Ok(())
+    )?)
 }
 
 #[expect(

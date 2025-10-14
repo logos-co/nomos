@@ -41,6 +41,7 @@ pub trait BlendBackend<NodeId, Rng, ProofsVerifier, RuntimeServiceId> {
     async fn publish(&self, msg: EncapsulatedMessage);
     /// Rotate the epoch for the ongoing session.
     async fn rotate_epoch(&mut self, new_epoch_public_info: LeaderInputs);
+    /// Complete the epoch transition.
     async fn complete_epoch_transition(&mut self);
     /// Listen to messages received from the blend network.
     fn listen_to_incoming_messages(
