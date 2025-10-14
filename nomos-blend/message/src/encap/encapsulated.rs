@@ -1,10 +1,7 @@
 use core::iter::repeat_n;
 
 use itertools::Itertools as _;
-use nomos_core::{
-    codec::{DeserializeOp as _, SerializeOp as _},
-    crypto::ZkHash,
-};
+use nomos_core::codec::{DeserializeOp as _, SerializeOp as _};
 use serde::{Deserialize, Serialize};
 
 use crate::{

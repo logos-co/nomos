@@ -1,15 +1,14 @@
+use core::{num::NonZeroU64, time::Duration};
 use std::{
     fmt::{Debug, Display},
-    num::NonZeroU64,
     panic,
-    time::Duration,
 };
 
 use async_trait::async_trait;
 use futures::{
     Stream, StreamExt as _,
     future::ready,
-    stream::{empty, once},
+    stream::{once, pending},
 };
 use groth16::Field as _;
 use nomos_blend_message::crypto::proofs::quota::inputs::prove::{
@@ -22,10 +21,10 @@ use nomos_blend_scheduling::{
         crypto::SessionCryptographicProcessorSettings,
         provers::{BlendLayerProof, ProofsGeneratorSettings, leader::LeaderProofsGenerator},
     },
-    session::UninitializedSessionEventStream,
-    stream::UninitializedFirstReadyStream,
+    session::SessionEvent,
 };
 use nomos_core::crypto::ZkHash;
+use nomos_time::SlotTick;
 use overwatch::overwatch::{OverwatchHandle, commands::OverwatchCommand};
 use rand::{RngCore, rngs::OsRng};
 use tokio::{sync::mpsc, task::JoinHandle};
@@ -33,23 +32,36 @@ use tokio_stream::wrappers::ReceiverStream;
 
 use crate::{
     edge::{backends::BlendBackend, handlers::Error, run, settings::BlendConfig},
-    epoch_info::{PolEpochInfo, PolInfoProvider},
+    epoch_info::{EpochHandler, PolEpochInfo, PolInfoProvider},
     membership::MembershipInfo,
-    session::CoreSessionInfo,
-    settings::{FIRST_STREAM_ITEM_READY_TIMEOUT, TimingSettings},
+    settings::TimingSettings,
     test_utils::{crypto::mock_blend_proof, epoch::TestChainService, membership::key},
 };
 
-struct EmptyPolStreamProvider;
+struct OncePolStreamProvider;
 
 #[async_trait]
-impl<RuntimeServiceId> PolInfoProvider<RuntimeServiceId> for EmptyPolStreamProvider {
+impl<RuntimeServiceId> PolInfoProvider<RuntimeServiceId> for OncePolStreamProvider {
     type Stream = Box<dyn Stream<Item = PolEpochInfo> + Send + Unpin>;
 
     async fn subscribe(
         _overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
     ) -> Option<Self::Stream> {
-        Some(Box::new(empty()))
+        Some(Box::new(once(ready(PolEpochInfo {
+            nonce: ZkHash::ZERO,
+            poq_private_inputs: ProofOfLeadershipQuotaInputs {
+                slot: 1,
+                note_value: 1,
+                transaction_hash: ZkHash::ZERO,
+                output_number: 1,
+                aged_path: vec![],
+                aged_selector: vec![],
+                slot_secret: ZkHash::ZERO,
+                slot_secret_path: vec![],
+                starting_slot: 1,
+                pol_secret_key: ZkHash::ZERO,
+            },
+        }))))
     }
 }
 
@@ -97,32 +109,38 @@ pub async fn spawn_run(
             .expect("channel opened");
     }
 
-    let session_stream = ReceiverStream::new(session_receiver).map(|membership| MembershipInfo {
-        membership,
-        session_number: 1,
-        zk_root: ZkHash::ZERO,
-    });
+    let mut session_stream =
+        ReceiverStream::new(session_receiver).map(|membership| MembershipInfo {
+            membership,
+            session_number: 1,
+            zk_root: ZkHash::ZERO,
+        });
 
     let settings = settings(local_node, minimal_network_size, node_id_sender);
     let join_handle = tokio::spawn(async move {
-        run::<TestBackend, _, MockLeaderProofsGenerator, TestChainService, EmptyPolStreamProvider, _>(
-            UninitializedSessionEventStream::new(
-                session_stream,
-                FIRST_STREAM_ITEM_READY_TIMEOUT,
-                // Set 0 for the session transition period since
-                // [`SessionEvent::TransitionPeriodExpired`] will be ignored anyway.
-                Duration::ZERO,
+        run::<
+            TestBackend,
+            _,
+            _,
+            _,
+            MockLeaderProofsGenerator,
+            TestChainService,
+            OncePolStreamProvider,
+            _,
+        >(
+            (
+                session_stream.next().await.unwrap(),
+                session_stream.map(SessionEvent::NewSession),
             ),
-            UninitializedFirstReadyStream::new(
-                once(ready(LeaderInputs {
-                    message_quota: 1,
-                    pol_epoch_nonce: ZkHash::ZERO,
-                    pol_ledger_aged: ZkHash::ZERO,
-                    total_stake: 1,
-                })),
-                FIRST_STREAM_ITEM_READY_TIMEOUT,
+            (
+                SlotTick {
+                    epoch: 1.into(),
+                    slot: 1.into(),
+                },
+                pending(),
             ),
             ReceiverStream::new(msg_receiver),
+            EpochHandler::new(TestChainService, 1.try_into().unwrap()),
             &settings,
             &overwatch_handle(),
             || {},

@@ -3,7 +3,6 @@ pub mod network;
 mod processor;
 pub mod settings;
 
-use core::{num::NonZeroU64, pin::Pin};
 use std::{
     fmt::{Debug, Display},
     hash::Hash,
@@ -46,11 +45,10 @@ use nomos_core::{
     crypto::ZkHash,
 };
 use nomos_network::NetworkService;
-use nomos_time::{TimeService, TimeServiceMessage};
+use nomos_time::{SlotTick, TimeService, TimeServiceMessage};
 use nomos_utils::blake_rng::BlakeRng;
 use overwatch::{
     OpaqueServiceResourcesHandle,
-    overwatch::OverwatchHandle,
     services::{
         AsServiceId, ServiceCore, ServiceData,
         state::{NoOperator, NoState},
@@ -69,7 +67,8 @@ use crate::{
         settings::BlendConfig,
     },
     epoch_info::{
-        EpochEvent, EpochHandler, LeaderInputsMinusQuota, PolInfoProvider as PolInfoProviderTrait,
+        ChainApi, EpochEvent, EpochHandler, LeaderInputsMinusQuota,
+        PolInfoProvider as PolInfoProviderTrait,
     },
     membership::{self, MembershipInfo},
     message::{NetworkMessage, ProcessedMessage, ServiceMessage},
@@ -241,20 +240,74 @@ where
         }
         .await;
 
+        let mut epoch_handler = async {
+            let chain_service = CryptarchiaServiceApi::<ChainService, _>::new(overwatch_handle)
+                .await
+                .expect("Failed to establish channel with chain service.");
+            EpochHandler::new(
+                chain_service,
+                blend_config.time.epoch_transition_period_in_slots,
+            )
+        }
+        .await;
+
         // Initialize membership stream for session and core-related public PoQ inputs.
-        let session_stream = get_session_stream::<MembershipAdapter, Backend, _, _, _, _>(
-            blend_config.clone(),
-            &overwatch_handle,
-        )
+        let session_stream = async {
+            let config = blend_config.clone();
+
+            MembershipAdapter::new(
+                overwatch_handle
+                    .relay::<<MembershipAdapter as membership::Adapter>::Service>()
+                    .await
+                    .expect("Failed to get relay channel with membership service."),
+                blend_config.crypto.non_ephemeral_signing_key.public_key(),
+            )
+            .subscribe()
+            .await
+            .expect("Failed to get membership stream from membership service.")
+            .map(
+                move |MembershipInfo {
+                          membership,
+                          zk_root,
+                          session_number,
+                      }| CoreSessionInfo {
+                    public: CoreSessionPublicInfo {
+                        poq_core_public_inputs: CoreInputs {
+                            quota: config.session_quota(membership.size()),
+                            zk_root,
+                        },
+                        membership,
+                        session: session_number,
+                    },
+                    // TODO: Replace this with actual Merkle path computation based on the ZK key in
+                    // the settings (not yet implemented).
+                    private: ProofOfCoreQuotaInputs {
+                        core_sk: ZkHash::ZERO,
+                        core_path: vec![],
+                        core_path_selectors: vec![],
+                    },
+                },
+            )
+        }
         .await
         .fork();
 
-        let epoch_stream = get_epoch_stream(
-            overwatch_handle.clone(),
-            blend_config.time.epoch_transition_period_in_slots,
-        )
-        .await
-        .boxed();
+        // Initialize clock stream for epoch-related public PoQ inputs.
+        let clock_stream = async {
+            let time_relay = overwatch_handle
+                .relay::<TimeService<_, _>>()
+                .await
+                .expect("Relay with time service should be available.");
+            let (sender, receiver) = oneshot::channel();
+            time_relay
+                .send(TimeServiceMessage::Subscribe { sender })
+                .await
+                .expect("Failed to subscribe to slot clock.");
+            receiver
+                .await
+                .expect("Should not fail to receive slot stream from time service.")
+        }
+        .await;
 
         let (current_membership_info, mut session_stream) = UninitializedSessionEventStream::new(
             session_stream,
@@ -272,17 +325,18 @@ where
                 pol_ledger_aged,
                 total_stake,
             },
-            mut epoch_stream,
+            mut clock_stream,
         ) = async {
-            let (epoch_event, epoch_stream) =
-                UninitializedFirstReadyStream::new(epoch_stream, FIRST_STREAM_ITEM_READY_TIMEOUT)
+            let (clock_tick, clock_stream) =
+                UninitializedFirstReadyStream::new(clock_stream, FIRST_STREAM_ITEM_READY_TIMEOUT)
                     .first()
                     .await
-                    .expect("The current epoch info must be available.");
-            let EpochEvent::NewEpoch(new_epoch_info) = epoch_event else {
+                    .expect("The clock system must be available.");
+            let Some(EpochEvent::NewEpoch(new_epoch_info)) = epoch_handler.tick(clock_tick).await
+            else {
                 panic!("First poll result of epoch stream should be a `NewEpoch` event.");
             };
-            (new_epoch_info, epoch_stream)
+            (new_epoch_info, clock_stream)
         }
         .await;
 
@@ -366,7 +420,7 @@ where
         // ready, hence this should always be called after `notify_ready();`.
         // Also, Blend services start even if such a stream is not immediately
         // available, since they will simply keep blending cover messages.
-        let mut secret_pol_info_stream = PolInfoProvider::subscribe(&overwatch_handle)
+        let mut secret_pol_info_stream = PolInfoProvider::subscribe(overwatch_handle)
             .await
             .expect("Should not fail to subscribe to secret PoL info stream.");
 
@@ -381,8 +435,8 @@ where
                 Some(round_info) = current_message_scheduler.next() => {
                     handle_release_round(round_info, &mut current_crypto_processor, &mut rng, &current_backend, &network_adapter).await;
                 }
-                Some(epoch_event) = epoch_stream.next() => {
-                    handle_epoch_event(epoch_event, &blend_config, &mut current_crypto_processor, &mut current_backend, &mut current_public_inputs);
+                Some(clock_tick) = clock_stream.next() => {
+                    handle_clock_event(clock_tick, &blend_config, &mut epoch_handler, &mut current_crypto_processor, &mut current_backend, &mut current_public_inputs).await;
                 }
                 Some(pol_info) = secret_pol_info_stream.next() => {
                     handle_new_secret_epoch_info(pol_info.poq_private_inputs, &mut current_crypto_processor);
@@ -612,9 +666,18 @@ async fn handle_release_round<
     tracing::debug!(target: LOG_TARGET, "Sent out {total_message_count} processed and/or cover messages at this release window.");
 }
 
-fn handle_epoch_event<NodeId, ProofsGenerator, ProofsVerifier, Backend, Rng, RuntimeServiceId>(
-    epoch_event: EpochEvent,
+async fn handle_clock_event<
+    NodeId,
+    ProofsGenerator,
+    ProofsVerifier,
+    ChainService,
+    Backend,
+    Rng,
+    RuntimeServiceId,
+>(
+    slot_tick: SlotTick,
     settings: &BlendConfig<Backend::Settings>,
+    epoch_handler: &mut EpochHandler<ChainService, RuntimeServiceId>,
     cryptographic_processor: &mut CoreCryptographicProcessor<
         NodeId,
         ProofsGenerator,
@@ -625,8 +688,14 @@ fn handle_epoch_event<NodeId, ProofsGenerator, ProofsVerifier, Backend, Rng, Run
 ) where
     ProofsGenerator: CoreAndLeaderProofsGenerator,
     ProofsVerifier: ProofsVerifierTrait,
+    ChainService: ChainApi<RuntimeServiceId> + Sync,
     Backend: BlendBackend<NodeId, Rng, ProofsVerifier, RuntimeServiceId>,
+    RuntimeServiceId: Sync,
 {
+    let Some(epoch_event) = epoch_handler.tick(slot_tick).await else {
+        return;
+    };
+
     match epoch_event {
         EpochEvent::NewEpoch(LeaderInputsMinusQuota {
             pol_epoch_nonce,
@@ -641,11 +710,11 @@ fn handle_epoch_event<NodeId, ProofsGenerator, ProofsVerifier, Backend, Rng, Run
             };
 
             cryptographic_processor.rotate_epoch(current_public_inputs.leader);
-            backend.rotate_epoch(current_public_inputs.leader);
+            backend.rotate_epoch(current_public_inputs.leader).await;
         }
         EpochEvent::OldEpochTransitionPeriodExpired => {
             cryptographic_processor.complete_epoch_transition();
-            backend.complete_epoch_transition();
+            backend.complete_epoch_transition().await;
         }
         EpochEvent::NewEpochAndOldEpochTransitionExpired(LeaderInputsMinusQuota {
             pol_epoch_nonce,
@@ -662,9 +731,9 @@ fn handle_epoch_event<NodeId, ProofsGenerator, ProofsVerifier, Backend, Rng, Run
             // Complete transition of previous epoch, then set the current epoch as the old
             // one and move to the new one.
             cryptographic_processor.complete_epoch_transition();
-            backend.complete_epoch_transition();
+            backend.complete_epoch_transition().await;
             cryptographic_processor.rotate_epoch(current_public_inputs.leader);
-            backend.rotate_epoch(current_public_inputs.leader);
+            backend.rotate_epoch(current_public_inputs.leader).await;
         }
     }
 }
@@ -694,93 +763,4 @@ where
         SessionEvent::NewSession(input) => SessionEvent::NewSession(mapping_fn(input)),
         SessionEvent::TransitionPeriodExpired => SessionEvent::TransitionPeriodExpired,
     })
-}
-
-async fn get_session_stream<
-    MembershipAdapter,
-    Backend,
-    Rng,
-    ProofsVerifier,
-    NodeId,
-    RuntimeServiceId,
->(
-    settings: BlendConfig<Backend::Settings>,
-    overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
-) -> impl Stream<Item = CoreSessionInfo<NodeId>>
-where
-    MembershipAdapter: membership::Adapter<NodeId = NodeId>,
-    <MembershipAdapter::Service as ServiceData>::Message: 'static,
-    Backend: BlendBackend<NodeId, Rng, ProofsVerifier, RuntimeServiceId>,
-    RuntimeServiceId: Debug + Display + Sync + AsServiceId<MembershipAdapter::Service>,
-{
-    MembershipAdapter::new(
-        overwatch_handle
-            .relay::<MembershipAdapter::Service>()
-            .await
-            .expect("Failed to get relay channel with membership service."),
-        settings.crypto.non_ephemeral_signing_key.public_key(),
-    )
-    .subscribe()
-    .await
-    .expect("Failed to get membership stream from membership service.")
-    .map(
-        move |MembershipInfo {
-                  membership,
-                  zk_root,
-                  session_number,
-              }| CoreSessionInfo {
-            public: CoreSessionPublicInfo {
-                poq_core_public_inputs: CoreInputs {
-                    quota: settings.session_quota(membership.size()),
-                    zk_root,
-                },
-                membership,
-                session: session_number,
-            },
-            // TODO: Replace this with actual Merkle path computation based on the ZK key in
-            // the settings (not yet implemented).
-            private: ProofOfCoreQuotaInputs {
-                core_sk: ZkHash::ZERO,
-                core_path: vec![],
-                core_path_selectors: vec![],
-            },
-        },
-    )
-}
-
-async fn get_epoch_stream<TimeBackend, ChainService, RuntimeServiceId>(
-    overwatch_handle: OverwatchHandle<RuntimeServiceId>,
-    transition_period: NonZeroU64,
-) -> Pin<Box<dyn Stream<Item = EpochEvent> + Send>>
-where
-    TimeBackend: nomos_time::backends::TimeBackend,
-    ChainService: CryptarchiaServiceData<Tx: Send + Sync>,
-    RuntimeServiceId: Debug
-        + Display
-        + Send
-        + Sync
-        + 'static
-        + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>
-        + AsServiceId<ChainService>,
-{
-    let time_relay = overwatch_handle
-        .relay::<TimeService<_, _>>()
-        .await
-        .expect("Relay with time service should be available.");
-    let (sender, receiver) = oneshot::channel();
-    time_relay
-        .send(TimeServiceMessage::Subscribe { sender })
-        .await
-        .expect("Failed to subscribe to slot clock.");
-    let clock_stream = receiver
-        .await
-        .expect("Should not fail to receive slot stream from time service.");
-
-    let chain_service = CryptarchiaServiceApi::<ChainService, _>::new(overwatch_handle)
-        .await
-        .expect("Failed to establish channel with chain service.");
-    let epoch_handler = EpochHandler::new(chain_service, transition_period);
-    clock_stream
-        .scan(epoch_handler, move |handler, tick| handler.tick(tick))
-        .boxed()
 }

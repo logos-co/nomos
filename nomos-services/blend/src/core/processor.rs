@@ -70,16 +70,6 @@ where
     }
 }
 
-impl<NodeId, ProofsGenerator, ProofsVerifier>
-    CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
-{
-    pub fn into_inner(
-        self,
-    ) -> SessionCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier> {
-        self.0
-    }
-}
-
 impl<NodeId, ProofsGenerator, ProofsVerifier> Deref
     for CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
 {

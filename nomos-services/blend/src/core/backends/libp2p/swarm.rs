@@ -47,7 +47,7 @@ use crate::core::{
 
 #[derive(Debug)]
 pub enum BlendSwarmMessage {
-    Publish(EncapsulatedMessage),
+    Publish(Box<EncapsulatedMessage>),
     StartNewEpoch(LeaderInputs),
     CompleteEpochTransition,
 }
@@ -413,7 +413,7 @@ where
     fn handle_swarm_message(&mut self, msg: BlendSwarmMessage) {
         match msg {
             BlendSwarmMessage::Publish(msg) => {
-                self.handle_publish_swarm_message(msg);
+                self.handle_publish_swarm_message(*msg);
             }
             BlendSwarmMessage::StartNewEpoch(new_epoch_public) => {
                 self.swarm

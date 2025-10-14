@@ -47,7 +47,7 @@ where
 {
     /// Create a new API instance
     pub async fn new(
-        overwatch_handle: OverwatchHandle<RuntimeServiceId>,
+        overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
     ) -> Result<Self, DynError> {
         let relay = overwatch_handle.relay::<Cryptarchia>().await?;
 

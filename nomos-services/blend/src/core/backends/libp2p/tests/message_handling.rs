@@ -47,7 +47,7 @@ async fn core_message_propagation() {
     let message = TestEncapsulatedMessage::new(b"test-payload");
 
     swarm_1_message_sender
-        .send(BlendSwarmMessage::Publish(message.clone()))
+        .send(BlendSwarmMessage::Publish(Box::new(message.clone())))
         .await
         .unwrap();
 

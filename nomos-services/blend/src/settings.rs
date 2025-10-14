@@ -48,7 +48,7 @@ impl TimingSettings {
         )
     }
 
-    pub fn epoch_handler<ChainService, RuntimeServiceId>(
+    pub const fn epoch_handler<ChainService, RuntimeServiceId>(
         &self,
         chain_service: ChainService,
     ) -> EpochHandler<ChainService, RuntimeServiceId> {
