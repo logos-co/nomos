@@ -218,12 +218,9 @@ mod test {
     use super::SessionCryptographicProcessor;
     use crate::{
         membership::{Membership, Node},
-        message_blend::{
-            crypto::{
-                SessionCryptographicProcessorSettings,
-                test_utils::TestEpochChangeCoreAndLeaderProofsGenerator,
-            },
-            provers::ProofsGeneratorSettings,
+        message_blend::crypto::{
+            SessionCryptographicProcessorSettings,
+            test_utils::TestEpochChangeCoreAndLeaderProofsGenerator,
         },
     };
 
