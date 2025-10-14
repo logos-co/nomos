@@ -231,21 +231,6 @@ where
                 .to_vec()
         });
 
-        let (current_membership_info, session_stream) = UninitializedSessionEventStream::new(
-            session_stream,
-            FIRST_STREAM_ITEM_READY_TIMEOUT,
-            settings.time.session_transition_period(),
-        )
-        .await_first_ready()
-        .await
-        .expect("The current session info must be available.");
-
-        let (latest_tick, clock_stream) =
-            UninitializedFirstReadyStream::new(clock_stream, FIRST_STREAM_ITEM_READY_TIMEOUT)
-                .first()
-                .await
-                .expect("The clock system must be available.");
-
         let epoch_handler = async {
             let chain_service = CryptarchiaServiceApi::<ChainService, _>::new(&overwatch_handle)
                 .await
@@ -257,9 +242,13 @@ where
         }
         .await;
 
-        run::<Backend, _, _, _, ProofsGenerator, _, PolInfoProvider, _>(
-            (current_membership_info, session_stream),
-            (latest_tick, clock_stream),
+        run::<Backend, _, ProofsGenerator, _, PolInfoProvider, _>(
+            UninitializedSessionEventStream::new(
+                session_stream,
+                FIRST_STREAM_ITEM_READY_TIMEOUT,
+                settings.time.session_transition_period(),
+            ),
+            UninitializedFirstReadyStream::new(clock_stream, FIRST_STREAM_ITEM_READY_TIMEOUT),
             incoming_message_stream,
             epoch_handler,
             &settings,
@@ -297,18 +286,11 @@ where
 ///   handler.
 /// - If the secret `PoL` info is not yielded immediately by the `PoL` info
 ///   provider.
-async fn run<
-    Backend,
-    NodeId,
-    MembershipStream,
-    ClockStream,
-    ProofsGenerator,
-    ChainService,
-    PolInfoProvider,
-    RuntimeServiceId,
->(
-    (current_membership_info, mut session_stream): (MembershipInfo<NodeId>, MembershipStream),
-    (latest_tick, mut clock_stream): (ClockStream::Item, ClockStream),
+async fn run<Backend, NodeId, ProofsGenerator, ChainService, PolInfoProvider, RuntimeServiceId>(
+    session_stream: UninitializedSessionEventStream<
+        impl Stream<Item = MembershipInfo<NodeId>> + Unpin,
+    >,
+    clock_stream: UninitializedFirstReadyStream<impl Stream<Item = SlotTick> + Unpin>,
     mut incoming_message_stream: impl Stream<Item = Vec<u8>> + Send + Unpin,
     mut epoch_handler: EpochHandler<ChainService, RuntimeServiceId>,
     settings: &Settings<Backend, NodeId, RuntimeServiceId>,
@@ -316,8 +298,6 @@ async fn run<
     notify_ready: impl Fn(),
 ) -> Result<(), Error>
 where
-    MembershipStream: Stream<Item = SessionEvent<MembershipInfo<NodeId>>> + Unpin,
-    ClockStream: Stream<Item = SlotTick> + Unpin,
     Backend: BlendBackend<NodeId, RuntimeServiceId> + Sync + Send,
     NodeId: Clone + Eq + Hash + Send + Sync + 'static,
     ProofsGenerator: LeaderProofsGenerator + Send,
@@ -325,32 +305,45 @@ where
     PolInfoProvider: PolInfoProviderTrait<RuntimeServiceId, Stream: Unpin>,
     RuntimeServiceId: Clone + Send + Sync,
 {
-    info!(
-        target: LOG_TARGET,
-        "The current membership is ready: {} nodes.",
-        current_membership_info.membership.size()
-    );
+    let (current_membership_info, mut session_stream) = session_stream
+        .await_first_ready()
+        .await
+        .expect("The current session info must be available.");
 
-    let current_epoch_info = async {
+    let (current_epoch_info, mut clock_stream) = async {
+        let (slot_tick, clock_stream) = clock_stream
+            .first()
+            .await
+            .expect("The clock system must be available.");
+
         let EpochEvent::NewEpoch(LeaderInputsMinusQuota {
             pol_epoch_nonce,
             pol_ledger_aged,
             total_stake,
         }) = epoch_handler
-            .tick(latest_tick)
+            .tick(slot_tick)
             .await
             .expect("There should be new epoch state associated with the latest epoch state.")
         else {
             panic!("The first event expected by the epoch handler is a `NewEpoch` event.");
         };
-        LeaderInputs {
-            message_quota: settings.crypto.num_blend_layers,
-            pol_epoch_nonce,
-            pol_ledger_aged,
-            total_stake,
-        }
+        (
+            LeaderInputs {
+                message_quota: settings.crypto.num_blend_layers,
+                pol_epoch_nonce,
+                pol_ledger_aged,
+                total_stake,
+            },
+            clock_stream,
+        )
     }
     .await;
+
+    info!(
+        target: LOG_TARGET,
+        "The current membership is ready: {} nodes.",
+        current_membership_info.membership.size()
+    );
 
     notify_ready();
 

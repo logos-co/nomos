@@ -5,11 +5,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures::{
-    Stream, StreamExt as _,
-    future::ready,
-    stream::{once, pending},
-};
+use futures::{Stream, StreamExt as _, future::ready, stream::once};
 use groth16::Field as _;
 use nomos_blend_message::crypto::proofs::quota::inputs::prove::{
     private::ProofOfLeadershipQuotaInputs, public::LeaderInputs,
@@ -21,7 +17,8 @@ use nomos_blend_scheduling::{
         crypto::SessionCryptographicProcessorSettings,
         provers::{BlendLayerProof, ProofsGeneratorSettings, leader::LeaderProofsGenerator},
     },
-    session::SessionEvent,
+    session::UninitializedSessionEventStream,
+    stream::UninitializedFirstReadyStream,
 };
 use nomos_core::crypto::ZkHash;
 use nomos_time::SlotTick;
@@ -109,36 +106,27 @@ pub async fn spawn_run(
             .expect("channel opened");
     }
 
-    let mut session_stream =
-        ReceiverStream::new(session_receiver).map(|membership| MembershipInfo {
-            membership,
-            session_number: 1,
-            zk_root: ZkHash::ZERO,
-        });
+    let session_stream = ReceiverStream::new(session_receiver).map(|membership| MembershipInfo {
+        membership,
+        session_number: 1,
+        zk_root: ZkHash::ZERO,
+    });
 
     let settings = settings(local_node, minimal_network_size, node_id_sender);
     let join_handle = tokio::spawn(async move {
         run::<
             TestBackend,
             _,
-            _,
-            _,
             MockLeaderProofsGenerator,
             TestChainService,
             OncePolStreamProvider,
             _,
         >(
-            (
-                session_stream.next().await.unwrap(),
-                session_stream.map(SessionEvent::NewSession),
-            ),
-            (
-                SlotTick {
+            UninitializedSessionEventStream::new(session_stream, Duration::from_secs(1), Duration::ZERO),
+            UninitializedFirstReadyStream::new(once(ready(SlotTick {
                     epoch: 1.into(),
                     slot: 1.into(),
-                },
-                pending(),
-            ),
+                })), Duration::from_secs(1)),
             ReceiverStream::new(msg_receiver),
             EpochHandler::new(TestChainService, 1.try_into().unwrap()),
             &settings,
