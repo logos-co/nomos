@@ -34,7 +34,7 @@ async fn edge_message_propagation() {
     } = CoreSwarmBuilder::default()
         .with_membership(membership.clone())
         .build(|id| {
-            BlendBehaviourBuilder::new(&id, (MockProofsVerifier,))
+            BlendBehaviourBuilder::new(&id, MockProofsVerifier)
                 .with_membership(membership)
                 .build()
         });
@@ -91,7 +91,7 @@ async fn replication_factor() {
     } = CoreSwarmBuilder::default()
         .with_empty_membership()
         .build(|id| {
-            BlendBehaviourBuilder::new(&id, (MockProofsVerifier,))
+            BlendBehaviourBuilder::new(&id, MockProofsVerifier)
                 .with_empty_membership()
                 .build()
         });
@@ -104,7 +104,7 @@ async fn replication_factor() {
     } = CoreSwarmBuilder::default()
         .with_empty_membership()
         .build(|id| {
-            BlendBehaviourBuilder::new(&id, (MockProofsVerifier,))
+            BlendBehaviourBuilder::new(&id, MockProofsVerifier)
                 .with_empty_membership()
                 .build()
         });
@@ -117,7 +117,7 @@ async fn replication_factor() {
     } = CoreSwarmBuilder::default()
         .with_empty_membership()
         .build(|id| {
-            BlendBehaviourBuilder::new(&id, (MockProofsVerifier,))
+            BlendBehaviourBuilder::new(&id, MockProofsVerifier)
                 .with_empty_membership()
                 .build()
         });

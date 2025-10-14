@@ -30,9 +30,11 @@ impl ProofsVerifier for MockProofsVerifier {
 
     fn verify_proof_of_quota(
         &self,
-        proof: ProofOfQuota,
-        signing_key: &Ed25519PublicKey,
+        _proof: ProofOfQuota,
+        _signing_key: &Ed25519PublicKey,
     ) -> Result<ZkHash, Self::Error> {
+        use groth16::Field as _;
+
         Ok(ZkHash::ZERO)
     }
 

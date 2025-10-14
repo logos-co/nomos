@@ -6,7 +6,12 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures::{Stream, StreamExt as _, future::ready, stream::empty};
+use futures::{
+    Stream, StreamExt as _,
+    future::ready,
+    stream::{empty, once},
+};
+use groth16::Field as _;
 use nomos_blend_message::crypto::proofs::quota::inputs::prove::{
     private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs},
     public::LeaderInputs,
@@ -31,6 +36,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use crate::{
     edge::{backends::BlendBackend, handlers::Error, run, settings::BlendConfig},
     epoch_info::{PolEpochInfo, PolInfoProvider},
+    membership::MembershipInfo,
     session::CoreSessionInfo,
     settings::{FIRST_STREAM_ITEM_READY_TIMEOUT, TimingSettings},
     test_utils::{crypto::mock_blend_proof, epoch::TestChainService, membership::key},
@@ -93,35 +99,31 @@ pub async fn spawn_run(
             .expect("channel opened");
     }
 
-    let aggregated_session_stream =
-        ReceiverStream::new(session_receiver).map(|membership| CoreSessionInfo {
-            membership,
-            session: 10,
-            poq_core_public_inputs: ProofOfCoreQuotaInputs {
-                core_path: ZkHash::ZERO,
-                core_path_selectors: vec![],
-                core_sk: vec![],
-            },
-        });
+    let session_stream = ReceiverStream::new(session_receiver).map(|membership| MembershipInfo {
+        membership,
+        session_number: 1,
+        zk_root: ZkHash::ZERO,
+    });
 
     let settings = settings(local_node, minimal_network_size, node_id_sender);
     let join_handle = tokio::spawn(async move {
-        run::<TestBackend, _, MockLeaderProofsGenerator, _, EmptyPolStreamProvider, _>(
+        run::<TestBackend, _, MockLeaderProofsGenerator, TestChainService, EmptyPolStreamProvider, _>(
             UninitializedSessionEventStream::new(
-                aggregated_session_stream,
+                session_stream,
                 FIRST_STREAM_ITEM_READY_TIMEOUT,
                 // Set 0 for the session transition period since
                 // [`SessionEvent::TransitionPeriodExpired`] will be ignored anyway.
                 Duration::ZERO,
             ),
             UninitializedFirstReadyStream::new(
-                ready(SlotTick {
-                    epoch: 1.into(),
-                    slot: 1.into(),
-                }),
-                Duration::ZERO,
+                once(ready(LeaderInputs {
+                    message_quota: 1,
+                    pol_epoch_nonce: ZkHash::ZERO,
+                    pol_ledger_aged: ZkHash::ZERO,
+                    total_stake: 1,
+                })),
+                FIRST_STREAM_ITEM_READY_TIMEOUT,
             ),
-            settings.time.epoch_handler(TestChainService),
             ReceiverStream::new(msg_receiver),
             &settings,
             &overwatch_handle(),
@@ -151,7 +153,7 @@ pub fn settings(
             round_duration: Duration::from_secs(1),
             rounds_per_observation_window: NonZeroU64::new(1).unwrap(),
             rounds_per_session_transition_period: NonZeroU64::new(1).unwrap(),
-            epoch_transition_period_in_slots: NonZeroU64::new(1),
+            epoch_transition_period_in_slots: NonZeroU64::new(1).unwrap(),
         },
         crypto: SessionCryptographicProcessorSettings {
             non_ephemeral_signing_key: key(local_id).0,
