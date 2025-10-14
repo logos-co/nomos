@@ -13,8 +13,7 @@ use futures::{
 };
 use groth16::Field as _;
 use nomos_blend_message::crypto::proofs::quota::inputs::prove::{
-    private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs},
-    public::LeaderInputs,
+    private::ProofOfLeadershipQuotaInputs, public::LeaderInputs,
 };
 use nomos_blend_scheduling::{
     EncapsulatedMessage,
@@ -27,7 +26,6 @@ use nomos_blend_scheduling::{
     stream::UninitializedFirstReadyStream,
 };
 use nomos_core::crypto::ZkHash;
-use nomos_time::SlotTick;
 use overwatch::overwatch::{OverwatchHandle, commands::OverwatchCommand};
 use rand::{RngCore, rngs::OsRng};
 use tokio::{sync::mpsc, task::JoinHandle};

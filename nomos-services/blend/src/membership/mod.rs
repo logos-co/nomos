@@ -9,6 +9,7 @@ use nomos_blend_scheduling::membership::Membership;
 use nomos_core::crypto::ZkHash;
 use overwatch::services::{ServiceData, relay::OutboundRelay};
 
+#[derive(Clone, Debug)]
 pub struct MembershipInfo<NodeId> {
     pub membership: Membership<NodeId>,
     pub zk_root: ZkHash,
