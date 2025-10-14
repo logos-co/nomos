@@ -19,17 +19,17 @@ async fn core_message_propagation() {
         swarm_message_sender: swarm_1_message_sender,
         ..
     } = SwarmBuilder::default()
-        .build(|id| BlendBehaviourBuilder::new(&id, (MockProofsVerifier,)).build());
+        .build(|id| BlendBehaviourBuilder::new(&id, MockProofsVerifier).build());
     let TestSwarm {
         swarm: mut swarm_2, ..
     } = SwarmBuilder::default()
-        .build(|id| BlendBehaviourBuilder::new(&id, (MockProofsVerifier,)).build());
+        .build(|id| BlendBehaviourBuilder::new(&id, MockProofsVerifier).build());
     let TestSwarm {
         swarm: mut swarm_3,
         incoming_message_receiver: mut swarm_3_message_receiver,
         ..
     } = SwarmBuilder::default()
-        .build(|id| BlendBehaviourBuilder::new(&id, (MockProofsVerifier,)).build());
+        .build(|id| BlendBehaviourBuilder::new(&id, MockProofsVerifier).build());
 
     let (swarm_2_address, _) = swarm_2.listen().await;
     let (swarm_3_address, _) = swarm_3.listen().await;

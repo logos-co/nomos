@@ -20,7 +20,7 @@ async fn core_redial_same_peer() {
         swarm: mut dialing_swarm,
         ..
     } = SwarmBuilder::default()
-        .build(|id| BlendBehaviourBuilder::new(&id, (MockProofsVerifier,)).build());
+        .build(|id| BlendBehaviourBuilder::new(&id, MockProofsVerifier).build());
 
     let random_peer_id = PeerId::random();
     let empty_multiaddr: Multiaddr = Protocol::Memory(0).into();
@@ -89,7 +89,7 @@ async fn core_redial_different_peer_after_redial_limit() {
         swarm: mut listening_swarm,
         ..
     } = SwarmBuilder::default()
-        .build(|id| BlendBehaviourBuilder::new(&id, (MockProofsVerifier,)).build());
+        .build(|id| BlendBehaviourBuilder::new(&id, MockProofsVerifier).build());
     let (membership_entry, _) = listening_swarm
         .listen_and_return_membership_entry(None)
         .await;
@@ -103,7 +103,7 @@ async fn core_redial_different_peer_after_redial_limit() {
     } = SwarmBuilder::default()
         .with_membership(membership.clone())
         .build(|id| {
-            BlendBehaviourBuilder::new(&id, (MockProofsVerifier,))
+            BlendBehaviourBuilder::new(&id, MockProofsVerifier)
                 .with_membership(membership)
                 .build()
         });

@@ -120,7 +120,7 @@ mod tests {
 
     use super::*;
     use crate::test_utils::{
-        crypto::mock_blend_proof,
+        crypto::{MockProofsVerifier, mock_blend_proof},
         membership::{key, membership},
     };
 
@@ -180,7 +180,7 @@ mod tests {
     fn try_new_with_valid_membership() {
         let local_id = NodeId(1);
         let core_nodes = [NodeId(1)];
-        CoreCryptographicProcessor::<_, MockCoreAndLeaderProofsGenerator, _>::try_new_with_core_condition_check(
+        CoreCryptographicProcessor::<_, MockCoreAndLeaderProofsGenerator, MockProofsVerifier>::try_new_with_core_condition_check(
             membership(&core_nodes, local_id),
             NonZeroU64::new(1).unwrap(),
             &settings(local_id),
@@ -194,12 +194,16 @@ mod tests {
     fn try_new_with_small_membership() {
         let local_id = NodeId(1);
         let core_nodes = [NodeId(1)];
-        let result = CoreCryptographicProcessor::<_, MockCoreAndLeaderProofsGenerator, _>::try_new_with_core_condition_check(
+        let result = CoreCryptographicProcessor::<
+            _,
+            MockCoreAndLeaderProofsGenerator,
+            MockProofsVerifier,
+        >::try_new_with_core_condition_check(
             membership(&core_nodes, local_id),
             NonZeroU64::new(2).unwrap(),
             &settings(local_id),
             mock_verification_inputs(),
-            mock_core_poq_inputs()
+            mock_core_poq_inputs(),
         );
         assert!(matches!(result, Err(Error::NetworkIsTooSmall(1))));
     }
@@ -208,12 +212,16 @@ mod tests {
     fn try_new_with_local_node_not_core() {
         let local_id = NodeId(1);
         let core_nodes = [NodeId(2)];
-        let result = CoreCryptographicProcessor::<_, MockCoreAndLeaderProofsGenerator, _>::try_new_with_core_condition_check(
+        let result = CoreCryptographicProcessor::<
+            _,
+            MockCoreAndLeaderProofsGenerator,
+            MockProofsVerifier,
+        >::try_new_with_core_condition_check(
             membership(&core_nodes, local_id),
             NonZeroU64::new(1).unwrap(),
             &settings(local_id),
             mock_verification_inputs(),
-            mock_core_poq_inputs()
+            mock_core_poq_inputs(),
         );
         assert!(matches!(result, Err(Error::LocalIsNotCoreNode)));
     }

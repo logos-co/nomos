@@ -571,10 +571,10 @@ where
                 match event {
                     SessionEvent::NewSession(SessionInfo { membership, poq_verification_inputs }) => {
                         self.latest_session_info = membership.clone();
-                        self.swarm.behaviour_mut().start_new_session(membership, poq_verification_inputs);
+                        self.swarm.behaviour_mut().blend.start_new_session(membership, ProofsVerifier::new(poq_verification_inputs));
                     },
                     SessionEvent::TransitionPeriodExpired => {
-                        self.swarm.behaviour_mut().finish_session_transition();
+                        self.swarm.behaviour_mut().blend.finish_session_transition();
                     },
                 }
                 false

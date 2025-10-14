@@ -3,6 +3,7 @@ pub mod network;
 mod processor;
 pub mod settings;
 
+use core::{num::NonZeroU64, pin::Pin};
 use std::{
     fmt::{Debug, Display},
     hash::Hash,
@@ -49,6 +50,7 @@ use nomos_time::{TimeService, TimeServiceMessage};
 use nomos_utils::blake_rng::BlakeRng;
 use overwatch::{
     OpaqueServiceResourcesHandle,
+    overwatch::OverwatchHandle,
     services::{
         AsServiceId, ServiceCore, ServiceData,
         state::{NoOperator, NoState},
@@ -240,71 +242,17 @@ where
         .await;
 
         // Initialize membership stream for session and core-related public PoQ inputs.
-        let session_stream = MembershipAdapter::new(
-            overwatch_handle
-                .relay::<<MembershipAdapter as membership::Adapter>::Service>()
-                .await
-                .expect("Failed to get relay channel with membership service."),
-            blend_config.crypto.non_ephemeral_signing_key.public_key(),
+        let session_stream = get_session_stream::<MembershipAdapter, Backend, _, _, _, _>(
+            blend_config.clone(),
+            &overwatch_handle,
         )
-        .subscribe()
         .await
-        .expect("Failed to get membership stream from membership service.")
-        .map(
-            |MembershipInfo {
-                 membership,
-                 zk_root,
-                 session_number,
-             }| CoreSessionInfo {
-                public: CoreSessionPublicInfo {
-                    poq_core_public_inputs: CoreInputs {
-                        quota: blend_config.session_quota(membership.size()),
-                        zk_root,
-                    },
-                    membership,
-                    session: session_number,
-                },
-                // TODO: Replace this with actual Merkle path computation based on the ZK key in the
-                // settings (not yet implemented).
-                private: ProofOfCoreQuotaInputs {
-                    core_sk: ZkHash::ZERO,
-                    core_path: vec![],
-                    core_path_selectors: vec![],
-                },
-            },
-        );
+        .fork();
 
-        // Initialize epoch stream for epoch-related public PoQ inputs.
-        let epoch_stream = async {
-            let clock_stream = async {
-                let time_relay = overwatch_handle
-                    .relay::<TimeService<_, _>>()
-                    .await
-                    .expect("Relay with time service should be available.");
-                let (sender, receiver) = oneshot::channel();
-                time_relay
-                    .send(TimeServiceMessage::Subscribe { sender })
-                    .await
-                    .expect("Failed to subscribe to slot clock.");
-                receiver
-                    .await
-                    .expect("Should not fail to receive slot stream from time service.")
-            }
-            .await;
-
-            let epoch_handler = async {
-                let chain_service =
-                    CryptarchiaServiceApi::<ChainService, _>::new(&overwatch_handle)
-                        .await
-                        .expect("Failed to establish channel with chain service.");
-                EpochHandler::new(
-                    chain_service,
-                    blend_config.time.epoch_transition_period_in_slots,
-                )
-            }
-            .await;
-            clock_stream.scan(epoch_handler, |handler, tick| handler.tick(tick))
-        }
+        let epoch_stream = get_epoch_stream(
+            overwatch_handle.clone(),
+            blend_config.time.epoch_transition_period_in_slots,
+        )
         .await
         .boxed();
 
@@ -315,6 +263,7 @@ where
         )
         .await_first_ready()
         .await
+        .map(|(i, s)| (i, s.fork()))
         .expect("The current session info must be available.");
 
         let (
@@ -343,7 +292,7 @@ where
             current_membership_info.public.membership.size()
         );
 
-        let current_public_inputs = PoQVerificationInputsMinusSigningKey {
+        let mut current_public_inputs = PoQVerificationInputsMinusSigningKey {
             core: current_membership_info.public.poq_core_public_inputs,
             leader: LeaderInputs {
                 message_quota: blend_config.crypto.num_blend_layers,
@@ -365,7 +314,7 @@ where
             .expect("The initial membership should satisfy the core node condition");
 
         let mut current_message_scheduler = {
-            let session_stream = session_stream.fork();
+            let session_stream = session_stream.clone();
             let membership_stream = map_session_event_stream(
                 session_stream,
                 |CoreSessionInfo {
@@ -417,7 +366,7 @@ where
         // ready, hence this should always be called after `notify_ready();`.
         // Also, Blend services start even if such a stream is not immediately
         // available, since they will simply keep blending cover messages.
-        let secret_pol_info_stream = PolInfoProvider::subscribe(&overwatch_handle)
+        let mut secret_pol_info_stream = PolInfoProvider::subscribe(&overwatch_handle)
             .await
             .expect("Should not fail to subscribe to secret PoL info stream.");
 
@@ -745,4 +694,93 @@ where
         SessionEvent::NewSession(input) => SessionEvent::NewSession(mapping_fn(input)),
         SessionEvent::TransitionPeriodExpired => SessionEvent::TransitionPeriodExpired,
     })
+}
+
+async fn get_session_stream<
+    MembershipAdapter,
+    Backend,
+    Rng,
+    ProofsVerifier,
+    NodeId,
+    RuntimeServiceId,
+>(
+    settings: BlendConfig<Backend::Settings>,
+    overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
+) -> impl Stream<Item = CoreSessionInfo<NodeId>>
+where
+    MembershipAdapter: membership::Adapter<NodeId = NodeId>,
+    <MembershipAdapter::Service as ServiceData>::Message: 'static,
+    Backend: BlendBackend<NodeId, Rng, ProofsVerifier, RuntimeServiceId>,
+    RuntimeServiceId: Debug + Display + Sync + AsServiceId<MembershipAdapter::Service>,
+{
+    MembershipAdapter::new(
+        overwatch_handle
+            .relay::<MembershipAdapter::Service>()
+            .await
+            .expect("Failed to get relay channel with membership service."),
+        settings.crypto.non_ephemeral_signing_key.public_key(),
+    )
+    .subscribe()
+    .await
+    .expect("Failed to get membership stream from membership service.")
+    .map(
+        move |MembershipInfo {
+                  membership,
+                  zk_root,
+                  session_number,
+              }| CoreSessionInfo {
+            public: CoreSessionPublicInfo {
+                poq_core_public_inputs: CoreInputs {
+                    quota: settings.session_quota(membership.size()),
+                    zk_root,
+                },
+                membership,
+                session: session_number,
+            },
+            // TODO: Replace this with actual Merkle path computation based on the ZK key in
+            // the settings (not yet implemented).
+            private: ProofOfCoreQuotaInputs {
+                core_sk: ZkHash::ZERO,
+                core_path: vec![],
+                core_path_selectors: vec![],
+            },
+        },
+    )
+}
+
+async fn get_epoch_stream<TimeBackend, ChainService, RuntimeServiceId>(
+    overwatch_handle: OverwatchHandle<RuntimeServiceId>,
+    transition_period: NonZeroU64,
+) -> Pin<Box<dyn Stream<Item = EpochEvent> + Send>>
+where
+    TimeBackend: nomos_time::backends::TimeBackend,
+    ChainService: CryptarchiaServiceData<Tx: Send + Sync>,
+    RuntimeServiceId: Debug
+        + Display
+        + Send
+        + Sync
+        + 'static
+        + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>
+        + AsServiceId<ChainService>,
+{
+    let time_relay = overwatch_handle
+        .relay::<TimeService<_, _>>()
+        .await
+        .expect("Relay with time service should be available.");
+    let (sender, receiver) = oneshot::channel();
+    time_relay
+        .send(TimeServiceMessage::Subscribe { sender })
+        .await
+        .expect("Failed to subscribe to slot clock.");
+    let clock_stream = receiver
+        .await
+        .expect("Should not fail to receive slot stream from time service.");
+
+    let chain_service = CryptarchiaServiceApi::<ChainService, _>::new(overwatch_handle)
+        .await
+        .expect("Failed to establish channel with chain service.");
+    let epoch_handler = EpochHandler::new(chain_service, transition_period);
+    clock_stream
+        .scan(epoch_handler, move |handler, tick| handler.tick(tick))
+        .boxed()
 }

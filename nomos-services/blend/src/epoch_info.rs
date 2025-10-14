@@ -69,18 +69,18 @@ pub struct LeaderInputsMinusQuota {
     pub total_stake: u64,
 }
 
-impl From<LeaderInputs> for LeaderInputsMinusQuota {
+impl From<EpochState> for LeaderInputsMinusQuota {
     fn from(
-        LeaderInputs {
-            pol_epoch_nonce,
-            pol_ledger_aged,
+        EpochState {
+            nonce,
             total_stake,
+            utxos,
             ..
-        }: LeaderInputs,
+        }: EpochState,
     ) -> Self {
         Self {
-            pol_epoch_nonce,
-            pol_ledger_aged,
+            pol_epoch_nonce: nonce,
+            pol_ledger_aged: utxos.root(),
             total_stake,
         }
     }
