@@ -568,8 +568,8 @@ where
                 let selected_txs_stream = tx_selector.select_tx_from(filtered_stream);
                 let txs: Vec<_> = selected_txs_stream.collect().await;
 
-                // TODO: use valid signing key
-                let dummy_signing_key = SigningKey::from_bytes(&[1u8; 32]);
+                // TODO: use PoL signing key
+                let dummy_signing_key = SigningKey::from_bytes(&[0u8; 32]);
 
                 // TODO: calculate service reward
                 let service_reward = None;
