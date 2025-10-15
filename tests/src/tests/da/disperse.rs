@@ -8,7 +8,8 @@ use serial_test::serial;
 use subnetworks_assignations::MembershipHandler as _;
 use tests::{
     common::da::{
-        APP_ID, disseminate_with_metadata, wait_for_blob_onchain, wait_for_shares_number,
+        APP_ID, disseminate_with_metadata, setup_test_channel, wait_for_blob_onchain,
+        wait_for_shares_number,
     },
     secret_key_to_peer_id,
     topology::{Topology, TopologyConfig},
@@ -22,13 +23,16 @@ async fn disseminate_and_retrieve() {
     let executor = &topology.executors()[0];
     let validator = &topology.validators()[0];
 
+    tokio::time::sleep(Duration::from_secs(15)).await;
+
+    let test_channel_id = setup_test_channel(executor).await;
+
     let data = [1u8; 31];
     let app_id = hex::decode(APP_ID).unwrap();
     let metadata =
         kzgrs_backend::dispersal::Metadata::new(app_id.clone().try_into().unwrap(), 0u64.into());
 
-    tokio::time::sleep(Duration::from_secs(15)).await;
-    let blob_id = disseminate_with_metadata(executor, &data, metadata)
+    let blob_id = disseminate_with_metadata(executor, test_channel_id, &data, metadata)
         .await
         .unwrap();
     tokio::time::sleep(Duration::from_secs(20)).await;
@@ -64,6 +68,8 @@ async fn disseminate_retrieve_reconstruct() {
     let executor = &topology.executors()[0];
     let num_subnets = executor.config().da_network.backend.num_subnets as usize;
 
+    let test_channel_id = setup_test_channel(executor).await;
+
     let app_id = hex::decode(APP_ID).unwrap();
     let app_id: [u8; 32] = app_id.clone().try_into().unwrap();
 
@@ -74,7 +80,7 @@ async fn disseminate_retrieve_reconstruct() {
         println!("disseminating {data_size} bytes, iteration {i}");
         let data = &data[..data_size]; // test increasing size data
         let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, Index::from(i as u64));
-        let blob_id = disseminate_with_metadata(executor, data, metadata)
+        let blob_id = disseminate_with_metadata(executor, test_channel_id, data, metadata)
             .await
             .unwrap();
 
@@ -140,6 +146,8 @@ async fn four_subnets_disseminate_retrieve_reconstruct() {
 
     let executor = &topology.executors()[0];
 
+    let test_channel_id = setup_test_channel(executor).await;
+
     let app_id = hex::decode(APP_ID).unwrap();
     let app_id: [u8; 32] = app_id.clone().try_into().unwrap();
 
@@ -150,7 +158,7 @@ async fn four_subnets_disseminate_retrieve_reconstruct() {
         println!("disseminating {data_size} bytes");
         let data = &data[..data_size]; // test increasing size data
         let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, Index::from(i as u64));
-        let blob_id = disseminate_with_metadata(executor, data, metadata)
+        let blob_id = disseminate_with_metadata(executor, test_channel_id, data, metadata)
             .await
             .unwrap();
 
@@ -203,6 +211,8 @@ async fn disseminate_same_data() {
     let executor = &topology.executors()[0];
     let num_subnets = executor.config().da_network.backend.num_subnets as usize;
 
+    let test_channel_id = setup_test_channel(executor).await;
+
     let data = [1u8; 31];
 
     let app_id = hex::decode(APP_ID).unwrap();
@@ -211,7 +221,7 @@ async fn disseminate_same_data() {
 
     let mut onchain = false;
     for _ in 0..ITERATIONS {
-        let blob_id = disseminate_with_metadata(executor, &data, metadata)
+        let blob_id = disseminate_with_metadata(executor, test_channel_id, &data, metadata)
             .await
             .unwrap();
 
@@ -240,12 +250,16 @@ async fn disseminate_same_data() {
 async fn local_testnet() {
     let topology = Topology::spawn(TopologyConfig::validators_and_executor(3, 2, 2)).await;
     let executor = &topology.executors()[0];
+
+    let test_channel_id = setup_test_channel(executor).await;
+
     let app_id = hex::decode(APP_ID).expect("Invalid APP_ID");
 
     let mut index = 0u64;
     loop {
         let _ = disseminate_with_metadata(
             executor,
+            test_channel_id,
             &generate_data(index),
             create_metadata(&app_id, index),
         )
@@ -311,7 +325,14 @@ async fn split_2025_death_payload() {
         128, 84, 169, 217, 162, 189, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     ];
-    let _ = disseminate_with_metadata(executor, &data, create_metadata(&app_id, 0u64))
-        .await
-        .unwrap();
+    let test_channel_id = setup_test_channel(executor).await;
+
+    let _ = disseminate_with_metadata(
+        executor,
+        test_channel_id,
+        &data,
+        create_metadata(&app_id, 0u64),
+    )
+    .await
+    .unwrap();
 }

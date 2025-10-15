@@ -2,13 +2,12 @@ use futures::StreamExt as _;
 use kzgrs_backend::dispersal::Index;
 use nomos_core::{da::BlobId, sdp::FinalizedBlockEvent};
 use tests::{
-    common::da::{APP_ID, disseminate_with_metadata, wait_for_blob_onchain},
+    common::da::{APP_ID, disseminate_with_metadata, setup_test_channel, wait_for_blob_onchain},
     nodes::executor::Executor,
     topology::{Topology, TopologyConfig},
 };
 use tokio::time::Duration;
 
-#[ignore = "Reenable after transaction mempool is used"]
 #[tokio::test]
 async fn test_historical_sampling_across_sessions() {
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
@@ -40,11 +39,14 @@ async fn test_historical_sampling_across_sessions() {
 
 async fn disseminate_blobs_in_session_zero(executor: &Executor) -> Vec<BlobId> {
     let mut blob_ids = Vec::new();
+
+    let test_channel_id = setup_test_channel(executor).await;
+
     let data = [1u8; 31];
     let metadata = create_test_metadata();
 
     for i in 0..3 {
-        let blob_id = disseminate_with_metadata(executor, &data, metadata)
+        let blob_id = disseminate_with_metadata(executor, test_channel_id, &data, metadata)
             .await
             .expect("Failed to disseminate blob");
 

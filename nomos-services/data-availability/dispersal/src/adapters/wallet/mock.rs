@@ -5,13 +5,12 @@ use ed25519_dalek::SigningKey;
 use nomos_core::{
     da::BlobId,
     mantle::{
-        MantleTx, Note, Op, OpProof, SignedMantleTx, Transaction as _, Utxo,
+        MantleTx, Op, OpProof, SignedMantleTx, Transaction as _,
         ledger::Tx as LedgerTx,
         ops::channel::{ChannelId, MsgId, blob::BlobOp},
     },
     proofs::zksig::{DummyZkSignature, ZkSignaturePublic},
 };
-use num_bigint::BigUint;
 
 use super::DaWalletAdapter;
 
@@ -42,26 +41,21 @@ impl DaWalletAdapter for MockWalletAdapter {
         let signing_key = SigningKey::from_bytes(&[0u8; 32]);
         let signer = signing_key.verifying_key();
 
-        let utxo = Utxo {
-            note: Note::new(1, BigUint::from(0u8).into()),
-            tx_hash: BigUint::from(0u8).into(),
-            output_index: 0,
-        };
-
+        // Use 0 gas until we have utxos from wallet service
         let blob_op = BlobOp {
             channel: channel_id,
             blob,
             blob_size: blob_size as u64,
-            da_storage_gas_price: 3000,
+            da_storage_gas_price: 0,
             parent: parent_msg_id,
             signer,
         };
 
         let mantle_tx = MantleTx {
             ops: vec![Op::ChannelBlob(blob_op)],
-            ledger_tx: LedgerTx::new(vec![utxo.id()], vec![]),
-            storage_gas_price: 3000,
-            execution_gas_price: 3000,
+            ledger_tx: LedgerTx::new(vec![], vec![]),
+            storage_gas_price: 0,
+            execution_gas_price: 0,
         };
 
         // Sign the transaction hash

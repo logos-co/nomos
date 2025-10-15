@@ -29,8 +29,8 @@ use nomos_core::{
     da::{self},
     header::{Header, HeaderId},
     mantle::{
-        AuthenticatedMantleTx, SignedMantleTx, Transaction, TxHash, gas::MainnetGasConstants,
-        ops::leader_claim::VoucherCm,
+        AuthenticatedMantleTx, Transaction, TxHash, gas::MainnetGasConstants,
+        genesis_tx::GenesisTx, ops::leader_claim::VoucherCm,
     },
     sdp::{ProviderId, ProviderInfo, ServiceType, SessionUpdate},
 };
@@ -212,7 +212,14 @@ impl Cryptarchia {
 
     /// Create a new [`Cryptarchia`] with the updated state.
     #[must_use = "Returns a new instance with the updated state, without modifying the original."]
-    fn try_apply_header(&self, header: &Header) -> Result<(Self, PrunedBlocks<HeaderId>), Error> {
+    fn try_apply_header<Tx>(
+        &self,
+        header: &Header,
+        txs: impl Iterator<Item = Tx>,
+    ) -> Result<(Self, PrunedBlocks<HeaderId>), Error>
+    where
+        Tx: AuthenticatedMantleTx,
+    {
         let id = header.id();
         let parent = header.parent();
         let slot = header.slot();
@@ -223,7 +230,7 @@ impl Cryptarchia {
             slot,
             header.leader_proof(),
             VoucherCm::default(), // TODO: add the new voucher commitment here
-            std::iter::empty::<&SignedMantleTx>(),
+            txs,
         )?;
         let (consensus, pruned_blocks) = self.consensus.receive_block(id, parent, slot)?;
 
@@ -1142,7 +1149,8 @@ where
             }
         };
 
-        let (cryptarchia, pruned_blocks) = cryptarchia.try_apply_header(header)?;
+        let (cryptarchia, pruned_blocks) =
+            cryptarchia.try_apply_header(header, block.transactions())?;
         let new_lib = cryptarchia.lib();
 
         // remove included content from mempool
