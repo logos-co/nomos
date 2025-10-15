@@ -54,9 +54,6 @@ pub trait MemPool {
     where
         I: IntoIterator<Item = Self::Key> + Send;
 
-    /// Get a specific item by its key
-    fn get_item(&self, key: &Self::Key) -> Option<&Self::Item>;
-
     /// Record that a set of items were included in a block
     fn mark_in_block(&mut self, items: &[Self::Key], block: Self::BlockId);
 
