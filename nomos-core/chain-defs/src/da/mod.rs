@@ -2,9 +2,13 @@ pub mod blob;
 
 use blob::Share;
 
-use crate::mantle::{
-    SignedMantleTx,
-    ops::channel::{ChannelId, Ed25519PublicKey, MsgId},
+use crate::{
+    block::BlockNumber,
+    mantle::{
+        SignedMantleTx,
+        ops::channel::{ChannelId, Ed25519PublicKey, MsgId},
+    },
+    sdp,
 };
 
 pub type BlobId = [u8; 32];
@@ -42,4 +46,12 @@ pub trait DaDispersal {
         original_size: usize,
         signer: Ed25519PublicKey,
     ) -> Result<SignedMantleTx, Self::Error>;
+}
+
+#[must_use]
+pub const fn availability_window_size(service_params: &sdp::ServiceParameters) -> BlockNumber {
+    service_params
+        .session_duration
+        .checked_mul(2)
+        .expect("session duration should not overflow")
 }

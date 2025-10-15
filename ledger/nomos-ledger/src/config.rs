@@ -53,6 +53,14 @@ impl Config {
         self.epoch_config
             .epoch(slot, self.consensus_config.base_period_length())
     }
+
+    #[must_use]
+    pub fn service_parameters(
+        &self,
+        service: &sdp::ServiceType,
+    ) -> Option<&sdp::ServiceParameters> {
+        self.service_params.get(service)
+    }
 }
 
 #[cfg(test)]

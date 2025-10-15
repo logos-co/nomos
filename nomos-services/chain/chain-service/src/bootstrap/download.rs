@@ -208,6 +208,10 @@ impl<NodeId, Block> Download<NodeId, Block> {
         &self.peer
     }
 
+    pub const fn target(&self) -> HeaderId {
+        self.target
+    }
+
     pub const fn last(&self) -> Option<HeaderId> {
         self.last
     }

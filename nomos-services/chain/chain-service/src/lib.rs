@@ -588,7 +588,7 @@ where
 
         // TODO: check active slot coeff is exactly 1/30
         let (cryptarchia, pruned_blocks) = self
-            .initialize_cryptarchia(&bootstrap_config, ledger_config, &relays)
+            .initialize_cryptarchia(&bootstrap_config, ledger_config.clone(), &relays)
             .await;
         // These are blocks that have been pruned by the cryptarchia engine but have not
         // yet been deleted from the storage layer.
@@ -623,6 +623,12 @@ where
         )
         .await?;
 
+        let da_window_size = da::availability_window_size(
+            ledger_config
+                .service_parameters(&ServiceType::DataAvailability)
+                .expect("DA service parameters must exist"),
+        );
+
         // Run IBD (Initial Block Download).
         // TODO: Currently, we're passing a closure that processes each block.
         //       It needs to be replaced with a trait, which requires substantial
@@ -632,7 +638,9 @@ where
             cryptarchia,
             storage_blocks_to_remove,
             network_adapter,
-            |cryptarchia, storage_blocks_to_remove, block| {
+            relays.sampling_relay().clone(),
+            da_window_size,
+            |cryptarchia, storage_blocks_to_remove, block, blob_validation| {
                 let relays = &relays;
                 let state_updater = &self.service_resources_handle.state_updater;
                 let new_block_subscription_sender = &self.new_block_subscription_sender;
@@ -641,8 +649,7 @@ where
                     Self::process_block_and_update_state(
                         cryptarchia,
                         block,
-                        // TODO: Enable this once entering DA window: https://github.com/logos-co/nomos/issues/1675
-                        &SkipBlobValidation,
+                        blob_validation.as_ref(),
                         &storage_blocks_to_remove,
                         relays,
                         new_block_subscription_sender,
