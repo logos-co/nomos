@@ -6,12 +6,14 @@ use nomos_blend_scheduling::membership::Membership;
 #[derive(Clone)]
 /// All info that Blend services need to be available on new sessions.
 pub struct CoreSessionInfo<NodeId> {
+    // The session info available to all nodes.
     pub public: CoreSessionPublicInfo<NodeId>,
+    /// The private info known only to the local node.
     pub private: ProofOfCoreQuotaInputs,
 }
 
 #[derive(Clone)]
-/// All info that Blend services need to be available on new sessions.
+/// All public info that Blend services need to be available on new sessions.
 pub struct CoreSessionPublicInfo<NodeId> {
     /// The list of core Blend nodes for the new session.
     pub membership: Membership<NodeId>,

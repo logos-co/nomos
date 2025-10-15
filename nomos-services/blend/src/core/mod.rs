@@ -441,23 +441,25 @@ where
                     handle_release_round(round_info, &mut crypto_processor, &mut rng, &backend, &network_adapter).await;
                 }
                 Some(clock_tick) = remaining_clock_stream.next() => {
-                    handle_clock_event(clock_tick, &blend_config, &mut epoch_handler, &mut crypto_processor, &mut backend, &mut current_public_inputs).await;
+                    current_public_inputs = handle_clock_event(clock_tick, &blend_config, &mut epoch_handler, &mut crypto_processor, &mut backend, current_public_inputs).await;
                 }
                 Some(pol_info) = secret_pol_info_stream.next() => {
                     handle_new_secret_epoch_info(pol_info.poq_private_inputs, &mut crypto_processor);
                 }
                 Some(session_event) = remaining_session_stream.next() => {
-                    match handle_session_event(session_event, &blend_config, &mut crypto_processor, &mut current_public_inputs) {
-                        // TODO: Continue from here
-                        Ok(new_crypto_processor) =
-                    }
-                    if let Err(e) = handle_session_event(session_event, &blend_config, &mut crypto_processor, &mut current_public_inputs) {
-                        tracing::error!(
+                    match handle_session_event(session_event, &blend_config, crypto_processor, current_public_inputs) {
+                        Ok((new_crypto_processor, new_public_inputs)) => {
+                            crypto_processor = new_crypto_processor;
+                            current_public_inputs = new_public_inputs;
+                        }
+                        Err(e) => {
+                            tracing::error!(
                                 target: LOG_TARGET,
                                 "Terminating the '{}' service as the new membership does not satisfy the core node condition: {e:?}",
                                 <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
                             );
                             return Err(e.into());
+                        }
                     }
                 }
             }
@@ -467,39 +469,59 @@ where
 
 /// Handles a [`SessionEvent`].
 ///
-/// It modifies the cryptographic processor by creating a new one
-/// on a new session with its new membership.
-/// It ignores the transition period expiration event and returns the previous
-/// cryptographic processor as is.
+/// It consumes the previous cryptographic processor and creates a new one
+/// on a new session with its new membership. It also creates new public inputs
+/// for `PoQ` verification in this new session. It ignores the transition period
+/// expiration event and returns the previous cryptographic processor as is.
 fn handle_session_event<NodeId, ProofsGenerator, ProofsVerifier, BackendSettings>(
     event: SessionEvent<CoreSessionInfo<NodeId>>,
     settings: &BlendConfig<BackendSettings>,
-    cryptographic_processor: CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
-    current_public_inputs: &mut PoQVerificationInputsMinusSigningKey,
-) -> Result<CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>, Error>
+    current_cryptographic_processor: CoreCryptographicProcessor<
+        NodeId,
+        ProofsGenerator,
+        ProofsVerifier,
+    >,
+    current_public_inputs: PoQVerificationInputsMinusSigningKey,
+) -> Result<
+    (
+        CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
+        PoQVerificationInputsMinusSigningKey,
+    ),
+    Error,
+>
 where
     NodeId: Eq + Hash + Send,
     ProofsGenerator: CoreAndLeaderProofsGenerator,
     ProofsVerifier: ProofsVerifierTrait,
 {
-    let new_processor = match event {
-        SessionEvent::NewSession(CoreSessionInfo { private, public }) => {
-            *current_public_inputs = PoQVerificationInputsMinusSigningKey {
-                session: public.session,
-                core: public.poq_core_public_inputs,
-                leader: current_public_inputs.leader,
+    match event {
+        SessionEvent::NewSession(CoreSessionInfo {
+            private,
+            public:
+                CoreSessionPublicInfo {
+                    poq_core_public_inputs,
+                    session,
+                    membership,
+                },
+        }) => {
+            let new_inputs = PoQVerificationInputsMinusSigningKey {
+                session,
+                core: poq_core_public_inputs,
+                ..current_public_inputs
             };
-            CoreCryptographicProcessor::try_new_with_core_condition_check(
-                public.membership,
+            let new_processor = CoreCryptographicProcessor::try_new_with_core_condition_check(
+                membership,
                 settings.minimum_network_size,
                 &settings.crypto,
-                *current_public_inputs,
+                new_inputs,
                 private,
-            )?
+            )?;
+            Ok((new_processor, new_inputs))
         }
-        SessionEvent::TransitionPeriodExpired => cryptographic_processor,
-    };
-    Ok(new_processor)
+        SessionEvent::TransitionPeriodExpired => {
+            Ok((current_cryptographic_processor, current_public_inputs))
+        }
+    }
 }
 
 /// Blend a new message received from another service.
@@ -673,8 +695,9 @@ async fn handle_release_round<
 /// resulting epoch event, if any.
 ///
 /// On a new epoch, it will update the cryptographic processor and the current
-/// public inputs. On the end of an epoch transition period, it will interact
-/// with the Blend components to communicate the end of the transition period.
+/// `PoQ` public inputs. At the end of an epoch transition period, it will
+/// interact with the Blend components to communicate the end of such transition
+/// period.
 async fn handle_clock_event<
     NodeId,
     ProofsGenerator,
@@ -693,8 +716,9 @@ async fn handle_clock_event<
         ProofsVerifier,
     >,
     backend: &mut Backend,
-    current_public_inputs: &mut PoQVerificationInputsMinusSigningKey,
-) where
+    current_public_inputs: PoQVerificationInputsMinusSigningKey,
+) -> PoQVerificationInputsMinusSigningKey
+where
     ProofsGenerator: CoreAndLeaderProofsGenerator,
     ProofsVerifier: ProofsVerifierTrait,
     ChainService: ChainApi<RuntimeServiceId> + Sync,
@@ -702,7 +726,7 @@ async fn handle_clock_event<
     RuntimeServiceId: Sync,
 {
     let Some(epoch_event) = epoch_handler.tick(slot_tick).await else {
-        return;
+        return current_public_inputs;
     };
 
     match epoch_event {
@@ -711,44 +735,58 @@ async fn handle_clock_event<
             pol_ledger_aged,
             total_stake,
         }) => {
-            current_public_inputs.leader = LeaderInputs {
+            let new_leader_inputs = LeaderInputs {
                 message_quota: settings.crypto.num_blend_layers,
                 pol_epoch_nonce,
                 pol_ledger_aged,
                 total_stake,
             };
+            let new_public_inputs = PoQVerificationInputsMinusSigningKey {
+                leader: new_leader_inputs,
+                ..current_public_inputs
+            };
 
-            cryptographic_processor.rotate_epoch(current_public_inputs.leader);
-            backend.rotate_epoch(current_public_inputs.leader).await;
+            cryptographic_processor.rotate_epoch(new_leader_inputs);
+            backend.rotate_epoch(new_leader_inputs).await;
+
+            new_public_inputs
         }
         EpochEvent::OldEpochTransitionPeriodExpired => {
             cryptographic_processor.complete_epoch_transition();
             backend.complete_epoch_transition().await;
+
+            current_public_inputs
         }
         EpochEvent::NewEpochAndOldEpochTransitionExpired(LeaderInputsMinusQuota {
             pol_epoch_nonce,
             pol_ledger_aged,
             total_stake,
         }) => {
-            current_public_inputs.leader = LeaderInputs {
+            let new_leader_inputs = LeaderInputs {
                 message_quota: settings.crypto.num_blend_layers,
                 pol_epoch_nonce,
                 pol_ledger_aged,
                 total_stake,
+            };
+            let new_public_inputs = PoQVerificationInputsMinusSigningKey {
+                leader: new_leader_inputs,
+                ..current_public_inputs
             };
 
             // Complete transition of previous epoch, then set the current epoch as the old
             // one and move to the new one.
             cryptographic_processor.complete_epoch_transition();
             backend.complete_epoch_transition().await;
-            cryptographic_processor.rotate_epoch(current_public_inputs.leader);
-            backend.rotate_epoch(current_public_inputs.leader).await;
+            cryptographic_processor.rotate_epoch(new_leader_inputs);
+            backend.rotate_epoch(new_leader_inputs).await;
+
+            new_public_inputs
         }
     }
 }
 
 /// Handle the availability of new secret `PoL` info by passing it to the
-/// cryptographic processor.
+/// underlying cryptographic processor.
 fn handle_new_secret_epoch_info<NodeId, ProofsGenerator, ProofsVerifier>(
     new_pol_info: ProofOfLeadershipQuotaInputs,
     cryptographic_processor: &mut CoreCryptographicProcessor<
