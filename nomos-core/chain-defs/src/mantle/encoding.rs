@@ -1,7 +1,7 @@
 use ed25519_dalek::VerifyingKey as Ed25519PublicKey;
 use groth16::{CompressedGroth16Proof, Fr, fr_from_bytes};
 use nom::{
-    IResult,
+    IResult, Parser as _,
     bytes::complete::take,
     combinator::{map, map_res},
     error::{Error, ErrorKind},
@@ -84,7 +84,7 @@ pub fn decode_mantle_tx(input: &[u8]) -> IResult<&[u8], MantleTx> {
 fn decode_ops(input: &[u8]) -> IResult<&[u8], Vec<Op>> {
     // Ops = OpCount *Op
     let (input, op_count) = decode_byte(input)?;
-    count(decode_op, op_count as usize)(input)
+    count(decode_op, op_count as usize).parse(input)
 }
 
 fn decode_op(input: &[u8]) -> IResult<&[u8], Op> {
@@ -92,13 +92,13 @@ fn decode_op(input: &[u8]) -> IResult<&[u8], Op> {
     let (input, opcode) = decode_byte(input)?;
 
     match opcode {
-        opcode::INSCRIBE => map(decode_channel_inscribe, Op::ChannelInscribe)(input),
-        opcode::BLOB => map(decode_channel_blob, Op::ChannelBlob)(input),
-        opcode::SET_CHANNEL_KEYS => map(decode_channel_set_keys, Op::ChannelSetKeys)(input),
-        opcode::SDP_DECLARE => map(decode_sdp_declare, Op::SDPDeclare)(input),
-        opcode::SDP_WITHDRAW => map(decode_sdp_withdraw, Op::SDPWithdraw)(input),
-        opcode::SDP_ACTIVE => map(decode_sdp_active, Op::SDPActive)(input),
-        opcode::LEADER_CLAIM => map(decode_leader_claim, Op::LeaderClaim)(input),
+        opcode::INSCRIBE => map(decode_channel_inscribe, Op::ChannelInscribe).parse(input),
+        opcode::BLOB => map(decode_channel_blob, Op::ChannelBlob).parse(input),
+        opcode::SET_CHANNEL_KEYS => map(decode_channel_set_keys, Op::ChannelSetKeys).parse(input),
+        opcode::SDP_DECLARE => map(decode_sdp_declare, Op::SDPDeclare).parse(input),
+        opcode::SDP_WITHDRAW => map(decode_sdp_withdraw, Op::SDPWithdraw).parse(input),
+        opcode::SDP_ACTIVE => map(decode_sdp_active, Op::SDPActive).parse(input),
+        opcode::LEADER_CLAIM => map(decode_leader_claim, Op::LeaderClaim).parse(input),
         _ => Err(nom::Err::Error(Error::new(input, ErrorKind::Fail))),
     }
 }
@@ -111,10 +111,11 @@ fn decode_channel_inscribe(input: &[u8]) -> IResult<&[u8], InscriptionOp> {
     // ChannelInscribe = ChannelId Inscription Parent Signer
     // Inscription = UINT32 *BYTE
     // Signer = Ed25519PublicKey
-    let (input, channel_id) = map(decode_hash32, ChannelId::from)(input)?;
+    let (input, channel_id) = map(decode_hash32, ChannelId::from).parse(input)?;
     let (input, inscription_len) = decode_uint32(input)?;
-    let (input, inscription) = map(take(inscription_len as usize), |b: &[u8]| b.to_vec())(input)?;
-    let (input, parent) = map(decode_hash32, MsgId::from)(input)?;
+    let (input, inscription) =
+        map(take(inscription_len as usize), |b: &[u8]| b.to_vec()).parse(input)?;
+    let (input, parent) = map(decode_hash32, MsgId::from).parse(input)?;
     let (input, signer) = decode_ed25519_public_key(input)?;
 
     Ok((
@@ -131,12 +132,12 @@ fn decode_channel_inscribe(input: &[u8]) -> IResult<&[u8], InscriptionOp> {
 fn decode_channel_blob(input: &[u8]) -> IResult<&[u8], BlobOp> {
     // ChannelBlob = ChannelId BlobId BlobSize DaStorageGasPrice Parent Signer
     // Signer = Ed25519PublicKey
-    let (input, channel) = map(decode_hash32, ChannelId::from)(input)?;
+    let (input, channel) = map(decode_hash32, ChannelId::from).parse(input)?;
     let (input, blob) = decode_hash32(input)?;
     let (input, blob_size) = decode_uint64(input)?;
     let (input, da_storage_gas_price) = decode_uint64(input)?;
-    let (input, parent) = map(decode_hash32, MsgId::from)(input)?;
-    let (input, signer) = decode_ed25519_public_key(input)?;
+    let (input, parent) = map(decode_hash32, MsgId::from).parse(input)?;
+    let (input, signer) = decode_ed25519_public_key.parse(input)?;
 
     Ok((
         input,
@@ -153,9 +154,9 @@ fn decode_channel_blob(input: &[u8]) -> IResult<&[u8], BlobOp> {
 
 fn decode_channel_set_keys(input: &[u8]) -> IResult<&[u8], SetKeysOp> {
     // ChannelSetKeys = ChannelId KeyCount *Ed25519PublicKey
-    let (input, channel) = map(decode_hash32, ChannelId::from)(input)?;
+    let (input, channel) = map(decode_hash32, ChannelId::from).parse(input)?;
     let (input, key_count) = decode_byte(input)?;
-    let (input, keys) = count(decode_ed25519_public_key, key_count as usize)(input)?;
+    let (input, keys) = count(decode_ed25519_public_key, key_count as usize).parse(input)?;
 
     Ok((input, SetKeysOp { channel, keys }))
 }
@@ -173,13 +174,13 @@ fn decode_sdp_declare(input: &[u8]) -> IResult<&[u8], SDPDeclareOp> {
         _ => return Err(nom::Err::Error(Error::new(input, ErrorKind::Fail))),
     };
     let (input, locator_count) = decode_byte(input)?;
-    let (input, multiaddrs) = count(decode_locator, locator_count as usize)(input)?;
+    let (input, multiaddrs) = count(decode_locator, locator_count as usize).parse(input)?;
     let locators = multiaddrs.into_iter().map(Locator::new).collect();
     let (input, provider_key) = decode_ed25519_public_key(input)?;
     let provider_id = ProviderId(provider_key);
     let (input, zk_fr) = decode_field_element(input)?;
     let zk_id = SdpZkPublicKey(zk_fr);
-    let (input, locked_note_id) = map(decode_field_element, NoteId)(input)?;
+    let (input, locked_note_id) = map(decode_field_element, NoteId).parse(input)?;
 
     Ok((
         input,
@@ -195,13 +196,14 @@ fn decode_sdp_declare(input: &[u8]) -> IResult<&[u8], SDPDeclareOp> {
 
 fn decode_locator(input: &[u8]) -> IResult<&[u8], multiaddr::Multiaddr> {
     // Locator = 2Byte *BYTE
-    let (input, len_bytes) = take(2usize)(input)?;
+    let (input, len_bytes) = take(2usize).parse(input)?;
     let len = u16::from_le_bytes([len_bytes[0], len_bytes[1]]) as usize;
 
     map_res(take(len), |bytes: &[u8]| {
         multiaddr::Multiaddr::try_from(bytes.to_vec())
             .map_err(|_| Error::new(bytes, ErrorKind::Fail))
-    })(input)
+    })
+    .parse(input)
 }
 
 fn decode_sdp_withdraw(input: &[u8]) -> IResult<&[u8], SDPWithdrawOp> {
@@ -209,7 +211,7 @@ fn decode_sdp_withdraw(input: &[u8]) -> IResult<&[u8], SDPWithdrawOp> {
     let (input, declaration_id_bytes) = decode_hash32(input)?;
     let declaration_id = DeclarationId(declaration_id_bytes);
     let (input, nonce) = decode_uint64(input)?;
-    let (input, locked_note_id) = map(decode_field_element, NoteId)(input)?;
+    let (input, locked_note_id) = map(decode_field_element, NoteId).parse(input)?;
 
     // NOTE: The ABNF specifies a LockedNoteId field, but the WithdrawMessage
     // struct does not have this field. We decode it but drop it for now.
@@ -233,7 +235,8 @@ fn decode_sdp_active(input: &[u8]) -> IResult<&[u8], SDPActiveOp> {
     let declaration_id = DeclarationId(declaration_id_bytes);
     let (input, nonce) = decode_uint64(input)?;
     let (input, metadata_len) = decode_uint32(input)?;
-    let (input, metadata_vec) = map(take(metadata_len as usize), |b: &[u8]| b.to_vec())(input)?;
+    let (input, metadata_vec) =
+        map(take(metadata_len as usize), |b: &[u8]| b.to_vec()).parse(input)?;
 
     Ok((
         input,
@@ -285,13 +288,13 @@ fn decode_note(input: &[u8]) -> IResult<&[u8], Note> {
 fn decode_inputs(input: &[u8]) -> IResult<&[u8], Vec<NoteId>> {
     // Inputs = InputCount *NoteId
     let (input, input_count) = decode_byte(input)?;
-    count(map(decode_field_element, NoteId), input_count as usize)(input)
+    count(map(decode_field_element, NoteId), input_count as usize).parse(input)
 }
 
 fn decode_outputs(input: &[u8]) -> IResult<&[u8], Vec<Note>> {
     // Outputs = OutputCount *Note
     let (input, output_count) = decode_byte(input)?;
-    count(decode_note, output_count as usize)(input)
+    count(decode_note, output_count as usize).parse(input)
 }
 
 fn decode_ledger_tx(input: &[u8]) -> IResult<&[u8], LedgerTx> {
@@ -323,7 +326,7 @@ fn decode_op_proof<'a>(input: &'a [u8], op: &Op) -> IResult<&'a [u8], OpProof> {
     match op {
         // Ed25519SigProof = Ed25519Signature
         Op::ChannelInscribe(_) | Op::ChannelBlob(_) => {
-            map(decode_ed25519_signature, OpProof::Ed25519Sig)(input)
+            map(decode_ed25519_signature, OpProof::Ed25519Sig).parse(input)
         }
 
         // ZkAndEd25519SigsProof = ZkSignature Ed25519Signature
@@ -341,13 +344,14 @@ fn decode_op_proof<'a>(input: &'a [u8], op: &Op) -> IResult<&'a [u8], OpProof> {
 
         // ZkSigProof = ZkSignature
         Op::SDPDeclare(_) | Op::SDPWithdraw(_) | Op::SDPActive(_) => {
-            map(decode_zk_signature, OpProof::ZkSig)(input)
+            map(decode_zk_signature, OpProof::ZkSig).parse(input)
         }
 
         // ProofOfClaimProof = Groth16
         Op::LeaderClaim(_) => map(decode_groth16, |_proof| {
             panic!("OpProof::LeaderClaimProof not yet implemented");
-        })(input),
+        })
+        .parse(input),
         Op::Native(_) => {
             unreachable!("Native ops should not be present in the proof")
         }
@@ -360,7 +364,7 @@ fn decode_op_proof<'a>(input: &'a [u8], op: &Op) -> IResult<&'a [u8], OpProof> {
 
 fn decode_zk_signature(input: &[u8]) -> IResult<&[u8], DummyZkSignature> {
     // ZkSignature = Groth16
-    map(decode_dummy_zk_signature, DummyZkSignature::from)(input)
+    map(decode_dummy_zk_signature, DummyZkSignature::from).parse(input)
 }
 
 fn decode_groth16(input: &[u8]) -> IResult<&[u8], CompressedGroth16Proof> {
@@ -369,13 +373,14 @@ fn decode_groth16(input: &[u8]) -> IResult<&[u8], CompressedGroth16Proof> {
         let mut proof_bytes = [0u8; 128];
         proof_bytes.copy_from_slice(bytes);
         CompressedGroth16Proof::from_bytes(&proof_bytes)
-    })(input)
+    })
+    .parse(input)
 }
 
 fn decode_dummy_zk_signature(input: &[u8]) -> IResult<&[u8], DummyZkSignature> {
     let (input, msg_hash) = decode_field_element(input)?;
     let (input, pks_len) = decode_u8(input)?;
-    let (input, pks) = count(decode_field_element, pks_len as usize)(input)?;
+    let (input, pks) = count(decode_field_element, pks_len as usize).parse(input)?;
     IResult::Ok((
         input,
         DummyZkSignature {
@@ -386,7 +391,7 @@ fn decode_dummy_zk_signature(input: &[u8]) -> IResult<&[u8], DummyZkSignature> {
 
 fn decode_zk_public_key(input: &[u8]) -> IResult<&[u8], PublicKey> {
     // ZkPublicKey = FieldElement
-    map(decode_field_element, PublicKey::new)(input)
+    map(decode_field_element, PublicKey::new).parse(input)
 }
 
 fn decode_ed25519_public_key(input: &[u8]) -> IResult<&[u8], Ed25519PublicKey> {
@@ -395,7 +400,8 @@ fn decode_ed25519_public_key(input: &[u8]) -> IResult<&[u8], Ed25519PublicKey> {
         let mut arr = [0u8; 32];
         arr.copy_from_slice(bytes);
         Ed25519PublicKey::from_bytes(&arr).map_err(|_| Error::new(bytes, ErrorKind::Fail))
-    })(input)
+    })
+    .parse(input)
 }
 
 fn decode_ed25519_signature(input: &[u8]) -> IResult<&[u8], ed25519::Signature> {
@@ -404,14 +410,16 @@ fn decode_ed25519_signature(input: &[u8]) -> IResult<&[u8], ed25519::Signature> 
         let mut arr = [0u8; 64];
         arr.copy_from_slice(bytes);
         ed25519::Signature::from_bytes(&arr)
-    })(input)
+    })
+    .parse(input)
 }
 
 fn decode_field_element(input: &[u8]) -> IResult<&[u8], Fr> {
     // FieldElement = 32BYTE
     map_res(take(32usize), |bytes: &[u8]| {
         fr_from_bytes(bytes).map_err(|_| "Invalid field element")
-    })(input)
+    })
+    .parse(input)
 }
 
 fn decode_hash32(input: &[u8]) -> IResult<&[u8], [u8; 32]> {
@@ -420,7 +428,8 @@ fn decode_hash32(input: &[u8]) -> IResult<&[u8], [u8; 32]> {
         let mut arr = [0u8; 32];
         arr.copy_from_slice(bytes);
         arr
-    })(input)
+    })
+    .parse(input)
 }
 
 // ==============================================================================
@@ -705,6 +714,7 @@ fn encode_ops_proofs(proofs: &[Option<OpProof>], ops: &[Op]) -> Vec<u8> {
 }
 
 /// Encode top-level transactions
+#[must_use]
 pub fn encode_mantle_tx(tx: &MantleTx) -> Vec<u8> {
     let mut bytes = Vec::new();
     bytes.extend(encode_ops(&tx.ops));
@@ -714,6 +724,7 @@ pub fn encode_mantle_tx(tx: &MantleTx) -> Vec<u8> {
     bytes
 }
 
+#[must_use]
 pub fn encode_signed_mantle_tx(tx: &SignedMantleTx) -> Vec<u8> {
     let mut bytes = Vec::new();
     bytes.extend(encode_mantle_tx(&tx.mantle_tx));
@@ -724,7 +735,7 @@ pub fn encode_signed_mantle_tx(tx: &SignedMantleTx) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use ark_ff::Field;
+    use ark_ff::Field as _;
     use ed25519::Signature;
 
     use super::*;
@@ -965,6 +976,10 @@ mod tests {
         );
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Data can be extracted, but it is just used locally"
+    )]
     #[test]
     fn test_decode_signed_mantle_tx_with_multiple_ops() {
         #[rustfmt::skip]
