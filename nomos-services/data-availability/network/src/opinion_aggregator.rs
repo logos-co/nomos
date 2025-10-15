@@ -520,8 +520,8 @@ mod tests {
         match result {
             Ok(opinions) => {
                 assert_eq!(opinions.current_session, 0);
-                assert_eq!(opinions.previous_session_opinions.len(), peers.len());
-                assert_eq!(opinions.current_session_opinions.len(), 0); // No previous for session 0
+                assert_eq!(opinions.current_session_opinions.len(), peers.len());
+                assert_eq!(opinions.previous_session_opinions.len(), 0); // No previous for session 0
             }
             Err(e) => panic!("Unexpected error: {e}"),
         }
@@ -547,8 +547,8 @@ mod tests {
         match result {
             Ok(opinions) => {
                 assert_eq!(opinions.current_session, 1);
-                assert_eq!(opinions.previous_session_opinions.len(), peers.len());
-                assert_eq!(opinions.current_session_opinions.len(), peers.len()); // Now has previous
+                assert_eq!(opinions.previous_session_opinions.len(), peers.len()); // Now has previous
+                assert_eq!(opinions.current_session_opinions.len(), peers.len());
             }
             Err(e) => panic!("Unexpected error: {e}"),
         }
@@ -677,8 +677,8 @@ mod tests {
         match result {
             Ok(opinions) => {
                 assert_eq!(opinions.current_session, 1);
-                assert_eq!(opinions.previous_session_opinions.len(), peers.len()); // Session 1 was operational
-                assert_eq!(opinions.current_session_opinions.len(), peers.len()); // Session 0 was operational
+                assert_eq!(opinions.current_session_opinions.len(), peers.len()); // Session 1 was operational
+                assert_eq!(opinions.previous_session_opinions.len(), peers.len()); // Session 0 was operational
             }
             Err(e) => panic!("Unexpected error: {e}"),
         }
@@ -703,8 +703,8 @@ mod tests {
         match result {
             Ok(opinions) => {
                 assert_eq!(opinions.current_session, 2);
-                assert_eq!(opinions.previous_session_opinions.len(), 0); // Session 2 was non-operational
-                assert_eq!(opinions.current_session_opinions.len(), peers.len()); // Session 1 was operational
+                assert_eq!(opinions.current_session_opinions.len(), 0); // Session 2 was non-operational
+                assert_eq!(opinions.previous_session_opinions.len(), peers.len()); // Session 1 was operational
             }
             Err(e) => panic!("Unexpected error: {e}"),
         }
