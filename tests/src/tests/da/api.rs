@@ -11,7 +11,9 @@ use reqwest::Url;
 use serial_test::serial;
 use tests::{
     adjust_timeout,
-    common::da::{DA_TESTS_TIMEOUT, disseminate_with_metadata, wait_for_blob_onchain},
+    common::da::{
+        DA_TESTS_TIMEOUT, disseminate_with_metadata, setup_test_channel, wait_for_blob_onchain,
+    },
     nodes::validator::{Validator, create_validator_config},
     secret_key_to_peer_id,
     topology::{Topology, TopologyConfig, configs::create_general_configs},
@@ -28,9 +30,12 @@ async fn test_get_share_data() {
         .await;
 
     let executor = &topology.executors()[0];
+    let channel_id = setup_test_channel(executor).await;
 
     let data = [1u8; 31];
-    let blob_id = disseminate_with_metadata(executor, &data).await.unwrap();
+    let blob_id = disseminate_with_metadata(executor, channel_id, &data)
+        .await
+        .unwrap();
 
     wait_for_blob_onchain(executor, blob_id).await;
 
@@ -49,7 +54,6 @@ async fn test_get_share_data() {
 
 #[tokio::test]
 #[serial]
-#[ignore = "Reenable after transaction mempool is used"]
 async fn test_get_commitments_from_peers() {
     let interconnected_topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let validator = &interconnected_topology.validators()[0];
@@ -69,8 +73,12 @@ async fn test_get_commitments_from_peers() {
     lone_validator_config.membership = validator.config().membership.clone();
     let lone_validator = Validator::spawn(lone_validator_config).await.unwrap();
 
+    let test_channel_id = setup_test_channel(executor).await;
+
     let data = [1u8; 31];
-    let blob_id = disseminate_with_metadata(executor, &data).await.unwrap();
+    let blob_id = disseminate_with_metadata(executor, test_channel_id, &data)
+        .await
+        .unwrap();
     tokio::time::sleep(Duration::from_secs(5)).await;
     lone_validator.get_commitments(blob_id).await.unwrap();
 
@@ -159,10 +167,13 @@ async fn test_get_shares() {
         .await;
 
     let executor = &topology.executors()[0];
+    let channel_id = setup_test_channel(executor).await;
     let num_subnets = executor.config().da_network.backend.num_subnets as usize;
 
     let data = [1u8; 31];
-    let blob_id = disseminate_with_metadata(executor, &data).await.unwrap();
+    let blob_id = disseminate_with_metadata(executor, channel_id, &data)
+        .await
+        .unwrap();
 
     wait_for_blob_onchain(executor, blob_id).await;
 

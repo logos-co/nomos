@@ -1,7 +1,7 @@
 use core::{fmt::Debug, hash::Hash};
 use std::fmt::Display;
 
-use nomos_core::header::HeaderId;
+use nomos_core::{header::HeaderId, mantle::Transaction};
 use nomos_da_sampling::network::NetworkAdapter as DaSamplingNetworkAdapter;
 use nomos_network::backends::NetworkBackend;
 use overwatch::{DynError, services::AsServiceId};
@@ -36,7 +36,8 @@ where
         + Clone
         + 'static,
     StorageAdapter::Error: Debug,
-    Item: Clone + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
+    Item:
+        Transaction + Clone + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     Key: Clone + Debug + Ord + Hash + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     RuntimeServiceId: Debug
         + Sync

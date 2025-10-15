@@ -2,13 +2,12 @@ use futures::StreamExt as _;
 use nomos_core::da::BlobId;
 use nomos_sdp::BlockEvent;
 use tests::{
-    common::da::{disseminate_with_metadata, wait_for_blob_onchain},
+    common::da::{disseminate_with_metadata, setup_test_channel, wait_for_blob_onchain},
     nodes::executor::Executor,
     topology::{Topology, TopologyConfig},
 };
 use tokio::time::Duration;
 
-#[ignore = "Reenable after transaction mempool is used"]
 #[tokio::test]
 async fn test_historical_sampling_across_sessions() {
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
@@ -40,10 +39,13 @@ async fn test_historical_sampling_across_sessions() {
 
 async fn disseminate_blobs_in_session_zero(executor: &Executor) -> Vec<BlobId> {
     let mut blob_ids = Vec::new();
+
+    let test_channel_id = setup_test_channel(executor).await;
+
     let data = [1u8; 31];
 
     for i in 0..3 {
-        let blob_id = disseminate_with_metadata(executor, &data)
+        let blob_id = disseminate_with_metadata(executor, test_channel_id, &data)
             .await
             .expect("Failed to disseminate blob");
 

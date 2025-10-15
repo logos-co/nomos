@@ -6,6 +6,7 @@ pub mod tx;
 pub mod verify;
 
 use std::{
+    collections::BTreeSet,
     fmt::{Debug, Error, Formatter},
     pin::Pin,
 };
@@ -21,12 +22,15 @@ pub struct TransactionsByHashesResponse<Item, Key> {
     /// Transactions that were found in the mempool
     found: Vec<Item>,
     /// Hashes of transactions that were not found in the mempool
-    not_found: Vec<Key>,
+    not_found: BTreeSet<Key>,
 }
 
-impl<Item, Key> TransactionsByHashesResponse<Item, Key> {
+impl<Item, Key> TransactionsByHashesResponse<Item, Key>
+where
+    Key: Ord,
+{
     #[must_use]
-    pub const fn new(found_transactions: Vec<Item>, not_found_hashes: Vec<Key>) -> Self {
+    pub const fn new(found_transactions: Vec<Item>, not_found_hashes: BTreeSet<Key>) -> Self {
         Self {
             found: found_transactions,
             not_found: not_found_hashes,
@@ -34,12 +38,12 @@ impl<Item, Key> TransactionsByHashesResponse<Item, Key> {
     }
 
     #[must_use]
-    pub const fn all_found(&self) -> bool {
+    pub fn all_found(&self) -> bool {
         self.not_found.is_empty()
     }
 
     #[must_use]
-    pub fn not_found(&self) -> &[Key] {
+    pub const fn not_found(&self) -> &BTreeSet<Key> {
         &self.not_found
     }
 
@@ -64,7 +68,7 @@ pub enum MempoolMsg<BlockId, Payload, Item, Key> {
     /// Returns both found transactions and not found hashes.
     GetTransactionsByHashes {
         hashes: Vec<Key>,
-        reply_channel: Sender<TransactionsByHashesResponse<Item, Key>>,
+        reply_channel: Sender<Result<TransactionsByHashesResponse<Item, Key>, MempoolError>>,
     },
     Prune {
         ids: Vec<Key>,

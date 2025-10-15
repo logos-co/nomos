@@ -20,7 +20,7 @@ pub enum MempoolError {
 pub trait MemPool {
     type Settings: Send;
     type Item: Send;
-    type Key: Send + Sync;
+    type Key: Send + Sync + Clone + Ord;
     type BlockId: Send;
     type Storage: Send;
 
@@ -49,11 +49,8 @@ pub trait MemPool {
     /// Get multiple items by their keys from the mempool via storage lookup
     async fn get_items_by_keys(
         &self,
-        keys: BTreeSet<Self::Key>,
+        keys: &BTreeSet<Self::Key>,
     ) -> Result<Pin<Box<dyn Stream<Item = Self::Item> + Send>>, MempoolError>;
-
-    /// Get a specific item by its key
-    fn get_item(&self, key: &Self::Key) -> Option<&Self::Item>;
 
     /// Record that a set of items were included in a block
     fn mark_in_block(&mut self, items: &[Self::Key], block: Self::BlockId);
