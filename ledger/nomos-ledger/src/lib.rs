@@ -8,11 +8,12 @@ pub mod mantle;
 
 use std::{cmp::Ordering, collections::HashMap, hash::Hash};
 
+use ark_ff::fields::AdditiveGroup;
 pub use config::Config;
 use cryptarchia::LedgerState as CryptarchiaLedger;
 pub use cryptarchia::{EpochState, UtxoTree};
 use cryptarchia_engine::Slot;
-use groth16::{Field as _, Fr};
+use groth16::Fr;
 use mantle::{LedgerState as MantleLedger, sdp::Sessions};
 use nomos_core::{
     block::BlockNumber,

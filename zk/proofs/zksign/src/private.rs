@@ -1,6 +1,7 @@
 use std::fmt::Display;
 
-use groth16::{Field as _, Fr, Groth16Input, Groth16InputDeser};
+use ark_ff::AdditiveGroup;
+use groth16::{Fr, Groth16Input, Groth16InputDeser};
 use serde::Serialize;
 
 pub struct ZkSignPrivateKeysData([Fr; 32]);

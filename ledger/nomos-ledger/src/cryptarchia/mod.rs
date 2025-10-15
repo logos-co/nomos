@@ -341,8 +341,8 @@ impl core::fmt::Debug for LedgerState {
 pub mod tests {
     use std::{num::NonZero, sync::Arc};
 
+    use ark_ff::fields::AdditiveGroup;
     use cryptarchia_engine::EpochConfig;
-    use groth16::Field as _;
     use nomos_core::{
         crypto::{Digest as _, Hasher},
         mantle::{

@@ -1,4 +1,5 @@
-use groth16::{Field as _, Fr, Groth16Input, Groth16InputDeser};
+use ark_ff::fields::AdditiveGroup;
+use groth16::{Fr, Groth16Input, Groth16InputDeser};
 use pol::compute_lottery_values;
 use serde::{Deserialize, Serialize};
 

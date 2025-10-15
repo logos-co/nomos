@@ -8,6 +8,7 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
+ark-ff                    = { workspace = true }
 async-trait              = "0.1"
 chain-service            = { workspace = true }
 cryptarchia-engine       = { workspace = true }

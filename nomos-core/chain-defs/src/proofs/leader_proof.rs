@@ -1,4 +1,5 @@
-use ark_ff::{Field as _, PrimeField as _};
+use ark_ff::AdditiveGroup;
+use ark_ff::PrimeField as _;
 use generic_array::GenericArray;
 use groth16::{Fr, fr_from_bytes, serde::serde_fr};
 use num_bigint::BigUint;

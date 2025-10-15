@@ -1,6 +1,6 @@
 use std::sync::LazyLock;
 
-use ark_ff::Field as _;
+use ark_ff::AdditiveGroup;
 use generic_array::{
     GenericArray,
     typenum::{U32, U64},

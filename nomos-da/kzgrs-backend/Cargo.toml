@@ -8,9 +8,9 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
-ark-ff        = "0.4"
-ark-poly      = "0.4.2"
-ark-serialize = "0.4.2"
+ark-ff        = { workspace = true }
+ark-poly      = "0.5"
+ark-serialize = "0.5"
 blake2        = { default-features = false, workspace = true }
 itertools     = { default-features = false, version = "0.12" }
 kzgrs         = { workspace = true }
@@ -20,7 +20,7 @@ rayon         = { optional = true, version = "1.10.0" }
 serde         = { default-features = false, version = "1.0" }
 
 [dev-dependencies]
-ark-bls12-381 = { default-features = false, version = "0.4.0" }
+ark-bls12-381 = { default-features = false, version = "0.5" }
 divan         = { default-features = false, version = "0.1" }
 
 [features]

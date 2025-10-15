@@ -1,8 +1,8 @@
 use std::{borrow::Cow, ops::Mul as _};
 
 use ark_bls12_381::{Fr, G1Affine, G1Projective};
+use ark_ec::AdditiveGroup;
 use ark_ec::CurveGroup as _;
-use ark_ff::Field as _;
 use ark_poly::{EvaluationDomain as _, GeneralEvaluationDomain};
 use num_traits::Zero as _;
 

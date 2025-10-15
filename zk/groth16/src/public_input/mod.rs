@@ -63,14 +63,11 @@ impl From<&Input<Bn254>> for InputDeser {
 #[cfg(test)]
 mod tests {
     #[cfg(feature = "deser")]
-    use ark_ff::Field as _;
-
-    #[cfg(feature = "deser")]
     use super::*;
     #[cfg(feature = "deser")]
     #[test]
     fn serialize_zero() {
-        let zero: Input<Bn254> = Fr::ZERO.into();
+        let zero: Input<Bn254> = Fr::from(0).into();
         let value: InputDeser = (&zero).into();
         assert_eq!(value.0, "0");
     }

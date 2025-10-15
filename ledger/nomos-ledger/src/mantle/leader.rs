@@ -129,10 +129,10 @@ impl LeaderState {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use ark_ff::fields::AdditiveGroup;
     use groth16::{Field as _, Fr};
     use nomos_core::mantle::TxHash;
-
-    use super::*;
 
     #[test]
     fn test_reward_amounts() {

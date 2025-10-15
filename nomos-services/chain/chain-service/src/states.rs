@@ -1,6 +1,7 @@
 use std::{collections::HashSet, hash::Hash, marker::PhantomData, time::SystemTime};
 
-use groth16::{Field as _, Fr};
+use ark_ff::fields::AdditiveGroup;
+use groth16::Fr;
 use nomos_core::header::{Header, HeaderId};
 use nomos_ledger::LedgerState;
 use overwatch::{DynError, services::state::ServiceState};

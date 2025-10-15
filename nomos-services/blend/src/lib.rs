@@ -216,7 +216,7 @@ type MembershipService<EdgeService> =
     <MembershipAdapter<EdgeService> as membership::Adapter>::Service;
 
 const fn mock_poq_inputs() -> (PublicInputs, PrivateInputs) {
-    use groth16::Field as _;
+    use ark_ff::fields::AdditiveGroup;
     use nomos_core::crypto::ZkHash;
 
     (
