@@ -64,6 +64,6 @@ where
             .await
             .map_err(|e| format!("Could not receive response: {e}"))?;
 
-        Ok(response)
+        response.map_err(|e| overwatch::DynError::from(format!("Mempool error: {e}")))
     }
 }

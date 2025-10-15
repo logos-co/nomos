@@ -68,7 +68,6 @@ async fn happy_test(topology: &Topology) {
 
 #[tokio::test]
 #[serial]
-#[ignore = "Re enable after new block format is fully integrated"]
 async fn two_nodes_happy() {
     let topology = Topology::spawn(TopologyConfig::two_validators()).await;
     happy_test(&topology).await;
