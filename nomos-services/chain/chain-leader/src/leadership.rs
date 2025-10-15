@@ -9,7 +9,7 @@ use nomos_core::{
 };
 use nomos_ledger::{EpochState, UtxoTree};
 use serde::{Deserialize, Serialize};
-use tokio::sync::broadcast::Sender;
+use tokio::sync::watch::Sender;
 
 #[derive(Clone)]
 pub struct Leader {
@@ -32,12 +32,18 @@ impl Leader {
         clippy::cognitive_complexity,
         reason = "TODO: Address this at some point"
     )]
+    /// Return a leadership proof if the current slot is a winning one, and
+    /// notifies consumers of winning slot info.
+    ///
+    /// If the slot is not a winning one, it returns `None` and no consumer is
+    /// notified.
     pub async fn build_proof_for(
         &self,
         utxos: &[Utxo],
         latest_tree: &UtxoTree,
         epoch_state: &EpochState,
         slot: Slot,
+        winning_pol_info_notifier: &WinningPoLSlotNotifier<'_>,
     ) -> Option<Groth16LeaderProof> {
         for utxo in utxos {
             let public_inputs = public_inputs_for_slot(epoch_state, slot, latest_tree);
@@ -69,6 +75,13 @@ impl Leader {
                     epoch_state,
                     public_inputs,
                     latest_tree,
+                );
+
+                winning_pol_info_notifier.notify_about_winning_slot(
+                    private_inputs.clone(),
+                    secret_key,
+                    epoch_state.epoch,
+                    slot,
                 );
 
                 let res = tokio::task::spawn_blocking(move || {
@@ -157,24 +170,30 @@ fn public_inputs_for_slot(
 /// notifying all consumers via the provided sender channel.
 pub struct WinningPoLSlotNotifier<'service> {
     leader: &'service Leader,
-    sender: &'service Sender<(LeaderPrivate, SecretKey, Epoch)>,
-    last_processed_epoch: Option<Epoch>,
+    sender: &'service Sender<Option<(LeaderPrivate, SecretKey, Epoch)>>,
+    /// Keeps track of the last processed epoch, if any, and for it the first
+    /// winning slot that was pre-computed, if any.
+    last_processed_epoch_and_found_first_winning_slot: Option<(Epoch, Option<Slot>)>,
 }
 
 impl<'service> WinningPoLSlotNotifier<'service> {
     pub(super) const fn new(
         leader: &'service Leader,
-        sender: &'service Sender<(LeaderPrivate, SecretKey, Epoch)>,
+        sender: &'service Sender<Option<(LeaderPrivate, SecretKey, Epoch)>>,
     ) -> Self {
         Self {
             leader,
             sender,
-            last_processed_epoch: None,
+            last_processed_epoch_and_found_first_winning_slot: None,
         }
     }
 
+    /// It processes a new unprocessed epoch, and sends over the channel the
+    /// first identified winning slot for this epoch, if any.
     pub(super) fn process_epoch(&mut self, utxos: &[Utxo], epoch_state: &EpochState) {
-        if let Some(last_processed_epoch) = self.last_processed_epoch {
+        if let Some((last_processed_epoch, _)) =
+            self.last_processed_epoch_and_found_first_winning_slot
+        {
             if last_processed_epoch == epoch_state.epoch {
                 tracing::trace!("Skipping already processed epoch.");
                 return;
@@ -201,6 +220,7 @@ impl<'service> WinningPoLSlotNotifier<'service> {
         // Not used to check if a slot wins the lottery.
         let latest_tree = UtxoTree::new();
 
+        let mut first_winning_slot: Option<Slot> = None;
         for utxo in utxos {
             let note_id = utxo.id().0;
 
@@ -223,16 +243,52 @@ impl<'service> WinningPoLSlotNotifier<'service> {
                     &latest_tree,
                 );
 
-                if let Err(err) =
-                    self.sender
-                        .send((leader_private, secret_key.clone(), epoch_state.epoch))
-                {
+                if let Err(err) = self.sender.send(Some((
+                    leader_private,
+                    secret_key.clone(),
+                    epoch_state.epoch,
+                ))) {
                     tracing::error!(
                         "Failed to send pre-calculated PoL winning slots to receivers. Error: {err:?}"
                     );
+                } else {
+                    // We stop the iteration as soon as the first winning slot for this epoch is
+                    // found and was successfully communicated to consumers.
+                    first_winning_slot = Some(slot.into());
+                    break;
                 }
             }
         }
-        self.last_processed_epoch = Some(epoch_state.epoch);
+        self.last_processed_epoch_and_found_first_winning_slot =
+            Some((epoch_state.epoch, first_winning_slot));
+    }
+
+    /// Send the information about a winning slot to consumers.
+    ///
+    /// No check is performed on whether the slot is actually a winning one.
+    pub(super) fn notify_about_winning_slot(
+        &self,
+        private_inputs: LeaderPrivate,
+        secret_key: SecretKey,
+        epoch: Epoch,
+        slot: Slot,
+    ) {
+        // If we are trying to notify about the first winning slot that we already
+        // pre-computed, ignore it.
+        if let Some((_, Some(first_epoch_winning_slot))) =
+            self.last_processed_epoch_and_found_first_winning_slot
+            && first_epoch_winning_slot == slot
+        {
+            tracing::warn!(
+                "Skipping notifying about winning slot {slot:?} because it was already processed"
+            );
+            return;
+        }
+
+        if let Err(err) = self.sender.send(Some((private_inputs, secret_key, epoch))) {
+            tracing::error!(
+                "Failed to send pre-calculated PoL winning slots to receivers. Error: {err:?}"
+            );
+        }
     }
 }

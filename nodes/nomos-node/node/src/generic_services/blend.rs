@@ -32,7 +32,7 @@ use pol::{PolChainInputsData, PolWalletInputsData, PolWitnessInputsData};
 use poq::{AGED_NOTE_MERKLE_TREE_HEIGHT, SLOT_SECRET_MERKLE_TREE_HEIGHT};
 use services_utils::wait_until_services_are_ready;
 use tokio::sync::oneshot::channel;
-use tokio_stream::wrappers::BroadcastStream;
+use tokio_stream::wrappers::WatchStream;
 
 use crate::generic_services::{
     CryptarchiaLeaderService, CryptarchiaService, MembershipService, WalletService,
@@ -234,26 +234,27 @@ where
             .await
             .ok()?;
         let pol_winning_slot_receiver = receiver.await.ok()?;
+        // Return a `WatchStream` that filters out `None`s (i.e., at the very beginning
+        // of chain leader start).
         Some(Box::new(
-            BroadcastStream::new(pol_winning_slot_receiver).filter_map(|res| {
-                let Ok((leader_private, secret_key, epoch)) = res else {
-                    return ready(None);
-                };
-                let PolWitnessInputsData {
-                    wallet:
-                        PolWalletInputsData {
-                            aged_path,
-                            aged_selector,
-                            note_value,
-                            output_number,
-                            slot_secret,
-                            slot_secret_path,
-                            starting_slot,
-                            transaction_hash,
-                            ..
-                        },
-                    chain: PolChainInputsData { slot_number, .. },
-                } = leader_private.input();
+            WatchStream::new(pol_winning_slot_receiver)
+                .filter_map(ready)
+                .map(|(leader_private, secret_key, epoch)| {
+                    let PolWitnessInputsData {
+                        wallet:
+                            PolWalletInputsData {
+                                aged_path,
+                                aged_selector,
+                                note_value,
+                                output_number,
+                                slot_secret,
+                                slot_secret_path,
+                                starting_slot,
+                                transaction_hash,
+                                ..
+                            },
+                        chain: PolChainInputsData { slot_number, .. },
+                    } = leader_private.input();
 
                 // TODO: Remove this if `PoL` stuff also migrates to using fixed-size arrays or starts using vecs of the expected length instead of empty ones when generating `LeaderPrivate` values.
                 let aged_path_and_selectors = {
@@ -275,7 +276,7 @@ where
                     vec_from_inputs
                 };
 
-                ready(Some(PolEpochInfo {
+                PolEpochInfo {
                     epoch,
                     poq_private_inputs: ProofOfLeadershipQuotaInputs {
                         aged_path_and_selectors: aged_path_and_selectors.try_into().expect("List of aged note paths and selectors does not match the expected size for PoQ inputs, although it has already been pre-processed."),
@@ -288,7 +289,7 @@ where
                         starting_slot: *starting_slot,
                         transaction_hash: *transaction_hash,
                     },
-                }))
+                }
             }),
         ))
     }
