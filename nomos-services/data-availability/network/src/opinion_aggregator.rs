@@ -28,12 +28,27 @@ pub enum OpinionError {
     Error(#[from] DynError),
 }
 
-pub struct Opinions {
-    pub session_id: SessionNumber,
-    pub new_opinions: BitVec,
-    pub old_opinions: BitVec,
+pub struct ActivityProof {
+    pub current_session: SessionNumber,
+    pub previous_session_opinions: BitVec<u8, Lsb0>,
+    pub current_session_opinions: BitVec<u8, Lsb0>,
 }
 
+impl ActivityProof {
+    #[expect(
+        dead_code,
+        reason = "This will be used as soon as sdp adapter is connected"
+    )]
+    pub fn into_metadata_bytes(self) -> Vec<u8> {
+        let mut bytes = vec![0x01]; // Version byte from spec
+        bytes.extend(&self.current_session.to_le_bytes());
+        let prev_bytes = bitvec_to_bytes(self.previous_session_opinions);
+        bytes.extend(prev_bytes);
+        let curr_bytes = bitvec_to_bytes(self.current_session_opinions);
+        bytes.extend(curr_bytes);
+        bytes
+    }
+}
 struct Membership {
     session_id: SessionNumber,
     peers: HashSet<PeerId>,
@@ -185,7 +200,7 @@ where
     pub async fn handle_session_change(
         &mut self,
         new_membership: &SubnetworkPeers<PeerId>,
-    ) -> Result<Opinions, OpinionError> {
+    ) -> Result<ActivityProof, OpinionError> {
         let new_session_id = new_membership.session_id;
 
         // Case: Service is starting (current membership is None)
@@ -252,7 +267,7 @@ where
         result
     }
 
-    fn generate_opinions(&self) -> Result<Opinions, OpinionError> {
+    fn generate_opinions(&self) -> Result<ActivityProof, OpinionError> {
         let current = self.current_membership.as_ref().unwrap();
         let previous = self.previous_membership.as_ref().unwrap();
 
@@ -272,10 +287,10 @@ where
             previous.members().contains(&self.local_peer_id),
         )?;
 
-        Ok(Opinions {
-            session_id: current.session_id,
-            new_opinions,
-            old_opinions,
+        Ok(ActivityProof {
+            current_session: current.session_id,
+            previous_session_opinions: old_opinions,
+            current_session_opinions: new_opinions,
         })
     }
 
@@ -335,7 +350,7 @@ where
         negative: &HashMap<PeerId, u32>,
         provider_mappings: &HashMap<PeerId, ProviderId>,
         include_self: bool,
-    ) -> Result<BitVec, DynError> {
+    ) -> Result<BitVec<u8, Lsb0>, DynError> {
         // BTreeMap so it is sorted
         let mut provider_opinions: BTreeMap<ProviderId, bool> = BTreeMap::new();
 
@@ -359,9 +374,25 @@ where
             provider_opinions.insert(provider_id, opinion);
         }
 
-        let bitvec: BitVec = provider_opinions.values().copied().collect();
+        let bitvec: BitVec<u8, Lsb0> = provider_opinions.values().copied().collect();
         Ok(bitvec)
     }
+}
+
+fn bitvec_to_bytes(bv: BitVec<u8, Lsb0>) -> Vec<u8> {
+    let nbits = bv.len();
+    let mut bytes = bv.into_vec();
+
+    // Zero out unused padding bits in the last byte (per spec)
+    if let Some(last) = bytes.last_mut() {
+        let used_bits = (nbits % 8) as u8;
+        if used_bits != 0 {
+            let mask = (1u8 << used_bits) - 1;
+            *last &= mask;
+        }
+    }
+
+    bytes
 }
 
 #[cfg(test)]
@@ -488,9 +519,9 @@ mod tests {
         let result = aggregator.handle_session_change(&subnet_peers_1).await;
         match result {
             Ok(opinions) => {
-                assert_eq!(opinions.session_id, 0);
-                assert_eq!(opinions.new_opinions.len(), peers.len());
-                assert_eq!(opinions.old_opinions.len(), 0); // No previous for session 0
+                assert_eq!(opinions.current_session, 0);
+                assert_eq!(opinions.previous_session_opinions.len(), peers.len());
+                assert_eq!(opinions.current_session_opinions.len(), 0); // No previous for session 0
             }
             Err(e) => panic!("Unexpected error: {e}"),
         }
@@ -515,9 +546,9 @@ mod tests {
         let result = aggregator.handle_session_change(&subnet_peers_2).await;
         match result {
             Ok(opinions) => {
-                assert_eq!(opinions.session_id, 1);
-                assert_eq!(opinions.new_opinions.len(), peers.len());
-                assert_eq!(opinions.old_opinions.len(), peers.len()); // Now has previous
+                assert_eq!(opinions.current_session, 1);
+                assert_eq!(opinions.previous_session_opinions.len(), peers.len());
+                assert_eq!(opinions.current_session_opinions.len(), peers.len()); // Now has previous
             }
             Err(e) => panic!("Unexpected error: {e}"),
         }
@@ -574,9 +605,9 @@ mod tests {
 
         match result {
             Ok(opinions) => {
-                assert_eq!(opinions.session_id, 4); // Should generate opinions for session 4
-                assert_eq!(opinions.new_opinions.len(), peers.len());
-                assert_eq!(opinions.old_opinions.len(), peers.len());
+                assert_eq!(opinions.current_session, 4); // Should generate opinions for session 4
+                assert_eq!(opinions.previous_session_opinions.len(), peers.len());
+                assert_eq!(opinions.current_session_opinions.len(), peers.len());
             }
             Err(e) => panic!("Unexpected error: {e}"),
         }
@@ -645,9 +676,9 @@ mod tests {
         let result = aggregator.handle_session_change(&subnet_peers_2).await;
         match result {
             Ok(opinions) => {
-                assert_eq!(opinions.session_id, 1);
-                assert_eq!(opinions.new_opinions.len(), peers.len()); // Session 1 was operational
-                assert_eq!(opinions.old_opinions.len(), peers.len()); // Session 0 was operational
+                assert_eq!(opinions.current_session, 1);
+                assert_eq!(opinions.previous_session_opinions.len(), peers.len()); // Session 1 was operational
+                assert_eq!(opinions.current_session_opinions.len(), peers.len()); // Session 0 was operational
             }
             Err(e) => panic!("Unexpected error: {e}"),
         }
@@ -671,9 +702,9 @@ mod tests {
         let result = aggregator.handle_session_change(&subnet_peers_3).await;
         match result {
             Ok(opinions) => {
-                assert_eq!(opinions.session_id, 2);
-                assert_eq!(opinions.new_opinions.len(), 0); // Session 2 was non-operational
-                assert_eq!(opinions.old_opinions.len(), peers.len()); // Session 1 was operational
+                assert_eq!(opinions.current_session, 2);
+                assert_eq!(opinions.previous_session_opinions.len(), 0); // Session 2 was non-operational
+                assert_eq!(opinions.current_session_opinions.len(), peers.len()); // Session 1 was operational
             }
             Err(e) => panic!("Unexpected error: {e}"),
         }

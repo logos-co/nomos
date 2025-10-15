@@ -36,6 +36,7 @@ use nomos_da_verifier::{
 };
 use nomos_libp2p::PeerId;
 pub use nomos_network::backends::libp2p::Libp2p as NetworkBackend;
+use nomos_sdp::SdpSettings;
 pub use nomos_storage::backends::{
     SerdeOp,
     rocksdb::{RocksBackend, RocksBackendSettings},
@@ -251,7 +252,9 @@ pub fn run_node_from_config(config: Config) -> Result<Overwatch<RuntimeServiceId
             time: config.time,
             storage: config.storage,
             system_sig: (),
-            sdp: (),
+            sdp: SdpSettings {
+                declaration_id: None,
+            },
             membership: config.membership,
             wallet: config.wallet,
             #[cfg(feature = "testing")]

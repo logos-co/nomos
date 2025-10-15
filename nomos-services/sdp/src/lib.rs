@@ -5,14 +5,15 @@ use std::{fmt::Display, marker::PhantomData, pin::Pin};
 use async_trait::async_trait;
 use backends::{SdpBackend, SdpBackendError};
 use futures::{Stream, StreamExt as _};
-use nomos_core::sdp::FinalizedBlockEvent;
+use nomos_core::sdp::{DeclarationId, FinalizedBlockEvent, Locator, ServiceType};
 use overwatch::{
-    OpaqueServiceResourcesHandle,
+    DynError, OpaqueServiceResourcesHandle,
     services::{
         AsServiceId, ServiceCore, ServiceData,
         state::{NoOperator, NoState},
     },
 };
+use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
 
@@ -21,57 +22,77 @@ const BROADCAST_CHANNEL_SIZE: usize = 128;
 pub type FinalizedBlockUpdateStream =
     Pin<Box<dyn Stream<Item = FinalizedBlockEvent> + Send + Sync + Unpin>>;
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct SdpSettings {
+    /// Declaration ID for this node (set after posting declaration and
+    /// restarting)
+    pub declaration_id: Option<DeclarationId>,
+}
+
 pub enum SdpMessage {
     ProcessNewBlock,
     ProcessLibBlock,
     Subscribe {
         result_sender: oneshot::Sender<FinalizedBlockUpdateStream>,
     },
+
+    PostDeclaration {
+        service_type: ServiceType,
+        locators: Vec<Locator>,
+        reply_channel: oneshot::Sender<Result<DeclarationId, DynError>>,
+    },
+    PostActivity {
+        metadata: Vec<u8>, // DA/Blend specific metadata
+    },
+    PostWithdrawal {
+        declaration_id: DeclarationId,
+    },
 }
 
-pub struct SdpService<Backend: SdpBackend + Send + Sync + 'static, Metadata, RuntimeServiceId>
-where
-    Metadata: Send + Sync + 'static,
-{
+pub struct SdpService<Backend: SdpBackend + Send + Sync + 'static, RuntimeServiceId> {
     backend: PhantomData<Backend>,
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     finalized_update_tx: broadcast::Sender<FinalizedBlockEvent>,
+    _current_declaration_id: Option<DeclarationId>,
 }
 
-impl<Backend, Metadata, RuntimeServiceId> ServiceData
-    for SdpService<Backend, Metadata, RuntimeServiceId>
+impl<Backend, RuntimeServiceId> ServiceData for SdpService<Backend, RuntimeServiceId>
 where
     Backend: SdpBackend + Send + Sync + 'static,
-    Metadata: Send + Sync + 'static,
 {
-    type Settings = ();
+    type Settings = SdpSettings;
     type State = NoState<Self::Settings>;
     type StateOperator = NoOperator<Self::State>;
     type Message = SdpMessage;
 }
 
 #[async_trait]
-impl<Backend, Metadata, RuntimeServiceId> ServiceCore<RuntimeServiceId>
-    for SdpService<Backend, Metadata, RuntimeServiceId>
+impl<Backend, RuntimeServiceId> ServiceCore<RuntimeServiceId>
+    for SdpService<Backend, RuntimeServiceId>
 where
     Backend: SdpBackend + Send + Sync + 'static,
-    Metadata: Send + Sync + 'static,
     RuntimeServiceId: AsServiceId<Self> + Clone + Display + Send + Sync + 'static,
 {
     fn init(
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
         _initial_state: Self::State,
-    ) -> Result<Self, overwatch::DynError> {
+    ) -> Result<Self, DynError> {
+        let settings = service_resources_handle
+            .settings_handle
+            .notifier()
+            .get_updated_settings();
+
         let (finalized_update_tx, _) = broadcast::channel(BROADCAST_CHANNEL_SIZE);
 
         Ok(Self {
+            _current_declaration_id: settings.declaration_id,
             backend: PhantomData,
             service_resources_handle,
             finalized_update_tx,
         })
     }
 
-    async fn run(mut self) -> Result<(), overwatch::DynError> {
+    async fn run(mut self) -> Result<(), DynError> {
         self.service_resources_handle.status_updater.notify_ready();
         tracing::info!(
             "Service '{}' is ready.",
@@ -91,6 +112,11 @@ where
                         tracing::error!("Error sending finalized updates receiver");
                     }
                 }
+                SdpMessage::PostActivity { metadata, .. } => {
+                    tracing::debug!("todo: implement post activity {:?}", metadata);
+                }
+                SdpMessage::PostDeclaration { .. } => todo!("implement post declaration"),
+                SdpMessage::PostWithdrawal { .. } => todo!("implement post withdrawal"),
             }
         }
 

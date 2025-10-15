@@ -1,13 +1,12 @@
 use std::marker::PhantomData;
 
 use async_trait::async_trait;
-use nomos_sdp::{FinalizedBlockUpdateStream, SdpMessage, SdpService, backends::SdpBackend};
+use nomos_sdp::{SdpMessage, SdpService, backends::SdpBackend};
 use overwatch::services::relay::OutboundRelay;
-use tokio::sync::oneshot;
 
 use super::{SdpAdapter, SdpAdapterError};
 
-pub struct LedgerSdpAdapter<Backend, RuntimeServiceId>
+pub struct SdpServiceAdapter<Backend, RuntimeServiceId>
 where
     Backend: SdpBackend + Send + Sync + 'static,
 {
@@ -16,7 +15,7 @@ where
 }
 
 #[async_trait]
-impl<Backend, RuntimeServiceId> SdpAdapter for LedgerSdpAdapter<Backend, RuntimeServiceId>
+impl<Backend, RuntimeServiceId> SdpAdapter for SdpServiceAdapter<Backend, RuntimeServiceId>
 where
     Backend: SdpBackend + Send + Sync + 'static,
     RuntimeServiceId: Send + Sync + 'static,
@@ -30,18 +29,12 @@ where
         }
     }
 
-    async fn lib_blocks_stream(&self) -> Result<FinalizedBlockUpdateStream, SdpAdapterError> {
-        let (sender, receiver) = oneshot::channel();
-
+    async fn post_activity(&self, metadata: Vec<u8>) -> Result<(), SdpAdapterError> {
         self.relay
-            .send(SdpMessage::Subscribe {
-                result_sender: sender,
-            })
+            .send(SdpMessage::PostActivity { metadata })
             .await
             .map_err(|(e, _)| SdpAdapterError::Other(Box::new(e)))?;
 
-        Ok(receiver
-            .await
-            .map_err(|e| SdpAdapterError::Other(Box::new(e)))?)
+        Ok(())
     }
 }

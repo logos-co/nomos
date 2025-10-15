@@ -3,6 +3,7 @@ pub mod api;
 pub mod backends;
 pub mod membership;
 mod opinion_aggregator;
+pub mod sdp;
 pub mod storage;
 
 use std::{
@@ -611,14 +612,16 @@ where
             .handle_session_change(new_providers)
             .await
         {
-            Ok(opinions) => {
+            Ok(metadata) => {
                 tracing::debug!(
                     "Generated opinions - session_id: {}, new_opinions: {}, old_opinions: {}",
-                    opinions.session_id,
-                    opinions.new_opinions.len(),
-                    opinions.old_opinions.len()
+                    metadata.current_session,
+                    metadata.previous_session_opinions.len(),
+                    metadata.current_session_opinions.len(),
                 );
-                // todo: sdp_adapter.process_opinions(opinions).await;
+
+                //todo: sdp_adapter.post_activity(
+                //metadata.into_metadata_bytes()).await;
             }
             Err(OpinionError::InsufficientData) => {
                 tracing::debug!(
