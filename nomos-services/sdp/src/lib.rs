@@ -49,17 +49,14 @@ pub enum SdpMessage {
     },
 }
 
-pub struct SdpService<Backend: SdpBackend + Send + Sync + 'static, RuntimeServiceId> {
+pub struct SdpService<Backend, RuntimeServiceId> {
     backend: PhantomData<Backend>,
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     finalized_update_tx: broadcast::Sender<FinalizedBlockEvent>,
     _current_declaration_id: Option<DeclarationId>,
 }
 
-impl<Backend, RuntimeServiceId> ServiceData for SdpService<Backend, RuntimeServiceId>
-where
-    Backend: SdpBackend + Send + Sync + 'static,
-{
+impl<Backend, RuntimeServiceId> ServiceData for SdpService<Backend, RuntimeServiceId> {
     type Settings = SdpSettings;
     type State = NoState<Self::Settings>;
     type StateOperator = NoOperator<Self::State>;
