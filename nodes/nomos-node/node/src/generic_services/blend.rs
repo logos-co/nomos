@@ -278,7 +278,7 @@ where
                 ready(Some(PolEpochInfo {
                     epoch,
                     poq_private_inputs: ProofOfLeadershipQuotaInputs {
-                        aged_path_and_selectors: aged_path_and_selectors.try_into().expect("List of aged not paths and selectors does not match the expected size for PoQ inputs, although it has already been pre-processed."),
+                        aged_path_and_selectors: aged_path_and_selectors.try_into().expect("List of aged note paths and selectors does not match the expected size for PoQ inputs, although it has already been pre-processed."),
                         note_value: *note_value,
                         output_number: *output_number,
                         pol_secret_key: *secret_key.as_fr(),
