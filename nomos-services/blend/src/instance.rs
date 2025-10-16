@@ -18,6 +18,7 @@ use crate::{
             MessageComponents, NetworkBackendOfService, ServiceComponents as CoreServiceComponents,
         },
     },
+    membership::SessionInfo,
     modes::{self, BroadcastMode, CoreMode, EdgeMode},
 };
 
@@ -135,12 +136,12 @@ where
     /// Handles a session event, potentially causing a mode transition.
     pub async fn handle_session_event(
         self,
-        event: SessionEvent<Membership<CoreService::NodeId>>,
+        event: SessionEvent<SessionInfo<CoreService::NodeId>>,
         overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
         minimal_network_size: usize,
     ) -> Result<Self, modes::Error> {
         match event {
-            SessionEvent::NewSession(membership) => {
+            SessionEvent::NewSession(SessionInfo { membership, .. }) => {
                 self.transition(
                     Mode::choose(&membership, minimal_network_size),
                     overwatch_handle,
@@ -506,7 +507,7 @@ mod tests {
             let instance = instance
                 .handle_session_event(
                     // With an empty membership smaller than the minimal size.
-                    SessionEvent::NewSession(membership(&[], local_node)),
+                    SessionEvent::NewSession(membership(&[], local_node).into()),
                     handle,
                     minimal_network_size,
                 )
@@ -528,7 +529,7 @@ mod tests {
             // Broadcast -> Edge
             let instance = instance
                 .handle_session_event(
-                    SessionEvent::NewSession(membership(&[1], local_node)),
+                    SessionEvent::NewSession(membership(&[1], local_node).into()),
                     handle,
                     minimal_network_size,
                 )
@@ -539,7 +540,7 @@ mod tests {
             // Edge -> Edge (stay)
             let instance = instance
                 .handle_session_event(
-                    SessionEvent::NewSession(membership(&[1], local_node)),
+                    SessionEvent::NewSession(membership(&[1], local_node).into()),
                     handle,
                     minimal_network_size,
                 )
@@ -550,7 +551,7 @@ mod tests {
             // Edge -> Core
             let instance = instance
                 .handle_session_event(
-                    SessionEvent::NewSession(membership(&[1], 1)),
+                    SessionEvent::NewSession(membership(&[1], 1).into()),
                     handle,
                     minimal_network_size,
                 )
