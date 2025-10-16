@@ -36,14 +36,22 @@ pub struct ActivityProof {
 
 impl ActivityProof {
     pub fn to_metadata_bytes(&self) -> Vec<u8> {
-        let mut bytes = vec![0x01]; // Version byte from spec
+        let prev_bytes_len = self.previous_session_opinions.len().div_ceil(8);
+        let curr_bytes_len = self.current_session_opinions.len().div_ceil(8);
+        let total_size = 1 // version byte
+            + size_of::<SessionNumber>() 
+            + prev_bytes_len 
+            + curr_bytes_len;
+        
+        let mut bytes = Vec::with_capacity(total_size);
+        
+        bytes.push(0x01); 
         bytes.extend(&self.current_session.to_le_bytes());
-        let prev_bytes = bitvec_to_bytes(&self.previous_session_opinions);
-        bytes.extend(prev_bytes);
-        let curr_bytes = bitvec_to_bytes(&self.current_session_opinions);
-        bytes.extend(curr_bytes);
+        bytes.extend(bitvec_to_bytes(&self.previous_session_opinions));
+        bytes.extend(bitvec_to_bytes(&self.current_session_opinions));
+        
         bytes
-    }
+}
 }
 struct Membership {
     session_id: SessionNumber,
