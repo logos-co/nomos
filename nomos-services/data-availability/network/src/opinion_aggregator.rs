@@ -42,16 +42,16 @@ impl ActivityProof {
             + size_of::<SessionNumber>() 
             + prev_bytes_len 
             + curr_bytes_len;
-        
+
         let mut bytes = Vec::with_capacity(total_size);
-        
-        bytes.push(0x01); 
+
+        bytes.push(0x01);
         bytes.extend(&self.current_session.to_le_bytes());
         bytes.extend(bitvec_to_bytes(&self.previous_session_opinions));
         bytes.extend(bitvec_to_bytes(&self.current_session_opinions));
-        
+
         bytes
-}
+    }
 }
 struct Membership {
     session_id: SessionNumber,
@@ -384,9 +384,7 @@ where
 }
 
 fn bitvec_to_bytes(bv: &BitVec<u8, Lsb0>) -> Vec<u8> {
-    let nbits = bv.len();
-    let needed_bytes = nbits.div_ceil(8);
-    bv.as_raw_slice()[..needed_bytes].to_vec()
+    bv.as_raw_slice().to_vec()
 }
 
 #[cfg(test)]
