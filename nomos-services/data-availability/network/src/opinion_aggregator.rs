@@ -16,6 +16,7 @@ use crate::{
 };
 
 const OPINION_THRESHOLD: u32 = 10;
+const METADATA_VERSION_BYTE: u8 = 0x01;
 
 #[derive(Error, Debug)]
 pub enum OpinionError {
@@ -28,16 +29,18 @@ pub enum OpinionError {
     Error(#[from] DynError),
 }
 
+pub type Opinions = BitVec<u8, Lsb0>;
+
 pub struct ActivityProof {
     pub current_session: SessionNumber,
-    pub previous_session_opinions: BitVec<u8, Lsb0>,
-    pub current_session_opinions: BitVec<u8, Lsb0>,
+    pub previous_session_opinions: Opinions,
+    pub current_session_opinions: Opinions,
 }
 
 impl ActivityProof {
     pub fn to_metadata_bytes(&self) -> Vec<u8> {
-        let prev_bytes_len = self.previous_session_opinions.len().div_ceil(8);
-        let curr_bytes_len = self.current_session_opinions.len().div_ceil(8);
+        let prev_bytes_len = Self::bitvec_byte_len(&self.previous_session_opinions);
+        let curr_bytes_len = Self::bitvec_byte_len(&self.current_session_opinions);
         let total_size = 1 // version byte
             + size_of::<SessionNumber>()
             + prev_bytes_len
@@ -45,12 +48,16 @@ impl ActivityProof {
 
         let mut bytes = Vec::with_capacity(total_size);
 
-        bytes.push(0x01);
+        bytes.push(METADATA_VERSION_BYTE);
         bytes.extend(&self.current_session.to_le_bytes());
         bytes.extend(bitvec_to_bytes(&self.previous_session_opinions));
         bytes.extend(bitvec_to_bytes(&self.current_session_opinions));
 
         bytes
+    }
+
+    fn bitvec_byte_len(bv: &Opinions) -> usize {
+        bv.len().div_ceil(8)
     }
 }
 struct Membership {
@@ -354,7 +361,7 @@ where
         negative: &HashMap<PeerId, u32>,
         provider_mappings: &HashMap<PeerId, ProviderId>,
         include_self: bool,
-    ) -> Result<BitVec<u8, Lsb0>, DynError> {
+    ) -> Result<Opinions, DynError> {
         // BTreeMap so it is sorted
         let mut provider_opinions: BTreeMap<ProviderId, bool> = BTreeMap::new();
 
@@ -378,12 +385,12 @@ where
             provider_opinions.insert(provider_id, opinion);
         }
 
-        let bitvec: BitVec<u8, Lsb0> = provider_opinions.values().copied().collect();
+        let bitvec: Opinions = provider_opinions.values().copied().collect();
         Ok(bitvec)
     }
 }
 
-fn bitvec_to_bytes(bv: &BitVec<u8, Lsb0>) -> Vec<u8> {
+fn bitvec_to_bytes(bv: &Opinions) -> Vec<u8> {
     bv.as_raw_slice().to_vec()
 }
 

@@ -1,8 +1,14 @@
-use std::marker::PhantomData;
+use std::{
+    fmt::{Debug, Display},
+    marker::PhantomData,
+};
 
 use async_trait::async_trait;
 use nomos_sdp::{SdpMessage, SdpService, backends::SdpBackend};
-use overwatch::services::relay::OutboundRelay;
+use overwatch::{
+    overwatch::OverwatchHandle,
+    services::{AsServiceId, relay::OutboundRelay},
+};
 
 use super::{SdpAdapter, SdpAdapterError};
 use crate::opinion_aggregator::ActivityProof;
@@ -16,18 +22,29 @@ where
 }
 
 #[async_trait]
-impl<Backend, RuntimeServiceId> SdpAdapter for SdpServiceAdapter<Backend, RuntimeServiceId>
+impl<Backend, RuntimeServiceId> SdpAdapter<RuntimeServiceId>
+    for SdpServiceAdapter<Backend, RuntimeServiceId>
 where
     Backend: SdpBackend + Send + Sync + 'static,
-    RuntimeServiceId: Send + Sync + 'static,
+    RuntimeServiceId: AsServiceId<SdpService<Backend, RuntimeServiceId>>
+        + Send
+        + Sync
+        + Debug
+        + Display
+        + 'static,
 {
-    type SdpService = SdpService<Backend, RuntimeServiceId>;
+    async fn new(
+        overwatch_handle: OverwatchHandle<RuntimeServiceId>,
+    ) -> Result<Self, SdpAdapterError> {
+        let relay = overwatch_handle
+            .relay::<SdpService<Backend, RuntimeServiceId>>()
+            .await
+            .map_err(|e| SdpAdapterError::Other(Box::new(e)))?;
 
-    fn new(relay: OutboundRelay<SdpMessage>) -> Self {
-        Self {
+        Ok(Self {
             relay,
             _phantom: PhantomData,
-        }
+        })
     }
 
     async fn post_activity(&self, activity_proof: ActivityProof) -> Result<(), SdpAdapterError> {

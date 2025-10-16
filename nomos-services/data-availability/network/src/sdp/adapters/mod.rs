@@ -1,10 +1,7 @@
 pub mod sdp_service;
 
 use async_trait::async_trait;
-use overwatch::{
-    DynError,
-    services::{ServiceData, relay::OutboundRelay},
-};
+use overwatch::{DynError, overwatch::OverwatchHandle};
 use thiserror::Error;
 
 use crate::opinion_aggregator::ActivityProof;
@@ -16,9 +13,9 @@ pub enum SdpAdapterError {
 }
 
 #[async_trait]
-pub trait SdpAdapter {
-    type SdpService: ServiceData;
-
-    fn new(outbound_relay: OutboundRelay<<Self::SdpService as ServiceData>::Message>) -> Self;
+pub trait SdpAdapter<RuntimeServiceId>: Sized {
+    async fn new(
+        overwatch_handle: OverwatchHandle<RuntimeServiceId>,
+    ) -> Result<Self, SdpAdapterError>;
     async fn post_activity(&self, activity_proof: ActivityProof) -> Result<(), SdpAdapterError>;
 }
