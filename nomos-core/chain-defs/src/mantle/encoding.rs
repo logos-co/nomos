@@ -194,11 +194,15 @@ fn decode_sdp_declare(input: &[u8]) -> IResult<&[u8], SDPDeclareOp> {
     ))
 }
 
+const LOCATOR_BYTES_SIZE_LIMIT: usize = 329usize;
+
 fn decode_locator(input: &[u8]) -> IResult<&[u8], multiaddr::Multiaddr> {
     // Locator = 2Byte *BYTE
     let (input, len_bytes) = take(2usize).parse(input)?;
     let len = u16::from_le_bytes([len_bytes[0], len_bytes[1]]) as usize;
-
+    if len > LOCATOR_BYTES_SIZE_LIMIT {
+        return Err(nom::Err::Error(Error::new(input, ErrorKind::LengthValue)));
+    }
     map_res(take(len), |bytes: &[u8]| {
         multiaddr::Multiaddr::try_from(bytes.to_vec())
             .map_err(|_| Error::new(bytes, ErrorKind::Fail))
@@ -538,6 +542,7 @@ fn encode_channel_set_keys(op: &SetKeysOp) -> Vec<u8> {
 /// Encode SDP operations
 fn encode_locator(locator: &multiaddr::Multiaddr) -> Vec<u8> {
     let locator_bytes = locator.to_vec();
+    assert!(locator_bytes.len() <= LOCATOR_BYTES_SIZE_LIMIT);
     let mut bytes = Vec::new();
     bytes.extend((locator_bytes.len() as u16).to_le_bytes());
     bytes.extend(locator_bytes);
