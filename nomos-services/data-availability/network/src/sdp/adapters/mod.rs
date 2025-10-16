@@ -7,6 +7,8 @@ use overwatch::{
 };
 use thiserror::Error;
 
+use crate::opinion_aggregator::ActivityProof;
+
 #[derive(Debug, Error)]
 pub enum SdpAdapterError {
     #[error(transparent)]
@@ -18,5 +20,5 @@ pub trait SdpAdapter {
     type SdpService: ServiceData;
 
     fn new(outbound_relay: OutboundRelay<<Self::SdpService as ServiceData>::Message>) -> Self;
-    async fn post_activity(&self, metadata: Vec<u8>) -> Result<(), SdpAdapterError>;
+    async fn post_activity(&self, activity_proof: ActivityProof) -> Result<(), SdpAdapterError>;
 }

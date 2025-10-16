@@ -5,6 +5,7 @@ use nomos_sdp::{SdpMessage, SdpService, backends::SdpBackend};
 use overwatch::services::relay::OutboundRelay;
 
 use super::{SdpAdapter, SdpAdapterError};
+use crate::opinion_aggregator::ActivityProof;
 
 pub struct SdpServiceAdapter<Backend, RuntimeServiceId>
 where
@@ -29,7 +30,8 @@ where
         }
     }
 
-    async fn post_activity(&self, metadata: Vec<u8>) -> Result<(), SdpAdapterError> {
+    async fn post_activity(&self, activity_proof: ActivityProof) -> Result<(), SdpAdapterError> {
+        let metadata = activity_proof.to_metadata_bytes();
         self.relay
             .send(SdpMessage::PostActivity { metadata })
             .await

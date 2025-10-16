@@ -614,14 +614,15 @@ where
         {
             Ok(metadata) => {
                 tracing::debug!(
-                    "Generated opinions - session_id: {}, new_opinions: {}, old_opinions: {}",
+                    "Generated opinions - session_id: {}, new_opinions: {}, old_opinions: {}, bytes {:?}",
                     metadata.current_session,
                     metadata.previous_session_opinions.len(),
                     metadata.current_session_opinions.len(),
+                    metadata.to_metadata_bytes(),
                 );
 
                 //todo: sdp_adapter.post_activity(
-                //metadata.into_metadata_bytes()).await;
+                //metadata.to_metadata_bytes()).await;
             }
             Err(OpinionError::InsufficientData) => {
                 tracing::debug!(

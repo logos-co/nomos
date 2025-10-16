@@ -35,16 +35,12 @@ pub struct ActivityProof {
 }
 
 impl ActivityProof {
-    #[expect(
-        dead_code,
-        reason = "This will be used as soon as sdp adapter is connected"
-    )]
-    pub fn into_metadata_bytes(self) -> Vec<u8> {
+    pub fn to_metadata_bytes(&self) -> Vec<u8> {
         let mut bytes = vec![0x01]; // Version byte from spec
         bytes.extend(&self.current_session.to_le_bytes());
-        let prev_bytes = bitvec_to_bytes(self.previous_session_opinions);
+        let prev_bytes = bitvec_to_bytes(&self.previous_session_opinions);
         bytes.extend(prev_bytes);
-        let curr_bytes = bitvec_to_bytes(self.current_session_opinions);
+        let curr_bytes = bitvec_to_bytes(&self.current_session_opinions);
         bytes.extend(curr_bytes);
         bytes
     }
@@ -379,9 +375,11 @@ where
     }
 }
 
-fn bitvec_to_bytes(bv: BitVec<u8, Lsb0>) -> Vec<u8> {
+fn bitvec_to_bytes(bv: &BitVec<u8, Lsb0>) -> Vec<u8> {
     let nbits = bv.len();
-    let mut bytes = bv.into_vec();
+    let raw_bytes = bv.as_raw_slice();
+    let needed_bytes = nbits.div_ceil(8);
+    let mut bytes = raw_bytes[..needed_bytes].to_vec();
 
     // Zero out unused padding bits in the last byte (per spec)
     if let Some(last) = bytes.last_mut() {
