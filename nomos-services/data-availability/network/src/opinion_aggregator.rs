@@ -39,8 +39,8 @@ impl ActivityProof {
         let prev_bytes_len = self.previous_session_opinions.len().div_ceil(8);
         let curr_bytes_len = self.current_session_opinions.len().div_ceil(8);
         let total_size = 1 // version byte
-            + size_of::<SessionNumber>() 
-            + prev_bytes_len 
+            + size_of::<SessionNumber>()
+            + prev_bytes_len
             + curr_bytes_len;
 
         let mut bytes = Vec::with_capacity(total_size);
