@@ -438,25 +438,6 @@ mod tests {
     }
 
     #[test]
-    fn test_unsupported_operation() {
-        let cryptarchia_state = genesis_state(&[utxo()]);
-        let test_config = config();
-        let ledger_state = LedgerState::new();
-
-        let tx_with_unsupported_op = create_test_tx_with_ops(vec![Op::Native(
-            nomos_core::mantle::ops::native::NativeOp {},
-        )]);
-
-        let result = ledger_state.try_apply_tx::<MainnetGasConstants>(
-            0,
-            &test_config,
-            cryptarchia_state.latest_commitments(),
-            tx_with_unsupported_op,
-        );
-        assert_eq!(result, Err(Error::UnsupportedOp));
-    }
-
-    #[test]
     fn test_ops_missing_proofs() {
         let cryptarchia_state = genesis_state(&[utxo()]);
         let test_config = config();

@@ -356,9 +356,6 @@ fn decode_op_proof<'a>(input: &'a [u8], op: &Op) -> IResult<&'a [u8], OpProof> {
             panic!("OpProof::LeaderClaimProof not yet implemented");
         })
         .parse(input),
-        Op::Native(_) => {
-            unreachable!("Native ops should not be present in the proof")
-        }
     }
 }
 
@@ -664,9 +661,6 @@ fn encode_op(op: &Op) -> Vec<u8> {
         Op::LeaderClaim(op) => {
             bytes.extend(encode_byte(opcode::LEADER_CLAIM));
             bytes.extend(encode_leader_claim(op));
-        }
-        Op::Native(_) => {
-            unimplemented!("Native operation is deprecated and will be removed");
         }
     }
     bytes
