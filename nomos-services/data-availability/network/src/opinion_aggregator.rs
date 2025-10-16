@@ -377,20 +377,8 @@ where
 
 fn bitvec_to_bytes(bv: &BitVec<u8, Lsb0>) -> Vec<u8> {
     let nbits = bv.len();
-    let raw_bytes = bv.as_raw_slice();
     let needed_bytes = nbits.div_ceil(8);
-    let mut bytes = raw_bytes[..needed_bytes].to_vec();
-
-    // Zero out unused padding bits in the last byte (per spec)
-    if let Some(last) = bytes.last_mut() {
-        let used_bits = (nbits % 8) as u8;
-        if used_bits != 0 {
-            let mask = (1u8 << used_bits) - 1;
-            *last &= mask;
-        }
-    }
-
-    bytes
+    bv.as_raw_slice()[..needed_bytes].to_vec()
 }
 
 #[cfg(test)]
@@ -706,5 +694,89 @@ mod tests {
             }
             Err(e) => panic!("Unexpected error: {e}"),
         }
+    }
+
+    #[test]
+    fn test_bitvec_to_bytes_empty() {
+        let bv = BitVec::<u8, Lsb0>::new();
+        let bytes = bitvec_to_bytes(&bv);
+        assert_eq!(bytes, Vec::<u8>::new());
+    }
+
+    #[test]
+    fn test_bitvec_to_bytes_single_bit() {
+        let mut bv = BitVec::<u8, Lsb0>::new();
+        bv.push(true);
+        let bytes = bitvec_to_bytes(&bv);
+        assert_eq!(bytes, vec![0b0000_0001]);
+    }
+
+    #[test]
+    fn test_bitvec_to_bytes_partial_byte() {
+        let mut bv = BitVec::<u8, Lsb0>::new();
+        bv.push(true); // bit 0
+        bv.push(false); // bit 1
+        bv.push(true); // bit 2
+        bv.push(true); // bit 3
+        bv.push(false); // bit 4
+        // 5 bits total: 0b00001101 (LSB0: right to left)
+        let bytes = bitvec_to_bytes(&bv);
+        assert_eq!(bytes, vec![0b0000_1101]);
+
+        // Verify high bits are zero
+        assert_eq!(bytes[0] & 0b1110_0000, 0);
+    }
+
+    #[test]
+    fn test_bitvec_to_bytes_exact_byte() {
+        let mut bv = BitVec::<u8, Lsb0>::new();
+        for i in 0..8 {
+            bv.push(i % 2 == 0); // Alternating pattern
+        }
+        let bytes = bitvec_to_bytes(&bv);
+        assert_eq!(bytes.len(), 1);
+        assert_eq!(bytes, vec![0b0101_0101]); // LSB0: even positions set
+    }
+
+    #[test]
+    fn test_bitvec_to_bytes_multiple_bytes() {
+        let mut bv = BitVec::<u8, Lsb0>::new();
+        // First byte: all ones
+        for _ in 0..8 {
+            bv.push(true);
+        }
+        // Second byte: all zeros
+        for _ in 0..8 {
+            bv.push(false);
+        }
+        // Third byte: partial (3 bits)
+        bv.push(true);
+        bv.push(false);
+        bv.push(true);
+
+        let bytes = bitvec_to_bytes(&bv);
+        assert_eq!(bytes.len(), 3);
+        assert_eq!(bytes[0], 0xFF);
+        assert_eq!(bytes[1], 0x00);
+        assert_eq!(bytes[2], 0b0000_0101); // Only lower 3 bits used
+
+        // Verify high bits in last byte are zero
+        assert_eq!(bytes[2] & 0b1111_1000, 0);
+    }
+
+    #[test]
+    fn test_bitvec_to_bytes_large() {
+        let mut bv = BitVec::<u8, Lsb0>::new();
+        // Create 100 bits (12.5 bytes, so 13 bytes needed)
+        for i in 0..100 {
+            bv.push(i % 3 == 0);
+        }
+
+        let bytes = bitvec_to_bytes(&bv);
+        assert_eq!(bytes.len(), 13); // ceil(100/8) = 13
+
+        // Last byte should have only 4 bits used (100 % 8 = 4)
+        // Upper 4 bits should be zero
+        assert_eq!(bytes[12] & 0b1111_0000, 0);
     }
 }
