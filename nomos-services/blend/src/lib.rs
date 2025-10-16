@@ -37,7 +37,7 @@ use crate::{
         },
     },
     instance::{Instance, Mode},
-    membership::Adapter as _,
+    membership::{Adapter as _, SessionInfo},
     settings::{FIRST_SESSION_READY_TIMEOUT, Settings},
 };
 
@@ -163,14 +163,15 @@ where
         .subscribe()
         .await?;
 
-        let (membership, mut session_stream) = UninitializedSessionEventStream::new(
-            membership_stream,
-            FIRST_SESSION_READY_TIMEOUT,
-            settings.time.session_transition_period(),
-        )
-        .await_first_ready()
-        .await
-        .expect("The current session must be ready");
+        let (SessionInfo { membership, .. }, mut session_stream) =
+            UninitializedSessionEventStream::new(
+                membership_stream,
+                FIRST_SESSION_READY_TIMEOUT,
+                settings.time.session_transition_period(),
+            )
+            .await_first_ready()
+            .await
+            .expect("The current session must be ready");
 
         info!(
             target: LOG_TARGET,

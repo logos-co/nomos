@@ -1,20 +1,19 @@
-use std::{collections::BTreeSet, hash::Hash, marker::PhantomData};
+use std::{hash::Hash, marker::PhantomData};
 
-use futures::StreamExt as _;
+use broadcast_service::BlockBroadcastMsg;
+use futures::{StreamExt as _, future::ready};
 use nomos_blend_message::crypto::keys::Ed25519PublicKey;
 use nomos_blend_scheduling::membership::{Membership, Node};
-use nomos_core::sdp::{Locator, ProviderId, ServiceType};
-use nomos_membership_service::{
-    MembershipMessage, MembershipSnapshotStream, backends::MembershipBackendError,
-};
+use nomos_core::sdp::{Locator, ProviderId, ProviderInfo, SessionUpdate};
 use overwatch::{
     DynError,
     services::{ServiceData, relay::OutboundRelay},
 };
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, watch};
+use tokio_stream::wrappers::WatchStream;
 use tracing::warn;
 
-use crate::membership::{MembershipStream, ServiceMessage, node_id};
+use crate::membership::{MembershipStream, ServiceMessage, SessionInfo, node_id};
 
 pub struct Adapter<Service, NodeId>
 where
@@ -31,7 +30,7 @@ where
 #[async_trait::async_trait]
 impl<Service, NodeId> super::Adapter for Adapter<Service, NodeId>
 where
-    Service: ServiceData<Message = MembershipMessage>,
+    Service: ServiceData<Message = BlockBroadcastMsg>,
     NodeId: node_id::TryFrom + Clone + Hash + Eq + Sync,
 {
     type Service = Service;
@@ -54,46 +53,54 @@ where
     /// It returns a stream of [`Membership`] instances,
     async fn subscribe(&self) -> Result<MembershipStream<Self::NodeId>, Self::Error> {
         let signing_public_key = self.signing_public_key;
+        let blend_stream = WatchStream::new(self.subscribe_to_blend_stream().await?);
+
         Ok(Box::pin(
-            self.subscribe_stream(ServiceType::BlendNetwork)
-                .await?
-                .map(|(_, providers_map)| {
-                    providers_map
-                        .iter()
-                        .filter_map(|(provider_id, locators)| {
-                            node_from_provider::<NodeId>(provider_id, locators)
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .map(move |nodes| Membership::new(&nodes, &signing_public_key)),
+            blend_stream
+                // Do not yield if the initial value is `None`. We assume once `Some`, no `None`
+                // will ever be returned by this channel.
+                .filter_map(ready)
+                .map(
+                    move |SessionUpdate {
+                              providers,
+                              session_number,
+                          }| {
+                        let nodes = providers
+                            .iter()
+                            .filter_map(|(provider_id, ProviderInfo { locators, .. })| {
+                                node_from_provider::<NodeId>(provider_id, locators)
+                            })
+                            .collect::<Vec<_>>();
+                        let membership = Membership::new(&nodes, &signing_public_key);
+                        SessionInfo {
+                            membership,
+                            session_number,
+                        }
+                    },
+                ),
         ))
     }
 }
 
 impl<Service, NodeId> Adapter<Service, NodeId>
 where
-    Service: ServiceData<Message = MembershipMessage>,
+    Service: ServiceData<Message = BlockBroadcastMsg>,
     NodeId: Sync,
 {
-    /// Subscribe to membership updates for the given service type.
-    async fn subscribe_stream(
+    /// Subscribe to membership updates for Blend.
+    async fn subscribe_to_blend_stream(
         &self,
-        service_type: ServiceType,
-    ) -> Result<MembershipSnapshotStream, Error> {
+    ) -> Result<watch::Receiver<Option<SessionUpdate>>, Error> {
         let (sender, receiver) = oneshot::channel();
 
         self.relay
-            .send(MembershipMessage::Subscribe {
-                service_type,
+            .send(BlockBroadcastMsg::SubscribeBlendSession {
                 result_sender: sender,
             })
             .await
             .map_err(|(e, _)| Error::Other(e.into()))?;
 
-        receiver
-            .await
-            .map_err(|e| Error::Other(e.into()))?
-            .map_err(Error::Backend)
+        receiver.await.map_err(|e| Error::Other(e.into()))
     }
 }
 
@@ -102,7 +109,7 @@ where
 /// be decoded.
 fn node_from_provider<NodeId>(
     provider_id: &ProviderId,
-    locators: &BTreeSet<Locator>,
+    locators: &[Locator],
 ) -> Option<Node<NodeId>>
 where
     NodeId: node_id::TryFrom,
@@ -129,8 +136,6 @@ where
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("Backend error: {0}")]
-    Backend(#[from] MembershipBackendError),
     #[error("Other error: {0}")]
     Other(#[from] DynError),
 }

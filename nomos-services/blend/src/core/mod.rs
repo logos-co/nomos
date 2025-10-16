@@ -257,15 +257,23 @@ where
         // TODO: Replace with actual service usage.
         let poq_input_stream = mock_poq_inputs_stream();
 
-        let ((current_membership, (public_poq_inputs, private_poq_inputs)), session_stream) =
-            UninitializedSessionEventStream::new(
-                membership_stream.zip(poq_input_stream),
-                FIRST_SESSION_READY_TIMEOUT,
-                blend_config.time.session_transition_period(),
-            )
-            .await_first_ready()
-            .await
-            .expect("The current session must be ready");
+        let (
+            (
+                membership::SessionInfo {
+                    membership: current_membership,
+                    ..
+                },
+                (public_poq_inputs, private_poq_inputs),
+            ),
+            session_stream,
+        ) = UninitializedSessionEventStream::new(
+            membership_stream.zip(poq_input_stream),
+            FIRST_SESSION_READY_TIMEOUT,
+            blend_config.time.session_transition_period(),
+        )
+        .await_first_ready()
+        .await
+        .expect("The current session must be ready");
         let current_poq_session_info = PoQSessionInfo {
             local_node_index: current_membership.local_index(),
             membership_size: current_membership.size(),
@@ -294,8 +302,10 @@ where
 
         // Yields once every randomly-scheduled release round. It takes the original
         // (membership, session info) stream and discards session info.
-        let membership_info_stream =
-            map_session_event_stream(session_stream.clone(), |(membership, _)| membership);
+        let membership_info_stream = map_session_event_stream(
+            session_stream.clone(),
+            |(membership::SessionInfo { membership, .. }, _)| membership,
+        );
         let (initial_scheduler_session_info, scheduler_session_info_stream) =
             blend_config.session_info_stream(&current_membership, membership_info_stream);
         let mut message_scheduler =
@@ -311,7 +321,10 @@ where
         // they are not used by the swarm.
         let swarm_backend_stream = map_session_event_stream(
             session_stream.clone(),
-            |(membership, (poq_public_inputs, poq_private_inputs))| {
+            |(
+                membership::SessionInfo { membership, .. },
+                (poq_public_inputs, poq_private_inputs),
+            )| {
                 let local_node_index = membership.local_index();
                 let membership_size = membership.size();
                 SessionInfo {
@@ -370,7 +383,10 @@ where
         // the required struct, nothing else.
         let mut service_session_stream = map_session_event_stream(
             session_stream,
-            |(membership, (poq_public_inputs, poq_private_inputs))| {
+            |(
+                membership::SessionInfo { membership, .. },
+                (poq_public_inputs, poq_private_inputs),
+            )| {
                 let local_node_index = membership.local_index();
                 let membership_size = membership.size();
                 ProcessorSessionInfo {

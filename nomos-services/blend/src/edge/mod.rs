@@ -223,7 +223,10 @@ where
         // Stream combining the membership stream with the stream yielding PoQ
         // generation and verification material.
         let aggregated_session_stream = membership_stream.zip(poq_input_stream).map(
-            |(membership, (poq_public_inputs, poq_private_inputs))| {
+            |(
+                membership::SessionInfo { membership, .. },
+                (poq_public_inputs, poq_private_inputs),
+            )| {
                 let local_node_index = membership.local_index();
                 let membership_size = membership.size();
 
