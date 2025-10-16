@@ -20,6 +20,7 @@ use nomos_blend_message::{
     encap::encapsulated::PoQVerificationInputMinusSigningKey,
 };
 use nomos_core::crypto::ZkHash;
+use poq::{CorePathAndSelectors, NotePathAndSelectors, SlotSecretPath};
 use tokio::{
     spawn,
     sync::mpsc::{Receiver, Sender, channel},
@@ -89,16 +90,14 @@ impl From<PublicInputs> for PoQVerificationInputMinusSigningKey {
 #[derive(Clone)]
 pub struct PrivateInputs {
     pub core_sk: ZkHash,
-    pub core_path: Vec<ZkHash>,
-    pub core_path_selectors: Vec<bool>,
+    pub core_path_and_selectors: CorePathAndSelectors,
     pub slot: u64,
     pub note_value: u64,
     pub transaction_hash: ZkHash,
     pub output_number: u64,
-    pub aged_path: Vec<ZkHash>,
-    pub aged_selector: Vec<bool>,
+    pub aged_path_and_selectors: NotePathAndSelectors,
     pub slot_secret: ZkHash,
-    pub slot_secret_path: Vec<ZkHash>,
+    pub slot_secret_path: SlotSecretPath,
     pub starting_slot: u64,
     pub pol_secret_key: ZkHash,
 }
@@ -188,10 +187,8 @@ fn start(
         public_inputs,
         private_inputs:
             PrivateInputs {
-                aged_path,
-                aged_selector,
-                core_path,
-                core_path_selectors,
+                aged_path_and_selectors,
+                core_path_and_selectors,
                 core_sk,
                 note_value,
                 output_number,
@@ -206,15 +203,13 @@ fn start(
     }: SessionInfo,
 ) -> AbortHandle {
     let core_proof_inputs = ProofOfCoreQuotaInputs {
-        core_path,
-        core_path_selectors,
+        core_path_and_selectors,
         core_sk,
     };
     let core_proofs_task =
         spawn_proof_generation_task(core_proofs_sender, public_inputs, core_proof_inputs.into());
     let leadership_proof_inputs = ProofOfLeadershipQuotaInputs {
-        aged_path,
-        aged_selector,
+        aged_path_and_selectors,
         note_value,
         output_number,
         pol_secret_key,
@@ -254,17 +249,17 @@ fn spawn_proof_generation_task(
     spawn_blocking(move || {
         for key_index in 0..quota {
             let ephemeral_signing_key = Ed25519PrivateKey::generate();
-            let private_inputs = match proof_type {
-                ProofType::CoreQuota(ref private_core_quota_inputs) => {
+            let private_inputs = match &proof_type {
+                ProofType::CoreQuota(private_core_quota_inputs) => {
                     quota::inputs::prove::PrivateInputs::new_proof_of_core_quota_inputs(
                         key_index,
-                        private_core_quota_inputs.clone(),
+                        *private_core_quota_inputs.clone(),
                     )
                 }
-                ProofType::LeadershipQuota(ref private_leadership_quota_inputs) => {
+                ProofType::LeadershipQuota(private_leadership_quota_inputs) => {
                     quota::inputs::prove::PrivateInputs::new_proof_of_leadership_quota_inputs(
                         key_index,
-                        private_leadership_quota_inputs.clone(),
+                        *private_leadership_quota_inputs.clone(),
                     )
                 }
             };

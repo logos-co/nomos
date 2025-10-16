@@ -9,7 +9,7 @@ mod witness;
 
 use std::error::Error;
 
-pub use blend_inputs::{PoQBlendInputs, PoQBlendInputsData};
+pub use blend_inputs::{CorePathAndSelectors, PoQBlendInputs, PoQBlendInputsData};
 pub use chain_inputs::{PoQChainInputs, PoQChainInputsData, PoQInputsFromDataError};
 pub use common_inputs::{PoQCommonInputs, PoQCommonInputsData};
 use groth16::{
@@ -17,7 +17,9 @@ use groth16::{
 };
 pub use inputs::{PoQVerifierInput, PoQVerifierInputData, PoQWitnessInputs};
 use thiserror::Error;
-pub use wallet_inputs::{PoQWalletInputs, PoQWalletInputsData};
+pub use wallet_inputs::{
+    NotePathAndSelectors, PoQWalletInputs, PoQWalletInputsData, SlotSecretPath,
+};
 pub use witness::Witness;
 
 use crate::{inputs::PoQVerifierInputJson, proving_key::POQ_PROVING_KEY_PATH};

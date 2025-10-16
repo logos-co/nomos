@@ -2,6 +2,7 @@ use groth16::{Field as _, Fr, Groth16Input, Groth16InputDeser};
 use serde::{Deserialize, Serialize};
 
 pub const CORE_MERKLE_TREE_HEIGHT: usize = 20;
+pub type CorePathAndSelectors = [(Fr, bool); CORE_MERKLE_TREE_HEIGHT];
 
 #[derive(Clone)]
 pub struct PoQBlendInputs {
@@ -11,7 +12,7 @@ pub struct PoQBlendInputs {
 
 pub struct PoQBlendInputsData {
     pub core_sk: Fr,
-    pub core_path_and_selectors: [(Fr, bool); CORE_MERKLE_TREE_HEIGHT],
+    pub core_path_and_selectors: CorePathAndSelectors,
 }
 
 #[derive(Deserialize, Serialize)]

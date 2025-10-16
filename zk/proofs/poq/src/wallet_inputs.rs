@@ -3,7 +3,9 @@ use num_bigint::BigUint;
 use serde::Serialize;
 
 pub const AGED_NOTE_MERKLE_TREE_HEIGHT: usize = 32;
+pub type NotePathAndSelectors = [(Fr, bool); AGED_NOTE_MERKLE_TREE_HEIGHT];
 pub const SLOT_SECRET_MERKLE_TREE_HEIGHT: usize = 25;
+pub type SlotSecretPath = [Fr; SLOT_SECRET_MERKLE_TREE_HEIGHT];
 
 #[derive(Clone)]
 pub struct PoQWalletInputs {
@@ -22,9 +24,9 @@ pub struct PoQWalletInputsData {
     pub note_value: u64,
     pub transaction_hash: Fr,
     pub output_number: u64,
-    pub aged_path_and_selectors: [(Fr, bool); AGED_NOTE_MERKLE_TREE_HEIGHT],
+    pub aged_path_and_selectors: NotePathAndSelectors,
     pub slot_secret: Fr,
-    pub slot_secret_path: [Fr; SLOT_SECRET_MERKLE_TREE_HEIGHT],
+    pub slot_secret_path: SlotSecretPath,
     pub starting_slot: u64,
 }
 

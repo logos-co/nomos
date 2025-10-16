@@ -251,17 +251,17 @@ where
                         },
                     chain: PolChainInputsData { slot_number, .. },
                 } = leader_private.input();
+                
                 ready(Some(PolEpochInfo {
                     epoch,
                     poq_private_inputs: ProofOfLeadershipQuotaInputs {
-                        aged_path: aged_path.clone(),
-                        aged_selector: aged_selector.clone(),
+                        aged_path_and_selectors: aged_path.iter().copied().zip(aged_selector.iter().copied()).collect::<Vec<_>>().try_into().expect("List of aged not paths and selectors does not match the expected size for PoQ inputs."),
                         note_value: *note_value,
                         output_number: *output_number,
                         pol_secret_key: *secret_key.as_fr(),
                         slot: *slot_number,
                         slot_secret: *slot_secret,
-                        slot_secret_path: slot_secret_path.clone(),
+                        slot_secret_path: slot_secret_path.clone().try_into().expect("Slot secret path does not match the expected size for PoQ inputs."),
                         starting_slot: *starting_slot,
                         transaction_hash: *transaction_hash,
                     },

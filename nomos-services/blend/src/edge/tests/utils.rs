@@ -82,7 +82,14 @@ pub async fn spawn_run(
         });
 
     let join_handle = tokio::spawn(async move {
-        run::<TestBackend, _, MockProofsGenerator, _, EmptyPolStreamProvider, _>(
+        Box::pin(run::<
+            TestBackend,
+            _,
+            MockProofsGenerator,
+            _,
+            EmptyPolStreamProvider,
+            _,
+        >(
             UninitializedSessionEventStream::new(
                 aggregated_session_stream,
                 FIRST_SESSION_READY_TIMEOUT,
@@ -96,7 +103,7 @@ pub async fn spawn_run(
             &settings(local_node, minimal_network_size, node_id_sender),
             &overwatch_handle(),
             || {},
-        )
+        ))
         .await
     });
 
