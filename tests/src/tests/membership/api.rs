@@ -1,7 +1,8 @@
 use std::collections::BTreeSet;
 
-use nomos_core::sdp::{FinalizedBlockEvent, FinalizedBlockEventUpdate, ProviderId};
+use nomos_core::sdp::ProviderId;
 use nomos_libp2p::{Multiaddr, ed25519};
+use nomos_sdp::{BlockEvent, BlockEventUpdate, DeclarationState};
 use serial_test::serial;
 use tests::{
     nodes::executor::Executor,
@@ -66,12 +67,12 @@ async fn send_provider_update(
     locators: BTreeSet<nomos_core::sdp::Locator>,
 ) {
     executor
-        .update_membership(FinalizedBlockEvent {
+        .update_membership(BlockEvent {
             block_number,
-            updates: vec![FinalizedBlockEventUpdate {
+            updates: vec![BlockEventUpdate {
                 service_type: nomos_core::sdp::ServiceType::DataAvailability,
                 provider_id,
-                state: nomos_core::sdp::FinalizedDeclarationState::Active,
+                state: DeclarationState::Active,
                 locators,
             }],
         })
@@ -97,7 +98,7 @@ async fn verify_session_one_not_formed(executor: &Executor) {
 async fn complete_session(executor: &Executor) {
     for block_num in 3..=4 {
         executor
-            .update_membership(FinalizedBlockEvent {
+            .update_membership(BlockEvent {
                 block_number: block_num,
                 updates: vec![],
             })

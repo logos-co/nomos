@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use multiaddr::Multiaddr;
-use nomos_core::{block::SessionNumber, sdp::ProviderId};
+use nomos_core::sdp::{ProviderId, SessionNumber};
 use overwatch::DynError;
 use tokio::sync::oneshot::Sender;
 

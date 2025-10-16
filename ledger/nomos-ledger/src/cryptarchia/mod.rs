@@ -13,7 +13,7 @@ use nomos_core::{
 
 pub type UtxoTree = utxotree::UtxoTree<NoteId, Utxo, ZkHasher>;
 use super::{Balance, Config, LedgerError};
-use crate::mantle::locked_notes::LockedNotes;
+use crate::mantle::sdp::locked_notes::LockedNotes;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -475,34 +475,36 @@ pub mod tests {
                 security_param: NonZero::new(1).unwrap(),
                 active_slot_coeff: 1.0,
             },
-            service_params: Arc::new(
-                [
-                    (
-                        ServiceType::BlendNetwork,
-                        ServiceParameters {
-                            lock_period: 10,
-                            inactivity_period: 20,
-                            retention_period: 100,
-                            timestamp: 0,
-                            session_duration: 10,
-                        },
-                    ),
-                    (
-                        ServiceType::DataAvailability,
-                        ServiceParameters {
-                            lock_period: 10,
-                            inactivity_period: 20,
-                            retention_period: 100,
-                            timestamp: 0,
-                            session_duration: 10,
-                        },
-                    ),
-                ]
-                .into(),
-            ),
-            min_stake: nomos_core::sdp::MinStake {
-                threshold: 1,
-                timestamp: 0,
+            sdp_config: crate::mantle::sdp::Config {
+                service_params: Arc::new(
+                    [
+                        (
+                            ServiceType::BlendNetwork,
+                            ServiceParameters {
+                                lock_period: 10,
+                                inactivity_period: 20,
+                                retention_period: 100,
+                                timestamp: 0,
+                                session_duration: 10,
+                            },
+                        ),
+                        (
+                            ServiceType::DataAvailability,
+                            ServiceParameters {
+                                lock_period: 10,
+                                inactivity_period: 20,
+                                retention_period: 100,
+                                timestamp: 0,
+                                session_duration: 10,
+                            },
+                        ),
+                    ]
+                    .into(),
+                ),
+                min_stake: nomos_core::sdp::MinStake {
+                    threshold: 1,
+                    timestamp: 0,
+                },
             },
         }
     }

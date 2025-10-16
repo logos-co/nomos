@@ -1,6 +1,7 @@
 use futures::StreamExt as _;
 use kzgrs_backend::dispersal::Index;
-use nomos_core::{da::BlobId, sdp::FinalizedBlockEvent};
+use nomos_core::da::BlobId;
+use nomos_sdp::BlockEvent;
 use tests::{
     common::da::{APP_ID, disseminate_with_metadata, wait_for_blob_onchain},
     nodes::executor::Executor,
@@ -22,7 +23,7 @@ async fn test_historical_sampling_across_sessions() {
     for block_num in 1..=4 {
         update_all_nodes(
             &topology,
-            FinalizedBlockEvent {
+            BlockEvent {
                 block_number: block_num,
                 updates: vec![],
             },
@@ -60,7 +61,7 @@ async fn disseminate_blobs_in_session_zero(executor: &Executor) -> Vec<BlobId> {
     blob_ids
 }
 
-async fn update_all_nodes(topology: &Topology, event: FinalizedBlockEvent) {
+async fn update_all_nodes(topology: &Topology, event: BlockEvent) {
     // Update all validators
     for validator in topology.validators() {
         validator

@@ -7,7 +7,7 @@ use std::{
 
 use blake2::{Blake2b512, Digest as _, digest::Update as BlakeUpdate};
 use multiaddr::Multiaddr;
-use nomos_core::{block::SessionNumber, sdp::ProviderId};
+use nomos_core::sdp::{ProviderId, SessionNumber};
 use nomos_utils::blake_rng::BlakeRng;
 use overwatch::{
     DynError,

@@ -1,7 +1,7 @@
 pub mod ledger;
 
 use async_trait::async_trait;
-use nomos_sdp::FinalizedBlockUpdateStream;
+use nomos_sdp::BlockUpdateStream;
 use overwatch::{
     DynError,
     services::{ServiceData, relay::OutboundRelay},
@@ -19,5 +19,5 @@ pub trait SdpAdapter {
     type SdpService: ServiceData;
 
     fn new(outbound_relay: OutboundRelay<<Self::SdpService as ServiceData>::Message>) -> Self;
-    async fn lib_blocks_stream(&self) -> Result<FinalizedBlockUpdateStream, SdpAdapterError>;
+    async fn lib_blocks_stream(&self) -> Result<BlockUpdateStream, SdpAdapterError>;
 }
