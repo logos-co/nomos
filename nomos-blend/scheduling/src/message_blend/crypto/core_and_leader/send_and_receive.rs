@@ -2,7 +2,10 @@ use core::ops::{Deref, DerefMut};
 
 use nomos_blend_message::{
     Error,
-    crypto::proofs::quota::inputs::prove::{private::ProofOfCoreQuotaInputs, public::LeaderInputs},
+    crypto::proofs::{
+        PoQVerificationInputsMinusSigningKey,
+        quota::inputs::prove::{private::ProofOfCoreQuotaInputs, public::LeaderInputs},
+    },
     encap::{
         ProofsVerifier as ProofsVerifierTrait,
         validated::RequiredProofOfSelectionVerificationInputs,
@@ -18,7 +21,7 @@ use crate::{
             SessionCryptographicProcessorSettings,
             core_and_leader::send::SessionCryptographicProcessor as SenderSessionCryptographicProcessor,
         },
-        provers::{ProofsGeneratorSettings, core_and_leader::CoreAndLeaderProofsGenerator},
+        provers::core_and_leader::CoreAndLeaderProofsGenerator,
     },
 };
 
@@ -43,17 +46,17 @@ where
     pub fn new(
         settings: &SessionCryptographicProcessorSettings,
         membership: Membership<NodeId>,
-        public_core_info: ProofsGeneratorSettings,
+        public_info: PoQVerificationInputsMinusSigningKey,
         private_core_info: ProofOfCoreQuotaInputs,
     ) -> Self {
         Self {
             sender_processor: SenderSessionCryptographicProcessor::new(
                 settings,
                 membership,
-                public_core_info,
+                public_info,
                 private_core_info,
             ),
-            proofs_verifier: ProofsVerifier::new(public_core_info.public_inputs),
+            proofs_verifier: ProofsVerifier::new(public_info),
         }
     }
 }
@@ -151,14 +154,11 @@ mod test {
     use super::SessionCryptographicProcessor;
     use crate::{
         membership::{Membership, Node},
-        message_blend::{
-            crypto::{
-                SessionCryptographicProcessorSettings,
-                test_utils::{
-                    TestEpochChangeCoreAndLeaderProofsGenerator, TestEpochChangeProofsVerifier,
-                },
+        message_blend::crypto::{
+            SessionCryptographicProcessorSettings,
+            test_utils::{
+                TestEpochChangeCoreAndLeaderProofsGenerator, TestEpochChangeProofsVerifier,
             },
-            provers::ProofsGeneratorSettings,
         },
     };
 
@@ -178,21 +178,17 @@ mod test {
                 id: PeerId::random(),
                 public_key: [0; _].try_into().unwrap(),
             }]),
-            ProofsGeneratorSettings {
-                local_node_index: None,
-                membership_size: 1,
-                public_inputs: PoQVerificationInputsMinusSigningKey {
-                    session: 1,
-                    core: CoreInputs {
-                        quota: 1,
-                        zk_root: ZkHash::ZERO,
-                    },
-                    leader: LeaderInputs {
-                        message_quota: 1,
-                        pol_epoch_nonce: ZkHash::ZERO,
-                        pol_ledger_aged: ZkHash::ZERO,
-                        total_stake: 1,
-                    },
+            PoQVerificationInputsMinusSigningKey {
+                session: 1,
+                core: CoreInputs {
+                    quota: 1,
+                    zk_root: ZkHash::ZERO,
+                },
+                leader: LeaderInputs {
+                    message_quota: 1,
+                    pol_epoch_nonce: ZkHash::ZERO,
+                    pol_ledger_aged: ZkHash::ZERO,
+                    total_stake: 1,
                 },
             },
             ProofOfCoreQuotaInputs {
