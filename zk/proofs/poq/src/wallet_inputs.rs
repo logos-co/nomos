@@ -68,6 +68,7 @@ impl From<PoQWalletInputs> for PoQWalletInputsJson {
                 pol_noteid_path_and_selectors.map(|(_, selector)| (&selector).into());
             (aged_path, aged_selector)
         };
+
         Self {
             pol_slot: (&pol_slot).into(),
             note_value: (&pol_note_value).into(),
@@ -89,7 +90,7 @@ impl From<PoQWalletInputsData> for PoQWalletInputs {
             note_value,
             transaction_hash,
             output_number,
-            aged_path_and_selectors: aged_path,
+            aged_path_and_selectors,
             slot_secret,
             slot_secret_path,
             starting_slot,
@@ -99,7 +100,7 @@ impl From<PoQWalletInputsData> for PoQWalletInputs {
             pol_slot: Groth16Input::new(Fr::from(BigUint::from(slot))),
             pol_slot_secret: Groth16Input::new(Fr::from(BigUint::from(slot_secret))),
             pol_slot_secret_path: slot_secret_path.map(Into::into),
-            pol_noteid_path_and_selectors: aged_path.map(|(hash, selector)| {
+            pol_noteid_path_and_selectors: aged_path_and_selectors.map(|(hash, selector)| {
                 (
                     hash.into(),
                     Groth16Input::new(if selector { Fr::ONE } else { Fr::ZERO }),

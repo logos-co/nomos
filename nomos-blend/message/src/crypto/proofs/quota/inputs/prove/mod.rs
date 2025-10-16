@@ -66,7 +66,7 @@ fn witness_input_for_proof_type(
             core_sk,
         }) => {
             let blend_input_data = PoQBlendInputsData {
-                core_path,
+                core_path_and_selectors: core_path,
                 core_path_selectors,
                 core_sk,
             };

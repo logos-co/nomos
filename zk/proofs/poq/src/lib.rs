@@ -122,7 +122,7 @@ mod tests {
             )
             .unwrap()
             .into(),
-            core_path: [
+            core_path_and_selectors: [
                 (
                     "14899354077986736739893995913719886357387091560190878664812754607128166085688",
                     false,

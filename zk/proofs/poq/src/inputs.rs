@@ -30,7 +30,7 @@ impl PoQWitnessInputs {
             common: common.try_into()?,
             blend: PoQBlendInputs::from(PoQBlendInputsData {
                 core_sk: Fr::ZERO,
-                core_path: [(Fr::ZERO, false); _],
+                core_path_and_selectors: [(Fr::ZERO, false); _],
             }),
             wallet: wallet.into(),
         })
