@@ -251,7 +251,7 @@ where
                         },
                     chain: PolChainInputsData { slot_number, .. },
                 } = leader_private.input();
-                
+
                 ready(Some(PolEpochInfo {
                     epoch,
                     poq_private_inputs: ProofOfLeadershipQuotaInputs {
