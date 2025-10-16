@@ -29,6 +29,7 @@ use nomos_libp2p::PeerId;
 use nomos_time::backends::NtpTimeBackend;
 use overwatch::{overwatch::OverwatchHandle, services::AsServiceId};
 use pol::{PolChainInputsData, PolWalletInputsData, PolWitnessInputsData};
+use poq::{AGED_NOTE_MERKLE_TREE_HEIGHT, SLOT_SECRET_MERKLE_TREE_HEIGHT};
 use services_utils::wait_until_services_are_ready;
 use tokio::sync::oneshot::channel;
 use tokio_stream::wrappers::BroadcastStream;
@@ -198,6 +199,8 @@ where
     async fn subscribe(
         overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
     ) -> Option<Self::Stream> {
+        use groth16::Field as _;
+
         wait_until_services_are_ready!(
             overwatch_handle,
             Some(Duration::from_secs(3)),
@@ -252,16 +255,36 @@ where
                     chain: PolChainInputsData { slot_number, .. },
                 } = leader_private.input();
 
+                // TODO: Remove this if `PoL` stuff also migrates to using fixed-size arrays or starts using vecs of the expected length instead of empty ones when generating `LeaderPrivate` values.
+                let aged_path_and_selectors = {
+                    let mut vec_from_inputs: Vec<_> = aged_path.iter().copied().zip(aged_selector.iter().copied()).collect();
+                    let input_len = vec_from_inputs.len();
+                    if input_len != AGED_NOTE_MERKLE_TREE_HEIGHT {
+                        tracing::warn!("Provided merkle path for aged notes does not match the expected size for PoQ inputs.");
+                    }
+                    vec_from_inputs.resize(AGED_NOTE_MERKLE_TREE_HEIGHT, (ZkHash::ZERO, false));
+                    vec_from_inputs
+                };
+                let mapped_slot_secret_path = {
+                    let mut vec_from_inputs: Vec<_> = slot_secret_path.clone();
+                    let input_len = vec_from_inputs.len();
+                    if input_len != AGED_NOTE_MERKLE_TREE_HEIGHT {
+                        tracing::warn!("Provided merkle path for slot secret does not match the expected size for PoQ inputs.");
+                    }
+                    vec_from_inputs.resize(SLOT_SECRET_MERKLE_TREE_HEIGHT, ZkHash::ZERO);
+                    vec_from_inputs
+                };
+
                 ready(Some(PolEpochInfo {
                     epoch,
                     poq_private_inputs: ProofOfLeadershipQuotaInputs {
-                        aged_path_and_selectors: aged_path.iter().copied().zip(aged_selector.iter().copied()).collect::<Vec<_>>().try_into().expect("List of aged not paths and selectors does not match the expected size for PoQ inputs."),
+                        aged_path_and_selectors: aged_path_and_selectors.try_into().expect("List of aged not paths and selectors does not match the expected size for PoQ inputs, although it has already been pre-processed."),
                         note_value: *note_value,
                         output_number: *output_number,
                         pol_secret_key: *secret_key.as_fr(),
                         slot: *slot_number,
                         slot_secret: *slot_secret,
-                        slot_secret_path: slot_secret_path.clone().try_into().expect("Slot secret path does not match the expected size for PoQ inputs."),
+                        slot_secret_path: mapped_slot_secret_path.try_into().expect("Slot secret path does not match the expected size for PoQ inputs, although it has already been pre-processed."),
                         starting_slot: *starting_slot,
                         transaction_hash: *transaction_hash,
                     },

@@ -9,7 +9,9 @@ mod witness;
 
 use std::error::Error;
 
-pub use blend_inputs::{CorePathAndSelectors, PoQBlendInputs, PoQBlendInputsData};
+pub use blend_inputs::{
+    CORE_MERKLE_TREE_HEIGHT, CorePathAndSelectors, PoQBlendInputs, PoQBlendInputsData,
+};
 pub use chain_inputs::{PoQChainInputs, PoQChainInputsData, PoQInputsFromDataError};
 pub use common_inputs::{PoQCommonInputs, PoQCommonInputsData};
 use groth16::{
@@ -18,7 +20,8 @@ use groth16::{
 pub use inputs::{PoQVerifierInput, PoQVerifierInputData, PoQWitnessInputs};
 use thiserror::Error;
 pub use wallet_inputs::{
-    NotePathAndSelectors, PoQWalletInputs, PoQWalletInputsData, SlotSecretPath,
+    AGED_NOTE_MERKLE_TREE_HEIGHT, NotePathAndSelectors, PoQWalletInputs, PoQWalletInputsData,
+    SLOT_SECRET_MERKLE_TREE_HEIGHT, SlotSecretPath,
 };
 pub use witness::Witness;
 
