@@ -31,7 +31,7 @@ use crate::{
     edge::{backends::BlendBackend, handlers::Error, run, settings::BlendConfig},
     epoch_info::{EpochHandler, PolEpochInfo, PolInfoProvider},
     membership::MembershipInfo,
-    settings::TimingSettings,
+    settings::{FIRST_STREAM_ITEM_READY_TIMEOUT, TimingSettings},
     test_utils::{crypto::mock_blend_proof, epoch::TestChainService, membership::key},
 };
 
@@ -51,10 +51,9 @@ impl<RuntimeServiceId> PolInfoProvider<RuntimeServiceId> for OncePolStreamProvid
                 note_value: 1,
                 transaction_hash: ZkHash::ZERO,
                 output_number: 1,
-                aged_path: vec![],
-                aged_selector: vec![],
+                aged_path_and_selectors: [(ZkHash::ZERO, false); _],
                 slot_secret: ZkHash::ZERO,
-                slot_secret_path: vec![],
+                slot_secret_path: [ZkHash::ZERO; _],
                 starting_slot: 1,
                 pol_secret_key: ZkHash::ZERO,
             },
@@ -114,25 +113,32 @@ pub async fn spawn_run(
 
     let settings = settings(local_node, minimal_network_size, node_id_sender);
     let join_handle = tokio::spawn(async move {
-        run::<
+        Box::pin(run::<
             TestBackend,
             _,
             MockLeaderProofsGenerator,
-            TestChainService,
+            _,
             OncePolStreamProvider,
             _,
         >(
-            UninitializedSessionEventStream::new(session_stream, Duration::from_secs(1), Duration::ZERO),
-            UninitializedFirstReadyStream::new(once(ready(SlotTick {
+            UninitializedSessionEventStream::new(
+                session_stream,
+                FIRST_STREAM_ITEM_READY_TIMEOUT,
+                Duration::ZERO,
+            ),
+            UninitializedFirstReadyStream::new(
+                once(ready(SlotTick {
                     epoch: 1.into(),
                     slot: 1.into(),
-                })), Duration::from_secs(1)),
+                })),
+                Duration::from_secs(1),
+            ),
             ReceiverStream::new(msg_receiver),
             EpochHandler::new(TestChainService, 1.try_into().unwrap()),
             &settings,
             &overwatch_handle(),
             || {},
-        )
+        ))
         .await
     });
 

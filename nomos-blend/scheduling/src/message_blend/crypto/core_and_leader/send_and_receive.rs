@@ -192,8 +192,7 @@ mod test {
                 },
             },
             ProofOfCoreQuotaInputs {
-                core_path: vec![],
-                core_path_selectors: vec![],
+                core_path_and_selectors: [(ZkHash::ZERO, false); _],
                 core_sk: ZkHash::ZERO,
             },
         );

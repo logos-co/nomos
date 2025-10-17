@@ -283,8 +283,7 @@ where
                     // the settings (not yet implemented).
                     private: ProofOfCoreQuotaInputs {
                         core_sk: ZkHash::ZERO,
-                        core_path: vec![],
-                        core_path_selectors: vec![],
+                        core_path_and_selectors: [(ZkHash::ZERO, false); _],
                     },
                 },
             )
@@ -309,18 +308,19 @@ where
         }
         .await;
 
-        let (current_membership_info, mut remaining_session_stream) =
+        let (current_membership_info, mut remaining_session_stream) = Box::pin(
             UninitializedSessionEventStream::new(
                 session_stream,
                 FIRST_STREAM_ITEM_READY_TIMEOUT,
                 blend_config.time.session_transition_period(),
             )
-            .await_first_ready()
-            .await
-            .map(|(membership_info, remaining_session_stream)| {
-                (membership_info, remaining_session_stream.fork())
-            })
-            .expect("The current session info must be available.");
+            .await_first_ready(),
+        )
+        .await
+        .map(|(membership_info, remaining_session_stream)| {
+            (membership_info, remaining_session_stream.fork())
+        })
+        .expect("The current session info must be available.");
 
         let (
             LeaderInputsMinusQuota {

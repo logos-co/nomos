@@ -16,6 +16,7 @@ hex                 = { default-features = false, version = "0.4" }
 multiaddr           = { default-features = false, version = "0.18" }
 nomos-blend-message = { workspace = true }
 nomos-core          = { workspace = true }
+poq                 = { workspace = true }
 rand                = { features = ["alloc"], workspace = true }
 serde               = { default-features = false, version = "1.0" }
 thiserror           = { default-features = false, version = "1" }

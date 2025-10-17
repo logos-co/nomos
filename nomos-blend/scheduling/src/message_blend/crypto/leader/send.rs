@@ -181,14 +181,13 @@ mod test {
                     },
                 },
                 ProofOfLeadershipQuotaInputs {
-                    aged_path: vec![],
-                    aged_selector: vec![],
+                    aged_path_and_selectors: [(ZkHash::ZERO, false); _],
                     note_value: 1,
                     output_number: 1,
                     pol_secret_key: ZkHash::ZERO,
                     slot: 1,
                     slot_secret: ZkHash::ZERO,
-                    slot_secret_path: vec![],
+                    slot_secret_path: [ZkHash::ZERO; _],
                     starting_slot: 1,
                     transaction_hash: ZkHash::ZERO,
                 },
@@ -201,14 +200,13 @@ mod test {
             total_stake: 2,
         };
         let new_private_inputs = ProofOfLeadershipQuotaInputs {
-            aged_path: vec![ZkHash::ONE],
-            aged_selector: vec![true],
+            aged_path_and_selectors: [(ZkHash::ONE, true); _],
             note_value: 2,
             output_number: 2,
             pol_secret_key: ZkHash::ONE,
             slot: 2,
             slot_secret: ZkHash::ONE,
-            slot_secret_path: vec![ZkHash::ONE],
+            slot_secret_path: [ZkHash::ONE; _],
             starting_slot: 2,
             transaction_hash: ZkHash::ONE,
         };

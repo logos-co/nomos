@@ -39,6 +39,11 @@ impl Slot {
     }
 
     #[must_use]
+    pub const fn into_inner(self) -> u64 {
+        self.0
+    }
+
+    #[must_use]
     pub const fn to_le_bytes(&self) -> [u8; 8] {
         self.0.to_le_bytes()
     }
@@ -51,11 +56,6 @@ impl Slot {
     #[must_use]
     pub const fn genesis() -> Self {
         Self(0)
-    }
-
-    #[must_use]
-    pub const fn into_inner(self) -> u64 {
-        self.0
     }
 
     #[must_use]

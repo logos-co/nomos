@@ -251,8 +251,7 @@ mod test {
                     },
                 },
                 ProofOfCoreQuotaInputs {
-                    core_path: vec![],
-                    core_path_selectors: vec![],
+                    core_path_and_selectors: [(ZkHash::ZERO, false); _],
                     core_sk: ZkHash::ZERO,
                 },
             );
@@ -299,21 +298,19 @@ mod test {
                     },
                 },
                 ProofOfCoreQuotaInputs {
-                    core_path: vec![],
-                    core_path_selectors: vec![],
+                    core_path_and_selectors: [(ZkHash::ZERO, false); _],
                     core_sk: ZkHash::ZERO,
                 },
             );
 
         let new_private_inputs = ProofOfLeadershipQuotaInputs {
-            aged_path: vec![ZkHash::ONE],
-            aged_selector: vec![true],
+            aged_path_and_selectors: [(ZkHash::ONE, true); _],
             note_value: 2,
             output_number: 2,
             pol_secret_key: ZkHash::ONE,
             slot: 2,
             slot_secret: ZkHash::ONE,
-            slot_secret_path: vec![ZkHash::ONE],
+            slot_secret_path: [ZkHash::ONE; _],
             starting_slot: 2,
             transaction_hash: ZkHash::ONE,
         };

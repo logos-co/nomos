@@ -161,8 +161,7 @@ mod tests {
 
         ProofOfCoreQuotaInputs {
             core_sk: ZkHash::ZERO,
-            core_path: vec![],
-            core_path_selectors: vec![],
+            core_path_and_selectors: [(ZkHash::ZERO, false); _],
         }
     }
 

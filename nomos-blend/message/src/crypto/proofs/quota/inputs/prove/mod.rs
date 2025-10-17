@@ -60,14 +60,14 @@ fn witness_input_for_proof_type(
     proof_type: ProofType,
 ) -> Result<PoQWitnessInputs, PoQInputsFromDataError> {
     match proof_type {
-        ProofType::CoreQuota(ProofOfCoreQuotaInputs {
-            core_path,
-            core_path_selectors,
-            core_sk,
-        }) => {
+        ProofType::CoreQuota(core_quota_private_inputs) => {
+            let ProofOfCoreQuotaInputs {
+                core_path_and_selectors,
+                core_sk,
+            } = *core_quota_private_inputs;
+
             let blend_input_data = PoQBlendInputsData {
-                core_path,
-                core_path_selectors,
+                core_path_and_selectors,
                 core_sk,
             };
             PoQWitnessInputs::from_core_node_data(
@@ -76,21 +76,21 @@ fn witness_input_for_proof_type(
                 blend_input_data,
             )
         }
-        ProofType::LeadershipQuota(ProofOfLeadershipQuotaInputs {
-            aged_path,
-            aged_selector,
-            note_value,
-            output_number,
-            slot,
-            slot_secret,
-            slot_secret_path,
-            starting_slot,
-            transaction_hash,
-            ..
-        }) => {
+        ProofType::LeadershipQuota(leadership_quota_private_inputs) => {
+            let ProofOfLeadershipQuotaInputs {
+                aged_path_and_selectors,
+                note_value,
+                output_number,
+                slot,
+                slot_secret,
+                slot_secret_path,
+                starting_slot,
+                transaction_hash,
+                ..
+            } = *leadership_quota_private_inputs;
+
             let wallet_input_data = PoQWalletInputsData {
-                aged_path,
-                aged_selector,
+                aged_path_and_selectors,
                 note_value,
                 output_number,
                 slot,
