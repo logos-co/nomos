@@ -27,7 +27,7 @@ pub trait CompressSize: Pairing {
     type G2CompressedSize: ArrayLength;
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CompressedProof<E: CompressSize> {
     pub pi_a: GenericArray<u8, E::G1CompressedSize>,
     pub pi_b: GenericArray<u8, E::G2CompressedSize>,
