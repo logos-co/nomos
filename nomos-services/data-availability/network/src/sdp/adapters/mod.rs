@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use overwatch::{DynError, overwatch::OverwatchHandle};
 use thiserror::Error;
 
-use crate::opinion_aggregator::ActivityProof;
+use crate::opinion_aggregator::Opinions;
 
 #[derive(Debug, Error)]
 pub enum SdpAdapterError {
@@ -17,5 +17,5 @@ pub trait SdpAdapter<RuntimeServiceId>: Sized {
     async fn new(
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
     ) -> Result<Self, SdpAdapterError>;
-    async fn post_activity(&self, activity_proof: ActivityProof) -> Result<(), SdpAdapterError>;
+    async fn post_activity(&self, activity_proof: Opinions) -> Result<(), SdpAdapterError>;
 }

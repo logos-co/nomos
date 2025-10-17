@@ -612,17 +612,15 @@ where
             .handle_session_change(new_providers)
             .await
         {
-            Ok(metadata) => {
+            Ok(opinions) => {
                 tracing::debug!(
-                    "Generated opinions - session_id: {}, new_opinions: {}, old_opinions: {}, bytes {:?}",
-                    metadata.current_session,
-                    metadata.previous_session_opinions.len(),
-                    metadata.current_session_opinions.len(),
-                    metadata.to_metadata_bytes(),
+                    "Generated opinions - session_id: {}, new_opinions: {}, old_opinions: {}",
+                    opinions.current_session,
+                    opinions.previous_session_opinions.len(),
+                    opinions.current_session_opinions.len(),
                 );
 
-                //todo: sdp_adapter.post_activity(
-                //metadata.to_metadata_bytes()).await;
+                //todo: sdp_adapter.post_activity(opinions).await;
             }
             Err(OpinionError::InsufficientData) => {
                 tracing::debug!(

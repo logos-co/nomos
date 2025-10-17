@@ -289,23 +289,65 @@ impl WithdrawMessage {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
-pub struct ActiveMessage<Metadata> {
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+pub struct ActiveMessage {
     pub declaration_id: DeclarationId,
     pub nonce: Nonce,
-    pub metadata: Option<Metadata>,
+    pub metadata: Option<ActivityMetadata>,
 }
 
-impl<Metadata: AsRef<[u8]>> ActiveMessage<Metadata> {
+impl ActiveMessage {
     #[must_use]
     pub fn payload_bytes(&self) -> Bytes {
         let mut buff = BytesMut::new();
         buff.extend_from_slice(self.declaration_id.0.as_ref());
         buff.extend_from_slice(&(self.nonce.to_le_bytes()));
         if let Some(metadata) = &self.metadata {
-            buff.extend_from_slice(metadata.as_ref());
+            buff.extend_from_slice(&metadata.to_metadata_bytes());
         }
         buff.freeze()
+    }
+}
+
+const METADATA_VERSION_BYTE: u8 = 0x01;
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct DaActivityProof {
+    pub current_session: SessionNumber,
+    pub previous_session_opinions: Vec<u8>,
+    pub current_session_opinions: Vec<u8>,
+}
+
+impl DaActivityProof {
+    #[must_use]
+    pub fn to_metadata_bytes(&self) -> Vec<u8> {
+        let total_size = 1 // version byte
+            + size_of::<SessionNumber>()
+            + self.previous_session_opinions.len()
+            + self.current_session_opinions.len();
+
+        let mut bytes = Vec::with_capacity(total_size);
+        bytes.push(METADATA_VERSION_BYTE);
+        bytes.extend(&self.current_session.to_le_bytes());
+        bytes.extend(&self.previous_session_opinions);
+        bytes.extend(&self.current_session_opinions);
+        bytes
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum ActivityMetadata {
+    DataAvailability(DaActivityProof),
+    // Blend will add: Blend(BlendActivityProof),
+}
+
+impl ActivityMetadata {
+    #[must_use]
+    pub fn to_metadata_bytes(&self) -> Vec<u8> {
+        match self {
+            Self::DataAvailability(proof) => proof.to_metadata_bytes(),
+            // Future: ActivityMetadata::Blend(proof) => proof.to_metadata_bytes(),
+        }
     }
 }
 
@@ -323,13 +365,13 @@ pub struct Event {
     pub timestamp: BlockNumber,
 }
 
-pub enum SdpMessage<Metadata> {
+pub enum SdpMessage {
     Declare(Box<DeclarationMessage>),
-    Activity(ActiveMessage<Metadata>),
+    Activity(ActiveMessage),
     Withdraw(WithdrawMessage),
 }
 
-impl<Metadata> SdpMessage<Metadata> {
+impl SdpMessage {
     #[must_use]
     pub fn declaration_id(&self) -> DeclarationId {
         match self {
