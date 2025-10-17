@@ -452,7 +452,12 @@ where
                 cryptographic_processor.into_inner().take_verifier(),
             )?,
         ),
-        SessionEvent::TransitionPeriodExpired => Ok(cryptographic_processor),
+        SessionEvent::TransitionPeriodExpired => {
+            // TODO: Send an activity message to SDP service.
+            // Also, do it before this service is terminated before this event is
+            // detected.
+            Ok(cryptographic_processor)
+        }
     }
 }
 
@@ -531,6 +536,9 @@ fn handle_incoming_blend_message<
     }) else {
         return;
     };
+
+    // TODO: Collect a blend token.
+
     match decapsulated_message {
         DecapsulationOutput::Completed(fully_decapsulated_message) => {
             match fully_decapsulated_message.into_components() {
