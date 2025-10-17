@@ -2,7 +2,10 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use bitvec::prelude::*;
 use libp2p::PeerId;
-use nomos_core::{block::SessionNumber, sdp::ProviderId};
+use nomos_core::{
+    block::SessionNumber,
+    sdp::{ActivityMetadata, DaActivityProof, ProviderId},
+};
 use nomos_da_network_core::{
     SubnetworkId,
     protocols::sampling::opinions::{Opinion, OpinionEvent},
@@ -28,10 +31,23 @@ pub enum OpinionError {
     Error(#[from] DynError),
 }
 
+pub type OpinionsBitVec = BitVec<u8, Lsb0>;
+
 pub struct Opinions {
-    pub session_id: SessionNumber,
-    pub new_opinions: BitVec,
-    pub old_opinions: BitVec,
+    pub current_session: SessionNumber,
+    pub previous_session_opinions: OpinionsBitVec,
+    pub current_session_opinions: OpinionsBitVec,
+}
+
+impl From<Opinions> for ActivityMetadata {
+    fn from(opinions: Opinions) -> Self {
+        let proof = DaActivityProof {
+            current_session: opinions.current_session,
+            previous_session_opinions: bitvec_to_bytes(&opinions.previous_session_opinions),
+            current_session_opinions: bitvec_to_bytes(&opinions.current_session_opinions),
+        };
+        Self::DataAvailability(proof)
+    }
 }
 
 struct Membership {
@@ -273,9 +289,9 @@ where
         )?;
 
         Ok(Opinions {
-            session_id: current.session_id,
-            new_opinions,
-            old_opinions,
+            current_session: current.session_id,
+            previous_session_opinions: old_opinions,
+            current_session_opinions: new_opinions,
         })
     }
 
@@ -335,7 +351,7 @@ where
         negative: &HashMap<PeerId, u32>,
         provider_mappings: &HashMap<PeerId, ProviderId>,
         include_self: bool,
-    ) -> Result<BitVec, DynError> {
+    ) -> Result<OpinionsBitVec, DynError> {
         // BTreeMap so it is sorted
         let mut provider_opinions: BTreeMap<ProviderId, bool> = BTreeMap::new();
 
@@ -359,9 +375,13 @@ where
             provider_opinions.insert(provider_id, opinion);
         }
 
-        let bitvec: BitVec = provider_opinions.values().copied().collect();
+        let bitvec: OpinionsBitVec = provider_opinions.values().copied().collect();
         Ok(bitvec)
     }
+}
+
+fn bitvec_to_bytes(bv: &OpinionsBitVec) -> Vec<u8> {
+    bv.as_raw_slice().to_vec()
 }
 
 #[cfg(test)]
@@ -488,9 +508,9 @@ mod tests {
         let result = aggregator.handle_session_change(&subnet_peers_1).await;
         match result {
             Ok(opinions) => {
-                assert_eq!(opinions.session_id, 0);
-                assert_eq!(opinions.new_opinions.len(), peers.len());
-                assert_eq!(opinions.old_opinions.len(), 0); // No previous for session 0
+                assert_eq!(opinions.current_session, 0);
+                assert_eq!(opinions.current_session_opinions.len(), peers.len());
+                assert_eq!(opinions.previous_session_opinions.len(), 0); // No previous for session 0
             }
             Err(e) => panic!("Unexpected error: {e}"),
         }
@@ -515,9 +535,9 @@ mod tests {
         let result = aggregator.handle_session_change(&subnet_peers_2).await;
         match result {
             Ok(opinions) => {
-                assert_eq!(opinions.session_id, 1);
-                assert_eq!(opinions.new_opinions.len(), peers.len());
-                assert_eq!(opinions.old_opinions.len(), peers.len()); // Now has previous
+                assert_eq!(opinions.current_session, 1);
+                assert_eq!(opinions.previous_session_opinions.len(), peers.len()); // Now has previous
+                assert_eq!(opinions.current_session_opinions.len(), peers.len());
             }
             Err(e) => panic!("Unexpected error: {e}"),
         }
@@ -574,9 +594,9 @@ mod tests {
 
         match result {
             Ok(opinions) => {
-                assert_eq!(opinions.session_id, 4); // Should generate opinions for session 4
-                assert_eq!(opinions.new_opinions.len(), peers.len());
-                assert_eq!(opinions.old_opinions.len(), peers.len());
+                assert_eq!(opinions.current_session, 4); // Should generate opinions for session 4
+                assert_eq!(opinions.previous_session_opinions.len(), peers.len());
+                assert_eq!(opinions.current_session_opinions.len(), peers.len());
             }
             Err(e) => panic!("Unexpected error: {e}"),
         }
@@ -645,9 +665,9 @@ mod tests {
         let result = aggregator.handle_session_change(&subnet_peers_2).await;
         match result {
             Ok(opinions) => {
-                assert_eq!(opinions.session_id, 1);
-                assert_eq!(opinions.new_opinions.len(), peers.len()); // Session 1 was operational
-                assert_eq!(opinions.old_opinions.len(), peers.len()); // Session 0 was operational
+                assert_eq!(opinions.current_session, 1);
+                assert_eq!(opinions.current_session_opinions.len(), peers.len()); // Session 1 was operational
+                assert_eq!(opinions.previous_session_opinions.len(), peers.len()); // Session 0 was operational
             }
             Err(e) => panic!("Unexpected error: {e}"),
         }
@@ -671,11 +691,95 @@ mod tests {
         let result = aggregator.handle_session_change(&subnet_peers_3).await;
         match result {
             Ok(opinions) => {
-                assert_eq!(opinions.session_id, 2);
-                assert_eq!(opinions.new_opinions.len(), 0); // Session 2 was non-operational
-                assert_eq!(opinions.old_opinions.len(), peers.len()); // Session 1 was operational
+                assert_eq!(opinions.current_session, 2);
+                assert_eq!(opinions.current_session_opinions.len(), 0); // Session 2 was non-operational
+                assert_eq!(opinions.previous_session_opinions.len(), peers.len()); // Session 1 was operational
             }
             Err(e) => panic!("Unexpected error: {e}"),
         }
+    }
+
+    #[test]
+    fn test_bitvec_to_bytes_empty() {
+        let bv = BitVec::<u8, Lsb0>::new();
+        let bytes = bitvec_to_bytes(&bv);
+        assert_eq!(bytes, Vec::<u8>::new());
+    }
+
+    #[test]
+    fn test_bitvec_to_bytes_single_bit() {
+        let mut bv = BitVec::<u8, Lsb0>::new();
+        bv.push(true);
+        let bytes = bitvec_to_bytes(&bv);
+        assert_eq!(bytes, vec![0b0000_0001]);
+    }
+
+    #[test]
+    fn test_bitvec_to_bytes_partial_byte() {
+        let mut bv = BitVec::<u8, Lsb0>::new();
+        bv.push(true); // bit 0
+        bv.push(false); // bit 1
+        bv.push(true); // bit 2
+        bv.push(true); // bit 3
+        bv.push(false); // bit 4
+        // 5 bits total: 0b00001101 (LSB0: right to left)
+        let bytes = bitvec_to_bytes(&bv);
+        assert_eq!(bytes, vec![0b0000_1101]);
+
+        // Verify high bits are zero
+        assert_eq!(bytes[0] & 0b1110_0000, 0);
+    }
+
+    #[test]
+    fn test_bitvec_to_bytes_exact_byte() {
+        let mut bv = BitVec::<u8, Lsb0>::new();
+        for i in 0..8 {
+            bv.push(i % 2 == 0); // Alternating pattern
+        }
+        let bytes = bitvec_to_bytes(&bv);
+        assert_eq!(bytes.len(), 1);
+        assert_eq!(bytes, vec![0b0101_0101]); // LSB0: even positions set
+    }
+
+    #[test]
+    fn test_bitvec_to_bytes_multiple_bytes() {
+        let mut bv = BitVec::<u8, Lsb0>::new();
+        // First byte: all ones
+        for _ in 0..8 {
+            bv.push(true);
+        }
+        // Second byte: all zeros
+        for _ in 0..8 {
+            bv.push(false);
+        }
+        // Third byte: partial (3 bits)
+        bv.push(true);
+        bv.push(false);
+        bv.push(true);
+
+        let bytes = bitvec_to_bytes(&bv);
+        assert_eq!(bytes.len(), 3);
+        assert_eq!(bytes[0], 0xFF);
+        assert_eq!(bytes[1], 0x00);
+        assert_eq!(bytes[2], 0b0000_0101); // Only lower 3 bits used
+
+        // Verify high bits in last byte are zero
+        assert_eq!(bytes[2] & 0b1111_1000, 0);
+    }
+
+    #[test]
+    fn test_bitvec_to_bytes_large() {
+        let mut bv = BitVec::<u8, Lsb0>::new();
+        // Create 100 bits (12.5 bytes, so 13 bytes needed)
+        for i in 0..100 {
+            bv.push(i % 3 == 0);
+        }
+
+        let bytes = bitvec_to_bytes(&bv);
+        assert_eq!(bytes.len(), 13); // ceil(100/8) = 13
+
+        // Last byte should have only 4 bits used (100 % 8 = 4)
+        // Upper 4 bits should be zero
+        assert_eq!(bytes[12] & 0b1111_0000, 0);
     }
 }

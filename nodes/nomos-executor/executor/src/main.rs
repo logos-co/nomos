@@ -8,6 +8,7 @@ use nomos_node::{
     CryptarchiaLeaderArgs, HttpArgs, LogArgs, MANTLE_TOPIC, MempoolAdapterSettings, NetworkArgs,
     Transaction, config::BlendArgs,
 };
+use nomos_sdp::SdpSettings;
 use overwatch::overwatch::{Error as OverwatchError, Overwatch, OverwatchRunner};
 use tx_service::{processor::tx::SignedTxProcessorSettings, tx::settings::TxMempoolSettings};
 
@@ -97,7 +98,9 @@ async fn main() -> Result<()> {
             time: config.time,
             storage: config.storage,
             system_sig: (),
-            sdp: (),
+            sdp: SdpSettings {
+                declaration_id: None,
+            },
             membership: config.membership,
             wallet: config.wallet,
             #[cfg(feature = "testing")]

@@ -1,6 +1,6 @@
 use chain_leader::CryptarchiaLeader;
 use chain_service::{CryptarchiaConsensus, network::adapters::libp2p::LibP2pAdapter};
-use kzgrs_backend::{common::share::DaShare, dispersal::Metadata};
+use kzgrs_backend::common::share::DaShare;
 use nomos_core::{
     header::HeaderId,
     mantle::{SignedMantleTx, Transaction, TxHash},
@@ -143,18 +143,16 @@ pub type MembershipService<RuntimeServiceId> = nomos_membership_service::Members
     RuntimeServiceId,
 >;
 
-pub type MembershipSdp<RuntimeServiceId> =
-    LedgerSdpAdapter<MockSdpBackend, Metadata, RuntimeServiceId>;
+pub type MembershipSdp<RuntimeServiceId> = LedgerSdpAdapter<MockSdpBackend, RuntimeServiceId>;
 
 pub type DaMembershipAdapter<RuntimeServiceId> = MembershipServiceAdapter<
     MembershipBackend<RuntimeServiceId>,
-    LedgerSdpAdapter<MockSdpBackend, Metadata, RuntimeServiceId>,
+    LedgerSdpAdapter<MockSdpBackend, RuntimeServiceId>,
     MembershipStorageGeneric<RuntimeServiceId>,
     RuntimeServiceId,
 >;
 
-pub type SdpService<RuntimeServiceId> =
-    nomos_sdp::SdpService<MockSdpBackend, Metadata, RuntimeServiceId>;
+pub type SdpService<RuntimeServiceId> = nomos_sdp::SdpService<MockSdpBackend, RuntimeServiceId>;
 
 pub type DaMembershipStorageGeneric<RuntimeServiceId> =
     RocksAdapter<RocksBackend, RuntimeServiceId>;
