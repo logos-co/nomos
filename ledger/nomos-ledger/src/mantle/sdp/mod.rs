@@ -3,7 +3,6 @@ pub mod locked_notes;
 use std::collections::HashMap;
 
 use ed25519::{Signature as Ed25519Sig, signature::Verifier as _};
-#[cfg(feature = "serde")]
 use locked_notes::LockedNotes;
 use nomos_core::{
     block::BlockNumber,
