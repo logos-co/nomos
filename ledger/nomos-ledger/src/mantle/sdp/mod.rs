@@ -697,9 +697,9 @@ mod tests {
         }
 
         // Check DataAvailability is promoted to session 1
-        let active_session_b = sdp_ledger.get_active_session(service_a).unwrap();
+        let active_session_b = sdp_ledger.get_active_session(service_b).unwrap();
         assert_eq!(active_session_b.session_n, 1);
-        let forming_session_b = sdp_ledger.get_forming_session(service_a).unwrap();
+        let forming_session_b = sdp_ledger.get_forming_session(service_b).unwrap();
         assert_eq!(forming_session_b.session_n, 2);
 
         // Check BlendNetwork is still in session 0
