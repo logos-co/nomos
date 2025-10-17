@@ -10,10 +10,7 @@ use adapters::{
 };
 use backend::DispersalTask;
 use futures::{StreamExt as _, stream::FuturesUnordered};
-use nomos_core::mantle::{
-    AuthenticatedMantleTx as _, Op,
-    ops::channel::{ChannelId, MsgId},
-};
+use nomos_core::mantle::ops::channel::ChannelId;
 use nomos_da_network_core::{PeerId, SubnetworkId};
 use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
@@ -203,13 +200,7 @@ where
                         data,
                         reply_channel,
                     } = dispersal_msg;
-                    let last_tx = storage_adapter.last_tx(&channel_id);
-                    let parent_msg_id = last_tx.as_ref().map_or_else(MsgId::root, |tx| {
-                        let Some((Op::ChannelBlob(blob_op), _)) = tx.ops_with_proof().next() else {
-                            panic!("Previously sent transaction should have a blob operation");
-                        };
-                        blob_op.id()
-                    });
+                    let parent_msg_id = storage_adapter.last_tx_id(&channel_id);
                     match backend.process_dispersal(
                         channel_id,
                         parent_msg_id,
