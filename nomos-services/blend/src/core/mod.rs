@@ -331,7 +331,7 @@ where
             mut remaining_clock_stream,
         ) = async {
             let (clock_tick, remaining_clock_stream) =
-                UninitializedFirstReadyStream::new(clock_stream, Duration::from_secs(3))
+                UninitializedFirstReadyStream::new(clock_stream, Duration::from_secs(10))
                     .first()
                     .await
                     .expect("The clock system must be available.");
