@@ -17,7 +17,6 @@ use nomos_core::{
         ServiceType, SessionNumber,
     },
 };
-use serde::{Deserialize, Serialize};
 
 type Declarations = rpds::HashTrieMapSync<DeclarationId, Declaration>;
 
@@ -64,14 +63,14 @@ pub enum Error {
 }
 
 // State at the beginning of this session
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct SessionState {
     declarations: Declarations,
     session_n: u64,
 }
 
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ServiceState {
     // state of declarations at block b
@@ -204,7 +203,7 @@ impl ServiceState {
     }
 }
 
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SdpLedger {
     services: rpds::HashTrieMapSync<ServiceType, ServiceState>,
