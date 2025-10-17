@@ -1,4 +1,5 @@
 use ark_bn254::Fr;
+use ark_ff::AdditiveGroup;
 use ark_ff::Field as _;
 
 use crate::{Digest, Poseidon2Bn254};
@@ -90,7 +91,7 @@ mod tests {
             "14440562208246903332530876912784724937356723424375796042690034647976142142243",
         )
         .unwrap();
-        test_hasher(&[Fr::ZERO], expected_zero);
+        test_hasher(&[Fr::from(0)], expected_zero);
         // 1
         let expected_one = Fr::from_str(
             "13955187255749411516377601857453481686854514827536340092448578824571923228920",
@@ -109,7 +110,7 @@ mod tests {
         )
         .unwrap();
         test_hasher(
-            &[Fr::ZERO, Fr::ONE, Fr::from(BigUint::from(2u8))],
+            &[Fr::from(0), Fr::ONE, Fr::from(BigUint::from(2u8))],
             expected_two,
         );
     }

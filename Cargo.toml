@@ -129,6 +129,7 @@ zeroize                      = { default-features = false, features = ["zeroize_
 zksign                       = { default-features = false, path = "./zk/proofs/zksign" }
 
 # External
+ark-ff            = { default-features = false, version = "0.5" }
 blake2            = { default-features = false, version = "0.10" }
 bytes             = { default-features = false, version = "1.3" }
 cached            = { default-features = false, version = "0.55.1" }

@@ -18,7 +18,7 @@ pub struct Inputs {
 #[cfg(test)]
 impl Default for Inputs {
     fn default() -> Self {
-        use groth16::Field as _;
+        use ark_ff::fields::AdditiveGroup;
 
         Self {
             core_quota: u64::default(),

@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-use ark_ff::Field;
+use ark_ff::AdditiveGroup;
 #[cfg(feature = "serde")]
 use groth16::serde::serde_fr;
 use poseidon2::{Digest, Fr};
@@ -11,7 +11,7 @@ use rpds::RedBlackTreeSetSync;
 
 use crate::CompressedUtxoTree;
 
-const EMPTY_VALUE: Fr = <Fr as Field>::ZERO;
+const EMPTY_VALUE: Fr = Fr::ZERO;
 
 fn empty_subtree_root<Hash: Digest>(height: usize) -> Fr {
     static PRECOMPUTED_EMPTY_ROOTS: OnceLock<[Fr; 32]> = OnceLock::new();

@@ -5,7 +5,7 @@ use core::{
     ops::{Deref, DerefMut},
 };
 
-use groth16::Field as _;
+use ark_ff::fields::AdditiveGroup;
 use libp2p::{
     PeerId, StreamProtocol, Swarm,
     identity::{Keypair, ed25519::PublicKey},

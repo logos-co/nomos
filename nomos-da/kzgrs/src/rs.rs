@@ -1,12 +1,12 @@
 use std::ops::{Mul as _, Neg as _};
 
 use ark_bls12_381::Fr;
+use ark_ec::AdditiveGroup;
 use ark_ff::{BigInteger as _, Field as _, PrimeField as _};
 use ark_poly::{
     DenseUVPolynomial as _, EvaluationDomain as _, Evaluations, GeneralEvaluationDomain,
     univariate::DensePolynomial,
 };
-use num_traits::Zero as _;
 
 /// Extend a polynomial over some factor `polynomial.len()*factor` and return
 /// the original points plus the extra ones.
@@ -57,7 +57,7 @@ pub fn decode(
 #[must_use]
 pub fn lagrange_interpolate(points: &[Fr], roots_of_unity: &[Fr]) -> DensePolynomial<Fr> {
     assert_eq!(points.len(), roots_of_unity.len());
-    let mut result = DensePolynomial::from_coefficients_vec(vec![Fr::zero()]);
+    let mut result = DensePolynomial::from_coefficients_vec(vec![Fr::ZERO]);
     for i in 0..roots_of_unity.len() {
         let mut summand = DensePolynomial::from_coefficients_vec(vec![points[i]]);
         for j in 0..points.len() {

@@ -1,3 +1,4 @@
+use ark_ff::fields::AdditiveGroup;
 use groth16::{Field as _, Fr, Groth16Input, Groth16InputDeser};
 use serde::{Deserialize, Serialize};
 

@@ -1,3 +1,4 @@
+use ark_ff::fields::AdditiveGroup;
 use const_hex::FromHex as _;
 use groth16::{Field as _, fr_from_bytes_unchecked};
 use nomos_core::crypto::ZkHash;

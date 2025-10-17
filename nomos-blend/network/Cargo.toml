@@ -8,6 +8,7 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
+ark-ff                 = { workspace = true }
 either                 = { default-features = false, version = "1.15.0" }
 futures                = { default-features = false, version = "0.3.30" }
 futures-timer          = { version = "3.0.3" }

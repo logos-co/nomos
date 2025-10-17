@@ -5,6 +5,7 @@ name    = "poq"
 version = "0.1.0"
 
 [dependencies]
+ark-ff            = { workspace = true }
 circuits-prover   = { workspace = true }
 circuits-utils    = { workspace = true }
 groth16           = { features = ["deser"], workspace = true }

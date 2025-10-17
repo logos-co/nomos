@@ -1,6 +1,6 @@
 use std::sync::OnceLock;
 
-use ark_ff::Field as _;
+use ark_ff::AdditiveGroup;
 #[cfg(feature = "serde")]
 use groth16::serde::serde_fr;
 use poseidon2::{Digest, Fr};

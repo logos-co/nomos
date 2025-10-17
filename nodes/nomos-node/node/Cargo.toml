@@ -15,6 +15,7 @@ ignored = [
 workspace = true
 
 [dependencies]
+ark-ff                   = { workspace = true }
 async-trait              = "0.1"
 broadcast-service        = { workspace = true }
 chain-leader             = { workspace = true }

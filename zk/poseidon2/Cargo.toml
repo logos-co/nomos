@@ -5,11 +5,11 @@ name    = "poseidon2"
 version = "0.1.0"
 
 [dependencies]
-ark-bn254 = { default-features = false, features = ["scalar_field"], version = "0.4" }
-ark-ff = "0.4"
+ark-bn254 = { default-features = false, features = ["scalar_field"], version = "0.5" }
+ark-ff = { workspace = true }
 jf-poseidon2 = { default-features = false, features = [
   "bn254",
-], git = "https://github.com/EspressoSystems/jellyfish.git", rev = "dc166cf0f803c3e5067f9dfcc21e3dade986a447" }
+], git = "https://github.com/EspressoSystems/jellyfish.git", rev = "07495375c1fd2c51b4239192959ecd06d43ecf29" }
 num-bigint = { default-features = false, version = "0.4" }
 
 [lints]

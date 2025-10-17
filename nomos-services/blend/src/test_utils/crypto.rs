@@ -1,5 +1,6 @@
 use core::convert::Infallible;
 
+use ark_ff::fields::AdditiveGroup;
 use async_trait::async_trait;
 use nomos_blend_message::{
     crypto::{
@@ -29,8 +30,6 @@ impl ProofsVerifier for MockProofsVerifier {
         _proof: ProofOfQuota,
         _inputs: &PublicInputs,
     ) -> Result<ZkHash, Self::Error> {
-        use groth16::Field as _;
-
         Ok(ZkHash::ZERO)
     }
 

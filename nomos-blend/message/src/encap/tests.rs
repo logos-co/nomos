@@ -21,6 +21,7 @@ use crate::{
     input::{EncapsulationInput, EncapsulationInputs},
     message::payload::MAX_PAYLOAD_BODY_SIZE,
 };
+use ark_ff::fields::AdditiveGroup;
 
 const ENCAPSULATION_COUNT: usize = 3;
 
@@ -38,8 +39,6 @@ impl ProofsVerifier for NeverFailingProofsVerifier {
         _proof: ProofOfQuota,
         _inputs: &PublicInputs,
     ) -> Result<ZkHash, Self::Error> {
-        use groth16::Field as _;
-
         Ok(ZkHash::ZERO)
     }
 
@@ -92,8 +91,6 @@ impl ProofsVerifier for AlwaysFailingProofOfSelectionVerifier {
         _proof: ProofOfQuota,
         _inputs: &PublicInputs,
     ) -> Result<ZkHash, Self::Error> {
-        use groth16::Field as _;
-
         Ok(ZkHash::ZERO)
     }
 
