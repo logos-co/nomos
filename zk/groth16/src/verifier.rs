@@ -63,9 +63,7 @@ pub fn groth16_batch_verify(
     g1_terms.push(batched_pi_c);
     g2_terms.push(vk.vk.delta_g2_neg_pc.clone());
 
-    let qap = Bn254::multi_miller_loop(g1_terms, g2_terms);
-
-    let test = Bn254::final_exponentiation(qap).ok_or(SynthesisError::UnexpectedIdentity)?;
+    let test = Bn254::multi_pairing(g1_terms, g2_terms);
     Ok(test.0.is_one())
 }
 
