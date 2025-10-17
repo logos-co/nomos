@@ -15,7 +15,7 @@ use nomos_core::{header::HeaderId, mantle::TxHash};
 
 #[async_trait]
 pub trait StorageChainApi {
-    type Error: Error + Send + Sync + 'static;
+    type Error: Error + Send + Sync + std::fmt::Debug + 'static;
     type Block: Send + Sync;
     type Tx: Send + Sync;
 

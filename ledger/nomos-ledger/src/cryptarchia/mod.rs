@@ -195,46 +195,16 @@ impl LedgerState {
     }
 
     pub fn try_apply_tx<Id, Constants: GasConstants>(
-        mut self,
+        self,
         locked_notes: &LockedNotes,
         tx: impl AuthenticatedMantleTx,
     ) -> Result<(Self, Balance), LedgerError<Id>> {
-        let mut balance: i128 = 0;
-        let mut pks: Vec<Fr> = vec![];
-        let ledger_tx = &tx.mantle_tx().ledger_tx;
-        for input in &ledger_tx.inputs {
-            if locked_notes.contains(input) {
-                return Err(LedgerError::LockedNote(*input));
-            }
-            let utxo;
-            (self.utxos, utxo) = self
-                .utxos
-                .remove(input)
-                .map_err(|_| LedgerError::InvalidNote(*input))?;
-            balance = balance
-                .checked_add(utxo.note.value.into())
-                .ok_or(LedgerError::Overflow)?;
-            pks.push(utxo.note.pk.into());
-        }
+        let expected_balance = self.validate_tx::<Id, Constants>(locked_notes, &tx)?;
+        let (new_state, apply_balance) = self.apply_tx_unchecked::<Id, Constants>(&tx)?;
 
-        if !tx.ledger_tx_proof().verify(&ZkSignaturePublic {
-            pks,
-            msg_hash: tx.hash().into(),
-        }) {
-            return Err(LedgerError::InvalidProof);
-        }
+        debug_assert_eq!(expected_balance, apply_balance);
 
-        for utxo in ledger_tx.utxos() {
-            if utxo.note.value == 0 {
-                return Err(LedgerError::ZeroValueNote);
-            }
-            balance = balance
-                .checked_sub(utxo.note.value.into())
-                .ok_or(LedgerError::Overflow)?;
-            self.utxos = self.utxos.insert(utxo.id(), utxo).0;
-        }
-
-        Ok((self, balance))
+        Ok((new_state, apply_balance))
     }
 
     fn update_nonce(self, contrib: &Fr, slot: Slot) -> Self {
@@ -320,6 +290,84 @@ impl LedgerState {
                 total_stake,
             },
         }
+    }
+
+    /// Read-only validation of a transaction without modifying state
+    pub fn validate_tx<Id, Constants: GasConstants>(
+        &self,
+        locked_notes: &LockedNotes,
+        tx: &impl AuthenticatedMantleTx,
+    ) -> Result<Balance, LedgerError<Id>> {
+        let mut balance: i128 = 0;
+        let mut pks: Vec<Fr> = vec![];
+        let mut seen_inputs = std::collections::HashSet::new();
+        let ledger_tx = &tx.mantle_tx().ledger_tx;
+
+        for input in &ledger_tx.inputs {
+            if !seen_inputs.insert(*input) {
+                return Err(LedgerError::DuplicateInput(*input));
+            }
+
+            if locked_notes.contains(input) {
+                return Err(LedgerError::LockedNote(*input));
+            }
+
+            let Some((utxo, _)) = self.utxos.utxos().get(input) else {
+                return Err(LedgerError::InvalidNote(*input));
+            };
+            balance = balance
+                .checked_add(utxo.note.value.into())
+                .ok_or(LedgerError::Overflow)?;
+            pks.push(utxo.note.pk.into());
+        }
+
+        if !tx.ledger_tx_proof().verify(&ZkSignaturePublic {
+            pks,
+            msg_hash: tx.hash().into(),
+        }) {
+            return Err(LedgerError::InvalidProof);
+        }
+
+        for utxo in ledger_tx.utxos() {
+            if utxo.note.value == 0 {
+                return Err(LedgerError::ZeroValueNote);
+            }
+            balance = balance
+                .checked_sub(utxo.note.value.into())
+                .ok_or(LedgerError::Overflow)?;
+        }
+
+        Ok(balance)
+    }
+
+    /// Apply transaction without validation (validation should be done
+    /// separately)
+    pub fn apply_tx_unchecked<Id, Constants: GasConstants>(
+        mut self,
+        tx: &impl AuthenticatedMantleTx,
+    ) -> Result<(Self, Balance), LedgerError<Id>> {
+        let mut balance: i128 = 0;
+        let ledger_tx = &tx.mantle_tx().ledger_tx;
+
+        for input in &ledger_tx.inputs {
+            let (new_utxos, utxo) = self
+                .utxos
+                .remove(input)
+                .map_err(|_| LedgerError::InvalidNote(*input))?;
+            self.utxos = new_utxos;
+            balance = balance
+                .checked_add(utxo.note.value.into())
+                .ok_or(LedgerError::Overflow)?;
+        }
+
+        for utxo in ledger_tx.utxos() {
+            balance = balance
+                .checked_sub(utxo.note.value.into())
+                .ok_or(LedgerError::Overflow)?;
+            self.utxos = self.utxos.insert(utxo.id(), utxo).0;
+        }
+
+        Ok((self, balance))
     }
 }
 

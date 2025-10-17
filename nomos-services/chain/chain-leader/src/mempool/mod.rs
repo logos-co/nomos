@@ -12,4 +12,9 @@ pub trait MempoolAdapter<Tx>: Send + Sync {
         &self,
         ancestor_hint: HeaderId,
     ) -> Result<Pin<Box<dyn Stream<Item = Tx> + Send>>, overwatch::DynError>;
+
+    async fn remove_transactions(
+        &self,
+        ids: &[nomos_core::mantle::TxHash],
+    ) -> Result<(), overwatch::DynError>;
 }
