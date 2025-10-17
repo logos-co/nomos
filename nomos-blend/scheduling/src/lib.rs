@@ -7,7 +7,8 @@ pub use message_blend::crypto::{
 };
 pub mod message_scheduler;
 pub use message_scheduler::MessageScheduler;
-mod serde;
+pub mod stream;
 
 mod cover_traffic;
 mod release_delayer;
+mod serde;

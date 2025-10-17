@@ -65,7 +65,7 @@ impl ProofType {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProofOfCoreQuotaInputs {
     pub core_sk: ZkHash,
     pub core_path_and_selectors: CorePathAndSelectors,
@@ -77,7 +77,7 @@ impl From<ProofOfCoreQuotaInputs> for ProofType {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProofOfLeadershipQuotaInputs {
     pub slot: u64,
     pub note_value: u64,

@@ -10,12 +10,14 @@ use libp2p::{
     swarm::{ConnectionId, NotifyHandler, ToSwarm},
 };
 use nomos_blend_message::{
-    MessageIdentifier,
-    encap::{self, encapsulated::PoQVerificationInputMinusSigningKey},
+    MessageIdentifier, crypto::proofs::quota::inputs::prove::public::LeaderInputs, encap,
 };
 use nomos_blend_scheduling::{
-    deserialize_encapsulated_message,
-    message_blend::crypto::OutgoingEncapsulatedMessageWithValidatedPublicHeader,
+    EncapsulatedMessage, deserialize_encapsulated_message,
+    message_blend::crypto::{
+        IncomingEncapsulatedMessageWithValidatedPublicHeader,
+        OutgoingEncapsulatedMessageWithValidatedPublicHeader,
+    },
     serialize_encapsulated_message,
 };
 
@@ -31,8 +33,29 @@ pub struct OldSession<ProofsVerifier> {
     exchanged_message_identifiers: HashMap<PeerId, HashSet<MessageIdentifier>>,
     events: VecDeque<ToSwarm<Event, Either<FromBehaviour, Infallible>>>,
     waker: Option<Waker>,
-    poq_verification_inputs: PoQVerificationInputMinusSigningKey,
     poq_verifier: ProofsVerifier,
+}
+
+impl<ProofsVerifier> OldSession<ProofsVerifier>
+where
+    ProofsVerifier: encap::ProofsVerifier,
+{
+    pub fn verify_encapsulated_message_public_header(
+        &self,
+        message: EncapsulatedMessage,
+    ) -> Result<IncomingEncapsulatedMessageWithValidatedPublicHeader, Error> {
+        message
+            .verify_public_header(&self.poq_verifier)
+            .map_err(|_| Error::InvalidMessage)
+    }
+
+    pub(super) fn start_new_epoch(&mut self, new_pol_inputs: LeaderInputs) {
+        self.poq_verifier.start_epoch_transition(new_pol_inputs);
+    }
+
+    pub(super) fn finish_epoch_transition(&mut self) {
+        self.poq_verifier.complete_epoch_transition();
+    }
 }
 
 impl<ProofsVerifier> OldSession<ProofsVerifier> {
@@ -40,7 +63,6 @@ impl<ProofsVerifier> OldSession<ProofsVerifier> {
     pub const fn new(
         negotiated_peers: HashMap<PeerId, ConnectionId>,
         exchanged_message_identifiers: HashMap<PeerId, HashSet<MessageIdentifier>>,
-        poq_verification_inputs: PoQVerificationInputMinusSigningKey,
         poq_verifier: ProofsVerifier,
     ) -> Self {
         Self {
@@ -48,7 +70,6 @@ impl<ProofsVerifier> OldSession<ProofsVerifier> {
             exchanged_message_identifiers,
             events: VecDeque::new(),
             waker: None,
-            poq_verification_inputs,
             poq_verifier,
         }
     }
@@ -215,9 +236,8 @@ where
         )?;
 
         // Verify the message public header
-        let validated_message = deserialized_encapsulated_message
-            .verify_public_header(&self.poq_verification_inputs, &self.poq_verifier)
-            .map_err(|_| Error::InvalidMessage)?;
+        let validated_message =
+            self.verify_encapsulated_message_public_header(deserialized_encapsulated_message)?;
 
         // Notify the swarm about the received message, so that it can be further
         // processed by the core protocol module.

@@ -18,6 +18,7 @@ use crate::{
             MessageComponents, NetworkBackendOfService, ServiceComponents as CoreServiceComponents,
         },
     },
+    membership::MembershipInfo,
     modes::{self, BroadcastMode, CoreMode, EdgeMode},
 };
 
@@ -135,12 +136,12 @@ where
     /// Handles a session event, potentially causing a mode transition.
     pub async fn handle_session_event(
         self,
-        event: SessionEvent<Membership<CoreService::NodeId>>,
+        event: SessionEvent<MembershipInfo<CoreService::NodeId>>,
         overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
         minimal_network_size: usize,
     ) -> Result<Self, modes::Error> {
         match event {
-            SessionEvent::NewSession(membership) => {
+            SessionEvent::NewSession(MembershipInfo { membership, .. }) => {
                 self.transition(
                     Mode::choose(&membership, minimal_network_size),
                     overwatch_handle,
@@ -297,9 +298,11 @@ impl Mode {
 mod tests {
     use std::time::Duration;
 
+    use groth16::Field as _;
     use libp2p::Multiaddr;
     use nomos_blend_message::crypto::keys::{Ed25519PrivateKey, Ed25519PublicKey};
     use nomos_blend_scheduling::membership::Node;
+    use nomos_core::crypto::ZkHash;
     use nomos_network::config::NetworkConfig;
     use overwatch::{
         DynError, OpaqueServiceResourcesHandle,
@@ -506,7 +509,11 @@ mod tests {
             let instance = instance
                 .handle_session_event(
                     // With an empty membership smaller than the minimal size.
-                    SessionEvent::NewSession(membership(&[], local_node)),
+                    SessionEvent::NewSession(MembershipInfo {
+                        membership: membership(&[], local_node),
+                        session_number: 1,
+                        zk_root: ZkHash::ZERO,
+                    }),
                     handle,
                     minimal_network_size,
                 )
@@ -528,7 +535,11 @@ mod tests {
             // Broadcast -> Edge
             let instance = instance
                 .handle_session_event(
-                    SessionEvent::NewSession(membership(&[1], local_node)),
+                    SessionEvent::NewSession(MembershipInfo {
+                        membership: membership(&[1], local_node),
+                        session_number: 1,
+                        zk_root: ZkHash::ZERO,
+                    }),
                     handle,
                     minimal_network_size,
                 )
@@ -539,7 +550,11 @@ mod tests {
             // Edge -> Edge (stay)
             let instance = instance
                 .handle_session_event(
-                    SessionEvent::NewSession(membership(&[1], local_node)),
+                    SessionEvent::NewSession(MembershipInfo {
+                        membership: membership(&[1], local_node),
+                        session_number: 1,
+                        zk_root: ZkHash::ZERO,
+                    }),
                     handle,
                     minimal_network_size,
                 )
@@ -550,7 +565,11 @@ mod tests {
             // Edge -> Core
             let instance = instance
                 .handle_session_event(
-                    SessionEvent::NewSession(membership(&[1], 1)),
+                    SessionEvent::NewSession(MembershipInfo {
+                        membership: membership(&[1], 1),
+                        session_number: 1,
+                        zk_root: ZkHash::ZERO,
+                    }),
                     handle,
                     minimal_network_size,
                 )

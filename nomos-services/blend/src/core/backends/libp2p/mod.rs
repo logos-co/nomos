@@ -6,7 +6,10 @@ use futures::{
     future::{AbortHandle, Abortable},
 };
 use libp2p::PeerId;
-use nomos_blend_message::encap::ProofsVerifier as ProofsVerifierTrait;
+use nomos_blend_message::{
+    crypto::proofs::quota::inputs::prove::public::LeaderInputs,
+    encap::ProofsVerifier as ProofsVerifierTrait,
+};
 use nomos_blend_scheduling::{
     EncapsulatedMessage,
     message_blend::crypto::IncomingEncapsulatedMessageWithValidatedPublicHeader,
@@ -64,11 +67,10 @@ where
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
         SessionInfo {
             membership: current_membership,
-            poq_verification_inputs: current_poq_verification_inputs,
+            poq_verification_inputs,
         }: SessionInfo<PeerId>,
         session_stream: SessionStream<PeerId>,
         rng: Rng,
-        proofs_verifier: ProofsVerifier,
     ) -> Self {
         let (swarm_message_sender, swarm_message_receiver) = mpsc::channel(CHANNEL_SIZE);
         let (incoming_message_sender, _) = broadcast::channel(CHANNEL_SIZE);
@@ -78,10 +80,9 @@ where
             BlendSwarm::<_, _, _, ObservationWindowTokioIntervalProvider>::new(SwarmParams {
                 config: &config,
                 current_membership,
-                current_poq_verification_inputs,
                 incoming_message_sender: incoming_message_sender.clone(),
                 minimum_network_size,
-                proofs_verifier,
+                proofs_verifier: ProofsVerifier::new(poq_verification_inputs),
                 rng,
                 session_stream,
                 swarm_message_receiver,
@@ -106,10 +107,30 @@ where
     async fn publish(&self, msg: EncapsulatedMessage) {
         if let Err(e) = self
             .swarm_message_sender
-            .send(BlendSwarmMessage::Publish(msg))
+            .send(BlendSwarmMessage::Publish(Box::new(msg)))
             .await
         {
             tracing::error!(target: LOG_TARGET, "Failed to send message to BlendSwarm: {e}");
+        }
+    }
+
+    async fn rotate_epoch(&mut self, new_epoch_public_info: LeaderInputs) {
+        if let Err(e) = self
+            .swarm_message_sender
+            .send(BlendSwarmMessage::StartNewEpoch(new_epoch_public_info))
+            .await
+        {
+            tracing::error!(target: LOG_TARGET, "Failed to send new public epoch info to BlendSwarm: {e}");
+        }
+    }
+
+    async fn complete_epoch_transition(&mut self) {
+        if let Err(e) = self
+            .swarm_message_sender
+            .send(BlendSwarmMessage::CompleteEpochTransition)
+            .await
+        {
+            tracing::error!(target: LOG_TARGET, "Failed to send epoch transition termination command to BlendSwarm: {e}");
         }
     }
 

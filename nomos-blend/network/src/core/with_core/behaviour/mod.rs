@@ -1,4 +1,7 @@
-use core::{mem, num::NonZeroUsize};
+use core::{
+    mem::{self, swap},
+    num::NonZeroUsize,
+};
 use std::{
     collections::{HashMap, HashSet, VecDeque, hash_map::Entry},
     convert::Infallible,
@@ -18,8 +21,7 @@ use libp2p::{
     },
 };
 use nomos_blend_message::{
-    MessageIdentifier,
-    encap::{self, encapsulated::PoQVerificationInputMinusSigningKey},
+    MessageIdentifier, crypto::proofs::quota::inputs::prove::public::LeaderInputs, encap,
 };
 use nomos_blend_scheduling::{
     EncapsulatedMessage, deserialize_encapsulated_message,
@@ -125,12 +127,9 @@ pub struct Behaviour<ProofsVerifier, ObservationWindowClockProvider> {
     /// States for processing messages from the old session
     /// before the transition period has passed.
     old_session: Option<OldSession<ProofsVerifier>>,
-    /// The public inputs to use when verifying incoming messages' `PoQ`s. They
-    /// are updated on every session change.
-    session_poq_verification_inputs: PoQVerificationInputMinusSigningKey,
-    /// Verifier of the incoming messages' `PoQ`s that uses the
-    /// `session_poq_verification_inputs` public inputs for verification. This
-    /// is set on initialization and does not change across sessions.
+    /// Verifier of the incoming messages' `PoQ`s. This is updated once per
+    /// session, with the old one ending up in the old session until the
+    /// transition period has elapsed.
     poq_verifier: ProofsVerifier,
 }
 
@@ -201,7 +200,6 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
         current_membership: Option<Membership<PeerId>>,
         local_peer_id: PeerId,
         protocol_name: StreamProtocol,
-        current_poq_verification_inputs: PoQVerificationInputMinusSigningKey,
         poq_verifier: ProofsVerifier,
     ) -> Self {
         Self {
@@ -222,12 +220,37 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
             protocol_name,
             minimum_network_size: config.minimum_network_size,
             old_session: None,
-            session_poq_verification_inputs: current_poq_verification_inputs,
             poq_verifier,
         }
     }
 
-    pub fn finish_session_transition(&mut self) {
+    pub(crate) fn start_new_session(
+        &mut self,
+        new_membership: Membership<PeerId>,
+        new_verifier: ProofsVerifier,
+    ) {
+        self.connections_waiting_upgrade.clear();
+        self.current_membership = Some(new_membership);
+
+        self.stop_old_session();
+
+        let old_verifier = {
+            let mut new_verifier = new_verifier;
+            swap(&mut new_verifier, &mut self.poq_verifier);
+            new_verifier
+        };
+
+        self.old_session = Some(OldSession::new(
+            mem::take(&mut self.negotiated_peers)
+                .into_iter()
+                .map(|(peer_id, details)| (peer_id, details.connection_id))
+                .collect(),
+            mem::take(&mut self.exchanged_message_identifiers),
+            old_verifier,
+        ));
+    }
+
+    pub(crate) fn finish_session_transition(&mut self) {
         self.stop_old_session();
     }
 
@@ -752,37 +775,6 @@ fn update_connection_id_and_direction(
 impl<ProofsVerifier, ObservationWindowClockProvider>
     Behaviour<ProofsVerifier, ObservationWindowClockProvider>
 where
-    ProofsVerifier: Clone,
-{
-    pub fn start_new_session(
-        &mut self,
-        new_membership: Membership<PeerId>,
-        new_poq_verification_inputs: PoQVerificationInputMinusSigningKey,
-    ) {
-        self.connections_waiting_upgrade.clear();
-        self.current_membership = Some(new_membership);
-        let (old_poq_verification_inputs, new_poq_verification_inputs) = (
-            self.session_poq_verification_inputs,
-            new_poq_verification_inputs,
-        );
-
-        self.stop_old_session();
-        self.old_session = Some(OldSession::new(
-            mem::take(&mut self.negotiated_peers)
-                .into_iter()
-                .map(|(peer_id, details)| (peer_id, details.connection_id))
-                .collect(),
-            mem::take(&mut self.exchanged_message_identifiers),
-            old_poq_verification_inputs,
-            self.poq_verifier.clone(),
-        ));
-        self.session_poq_verification_inputs = new_poq_verification_inputs;
-    }
-}
-
-impl<ProofsVerifier, ObservationWindowClockProvider>
-    Behaviour<ProofsVerifier, ObservationWindowClockProvider>
-where
     ProofsVerifier: encap::ProofsVerifier,
 {
     /// Publish an already-encapsulated message to all connected peers.
@@ -793,11 +785,29 @@ where
         &mut self,
         message: EncapsulatedMessage,
     ) -> Result<(), Error> {
-        let validated_message = message
-            .verify_public_header(&self.session_poq_verification_inputs, &self.poq_verifier)
+        let validated_message = self
+            .validate_encapsulated_message_public_header(message)
             .map_err(|_| Error::InvalidMessage)?;
         self.forward_validated_message_and_maybe_exclude(&validated_message.into(), None)?;
         Ok(())
+    }
+
+    // Try to validate an encapsulated public header with the current session
+    // verifier, and on fail if tries with with previous one, if the session
+    // transition period is not over yet.
+    fn validate_encapsulated_message_public_header(
+        &self,
+        message: EncapsulatedMessage,
+    ) -> Result<IncomingEncapsulatedMessageWithValidatedPublicHeader, Error> {
+        message
+            .clone()
+            .verify_public_header(&self.poq_verifier)
+            .or_else(|_| {
+                let Some(old_session) = &self.old_session else {
+                    return Err(Error::InvalidMessage);
+                };
+                old_session.verify_encapsulated_message_public_header(message)
+            })
     }
 
     fn handle_received_serialized_encapsulated_message(
@@ -846,8 +856,8 @@ where
             return;
         };
         // Verify the message public header, or else mark the peer as malicious: https://www.notion.so/nomos-tech/Blend-Protocol-Version-1-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81859cebf5e3d2a5cd8f.
-        let Ok(validated_message) = deserialized_encapsulated_message
-            .verify_public_header(&self.session_poq_verification_inputs, &self.poq_verifier)
+        let Ok(validated_message) =
+            self.validate_encapsulated_message_public_header(deserialized_encapsulated_message)
         else {
             tracing::debug!(target: LOG_TARGET, "Neighbor sent us a message with an invalid public header. Marking it as spammy.");
             self.close_spammy_connection(
@@ -864,6 +874,24 @@ where
             (from_peer_id, from_connection_id),
         )));
         self.try_wake();
+    }
+
+    /// Instruct both current and past session proof verifier (if present) of a
+    /// new epoch.
+    pub(crate) fn start_new_epoch(&mut self, new_pol_inputs: LeaderInputs) {
+        self.poq_verifier.start_epoch_transition(new_pol_inputs);
+        if let Some(old_session) = &mut self.old_session {
+            old_session.start_new_epoch(new_pol_inputs);
+        }
+    }
+
+    /// Instruct both current and past session proof verifier (if present) that
+    /// the epoch transition period is over.
+    pub(crate) fn finish_epoch_transition(&mut self) {
+        self.poq_verifier.complete_epoch_transition();
+        if let Some(old_session) = &mut self.old_session {
+            old_session.finish_epoch_transition();
+        }
     }
 }
 

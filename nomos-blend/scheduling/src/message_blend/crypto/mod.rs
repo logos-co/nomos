@@ -14,10 +14,16 @@ use nomos_blend_message::{
 };
 use nomos_core::codec::{DeserializeOp as _, SerializeOp as _};
 
-pub mod send;
-pub use self::send::SessionCryptographicProcessor as SenderOnlySessionCryptographicProcessor;
-pub mod send_and_receive;
-pub use self::send_and_receive::SessionCryptographicProcessor as SendAndReceiveSessionCryptographicProcessor;
+pub mod core_and_leader;
+pub use self::core_and_leader::{
+    send::SessionCryptographicProcessor as CoreAndLeaderSenderOnlySessionCryptographicProcessor,
+    send_and_receive::SessionCryptographicProcessor as CoreAndLeaderSendAndReceiveSessionCryptographicProcessor,
+};
+pub mod leader;
+pub use self::leader::send::SessionCryptographicProcessor as LeaderSenderOnlySessionCryptographicProcessor;
+
+#[cfg(test)]
+mod test_utils;
 
 const ENCAPSULATION_COUNT: usize = 3;
 pub type EncapsulatedMessage = InternalEncapsulatedMessage<ENCAPSULATION_COUNT>;

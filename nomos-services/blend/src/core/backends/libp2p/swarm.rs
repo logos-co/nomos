@@ -12,8 +12,9 @@ use libp2p::{
     Multiaddr, PeerId, Swarm, SwarmBuilder,
     swarm::{ConnectionId, dial_opts::PeerCondition},
 };
-use nomos_blend_message::encap::{
-    ProofsVerifier as ProofsVerifierTrait, encapsulated::PoQVerificationInputMinusSigningKey,
+use nomos_blend_message::{
+    crypto::proofs::quota::inputs::prove::public::LeaderInputs,
+    encap::ProofsVerifier as ProofsVerifierTrait,
 };
 use nomos_blend_network::core::{
     NetworkBehaviourEvent,
@@ -46,7 +47,9 @@ use crate::core::{
 
 #[derive(Debug)]
 pub enum BlendSwarmMessage {
-    Publish(EncapsulatedMessage),
+    Publish(Box<EncapsulatedMessage>),
+    StartNewEpoch(LeaderInputs),
+    CompleteEpochTransition,
 }
 
 pub struct DialAttempt {
@@ -94,7 +97,6 @@ pub struct SwarmParams<'config, SessionStream, Rng, ProofsVerifier> {
     pub incoming_message_sender:
         broadcast::Sender<IncomingEncapsulatedMessageWithValidatedPublicHeader>,
     pub minimum_network_size: NonZeroUsize,
-    pub current_poq_verification_inputs: PoQVerificationInputMinusSigningKey,
     pub proofs_verifier: ProofsVerifier,
 }
 
@@ -118,7 +120,6 @@ where
             swarm_message_receiver: swarm_messages_receiver,
             incoming_message_sender,
             minimum_network_size,
-            current_poq_verification_inputs,
             proofs_verifier,
         }: SwarmParams<SessionStream, Rng, ProofsVerifier>,
     ) -> Self {
@@ -128,12 +129,7 @@ where
             .with_tokio()
             .with_quic()
             .with_behaviour(|_| {
-                BlendBehaviour::new(
-                    config,
-                    current_membership.clone(),
-                    current_poq_verification_inputs,
-                    proofs_verifier,
-                )
+                BlendBehaviour::new(config, current_membership.clone(), proofs_verifier)
             })
             .expect("Blend Behaviour should be built")
             .with_swarm_config(|cfg| {
@@ -417,7 +413,16 @@ where
     fn handle_swarm_message(&mut self, msg: BlendSwarmMessage) {
         match msg {
             BlendSwarmMessage::Publish(msg) => {
-                self.handle_publish_swarm_message(msg);
+                self.handle_publish_swarm_message(*msg);
+            }
+            BlendSwarmMessage::StartNewEpoch(new_epoch_public) => {
+                self.swarm
+                    .behaviour_mut()
+                    .blend
+                    .start_new_epoch(new_epoch_public);
+            }
+            BlendSwarmMessage::CompleteEpochTransition => {
+                self.swarm.behaviour_mut().blend.finish_epoch_transition();
             }
         }
     }
@@ -566,11 +571,10 @@ where
                 match event {
                     SessionEvent::NewSession(SessionInfo { membership, poq_verification_inputs }) => {
                         self.latest_session_info = membership.clone();
-                        self.swarm.behaviour_mut().blend.with_core_mut().start_new_session(membership.clone(), poq_verification_inputs);
-                        self.swarm.behaviour_mut().blend.with_edge_mut().start_new_session(membership, poq_verification_inputs);
+                        self.swarm.behaviour_mut().blend.start_new_session(membership, ProofsVerifier::new(poq_verification_inputs));
                     },
                     SessionEvent::TransitionPeriodExpired => {
-                        self.swarm.behaviour_mut().blend.with_core_mut().finish_session_transition();
+                        self.swarm.behaviour_mut().blend.finish_session_transition();
                     },
                 }
                 false

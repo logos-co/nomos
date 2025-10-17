@@ -11,9 +11,7 @@ use crate::{
     core::backends::libp2p::tests::utils::{
         BlendBehaviourBuilder, SwarmBuilder, SwarmExt as _, TestSwarm,
     },
-    test_utils::{
-        TestEncapsulatedMessage, crypto::MockProofsVerifier, membership::mock_session_info,
-    },
+    test_utils::{TestEncapsulatedMessage, crypto::MockProofsVerifier},
 };
 
 #[test(tokio::test)]
@@ -21,16 +19,14 @@ async fn on_unhealthy_peer() {
     let TestSwarm {
         swarm: mut unhealthy_swarm,
         ..
-    } = SwarmBuilder::default().build(|id| {
-        BlendBehaviourBuilder::new(&id, (MockProofsVerifier, mock_session_info().into())).build()
-    });
+    } = SwarmBuilder::default()
+        .build(|id| BlendBehaviourBuilder::new(&id, MockProofsVerifier).build());
 
     let TestSwarm {
         swarm: mut second_swarm,
         ..
-    } = SwarmBuilder::default().build(|id| {
-        BlendBehaviourBuilder::new(&id, (MockProofsVerifier, mock_session_info().into())).build()
-    });
+    } = SwarmBuilder::default()
+        .build(|id| BlendBehaviourBuilder::new(&id, MockProofsVerifier).build());
     let (membership_entry, _) = second_swarm.listen_and_return_membership_entry(None).await;
 
     let membership = Membership::new_without_local(&[
@@ -48,7 +44,7 @@ async fn on_unhealthy_peer() {
     } = SwarmBuilder::default()
         .with_membership(membership.clone())
         .build(|id| {
-            BlendBehaviourBuilder::new(&id, (MockProofsVerifier, mock_session_info().into()))
+            BlendBehaviourBuilder::new(&id, MockProofsVerifier)
                 .with_membership(membership)
                 // Listening swarm expects at least one message per observation window to keep
                 // connection healthy.
@@ -111,7 +107,7 @@ async fn on_malicious_peer() {
         swarm: mut malicious_swarm,
         ..
     } = SwarmBuilder::default().build(|id| {
-        BlendBehaviourBuilder::new(&id, (MockProofsVerifier, mock_session_info().into()))
+        BlendBehaviourBuilder::new(&id, MockProofsVerifier)
             // We use `0` as the minimum message frequency so we know that the listening peer won't
             // be marked as unhealthy by this swarm.
             .with_observation_window(Duration::from_secs(10), 0..=2)
@@ -121,9 +117,8 @@ async fn on_malicious_peer() {
     let TestSwarm {
         swarm: mut second_swarm,
         ..
-    } = SwarmBuilder::default().build(|id| {
-        BlendBehaviourBuilder::new(&id, (MockProofsVerifier, mock_session_info().into())).build()
-    });
+    } = SwarmBuilder::default()
+        .build(|id| BlendBehaviourBuilder::new(&id, MockProofsVerifier).build());
     let (membership_entry, _) = second_swarm.listen_and_return_membership_entry(None).await;
 
     let membership = Membership::new_without_local(&[
@@ -141,7 +136,7 @@ async fn on_malicious_peer() {
     } = SwarmBuilder::default()
         .with_membership(membership.clone())
         .build(|id| {
-            BlendBehaviourBuilder::new(&id, (MockProofsVerifier, mock_session_info().into()))
+            BlendBehaviourBuilder::new(&id, MockProofsVerifier)
                 .with_membership(membership)
                 // Listening swarm expects at most one message per observation window to keep
                 // connection healthy.
