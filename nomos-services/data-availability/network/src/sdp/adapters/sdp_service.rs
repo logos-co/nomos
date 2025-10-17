@@ -11,7 +11,7 @@ use overwatch::{
 };
 
 use super::{SdpAdapter, SdpAdapterError};
-use crate::opinion_aggregator::ActivityProof;
+use crate::opinion_aggregator::Opinions;
 
 pub struct SdpServiceAdapter<Backend, RuntimeServiceId>
 where
@@ -47,8 +47,8 @@ where
         })
     }
 
-    async fn post_activity(&self, activity_proof: ActivityProof) -> Result<(), SdpAdapterError> {
-        let metadata = activity_proof.to_metadata_bytes();
+    async fn post_activity(&self, opinions: Opinions) -> Result<(), SdpAdapterError> {
+        let metadata = opinions.into();
         self.relay
             .send(SdpMessage::PostActivity { metadata })
             .await

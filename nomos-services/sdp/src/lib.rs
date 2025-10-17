@@ -5,7 +5,7 @@ use std::{fmt::Display, marker::PhantomData, pin::Pin};
 use async_trait::async_trait;
 use backends::{SdpBackend, SdpBackendError};
 use futures::{Stream, StreamExt as _};
-use nomos_core::sdp::{DeclarationId, FinalizedBlockEvent, Locator, ServiceType};
+use nomos_core::sdp::{ActivityMetadata, DeclarationId, FinalizedBlockEvent, Locator, ServiceType};
 use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
     services::{
@@ -42,7 +42,7 @@ pub enum SdpMessage {
         reply_channel: oneshot::Sender<Result<DeclarationId, DynError>>,
     },
     PostActivity {
-        metadata: Vec<u8>, // DA/Blend specific metadata
+        metadata: ActivityMetadata, // DA/Blend specific metadata
     },
     PostWithdrawal {
         declaration_id: DeclarationId,
