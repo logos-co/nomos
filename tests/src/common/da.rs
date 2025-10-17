@@ -8,9 +8,12 @@ use futures::StreamExt as _;
 use nomos_core::{
     da::BlobId,
     mantle::{
-        AuthenticatedMantleTx as _, MantleTx, Op, OpProof, SignedMantleTx, Transaction as _,
-        ledger::Tx,
-        ops::channel::{ChannelId, MsgId, inscribe::InscriptionOp},
+        AuthenticatedMantleTx as _, MantleTx, Op, SignedMantleTx, Transaction as _,
+        ledger::Tx as LedgerTx,
+        ops::{
+            OpProof,
+            channel::{ChannelId, MsgId, inscribe::InscriptionOp},
+        },
     },
     proofs::zksig::{DummyZkSignature, ZkSignaturePublic},
 };
@@ -18,25 +21,21 @@ use reqwest::Url;
 
 use crate::{adjust_timeout, nodes::executor::Executor};
 
-const TEST_SIGNING_KEY_BYTES: [u8; 32] = [0u8; 32];
-const TEST_CHANNEL_ID_BYTES: [u8; 32] = [1u8; 32];
-
+pub const APP_ID: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 pub const DA_TESTS_TIMEOUT: u64 = 120;
 pub async fn disseminate_with_metadata(
     executor: &Executor,
     channel_id: ChannelId,
     data: &[u8],
+    metadata: kzgrs_backend::dispersal::Metadata,
 ) -> Result<BlobId, Error> {
     let executor_config = executor.config();
     let backend_address = executor_config.http.backend_settings.address;
     let client = ExecutorHttpClient::new(None);
     let exec_url = Url::parse(&format!("http://{backend_address}")).unwrap();
 
-    let parent_msg_id = MsgId::root();
-    let signer = SigningKey::from_bytes(&TEST_SIGNING_KEY_BYTES).verifying_key();
-
     client
-        .publish_blob(exec_url, channel_id, parent_msg_id, signer, data.to_vec())
+        .publish_blob(exec_url, channel_id, data.to_vec(), metadata)
         .await
 }
 
@@ -77,8 +76,8 @@ pub async fn wait_for_blob_onchain(executor: &Executor, blob_id: BlobId) {
 /// it to be included in a block.
 /// Returns the channel ID that was created.
 pub async fn setup_test_channel(executor: &Executor) -> ChannelId {
-    let test_channel_id = ChannelId::from(TEST_CHANNEL_ID_BYTES);
-    let inscription_tx = create_inscription_transaction();
+    let test_channel_id = ChannelId::from([1u8; 32]);
+    let inscription_tx = create_inscription_transaction_with_id(test_channel_id);
     executor.add_tx(inscription_tx).await.unwrap();
 
     wait_for_inscription_onchain(executor, test_channel_id).await;
@@ -88,20 +87,21 @@ pub async fn setup_test_channel(executor: &Executor) -> ChannelId {
 
 /// Creates an inscription transaction using the same hardcoded key as the mock
 /// wallet adapter
-fn create_inscription_transaction() -> SignedMantleTx {
-    let signing_key = SigningKey::from_bytes(&TEST_SIGNING_KEY_BYTES);
+#[must_use]
+pub fn create_inscription_transaction_with_id(id: ChannelId) -> SignedMantleTx {
+    let signing_key = SigningKey::from_bytes(&[0u8; 32]);
     let signer = signing_key.verifying_key();
 
     let inscription_op = InscriptionOp {
-        channel_id: ChannelId::from(TEST_CHANNEL_ID_BYTES),
-        inscription: b"Test channel inscription".to_vec(),
+        channel_id: id,
+        inscription: format!("Test channel inscription {id:?}").into_bytes(),
         parent: MsgId::root(),
         signer,
     };
 
     let mantle_tx = MantleTx {
         ops: vec![Op::ChannelInscribe(inscription_op)],
-        ledger_tx: Tx::new(vec![], vec![]),
+        ledger_tx: LedgerTx::new(vec![], vec![]),
         storage_gas_price: 0,
         execution_gas_price: 0,
     };

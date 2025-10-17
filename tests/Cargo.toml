@@ -100,3 +100,7 @@ path = "src/tests/membership/disperse.rs"
 [[test]]
 name = "test_da_historic_sampling"
 path = "src/tests/da/historic_sampling.rs"
+
+[[test]]
+name = "test_invalid_tx_handling"
+path = "src/tests/cryptarchia/invalid_tx_handling.rs"
