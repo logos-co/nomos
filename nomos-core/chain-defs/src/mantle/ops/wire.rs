@@ -47,12 +47,6 @@ impl<'de> Visitor<'de> for OpWireVisitor {
                     .ok_or_else(|| Error::custom("missing ChannelSetKeys payload"))?;
                 Ok(Op::ChannelSetKeys(payload))
             }
-            opcode::NATIVE => {
-                let payload = seq
-                    .next_element()?
-                    .ok_or_else(|| Error::custom("missing Native payload"))?;
-                Ok(Op::Native(payload))
-            }
             opcode::SDP_DECLARE => {
                 let payload = seq
                     .next_element()?
