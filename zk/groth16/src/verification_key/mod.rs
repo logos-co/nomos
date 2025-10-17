@@ -1,5 +1,7 @@
 #[cfg(feature = "deser")]
 pub mod deserialize;
+
+use ark_bn254::{Bn254, G1Affine, G2Affine};
 use ark_ec::pairing::Pairing;
 #[cfg(feature = "deser")]
 pub use deserialize::VerificationKeyJsonDeser;
@@ -20,7 +22,7 @@ pub struct VerificationKey<E: Pairing> {
     pub ic: Vec<E::G1Affine>,
 }
 #[cfg(feature = "deser")]
-impl TryFrom<VerificationKeyJsonDeser> for VerificationKey<ark_bn254::Bn254> {
+impl TryFrom<VerificationKeyJsonDeser> for VerificationKey<Bn254> {
     type Error = FromJsonError;
     fn try_from(value: VerificationKeyJsonDeser) -> Result<Self, Self::Error> {
         if !matches!(value.protocol, Protocol::Groth16) {
@@ -48,7 +50,7 @@ impl TryFrom<VerificationKeyJsonDeser> for VerificationKey<ark_bn254::Bn254> {
         let delta_2 = StringifiedG2(delta2)
             .try_into()
             .map_err(Self::Error::G2PointConversionError)?;
-        let ic: Vec<ark_bn254::G1Affine> = ic
+        let ic: Vec<G1Affine> = ic
             .into_iter()
             .map(StringifiedG1)
             .map(TryInto::try_into)
@@ -65,7 +67,7 @@ impl TryFrom<VerificationKeyJsonDeser> for VerificationKey<ark_bn254::Bn254> {
     }
 }
 pub struct PreparedVerificationKey<E: Pairing> {
-    pub vk: ark_groth16::PreparedVerifyingKey<E>,
+    vk: ark_groth16::PreparedVerifyingKey<E>,
 }
 
 impl<E: Pairing> From<VerificationKey<E>> for ark_groth16::VerifyingKey<E> {
@@ -98,5 +100,35 @@ impl<E: Pairing> VerificationKey<E> {
 impl<E: Pairing> AsRef<ark_groth16::PreparedVerifyingKey<E>> for PreparedVerificationKey<E> {
     fn as_ref(&self) -> &ark_groth16::PreparedVerifyingKey<E> {
         &self.vk
+    }
+}
+
+impl PreparedVerificationKey<Bn254> {
+    pub const fn alpha_g1(&self) -> &G1Affine {
+        &self.vk.vk.alpha_g1
+    }
+
+    pub const fn beta_g2(&self) -> &G2Affine {
+        &self.vk.vk.beta_g2
+    }
+
+    pub const fn delta_g2(&self) -> &G2Affine {
+        &self.vk.vk.delta_g2
+    }
+
+    pub const fn gamma_abc_g1(&self) -> &Vec<G1Affine> {
+        &self.vk.vk.gamma_abc_g1
+    }
+
+    pub const fn alpha_g1_beta_g2(&self) -> &<Bn254 as Pairing>::TargetField {
+        &self.vk.alpha_g1_beta_g2
+    }
+
+    pub const fn gamma_g2_neg_pc(&self) -> &<Bn254 as Pairing>::G2Prepared {
+        &self.vk.gamma_g2_neg_pc
+    }
+
+    pub const fn delta_g2_neg_pc(&self) -> &<Bn254 as Pairing>::G2Prepared {
+        &self.vk.delta_g2_neg_pc
     }
 }

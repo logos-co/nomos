@@ -45,7 +45,7 @@ pub fn groth16_batch_verify(
         }))
         .collect();
 
-    let batched_ic = G1Projective::msm(&vk.vk.vk.gamma_abc_g1, &batched_public_inputs)
+    let batched_ic = G1Projective::msm(vk.gamma_abc_g1(), &batched_public_inputs)
         .unwrap()
         .into_affine();
 
@@ -56,12 +56,12 @@ pub fn groth16_batch_verify(
         g1_terms.push(proof.pi_a.mul(r_roots[i]).into_affine());
         g2_terms.push(proof.pi_b.into());
     }
-    g1_terms.push(vk.vk.vk.alpha_g1.mul(r_sum).neg().into());
-    g2_terms.push(vk.vk.vk.beta_g2.into());
+    g1_terms.push(vk.alpha_g1().mul(r_sum).neg().into());
+    g2_terms.push(vk.beta_g2().into());
     g1_terms.push(batched_ic);
-    g2_terms.push(vk.vk.gamma_g2_neg_pc.clone());
+    g2_terms.push(vk.gamma_g2_neg_pc().clone());
     g1_terms.push(batched_pi_c);
-    g2_terms.push(vk.vk.delta_g2_neg_pc.clone());
+    g2_terms.push(vk.delta_g2_neg_pc().clone());
 
     let test = Bn254::multi_pairing(g1_terms, g2_terms);
     Ok(test.is_zero())
