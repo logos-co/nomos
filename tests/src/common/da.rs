@@ -83,14 +83,17 @@ pub async fn setup_test_channel(executor: &Executor) -> ChannelId {
 
 /// Creates an inscription transaction using the same hardcoded key as the mock
 /// wallet adapter
-fn create_inscription_transaction() -> SignedMantleTx {
+#[must_use]
+pub fn create_inscription_transaction_with_id(id: usize) -> SignedMantleTx {
     let signing_key = SigningKey::from_bytes(&[0u8; 32]);
     let signer = signing_key.verifying_key();
 
+    let mut channel_bytes = [0u8; 32];
+    channel_bytes[0..8].copy_from_slice(&(id as u64).to_be_bytes()); // Use full u64 for uniqueness
     let inscription_op = InscriptionOp {
-        channel_id: ChannelId::from([1u8; 32]), // Use a new channel ID
-        inscription: b"Test channel inscription".to_vec(),
-        parent: MsgId::root(),
+        channel_id: ChannelId::from(channel_bytes), // Truly unique channel ID
+        inscription: format!("Test channel inscription {id}").into_bytes(),
+        parent: MsgId::root(), // Root parent for new channels
         signer,
     };
 
@@ -106,13 +109,18 @@ fn create_inscription_transaction() -> SignedMantleTx {
 
     SignedMantleTx::new(
         mantle_tx,
-        vec![Some(OpProof::Ed25519Sig(signature))],
+        vec![Some(OpProof::Ed25519Sig(signature))], // ChannelInscribe should have Ed25519Sig proof
         DummyZkSignature::prove(ZkSignaturePublic {
             msg_hash: tx_hash.into(),
             pks: vec![],
         }),
     )
     .unwrap()
+}
+
+#[must_use]
+pub fn create_inscription_transaction() -> SignedMantleTx {
+    create_inscription_transaction_with_id(1)
 }
 
 /// Wait for inscription transaction to be included in a block

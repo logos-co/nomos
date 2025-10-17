@@ -1,24 +1,24 @@
 pub mod channel;
 pub mod leader;
 pub mod locked_notes;
+mod ops;
 pub mod sdp;
 
 use std::collections::HashMap;
 
 use cryptarchia_engine::Epoch;
-use ed25519::signature::Verifier as _;
 use nomos_core::{
     block::BlockNumber,
     mantle::{
-        AuthenticatedMantleTx, GasConstants, GenesisTx, NoteId,
+        AuthenticatedMantleTx, GasConstants, GenesisTx, NoteId, TxHash,
         ops::{Op, OpProof, leader_claim::VoucherCm},
     },
-    proofs::zksig::{self, ZkSignatureProof as _},
+    proofs::zksig,
     sdp::{ProviderId, ProviderInfo, ServiceType, state::DeclarationStateError},
 };
 use sdp::SdpLedgerError;
 
-use crate::{Balance, Config, UtxoTree};
+use crate::{Balance, Config, UtxoTree, mantle::ops::ValidationContext};
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
 pub enum Error {
@@ -82,6 +82,28 @@ impl LedgerState {
         Ok(ledger)
     }
 
+    /// Read-only validation of a transaction (no state changes)
+    pub fn try_apply_tx<Constants: GasConstants>(
+        self,
+        current_block_number: BlockNumber,
+        config: &Config,
+        utxo_tree: &UtxoTree,
+        tx: impl AuthenticatedMantleTx,
+    ) -> Result<(Self, Balance), Error> {
+        let expected_balance =
+            self.validate_tx::<Constants>(current_block_number, config, utxo_tree, &tx)?;
+
+        let tx_hash = tx.hash();
+        let ops = tx.ops_with_proof();
+
+        let (updated_self, applied_balance) =
+            self.apply_ops_unchecked(current_block_number, config, utxo_tree, tx_hash, ops)?;
+
+        debug_assert_eq!(expected_balance, applied_balance);
+
+        Ok((updated_self, applied_balance))
+    }
+
     #[must_use]
     pub const fn locked_notes(&self) -> &locked_notes::LockedNotes {
         &self.locked_notes
@@ -120,127 +142,51 @@ impl LedgerState {
         Ok(self)
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "All operations handled in one method"
-    )]
-    pub fn try_apply_tx<Constants: GasConstants>(
+    /// Read-only validation of operations (no state changes)
+    fn validate_ops<'a>(
+        &self,
+        current_block_number: BlockNumber,
+        config: &Config,
+        utxo_tree: &UtxoTree,
+        tx_hash: TxHash,
+        ops: impl Iterator<Item = (&'a Op, Option<&'a OpProof>)> + 'a,
+    ) -> Result<Balance, Error> {
+        let ops_vec: Vec<_> = ops.collect();
+        let mut ctx = ValidationContext::extract_for_ops(self, ops_vec.iter().copied());
+
+        ctx.process_operations(
+            self,
+            current_block_number,
+            config,
+            utxo_tree,
+            tx_hash,
+            ops_vec.into_iter(),
+        )
+    }
+
+    /// Unchecked application of operations (validation should be done
+    /// separately)
+    pub fn apply_ops_unchecked<'a>(
         mut self,
         current_block_number: BlockNumber,
         config: &Config,
         utxo_tree: &UtxoTree,
-        tx: impl AuthenticatedMantleTx,
+        tx_hash: TxHash,
+        ops: impl Iterator<Item = (&'a Op, Option<&'a OpProof>)> + 'a,
     ) -> Result<(Self, Balance), Error> {
-        let tx_hash = tx.hash();
-        let mut balance = 0;
-        for (op, proof) in tx.ops_with_proof() {
-            match (op, proof) {
-                (Op::ChannelBlob(op), Some(OpProof::Ed25519Sig(_sig))) => {
-                    // The signature could be verified even before reaching this point,
-                    // as you only need the signer's public key and tx hash
-                    // Callers are expected to validate the proof before calling this function.
-                    self.channels =
-                        self.channels
-                            .apply_msg(op.channel, &op.parent, op.id(), &op.signer)?;
-                }
-                (Op::ChannelInscribe(op), Some(OpProof::Ed25519Sig(_sig))) => {
-                    // The signature could be verified even before reaching this point,
-                    // as you only need the signer's public key and tx hash
-                    // Callers are expected to validate the proof before calling this function.
-                    self.channels =
-                        self.channels
-                            .apply_msg(op.channel_id, &op.parent, op.id(), &op.signer)?;
-                }
-                (Op::ChannelSetKeys(op), Some(OpProof::Ed25519Sig(sig))) => {
-                    self.channels = self.channels.set_keys(op.channel, op, sig, &tx_hash)?;
-                }
-                (
-                    Op::SDPDeclare(op),
-                    Some(OpProof::ZkAndEd25519Sigs {
-                        zk_sig,
-                        ed25519_sig,
-                    }),
-                ) => {
-                    let Some((utxo, _)) = utxo_tree.utxos().get(&op.locked_note_id) else {
-                        return Err(Error::NoteNotFound(op.locked_note_id));
-                    };
-                    if !zk_sig.verify(&zksig::ZkSignaturePublic {
-                        pks: vec![utxo.note.pk.into(), op.zk_id.0],
-                        msg_hash: tx_hash.0,
-                    }) {
-                        return Err(Error::InvalidSignature);
-                    }
-                    op.provider_id
-                        .0
-                        .verify(tx_hash.as_signing_bytes().as_ref(), ed25519_sig)
-                        .map_err(|_| Error::InvalidSignature)?;
-                    self.locked_notes = self.locked_notes.lock(
-                        utxo_tree,
-                        &config.min_stake,
-                        op.service_type,
-                        &op.locked_note_id,
-                    )?;
-                    self.sdp = self.sdp.apply_declare_msg(current_block_number, op)?;
-                }
-                (Op::SDPActive(op), Some(OpProof::ZkSig(sig))) => {
-                    let declaration = self.sdp.get_declaration(&op.declaration_id)?;
-                    let service_type = declaration.service_type;
-                    let Some((utxo, _)) = utxo_tree.utxos().get(&declaration.locked_note_id) else {
-                        return Err(Error::NoteNotFound(declaration.locked_note_id));
-                    };
-                    if !sig.verify(&zksig::ZkSignaturePublic {
-                        pks: vec![utxo.note.pk.into(), declaration.zk_id.0],
-                        msg_hash: tx_hash.0,
-                    }) {
-                        return Err(Error::InvalidSignature);
-                    }
-                    self.sdp = self.sdp.apply_active_msg(
-                        current_block_number,
-                        config
-                            .service_params
-                            .get(&service_type)
-                            .ok_or(Error::ServiceParamsNotFound(service_type))?,
-                        op,
-                    )?;
-                }
-                (Op::SDPWithdraw(op), Some(OpProof::ZkSig(sig))) => {
-                    let declaration = self.sdp.get_declaration(&op.declaration_id)?;
-                    let service_type = declaration.service_type;
-                    let Some((utxo, _)) = utxo_tree.utxos().get(&declaration.locked_note_id) else {
-                        return Err(Error::NoteNotFound(declaration.locked_note_id));
-                    };
-                    if !sig.verify(&zksig::ZkSignaturePublic {
-                        pks: vec![utxo.note.pk.into(), declaration.zk_id.0],
-                        msg_hash: tx_hash.0,
-                    }) {
-                        return Err(Error::InvalidSignature);
-                    }
-                    self.locked_notes = self
-                        .locked_notes
-                        .unlock(declaration.service_type, &declaration.locked_note_id)?;
-                    self.sdp = self.sdp.apply_withdrawn_msg(
-                        current_block_number,
-                        config
-                            .service_params
-                            .get(&service_type)
-                            .ok_or(Error::ServiceParamsNotFound(service_type))?,
-                        op,
-                    )?;
-                }
-                (Op::LeaderClaim(op), None) => {
-                    // Correct derivation of the voucher nullifier and membership in the merkle tree
-                    // can be verified outside of this function since public inputs are already
-                    // available. Callers are expected to validate the proof
-                    // before calling this function.
-                    let leader_balance;
-                    (self.leaders, leader_balance) = self.leaders.claim(op)?;
-                    balance += leader_balance;
-                }
-                _ => {
-                    return Err(Error::UnsupportedOp);
-                }
-            }
-        }
+        let ops_vec: Vec<_> = ops.collect();
+        let mut ctx = ValidationContext::extract_for_ops(&self, ops_vec.iter().copied());
+
+        let balance = ctx.process_operations(
+            &self,
+            current_block_number,
+            config,
+            utxo_tree,
+            tx_hash,
+            ops_vec.into_iter(),
+        )?;
+
+        ctx.commit_to_ledger(&mut self);
 
         Ok((self, balance))
     }
@@ -257,14 +203,28 @@ impl LedgerState {
             .try_update_session(current_block_number, &config.service_params)?;
         Ok(self)
     }
+
+    /// Read-only validation of a transaction (no state changes)  
+    pub fn validate_tx<Constants: GasConstants>(
+        &self,
+        current_block_number: BlockNumber,
+        config: &Config,
+        utxo_tree: &UtxoTree,
+        tx: &impl AuthenticatedMantleTx,
+    ) -> Result<Balance, Error> {
+        let tx_hash = tx.hash();
+        let ops = tx.ops_with_proof();
+        self.validate_ops(current_block_number, config, utxo_tree, tx_hash, ops)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use ed25519_dalek::{Signer as _, SigningKey, VerifyingKey};
+    use groth16::Fr;
     use nomos_core::{
         mantle::{
-            MantleTx, SignedMantleTx, Transaction as _,
+            MantleTx, Note, SignedMantleTx, Transaction as _, Utxo,
             gas::MainnetGasConstants,
             ledger::Tx as LedgerTx,
             ops::{
@@ -414,15 +374,28 @@ mod tests {
         };
 
         let tx = create_signed_tx(Op::ChannelSetKeys(set_keys_op), &signing_key);
-        let result = ledger_state.try_apply_tx::<MainnetGasConstants>(
-            0,
-            &test_config,
-            cryptarchia_state.latest_commitments(),
-            tx,
-        );
-        assert!(result.is_ok());
 
-        let (new_state, _) = result.unwrap();
+        let tx_hash = tx.hash();
+        let ops = tx.ops_with_proof();
+
+        ledger_state
+            .validate_tx::<MainnetGasConstants>(
+                0,
+                &test_config,
+                cryptarchia_state.latest_commitments(),
+                &tx,
+            )
+            .expect("ChannelSetKeys operation should validate");
+
+        let (new_state, _balance) = ledger_state
+            .apply_ops_unchecked(
+                0,
+                &test_config,
+                cryptarchia_state.latest_commitments(),
+                tx_hash,
+                ops,
+            )
+            .expect("ChannelSetKeys operation should apply");
         assert!(new_state.channels.channels.contains_key(&channel_id));
         assert_eq!(
             new_state.channels.channels.get(&channel_id).unwrap().keys,
@@ -440,11 +413,11 @@ mod tests {
             nomos_core::mantle::ops::native::NativeOp {},
         )]);
 
-        let result = ledger_state.try_apply_tx::<MainnetGasConstants>(
+        let result = ledger_state.validate_tx::<MainnetGasConstants>(
             0,
             &test_config,
             cryptarchia_state.latest_commitments(),
-            tx_with_unsupported_op,
+            &tx_with_unsupported_op,
         );
         assert_eq!(result, Err(Error::UnsupportedOp));
     }
@@ -704,7 +677,6 @@ mod tests {
     }
 
     #[test]
-    #[expect(clippy::too_many_lines, reason = "Test function.")]
     fn test_sdp_withdraw_operation() {
         // First, declare a service to activate.
         let utxo = utxo();
@@ -807,25 +779,252 @@ mod tests {
             )))
         ));
 
-        // Withdrawing after lock period is allowed.
-        let ledger_state = ledger_state
-            .try_apply_tx::<MainnetGasConstants>(
-                11,
-                &test_config,
-                cryptarchia_state.latest_commitments(),
-                withdraw_tx,
-            )
-            .unwrap()
-            .0;
-
-        let declaration = ledger_state.sdp.get_declaration(&declaration_id).unwrap();
-        assert!(
-            !ledger_state
-                .locked_notes
-                .contains(&declare_op.locked_note_id)
+        let valid_ledger_state = ledger_state.try_apply_tx::<MainnetGasConstants>(
+            11,
+            &test_config,
+            cryptarchia_state.latest_commitments(),
+            withdraw_tx,
         );
-        assert_eq!(declaration.active, 1);
-        assert_eq!(declaration.withdrawn, Some(11));
-        assert_eq!(declaration.nonce, 2);
+        assert!(valid_ledger_state.is_ok());
+    }
+
+    #[test]
+    fn test_sdp_declare_withdraw_insufficient_value_same_transaction() {
+        let low_value_utxo = Utxo {
+            tx_hash: Fr::from(BigUint::from(1u8)).into(),
+            output_index: 0,
+            note: Note::new(1, Fr::from(BigUint::from(1u8)).into()),
+        };
+        let cryptarchia_state = genesis_state(&[low_value_utxo]);
+        let mut test_config = config();
+        test_config.min_stake.threshold = 1000;
+        let ledger_state = LedgerState::new();
+        let (signing_key, verifying_key) = create_test_keys();
+
+        let declare_op = SDPDeclareOp {
+            service_type: ServiceType::BlendNetwork,
+            locked_note_id: low_value_utxo.id(),
+            zk_id: ZkPublicKey(BigUint::from(0u8).into()),
+            provider_id: ProviderId(verifying_key),
+            locators: [].into(),
+        };
+
+        let withdraw_op = SDPWithdrawOp {
+            declaration_id: declare_op.declaration_id(),
+            nonce: 1,
+        };
+
+        let ops = vec![
+            Op::SDPDeclare(declare_op.clone()),
+            Op::SDPWithdraw(withdraw_op),
+        ];
+
+        let ledger_tx = LedgerTx::new(vec![], vec![]);
+        let mantle_tx = MantleTx {
+            ops,
+            ledger_tx,
+            execution_gas_price: 1,
+            storage_gas_price: 1,
+        };
+        let tx_hash = mantle_tx.hash();
+
+        let ops_proofs = vec![
+            Some(OpProof::ZkAndEd25519Sigs {
+                zk_sig: DummyZkSignature::prove(zksig::ZkSignaturePublic {
+                    pks: vec![low_value_utxo.note.pk.into(), declare_op.zk_id.0],
+                    msg_hash: tx_hash.0,
+                }),
+                ed25519_sig: signing_key.sign(tx_hash.as_signing_bytes().as_ref()),
+            }),
+            Some(OpProof::ZkSig(DummyZkSignature::prove(
+                zksig::ZkSignaturePublic {
+                    pks: vec![low_value_utxo.note.pk.into(), declare_op.zk_id.0],
+                    msg_hash: tx_hash.0,
+                },
+            ))),
+        ];
+
+        let tx = SignedMantleTx::new(
+            mantle_tx,
+            ops_proofs,
+            DummyZkSignature::prove(zksig::ZkSignaturePublic {
+                pks: vec![],
+                msg_hash: tx_hash.into(),
+            }),
+        )
+        .expect("Test transaction should have valid signatures");
+
+        let result = ledger_state.try_apply_tx::<MainnetGasConstants>(
+            0,
+            &test_config,
+            cryptarchia_state.latest_commitments(),
+            tx,
+        );
+
+        assert!(matches!(
+            result,
+            Err(Error::LockedNotes(
+                locked_notes::Error::NoteInsufficientValue { .. }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_sdp_double_declare_same_note_same_service() {
+        let utxo = utxo();
+        let cryptarchia_state = genesis_state(&[utxo]);
+        let test_config = config();
+        let ledger_state = LedgerState::new();
+        let (signing_key, verifying_key) = create_test_keys();
+
+        let declare_op1 = SDPDeclareOp {
+            service_type: ServiceType::BlendNetwork,
+            locked_note_id: utxo.id(),
+            zk_id: ZkPublicKey(BigUint::from(1u8).into()),
+            provider_id: ProviderId(verifying_key),
+            locators: [].into(),
+        };
+
+        let declare_op2 = SDPDeclareOp {
+            service_type: ServiceType::BlendNetwork,
+            locked_note_id: utxo.id(),
+            zk_id: ZkPublicKey(BigUint::from(2u8).into()),
+            provider_id: ProviderId(verifying_key),
+            locators: [].into(),
+        };
+
+        let ops = vec![
+            Op::SDPDeclare(declare_op1.clone()),
+            Op::SDPDeclare(declare_op2.clone()),
+        ];
+
+        let ledger_tx = LedgerTx::new(vec![], vec![]);
+        let mantle_tx = MantleTx {
+            ops,
+            ledger_tx,
+            execution_gas_price: 1,
+            storage_gas_price: 1,
+        };
+        let tx_hash = mantle_tx.hash();
+
+        let ops_proofs = vec![
+            Some(OpProof::ZkAndEd25519Sigs {
+                zk_sig: DummyZkSignature::prove(zksig::ZkSignaturePublic {
+                    pks: vec![utxo.note.pk.into(), declare_op1.zk_id.0],
+                    msg_hash: tx_hash.0,
+                }),
+                ed25519_sig: signing_key.sign(tx_hash.as_signing_bytes().as_ref()),
+            }),
+            Some(OpProof::ZkAndEd25519Sigs {
+                zk_sig: DummyZkSignature::prove(zksig::ZkSignaturePublic {
+                    pks: vec![utxo.note.pk.into(), declare_op2.zk_id.0],
+                    msg_hash: tx_hash.0,
+                }),
+                ed25519_sig: signing_key.sign(tx_hash.as_signing_bytes().as_ref()),
+            }),
+        ];
+
+        let tx = SignedMantleTx::new(
+            mantle_tx,
+            ops_proofs,
+            DummyZkSignature::prove(zksig::ZkSignaturePublic {
+                pks: vec![],
+                msg_hash: tx_hash.into(),
+            }),
+        )
+        .expect("Test transaction should have valid signatures");
+
+        let result = ledger_state.try_apply_tx::<MainnetGasConstants>(
+            0,
+            &test_config,
+            cryptarchia_state.latest_commitments(),
+            tx,
+        );
+
+        assert!(matches!(
+            result,
+            Err(Error::LockedNotes(
+                locked_notes::Error::NoteAlreadyUsedForService { .. }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_sdp_double_declare_different_services_same_transaction() {
+        let utxo1 = utxo();
+        let utxo2 = utxo();
+        let cryptarchia_state = genesis_state(&[utxo1, utxo2]);
+        let test_config = config();
+        let ledger_state = LedgerState::new();
+        let (signing_key, verifying_key) = create_test_keys();
+
+        let declare_op1 = SDPDeclareOp {
+            service_type: ServiceType::BlendNetwork,
+            locked_note_id: utxo1.id(),
+            zk_id: ZkPublicKey(BigUint::from(1u8).into()),
+            provider_id: ProviderId(verifying_key),
+            locators: [].into(),
+        };
+
+        let declare_op2 = SDPDeclareOp {
+            service_type: ServiceType::DataAvailability,
+            locked_note_id: utxo2.id(),
+            zk_id: ZkPublicKey(BigUint::from(2u8).into()),
+            provider_id: ProviderId(verifying_key),
+            locators: [].into(),
+        };
+
+        let ops = vec![
+            Op::SDPDeclare(declare_op1.clone()),
+            Op::SDPDeclare(declare_op2.clone()),
+        ];
+
+        let ledger_tx = LedgerTx::new(vec![], vec![]);
+        let mantle_tx = MantleTx {
+            ops,
+            ledger_tx,
+            execution_gas_price: 1,
+            storage_gas_price: 1,
+        };
+        let tx_hash = mantle_tx.hash();
+
+        let ops_proofs = vec![
+            Some(OpProof::ZkAndEd25519Sigs {
+                zk_sig: DummyZkSignature::prove(zksig::ZkSignaturePublic {
+                    pks: vec![utxo1.note.pk.into(), declare_op1.zk_id.0],
+                    msg_hash: tx_hash.0,
+                }),
+                ed25519_sig: signing_key.sign(tx_hash.as_signing_bytes().as_ref()),
+            }),
+            Some(OpProof::ZkAndEd25519Sigs {
+                zk_sig: DummyZkSignature::prove(zksig::ZkSignaturePublic {
+                    pks: vec![utxo2.note.pk.into(), declare_op2.zk_id.0],
+                    msg_hash: tx_hash.0,
+                }),
+                ed25519_sig: signing_key.sign(tx_hash.as_signing_bytes().as_ref()),
+            }),
+        ];
+
+        let tx = SignedMantleTx::new(
+            mantle_tx,
+            ops_proofs,
+            DummyZkSignature::prove(zksig::ZkSignaturePublic {
+                pks: vec![],
+                msg_hash: tx_hash.into(),
+            }),
+        )
+        .expect("Test transaction should have valid signatures");
+
+        let result = ledger_state.try_apply_tx::<MainnetGasConstants>(
+            0,
+            &test_config,
+            cryptarchia_state.latest_commitments(),
+            tx,
+        );
+
+        assert!(result.is_ok());
+        let (final_state, _) = result.unwrap();
+        assert!(final_state.locked_notes.contains(&utxo1.id()));
+        assert!(final_state.locked_notes.contains(&utxo2.id()));
     }
 }

@@ -246,6 +246,65 @@ impl SdpLedger {
 
         Ok(self)
     }
+
+    pub fn validate_declare_msg(
+        &self,
+        _current_block_number: BlockNumber,
+        op: &SDPDeclareOp,
+    ) -> Result<(), Error> {
+        let declaration_id = op.declaration_id();
+        if self.declarations.contains_key(&declaration_id) {
+            return Err(Error::Sdp(SdpLedgerError::SdpDuplicateDeclaration(
+                declaration_id,
+            )));
+        }
+        Ok(())
+    }
+
+    pub fn validate_active_msg(
+        &self,
+        _current_block_number: BlockNumber,
+        _service_params: &ServiceParameters,
+        op: &SDPActiveOp,
+    ) -> Result<(), Error> {
+        let Some(current_state) = self.declarations.get(&op.declaration_id) else {
+            return Err(Error::Sdp(SdpLedgerError::SdpDeclarationNotFound(
+                op.declaration_id,
+            )));
+        };
+        if op.nonce <= current_state.nonce {
+            return Err(Error::Sdp(SdpLedgerError::SdpInvalidNonce(op.nonce)));
+        }
+        Ok(())
+    }
+
+    pub fn validate_withdrawn_msg(
+        &self,
+        current_block_number: BlockNumber,
+        service_params: &ServiceParameters,
+        op: &SDPWithdrawOp,
+    ) -> Result<(), Error> {
+        let Some(current_state) = self.declarations.get(&op.declaration_id) else {
+            return Err(Error::Sdp(SdpLedgerError::SdpDeclarationNotFound(
+                op.declaration_id,
+            )));
+        };
+        if op.nonce <= current_state.nonce {
+            return Err(Error::Sdp(SdpLedgerError::SdpInvalidNonce(op.nonce)));
+        }
+
+        // Reuse same validation logic as application - clone the state for validation
+        let mut temp_state = current_state.clone();
+        TransientDeclarationState::try_from_state(
+            current_block_number,
+            &mut temp_state,
+            service_params,
+        )?
+        .try_into_withdrawn(current_block_number, service_params)?;
+
+        // temp_state discarded - no actual state modified
+        Ok(())
+    }
 }
 
 #[cfg(test)]

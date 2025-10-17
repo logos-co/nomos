@@ -48,6 +48,18 @@ impl LockedNotes {
         self.locked_notes.contains_key(id)
     }
 
+    #[must_use]
+    pub fn is_locked_for_service(&self, id: &NoteId, service_type: ServiceType) -> bool {
+        self.locked_notes
+            .get(id)
+            .is_some_and(|services| services.contains(&service_type))
+    }
+
+    #[must_use]
+    pub fn get_services(&self, id: &NoteId) -> Option<&HashSet<ServiceType>> {
+        self.locked_notes.get(id)
+    }
+
     pub fn lock(
         mut self,
         utxo_tree: &UtxoTree,
@@ -104,6 +116,82 @@ impl LockedNotes {
         } else {
             Err(Error::NoteNotLocked(*note_id))
         }
+    }
+
+    #[must_use]
+    pub fn lock_unchecked(mut self, service_type: ServiceType, note_id: &NoteId) -> Self {
+        if let Some(services) = self.locked_notes.get_mut(note_id) {
+            services.insert(service_type);
+        } else {
+            let services = [service_type].into();
+            self.locked_notes = self.locked_notes.insert(*note_id, services);
+        }
+
+        self
+    }
+
+    #[must_use]
+    pub fn unlock_unchecked(mut self, service_type: ServiceType, note_id: &NoteId) -> Self {
+        if let Some(services) = self.locked_notes.get(note_id) {
+            let mut updated_services = services.clone();
+            updated_services.remove(&service_type);
+
+            if updated_services.is_empty() {
+                self.locked_notes = self.locked_notes.remove(note_id);
+            } else {
+                self.locked_notes = self.locked_notes.insert(*note_id, updated_services);
+            }
+        }
+
+        self
+    }
+
+    pub fn validate_lock(
+        &self,
+        utxo_tree: &UtxoTree,
+        min_stake: &MinStake,
+        service_type: ServiceType,
+        note_id: &NoteId,
+    ) -> Result<(), Error> {
+        let Some((utxo, _)) = utxo_tree.utxos().get(note_id) else {
+            return Err(Error::NoteDoesNotExist(*note_id));
+        };
+        if utxo.note.value < min_stake.threshold {
+            return Err(Error::NoteInsufficientValue {
+                note_id: *note_id,
+                value: utxo.note.value,
+            });
+        }
+        if let Some(services) = self.locked_notes.get(note_id)
+            && services.contains(&service_type)
+        {
+            return Err(Error::NoteAlreadyUsedForService {
+                note_id: *note_id,
+                service_type,
+            });
+        }
+        Ok(())
+    }
+
+    pub fn validate_unlock(
+        &self,
+        service_type: ServiceType,
+        note_id: &NoteId,
+    ) -> Result<(), Error> {
+        if let Some(services) = self.locked_notes.get(note_id) {
+            if !services.contains(&service_type) {
+                return Err(Error::NoteNotLockedForService {
+                    note_id: *note_id,
+                    service_type,
+                });
+            }
+        } else {
+            return Err(Error::NoteNotLockedForService {
+                note_id: *note_id,
+                service_type,
+            });
+        }
+        Ok(())
     }
 }
 

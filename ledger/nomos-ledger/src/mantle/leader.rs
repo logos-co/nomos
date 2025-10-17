@@ -125,6 +125,16 @@ impl LeaderState {
             Balance::from(reward_amount),
         ))
     }
+
+    pub fn validate_claim(&self, op: &LeaderClaimOp) -> Result<Balance, Error> {
+        if self.nfs.contains(&op.voucher_nullifier) {
+            return Err(Error::DuplicatedVoucherNullifier);
+        }
+        if self.claimable_vouchers_root != op.rewards_root {
+            return Err(Error::VoucherNotFound);
+        }
+        Ok((self.claimable_rewards / std::cmp::max(1, self.n_claimable_vouchers)).into())
+    }
 }
 
 #[cfg(test)]

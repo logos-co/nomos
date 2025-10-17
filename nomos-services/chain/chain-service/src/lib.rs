@@ -30,7 +30,7 @@ use nomos_core::{
     header::{Header, HeaderId},
     mantle::{
         AuthenticatedMantleTx, Transaction, TxHash, gas::MainnetGasConstants,
-        genesis_tx::GenesisTx, ops::leader_claim::VoucherCm,
+        ops::leader_claim::VoucherCm,
     },
     sdp::{ProviderId, ProviderInfo, ServiceType, SessionUpdate},
 };

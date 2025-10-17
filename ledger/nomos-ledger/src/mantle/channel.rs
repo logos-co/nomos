@@ -48,6 +48,67 @@ impl Default for Channels {
 }
 
 impl Channels {
+    pub fn validate_msg(
+        &self,
+        channel_id: ChannelId,
+        parent: &MsgId,
+        _msg: MsgId,
+        signer: &PublicKey,
+    ) -> Result<(), Error> {
+        let channel = self.channels.get(&channel_id);
+
+        match channel {
+            Some(existing_channel) => {
+                if *parent != existing_channel.tip {
+                    return Err(Error::InvalidParent {
+                        channel_id,
+                        parent: (*parent).into(),
+                        actual: existing_channel.tip.into(),
+                    });
+                }
+                if !existing_channel.keys.contains(signer) {
+                    return Err(Error::UnauthorizedSigner {
+                        channel_id,
+                        signer: format!("{signer:?}"),
+                    });
+                }
+            }
+            None => {
+                if *parent != MsgId::root() {
+                    return Err(Error::InvalidParent {
+                        channel_id,
+                        parent: (*parent).into(),
+                        actual: MsgId::root().into(),
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn validate_set_keys(
+        &self,
+        channel_id: ChannelId,
+        op: &SetKeysOp,
+        sig: &ed25519::Signature,
+        tx_hash: &TxHash,
+    ) -> Result<(), Error> {
+        if op.keys.is_empty() {
+            return Err(Error::EmptyKeys { channel_id });
+        }
+
+        if let Some(channel) = self.channels.get(&channel_id) {
+            // Match original behavior exactly - direct access to keys[0]
+            if channel.keys[0]
+                .verify(tx_hash.as_signing_bytes().as_ref(), sig)
+                .is_err()
+            {
+                return Err(Error::InvalidSignature);
+            }
+        }
+        Ok(())
+    }
+
     pub fn apply_msg(
         mut self,
         channel_id: ChannelId,
@@ -55,6 +116,8 @@ impl Channels {
         msg: MsgId,
         signer: &PublicKey,
     ) -> Result<Self, Error> {
+        self.validate_msg(channel_id, parent, msg, signer)?;
+
         let channel = self
             .channels
             .get(&channel_id)
@@ -63,21 +126,6 @@ impl Channels {
                 tip: MsgId::root(),
                 keys: vec![*signer].into(),
             });
-
-        if *parent != channel.tip {
-            return Err(Error::InvalidParent {
-                channel_id,
-                parent: (*parent).into(),
-                actual: channel.tip.into(),
-            });
-        }
-
-        if !channel.keys.contains(signer) {
-            return Err(Error::UnauthorizedSigner {
-                channel_id,
-                signer: format!("{signer:?}"),
-            });
-        }
 
         self.channels = self.channels.insert(
             channel_id,
@@ -96,17 +144,9 @@ impl Channels {
         sig: &ed25519::Signature,
         tx_hash: &TxHash,
     ) -> Result<Self, Error> {
-        if op.keys.is_empty() {
-            return Err(Error::EmptyKeys { channel_id });
-        }
+        self.validate_set_keys(channel_id, op, sig, tx_hash)?;
 
         if let Some(channel) = self.channels.get_mut(&channel_id) {
-            if channel.keys[0]
-                .verify(tx_hash.as_signing_bytes().as_ref(), sig)
-                .is_err()
-            {
-                return Err(Error::InvalidSignature);
-            }
             channel.keys = op.keys.clone().into();
         } else {
             self.channels = self.channels.insert(
@@ -119,6 +159,59 @@ impl Channels {
         }
 
         Ok(self)
+    }
+
+    #[must_use]
+    pub fn apply_msg_unchecked(
+        self,
+        channel_id: ChannelId,
+        _parent: &MsgId,
+        msg: MsgId,
+        signer: &PublicKey,
+    ) -> Self {
+        let channel = self
+            .channels
+            .get(&channel_id)
+            .cloned()
+            .unwrap_or_else(|| ChannelState {
+                tip: MsgId::root(),
+                keys: vec![*signer].into(),
+            });
+
+        Self {
+            channels: self.channels.insert(
+                channel_id,
+                ChannelState {
+                    tip: msg,
+                    keys: Arc::clone(&channel.keys),
+                },
+            ),
+        }
+    }
+
+    #[must_use]
+    pub fn set_keys_unchecked(self, channel_id: ChannelId, op: &SetKeysOp) -> Self {
+        if let Some(existing_channel) = self.channels.get(&channel_id) {
+            Self {
+                channels: self.channels.insert(
+                    channel_id,
+                    ChannelState {
+                        tip: existing_channel.tip,
+                        keys: op.keys.clone().into(),
+                    },
+                ),
+            }
+        } else {
+            Self {
+                channels: self.channels.insert(
+                    channel_id,
+                    ChannelState {
+                        tip: MsgId::root(),
+                        keys: op.keys.clone().into(),
+                    },
+                ),
+            }
+        }
     }
 
     #[must_use]

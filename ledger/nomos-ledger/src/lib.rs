@@ -54,6 +54,8 @@ pub enum LedgerError<Id> {
     LockedNote(NoteId),
     #[error("Input note in genesis block: {0:?}")]
     InputInGenesis(NoteId),
+    #[error("Duplicate input in transaction: {0:?}")]
+    DuplicateInput(NoteId),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -86,6 +88,7 @@ where
     ) -> Result<Self, LedgerError<Id>>
     where
         LeaderProof: leader_proof::LeaderProof,
+        Id: std::fmt::Debug,
         Constants: GasConstants,
     {
         let parent_state = self
@@ -93,13 +96,8 @@ where
             .get(&parent_id)
             .ok_or(LedgerError::ParentNotFound(parent_id))?;
 
-        let new_state = parent_state.clone().try_update::<_, _, Constants>(
-            slot,
-            proof,
-            voucher,
-            txs,
-            &self.config,
-        )?;
+        let new_state =
+            parent_state.try_update::<_, _, Constants>(slot, proof, voucher, txs, &self.config)?;
 
         let mut states = self.states.clone();
         states.insert(id, new_state);
@@ -145,7 +143,7 @@ pub struct LedgerState {
 
 impl LedgerState {
     fn try_update<LeaderProof, Id, Constants>(
-        self,
+        &self,
         slot: Slot,
         proof: &LeaderProof,
         voucher: VoucherCm,
@@ -154,16 +152,18 @@ impl LedgerState {
     ) -> Result<Self, LedgerError<Id>>
     where
         LeaderProof: leader_proof::LeaderProof,
+        Id: std::fmt::Debug,
         Constants: GasConstants,
     {
-        self.try_apply_header(slot, proof, voucher, config)?
+        self.clone()
+            .try_apply_header(slot, proof, voucher, config)?
             .try_apply_contents::<_, Constants>(config, txs)
     }
 
     /// Apply header-related changed to the ledger state. These include
     /// leadership and in general any changes that not related to
     /// transactions that should be applied before that.
-    fn try_apply_header<LeaderProof, Id>(
+    pub fn try_apply_header<LeaderProof, Id>(
         self,
         slot: Slot,
         proof: &LeaderProof,
@@ -190,39 +190,22 @@ impl LedgerState {
     }
 
     /// Apply the contents of an update to the ledger state.
-    fn try_apply_contents<Id, Constants: GasConstants>(
-        mut self,
+    /// Returns the new state and a list of invalid transaction hashes.
+    fn try_apply_contents<Id: std::fmt::Debug, Constants: GasConstants>(
+        self,
         config: &Config,
-        txs: impl Iterator<Item = impl AuthenticatedMantleTx>,
+        mut txs: impl Iterator<Item = impl AuthenticatedMantleTx>,
     ) -> Result<Self, LedgerError<Id>> {
-        for tx in txs {
-            let balance;
-            (self.cryptarchia_ledger, balance) = self
-                .cryptarchia_ledger
-                .try_apply_tx::<_, Constants>(self.mantle_ledger.locked_notes(), &tx)?;
-            let additional_balance;
+        let new_state = txs.try_fold(self, |state, tx| {
+            state.validate_tx::<Id, Constants>(config, &tx)?;
+            state.apply_single_transaction_unchecked::<Id, Constants>(config, &tx)
+        })?;
 
-            (self.mantle_ledger, additional_balance) =
-                self.mantle_ledger.try_apply_tx::<Constants>(
-                    self.block_number,
-                    config,
-                    self.cryptarchia_ledger.latest_commitments(),
-                    &tx,
-                )?;
-
-            let total_balance = balance
-                .checked_add(additional_balance)
-                .ok_or(LedgerError::Overflow)?;
-            match total_balance.cmp(&tx.gas_cost::<Constants>().into()) {
-                Ordering::Less => return Err(LedgerError::InsufficientBalance),
-                Ordering::Greater => return Err(LedgerError::UnbalancedTransaction),
-                Ordering::Equal => {} // OK!
-            }
-        }
-        self.mantle_ledger = self
+        let mut final_state = new_state;
+        final_state.mantle_ledger = final_state
             .mantle_ledger
-            .try_update_membership(self.block_number, config)?;
-        Ok(self)
+            .try_update_membership(final_state.block_number, config)?;
+        Ok(final_state)
     }
 
     pub fn from_utxos(utxos: impl IntoIterator<Item = Utxo>) -> Self {
@@ -287,6 +270,87 @@ impl LedgerState {
         service_type: ServiceType,
     ) -> Option<HashMap<ProviderId, ProviderInfo>> {
         self.mantle_ledger.active_session_providers(&service_type)
+    }
+
+    #[must_use]
+    pub const fn cryptarchia_ledger(&self) -> &CryptarchiaLedger {
+        &self.cryptarchia_ledger
+    }
+
+    #[must_use]
+    pub const fn mantle_ledger(&self) -> &MantleLedger {
+        &self.mantle_ledger
+    }
+
+    #[must_use]
+    pub const fn block_number(&self) -> BlockNumber {
+        self.block_number
+    }
+
+    pub fn apply_single_transaction_unchecked<Id: std::fmt::Debug, Constants: GasConstants>(
+        mut self,
+        config: &Config,
+        tx: &impl AuthenticatedMantleTx,
+    ) -> Result<Self, LedgerError<Id>> {
+        let tx_hash = tx.hash();
+        let ops = tx.ops_with_proof();
+
+        let (new_cryptarchia, _): (_, Balance) = self
+            .cryptarchia_ledger
+            .apply_tx_unchecked::<Id, Constants>(tx)?;
+        self.cryptarchia_ledger = new_cryptarchia;
+
+        let (new_mantle, _) = self.mantle_ledger.apply_ops_unchecked(
+            self.block_number,
+            config,
+            self.cryptarchia_ledger.latest_commitments(),
+            tx_hash,
+            ops,
+        )?;
+        self.mantle_ledger = new_mantle;
+
+        Ok(self)
+    }
+
+    pub fn validate_tx<Id: std::fmt::Debug, Constants: GasConstants>(
+        &self,
+        config: &Config,
+        tx: &impl AuthenticatedMantleTx,
+    ) -> Result<(), LedgerError<Id>> {
+        let balance = self
+            .cryptarchia_ledger
+            .validate_tx::<Id, Constants>(self.mantle_ledger.locked_notes(), tx)?;
+
+        let additional_balance = self
+            .mantle_ledger
+            .validate_tx::<Constants>(
+                self.block_number,
+                config,
+                self.cryptarchia_ledger.latest_commitments(),
+                tx,
+            )
+            .map_err(LedgerError::Mantle)?;
+
+        let total_balance = balance
+            .checked_add(additional_balance)
+            .ok_or(LedgerError::Overflow)?;
+
+        match total_balance.cmp(&tx.gas_cost::<Constants>().into()) {
+            Ordering::Less => return Err(LedgerError::InsufficientBalance),
+            Ordering::Greater => return Err(LedgerError::UnbalancedTransaction),
+            Ordering::Equal => {} // OK!
+        }
+
+        Ok(())
+    }
+
+    /// Validate a single transaction against the current ledger state (dry-run)
+    pub fn validate_single_tx<Id: std::fmt::Debug, Constants: GasConstants>(
+        &self,
+        config: &Config,
+        tx: &impl AuthenticatedMantleTx,
+    ) -> Result<(), LedgerError<Id>> {
+        self.validate_tx::<Id, Constants>(config, tx)
     }
 }
 
