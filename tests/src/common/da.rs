@@ -8,9 +8,12 @@ use futures::StreamExt as _;
 use nomos_core::{
     da::BlobId,
     mantle::{
-        AuthenticatedMantleTx as _, MantleTx, Op, OpProof, SignedMantleTx, Transaction as _,
+        AuthenticatedMantleTx as _, MantleTx, Op, SignedMantleTx, Transaction as _,
         ledger::Tx as LedgerTx,
-        ops::channel::{ChannelId, MsgId, inscribe::InscriptionOp},
+        ops::{
+            OpProof,
+            channel::{ChannelId, MsgId, inscribe::InscriptionOp},
+        },
     },
     proofs::zksig::{DummyZkSignature, ZkSignaturePublic},
 };
@@ -74,7 +77,7 @@ pub async fn wait_for_blob_onchain(executor: &Executor, blob_id: BlobId) {
 /// Returns the channel ID that was created.
 pub async fn setup_test_channel(executor: &Executor) -> ChannelId {
     let test_channel_id = ChannelId::from([1u8; 32]);
-    let inscription_tx = create_inscription_transaction();
+    let inscription_tx = create_inscription_transaction_with_id(test_channel_id);
     executor.add_tx(inscription_tx).await.unwrap();
 
     wait_for_inscription_onchain(executor, test_channel_id).await;
@@ -84,13 +87,14 @@ pub async fn setup_test_channel(executor: &Executor) -> ChannelId {
 
 /// Creates an inscription transaction using the same hardcoded key as the mock
 /// wallet adapter
-fn create_inscription_transaction() -> SignedMantleTx {
+#[must_use]
+pub fn create_inscription_transaction_with_id(id: ChannelId) -> SignedMantleTx {
     let signing_key = SigningKey::from_bytes(&[0u8; 32]);
     let signer = signing_key.verifying_key();
 
     let inscription_op = InscriptionOp {
-        channel_id: ChannelId::from([1u8; 32]), // Use a new channel ID
-        inscription: b"Test channel inscription".to_vec(),
+        channel_id: id,
+        inscription: format!("Test channel inscription {id:?}").into_bytes(),
         parent: MsgId::root(),
         signer,
     };
