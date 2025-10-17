@@ -248,7 +248,7 @@ where
                 FIRST_STREAM_ITEM_READY_TIMEOUT,
                 settings.time.session_transition_period(),
             ),
-            UninitializedFirstReadyStream::new(clock_stream, FIRST_STREAM_ITEM_READY_TIMEOUT),
+            UninitializedFirstReadyStream::new(clock_stream, Duration::from_secs(3)),
             messages_to_blend_stream,
             epoch_handler,
             &settings,

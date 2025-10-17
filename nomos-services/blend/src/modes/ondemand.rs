@@ -8,7 +8,7 @@ use overwatch::{
     services::{AsServiceId, ServiceData, relay::OutboundRelay},
 };
 use services_utils::wait_until_services_are_ready;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 use crate::modes::{Error, LOG_TARGET};
 
@@ -41,6 +41,7 @@ where
             wait_until_services_are_ready!(&overwatch_handle, Some(Duration::from_secs(5)), Service)
                 .await
         {
+            debug!(target: LOG_TARGET, "Service took too long to start. Shutting it down again...");
             stop_service(&overwatch_handle).await;
             return Err(e.into());
         }
