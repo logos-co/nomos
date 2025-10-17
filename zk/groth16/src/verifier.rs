@@ -7,7 +7,7 @@ use ark_bn254::{Bn254, Fr, G1Affine, G1Projective};
 use ark_ec::{CurveGroup as _, VariableBaseMSM as _, pairing::Pairing};
 use ark_ff::{One as _, UniformRand as _};
 use ark_groth16::{Groth16, r1cs_to_qap::LibsnarkReduction};
-use ark_relations::r1cs::{Result as R1CSResult, SynthesisError};
+use ark_relations::r1cs::Result as R1CSResult;
 use ark_std::rand::thread_rng;
 
 use crate::{proof::Proof, verification_key::PreparedVerificationKey};
