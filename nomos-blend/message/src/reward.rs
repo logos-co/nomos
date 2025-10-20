@@ -4,7 +4,7 @@ use blake2::{
     Blake2bVar,
     digest::{Update as _, VariableOutput as _},
 };
-use nomos_core::{block::SessionNumber, codec::SerializeOp as _};
+use nomos_core::{codec::SerializeOp as _, sdp::SessionNumber};
 use nomos_utils::math::{F64Ge1, NonNegativeF64};
 use serde::Serialize;
 use tracing::{debug, error};
