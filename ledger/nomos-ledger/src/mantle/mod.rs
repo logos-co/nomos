@@ -225,7 +225,7 @@ mod tests {
         SignedMantleTx::new_unverified(
             mantle_tx.clone(),
             vec![],
-            DummyZkSignature::prove(zksig::ZkSignaturePublic {
+            DummyZkSignature::prove(&zksig::ZkSignaturePublic {
                 pks: vec![],
                 msg_hash: mantle_tx.hash().into(),
             }),
@@ -252,7 +252,7 @@ mod tests {
             .map(|(key, _)| OpProof::Ed25519Sig(key.sign(tx_hash.as_signing_bytes().as_ref())))
             .collect();
 
-        let ledger_tx_proof = DummyZkSignature::prove(zksig::ZkSignaturePublic {
+        let ledger_tx_proof = DummyZkSignature::prove(&zksig::ZkSignaturePublic {
             pks: vec![],
             msg_hash: tx_hash.into(),
         });

@@ -519,6 +519,9 @@ where
             Ok((new_processor, new_inputs))
         }
         SessionEvent::TransitionPeriodExpired => {
+            // TODO: Send an activity message to SDP service.
+            // Also, do it before this service is terminated before this event is
+            // detected.
             Ok((current_cryptographic_processor, current_public_inputs))
         }
     }
@@ -599,6 +602,9 @@ fn handle_incoming_blend_message<
     }) else {
         return;
     };
+
+    // TODO: Collect a blend token.
+
     match decapsulated_message {
         DecapsulationOutput::Completed(fully_decapsulated_message) => {
             match fully_decapsulated_message.into_components() {

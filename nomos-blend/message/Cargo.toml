@@ -15,16 +15,18 @@ groth16         = { workspace = true }
 itertools       = { default-features = false, version = "0.14" }
 nomos-core      = { workspace = true }
 nomos-utils     = { features = ["rng"], workspace = true }
-num-bigint      = { version = "0.4", default-features = false }
+num-bigint      = { default-features = false, version = "0.4" }
 poq             = { workspace = true }
 serde           = { default-features = false, version = "1" }
-serde-big-array = { version = "0.5", default-features = false }
+serde-big-array = { default-features = false, version = "0.5" }
 serde_with      = { default-features = false, features = ["alloc"], version = "3" }
 thiserror       = "1"
+tracing         = { workspace = true }
 x25519-dalek    = { default-features = false, features = ["serde", "static_secrets"], version = "2" }
 
 [dev-dependencies]
 const-hex = { default-features = false, version = "1.15.0" }
+test-log  = { default-features = false, features = ["trace"], version = "0.2" }
 
 [features]
 unsafe-test-functions = []
