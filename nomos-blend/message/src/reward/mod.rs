@@ -11,16 +11,15 @@ pub use token::BlendingToken;
 
 const LOG_TARGET: &str = "blend::message::reward";
 
-/// Blending tokens being collected for the current session, and tokens retained
-/// from the previous session that will later be used to produce an activity
-/// proof.
-pub struct BlendingTokens {
+/// Collects blending tokens for the current session, while retaining those from
+/// the previous session which are used to produce an activity proof.
+pub struct BlendingTokenCollector {
     current_session_tokens: BlendingTokensForSession,
     current_session_randomness: SessionRandomness,
     previous_session_tokens: Option<BlendingTokensForSession>,
 }
 
-impl BlendingTokens {
+impl BlendingTokenCollector {
     #[must_use]
     pub fn new(current_session_info: &SessionInfo) -> Self {
         Self {
@@ -136,7 +135,7 @@ mod tests {
     };
 
     #[test_log::test(test)]
-    fn test_blending_tokens() {
+    fn test_blending_token_collector() {
         let total_core_quota = 30;
         let session_info = SessionInfo::new(
             1,
@@ -146,7 +145,7 @@ mod tests {
             1.0.try_into().unwrap(),
         )
         .unwrap();
-        let mut tokens = BlendingTokens::new(&session_info);
+        let mut tokens = BlendingTokenCollector::new(&session_info);
         assert!(tokens.current_session_tokens.tokens.is_empty());
         assert_eq!(
             tokens.current_session_randomness,
