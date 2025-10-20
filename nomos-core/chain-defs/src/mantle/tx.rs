@@ -96,7 +96,7 @@ impl GasCost for MantleTx {
 impl MantleTx {
     #[must_use]
     pub fn signed_serialized_size(&self) -> u64 {
-        super::encoding::predict_signed_mantle_tx_size(self)
+        super::encoding::predict_signed_mantle_tx_size(self) as u64
     }
 }
 

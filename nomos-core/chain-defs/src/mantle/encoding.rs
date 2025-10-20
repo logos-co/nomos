@@ -324,12 +324,12 @@ fn decode_ops_proofs<'a>(input: &'a [u8], ops: &[Op]) -> IResult<&'a [u8], Vec<O
 fn decode_op_proof<'a>(input: &'a [u8], op: &Op) -> IResult<&'a [u8], OpProof> {
     match op {
         // Ed25519SigProof = Ed25519Signature
-        Op::ChannelInscribe(_) | Op::ChannelBlob(_) => {
+        Op::ChannelInscribe(_) | Op::ChannelBlob(_) | Op::ChannelSetKeys(_) => {
             map(decode_ed25519_signature, OpProof::Ed25519Sig).parse(input)
         }
 
         // ZkAndEd25519SigsProof = ZkSignature Ed25519Signature
-        Op::ChannelSetKeys(_) => {
+        Op::SDPDeclare(_) => {
             let (input, zk_sig) = decode_zk_signature(input)?;
             let (input, ed25519_sig) = decode_ed25519_signature(input)?;
             Ok((
@@ -342,7 +342,7 @@ fn decode_op_proof<'a>(input: &'a [u8], op: &Op) -> IResult<&'a [u8], OpProof> {
         }
 
         // ZkSigProof = ZkSignature
-        Op::SDPDeclare(_) | Op::SDPWithdraw(_) | Op::SDPActive(_) => {
+        Op::SDPWithdraw(_) | Op::SDPActive(_) => {
             map(decode_zk_signature, OpProof::ZkSig).parse(input)
         }
 
@@ -671,23 +671,22 @@ fn encode_ops(ops: &[Op]) -> Vec<u8> {
 /// Encode proofs
 fn encode_op_proof(proof: &OpProof, op: &Op) -> Vec<u8> {
     match (proof, op) {
-        (OpProof::Ed25519Sig(sig), Op::ChannelInscribe(_) | Op::ChannelBlob(_)) => {
-            encode_ed25519_signature(sig)
-        }
+        (
+            OpProof::Ed25519Sig(sig),
+            Op::ChannelInscribe(_) | Op::ChannelBlob(_) | Op::ChannelSetKeys(_),
+        ) => encode_ed25519_signature(sig),
         (
             OpProof::ZkAndEd25519Sigs {
                 zk_sig,
                 ed25519_sig,
             },
-            Op::ChannelSetKeys(_),
+            Op::SDPDeclare(_),
         ) => {
             let mut bytes = encode_zk_signature(zk_sig);
             bytes.extend(encode_ed25519_signature(ed25519_sig));
             bytes
         }
-        (OpProof::ZkSig(sig), Op::SDPDeclare(_) | Op::SDPWithdraw(_) | Op::SDPActive(_)) => {
-            encode_zk_signature(sig)
-        }
+        (OpProof::ZkSig(sig), Op::SDPWithdraw(_) | Op::SDPActive(_)) => encode_zk_signature(sig),
         (_, Op::LeaderClaim(_)) => {
             unimplemented!("ProofOfClaimProof not implemented");
         }
@@ -725,7 +724,7 @@ pub fn encode_signed_mantle_tx(tx: &SignedMantleTx) -> Vec<u8> {
     bytes
 }
 
-pub(crate) fn predict_signed_mantle_tx_size(tx: &MantleTx) -> u64 {
+pub(crate) fn predict_signed_mantle_tx_size(tx: &MantleTx) -> usize {
     let mantle_tx_size = encode_mantle_tx(tx).len();
 
     let ops_proofs_size = tx
@@ -733,20 +732,19 @@ pub(crate) fn predict_signed_mantle_tx_size(tx: &MantleTx) -> u64 {
         .iter()
         .map(|op| match op {
             // Ed25519SigProof = Ed25519Signature
-            Op::ChannelInscribe(_) | Op::ChannelBlob(_) => ED25519_SIG_BYTES,
+            Op::ChannelInscribe(_) | Op::ChannelBlob(_) | Op::ChannelSetKeys(_) => {
+                ED25519_SIG_BYTES
+            }
 
             // ZkAndEd25519SigsProof = ZkSignature Ed25519Signature
-            Op::ChannelSetKeys(_) => GROTH16_BYTES + ED25519_SIG_BYTES,
+            Op::SDPDeclare(_) => GROTH16_BYTES + ED25519_SIG_BYTES,
 
             // ZkSigProof  = ZkSignature
-            Op::SDPDeclare(_) | Op::SDPWithdraw(_) | Op::SDPActive(_) => GROTH16_BYTES,
+            Op::SDPWithdraw(_) | Op::SDPActive(_) => GROTH16_BYTES,
 
             // ProofOfClaimProof = Groth16
             Op::LeaderClaim(_) => {
                 unimplemented!("OpProof::LeaderClaimProof not yet implemented");
-            }
-            Op::Native(_) => {
-                unimplemented!("Native ops will be removed shortly")
             }
         })
         .sum::<usize>();
@@ -755,7 +753,7 @@ pub(crate) fn predict_signed_mantle_tx_size(tx: &MantleTx) -> u64 {
     // ZkSignature   = Groth16
     let ledger_tx_proof_size = GROTH16_BYTES;
 
-    (mantle_tx_size + ops_proofs_size + ledger_tx_proof_size) as u64
+    mantle_tx_size + ops_proofs_size + ledger_tx_proof_size
 }
 
 #[cfg(test)]
@@ -1242,7 +1240,7 @@ mod tests {
         // Create a signed tx and encode it to get actual size
         let signed_tx = SignedMantleTx::new(mantle_tx, vec![], dummy_zk_signature()).unwrap();
         let encoded = encode_signed_mantle_tx(&signed_tx);
-        let actual_size = encoded.len() as u64;
+        let actual_size = encoded.len();
 
         assert_eq!(predicted_size, actual_size);
     }
@@ -1273,12 +1271,12 @@ mod tests {
         let op_sig = signing_key.sign(&mantle_tx.hash().as_signing_bytes());
         let signed_tx = SignedMantleTx::new(
             mantle_tx,
-            vec![Some(OpProof::Ed25519Sig(op_sig))],
+            vec![OpProof::Ed25519Sig(op_sig)],
             dummy_zk_signature(),
         )
         .unwrap();
         let encoded = encode_signed_mantle_tx(&signed_tx);
-        let actual_size = encoded.len() as u64;
+        let actual_size = encoded.len();
 
         assert_eq!(predicted_size, actual_size);
     }
@@ -1311,12 +1309,12 @@ mod tests {
         let blob_sig = signing_key.sign(&mantle_tx.hash().as_signing_bytes());
         let signed_tx = SignedMantleTx::new(
             mantle_tx,
-            vec![Some(OpProof::Ed25519Sig(blob_sig))],
+            vec![OpProof::Ed25519Sig(blob_sig)],
             dummy_zk_signature(),
         )
         .unwrap();
         let encoded = encode_signed_mantle_tx(&signed_tx);
-        let actual_size = encoded.len() as u64;
+        let actual_size = encoded.len();
 
         assert_eq!(predicted_size, actual_size);
     }
@@ -1352,15 +1350,12 @@ mod tests {
         let dummy_ed25519_sig = Signature::from_bytes(&[0; 64]);
         let signed_tx = SignedMantleTx::new(
             mantle_tx,
-            vec![Some(OpProof::ZkAndEd25519Sigs {
-                zk_sig: dummy_zk_signature(),
-                ed25519_sig: dummy_ed25519_sig,
-            })],
+            vec![OpProof::Ed25519Sig(dummy_ed25519_sig)],
             dummy_zk_signature(),
         )
         .unwrap();
         let encoded = encode_signed_mantle_tx(&signed_tx);
-        let actual_size = encoded.len() as u64;
+        let actual_size = encoded.len();
 
         assert_eq!(predicted_size, actual_size);
     }
@@ -1395,12 +1390,15 @@ mod tests {
         // Create a signed tx and encode it to get actual size
         let signed_tx = SignedMantleTx::new(
             mantle_tx,
-            vec![Some(OpProof::ZkSig(dummy_zk_signature()))],
+            vec![OpProof::ZkAndEd25519Sigs {
+                zk_sig: dummy_zk_signature(),
+                ed25519_sig: Signature::from_bytes(&[0u8; 64]),
+            }],
             dummy_zk_signature(),
         )
         .unwrap();
         let encoded = encode_signed_mantle_tx(&signed_tx);
-        let actual_size = encoded.len() as u64;
+        let actual_size = encoded.len();
 
         assert_eq!(predicted_size, actual_size);
     }
@@ -1425,12 +1423,12 @@ mod tests {
         // Create a signed tx and encode it to get actual size
         let signed_tx = SignedMantleTx::new(
             mantle_tx,
-            vec![Some(OpProof::ZkSig(dummy_zk_signature()))],
+            vec![OpProof::ZkSig(dummy_zk_signature())],
             dummy_zk_signature(),
         )
         .unwrap();
         let encoded = encode_signed_mantle_tx(&signed_tx);
-        let actual_size = encoded.len() as u64;
+        let actual_size = encoded.len();
 
         assert_eq!(predicted_size, actual_size);
     }
@@ -1456,12 +1454,12 @@ mod tests {
         // Create a signed tx and encode it to get actual size
         let signed_tx = SignedMantleTx::new(
             mantle_tx,
-            vec![Some(OpProof::ZkSig(dummy_zk_signature()))],
+            vec![OpProof::ZkSig(dummy_zk_signature())],
             dummy_zk_signature(),
         )
         .unwrap();
         let encoded = encode_signed_mantle_tx(&signed_tx);
-        let actual_size = encoded.len() as u64;
+        let actual_size = encoded.len();
 
         assert_eq!(predicted_size, actual_size);
     }
@@ -1513,15 +1511,15 @@ mod tests {
         let signed_tx = SignedMantleTx::new(
             mantle_tx,
             vec![
-                Some(OpProof::Ed25519Sig(op_sig)),
-                Some(OpProof::Ed25519Sig(op_sig)),
-                Some(OpProof::ZkSig(dummy_zk_signature())),
+                OpProof::Ed25519Sig(op_sig),
+                OpProof::Ed25519Sig(op_sig),
+                OpProof::ZkSig(dummy_zk_signature()),
             ],
             dummy_zk_signature(),
         )
         .unwrap();
         let encoded = encode_signed_mantle_tx(&signed_tx);
-        let actual_size = encoded.len() as u64;
+        let actual_size = encoded.len();
 
         assert_eq!(predicted_size, actual_size);
     }
@@ -1555,7 +1553,7 @@ mod tests {
         // Create a signed tx and encode it to get actual size
         let signed_tx = SignedMantleTx::new(mantle_tx, vec![], dummy_zk_signature()).unwrap();
         let encoded = encode_signed_mantle_tx(&signed_tx);
-        let actual_size = encoded.len() as u64;
+        let actual_size = encoded.len();
 
         assert_eq!(predicted_size, actual_size);
     }
@@ -1614,18 +1612,18 @@ mod tests {
         let signed_tx = SignedMantleTx::new(
             mantle_tx,
             vec![
-                Some(OpProof::Ed25519Sig(op_ed25519_sig)),
-                Some(OpProof::ZkAndEd25519Sigs {
+                OpProof::Ed25519Sig(op_ed25519_sig),
+                OpProof::Ed25519Sig(op_ed25519_sig),
+                OpProof::ZkAndEd25519Sigs {
                     zk_sig: dummy_zk_signature(),
                     ed25519_sig: op_ed25519_sig,
-                }),
-                Some(OpProof::ZkSig(dummy_zk_signature())),
+                },
             ],
             dummy_zk_signature(),
         )
         .unwrap();
         let encoded = encode_signed_mantle_tx(&signed_tx);
-        let actual_size = encoded.len() as u64;
+        let actual_size = encoded.len();
 
         assert_eq!(predicted_size, actual_size);
     }
