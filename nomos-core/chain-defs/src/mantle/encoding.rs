@@ -23,7 +23,6 @@ use crate::{
             sdp::{SDPActiveOp, SDPDeclareOp, SDPWithdrawOp},
         },
     },
-    proofs::zksig::ZkSignaturePublic,
     sdp::{DeclarationId, Locator, ProviderId, ServiceType, ZkPublicKey as SdpZkPublicKey},
 };
 
@@ -368,29 +367,20 @@ fn decode_op_proof<'a>(input: &'a [u8], op: &Op) -> IResult<&'a [u8], OpProof> {
 
 fn decode_zk_signature(input: &[u8]) -> IResult<&[u8], DummyZkSignature> {
     // ZkSignature = Groth16
+    // TODO: for now, signatures are dummy sigs
     map(decode_dummy_zk_signature, DummyZkSignature::from).parse(input)
 }
 
 fn decode_groth16(input: &[u8]) -> IResult<&[u8], CompressedGroth16Proof> {
     // Groth16 = 128BYTE
-    map(take(128usize), |bytes: &[u8]| {
-        let mut proof_bytes = [0u8; 128];
-        proof_bytes.copy_from_slice(bytes);
-        CompressedGroth16Proof::from_bytes(&proof_bytes)
+    map(decode_array::<128>, |proof: [u8; 128]| {
+        CompressedGroth16Proof::from_bytes(&proof)
     })
     .parse(input)
 }
 
 fn decode_dummy_zk_signature(input: &[u8]) -> IResult<&[u8], DummyZkSignature> {
-    let (input, msg_hash) = decode_field_element(input)?;
-    let (input, pks_len) = decode_u8(input)?;
-    let (input, pks) = count(decode_field_element, pks_len as usize).parse(input)?;
-    IResult::Ok((
-        input,
-        DummyZkSignature {
-            public_inputs: ZkSignaturePublic { msg_hash, pks },
-        },
-    ))
+    map(decode_array::<128>, DummyZkSignature::from_bytes).parse(input)
 }
 
 fn decode_zk_public_key(input: &[u8]) -> IResult<&[u8], PublicKey> {
@@ -400,20 +390,16 @@ fn decode_zk_public_key(input: &[u8]) -> IResult<&[u8], PublicKey> {
 
 fn decode_ed25519_public_key(input: &[u8]) -> IResult<&[u8], Ed25519PublicKey> {
     // Ed25519PublicKey = 32BYTE
-    map_res(take(32usize), |bytes: &[u8]| {
-        let mut arr = [0u8; 32];
-        arr.copy_from_slice(bytes);
-        Ed25519PublicKey::from_bytes(&arr).map_err(|_| Error::new(bytes, ErrorKind::Fail))
+    map_res(decode_array::<32>, |bytes: [u8; 32]| {
+        Ed25519PublicKey::from_bytes(&bytes).map_err(|_| Error::new(bytes, ErrorKind::Fail))
     })
     .parse(input)
 }
 
 fn decode_ed25519_signature(input: &[u8]) -> IResult<&[u8], ed25519::Signature> {
     // Ed25519Signature = 64BYTE
-    map(take(64usize), |bytes: &[u8]| {
-        let mut arr = [0u8; 64];
-        arr.copy_from_slice(bytes);
-        ed25519::Signature::from_bytes(&arr)
+    map(decode_array::<64>, |bytes: [u8; 64]| {
+        ed25519::Signature::from_bytes(&bytes)
     })
     .parse(input)
 }
@@ -428,17 +414,20 @@ fn decode_field_element(input: &[u8]) -> IResult<&[u8], Fr> {
 
 fn decode_hash32(input: &[u8]) -> IResult<&[u8], [u8; 32]> {
     // Hash32 = 32BYTE
-    map(take(32usize), |bytes: &[u8]| {
-        let mut arr = [0u8; 32];
-        arr.copy_from_slice(bytes);
-        arr
-    })
-    .parse(input)
+    decode_array::<32>(input)
 }
 
 // ==============================================================================
 // Primitive Decoders
 // ==============================================================================
+fn decode_array<const N: usize>(input: &[u8]) -> IResult<&[u8], [u8; N]> {
+    map(take(N), |bytes: &[u8]| {
+        let mut arr = [0u8; N];
+        arr.copy_from_slice(bytes);
+        arr
+    })
+    .parse(input)
+}
 
 fn decode_uint64(input: &[u8]) -> IResult<&[u8], u64> {
     // UINT64 = 8BYTE
@@ -504,7 +493,7 @@ fn encode_zk_signature(sig: &DummyZkSignature) -> Vec<u8> {
     // bytes.extend_from_slice(proof.pi_c.as_slice());
     // bytes
 
-    sig.as_bytes() // -> Fake implementation for dummy, will change to proof at some point
+    sig.as_bytes().to_vec() // -> Fake implementation for dummy, will change to proof at some point
 }
 
 /// Encode channel operations
@@ -743,10 +732,12 @@ mod tests {
     use ark_ff::Field as _;
     use ed25519::Signature;
 
+    use crate::proofs::zksig::ZkSignaturePublic;
+
     use super::*;
 
     fn dummy_zk_signature() -> DummyZkSignature {
-        DummyZkSignature::prove(ZkSignaturePublic {
+        DummyZkSignature::prove(&ZkSignaturePublic {
             msg_hash: Fr::ZERO,
             pks: [Fr::ZERO; 1].to_vec(),
         })

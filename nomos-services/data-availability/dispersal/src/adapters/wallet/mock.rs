@@ -72,7 +72,7 @@ impl DaWalletAdapter for MockWalletAdapter {
         Ok(SignedMantleTx::new(
             mantle_tx,
             vec![Some(OpProof::Ed25519Sig(signature))],
-            DummyZkSignature::prove(ZkSignaturePublic {
+            DummyZkSignature::prove(&ZkSignaturePublic {
                 msg_hash: tx_hash.into(),
                 pks: vec![],
             }),

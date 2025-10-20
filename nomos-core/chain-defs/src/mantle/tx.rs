@@ -338,7 +338,7 @@ mod tests {
     };
 
     fn dummy_zk_signature() -> ZkSignature {
-        ZkSignature::prove(ZkSignaturePublic {
+        ZkSignature::prove(&ZkSignaturePublic {
             msg_hash: Fr::default(),
             pks: vec![],
         })

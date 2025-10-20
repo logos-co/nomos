@@ -313,7 +313,7 @@ mod tests {
         SignedMantleTx {
             ops_proofs: vec![],
             ledger_tx_proof: DummyZkSignature::prove(
-                nomos_core::proofs::zksig::ZkSignaturePublic {
+                &nomos_core::proofs::zksig::ZkSignaturePublic {
                     pks,
                     msg_hash: mantle_tx.hash().into(),
                 },

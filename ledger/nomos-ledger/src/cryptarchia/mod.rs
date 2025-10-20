@@ -762,7 +762,7 @@ pub mod tests {
         };
         SignedMantleTx {
             ops_proofs: vec![],
-            ledger_tx_proof: DummyZkSignature::prove(ZkSignaturePublic {
+            ledger_tx_proof: DummyZkSignature::prove(&ZkSignaturePublic {
                 pks,
                 msg_hash: mantle_tx.hash().into(),
             }),
