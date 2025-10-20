@@ -1,14 +1,27 @@
 use blake2::digest::{Update as _, VariableOutput as _};
+use generic_array::{GenericArray, typenum::U128};
 use groth16::{Fr, fr_to_bytes, serde::serde_fr};
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeAs, SerializeAs, serde_as};
 
-use crate::utils::serde_big_bytes_newtype;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "GenericArray<u8, U128>", into = "GenericArray<u8, U128>")]
 pub struct DummyZkSignature([u8; 128]);
 
-serde_big_bytes_newtype!(DummyZkSignature, 128);
+#[expect(clippy::from_over_into, reason = "GenericArray is a foreign type")]
+impl Into<GenericArray<u8, U128>> for DummyZkSignature {
+    fn into(self) -> GenericArray<u8, U128> {
+        GenericArray::from_array(self.0)
+    }
+}
+
+impl From<GenericArray<u8, U128>> for DummyZkSignature {
+    fn from(sig: GenericArray<u8, U128>) -> Self {
+        let mut arr = [0u8; 128];
+        arr[..].copy_from_slice(&sig);
+        Self::from_bytes(arr)
+    }
+}
 
 impl DummyZkSignature {
     #[must_use]
