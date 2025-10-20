@@ -1,7 +1,9 @@
 use crate::{
     PayloadType,
+    crypto::proofs::selection::ProofOfSelection,
     encap::encapsulated::{EncapsulatedMessage, EncapsulatedPart, EncapsulatedPrivateHeader},
     message::{Payload, PublicHeader},
+    reward::BlendingToken,
 };
 
 /// The output of [`EncapsulatedMessage::decapsulate`]
@@ -11,8 +13,8 @@ use crate::{
 )]
 #[derive(Clone)]
 pub enum DecapsulationOutput<const ENCAPSULATION_COUNT: usize> {
-    Incompleted(EncapsulatedMessage<ENCAPSULATION_COUNT>),
-    Completed(DecapsulatedMessage),
+    Incompleted((EncapsulatedMessage<ENCAPSULATION_COUNT>, BlendingToken)),
+    Completed((DecapsulatedMessage, BlendingToken)),
 }
 
 /// The output of [`EncapsulatedPart::decapsulate`]
@@ -21,8 +23,14 @@ pub enum DecapsulationOutput<const ENCAPSULATION_COUNT: usize> {
     reason = "Size difference between variants is not too large (small ENCAPSULATION_COUNT)"
 )]
 pub(super) enum PartDecapsulationOutput<const ENCAPSULATION_COUNT: usize> {
-    Incompleted((EncapsulatedPart<ENCAPSULATION_COUNT>, PublicHeader)),
-    Completed(Payload),
+    Incompleted(
+        (
+            EncapsulatedPart<ENCAPSULATION_COUNT>,
+            PublicHeader,
+            ProofOfSelection,
+        ),
+    ),
+    Completed((Payload, ProofOfSelection)),
 }
 
 #[derive(Clone, Debug)]
@@ -57,6 +65,18 @@ impl DecapsulatedMessage {
 
 /// The output of [`EncapsulatedPrivateHeader::decapsulate`]
 pub(super) enum PrivateHeaderDecapsulationOutput<const ENCAPSULATION_COUNT: usize> {
-    Incompleted((EncapsulatedPrivateHeader<ENCAPSULATION_COUNT>, PublicHeader)),
-    Completed((EncapsulatedPrivateHeader<ENCAPSULATION_COUNT>, PublicHeader)),
+    Incompleted(
+        (
+            EncapsulatedPrivateHeader<ENCAPSULATION_COUNT>,
+            PublicHeader,
+            ProofOfSelection,
+        ),
+    ),
+    Completed(
+        (
+            EncapsulatedPrivateHeader<ENCAPSULATION_COUNT>,
+            PublicHeader,
+            ProofOfSelection,
+        ),
+    ),
 }

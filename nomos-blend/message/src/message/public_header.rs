@@ -57,6 +57,10 @@ impl PublicHeader {
         &self.signing_pubkey
     }
 
+    pub const fn proof_of_quota(&self) -> &ProofOfQuota {
+        &self.proof_of_quota
+    }
+
     pub const fn signature(&self) -> &Signature {
         &self.signature
     }

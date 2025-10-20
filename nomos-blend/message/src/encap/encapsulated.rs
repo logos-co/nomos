@@ -205,7 +205,11 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPart<ENCAPSULATION_COUNT> {
             .private_header
             .decapsulate(key, posel_verification_input, verifier)?
         {
-            PrivateHeaderDecapsulationOutput::Incompleted((private_header, public_header)) => {
+            PrivateHeaderDecapsulationOutput::Incompleted((
+                private_header,
+                public_header,
+                proof_of_selection,
+            )) => {
                 let payload = self.payload.decapsulate(key);
                 verify_reconstructed_public_header(
                     &public_header,
@@ -219,9 +223,14 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPart<ENCAPSULATION_COUNT> {
                         payload,
                     },
                     public_header,
+                    proof_of_selection,
                 )))
             }
-            PrivateHeaderDecapsulationOutput::Completed((private_header, public_header)) => {
+            PrivateHeaderDecapsulationOutput::Completed((
+                private_header,
+                public_header,
+                proof_of_selection,
+            )) => {
                 let payload = self.payload.decapsulate(key);
                 verify_reconstructed_public_header(
                     &public_header,
@@ -229,9 +238,10 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPart<ENCAPSULATION_COUNT> {
                     &payload,
                     verifier,
                 )?;
-                Ok(PartDecapsulationOutput::Completed(
+                Ok(PartDecapsulationOutput::Completed((
                     payload.try_deserialize()?,
-                ))
+                    proof_of_selection,
+                )))
             }
         }
     }
@@ -403,11 +413,13 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPrivateHeader<ENCAPSULATION_C
             Ok(PrivateHeaderDecapsulationOutput::Completed((
                 self,
                 public_header,
+                proof_of_selection,
             )))
         } else {
             Ok(PrivateHeaderDecapsulationOutput::Incompleted((
                 self,
                 public_header,
+                proof_of_selection,
             )))
         }
     }

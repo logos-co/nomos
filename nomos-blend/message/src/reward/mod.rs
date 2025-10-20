@@ -6,8 +6,10 @@ use std::collections::HashSet;
 
 pub use activity::ActivityProof;
 use nomos_core::sdp::SessionNumber;
-pub use session::{SessionInfo, SessionRandomness};
+pub use session::SessionInfo;
 pub use token::BlendingToken;
+
+use crate::reward::session::SessionRandomness;
 
 const LOG_TARGET: &str = "blend::message::reward";
 
@@ -128,6 +130,8 @@ impl BlendingTokensForSession {
 
 #[cfg(test)]
 mod tests {
+    use nomos_core::crypto::ZkHash;
+
     use super::*;
     use crate::crypto::proofs::{
         quota::{PROOF_OF_QUOTA_SIZE, ProofOfQuota},
@@ -136,12 +140,13 @@ mod tests {
 
     #[test_log::test(test)]
     fn test_blending_token_collector() {
-        let total_core_quota = 30;
+        let num_core_nodes = 2;
+        let core_quota = 15;
         let session_info = SessionInfo::new(
             1,
-            [1u8; 64].into(),
-            1,
-            total_core_quota,
+            ZkHash::from(1),
+            num_core_nodes,
+            core_quota,
             1.0.try_into().unwrap(),
         )
         .unwrap();
@@ -155,7 +160,7 @@ mod tests {
 
         // Insert tokens as many as the total core quota,
         // so that one of them can be picked as an activity proof.
-        for i in 0..total_core_quota {
+        for i in 0..(core_quota.checked_mul(num_core_nodes).unwrap()) {
             let i: u8 = i.try_into().unwrap();
             let token = blending_token(i, i);
             tokens.insert(token.clone());
@@ -167,12 +172,21 @@ mod tests {
         assert!(tokens.activity_proof().is_none());
 
         // Rotate to a new session.
-        tokens.rotate_session(
-            &SessionInfo::new(2, [2u8; 64].into(), 1, 60, 1.0.try_into().unwrap()).unwrap(),
-        );
+        let session_info = SessionInfo::new(
+            2,
+            ZkHash::from(2),
+            num_core_nodes,
+            core_quota,
+            1.0.try_into().unwrap(),
+        )
+        .unwrap();
+        tokens.rotate_session(&session_info);
         // Check if the sessions have been rotated correctly.
         assert!(tokens.current_session_tokens.tokens.is_empty());
-        assert_eq!(tokens.current_session_randomness, [2u8; 64].into());
+        assert_eq!(
+            tokens.current_session_randomness,
+            session_info.session_randomness
+        );
         assert!(tokens.previous_session_tokens.is_some());
 
         // An activity proof should be generated.

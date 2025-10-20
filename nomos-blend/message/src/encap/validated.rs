@@ -6,6 +6,7 @@ use crate::{
         decapsulated::{DecapsulatedMessage, DecapsulationOutput, PartDecapsulationOutput},
         encapsulated::EncapsulatedMessage,
     },
+    reward::BlendingToken,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -79,16 +80,25 @@ impl<const ENCAPSULATION_COUNT: usize>
             },
             verifier,
         )? {
-            PartDecapsulationOutput::Incompleted((encapsulated_part, public_header)) => {
-                Ok(DecapsulationOutput::Incompleted(
+            PartDecapsulationOutput::Incompleted((
+                encapsulated_part,
+                public_header,
+                proof_of_selection,
+            )) => {
+                let blending_token =
+                    BlendingToken::new(*public_header.proof_of_quota(), proof_of_selection);
+                Ok(DecapsulationOutput::Incompleted((
                     EncapsulatedMessage::from_components(public_header, encapsulated_part),
-                ))
+                    blending_token,
+                )))
             }
-            PartDecapsulationOutput::Completed(payload) => {
+            PartDecapsulationOutput::Completed((payload, proof_of_selection)) => {
                 let (payload_type, payload_body) = payload.try_into_components()?;
-                Ok(DecapsulationOutput::Completed(DecapsulatedMessage::new(
-                    payload_type,
-                    payload_body,
+                let blending_token =
+                    BlendingToken::new(*public_header.proof_of_quota(), proof_of_selection);
+                Ok(DecapsulationOutput::Completed((
+                    (DecapsulatedMessage::new(payload_type, payload_body)),
+                    blending_token,
                 )))
             }
         }

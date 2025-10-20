@@ -1,7 +1,9 @@
 use std::ops::Deref;
 
-use nomos_core::sdp::SessionNumber;
+use blake2::{Blake2b512, Digest as _};
+use nomos_core::{crypto::ZkHash, sdp::SessionNumber};
 use nomos_utils::math::{F64Ge1, NonNegativeF64};
+use num_bigint::BigUint;
 
 use crate::reward::activity::activity_threshold;
 
@@ -16,11 +18,15 @@ pub struct SessionInfo {
 impl SessionInfo {
     pub fn new(
         session_number: SessionNumber,
-        session_randomness: SessionRandomness,
+        pol_epoch_nonce: ZkHash,
         num_core_nodes: u64,
-        total_core_quota: u64,
+        core_quota: u64,
         message_frequency_per_round: NonNegativeF64,
     ) -> Result<Self, Error> {
+        let total_core_quota = core_quota
+            .checked_mul(num_core_nodes)
+            .ok_or(Error::TotalCoreQuotaTooLarge(u64::MAX))?;
+
         let network_size_bit_len = F64Ge1::try_from(
             num_core_nodes
                 .checked_add(1)
@@ -34,6 +40,8 @@ impl SessionInfo {
             token_count_bit_len(total_core_quota, message_frequency_per_round)?;
 
         let activity_threshold = activity_threshold(token_count_bit_len, network_size_bit_len);
+
+        let session_randomness = SessionRandomness::new(session_number, pol_epoch_nonce);
 
         Ok(Self {
             session_number,
@@ -59,6 +67,21 @@ impl Deref for SessionRandomness {
 impl From<[u8; 64]> for SessionRandomness {
     fn from(bytes: [u8; 64]) -> Self {
         Self(bytes)
+    }
+}
+
+const SESSION_RANDOMNESS_TAG: [u8; 27] = *b"BLEND_SESSION_RANDOMNESS_V1";
+
+impl SessionRandomness {
+    /// Derive the session randomness from the given session number and epoch
+    /// nonce.
+    #[must_use]
+    fn new(session_number: SessionNumber, epoch_nonce: ZkHash) -> Self {
+        let mut hasher = Blake2b512::new();
+        hasher.update(SESSION_RANDOMNESS_TAG);
+        hasher.update(BigUint::from(epoch_nonce).to_bytes_le());
+        hasher.update(session_number.to_le_bytes());
+        Self(hasher.finalize().into())
     }
 }
 
