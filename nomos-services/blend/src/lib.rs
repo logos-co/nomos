@@ -6,18 +6,14 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures::{Stream, StreamExt as _};
+use futures::StreamExt as _;
 pub use nomos_blend_message::{
     crypto::proofs::{
         RealProofsVerifier, quota::inputs::prove::private::ProofOfLeadershipQuotaInputs,
     },
     encap::ProofsVerifier,
 };
-pub use nomos_blend_scheduling::message_blend::{ProofsGenerator, RealProofsGenerator};
-use nomos_blend_scheduling::{
-    message_blend::{PrivateInputs, PublicInputs},
-    session::UninitializedSessionEventStream,
-};
+use nomos_blend_scheduling::session::UninitializedSessionEventStream;
 use nomos_network::NetworkService;
 use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
@@ -37,8 +33,8 @@ use crate::{
         },
     },
     instance::{Instance, Mode},
-    membership::Adapter as _,
-    settings::{FIRST_SESSION_READY_TIMEOUT, Settings},
+    membership::{Adapter as _, MembershipInfo},
+    settings::{FIRST_STREAM_ITEM_READY_TIMEOUT, Settings},
 };
 
 pub mod core;
@@ -149,7 +145,7 @@ where
 
         wait_until_services_are_ready!(
             &overwatch_handle,
-            Some(Duration::from_secs(30)),
+            Some(Duration::from_secs(60)),
             MembershipService<EdgeService>
         )
         .await?;
@@ -163,14 +159,15 @@ where
         .subscribe()
         .await?;
 
-        let (membership, mut session_stream) = UninitializedSessionEventStream::new(
-            membership_stream,
-            FIRST_SESSION_READY_TIMEOUT,
-            settings.time.session_transition_period(),
-        )
-        .await_first_ready()
-        .await
-        .expect("The current session must be ready");
+        let (MembershipInfo { membership, .. }, mut remaining_session_stream) =
+            UninitializedSessionEventStream::new(
+                membership_stream,
+                FIRST_STREAM_ITEM_READY_TIMEOUT,
+                settings.time.session_transition_period(),
+            )
+            .await_first_ready()
+            .await
+            .expect("The current session must be ready");
 
         info!(
             target: LOG_TARGET,
@@ -193,9 +190,9 @@ where
 
         loop {
             tokio::select! {
-                Some(event) = session_stream.next() => {
+                Some(session_event) = remaining_session_stream.next() => {
                     debug!(target: LOG_TARGET, "Received a new session event");
-                    instance = instance.handle_session_event(event, overwatch_handle, minimal_network_size).await?;
+                    instance = instance.handle_session_event(session_event, overwatch_handle, minimal_network_size).await?;
                 },
                 Some(message) = inbound_relay.next() => {
                     if let Err(e) = instance.handle_inbound_message(message).await {
@@ -214,39 +211,3 @@ type MembershipAdapter<EdgeService> = <EdgeService as edge::ServiceComponents>::
 
 type MembershipService<EdgeService> =
     <MembershipAdapter<EdgeService> as membership::Adapter>::Service;
-
-const fn mock_poq_inputs() -> (PublicInputs, PrivateInputs) {
-    use groth16::Field as _;
-    use nomos_core::crypto::ZkHash;
-
-    (
-        PublicInputs {
-            core_quota: 0,
-            core_root: ZkHash::ZERO,
-            leader_quota: 0,
-            pol_epoch_nonce: ZkHash::ZERO,
-            pol_ledger_aged: ZkHash::ZERO,
-            session: 0,
-            total_stake: 0,
-        },
-        PrivateInputs {
-            aged_path_and_selectors: [(ZkHash::ZERO, false); _],
-            core_path_and_selectors: [(ZkHash::ZERO, false); _],
-            core_sk: ZkHash::ZERO,
-            note_value: 0,
-            output_number: 0,
-            pol_secret_key: ZkHash::ZERO,
-            slot: 0,
-            slot_secret: ZkHash::ZERO,
-            slot_secret_path: [ZkHash::ZERO; _],
-            starting_slot: 0,
-            transaction_hash: ZkHash::ZERO,
-        },
-    )
-}
-
-fn mock_poq_inputs_stream() -> impl Stream<Item = (PublicInputs, PrivateInputs)> {
-    use futures::stream::repeat;
-
-    repeat(mock_poq_inputs())
-}

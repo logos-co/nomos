@@ -5,6 +5,7 @@ use crate::crypto::proofs::{
     quota::{
         DOMAIN_SEPARATION_TAG_FR, ProofOfQuota,
         fixtures::{valid_proof_of_core_quota_inputs, valid_proof_of_leadership_quota_inputs},
+        inputs::prove::PrivateInputs,
     },
     selection::derive_key_nullifier_from_secret_selection_randomness,
 };
@@ -23,10 +24,13 @@ fn secret_selection_randomness_dst_encoding() {
 #[test]
 fn valid_proof_of_core_quota() {
     let (public_inputs, private_inputs) =
-        valid_proof_of_core_quota_inputs([0; _].try_into().unwrap(), 1, 0);
+        valid_proof_of_core_quota_inputs([0; _].try_into().unwrap(), 1);
 
-    let (proof, secret_selection_randomness) =
-        ProofOfQuota::new(&public_inputs, private_inputs).unwrap();
+    let (proof, secret_selection_randomness) = ProofOfQuota::new(
+        &public_inputs,
+        PrivateInputs::new_proof_of_core_quota_inputs(0, private_inputs),
+    )
+    .unwrap();
 
     let key_nullifier = proof.verify(&public_inputs).unwrap();
     assert_eq!(
@@ -38,10 +42,13 @@ fn valid_proof_of_core_quota() {
 #[test]
 fn valid_proof_of_leadership_quota() {
     let (public_inputs, private_inputs) =
-        valid_proof_of_leadership_quota_inputs([0; _].try_into().unwrap(), 1, 0);
+        valid_proof_of_leadership_quota_inputs([0; _].try_into().unwrap(), 1);
 
-    let (proof, secret_selection_randomness) =
-        ProofOfQuota::new(&public_inputs, private_inputs).unwrap();
+    let (proof, secret_selection_randomness) = ProofOfQuota::new(
+        &public_inputs,
+        PrivateInputs::new_proof_of_leadership_quota_inputs(0, private_inputs),
+    )
+    .unwrap();
 
     let key_nullifier = proof.verify(&public_inputs).unwrap();
     assert_eq!(

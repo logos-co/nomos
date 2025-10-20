@@ -14,7 +14,7 @@ use overwatch::{
 use tokio::sync::oneshot;
 use tracing::warn;
 
-use crate::membership::{MembershipStream, ServiceMessage, node_id};
+use crate::membership::{MembershipInfo, MembershipStream, ServiceMessage, node_id};
 
 pub struct Adapter<Service, NodeId>
 where
@@ -53,6 +53,9 @@ where
     ///
     /// It returns a stream of [`Membership`] instances,
     async fn subscribe(&self) -> Result<MembershipStream<Self::NodeId>, Self::Error> {
+        use groth16::Field as _;
+        use nomos_core::crypto::ZkHash;
+
         let signing_public_key = self.signing_public_key;
         Ok(Box::pin(
             self.subscribe_stream(ServiceType::BlendNetwork)
@@ -65,7 +68,13 @@ where
                         })
                         .collect::<Vec<_>>()
                 })
-                .map(move |nodes| Membership::new(&nodes, &signing_public_key)),
+                .map(move |nodes| MembershipInfo {
+                    membership: Membership::new(&nodes, &signing_public_key),
+                    // TODO: Replace with actual value.
+                    session_number: 0,
+                    // TODO: Replace with actual value.
+                    zk_root: ZkHash::ZERO,
+                }),
         ))
     }
 }

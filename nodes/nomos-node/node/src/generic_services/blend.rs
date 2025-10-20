@@ -10,16 +10,23 @@ use async_trait::async_trait;
 use chain_leader::LeaderMsg;
 use futures::{Stream, StreamExt as _};
 use nomos_blend_message::crypto::{
-    keys::Ed25519PrivateKey,
+    keys::{Ed25519PrivateKey, Ed25519PublicKey},
     proofs::{
-        quota::{ProofOfQuota, inputs::prove::PublicInputs},
+        PoQVerificationInputsMinusSigningKey,
+        quota::{
+            ProofOfQuota,
+            inputs::prove::{private::ProofOfCoreQuotaInputs, public::LeaderInputs},
+        },
         selection::{ProofOfSelection, inputs::VerifyInputs},
     },
     random_sized_bytes,
 };
-use nomos_blend_scheduling::message_blend::{BlendLayerProof, SessionInfo};
+use nomos_blend_scheduling::message_blend::provers::{
+    BlendLayerProof, ProofsGeneratorSettings, core_and_leader::CoreAndLeaderProofsGenerator,
+    leader::LeaderProofsGenerator,
+};
 use nomos_blend_service::{
-    ProofOfLeadershipQuotaInputs, ProofsGenerator, ProofsVerifier,
+    ProofOfLeadershipQuotaInputs, ProofsVerifier,
     epoch_info::{PolEpochInfo, PolInfoProvider as PolInfoProviderTrait},
     membership::service::Adapter,
 };
@@ -46,14 +53,18 @@ pub struct BlendProofsVerifier;
 impl ProofsVerifier for BlendProofsVerifier {
     type Error = Infallible;
 
-    fn new() -> Self {
+    fn new(_public_inputs: PoQVerificationInputsMinusSigningKey) -> Self {
         Self
     }
+
+    fn start_epoch_transition(&mut self, _new_pol_inputs: LeaderInputs) {}
+
+    fn complete_epoch_transition(&mut self) {}
 
     fn verify_proof_of_quota(
         &self,
         _proof: ProofOfQuota,
-        _inputs: &PublicInputs,
+        _signing_key: &Ed25519PublicKey,
     ) -> Result<ZkHash, Self::Error> {
         use groth16::Field as _;
 
@@ -75,19 +86,24 @@ pub struct BlendProofsGenerator {
 }
 
 #[async_trait]
-impl ProofsGenerator for BlendProofsGenerator {
+impl CoreAndLeaderProofsGenerator for BlendProofsGenerator {
     fn new(
-        SessionInfo {
-            membership_size,
+        ProofsGeneratorSettings {
             local_node_index,
+            membership_size,
             ..
-        }: SessionInfo,
+        }: ProofsGeneratorSettings,
+        _private_inputs: ProofOfCoreQuotaInputs,
     ) -> Self {
         Self {
             membership_size,
             local_node_index,
         }
     }
+
+    fn rotate_epoch(&mut self, _new_epoch_public: LeaderInputs) {}
+
+    fn set_epoch_private(&mut self, _new_epoch_private: ProofOfLeadershipQuotaInputs) {}
 
     async fn get_next_core_proof(&mut self) -> Option<BlendLayerProof> {
         Some(loop_until_valid_proof(
@@ -96,11 +112,39 @@ impl ProofsGenerator for BlendProofsGenerator {
         ))
     }
 
-    async fn get_next_leadership_proof(&mut self) -> Option<BlendLayerProof> {
+    async fn get_next_leader_proof(&mut self) -> Option<BlendLayerProof> {
         Some(loop_until_valid_proof(
             self.membership_size,
             self.local_node_index,
         ))
+    }
+}
+
+#[async_trait]
+impl LeaderProofsGenerator for BlendProofsGenerator {
+    fn new(
+        ProofsGeneratorSettings {
+            local_node_index,
+            membership_size,
+            ..
+        }: ProofsGeneratorSettings,
+        _private_inputs: ProofOfLeadershipQuotaInputs,
+    ) -> Self {
+        Self {
+            membership_size,
+            local_node_index,
+        }
+    }
+
+    fn rotate_epoch(
+        &mut self,
+        _new_epoch_public: LeaderInputs,
+        _new_private_inputs: ProofOfLeadershipQuotaInputs,
+    ) {
+    }
+
+    async fn get_next_proof(&mut self) -> BlendLayerProof {
+        loop_until_valid_proof(self.membership_size, self.local_node_index)
     }
 }
 
@@ -203,7 +247,7 @@ where
 
         wait_until_services_are_ready!(
             overwatch_handle,
-            Some(Duration::from_secs(3)),
+            Some(Duration::from_secs(60)),
             CryptarchiaLeaderService<
                 CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
                 WalletService<
@@ -239,7 +283,7 @@ where
         Some(Box::new(
             WatchStream::new(pol_winning_slot_receiver)
                 .filter_map(ready)
-                .map(|(leader_private, secret_key, epoch)| {
+                .map(|(leader_private, secret_key, _)| {
                     let PolWitnessInputsData {
                         wallet:
                             PolWalletInputsData {
@@ -253,7 +297,7 @@ where
                                 transaction_hash,
                                 ..
                             },
-                        chain: PolChainInputsData { slot_number, .. },
+                        chain: PolChainInputsData { slot_number, epoch_nonce, .. },
                     } = leader_private.input();
 
                 // TODO: Remove this if `PoL` stuff also migrates to using fixed-size arrays or starts using vecs of the expected length instead of empty ones when generating `LeaderPrivate` values.
@@ -277,7 +321,7 @@ where
                 };
 
                 PolEpochInfo {
-                    epoch,
+                    nonce: *epoch_nonce,
                     poq_private_inputs: ProofOfLeadershipQuotaInputs {
                         aged_path_and_selectors: aged_path_and_selectors.try_into().expect("List of aged note paths and selectors does not match the expected size for PoQ inputs, although it has already been pre-processed."),
                         note_value: *note_value,
