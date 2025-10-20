@@ -52,9 +52,13 @@ pub fn decode_signed_mantle_tx(input: &[u8]) -> IResult<&[u8], SignedMantleTx> {
     // In release mode without test/debug, we need to verify
     #[cfg(not(any(test, debug_assertions)))]
     {
-        SignedMantleTx::new(mantle_tx, ops_proofs, ledger_tx_proof)
-            .map(|tx| (input, tx))
-            .map_err(|_| nom::Err::Error(Error::new(input, ErrorKind::Verify)))
+        SignedMantleTx::new(
+            mantle_tx,
+            ops_proofs.into_iter().map(Some).collect(),
+            ledger_tx_proof,
+        )
+        .map(|tx| (input, tx))
+        .map_err(|_| nom::Err::Error(Error::new(input, ErrorKind::Verify)))
     }
 }
 
