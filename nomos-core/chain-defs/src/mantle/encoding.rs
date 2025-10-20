@@ -759,7 +759,7 @@ pub(crate) fn predict_signed_mantle_tx_size(tx: &MantleTx) -> usize {
 #[cfg(test)]
 mod tests {
     use ark_ff::Field as _;
-    use ed25519::{Signature, signature::SignerMut};
+    use ed25519::{Signature, signature::SignerMut as _};
 
     use super::*;
     use crate::{mantle::Transaction as _, proofs::zksig::ZkSignaturePublic};
