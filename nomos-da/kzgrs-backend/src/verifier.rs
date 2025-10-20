@@ -69,8 +69,8 @@ impl DaVerifier {
             &columns,
             &commitmentss
                 .iter()
-                .map(|commits| &commits.rows_commitments)
-                .collect(),
+                .map(|commits| commits.rows_commitments.as_slice())
+                .collect::<Vec<_>>().as_slice(),
             &shares
                 .iter()
                 .map(|share| share.combined_column_proof)
