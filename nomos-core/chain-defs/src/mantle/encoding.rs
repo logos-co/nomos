@@ -732,9 +732,8 @@ mod tests {
     use ark_ff::Field as _;
     use ed25519::Signature;
 
-    use crate::proofs::zksig::ZkSignaturePublic;
-
     use super::*;
+    use crate::proofs::zksig::ZkSignaturePublic;
 
     fn dummy_zk_signature() -> DummyZkSignature {
         DummyZkSignature::prove(&ZkSignaturePublic {

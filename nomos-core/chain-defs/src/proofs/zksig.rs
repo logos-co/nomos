@@ -42,7 +42,7 @@ pub trait ZkSignatureProof {
 
 impl ZkSignatureProof for DummyZkSignature {
     fn verify(&self, public_inputs: &ZkSignaturePublic) -> bool {
-        &DummyZkSignature::prove(public_inputs) == self
+        &Self::prove(public_inputs) == self
     }
 }
 
