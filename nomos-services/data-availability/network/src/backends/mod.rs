@@ -5,7 +5,11 @@ use std::{collections::HashSet, pin::Pin};
 
 use ::libp2p::PeerId;
 use futures::Stream;
-use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId, sdp::ProviderId};
+use nomos_core::{
+    da::BlobId,
+    header::HeaderId,
+    sdp::{ProviderId, SessionNumber},
+};
 use nomos_da_network_core::{
     addressbook::AddressBookHandler, protocols::sampling::opinions::OpinionEvent,
     swarm::BalancerStats,

@@ -13,7 +13,7 @@ use cryptarchia::LedgerState as CryptarchiaLedger;
 pub use cryptarchia::{EpochState, UtxoTree};
 use cryptarchia_engine::Slot;
 use groth16::{Field as _, Fr};
-use mantle::{LedgerState as MantleLedger, sdp::Sessions};
+use mantle::LedgerState as MantleLedger;
 use nomos_core::{
     block::BlockNumber,
     mantle::{
@@ -21,7 +21,7 @@ use nomos_core::{
         ops::leader_claim::VoucherCm,
     },
     proofs::leader_proof,
-    sdp::{ProviderId, ProviderInfo, ServiceType},
+    sdp::{ProviderId, ProviderInfo, ServiceType, SessionNumber},
 };
 use thiserror::Error;
 
@@ -176,9 +176,9 @@ impl LedgerState {
         let cryptarchia_ledger = self
             .cryptarchia_ledger
             .try_apply_header::<LeaderProof, Id>(slot, proof, config)?;
-        let mantle_ledger = self
-            .mantle_ledger
-            .try_apply_header(config.epoch(slot), voucher)?;
+        let mantle_ledger =
+            self.mantle_ledger
+                .try_apply_header(config.epoch(slot), voucher, config)?;
         Ok(Self {
             block_number: self
                 .block_number
@@ -219,9 +219,6 @@ impl LedgerState {
                 Ordering::Equal => {} // OK!
             }
         }
-        self.mantle_ledger = self
-            .mantle_ledger
-            .try_update_membership(self.block_number, config)?;
         Ok(self)
     }
 
@@ -274,16 +271,18 @@ impl LedgerState {
     }
 
     #[must_use]
-    pub const fn active_sessions(&self) -> &Sessions {
-        self.mantle_ledger.active_sessions()
-    }
-
-    #[must_use]
     pub fn active_session_providers(
         &self,
         service_type: ServiceType,
+        config: &Config,
     ) -> Option<HashMap<ProviderId, ProviderInfo>> {
-        self.mantle_ledger.active_session_providers(&service_type)
+        self.mantle_ledger
+            .active_session_providers(service_type, config)
+    }
+
+    #[must_use]
+    pub fn active_sessions(&self) -> HashMap<ServiceType, SessionNumber> {
+        self.mantle_ledger.active_sessions()
     }
 }
 

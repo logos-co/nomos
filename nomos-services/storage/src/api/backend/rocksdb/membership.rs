@@ -2,9 +2,9 @@ use std::collections::{BTreeSet, HashMap};
 
 use async_trait::async_trait;
 use nomos_core::{
-    block::{BlockNumber, SessionNumber},
+    block::BlockNumber,
     codec::{DeserializeOp as _, SerializeOp as _},
-    sdp::{Locator, ProviderId, ServiceType},
+    sdp::{Locator, ProviderId, ServiceType, SessionNumber},
 };
 use overwatch::DynError;
 use tracing::{debug, error};

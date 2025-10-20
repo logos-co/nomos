@@ -24,11 +24,7 @@ use nomos_blend_service::{
     settings::TimingSettings,
 };
 use nomos_core::{
-    block::{Block, SessionNumber},
-    da::BlobId,
-    header::HeaderId,
-    mantle::SignedMantleTx,
-    sdp::FinalizedBlockEvent,
+    block::Block, da::BlobId, header::HeaderId, mantle::SignedMantleTx, sdp::SessionNumber,
 };
 use nomos_da_dispersal::{
     DispersalServiceSettings,
@@ -66,6 +62,7 @@ use nomos_node::{
     api::testing::handlers::HistoricSamplingRequest,
     config::{blend::BlendConfig, mempool::MempoolConfig},
 };
+use nomos_sdp::BlockEvent;
 use nomos_time::{
     TimeServiceSettings,
     backends::{NtpTimeBackendSettings, ntp::async_client::NTPClientSettings},
@@ -296,10 +293,7 @@ impl Executor {
             .await
     }
 
-    pub async fn update_membership(
-        &self,
-        update_event: FinalizedBlockEvent,
-    ) -> Result<(), reqwest::Error> {
+    pub async fn update_membership(&self, update_event: BlockEvent) -> Result<(), reqwest::Error> {
         let update_event = MembershipUpdateRequest { update_event };
         let json_body = serde_json::to_string(&update_event).unwrap();
 

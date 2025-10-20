@@ -7,10 +7,10 @@ use std::{
 
 use kzgrs_backend::common::share::DaSharesCommitments;
 use nomos_core::{
-    block::SessionNumber,
     da::{DaVerifier as CoreDaVerifier, blob::Share},
     header::HeaderId,
     mantle::{SignedMantleTx, ops::channel::ChannelId},
+    sdp::SessionNumber,
 };
 use nomos_da_dispersal::{
     DaDispersalMsg, DispersalService, adapters::network::DispersalNetworkAdapter,

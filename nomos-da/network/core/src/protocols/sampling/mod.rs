@@ -18,7 +18,7 @@ use kzgrs_backend::common::{
     share::{DaLightShare, DaSharesCommitments},
 };
 use libp2p::{PeerId, swarm::NetworkBehaviour};
-use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId};
+use nomos_core::{da::BlobId, header::HeaderId, sdp::SessionNumber};
 use nomos_da_messages::{common, sampling, sampling::SampleResponse};
 use serde::{Deserialize, Serialize};
 use streams::SampleStream;

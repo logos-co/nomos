@@ -19,7 +19,11 @@ use backends::{ConnectionStatus, NetworkBackend};
 use futures::{Stream, stream::select};
 use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};
 use libp2p::{Multiaddr, PeerId};
-use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId, sdp::ProviderId};
+use nomos_core::{
+    da::BlobId,
+    header::HeaderId,
+    sdp::{ProviderId, SessionNumber},
+};
 use nomos_da_network_core::{
     SubnetworkId, addressbook::AddressBookHandler as _,
     protocols::sampling::opinions::OpinionEvent, swarm::BalancerStats,

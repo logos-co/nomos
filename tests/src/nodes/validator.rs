@@ -23,12 +23,7 @@ use nomos_blend_service::{
     core::settings::{CoverTrafficSettingsExt, MessageDelayerSettingsExt, SchedulerSettingsExt},
     settings::TimingSettings,
 };
-use nomos_core::{
-    block::{Block, SessionNumber},
-    da::BlobId,
-    mantle::SignedMantleTx,
-    sdp::FinalizedBlockEvent,
-};
+use nomos_core::{block::Block, da::BlobId, mantle::SignedMantleTx, sdp::SessionNumber};
 use nomos_da_network_core::{
     protocols::sampling::SubnetsConfig,
     swarm::{BalancerStats, DAConnectionPolicySettings, MonitorStats},
@@ -56,6 +51,7 @@ use nomos_node::{
     api::{backend::AxumBackendSettings, testing::handlers::HistoricSamplingRequest},
     config::{blend::BlendConfig, mempool::MempoolConfig},
 };
+use nomos_sdp::BlockEvent;
 use nomos_time::{
     TimeServiceSettings,
     backends::{NtpTimeBackendSettings, ntp::async_client::NTPClientSettings},
@@ -239,10 +235,7 @@ impl Validator {
         }
     }
 
-    pub async fn update_membership(
-        &self,
-        update_event: FinalizedBlockEvent,
-    ) -> Result<(), reqwest::Error> {
+    pub async fn update_membership(&self, update_event: BlockEvent) -> Result<(), reqwest::Error> {
         let update_event = MembershipUpdateRequest { update_event };
         let json_body = serde_json::to_string(&update_event).unwrap();
 

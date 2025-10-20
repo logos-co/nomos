@@ -7,7 +7,7 @@ use std::{
     sync::Arc,
 };
 
-use nomos_core::block::SessionNumber;
+use nomos_core::sdp::SessionNumber;
 use rand::RngCore;
 
 pub type SubnetworkId = u16;

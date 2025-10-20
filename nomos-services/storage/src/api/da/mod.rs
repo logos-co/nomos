@@ -5,7 +5,10 @@ use std::{
 
 use async_trait::async_trait;
 use multiaddr::Multiaddr;
-use nomos_core::{block::SessionNumber, da::blob::Share, sdp::ProviderId};
+use nomos_core::{
+    da::blob::Share,
+    sdp::{ProviderId, SessionNumber},
+};
 
 pub mod requests;
 

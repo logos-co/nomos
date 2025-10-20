@@ -2,8 +2,8 @@ use std::collections::{BTreeSet, HashMap};
 
 use async_trait::async_trait;
 use nomos_core::{
-    block::{BlockNumber, SessionNumber},
-    sdp::{Locator, ProviderId, ServiceType},
+    block::BlockNumber,
+    sdp::{Locator, ProviderId, ServiceType, SessionNumber},
 };
 use overwatch::DynError;
 

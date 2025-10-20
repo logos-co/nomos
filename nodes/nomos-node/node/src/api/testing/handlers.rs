@@ -8,7 +8,7 @@ use nomos_api::http::{
     da::{self},
     membership::{self, MembershipUpdateRequest},
 };
-use nomos_core::{block::SessionNumber, header::HeaderId};
+use nomos_core::{header::HeaderId, sdp::SessionNumber};
 use nomos_da_network_service::{
     NetworkService, api::ApiAdapter as ApiAdapterTrait, backends::NetworkBackend,
 };
