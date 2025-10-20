@@ -1,16 +1,28 @@
-use groth16::{Fr, serde::serde_fr};
+use bytes::BufMut as _;
+use groth16::{Fr, fr_to_bytes, serde::serde_fr};
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeAs, SerializeAs, serde_as};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DummyZkSignature {
-    public_inputs: ZkSignaturePublic,
+    pub public_inputs: ZkSignaturePublic,
 }
 
 impl DummyZkSignature {
     #[must_use]
     pub const fn prove(public_inputs: ZkSignaturePublic) -> Self {
         Self { public_inputs }
+    }
+
+    #[must_use]
+    pub fn as_bytes(&self) -> Vec<u8> {
+        let mut b = bytes::BytesMut::new();
+        b.put_slice(&fr_to_bytes(&self.public_inputs.msg_hash));
+        b.put_u8(self.public_inputs.pks.len() as u8);
+        for pk in &self.public_inputs.pks {
+            b.put_slice(&fr_to_bytes(pk));
+        }
+        b.freeze().to_vec()
     }
 }
 

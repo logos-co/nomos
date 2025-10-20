@@ -21,7 +21,7 @@ use libp2p::{
     },
 };
 use libp2p_stream::{Control, OpenStreamError};
-use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId};
+use nomos_core::{da::BlobId, header::HeaderId, sdp::SessionNumber};
 use nomos_da_messages::sampling::{self, SampleResponse};
 use rand::{rngs::ThreadRng, seq::IteratorRandom as _};
 use subnetworks_assignations::MembershipHandler;

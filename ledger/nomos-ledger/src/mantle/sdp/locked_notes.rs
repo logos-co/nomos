@@ -1,13 +1,11 @@
 use std::collections::HashSet;
 
 use nomos_core::{
-    mantle::NoteId,
+    mantle::{Note, NoteId},
     sdp::{MinStake, ServiceType},
 };
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-
-use crate::UtxoTree;
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
 pub enum Error {
@@ -30,9 +28,16 @@ pub enum Error {
 }
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct LockedNotes {
-    locked_notes: rpds::HashTrieMapSync<NoteId, HashSet<ServiceType>>,
+    locked_notes: rpds::HashTrieMapSync<NoteId, LockedNote>,
+}
+
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LockedNote {
+    note: Note,
+    services: HashSet<ServiceType>,
 }
 
 impl LockedNotes {
@@ -44,63 +49,61 @@ impl LockedNotes {
     }
 
     #[must_use]
+    pub fn get(&self, id: &NoteId) -> Option<&Note> {
+        self.locked_notes.get(id).map(|ln| &ln.note)
+    }
+
+    #[must_use]
     pub fn contains(&self, id: &NoteId) -> bool {
         self.locked_notes.contains_key(id)
     }
 
     pub fn lock(
         mut self,
-        utxo_tree: &UtxoTree,
         min_stake: &MinStake,
         service_type: ServiceType,
+        note: Note,
         note_id: &NoteId,
     ) -> Result<Self, Error> {
-        let Some((utxo, _)) = utxo_tree.utxos().get(note_id) else {
-            return Err(Error::NoteDoesNotExist(*note_id));
-        };
-
-        if utxo.note.value < min_stake.threshold {
+        if note.value < min_stake.threshold {
             return Err(Error::NoteInsufficientValue {
                 note_id: *note_id,
-                value: utxo.note.value,
+                value: note.value,
             });
         }
 
-        if let Some(services) = self.locked_notes.get_mut(note_id) {
-            if services.contains(&service_type) {
+        if let Some(locked) = self.locked_notes.get_mut(note_id) {
+            if locked.services.contains(&service_type) {
                 return Err(Error::NoteAlreadyUsedForService {
                     note_id: *note_id,
                     service_type,
                 });
             }
-            services.insert(service_type);
+            locked.services.insert(service_type);
         } else {
             let services = [service_type].into();
-            self.locked_notes = self.locked_notes.insert(*note_id, services);
+            self.locked_notes = self
+                .locked_notes
+                .insert(*note_id, LockedNote { note, services });
         }
 
         Ok(self)
     }
 
-    pub fn unlock(mut self, service_type: ServiceType, note_id: &NoteId) -> Result<Self, Error> {
-        if let Some(services) = self.locked_notes.get(note_id) {
-            if !services.contains(&service_type) {
+    pub fn unlock(&mut self, service_type: ServiceType, note_id: &NoteId) -> Result<Note, Error> {
+        if let Some(note) = self.locked_notes.get_mut(note_id) {
+            if !note.services.remove(&service_type) {
                 return Err(Error::NoteNotLockedForService {
                     note_id: *note_id,
                     service_type,
                 });
             }
-
-            let mut updated_services = services.clone();
-            updated_services.remove(&service_type);
-
-            if updated_services.is_empty() {
+            let res = note.note;
+            if note.services.is_empty() {
                 self.locked_notes = self.locked_notes.remove(note_id);
-            } else {
-                self.locked_notes = self.locked_notes.insert(*note_id, updated_services);
             }
 
-            Ok(self)
+            Ok(res)
         } else {
             Err(Error::NoteNotLocked(*note_id))
         }
@@ -113,17 +116,13 @@ mod tests {
 
     use nomos_core::sdp::{MinStake, ServiceType};
 
-    use crate::{
-        cryptarchia::tests::{genesis_state, utxo},
-        mantle::locked_notes::{Error, LockedNotes},
-    };
+    use super::{Error, LockedNotes};
+    use crate::cryptarchia::tests::utxo;
 
     #[test]
     fn test_lock_success() {
         let utxo = utxo();
         let note_id = utxo.id();
-        let state = genesis_state(&[utxo]);
-        let utxo_tree = state.latest_commitments();
         let locked_notes = LockedNotes::new();
         let min_stake = MinStake {
             threshold: 1,
@@ -131,27 +130,33 @@ mod tests {
         };
 
         let locked_notes_bn = locked_notes
-            .lock(utxo_tree, &min_stake, ServiceType::BlendNetwork, &note_id)
+            .lock(&min_stake, ServiceType::BlendNetwork, utxo.note, &note_id)
             .expect("Should be able to lock for BN service");
 
         assert!(locked_notes_bn.contains(&note_id));
         assert_eq!(
-            locked_notes_bn.locked_notes.get(&note_id),
+            locked_notes_bn
+                .locked_notes
+                .get(&note_id)
+                .map(|ln| &ln.services),
             Some(&HashSet::from([ServiceType::BlendNetwork]))
         );
 
         let locked_notes_both = locked_notes_bn
             .lock(
-                utxo_tree,
                 &min_stake,
                 ServiceType::DataAvailability,
+                utxo.note,
                 &note_id,
             )
             .expect("Should be able to lock for DA service");
 
         assert!(locked_notes_both.contains(&note_id));
         assert_eq!(
-            locked_notes_both.locked_notes.get(&note_id),
+            locked_notes_both
+                .locked_notes
+                .get(&note_id)
+                .map(|ln| &ln.services),
             Some(&HashSet::from([
                 ServiceType::BlendNetwork,
                 ServiceType::DataAvailability
@@ -163,8 +168,6 @@ mod tests {
     fn test_lock_fail_already_used() {
         let utxo = utxo();
         let note_id = utxo.id();
-        let state = genesis_state(&[utxo]);
-        let utxo_tree = state.latest_commitments();
         let locked_notes = LockedNotes::new();
         let min_stake = MinStake {
             threshold: 1,
@@ -173,17 +176,17 @@ mod tests {
 
         let locked_notes_once = locked_notes
             .lock(
-                utxo_tree,
                 &min_stake,
                 ServiceType::DataAvailability,
+                utxo.note,
                 &note_id,
             )
             .unwrap();
 
         let result = locked_notes_once.lock(
-            utxo_tree,
             &min_stake,
             ServiceType::DataAvailability,
+            utxo.note,
             &note_id,
         );
 
@@ -201,16 +204,13 @@ mod tests {
     fn lock_fail_insufficient() {
         let utxo = utxo();
         let note_id = utxo.id();
-        let state = genesis_state(&[utxo]);
-        let utxo_tree = state.latest_commitments();
         let locked_notes = LockedNotes::new();
-
         let min_stake = MinStake {
             threshold: 999_999,
             timestamp: 0,
         };
 
-        let result = locked_notes.lock(utxo_tree, &min_stake, ServiceType::BlendNetwork, &note_id);
+        let result = locked_notes.lock(&min_stake, ServiceType::BlendNetwork, utxo.note, &note_id);
 
         assert!(result.is_err());
         assert_eq!(
@@ -223,49 +223,45 @@ mod tests {
     }
 
     #[test]
-    fn test_lock_fail_does_not_exist() {
-        let note_id = utxo().id();
-        let state = genesis_state(&[utxo()]);
-        let utxo_tree = state.latest_commitments();
+    fn test_lock_success_for_note() {
+        let utxo = utxo();
+        let note_id = utxo.id();
         let locked_notes = LockedNotes::new();
         let min_stake = MinStake {
             threshold: 1,
             timestamp: 0,
         };
 
-        let result = locked_notes.lock(utxo_tree, &min_stake, ServiceType::BlendNetwork, &note_id);
+        let result = locked_notes.lock(&min_stake, ServiceType::BlendNetwork, utxo.note, &note_id);
 
-        assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), Error::NoteDoesNotExist(note_id));
+        assert!(result.is_ok());
     }
     #[test]
     fn test_unlock_one_of_two_services() {
         let utxo = utxo();
         let note_id = utxo.id();
-        let state = genesis_state(&[utxo]);
-        let utxo_tree = state.latest_commitments();
         let min_stake = MinStake {
             threshold: 1,
             timestamp: 0,
         };
-        let locked_for_both = LockedNotes::new()
-            .lock(utxo_tree, &min_stake, ServiceType::BlendNetwork, &note_id)
+        let mut locked = LockedNotes::new()
+            .lock(&min_stake, ServiceType::BlendNetwork, utxo.note, &note_id)
             .unwrap()
             .lock(
-                utxo_tree,
                 &min_stake,
                 ServiceType::DataAvailability,
+                utxo.note,
                 &note_id,
             )
             .unwrap();
 
-        let locked_for_da_only = locked_for_both
+        locked
             .unlock(ServiceType::BlendNetwork, &note_id)
             .expect("Should unlock BN service");
 
-        assert!(locked_for_da_only.contains(&note_id));
+        assert!(locked.contains(&note_id));
         assert_eq!(
-            locked_for_da_only.locked_notes.get(&note_id),
+            locked.locked_notes.get(&note_id).map(|ln| &ln.services),
             Some(&HashSet::from([ServiceType::DataAvailability]))
         );
     }
@@ -274,29 +270,26 @@ mod tests {
     fn test_unlock_last_service_removes_note() {
         let utxo = utxo();
         let note_id = utxo.id();
-        let state = genesis_state(&[utxo]);
-        let utxo_tree = state.latest_commitments();
         let min_stake = MinStake {
             threshold: 1,
             timestamp: 0,
         };
-        let locked_for_bn = LockedNotes::new()
-            .lock(utxo_tree, &min_stake, ServiceType::BlendNetwork, &note_id)
+        let mut locked = LockedNotes::new()
+            .lock(&min_stake, ServiceType::BlendNetwork, utxo.note, &note_id)
             .unwrap();
 
-        let fully_unlocked = locked_for_bn
+        locked
             .unlock(ServiceType::BlendNetwork, &note_id)
             .expect("Should unlock the last service");
 
-        assert!(!fully_unlocked.contains(&note_id));
-        assert!(fully_unlocked.locked_notes.is_empty());
+        assert!(!locked.contains(&note_id));
+        assert!(locked.locked_notes.is_empty());
     }
 
     #[test]
     fn test_unlock_note_not_locked() {
         let note_id = utxo().id();
-        let empty_notes = LockedNotes::new();
-
+        let mut empty_notes = LockedNotes::new();
         let result = empty_notes.unlock(ServiceType::BlendNetwork, &note_id);
 
         assert!(result.is_err());
@@ -307,14 +300,12 @@ mod tests {
     fn test_unlock_fail_if_not_locked_for_specific_service() {
         let utxo = utxo();
         let note_id = utxo.id();
-        let state = genesis_state(&[utxo]);
-        let utxo_tree = state.latest_commitments();
         let min_stake = MinStake {
             threshold: 1,
             timestamp: 0,
         };
-        let locked_for_bn = LockedNotes::new()
-            .lock(utxo_tree, &min_stake, ServiceType::BlendNetwork, &note_id)
+        let mut locked_for_bn = LockedNotes::new()
+            .lock(&min_stake, ServiceType::BlendNetwork, utxo.note, &note_id)
             .unwrap();
 
         let result = locked_for_bn.unlock(ServiceType::DataAvailability, &note_id);

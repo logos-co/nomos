@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Mutex};
 
 use libp2p::PeerId;
-use nomos_core::{block::SessionNumber, sdp::ProviderId};
+use nomos_core::sdp::{ProviderId, SessionNumber};
 use nomos_da_network_core::SubnetworkId;
 use overwatch::{
     DynError,

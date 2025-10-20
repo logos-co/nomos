@@ -258,12 +258,14 @@ where
         let poq_input_stream = mock_poq_inputs_stream();
 
         let ((current_membership, (public_poq_inputs, private_poq_inputs)), session_stream) =
-            UninitializedSessionEventStream::new(
-                membership_stream.zip(poq_input_stream),
-                FIRST_SESSION_READY_TIMEOUT,
-                blend_config.time.session_transition_period(),
+            Box::pin(
+                UninitializedSessionEventStream::new(
+                    membership_stream.zip(poq_input_stream),
+                    FIRST_SESSION_READY_TIMEOUT,
+                    blend_config.time.session_transition_period(),
+                )
+                .await_first_ready(),
             )
-            .await_first_ready()
             .await
             .expect("The current session must be ready");
         let current_poq_session_info = PoQSessionInfo {

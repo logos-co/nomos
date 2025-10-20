@@ -29,7 +29,7 @@ use overwatch::{
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use services_utils::wait_until_services_are_ready;
 use thiserror::Error;
-use tokio::sync::{broadcast, oneshot};
+use tokio::sync::{oneshot, watch};
 use tracing::{Level, error, info, instrument, span};
 use tracing_futures::Instrument as _;
 use tx_service::{
@@ -63,15 +63,20 @@ pub enum Error {
 
 #[derive(Debug)]
 pub enum LeaderMsg {
-    /// Request a new broadcast receiver that will yield all winning slots of
-    /// the future epochs.
+    /// Request a new receiver that yields PoL-winning slot information.
     ///
-    /// The stream will yield items in one of two cases:
-    /// * a new epoch starts -> winning slots for the new epoch
-    /// * this service has just started mid-epoch -> winning slots for the
-    ///   current epoch
+    /// The stream will yield items in one of the following cases:
+    /// * a new epoch starts -> immediately the first winning slot of the new
+    ///   epoch, if any
+    /// * this service is started mid-epoch -> immediately the first winning
+    ///   slot of the ongoing epoch (the slot can also be in the past compared
+    ///   to the current slot as returned by the time service), if any
+    /// * a new winning slot (other than the very first one in the ongoing
+    ///   epoch) is identified when proposing blocks
+    /// * a new consumer subscribes -> the latest value that was sent to all the
+    ///   other consumers, if any
     WinningPolEpochSlotStreamSubscribe {
-        sender: oneshot::Sender<broadcast::Receiver<(LeaderPrivate, SecretKey, Epoch)>>,
+        sender: oneshot::Sender<watch::Receiver<Option<(LeaderPrivate, SecretKey, Epoch)>>>,
     },
 }
 
@@ -121,7 +126,7 @@ pub struct CryptarchiaLeader<
     Wallet: nomos_wallet::api::WalletServiceData,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-    winning_pol_epoch_slots_sender: broadcast::Sender<(LeaderPrivate, SecretKey, Epoch)>,
+    winning_pol_epoch_slots_sender: watch::Sender<Option<(LeaderPrivate, SecretKey, Epoch)>>,
 }
 
 impl<
@@ -279,7 +284,7 @@ where
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
         _initial_state: Self::State,
     ) -> Result<Self, DynError> {
-        let (winning_pol_epoch_slots_sender, _) = broadcast::channel(16);
+        let winning_pol_epoch_slots_sender = watch::Sender::new(None);
 
         Ok(Self {
             service_resources_handle,
@@ -411,9 +416,10 @@ where
                             }
                         };
 
+                        // If it's a new epoch or the service just started, pre-compute the first winning slot and notify consumers.
                         winning_pol_slot_notifier.process_epoch(&eligible_utxos, &epoch_state);
 
-                        if let Some(proof) = leader.build_proof_for(&eligible_utxos, latest_tree, &epoch_state, slot).await {
+                        if let Some(proof) = leader.build_proof_for(&eligible_utxos, latest_tree, &epoch_state, slot, &winning_pol_slot_notifier).await {
                             // TODO: spawn as a separate task?
                             let block = Self::propose_block(
                                 parent,
@@ -593,7 +599,7 @@ where
 
 fn handle_inbound_message(
     msg: LeaderMsg,
-    winning_pol_epoch_slots_sender: &broadcast::Sender<(LeaderPrivate, SecretKey, Epoch)>,
+    winning_pol_epoch_slots_sender: &watch::Sender<Option<(LeaderPrivate, SecretKey, Epoch)>>,
 ) {
     let LeaderMsg::WinningPolEpochSlotStreamSubscribe { sender } = msg;
 

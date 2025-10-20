@@ -166,22 +166,23 @@ cryptarchia:
     consensus_config:
       security_param: 10
       active_slot_coeff: 0.9
-    service_params:
-      BN:
-        lock_period: 10
-        inactivity_period: 20
-        retention_period: 100
+    sdp_config:
+      service_params:
+        BN:
+          lock_period: 10
+          inactivity_period: 20
+          retention_period: 100
+          timestamp: 0
+          session_duration: 1000
+        DA:
+          lock_period: 10
+          inactivity_period: 20
+          retention_period: 100
+          timestamp: 0
+          session_duration: 1000
+      min_stake:
+        threshold: 1
         timestamp: 0
-        session_duration: 1000
-      DA:
-        lock_period: 10
-        inactivity_period: 20
-        retention_period: 100
-        timestamp: 0
-        session_duration: 1000
-    min_stake:
-      threshold: 1
-      timestamp: 0
   starting_state: !Genesis
     genesis_tx:
       ops:
@@ -222,22 +223,23 @@ cryptarchia_leader:
     consensus_config:
       security_param: 10
       active_slot_coeff: 0.9
-    service_params:
-      BN:
-        lock_period: 10
-        inactivity_period: 20
-        retention_period: 100
+    sdp_config:
+      service_params:
+        BN:
+          lock_period: 10
+          inactivity_period: 20
+          retention_period: 100
+          timestamp: 0
+          session_duration: 1000
+        DA:
+          lock_period: 10
+          inactivity_period: 20
+          retention_period: 100
+          timestamp: 0
+          session_duration: 1000
+      min_stake:
+        threshold: 1
         timestamp: 0
-        session_duration: 1000
-      DA:
-        lock_period: 10
-        inactivity_period: 20
-        retention_period: 100
-        timestamp: 0
-        session_duration: 1000
-    min_stake:
-      threshold: 1
-      timestamp: 0
   leader_config:
     pk: "0000000000000000000000000000000000000000000000000000000000000000"
     sk: 3cf3335017304dcfce45124a0633829f00000000000000000000000000000000

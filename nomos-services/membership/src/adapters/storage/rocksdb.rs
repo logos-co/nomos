@@ -1,8 +1,8 @@
 use std::collections::{BTreeSet, HashMap};
 
 use nomos_core::{
-    block::{BlockNumber, SessionNumber},
-    sdp::{Locator, ProviderId, ServiceType},
+    block::BlockNumber,
+    sdp::{Locator, ProviderId, ServiceType, SessionNumber},
 };
 use nomos_storage::{StorageMsg, StorageService, backends::StorageBackend};
 use overwatch::{DynError, services::relay::OutboundRelay};

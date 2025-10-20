@@ -133,34 +133,36 @@ mod tests {
                 epoch_period_nonce_stabilization: 1.try_into().unwrap(),
             },
             consensus_config: cryptarchia_engine_config,
-            service_params: Arc::new(
-                [
-                    (
-                        ServiceType::BlendNetwork,
-                        ServiceParameters {
-                            lock_period: 10,
-                            inactivity_period: 20,
-                            retention_period: 100,
-                            timestamp: 0,
-                            session_duration: 10,
-                        },
-                    ),
-                    (
-                        ServiceType::DataAvailability,
-                        ServiceParameters {
-                            lock_period: 10,
-                            inactivity_period: 20,
-                            retention_period: 100,
-                            timestamp: 0,
-                            session_duration: 10,
-                        },
-                    ),
-                ]
-                .into(),
-            ),
-            min_stake: MinStake {
-                threshold: 1,
-                timestamp: 0,
+            sdp_config: nomos_ledger::mantle::sdp::Config {
+                service_params: Arc::new(
+                    [
+                        (
+                            ServiceType::BlendNetwork,
+                            ServiceParameters {
+                                lock_period: 10,
+                                inactivity_period: 20,
+                                retention_period: 100,
+                                timestamp: 0,
+                                session_duration: 10,
+                            },
+                        ),
+                        (
+                            ServiceType::DataAvailability,
+                            ServiceParameters {
+                                lock_period: 10,
+                                inactivity_period: 20,
+                                retention_period: 100,
+                                timestamp: 0,
+                                session_duration: 10,
+                            },
+                        ),
+                    ]
+                    .into(),
+                ),
+                min_stake: MinStake {
+                    threshold: 1,
+                    timestamp: 0,
+                },
             },
         };
 

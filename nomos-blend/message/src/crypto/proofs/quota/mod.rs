@@ -65,7 +65,7 @@ impl ProofOfQuota {
         .try_into()
         .map_err(|e| Error::InvalidInput(Box::new(e)))?;
         let (proof, PoQVerifierInput { key_nullifier, .. }) =
-            prove(&witness_inputs).map_err(Error::ProofGeneration)?;
+            prove(witness_inputs).map_err(Error::ProofGeneration)?;
         let secret_selection_randomness = generate_secret_selection_randomness(
             secret_selection_randomness_sk,
             key_index,
