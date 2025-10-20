@@ -1,7 +1,7 @@
 use std::io;
 
 use futures::{AsyncReadExt, AsyncWriteExt};
-use nomos_core::codec::SerdeOp;
+use nomos_core::codec::{DeserializeOp as _, SerializeOp as _};
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::Result;
@@ -28,7 +28,7 @@ pub fn pack<Message>(message: &Message) -> Result<Vec<u8>>
 where
     Message: Serialize + DeserializeOwned,
 {
-    Ok(<Message as SerdeOp>::serialize(message)?.into())
+    Ok(message.to_bytes()?.into())
 }
 
 fn get_packed_message_size(packed_message: &[u8]) -> Result<usize> {
@@ -68,7 +68,7 @@ where
 }
 
 pub fn unpack<M: DeserializeOwned + Serialize>(data: &[u8]) -> Result<M> {
-    <M as SerdeOp>::deserialize(data).map_err(io::Error::from)
+    M::from_bytes(data).map_err(io::Error::from)
 }
 
 pub async fn unpack_from_reader<Message, R>(reader: &mut R) -> Result<Message>

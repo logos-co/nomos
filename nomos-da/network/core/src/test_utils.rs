@@ -72,7 +72,7 @@ impl MembershipHandler for AllNeighbours {
         HashMap::new()
     }
 
-    fn session_id(&self) -> nomos_core::block::SessionNumber {
+    fn session_id(&self) -> nomos_core::sdp::SessionNumber {
         0
     }
 }

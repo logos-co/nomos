@@ -62,7 +62,7 @@ where
         self.membership.load().subnetworks()
     }
 
-    fn session_id(&self) -> nomos_core::block::SessionNumber {
+    fn session_id(&self) -> nomos_core::sdp::SessionNumber {
         self.membership.load().session_id()
     }
 }
@@ -111,7 +111,7 @@ where
         self.membership.subnetworks()
     }
 
-    fn session_id(&self) -> nomos_core::block::SessionNumber {
+    fn session_id(&self) -> nomos_core::sdp::SessionNumber {
         self.membership.session_id()
     }
 }

@@ -9,7 +9,7 @@ use num_bigint::BigUint;
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::{
-    codec::SerdeOp,
+    codec::SerializeOp as _,
     mantle::{Transaction, TransactionHasher, TxHash},
 };
 
@@ -22,7 +22,8 @@ pub struct MockTransaction<M> {
 impl<M: Serialize + DeserializeOwned + Clone> MockTransaction<M> {
     pub fn new(content: M) -> Self {
         let id = MockTxId::try_from(
-            <M as SerdeOp>::serialize(&content)
+            content
+                .to_bytes()
                 .expect("MockTransaction should be able to be serialized")
                 .as_ref(),
         )
@@ -55,7 +56,7 @@ impl<M: Serialize + DeserializeOwned + Clone> Transaction for MockTransaction<M>
 impl<M: Serialize + DeserializeOwned + Clone> From<M> for MockTransaction<M> {
     fn from(msg: M) -> Self {
         let id = MockTxId::try_from(
-            <M as SerdeOp>::serialize(&msg)
+            msg.to_bytes()
                 .expect("MockTransaction should be able to be serialized")
                 .as_ref(),
         )

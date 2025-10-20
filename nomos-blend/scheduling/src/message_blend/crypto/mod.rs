@@ -12,12 +12,18 @@ use nomos_blend_message::{
     },
     input::EncapsulationInputs as InternalEncapsulationInputs,
 };
-use nomos_core::codec::SerdeOp as _;
+use nomos_core::codec::{DeserializeOp as _, SerializeOp as _};
 
-pub mod send;
-pub use self::send::SessionCryptographicProcessor as SenderOnlySessionCryptographicProcessor;
-pub mod send_and_receive;
-pub use self::send_and_receive::SessionCryptographicProcessor as SendAndReceiveSessionCryptographicProcessor;
+pub mod core_and_leader;
+pub use self::core_and_leader::{
+    send::SessionCryptographicProcessor as CoreAndLeaderSenderOnlySessionCryptographicProcessor,
+    send_and_receive::SessionCryptographicProcessor as CoreAndLeaderSendAndReceiveSessionCryptographicProcessor,
+};
+pub mod leader;
+pub use self::leader::send::SessionCryptographicProcessor as LeaderSenderOnlySessionCryptographicProcessor;
+
+#[cfg(test)]
+mod test_utils;
 
 const ENCAPSULATION_COUNT: usize = 3;
 pub type EncapsulatedMessage = InternalEncapsulatedMessage<ENCAPSULATION_COUNT>;
@@ -43,11 +49,12 @@ pub struct SessionCryptographicProcessorSettings {
 
 #[must_use]
 pub fn serialize_encapsulated_message(message: &EncapsulatedMessage) -> Vec<u8> {
-    EncapsulatedMessage::serialize(message)
+    message
+        .to_bytes()
         .expect("EncapsulatedMessage should be serializable")
         .to_vec()
 }
 
 pub fn deserialize_encapsulated_message(message: &[u8]) -> Result<EncapsulatedMessage, Error> {
-    EncapsulatedMessage::deserialize(message).map_err(|_| Error::DeserializationFailed)
+    EncapsulatedMessage::from_bytes(message).map_err(|_| Error::DeserializationFailed)
 }

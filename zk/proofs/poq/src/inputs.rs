@@ -30,8 +30,7 @@ impl PoQWitnessInputs {
             common: common.try_into()?,
             blend: PoQBlendInputs::from(PoQBlendInputsData {
                 core_sk: Fr::ZERO,
-                core_path: vec![Fr::ZERO; 20],
-                core_path_selectors: vec![false; 20],
+                core_path_and_selectors: [(Fr::ZERO, false); _],
             }),
             wallet: wallet.into(),
         })
@@ -51,10 +50,9 @@ impl PoQWitnessInputs {
                 note_value: 0,
                 transaction_hash: Fr::ZERO,
                 output_number: 0,
-                aged_path: vec![Fr::ZERO; 32],
-                aged_selector: vec![false; 32],
+                aged_path_and_selectors: [(Fr::ZERO, false); _],
                 slot_secret: Fr::ZERO,
-                slot_secret_path: vec![Fr::ZERO; 25],
+                slot_secret_path: [Fr::ZERO; _],
                 starting_slot: 0,
             }),
         })
@@ -73,24 +71,13 @@ pub struct PoQInputsJson {
     pub wallet: PoQWalletInputsJson,
 }
 
-impl From<&PoQWitnessInputs> for PoQInputsJson {
-    fn from(inputs: &PoQWitnessInputs) -> Self {
-        Self {
-            wallet: (&inputs.wallet).into(),
-            chain: (&inputs.chain).into(),
-            common: (&inputs.common).into(),
-            blend: (&inputs.blend).into(),
-        }
-    }
-}
-
 impl From<PoQWitnessInputs> for PoQInputsJson {
     fn from(inputs: PoQWitnessInputs) -> Self {
         Self {
-            wallet: (&inputs.wallet).into(),
+            wallet: inputs.wallet.into(),
             chain: (&inputs.chain).into(),
             common: (&inputs.common).into(),
-            blend: (&inputs.blend).into(),
+            blend: inputs.blend.into(),
         }
     }
 }

@@ -1,15 +1,13 @@
 use std::num::{NonZero, NonZeroU64};
 
 use cryptarchia_engine::{Epoch, Slot};
-use nomos_core::sdp;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Config {
     pub epoch_config: cryptarchia_engine::EpochConfig,
     pub consensus_config: cryptarchia_engine::Config,
-    pub service_params: sdp::ServiceParameters,
-    pub min_stake: sdp::MinStake,
+    pub sdp_config: crate::mantle::sdp::Config,
 }
 
 impl Config {
@@ -53,10 +51,11 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
-    use std::num::NonZero;
+    use std::{num::NonZero, sync::Arc};
 
     use cryptarchia_engine::EpochConfig;
-    use nomos_core::sdp::{MinStake, ServiceParameters};
+    use nomos_core::sdp::{MinStake, ServiceParameters, ServiceType};
+
     #[test]
     fn epoch_snapshots() {
         let config = super::Config {
@@ -69,15 +68,36 @@ mod tests {
                 security_param: NonZero::new(5).unwrap(),
                 active_slot_coeff: 0.5,
             },
-            service_params: ServiceParameters {
-                lock_period: 10,
-                inactivity_period: 20,
-                retention_period: 100,
-                timestamp: 0,
-            },
-            min_stake: MinStake {
-                threshold: 1,
-                timestamp: 0,
+            sdp_config: crate::mantle::sdp::Config {
+                service_params: Arc::new(
+                    [
+                        (
+                            ServiceType::BlendNetwork,
+                            ServiceParameters {
+                                lock_period: 10,
+                                inactivity_period: 20,
+                                retention_period: 100,
+                                timestamp: 0,
+                                session_duration: 10,
+                            },
+                        ),
+                        (
+                            ServiceType::DataAvailability,
+                            ServiceParameters {
+                                lock_period: 10,
+                                inactivity_period: 20,
+                                retention_period: 100,
+                                timestamp: 0,
+                                session_duration: 10,
+                            },
+                        ),
+                    ]
+                    .into(),
+                ),
+                min_stake: MinStake {
+                    threshold: 1,
+                    timestamp: 0,
+                },
             },
         };
         assert_eq!(config.epoch_length(), 100);
@@ -99,15 +119,36 @@ mod tests {
                 security_param: NonZero::new(5).unwrap(),
                 active_slot_coeff: 0.5,
             },
-            service_params: ServiceParameters {
-                lock_period: 10,
-                inactivity_period: 20,
-                retention_period: 100,
-                timestamp: 0,
-            },
-            min_stake: MinStake {
-                threshold: 1,
-                timestamp: 0,
+            sdp_config: crate::mantle::sdp::Config {
+                service_params: Arc::new(
+                    [
+                        (
+                            ServiceType::BlendNetwork,
+                            ServiceParameters {
+                                lock_period: 10,
+                                inactivity_period: 20,
+                                retention_period: 100,
+                                timestamp: 0,
+                                session_duration: 10,
+                            },
+                        ),
+                        (
+                            ServiceType::DataAvailability,
+                            ServiceParameters {
+                                lock_period: 10,
+                                inactivity_period: 20,
+                                retention_period: 100,
+                                timestamp: 0,
+                                session_duration: 10,
+                            },
+                        ),
+                    ]
+                    .into(),
+                ),
+                min_stake: MinStake {
+                    threshold: 1,
+                    timestamp: 0,
+                },
             },
         };
         assert_eq!(config.epoch(1.into()), 0.into());

@@ -23,7 +23,6 @@ members = [
   "nomos-da/network/messages",
   "nomos-da/network/subnetworks-assignations",
   "nomos-libp2p",
-  "nomos-membership",
   "nomos-services/api",
   "nomos-services/blend",
   "nomos-services/chain/broadcast-service",
@@ -104,7 +103,6 @@ nomos-http-api-common        = { default-features = false, path = "./nodes/api-c
 nomos-ledger                 = { default-features = false, path = "./ledger/nomos-ledger" }
 nomos-libp2p                 = { default-features = false, path = "./nomos-libp2p" }
 nomos-mantle-core            = { default-features = false, path = "./nomos-mantle" }
-nomos-membership             = { default-features = false, path = "./nomos-membership" }
 nomos-membership-service     = { default-features = false, path = "./nomos-services/membership" }
 nomos-network                = { default-features = false, path = "./nomos-services/network" }
 nomos-node                   = { default-features = false, path = "./nodes/nomos-node/node" }

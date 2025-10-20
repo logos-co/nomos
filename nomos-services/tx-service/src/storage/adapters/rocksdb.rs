@@ -6,7 +6,10 @@ use std::{
 
 use async_trait::async_trait;
 use futures::{Stream, StreamExt as _};
-use nomos_core::{codec::SerdeOp, mantle::TxHash};
+use nomos_core::{
+    codec::{DeserializeOp as _, SerializeOp as _},
+    mantle::TxHash,
+};
 use nomos_storage::{StorageMsg, StorageService, backends::rocksdb::RocksBackend};
 use overwatch::services::{ServiceData, relay::OutboundRelay};
 use serde::{Deserialize, Serialize};
@@ -48,7 +51,8 @@ where
     }
 
     async fn store_item(&mut self, key: Self::Key, item: Self::Item) -> Result<(), Self::Error> {
-        let item_bytes = <Self::Item as SerdeOp>::serialize(&item)
+        let item_bytes = item
+            .to_bytes()
             .map_err(|e| MempoolError::DynamicPoolError(e.into()))?;
 
         let tx_hash: TxHash = key.into();
@@ -88,8 +92,8 @@ where
             MempoolError::DynamicPoolError("Failed to receive transactions response".into())
         })?;
 
-        let item_stream = tx_stream
-            .filter_map(|bytes| async move { <Self::Item as SerdeOp>::deserialize(&bytes).ok() });
+        let item_stream =
+            tx_stream.filter_map(|bytes| async move { Self::Item::from_bytes(&bytes).ok() });
 
         Ok(Box::pin(item_stream))
     }

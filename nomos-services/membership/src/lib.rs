@@ -10,8 +10,8 @@ use async_trait::async_trait;
 use backends::{MembershipBackend, MembershipBackendError};
 use futures::{Stream, StreamExt as _};
 use nomos_core::{
-    block::{BlockNumber, SessionNumber},
-    sdp::{Locator, ProviderId},
+    block::BlockNumber,
+    sdp::{Locator, ProviderId, SessionNumber},
 };
 use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
@@ -54,7 +54,7 @@ pub enum MembershipMessage {
     // This should be used only for testing purposes
     Update {
         block_number: BlockNumber,
-        update_event: nomos_core::sdp::FinalizedBlockEvent,
+        update_event: nomos_sdp::BlockEvent,
     },
 }
 
@@ -245,11 +245,7 @@ where
         }
     }
 
-    async fn handle_sdp_update(
-        &self,
-        backend: &mut Backend,
-        sdp_msg: nomos_core::sdp::FinalizedBlockEvent,
-    ) {
+    async fn handle_sdp_update(&self, backend: &mut Backend, sdp_msg: nomos_sdp::BlockEvent) {
         match backend.update(sdp_msg).await {
             Ok(snapshot) => {
                 if snapshot.is_none() {

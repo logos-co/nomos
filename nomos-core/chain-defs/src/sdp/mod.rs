@@ -1,15 +1,15 @@
-pub mod state;
-
-use std::{collections::BTreeSet, hash::Hash};
+use std::hash::Hash;
 
 use blake2::{Blake2b, Digest as _};
 use bytes::{Bytes, BytesMut};
 use groth16::{Fr, serde::serde_fr};
 use multiaddr::Multiaddr;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use strum::EnumIter;
 
 use crate::{block::BlockNumber, mantle::NoteId};
 
+pub type SessionNumber = u64;
 pub type StakeThreshold = u64;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
@@ -24,6 +24,7 @@ pub struct ServiceParameters {
     pub inactivity_period: u64,
     pub retention_period: u64,
     pub timestamp: BlockNumber,
+    pub session_duration: BlockNumber,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -43,7 +44,7 @@ impl AsRef<Multiaddr> for Locator {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize, EnumIter)]
 pub enum ServiceType {
     #[serde(rename = "BN")]
     BlendNetwork,
@@ -150,34 +151,12 @@ pub struct ActivityId(pub [u8; 32]);
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct ZkPublicKey(#[serde(with = "serde_fr")] pub Fr);
 
-#[derive(Clone, Eq, PartialEq, Hash, Debug)]
-pub struct DeclarationInfo {
-    pub id: DeclarationId,
-    pub provider_id: ProviderId,
-    pub service: ServiceType,
-    pub locators: Vec<Locator>,
-    pub zk_id: ZkPublicKey,
-    pub locked_note_id: NoteId,
-}
-
-impl DeclarationInfo {
-    #[must_use]
-    pub fn new(msg: DeclarationMessage) -> Self {
-        Self {
-            id: msg.declaration_id(),
-            provider_id: msg.provider_id,
-            service: msg.service_type,
-            locators: msg.locators,
-            zk_id: msg.zk_id,
-            locked_note_id: msg.locked_note_id,
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DeclarationState {
+pub struct Declaration {
     pub service_type: ServiceType,
+    pub provider_id: ProviderId,
     pub locked_note_id: NoteId,
+    pub locators: Vec<Locator>,
     pub zk_id: ZkPublicKey,
     pub created: BlockNumber,
     pub active: BlockNumber,
@@ -185,18 +164,21 @@ pub struct DeclarationState {
     pub nonce: Nonce,
 }
 
-impl DeclarationState {
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProviderInfo {
+    pub locators: Vec<Locator>,
+    pub zk_id: ZkPublicKey,
+}
+
+impl Declaration {
     #[must_use]
-    pub const fn new(
-        block_number: BlockNumber,
-        service_type: ServiceType,
-        locked_note_id: NoteId,
-        zk_id: ZkPublicKey,
-    ) -> Self {
+    pub fn new(block_number: BlockNumber, declaration_msg: &DeclarationMessage) -> Self {
         Self {
-            service_type,
-            locked_note_id,
-            zk_id,
+            service_type: declaration_msg.service_type,
+            provider_id: declaration_msg.provider_id,
+            locked_note_id: declaration_msg.locked_note_id,
+            locators: declaration_msg.locators.clone(),
+            zk_id: declaration_msg.zk_id,
             created: block_number,
             active: block_number,
             withdrawn: None,
@@ -216,7 +198,7 @@ pub struct DeclarationMessage {
 
 impl DeclarationMessage {
     #[must_use]
-    pub fn declaration_id(&self) -> DeclarationId {
+    pub fn id(&self) -> DeclarationId {
         let mut hasher = Blake2b::new();
         let service = match self.service_type {
             ServiceType::BlendNetwork => "BN",
@@ -285,56 +267,4 @@ impl<Metadata: AsRef<[u8]>> ActiveMessage<Metadata> {
         }
         buff.freeze()
     }
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum EventType {
-    Declaration,
-    Activity,
-    Withdrawal,
-}
-
-pub struct Event {
-    pub provider_id: ProviderId,
-    pub event_type: EventType,
-    pub service_type: ServiceType,
-    pub timestamp: BlockNumber,
-}
-
-pub enum SdpMessage<Metadata> {
-    Declare(Box<DeclarationMessage>),
-    Activity(ActiveMessage<Metadata>),
-    Withdraw(WithdrawMessage),
-}
-
-impl<Metadata> SdpMessage<Metadata> {
-    #[must_use]
-    pub fn declaration_id(&self) -> DeclarationId {
-        match self {
-            Self::Declare(message) => message.declaration_id(),
-            Self::Activity(message) => message.declaration_id,
-            Self::Withdraw(message) => message.declaration_id,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum FinalizedDeclarationState {
-    Active,
-    Inactive,
-    Withdrawn,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FinalizedBlockEvent {
-    pub block_number: BlockNumber,
-    pub updates: Vec<FinalizedBlockEventUpdate>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FinalizedBlockEventUpdate {
-    pub service_type: ServiceType,
-    pub provider_id: ProviderId,
-    pub state: FinalizedDeclarationState,
-    pub locators: BTreeSet<Locator>,
 }

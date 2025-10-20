@@ -1,7 +1,10 @@
-use std::fmt::Display;
+use std::{collections::HashMap, fmt::Display};
 
 use async_trait::async_trait;
-use nomos_core::header::HeaderId;
+use nomos_core::{
+    header::HeaderId,
+    sdp::{ProviderId, ProviderInfo, SessionNumber},
+};
 use overwatch::{
     OpaqueServiceResourcesHandle,
     services::{
@@ -10,10 +13,16 @@ use overwatch::{
     },
 };
 use serde::{Deserialize, Serialize};
-use tokio::sync::{broadcast, oneshot};
+use tokio::sync::{broadcast, oneshot, watch};
 use tracing::{error, info};
 
 const BROADCAST_CHANNEL_SIZE: usize = 128;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionUpdate {
+    pub session_number: SessionNumber,
+    pub providers: HashMap<ProviderId, ProviderInfo>,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlockInfo {
@@ -24,14 +33,24 @@ pub struct BlockInfo {
 #[derive(Debug)]
 pub enum BlockBroadcastMsg {
     BroadcastFinalizedBlock(BlockInfo),
+    BroadcastBlendSession(SessionUpdate),
+    BroadcastDASession(SessionUpdate),
     SubscribeToFinalizedBlocks {
         result_sender: oneshot::Sender<broadcast::Receiver<BlockInfo>>,
+    },
+    SubscribeBlendSession {
+        result_sender: oneshot::Sender<watch::Receiver<Option<SessionUpdate>>>,
+    },
+    SubscribeDASession {
+        result_sender: oneshot::Sender<watch::Receiver<Option<SessionUpdate>>>,
     },
 }
 
 pub struct BlockBroadcastService<RuntimeServiceId> {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     finalized_blocks: broadcast::Sender<BlockInfo>,
+    blend_session: watch::Sender<Option<SessionUpdate>>,
+    da_session: watch::Sender<Option<SessionUpdate>>,
 }
 
 impl<RuntimeServiceId> ServiceData for BlockBroadcastService<RuntimeServiceId> {
@@ -51,10 +70,14 @@ where
         _initial_state: Self::State,
     ) -> Result<Self, overwatch::DynError> {
         let (finalized_blocks, _) = broadcast::channel(BROADCAST_CHANNEL_SIZE);
+        let (blend_session, _) = watch::channel(None);
+        let (da_session, _) = watch::channel(None);
 
         Ok(Self {
             service_resources_handle,
             finalized_blocks,
+            blend_session,
+            da_session,
         })
     }
 
@@ -72,12 +95,32 @@ where
                         error!("Could not send to new blocks channel: {err}");
                     }
                 }
+                BlockBroadcastMsg::BroadcastBlendSession(session) => {
+                    if let Err(err) = self.blend_session.send(Some(session)) {
+                        error!("Could not send to new blocks channel: {err}");
+                    }
+                }
+                BlockBroadcastMsg::BroadcastDASession(session) => {
+                    if let Err(err) = self.da_session.send(Some(session)) {
+                        error!("Could not send to new blocks channel: {err}");
+                    }
+                }
                 BlockBroadcastMsg::SubscribeToFinalizedBlocks { result_sender } => {
                     // TODO: This naively broadcast what was sent from the chain service. In case
                     // of LIB branch change (might happend during bootstrapping), blocks should be
                     // rebroadcasted from the last common header_id.
                     if let Err(err) = result_sender.send(self.finalized_blocks.subscribe()) {
                         error!("Could not subscribe to new blocks channel: {err:?}");
+                    }
+                }
+                BlockBroadcastMsg::SubscribeBlendSession { result_sender } => {
+                    if let Err(err) = result_sender.send(self.blend_session.subscribe()) {
+                        error!("Could not subscribe to blend session channel: {err:?}");
+                    }
+                }
+                BlockBroadcastMsg::SubscribeDASession { result_sender } => {
+                    if let Err(err) = result_sender.send(self.da_session.subscribe()) {
+                        error!("Could not subscribe to DA session channel: {err:?}");
                     }
                 }
             }

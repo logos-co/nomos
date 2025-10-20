@@ -7,7 +7,7 @@ use poseidon2::{Digest, ZkHash};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    codec::SerdeOp,
+    codec::SerializeOp as _,
     crypto::ZkHasher,
     mantle::{
         AuthenticatedMantleTx, Transaction, TransactionHasher,
@@ -163,7 +163,6 @@ impl SignedMantleTx {
     /// Create a `SignedMantleTx` without verifying proofs.
     /// This should only be used for `GenesisTx` or in tests.
     #[doc(hidden)]
-    #[cfg(any(test, debug_assertions))]
     #[must_use]
     pub const fn new_unverified(
         mantle_tx: MantleTx,
@@ -249,7 +248,7 @@ impl SignedMantleTx {
     }
 
     fn serialized_size(&self) -> u64 {
-        <Self as SerdeOp>::serialized_size(self)
+        self.bytes_size()
             .expect("Failed to calculate serialized size for signed mantle tx")
     }
 }
@@ -278,6 +277,13 @@ impl AuthenticatedMantleTx for SignedMantleTx {
             .ops
             .iter()
             .zip(self.ops_proofs.iter().map(Option::as_ref))
+            .map(|(op, proof)| {
+                if matches!(op, Op::ChannelBlob(_) | Op::ChannelInscribe(_)) {
+                    (op, None)
+                } else {
+                    (op, proof)
+                }
+            })
     }
 }
 
@@ -332,7 +338,7 @@ mod tests {
     };
 
     fn dummy_zk_signature() -> ZkSignature {
-        ZkSignature::prove(ZkSignaturePublic {
+        ZkSignature::prove(&ZkSignaturePublic {
             msg_hash: Fr::default(),
             pks: vec![],
         })

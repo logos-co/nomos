@@ -14,6 +14,7 @@ futures-timer          = { version = "3.0.3" }
 libp2p                 = { workspace = true }
 nomos-blend-message    = { workspace = true }
 nomos-blend-scheduling = { workspace = true }
+nomos-core             = { workspace = true }
 nomos-libp2p           = { workspace = true }
 tracing                = { workspace = true }
 

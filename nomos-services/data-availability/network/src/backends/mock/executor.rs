@@ -3,7 +3,11 @@ use std::{collections::HashSet, pin::Pin};
 use futures::{Stream, StreamExt as _};
 use kzgrs_backend::common::{build_blob_id, share::DaShare};
 use libp2p::PeerId;
-use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId};
+use nomos_core::{
+    da::BlobId,
+    header::HeaderId,
+    sdp::{ProviderId, SessionNumber},
+};
 use nomos_da_network_core::{
     SubnetworkId, protocols::sampling::opinions::OpinionEvent, swarm::BalancerStats,
 };
@@ -145,7 +149,7 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for MockExecutorBackend 
         todo!()
     }
 
-    fn local_peer_id(&self) -> PeerId {
+    fn local_peer_id(&self) -> (PeerId, ProviderId) {
         todo!()
     }
 }

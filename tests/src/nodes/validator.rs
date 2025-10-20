@@ -10,23 +10,20 @@ use std::{
 
 use broadcast_service::BlockInfo;
 use chain_leader::LeaderSettings;
-use chain_service::{CryptarchiaInfo, CryptarchiaSettings, OrphanConfig, SyncConfig};
+use chain_service::{
+    CryptarchiaInfo, CryptarchiaSettings, OrphanConfig, StartingState, SyncConfig,
+};
 use common_http_client::CommonHttpClient;
 use cryptarchia_engine::time::SlotConfig;
 use futures::Stream;
 use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
 use nomos_api::http::membership::MembershipUpdateRequest;
-use nomos_blend_scheduling::message_blend::SessionCryptographicProcessorSettings;
+use nomos_blend_scheduling::message_blend::crypto::SessionCryptographicProcessorSettings;
 use nomos_blend_service::{
     core::settings::{CoverTrafficSettingsExt, MessageDelayerSettingsExt, SchedulerSettingsExt},
     settings::TimingSettings,
 };
-use nomos_core::{
-    block::{Block, SessionNumber},
-    da::BlobId,
-    mantle::SignedMantleTx,
-    sdp::FinalizedBlockEvent,
-};
+use nomos_core::{block::Block, da::BlobId, mantle::SignedMantleTx, sdp::SessionNumber};
 use nomos_da_network_core::{
     protocols::sampling::SubnetsConfig,
     swarm::{BalancerStats, DAConnectionPolicySettings, MonitorStats},
@@ -54,6 +51,7 @@ use nomos_node::{
     api::{backend::AxumBackendSettings, testing::handlers::HistoricSamplingRequest},
     config::{blend::BlendConfig, mempool::MempoolConfig},
 };
+use nomos_sdp::BlockEvent;
 use nomos_time::{
     TimeServiceSettings,
     backends::{NtpTimeBackendSettings, ntp::async_client::NTPClientSettings},
@@ -150,6 +148,7 @@ impl Validator {
             .arg(&config_path)
             .current_dir(dir.path())
             .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
             .spawn()
             .unwrap();
         let node = Self {
@@ -236,10 +235,7 @@ impl Validator {
         }
     }
 
-    pub async fn update_membership(
-        &self,
-        update_event: FinalizedBlockEvent,
-    ) -> Result<(), reqwest::Error> {
+    pub async fn update_membership(&self, update_event: BlockEvent) -> Result<(), reqwest::Error> {
         let update_event = MembershipUpdateRequest { update_event };
         let json_body = serde_json::to_string(&update_event).unwrap();
 
@@ -431,6 +427,8 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                     .expect("Rounds per observation window cannot be zero."),
                 rounds_per_session_transition_period: NonZeroU64::try_from(30u64)
                     .expect("Rounds per session transition period cannot be zero."),
+                epoch_transition_period_in_slots: NonZeroU64::try_from(2_600)
+                    .expect("Epoch transition period in slots cannot be zero."),
             },
             scheduler: SchedulerSettingsExt {
                 cover: CoverTrafficSettingsExt {
@@ -449,9 +447,10 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                 .expect("Minimum Blend network size cannot be zero."),
         }),
         cryptarchia: CryptarchiaSettings {
-            config: config.consensus_config.ledger_config,
-            genesis_id: HeaderId::from([0; 32]),
-            genesis_state: config.consensus_config.genesis_state,
+            config: config.consensus_config.ledger_config.clone(),
+            starting_state: StartingState::Genesis {
+                genesis_tx: config.consensus_config.genesis_tx,
+            },
             network_adapter_settings:
                 chain_service::network::adapters::libp2p::LibP2pAdapterSettings {
                     topic: String::from(nomos_node::CONSENSUS_TOPIC),
@@ -478,7 +477,7 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
         },
         cryptarchia_leader: LeaderSettings {
             transaction_selector_settings: (),
-            config: config.consensus_config.ledger_config,
+            config: config.consensus_config.ledger_config.clone(),
             leader_config: config.consensus_config.leader_config.clone(),
             blend_broadcast_settings:
                 nomos_blend_service::core::network::libp2p::Libp2pBroadcastSettings {

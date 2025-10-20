@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use chain_common::NetworkMessage as ChainNetworkMessage;
 use nomos_blend_service::message::{NetworkMessage, ServiceMessage};
-use nomos_core::{block::Block, codec::SerdeOp};
+use nomos_core::{block::Block, codec::SerializeOp as _};
 use overwatch::services::{ServiceData, relay::OutboundRelay};
 use serde::Serialize;
 use tracing::error;
@@ -49,11 +49,9 @@ where
         if let Err((e, _)) = self
             .relay
             .send(ServiceMessage::Blend(NetworkMessage {
-                message: <ChainNetworkMessage<Tx> as SerdeOp>::serialize(
-                    &ChainNetworkMessage::Block(block),
-                )
-                .expect("NetworkMessage should be able to be serialized")
-                .to_vec(),
+                message: ChainNetworkMessage::<Tx>::to_bytes(&ChainNetworkMessage::Block(block))
+                    .expect("NetworkMessage should be able to be serialized")
+                    .to_vec(),
                 broadcast_settings: self.broadcast_settings.clone(),
             }))
             .await

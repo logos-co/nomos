@@ -10,28 +10,36 @@ use async_trait::async_trait;
 use chain_leader::LeaderMsg;
 use futures::{Stream, StreamExt as _};
 use nomos_blend_message::crypto::{
-    keys::Ed25519PrivateKey,
+    keys::{Ed25519PrivateKey, Ed25519PublicKey},
     proofs::{
-        quota::{ProofOfQuota, inputs::prove::PublicInputs},
+        PoQVerificationInputsMinusSigningKey,
+        quota::{
+            ProofOfQuota,
+            inputs::prove::{private::ProofOfCoreQuotaInputs, public::LeaderInputs},
+        },
         selection::{ProofOfSelection, inputs::VerifyInputs},
     },
     random_sized_bytes,
 };
-use nomos_blend_scheduling::message_blend::{BlendLayerProof, SessionInfo};
+use nomos_blend_scheduling::message_blend::provers::{
+    BlendLayerProof, ProofsGeneratorSettings, core_and_leader::CoreAndLeaderProofsGenerator,
+    leader::LeaderProofsGenerator,
+};
 use nomos_blend_service::{
-    ProofOfLeadershipQuotaInputs, ProofsGenerator, ProofsVerifier,
+    ProofOfLeadershipQuotaInputs, ProofsVerifier,
     epoch_info::{PolEpochInfo, PolInfoProvider as PolInfoProviderTrait},
     membership::service::Adapter,
 };
-use nomos_core::{codec::SerdeOp as _, crypto::ZkHash};
+use nomos_core::{codec::DeserializeOp as _, crypto::ZkHash};
 use nomos_da_sampling::network::NetworkAdapter;
 use nomos_libp2p::PeerId;
 use nomos_time::backends::NtpTimeBackend;
 use overwatch::{overwatch::OverwatchHandle, services::AsServiceId};
 use pol::{PolChainInputsData, PolWalletInputsData, PolWitnessInputsData};
+use poq::{AGED_NOTE_MERKLE_TREE_HEIGHT, SLOT_SECRET_MERKLE_TREE_HEIGHT};
 use services_utils::wait_until_services_are_ready;
 use tokio::sync::oneshot::channel;
-use tokio_stream::wrappers::BroadcastStream;
+use tokio_stream::wrappers::WatchStream;
 
 use crate::generic_services::{
     CryptarchiaLeaderService, CryptarchiaService, MembershipService, WalletService,
@@ -45,14 +53,18 @@ pub struct BlendProofsVerifier;
 impl ProofsVerifier for BlendProofsVerifier {
     type Error = Infallible;
 
-    fn new() -> Self {
+    fn new(_public_inputs: PoQVerificationInputsMinusSigningKey) -> Self {
         Self
     }
+
+    fn start_epoch_transition(&mut self, _new_pol_inputs: LeaderInputs) {}
+
+    fn complete_epoch_transition(&mut self) {}
 
     fn verify_proof_of_quota(
         &self,
         _proof: ProofOfQuota,
-        _inputs: &PublicInputs,
+        _signing_key: &Ed25519PublicKey,
     ) -> Result<ZkHash, Self::Error> {
         use groth16::Field as _;
 
@@ -74,19 +86,24 @@ pub struct BlendProofsGenerator {
 }
 
 #[async_trait]
-impl ProofsGenerator for BlendProofsGenerator {
+impl CoreAndLeaderProofsGenerator for BlendProofsGenerator {
     fn new(
-        SessionInfo {
-            membership_size,
+        ProofsGeneratorSettings {
             local_node_index,
+            membership_size,
             ..
-        }: SessionInfo,
+        }: ProofsGeneratorSettings,
+        _private_inputs: ProofOfCoreQuotaInputs,
     ) -> Self {
         Self {
             membership_size,
             local_node_index,
         }
     }
+
+    fn rotate_epoch(&mut self, _new_epoch_public: LeaderInputs) {}
+
+    fn set_epoch_private(&mut self, _new_epoch_private: ProofOfLeadershipQuotaInputs) {}
 
     async fn get_next_core_proof(&mut self) -> Option<BlendLayerProof> {
         Some(loop_until_valid_proof(
@@ -95,11 +112,39 @@ impl ProofsGenerator for BlendProofsGenerator {
         ))
     }
 
-    async fn get_next_leadership_proof(&mut self) -> Option<BlendLayerProof> {
+    async fn get_next_leader_proof(&mut self) -> Option<BlendLayerProof> {
         Some(loop_until_valid_proof(
             self.membership_size,
             self.local_node_index,
         ))
+    }
+}
+
+#[async_trait]
+impl LeaderProofsGenerator for BlendProofsGenerator {
+    fn new(
+        ProofsGeneratorSettings {
+            local_node_index,
+            membership_size,
+            ..
+        }: ProofsGeneratorSettings,
+        _private_inputs: ProofOfLeadershipQuotaInputs,
+    ) -> Self {
+        Self {
+            membership_size,
+            local_node_index,
+        }
+    }
+
+    fn rotate_epoch(
+        &mut self,
+        _new_epoch_public: LeaderInputs,
+        _new_private_inputs: ProofOfLeadershipQuotaInputs,
+    ) {
+    }
+
+    async fn get_next_proof(&mut self) -> BlendLayerProof {
+        loop_until_valid_proof(self.membership_size, self.local_node_index)
     }
 }
 
@@ -114,11 +159,11 @@ fn loop_until_valid_proof(
     // be a minimum network size that is larger than 2.
     loop {
         let Ok(proof_of_quota) =
-            ProofOfQuota::deserialize(&random_sized_bytes::<{ size_of::<ProofOfQuota>() }>()[..])
+            ProofOfQuota::from_bytes(&random_sized_bytes::<{ size_of::<ProofOfQuota>() }>()[..])
         else {
             continue;
         };
-        let Ok(proof_of_selection) = ProofOfSelection::deserialize::<ProofOfSelection>(
+        let Ok(proof_of_selection) = ProofOfSelection::from_bytes(
             &random_sized_bytes::<{ size_of::<ProofOfSelection>() }>()[..],
         ) else {
             continue;
@@ -198,9 +243,11 @@ where
     async fn subscribe(
         overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
     ) -> Option<Self::Stream> {
+        use groth16::Field as _;
+
         wait_until_services_are_ready!(
             overwatch_handle,
-            Some(Duration::from_secs(3)),
+            Some(Duration::from_secs(60)),
             CryptarchiaLeaderService<
                 CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
                 WalletService<
@@ -231,41 +278,62 @@ where
             .await
             .ok()?;
         let pol_winning_slot_receiver = receiver.await.ok()?;
+        // Return a `WatchStream` that filters out `None`s (i.e., at the very beginning
+        // of chain leader start).
         Some(Box::new(
-            BroadcastStream::new(pol_winning_slot_receiver).filter_map(|res| {
-                let Ok((leader_private, secret_key, epoch)) = res else {
-                    return ready(None);
+            WatchStream::new(pol_winning_slot_receiver)
+                .filter_map(ready)
+                .map(|(leader_private, secret_key, _)| {
+                    let PolWitnessInputsData {
+                        wallet:
+                            PolWalletInputsData {
+                                aged_path,
+                                aged_selector,
+                                note_value,
+                                output_number,
+                                slot_secret,
+                                slot_secret_path,
+                                starting_slot,
+                                transaction_hash,
+                                ..
+                            },
+                        chain: PolChainInputsData { slot_number, epoch_nonce, .. },
+                    } = leader_private.input();
+
+                // TODO: Remove this if `PoL` stuff also migrates to using fixed-size arrays or starts using vecs of the expected length instead of empty ones when generating `LeaderPrivate` values.
+                let aged_path_and_selectors = {
+                    let mut vec_from_inputs: Vec<_> = aged_path.iter().copied().zip(aged_selector.iter().copied()).collect();
+                    let input_len = vec_from_inputs.len();
+                    if input_len != AGED_NOTE_MERKLE_TREE_HEIGHT {
+                        tracing::warn!("Provided merkle path for aged notes does not match the expected size for PoQ inputs.");
+                    }
+                    vec_from_inputs.resize(AGED_NOTE_MERKLE_TREE_HEIGHT, (ZkHash::ZERO, false));
+                    vec_from_inputs
                 };
-                let PolWitnessInputsData {
-                    wallet:
-                        PolWalletInputsData {
-                            aged_path,
-                            aged_selector,
-                            note_value,
-                            output_number,
-                            slot_secret,
-                            slot_secret_path,
-                            starting_slot,
-                            transaction_hash,
-                            ..
-                        },
-                    chain: PolChainInputsData { slot_number, .. },
-                } = leader_private.input();
-                ready(Some(PolEpochInfo {
-                    epoch,
+                let mapped_slot_secret_path = {
+                    let mut vec_from_inputs: Vec<_> = slot_secret_path.clone();
+                    let input_len = vec_from_inputs.len();
+                    if input_len != AGED_NOTE_MERKLE_TREE_HEIGHT {
+                        tracing::warn!("Provided merkle path for slot secret does not match the expected size for PoQ inputs.");
+                    }
+                    vec_from_inputs.resize(SLOT_SECRET_MERKLE_TREE_HEIGHT, ZkHash::ZERO);
+                    vec_from_inputs
+                };
+
+                PolEpochInfo {
+                    nonce: *epoch_nonce,
                     poq_private_inputs: ProofOfLeadershipQuotaInputs {
-                        aged_path: aged_path.clone(),
-                        aged_selector: aged_selector.clone(),
+                        aged_path_and_selectors: aged_path_and_selectors.try_into().expect("List of aged note paths and selectors does not match the expected size for PoQ inputs, although it has already been pre-processed."),
                         note_value: *note_value,
                         output_number: *output_number,
                         pol_secret_key: *secret_key.as_fr(),
                         slot: *slot_number,
                         slot_secret: *slot_secret,
-                        slot_secret_path: slot_secret_path.clone(),
+                        slot_secret_path: mapped_slot_secret_path.try_into().expect("Slot secret path does not match the expected size for PoQ inputs, although it has already been pre-processed."),
                         starting_slot: *starting_slot,
                         transaction_hash: *transaction_hash,
                     },
-                }))
+                }
             }),
         ))
     }

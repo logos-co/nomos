@@ -9,7 +9,7 @@ use cryptarchia_engine::Slot;
 use futures::{Stream, StreamExt as _};
 use nomos_core::{
     block::Block,
-    codec::SerdeOp,
+    codec::{DeserializeOp as _, SerializeOp as _},
     header::HeaderId,
     mantle::{Transaction, TxHash},
 };
@@ -152,7 +152,7 @@ where
             .into_iter()
             .map(|tx| {
                 let hash = tx.hash();
-                <Tx as SerdeOp>::serialize(&tx)
+                Tx::to_bytes(&tx)
                     .map(|bytes| (hash, bytes.into()))
                     .map_err(|_| "Failed to convert transaction to storage format".into())
             })
@@ -181,9 +181,8 @@ where
             .await
             .map_err(|_| "Failed to receive transactions stream from storage")?;
 
-        let mapped_stream = storage_stream.filter_map(|storage_tx| async move {
-            <Tx as SerdeOp>::deserialize(storage_tx.as_ref()).ok()
-        });
+        let mapped_stream = storage_stream
+            .filter_map(|storage_tx| async move { Tx::from_bytes(storage_tx.as_ref()).ok() });
 
         Ok(Box::pin(mapped_stream))
     }

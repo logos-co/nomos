@@ -30,7 +30,7 @@ pub const PROOF_OF_QUOTA_SIZE: usize = KEY_NULLIFIER_SIZE.checked_add(PROOF_CIRC
 /// A Proof of Quota as described in the Blend v1 spec: <https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#26a261aa09df80f4b119f900fbb36f3f>.
 // TODO: To avoid proofs being misused, remove the `Clone` and `Copy` derives, so once a proof is
 // verified it cannot be (mis)used anymore.
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ProofOfQuota {
     #[serde(with = "groth16::serde::serde_fr")]
     key_nullifier: ZkHash,
@@ -65,7 +65,7 @@ impl ProofOfQuota {
         .try_into()
         .map_err(|e| Error::InvalidInput(Box::new(e)))?;
         let (proof, PoQVerifierInput { key_nullifier, .. }) =
-            prove(&witness_inputs).map_err(Error::ProofGeneration)?;
+            prove(witness_inputs).map_err(Error::ProofGeneration)?;
         let secret_selection_randomness = generate_secret_selection_randomness(
             secret_selection_randomness_sk,
             key_index,

@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use async_trait::async_trait;
-use nomos_sdp::{FinalizedBlockUpdateStream, SdpMessage, SdpService, backends::SdpBackend};
+use nomos_sdp::{BlockUpdateStream, SdpMessage, SdpService, backends::SdpBackend};
 use overwatch::services::relay::OutboundRelay;
 use tokio::sync::oneshot;
 
@@ -32,7 +32,7 @@ where
         }
     }
 
-    async fn lib_blocks_stream(&self) -> Result<FinalizedBlockUpdateStream, SdpAdapterError> {
+    async fn lib_blocks_stream(&self) -> Result<BlockUpdateStream, SdpAdapterError> {
         let (sender, receiver) = oneshot::channel();
 
         self.relay

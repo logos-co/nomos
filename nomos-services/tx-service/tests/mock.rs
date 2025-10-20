@@ -6,7 +6,7 @@ use std::{
 
 use futures::StreamExt as _;
 use nomos_core::{
-    codec::SerdeOp as _,
+    codec::{DeserializeOp as _, SerializeOp as _},
     header::HeaderId,
     mantle::mock::{MockTransaction, MockTxId},
 };
@@ -88,12 +88,10 @@ fn test_mock_pool_recovery_state() {
         last_item_timestamp: 1_234_567_890,
     };
 
-    let serialized = PoolRecoveryState::<HeaderId, MockTxId>::serialize(&recovery_state)
-        .expect("Should serialize");
+    let serialized = recovery_state.to_bytes().expect("Should serialize");
 
     let deserialized: PoolRecoveryState<HeaderId, MockTxId> =
-        PoolRecoveryState::<HeaderId, MockTxId>::deserialize(&serialized)
-            .expect("Should deserialize");
+        PoolRecoveryState::from_bytes(&serialized).expect("Should deserialize");
 
     assert_eq!(deserialized.pending_items, recovery_state.pending_items);
     assert_eq!(deserialized.in_block_items, recovery_state.in_block_items);

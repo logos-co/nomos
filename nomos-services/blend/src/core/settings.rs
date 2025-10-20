@@ -2,7 +2,7 @@ use std::num::NonZeroU64;
 
 use futures::{Stream, StreamExt as _};
 use nomos_blend_scheduling::{
-    membership::Membership, message_blend::SessionCryptographicProcessorSettings,
+    membership::Membership, message_blend::crypto::SessionCryptographicProcessorSettings,
     message_scheduler::session_info::SessionInfo, session::SessionEvent,
 };
 use nomos_utils::math::NonNegativeF64;
@@ -128,6 +128,12 @@ impl<BackendSettings> BlendConfig<BackendSettings> {
         (initial_session_info, session_info_stream)
     }
 
+    pub fn session_quota(&self, membership_size: usize) -> u64 {
+        self.scheduler
+            .cover
+            .session_quota(&self.crypto, &self.time, membership_size)
+    }
+
     pub(super) fn scheduler_settings(&self) -> nomos_blend_scheduling::message_scheduler::Settings {
         nomos_blend_scheduling::message_scheduler::Settings {
             additional_safety_intervals: self.scheduler.cover.intervals_for_safety_buffer,
@@ -225,6 +231,7 @@ mod tests {
                 round_duration: std::time::Duration::from_secs(1),
                 rounds_per_observation_window: NonZeroU64::new(1).unwrap(),
                 rounds_per_session_transition_period: NonZeroU64::new(1).unwrap(),
+                epoch_transition_period_in_slots: NonZeroU64::new(1).unwrap(),
             },
             minimum_network_size: NonZeroU64::new(1).unwrap(),
         }

@@ -1,7 +1,7 @@
 use core::iter::repeat_n;
 
 use itertools::Itertools as _;
-use nomos_core::{codec::SerdeOp, crypto::ZkHash};
+use nomos_core::codec::{DeserializeOp as _, SerializeOp as _};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -9,7 +9,7 @@ use crate::{
     crypto::{
         keys::{Ed25519PrivateKey, Ed25519PublicKey, SharedKey},
         proofs::{
-            quota::{self, ProofOfQuota, inputs::prove::PublicInputs},
+            quota::{self, ProofOfQuota},
             selection::{self, ProofOfSelection, inputs::VerifyInputs},
         },
         random_sized_bytes,
@@ -33,21 +33,6 @@ pub struct EncapsulatedMessage<const ENCAPSULATION_COUNT: usize> {
     public_header: PublicHeader,
     /// Encapsulated parts
     encapsulated_part: EncapsulatedPart<ENCAPSULATION_COUNT>,
-}
-
-/// The inputs required to verify a Proof of Quota, without the signing key,
-/// which is retrieved from the public header of the message layer being
-/// veified.
-#[derive(Clone, Copy)]
-#[cfg_attr(test, derive(Default))]
-pub struct PoQVerificationInputMinusSigningKey {
-    pub session: u64,
-    pub core_root: ZkHash,
-    pub pol_ledger_aged: ZkHash,
-    pub pol_epoch_nonce: ZkHash,
-    pub core_quota: u64,
-    pub leader_quota: u64,
-    pub total_stake: u64,
 }
 
 impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> {
@@ -115,15 +100,6 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
     /// Verify the message public header.
     pub fn verify_public_header<Verifier>(
         self,
-        PoQVerificationInputMinusSigningKey {
-            core_quota,
-            core_root,
-            leader_quota,
-            pol_epoch_nonce,
-            pol_ledger_aged,
-            session,
-            total_stake,
-        }: &PoQVerificationInputMinusSigningKey,
         verifier: &Verifier,
     ) -> Result<IncomingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>, Error>
     where
@@ -137,21 +113,7 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
         let (_, signing_key, proof_of_quota, signature) = self.public_header.into_components();
         // Verify the Proof of Quota according to the Blend spec: <https://www.notion.so/nomos-tech/Blend-Protocol-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81b593ddce00cffd24a8>.
         verifier
-            .verify_proof_of_quota(
-                proof_of_quota,
-                &PublicInputs {
-                    core_quota: *core_quota,
-                    core_root: *core_root,
-                    leader_quota: *leader_quota,
-                    pol_epoch_nonce: *pol_epoch_nonce,
-                    pol_ledger_aged: *pol_ledger_aged,
-                    session: *session,
-                    // Signing key taken from the public header after the signature has been
-                    // successfully verified.
-                    signing_key,
-                    total_stake: *total_stake,
-                },
-            )
+            .verify_proof_of_quota(proof_of_quota, &signing_key)
             .map_err(|_| Error::ProofOfQuotaVerificationFailed(quota::Error::InvalidProof))?;
         Ok(
             IncomingEncapsulatedMessageWithValidatedPublicHeader::from_message(
@@ -245,7 +207,12 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPart<ENCAPSULATION_COUNT> {
         {
             PrivateHeaderDecapsulationOutput::Incompleted((private_header, public_header)) => {
                 let payload = self.payload.decapsulate(key);
-                verify_reconstructed_public_header(&public_header, &private_header, &payload)?;
+                verify_reconstructed_public_header(
+                    &public_header,
+                    &private_header,
+                    &payload,
+                    verifier,
+                )?;
                 Ok(PartDecapsulationOutput::Incompleted((
                     Self {
                         private_header,
@@ -256,7 +223,12 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPart<ENCAPSULATION_COUNT> {
             }
             PrivateHeaderDecapsulationOutput::Completed((private_header, public_header)) => {
                 let payload = self.payload.decapsulate(key);
-                verify_reconstructed_public_header(&public_header, &private_header, &payload)?;
+                verify_reconstructed_public_header(
+                    &public_header,
+                    &private_header,
+                    &payload,
+                    verifier,
+                )?;
                 Ok(PartDecapsulationOutput::Completed(
                     payload.try_deserialize()?,
                 ))
@@ -272,13 +244,20 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPart<ENCAPSULATION_COUNT> {
 
 /// Verify the public header reconstructed when decapsulating the private
 /// header.
-fn verify_reconstructed_public_header<const ENCAPSULATION_COUNT: usize>(
+fn verify_reconstructed_public_header<Verifier, const ENCAPSULATION_COUNT: usize>(
     public_header: &PublicHeader,
     private_header: &EncapsulatedPrivateHeader<ENCAPSULATION_COUNT>,
     payload: &EncapsulatedPayload,
-) -> Result<(), Error> {
+    verifier: &Verifier,
+) -> Result<(), Error>
+where
+    Verifier: ProofsVerifier,
+{
     // Verify the signature in the reconstructed public header
-    public_header.verify_signature(&signing_body(private_header, payload))
+    public_header.verify_signature(&signing_body(private_header, payload))?;
+    // Verify the proof of quota in the reconstructed public header
+    public_header.verify_proof_of_quota(verifier)?;
+    Ok(())
 }
 
 /// Returns the body that should be signed.
@@ -478,7 +457,8 @@ impl EncapsulatedBlendingHeader {
     /// [`BlendingHeader`] without any encapsulation.
     fn initialize(header: &BlendingHeader) -> Self {
         Self(
-            <BlendingHeader as SerdeOp>::serialize(header)
+            header
+                .to_bytes()
                 .expect("BlendingHeader should be able to be serialized")
                 .to_vec(),
         )
@@ -488,7 +468,7 @@ impl EncapsulatedBlendingHeader {
     /// If there is no encapsulation left, and if the bytes are valid,
     /// the deserialization will succeed.
     fn try_deserialize(&self) -> Result<BlendingHeader, Error> {
-        <BlendingHeader as SerdeOp>::deserialize(&self.0).map_err(|_| Error::DeserializationFailed)
+        BlendingHeader::from_bytes(&self.0).map_err(|_| Error::DeserializationFailed)
     }
 
     /// Add a layer of encapsulation.
@@ -516,7 +496,8 @@ impl EncapsulatedPayload {
     /// without any encapsulation.
     fn initialize(payload: &Payload) -> Self {
         Self(
-            <Payload as SerdeOp>::serialize(payload)
+            payload
+                .to_bytes()
                 .expect("Payload should be able to be serialized")
                 .to_vec(),
         )
@@ -526,7 +507,7 @@ impl EncapsulatedPayload {
     /// If there is no encapsulation left, and if the bytes are valid,
     /// the deserialization will succeed.
     fn try_deserialize(&self) -> Result<Payload, Error> {
-        <Payload as SerdeOp>::deserialize(&self.0).map_err(|_| Error::DeserializationFailed)
+        Payload::from_bytes(&self.0).map_err(|_| Error::DeserializationFailed)
     }
 
     /// Add a layer of encapsulation.

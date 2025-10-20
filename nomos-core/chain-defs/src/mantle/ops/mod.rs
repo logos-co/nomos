@@ -34,6 +34,7 @@ use crate::{
         wire::OpWireVisitor,
     },
     proofs::zksig,
+    utils::ed25519_serde,
 };
 
 /// Core set of supported Mantle operations.
@@ -61,10 +62,11 @@ pub enum Op {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OpProof {
-    Ed25519Sig(ed25519::Signature),
+    Ed25519Sig(#[serde(with = "ed25519_serde::sig_hex")] ed25519::Signature),
     ZkSig(zksig::DummyZkSignature),
     ZkAndEd25519Sigs {
         zk_sig: zksig::DummyZkSignature,
+        #[serde(with = "ed25519_serde::sig_hex")]
         ed25519_sig: ed25519::Signature,
     },
 }
@@ -183,7 +185,7 @@ mod tests {
     use serde_json::json;
 
     use super::{Op, channel::blob::BlobOp};
-    use crate::codec;
+    use crate::codec::{DeserializeOp as _, SerializeOp as _};
 
     // nothing special, just some valid bytes
     static VK: LazyLock<ed25519_dalek::VerifyingKey> = LazyLock::new(|| {
@@ -201,7 +203,8 @@ mod tests {
             0, 0, 0
         ]);
         let zero_string = "0000000000000000000000000000000000000000000000000000000000000000";
-        let payload = json!({"channel": zero_string, "blob": zeros, "blob_size": 0, "parent": zero_string, "signer": *VK, "da_storage_gas_price": 0});
+        let vk_hex = hex::encode(VK.as_bytes());
+        let payload = json!({"channel": zero_string, "blob": zeros, "blob_size": 0, "parent": zero_string, "signer": vk_hex, "da_storage_gas_price": 0});
         let repr = json!({"opcode": 0x01, "payload": payload});
         println!("{:?}", serde_json::to_string(&repr).unwrap());
         let op = Op::ChannelBlob(BlobOp {
@@ -241,10 +244,9 @@ mod tests {
         };
         let op = Op::ChannelBlob(blob_op);
 
-        let serialized =
-            <Op as codec::SerdeOp>::serialize(&op).expect("Op should be able to be serialized");
+        let serialized = op.to_bytes().expect("Op should be able to be serialized");
         assert_eq!(serialized.to_vec(), expected_bincode);
-        let deserialized: Op = <Op as codec::SerdeOp>::deserialize(&serialized).unwrap();
+        let deserialized = Op::from_bytes(&serialized).unwrap();
         assert_eq!(deserialized, op);
     }
 }
