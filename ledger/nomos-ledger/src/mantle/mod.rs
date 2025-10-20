@@ -213,25 +213,6 @@ mod tests {
         (signing_key, verifying_key)
     }
 
-    fn create_test_tx_with_ops(ops: Vec<Op>) -> SignedMantleTx {
-        let ledger_tx = LedgerTx::new(vec![], vec![]);
-        let mantle_tx = MantleTx {
-            ops,
-            ledger_tx,
-            execution_gas_price: 1,
-            storage_gas_price: 1,
-        };
-
-        SignedMantleTx::new_unverified(
-            mantle_tx.clone(),
-            vec![],
-            DummyZkSignature::prove(&zksig::ZkSignaturePublic {
-                pks: vec![],
-                msg_hash: mantle_tx.hash().into(),
-            }),
-        )
-    }
-
     fn create_signed_tx(op: Op, signing_key: &SigningKey) -> SignedMantleTx {
         create_multi_signed_tx(vec![op], vec![signing_key])
     }
