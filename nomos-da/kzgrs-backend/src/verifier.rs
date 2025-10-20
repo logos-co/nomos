@@ -58,7 +58,7 @@ impl DaVerifier {
                     .map(|Chunk(b)| FieldElement::from_le_bytes_mod_order(b))
                     .collect::<Vec<FieldElement>>()
             })
-            .collect();
+            .collect::<Vec<_>>();
         let rows_domain = PolynomialEvaluationDomain::new(rows_domain_size)
             .expect("Domain should be able to build");
         kzgrs::bdfg_proving::verify_multiple_columns(
@@ -66,11 +66,11 @@ impl DaVerifier {
                 .iter()
                 .map(|share| share.share_idx as usize)
                 .collect::<Vec<usize>>(),
-            &columns,
+            &columns.iter().map(Vec::as_slice).collect::<Vec<_>>(),
             &commitmentss
                 .iter()
                 .map(|commits| commits.rows_commitments.as_slice())
-                .collect::<Vec<_>>().as_slice(),
+                .collect::<Vec<_>>(),
             &shares
                 .iter()
                 .map(|share| share.combined_column_proof)

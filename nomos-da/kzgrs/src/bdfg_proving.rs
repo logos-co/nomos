@@ -238,8 +238,8 @@ pub fn verify_column(
 #[must_use]
 pub fn verify_multiple_columns(
     column_idxs: &[usize],
-    columns: &[Vec<Fr>],
-    row_commitments: &Vec<&Vec<Commitment>>,
+    columns: &[&[Fr]],
+    row_commitments: &[&[Commitment]],
     column_proofs: &[Proof],
     domain: PolynomialEvaluationDomain,
     verification_key: &VerificationKey,
@@ -282,8 +282,9 @@ pub fn verify_multiple_columns(
     let proofs: Vec<G1Affine> = column_proofs.iter().map(|proof| proof.w).collect();
 
     let mut rng = thread_rng();
-    let r: Fr = Fr::rand(&mut rng);
-    let r_roots = compute_h_roots(r, column_proofs.len());
+    let r_roots = std::iter::repeat_with(|| Fr::rand(&mut rng))
+        .take(column_proofs.len())
+        .collect::<Vec<Fr>>();
 
     let batched_commitment = G1Projective::msm(
         &G1Projective::normalize_batch(&aggregated_commitments),
@@ -315,7 +316,7 @@ pub fn verify_multiple_columns(
     let affine_points = G1Projective::normalize_batch(&[commitment_check_g1, batched_proof]);
     let qap = Bls12_381::multi_miller_loop(
         [
-            <G1Affine as Into<G1Prepared<_>>>::into(affine_points[1]),
+            <G1Affine as Into<G1Prepared<_>>>::into(-affine_points[1]),
             commitment_check_g1.into(),
         ],
         [
