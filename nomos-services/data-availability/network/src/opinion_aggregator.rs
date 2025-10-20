@@ -2,10 +2,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use bitvec::prelude::*;
 use libp2p::PeerId;
-use nomos_core::{
-    block::SessionNumber,
-    sdp::{ActivityMetadata, DaActivityProof, ProviderId},
-};
+use nomos_core::sdp::{ActivityMetadata, DaActivityProof, ProviderId, SessionNumber};
 use nomos_da_network_core::{
     SubnetworkId,
     protocols::sampling::opinions::{Opinion, OpinionEvent},

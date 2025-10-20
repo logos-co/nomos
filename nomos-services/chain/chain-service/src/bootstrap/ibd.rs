@@ -986,6 +986,7 @@ mod tests {
         Cryptarchia::from_lib(
             [GENESIS_ID; 32].into(),
             LedgerState::from_utxos(empty()),
+            [GENESIS_ID; 32].into(),
             nomos_ledger::Config {
                 epoch_config: EpochConfig {
                     epoch_stake_distribution_stabilization: NonZero::new(1).unwrap(),
@@ -996,34 +997,36 @@ mod tests {
                     security_param: NonZero::new(1).unwrap(),
                     active_slot_coeff: 1.0,
                 },
-                service_params: Arc::new(
-                    [
-                        (
-                            ServiceType::BlendNetwork,
-                            ServiceParameters {
-                                lock_period: 10,
-                                inactivity_period: 20,
-                                retention_period: 100,
-                                timestamp: 0,
-                                session_duration: 10,
-                            },
-                        ),
-                        (
-                            ServiceType::DataAvailability,
-                            ServiceParameters {
-                                lock_period: 10,
-                                inactivity_period: 20,
-                                retention_period: 100,
-                                timestamp: 0,
-                                session_duration: 10,
-                            },
-                        ),
-                    ]
-                    .into(),
-                ),
-                min_stake: MinStake {
-                    threshold: 1,
-                    timestamp: 0,
+                sdp_config: nomos_ledger::mantle::sdp::Config {
+                    service_params: Arc::new(
+                        [
+                            (
+                                ServiceType::BlendNetwork,
+                                ServiceParameters {
+                                    lock_period: 10,
+                                    inactivity_period: 20,
+                                    retention_period: 100,
+                                    timestamp: 0,
+                                    session_duration: 10,
+                                },
+                            ),
+                            (
+                                ServiceType::DataAvailability,
+                                ServiceParameters {
+                                    lock_period: 10,
+                                    inactivity_period: 20,
+                                    retention_period: 100,
+                                    timestamp: 0,
+                                    session_duration: 10,
+                                },
+                            ),
+                        ]
+                        .into(),
+                    ),
+                    min_stake: MinStake {
+                        threshold: 1,
+                        timestamp: 0,
+                    },
                 },
             },
             cryptarchia_engine::State::Bootstrapping,

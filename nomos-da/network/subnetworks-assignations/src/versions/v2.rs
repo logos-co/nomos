@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use libp2p_identity::PeerId;
-use nomos_core::block::SessionNumber;
+use nomos_core::sdp::SessionNumber;
 use serde::{Deserialize, Serialize};
 
 use crate::{MembershipHandler, SubnetworkAssignations};

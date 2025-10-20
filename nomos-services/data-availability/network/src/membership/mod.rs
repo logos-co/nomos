@@ -8,7 +8,7 @@ use std::{
 
 use futures::Stream;
 use libp2p::Multiaddr;
-use nomos_core::{block::SessionNumber, sdp::ProviderId};
+use nomos_core::sdp::{ProviderId, SessionNumber};
 use nomos_membership_service::backends::MembershipBackendError;
 use overwatch::{
     DynError,

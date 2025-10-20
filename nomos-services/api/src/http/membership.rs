@@ -1,15 +1,15 @@
 use std::fmt::{Debug, Display};
 
-use nomos_core::sdp::FinalizedBlockEvent;
 use nomos_membership_service::{
     MembershipMessage, MembershipService, adapters::sdp::SdpAdapter, backends::MembershipBackend,
 };
+use nomos_sdp::BlockEvent;
 use overwatch::{DynError, overwatch::OverwatchHandle};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MembershipUpdateRequest {
-    pub update_event: FinalizedBlockEvent,
+    pub update_event: BlockEvent,
 }
 
 pub async fn update_membership_handler<Backend, Sdp, StorageAdapter, RuntimeServiceId>(

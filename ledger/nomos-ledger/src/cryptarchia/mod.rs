@@ -4,7 +4,7 @@ use cryptarchia_engine::{Epoch, Slot};
 use groth16::{Fr, fr_from_bytes};
 use nomos_core::{
     crypto::{ZkDigest, ZkHasher},
-    mantle::{AuthenticatedMantleTx, NoteId, Utxo, Value, gas::GasConstants},
+    mantle::{AuthenticatedMantleTx, GenesisTx, NoteId, Utxo, Value, gas::GasConstants},
     proofs::{
         leader_proof::{self, LeaderPublic},
         zksig::{ZkSignatureProof as _, ZkSignaturePublic},
@@ -13,7 +13,7 @@ use nomos_core::{
 
 pub type UtxoTree = utxotree::UtxoTree<NoteId, Utxo, ZkHasher>;
 use super::{Balance, Config, LedgerError};
-use crate::mantle::locked_notes::LockedNotes;
+use crate::mantle::sdp::locked_notes::LockedNotes;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -278,7 +278,7 @@ impl LedgerState {
     }
 
     pub fn from_genesis_tx<Id>(
-        tx: impl AuthenticatedMantleTx,
+        tx: impl GenesisTx,
         epoch_nonce: Fr,
     ) -> Result<Self, LedgerError<Id>> {
         if !tx.mantle_tx().ledger_tx.inputs.is_empty() {
@@ -381,6 +381,10 @@ pub mod tests {
             &self.public == public_inputs
         }
 
+        fn verify_genesis(&self) -> bool {
+            true
+        }
+
         fn entropy(&self) -> Fr {
             // For dummy proof, return zero entropy
             Fr::from(0u8)
@@ -471,34 +475,36 @@ pub mod tests {
                 security_param: NonZero::new(1).unwrap(),
                 active_slot_coeff: 1.0,
             },
-            service_params: Arc::new(
-                [
-                    (
-                        ServiceType::BlendNetwork,
-                        ServiceParameters {
-                            lock_period: 10,
-                            inactivity_period: 20,
-                            retention_period: 100,
-                            timestamp: 0,
-                            session_duration: 10,
-                        },
-                    ),
-                    (
-                        ServiceType::DataAvailability,
-                        ServiceParameters {
-                            lock_period: 10,
-                            inactivity_period: 20,
-                            retention_period: 100,
-                            timestamp: 0,
-                            session_duration: 10,
-                        },
-                    ),
-                ]
-                .into(),
-            ),
-            min_stake: nomos_core::sdp::MinStake {
-                threshold: 1,
-                timestamp: 0,
+            sdp_config: crate::mantle::sdp::Config {
+                service_params: Arc::new(
+                    [
+                        (
+                            ServiceType::BlendNetwork,
+                            ServiceParameters {
+                                lock_period: 10,
+                                inactivity_period: 20,
+                                retention_period: 100,
+                                timestamp: 0,
+                                session_duration: 10,
+                            },
+                        ),
+                        (
+                            ServiceType::DataAvailability,
+                            ServiceParameters {
+                                lock_period: 10,
+                                inactivity_period: 20,
+                                retention_period: 100,
+                                timestamp: 0,
+                                session_duration: 10,
+                            },
+                        ),
+                    ]
+                    .into(),
+                ),
+                min_stake: nomos_core::sdp::MinStake {
+                    threshold: 1,
+                    timestamp: 0,
+                },
             },
         }
     }
@@ -932,34 +938,5 @@ pub mod tests {
 
         let result = ledger_state.try_apply_tx::<(), MainnetGasConstants>(&locked_notes, tx);
         assert!(matches!(result, Err(LedgerError::ZeroValueNote)));
-    }
-
-    #[test]
-    fn test_input_in_genesis() {
-        let input_utxo = Utxo {
-            tx_hash: Fr::from(BigUint::from(1u8)).into(),
-            output_index: 0,
-            note: Note::new(10000, Fr::from(BigUint::from(1u8)).into()),
-        };
-
-        let tx = create_tx(
-            &[&input_utxo],
-            vec![Note::new(0, Fr::from(BigUint::from(2u8)).into())],
-        );
-
-        assert!(matches!(
-            LedgerState::from_genesis_tx::<()>(tx, Fr::ZERO),
-            Err(LedgerError::InputInGenesis(_))
-        ));
-        let tx = create_tx(
-            &[],
-            vec![Note::new(10000, Fr::from(BigUint::from(2u8)).into())],
-        );
-        assert_eq!(
-            LedgerState::from_genesis_tx::<()>(tx, Fr::ONE)
-                .unwrap()
-                .nonce,
-            Fr::ONE
-        );
     }
 }

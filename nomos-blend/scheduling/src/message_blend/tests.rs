@@ -71,17 +71,22 @@ fn valid_proof_of_quota_inputs(
         },
     ) = valid_proof_of_leadership_quota_inputs([0; _].try_into().unwrap(), leader_quota, 0);
 
-    let ProofType::CoreQuota(ProofOfCoreQuotaInputs {
-        core_path,
-        core_path_selectors,
-        core_sk,
-    }) = core_proof_type
-    else {
+    let ProofType::CoreQuota(proof_of_core_quota_private_inputs) = core_proof_type else {
         panic!("Core proof private inputs of wrong type.");
     };
-    let ProofType::LeadershipQuota(ProofOfLeadershipQuotaInputs {
-        aged_path,
-        aged_selector,
+
+    let ProofType::LeadershipQuota(proof_of_leadership_quota_private_inputs) =
+        leadership_proof_type
+    else {
+        panic!("Leadership proof private inputs of wrong type.");
+    };
+
+    let ProofOfCoreQuotaInputs {
+        core_path_and_selectors,
+        core_sk,
+    } = *proof_of_core_quota_private_inputs;
+    let ProofOfLeadershipQuotaInputs {
+        aged_path_and_selectors,
         note_value,
         output_number,
         pol_secret_key,
@@ -90,10 +95,7 @@ fn valid_proof_of_quota_inputs(
         slot_secret_path,
         starting_slot,
         transaction_hash,
-    }) = leadership_proof_type
-    else {
-        panic!("Leadership proof private inputs of wrong type.");
-    };
+    } = *proof_of_leadership_quota_private_inputs;
 
     let public_inputs = PublicInputs {
         session,
@@ -106,14 +108,12 @@ fn valid_proof_of_quota_inputs(
     };
     let private_inputs = PrivateInputs {
         core_sk,
-        core_path,
-        core_path_selectors,
+        core_path_and_selectors,
         slot,
         note_value,
         transaction_hash,
         output_number,
-        aged_path,
-        aged_selector,
+        aged_path_and_selectors,
         slot_secret,
         slot_secret_path,
         starting_slot,

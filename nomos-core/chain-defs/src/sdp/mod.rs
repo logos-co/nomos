@@ -1,24 +1,15 @@
-pub mod state;
-
-use std::{
-    collections::{BTreeSet, HashMap, HashSet},
-    hash::Hash,
-    ops::Deref,
-};
+use std::hash::Hash;
 
 use blake2::{Blake2b, Digest as _};
 use bytes::{Bytes, BytesMut};
 use groth16::{Fr, serde::serde_fr};
 use multiaddr::Multiaddr;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use state::TransientDeclarationState;
 use strum::EnumIter;
 
-use crate::{
-    block::{BlockNumber, SessionNumber},
-    mantle::NoteId,
-};
+use crate::{block::BlockNumber, mantle::NoteId};
 
+pub type SessionNumber = u64;
 pub type StakeThreshold = u64;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
@@ -160,32 +151,8 @@ pub struct ActivityId(pub [u8; 32]);
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct ZkPublicKey(#[serde(with = "serde_fr")] pub Fr);
 
-#[derive(Clone, Eq, PartialEq, Hash, Debug)]
-pub struct DeclarationInfo {
-    pub id: DeclarationId,
-    pub provider_id: ProviderId,
-    pub service: ServiceType,
-    pub locators: Vec<Locator>,
-    pub zk_id: ZkPublicKey,
-    pub locked_note_id: NoteId,
-}
-
-impl DeclarationInfo {
-    #[must_use]
-    pub fn new(msg: DeclarationMessage) -> Self {
-        Self {
-            id: msg.declaration_id(),
-            provider_id: msg.provider_id,
-            service: msg.service_type,
-            locators: msg.locators,
-            zk_id: msg.zk_id,
-            locked_note_id: msg.locked_note_id,
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DeclarationState {
+pub struct Declaration {
     pub service_type: ServiceType,
     pub provider_id: ProviderId,
     pub locked_note_id: NoteId,
@@ -197,28 +164,21 @@ pub struct DeclarationState {
     pub nonce: Nonce,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProviderInfo {
     pub locators: Vec<Locator>,
     pub zk_id: ZkPublicKey,
 }
 
-impl DeclarationState {
+impl Declaration {
     #[must_use]
-    pub const fn new(
-        block_number: BlockNumber,
-        provider_id: ProviderId,
-        locators: Vec<Locator>,
-        service_type: ServiceType,
-        locked_note_id: NoteId,
-        zk_id: ZkPublicKey,
-    ) -> Self {
+    pub fn new(block_number: BlockNumber, declaration_msg: &DeclarationMessage) -> Self {
         Self {
-            service_type,
-            locked_note_id,
-            zk_id,
-            provider_id,
-            locators,
+            service_type: declaration_msg.service_type,
+            provider_id: declaration_msg.provider_id,
+            locked_note_id: declaration_msg.locked_note_id,
+            locators: declaration_msg.locators.clone(),
+            zk_id: declaration_msg.zk_id,
             created: block_number,
             active: block_number,
             withdrawn: None,
@@ -238,7 +198,7 @@ pub struct DeclarationMessage {
 
 impl DeclarationMessage {
     #[must_use]
-    pub fn declaration_id(&self) -> DeclarationId {
+    pub fn id(&self) -> DeclarationId {
         let mut hasher = Blake2b::new();
         let service = match self.service_type {
             ServiceType::BlendNetwork => "BN",
@@ -323,15 +283,91 @@ impl DaActivityProof {
     pub fn to_metadata_bytes(&self) -> Vec<u8> {
         let total_size = 1 // version byte
             + size_of::<SessionNumber>()
+            + 4 // previous_session_opinions_length (u32)
             + self.previous_session_opinions.len()
+            + 4 // current_session_opinions_length (u32)
             + self.current_session_opinions.len();
 
         let mut bytes = Vec::with_capacity(total_size);
         bytes.push(METADATA_VERSION_BYTE);
         bytes.extend(&self.current_session.to_le_bytes());
+
+        // Encode previous opinions with length prefix
+        bytes.extend(&(self.previous_session_opinions.len() as u32).to_le_bytes());
         bytes.extend(&self.previous_session_opinions);
+
+        // Encode current opinions with length prefix
+        bytes.extend(&(self.current_session_opinions.len() as u32).to_le_bytes());
         bytes.extend(&self.current_session_opinions);
+
         bytes
+    }
+
+    pub fn from_metadata_bytes(bytes: &[u8]) -> Result<Self, Box<dyn std::error::Error>> {
+        // Minimum size: version(1) + session(8) + prev_len(4) + curr_len(4) = 17
+        if bytes.len() < 17 {
+            return Err("Metadata too short".into());
+        }
+
+        let mut offset = 0;
+
+        // Check version byte
+        let version = bytes[offset];
+        if version != METADATA_VERSION_BYTE {
+            return Err(format!(
+                "Invalid version byte: {version:#x}, expected {METADATA_VERSION_BYTE:#x}"
+            )
+            .into());
+        }
+        offset += 1;
+
+        // Parse session number (8 bytes)
+        let session_bytes: [u8; 8] = bytes[offset..offset + 8]
+            .try_into()
+            .map_err(|_| "Failed to read session number")?;
+        let current_session = SessionNumber::from_le_bytes(session_bytes);
+        offset += 8;
+
+        // Parse previous session opinions length (4 bytes)
+        let prev_len_bytes: [u8; 4] = bytes[offset..offset + 4]
+            .try_into()
+            .map_err(|_| "Failed to read previous opinions length")?;
+        let prev_len = u32::from_le_bytes(prev_len_bytes) as usize;
+        offset += 4;
+
+        // Read previous session opinions data
+        if offset + prev_len > bytes.len() {
+            return Err("Previous opinions length exceeds remaining bytes".into());
+        }
+        let previous_session_opinions = bytes[offset..offset + prev_len].to_vec();
+        offset += prev_len;
+
+        // Parse current session opinions length (4 bytes)
+        if offset + 4 > bytes.len() {
+            return Err("Not enough bytes for current opinions length".into());
+        }
+        let curr_len_bytes: [u8; 4] = bytes[offset..offset + 4]
+            .try_into()
+            .map_err(|_| "Failed to read current opinions length")?;
+        let curr_len = u32::from_le_bytes(curr_len_bytes) as usize;
+        offset += 4;
+
+        // Read current session opinions data
+        if offset + curr_len != bytes.len() {
+            return Err(format!(
+                "Current opinions length mismatch: expected {}, got {} remaining bytes",
+                curr_len,
+                bytes.len() - offset
+            )
+            .into());
+        }
+        let current_session_opinions = bytes[offset..offset + curr_len].to_vec();
+
+        Ok(Self {
+            current_session,
+            previous_session_opinions,
+            current_session_opinions,
+        })
     }
 }
 
@@ -349,20 +385,23 @@ impl ActivityMetadata {
             // Future: ActivityMetadata::Blend(proof) => proof.to_metadata_bytes(),
         }
     }
-}
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum EventType {
-    Declaration,
-    Activity,
-    Withdrawal,
-}
+    pub fn from_metadata_bytes(bytes: &[u8]) -> Result<Self, Box<dyn std::error::Error>> {
+        if bytes.is_empty() {
+            return Err("Empty metadata bytes".into());
+        }
 
-pub struct Event {
-    pub provider_id: ProviderId,
-    pub event_type: EventType,
-    pub service_type: ServiceType,
-    pub timestamp: BlockNumber,
+        // Read version byte to determine variant
+        let version = bytes[0];
+
+        match version {
+            METADATA_VERSION_BYTE => {
+                let proof = DaActivityProof::from_metadata_bytes(bytes)?;
+                Ok(Self::DataAvailability(proof))
+            }
+            _ => Err(format!("Unknown metadata version: {version:#x}").into()),
+        }
+    }
 }
 
 pub enum SdpMessage {
@@ -375,68 +414,9 @@ impl SdpMessage {
     #[must_use]
     pub fn declaration_id(&self) -> DeclarationId {
         match self {
-            Self::Declare(message) => message.declaration_id(),
+            Self::Declare(message) => message.id(),
             Self::Activity(message) => message.declaration_id,
             Self::Withdraw(message) => message.declaration_id,
         }
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum FinalizedDeclarationState {
-    Active,
-    Inactive,
-    Withdrawn,
-}
-
-impl<D> From<&TransientDeclarationState<D>> for FinalizedDeclarationState
-where
-    D: Deref<Target = DeclarationState>,
-{
-    fn from(transient: &TransientDeclarationState<D>) -> Self {
-        match transient {
-            TransientDeclarationState::Active(_) => Self::Active,
-            TransientDeclarationState::Inactive(_) => Self::Inactive,
-            TransientDeclarationState::Withdrawn(_) => Self::Withdrawn,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FinalizedBlockEvent {
-    pub block_number: BlockNumber,
-    pub updates: Vec<FinalizedBlockEventUpdate>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FinalizedBlockEventUpdate {
-    pub service_type: ServiceType,
-    pub provider_id: ProviderId,
-    pub state: FinalizedDeclarationState,
-    pub locators: BTreeSet<Locator>,
-}
-
-#[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
-pub struct Session {
-    pub session_number: SessionNumber,
-    pub declarations: HashSet<DeclarationId>,
-}
-
-impl Session {
-    pub fn update(&mut self, declaration_id: DeclarationId, state: &FinalizedDeclarationState) {
-        match state {
-            FinalizedDeclarationState::Active => {
-                self.declarations.insert(declaration_id);
-            }
-            FinalizedDeclarationState::Inactive | FinalizedDeclarationState::Withdrawn => {
-                self.declarations.remove(&declaration_id);
-            }
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct SessionUpdate {
-    pub session_number: SessionNumber,
-    pub providers: HashMap<ProviderId, ProviderInfo>,
 }

@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use nomos_core::sdp::{FinalizedBlockEvent, ServiceType};
+use nomos_core::sdp::ServiceType;
+use nomos_sdp::BlockEvent;
 use overwatch::DynError;
 use thiserror::Error;
 
@@ -32,8 +33,5 @@ pub trait MembershipBackend {
         service_type: ServiceType,
     ) -> Result<MembershipProviders, MembershipBackendError>;
 
-    async fn update(
-        &mut self,
-        update: FinalizedBlockEvent,
-    ) -> Result<NewSesssion, MembershipBackendError>;
+    async fn update(&mut self, update: BlockEvent) -> Result<NewSesssion, MembershipBackendError>;
 }

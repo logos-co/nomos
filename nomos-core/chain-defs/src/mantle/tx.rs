@@ -277,6 +277,13 @@ impl AuthenticatedMantleTx for SignedMantleTx {
             .ops
             .iter()
             .zip(self.ops_proofs.iter().map(Option::as_ref))
+            .map(|(op, proof)| {
+                if matches!(op, Op::ChannelBlob(_) | Op::ChannelInscribe(_)) {
+                    (op, None)
+                } else {
+                    (op, proof)
+                }
+            })
     }
 }
 

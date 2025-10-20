@@ -4,9 +4,10 @@ use std::{
 };
 
 use nomos_core::{
-    block::{BlockNumber, SessionNumber},
-    sdp::{FinalizedBlockEvent, FinalizedBlockEventUpdate, Locator, ProviderId, ServiceType},
+    block::BlockNumber,
+    sdp::{Locator, ProviderId, ServiceType, SessionNumber},
 };
+use nomos_sdp::{BlockEvent, BlockEventUpdate};
 use serde::{Deserialize, Serialize};
 
 use super::{MembershipBackend, MembershipBackendError};
@@ -71,10 +72,7 @@ impl<S: MembershipStorageAdapter> MembershipBackend for PersistentMembershipBack
         }
     }
 
-    async fn update(
-        &mut self,
-        update: FinalizedBlockEvent,
-    ) -> Result<NewSesssion, MembershipBackendError> {
+    async fn update(&mut self, update: BlockEvent) -> Result<NewSesssion, MembershipBackendError> {
         let block_number = update.block_number;
 
         tracing::debug!(
@@ -181,14 +179,13 @@ impl<S: MembershipStorageAdapter> MembershipBackend for PersistentMembershipBack
 }
 
 impl SessionState {
-    fn apply_update(&mut self, update: &FinalizedBlockEventUpdate) {
+    fn apply_update(&mut self, update: &BlockEventUpdate) {
         match update.state {
-            nomos_core::sdp::FinalizedDeclarationState::Active => {
+            nomos_sdp::DeclarationState::Active => {
                 self.providers
                     .insert(update.provider_id, update.locators.clone());
             }
-            nomos_core::sdp::FinalizedDeclarationState::Inactive
-            | nomos_core::sdp::FinalizedDeclarationState::Withdrawn => {
+            nomos_sdp::DeclarationState::Inactive | nomos_sdp::DeclarationState::Withdrawn => {
                 self.providers.remove(&update.provider_id);
             }
         }
@@ -204,10 +201,8 @@ mod tests {
     use std::collections::{BTreeSet, HashMap};
 
     use multiaddr::multiaddr;
-    use nomos_core::sdp::{
-        FinalizedBlockEvent, FinalizedBlockEventUpdate, FinalizedDeclarationState, Locator,
-        ProviderId, ServiceType,
-    };
+    use nomos_core::sdp::{Locator, ProviderId, ServiceType};
+    use nomos_sdp::{BlockEvent, BlockEventUpdate, DeclarationState};
 
     use super::{MembershipBackend as _, MembershipBackendSettings, PersistentMembershipBackend};
 
@@ -236,10 +231,10 @@ mod tests {
     fn update(
         service: ServiceType,
         provider_id: ProviderId,
-        state: FinalizedDeclarationState,
+        state: DeclarationState,
         locators: BTreeSet<Locator>,
-    ) -> FinalizedBlockEventUpdate {
-        FinalizedBlockEventUpdate {
+    ) -> BlockEventUpdate {
+        BlockEventUpdate {
             service_type: service,
             provider_id,
             state,
@@ -297,12 +292,12 @@ mod tests {
         let p2_locs = locs::<3>(10);
 
         // Block 1: activate P2 (goes into forming S=1)
-        let ev1 = FinalizedBlockEvent {
+        let ev1 = BlockEvent {
             block_number: 1,
             updates: vec![update(
                 service,
                 p2,
-                FinalizedDeclarationState::Active,
+                DeclarationState::Active,
                 p2_locs.clone(),
             )],
         };
@@ -317,12 +312,12 @@ mod tests {
 
         // Block 2 (last block of session 0): withdraw P1 in forming; still in active
         // until promotion
-        let ev2 = FinalizedBlockEvent {
+        let ev2 = BlockEvent {
             block_number: 2,
             updates: vec![update(
                 service,
                 p1,
-                FinalizedDeclarationState::Withdrawn,
+                DeclarationState::Withdrawn,
                 BTreeSet::new(),
             )],
         };
@@ -377,28 +372,18 @@ mod tests {
         let p4_locs = locs::<2>(30);
 
         // Block 1: Add P3 to DA, P4 to Blend Network (both in forming)
-        let ev1 = FinalizedBlockEvent {
+        let ev1 = BlockEvent {
             block_number: 1,
             updates: vec![
-                update(
-                    service_da,
-                    p3,
-                    FinalizedDeclarationState::Active,
-                    p3_locs.clone(),
-                ),
-                update(
-                    service_mp,
-                    p4,
-                    FinalizedDeclarationState::Active,
-                    p4_locs.clone(),
-                ),
+                update(service_da, p3, DeclarationState::Active, p3_locs.clone()),
+                update(service_mp, p4, DeclarationState::Active, p4_locs.clone()),
             ],
         };
         backend.update(ev1).await.unwrap();
 
         // Block 2: DA should promote after this (end of session 0), Blend Network
         // should not
-        let ev2 = FinalizedBlockEvent {
+        let ev2 = BlockEvent {
             block_number: 2,
             updates: vec![],
         };
@@ -423,7 +408,7 @@ mod tests {
         assert!(!mp_providers.contains_key(&p4)); // P4 still in forming
 
         // Block 4: Blend Network should promote after this (end of session 0)
-        let ev3 = FinalizedBlockEvent {
+        let ev3 = BlockEvent {
             block_number: 4,
             updates: vec![],
         };
@@ -444,7 +429,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use async_trait::async_trait;
-    use nomos_core::block::{BlockNumber, SessionNumber};
+    use nomos_core::{block::BlockNumber, sdp::SessionNumber};
     use overwatch::{
         DynError,
         services::{ServiceData, relay::OutboundRelay},

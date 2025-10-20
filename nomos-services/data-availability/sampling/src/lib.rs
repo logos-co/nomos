@@ -14,7 +14,7 @@ use backend::{DaSamplingServiceBackend, SamplingState};
 use futures::{FutureExt as _, Stream, future::BoxFuture, stream::FuturesUnordered};
 use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
 use network::NetworkAdapter;
-use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId};
+use nomos_core::{da::BlobId, header::HeaderId, sdp::SessionNumber};
 use nomos_da_network_core::protocols::sampling::errors::SamplingError;
 use nomos_da_network_service::{
     NetworkService,

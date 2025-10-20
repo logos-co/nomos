@@ -50,6 +50,7 @@ nomos-wallet             = { workspace = true }
 num-bigint               = { version = "0.4", default-features = false }
 overwatch                = { workspace = true }
 pol                      = { workspace = true }
+poq                      = { workspace = true }
 serde                    = { default-features = false, version = "1" }
 serde_json               = { workspace = true }
 serde_yaml               = { workspace = true }

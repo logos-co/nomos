@@ -25,12 +25,22 @@ impl Epoch {
     pub const fn new(inner: u32) -> Self {
         Self(inner)
     }
+
+    #[must_use]
+    pub const fn into_inner(self) -> u32 {
+        self.0
+    }
 }
 
 impl Slot {
     #[must_use]
     pub const fn new(inner: u64) -> Self {
         Self(inner)
+    }
+
+    #[must_use]
+    pub const fn into_inner(self) -> u64 {
+        self.0
     }
 
     #[must_use]

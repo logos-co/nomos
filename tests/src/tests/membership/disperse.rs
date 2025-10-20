@@ -7,8 +7,9 @@ use futures::StreamExt as _;
 use kzgrs_backend::dispersal::Index;
 use nomos_core::{
     da::BlobId,
-    sdp::{FinalizedBlockEvent, FinalizedBlockEventUpdate, Locator, ProviderId},
+    sdp::{Locator, ProviderId},
 };
+use nomos_sdp::{BlockEvent, BlockEventUpdate, DeclarationState};
 use nomos_utils::net::get_available_udp_port;
 use rand::{Rng as _, thread_rng};
 use serial_test::serial;
@@ -70,9 +71,7 @@ fn generate_test_ids_and_ports(n_participants: usize) -> (Vec<[u8; 32]>, Vec<u16
     (ids, da_ports, blend_ports)
 }
 
-fn create_finalized_block_event(
-    membership_config: &GeneralMembershipConfig,
-) -> FinalizedBlockEvent {
+fn create_finalized_block_event(membership_config: &GeneralMembershipConfig) -> BlockEvent {
     let providers = membership_config
         .service_settings
         .backend
@@ -82,7 +81,7 @@ fn create_finalized_block_event(
 
     let finalized_block_event_updates = create_block_event_updates(providers);
 
-    FinalizedBlockEvent {
+    BlockEvent {
         block_number: 1,
         updates: finalized_block_event_updates,
     }
@@ -90,34 +89,31 @@ fn create_finalized_block_event(
 
 fn create_block_event_updates(
     providers: &HashMap<ProviderId, BTreeSet<Locator>>,
-) -> Vec<FinalizedBlockEventUpdate> {
+) -> Vec<BlockEventUpdate> {
     providers
         .iter()
-        .map(|(provider_id, locators)| FinalizedBlockEventUpdate {
+        .map(|(provider_id, locators)| BlockEventUpdate {
             service_type: nomos_core::sdp::ServiceType::DataAvailability,
             provider_id: *provider_id,
-            state: nomos_core::sdp::FinalizedDeclarationState::Active,
+            state: DeclarationState::Active,
             locators: locators.clone(),
         })
         .collect()
 }
 
-async fn update_all_validators(topology: &Topology, finalize_block_event: &FinalizedBlockEvent) {
+async fn update_all_validators(topology: &Topology, finalize_block_event: &BlockEvent) {
     for validator in topology.validators() {
         update_validator_membership(validator, finalize_block_event).await;
     }
 }
 
-async fn update_all_executors(topology: &Topology, finalize_block_event: &FinalizedBlockEvent) {
+async fn update_all_executors(topology: &Topology, finalize_block_event: &BlockEvent) {
     for executor in topology.executors() {
         update_executor_membership(executor, finalize_block_event).await;
     }
 }
 
-async fn update_validator_membership(
-    validator: &Validator,
-    finalize_block_event: &FinalizedBlockEvent,
-) {
+async fn update_validator_membership(validator: &Validator, finalize_block_event: &BlockEvent) {
     let res = validator
         .update_membership(finalize_block_event.clone())
         .await;
@@ -125,7 +121,7 @@ async fn update_validator_membership(
 
     for block_number in 2..=3 {
         let res = validator
-            .update_membership(FinalizedBlockEvent {
+            .update_membership(BlockEvent {
                 block_number,
                 updates: vec![],
             })
@@ -134,10 +130,7 @@ async fn update_validator_membership(
     }
 }
 
-async fn update_executor_membership(
-    executor: &Executor,
-    finalize_block_event: &FinalizedBlockEvent,
-) {
+async fn update_executor_membership(executor: &Executor, finalize_block_event: &BlockEvent) {
     let res = executor
         .update_membership(finalize_block_event.clone())
         .await;
@@ -145,7 +138,7 @@ async fn update_executor_membership(
 
     for block_number in 2..=3 {
         let res = executor
-            .update_membership(FinalizedBlockEvent {
+            .update_membership(BlockEvent {
                 block_number,
                 updates: vec![],
             })

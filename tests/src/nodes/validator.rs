@@ -10,7 +10,9 @@ use std::{
 
 use broadcast_service::BlockInfo;
 use chain_leader::LeaderSettings;
-use chain_service::{CryptarchiaInfo, CryptarchiaSettings, OrphanConfig, SyncConfig};
+use chain_service::{
+    CryptarchiaInfo, CryptarchiaSettings, OrphanConfig, StartingState, SyncConfig,
+};
 use common_http_client::CommonHttpClient;
 use cryptarchia_engine::time::SlotConfig;
 use futures::Stream;
@@ -21,12 +23,7 @@ use nomos_blend_service::{
     core::settings::{CoverTrafficSettingsExt, MessageDelayerSettingsExt, SchedulerSettingsExt},
     settings::TimingSettings,
 };
-use nomos_core::{
-    block::{Block, SessionNumber},
-    da::BlobId,
-    mantle::SignedMantleTx,
-    sdp::FinalizedBlockEvent,
-};
+use nomos_core::{block::Block, da::BlobId, mantle::SignedMantleTx, sdp::SessionNumber};
 use nomos_da_network_core::{
     protocols::sampling::SubnetsConfig,
     swarm::{BalancerStats, DAConnectionPolicySettings, MonitorStats},
@@ -54,7 +51,7 @@ use nomos_node::{
     api::{backend::AxumBackendSettings, testing::handlers::HistoricSamplingRequest},
     config::{blend::BlendConfig, mempool::MempoolConfig},
 };
-use nomos_sdp::SdpSettings;
+use nomos_sdp::{BlockEvent, SdpSettings};
 use nomos_time::{
     TimeServiceSettings,
     backends::{NtpTimeBackendSettings, ntp::async_client::NTPClientSettings},
@@ -151,6 +148,7 @@ impl Validator {
             .arg(&config_path)
             .current_dir(dir.path())
             .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
             .spawn()
             .unwrap();
         let node = Self {
@@ -237,10 +235,7 @@ impl Validator {
         }
     }
 
-    pub async fn update_membership(
-        &self,
-        update_event: FinalizedBlockEvent,
-    ) -> Result<(), reqwest::Error> {
+    pub async fn update_membership(&self, update_event: BlockEvent) -> Result<(), reqwest::Error> {
         let update_event = MembershipUpdateRequest { update_event };
         let json_body = serde_json::to_string(&update_event).unwrap();
 
@@ -451,8 +446,9 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
         }),
         cryptarchia: CryptarchiaSettings {
             config: config.consensus_config.ledger_config.clone(),
-            genesis_id: HeaderId::from([0; 32]),
-            genesis_state: config.consensus_config.genesis_state,
+            starting_state: StartingState::Genesis {
+                genesis_tx: config.consensus_config.genesis_tx,
+            },
             network_adapter_settings:
                 chain_service::network::adapters::libp2p::LibP2pAdapterSettings {
                     topic: String::from(nomos_node::CONSENSUS_TOPIC),

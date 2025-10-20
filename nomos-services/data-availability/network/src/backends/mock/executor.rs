@@ -3,7 +3,11 @@ use std::{collections::HashSet, pin::Pin};
 use futures::{Stream, StreamExt as _};
 use kzgrs_backend::common::{build_blob_id, share::DaShare};
 use libp2p::PeerId;
-use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId, sdp::ProviderId};
+use nomos_core::{
+    da::BlobId,
+    header::HeaderId,
+    sdp::{ProviderId, SessionNumber},
+};
 use nomos_da_network_core::{
     SubnetworkId, protocols::sampling::opinions::OpinionEvent, swarm::BalancerStats,
 };

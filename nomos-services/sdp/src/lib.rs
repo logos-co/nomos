@@ -1,11 +1,14 @@
 pub mod backends;
 
-use std::{fmt::Display, marker::PhantomData, pin::Pin};
+use std::{collections::BTreeSet, fmt::Display, marker::PhantomData, pin::Pin};
 
 use async_trait::async_trait;
 use backends::{SdpBackend, SdpBackendError};
 use futures::{Stream, StreamExt as _};
-use nomos_core::sdp::{ActivityMetadata, DeclarationId, FinalizedBlockEvent, Locator, ServiceType};
+use nomos_core::{
+    block::BlockNumber,
+    sdp::{ActivityMetadata, DeclarationId, Locator, ProviderId, ServiceType},
+};
 use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
     services::{
@@ -19,8 +22,28 @@ use tokio_stream::wrappers::BroadcastStream;
 
 const BROADCAST_CHANNEL_SIZE: usize = 128;
 
-pub type FinalizedBlockUpdateStream =
-    Pin<Box<dyn Stream<Item = FinalizedBlockEvent> + Send + Sync + Unpin>>;
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DeclarationState {
+    Active,
+    Inactive,
+    Withdrawn,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BlockEventUpdate {
+    pub service_type: ServiceType,
+    pub provider_id: ProviderId,
+    pub state: DeclarationState,
+    pub locators: BTreeSet<Locator>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BlockEvent {
+    pub block_number: BlockNumber,
+    pub updates: Vec<BlockEventUpdate>,
+}
+
+pub type BlockUpdateStream = Pin<Box<dyn Stream<Item = BlockEvent> + Send + Sync + Unpin>>;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SdpSettings {
@@ -33,7 +56,7 @@ pub enum SdpMessage {
     ProcessNewBlock,
     ProcessLibBlock,
     Subscribe {
-        result_sender: oneshot::Sender<FinalizedBlockUpdateStream>,
+        result_sender: oneshot::Sender<BlockUpdateStream>,
     },
 
     PostDeclaration {
@@ -52,7 +75,7 @@ pub enum SdpMessage {
 pub struct SdpService<Backend, RuntimeServiceId> {
     backend: PhantomData<Backend>,
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-    finalized_update_tx: broadcast::Sender<FinalizedBlockEvent>,
+    finalized_update_tx: broadcast::Sender<BlockEvent>,
     _current_declaration_id: Option<DeclarationId>,
 }
 
@@ -121,9 +144,7 @@ where
     }
 }
 
-fn make_finalized_stream(
-    receiver: broadcast::Receiver<FinalizedBlockEvent>,
-) -> FinalizedBlockUpdateStream {
+fn make_finalized_stream(receiver: broadcast::Receiver<BlockEvent>) -> BlockUpdateStream {
     Box::pin(BroadcastStream::new(receiver).filter_map(|res| {
         Box::pin(async move {
             match res {

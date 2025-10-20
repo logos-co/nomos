@@ -5,7 +5,11 @@ use futures::{
     future::{AbortHandle, Abortable},
 };
 use libp2p::PeerId;
-use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId, sdp::ProviderId};
+use nomos_core::{
+    da::BlobId,
+    header::HeaderId,
+    sdp::{ProviderId, SessionNumber},
+};
 use nomos_da_network_core::{
     SubnetworkId,
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
