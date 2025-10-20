@@ -303,8 +303,6 @@ pub enum Error {
 
 #[cfg(test)]
 mod tests {
-    use nomos_utils::math::FiniteF64;
-
     use super::*;
     use crate::crypto::proofs::{quota::PROOF_OF_QUOTA_SIZE, selection::PROOF_OF_SELECTION_SIZE};
 
@@ -372,7 +370,7 @@ mod tests {
             Error::NetworkSizeTooLarge(_)
         ));
 
-        let num_core_nodes = FiniteF64::MAX_REPRESENTABLE_U64 + 1;
+        let num_core_nodes = u64::MAX;
         let token_repr_bit_len = 10;
         let threshold = activity_threshold(num_core_nodes, token_repr_bit_len);
         assert!(matches!(
@@ -413,7 +411,7 @@ mod tests {
         assert_eq!(bit_len, 0);
         assert_eq!(byte_len, 0);
 
-        let total_core_quota = FiniteF64::MAX_REPRESENTABLE_U64 + 1;
+        let total_core_quota = u64::MAX;
         let message_frequency_per_round = 1.0.try_into().unwrap();
         // ceil(log2(TOO_LARGE * 1.0 + 1))
         assert!(matches!(
@@ -440,7 +438,7 @@ mod tests {
         assert!(matches!(
             token.hamming_distance(
                 1.0.try_into().unwrap(),
-                FiniteF64::MAX_REPRESENTABLE_U64 + 1,
+                u64::MAX,
                 SessionRandomness([3u8; 64])
             ),
             Err(Error::TotalCoreQuotaTooLarge(_))

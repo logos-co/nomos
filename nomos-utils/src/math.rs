@@ -11,7 +11,7 @@ pub struct FiniteF64(
 impl FiniteF64 {
     /// The maximum [`u64`] value that can be represented exactly as an [`f64`]
     /// without losing precision.
-    pub const MAX_REPRESENTABLE_U64: u64 = (1u64 << f64::MANTISSA_DIGITS) - 1;
+    const MAX_REPRESENTABLE_U64: u64 = (1u64 << f64::MANTISSA_DIGITS) - 1;
 
     #[must_use]
     pub const fn get(self) -> f64 {
