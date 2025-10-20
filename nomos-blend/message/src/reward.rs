@@ -92,7 +92,7 @@ impl SessionInfo {
         total_core_quota: u64,
         message_frequency_per_round: NonNegativeF64,
     ) -> Result<Self, Error> {
-        let network_size_repr_bit_len = F64Ge1::try_from(
+        let network_size_bit_len = F64Ge1::try_from(
             num_core_nodes
                 .checked_add(1)
                 .ok_or(Error::NetworkSizeTooLarge(num_core_nodes))?,
@@ -104,7 +104,7 @@ impl SessionInfo {
         let token_count_bit_len =
             token_count_bit_len(total_core_quota, message_frequency_per_round)?;
 
-        let activity_threshold = activity_threshold(network_size_repr_bit_len, token_count_bit_len);
+        let activity_threshold = activity_threshold(network_size_bit_len, token_count_bit_len);
 
         Ok(Self {
             session_number,
@@ -253,14 +253,14 @@ const ACTIVITY_THRESHOLD_SENSITIVITY_PARAM: u64 = 1;
 /// Computes the activity threshold, which is the expected maximum Hamming
 /// distance from any blending token in a session to the next session
 /// randomness.
-fn activity_threshold(network_size_repr_bit_len: u64, token_repr_bit_len: u64) -> u64 {
+fn activity_threshold(token_count_bit_len: u64, network_size_bit_len: u64) -> u64 {
     debug!(
         target: LOG_TARGET,
-        "Calculating activity threshold: network_size_repr_bit_len={network_size_repr_bit_len}, token_repr_bit_len={token_repr_bit_len}"
+        "Calculating activity threshold: token_count_bit_len={token_count_bit_len}, network_size_bit_len={network_size_bit_len}"
     );
 
-    token_repr_bit_len
-        .saturating_sub(network_size_repr_bit_len)
+    token_count_bit_len
+        .saturating_sub(network_size_bit_len)
         .saturating_sub(ACTIVITY_THRESHOLD_SENSITIVITY_PARAM)
 }
 
@@ -328,20 +328,20 @@ mod tests {
     #[test]
     fn test_activity_threshold() {
         let network_size_bit_len = 7;
-        let token_repr_bit_len = 10;
-        let threshold = activity_threshold(network_size_bit_len, token_repr_bit_len);
+        let token_count_bit_len = 10;
+        let threshold = activity_threshold(network_size_bit_len, token_count_bit_len);
         // 10 - 7 - 1
         assert_eq!(threshold, 2);
 
         let network_size_bit_len = 0;
-        let token_repr_bit_len = 10;
-        let threshold = activity_threshold(network_size_bit_len, token_repr_bit_len);
+        let token_count_bit_len = 10;
+        let threshold = activity_threshold(network_size_bit_len, token_count_bit_len);
         // 10 - 0 - 1
         assert_eq!(threshold, 9);
 
         let network_size_bit_len = 7;
-        let token_repr_bit_len = 0;
-        let threshold = activity_threshold(network_size_bit_len, token_repr_bit_len);
+        let token_count_bit_len = 0;
+        let threshold = activity_threshold(network_size_bit_len, token_count_bit_len);
         // 0 - 7 - 1 (by saturated_sub)
         assert_eq!(threshold, 0);
     }
