@@ -56,4 +56,4 @@ impl TimingSettings {
     }
 }
 
-pub(crate) const FIRST_STREAM_ITEM_READY_TIMEOUT: Duration = Duration::from_secs(1);
+pub(crate) const FIRST_STREAM_ITEM_READY_TIMEOUT: Duration = Duration::from_secs(5);

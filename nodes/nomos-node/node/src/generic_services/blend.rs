@@ -321,7 +321,7 @@ where
                 };
 
                 PolEpochInfo {
-                   nonce: *epoch_nonce,
+                    nonce: *epoch_nonce,
                     poq_private_inputs: ProofOfLeadershipQuotaInputs {
                         aged_path_and_selectors: aged_path_and_selectors.try_into().expect("List of aged note paths and selectors does not match the expected size for PoQ inputs, although it has already been pre-processed."),
                         note_value: *note_value,

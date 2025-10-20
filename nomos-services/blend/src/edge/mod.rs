@@ -248,7 +248,7 @@ where
                 FIRST_STREAM_ITEM_READY_TIMEOUT,
                 settings.time.session_transition_period(),
             ),
-            UninitializedFirstReadyStream::new(clock_stream, Duration::from_secs(3)),
+            UninitializedFirstReadyStream::new(clock_stream, FIRST_STREAM_ITEM_READY_TIMEOUT),
             messages_to_blend_stream,
             epoch_handler,
             &settings,
@@ -347,29 +347,29 @@ where
 
     notify_ready();
 
-    // There might be services that depend on Blend to be ready before starting, so
-    // we cannot wait for the stream to be sent before we signal we are
-    // ready, hence this should always be called after `notify_ready();`.
-    // Also, Blend services start even if such a stream is not immediately
-    // available, since they will simply keep blending cover messages.
-    let secret_pol_info_stream = UninitializedFirstReadyStream::new(
-        PolInfoProvider::subscribe(overwatch_handle)
+    // A Blend edge service without the required secret `PoL` to generate proofs for
+    // block proposals info is useless, hence we wait until the first secret PoL
+    // info is made available. If an edge node has very little to no stake, this
+    // `await` might hang for a long time, but that is fine, since that means there
+    // will be no blocks to blend anyway.
+    let (mut current_private_leader_info, mut remaining_secret_pol_info_stream) = async {
+        // There might be services that depend on Blend to be ready before starting, so
+        // we cannot wait for the stream to be sent before we signal we are
+        // ready, hence this should always be called after `notify_ready();`.
+        // Also, Blend services start even if such a stream is not immediately
+        // available, since they will simply keep blending cover messages.
+        let mut secret_pol_info_stream = PolInfoProvider::subscribe(overwatch_handle)
             .await
-            .expect("Should not fail to subscribe to secret PoL info stream."),
-        // Because there is some work being done for this, we give it a bit more time to yield the
-        // first element.
-        2 * FIRST_STREAM_ITEM_READY_TIMEOUT,
-    );
-    // TODO: Update the chain leader subscription API to return the latest item
-    // immediately, since this service can be started on a new session, which will
-    // be mid-epoch, else this will keep panicking. A Blend edge service without the
-    // required secret `PoL` to generate proofs for block proposals info is useless,
-    // hence why we panic.
-    let (mut current_private_leader_info, mut remaining_secret_pol_info_stream) =
-        secret_pol_info_stream
-            .first()
-            .await
-            .expect("The current epoch secret info must be available.");
+            .expect("Should not fail to subscribe to secret PoL info stream.");
+        (
+            secret_pol_info_stream
+                .next()
+                .await
+                .expect("Secret PoL info stream should always return `Some` value."),
+            secret_pol_info_stream,
+        )
+    }
+    .await;
 
     let mut current_public_inputs = PoQVerificationInputsMinusSigningKey {
         core: CoreInputs {
