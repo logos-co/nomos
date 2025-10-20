@@ -1,4 +1,4 @@
-use blake2::digest::{Update as _, VariableOutput as _};
+use blake2::Digest as _;
 use generic_array::{GenericArray, typenum::U128};
 use groth16::{Fr, fr_to_bytes, serde::serde_fr};
 use serde::{Deserialize, Serialize};
@@ -26,13 +26,17 @@ impl From<GenericArray<u8, U128>> for DummyZkSignature {
 impl DummyZkSignature {
     #[must_use]
     pub fn prove(public_inputs: &ZkSignaturePublic) -> Self {
-        let mut hasher = blake2::Blake2bVar::new(128).unwrap();
-        hasher.update(&fr_to_bytes(&public_inputs.msg_hash));
+        let mut hasher = blake2::Blake2b512::new();
+        hasher.update(fr_to_bytes(&public_inputs.msg_hash));
         for pk in &public_inputs.pks {
-            hasher.update(&fr_to_bytes(pk));
+            hasher.update(fr_to_bytes(pk));
         }
+
+        // Blake2b supports up to 512bit (64byte) hashes, meaning
+        // only first half of the sig will be filled.
+
         let mut sig = [0u8; 128];
-        hasher.finalize_variable(&mut sig).unwrap();
+        sig[..64].copy_from_slice(&hasher.finalize());
 
         Self(sig)
     }
