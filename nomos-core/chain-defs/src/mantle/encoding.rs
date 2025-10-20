@@ -364,16 +364,18 @@ fn decode_zk_signature(input: &[u8]) -> IResult<&[u8], DummyZkSignature> {
     map(decode_dummy_zk_signature, DummyZkSignature::from).parse(input)
 }
 
+const GROTH16_BYTES: usize = 128;
 fn decode_groth16(input: &[u8]) -> IResult<&[u8], CompressedGroth16Proof> {
     // Groth16 = 128BYTE
-    map(decode_array::<128>, |proof: [u8; 128]| {
-        CompressedGroth16Proof::from_bytes(&proof)
-    })
+    map(
+        decode_array::<GROTH16_BYTES>,
+        |proof: [u8; GROTH16_BYTES]| CompressedGroth16Proof::from_bytes(&proof),
+    )
     .parse(input)
 }
 
 fn decode_dummy_zk_signature(input: &[u8]) -> IResult<&[u8], DummyZkSignature> {
-    map(decode_array::<128>, DummyZkSignature::from_bytes).parse(input)
+    map(decode_array::<GROTH16_BYTES>, DummyZkSignature::from_bytes).parse(input)
 }
 
 fn decode_zk_public_key(input: &[u8]) -> IResult<&[u8], PublicKey> {
@@ -381,19 +383,25 @@ fn decode_zk_public_key(input: &[u8]) -> IResult<&[u8], PublicKey> {
     map(decode_field_element, PublicKey::new).parse(input)
 }
 
+const ED25519_PK_BYTES: usize = 32;
 fn decode_ed25519_public_key(input: &[u8]) -> IResult<&[u8], Ed25519PublicKey> {
     // Ed25519PublicKey = 32BYTE
-    map_res(decode_array::<32>, |bytes: [u8; 32]| {
-        Ed25519PublicKey::from_bytes(&bytes).map_err(|_| Error::new(bytes, ErrorKind::Fail))
-    })
+    map_res(
+        decode_array::<ED25519_PK_BYTES>,
+        |bytes: [u8; ED25519_PK_BYTES]| {
+            Ed25519PublicKey::from_bytes(&bytes).map_err(|_| Error::new(bytes, ErrorKind::Fail))
+        },
+    )
     .parse(input)
 }
 
+const ED25519_SIG_BYTES: usize = 64;
 fn decode_ed25519_signature(input: &[u8]) -> IResult<&[u8], ed25519::Signature> {
     // Ed25519Signature = 64BYTE
-    map(decode_array::<64>, |bytes: [u8; 64]| {
-        ed25519::Signature::from_bytes(&bytes)
-    })
+    map(
+        decode_array::<ED25519_SIG_BYTES>,
+        |bytes: [u8; ED25519_SIG_BYTES]| ed25519::Signature::from_bytes(&bytes),
+    )
     .parse(input)
 }
 
@@ -717,13 +725,46 @@ pub fn encode_signed_mantle_tx(tx: &SignedMantleTx) -> Vec<u8> {
     bytes
 }
 
+pub(crate) fn predict_signed_mantle_tx_size(tx: &MantleTx) -> u64 {
+    let mantle_tx_size = encode_mantle_tx(tx).len();
+
+    let ops_proofs_size = tx
+        .ops
+        .iter()
+        .map(|op| match op {
+            // Ed25519SigProof = Ed25519Signature
+            Op::ChannelInscribe(_) | Op::ChannelBlob(_) => ED25519_SIG_BYTES,
+
+            // ZkAndEd25519SigsProof = ZkSignature Ed25519Signature
+            Op::ChannelSetKeys(_) => GROTH16_BYTES + ED25519_SIG_BYTES,
+
+            // ZkSigProof  = ZkSignature
+            Op::SDPDeclare(_) | Op::SDPWithdraw(_) | Op::SDPActive(_) => GROTH16_BYTES,
+
+            // ProofOfClaimProof = Groth16
+            Op::LeaderClaim(_) => {
+                unimplemented!("OpProof::LeaderClaimProof not yet implemented");
+            }
+            Op::Native(_) => {
+                unimplemented!("Native ops will be removed shortly")
+            }
+        })
+        .sum::<usize>();
+
+    // LedgerTxProof = ZkSignature
+    // ZkSignature   = Groth16
+    let ledger_tx_proof_size = GROTH16_BYTES;
+
+    (mantle_tx_size + ops_proofs_size + ledger_tx_proof_size) as u64
+}
+
 #[cfg(test)]
 mod tests {
     use ark_ff::Field as _;
-    use ed25519::Signature;
+    use ed25519::{Signature, signature::SignerMut};
 
     use super::*;
-    use crate::proofs::zksig::ZkSignaturePublic;
+    use crate::{mantle::Transaction as _, proofs::zksig::ZkSignaturePublic};
 
     fn dummy_zk_signature() -> DummyZkSignature {
         DummyZkSignature::prove(&ZkSignaturePublic {
@@ -1172,7 +1213,7 @@ mod tests {
 
         let ledger_tx_proof = dummy_zk_signature();
 
-        let original_tx = SignedMantleTx::new_unverified(mantle_tx, vec![], ledger_tx_proof);
+        let original_tx = SignedMantleTx::new(mantle_tx, vec![], ledger_tx_proof).unwrap();
 
         // Encode
         let encoded = encode_signed_mantle_tx(&original_tx);
@@ -1183,5 +1224,409 @@ mod tests {
         // Verify
         assert!(remaining.is_empty());
         assert_eq!(original_tx, decoded_tx);
+    }
+
+    #[test]
+    fn test_predict_signed_mantle_tx_size_empty_tx() {
+        // Create an empty MantleTx
+        let mantle_tx = MantleTx {
+            ops: vec![],
+            ledger_tx: LedgerTx::new(vec![], vec![]),
+            execution_gas_price: 100,
+            storage_gas_price: 50,
+        };
+
+        // Predict size
+        let predicted_size = predict_signed_mantle_tx_size(&mantle_tx);
+
+        // Create a signed tx and encode it to get actual size
+        let signed_tx = SignedMantleTx::new(mantle_tx, vec![], dummy_zk_signature()).unwrap();
+        let encoded = encode_signed_mantle_tx(&signed_tx);
+        let actual_size = encoded.len() as u64;
+
+        assert_eq!(predicted_size, actual_size);
+    }
+
+    #[test]
+    fn test_predict_signed_mantle_tx_size_with_inscribe() {
+        use ed25519_dalek::SigningKey;
+
+        let mut signing_key = SigningKey::from_bytes(&[1; 32]);
+        let inscribe_op = InscriptionOp {
+            channel_id: ChannelId::from([0xAA; 32]),
+            inscription: b"hello world".to_vec(),
+            parent: MsgId::from([0xBB; 32]),
+            signer: signing_key.verifying_key(),
+        };
+
+        let mantle_tx = MantleTx {
+            ops: vec![Op::ChannelInscribe(inscribe_op)],
+            ledger_tx: LedgerTx::new(vec![], vec![]),
+            execution_gas_price: 100,
+            storage_gas_price: 50,
+        };
+
+        // Predict size
+        let predicted_size = predict_signed_mantle_tx_size(&mantle_tx);
+
+        // Create a signed tx and encode it to get actual size
+        let op_sig = signing_key.sign(&mantle_tx.hash().as_signing_bytes());
+        let signed_tx = SignedMantleTx::new(
+            mantle_tx,
+            vec![Some(OpProof::Ed25519Sig(op_sig))],
+            dummy_zk_signature(),
+        )
+        .unwrap();
+        let encoded = encode_signed_mantle_tx(&signed_tx);
+        let actual_size = encoded.len() as u64;
+
+        assert_eq!(predicted_size, actual_size);
+    }
+
+    #[test]
+    fn test_predict_signed_mantle_tx_size_with_blob() {
+        use ed25519_dalek::SigningKey;
+
+        let mut signing_key = SigningKey::from_bytes(&[1; 32]);
+        let blob_op = BlobOp {
+            channel: ChannelId::from([0xCC; 32]),
+            blob: [0xDD; 32],
+            blob_size: 1024,
+            da_storage_gas_price: 10,
+            parent: MsgId::from([0xEE; 32]),
+            signer: signing_key.verifying_key(),
+        };
+
+        let mantle_tx = MantleTx {
+            ops: vec![Op::ChannelBlob(blob_op)],
+            ledger_tx: LedgerTx::new(vec![], vec![]),
+            execution_gas_price: 100,
+            storage_gas_price: 50,
+        };
+
+        // Predict size
+        let predicted_size = predict_signed_mantle_tx_size(&mantle_tx);
+
+        // Create a signed tx and encode it to get actual size
+        let blob_sig = signing_key.sign(&mantle_tx.hash().as_signing_bytes());
+        let signed_tx = SignedMantleTx::new(
+            mantle_tx,
+            vec![Some(OpProof::Ed25519Sig(blob_sig))],
+            dummy_zk_signature(),
+        )
+        .unwrap();
+        let encoded = encode_signed_mantle_tx(&signed_tx);
+        let actual_size = encoded.len() as u64;
+
+        assert_eq!(predicted_size, actual_size);
+    }
+
+    #[test]
+    fn test_predict_signed_mantle_tx_size_with_set_keys() {
+        use ed25519_dalek::SigningKey;
+
+        let signing_key1 = SigningKey::from_bytes(&[1; 32]);
+        let signing_key2 = SigningKey::from_bytes(&[2; 32]);
+        let signing_key3 = SigningKey::from_bytes(&[3; 32]);
+
+        let set_keys_op = SetKeysOp {
+            channel: ChannelId::from([0xFF; 32]),
+            keys: vec![
+                signing_key1.verifying_key(),
+                signing_key2.verifying_key(),
+                signing_key3.verifying_key(),
+            ],
+        };
+
+        let mantle_tx = MantleTx {
+            ops: vec![Op::ChannelSetKeys(set_keys_op)],
+            ledger_tx: LedgerTx::new(vec![], vec![]),
+            execution_gas_price: 100,
+            storage_gas_price: 50,
+        };
+
+        // Predict size
+        let predicted_size = predict_signed_mantle_tx_size(&mantle_tx);
+
+        // Create a signed tx and encode it to get actual size
+        let dummy_ed25519_sig = Signature::from_bytes(&[0; 64]);
+        let signed_tx = SignedMantleTx::new(
+            mantle_tx,
+            vec![Some(OpProof::ZkAndEd25519Sigs {
+                zk_sig: dummy_zk_signature(),
+                ed25519_sig: dummy_ed25519_sig,
+            })],
+            dummy_zk_signature(),
+        )
+        .unwrap();
+        let encoded = encode_signed_mantle_tx(&signed_tx);
+        let actual_size = encoded.len() as u64;
+
+        assert_eq!(predicted_size, actual_size);
+    }
+
+    #[test]
+    fn test_predict_signed_mantle_tx_size_with_sdp_declare() {
+        use ed25519_dalek::SigningKey;
+        use num_bigint::BigUint;
+
+        let signing_key = SigningKey::from_bytes(&[1; 32]);
+        let locator1: multiaddr::Multiaddr = "/ip4/127.0.0.1/tcp/8080".parse().unwrap();
+        let locator2: multiaddr::Multiaddr = "/ip6/::1/tcp/9090".parse().unwrap();
+
+        let sdp_declare_op = SDPDeclareOp {
+            service_type: ServiceType::BlendNetwork,
+            locators: vec![Locator::new(locator1), Locator::new(locator2)],
+            provider_id: ProviderId(signing_key.verifying_key()),
+            zk_id: SdpZkPublicKey(BigUint::from(42u64).into()),
+            locked_note_id: NoteId(BigUint::from(123u64).into()),
+        };
+
+        let mantle_tx = MantleTx {
+            ops: vec![Op::SDPDeclare(sdp_declare_op)],
+            ledger_tx: LedgerTx::new(vec![], vec![]),
+            execution_gas_price: 100,
+            storage_gas_price: 50,
+        };
+
+        // Predict size
+        let predicted_size = predict_signed_mantle_tx_size(&mantle_tx);
+
+        // Create a signed tx and encode it to get actual size
+        let signed_tx = SignedMantleTx::new(
+            mantle_tx,
+            vec![Some(OpProof::ZkSig(dummy_zk_signature()))],
+            dummy_zk_signature(),
+        )
+        .unwrap();
+        let encoded = encode_signed_mantle_tx(&signed_tx);
+        let actual_size = encoded.len() as u64;
+
+        assert_eq!(predicted_size, actual_size);
+    }
+
+    #[test]
+    fn test_predict_signed_mantle_tx_size_with_sdp_withdraw() {
+        let sdp_withdraw_op = SDPWithdrawOp {
+            declaration_id: DeclarationId([0x11; 32]),
+            nonce: 42,
+        };
+
+        let mantle_tx = MantleTx {
+            ops: vec![Op::SDPWithdraw(sdp_withdraw_op)],
+            ledger_tx: LedgerTx::new(vec![], vec![]),
+            execution_gas_price: 100,
+            storage_gas_price: 50,
+        };
+
+        // Predict size
+        let predicted_size = predict_signed_mantle_tx_size(&mantle_tx);
+
+        // Create a signed tx and encode it to get actual size
+        let signed_tx = SignedMantleTx::new(
+            mantle_tx,
+            vec![Some(OpProof::ZkSig(dummy_zk_signature()))],
+            dummy_zk_signature(),
+        )
+        .unwrap();
+        let encoded = encode_signed_mantle_tx(&signed_tx);
+        let actual_size = encoded.len() as u64;
+
+        assert_eq!(predicted_size, actual_size);
+    }
+
+    #[test]
+    fn test_predict_signed_mantle_tx_size_with_sdp_active() {
+        let sdp_active_op = SDPActiveOp {
+            declaration_id: DeclarationId([0x22; 32]),
+            nonce: 99,
+            metadata: Some(vec![1, 2, 3, 4, 5]),
+        };
+
+        let mantle_tx = MantleTx {
+            ops: vec![Op::SDPActive(sdp_active_op)],
+            ledger_tx: LedgerTx::new(vec![], vec![]),
+            execution_gas_price: 100,
+            storage_gas_price: 50,
+        };
+
+        // Predict size
+        let predicted_size = predict_signed_mantle_tx_size(&mantle_tx);
+
+        // Create a signed tx and encode it to get actual size
+        let signed_tx = SignedMantleTx::new(
+            mantle_tx,
+            vec![Some(OpProof::ZkSig(dummy_zk_signature()))],
+            dummy_zk_signature(),
+        )
+        .unwrap();
+        let encoded = encode_signed_mantle_tx(&signed_tx);
+        let actual_size = encoded.len() as u64;
+
+        assert_eq!(predicted_size, actual_size);
+    }
+
+    #[test]
+    fn test_predict_signed_mantle_tx_size_with_multiple_ops() {
+        use ed25519_dalek::SigningKey;
+
+        let mut signing_key = SigningKey::from_bytes(&[1; 32]);
+
+        let inscribe_op = InscriptionOp {
+            channel_id: ChannelId::from([0xAA; 32]),
+            inscription: b"test".to_vec(),
+            parent: MsgId::from([0xBB; 32]),
+            signer: signing_key.verifying_key(),
+        };
+
+        let blob_op = BlobOp {
+            channel: ChannelId::from([0xCC; 32]),
+            blob: [0xDD; 32],
+            blob_size: 2048,
+            da_storage_gas_price: 20,
+            parent: MsgId::from([0xEE; 32]),
+            signer: signing_key.verifying_key(),
+        };
+
+        let sdp_active_op = SDPActiveOp {
+            declaration_id: DeclarationId([0x33; 32]),
+            nonce: 55,
+            metadata: None,
+        };
+
+        let mantle_tx = MantleTx {
+            ops: vec![
+                Op::ChannelInscribe(inscribe_op),
+                Op::ChannelBlob(blob_op),
+                Op::SDPActive(sdp_active_op),
+            ],
+            ledger_tx: LedgerTx::new(vec![], vec![]),
+            execution_gas_price: 100,
+            storage_gas_price: 50,
+        };
+
+        // Predict size
+        let predicted_size = predict_signed_mantle_tx_size(&mantle_tx);
+
+        let op_sig = signing_key.sign(&mantle_tx.hash().as_signing_bytes());
+        // Create a signed tx and encode it to get actual size
+        let signed_tx = SignedMantleTx::new(
+            mantle_tx,
+            vec![
+                Some(OpProof::Ed25519Sig(op_sig)),
+                Some(OpProof::Ed25519Sig(op_sig)),
+                Some(OpProof::ZkSig(dummy_zk_signature())),
+            ],
+            dummy_zk_signature(),
+        )
+        .unwrap();
+        let encoded = encode_signed_mantle_tx(&signed_tx);
+        let actual_size = encoded.len() as u64;
+
+        assert_eq!(predicted_size, actual_size);
+    }
+
+    #[test]
+    fn test_predict_signed_mantle_tx_size_with_ledger_inputs_outputs() {
+        use num_bigint::BigUint;
+
+        use crate::mantle::keys::PublicKey;
+
+        let pk1 = PublicKey::from(BigUint::from(100u64));
+        let pk2 = PublicKey::from(BigUint::from(200u64));
+
+        let note1 = Note::new(1000, pk1);
+        let note2 = Note::new(2000, pk2);
+
+        let note_id1 = NoteId(BigUint::from(111u64).into());
+        let note_id2 = NoteId(BigUint::from(222u64).into());
+        let note_id3 = NoteId(BigUint::from(333u64).into());
+
+        let mantle_tx = MantleTx {
+            ops: vec![],
+            ledger_tx: LedgerTx::new(vec![note_id1, note_id2, note_id3], vec![note1, note2]),
+            execution_gas_price: 100,
+            storage_gas_price: 50,
+        };
+
+        // Predict size
+        let predicted_size = predict_signed_mantle_tx_size(&mantle_tx);
+
+        // Create a signed tx and encode it to get actual size
+        let signed_tx = SignedMantleTx::new(mantle_tx, vec![], dummy_zk_signature()).unwrap();
+        let encoded = encode_signed_mantle_tx(&signed_tx);
+        let actual_size = encoded.len() as u64;
+
+        assert_eq!(predicted_size, actual_size);
+    }
+
+    #[test]
+    fn test_predict_signed_mantle_tx_size_complex_scenario() {
+        use ed25519_dalek::SigningKey;
+        use num_bigint::BigUint;
+
+        use crate::mantle::keys::PublicKey;
+
+        let mut signing_key1 = SigningKey::from_bytes(&[1; 32]);
+        let signing_key2 = SigningKey::from_bytes(&[2; 32]);
+
+        let inscribe_op = InscriptionOp {
+            channel_id: ChannelId::from([0x11; 32]),
+            inscription: b"complex test inscription with more data".to_vec(),
+            parent: MsgId::from([0x22; 32]),
+            signer: signing_key1.verifying_key(),
+        };
+
+        let set_keys_op = SetKeysOp {
+            channel: ChannelId::from([0x33; 32]),
+            keys: vec![signing_key1.verifying_key(), signing_key2.verifying_key()],
+        };
+
+        let locator: multiaddr::Multiaddr = "/dns4/example.com/tcp/443".parse().unwrap();
+        let sdp_declare_op = SDPDeclareOp {
+            service_type: ServiceType::DataAvailability,
+            locators: vec![Locator::new(locator)],
+            provider_id: ProviderId(signing_key1.verifying_key()),
+            zk_id: SdpZkPublicKey(BigUint::from(999u64).into()),
+            locked_note_id: NoteId(BigUint::from(888u64).into()),
+        };
+
+        let pk = PublicKey::from(BigUint::from(500u64));
+        let note = Note::new(5000, pk);
+        let note_id = NoteId(BigUint::from(777u64).into());
+
+        let mantle_tx = MantleTx {
+            ops: vec![
+                Op::ChannelInscribe(inscribe_op),
+                Op::ChannelSetKeys(set_keys_op),
+                Op::SDPDeclare(sdp_declare_op),
+            ],
+            ledger_tx: LedgerTx::new(vec![note_id], vec![note]),
+            execution_gas_price: 150,
+            storage_gas_price: 75,
+        };
+
+        // Predict size
+        let predicted_size = predict_signed_mantle_tx_size(&mantle_tx);
+
+        // Create a signed tx and encode it to get actual size
+        let op_ed25519_sig = signing_key1.sign(&mantle_tx.hash().as_signing_bytes());
+        let signed_tx = SignedMantleTx::new(
+            mantle_tx,
+            vec![
+                Some(OpProof::Ed25519Sig(op_ed25519_sig)),
+                Some(OpProof::ZkAndEd25519Sigs {
+                    zk_sig: dummy_zk_signature(),
+                    ed25519_sig: op_ed25519_sig,
+                }),
+                Some(OpProof::ZkSig(dummy_zk_signature())),
+            ],
+            dummy_zk_signature(),
+        )
+        .unwrap();
+        let encoded = encode_signed_mantle_tx(&signed_tx);
+        let actual_size = encoded.len() as u64;
+
+        assert_eq!(predicted_size, actual_size);
     }
 }
