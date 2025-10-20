@@ -8,7 +8,6 @@ use crate::{
 };
 pub type TxHash = [u8; 32];
 pub type BlockNumber = u64;
-pub type SessionNumber = u64;
 
 /// A block proposal
 #[derive(Clone, Debug)]

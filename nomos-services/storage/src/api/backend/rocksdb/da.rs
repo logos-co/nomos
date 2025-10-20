@@ -5,10 +5,9 @@ use bytes::Bytes;
 use libp2p_identity::PeerId;
 use multiaddr::Multiaddr;
 use nomos_core::{
-    block::SessionNumber,
     codec::{DeserializeOp as _, SerializeOp as _},
     da::BlobId,
-    sdp::ProviderId,
+    sdp::{ProviderId, SessionNumber},
 };
 use rocksdb::Error;
 use tracing::{debug, error};

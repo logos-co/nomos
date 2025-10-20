@@ -17,7 +17,7 @@ use std::{
     time::Duration,
 };
 
-use broadcast_service::{BlockBroadcastMsg, BlockBroadcastService, BlockInfo};
+use broadcast_service::{BlockBroadcastMsg, BlockBroadcastService, BlockInfo, SessionUpdate};
 use bytes::Bytes;
 use cryptarchia_engine::PrunedBlocks;
 pub use cryptarchia_engine::{Epoch, Slot};
@@ -32,7 +32,7 @@ use nomos_core::{
         AuthenticatedMantleTx, SignedMantleTx, Transaction, TxHash, gas::MainnetGasConstants,
         genesis_tx::GenesisTx, ops::leader_claim::VoucherCm,
     },
-    sdp::{ProviderId, ProviderInfo, ServiceType, SessionUpdate},
+    sdp::{ProviderId, ProviderInfo, ServiceType},
 };
 use nomos_da_sampling::{
     DaSamplingService, DaSamplingServiceMsg, backend::DaSamplingServiceBackend,
@@ -306,7 +306,7 @@ impl Cryptarchia {
             .ok_or(Error::HeaderIdNotFound(*block_id))?;
 
         ledger
-            .active_session_providers(service_type)
+            .active_session_providers(service_type, self.ledger.config())
             .ok_or(Error::ServiceSessionNotFound(service_type))
     }
 
@@ -319,11 +319,7 @@ impl Cryptarchia {
             .state(block_id)
             .ok_or(Error::HeaderIdNotFound(*block_id))?;
 
-        Ok(ledger
-            .active_sessions()
-            .iter()
-            .map(|(service, session)| (*service, session.session_number))
-            .collect())
+        Ok(ledger.active_sessions())
     }
 }
 

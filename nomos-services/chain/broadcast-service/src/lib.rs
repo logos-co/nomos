@@ -1,7 +1,10 @@
-use std::fmt::Display;
+use std::{collections::HashMap, fmt::Display};
 
 use async_trait::async_trait;
-use nomos_core::{header::HeaderId, sdp::SessionUpdate};
+use nomos_core::{
+    header::HeaderId,
+    sdp::{ProviderId, ProviderInfo, SessionNumber},
+};
 use overwatch::{
     OpaqueServiceResourcesHandle,
     services::{
@@ -14,6 +17,12 @@ use tokio::sync::{broadcast, oneshot, watch};
 use tracing::{error, info};
 
 const BROADCAST_CHANNEL_SIZE: usize = 128;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionUpdate {
+    pub session_number: SessionNumber,
+    pub providers: HashMap<ProviderId, ProviderInfo>,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlockInfo {

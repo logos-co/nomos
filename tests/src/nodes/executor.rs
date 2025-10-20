@@ -18,17 +18,13 @@ use cryptarchia_engine::time::SlotConfig;
 use futures::Stream;
 use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
 use nomos_api::http::membership::MembershipUpdateRequest;
-use nomos_blend_scheduling::message_blend::SessionCryptographicProcessorSettings;
+use nomos_blend_scheduling::message_blend::crypto::SessionCryptographicProcessorSettings;
 use nomos_blend_service::{
     core::settings::{CoverTrafficSettingsExt, MessageDelayerSettingsExt, SchedulerSettingsExt},
     settings::TimingSettings,
 };
 use nomos_core::{
-    block::{Block, SessionNumber},
-    da::BlobId,
-    header::HeaderId,
-    mantle::SignedMantleTx,
-    sdp::FinalizedBlockEvent,
+    block::Block, da::BlobId, header::HeaderId, mantle::SignedMantleTx, sdp::SessionNumber,
 };
 use nomos_da_dispersal::{
     DispersalServiceSettings,
@@ -66,6 +62,7 @@ use nomos_node::{
     api::testing::handlers::HistoricSamplingRequest,
     config::{blend::BlendConfig, mempool::MempoolConfig},
 };
+use nomos_sdp::BlockEvent;
 use nomos_time::{
     TimeServiceSettings,
     backends::{NtpTimeBackendSettings, ntp::async_client::NTPClientSettings},
@@ -296,10 +293,7 @@ impl Executor {
             .await
     }
 
-    pub async fn update_membership(
-        &self,
-        update_event: FinalizedBlockEvent,
-    ) -> Result<(), reqwest::Error> {
+    pub async fn update_membership(&self, update_event: BlockEvent) -> Result<(), reqwest::Error> {
         let update_event = MembershipUpdateRequest { update_event };
         let json_body = serde_json::to_string(&update_event).unwrap();
 
@@ -408,6 +402,8 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                     .expect("Rounds per observation window cannot be zero."),
                 rounds_per_session_transition_period: NonZeroU64::try_from(30u64)
                     .expect("Rounds per session transition period cannot be zero."),
+                epoch_transition_period_in_slots: NonZeroU64::try_from(2_600)
+                    .expect("Epoch transition period in slots cannot be zero."),
             },
             scheduler: SchedulerSettingsExt {
                 cover: CoverTrafficSettingsExt {

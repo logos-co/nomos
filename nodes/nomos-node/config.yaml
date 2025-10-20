@@ -38,6 +38,8 @@ blend:
     # Defined in the spec
     rounds_per_observation_window: 30
     rounds_per_session_transition_period: 30
+    # TODO: Change with a proper value
+    epoch_transition_period_in_slots: 2600
   scheduler:
     intervals_for_safety_buffer: 100
     message_frequency_per_round: 1.0
@@ -155,22 +157,23 @@ cryptarchia:
     consensus_config:
       security_param: 10
       active_slot_coeff: 0.9
-    service_params:
-      BN:
-        lock_period: 10
-        inactivity_period: 20
-        retention_period: 100
+    sdp_config:
+      service_params:
+        BN:
+          lock_period: 10
+          inactivity_period: 20
+          retention_period: 100
+          timestamp: 0
+          session_duration: 1000
+        DA:
+          lock_period: 10
+          inactivity_period: 20
+          retention_period: 100
+          timestamp: 0
+          session_duration: 1000
+      min_stake:
+        threshold: 1
         timestamp: 0
-        session_duration: 1000
-      DA:
-        lock_period: 10
-        inactivity_period: 20
-        retention_period: 100
-        timestamp: 0
-        session_duration: 1000
-    min_stake:
-      threshold: 1
-      timestamp: 0
   starting_state: !Genesis
     genesis_tx:
       ops:
@@ -211,22 +214,23 @@ cryptarchia_leader:
     consensus_config:
       security_param: 10
       active_slot_coeff: 0.9
-    service_params:
-      BN:
-        lock_period: 10
-        inactivity_period: 20
-        retention_period: 100
+    sdp_config:
+      service_params:
+        BN:
+          lock_period: 10
+          inactivity_period: 20
+          retention_period: 100
+          timestamp: 0
+          session_duration: 1000
+        DA:
+          lock_period: 10
+          inactivity_period: 20
+          retention_period: 100
+          timestamp: 0
+          session_duration: 1000
+      min_stake:
+        threshold: 1
         timestamp: 0
-        session_duration: 1000
-      DA:
-        lock_period: 10
-        inactivity_period: 20
-        retention_period: 100
-        timestamp: 0
-        session_duration: 1000
-    min_stake:
-      threshold: 1
-      timestamp: 0
   leader_config:
     pk: "0000000000000000000000000000000000000000000000000000000000000000"
     sk: 3cf3335017304dcfce45124a0633829f00000000000000000000000000000000

@@ -6,13 +6,15 @@ use std::{
 };
 
 use futures::StreamExt as _;
-use tokio::time::{Sleep, sleep, timeout};
+use tokio::time::{Sleep, sleep};
+
+use crate::stream::{FirstReadyStreamError, UninitializedFirstReadyStream};
 
 /// A staging type that initializes a [`SessionEventStream`] by consuming
 /// the first [`Session`] from the underlying stream, expected to be yielded
 /// within a short timeout.
 pub struct UninitializedSessionEventStream<Stream> {
-    stream: FirstReadyStream<Stream>,
+    stream: UninitializedFirstReadyStream<Stream>,
     transition_period: Duration,
 }
 
@@ -24,7 +26,7 @@ impl<Stream> UninitializedSessionEventStream<Stream> {
         transition_period: Duration,
     ) -> Self {
         Self {
-            stream: FirstReadyStream::new(session_stream, first_ready_timeout),
+            stream: UninitializedFirstReadyStream::new(session_stream, first_ready_timeout),
             transition_period,
         }
     }
@@ -120,47 +122,6 @@ where
 
         Poll::Pending
     }
-}
-
-/// A stream wrapper that expects the underlying stream to yield its first item
-/// within the given timeout.
-///
-/// Instead of implementing [`futures::Stream`], this provides only
-/// [`Self::first`] that explicitly tries to read the first item and returns a
-/// result.
-struct FirstReadyStream<Stream> {
-    stream: Stream,
-    timeout: Duration,
-}
-
-impl<Stream> FirstReadyStream<Stream> {
-    const fn new(stream: Stream, timeout: Duration) -> Self {
-        Self { stream, timeout }
-    }
-}
-
-impl<Stream, Item> FirstReadyStream<Stream>
-where
-    Stream: futures::Stream<Item = Item> + Unpin,
-{
-    /// Yields the first item if it is yielded within the timeout from the
-    /// underlying stream.
-    /// The remaining stream is also returned for continued use.
-    async fn first(mut self) -> Result<(Item, Stream), FirstReadyStreamError> {
-        let item = timeout(self.timeout, self.stream.next())
-            .await
-            .map_err(|_| FirstReadyStreamError::FirstItemNotReady)?
-            .ok_or(FirstReadyStreamError::StreamClosed)?;
-        Ok((item, self.stream))
-    }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum FirstReadyStreamError {
-    #[error("The first item was not yielded in time")]
-    FirstItemNotReady,
-    #[error("The underlying stream was closed before yielding the first item")]
-    StreamClosed,
 }
 
 #[cfg(test)]
@@ -266,7 +227,7 @@ mod tests {
     #[tokio::test]
     async fn first_ready_stream_yields_first_item_immediately() {
         // Use an underlying stream that yields the first item nearly immediately.
-        let stream = FirstReadyStream::new(
+        let stream = UninitializedFirstReadyStream::new(
             IntervalStream::new(interval(Duration::from_secs(1)))
                 .enumerate()
                 .map(|(i, _)| i),
@@ -283,7 +244,7 @@ mod tests {
     #[tokio::test]
     async fn first_relay_stream_fails_if_first_item_is_not_ready() {
         // Use an underlying stream that yield the first item too late.
-        let stream = FirstReadyStream::new(
+        let stream = UninitializedFirstReadyStream::new(
             IntervalStream::new(interval_at(
                 // The first time will be yieled after 2s.
                 Instant::now() + Duration::from_secs(2),

@@ -8,7 +8,10 @@ use kzgrs_backend::common::share::DaShare;
 use libp2p::PeerId;
 use log::error;
 use nomos_core::{
-    block::SessionNumber, da::BlobId, header::HeaderId, mantle::SignedMantleTx, sdp::ProviderId,
+    da::BlobId,
+    header::HeaderId,
+    mantle::SignedMantleTx,
+    sdp::{ProviderId, SessionNumber},
 };
 use nomos_da_network_core::{
     SubnetworkId,
