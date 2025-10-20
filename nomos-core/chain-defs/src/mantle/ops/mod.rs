@@ -104,6 +104,18 @@ impl<'de> Deserialize<'de> for Op {
 
 impl Op {
     #[must_use]
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::ChannelInscribe(_) => "ChannelInscribe",
+            Self::ChannelBlob(_) => "ChannelBlob",
+            Self::ChannelSetKeys(_) => "ChannelSetKeys",
+            Self::SDPDeclare(_) => "SDPDeclare",
+            Self::SDPWithdraw(_) => "SDPWithdraw",
+            Self::SDPActive(_) => "SDPActive",
+            Self::LeaderClaim(_) => "LeaderClaim",
+        }
+    }
+    #[must_use]
     pub const fn opcode(&self) -> u8 {
         match self {
             Self::ChannelInscribe(_) => INSCRIBE,

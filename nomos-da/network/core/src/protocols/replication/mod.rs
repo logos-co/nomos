@@ -372,7 +372,7 @@ mod test {
 
                 let unique_signed_tx = SignedMantleTx::new(
                     unique_mantle_tx,
-                    vec![Some(OpProof::Ed25519Sig(signature))],
+                    vec![OpProof::Ed25519Sig(signature)],
                     DummyZkSignature::prove(ZkSignaturePublic {
                         msg_hash: tx_hash.into(),
                         pks: vec![],

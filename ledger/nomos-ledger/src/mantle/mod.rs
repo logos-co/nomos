@@ -92,7 +92,7 @@ impl LedgerState {
         tx: impl AuthenticatedMantleTx,
     ) -> Result<(Self, Balance), Error> {
         let tx_hash = tx.hash();
-        let ops = tx.ops_with_proof();
+        let ops = tx.ops_with_proof().map(|(op, proof)| (op, Some(proof)));
         self.try_apply_ops(current_block_number, config, utxo_tree, tx_hash, ops)
     }
 
@@ -148,12 +148,12 @@ impl LedgerState {
                 // The signature for channel ops can be verified before reaching this point,
                 // as you only need the signer's public key and tx hash
                 // Callers are expected to validate the proof before calling this function.
-                (Op::ChannelBlob(op), None) => {
+                (Op::ChannelBlob(op), _) => {
                     self.channels =
                         self.channels
                             .apply_msg(op.channel, &op.parent, op.id(), &op.signer)?;
                 }
-                (Op::ChannelInscribe(op), None) => {
+                (Op::ChannelInscribe(op), _) => {
                     self.channels =
                         self.channels
                             .apply_msg(op.channel_id, &op.parent, op.id(), &op.signer)?;
@@ -310,7 +310,7 @@ mod tests {
 
         SignedMantleTx::new_unverified(
             mantle_tx.clone(),
-            vec![None; mantle_tx.ops.len()],
+            vec![],
             DummyZkSignature::prove(zksig::ZkSignaturePublic {
                 pks: vec![],
                 msg_hash: mantle_tx.hash().into(),
@@ -335,12 +335,7 @@ mod tests {
         let ops_proofs = signing_keys
             .into_iter()
             .zip(ops)
-            .map(|(key, op)| match op {
-                Op::ChannelSetKeys(_) | Op::ChannelBlob(_) | Op::ChannelInscribe(_) => Some(
-                    OpProof::Ed25519Sig(key.sign(tx_hash.as_signing_bytes().as_ref())),
-                ),
-                _ => None,
-            })
+            .map(|(key, _)| OpProof::Ed25519Sig(key.sign(tx_hash.as_signing_bytes().as_ref())))
             .collect();
 
         let ledger_tx_proof = DummyZkSignature::prove(zksig::ZkSignaturePublic {
@@ -713,13 +708,13 @@ mod tests {
         let mut declare_tx = create_test_tx_with_ops(vec![Op::SDPDeclare(declare_op.clone())]);
         let declare_tx_hash = declare_tx.hash();
 
-        declare_tx.ops_proofs = vec![Some(OpProof::ZkAndEd25519Sigs {
+        declare_tx.ops_proofs = vec![OpProof::ZkAndEd25519Sigs {
             zk_sig: DummyZkSignature::prove(zksig::ZkSignaturePublic {
                 pks: vec![utxo.note.pk.into(), declare_op.zk_id.0],
                 msg_hash: declare_tx_hash.0,
             }),
             ed25519_sig: signing_key.sign(declare_tx_hash.as_signing_bytes().as_ref()),
-        })];
+        }];
 
         let ledger_state = ledger_state
             .try_apply_tx::<MainnetGasConstants>(
@@ -746,12 +741,12 @@ mod tests {
         };
         let mut active_tx = create_test_tx_with_ops(vec![Op::SDPActive(active_op)]);
         let active_tx_hash = active_tx.hash();
-        active_tx.ops_proofs = vec![Some(OpProof::ZkSig(DummyZkSignature::prove(
+        active_tx.ops_proofs = vec![OpProof::ZkSig(DummyZkSignature::prove(
             zksig::ZkSignaturePublic {
                 pks: vec![utxo.note.pk.into(), declare_op.zk_id.0],
                 msg_hash: active_tx_hash.0,
             },
-        )))];
+        ))];
 
         let ledger_state = ledger_state
             .try_apply_tx::<MainnetGasConstants>(
@@ -774,12 +769,12 @@ mod tests {
         };
         let mut withdraw_tx = create_test_tx_with_ops(vec![Op::SDPWithdraw(withdraw_op)]);
         let withdraw_tx_hash = withdraw_tx.hash();
-        withdraw_tx.ops_proofs = vec![Some(OpProof::ZkSig(DummyZkSignature::prove(
+        withdraw_tx.ops_proofs = vec![OpProof::ZkSig(DummyZkSignature::prove(
             zksig::ZkSignaturePublic {
                 pks: vec![utxo.note.pk.into(), declare_op.zk_id.0],
                 msg_hash: withdraw_tx_hash.0,
             },
-        )))];
+        ))];
 
         // Withdrawing a note that is still locked should not be allowed.
         let invalid_ledger_state = ledger_state.clone().try_apply_tx::<MainnetGasConstants>(
