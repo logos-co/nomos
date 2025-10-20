@@ -11,6 +11,8 @@ use tracing::{debug, error};
 
 use crate::crypto::proofs::{quota::ProofOfQuota, selection::ProofOfSelection};
 
+const LOG_TARGET: &str = "blend::message::reward";
+
 /// Blending tokens collected during the current session.
 ///
 /// This also holds the blending tokens collected from the previous session
@@ -128,6 +130,7 @@ impl SessionBlendingTokens {
             BlendingToken::repr_bit_len(self.total_core_quota, self.message_frequency_per_round)?,
         )?;
         debug!(
+            target: LOG_TARGET,
             "Activity threshold for session {}: {}",
             self.session_number, activity_threshold
         );
@@ -144,11 +147,14 @@ impl SessionBlendingTokens {
                     next_session_randomness,
                 ) {
                     Ok(distance) => {
-                        debug!("Token distance:{distance}, threshold: {activity_threshold}");
+                        debug!(
+                            target: LOG_TARGET,
+                            "Token distance:{distance}, threshold: {activity_threshold}"
+                        );
                         (distance <= activity_threshold).then_some((token, distance))
                     }
                     Err(e) => {
-                        error!("Failed to compute Hamming distance: {e}");
+                        error!(target: LOG_TARGET, "Failed to compute Hamming distance: {e}");
                         None
                     }
                 }
@@ -262,6 +268,7 @@ const ACTIVITY_THRESHOLD_SENSITIVITY_PARAM: u64 = 1;
 /// randomness.
 fn activity_threshold(num_core_nodes: u64, token_repr_bit_len: u64) -> Result<u64, Error> {
     debug!(
+        target: LOG_TARGET,
         "Calculating activity threshold: num_core_nodes={num_core_nodes}, token_repr_bit_len={token_repr_bit_len}"
     );
 
