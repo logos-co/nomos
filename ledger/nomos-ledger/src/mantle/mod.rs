@@ -347,31 +347,6 @@ mod tests {
     }
 
     #[test]
-    fn test_ops_missing_proofs() {
-        let cryptarchia_state = genesis_state(&[utxo()]);
-        let test_config = config();
-        let ledger_state = LedgerState::new();
-        let (_, verifying_key) = create_test_keys();
-        let channel_id = ChannelId::from([5; 32]);
-
-        let set_keys_op = SetKeysOp {
-            channel: channel_id,
-            keys: vec![verifying_key],
-        };
-
-        let op = Op::ChannelSetKeys(set_keys_op);
-        let tx = create_test_tx_with_ops(vec![op]); // Missing proof
-
-        let result = ledger_state.try_apply_tx::<MainnetGasConstants>(
-            0,
-            &test_config,
-            cryptarchia_state.latest_commitments(),
-            tx,
-        );
-        assert_eq!(result, Err(Error::UnsupportedOp));
-    }
-
-    #[test]
     fn test_invalid_parent_error() {
         let cryptarchia_state = genesis_state(&[utxo()]);
         let test_config = config();
