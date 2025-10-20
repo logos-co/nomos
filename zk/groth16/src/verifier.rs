@@ -27,18 +27,18 @@ pub fn groth16_batch_verify(
     public_inputs: &[Vec<Fr>],
 ) -> R1CSResult<bool> {
     let mut rng = thread_rng();
-    let r = Fr::rand(&mut rng);
-    let r_roots = compute_r_powers(r, proofs.len());
-    let r_sum: Fr = r_roots.iter().sum();
+    let ri: Vec<Fr> = std::iter::repeat_with(|| Fr::rand(&mut rng))
+        .take(proofs.len())
+        .collect();
+    let r_sum: Fr = ri.iter().sum();
 
     let pis_c: Vec<G1Affine> = proofs.iter().map(|proof| proof.pi_c).collect();
 
-    let batched_pi_c = G1Projective::msm(&pis_c, &r_roots).unwrap().into_affine();
+    let batched_pi_c = G1Projective::msm(&pis_c, &ri).unwrap().into_affine();
 
     let batched_public_inputs: Vec<Fr> = std::iter::once(r_sum)
-        .chain((0..vk.gamma_abc_g1().len()-1).map(|i| {
-            r_roots
-                .iter()
+        .chain((0..vk.gamma_abc_g1().len() - 1).map(|i| {
+            ri.iter()
                 .zip(public_inputs.iter())
                 .map(|(r, pi)| *r * pi[i])
                 .sum()
@@ -53,7 +53,7 @@ pub fn groth16_batch_verify(
     let mut g2_terms: Vec<_> = Vec::with_capacity(proofs.len() + 3);
 
     for (i, proof) in proofs.iter().enumerate() {
-        g1_terms.push(proof.pi_a.mul(r_roots[i]).into_affine());
+        g1_terms.push(proof.pi_a.mul(ri[i]).into_affine());
         g2_terms.push(proof.pi_b.into());
     }
     g1_terms.push(vk.alpha_g1().mul(r_sum).neg().into());
@@ -65,12 +65,6 @@ pub fn groth16_batch_verify(
 
     let test = Bn254::multi_pairing(g1_terms, g2_terms);
     Ok(test.is_zero())
-}
-
-fn compute_r_powers(r: Fr, size: usize) -> Vec<Fr> {
-    std::iter::successors(Some(Fr::from(1)), |x| Some(r * x))
-        .take(size)
-        .collect()
 }
 
 #[cfg(all(test, feature = "deser"))]
