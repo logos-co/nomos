@@ -1,11 +1,9 @@
-use std::{
-    collections::{BTreeSet, HashMap},
-    time::Duration,
-};
+use std::collections::{BTreeSet, HashMap};
 
 use futures::StreamExt as _;
 use kzgrs_backend::dispersal::Index;
 use nomos_core::{
+    block::SessionNumber,
     da::BlobId,
     sdp::{Locator, ProviderId},
 };
@@ -32,6 +30,11 @@ async fn update_membership_and_disseminate() {
     let topology =
         Topology::spawn_with_empty_membership(topology_config, &ids, &da_ports, &blend_ports).await;
 
+    topology.wait_network_ready().await;
+    topology
+        .wait_membership_assignations_empty(SessionNumber::from(0u64))
+        .await;
+
     // Create a new membership with DA nodes.
     let membership_config = create_membership_configs(
         ids.iter()
@@ -51,8 +54,9 @@ async fn update_membership_and_disseminate() {
     update_all_validators(&topology, &finalize_block_event).await;
     update_all_executors(&topology, &finalize_block_event).await;
 
-    // Wait for nodes to initialise
-    tokio::time::sleep(Duration::from_secs(5)).await;
+    topology
+        .wait_membership_assignations_non_empty(SessionNumber::from(1u64))
+        .await;
 
     perform_dissemination_tests(&topology.executors()[0]).await;
 }
