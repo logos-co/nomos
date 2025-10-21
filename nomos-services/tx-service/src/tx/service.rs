@@ -537,31 +537,31 @@ where
     ) -> Result<crate::TransactionsByHashesResponse<Pool::Item, Pool::Key>, MempoolError> {
         let keys_set: BTreeSet<Pool::Key> = hashes.into_iter().collect();
 
-        match pool.get_items_by_keys(&keys_set).await {
-            Ok(items_stream) => {
-                let found_transactions: Vec<Pool::Item> = items_stream.collect().await;
+        let items_stream = pool
+            .get_items_by_keys(keys_set.iter().cloned())
+            .await
+            .map_err(|e| {
+                MempoolError::StorageError(format!("Failed to get items by keys: {e:?}"))
+            })?;
 
-                if found_transactions.len() == keys_set.len() {
-                    return Ok(crate::TransactionsByHashesResponse::new(
-                        found_transactions,
-                        BTreeSet::new(),
-                    ));
-                }
+        let found_transactions: Vec<Pool::Item> = items_stream.collect().await;
 
-                let found_hashes: BTreeSet<Pool::Key> =
-                    found_transactions.iter().map(Transaction::hash).collect();
-
-                let not_found_hashes: BTreeSet<Pool::Key> = &keys_set - &found_hashes;
-
-                Ok(crate::TransactionsByHashesResponse::new(
-                    found_transactions,
-                    not_found_hashes,
-                ))
-            }
-            Err(e) => Err(MempoolError::StorageError(format!(
-                "Failed to get items by keys: {e:?}"
-            ))),
+        if found_transactions.len() == keys_set.len() {
+            return Ok(crate::TransactionsByHashesResponse::new(
+                found_transactions,
+                BTreeSet::new(),
+            ));
         }
+
+        let found_hashes: BTreeSet<Pool::Key> =
+            found_transactions.iter().map(Transaction::hash).collect();
+
+        let not_found_hashes: BTreeSet<Pool::Key> = &keys_set - &found_hashes;
+
+        Ok(crate::TransactionsByHashesResponse::new(
+            found_transactions,
+            not_found_hashes,
+        ))
     }
 
     fn handle_add_success(

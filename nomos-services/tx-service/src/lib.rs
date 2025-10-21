@@ -30,11 +30,8 @@ where
     Key: Ord,
 {
     #[must_use]
-    pub const fn new(found_transactions: Vec<Item>, not_found_hashes: BTreeSet<Key>) -> Self {
-        Self {
-            found: found_transactions,
-            not_found: not_found_hashes,
-        }
+    pub const fn new(found: Vec<Item>, not_found: BTreeSet<Key>) -> Self {
+        Self { found, not_found }
     }
 
     #[must_use]

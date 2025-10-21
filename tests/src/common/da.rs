@@ -74,7 +74,8 @@ pub async fn wait_for_blob_onchain(executor: &Executor, blob_id: BlobId) {
 }
 
 /// Sets up a test channel by sending an inscription transaction and waiting for
-/// it to be included in a block Returns the channel ID that was created
+/// it to be included in a block.
+/// Returns the channel ID that was created.
 pub async fn setup_test_channel(executor: &Executor) -> ChannelId {
     let test_channel_id = ChannelId::from(TEST_CHANNEL_ID_BYTES);
     let inscription_tx = create_inscription_transaction();
