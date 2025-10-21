@@ -11,7 +11,10 @@ use reqwest::Url;
 use serial_test::serial;
 use tests::{
     adjust_timeout,
-    common::da::{APP_ID, DA_TESTS_TIMEOUT, disseminate_with_metadata, wait_for_blob_onchain},
+    common::da::{
+        APP_ID, DA_TESTS_TIMEOUT, disseminate_with_metadata, setup_test_channel,
+        wait_for_blob_onchain,
+    },
     nodes::validator::{Validator, create_validator_config},
     secret_key_to_peer_id,
     topology::{Topology, TopologyConfig, configs::create_general_configs},
@@ -26,12 +29,15 @@ async fn test_get_share_data() {
     // Wait for nodes to initialise
     tokio::time::sleep(Duration::from_secs(5)).await;
 
+    let test_channel_id = setup_test_channel(executor).await;
+
     let data = [1u8; 31];
+
     let app_id = hex::decode(APP_ID).unwrap();
-    let app_id: [u8; 32] = app_id.clone().try_into().unwrap();
+    let app_id: [u8; 32] = app_id.try_into().unwrap();
     let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, 0u64.into());
 
-    let blob_id = disseminate_with_metadata(executor, &data, metadata)
+    let blob_id = disseminate_with_metadata(executor, test_channel_id, &data, metadata)
         .await
         .unwrap();
 
@@ -52,7 +58,6 @@ async fn test_get_share_data() {
 
 #[tokio::test]
 #[serial]
-#[ignore = "Reenable after transaction mempool is used"]
 async fn test_get_commitments_from_peers() {
     let interconnected_topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let validator = &interconnected_topology.validators()[0];
@@ -70,12 +75,14 @@ async fn test_get_commitments_from_peers() {
     lone_validator_config.membership = validator.config().membership.clone();
     let lone_validator = Validator::spawn(lone_validator_config).await.unwrap();
 
+    let test_channel_id = setup_test_channel(executor).await;
+
     let data = [1u8; 31];
     let app_id = hex::decode(APP_ID).unwrap();
     let app_id: [u8; 32] = app_id.clone().try_into().unwrap();
     let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, 0u64.into());
 
-    let blob_id = disseminate_with_metadata(executor, &data, metadata)
+    let blob_id = disseminate_with_metadata(executor, test_channel_id, &data, metadata)
         .await
         .unwrap();
     tokio::time::sleep(Duration::from_secs(5)).await;
@@ -166,12 +173,14 @@ async fn test_get_shares() {
     // Wait for nodes to initialise
     tokio::time::sleep(Duration::from_secs(5)).await;
 
+    let test_channel_id = setup_test_channel(executor).await;
+
     let data = [1u8; 31];
     let app_id = hex::decode(APP_ID).unwrap();
     let app_id: [u8; 32] = app_id.try_into().unwrap();
     let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, 0u64.into());
 
-    let blob_id = disseminate_with_metadata(executor, &data, metadata)
+    let blob_id = disseminate_with_metadata(executor, test_channel_id, &data, metadata)
         .await
         .unwrap();
 

@@ -64,6 +64,6 @@ where
             .await
             .map_err(|e| format!("Could not receive response: {e}"))?;
 
-        Ok(response)
+        Ok(response.map_err(|e| format!("Mempool error: {e}"))?)
     }
 }

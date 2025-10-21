@@ -2,11 +2,17 @@ use std::time::Duration;
 
 use chain_service::CryptarchiaInfo;
 use common_http_client::Error;
+use ed25519_dalek::{Signer as _, SigningKey};
 use executor_http_client::ExecutorHttpClient;
 use futures::StreamExt as _;
 use nomos_core::{
     da::BlobId,
-    mantle::{AuthenticatedMantleTx as _, Op},
+    mantle::{
+        AuthenticatedMantleTx as _, MantleTx, Op, OpProof, SignedMantleTx, Transaction as _,
+        ledger::Tx as LedgerTx,
+        ops::channel::{ChannelId, MsgId, inscribe::InscriptionOp},
+    },
+    proofs::zksig::{DummyZkSignature, ZkSignaturePublic},
 };
 use reqwest::Url;
 
@@ -16,6 +22,7 @@ pub const APP_ID: &str = "000000000000000000000000000000000000000000000000000000
 pub const DA_TESTS_TIMEOUT: u64 = 120;
 pub async fn disseminate_with_metadata(
     executor: &Executor,
+    channel_id: ChannelId,
     data: &[u8],
     metadata: kzgrs_backend::dispersal::Metadata,
 ) -> Result<BlobId, Error> {
@@ -25,7 +32,7 @@ pub async fn disseminate_with_metadata(
     let exec_url = Url::parse(&format!("http://{backend_address}")).unwrap();
 
     client
-        .publish_blob(exec_url, [0u8; 32].into(), data.to_vec(), metadata)
+        .publish_blob(exec_url, channel_id, data.to_vec(), metadata)
         .await
 }
 
@@ -59,6 +66,82 @@ pub async fn wait_for_blob_onchain(executor: &Executor, blob_id: BlobId) {
     assert!(
         (tokio::time::timeout(timeout, block_fut).await).is_ok(),
         "timed out waiting for blob shares"
+    );
+}
+
+/// Sets up a test channel by sending an inscription transaction and waiting for
+/// it to be included in a block.
+/// Returns the channel ID that was created.
+pub async fn setup_test_channel(executor: &Executor) -> ChannelId {
+    let test_channel_id = ChannelId::from([1u8; 32]);
+    let inscription_tx = create_inscription_transaction();
+    executor.add_tx(inscription_tx).await.unwrap();
+
+    wait_for_inscription_onchain(executor, test_channel_id).await;
+
+    test_channel_id
+}
+
+/// Creates an inscription transaction using the same hardcoded key as the mock
+/// wallet adapter
+fn create_inscription_transaction() -> SignedMantleTx {
+    let signing_key = SigningKey::from_bytes(&[0u8; 32]);
+    let signer = signing_key.verifying_key();
+
+    let inscription_op = InscriptionOp {
+        channel_id: ChannelId::from([1u8; 32]), // Use a new channel ID
+        inscription: b"Test channel inscription".to_vec(),
+        parent: MsgId::root(),
+        signer,
+    };
+
+    let mantle_tx = MantleTx {
+        ops: vec![Op::ChannelInscribe(inscription_op)],
+        ledger_tx: LedgerTx::new(vec![], vec![]),
+        storage_gas_price: 0,
+        execution_gas_price: 0,
+    };
+
+    let tx_hash = mantle_tx.hash();
+    let signature = signing_key.sign(&tx_hash.as_signing_bytes());
+
+    SignedMantleTx::new(
+        mantle_tx,
+        vec![OpProof::Ed25519Sig(signature)],
+        DummyZkSignature::prove(&ZkSignaturePublic {
+            msg_hash: tx_hash.into(),
+            pks: vec![],
+        }),
+    )
+    .unwrap()
+}
+
+/// Wait for inscription transaction to be included in a block
+async fn wait_for_inscription_onchain(executor: &Executor, channel_id: ChannelId) {
+    let block_fut = async {
+        let mut onchain = false;
+        while !onchain {
+            let info = executor.consensus_info().await;
+            if let Some(block) = executor.get_block(info.tip).await {
+                onchain = block
+                    .transactions()
+                    .flat_map(|tx| tx.mantle_tx().ops.iter())
+                    .any(|op| {
+                        if let Op::ChannelInscribe(inscribe_op) = op {
+                            inscribe_op.channel_id == channel_id
+                        } else {
+                            false
+                        }
+                    });
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    };
+
+    let timeout = adjust_timeout(Duration::from_secs(DA_TESTS_TIMEOUT));
+    assert!(
+        tokio::time::timeout(timeout, block_fut).await.is_ok(),
+        "timed out waiting for inscription transaction to be included in block"
     );
 }
 

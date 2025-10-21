@@ -8,6 +8,7 @@ use std::{
 
 use async_trait::async_trait;
 use futures::Stream;
+use nomos_core::mantle::Transaction;
 use serde::{Deserialize, Serialize};
 
 use super::Status;
@@ -60,7 +61,7 @@ impl<BlockId, Item, Key, Storage, RuntimeServiceId> MemPool
     for Mempool<BlockId, Item, Key, Storage, RuntimeServiceId>
 where
     Key: Hash + Eq + Ord + Clone + Send + Sync + 'static,
-    Item: Clone + Send + Sync + 'static + Serialize + for<'de> Deserialize<'de>,
+    Item: Transaction + Clone + Send + Sync + 'static + Serialize + for<'de> Deserialize<'de>,
     BlockId: Hash + Eq + Copy + Send + Sync + 'static + Serialize + for<'de> Deserialize<'de>,
     Storage:
         MempoolStorageAdapter<RuntimeServiceId, Key = Key, Item = Item> + Send + Sync + 'static,
@@ -117,24 +118,21 @@ where
         _ancestor_hint: BlockId,
     ) -> Result<Pin<Box<dyn Stream<Item = Self::Item> + Send>>, MempoolError> {
         let keys: BTreeSet<Key> = self.pending_items.iter().cloned().collect();
-        self.get_items_by_keys(keys).await
+        self.get_items_by_keys(keys.into_iter()).await
     }
 
-    async fn get_items_by_keys(
+    async fn get_items_by_keys<I>(
         &self,
-        keys: BTreeSet<Self::Key>,
-    ) -> Result<Pin<Box<dyn Stream<Item = Self::Item> + Send>>, MempoolError> {
+        keys: I,
+    ) -> Result<Pin<Box<dyn Stream<Item = Self::Item> + Send>>, MempoolError>
+    where
+        I: IntoIterator<Item = Self::Key> + Send,
+    {
+        let keys_set: BTreeSet<Self::Key> = keys.into_iter().collect();
         self.storage_adapter
-            .get_items(keys)
+            .get_items(&keys_set)
             .await
             .map_err(|e| MempoolError::StorageError(format!("{e:?}")))
-    }
-
-    fn get_item(&self, _key: &Self::Key) -> Option<&Self::Item> {
-        // The storage adapter only provides async access via get_items()
-        // This mempool implementation doesn't maintain an in-memory cache of items
-        // Synchronous access to individual items is not supported
-        None
     }
 
     fn mark_in_block(&mut self, keys: &[Self::Key], block: BlockId) {
@@ -193,7 +191,7 @@ impl<BlockId, Item, Key, Storage, RuntimeServiceId> RecoverableMempool
     for Mempool<BlockId, Item, Key, Storage, RuntimeServiceId>
 where
     Key: Hash + Eq + Ord + Clone + Send + Sync + 'static + Serialize + for<'de> Deserialize<'de>,
-    Item: Clone + Send + Sync + 'static + Serialize + for<'de> Deserialize<'de>,
+    Item: Transaction + Clone + Send + Sync + 'static + Serialize + for<'de> Deserialize<'de>,
     BlockId: Hash + Eq + Copy + Send + Sync + 'static + Serialize + for<'de> Deserialize<'de>,
     Storage:
         MempoolStorageAdapter<RuntimeServiceId, Key = Key, Item = Item> + Send + Sync + 'static,
