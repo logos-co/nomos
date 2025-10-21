@@ -1,4 +1,4 @@
-use super::{MantleTx, Note, Op, Utxo};
+use super::{GasConstants, GasCost, MantleTx, Note, Op, Utxo, keys::PublicKey};
 use crate::mantle::ledger::Tx as LedgerTx;
 
 #[derive(Debug, Clone)]
@@ -71,6 +71,13 @@ impl MantleTxBuilder {
         self.mantle_tx.storage_gas_price = price;
         self
     }
+    #[must_use]
+    pub fn with_dummy_change_note(&self) -> Self {
+        self.clone().add_ledger_output(Note {
+            value: 1,
+            pk: PublicKey::zero(),
+        })
+    }
 
     #[must_use]
     pub fn net_balance(&self) -> i128 {
@@ -89,6 +96,16 @@ impl MantleTxBuilder {
             .sum();
 
         in_sum - out_sum
+    }
+
+    #[must_use]
+    pub fn gas_cost<G: GasConstants>(&self) -> u64 {
+        self.mantle_tx.gas_cost::<G>()
+    }
+
+    #[must_use]
+    pub fn funding_delta<G: GasConstants>(&self) -> i128 {
+        self.net_balance() - i128::from(self.gas_cost::<G>())
     }
 
     #[must_use]
