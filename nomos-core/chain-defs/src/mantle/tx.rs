@@ -76,6 +76,30 @@ pub struct MantleTx {
     pub storage_gas_price: Gas,
 }
 
+impl GasCost for MantleTx {
+    fn gas_cost<Constants: GasConstants>(&self) -> Gas {
+        let execution_gas = self
+            .ops
+            .iter()
+            .map(Op::execution_gas::<Constants>)
+            .sum::<Gas>()
+            + self.ledger_tx.execution_gas::<Constants>();
+        let storage_gas = self.signed_serialized_size();
+        let da_gas_cost = self.ops.iter().map(Op::da_gas_cost).sum::<Gas>();
+
+        execution_gas * self.execution_gas_price
+            + storage_gas * self.storage_gas_price
+            + da_gas_cost
+    }
+}
+
+impl MantleTx {
+    #[must_use]
+    pub fn signed_serialized_size(&self) -> u64 {
+        super::encoding::predict_signed_mantle_tx_size(self) as u64
+    }
+}
+
 static NOMOS_MANTLE_TXHASH_V1_FR: LazyLock<Fr> = LazyLock::new(|| {
     fr_from_bytes(b"NOMOS_MANTLE_TXHASH_V1").expect("Constant should be valid Fr")
 });
