@@ -3,7 +3,7 @@ use std::{collections::HashSet, time::Duration};
 use common_http_client::CommonHttpClient;
 use futures_util::stream::StreamExt as _;
 use kzgrs_backend::common::share::DaShare;
-use nomos_core::{block::SessionNumber, da::blob::LightShare as _};
+use nomos_core::{da::blob::LightShare as _, sdp::SessionNumber};
 use nomos_da_network_service::membership::adapters::service::peer_id_from_provider_id;
 use nomos_libp2p::ed25519;
 use rand::{RngCore as _, rngs::OsRng};
@@ -24,7 +24,7 @@ async fn test_get_share_data() {
 
     topology.wait_network_ready().await;
     topology
-        .wait_membership_assignations_non_empty(SessionNumber::from(0u64))
+        .wait_membership_ready_for_session(SessionNumber::from(0u64))
         .await;
 
     let executor = &topology.executors()[0];
@@ -63,7 +63,7 @@ async fn test_get_commitments_from_peers() {
 
     interconnected_topology.wait_network_ready().await;
     interconnected_topology
-        .wait_membership_assignations_non_empty(SessionNumber::from(0u64))
+        .wait_membership_ready_for_session(SessionNumber::from(0u64))
         .await;
 
     // Create independent node that only knows about membership of
@@ -167,7 +167,7 @@ async fn test_get_shares() {
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     topology.wait_network_ready().await;
     topology
-        .wait_membership_assignations_non_empty(SessionNumber::from(0u64))
+        .wait_membership_ready_for_session(SessionNumber::from(0u64))
         .await;
 
     let executor = &topology.executors()[0];

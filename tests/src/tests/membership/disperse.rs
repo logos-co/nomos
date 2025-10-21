@@ -3,9 +3,8 @@ use std::collections::{BTreeSet, HashMap};
 use futures::StreamExt as _;
 use kzgrs_backend::dispersal::Index;
 use nomos_core::{
-    block::SessionNumber,
     da::BlobId,
-    sdp::{Locator, ProviderId},
+    sdp::{Locator, ProviderId, SessionNumber},
 };
 use nomos_sdp::{BlockEvent, BlockEventUpdate, DeclarationState};
 use nomos_utils::net::get_available_udp_port;
@@ -32,7 +31,7 @@ async fn update_membership_and_disseminate() {
 
     topology.wait_network_ready().await;
     topology
-        .wait_membership_assignations_empty(SessionNumber::from(0u64))
+        .wait_membership_empty_for_session(SessionNumber::from(0u64))
         .await;
 
     // Create a new membership with DA nodes.
@@ -55,7 +54,7 @@ async fn update_membership_and_disseminate() {
     update_all_executors(&topology, &finalize_block_event).await;
 
     topology
-        .wait_membership_assignations_non_empty(SessionNumber::from(1u64))
+        .wait_membership_ready_for_session(SessionNumber::from(1u64))
         .await;
 
     perform_dissemination_tests(&topology.executors()[0]).await;

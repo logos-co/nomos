@@ -9,7 +9,7 @@ use configs::{
     tracing::create_tracing_configs,
 };
 use futures::future::join_all;
-use nomos_core::block::SessionNumber;
+use nomos_core::sdp::SessionNumber;
 use nomos_da_network_core::swarm::DAConnectionPolicySettings;
 use nomos_da_network_service::MembershipResponse;
 use nomos_network::backends::libp2p::Libp2pInfo;
@@ -263,9 +263,6 @@ impl Topology {
     }
 
     pub async fn wait_network_ready(&self) {
-        const POLL_INTERVAL: Duration = Duration::from_millis(200);
-        const TIMEOUT: Duration = Duration::from_secs(60);
-
         let listen_ports = self.node_listen_ports();
         if listen_ports.len() <= 1 {
             return;
@@ -275,134 +272,45 @@ impl Topology {
         let expected_peer_counts = find_expected_peer_counts(&listen_ports, &initial_peer_ports);
         let labels = self.node_labels();
 
-        let readiness = timeout(adjust_timeout(TIMEOUT), async {
-            loop {
-                let validator_infos =
-                    join_all(self.validators.iter().map(Validator::network_info)).await;
+        let check = NetworkReadiness {
+            topology: self,
+            expected_peer_counts: &expected_peer_counts,
+            labels: &labels,
+        };
 
-                let executor_infos =
-                    join_all(self.executors.iter().map(Executor::network_info)).await;
-
-                let infos: Vec<_> = validator_infos
-                    .into_iter()
-                    .chain(executor_infos.into_iter())
-                    .collect();
-
-                let all_ready = infos
-                    .iter()
-                    .enumerate()
-                    .all(|(idx, info)| info.n_peers >= expected_peer_counts[idx]);
-
-                if all_ready {
-                    break;
-                }
-
-                sleep(POLL_INTERVAL).await;
-            }
-        });
-
-        if readiness.await.is_err() {
-            let validator_infos =
-                join_all(self.validators.iter().map(Validator::network_info)).await;
-
-            let executor_infos = join_all(self.executors.iter().map(Executor::network_info)).await;
-
-            let infos: Vec<_> = validator_infos
-                .into_iter()
-                .chain(executor_infos.into_iter())
-                .collect();
-
-            let summary = build_timeout_summary(&labels, infos, &expected_peer_counts);
-
-            panic!("timed out waiting for network readiness: {summary}");
-        }
+        check.wait().await;
     }
 
     pub async fn wait_membership_ready(&self) {
-        self.wait_membership_assignations_non_empty(SessionNumber::from(0u64))
+        self.wait_membership_ready_for_session(SessionNumber::from(0u64))
             .await;
     }
 
-    pub async fn wait_membership_assignations_non_empty(&self, session: SessionNumber) {
-        self.wait_membership_ready_with(session, "non-empty assignations", |resp| {
-            !resp.assignations.is_empty()
-        })
-        .await;
+    pub async fn wait_membership_ready_for_session(&self, session: SessionNumber) {
+        self.wait_membership_assignations(session, true).await;
     }
 
-    pub async fn wait_membership_assignations_empty(&self, session: SessionNumber) {
-        self.wait_membership_ready_with(session, "empty assignations", |resp| {
-            resp.assignations.is_empty()
-        })
-        .await;
+    pub async fn wait_membership_empty_for_session(&self, session: SessionNumber) {
+        self.wait_membership_assignations(session, false).await;
     }
 
-    pub async fn wait_membership_ready_with<F>(
-        &self,
-        session: SessionNumber,
-        description: &str,
-        predicate: F,
-    ) where
-        F: Fn(&MembershipResponse) -> bool + Send + Sync,
-    {
-        const POLL_INTERVAL: Duration = Duration::from_millis(200);
-        const TIMEOUT: Duration = Duration::from_secs(60);
-
+    async fn wait_membership_assignations(&self, session: SessionNumber, expect_non_empty: bool) {
         let total_nodes = self.validators.len() + self.executors.len();
+
         if total_nodes == 0 {
             return;
         }
 
         let labels = self.node_labels();
 
-        let readiness = timeout(adjust_timeout(TIMEOUT), async {
-            loop {
-                let validator_responses = join_all(
-                    self.validators
-                        .iter()
-                        .map(|node| node.da_get_membership(session)),
-                )
-                .await;
-                let executor_responses = join_all(
-                    self.executors
-                        .iter()
-                        .map(|node| node.da_get_membership(session)),
-                )
-                .await;
+        let check = MembershipReadiness {
+            topology: self,
+            session,
+            labels: &labels,
+            expect_non_empty,
+        };
 
-                let statuses =
-                    membership_statuses(&validator_responses, &executor_responses, &predicate);
-
-                if statuses.iter().all(|ready| *ready) {
-                    break;
-                }
-
-                sleep(POLL_INTERVAL).await;
-            }
-        });
-
-        if readiness.await.is_err() {
-            let validator_responses = join_all(
-                self.validators
-                    .iter()
-                    .map(|node| node.da_get_membership(session)),
-            )
-            .await;
-
-            let executor_responses = join_all(
-                self.executors
-                    .iter()
-                    .map(|node| node.da_get_membership(session)),
-            )
-            .await;
-
-            let statuses =
-                membership_statuses(&validator_responses, &executor_responses, &predicate);
-
-            let summary = build_membership_summary(&labels, &statuses, description);
-
-            panic!("timed out waiting for DA membership readiness ({description}): {summary}");
-        }
+        check.wait().await;
     }
 
     fn node_listen_ports(&self) -> Vec<u16> {
@@ -460,6 +368,149 @@ impl Topology {
             .collect()
     }
 }
+#[async_trait::async_trait]
+trait ReadinessCheck<'a> {
+    type Data: Send;
+
+    async fn collect(&'a self) -> Self::Data;
+
+    fn is_ready(&self, data: &Self::Data) -> bool;
+
+    fn timeout_message(&self, data: Self::Data) -> String;
+
+    fn poll_interval(&self) -> Duration {
+        Duration::from_millis(200)
+    }
+
+    async fn wait(&'a self) {
+        let timeout_duration = adjust_timeout(Duration::from_secs(60));
+        let poll_interval = self.poll_interval();
+        let mut data = self.collect().await;
+
+        let wait_result = timeout(timeout_duration, async {
+            loop {
+                if self.is_ready(&data) {
+                    return;
+                }
+
+                sleep(poll_interval).await;
+
+                data = self.collect().await;
+            }
+        })
+        .await;
+
+        if wait_result.is_err() {
+            let message = self.timeout_message(data);
+            panic!("{message}");
+        }
+    }
+}
+
+struct NetworkReadiness<'a> {
+    topology: &'a Topology,
+    expected_peer_counts: &'a [usize],
+    labels: &'a [String],
+}
+
+#[async_trait::async_trait]
+impl<'a> ReadinessCheck<'a> for NetworkReadiness<'a> {
+    type Data = Vec<Libp2pInfo>;
+
+    async fn collect(&'a self) -> Self::Data {
+        let (validator_infos, executor_infos) = tokio::join!(
+            join_all(self.topology.validators.iter().map(Validator::network_info)),
+            join_all(self.topology.executors.iter().map(Executor::network_info))
+        );
+
+        validator_infos.into_iter().chain(executor_infos).collect()
+    }
+
+    fn is_ready(&self, data: &Self::Data) -> bool {
+        data.iter()
+            .enumerate()
+            .all(|(idx, info)| info.n_peers >= self.expected_peer_counts[idx])
+    }
+
+    fn timeout_message(&self, data: Self::Data) -> String {
+        let summary = build_timeout_summary(self.labels, data, self.expected_peer_counts);
+        format!("timed out waiting for network readiness: {summary}")
+    }
+}
+
+struct MembershipReadiness<'a> {
+    topology: &'a Topology,
+    session: SessionNumber,
+    labels: &'a [String],
+    expect_non_empty: bool,
+}
+
+#[async_trait::async_trait]
+impl<'a> ReadinessCheck<'a> for MembershipReadiness<'a> {
+    type Data = Vec<Result<MembershipResponse, reqwest::Error>>;
+
+    async fn collect(&'a self) -> Self::Data {
+        let (validator_responses, executor_responses) = tokio::join!(
+            join_all(
+                self.topology
+                    .validators
+                    .iter()
+                    .map(|node| node.da_get_membership(self.session)),
+            ),
+            join_all(
+                self.topology
+                    .executors
+                    .iter()
+                    .map(|node| node.da_get_membership(self.session)),
+            )
+        );
+
+        validator_responses
+            .into_iter()
+            .chain(executor_responses)
+            .collect()
+    }
+
+    fn is_ready(&self, data: &Self::Data) -> bool {
+        self.assignation_statuses(data)
+            .into_iter()
+            .all(|ready| ready)
+    }
+
+    fn timeout_message(&self, data: Self::Data) -> String {
+        let statuses = self.assignation_statuses(&data);
+        let description = if self.expect_non_empty {
+            "non-empty assignations"
+        } else {
+            "empty assignations"
+        };
+        let summary = build_membership_summary(self.labels, &statuses, description);
+        format!("timed out waiting for DA membership readiness ({description}): {summary}")
+    }
+}
+
+impl MembershipReadiness<'_> {
+    fn assignation_statuses(
+        &self,
+        responses: &[Result<MembershipResponse, reqwest::Error>],
+    ) -> Vec<bool> {
+        responses
+            .iter()
+            .map(|res| {
+                res.as_ref()
+                    .map(|resp| {
+                        let is_non_empty = !resp.assignations.is_empty();
+                        if self.expect_non_empty {
+                            is_non_empty
+                        } else {
+                            !is_non_empty
+                        }
+                    })
+                    .unwrap_or(false)
+            })
+            .collect()
+    }
+}
 
 fn build_timeout_summary(
     labels: &[String],
@@ -487,25 +538,6 @@ fn build_membership_summary(labels: &[String], statuses: &[bool], description: &
         })
         .collect::<Vec<_>>()
         .join(", ")
-}
-
-fn membership_statuses<F>(
-    validator_responses: &[Result<MembershipResponse, reqwest::Error>],
-    executor_responses: &[Result<MembershipResponse, reqwest::Error>],
-    predicate: &F,
-) -> Vec<bool>
-where
-    F: Fn(&MembershipResponse) -> bool,
-{
-    validator_responses
-        .iter()
-        .map(|res| res.as_ref().map(predicate).unwrap_or(false))
-        .chain(
-            executor_responses
-                .iter()
-                .map(|res| res.as_ref().map(predicate).unwrap_or(false)),
-        )
-        .collect()
 }
 
 fn multiaddr_port(addr: &nomos_libp2p::Multiaddr) -> Option<u16> {
