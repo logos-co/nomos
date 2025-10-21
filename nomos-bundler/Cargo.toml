@@ -12,8 +12,8 @@ clap          = { default-features = false, version = "4.5.27", features = ["der
 env_logger    = { default-features = false, version = "0.11.6" }
 log           = "0.4.22"
 serde_json    = { default-features = false, version = "1.0.135" }
-tauri-bundler = { default-features = false, version = "2.4.0" }
-tauri-utils   = "2.1.1"
+tauri-bundler = { default-features = false, version = "=2.6.1" }
+tauri-utils   = "=2.7.0"
 
 [[bin]]
 name = "bundle-nomos-node"
