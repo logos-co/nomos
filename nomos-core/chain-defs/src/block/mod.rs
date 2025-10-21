@@ -13,7 +13,7 @@ use crate::{
     utils::merkle,
 };
 
-const MAX_TRANSACTIONS: usize = 1024;
+pub const MAX_TRANSACTIONS: usize = 1024;
 
 pub type BlockNumber = u64;
 
