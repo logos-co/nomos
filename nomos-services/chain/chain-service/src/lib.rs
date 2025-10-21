@@ -27,7 +27,7 @@ use network::NetworkAdapter;
 use nomos_core::{
     block::{Block, Proposal},
     da::{self},
-    header::{Header, HeaderId},
+    header::HeaderId,
     mantle::{
         AuthenticatedMantleTx, Transaction, TxHash, gas::MainnetGasConstants,
         genesis_tx::GenesisTx, ops::leader_claim::VoucherCm,
@@ -215,14 +215,14 @@ impl Cryptarchia {
 
     /// Create a new [`Cryptarchia`] with the updated state.
     #[must_use = "Returns a new instance with the updated state, without modifying the original."]
-    fn try_apply_header<Tx>(
+    fn try_apply_block<Tx>(
         &self,
-        header: &Header,
-        txs: impl Iterator<Item = Tx>,
+        block: &Block<Tx>,
     ) -> Result<(Self, PrunedBlocks<HeaderId>), Error>
     where
         Tx: AuthenticatedMantleTx,
     {
+        let header = block.header();
         let id = header.id();
         let parent = header.parent();
         let slot = header.slot();
@@ -233,7 +233,7 @@ impl Cryptarchia {
             slot,
             header.leader_proof(),
             VoucherCm::default(), // TODO: add the new voucher commitment here
-            txs,
+            block.transactions(),
         )?;
         let (consensus, pruned_blocks) = self.consensus.receive_block(id, parent, slot)?;
 
@@ -1161,8 +1161,7 @@ where
             }
         };
 
-        let (cryptarchia, pruned_blocks) =
-            cryptarchia.try_apply_header(header, block.transactions())?;
+        let (cryptarchia, pruned_blocks) = cryptarchia.try_apply_block(&block)?;
         let new_lib = cryptarchia.lib();
 
         // remove included content from mempool
