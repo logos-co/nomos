@@ -65,10 +65,20 @@ jobs:
         uses: taiki-e/install-action@5651179950649c44da31d346537e20c0534f0f25  # Version 2.49.35
         with:
           tool: cargo-hack
+      - name: Set up Cargo cache
+        uses: ./.github/actions/setup-cargo-cache
+        with:
+          key: ${{ github.ref }}->${{ github.workflow }}->${{ github.job }}->${{ matrix.os }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Run cargo-hack
         env:
           RUSTFLAGS: -D warnings
         run: cargo hack --feature-powerset --no-dev-deps check
+      - name: Update Cargo cache
+        if: success() || failure()
+        uses: ./.github/actions/update-cargo-cache
+        with:
+          key: ${{ github.ref }}->${{ github.workflow }}->${{ github.job }}->${{ matrix.os }}
 
   unused-deps:
     name: Check for unused dependencies
@@ -100,12 +110,22 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
+      - name: Set up Cargo cache
+        uses: ./.github/actions/setup-cargo-cache
+        with:
+          key: ${{ github.ref }}->${{ github.workflow }}->${{ github.job }}->${{ matrix.os }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}        
       - name: Run cargo clippy on workspace
         uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
         with:
           command: clippy
           args: --all --all-targets --all-features
-
+      - name: Update Cargo cache
+        if: success() || failure()
+        uses: ./.github/actions/update-cargo-cache
+        with:
+          key: ${{ github.ref }}->${{ github.workflow }}->${{ github.job }}->${{ matrix.os }}
+ 
   tests:
     name: Run test suite
     if: ${{ !startsWith(github.event.pull_request.title, '[WIP]') && !contains(github.event.label.name,  'DO NOT MERGE') }}
