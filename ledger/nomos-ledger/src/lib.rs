@@ -206,7 +206,7 @@ impl LedgerState {
                 self.mantle_ledger.try_apply_tx::<Constants>(
                     self.block_number,
                     config,
-                    self.cryptarchia_ledger.latest_commitments(),
+                    self.cryptarchia_ledger.latest_utxos(),
                     &tx,
                 )?;
 
@@ -237,7 +237,7 @@ impl LedgerState {
     ) -> Result<Self, LedgerError<Id>> {
         let cryptarchia_ledger = CryptarchiaLedger::from_genesis_tx(&tx, epoch_nonce)?;
         let mantle_ledger =
-            MantleLedger::from_genesis_tx(tx, config, cryptarchia_ledger.latest_commitments())?;
+            MantleLedger::from_genesis_tx(tx, config, cryptarchia_ledger.latest_utxos())?;
         Ok(Self {
             block_number: 0,
             cryptarchia_ledger,
@@ -261,13 +261,13 @@ impl LedgerState {
     }
 
     #[must_use]
-    pub const fn latest_commitments(&self) -> &UtxoTree {
-        self.cryptarchia_ledger.latest_commitments()
+    pub const fn latest_utxos(&self) -> &UtxoTree {
+        self.cryptarchia_ledger.latest_utxos()
     }
 
     #[must_use]
-    pub const fn aged_commitments(&self) -> &UtxoTree {
-        self.cryptarchia_ledger.aged_commitments()
+    pub const fn aged_utxos(&self) -> &UtxoTree {
+        self.cryptarchia_ledger.aged_utxos()
     }
 
     #[must_use]
@@ -334,7 +334,7 @@ mod tests {
         let (ledger, genesis_id, utxo) = create_test_ledger();
 
         let state = ledger.state(&genesis_id).unwrap();
-        assert!(state.latest_commitments().contains(&utxo.id()));
+        assert!(state.latest_utxos().contains(&utxo.id()));
         assert_eq!(state.slot(), 0.into());
     }
 
@@ -371,10 +371,10 @@ mod tests {
 
         // Verify the transaction was applied
         let new_state = new_ledger.state(&new_id).unwrap();
-        assert!(!new_state.latest_commitments().contains(&utxo.id()));
+        assert!(!new_state.latest_utxos().contains(&utxo.id()));
 
         // Verify output was created
         let output_utxo = tx.mantle_tx.ledger_tx.utxo_by_index(0).unwrap();
-        assert!(new_state.latest_commitments().contains(&output_utxo.id()));
+        assert!(new_state.latest_utxos().contains(&output_utxo.id()));
     }
 }

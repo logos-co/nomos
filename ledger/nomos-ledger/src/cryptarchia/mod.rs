@@ -166,8 +166,8 @@ impl LedgerState {
     {
         assert_eq!(config.epoch(slot), self.epoch_state.epoch);
         let public_inputs = LeaderPublic::new(
-            self.aged_commitments().root(),
-            self.latest_commitments().root(),
+            self.aged_utxos().root(),
+            self.latest_utxos().root(),
             self.epoch_state.nonce,
             slot.into(),
             self.epoch_state.total_stake,
@@ -268,12 +268,12 @@ impl LedgerState {
     }
 
     #[must_use]
-    pub const fn latest_commitments(&self) -> &UtxoTree {
+    pub const fn latest_utxos(&self) -> &UtxoTree {
         &self.utxos
     }
 
     #[must_use]
-    pub const fn aged_commitments(&self) -> &UtxoTree {
+    pub const fn aged_utxos(&self) -> &UtxoTree {
         &self.epoch_state.utxos
     }
 
@@ -438,20 +438,20 @@ pub mod tests {
     // produce a proof for a note
     #[must_use]
     pub fn generate_proof(ledger_state: &LedgerState, utxo: &Utxo, slot: Slot) -> DummyProof {
-        let latest_tree = ledger_state.latest_commitments();
-        let aged_tree = ledger_state.aged_commitments();
+        let latest_tree = ledger_state.latest_utxos();
+        let aged_tree = ledger_state.aged_utxos();
         DummyProof {
             public: LeaderPublic::new(
                 if aged_tree.contains(&utxo.id()) {
                     aged_tree.root()
                 } else {
-                    println!("Note not found in aged commitments, using zero root");
+                    println!("Note not found in aged utxos, using zero root");
                     Fr::from(0u8)
                 },
                 if latest_tree.contains(&utxo.id()) {
                     latest_tree.root()
                 } else {
-                    println!("Note not found in latest commitments, using zero root");
+                    println!("Note not found in latest utxos, using zero root");
                     Fr::from(0u8)
                 },
                 ledger_state.epoch_state.nonce,
@@ -560,7 +560,7 @@ pub mod tests {
     ) -> HeaderId {
         let id = update_ledger(ledger, parent, slot, utxo_proof).unwrap();
         // we still don't have transactions, so the only way to add a commitment to
-        // spendable commitments and test epoch snapshotting is by doing this
+        // spendable utxos and test epoch snapshotting is by doing this
         // manually
         let mut block_state = ledger.states[&id].clone().cryptarchia_ledger;
         block_state.utxos = block_state.utxos.insert(utxo_add.id(), utxo_add).0;
@@ -708,7 +708,7 @@ pub mod tests {
         let proof = DummyProof {
             public: LeaderPublic {
                 aged_root: Fr::from(0u8), // Invalid aged root
-                latest_root: ledger_state.latest_commitments().root(),
+                latest_root: ledger_state.latest_utxos().root(),
                 epoch_nonce: ledger_state.epoch_state.nonce,
                 slot: slot.into(),
                 total_stake: ledger_state.epoch_state.total_stake,
@@ -731,7 +731,7 @@ pub mod tests {
         let slot = Slot::genesis() + 1;
         let proof = DummyProof {
             public: LeaderPublic {
-                aged_root: ledger_state.aged_commitments().root(),
+                aged_root: ledger_state.aged_utxos().root(),
                 latest_root: BigUint::from(1u8).into(), // Invalid latest root
                 epoch_nonce: ledger_state.epoch_state.nonce,
                 slot: slot.into(),

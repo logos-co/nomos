@@ -263,7 +263,7 @@ mod tests {
         let result = ledger_state.try_apply_tx::<MainnetGasConstants>(
             0,
             &test_config,
-            cryptarchia_state.latest_commitments(),
+            cryptarchia_state.latest_utxos(),
             tx,
         );
         assert!(result.is_ok());
@@ -288,7 +288,7 @@ mod tests {
         let result = ledger_state.try_apply_tx::<MainnetGasConstants>(
             0,
             &test_config,
-            cryptarchia_state.latest_commitments(),
+            cryptarchia_state.latest_utxos(),
             tx,
         );
         assert!(result.is_ok());
@@ -314,7 +314,7 @@ mod tests {
         let result = ledger_state.try_apply_tx::<MainnetGasConstants>(
             0,
             &test_config,
-            cryptarchia_state.latest_commitments(),
+            cryptarchia_state.latest_utxos(),
             tx,
         );
         assert!(result.is_ok());
@@ -350,7 +350,7 @@ mod tests {
             .try_apply_tx::<MainnetGasConstants>(
                 0,
                 &test_config,
-                cryptarchia_state.latest_commitments(),
+                cryptarchia_state.latest_utxos(),
                 first_tx,
             )
             .unwrap()
@@ -371,7 +371,7 @@ mod tests {
         let result = ledger_state.clone().try_apply_tx::<MainnetGasConstants>(
             0,
             &test_config,
-            cryptarchia_state.latest_commitments(),
+            cryptarchia_state.latest_utxos(),
             second_tx,
         );
         assert!(matches!(
@@ -394,7 +394,7 @@ mod tests {
         let empty_result = ledger_state.try_apply_tx::<MainnetGasConstants>(
             0,
             &test_config,
-            cryptarchia_state.latest_commitments(),
+            cryptarchia_state.latest_utxos(),
             empty_tx,
         );
         assert!(matches!(
@@ -428,7 +428,7 @@ mod tests {
             .try_apply_tx::<MainnetGasConstants>(
                 0,
                 &test_config,
-                cryptarchia_state.latest_commitments(),
+                cryptarchia_state.latest_utxos(),
                 first_tx,
             )
             .unwrap()
@@ -448,7 +448,7 @@ mod tests {
         let result = ledger_state.try_apply_tx::<MainnetGasConstants>(
             0,
             &test_config,
-            cryptarchia_state.latest_commitments(),
+            cryptarchia_state.latest_utxos(),
             second_tx,
         );
         assert!(matches!(
@@ -474,7 +474,7 @@ mod tests {
         let result = ledger_state.try_apply_tx::<MainnetGasConstants>(
             0,
             &test_config,
-            cryptarchia_state.latest_commitments(),
+            cryptarchia_state.latest_utxos(),
             tx,
         );
         assert_eq!(
@@ -542,7 +542,7 @@ mod tests {
             .try_apply_tx::<MainnetGasConstants>(
                 0,
                 &test_config,
-                cryptarchia_state.latest_commitments(),
+                cryptarchia_state.latest_utxos(),
                 tx,
             )
             .unwrap()

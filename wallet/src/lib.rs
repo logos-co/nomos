@@ -40,7 +40,7 @@ impl WalletState {
         let mut utxos = rpds::HashTrieMapSync::new_sync();
         let mut pk_index = rpds::HashTrieMapSync::new_sync();
 
-        for (_, (utxo, _)) in ledger.latest_commitments().utxos().iter() {
+        for (_, (utxo, _)) in ledger.latest_utxos().utxos().iter() {
             if known_keys.contains(&utxo.note.pk) {
                 let note_id = utxo.id();
                 utxos = utxos.insert(note_id, *utxo);

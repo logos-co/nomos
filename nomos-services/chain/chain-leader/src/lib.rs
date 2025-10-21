@@ -394,7 +394,7 @@ where
                             }
                         };
 
-                        let latest_tree = tip_state.latest_commitments();
+                        let latest_tree = tip_state.latest_utxos();
 
                         let epoch_state = match cryptarchia_api.get_epoch_state(slot).await {
                             Ok(Some(state)) => state,
