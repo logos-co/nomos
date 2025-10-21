@@ -1,6 +1,9 @@
 pub mod error;
 
-use std::collections::{BTreeMap, HashSet};
+use std::{
+    cmp::Ordering,
+    collections::{BTreeMap, HashSet},
+};
 
 pub use error::WalletError;
 use nomos_core::{
@@ -89,46 +92,44 @@ impl WalletState {
 
             let funding_delta = funded_tx_builder.funding_delta::<G>();
 
-            if funding_delta < 0 {
-                // Insufficient funds, need more UTXO's.
-                continue;
+            match funding_delta.cmp(&0) {
+                Ordering::Less => {
+                    // Insufficient funds, need more UTXO's.
+                }
+                Ordering::Equal => {
+                    // We can exactly pay the tx cost, no change note needed.
+                    return Ok(funded_tx_builder);
+                }
+                Ordering::Greater => {
+                    // We have enough balance, but we need to introduce a change note.
+                    // The change note will slightly increase the storage cost of the tx.
+                    let funding_delta_with_change = funded_tx_builder
+                        .with_dummy_change_note()
+                        .funding_delta::<G>();
+
+                    match funding_delta_with_change.cmp(&0) {
+                        Ordering::Less | Ordering::Equal => {
+                            // NOTE: the `Equal` is important here since we
+                            // cannot create zero-valued notes.
+
+                            // The increase in cost due to the change note means
+                            // we have insufficient funds, need more UTXO's.
+                        }
+                        Ordering::Greater => {
+                            // We have enough balance to cover the increase in cost from the change
+                            // note. Now we replace the dummy change output with the correct change
+                            // amount.
+                            let funded_tx_with_change_builder =
+                                funded_tx_builder.return_change::<G>(change_pk);
+
+                            // Now the net balance should exactly equal the gas cost.
+                            assert_eq!(funded_tx_with_change_builder.funding_delta::<G>(), 0);
+
+                            return Ok(funded_tx_with_change_builder);
+                        }
+                    }
+                }
             }
-
-            if funding_delta == 0 {
-                // We can exactly pay the tx cost, no change note needed.
-                return Ok(funded_tx_builder);
-            }
-
-            // We have more than enough balance to fund the tx.
-            // Now we just need to introduce change note.
-
-            // The change note will slightly increase the storage cost of the tx.
-            let funded_delta_with_change_note = funded_tx_builder
-                .with_dummy_change_note()
-                .funding_delta::<G>();
-
-            // Tx cost has gone up with the change note, we may not have enough to cover the updated cost.
-            if funded_delta_with_change_note <= 0 {
-                // NOTE: the less-than-or-*equal* `<=` is important since we cannot create
-                // zero-valued notes.
-
-                // We don't have enough funds with to cover the increase cost of adding a
-                // change note. We need to introduce another UTXO as input and try again
-                continue;
-            }
-
-            // We have enough balance to cover the increase in cost from the change note.
-            // Now we replace the dummy change output with the correct change amount (funding delta).
-            let funded_tx_with_change_builder = funded_tx_builder.add_ledger_output(Note {
-                value: u64::try_from(funded_delta_with_change_note)
-                    .expect("positive delta should fit in u64"),
-                pk: change_pk,
-            });
-
-            // Now the net balance should exactly equal the gas cost.
-            assert_eq!(funded_tx_with_change_builder.funding_delta::<G>(), 0);
-
-            return Ok(funded_tx_with_change_builder);
         }
 
         return Err(WalletError::InsufficientFunds {

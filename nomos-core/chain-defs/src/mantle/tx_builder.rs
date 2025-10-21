@@ -1,4 +1,4 @@
-use super::{GasConstants, GasCost, MantleTx, Note, Op, Utxo, keys::PublicKey};
+use super::{GasConstants, GasCost as _, MantleTx, Note, Op, Utxo, keys::PublicKey};
 use crate::mantle::ledger::Tx as LedgerTx;
 
 #[derive(Debug, Clone)]
@@ -71,10 +71,27 @@ impl MantleTxBuilder {
         self.mantle_tx.storage_gas_price = price;
         self
     }
+
+    #[must_use]
+    pub fn return_change<G: GasConstants>(self, change_reciever: PublicKey) -> Self {
+        let delta = self.funding_delta::<G>();
+        assert!(
+            delta > 0,
+            "It's assumed that that the tx has enough funds to merit a change note"
+        );
+
+        let change = u64::try_from(delta).expect("Positive funding delta must fit in u64");
+
+        self.add_ledger_output(Note {
+            value: change,
+            pk: change_reciever,
+        })
+    }
+
     #[must_use]
     pub fn with_dummy_change_note(&self) -> Self {
         self.clone().add_ledger_output(Note {
-            value: 1,
+            value: 0,
             pk: PublicKey::zero(),
         })
     }
