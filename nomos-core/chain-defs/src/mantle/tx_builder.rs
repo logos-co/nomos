@@ -1,0 +1,104 @@
+use super::{MantleTx, Note, Op, Utxo};
+use crate::mantle::ledger::Tx as LedgerTx;
+
+#[derive(Debug, Clone)]
+pub struct MantleTxBuilder {
+    mantle_tx: MantleTx,
+    ledger_inputs: Vec<Utxo>,
+}
+
+impl MantleTxBuilder {
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            mantle_tx: MantleTx {
+                ops: vec![],
+                ledger_tx: LedgerTx {
+                    inputs: vec![],
+                    outputs: vec![],
+                },
+                execution_gas_price: 0,
+                storage_gas_price: 0,
+            },
+            ledger_inputs: vec![],
+        }
+    }
+
+    #[must_use]
+    pub fn push_op(self, op: Op) -> Self {
+        self.extend_ops([op])
+    }
+
+    #[must_use]
+    pub fn extend_ops(mut self, ops: impl IntoIterator<Item = Op>) -> Self {
+        self.mantle_tx.ops.extend(ops);
+        self
+    }
+
+    #[must_use]
+    pub fn add_ledger_input(self, utxo: Utxo) -> Self {
+        self.extend_ledger_inputs([utxo])
+    }
+
+    #[must_use]
+    pub fn extend_ledger_inputs(mut self, utxos: impl IntoIterator<Item = Utxo>) -> Self {
+        for utxo in utxos {
+            self.mantle_tx.ledger_tx.inputs.push(utxo.id());
+            self.ledger_inputs.push(utxo);
+        }
+        self
+    }
+
+    #[must_use]
+    pub fn add_ledger_output(self, note: Note) -> Self {
+        self.extend_ledger_outputs([note])
+    }
+
+    #[must_use]
+    pub fn extend_ledger_outputs(mut self, notes: impl IntoIterator<Item = Note>) -> Self {
+        self.mantle_tx.ledger_tx.outputs.extend(notes);
+        self
+    }
+
+    #[must_use]
+    pub const fn set_execution_gas_price(mut self, price: u64) -> Self {
+        self.mantle_tx.execution_gas_price = price;
+        self
+    }
+
+    #[must_use]
+    pub const fn set_storage_gas_price(mut self, price: u64) -> Self {
+        self.mantle_tx.storage_gas_price = price;
+        self
+    }
+
+    #[must_use]
+    pub fn net_balance(&self) -> i128 {
+        let in_sum: i128 = self
+            .ledger_inputs
+            .iter()
+            .map(|utxo| i128::from(utxo.note.value))
+            .sum();
+
+        let out_sum: i128 = self
+            .mantle_tx
+            .ledger_tx
+            .outputs
+            .iter()
+            .map(|n| i128::from(n.value))
+            .sum();
+
+        in_sum - out_sum
+    }
+
+    #[must_use]
+    pub fn build(self) -> MantleTx {
+        self.mantle_tx
+    }
+}
+
+impl Default for MantleTxBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}

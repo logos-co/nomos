@@ -6,7 +6,10 @@ pub use error::WalletError;
 use nomos_core::{
     block::Block,
     header::HeaderId,
-    mantle::{AuthenticatedMantleTx, NoteId, Utxo, Value, keys::PublicKey, ledger::Tx as LedgerTx},
+    mantle::{
+        AuthenticatedMantleTx, GasConstants, GasCost, Note, NoteId, Utxo, Value, keys::PublicKey,
+        ledger::Tx as LedgerTx, tx_builder::MantleTxBuilder,
+    },
 };
 use nomos_ledger::LedgerState;
 
@@ -55,6 +58,89 @@ impl WalletState {
         }
 
         Self { utxos, pk_index }
+    }
+
+    pub fn fund_tx<G: GasConstants>(
+        &self,
+        tx_builder: MantleTxBuilder,
+        change_pk: PublicKey,
+        pks: impl IntoIterator<Item = PublicKey>,
+    ) -> Result<MantleTxBuilder, WalletError> {
+        let mut utxos: Vec<Utxo> = pks
+            .into_iter()
+            .filter_map(|pk| self.pk_index.get(&pk))
+            .flatten()
+            .map(|id| self.utxos[id])
+            .collect();
+
+        // we want to consume large valued notes first, to ensure we converge
+        utxos.sort_by_key(|utxo| -i128::from(utxo.note.value));
+
+        for i in 0..utxos.len() {
+            let funded_tx_builder = tx_builder
+                .clone()
+                .extend_ledger_inputs(utxos[..i].iter().copied());
+
+            let funded_cost = i128::from(funded_tx_builder.clone().build().gas_cost::<G>());
+            let funded_net_balance = funded_tx_builder.net_balance();
+            if funded_net_balance == funded_cost {
+                // We can exactly pay the tx cost, no change note needed.
+                return Ok(funded_tx_builder);
+            } else if funded_net_balance > funded_cost {
+                // We have more than enough balance to fund the tx.
+                // Now we just need to introduce change note.
+
+                // The change note will slightly increase the storage cost of the tx.
+                // We'll first add a dummy change note in order to measure the impact on cost.
+                let funded_with_change_cost = i128::from(
+                    funded_tx_builder
+                        .clone()
+                        .add_ledger_output(Note {
+                            value: 1,
+                            pk: change_pk,
+                        })
+                        .build()
+                        .gas_cost::<G>(),
+                );
+
+                // Tx cost has gone up, we may not have enough to cover the updated cost.
+                if funded_net_balance <= funded_with_change_cost {
+                    // NOTE: the less-than-or-*equal* `<=` is important since we cannot create
+                    // zero-valued notes.
+
+                    // We don't have enough funds with to cover the increase cost of adding a
+                    // change note. We need to introduce another UTXO as input and try again
+                    continue;
+                }
+
+                // We have enough balance to cover the increase in cost from the change note.
+                // Now we replace the dummy change output with the correct change amount.
+                let change = u64::try_from(funded_net_balance - funded_with_change_cost)
+                    .expect("positive balance should fit inside u64");
+
+                let funded_tx_with_change_builder = funded_tx_builder.add_ledger_output(Note {
+                    value: change,
+                    pk: change_pk,
+                });
+
+                // Now the net balance should exactly equal the gas cost.
+                assert_eq!(
+                    funded_tx_with_change_builder.net_balance(),
+                    i128::from(
+                        funded_tx_with_change_builder
+                            .clone()
+                            .build()
+                            .gas_cost::<G>()
+                    )
+                );
+
+                return Ok(funded_tx_with_change_builder);
+            }
+        }
+
+        return Err(WalletError::InsufficientFunds {
+            available: utxos.iter().map(|u| u.note.value).sum::<u64>(),
+        });
     }
 
     pub fn utxos_for_amount(

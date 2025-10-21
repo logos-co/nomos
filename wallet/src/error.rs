@@ -4,4 +4,6 @@ use thiserror::Error;
 pub enum WalletError {
     #[error("Requested wallet state for unknown block")]
     UnknownBlock,
+    #[error("Wallet does not have enough funds, available={.available}")]
+    InsufficientFunds { available: u64 },
 }

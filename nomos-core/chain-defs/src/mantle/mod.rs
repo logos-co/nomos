@@ -13,6 +13,7 @@ pub mod mock;
 pub mod ops;
 pub mod select;
 pub mod tx;
+pub mod tx_builder;
 
 pub use gas::{GasConstants, GasCost};
 use groth16::Fr;
