@@ -376,7 +376,7 @@ where
                 current_membership_info.public.session,
                 // TODO: use the real epoch nonce of the start block of the session.
                 // which is different from the epoch nonce in the current epoch state.
-                ZkHash::ZERO,  
+                ZkHash::ZERO,
                 current_membership_info.public.membership.size() as u64,
                 current_membership_info.public.poq_core_public_inputs.quota,
                 blend_config.scheduler.cover.message_frequency_per_round,
@@ -522,7 +522,7 @@ where
                 session,
                 // TODO: use the real epoch nonce of the start block of the session.
                 // which is different from the epoch nonce in the current epoch state.
-                ZkHash::ZERO,  
+                ZkHash::ZERO,
                 membership.size() as u64,
                 poq_core_public_inputs.quota,
                 settings.scheduler.cover.message_frequency_per_round,
