@@ -227,18 +227,15 @@ fn decode_sdp_active(input: &[u8]) -> IResult<&[u8], SDPActiveOp> {
     let (input, nonce) = decode_uint64(input)?;
 
     let (input, metadata_len) = decode_uint32(input)?;
-    let (input, metadata_bytes) = take(metadata_len as usize)(input)?;
+    let (input, metadata_bytes) = take(metadata_len as usize).parse(input)?;
 
-    let metadata = if metadata_bytes.is_empty() {
+    let metadata = if metadata_len == 0 {
         None
     } else {
-        // Parse raw bytes into ActivityMetadata
-        match ActivityMetadata::from_metadata_bytes(metadata_bytes) {
-            Ok(meta) => Some(meta),
-            Err(_) => {
-                return Err(nom::Err::Error(Error::new(input, ErrorKind::Fail)));
-            }
-        }
+        Some(
+            ActivityMetadata::from_metadata_bytes(metadata_bytes)
+                .map_err(|_| nom::Err::Error(Error::new(input, ErrorKind::Fail)))?,
+        )
     };
 
     Ok((
