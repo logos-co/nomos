@@ -374,9 +374,7 @@ where
         let mut blending_token_collector = BlendingTokenCollector::new(
             &reward::SessionInfo::new(
                 current_membership_info.public.session,
-                // TODO: use the real epoch nonce of the start block of the session.
-                // which is different from the epoch nonce in the current epoch state.
-                ZkHash::ZERO,
+                pol_epoch_nonce,
                 current_membership_info.public.membership.size() as u64,
                 current_membership_info.public.poq_core_public_inputs.quota,
                 blend_config.scheduler.cover.message_frequency_per_round,
@@ -520,9 +518,7 @@ where
         }) => {
             let reward_session_info = reward::SessionInfo::new(
                 session,
-                // TODO: use the real epoch nonce of the start block of the session.
-                // which is different from the epoch nonce in the current epoch state.
-                ZkHash::ZERO,
+                current_public_inputs.leader.pol_epoch_nonce,
                 membership.size() as u64,
                 poq_core_public_inputs.quota,
                 settings.scheduler.cover.message_frequency_per_round,
