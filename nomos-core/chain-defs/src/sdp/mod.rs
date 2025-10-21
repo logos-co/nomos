@@ -5,7 +5,7 @@ use bytes::{Bytes, BytesMut};
 use groth16::{Fr, serde::serde_fr};
 use multiaddr::Multiaddr;
 use nom::{
-    IResult, Parser,
+    IResult, Parser as _,
     bytes::complete::take,
     number::complete::{le_u32, u8 as nom_u8},
 };
@@ -315,7 +315,11 @@ impl DaActivityProof {
     }
 
     /// Parse metadata bytes using nom combinators
-    pub fn from_metadata_bytes(bytes: &[u8]) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn from_metadata_bytes(bytes: &[u8]) -> Result<Option<Self>, Box<dyn std::error::Error>> {
+        if bytes.is_empty() {
+            return Ok(None);
+        }
+
         if bytes.len() < DA_MIN_METADATA_SIZE {
             return Err(format!(
                 "Metadata too short: got {} bytes, expected at least {}",
@@ -328,7 +332,7 @@ impl DaActivityProof {
         let (_, proof) =
             parse_da_activity_proof(bytes).map_err(|e| format!("Failed to parse metadata: {e}"))?;
 
-        Ok(proof)
+        Ok(Some(proof))
     }
 }
 
@@ -392,9 +396,9 @@ impl ActivityMetadata {
         }
     }
 
-    pub fn from_metadata_bytes(bytes: &[u8]) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn from_metadata_bytes(bytes: &[u8]) -> Result<Option<Self>, Box<dyn std::error::Error>> {
         if bytes.is_empty() {
-            return Err("Empty metadata bytes".into());
+            return Ok(None);
         }
 
         // Read version byte to determine variant
@@ -402,8 +406,8 @@ impl ActivityMetadata {
 
         match version {
             DA_ACTIVE_METADATA_VERSION_BYTE => {
-                let proof = DaActivityProof::from_metadata_bytes(bytes)?;
-                Ok(Self::DataAvailability(proof))
+                let proof_opt = DaActivityProof::from_metadata_bytes(bytes)?;
+                Ok(proof_opt.map(Self::DataAvailability))
             }
             _ => Err(format!("Unknown metadata version: {version:#x}").into()),
         }
@@ -440,7 +444,9 @@ mod tests {
         };
 
         let bytes = proof.to_metadata_bytes();
-        let decoded = DaActivityProof::from_metadata_bytes(&bytes).unwrap();
+        let decoded = DaActivityProof::from_metadata_bytes(&bytes)
+            .unwrap()
+            .expect("Should have activity proof metadata");
 
         assert_eq!(proof, decoded);
     }
@@ -454,7 +460,9 @@ mod tests {
         };
 
         let bytes = proof.to_metadata_bytes();
-        let decoded = DaActivityProof::from_metadata_bytes(&bytes).unwrap();
+        let decoded = DaActivityProof::from_metadata_bytes(&bytes)
+            .unwrap()
+            .expect("Should have activity proof metadata");
 
         assert_eq!(proof, decoded);
     }
@@ -516,7 +524,9 @@ mod tests {
         // Total: version(1) + session(8) + prev_len(4) + curr_len(4) = 17 bytes
         assert_eq!(bytes.len(), DA_MIN_METADATA_SIZE);
 
-        let decoded = DaActivityProof::from_metadata_bytes(&bytes).unwrap();
+        let decoded = DaActivityProof::from_metadata_bytes(&bytes)
+            .unwrap()
+            .expect("Should have activity proof metadata");
         assert_eq!(proof, decoded);
     }
 
@@ -529,7 +539,9 @@ mod tests {
         };
 
         let bytes = proof.to_metadata_bytes();
-        let decoded = DaActivityProof::from_metadata_bytes(&bytes).unwrap();
+        let decoded = DaActivityProof::from_metadata_bytes(&bytes)
+            .unwrap()
+            .expect("Should have activity proof metadata");
 
         assert_eq!(proof, decoded);
         assert_eq!(decoded.previous_session_opinions.len(), 1000);
@@ -593,7 +605,9 @@ mod tests {
         let metadata = ActivityMetadata::DataAvailability(proof.clone());
 
         let bytes = metadata.to_metadata_bytes();
-        let decoded = ActivityMetadata::from_metadata_bytes(&bytes).unwrap();
+        let decoded = ActivityMetadata::from_metadata_bytes(&bytes)
+            .unwrap()
+            .expect("Should have activity proof metadata");
 
         assert_eq!(metadata, decoded);
 

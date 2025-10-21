@@ -229,14 +229,8 @@ fn decode_sdp_active(input: &[u8]) -> IResult<&[u8], SDPActiveOp> {
     let (input, metadata_len) = decode_uint32(input)?;
     let (input, metadata_bytes) = take(metadata_len as usize).parse(input)?;
 
-    let metadata = if metadata_len == 0 {
-        None
-    } else {
-        Some(
-            ActivityMetadata::from_metadata_bytes(metadata_bytes)
-                .map_err(|_| nom::Err::Error(Error::new(input, ErrorKind::Fail)))?,
-        )
-    };
+    let metadata = ActivityMetadata::from_metadata_bytes(metadata_bytes)
+        .map_err(|_| nom::Err::Error(Error::new(input, ErrorKind::Fail)))?;
 
     Ok((
         input,
