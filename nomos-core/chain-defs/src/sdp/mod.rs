@@ -617,9 +617,8 @@ mod tests {
 
     #[test]
     fn test_activity_metadata_empty_bytes() {
-        let result = ActivityMetadata::from_metadata_bytes(&[]);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Empty metadata"));
+        let result = ActivityMetadata::from_metadata_bytes(&[]).expect("should be OK");
+        assert!(result.is_none());
     }
 
     #[test]
