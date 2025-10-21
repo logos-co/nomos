@@ -1,7 +1,6 @@
 pub mod channel;
 pub(crate) mod internal;
 pub mod leader_claim;
-pub mod native;
 pub mod opcode;
 pub mod sdp;
 mod serde_;
@@ -20,10 +19,8 @@ use super::{
     gas::{Gas, GasConstants},
     ops::{
         leader_claim::LeaderClaimOp,
-        native::NativeOp,
         opcode::{
-            BLOB, INSCRIBE, LEADER_CLAIM, NATIVE, SDP_ACTIVE, SDP_DECLARE, SDP_WITHDRAW,
-            SET_CHANNEL_KEYS,
+            BLOB, INSCRIBE, LEADER_CLAIM, SDP_ACTIVE, SDP_DECLARE, SDP_WITHDRAW, SET_CHANNEL_KEYS,
         },
         sdp::{SDPActiveOp, SDPDeclareOp, SDPWithdrawOp},
     },
@@ -53,7 +50,6 @@ pub enum Op {
     ChannelInscribe(InscriptionOp),
     ChannelBlob(BlobOp),
     ChannelSetKeys(SetKeysOp),
-    Native(NativeOp),
     SDPDeclare(SDPDeclareOp),
     SDPWithdraw(SDPWithdrawOp),
     SDPActive(SDPActiveOp),
@@ -108,12 +104,23 @@ impl<'de> Deserialize<'de> for Op {
 
 impl Op {
     #[must_use]
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::ChannelInscribe(_) => "ChannelInscribe",
+            Self::ChannelBlob(_) => "ChannelBlob",
+            Self::ChannelSetKeys(_) => "ChannelSetKeys",
+            Self::SDPDeclare(_) => "SDPDeclare",
+            Self::SDPWithdraw(_) => "SDPWithdraw",
+            Self::SDPActive(_) => "SDPActive",
+            Self::LeaderClaim(_) => "LeaderClaim",
+        }
+    }
+    #[must_use]
     pub const fn opcode(&self) -> u8 {
         match self {
             Self::ChannelInscribe(_) => INSCRIBE,
             Self::ChannelBlob(_) => BLOB,
             Self::ChannelSetKeys(_) => SET_CHANNEL_KEYS,
-            Self::Native(_) => NATIVE,
             Self::SDPDeclare(_) => SDP_DECLARE,
             Self::SDPWithdraw(_) => SDP_WITHDRAW,
             Self::SDPActive(_) => SDP_ACTIVE,
@@ -127,7 +134,6 @@ impl Op {
             Self::ChannelInscribe(channel_inscribre) => channel_inscribre.payload_bytes(),
             Self::ChannelBlob(channel_blob) => channel_blob.payload_bytes(),
             Self::ChannelSetKeys(channel_keys) => channel_keys.payload_bytes(),
-            Self::Native(native) => native.payload_bytes(),
             Self::SDPDeclare(sdp_declare) => sdp_declare.payload_bytes(),
             Self::SDPWithdraw(sdp_withdraw) => sdp_withdraw.payload_bytes(),
             Self::SDPActive(sdp_active) => sdp_active.payload_bytes(),
@@ -155,7 +161,6 @@ impl Op {
                 Constants::CHANNEL_BLOB_BASE + Constants::CHANNEL_BLOB_SIZED * sample_size
             }
             Self::ChannelSetKeys(_) => Constants::CHANNEL_SET_KEYS,
-            Self::Native(_) => Gas::MAX,
             Self::SDPDeclare(_) => Constants::SDP_DECLARE,
             Self::SDPWithdraw(_) => Constants::SDP_WITHDRAW,
             Self::SDPActive(_) => Constants::SDP_ACTIVE,

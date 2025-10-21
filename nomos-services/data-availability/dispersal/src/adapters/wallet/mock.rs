@@ -71,8 +71,8 @@ impl DaWalletAdapter for MockWalletAdapter {
         // Create signed transaction with valid signature proof
         Ok(SignedMantleTx::new(
             mantle_tx,
-            vec![Some(OpProof::Ed25519Sig(signature))],
-            DummyZkSignature::prove(ZkSignaturePublic {
+            vec![OpProof::Ed25519Sig(signature)],
+            DummyZkSignature::prove(&ZkSignaturePublic {
                 msg_hash: tx_hash.into(),
                 pks: vec![],
             }),

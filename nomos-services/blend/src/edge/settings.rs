@@ -1,6 +1,6 @@
 use core::num::NonZeroU64;
 
-use nomos_blend_scheduling::message_blend::SessionCryptographicProcessorSettings;
+use nomos_blend_scheduling::message_blend::crypto::SessionCryptographicProcessorSettings;
 use serde::{Deserialize, Serialize};
 
 use crate::settings::TimingSettings;

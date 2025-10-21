@@ -48,7 +48,7 @@ pub trait AuthenticatedMantleTx: Transaction<Hash = TxHash> + GasCost {
     /// Returns the proof of the ledger transaction
     fn ledger_tx_proof(&self) -> &impl ZkSignatureProof;
 
-    fn ops_with_proof(&self) -> impl Iterator<Item = (&Op, Option<&OpProof>)>;
+    fn ops_with_proof(&self) -> impl Iterator<Item = (&Op, &OpProof)>;
 }
 
 /// A genesis transaction as specified in
@@ -76,7 +76,7 @@ impl<T: AuthenticatedMantleTx> AuthenticatedMantleTx for &T {
         T::ledger_tx_proof(self)
     }
 
-    fn ops_with_proof(&self) -> impl Iterator<Item = (&Op, Option<&OpProof>)> {
+    fn ops_with_proof(&self) -> impl Iterator<Item = (&Op, &OpProof)> {
         T::ops_with_proof(self)
     }
 }

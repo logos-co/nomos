@@ -1,7 +1,9 @@
 use std::{num::NonZeroU64, time::Duration};
 
-use nomos_blend_scheduling::message_blend::SessionCryptographicProcessorSettings;
+use nomos_blend_scheduling::message_blend::crypto::SessionCryptographicProcessorSettings;
 use serde::{Deserialize, Serialize};
+
+use crate::epoch_info::EpochHandler;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Settings {
@@ -25,6 +27,7 @@ pub struct TimingSettings {
     pub rounds_per_observation_window: NonZeroU64,
     /// Session transition period in rounds.
     pub rounds_per_session_transition_period: NonZeroU64,
+    pub epoch_transition_period_in_slots: NonZeroU64,
 }
 
 impl TimingSettings {
@@ -44,6 +47,13 @@ impl TimingSettings {
             self.rounds_per_session_transition_period.get() * self.round_duration.as_secs(),
         )
     }
+
+    pub const fn epoch_handler<ChainService, RuntimeServiceId>(
+        &self,
+        chain_service: ChainService,
+    ) -> EpochHandler<ChainService, RuntimeServiceId> {
+        EpochHandler::new(chain_service, self.epoch_transition_period_in_slots)
+    }
 }
 
-pub(crate) const FIRST_SESSION_READY_TIMEOUT: Duration = Duration::from_secs(1);
+pub(crate) const FIRST_STREAM_ITEM_READY_TIMEOUT: Duration = Duration::from_secs(5);

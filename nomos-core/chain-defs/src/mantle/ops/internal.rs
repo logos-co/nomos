@@ -4,10 +4,8 @@ use super::{
     Op,
     channel::{blob::BlobOp, inscribe::InscriptionOp, set_keys::SetKeysOp},
     leader_claim::LeaderClaimOp,
-    native::NativeOp,
     opcode::{
-        BLOB, INSCRIBE, LEADER_CLAIM, NATIVE, SDP_ACTIVE, SDP_DECLARE, SDP_WITHDRAW,
-        SET_CHANNEL_KEYS,
+        BLOB, INSCRIBE, LEADER_CLAIM, SDP_ACTIVE, SDP_DECLARE, SDP_WITHDRAW, SET_CHANNEL_KEYS,
     },
     sdp::{SDPActiveOp, SDPDeclareOp, SDPWithdrawOp},
     serde_,
@@ -29,10 +27,6 @@ pub enum OpSer<'a> {
             serialize_with = "serde_::serialize_op_variant::<{SET_CHANNEL_KEYS}, SetKeysOp, _>"
         )]
         &'a SetKeysOp,
-    ),
-    Native(
-        #[serde(serialize_with = "serde_::serialize_op_variant::<{NATIVE}, NativeOp, _>")]
-        &'a NativeOp,
     ),
     SDPDeclare(
         #[serde(serialize_with = "serde_::serialize_op_variant::<{SDP_DECLARE}, SDPDeclareOp, _>")]
@@ -62,7 +56,6 @@ impl<'a> From<&'a Op> for OpSer<'a> {
             Op::ChannelInscribe(op) => OpSer::ChannelInscribe(op),
             Op::ChannelBlob(op) => OpSer::ChannelBlob(op),
             Op::ChannelSetKeys(op) => OpSer::ChannelSetKeys(op),
-            Op::Native(op) => OpSer::Native(op),
             Op::SDPDeclare(op) => OpSer::SDPDeclare(op),
             Op::SDPWithdraw(op) => OpSer::SDPWithdraw(op),
             Op::SDPActive(op) => OpSer::SDPActive(op),
@@ -89,10 +82,6 @@ pub enum OpDe {
             deserialize_with = "serde_::deserialize_op_variant::<{SET_CHANNEL_KEYS}, SetKeysOp, _>"
         )]
         SetKeysOp,
-    ),
-    Native(
-        #[serde(deserialize_with = "serde_::deserialize_op_variant::<{NATIVE}, NativeOp, _>")]
-        NativeOp,
     ),
     SDPDeclare(
         #[serde(
@@ -126,7 +115,6 @@ impl From<OpDe> for Op {
             OpDe::ChannelInscribe(inscribe) => Self::ChannelInscribe(inscribe),
             OpDe::ChannelBlob(blob) => Self::ChannelBlob(blob),
             OpDe::ChannelSetKeys(channel_set_keys) => Self::ChannelSetKeys(channel_set_keys),
-            OpDe::Native(native) => Self::Native(native),
             OpDe::SDPDeclare(sdp_declare) => Self::SDPDeclare(sdp_declare),
             OpDe::SDPWithdraw(sdp_withdraw) => Self::SDPWithdraw(sdp_withdraw),
             OpDe::SDPActive(sdp_active) => Self::SDPActive(sdp_active),

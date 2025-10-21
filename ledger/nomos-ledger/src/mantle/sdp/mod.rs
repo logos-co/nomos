@@ -472,7 +472,7 @@ mod tests {
     }
 
     fn create_dummy_zk_sig(note_pk: Fr, zk_id: Fr, tx_hash: Fr) -> DummyZkSignature {
-        DummyZkSignature::prove(ZkSignaturePublic {
+        DummyZkSignature::prove(&ZkSignaturePublic {
             pks: vec![note_pk, zk_id],
             msg_hash: tx_hash,
         })

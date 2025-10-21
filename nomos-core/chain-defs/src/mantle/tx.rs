@@ -76,6 +76,30 @@ pub struct MantleTx {
     pub storage_gas_price: Gas,
 }
 
+impl GasCost for MantleTx {
+    fn gas_cost<Constants: GasConstants>(&self) -> Gas {
+        let execution_gas = self
+            .ops
+            .iter()
+            .map(Op::execution_gas::<Constants>)
+            .sum::<Gas>()
+            + self.ledger_tx.execution_gas::<Constants>();
+        let storage_gas = self.signed_serialized_size();
+        let da_gas_cost = self.ops.iter().map(Op::da_gas_cost).sum::<Gas>();
+
+        execution_gas * self.execution_gas_price
+            + storage_gas * self.storage_gas_price
+            + da_gas_cost
+    }
+}
+
+impl MantleTx {
+    #[must_use]
+    pub fn signed_serialized_size(&self) -> u64 {
+        super::encoding::predict_signed_mantle_tx_size(self) as u64
+    }
+}
+
 static NOMOS_MANTLE_TXHASH_V1_FR: LazyLock<Fr> = LazyLock::new(|| {
     fr_from_bytes(b"NOMOS_MANTLE_TXHASH_V1").expect("Constant should be valid Fr")
 });
@@ -112,7 +136,7 @@ impl From<SignedMantleTx> for MantleTx {
 pub struct SignedMantleTx {
     pub mantle_tx: MantleTx,
     // TODO: make this more efficient
-    pub ops_proofs: Vec<Option<OpProof>>,
+    pub ops_proofs: Vec<OpProof>,
     pub ledger_tx_proof: ZkSignature,
 }
 
@@ -148,7 +172,7 @@ impl SignedMantleTx {
     ///   declared signer
     pub fn new(
         mantle_tx: MantleTx,
-        ops_proofs: Vec<Option<OpProof>>,
+        ops_proofs: Vec<OpProof>,
         ledger_tx_proof: ZkSignature,
     ) -> Result<Self, VerificationError> {
         let tx = Self {
@@ -166,7 +190,7 @@ impl SignedMantleTx {
     #[must_use]
     pub const fn new_unverified(
         mantle_tx: MantleTx,
-        ops_proofs: Vec<Option<OpProof>>,
+        ops_proofs: Vec<OpProof>,
         ledger_tx_proof: ZkSignature,
     ) -> Self {
         Self {
@@ -198,46 +222,26 @@ impl SignedMantleTx {
             .zip(self.ops_proofs.iter())
             .enumerate()
         {
-            match op {
-                Op::ChannelBlob(blob_op) => {
+            match (op, proof) {
+                (Op::ChannelBlob(blob_op), OpProof::Ed25519Sig(sig)) => {
                     // Blob operations require an Ed25519 signature
-                    let Some(OpProof::Ed25519Sig(sig)) = proof else {
-                        if proof.is_none() {
-                            return Err(VerificationError::MissingProof {
-                                op_type: "ChannelBlob",
-                                op_index: idx,
-                            });
-                        }
-                        return Err(VerificationError::IncorrectProofType {
-                            op_type: "ChannelBlob",
-                            op_index: idx,
-                        });
-                    };
-
                     blob_op
                         .signer
                         .verify(tx_hash_bytes.as_ref(), sig)
                         .map_err(|_| VerificationError::InvalidSignature { op_index: idx })?;
                 }
-                Op::ChannelInscribe(inscribe_op) => {
+                (Op::ChannelInscribe(inscribe_op), OpProof::Ed25519Sig(sig)) => {
                     // Inscription operations require an Ed25519 signature
-                    let Some(OpProof::Ed25519Sig(sig)) = proof else {
-                        if proof.is_none() {
-                            return Err(VerificationError::MissingProof {
-                                op_type: "ChannelInscribe",
-                                op_index: idx,
-                            });
-                        }
-                        return Err(VerificationError::IncorrectProofType {
-                            op_type: "ChannelInscribe",
-                            op_index: idx,
-                        });
-                    };
-
                     inscribe_op
                         .signer
                         .verify(tx_hash_bytes.as_ref(), sig)
                         .map_err(|_| VerificationError::InvalidSignature { op_index: idx })?;
+                }
+                v @ (Op::ChannelBlob(_) | Op::ChannelInscribe(_), OpProof::ZkSig(_)) => {
+                    return Err(VerificationError::IncorrectProofType {
+                        op_type: v.0.as_str(),
+                        op_index: idx,
+                    });
                 }
                 // Other operations are checked by the ledger or don't require verification here
                 _ => {}
@@ -272,18 +276,8 @@ impl AuthenticatedMantleTx for SignedMantleTx {
         &self.ledger_tx_proof
     }
 
-    fn ops_with_proof(&self) -> impl Iterator<Item = (&Op, Option<&OpProof>)> {
-        self.mantle_tx
-            .ops
-            .iter()
-            .zip(self.ops_proofs.iter().map(Option::as_ref))
-            .map(|(op, proof)| {
-                if matches!(op, Op::ChannelBlob(_) | Op::ChannelInscribe(_)) {
-                    (op, None)
-                } else {
-                    (op, proof)
-                }
-            })
+    fn ops_with_proof(&self) -> impl Iterator<Item = (&Op, &OpProof)> {
+        self.mantle_tx.ops.iter().zip(self.ops_proofs.iter())
     }
 }
 
@@ -313,7 +307,7 @@ impl<'de> Deserialize<'de> for SignedMantleTx {
         #[derive(Deserialize)]
         struct SignedMantleTxHelper {
             mantle_tx: MantleTx,
-            ops_proofs: Vec<Option<OpProof>>,
+            ops_proofs: Vec<OpProof>,
             ledger_tx_proof: ZkSignature,
         }
 
@@ -338,7 +332,7 @@ mod tests {
     };
 
     fn dummy_zk_signature() -> ZkSignature {
-        ZkSignature::prove(ZkSignaturePublic {
+        ZkSignature::prove(&ZkSignaturePublic {
             msg_hash: Fr::default(),
             pks: vec![],
         })
@@ -385,7 +379,7 @@ mod tests {
 
         let result = SignedMantleTx::new(
             mantle_tx,
-            vec![Some(OpProof::Ed25519Sig(signature))],
+            vec![OpProof::Ed25519Sig(signature)],
             dummy_zk_signature(),
         );
 
@@ -404,28 +398,11 @@ mod tests {
 
         let result = SignedMantleTx::new(
             mantle_tx,
-            vec![Some(OpProof::Ed25519Sig(signature))],
+            vec![OpProof::Ed25519Sig(signature)],
             dummy_zk_signature(),
         );
 
         assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_signed_mantle_tx_new_missing_blob_proof() {
-        let signing_key = SigningKey::from_bytes(&[1; 32]);
-        let blob_op = create_test_blob_op(&signing_key);
-        let mantle_tx = create_test_mantle_tx(vec![Op::ChannelBlob(blob_op)]);
-
-        let result = SignedMantleTx::new(mantle_tx, vec![None], dummy_zk_signature());
-
-        assert!(matches!(
-            result,
-            Err(VerificationError::MissingProof {
-                op_type: "ChannelBlob",
-                op_index: 0
-            })
-        ));
     }
 
     #[test]
@@ -434,13 +411,13 @@ mod tests {
         let inscribe_op = create_test_inscribe_op(&signing_key);
         let mantle_tx = create_test_mantle_tx(vec![Op::ChannelInscribe(inscribe_op)]);
 
-        let result = SignedMantleTx::new(mantle_tx, vec![None], dummy_zk_signature());
+        let result = SignedMantleTx::new(mantle_tx, vec![], dummy_zk_signature());
 
         assert!(matches!(
             result,
-            Err(VerificationError::MissingProof {
-                op_type: "ChannelInscribe",
-                op_index: 0
+            Err(VerificationError::ProofCountMismatch {
+                ops_count: 1,
+                proofs_count: 0
             })
         ));
     }
@@ -458,7 +435,7 @@ mod tests {
 
         let result = SignedMantleTx::new(
             mantle_tx,
-            vec![Some(OpProof::Ed25519Sig(signature))],
+            vec![OpProof::Ed25519Sig(signature)],
             dummy_zk_signature(),
         );
 
@@ -481,7 +458,7 @@ mod tests {
 
         let result = SignedMantleTx::new(
             mantle_tx,
-            vec![Some(OpProof::Ed25519Sig(signature))],
+            vec![OpProof::Ed25519Sig(signature)],
             dummy_zk_signature(),
         );
 
@@ -500,7 +477,7 @@ mod tests {
         // Use wrong proof type
         let result = SignedMantleTx::new(
             mantle_tx,
-            vec![Some(OpProof::ZkSig(dummy_zk_signature()))],
+            vec![OpProof::ZkSig(dummy_zk_signature())],
             dummy_zk_signature(),
         );
 
@@ -522,7 +499,7 @@ mod tests {
         // Use wrong proof type
         let result = SignedMantleTx::new(
             mantle_tx,
-            vec![Some(OpProof::ZkSig(dummy_zk_signature()))],
+            vec![OpProof::ZkSig(dummy_zk_signature())],
             dummy_zk_signature(),
         );
 
@@ -554,10 +531,7 @@ mod tests {
 
         let result = SignedMantleTx::new(
             mantle_tx,
-            vec![
-                Some(OpProof::Ed25519Sig(sig1)),
-                Some(OpProof::Ed25519Sig(sig2)),
-            ],
+            vec![OpProof::Ed25519Sig(sig1), OpProof::Ed25519Sig(sig2)],
             dummy_zk_signature(),
         );
 
@@ -584,10 +558,7 @@ mod tests {
 
         let result = SignedMantleTx::new(
             mantle_tx,
-            vec![
-                Some(OpProof::Ed25519Sig(sig1)),
-                Some(OpProof::Ed25519Sig(sig2)),
-            ],
+            vec![OpProof::Ed25519Sig(sig1), OpProof::Ed25519Sig(sig2)],
             dummy_zk_signature(),
         );
 
@@ -608,7 +579,7 @@ mod tests {
 
         let signed_tx = SignedMantleTx::new(
             mantle_tx,
-            vec![Some(OpProof::Ed25519Sig(signature))],
+            vec![OpProof::Ed25519Sig(signature)],
             dummy_zk_signature(),
         )
         .unwrap();
@@ -629,7 +600,7 @@ mod tests {
 
         let helper = SignedMantleTx {
             mantle_tx,
-            ops_proofs: vec![None],
+            ops_proofs: vec![],
             ledger_tx_proof: dummy_zk_signature(),
         };
 
@@ -638,7 +609,10 @@ mod tests {
 
         assert!(deserialized.is_err());
         let err_msg = deserialized.unwrap_err().to_string();
-        assert!(err_msg.contains("MissingProof") || err_msg.contains("ChannelBlob"));
+        assert_eq!(
+            err_msg,
+            "Number of proofs (0) does not match number of operations (1)"
+        );
     }
 
     #[test]
@@ -653,7 +627,7 @@ mod tests {
 
         let helper = SignedMantleTx {
             mantle_tx,
-            ops_proofs: vec![Some(OpProof::Ed25519Sig(wrong_signature))],
+            ops_proofs: vec![OpProof::Ed25519Sig(wrong_signature)],
             ledger_tx_proof: dummy_zk_signature(),
         };
 
@@ -687,8 +661,8 @@ mod tests {
         let result = SignedMantleTx::new(
             mantle_tx,
             vec![
-                Some(OpProof::Ed25519Sig(signature)),
-                Some(OpProof::Ed25519Sig(signature)),
+                OpProof::Ed25519Sig(signature),
+                OpProof::Ed25519Sig(signature),
             ],
             dummy_zk_signature(),
         );

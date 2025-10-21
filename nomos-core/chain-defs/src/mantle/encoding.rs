@@ -23,7 +23,6 @@ use crate::{
             sdp::{SDPActiveOp, SDPDeclareOp, SDPWithdrawOp},
         },
     },
-    proofs::zksig::ZkSignaturePublic,
     sdp::{
         ActivityMetadata, DeclarationId, Locator, ProviderId, ServiceType,
         ZkPublicKey as SdpZkPublicKey,
@@ -40,26 +39,10 @@ pub fn decode_signed_mantle_tx(input: &[u8]) -> IResult<&[u8], SignedMantleTx> {
     let (input, ops_proofs) = decode_ops_proofs(input, &mantle_tx.ops)?;
     let (input, ledger_tx_proof) = decode_zk_signature(input)?;
 
-    // Use new_unverified since we're just decoding, verification happens separately
-    #[cfg(any(test, debug_assertions))]
-    {
-        Ok((
-            input,
-            SignedMantleTx::new_unverified(
-                mantle_tx,
-                ops_proofs.into_iter().map(Some).collect(),
-                ledger_tx_proof,
-            ),
-        ))
-    }
+    let signed_tx = SignedMantleTx::new(mantle_tx, ops_proofs, ledger_tx_proof)
+        .map_err(|_| nom::Err::Error(Error::new(input, ErrorKind::Verify)))?;
 
-    // In release mode without test/debug, we need to verify
-    #[cfg(not(any(test, debug_assertions)))]
-    {
-        SignedMantleTx::new(mantle_tx, ops_proofs, ledger_tx_proof)
-            .map(|tx| (input, tx))
-            .map_err(|_| nom::Err::Error(Error::new(input, ErrorKind::Verify)))
-    }
+    Ok((input, signed_tx))
 }
 
 pub fn decode_mantle_tx(input: &[u8]) -> IResult<&[u8], MantleTx> {
@@ -341,12 +324,12 @@ fn decode_ops_proofs<'a>(input: &'a [u8], ops: &[Op]) -> IResult<&'a [u8], Vec<O
 fn decode_op_proof<'a>(input: &'a [u8], op: &Op) -> IResult<&'a [u8], OpProof> {
     match op {
         // Ed25519SigProof = Ed25519Signature
-        Op::ChannelInscribe(_) | Op::ChannelBlob(_) => {
+        Op::ChannelInscribe(_) | Op::ChannelBlob(_) | Op::ChannelSetKeys(_) => {
             map(decode_ed25519_signature, OpProof::Ed25519Sig).parse(input)
         }
 
         // ZkAndEd25519SigsProof = ZkSignature Ed25519Signature
-        Op::ChannelSetKeys(_) => {
+        Op::SDPDeclare(_) => {
             let (input, zk_sig) = decode_zk_signature(input)?;
             let (input, ed25519_sig) = decode_ed25519_signature(input)?;
             Ok((
@@ -359,7 +342,7 @@ fn decode_op_proof<'a>(input: &'a [u8], op: &Op) -> IResult<&'a [u8], OpProof> {
         }
 
         // ZkSigProof = ZkSignature
-        Op::SDPDeclare(_) | Op::SDPWithdraw(_) | Op::SDPActive(_) => {
+        Op::SDPWithdraw(_) | Op::SDPActive(_) => {
             map(decode_zk_signature, OpProof::ZkSig).parse(input)
         }
 
@@ -368,9 +351,6 @@ fn decode_op_proof<'a>(input: &'a [u8], op: &Op) -> IResult<&'a [u8], OpProof> {
             panic!("OpProof::LeaderClaimProof not yet implemented");
         })
         .parse(input),
-        Op::Native(_) => {
-            unreachable!("Native ops should not be present in the proof")
-        }
     }
 }
 
@@ -380,29 +360,22 @@ fn decode_op_proof<'a>(input: &'a [u8], op: &Op) -> IResult<&'a [u8], OpProof> {
 
 fn decode_zk_signature(input: &[u8]) -> IResult<&[u8], DummyZkSignature> {
     // ZkSignature = Groth16
+    // TODO: for now, signatures are dummy sigs
     map(decode_dummy_zk_signature, DummyZkSignature::from).parse(input)
 }
 
+const GROTH16_BYTES: usize = 128;
 fn decode_groth16(input: &[u8]) -> IResult<&[u8], CompressedGroth16Proof> {
     // Groth16 = 128BYTE
-    map(take(128usize), |bytes: &[u8]| {
-        let mut proof_bytes = [0u8; 128];
-        proof_bytes.copy_from_slice(bytes);
-        CompressedGroth16Proof::from_bytes(&proof_bytes)
-    })
+    map(
+        decode_array::<GROTH16_BYTES>,
+        |proof: [u8; GROTH16_BYTES]| CompressedGroth16Proof::from_bytes(&proof),
+    )
     .parse(input)
 }
 
 fn decode_dummy_zk_signature(input: &[u8]) -> IResult<&[u8], DummyZkSignature> {
-    let (input, msg_hash) = decode_field_element(input)?;
-    let (input, pks_len) = decode_u8(input)?;
-    let (input, pks) = count(decode_field_element, pks_len as usize).parse(input)?;
-    IResult::Ok((
-        input,
-        DummyZkSignature {
-            public_inputs: ZkSignaturePublic { msg_hash, pks },
-        },
-    ))
+    map(decode_array::<GROTH16_BYTES>, DummyZkSignature::from_bytes).parse(input)
 }
 
 fn decode_zk_public_key(input: &[u8]) -> IResult<&[u8], PublicKey> {
@@ -410,23 +383,25 @@ fn decode_zk_public_key(input: &[u8]) -> IResult<&[u8], PublicKey> {
     map(decode_field_element, PublicKey::new).parse(input)
 }
 
+const ED25519_PK_BYTES: usize = 32;
 fn decode_ed25519_public_key(input: &[u8]) -> IResult<&[u8], Ed25519PublicKey> {
     // Ed25519PublicKey = 32BYTE
-    map_res(take(32usize), |bytes: &[u8]| {
-        let mut arr = [0u8; 32];
-        arr.copy_from_slice(bytes);
-        Ed25519PublicKey::from_bytes(&arr).map_err(|_| Error::new(bytes, ErrorKind::Fail))
-    })
+    map_res(
+        decode_array::<ED25519_PK_BYTES>,
+        |bytes: [u8; ED25519_PK_BYTES]| {
+            Ed25519PublicKey::from_bytes(&bytes).map_err(|_| Error::new(bytes, ErrorKind::Fail))
+        },
+    )
     .parse(input)
 }
 
+const ED25519_SIG_BYTES: usize = 64;
 fn decode_ed25519_signature(input: &[u8]) -> IResult<&[u8], ed25519::Signature> {
     // Ed25519Signature = 64BYTE
-    map(take(64usize), |bytes: &[u8]| {
-        let mut arr = [0u8; 64];
-        arr.copy_from_slice(bytes);
-        ed25519::Signature::from_bytes(&arr)
-    })
+    map(
+        decode_array::<ED25519_SIG_BYTES>,
+        |bytes: [u8; ED25519_SIG_BYTES]| ed25519::Signature::from_bytes(&bytes),
+    )
     .parse(input)
 }
 
@@ -440,17 +415,20 @@ fn decode_field_element(input: &[u8]) -> IResult<&[u8], Fr> {
 
 fn decode_hash32(input: &[u8]) -> IResult<&[u8], [u8; 32]> {
     // Hash32 = 32BYTE
-    map(take(32usize), |bytes: &[u8]| {
-        let mut arr = [0u8; 32];
-        arr.copy_from_slice(bytes);
-        arr
-    })
-    .parse(input)
+    decode_array::<32>(input)
 }
 
 // ==============================================================================
 // Primitive Decoders
 // ==============================================================================
+fn decode_array<const N: usize>(input: &[u8]) -> IResult<&[u8], [u8; N]> {
+    map(take(N), |bytes: &[u8]| {
+        let mut arr = [0u8; N];
+        arr.copy_from_slice(bytes);
+        arr
+    })
+    .parse(input)
+}
 
 fn decode_uint64(input: &[u8]) -> IResult<&[u8], u64> {
     // UINT64 = 8BYTE
@@ -516,7 +494,7 @@ fn encode_zk_signature(sig: &DummyZkSignature) -> Vec<u8> {
     // bytes.extend_from_slice(proof.pi_c.as_slice());
     // bytes
 
-    sig.as_bytes() // -> Fake implementation for dummy, will change to proof at some point
+    sig.as_bytes().to_vec() // -> Fake implementation for dummy, will change to proof at some point
 }
 
 /// Encode channel operations
@@ -683,9 +661,6 @@ fn encode_op(op: &Op) -> Vec<u8> {
             bytes.extend(encode_byte(opcode::LEADER_CLAIM));
             bytes.extend(encode_leader_claim(op));
         }
-        Op::Native(_) => {
-            unimplemented!("Native operation is deprecated and will be removed");
-        }
     }
     bytes
 }
@@ -700,25 +675,24 @@ fn encode_ops(ops: &[Op]) -> Vec<u8> {
 }
 
 /// Encode proofs
-fn encode_op_proof(proof: Option<&OpProof>, op: &Op) -> Vec<u8> {
+fn encode_op_proof(proof: &OpProof, op: &Op) -> Vec<u8> {
     match (proof, op) {
-        (Some(OpProof::Ed25519Sig(sig)), Op::ChannelInscribe(_) | Op::ChannelBlob(_)) => {
-            encode_ed25519_signature(sig)
-        }
         (
-            Some(OpProof::ZkAndEd25519Sigs {
+            OpProof::Ed25519Sig(sig),
+            Op::ChannelInscribe(_) | Op::ChannelBlob(_) | Op::ChannelSetKeys(_),
+        ) => encode_ed25519_signature(sig),
+        (
+            OpProof::ZkAndEd25519Sigs {
                 zk_sig,
                 ed25519_sig,
-            }),
-            Op::ChannelSetKeys(_),
+            },
+            Op::SDPDeclare(_),
         ) => {
             let mut bytes = encode_zk_signature(zk_sig);
             bytes.extend(encode_ed25519_signature(ed25519_sig));
             bytes
         }
-        (Some(OpProof::ZkSig(sig)), Op::SDPDeclare(_) | Op::SDPWithdraw(_) | Op::SDPActive(_)) => {
-            encode_zk_signature(sig)
-        }
+        (OpProof::ZkSig(sig), Op::SDPWithdraw(_) | Op::SDPActive(_)) => encode_zk_signature(sig),
         (_, Op::LeaderClaim(_)) => {
             unimplemented!("ProofOfClaimProof not implemented");
         }
@@ -728,10 +702,10 @@ fn encode_op_proof(proof: Option<&OpProof>, op: &Op) -> Vec<u8> {
     }
 }
 
-fn encode_ops_proofs(proofs: &[Option<OpProof>], ops: &[Op]) -> Vec<u8> {
+fn encode_ops_proofs(proofs: &[OpProof], ops: &[Op]) -> Vec<u8> {
     let mut bytes = Vec::new();
     for (proof, op) in proofs.iter().zip(ops.iter()) {
-        bytes.extend(encode_op_proof(proof.as_ref(), op));
+        bytes.extend(encode_op_proof(proof, op));
     }
     bytes
 }
@@ -756,15 +730,49 @@ pub fn encode_signed_mantle_tx(tx: &SignedMantleTx) -> Vec<u8> {
     bytes
 }
 
+pub(crate) fn predict_signed_mantle_tx_size(tx: &MantleTx) -> usize {
+    let mantle_tx_size = encode_mantle_tx(tx).len();
+
+    let ops_proofs_size = tx
+        .ops
+        .iter()
+        .map(|op| match op {
+            // Ed25519SigProof = Ed25519Signature
+            Op::ChannelInscribe(_) | Op::ChannelBlob(_) | Op::ChannelSetKeys(_) => {
+                ED25519_SIG_BYTES
+            }
+
+            // ZkAndEd25519SigsProof = ZkSignature Ed25519Signature
+            Op::SDPDeclare(_) => GROTH16_BYTES + ED25519_SIG_BYTES,
+
+            // ZkSigProof  = ZkSignature
+            Op::SDPWithdraw(_) | Op::SDPActive(_) => GROTH16_BYTES,
+
+            // ProofOfClaimProof = Groth16
+            Op::LeaderClaim(_) => {
+                unimplemented!("OpProof::LeaderClaimProof not yet implemented");
+            }
+        })
+        .sum::<usize>();
+
+    // LedgerTxProof = ZkSignature
+    // ZkSignature   = Groth16
+    let ledger_tx_proof_size = GROTH16_BYTES;
+
+    mantle_tx_size + ops_proofs_size + ledger_tx_proof_size
+}
+
 #[cfg(test)]
 mod tests {
     use ark_ff::Field as _;
-    use ed25519::Signature;
+    use ed25519::{Signature, signature::SignerMut as _};
+    use ed25519_dalek::SigningKey;
 
     use super::*;
+    use crate::{mantle::Transaction as _, proofs::zksig::ZkSignaturePublic};
 
     fn dummy_zk_signature() -> DummyZkSignature {
-        DummyZkSignature::prove(ZkSignaturePublic {
+        DummyZkSignature::prove(&ZkSignaturePublic {
             msg_hash: Fr::ZERO,
             pks: [Fr::ZERO; 1].to_vec(),
         })
@@ -806,12 +814,19 @@ mod tests {
             100, 0, 0, 0, 0, 0, 0, 0,  // ExecutionGasPrice=100u64
             50, 0, 0, 0, 0, 0, 0, 0,   // StorageGasPrice=50u64
             // dummy_zk_signature
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // msg hash
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            1, // zk pks count
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // zk signature
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -834,7 +849,7 @@ mod tests {
                     storage_gas_price: 50,
                 },
                 ops_proofs: vec![],
-                ledger_tx_proof: dummy_zk_signature(),
+                ledger_tx_proof: DummyZkSignature::from_bytes([0u8; 128])
             }
         );
     }
@@ -843,43 +858,50 @@ mod tests {
     fn test_decode_signed_mantle_tx_with_inscribe() {
         #[rustfmt::skip]
         let data = [
-            1,                         // OpCount=1
-            0x00,                      // Opcode=ChannelInscribe
-            0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, // ChannelId (32 bytes)
-            0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA,
-            0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA,
-            0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA,
-            5, 0, 0, 0,                // InscriptionLength =5u32
-            b'h', b'e', b'l', b'l', b'o', // Inscription="hello"
-            0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, // Parent (32 bytes)
-            0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB,
-            0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB,
-            0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB,
-            215, 90, 152, 1, 130, 177, 10, 183,             // Signer (Ed25519PublicKey) (32 bytes)
-            213, 75, 254, 211, 201, 100, 7, 58,
-            14, 225, 114, 243, 218, 166, 35, 37,
-            175, 2, 26, 104, 247, 7, 81, 26,
-            0, 0,                      // LedgerInputCount=0, LedgerOutputCount=0
-            100, 0, 0, 0, 0, 0, 0, 0,  // ExecutionGasPrice=100u64
-            50, 0, 0, 0, 0, 0, 0, 0,   // StorageGasPrice=50u64
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Ed25519Signature (64 bytes)
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            // dummy_zk_signature
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // msg hash
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            1, // zk pks count
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // zk signature
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            1,                                              // OpCount
+            0x00,                                           // OpCode
+            0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, // ChannelId (32Byte)
+            0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, //
+            0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, //
+            0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, //
+            5, 0, 0, 0,                                     // InscriptionLength
+            b'h', b'e', b'l', b'l', b'o',                   // Inscription
+            0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, // Parent (32Byte)
+            0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, //
+            0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, //
+            0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, //
+            202, 147, 172,  23,   5,  24, 112, 113,         // Signer (32Byte)
+            214, 123, 131, 199, 255,  14, 254, 129,         //
+            8,   232, 236,  69,  48,  87,  93, 119,         //
+            38,  135, 147,  51, 219, 218, 190, 124,         //
+            0,                                              // LedgerInputCount
+            0,                                              // LedgerOutputCount
+            100, 0, 0, 0, 0, 0, 0, 0,                       // ExecutionGasPrice
+             50, 0, 0, 0, 0, 0, 0, 0,                       // StorageGasPrice
+            211, 102,  68,  60,  70, 179, 198, 132,         // Signature (64Byte)
+            126, 141, 207, 182,  20, 128,   0,  42,         //
+            233,  25,  70,   7,  81, 139, 245, 253,         //
+              5,  75,  57, 249, 196, 162, 115, 129,         //
+            167, 143,  89, 155, 103,  74, 204,  52,         //
+            145, 167, 246,  16,  41, 121,  79, 142,         //
+            188, 197, 171, 253, 229, 213, 196, 109,         //
+             53,  13, 152,  10, 165,  52, 150,   7,         //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // ZkSignature (128Byte)
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
         ];
 
         let (remaining, signed_tx) = decode_signed_mantle_tx(&data).unwrap();
@@ -894,12 +916,7 @@ mod tests {
                         channel_id: ChannelId::from([0xAA; 32]),
                         inscription: b"hello".to_vec(),
                         parent: MsgId::from([0xBB; 32]),
-                        signer: Ed25519PublicKey::from_bytes(&[
-                            215u8, 90, 152, 1, 130, 177, 10, 183, 213, 75, 254, 211, 201, 100, 7,
-                            58, 14, 225, 114, 243, 218, 166, 35, 37, 175, 2, 26, 104, 247, 7, 81,
-                            26
-                        ])
-                        .unwrap(),
+                        signer: SigningKey::from_bytes(&[4u8; 32]).verifying_key()
                     })],
                     ledger_tx: LedgerTx {
                         inputs: vec![],
@@ -908,10 +925,13 @@ mod tests {
                     execution_gas_price: 100,
                     storage_gas_price: 50
                 },
-                ops_proofs: vec![Some(OpProof::Ed25519Sig(Signature::from_bytes(
-                    &[0x00; 64]
-                )))],
-                ledger_tx_proof: dummy_zk_signature(),
+                ops_proofs: vec![OpProof::Ed25519Sig(Signature::from_bytes(&[
+                    211, 102, 68, 60, 70, 179, 198, 132, 126, 141, 207, 182, 20, 128, 0, 42, 233,
+                    25, 70, 7, 81, 139, 245, 253, 5, 75, 57, 249, 196, 162, 115, 129, 167, 143, 89,
+                    155, 103, 74, 204, 52, 145, 167, 246, 16, 41, 121, 79, 142, 188, 197, 171, 253,
+                    229, 213, 196, 109, 53, 13, 152, 10, 165, 52, 150, 7,
+                ]))],
+                ledger_tx_proof: DummyZkSignature::from_bytes([0u8; 128])
             }
         );
     }
@@ -920,47 +940,54 @@ mod tests {
     fn test_decode_signed_mantle_tx_with_blob() {
         #[rustfmt::skip]
         let data = [
-            1,                         // OpCount=1
-            0x01,                      // Opcode=ChannelBlob
-            0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, // ChannelId (32 bytes)
-            0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA,
-            0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA,
-            0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA,
-            0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, // BlobId (32 bytes)
-            0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB,
-            0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB,
-            0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB,
-            0, 4, 0, 0, 0, 0, 0, 0,    // BlobSize =1024u64
-            10, 0, 0, 0, 0, 0, 0, 0,   // DaStorageGasPrice =10u64
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Parent (32 bytes)
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            215, 90, 152, 1, 130, 177, 10, 183,             // Signer (Ed25519PublicKey) (32 bytes)
-            213, 75, 254, 211, 201, 100, 7, 58,
-            14, 225, 114, 243, 218, 166, 35, 37,
-            175, 2, 26, 104, 247, 7, 81, 26,
-            0, 0,                      // LedgerInputCount=0, LedgerOutputCount=0
-            100, 0, 0, 0, 0, 0, 0, 0,  // ExecutionGasPrice=100u64
-            50, 0, 0, 0, 0, 0, 0, 0,   // StorageGasPrice=50u64
-            0xDD, 0xDD, 0xDD, 0xDD, 0xDD, 0xDD, 0xDD, 0xDD, // Ed25519Signature (64 bytes)
-            0xDD, 0xDD, 0xDD, 0xDD, 0xDD, 0xDD, 0xDD, 0xDD,
-            0xDD, 0xDD, 0xDD, 0xDD, 0xDD, 0xDD, 0xDD, 0xDD,
-            0xDD, 0xDD, 0xDD, 0xDD, 0xDD, 0xDD, 0xDD, 0xDD,
-            0xDD, 0xDD, 0xDD, 0xDD, 0xDD, 0xDD, 0xDD, 0xDD,
-            0xDD, 0xDD, 0xDD, 0xDD, 0xDD, 0xDD, 0xDD, 0xDD,
-            0xDD, 0xDD, 0xDD, 0xDD, 0xDD, 0xDD, 0xDD, 0xDD,
-            0xDD, 0xDD, 0xDD, 0xDD, 0xDD, 0xDD, 0xDD, 0xDD,
-            // dummy_zk_signature
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // msg hash
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            1, // zk pks count
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // zk signature
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            1,                                              // OpCount
+            0x01,                                           // Opcode
+            0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, // ChannelId (32Bytes)
+            0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, //
+            0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, //
+            0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, //
+            0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, // BlobId (32Byte)
+            0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, //
+            0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, //
+            0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, //
+             0, 4, 0, 0, 0, 0, 0, 0,                        // BlobSize = 1024u64
+            10, 0, 0, 0, 0, 0, 0, 0,                        // DaStorageGasPrice = 10u64
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Parent (32Byte)
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            138, 136, 227, 221, 116,   9, 241, 149,         // Signer (32Byte)
+            253,  82, 219,  45,  60, 186,  93, 114,         //
+            202, 103,   9, 191,  29, 148,  18,  27,         //
+            243, 116, 136,   1, 180,  15, 111,  92,         //
+            0,                                              // LedgerInputCount
+            0,                                              // LedgerOutputCount
+            100, 0, 0, 0, 0, 0, 0, 0,                       // ExecutionGasPrice
+             50, 0, 0, 0, 0, 0, 0, 0,                       // StorageGasPrice
+            156, 246,   0,  26, 144, 216, 163, 126,         // Ed25519Signature (64Byte)
+             70, 158, 248, 213, 158,   4,   2, 203,         //
+            106, 168,  76,  93,  71,  24, 129,  10,         //
+            143,  58, 178, 122,  42,  98, 107, 162,         //
+            141, 143, 224,  56, 125, 109, 168, 226,         //
+            168,   5,  57,  11,  14, 109,  80, 122,         //
+            213, 107, 182,   3,  83, 140, 147, 154,         //
+             36,  15, 167,  89,  41, 166, 142,   5,         //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // ZkSignature (128Byte)
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
         ];
 
         let (remaining, signed_tx) = decode_signed_mantle_tx(&data).unwrap();
@@ -978,9 +1005,9 @@ mod tests {
                         da_storage_gas_price: 10,
                         parent: MsgId::from([0x00; 32]),
                         signer: Ed25519PublicKey::from_bytes(&[
-                            215u8, 90, 152, 1, 130, 177, 10, 183, 213, 75, 254, 211, 201, 100, 7,
-                            58, 14, 225, 114, 243, 218, 166, 35, 37, 175, 2, 26, 104, 247, 7, 81,
-                            26
+                            138, 136, 227, 221, 116, 9, 241, 149, 253, 82, 219, 45, 60, 186, 93,
+                            114, 202, 103, 9, 191, 29, 148, 18, 27, 243, 116, 136, 1, 180, 15, 111,
+                            92
                         ])
                         .unwrap(),
                     })],
@@ -991,10 +1018,13 @@ mod tests {
                     execution_gas_price: 100,
                     storage_gas_price: 50
                 },
-                ops_proofs: vec![Some(OpProof::Ed25519Sig(Signature::from_bytes(
-                    &[0xDD; 64]
-                )))],
-                ledger_tx_proof: dummy_zk_signature(),
+                ops_proofs: vec![OpProof::Ed25519Sig(Signature::from_bytes(&[
+                    156, 246, 0, 26, 144, 216, 163, 126, 70, 158, 248, 213, 158, 4, 2, 203, 106,
+                    168, 76, 93, 71, 24, 129, 10, 143, 58, 178, 122, 42, 98, 107, 162, 141, 143,
+                    224, 56, 125, 109, 168, 226, 168, 5, 57, 11, 14, 109, 80, 122, 213, 107, 182,
+                    3, 83, 140, 147, 154, 36, 15, 167, 89, 41, 166, 142, 5
+                ]))],
+                ledger_tx_proof: DummyZkSignature::from_bytes([0u8; 128])
             }
         );
     }
@@ -1007,77 +1037,97 @@ mod tests {
     fn test_decode_signed_mantle_tx_with_multiple_ops() {
         #[rustfmt::skip]
         let data = [
-            2,                         // OpCount=2
-            // Op 1: ChannelInscribe
-            0x00,                      // Opcode=ChannelInscribe
-            0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, // ChannelId (32 bytes)
-            0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
-            0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
-            0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
-            5, 0, 0, 0,                // InscriptionLength =5u32
-            b'f', b'i', b'r', b's', b't', // Inscription="first"
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Parent (32 bytes)
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            215, 90, 152, 1, 130, 177, 10, 183,             // Signer (Ed25519PublicKey) (32 bytes)
-            213, 75, 254, 211, 201, 100, 7, 58,
-            14, 225, 114, 243, 218, 166, 35, 37,
-            175, 2, 26, 104, 247, 7, 81, 26,
-            // Op 2: ChannelBlob
-            0x01,                      // Opcode=ChannelBlob
-            0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, // ChannelId (32 bytes)
-            0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22,
-            0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22,
-            0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22,
-            0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, // BlobId (32 bytes)
-            0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
-            0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
-            0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
-            0, 8, 0, 0, 0, 0, 0, 0,    // BlobSize =2048u64
-            20, 0, 0, 0, 0, 0, 0, 0,   // DaStorageGasPrice =20u64
-            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, // Parent (32 bytes)
-            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
-            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
-            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
-            215, 90, 152, 1, 130, 177, 10, 183,             // Signer (Ed25519PublicKey) (32 bytes)
-            213, 75, 254, 211, 201, 100, 7, 58,
-            14, 225, 114, 243, 218, 166, 35, 37,
-            175, 2, 26, 104, 247, 7, 81, 26,
-            0, 0,                      // LedgerInputCount=0, LedgerOutputCount=0
-            100, 0, 0, 0, 0, 0, 0, 0,  // ExecutionGasPrice=100u64
-            50, 0, 0, 0, 0, 0, 0, 0,   // StorageGasPrice=50u64
-            0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, // Ed25519Signature (64 bytes) for Op 1
-            0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA,
-            0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA,
-            0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA,
-            0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA,
-            0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA,
-            0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA,
-            0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA,
-            0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, // Ed25519Signature (64 bytes) for Op 2
-            0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB,
-            0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB,
-            0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB,
-            0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB,
-            0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB,
-            0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB,
-            0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB,
-            // dummy_zk_signature
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // msg hash
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            1, // zk pks count
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // zk signature
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            2,                                              // OpCount=2
+                                                            // Op 1: ChannelInscribe
+            0x00,                                           // Opcode=ChannelInscribe
+            0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, // ChannelId (32Byte)
+            0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, //
+            0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, //
+            0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, //
+            5, 0, 0, 0,                                     // InscriptionLength =5u32
+            b'f', b'i', b'r', b's', b't',                   // Inscription="first"
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Parent (32Byte)
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            202, 147, 172,  23,   5,  24, 112, 113,         // Signer (32Byte)
+            214, 123, 131, 199, 255,  14, 254, 129,         //
+              8, 232, 236,  69,  48,  87,  93, 119,         //
+             38, 135, 147,  51, 219, 218, 190, 124,         //
+                                                            // Op 2: ChannelBlob
+            0x01,                                           // Opcode=ChannelBlob
+            0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, // ChannelId (32Byte)
+            0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, //
+            0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, //
+            0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, //
+            0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, // BlobId (32Byte)
+            0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, //
+            0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, //
+            0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, //
+            0, 8, 0, 0, 0, 0, 0, 0,                         // BlobSize =2048u64
+            20, 0, 0, 0, 0, 0, 0, 0,                        // DaStorageGasPrice =20u64
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, // Parent (32Byte)
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, //
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, //
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, //
+            202, 147, 172,  23,   5,  24, 112, 113,         // Signer (32Byte)
+            214, 123, 131, 199, 255,  14, 254, 129,         //
+              8, 232, 236,  69,  48,  87,  93, 119,         //
+             38, 135, 147,  51, 219, 218, 190, 124,         //
+            0,                                              // LedgerInputCount=0
+            0,                                              // LedgerOutputCount=0
+            100, 0, 0, 0, 0, 0, 0, 0,                       // ExecutionGasPrice=100u64
+            50, 0, 0, 0, 0, 0, 0, 0,                        // StorageGasPrice=50u64
+            194, 238, 118,  72, 128, 151,  84, 132,         // Ed25519Signature (64Byte)
+            132, 227,  59,  66, 117, 238, 229, 167,         // -- for Op 1
+            230, 241,  80, 118, 195,  38,  74,  16,         //
+            210,  95,  80, 172,  91, 215, 237,  13,         //
+            188, 108,  56,  40, 248,   8, 141,  92,         //
+              9, 131,  24,  53, 220, 161, 222, 226,         //
+            142, 168, 215, 187,  48,  79,  10,  71,         //
+            134,  12, 127, 196, 163, 109, 219,  13,         //
+            194, 238, 118,  72, 128, 151,  84, 132,         // Ed25519Signature (64Byte)
+            132, 227,  59,  66, 117, 238, 229, 167,         // -- for Op 2
+            230, 241,  80, 118, 195,  38,  74,  16,         //
+            210,  95,  80, 172,  91, 215, 237,  13,         //
+            188, 108,  56,  40, 248,   8, 141,  92,         //
+              9, 131,  24,  53, 220, 161, 222, 226,         //
+            142, 168, 215, 187,  48,  79,  10,  71,         //
+            134,  12, 127, 196, 163, 109, 219,  13,         //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // ZkSignature (128Byte)
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
         ];
 
         let (remaining, signed_tx) = decode_signed_mantle_tx(&data).unwrap();
 
         assert!(remaining.is_empty());
+
+        let signer = Ed25519PublicKey::from_bytes(&[
+            202, 147, 172, 23, 5, 24, 112, 113, 214, 123, 131, 199, 255, 14, 254, 129, 8, 232, 236,
+            69, 48, 87, 93, 119, 38, 135, 147, 51, 219, 218, 190, 124,
+        ])
+        .unwrap();
+
+        let signer_sig = Signature::from_bytes(&[
+            194, 238, 118, 72, 128, 151, 84, 132, 132, 227, 59, 66, 117, 238, 229, 167, 230, 241,
+            80, 118, 195, 38, 74, 16, 210, 95, 80, 172, 91, 215, 237, 13, 188, 108, 56, 40, 248, 8,
+            141, 92, 9, 131, 24, 53, 220, 161, 222, 226, 142, 168, 215, 187, 48, 79, 10, 71, 134,
+            12, 127, 196, 163, 109, 219, 13,
+        ]);
 
         assert_eq!(
             signed_tx,
@@ -1088,12 +1138,7 @@ mod tests {
                             channel_id: ChannelId::from([0x11; 32]),
                             inscription: b"first".to_vec(),
                             parent: MsgId::from([0x00; 32]),
-                            signer: Ed25519PublicKey::from_bytes(&[
-                                215u8, 90, 152, 1, 130, 177, 10, 183, 213, 75, 254, 211, 201, 100,
-                                7, 58, 14, 225, 114, 243, 218, 166, 35, 37, 175, 2, 26, 104, 247,
-                                7, 81, 26
-                            ])
-                            .unwrap(),
+                            signer,
                         }),
                         Op::ChannelBlob(BlobOp {
                             channel: ChannelId::from([0x22; 32]),
@@ -1101,12 +1146,7 @@ mod tests {
                             blob_size: 2048,
                             da_storage_gas_price: 20,
                             parent: MsgId::from([0x44; 32]),
-                            signer: Ed25519PublicKey::from_bytes(&[
-                                215u8, 90, 152, 1, 130, 177, 10, 183, 213, 75, 254, 211, 201, 100,
-                                7, 58, 14, 225, 114, 243, 218, 166, 35, 37, 175, 2, 26, 104, 247,
-                                7, 81, 26
-                            ])
-                            .unwrap(),
+                            signer,
                         })
                     ],
                     ledger_tx: LedgerTx {
@@ -1117,10 +1157,10 @@ mod tests {
                     storage_gas_price: 50
                 },
                 ops_proofs: vec![
-                    Some(OpProof::Ed25519Sig(Signature::from_bytes(&[0xAA; 64]))),
-                    Some(OpProof::Ed25519Sig(Signature::from_bytes(&[0xBB; 64])))
+                    OpProof::Ed25519Sig(signer_sig),
+                    OpProof::Ed25519Sig(signer_sig)
                 ],
-                ledger_tx_proof: dummy_zk_signature(),
+                ledger_tx_proof: DummyZkSignature::from_bytes([0u8; 128]),
             }
         );
     }
@@ -1143,20 +1183,7 @@ mod tests {
 
         // Verify
         assert!(remaining.is_empty());
-        assert_eq!(decoded_tx.ops.len(), original_tx.ops.len());
-        assert_eq!(
-            decoded_tx.ledger_tx.inputs.len(),
-            original_tx.ledger_tx.inputs.len()
-        );
-        assert_eq!(
-            decoded_tx.ledger_tx.outputs.len(),
-            original_tx.ledger_tx.outputs.len()
-        );
-        assert_eq!(
-            decoded_tx.execution_gas_price,
-            original_tx.execution_gas_price
-        );
-        assert_eq!(decoded_tx.storage_gas_price, original_tx.storage_gas_price);
+        assert_eq!(original_tx, decoded_tx);
     }
 
     #[test]
@@ -1183,11 +1210,7 @@ mod tests {
 
         // Verify
         assert!(remaining.is_empty());
-        assert_eq!(decoded_tx.ledger_tx.inputs.len(), 1);
-        assert_eq!(decoded_tx.ledger_tx.outputs.len(), 1);
-        assert_eq!(decoded_tx.ledger_tx.outputs[0].value, 1000);
-        assert_eq!(decoded_tx.execution_gas_price, 100);
-        assert_eq!(decoded_tx.storage_gas_price, 50);
+        assert_eq!(original_tx, decoded_tx);
     }
 
     #[test]
@@ -1202,7 +1225,7 @@ mod tests {
 
         let ledger_tx_proof = dummy_zk_signature();
 
-        let original_tx = SignedMantleTx::new_unverified(mantle_tx, vec![], ledger_tx_proof);
+        let original_tx = SignedMantleTx::new(mantle_tx, vec![], ledger_tx_proof).unwrap();
 
         // Encode
         let encoded = encode_signed_mantle_tx(&original_tx);
@@ -1212,13 +1235,410 @@ mod tests {
 
         // Verify
         assert!(remaining.is_empty());
-        assert_eq!(decoded_tx.mantle_tx.ops.len(), 0);
-        assert_eq!(decoded_tx.ops_proofs.len(), 0);
-        assert_eq!(decoded_tx.mantle_tx.execution_gas_price, 100);
-        assert_eq!(decoded_tx.mantle_tx.storage_gas_price, 50);
-        // Verify the proof bytes match
-        let original_proof_bytes = encode_zk_signature(&original_tx.ledger_tx_proof);
-        let decoded_proof_bytes = encode_zk_signature(&decoded_tx.ledger_tx_proof);
-        assert_eq!(original_proof_bytes, decoded_proof_bytes);
+        assert_eq!(original_tx, decoded_tx);
+    }
+
+    #[test]
+    fn test_predict_signed_mantle_tx_size_empty_tx() {
+        // Create an empty MantleTx
+        let mantle_tx = MantleTx {
+            ops: vec![],
+            ledger_tx: LedgerTx::new(vec![], vec![]),
+            execution_gas_price: 100,
+            storage_gas_price: 50,
+        };
+
+        // Predict size
+        let predicted_size = predict_signed_mantle_tx_size(&mantle_tx);
+
+        // Create a signed tx and encode it to get actual size
+        let signed_tx = SignedMantleTx::new(mantle_tx, vec![], dummy_zk_signature()).unwrap();
+        let encoded = encode_signed_mantle_tx(&signed_tx);
+        let actual_size = encoded.len();
+
+        assert_eq!(predicted_size, actual_size);
+    }
+
+    #[test]
+    fn test_predict_signed_mantle_tx_size_with_inscribe() {
+        use ed25519_dalek::SigningKey;
+
+        let mut signing_key = SigningKey::from_bytes(&[1; 32]);
+        let inscribe_op = InscriptionOp {
+            channel_id: ChannelId::from([0xAA; 32]),
+            inscription: b"hello world".to_vec(),
+            parent: MsgId::from([0xBB; 32]),
+            signer: signing_key.verifying_key(),
+        };
+
+        let mantle_tx = MantleTx {
+            ops: vec![Op::ChannelInscribe(inscribe_op)],
+            ledger_tx: LedgerTx::new(vec![], vec![]),
+            execution_gas_price: 100,
+            storage_gas_price: 50,
+        };
+
+        // Predict size
+        let predicted_size = predict_signed_mantle_tx_size(&mantle_tx);
+
+        // Create a signed tx and encode it to get actual size
+        let op_sig = signing_key.sign(&mantle_tx.hash().as_signing_bytes());
+        let signed_tx = SignedMantleTx::new(
+            mantle_tx,
+            vec![OpProof::Ed25519Sig(op_sig)],
+            dummy_zk_signature(),
+        )
+        .unwrap();
+        let encoded = encode_signed_mantle_tx(&signed_tx);
+        let actual_size = encoded.len();
+
+        assert_eq!(predicted_size, actual_size);
+    }
+
+    #[test]
+    fn test_predict_signed_mantle_tx_size_with_blob() {
+        use ed25519_dalek::SigningKey;
+
+        let mut signing_key = SigningKey::from_bytes(&[1; 32]);
+        let blob_op = BlobOp {
+            channel: ChannelId::from([0xCC; 32]),
+            blob: [0xDD; 32],
+            blob_size: 1024,
+            da_storage_gas_price: 10,
+            parent: MsgId::from([0xEE; 32]),
+            signer: signing_key.verifying_key(),
+        };
+
+        let mantle_tx = MantleTx {
+            ops: vec![Op::ChannelBlob(blob_op)],
+            ledger_tx: LedgerTx::new(vec![], vec![]),
+            execution_gas_price: 100,
+            storage_gas_price: 50,
+        };
+
+        // Predict size
+        let predicted_size = predict_signed_mantle_tx_size(&mantle_tx);
+
+        // Create a signed tx and encode it to get actual size
+        let blob_sig = signing_key.sign(&mantle_tx.hash().as_signing_bytes());
+        let signed_tx = SignedMantleTx::new(
+            mantle_tx,
+            vec![OpProof::Ed25519Sig(blob_sig)],
+            dummy_zk_signature(),
+        )
+        .unwrap();
+        let encoded = encode_signed_mantle_tx(&signed_tx);
+        let actual_size = encoded.len();
+
+        assert_eq!(predicted_size, actual_size);
+    }
+
+    #[test]
+    fn test_predict_signed_mantle_tx_size_with_set_keys() {
+        use ed25519_dalek::SigningKey;
+
+        let signing_key1 = SigningKey::from_bytes(&[1; 32]);
+        let signing_key2 = SigningKey::from_bytes(&[2; 32]);
+        let signing_key3 = SigningKey::from_bytes(&[3; 32]);
+
+        let set_keys_op = SetKeysOp {
+            channel: ChannelId::from([0xFF; 32]),
+            keys: vec![
+                signing_key1.verifying_key(),
+                signing_key2.verifying_key(),
+                signing_key3.verifying_key(),
+            ],
+        };
+
+        let mantle_tx = MantleTx {
+            ops: vec![Op::ChannelSetKeys(set_keys_op)],
+            ledger_tx: LedgerTx::new(vec![], vec![]),
+            execution_gas_price: 100,
+            storage_gas_price: 50,
+        };
+
+        // Predict size
+        let predicted_size = predict_signed_mantle_tx_size(&mantle_tx);
+
+        // Create a signed tx and encode it to get actual size
+        let dummy_ed25519_sig = Signature::from_bytes(&[0; 64]);
+        let signed_tx = SignedMantleTx::new(
+            mantle_tx,
+            vec![OpProof::Ed25519Sig(dummy_ed25519_sig)],
+            dummy_zk_signature(),
+        )
+        .unwrap();
+        let encoded = encode_signed_mantle_tx(&signed_tx);
+        let actual_size = encoded.len();
+
+        assert_eq!(predicted_size, actual_size);
+    }
+
+    #[test]
+    fn test_predict_signed_mantle_tx_size_with_sdp_declare() {
+        use ed25519_dalek::SigningKey;
+        use num_bigint::BigUint;
+
+        let signing_key = SigningKey::from_bytes(&[1; 32]);
+        let locator1: multiaddr::Multiaddr = "/ip4/127.0.0.1/tcp/8080".parse().unwrap();
+        let locator2: multiaddr::Multiaddr = "/ip6/::1/tcp/9090".parse().unwrap();
+
+        let sdp_declare_op = SDPDeclareOp {
+            service_type: ServiceType::BlendNetwork,
+            locators: vec![Locator::new(locator1), Locator::new(locator2)],
+            provider_id: ProviderId(signing_key.verifying_key()),
+            zk_id: SdpZkPublicKey(BigUint::from(42u64).into()),
+            locked_note_id: NoteId(BigUint::from(123u64).into()),
+        };
+
+        let mantle_tx = MantleTx {
+            ops: vec![Op::SDPDeclare(sdp_declare_op)],
+            ledger_tx: LedgerTx::new(vec![], vec![]),
+            execution_gas_price: 100,
+            storage_gas_price: 50,
+        };
+
+        // Predict size
+        let predicted_size = predict_signed_mantle_tx_size(&mantle_tx);
+
+        // Create a signed tx and encode it to get actual size
+        let signed_tx = SignedMantleTx::new(
+            mantle_tx,
+            vec![OpProof::ZkAndEd25519Sigs {
+                zk_sig: dummy_zk_signature(),
+                ed25519_sig: Signature::from_bytes(&[0u8; 64]),
+            }],
+            dummy_zk_signature(),
+        )
+        .unwrap();
+        let encoded = encode_signed_mantle_tx(&signed_tx);
+        let actual_size = encoded.len();
+
+        assert_eq!(predicted_size, actual_size);
+    }
+
+    #[test]
+    fn test_predict_signed_mantle_tx_size_with_sdp_withdraw() {
+        let sdp_withdraw_op = SDPWithdrawOp {
+            declaration_id: DeclarationId([0x11; 32]),
+            nonce: 42,
+        };
+
+        let mantle_tx = MantleTx {
+            ops: vec![Op::SDPWithdraw(sdp_withdraw_op)],
+            ledger_tx: LedgerTx::new(vec![], vec![]),
+            execution_gas_price: 100,
+            storage_gas_price: 50,
+        };
+
+        // Predict size
+        let predicted_size = predict_signed_mantle_tx_size(&mantle_tx);
+
+        // Create a signed tx and encode it to get actual size
+        let signed_tx = SignedMantleTx::new(
+            mantle_tx,
+            vec![OpProof::ZkSig(dummy_zk_signature())],
+            dummy_zk_signature(),
+        )
+        .unwrap();
+        let encoded = encode_signed_mantle_tx(&signed_tx);
+        let actual_size = encoded.len();
+
+        assert_eq!(predicted_size, actual_size);
+    }
+
+    // #[test]
+    // fn test_predict_signed_mantle_tx_size_with_sdp_active() {
+    //     let sdp_active_op = SDPActiveOp {
+    //         declaration_id: DeclarationId([0x22; 32]),
+    //         nonce: 99,
+    //         metadata: Some(vec![1, 2, 3, 4, 5]),
+    //     };
+
+    //     let mantle_tx = MantleTx {
+    //         ops: vec![Op::SDPActive(sdp_active_op)],
+    //         ledger_tx: LedgerTx::new(vec![], vec![]),
+    //         execution_gas_price: 100,
+    //         storage_gas_price: 50,
+    //     };
+
+    //     // Predict size
+    //     let predicted_size = predict_signed_mantle_tx_size(&mantle_tx);
+
+    //     // Create a signed tx and encode it to get actual size
+    //     let signed_tx = SignedMantleTx::new(
+    //         mantle_tx,
+    //         vec![OpProof::ZkSig(dummy_zk_signature())],
+    //         dummy_zk_signature(),
+    //     )
+    //     .unwrap();
+    //     let encoded = encode_signed_mantle_tx(&signed_tx);
+    //     let actual_size = encoded.len();
+
+    //     assert_eq!(predicted_size, actual_size);
+    // }
+
+    #[test]
+    fn test_predict_signed_mantle_tx_size_with_multiple_ops() {
+        use ed25519_dalek::SigningKey;
+
+        let mut signing_key = SigningKey::from_bytes(&[1; 32]);
+
+        let inscribe_op = InscriptionOp {
+            channel_id: ChannelId::from([0xAA; 32]),
+            inscription: b"test".to_vec(),
+            parent: MsgId::from([0xBB; 32]),
+            signer: signing_key.verifying_key(),
+        };
+
+        let blob_op = BlobOp {
+            channel: ChannelId::from([0xCC; 32]),
+            blob: [0xDD; 32],
+            blob_size: 2048,
+            da_storage_gas_price: 20,
+            parent: MsgId::from([0xEE; 32]),
+            signer: signing_key.verifying_key(),
+        };
+
+        let sdp_active_op = SDPActiveOp {
+            declaration_id: DeclarationId([0x33; 32]),
+            nonce: 55,
+            metadata: None,
+        };
+
+        let mantle_tx = MantleTx {
+            ops: vec![
+                Op::ChannelInscribe(inscribe_op),
+                Op::ChannelBlob(blob_op),
+                Op::SDPActive(sdp_active_op),
+            ],
+            ledger_tx: LedgerTx::new(vec![], vec![]),
+            execution_gas_price: 100,
+            storage_gas_price: 50,
+        };
+
+        // Predict size
+        let predicted_size = predict_signed_mantle_tx_size(&mantle_tx);
+
+        let op_sig = signing_key.sign(&mantle_tx.hash().as_signing_bytes());
+        // Create a signed tx and encode it to get actual size
+        let signed_tx = SignedMantleTx::new(
+            mantle_tx,
+            vec![
+                OpProof::Ed25519Sig(op_sig),
+                OpProof::Ed25519Sig(op_sig),
+                OpProof::ZkSig(dummy_zk_signature()),
+            ],
+            dummy_zk_signature(),
+        )
+        .unwrap();
+        let encoded = encode_signed_mantle_tx(&signed_tx);
+        let actual_size = encoded.len();
+
+        assert_eq!(predicted_size, actual_size);
+    }
+
+    #[test]
+    fn test_predict_signed_mantle_tx_size_with_ledger_inputs_outputs() {
+        use num_bigint::BigUint;
+
+        use crate::mantle::keys::PublicKey;
+
+        let pk1 = PublicKey::from(BigUint::from(100u64));
+        let pk2 = PublicKey::from(BigUint::from(200u64));
+
+        let note1 = Note::new(1000, pk1);
+        let note2 = Note::new(2000, pk2);
+
+        let note_id1 = NoteId(BigUint::from(111u64).into());
+        let note_id2 = NoteId(BigUint::from(222u64).into());
+        let note_id3 = NoteId(BigUint::from(333u64).into());
+
+        let mantle_tx = MantleTx {
+            ops: vec![],
+            ledger_tx: LedgerTx::new(vec![note_id1, note_id2, note_id3], vec![note1, note2]),
+            execution_gas_price: 100,
+            storage_gas_price: 50,
+        };
+
+        // Predict size
+        let predicted_size = predict_signed_mantle_tx_size(&mantle_tx);
+
+        // Create a signed tx and encode it to get actual size
+        let signed_tx = SignedMantleTx::new(mantle_tx, vec![], dummy_zk_signature()).unwrap();
+        let encoded = encode_signed_mantle_tx(&signed_tx);
+        let actual_size = encoded.len();
+
+        assert_eq!(predicted_size, actual_size);
+    }
+
+    #[test]
+    fn test_predict_signed_mantle_tx_size_complex_scenario() {
+        use ed25519_dalek::SigningKey;
+        use num_bigint::BigUint;
+
+        use crate::mantle::keys::PublicKey;
+
+        let mut signing_key1 = SigningKey::from_bytes(&[1; 32]);
+        let signing_key2 = SigningKey::from_bytes(&[2; 32]);
+
+        let inscribe_op = InscriptionOp {
+            channel_id: ChannelId::from([0x11; 32]),
+            inscription: b"complex test inscription with more data".to_vec(),
+            parent: MsgId::from([0x22; 32]),
+            signer: signing_key1.verifying_key(),
+        };
+
+        let set_keys_op = SetKeysOp {
+            channel: ChannelId::from([0x33; 32]),
+            keys: vec![signing_key1.verifying_key(), signing_key2.verifying_key()],
+        };
+
+        let locator: multiaddr::Multiaddr = "/dns4/example.com/tcp/443".parse().unwrap();
+        let sdp_declare_op = SDPDeclareOp {
+            service_type: ServiceType::DataAvailability,
+            locators: vec![Locator::new(locator)],
+            provider_id: ProviderId(signing_key1.verifying_key()),
+            zk_id: SdpZkPublicKey(BigUint::from(999u64).into()),
+            locked_note_id: NoteId(BigUint::from(888u64).into()),
+        };
+
+        let pk = PublicKey::from(BigUint::from(500u64));
+        let note = Note::new(5000, pk);
+        let note_id = NoteId(BigUint::from(777u64).into());
+
+        let mantle_tx = MantleTx {
+            ops: vec![
+                Op::ChannelInscribe(inscribe_op),
+                Op::ChannelSetKeys(set_keys_op),
+                Op::SDPDeclare(sdp_declare_op),
+            ],
+            ledger_tx: LedgerTx::new(vec![note_id], vec![note]),
+            execution_gas_price: 150,
+            storage_gas_price: 75,
+        };
+
+        // Predict size
+        let predicted_size = predict_signed_mantle_tx_size(&mantle_tx);
+
+        // Create a signed tx and encode it to get actual size
+        let op_ed25519_sig = signing_key1.sign(&mantle_tx.hash().as_signing_bytes());
+        let signed_tx = SignedMantleTx::new(
+            mantle_tx,
+            vec![
+                OpProof::Ed25519Sig(op_ed25519_sig),
+                OpProof::Ed25519Sig(op_ed25519_sig),
+                OpProof::ZkAndEd25519Sigs {
+                    zk_sig: dummy_zk_signature(),
+                    ed25519_sig: op_ed25519_sig,
+                },
+            ],
+            dummy_zk_signature(),
+        )
+        .unwrap();
+        let encoded = encode_signed_mantle_tx(&signed_tx);
+        let actual_size = encoded.len();
+
+        assert_eq!(predicted_size, actual_size);
     }
 }

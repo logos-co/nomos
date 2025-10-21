@@ -5,17 +5,16 @@ use nomos_core::crypto::ZkHash;
 use crate::{
     Error, PayloadType,
     crypto::{
-        keys::{Ed25519PrivateKey, X25519PrivateKey},
+        keys::{Ed25519PrivateKey, Ed25519PublicKey, X25519PrivateKey},
         proofs::{
-            quota::{ProofOfQuota, inputs::prove::PublicInputs},
+            PoQVerificationInputsMinusSigningKey,
+            quota::{ProofOfQuota, inputs::prove::public::LeaderInputs},
             selection::{ProofOfSelection, inputs::VerifyInputs},
         },
         signatures::{SIGNATURE_SIZE, Signature},
     },
     encap::{
-        ProofsVerifier,
-        decapsulated::DecapsulationOutput,
-        encapsulated::{EncapsulatedMessage, PoQVerificationInputMinusSigningKey},
+        ProofsVerifier, decapsulated::DecapsulationOutput, encapsulated::EncapsulatedMessage,
         validated::RequiredProofOfSelectionVerificationInputs,
     },
     input::{EncapsulationInput, EncapsulationInputs},
@@ -29,14 +28,18 @@ struct NeverFailingProofsVerifier;
 impl ProofsVerifier for NeverFailingProofsVerifier {
     type Error = Infallible;
 
-    fn new() -> Self {
+    fn new(_public_inputs: PoQVerificationInputsMinusSigningKey) -> Self {
         Self
     }
+
+    fn start_epoch_transition(&mut self, _new_pol_inputs: LeaderInputs) {}
+
+    fn complete_epoch_transition(&mut self) {}
 
     fn verify_proof_of_quota(
         &self,
         _proof: ProofOfQuota,
-        _inputs: &PublicInputs,
+        _signing_key: &Ed25519PublicKey,
     ) -> Result<ZkHash, Self::Error> {
         use groth16::Field as _;
 
@@ -57,14 +60,18 @@ struct AlwaysFailingProofOfQuotaVerifier;
 impl ProofsVerifier for AlwaysFailingProofOfQuotaVerifier {
     type Error = ();
 
-    fn new() -> Self {
+    fn new(_public_inputs: PoQVerificationInputsMinusSigningKey) -> Self {
         Self
     }
+
+    fn start_epoch_transition(&mut self, _new_pol_inputs: LeaderInputs) {}
+
+    fn complete_epoch_transition(&mut self) {}
 
     fn verify_proof_of_quota(
         &self,
         _proof: ProofOfQuota,
-        _inputs: &PublicInputs,
+        _signing_key: &Ed25519PublicKey,
     ) -> Result<ZkHash, Self::Error> {
         Err(())
     }
@@ -83,14 +90,18 @@ struct AlwaysFailingProofOfSelectionVerifier;
 impl ProofsVerifier for AlwaysFailingProofOfSelectionVerifier {
     type Error = ();
 
-    fn new() -> Self {
+    fn new(_public_inputs: PoQVerificationInputsMinusSigningKey) -> Self {
         Self
     }
+
+    fn start_epoch_transition(&mut self, _new_pol_inputs: LeaderInputs) {}
+
+    fn complete_epoch_transition(&mut self) {}
 
     fn verify_proof_of_quota(
         &self,
         _proof: ProofOfQuota,
-        _inputs: &PublicInputs,
+        _signing_key: &Ed25519PublicKey,
     ) -> Result<ZkHash, Self::Error> {
         use groth16::Field as _;
 
@@ -122,7 +133,7 @@ fn encapsulate_and_decapsulate() {
 
     // We can decapsulate with the correct private key.
     let DecapsulationOutput::Incompleted(msg) = msg
-        .verify_public_header(&PoQVerificationInputMinusSigningKey::default(), &verifier)
+        .verify_public_header(&verifier)
         .unwrap()
         .decapsulate(
             blend_node_enc_keys.last().unwrap(),
@@ -138,7 +149,7 @@ fn encapsulate_and_decapsulate() {
     // which we already used for the first decapsulation.
     assert!(
         msg.clone()
-            .verify_public_header(&PoQVerificationInputMinusSigningKey::default(), &verifier)
+            .verify_public_header(&verifier)
             .unwrap()
             .decapsulate(
                 blend_node_enc_keys.last().unwrap(),
@@ -151,7 +162,7 @@ fn encapsulate_and_decapsulate() {
     // We can decapsulate with the correct private key
     // and the fully-decapsulated payload is correct.
     let DecapsulationOutput::Completed(decapsulated_message) = msg
-        .verify_public_header(&PoQVerificationInputMinusSigningKey::default(), &verifier)
+        .verify_public_header(&verifier)
         .unwrap()
         .decapsulate(
             blend_node_enc_keys.first().unwrap(),
@@ -198,8 +209,8 @@ fn invalid_public_header_signature() {
         msg
     };
 
-    let public_header_verification_result = msg_with_invalid_signature
-        .verify_public_header(&PoQVerificationInputMinusSigningKey::default(), &verifier);
+    let public_header_verification_result =
+        msg_with_invalid_signature.verify_public_header(&verifier);
     assert!(matches!(
         public_header_verification_result,
         Err(Error::SignatureVerificationFailed)
@@ -218,8 +229,7 @@ fn invalid_public_header_proof_of_quota() {
         EncapsulatedMessage::<ENCAPSULATION_COUNT>::new(&inputs, PayloadType::Data, PAYLOAD_BODY)
             .unwrap();
 
-    let public_header_verification_result =
-        msg.verify_public_header(&PoQVerificationInputMinusSigningKey::default(), &verifier);
+    let public_header_verification_result = msg.verify_public_header(&verifier);
     assert!(matches!(
         public_header_verification_result,
         Err(Error::ProofOfQuotaVerificationFailed(
@@ -240,9 +250,7 @@ fn invalid_blend_header_proof_of_selection() {
         EncapsulatedMessage::<ENCAPSULATION_COUNT>::new(&inputs, PayloadType::Data, PAYLOAD_BODY)
             .unwrap();
 
-    let validated_message = msg
-        .verify_public_header(&PoQVerificationInputMinusSigningKey::default(), &verifier)
-        .unwrap();
+    let validated_message = msg.verify_public_header(&verifier).unwrap();
 
     let validated_message_decapsulation_result = validated_message.decapsulate(
         blend_node_enc_keys.last().unwrap(),

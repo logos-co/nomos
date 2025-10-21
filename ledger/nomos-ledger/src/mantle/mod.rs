@@ -75,7 +75,7 @@ impl LedgerState {
         tx: impl AuthenticatedMantleTx,
     ) -> Result<(Self, Balance), Error> {
         let tx_hash = tx.hash();
-        let ops = tx.ops_with_proof();
+        let ops = tx.ops_with_proof().map(|(op, proof)| (op, Some(proof)));
         self.try_apply_ops(current_block_number, config, utxo_tree, tx_hash, ops)
     }
 
@@ -124,12 +124,12 @@ impl LedgerState {
                 // The signature for channel ops can be verified before reaching this point,
                 // as you only need the signer's public key and tx hash
                 // Callers are expected to validate the proof before calling this function.
-                (Op::ChannelBlob(op), None) => {
+                (Op::ChannelBlob(op), _) => {
                     self.channels =
                         self.channels
                             .apply_msg(op.channel, &op.parent, op.id(), &op.signer)?;
                 }
-                (Op::ChannelInscribe(op), None) => {
+                (Op::ChannelInscribe(op), _) => {
                     self.channels =
                         self.channels
                             .apply_msg(op.channel_id, &op.parent, op.id(), &op.signer)?;
@@ -213,25 +213,6 @@ mod tests {
         (signing_key, verifying_key)
     }
 
-    fn create_test_tx_with_ops(ops: Vec<Op>) -> SignedMantleTx {
-        let ledger_tx = LedgerTx::new(vec![], vec![]);
-        let mantle_tx = MantleTx {
-            ops,
-            ledger_tx,
-            execution_gas_price: 1,
-            storage_gas_price: 1,
-        };
-
-        SignedMantleTx::new_unverified(
-            mantle_tx.clone(),
-            vec![None; mantle_tx.ops.len()],
-            DummyZkSignature::prove(zksig::ZkSignaturePublic {
-                pks: vec![],
-                msg_hash: mantle_tx.hash().into(),
-            }),
-        )
-    }
-
     fn create_signed_tx(op: Op, signing_key: &SigningKey) -> SignedMantleTx {
         create_multi_signed_tx(vec![op], vec![signing_key])
     }
@@ -249,15 +230,10 @@ mod tests {
         let ops_proofs = signing_keys
             .into_iter()
             .zip(ops)
-            .map(|(key, op)| match op {
-                Op::ChannelSetKeys(_) | Op::ChannelBlob(_) | Op::ChannelInscribe(_) => Some(
-                    OpProof::Ed25519Sig(key.sign(tx_hash.as_signing_bytes().as_ref())),
-                ),
-                _ => None,
-            })
+            .map(|(key, _)| OpProof::Ed25519Sig(key.sign(tx_hash.as_signing_bytes().as_ref())))
             .collect();
 
-        let ledger_tx_proof = DummyZkSignature::prove(zksig::ZkSignaturePublic {
+        let ledger_tx_proof = DummyZkSignature::prove(&zksig::ZkSignaturePublic {
             pks: vec![],
             msg_hash: tx_hash.into(),
         });
@@ -349,50 +325,6 @@ mod tests {
             new_state.channels.channels.get(&channel_id).unwrap().keys,
             vec![verifying_key].into()
         );
-    }
-
-    #[test]
-    fn test_unsupported_operation() {
-        let cryptarchia_state = genesis_state(&[utxo()]);
-        let test_config = config();
-        let ledger_state = LedgerState::new();
-
-        let tx_with_unsupported_op = create_test_tx_with_ops(vec![Op::Native(
-            nomos_core::mantle::ops::native::NativeOp {},
-        )]);
-
-        let result = ledger_state.try_apply_tx::<MainnetGasConstants>(
-            0,
-            &test_config,
-            cryptarchia_state.latest_commitments(),
-            tx_with_unsupported_op,
-        );
-        assert_eq!(result, Err(Error::UnsupportedOp));
-    }
-
-    #[test]
-    fn test_ops_missing_proofs() {
-        let cryptarchia_state = genesis_state(&[utxo()]);
-        let test_config = config();
-        let ledger_state = LedgerState::new();
-        let (_, verifying_key) = create_test_keys();
-        let channel_id = ChannelId::from([5; 32]);
-
-        let set_keys_op = SetKeysOp {
-            channel: channel_id,
-            keys: vec![verifying_key],
-        };
-
-        let op = Op::ChannelSetKeys(set_keys_op);
-        let tx = create_test_tx_with_ops(vec![op]); // Missing proof
-
-        let result = ledger_state.try_apply_tx::<MainnetGasConstants>(
-            0,
-            &test_config,
-            cryptarchia_state.latest_commitments(),
-            tx,
-        );
-        assert_eq!(result, Err(Error::UnsupportedOp));
     }
 
     #[test]
