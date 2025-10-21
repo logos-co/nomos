@@ -1440,7 +1440,6 @@ mod tests {
 
     #[test]
     fn test_predict_signed_mantle_tx_size_with_sdp_active() {
-        // Create a DaActivityProof
         let da_proof = DaActivityProof {
             current_session: 42,
             previous_session_opinions: vec![0xFF, 0xAA],
