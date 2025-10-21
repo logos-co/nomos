@@ -760,7 +760,7 @@ mod tests {
     use ed25519_dalek::SigningKey;
 
     use super::*;
-    use crate::{mantle::Transaction as _, proofs::zksig::ZkSignaturePublic};
+    use crate::{mantle::Transaction as _, proofs::zksig::ZkSignaturePublic, sdp::DaActivityProof};
 
     fn dummy_zk_signature() -> DummyZkSignature {
         DummyZkSignature::prove(&ZkSignaturePublic {
@@ -1438,36 +1438,44 @@ mod tests {
         assert_eq!(predicted_size, actual_size);
     }
 
-    // #[test]
-    // fn test_predict_signed_mantle_tx_size_with_sdp_active() {
-    //     let sdp_active_op = SDPActiveOp {
-    //         declaration_id: DeclarationId([0x22; 32]),
-    //         nonce: 99,
-    //         metadata: Some(vec![1, 2, 3, 4, 5]),
-    //     };
+    #[test]
+    fn test_predict_signed_mantle_tx_size_with_sdp_active() {
+        // Create a DaActivityProof
+        let da_proof = DaActivityProof {
+            current_session: 42,
+            previous_session_opinions: vec![0xFF, 0xAA],
+            current_session_opinions: vec![0x11, 0x22, 0x33],
+        };
 
-    //     let mantle_tx = MantleTx {
-    //         ops: vec![Op::SDPActive(sdp_active_op)],
-    //         ledger_tx: LedgerTx::new(vec![], vec![]),
-    //         execution_gas_price: 100,
-    //         storage_gas_price: 50,
-    //     };
+        let metadata = ActivityMetadata::DataAvailability(da_proof);
 
-    //     // Predict size
-    //     let predicted_size = predict_signed_mantle_tx_size(&mantle_tx);
+        let sdp_active_op = SDPActiveOp {
+            declaration_id: DeclarationId([0x22; 32]),
+            nonce: 99,
+            metadata: Some(metadata),
+        };
 
-    //     // Create a signed tx and encode it to get actual size
-    //     let signed_tx = SignedMantleTx::new(
-    //         mantle_tx,
-    //         vec![OpProof::ZkSig(dummy_zk_signature())],
-    //         dummy_zk_signature(),
-    //     )
-    //     .unwrap();
-    //     let encoded = encode_signed_mantle_tx(&signed_tx);
-    //     let actual_size = encoded.len();
+        let mantle_tx = MantleTx {
+            ops: vec![Op::SDPActive(sdp_active_op)],
+            ledger_tx: LedgerTx::new(vec![], vec![]),
+            execution_gas_price: 100,
+            storage_gas_price: 50,
+        };
 
-    //     assert_eq!(predicted_size, actual_size);
-    // }
+        let predicted_size = predict_signed_mantle_tx_size(&mantle_tx);
+
+        let signed_tx = SignedMantleTx::new(
+            mantle_tx,
+            vec![OpProof::ZkSig(dummy_zk_signature())],
+            dummy_zk_signature(),
+        )
+        .unwrap();
+
+        let encoded = encode_signed_mantle_tx(&signed_tx);
+        let actual_size = encoded.len();
+
+        assert_eq!(predicted_size, actual_size);
+    }
 
     #[test]
     fn test_predict_signed_mantle_tx_size_with_multiple_ops() {
