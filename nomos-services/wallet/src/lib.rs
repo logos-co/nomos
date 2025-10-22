@@ -242,6 +242,7 @@ where
     ) {
         match msg {
             WalletMsg::GetBalance { tip, pk, resp_tx } => {
+                Self::try_sync_to_tip(tip, wallet, storage, cryptarchia).await;
                 let balance = wallet.balance(tip, pk);
                 if resp_tx.send(balance).is_err() {
                     error!("Failed to respond to GetBalance");
