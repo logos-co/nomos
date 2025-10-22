@@ -74,13 +74,15 @@ impl MantleTxBuilder {
 
     #[must_use]
     pub fn return_change<G: GasConstants>(self, change_reciever: PublicKey) -> Self {
-        let delta = self.funding_delta::<G>();
+        // Calculate the funding delta with a dummy change note to account for
+        // the gas cost increase from adding the output
+        let delta_with_change = self.with_dummy_change_note().funding_delta::<G>();
         assert!(
-            delta > 0,
+            delta_with_change > 0,
             "It's assumed that that the tx has enough funds to merit a change note"
         );
 
-        let change = u64::try_from(delta).expect("Positive funding delta must fit in u64");
+        let change = u64::try_from(delta_with_change).expect("Positive funding delta must fit in u64");
 
         self.add_ledger_output(Note {
             value: change,

@@ -1,6 +1,7 @@
 pub mod error;
 
 use std::{
+    borrow::Borrow,
     cmp::Ordering,
     collections::{BTreeMap, HashSet},
 };
@@ -10,7 +11,7 @@ use nomos_core::{
     block::Block,
     header::HeaderId,
     mantle::{
-        AuthenticatedMantleTx, GasConstants, GasCost, Note, NoteId, Utxo, Value, keys::PublicKey,
+        AuthenticatedMantleTx, GasConstants, NoteId, Utxo, Value, keys::PublicKey,
         ledger::Tx as LedgerTx, tx_builder::MantleTxBuilder,
     },
 };
@@ -65,10 +66,10 @@ impl WalletState {
 
     pub fn utxos_owned_by_pks(
         &self,
-        pks: impl IntoIterator<Item = impl AsRef<PublicKey>>,
+        pks: impl IntoIterator<Item = impl Borrow<PublicKey>>,
     ) -> Vec<Utxo> {
         pks.into_iter()
-            .filter_map(|pk| self.pk_index.get(pk.as_ref()))
+            .filter_map(|pk| self.pk_index.get(pk.borrow()))
             .flatten()
             .map(|id| self.utxos[id])
             .collect()
@@ -76,9 +77,9 @@ impl WalletState {
 
     pub fn fund_tx<G: GasConstants>(
         &self,
-        tx_builder: MantleTxBuilder,
+        tx_builder: &MantleTxBuilder,
         change_pk: PublicKey,
-        pks: impl IntoIterator<Item = impl AsRef<PublicKey>>,
+        pks: impl IntoIterator<Item = impl Borrow<PublicKey>>,
     ) -> Result<MantleTxBuilder, WalletError> {
         let mut utxos = self.utxos_owned_by_pks(pks);
 
@@ -88,7 +89,7 @@ impl WalletState {
         for i in 0..utxos.len() {
             let funded_tx_builder = tx_builder
                 .clone()
-                .extend_ledger_inputs(utxos[..i].iter().copied());
+                .extend_ledger_inputs(utxos[..=i].iter().copied());
 
             let funding_delta = funded_tx_builder.funding_delta::<G>();
 
@@ -117,8 +118,8 @@ impl WalletState {
                         }
                         Ordering::Greater => {
                             // We have enough balance to cover the increase in cost from the change
-                            // note. Now we replace the dummy change output with the correct change
-                            // amount.
+                            // note. Use return_change which properly accounts for the gas cost
+                            // increase from adding the change output.
                             let funded_tx_with_change_builder =
                                 funded_tx_builder.return_change::<G>(change_pk);
 
@@ -132,19 +133,19 @@ impl WalletState {
             }
         }
 
-        return Err(WalletError::InsufficientFunds {
+        Err(WalletError::InsufficientFunds {
             available: utxos.iter().map(|u| u.note.value).sum::<u64>(),
-        });
+        })
     }
 
     pub fn utxos_for_amount(
         &self,
         amount: Value,
-        pks: impl IntoIterator<Item = PublicKey>,
+        pks: impl IntoIterator<Item = impl Borrow<PublicKey>>,
     ) -> Option<Vec<Utxo>> {
         let mut utxos: Vec<Utxo> = pks
             .into_iter()
-            .filter_map(|pk| self.pk_index.get(&pk))
+            .filter_map(|pk| self.pk_index.get(pk.borrow()))
             .flatten()
             .map(|id| self.utxos[id])
             .collect();
@@ -310,7 +311,7 @@ impl Wallet {
         &self,
         tip: HeaderId,
         amount: Value,
-        pks: impl IntoIterator<Item = PublicKey>,
+        pks: impl IntoIterator<Item = impl Borrow<PublicKey>>,
     ) -> Result<Option<Vec<Utxo>>, WalletError> {
         Ok(self.wallet_state_at(tip)?.utxos_for_amount(amount, pks))
     }
@@ -499,6 +500,45 @@ mod tests {
                 Utxo::new(tx_hash(0), 1, Note::new(3, alice_2)),
                 Utxo::new(tx_hash(0), 0, Note::new(4, alice_1)),
             ])
+        );
+    }
+
+    #[test]
+    fn test_fund_tx_empty() {
+        use nomos_core::mantle::gas::MainnetGasConstants;
+
+        let alice = pk(1);
+        let alice_utxo = Utxo::new(tx_hash(0), 0, Note::new(5000, alice));
+
+        let wallet_state = WalletState::from_ledger(
+            &HashSet::from_iter([alice]),
+            &LedgerState::from_utxos([alice_utxo]),
+        );
+
+        let empty_tx = MantleTxBuilder::new()
+            .set_execution_gas_price(1)
+            .set_storage_gas_price(1);
+
+        // Fund the empty transaction
+        let funded_tx = wallet_state
+            .fund_tx::<MainnetGasConstants>(&empty_tx, alice, [alice])
+            .unwrap();
+
+        assert_eq!(2924, funded_tx.gas_cost::<MainnetGasConstants>());
+        assert_eq!(2924, funded_tx.net_balance());
+        assert_eq!(0, funded_tx.funding_delta::<MainnetGasConstants>());
+
+        let tx = funded_tx.build();
+
+        // ensure alices utxo was used to pay the fee
+        assert_eq!(tx.ledger_tx.inputs, vec![alice_utxo.id()]);
+        // ensure change was returned to alice
+        assert_eq!(
+            tx.ledger_tx.outputs,
+            vec![Note {
+                value: 2076,
+                pk: alice,
+            }]
         );
     }
 }
