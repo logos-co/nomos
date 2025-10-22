@@ -2,11 +2,6 @@ pub mod blob;
 
 use blob::Share;
 
-use crate::mantle::{
-    SignedMantleTx,
-    ops::channel::{ChannelId, Ed25519PublicKey, MsgId},
-};
-
 pub type BlobId = [u8; 32];
 
 pub trait DaEncoder {
@@ -30,16 +25,9 @@ pub trait DaVerifier {
 #[async_trait::async_trait]
 pub trait DaDispersal {
     type EncodedData;
+    type Tx;
     type Error;
 
     async fn disperse_shares(&self, encoded_data: Self::EncodedData) -> Result<(), Self::Error>;
-    async fn disperse_tx(
-        &self,
-        channel_id: ChannelId,
-        parent_msg_id: MsgId,
-        blob_id: BlobId,
-        num_columns: usize,
-        original_size: usize,
-        signer: Ed25519PublicKey,
-    ) -> Result<SignedMantleTx, Self::Error>;
+    async fn disperse_tx(&self, blob_id: BlobId, tx: Self::Tx) -> Result<(), Self::Error>;
 }

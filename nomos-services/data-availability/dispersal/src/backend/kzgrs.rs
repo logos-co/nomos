@@ -10,7 +10,7 @@ use nomos_core::{
     da::{BlobId, DaDispersal, DaEncoder},
     mantle::{
         SignedMantleTx,
-        ops::channel::{ChannelId, Ed25519PublicKey, MsgId},
+        ops::channel::{ChannelId, MsgId},
     },
 };
 use nomos_da_network_service::backends::ProcessingError;
@@ -67,6 +67,7 @@ pub struct DispersalHandler<NetworkAdapter, WalletAdapter> {
     network_adapter: Arc<NetworkAdapter>,
     wallet_adapter: Arc<WalletAdapter>,
     timeout: Duration,
+    num_columns: usize,
 }
 
 impl<NetworkAdapter, WalletAdapter> Clone for DispersalHandler<NetworkAdapter, WalletAdapter> {
@@ -75,6 +76,7 @@ impl<NetworkAdapter, WalletAdapter> Clone for DispersalHandler<NetworkAdapter, W
             network_adapter: Arc::clone(&self.network_adapter),
             wallet_adapter: Arc::clone(&self.wallet_adapter),
             timeout: self.timeout,
+            num_columns: self.num_columns,
         }
     }
 }
@@ -88,6 +90,7 @@ where
     WalletAdapter::Error: Error + Send + Sync + 'static,
 {
     type EncodedData = EncodedData;
+    type Tx = SignedMantleTx;
     type Error = DynError;
 
     async fn disperse_shares(&self, encoded_data: Self::EncodedData) -> Result<(), Self::Error> {
@@ -122,26 +125,11 @@ where
         Ok(())
     }
 
-    async fn disperse_tx(
-        &self,
-        channel_id: ChannelId,
-        parent_msg_id: MsgId,
-        blob_id: BlobId,
-        num_columns: usize,
-        original_size: usize,
-        _signer: Ed25519PublicKey,
-    ) -> Result<SignedMantleTx, Self::Error> {
-        let wallet_adapter = self.wallet_adapter.as_ref();
+    async fn disperse_tx(&self, blob_id: BlobId, tx: Self::Tx) -> Result<(), Self::Error> {
         let network_adapter = self.network_adapter.as_ref();
-
-        // Note: The signer parameter is ignored here as the wallet adapter
-        // uses a hardcoded signing key for testing. In production, the wallet
-        // would use the signer parameter or derive it from configuration.
-        let tx = wallet_adapter
-            .blob_tx(channel_id, parent_msg_id, blob_id, original_size)
-            .map_err(Box::new)?;
         let responses_stream = network_adapter.dispersal_events_stream().await?;
-        for subnetwork_id in 0..num_columns {
+
+        for subnetwork_id in 0..self.num_columns {
             network_adapter
                 .disperse_tx((subnetwork_id as u16).into(), tx.clone())
                 .await?;
@@ -154,13 +142,12 @@ where
                     _ => None,
                 }
             })
-            .take(num_columns)
+            .take(self.num_columns)
             .collect::<()>();
         // timeout when collecting positive responses
         tokio::time::timeout(self.timeout, valid_responses)
             .await
-            .map_err(|e| Box::new(e) as DynError)?;
-        Ok(tx)
+            .map_err(|e| Box::new(e) as DynError)
     }
 }
 
@@ -191,19 +178,14 @@ where
         original_size: usize,
     ) -> Result<SignedMantleTx, DynError> {
         let blob_id = build_blob_id(&encoded_data.row_commitments);
-        let num_columns = encoded_data.combined_column_proofs.len();
 
         tracing::debug!("Dispersing {blob_id:?} transaction");
-        let tx = handler
-            .disperse_tx(
-                channel_id,
-                parent_msg_id,
-                blob_id,
-                num_columns,
-                original_size,
-                Ed25519PublicKey::from_bytes(&[0u8; 32])?, // TODO: pass key from config
-            )
-            .await?;
+        let wallet_adapter = handler.wallet_adapter.as_ref();
+        let tx = wallet_adapter
+            .blob_tx(channel_id, parent_msg_id, blob_id, original_size)
+            .map_err(Box::new)?;
+
+        handler.disperse_tx(blob_id, tx.clone()).await?;
         tracing::debug!("Dispersing {blob_id:?} shares");
         handler.disperse_shares(encoded_data).await?;
         tracing::debug!("Dispersal of {blob_id:?} successful");
@@ -318,6 +300,7 @@ where
             network_adapter: Arc::clone(&self.network_adapter),
             wallet_adapter: Arc::clone(&self.wallet_adapter),
             timeout: self.settings.dispersal_timeout,
+            num_columns: self.settings.encoder_settings.num_columns,
         };
 
         let dispersal_task = Self::create_dispersal_task(
