@@ -105,11 +105,11 @@ impl WalletState {
                     // We have enough balance, but we need to introduce a change note.
                     // The change note will slightly increase the storage cost of the tx so there is
                     // a chance that we will not be able to fund the tx with the change note.
-
                     if let Some(tx_with_change) = funded_tx_builder.return_change::<G>(change_pk) {
                         // We were able to fund the tx with change note added.
                         return Ok(tx_with_change);
                     }
+                    // Otherwise, need more UTXO's.
                 }
             }
         }
@@ -330,7 +330,7 @@ impl Wallet {
 
 #[cfg(test)]
 mod tests {
-    use nomos_core::mantle::{Note, TxHash};
+    use nomos_core::mantle::{Note, TxHash, gas::MainnetGasConstants as Gas};
     use num_bigint::BigUint;
 
     use super::*;
@@ -485,9 +485,7 @@ mod tests {
     }
 
     #[test]
-    fn test_fund_tx_empty() {
-        use nomos_core::mantle::gas::MainnetGasConstants;
-
+    fn test_fund_tx_with_change() {
         let alice = pk(1);
         let alice_utxo = Utxo::new(tx_hash(0), 0, Note::new(5000, alice));
 
@@ -496,30 +494,181 @@ mod tests {
             &LedgerState::from_utxos([alice_utxo]),
         );
 
-        let empty_tx = MantleTxBuilder::new()
+        let tx_builder = MantleTxBuilder::new()
             .set_execution_gas_price(1)
             .set_storage_gas_price(1);
 
-        // Fund the empty transaction
-        let funded_tx = wallet_state
-            .fund_tx::<MainnetGasConstants>(&empty_tx, alice, [alice])
+        // Fund the transaction
+        let funded_tx_builder = wallet_state
+            .fund_tx::<Gas>(&tx_builder, alice, [alice])
             .unwrap();
 
-        assert_eq!(2924, funded_tx.gas_cost::<MainnetGasConstants>());
-        assert_eq!(2924, funded_tx.net_balance());
-        assert_eq!(0, funded_tx.funding_delta::<MainnetGasConstants>());
+        assert_eq!(2924, funded_tx_builder.gas_cost::<Gas>());
+        assert_eq!(2924, funded_tx_builder.net_balance());
+        assert_eq!(0, funded_tx_builder.funding_delta::<Gas>());
 
-        let tx = funded_tx.build();
+        let funded_tx = funded_tx_builder.build();
 
         // ensure alices utxo was used to pay the fee
-        assert_eq!(tx.ledger_tx.inputs, vec![alice_utxo.id()]);
+        assert_eq!(funded_tx.ledger_tx.inputs, vec![alice_utxo.id()]);
         // ensure change was returned to alice
         assert_eq!(
-            tx.ledger_tx.outputs,
+            funded_tx.ledger_tx.outputs,
             vec![Note {
                 value: 2076,
                 pk: alice,
             }]
+        );
+    }
+
+    #[test]
+    fn test_fund_tx_insufficient_funds() {
+        let alice = pk(1);
+
+        let wallet_state = WalletState::from_ledger(
+            &HashSet::from_iter([alice]),
+            &LedgerState::from_utxos([
+                Utxo::new(tx_hash(0), 0, Note::new(100, alice)),
+                Utxo::new(tx_hash(0), 1, Note::new(100, alice)),
+                Utxo::new(tx_hash(0), 2, Note::new(100, alice)),
+                Utxo::new(tx_hash(0), 3, Note::new(100, alice)),
+            ]),
+        );
+
+        let tx_builder = MantleTxBuilder::new()
+            .set_execution_gas_price(1)
+            .set_storage_gas_price(1);
+
+        // Fund the transaction
+        let fund_attempt = wallet_state.fund_tx::<Gas>(&tx_builder, alice, [alice]);
+
+        assert_eq!(
+            fund_attempt.unwrap_err(),
+            WalletError::InsufficientFunds { available: 400 }
+        );
+    }
+
+    #[test]
+    fn test_fund_tx_zero_funds() {
+        let alice = pk(1);
+
+        let wallet_state =
+            WalletState::from_ledger(&HashSet::from_iter([alice]), &LedgerState::from_utxos([]));
+
+        let tx_builder = MantleTxBuilder::new()
+            .set_execution_gas_price(1)
+            .set_storage_gas_price(1);
+
+        // Fund the transaction
+        let fund_attempt = wallet_state.fund_tx::<Gas>(&tx_builder, alice, [alice]);
+
+        assert_eq!(
+            fund_attempt.unwrap_err(),
+            WalletError::InsufficientFunds { available: 0 }
+        );
+    }
+    #[test]
+    fn test_fund_tx_respects_pk_list() {
+        let alice = pk(1);
+        let bob = pk(2);
+
+        let wallet_state = WalletState::from_ledger(
+            &HashSet::from_iter([alice, bob]),
+            &LedgerState::from_utxos([Utxo::new(tx_hash(0), 0, Note::new(1_000_000, bob))]),
+        );
+
+        let tx_builder = MantleTxBuilder::new()
+            .set_execution_gas_price(1)
+            .set_storage_gas_price(1);
+
+        // Attempt to fund the transaction with Alice's notes.
+        let fund_attempt = wallet_state.fund_tx::<Gas>(&tx_builder, alice, [alice]);
+
+        assert_eq!(
+            fund_attempt.unwrap_err(),
+            WalletError::InsufficientFunds { available: 0 }
+        );
+
+        // Fund the transaction with Bob's notes.
+        wallet_state
+            .fund_tx::<Gas>(&tx_builder, bob, [bob])
+            .unwrap(); // succesfully funded;
+    }
+
+    #[test]
+    fn test_fund_tx_unfundable_region() {
+        let alice = pk(1);
+
+        let tx_builder = MantleTxBuilder::new()
+            .set_execution_gas_price(1)
+            .set_storage_gas_price(1);
+
+        // Determine gas cost without change note
+        assert_eq!(
+            2884,
+            tx_builder
+                .clone()
+                .add_ledger_input(Utxo::new(tx_hash(0), 0, Note::new(0, pk(0))))
+                .gas_cost::<Gas>()
+        );
+
+        // We can fund the tx if the note value is exactly the gas cost without change
+        // note
+        let wallet_state = WalletState::from_ledger(
+            &HashSet::from_iter([alice]),
+            &LedgerState::from_utxos([Utxo::new(tx_hash(0), 0, Note::new(2884, alice))]),
+        );
+
+        let funded_tx_wo_change = wallet_state
+            .fund_tx::<Gas>(&tx_builder, alice, [alice])
+            .unwrap()
+            .build(); // successfully funded the tx
+
+        // verify that no change output was used.
+        assert_eq!(funded_tx_wo_change.ledger_tx.outputs, vec![]);
+
+        // Determine gas cost with change note
+        assert_eq!(
+            2924,
+            tx_builder
+                .clone()
+                .add_ledger_input(Utxo::new(tx_hash(0), 0, Note::new(0, pk(0))))
+                .with_dummy_change_note()
+                .gas_cost::<Gas>()
+        );
+
+        for value in 2885..=2924 {
+            // this region of note values will fail to fund the tx.
+            // We can fund the tx if the note value is exactly the gas cost without change
+            // note
+            let wallet_state = WalletState::from_ledger(
+                &HashSet::from_iter([alice]),
+                &LedgerState::from_utxos([Utxo::new(tx_hash(0), 0, Note::new(value, alice))]),
+            );
+
+            let fund_attempt = wallet_state.fund_tx::<Gas>(&tx_builder, alice, [alice]);
+
+            assert_eq!(
+                fund_attempt.unwrap_err(),
+                WalletError::InsufficientFunds { available: value }
+            );
+        }
+
+        // We can fund the tx if the note value exceeds gas cost with change note
+        let wallet_state = WalletState::from_ledger(
+            &HashSet::from_iter([alice]),
+            &LedgerState::from_utxos([Utxo::new(tx_hash(0), 0, Note::new(2925, alice))]),
+        );
+
+        let funded_tx_wo_change = wallet_state
+            .fund_tx::<Gas>(&tx_builder, alice, [alice])
+            .unwrap()
+            .build(); // successfully funded the tx
+
+        // verify that indeed a change output was used.
+        assert_eq!(
+            funded_tx_wo_change.ledger_tx.outputs,
+            vec![Note::new(1, alice)]
         );
     }
 }
