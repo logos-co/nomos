@@ -237,8 +237,8 @@ where
     async fn handle_wallet_message(
         msg: WalletMsg,
         wallet: &mut Wallet,
-        storage_adapter: &StorageAdapter<Storage, Tx, RuntimeServiceId>,
-        cryptarchia_api: &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
+        storage: &StorageAdapter<Storage, Tx, RuntimeServiceId>,
+        cryptarchia: &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
     ) {
         match msg {
             WalletMsg::GetBalance { tip, pk, resp_tx } => {
@@ -255,60 +255,67 @@ where
                 funding_pks,
                 resp_tx,
             } => {
-                // Ensure we are in sync with tip.
-                if let Err(err) = Self::fetch_wallet_state_with_backfill(
-                    tip,
-                    wallet,
-                    storage_adapter,
-                    cryptarchia_api,
-                )
-                .await
-                {
-                    error!(err=?err, "Failed while backfilling wallet during responding to fund_tx");
-                    // Will continue to attempt to fund the tx despite the
-                    // failed backfill.
-                }
-
-                let funded_tx =
-                    wallet.fund_tx::<MainnetGasConstants>(tip, &tx_builder, change_pk, funding_pks);
-
-                if resp_tx.send(funded_tx).is_err() {
-                    error!("Failed to respond to FundTx");
-                }
+                Self::try_sync_to_tip(tip, wallet, storage, cryptarchia).await;
+                Self::fund_tx(tip, &tx_builder, change_pk, funding_pks, resp_tx, wallet);
             }
 
             WalletMsg::GetLeaderAgedNotes { tip, resp_tx } => {
-                Self::get_leader_aged_notes(tip, resp_tx, wallet, storage_adapter, cryptarchia_api)
-                    .await;
+                Self::try_sync_to_tip(tip, wallet, storage, cryptarchia).await;
+                Self::get_leader_aged_notes(tip, resp_tx, wallet, cryptarchia).await;
             }
+        }
+    }
+
+    async fn try_sync_to_tip(
+        tip: HeaderId,
+        wallet: &mut Wallet,
+        storage: &StorageAdapter<Storage, Tx, RuntimeServiceId>,
+        cryptarchia: &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
+    ) {
+        if let Err(err) =
+            Self::fetch_wallet_state_with_backfill(tip, wallet, storage, cryptarchia).await
+        {
+            // If there is a failure during backfilling, we log the error and continue.
+            error!(err=?err, "Failed while backfilling wallet during responding to fund_tx");
+        }
+    }
+
+    fn fund_tx(
+        tip: HeaderId,
+        tx_builder: &MantleTxBuilder,
+        change_pk: PublicKey,
+        funding_pks: Vec<PublicKey>,
+        resp_tx: oneshot::Sender<Result<MantleTxBuilder, WalletError>>,
+        wallet: &Wallet,
+    ) {
+        let funded_tx =
+            wallet.fund_tx::<MainnetGasConstants>(tip, tx_builder, change_pk, funding_pks);
+
+        if resp_tx.send(funded_tx).is_err() {
+            error!("Failed to respond to FundTx");
         }
     }
 
     async fn get_leader_aged_notes(
         tip: HeaderId,
         tx: oneshot::Sender<Result<Vec<Utxo>, WalletServiceError>>,
-        wallet: &mut Wallet,
-        storage_adapter: &StorageAdapter<Storage, Tx, RuntimeServiceId>,
-        cryptarchia_api: &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
+        wallet: &Wallet,
+        cryptarchia: &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
     ) {
         // Get the ledger state at the specified tip
-        let Ok(Some(ledger_state)) = cryptarchia_api.get_ledger_state(tip).await else {
+        let Ok(Some(ledger_state)) = cryptarchia.get_ledger_state(tip).await else {
             Self::send_err(tx, WalletServiceError::LedgerStateNotFound(tip));
             return;
         };
 
-        let wallet_state = match Self::fetch_wallet_state_with_backfill(
-            tip,
-            wallet,
-            storage_adapter,
-            cryptarchia_api,
-        )
-        .await
-        {
+        let wallet_state = match wallet.wallet_state_at(tip) {
             Ok(wallet_state) => wallet_state,
             Err(err) => {
                 error!(err = ?err, "Failed to fetch wallet state");
-                Self::send_err(tx, err);
+                Self::send_err(
+                    tx,
+                    WalletServiceError::FailedToFetchWalletStateForBlock(tip),
+                );
                 return;
             }
         };
