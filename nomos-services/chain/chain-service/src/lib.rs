@@ -1553,33 +1553,39 @@ where
         for (service, new_session_number) in &new_sessions {
             // If `previous_sessions` is provided, check if the session number has changed.
             // Otherwise, always broadcast (for initialization).
-            let should_broadcast = previous_sessions
-                .is_none_or(|prev| prev.get(service).copied().unwrap_or(0) != *new_session_number);
+            let should_broadcast = previous_sessions.is_none_or(|prev| {
+                prev.get(service)
+                    .copied()
+                    .expect("previous session number is set")
+                    != *new_session_number
+            });
 
-            if should_broadcast {
-                match cryptarchia.active_session_providers(block_id, *service) {
-                    Ok(providers) => {
-                        let update = SessionUpdate {
-                            session_number: *new_session_number,
-                            providers,
-                        };
+            if !should_broadcast {
+                return;
+            }
 
-                        let broadcast_future = match service {
-                            ServiceType::BlendNetwork => {
-                                broadcast_blend_session(relays.broadcast_relay(), update).boxed()
-                            }
-                            ServiceType::DataAvailability => {
-                                broadcast_da_session(relays.broadcast_relay(), update).boxed()
-                            }
-                        };
+            match cryptarchia.active_session_providers(block_id, *service) {
+                Ok(providers) => {
+                    let update = SessionUpdate {
+                        session_number: *new_session_number,
+                        providers,
+                    };
 
-                        if let Err(e) = broadcast_future.await {
-                            error!("Failed to broadcast session update for {service:?}: {e}");
+                    let broadcast_future = match service {
+                        ServiceType::BlendNetwork => {
+                            broadcast_blend_session(relays.broadcast_relay(), update).boxed()
                         }
+                        ServiceType::DataAvailability => {
+                            broadcast_da_session(relays.broadcast_relay(), update).boxed()
+                        }
+                    };
+
+                    if let Err(e) = broadcast_future.await {
+                        error!("Failed to broadcast session update for {service:?}: {e}");
                     }
-                    Err(e) => {
-                        error!("Could not get session providers for service {service:?}: {e}");
-                    }
+                }
+                Err(e) => {
+                    error!("Could not get session providers for service {service:?}: {e}");
                 }
             }
         }

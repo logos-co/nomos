@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use chain_service::StartingState;
 use futures::StreamExt as _;
 use kzgrs_backend::{common::share::DaShare, reconstruction::reconstruct_without_missing_data};
 use serial_test::serial;
@@ -102,9 +103,18 @@ async fn disseminate_from_non_membership() {
     let membership_executor = &topology.executors()[0];
     let num_subnets = membership_executor.config().da_network.backend.num_subnets as usize;
 
-    let lone_general_config = create_general_configs(1).into_iter().next().unwrap();
-    let mut lone_executor_config = create_executor_config(lone_general_config);
-    lone_executor_config.membership = membership_executor.config().membership.clone();
+    let StartingState::Genesis { genesis_tx } = membership_executor
+        .config()
+        .cryptarchia
+        .starting_state
+        .clone()
+    else {
+        panic!("Non member executor expects genesis_tx as starting state");
+    };
+
+    let mut lone_general_config = create_general_configs(1).into_iter().next().unwrap();
+    lone_general_config.consensus_config.genesis_tx = genesis_tx;
+    let lone_executor_config = create_executor_config(lone_general_config);
     let lone_executor = Executor::spawn(lone_executor_config).await;
 
     let data = [1u8; 31 * ITERATIONS];
