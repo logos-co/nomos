@@ -30,6 +30,7 @@ use nomos_blend_message::{
         random_sized_bytes,
     },
     encap::{ProofsVerifier as ProofsVerifierTrait, decapsulated::DecapsulationOutput},
+    reward::{self, ActivityProof, BlendingTokenCollector},
 };
 use nomos_blend_scheduling::{
     message_blend::{
@@ -370,6 +371,17 @@ where
             )
             .expect("The initial membership should satisfy the core node condition");
 
+        let mut blending_token_collector = BlendingTokenCollector::new(
+            &reward::SessionInfo::new(
+                current_membership_info.public.session,
+                &pol_epoch_nonce,
+                current_membership_info.public.membership.size() as u64,
+                current_membership_info.public.poq_core_public_inputs.quota,
+                blend_config.scheduler.cover.message_frequency_per_round,
+            )
+            .expect("Reward session info must be created successfully. Panicking since the service cannot continue with this session")
+        );
+
         let mut message_scheduler = {
             let session_stream = remaining_session_stream.clone();
             // Take only the membership out of `CoreSessionInfo`.
@@ -385,7 +397,6 @@ where
                     &current_membership_info.public.membership,
                     membership_stream,
                 );
-
             MessageScheduler::<_, _, ProcessedMessage<Network::BroadcastSettings>>::new(
                 scheduler_session_info_stream,
                 initial_scheduler_session_info,
@@ -435,7 +446,7 @@ where
                     handle_local_data_message(local_data_message, &mut crypto_processor, &backend, &mut message_scheduler).await;
                 }
                 Some(incoming_message) = blend_messages.next() => {
-                    handle_incoming_blend_message(incoming_message, &mut message_scheduler, &crypto_processor);
+                    handle_incoming_blend_message(incoming_message, &mut message_scheduler, &crypto_processor, &mut blending_token_collector);
                 }
                 Some(round_info) = message_scheduler.next() => {
                     handle_release_round(round_info, &mut crypto_processor, &mut rng, &backend, &network_adapter).await;
@@ -447,7 +458,7 @@ where
                     handle_new_secret_epoch_info(pol_info.poq_private_inputs, &mut crypto_processor);
                 }
                 Some(session_event) = remaining_session_stream.next() => {
-                    match handle_session_event(session_event, &blend_config, crypto_processor, current_public_inputs) {
+                    match handle_session_event(session_event, &blend_config, crypto_processor, current_public_inputs, &mut blending_token_collector) {
                         Ok((new_crypto_processor, new_public_inputs)) => {
                             crypto_processor = new_crypto_processor;
                             current_public_inputs = new_public_inputs;
@@ -482,6 +493,7 @@ fn handle_session_event<NodeId, ProofsGenerator, ProofsVerifier, BackendSettings
         ProofsVerifier,
     >,
     current_public_inputs: PoQVerificationInputsMinusSigningKey,
+    blending_token_collector: &mut BlendingTokenCollector,
 ) -> Result<
     (
         CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
@@ -504,6 +516,15 @@ where
                     membership,
                 },
         }) => {
+            blending_token_collector.rotate_session(&reward::SessionInfo::new(
+                session,
+                &current_public_inputs.leader.pol_epoch_nonce,
+                membership.size() as u64,
+                poq_core_public_inputs.quota,
+                settings.scheduler.cover.message_frequency_per_round,
+            )
+            .expect("Reward session info must be created successfully. Panicking since the service cannot continue with this session"));
+
             let new_inputs = PoQVerificationInputsMinusSigningKey {
                 session,
                 core: poq_core_public_inputs,
@@ -519,9 +540,12 @@ where
             Ok((new_processor, new_inputs))
         }
         SessionEvent::TransitionPeriodExpired => {
-            // TODO: Send an activity message to SDP service.
-            // Also, do it before this service is terminated before this event is
-            // detected.
+            if let Some(activity_proof) =
+                blending_token_collector.compute_activity_proof_for_previous_session()
+            {
+                info!(target: LOG_TARGET, "Activity proof generated: {activity_proof:?}");
+                submit_activity_proof(activity_proof);
+            }
             Ok((current_cryptographic_processor, current_public_inputs))
         }
     }
@@ -592,6 +616,7 @@ fn handle_incoming_blend_message<
     validated_encapsulated_message: IncomingEncapsulatedMessageWithValidatedPublicHeader,
     scheduler: &mut MessageScheduler<SessionClock, Rng, ProcessedMessage<BroadcastSettings>>,
     cryptographic_processor: &CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
+    blending_token_collector: &mut BlendingTokenCollector,
 ) where
     NodeId: 'static,
     BroadcastSettings: Serialize + for<'de> Deserialize<'de> + Send,
@@ -603,10 +628,12 @@ fn handle_incoming_blend_message<
         return;
     };
 
-    // TODO: Collect a blend token.
-
     match decapsulated_message {
-        DecapsulationOutput::Completed(fully_decapsulated_message) => {
+        DecapsulationOutput::Completed {
+            fully_decapsulated_message,
+            blending_token,
+        } => {
+            blending_token_collector.insert(blending_token);
             match fully_decapsulated_message.into_components() {
                 (PayloadType::Cover, _) => {
                     tracing::info!(target: LOG_TARGET, "Discarding received cover message.");
@@ -623,7 +650,11 @@ fn handle_incoming_blend_message<
                 }
             }
         }
-        DecapsulationOutput::Incompleted(remaining_encapsulated_message) => {
+        DecapsulationOutput::Incompleted {
+            remaining_encapsulated_message,
+            blending_token,
+        } => {
+            blending_token_collector.insert(blending_token);
             scheduler.schedule_message(remaining_encapsulated_message.into());
         }
     }
@@ -818,4 +849,9 @@ where
         SessionEvent::NewSession(input) => SessionEvent::NewSession(mapping_fn(input)),
         SessionEvent::TransitionPeriodExpired => SessionEvent::TransitionPeriodExpired,
     })
+}
+
+/// Submits an activity proof to the SDP service.
+fn submit_activity_proof(_proof: ActivityProof) {
+    todo!()
 }

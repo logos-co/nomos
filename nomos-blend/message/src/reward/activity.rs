@@ -1,13 +1,17 @@
+use derivative::Derivative;
 use nomos_core::sdp::SessionNumber;
+use serde::Serialize;
 use tracing::debug;
 
 use crate::reward::{LOG_TARGET, token::BlendingToken};
 
 /// An activity proof for a session, made of the blending token
 /// that has the smallest Hamming distance satisfying the activity threshold.
-#[expect(dead_code, reason = "Used once integrated with Blend service")]
+#[derive(Derivative, Serialize)]
+#[derivative(Debug)]
 pub struct ActivityProof {
     session_number: SessionNumber,
+    #[derivative(Debug = "ignore")]
     token: BlendingToken,
 }
 

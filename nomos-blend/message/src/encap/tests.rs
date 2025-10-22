@@ -132,7 +132,10 @@ fn encapsulate_and_decapsulate() {
     // (following the notion in the spec)
 
     // We can decapsulate with the correct private key.
-    let DecapsulationOutput::Incompleted(msg) = msg
+    let DecapsulationOutput::Incompleted {
+        remaining_encapsulated_message: msg,
+        ..
+    } = msg
         .verify_public_header(&verifier)
         .unwrap()
         .decapsulate(
@@ -161,7 +164,10 @@ fn encapsulate_and_decapsulate() {
 
     // We can decapsulate with the correct private key
     // and the fully-decapsulated payload is correct.
-    let DecapsulationOutput::Completed(decapsulated_message) = msg
+    let DecapsulationOutput::Completed {
+        fully_decapsulated_message: decapsulated_message,
+        ..
+    } = msg
         .verify_public_header(&verifier)
         .unwrap()
         .decapsulate(

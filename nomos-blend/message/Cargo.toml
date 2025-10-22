@@ -9,6 +9,7 @@ workspace = true
 
 [dependencies]
 blake2          = { workspace = true }
+derivative      = { default-features = false, version = "2" }
 ed25519-dalek   = { default-features = false, features = ["rand_core"], version = "2" }
 generic-array   = { default-features = false, version = "1.2" }
 groth16         = { workspace = true }

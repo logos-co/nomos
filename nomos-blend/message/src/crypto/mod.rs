@@ -32,12 +32,14 @@ pub fn pseudo_random_bytes(key: &[u8], size: usize) -> Vec<u8> {
 }
 
 fn blake_random_bytes(buf: &mut [u8], key: &[u8]) {
-    let mut cipher = BlakeRng::from_seed(blake2b512(key).into());
+    let mut cipher = BlakeRng::from_seed(blake2b512(&[key]).into());
     cipher.fill_bytes(buf);
 }
 
-fn blake2b512(input: &[u8]) -> [u8; 64] {
+pub(crate) fn blake2b512(inputs: &[&[u8]]) -> [u8; 64] {
     let mut hasher = Blake2b512::new();
-    hasher.update(input);
+    for input in inputs {
+        hasher.update(input);
+    }
     hasher.finalize().into()
 }

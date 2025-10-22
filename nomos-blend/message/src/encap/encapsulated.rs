@@ -205,7 +205,11 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPart<ENCAPSULATION_COUNT> {
             .private_header
             .decapsulate(key, posel_verification_input, verifier)?
         {
-            PrivateHeaderDecapsulationOutput::Incompleted((private_header, public_header)) => {
+            PrivateHeaderDecapsulationOutput::Incompleted {
+                encapsulated_private_header: private_header,
+                public_header,
+                proof_of_selection,
+            } => {
                 let payload = self.payload.decapsulate(key);
                 verify_reconstructed_public_header(
                     &public_header,
@@ -213,15 +217,20 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPart<ENCAPSULATION_COUNT> {
                     &payload,
                     verifier,
                 )?;
-                Ok(PartDecapsulationOutput::Incompleted((
-                    Self {
+                Ok(PartDecapsulationOutput::Incompleted {
+                    encapsulated_part: Self {
                         private_header,
                         payload,
                     },
                     public_header,
-                )))
+                    proof_of_selection,
+                })
             }
-            PrivateHeaderDecapsulationOutput::Completed((private_header, public_header)) => {
+            PrivateHeaderDecapsulationOutput::Completed {
+                encapsulated_private_header: private_header,
+                public_header,
+                proof_of_selection,
+            } => {
                 let payload = self.payload.decapsulate(key);
                 verify_reconstructed_public_header(
                     &public_header,
@@ -229,9 +238,10 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPart<ENCAPSULATION_COUNT> {
                     &payload,
                     verifier,
                 )?;
-                Ok(PartDecapsulationOutput::Completed(
-                    payload.try_deserialize()?,
-                ))
+                Ok(PartDecapsulationOutput::Completed {
+                    payload: payload.try_deserialize()?,
+                    proof_of_selection,
+                })
             }
         }
     }
@@ -400,15 +410,17 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPrivateHeader<ENCAPSULATION_C
         self.replace_last(last_blending_header);
 
         if is_last {
-            Ok(PrivateHeaderDecapsulationOutput::Completed((
-                self,
+            Ok(PrivateHeaderDecapsulationOutput::Completed {
+                encapsulated_private_header: self,
                 public_header,
-            )))
+                proof_of_selection,
+            })
         } else {
-            Ok(PrivateHeaderDecapsulationOutput::Incompleted((
-                self,
+            Ok(PrivateHeaderDecapsulationOutput::Incompleted {
+                encapsulated_private_header: self,
                 public_header,
-            )))
+                proof_of_selection,
+            })
         }
     }
 

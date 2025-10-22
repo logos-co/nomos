@@ -1,9 +1,10 @@
 use std::ops::Deref;
 
-use nomos_core::sdp::SessionNumber;
+use groth16::fr_to_bytes;
+use nomos_core::{crypto::ZkHash, sdp::SessionNumber};
 use nomos_utils::math::{F64Ge1, NonNegativeF64};
 
-use crate::reward::activity::activity_threshold;
+use crate::{crypto::blake2b512, reward::activity::activity_threshold};
 
 /// Session-specific information to compute an activity proof.
 pub struct SessionInfo {
@@ -16,11 +17,15 @@ pub struct SessionInfo {
 impl SessionInfo {
     pub fn new(
         session_number: SessionNumber,
-        session_randomness: SessionRandomness,
+        pol_epoch_nonce: &ZkHash,
         num_core_nodes: u64,
-        total_core_quota: u64,
+        core_quota: u64,
         message_frequency_per_round: NonNegativeF64,
     ) -> Result<Self, Error> {
+        let total_core_quota = core_quota
+            .checked_mul(num_core_nodes)
+            .ok_or(Error::TotalCoreQuotaTooLarge(u64::MAX))?;
+
         let network_size_bit_len = F64Ge1::try_from(
             num_core_nodes
                 .checked_add(1)
@@ -34,6 +39,8 @@ impl SessionInfo {
             token_count_bit_len(total_core_quota, message_frequency_per_round)?;
 
         let activity_threshold = activity_threshold(token_count_bit_len, network_size_bit_len);
+
+        let session_randomness = SessionRandomness::new(session_number, pol_epoch_nonce);
 
         Ok(Self {
             session_number,
@@ -59,6 +66,21 @@ impl Deref for SessionRandomness {
 impl From<[u8; 64]> for SessionRandomness {
     fn from(bytes: [u8; 64]) -> Self {
         Self(bytes)
+    }
+}
+
+const SESSION_RANDOMNESS_TAG: [u8; 27] = *b"BLEND_SESSION_RANDOMNESS_V1";
+
+impl SessionRandomness {
+    /// Derive the session randomness from the given session number and epoch
+    /// nonce.
+    #[must_use]
+    fn new(session_number: SessionNumber, epoch_nonce: &ZkHash) -> Self {
+        Self(blake2b512(&[
+            &SESSION_RANDOMNESS_TAG,
+            &fr_to_bytes(epoch_nonce),
+            &session_number.to_le_bytes(),
+        ]))
     }
 }
 
