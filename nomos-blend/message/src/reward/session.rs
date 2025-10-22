@@ -1,9 +1,9 @@
 use std::ops::Deref;
 
 use blake2::{Blake2b512, Digest as _};
+use groth16::fr_to_bytes;
 use nomos_core::{crypto::ZkHash, sdp::SessionNumber};
 use nomos_utils::math::{F64Ge1, NonNegativeF64};
-use num_bigint::BigUint;
 
 use crate::reward::activity::activity_threshold;
 
@@ -18,7 +18,7 @@ pub struct SessionInfo {
 impl SessionInfo {
     pub fn new(
         session_number: SessionNumber,
-        pol_epoch_nonce: ZkHash,
+        pol_epoch_nonce: &ZkHash,
         num_core_nodes: u64,
         core_quota: u64,
         message_frequency_per_round: NonNegativeF64,
@@ -76,10 +76,10 @@ impl SessionRandomness {
     /// Derive the session randomness from the given session number and epoch
     /// nonce.
     #[must_use]
-    fn new(session_number: SessionNumber, epoch_nonce: ZkHash) -> Self {
+    fn new(session_number: SessionNumber, epoch_nonce: &ZkHash) -> Self {
         let mut hasher = Blake2b512::new();
         hasher.update(SESSION_RANDOMNESS_TAG);
-        hasher.update(BigUint::from(epoch_nonce).to_bytes_le());
+        hasher.update(fr_to_bytes(epoch_nonce));
         hasher.update(session_number.to_le_bytes());
         Self(hasher.finalize().into())
     }

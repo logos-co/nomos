@@ -374,7 +374,7 @@ where
         let mut blending_token_collector = BlendingTokenCollector::new(
             &reward::SessionInfo::new(
                 current_membership_info.public.session,
-                pol_epoch_nonce,
+                &pol_epoch_nonce,
                 current_membership_info.public.membership.size() as u64,
                 current_membership_info.public.poq_core_public_inputs.quota,
                 blend_config.scheduler.cover.message_frequency_per_round,
@@ -518,7 +518,7 @@ where
         }) => {
             blending_token_collector.rotate_session(&reward::SessionInfo::new(
                 session,
-                current_public_inputs.leader.pol_epoch_nonce,
+                &current_public_inputs.leader.pol_epoch_nonce,
                 membership.size() as u64,
                 poq_core_public_inputs.quota,
                 settings.scheduler.cover.message_frequency_per_round,

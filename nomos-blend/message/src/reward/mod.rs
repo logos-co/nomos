@@ -144,7 +144,7 @@ mod tests {
         let core_quota = 15;
         let session_info = SessionInfo::new(
             1,
-            ZkHash::from(1),
+            &ZkHash::from(1),
             num_core_nodes,
             core_quota,
             1.0.try_into().unwrap(),
@@ -178,7 +178,7 @@ mod tests {
         // Rotate to a new session.
         let session_info = SessionInfo::new(
             2,
-            ZkHash::from(2),
+            &ZkHash::from(2),
             num_core_nodes,
             core_quota,
             1.0.try_into().unwrap(),
