@@ -39,3 +39,20 @@ impl<BroadcastSettings> From<EncapsulatedMessage> for ProcessedMessage<Broadcast
         Self::Encapsulated(Box::new(value))
     }
 }
+
+pub trait MessageComponents {
+    type Payload;
+    type BroadcastSettings;
+
+    fn into_components(self) -> (Self::Payload, Self::BroadcastSettings);
+}
+
+impl<BroadcastSettings> MessageComponents for ServiceMessage<BroadcastSettings> {
+    type Payload = Vec<u8>;
+    type BroadcastSettings = BroadcastSettings;
+
+    fn into_components(self) -> (Self::Payload, Self::BroadcastSettings) {
+        let Self::Blend(network_message) = self;
+        (network_message.message, network_message.broadcast_settings)
+    }
+}

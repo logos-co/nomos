@@ -1,4 +1,5 @@
 pub mod backends;
+pub mod message;
 pub mod network;
 mod processor;
 pub mod settings;
@@ -55,11 +56,12 @@ use rand::{RngCore, SeedableRng as _, seq::SliceRandom as _};
 use serde::{Deserialize, Serialize};
 use services_utils::wait_until_services_are_ready;
 use tokio::sync::oneshot;
-use tracing::info;
+use tracing::{error, info};
 
 use crate::{
     core::{
         backends::SessionInfo,
+        message::ServiceMessage,
         processor::{CoreCryptographicProcessor, Error},
         settings::BlendConfig,
     },
@@ -68,7 +70,7 @@ use crate::{
         PolInfoProvider as PolInfoProviderTrait,
     },
     membership::{self, MembershipInfo, ZkInfo},
-    message::{NetworkMessage, ProcessedMessage, ServiceMessage},
+    message::{NetworkMessage, ProcessedMessage, ServiceMessage as CommonServiceMessage},
     session::{CoreSessionInfo, CoreSessionPublicInfo},
     settings::FIRST_STREAM_ITEM_READY_TIMEOUT,
 };
@@ -141,7 +143,7 @@ where
     type Settings = BlendConfig<Backend::Settings>;
     type State = NoState<Self::Settings>;
     type StateOperator = NoOperator<Self::State>;
-    type Message = ServiceMessage<Network::BroadcastSettings>;
+    type Message = ServiceMessage<CommonServiceMessage<Network::BroadcastSettings>>;
 }
 
 #[async_trait]
@@ -444,7 +446,7 @@ where
         loop {
             tokio::select! {
                 Some(local_data_message) = inbound_relay.next() => {
-                    handle_local_data_message(local_data_message, &mut crypto_processor, &backend, &mut message_scheduler).await;
+                    handle_service_message(local_data_message, &mut crypto_processor, &backend, &mut message_scheduler, &mut blending_token_collector).await;
                 }
                 Some(incoming_message) = blend_messages.next() => {
                     handle_incoming_blend_message(incoming_message, &mut message_scheduler, &crypto_processor, &mut blending_token_collector);
@@ -552,6 +554,42 @@ where
     }
 }
 
+async fn handle_service_message<
+    NodeId,
+    Rng,
+    Backend,
+    SessionClock,
+    BroadcastSettings,
+    ProofsGenerator,
+    ProofsVerifier,
+    RuntimeServiceId,
+>(
+    message: ServiceMessage<CommonServiceMessage<BroadcastSettings>>,
+    cryptographic_processor: &mut CoreCryptographicProcessor<
+        NodeId,
+        ProofsGenerator,
+        ProofsVerifier,
+    >,
+    backend: &Backend,
+    scheduler: &mut MessageScheduler<SessionClock, Rng, ProcessedMessage<BroadcastSettings>>,
+    blending_token_collector: &mut BlendingTokenCollector,
+) where
+    NodeId: Eq + Hash + Send + 'static,
+    Rng: RngCore + Send,
+    Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId> + Sync,
+    BroadcastSettings: Serialize + for<'de> Deserialize<'de> + Send,
+    ProofsGenerator: CoreAndLeaderProofsGenerator,
+{
+    match message {
+        ServiceMessage::Common(message) => {
+            handle_local_data_message(message, cryptographic_processor, backend, scheduler).await;
+        }
+        ServiceMessage::FinishSessionTransition { reply_sender } => {
+            handle_finish_session_transition_message(blending_token_collector, reply_sender);
+        }
+    }
+}
+
 /// Blend a new message received from another service.
 ///
 /// When a new local data message is received, an attempt to serialize and
@@ -570,7 +608,7 @@ async fn handle_local_data_message<
     ProofsVerifier,
     RuntimeServiceId,
 >(
-    local_data_message: ServiceMessage<BroadcastSettings>,
+    local_data_message: CommonServiceMessage<BroadcastSettings>,
     cryptographic_processor: &mut CoreCryptographicProcessor<
         NodeId,
         ProofsGenerator,
@@ -585,7 +623,7 @@ async fn handle_local_data_message<
     BroadcastSettings: Serialize + for<'de> Deserialize<'de> + Send,
     ProofsGenerator: CoreAndLeaderProofsGenerator,
 {
-    let ServiceMessage::Blend(message_payload) = local_data_message;
+    let CommonServiceMessage::Blend(message_payload) = local_data_message;
 
     let serialized_data_message = NetworkMessage::<BroadcastSettings>::to_bytes(&message_payload)
         .expect("NetworkMessage should be able to be serialized")
@@ -602,6 +640,32 @@ async fn handle_local_data_message<
     };
     backend.publish(wrapped_message).await;
     scheduler.notify_new_data_message();
+}
+
+/// Computes an activity proof using the blending tokens collected so far
+/// for the previous session, and submits it to the SDP service.
+///
+/// If the node is serving in the core role in the current session,
+/// this core service continues running, and automatically detects and
+/// handles the end of the session transition. In that case, this function
+/// doesn't need to be called.
+/// However, if the node is not in the core role in the current session,
+/// the upper layer may shut down the core service after the session transition
+/// has passed. In such cases, this function should be called by the upper layer
+/// before shutdown to ensure the activity proof is properly submitted.
+fn handle_finish_session_transition_message(
+    blending_token_collector: &mut BlendingTokenCollector,
+    reply_sender: oneshot::Sender<()>,
+) {
+    if let Some(activity_proof) =
+        blending_token_collector.compute_activity_proof_for_previous_session()
+    {
+        info!(target: LOG_TARGET, "Activity proof generated by SubmitActivityProof message: {activity_proof:?}");
+        submit_activity_proof(activity_proof);
+    }
+    if reply_sender.send(()).is_err() {
+        error!(target: LOG_TARGET, "Failed to send reply for SubmitActivityProof message");
+    }
 }
 
 /// Processes an already unwrapped and validated Blend message received from

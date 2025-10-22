@@ -11,14 +11,16 @@ use overwatch::{
 };
 
 use crate::{
-    BroadcastSettings,
     core::{
+        message::ServiceMessage as CoreServiceMessage,
         network::NetworkAdapter as NetworkAdapterTrait,
         service_components::{
-            MessageComponents, NetworkBackendOfService, ServiceComponents as CoreServiceComponents,
+            BroadcastSettingsOfService, NetworkBackendOfService,
+            ServiceComponents as CoreServiceComponents,
         },
     },
     membership::MembershipInfo,
+    message::MessageComponents,
     modes::{self, BroadcastMode, CoreMode, EdgeMode},
 };
 
@@ -26,45 +28,42 @@ use crate::{
 /// and can transition between them.
 pub enum Instance<CoreService, EdgeService, RuntimeServiceId>
 where
-    CoreService: ServiceData + CoreServiceComponents<RuntimeServiceId>,
+    CoreService: ServiceData<Message = CoreServiceMessage<EdgeService::Message>>
+        + CoreServiceComponents<RuntimeServiceId>,
     EdgeService: ServiceData,
 {
-    Core(CoreMode<CoreService, RuntimeServiceId>),
+    Core(CoreMode<CoreService, <EdgeService as ServiceData>::Message, RuntimeServiceId>),
     Edge(EdgeMode<EdgeService, RuntimeServiceId>),
     EdgeAfterCore {
         mode: EdgeMode<EdgeService, RuntimeServiceId>,
         // Keep the previous core mode for the session transition period.
-        prev: CoreMode<CoreService, RuntimeServiceId>,
+        prev: CoreMode<CoreService, <EdgeService as ServiceData>::Message, RuntimeServiceId>,
     },
     Broadcast(BroadcastMode<CoreService::NetworkAdapter, RuntimeServiceId>),
     BroadcastAfterCore {
         mode: BroadcastMode<CoreService::NetworkAdapter, RuntimeServiceId>,
         // Keep the previous core mode for the session transition period.
-        prev: CoreMode<CoreService, RuntimeServiceId>,
+        prev: CoreMode<CoreService, <EdgeService as ServiceData>::Message, RuntimeServiceId>,
     },
 }
 
 impl<CoreService, EdgeService, RuntimeServiceId>
     Instance<CoreService, EdgeService, RuntimeServiceId>
 where
-    CoreService: ServiceData<
+    CoreService: ServiceData<Message = CoreServiceMessage<EdgeService::Message>>
+        + CoreServiceComponents<
+            RuntimeServiceId,
+            NetworkAdapter: NetworkAdapterTrait<RuntimeServiceId> + Send + Sync + 'static,
+            NodeId: Eq + Hash,
+        > + 'static,
+    EdgeService: ServiceData<
             Message: MessageComponents<
                 Payload: Into<Vec<u8>>,
-                BroadcastSettings: Into<BroadcastSettings<CoreService>>,
+                BroadcastSettings: Into<BroadcastSettingsOfService<CoreService, RuntimeServiceId>>,
             > + Send
                          + Sync
                          + 'static,
-        > + CoreServiceComponents<
-            RuntimeServiceId,
-            NetworkAdapter: NetworkAdapterTrait<
-                RuntimeServiceId,
-                BroadcastSettings = BroadcastSettings<CoreService>,
-            > + Send
-                                + Sync
-                                + 'static,
-            NodeId: Eq + Hash,
         > + 'static,
-    EdgeService: ServiceData<Message = CoreService::Message> + 'static,
     RuntimeServiceId: AsServiceId<CoreService>
         + AsServiceId<EdgeService>
         + AsServiceId<
@@ -95,7 +94,7 @@ where
 
     async fn new_core_mode(
         overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
-    ) -> Result<CoreMode<CoreService, RuntimeServiceId>, modes::Error> {
+    ) -> Result<CoreMode<CoreService, EdgeService::Message, RuntimeServiceId>, modes::Error> {
         CoreMode::new(overwatch_handle.clone()).await
     }
 
@@ -120,7 +119,7 @@ where
     /// Handles an inbound message by delegating it to the current mode.
     pub async fn handle_inbound_message(
         &self,
-        message: CoreService::Message,
+        message: EdgeService::Message,
     ) -> Result<(), modes::Error> {
         match self {
             Self::Core(mode) => mode.handle_inbound_message(message).await,
@@ -239,17 +238,17 @@ where
 
     /// Handles the expiration of the transition period,
     /// by shutting down the previous Core mode if exists.
-    // TODO: Before shutting down the previous Core mode, notify it to submit
-    // activity proof in case it terminates before detecting the end of the
-    // transition period.
     async fn handle_transition_period_expired(self) -> Self {
+        // The previous Core mode should be notified of the end of the
+        // transition period before shutdown, so that it can perform cleanup
+        // (e.g. submitting an activity proof).
         match self {
             Self::EdgeAfterCore { mode, prev } => {
-                prev.shutdown().await;
+                prev.shutdown_after_finishing_session_transition().await;
                 Self::Edge(mode)
             }
             Self::BroadcastAfterCore { mode, prev } => {
-                prev.shutdown().await;
+                prev.shutdown_after_finishing_session_transition().await;
                 Self::Broadcast(mode)
             }
             _ => self,
@@ -301,6 +300,7 @@ impl Mode {
 mod tests {
     use std::time::Duration;
 
+    use futures::StreamExt as _;
     use libp2p::Multiaddr;
     use nomos_blend_message::crypto::keys::{Ed25519PrivateKey, Ed25519PublicKey};
     use nomos_blend_scheduling::membership::Node;
@@ -600,7 +600,7 @@ mod tests {
         type Settings = ();
         type State = NoState<Self::Settings>;
         type StateOperator = NoOperator<Self::State>;
-        type Message = TestMessage;
+        type Message = CoreServiceMessage<TestMessage>;
     }
 
     #[async_trait::async_trait]
@@ -614,19 +614,26 @@ mod tests {
             })
         }
 
-        async fn run(self) -> Result<(), DynError> {
+        async fn run(mut self) -> Result<(), DynError> {
             let Self {
                 service_resources_handle:
                     OpaqueServiceResourcesHandle::<Self, RuntimeServiceId> {
-                        ref status_updater, ..
+                        ref mut inbound_relay,
+                        ref status_updater,
+                        ..
                     },
                 ..
             } = self;
             status_updater.notify_ready();
 
-            loop {
-                sleep(Duration::from_secs(1)).await;
+            while let Some(message) = inbound_relay.next().await {
+                if let CoreServiceMessage::FinishSessionTransition { reply_sender } = message {
+                    // reply without doing anything
+                    let _ = reply_sender.send(());
+                }
             }
+
+            Ok(())
         }
     }
 

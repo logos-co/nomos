@@ -27,13 +27,16 @@ use tracing::{debug, error, info};
 
 use crate::{
     core::{
+        message::ServiceMessage as CoreServiceMessage,
         network::NetworkAdapter as NetworkAdapterTrait,
         service_components::{
-            MessageComponents, NetworkBackendOfService, ServiceComponents as CoreServiceComponents,
+            BroadcastSettingsOfService, NetworkBackendOfService,
+            ServiceComponents as CoreServiceComponents,
         },
     },
     instance::{Instance, Mode},
     membership::{Adapter as _, MembershipInfo},
+    message::ServiceMessage,
     settings::{FIRST_STREAM_ITEM_READY_TIMEOUT, Settings},
 };
 
@@ -74,26 +77,26 @@ where
     type Settings = Settings;
     type State = NoState<Self::Settings>;
     type StateOperator = NoOperator<Self::State>;
-    type Message = CoreService::Message;
+    type Message = EdgeService::Message;
 }
 
 #[async_trait]
 impl<CoreService, EdgeService, RuntimeServiceId> ServiceCore<RuntimeServiceId>
     for BlendService<CoreService, EdgeService, RuntimeServiceId>
 where
-    CoreService: ServiceData<Message: MessageComponents<Payload: Into<Vec<u8>>> + Send + Sync + 'static>
-        + CoreServiceComponents<
+    CoreService: ServiceData<
+            Message = CoreServiceMessage<
+                ServiceMessage<BroadcastSettingsOfService<CoreService, RuntimeServiceId>>,
+            >,
+        > + CoreServiceComponents<
             RuntimeServiceId,
-            NetworkAdapter: NetworkAdapterTrait<
-                RuntimeServiceId,
-                BroadcastSettings = BroadcastSettings<CoreService>,
-            > + Send
-                                + Sync
-                                + 'static,
+            NetworkAdapter: NetworkAdapterTrait<RuntimeServiceId> + Send + Sync + 'static,
             NodeId: Clone + Hash + Eq + Send + Sync + 'static,
         > + Send
         + 'static,
-    EdgeService: ServiceData<Message = CoreService::Message>
+    EdgeService: ServiceData<
+            Message = ServiceMessage<BroadcastSettingsOfService<CoreService, RuntimeServiceId>>,
+        >
         // We tie the core and edge proofs generator to be the same type, to avoid mistakes in the
         // node configuration where the two services use different verification logic
         + edge::ServiceComponents<ProofsGenerator = CoreService::ProofsGenerator>
@@ -207,9 +210,6 @@ where
         }
     }
 }
-
-type BroadcastSettings<CoreService> =
-    <<CoreService as ServiceData>::Message as MessageComponents>::BroadcastSettings;
 
 type MembershipAdapter<EdgeService> = <EdgeService as edge::ServiceComponents>::MembershipAdapter;
 

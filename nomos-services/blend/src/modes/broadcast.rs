@@ -11,10 +11,7 @@ use overwatch::{
 };
 use services_utils::wait_until_services_are_ready;
 
-use crate::{
-    core::{network::NetworkAdapter, service_components::MessageComponents},
-    modes::Error,
-};
+use crate::{core::network::NetworkAdapter, message::MessageComponents, modes::Error};
 
 pub struct BroadcastMode<Adapter, RuntimeServiceId> {
     adapter: Adapter,
