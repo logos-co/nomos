@@ -13,8 +13,14 @@ use crate::{
 )]
 #[derive(Clone)]
 pub enum DecapsulationOutput<const ENCAPSULATION_COUNT: usize> {
-    Incompleted((EncapsulatedMessage<ENCAPSULATION_COUNT>, BlendingToken)),
-    Completed((DecapsulatedMessage, BlendingToken)),
+    Incompleted {
+        remaining_encapsulated_message: EncapsulatedMessage<ENCAPSULATION_COUNT>,
+        blending_token: BlendingToken,
+    },
+    Completed {
+        fully_decapsulated_message: DecapsulatedMessage,
+        blending_token: BlendingToken,
+    },
 }
 
 /// The output of [`EncapsulatedPart::decapsulate`]
@@ -23,14 +29,16 @@ pub enum DecapsulationOutput<const ENCAPSULATION_COUNT: usize> {
     reason = "Size difference between variants is not too large (small ENCAPSULATION_COUNT)"
 )]
 pub(super) enum PartDecapsulationOutput<const ENCAPSULATION_COUNT: usize> {
-    Incompleted(
-        (
-            EncapsulatedPart<ENCAPSULATION_COUNT>,
-            PublicHeader,
-            ProofOfSelection,
-        ),
-    ),
-    Completed((Payload, ProofOfSelection)),
+    Incompleted {
+        encapsulated_part: EncapsulatedPart<ENCAPSULATION_COUNT>,
+        public_header: PublicHeader,
+        proof_of_selection: ProofOfSelection,
+    },
+
+    Completed {
+        payload: Payload,
+        proof_of_selection: ProofOfSelection,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -65,18 +73,14 @@ impl DecapsulatedMessage {
 
 /// The output of [`EncapsulatedPrivateHeader::decapsulate`]
 pub(super) enum PrivateHeaderDecapsulationOutput<const ENCAPSULATION_COUNT: usize> {
-    Incompleted(
-        (
-            EncapsulatedPrivateHeader<ENCAPSULATION_COUNT>,
-            PublicHeader,
-            ProofOfSelection,
-        ),
-    ),
-    Completed(
-        (
-            EncapsulatedPrivateHeader<ENCAPSULATION_COUNT>,
-            PublicHeader,
-            ProofOfSelection,
-        ),
-    ),
+    Incompleted {
+        encapsulated_private_header: EncapsulatedPrivateHeader<ENCAPSULATION_COUNT>,
+        public_header: PublicHeader,
+        proof_of_selection: ProofOfSelection,
+    },
+    Completed {
+        encapsulated_private_header: EncapsulatedPrivateHeader<ENCAPSULATION_COUNT>,
+        public_header: PublicHeader,
+        proof_of_selection: ProofOfSelection,
+    },
 }

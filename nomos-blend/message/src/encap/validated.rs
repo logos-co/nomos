@@ -80,26 +80,35 @@ impl<const ENCAPSULATION_COUNT: usize>
             },
             verifier,
         )? {
-            PartDecapsulationOutput::Incompleted((
+            PartDecapsulationOutput::Incompleted {
                 encapsulated_part,
                 public_header,
                 proof_of_selection,
-            )) => {
+            } => {
                 let blending_token =
                     BlendingToken::new(*public_header.proof_of_quota(), proof_of_selection);
-                Ok(DecapsulationOutput::Incompleted((
-                    EncapsulatedMessage::from_components(public_header, encapsulated_part),
+                Ok(DecapsulationOutput::Incompleted {
+                    remaining_encapsulated_message: EncapsulatedMessage::from_components(
+                        public_header,
+                        encapsulated_part,
+                    ),
                     blending_token,
-                )))
+                })
             }
-            PartDecapsulationOutput::Completed((payload, proof_of_selection)) => {
+            PartDecapsulationOutput::Completed {
+                payload,
+                proof_of_selection,
+            } => {
                 let (payload_type, payload_body) = payload.try_into_components()?;
                 let blending_token =
                     BlendingToken::new(*public_header.proof_of_quota(), proof_of_selection);
-                Ok(DecapsulationOutput::Completed((
-                    (DecapsulatedMessage::new(payload_type, payload_body)),
+                Ok(DecapsulationOutput::Completed {
+                    fully_decapsulated_message: (DecapsulatedMessage::new(
+                        payload_type,
+                        payload_body,
+                    )),
                     blending_token,
-                )))
+                })
             }
         }
     }

@@ -629,7 +629,10 @@ fn handle_incoming_blend_message<
     };
 
     match decapsulated_message {
-        DecapsulationOutput::Completed((fully_decapsulated_message, blending_token)) => {
+        DecapsulationOutput::Completed {
+            fully_decapsulated_message,
+            blending_token,
+        } => {
             blending_token_collector.insert(blending_token);
             match fully_decapsulated_message.into_components() {
                 (PayloadType::Cover, _) => {
@@ -647,7 +650,10 @@ fn handle_incoming_blend_message<
                 }
             }
         }
-        DecapsulationOutput::Incompleted((remaining_encapsulated_message, blending_token)) => {
+        DecapsulationOutput::Incompleted {
+            remaining_encapsulated_message,
+            blending_token,
+        } => {
             blending_token_collector.insert(blending_token);
             scheduler.schedule_message(remaining_encapsulated_message.into());
         }
