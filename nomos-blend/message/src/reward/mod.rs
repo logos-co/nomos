@@ -8,6 +8,7 @@ pub use activity::ActivityProof;
 use nomos_core::sdp::SessionNumber;
 pub use session::SessionInfo;
 pub use token::BlendingToken;
+use tracing::warn;
 
 use crate::reward::session::SessionRandomness;
 
@@ -60,6 +61,13 @@ impl BlendingTokenCollector {
     /// an activity proof, it is discarded because its activity proof is
     /// no longer acceptable by the protocol.
     pub fn rotate_session(&mut self, new_session_info: &SessionInfo) {
+        if self.previous_session_tokens.is_some() {
+            warn!(
+                target: LOG_TARGET,
+                "Rotating to a new session while previous session tokens are still unconsumed. Those tokens will be discarded."
+            );
+        }
+
         self.previous_session_tokens = Some(std::mem::replace(
             &mut self.current_session_tokens,
             BlendingTokensForSession::new(
