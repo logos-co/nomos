@@ -12,6 +12,7 @@ use nomos_core::{
     mantle::{
         SignedMantleTx,
         ops::channel::{ChannelId, Ed25519PublicKey, MsgId},
+        tx_builder::MantleTxBuilder,
     },
     sdp::SessionNumber,
 };
@@ -188,10 +189,15 @@ where
         + Display
         + AsServiceId<DaDispersal<Backend, NetworkAdapter, Membership, RuntimeServiceId>>,
 {
+    // TODO: Should tx_builder come from wallet service?
+    // Provide proper tx_builder when DA uses actual wallet instead of mock.
+    let tx_builder = MantleTxBuilder::new();
+
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
     relay
         .send(DaDispersalMsg::Disperse {
+            tx_builder,
             channel_id,
             parent_msg_id,
             signer,

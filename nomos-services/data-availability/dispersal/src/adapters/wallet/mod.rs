@@ -5,6 +5,7 @@ use nomos_core::{
     mantle::{
         SignedMantleTx,
         ops::channel::{ChannelId, Ed25519PublicKey, MsgId},
+        tx_builder::MantleTxBuilder,
     },
 };
 
@@ -17,6 +18,7 @@ pub trait DaWalletAdapter {
 
     fn blob_tx(
         &self,
+        tx_builder: MantleTxBuilder,
         channel_id: ChannelId,
         parent_msg_id: MsgId,
         blob_id: BlobId,

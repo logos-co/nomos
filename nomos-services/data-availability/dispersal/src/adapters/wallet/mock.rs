@@ -8,6 +8,7 @@ use nomos_core::{
         MantleTx, Note, Op, OpProof, SignedMantleTx, Transaction as _, Utxo,
         ledger::Tx as LedgerTx,
         ops::channel::{ChannelId, Ed25519PublicKey, MsgId, blob::BlobOp},
+        tx_builder::MantleTxBuilder,
     },
     proofs::zksig::{DummyZkSignature, ZkSignaturePublic},
 };
@@ -26,6 +27,7 @@ impl DaWalletAdapter for MockWalletAdapter {
 
     fn blob_tx(
         &self,
+        tx_builder: MantleTxBuilder,
         channel_id: ChannelId,
         parent_msg_id: MsgId,
         blob_id: BlobId,
@@ -58,6 +60,10 @@ impl DaWalletAdapter for MockWalletAdapter {
             signer,
         };
 
+        // TODO: Wallet service will expect a BlobOp, and transform that into a
+        // SignedMantleTx.
+        let _ = tx_builder.push_op(Op::ChannelBlob(blob_op.clone()));
+
         let mantle_tx = MantleTx {
             ops: vec![Op::ChannelBlob(blob_op)],
             ledger_tx: LedgerTx::new(vec![utxo.id()], vec![]),
@@ -68,9 +74,6 @@ impl DaWalletAdapter for MockWalletAdapter {
         // Sign the transaction hash
         let tx_hash = mantle_tx.hash();
         let signature = signing_key.sign(&tx_hash.as_signing_bytes());
-
-        // TODO: Wallet service will expect a BlobOp, and transform that into a
-        // SignedMantleTx.
 
         // Create signed transaction with valid signature proof
         Ok(SignedMantleTx::new(

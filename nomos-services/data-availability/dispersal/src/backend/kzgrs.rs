@@ -11,6 +11,7 @@ use nomos_core::{
     mantle::{
         SignedMantleTx,
         ops::channel::{ChannelId, Ed25519PublicKey, MsgId},
+        tx_builder::MantleTxBuilder,
     },
 };
 use nomos_da_network_service::backends::ProcessingError;
@@ -172,6 +173,7 @@ where
 
     async fn disperse(
         handler: DispersalHandler<NetworkAdapter, WalletAdapter>,
+        tx_builder: MantleTxBuilder,
         channel_id: ChannelId,
         parent_msg_id: MsgId,
         signer: Ed25519PublicKey,
@@ -183,7 +185,14 @@ where
         tracing::debug!("Dispersing {blob_id:?} transaction");
         let wallet_adapter = handler.wallet_adapter.as_ref();
         let tx = wallet_adapter
-            .blob_tx(channel_id, parent_msg_id, blob_id, original_size, signer)
+            .blob_tx(
+                tx_builder,
+                channel_id,
+                parent_msg_id,
+                blob_id,
+                original_size,
+                signer,
+            )
             .map_err(Box::new)?;
 
         handler.disperse_tx(blob_id, tx.clone()).await?;
@@ -199,6 +208,7 @@ where
     )]
     fn create_dispersal_task(
         handler: DispersalHandler<NetworkAdapter, WalletAdapter>,
+        tx_builder: MantleTxBuilder,
         channel_id: ChannelId,
         parent_msg_id: MsgId,
         signer: Ed25519PublicKey,
@@ -213,6 +223,7 @@ where
             for attempt in 0..=retry_limit {
                 match Self::disperse(
                     handler.clone(),
+                    tx_builder.clone(),
                     channel_id,
                     parent_msg_id,
                     signer,
@@ -290,6 +301,7 @@ where
     #[instrument(skip_all)]
     async fn process_dispersal(
         &self,
+        tx_builder: MantleTxBuilder,
         channel_id: ChannelId,
         parent_msg_id: MsgId,
         signer: Ed25519PublicKey,
@@ -309,6 +321,7 @@ where
 
         let dispersal_task = Self::create_dispersal_task(
             handler,
+            tx_builder,
             channel_id,
             parent_msg_id,
             signer,

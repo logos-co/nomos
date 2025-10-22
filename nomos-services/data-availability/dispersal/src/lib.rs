@@ -10,6 +10,7 @@ use futures::{StreamExt as _, stream::FuturesUnordered};
 use nomos_core::mantle::{
     Transaction as _,
     ops::channel::{ChannelId, Ed25519PublicKey, MsgId},
+    tx_builder::MantleTxBuilder,
 };
 use nomos_da_network_core::{PeerId, SubnetworkId};
 use overwatch::{
@@ -34,6 +35,7 @@ pub mod backend;
 #[derive(Debug)]
 pub enum DaDispersalMsg<B: DispersalBackend> {
     Disperse {
+        tx_builder: MantleTxBuilder,
         channel_id: ChannelId,
         parent_msg_id: MsgId,
         signer: Ed25519PublicKey,
@@ -189,6 +191,7 @@ where
             tokio::select! {
                 Some(dispersal_msg) = inbound_relay.recv() => {
                     let DaDispersalMsg::Disperse {
+                        tx_builder,
                         channel_id,
                         parent_msg_id,
                         signer,
@@ -196,6 +199,7 @@ where
                         reply_channel,
                     } = dispersal_msg;
                     match backend.process_dispersal(
+                        tx_builder,
                         channel_id,
                         parent_msg_id,
                         signer,
