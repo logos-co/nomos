@@ -1,9 +1,6 @@
 use nomos_utils::blake_rng::BlakeRng;
 
-use crate::{
-    core::{BlendService, backends::BlendBackend},
-    message::ServiceMessage,
-};
+use crate::core::{BlendService, backends::BlendBackend};
 
 /// Helper trait to help the Blend proxy service rely on the concrete types of
 /// the core Blend service without having to specify all the generics the core
@@ -55,19 +52,8 @@ pub type NetworkBackendOfService<Service, RuntimeServiceId> = <<Service as Servi
     RuntimeServiceId,
 >>::NetworkAdapter as crate::core::network::NetworkAdapter<RuntimeServiceId>>::Backend;
 
-pub trait MessageComponents {
-    type Payload;
-    type BroadcastSettings;
-
-    fn into_components(self) -> (Self::Payload, Self::BroadcastSettings);
-}
-
-impl<BroadcastSettings> MessageComponents for ServiceMessage<BroadcastSettings> {
-    type Payload = Vec<u8>;
-    type BroadcastSettings = BroadcastSettings;
-
-    fn into_components(self) -> (Self::Payload, Self::BroadcastSettings) {
-        let Self::Blend(network_message) = self;
-        (network_message.message, network_message.broadcast_settings)
-    }
-}
+pub type BroadcastSettingsOfService<Service, RuntimeServiceId> = <<Service as ServiceComponents<
+    RuntimeServiceId,
+>>::NetworkAdapter as crate::core::network::NetworkAdapter<
+    RuntimeServiceId,
+>>::BroadcastSettings;

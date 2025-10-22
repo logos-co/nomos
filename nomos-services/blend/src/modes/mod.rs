@@ -6,6 +6,7 @@ mod ondemand;
 use std::fmt::Debug;
 
 use overwatch::services::relay::RelayError;
+use tokio::sync::oneshot::error::RecvError;
 
 #[cfg(test)]
 pub use crate::modes::broadcast::tests as broadcast_tests;
@@ -19,4 +20,6 @@ pub enum Error {
     Overwatch(#[from] overwatch::DynError),
     #[error("Overwatch relay error: {0}")]
     OverwatchRelay(#[from] RelayError),
+    #[error("Reply receive error: {0}")]
+    ReplyReceive(#[from] RecvError),
 }
