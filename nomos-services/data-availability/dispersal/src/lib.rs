@@ -8,7 +8,7 @@ use adapters::wallet::{DaWalletAdapter, mock::MockWalletAdapter};
 use backend::DispersalTask;
 use futures::{StreamExt as _, stream::FuturesUnordered};
 use nomos_core::mantle::{
-    Transaction,
+    Transaction as _,
     ops::channel::{ChannelId, Ed25519PublicKey, MsgId},
 };
 use nomos_da_network_core::{PeerId, SubnetworkId};

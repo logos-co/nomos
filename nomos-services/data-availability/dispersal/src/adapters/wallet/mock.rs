@@ -15,8 +15,6 @@ use num_bigint::BigUint;
 
 use super::DaWalletAdapter;
 
-pub struct MockWalletAdapterSettings {}
-
 pub struct MockWalletAdapter;
 
 impl DaWalletAdapter for MockWalletAdapter {
