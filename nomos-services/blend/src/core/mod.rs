@@ -546,7 +546,9 @@ where
             Ok((new_processor, new_inputs))
         }
         SessionEvent::TransitionPeriodExpired => {
-            if let Some(activity_proof) = blending_token_collector.activity_proof() {
+            if let Some(activity_proof) =
+                blending_token_collector.compute_activity_proof_for_previous_session()
+            {
                 info!(target: LOG_TARGET, "Activity proof generated: {activity_proof:?}");
                 submit_activity_proof(activity_proof);
             }
