@@ -46,7 +46,7 @@ use crate::{
     },
     generic_services::{
         self, DaMembershipAdapter, MembershipBackend, MembershipSdp, MembershipService,
-        MembershipStorageGeneric,
+        MembershipStorageGeneric, SdpService, SdpServiceAdapterGeneric,
     },
 };
 pub struct TestAxumBackend {
@@ -59,6 +59,7 @@ type TestDaNetworkService<RuntimeServiceId> = nomos_da_network_service::NetworkS
     DaMembershipAdapter<RuntimeServiceId>,
     DaMembershipStorage,
     DaNetworkApiAdapter,
+    SdpServiceAdapterGeneric<RuntimeServiceId>,
     RuntimeServiceId,
 >;
 
@@ -68,6 +69,7 @@ type TestDaSamplingService<RuntimeServiceId> = generic_services::DaSamplingServi
         DaMembershipAdapter<RuntimeServiceId>,
         DaMembershipStorage,
         DaNetworkApiAdapter,
+        SdpServiceAdapterGeneric<RuntimeServiceId>,
         RuntimeServiceId,
     >,
     RuntimeServiceId,
@@ -84,7 +86,8 @@ where
         + 'static
         + AsServiceId<MembershipService<RuntimeServiceId>>
         + AsServiceId<TestDaNetworkService<RuntimeServiceId>>
-        + AsServiceId<TestDaSamplingService<RuntimeServiceId>>,
+        + AsServiceId<TestDaSamplingService<RuntimeServiceId>>
+        + AsServiceId<SdpService<RuntimeServiceId>>,
 {
     type Error = std::io::Error;
     type Settings = AxumBackendSettings;
@@ -146,6 +149,7 @@ where
                         DaMembershipAdapter<RuntimeServiceId>,
                         DaMembershipStorage,
                         DaNetworkApiAdapter,
+                        SdpServiceAdapterGeneric<RuntimeServiceId>,
                         RuntimeServiceId,
                     >,
                 ),
@@ -160,6 +164,7 @@ where
                             DaMembershipAdapter<RuntimeServiceId>,
                             DaMembershipStorage,
                             DaNetworkApiAdapter,
+                            SdpServiceAdapterGeneric<RuntimeServiceId>,
                             RuntimeServiceId,
                         >,
                         SamplingStorageAdapter<DaShare, DaStorageConverter>,

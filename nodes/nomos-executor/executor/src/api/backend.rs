@@ -34,7 +34,7 @@ use nomos_core::{
 use nomos_da_network_core::SubnetworkId;
 use nomos_da_network_service::{
     backends::libp2p::executor::DaNetworkExecutorBackend, membership::MembershipAdapter,
-    storage::MembershipStorageAdapter,
+    sdp::SdpAdapter as SdpAdapterTrait, storage::MembershipStorageAdapter,
 };
 use nomos_da_sampling::{DaSamplingService, backend::DaSamplingServiceBackend};
 use nomos_da_verifier::{backend::VerifierBackend, mempool::DaMempoolAdapter};
@@ -94,6 +94,7 @@ pub struct AxumBackend<
     VerifierMempoolAdapter,
     TimeBackend,
     ApiAdapter,
+    SdpAdapter,
     HttpStorageAdapter,
     MempoolStorageAdapter,
 > {
@@ -120,6 +121,7 @@ pub struct AxumBackend<
         VerifierMempoolAdapter,
         TimeBackend,
         ApiAdapter,
+        SdpAdapter,
         HttpStorageAdapter,
         MempoolStorageAdapter,
     )>,
@@ -159,6 +161,7 @@ impl<
     VerifierMempoolAdapter,
     TimeBackend,
     ApiAdapter,
+    SdpAdapter,
     StorageAdapter,
     MempoolStorageAdapter,
     RuntimeServiceId,
@@ -183,6 +186,7 @@ impl<
         VerifierMempoolAdapter,
         TimeBackend,
         ApiAdapter,
+        SdpAdapter,
         StorageAdapter,
         MempoolStorageAdapter,
     >
@@ -279,6 +283,7 @@ where
     TimeBackend: nomos_time::backends::TimeBackend + Send + 'static,
     TimeBackend::Settings: Clone + Send + Sync,
     ApiAdapter: nomos_da_network_service::api::ApiAdapter + Send + Sync + 'static,
+    SdpAdapter: SdpAdapterTrait<RuntimeServiceId> + Send + Sync + 'static,
     StorageAdapter: storage::StorageAdapter<RuntimeServiceId> + Send + Sync + 'static,
     MempoolStorageAdapter: tx_service::storage::MempoolStorageAdapter<
             RuntimeServiceId,
@@ -322,6 +327,7 @@ where
                 DaMembershipAdapter,
                 DaMembershipStorage,
                 ApiAdapter,
+                SdpAdapter,
                 RuntimeServiceId,
             >,
         >
@@ -386,7 +392,7 @@ where
             Some(Duration::from_secs(60)),
             Cryptarchia<_, _, _, _, _, _>,
             DaVerifier<_, _, _, _, _, _>,
-            nomos_da_network_service::NetworkService<_, _, _,_, _, _>,
+            nomos_da_network_service::NetworkService<_, _, _,_, _, _, _>,
             nomos_network::NetworkService<_, _>,
             DaStorageService<_>,
             TxMempoolService<_, _, _, _, _, _>,
@@ -483,6 +489,7 @@ where
                         DaMembershipAdapter,
                         DaMembershipStorage,
                         ApiAdapter,
+                        SdpAdapter,
                         RuntimeServiceId,
                     >,
                 ),
@@ -496,6 +503,7 @@ where
                         DaMembershipAdapter,
                         DaMembershipStorage,
                         ApiAdapter,
+                        SdpAdapter,
                         RuntimeServiceId,
                     >,
                 ),
@@ -509,6 +517,7 @@ where
                         DaMembershipAdapter,
                         DaMembershipStorage,
                         ApiAdapter,
+                        SdpAdapter,
                         RuntimeServiceId,
                     >,
                 ),
@@ -589,6 +598,7 @@ where
                         DaMembershipAdapter,
                         DaMembershipStorage,
                         ApiAdapter,
+                        SdpAdapter,
                         RuntimeServiceId,
                     >,
                 ),
@@ -602,6 +612,7 @@ where
                         DaMembershipAdapter,
                         DaMembershipStorage,
                         ApiAdapter,
+                        SdpAdapter,
                         RuntimeServiceId,
                     >,
                 ),

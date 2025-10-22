@@ -5,6 +5,7 @@ macro_rules! adapter_for {
             MembershipServiceAdapter,
             StorageAdapter,
             ApiAdapter,
+            SdpAdapter,
             RuntimeServiceId,
         > where
             Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
@@ -23,6 +24,7 @@ macro_rules! adapter_for {
                     MembershipServiceAdapter,
                     StorageAdapter,
                     ApiAdapter,
+                    SdpAdapter,
                     RuntimeServiceId,
                 > as ServiceData>::Message,
             >,
@@ -30,13 +32,20 @@ macro_rules! adapter_for {
         }
 
         #[async_trait::async_trait]
-        impl<Membership, MembershipServiceAdapter, StorageAdapter, ApiAdapter, RuntimeServiceId>
-            NetworkAdapter<RuntimeServiceId>
+        impl<
+            Membership,
+            MembershipServiceAdapter,
+            StorageAdapter,
+            ApiAdapter,
+            SdpAdapter,
+            RuntimeServiceId,
+        > NetworkAdapter<RuntimeServiceId>
             for Libp2pAdapter<
                 Membership,
                 MembershipServiceAdapter,
                 StorageAdapter,
                 ApiAdapter,
+                SdpAdapter,
                 RuntimeServiceId,
             >
         where
@@ -56,6 +65,7 @@ macro_rules! adapter_for {
                 + Send
                 + Sync
                 + 'static,
+            SdpAdapter: SdpAdapterTrait<RuntimeServiceId>,
         {
             type Backend = $DaNetworkBackend<Membership>;
             type Settings = ();
@@ -65,6 +75,7 @@ macro_rules! adapter_for {
             type Storage = StorageAdapter;
             type MembershipAdapter = MembershipServiceAdapter;
             type ApiAdapter = ApiAdapter;
+            type SdpAdapter = SdpAdapter;
 
             async fn new(
                 _settings: Self::Settings,
@@ -75,6 +86,7 @@ macro_rules! adapter_for {
                         Self::MembershipAdapter,
                         Self::Storage,
                         Self::ApiAdapter,
+                        Self::SdpAdapter,
                         RuntimeServiceId,
                     > as ServiceData>::Message,
                 >,

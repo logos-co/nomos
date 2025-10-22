@@ -58,6 +58,7 @@ use crate::{
         handler::{DaMembershipHandler, SharedMembershipHandler},
     },
     opinion_aggregator::{OpinionAggregator, OpinionError},
+    sdp::SdpAdapter as SdpAdapterTrait,
 };
 
 pub type DaAddressbook = AddressBook;
@@ -161,6 +162,7 @@ pub struct NetworkService<
     MembershipServiceAdapter,
     StorageAdapter,
     ApiAdapter,
+    SdpAdapter,
     RuntimeServiceId,
 > where
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
@@ -172,7 +174,6 @@ pub struct NetworkService<
     membership: DaMembershipHandler<Membership>,
     addressbook: DaAddressbook,
     api_adapter: ApiAdapter,
-    phantom: PhantomData<MembershipServiceAdapter>,
     subnet_refresh_sender: Sender<()>,
     balancer_stats_stream: UnboundedReceiverStream<BalancerStats>,
     opinion_stream: UnboundedReceiverStream<OpinionEvent>,
@@ -197,14 +198,22 @@ pub struct NetworkState<
     )>,
 }
 
-impl<Backend, Membership, MembershipServiceAdapter, StorageAdapter, ApiAdapter, RuntimeServiceId>
-    ServiceData
+impl<
+    Backend,
+    Membership,
+    MembershipServiceAdapter,
+    StorageAdapter,
+    ApiAdapter,
+    SdpAdapter,
+    RuntimeServiceId,
+> ServiceData
     for NetworkService<
         Backend,
         Membership,
         MembershipServiceAdapter,
         StorageAdapter,
         ApiAdapter,
+        SdpAdapter,
         RuntimeServiceId,
     >
 where
@@ -226,14 +235,22 @@ where
 }
 
 #[async_trait]
-impl<Backend, Membership, MembershipServiceAdapter, StorageAdapter, ApiAdapter, RuntimeServiceId>
-    ServiceCore<RuntimeServiceId>
+impl<
+    Backend,
+    Membership,
+    MembershipServiceAdapter,
+    StorageAdapter,
+    ApiAdapter,
+    SdpAdapter,
+    RuntimeServiceId,
+> ServiceCore<RuntimeServiceId>
     for NetworkService<
         Backend,
         Membership,
         MembershipServiceAdapter,
         StorageAdapter,
         ApiAdapter,
+        SdpAdapter,
         RuntimeServiceId,
     >
 where
@@ -262,6 +279,7 @@ where
         + Sync
         + 'static,
     ApiAdapter::Settings: Clone + Send + Sync,
+    SdpAdapter: SdpAdapterTrait<RuntimeServiceId> + Send + Sync,
     <MembershipServiceAdapter::MembershipService as ServiceData>::Message: Send + Sync + 'static,
     RuntimeServiceId: AsServiceId<Self>
         + Clone
@@ -317,7 +335,6 @@ where
             membership,
             addressbook,
             api_adapter,
-            phantom: PhantomData,
             subnet_refresh_sender,
             balancer_stats_stream,
             opinion_stream,
@@ -359,6 +376,8 @@ where
         );
 
         let membership_service_adapter = MembershipServiceAdapter::new(membership_service_relay);
+
+        let sdp_adapter = SdpAdapter::new(overwatch_handle).await?;
 
         let (local_peer_id, local_provider_id) = backend.local_peer_id();
         let mut opinion_aggregator =
@@ -406,7 +425,7 @@ where
                         update.session_id, update.peers
                     );
 
-                    Self::handle_opinion_session_change(&mut opinion_aggregator, &update).await;
+                    Self::handle_opinion_session_change(&sdp_adapter, &mut opinion_aggregator, &update).await;
                     match Self::handle_membership_update(
                         update.session_id,
                         update.peers,
@@ -439,14 +458,22 @@ where
     }
 }
 
-impl<Backend, Membership, MembershipServiceAdapter, StorageAdapter, ApiAdapter, RuntimeServiceId>
-    Drop
+impl<
+    Backend,
+    Membership,
+    MembershipServiceAdapter,
+    StorageAdapter,
+    ApiAdapter,
+    SdpAdapter,
+    RuntimeServiceId,
+> Drop
     for NetworkService<
         Backend,
         Membership,
         MembershipServiceAdapter,
         StorageAdapter,
         ApiAdapter,
+        SdpAdapter,
         RuntimeServiceId,
     >
 where
@@ -459,13 +486,22 @@ where
     }
 }
 
-impl<Backend, Membership, MembershipServiceAdapter, StorageAdapter, ApiAdapter, RuntimeServiceId>
+impl<
+    Backend,
+    Membership,
+    MembershipServiceAdapter,
+    StorageAdapter,
+    ApiAdapter,
+    SdpAdapter,
+    RuntimeServiceId,
+>
     NetworkService<
         Backend,
         Membership,
         MembershipServiceAdapter,
         StorageAdapter,
         ApiAdapter,
+        SdpAdapter,
         RuntimeServiceId,
     >
 where
@@ -477,6 +513,7 @@ where
     ApiAdapter:
         ApiAdapterTrait<BlobId = BlobId, Commitments = DaSharesCommitments> + Send + Sync + 'static,
     ApiAdapter::Settings: Clone + Send,
+    SdpAdapter: SdpAdapterTrait<RuntimeServiceId> + Send + Sync,
     Backend: NetworkBackend<RuntimeServiceId, HistoricMembership = SharedMembershipHandler<Membership>>
         + Send
         + Sync
@@ -609,31 +646,29 @@ where
     }
 
     async fn handle_opinion_session_change(
+        sdp_adapter: &SdpAdapter,
         opinion_aggregator: &mut OpinionAggregator<Arc<StorageAdapter>>,
         new_providers: &SubnetworkPeers<Membership::Id>,
     ) {
-        match opinion_aggregator
+        let opinions = match opinion_aggregator
             .handle_session_change(new_providers)
             .await
         {
-            Ok(opinions) => {
-                tracing::debug!(
-                    "Generated opinions - session_id: {}, new_opinions: {}, old_opinions: {}",
-                    opinions.current_session,
-                    opinions.previous_session_opinions.len(),
-                    opinions.current_session_opinions.len(),
-                );
-
-                //todo: sdp_adapter.post_activity(opinions).await;
-            }
+            Ok(opinions) => opinions,
             Err(OpinionError::InsufficientData) => {
                 tracing::debug!(
                     "Insufficient data to generate opinions (first session), skip forming session"
                 );
+                return;
             }
             Err(OpinionError::Error(e)) => {
                 tracing::error!("Failed to generate opinions: {e}");
+                return;
             }
+        };
+
+        if let Err(err) = sdp_adapter.post_activity(opinions).await {
+            tracing::error!("Could not post activity opinions: {err}");
         }
     }
 }

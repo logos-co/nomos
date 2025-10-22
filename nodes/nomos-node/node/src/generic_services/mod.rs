@@ -7,7 +7,7 @@ use nomos_core::{
 };
 use nomos_da_network_service::{
     membership::adapters::service::MembershipServiceAdapter,
-    storage::adapters::rocksdb::RocksAdapter,
+    sdp::adapters::sdp_service::SdpServiceAdapter, storage::adapters::rocksdb::RocksAdapter,
 };
 use nomos_da_sampling::{
     backend::kzgrs::KzgrsSamplingBackend, storage::adapters::rocksdb::converter::DaStorageConverter,
@@ -153,6 +153,8 @@ pub type DaMembershipAdapter<RuntimeServiceId> = MembershipServiceAdapter<
 >;
 
 pub type SdpService<RuntimeServiceId> = nomos_sdp::SdpService<MockSdpBackend, RuntimeServiceId>;
+pub type SdpServiceAdapterGeneric<RuntimeServiceId> =
+    SdpServiceAdapter<MockSdpBackend, RuntimeServiceId>;
 
 pub type DaMembershipStorageGeneric<RuntimeServiceId> =
     RocksAdapter<RocksBackend, RuntimeServiceId>;

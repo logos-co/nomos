@@ -13,6 +13,7 @@ use nomos_da_network_service::{
         executor::{DaNetworkEvent, DaNetworkEventKind, DaNetworkExecutorBackend},
     },
     membership::{MembershipAdapter, handler::DaMembershipHandler},
+    sdp::SdpAdapter as SdpAdapterTrait,
 };
 use overwatch::services::{ServiceData, relay::OutboundRelay};
 use subnetworks_assignations::MembershipHandler;

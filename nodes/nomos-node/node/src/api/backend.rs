@@ -31,7 +31,7 @@ use nomos_core::{
 use nomos_da_network_core::SubnetworkId;
 use nomos_da_network_service::{
     backends::libp2p::validator::DaNetworkValidatorBackend, membership::MembershipAdapter,
-    storage::MembershipStorageAdapter,
+    sdp::SdpAdapter as SdpAdapterTrait, storage::MembershipStorageAdapter,
 };
 use nomos_da_sampling::{DaSamplingService, backend::DaSamplingServiceBackend};
 use nomos_da_verifier::{backend::VerifierBackend, mempool::DaMempoolAdapter};
@@ -63,6 +63,7 @@ use super::handlers::{
     da_get_shares, da_get_storage_commitments, libp2p_info, mantle_metrics, mantle_status,
     monitor_stats, unblock_peer,
 };
+use crate::generic_services::SdpService;
 
 pub(crate) type DaStorageBackend = RocksBackend;
 type DaStorageService<RuntimeServiceId> = StorageService<DaStorageBackend, RuntimeServiceId>;
@@ -82,6 +83,7 @@ pub struct AxumBackend<
     VerifierMempoolAdapter,
     TimeBackend,
     ApiAdapter,
+    SdpAdapter,
     HttpStorageAdapter,
     MempoolStorageAdapter,
 > {
@@ -98,6 +100,7 @@ pub struct AxumBackend<
     _time_backend: core::marker::PhantomData<TimeBackend>,
     _api_adapter: core::marker::PhantomData<ApiAdapter>,
     _storage_adapter: core::marker::PhantomData<HttpStorageAdapter>,
+    _sdp_adapter: core::marker::PhantomData<SdpAdapter>,
     _mempool_storage_adapter: core::marker::PhantomData<MempoolStorageAdapter>,
     _da_membership: core::marker::PhantomData<(DaMembershipAdapter, DaMembershipStorage)>,
     _verifier_mempool_adapter: core::marker::PhantomData<VerifierMempoolAdapter>,
@@ -132,6 +135,7 @@ impl<
     VerifierMempoolAdapter,
     TimeBackend,
     ApiAdapter,
+    SdpAdapter,
     StorageAdapter,
     MempoolStorageAdapter,
     RuntimeServiceId,
@@ -151,6 +155,7 @@ impl<
         VerifierMempoolAdapter,
         TimeBackend,
         ApiAdapter,
+        SdpAdapter,
         StorageAdapter,
         MempoolStorageAdapter,
     >
@@ -202,6 +207,7 @@ where
         DaConverter<DaStorageBackend, Share = DaShare, Tx = SignedMantleTx> + Send + Sync + 'static,
     StorageAdapter:
         nomos_api::http::storage::StorageAdapter<RuntimeServiceId> + Send + Sync + 'static,
+    SdpAdapter: SdpAdapterTrait<RuntimeServiceId> + Send + Sync + 'static,
     MempoolStorageAdapter: tx_service::storage::MempoolStorageAdapter<
             RuntimeServiceId,
             Item = SignedMantleTx,
@@ -245,6 +251,7 @@ where
                 DaMembershipAdapter,
                 DaMembershipStorage,
                 ApiAdapter,
+                SdpAdapter,
                 RuntimeServiceId,
             >,
         >
@@ -282,7 +289,8 @@ where
                 SamplingStorage,
                 RuntimeServiceId,
             >,
-        >,
+        >
+        + AsServiceId<SdpService<RuntimeServiceId>>,
 {
     type Error = std::io::Error;
     type Settings = AxumBackendSettings;
@@ -305,6 +313,7 @@ where
             _time_backend: core::marker::PhantomData,
             _api_adapter: core::marker::PhantomData,
             _storage_adapter: core::marker::PhantomData,
+            _sdp_adapter: core::marker::PhantomData,
             _mempool_storage_adapter: core::marker::PhantomData,
             _da_membership: core::marker::PhantomData,
             _verifier_mempool_adapter: core::marker::PhantomData,
@@ -327,7 +336,7 @@ where
                 _,
             >,
             DaVerifier<_, _, _, _, _, _>,
-            nomos_da_network_service::NetworkService<_, _, _, _, _, _>,
+            nomos_da_network_service::NetworkService<_, _, _, _, _, _, _>,
             nomos_network::NetworkService<_, _>,
             DaStorageService<_>,
             TxMempoolService<_, _, _, _, _, _>
@@ -428,6 +437,7 @@ where
                         DaMembershipAdapter,
                         DaMembershipStorage,
                         ApiAdapter,
+                        SdpAdapter,
                         RuntimeServiceId,
                     >,
                 ),
@@ -441,6 +451,7 @@ where
                         DaMembershipAdapter,
                         DaMembershipStorage,
                         ApiAdapter,
+                        SdpAdapter,
                         RuntimeServiceId,
                     >,
                 ),
@@ -454,6 +465,7 @@ where
                         DaMembershipAdapter,
                         DaMembershipStorage,
                         ApiAdapter,
+                        SdpAdapter,
                         RuntimeServiceId,
                     >,
                 ),
@@ -526,6 +538,7 @@ where
                         DaMembershipAdapter,
                         DaMembershipStorage,
                         ApiAdapter,
+                        SdpAdapter,
                         RuntimeServiceId,
                     >,
                 ),
@@ -539,6 +552,7 @@ where
                         DaMembershipAdapter,
                         DaMembershipStorage,
                         ApiAdapter,
+                        SdpAdapter,
                         RuntimeServiceId,
                     >,
                 ),

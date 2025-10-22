@@ -10,8 +10,10 @@ use overwatch::{
     services::{AsServiceId, relay::OutboundRelay},
 };
 
-use super::{SdpAdapter, SdpAdapterError};
-use crate::opinion_aggregator::Opinions;
+use crate::{
+    opinion_aggregator::Opinions,
+    sdp::{SdpAdapter, SdpAdapterError},
+};
 
 pub struct SdpServiceAdapter<Backend, RuntimeServiceId>
 where
@@ -34,7 +36,7 @@ where
         + 'static,
 {
     async fn new(
-        overwatch_handle: OverwatchHandle<RuntimeServiceId>,
+        overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
     ) -> Result<Self, SdpAdapterError> {
         let relay = overwatch_handle
             .relay::<SdpService<Backend, RuntimeServiceId>>()

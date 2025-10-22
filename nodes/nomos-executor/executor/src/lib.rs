@@ -30,7 +30,7 @@ use nomos_node::{
     BlobInfo, DaNetworkApiAdapter, NetworkBackend, NomosDaMembership, RocksBackend, SystemSig,
     generic_services::{
         DaMembershipAdapter, DaMembershipStorageGeneric, MembershipService, SdpService,
-        VerifierMempoolAdapter,
+        SdpServiceAdapterGeneric, VerifierMempoolAdapter,
     },
 };
 use nomos_time::backends::NtpTimeBackend;
@@ -60,6 +60,7 @@ pub(crate) type DaDispersalService = DispersalService<
             DaMembershipAdapter<RuntimeServiceId>,
             DaMembershipStorage,
             DaNetworkApiAdapter,
+            SdpServiceAdapterGeneric<RuntimeServiceId>,
             RuntimeServiceId,
         >,
         DispersalWalletAdapter,
@@ -69,6 +70,7 @@ pub(crate) type DaDispersalService = DispersalService<
         DaMembershipAdapter<RuntimeServiceId>,
         DaMembershipStorage,
         DaNetworkApiAdapter,
+        SdpServiceAdapterGeneric<RuntimeServiceId>,
         RuntimeServiceId,
     >,
     NomosDaMembership,
@@ -81,6 +83,7 @@ pub(crate) type DaVerifierService = nomos_node::generic_services::DaVerifierServ
         DaMembershipAdapter<RuntimeServiceId>,
         DaMembershipStorage,
         DaNetworkApiAdapter,
+        SdpServiceAdapterGeneric<RuntimeServiceId>,
         RuntimeServiceId,
     >,
     VerifierMempoolAdapter<DaNetworkAdapter, RuntimeServiceId>,
@@ -96,6 +99,7 @@ pub(crate) type DaNetworkService = nomos_da_network_service::NetworkService<
     DaMembershipAdapter<RuntimeServiceId>,
     DaMembershipStorage,
     DaNetworkApiAdapter,
+    SdpServiceAdapterGeneric<RuntimeServiceId>,
     RuntimeServiceId,
 >;
 
@@ -107,6 +111,7 @@ pub(crate) type DaNetworkAdapter = nomos_da_sampling::network::adapters::executo
     DaMembershipAdapter<RuntimeServiceId>,
     DaMembershipStorage,
     DaNetworkApiAdapter,
+    SdpServiceAdapterGeneric<RuntimeServiceId>,
     RuntimeServiceId,
 >;
 
@@ -142,6 +147,7 @@ pub(crate) type ApiService = nomos_api::ApiService<
             DaMembershipAdapter<RuntimeServiceId>,
             DaMembershipStorage,
             DaNetworkApiAdapter,
+            SdpServiceAdapterGeneric<RuntimeServiceId>,
             RuntimeServiceId,
         >,
         VerifierStorageAdapter<DaShare, DaStorageConverter>,
@@ -152,6 +158,7 @@ pub(crate) type ApiService = nomos_api::ApiService<
                 DaMembershipAdapter<RuntimeServiceId>,
                 DaMembershipStorage,
                 DaNetworkApiAdapter,
+                SdpServiceAdapterGeneric<RuntimeServiceId>,
                 RuntimeServiceId,
             >,
             DispersalWalletAdapter,
@@ -161,6 +168,7 @@ pub(crate) type ApiService = nomos_api::ApiService<
             DaMembershipAdapter<RuntimeServiceId>,
             DaMembershipStorage,
             DaNetworkApiAdapter,
+            SdpServiceAdapterGeneric<RuntimeServiceId>,
             RuntimeServiceId,
         >,
         kzgrs_backend::dispersal::Metadata,
@@ -170,6 +178,7 @@ pub(crate) type ApiService = nomos_api::ApiService<
         VerifierMempoolAdapter<DaNetworkAdapter, RuntimeServiceId>,
         NtpTimeBackend,
         DaNetworkApiAdapter,
+        SdpServiceAdapterGeneric<RuntimeServiceId>,
         ApiStorageAdapter<RuntimeServiceId>,
         RocksStorageAdapter<SignedMantleTx, TxHash>,
     >,

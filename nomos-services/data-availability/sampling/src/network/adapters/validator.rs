@@ -15,6 +15,7 @@ use nomos_da_network_service::{
         },
     },
     membership::{MembershipAdapter, handler::DaMembershipHandler},
+    sdp::SdpAdapter as SdpAdapterTrait,
 };
 use overwatch::{
     DynError,

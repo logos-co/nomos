@@ -11,6 +11,7 @@ use nomos_api::http::{
 use nomos_core::{header::HeaderId, sdp::SessionNumber};
 use nomos_da_network_service::{
     NetworkService, api::ApiAdapter as ApiAdapterTrait, backends::NetworkBackend,
+    sdp::SdpAdapter as SdpAdapterTrait,
 };
 use nomos_da_sampling::{DaSamplingService, backend::DaSamplingServiceBackend};
 use nomos_membership_service::{
@@ -51,6 +52,7 @@ pub async fn da_get_membership<
     MembershipAdapter,
     MembershipStorage,
     ApiAdapter,
+    SdpAdapter,
     RuntimeServiceId,
 >(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
@@ -62,6 +64,7 @@ where
     Membership::Id: Send + Sync + 'static,
     Membership::NetworkId: Send + Sync + 'static,
     ApiAdapter: ApiAdapterTrait + Send + Sync + 'static,
+    SdpAdapter: SdpAdapterTrait<RuntimeServiceId> + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -73,6 +76,7 @@ where
                 MembershipAdapter,
                 MembershipStorage,
                 ApiAdapter,
+                SdpAdapter,
                 RuntimeServiceId,
             >,
         >,
@@ -83,6 +87,7 @@ where
         MembershipAdapter,
         MembershipStorage,
         ApiAdapter,
+        SdpAdapter,
         RuntimeServiceId,
     >(handle, session_id))
 }
