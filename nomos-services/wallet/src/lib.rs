@@ -63,12 +63,6 @@ pub enum WalletMsg {
         funding_pks: Vec<PublicKey>,
         resp_tx: oneshot::Sender<Result<MantleTxBuilder, WalletError>>,
     },
-    GetUtxosForAmount {
-        tip: HeaderId,
-        amount: Value,
-        pks: Vec<PublicKey>,
-        resp_tx: oneshot::Sender<Result<Option<Vec<Utxo>>, WalletError>>,
-    },
     GetLeaderAgedNotes {
         tip: HeaderId,
         resp_tx: oneshot::Sender<Result<Vec<Utxo>, WalletServiceError>>,
@@ -280,18 +274,6 @@ where
 
                 if resp_tx.send(funded_tx).is_err() {
                     error!("Failed to respond to FundTx");
-                }
-            }
-
-            WalletMsg::GetUtxosForAmount {
-                tip,
-                amount,
-                pks,
-                resp_tx,
-            } => {
-                let utxos = wallet.utxos_for_amount(tip, amount, pks);
-                if resp_tx.send(utxos).is_err() {
-                    error!("Failed to respond to GetUtxosForAmount");
                 }
             }
 

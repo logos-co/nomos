@@ -95,27 +95,6 @@ where
         Ok(rx.await??)
     }
 
-    pub async fn get_utxos_for_amount(
-        &self,
-        tip: HeaderId,
-        amount: Value,
-        pks: Vec<PublicKey>,
-    ) -> Result<Option<Vec<Utxo>>, DynError> {
-        let (resp_tx, rx) = oneshot::channel();
-
-        self.relay
-            .send(WalletMsg::GetUtxosForAmount {
-                tip,
-                amount,
-                pks,
-                resp_tx,
-            })
-            .await
-            .map_err(|e| format!("Failed to send get_utxos_for_amount request: {e:?}"))?;
-
-        Ok(rx.await??)
-    }
-
     pub async fn get_leader_aged_notes(&self, tip: HeaderId) -> Result<Vec<Utxo>, DynError> {
         let (resp_tx, rx) = oneshot::channel();
 

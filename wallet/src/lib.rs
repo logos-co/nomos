@@ -119,39 +119,6 @@ impl WalletState {
         })
     }
 
-    pub fn utxos_for_amount(
-        &self,
-        amount: Value,
-        pks: impl IntoIterator<Item = impl Borrow<PublicKey>>,
-    ) -> Option<Vec<Utxo>> {
-        let mut utxos: Vec<Utxo> = pks
-            .into_iter()
-            .filter_map(|pk| self.pk_index.get(pk.borrow()))
-            .flatten()
-            .map(|id| self.utxos[id])
-            .collect();
-
-        // we want to consume small valued notes first to keep our wallet tidy
-        utxos.sort_by_key(|utxo| utxo.note.value);
-
-        let mut selected_utxos = Vec::new();
-        let mut selected_amount = 0;
-
-        for utxo in utxos {
-            selected_utxos.push(utxo);
-            selected_amount += utxo.note.value;
-            if selected_amount >= amount {
-                break;
-            }
-        }
-
-        if selected_amount < amount {
-            None
-        } else {
-            Some(Self::remove_redundant_utxos(amount, selected_utxos))
-        }
-    }
-
     #[must_use]
     pub fn balance(&self, pk: PublicKey) -> Option<Value> {
         let balance = self
@@ -205,38 +172,6 @@ impl WalletState {
         }
 
         Self { utxos, pk_index }
-    }
-
-    /// Removes Utxos that do not contribute to meeting the `amount` threshold.
-    ///
-    /// As an example, suppose we hold notes valued [3 NMO, 4 NMO] and we asked
-    /// for 4 NMO then, since we sort the notes by value, we would have
-    /// first added the 3 NMO note and then then 4 NMO note to the selected
-    /// utxos list.
-    ///
-    /// The 4 NMO note alone would have satisfied the request, the 3 NMO note is
-    /// redundant and would be returned as change in a transaction.
-    ///
-    /// To resolve this, we remove as many of the smallest notes as we can while
-    /// still keep us above the requested amount.
-    fn remove_redundant_utxos(amount: Value, mut sorted_utxos: Vec<Utxo>) -> Vec<Utxo> {
-        debug_assert!(sorted_utxos.is_sorted_by_key(|utxo| utxo.note.value));
-
-        let mut skip_count = 0;
-        let mut temp_amount: Value = sorted_utxos.iter().map(|u| u.note.value).sum();
-
-        for utxo in &sorted_utxos {
-            if temp_amount - utxo.note.value >= amount {
-                temp_amount -= utxo.note.value;
-                skip_count += 1;
-            } else {
-                break;
-            }
-        }
-
-        sorted_utxos.drain(..skip_count);
-
-        sorted_utxos
     }
 }
 
@@ -297,15 +232,6 @@ impl Wallet {
     ) -> Result<MantleTxBuilder, WalletError> {
         self.wallet_state_at(tip)?
             .fund_tx::<G>(tx_builder, change_pk, funding_pks)
-    }
-
-    pub fn utxos_for_amount(
-        &self,
-        tip: HeaderId,
-        amount: Value,
-        pks: impl IntoIterator<Item = impl Borrow<PublicKey>>,
-    ) -> Result<Option<Vec<Utxo>>, WalletError> {
-        Ok(self.wallet_state_at(tip)?.utxos_for_amount(amount, pks))
     }
 
     pub fn wallet_state_at(&self, tip: HeaderId) -> Result<WalletState, WalletError> {
@@ -412,18 +338,13 @@ mod tests {
 
         // Block 2
         //  - alice spends 100 NMO utxo, sending 20 NMO to bob and 80 to herself
-        let utxos_100 = wallet
-            .utxos_for_amount(block_1.id, 100, [alice])
-            .unwrap()
-            .unwrap();
-
-        assert_eq!(utxos_100, vec![tx1.utxo_by_index(0).unwrap()]);
+        let alice_100_nmo_utxo = tx1.utxo_by_index(0).unwrap();
 
         let block_2 = WalletBlock {
             id: HeaderId::from([2; 32]),
             parent: block_1.id,
             ledger_txs: vec![LedgerTx {
-                inputs: utxos_100.iter().map(Utxo::id).collect(),
+                inputs: vec![alice_100_nmo_utxo.id()],
                 outputs: vec![Note::new(20, bob), Note::new(80, alice)],
             }],
         };
@@ -438,61 +359,6 @@ mod tests {
 
         assert_eq!(wallet.balance(block_2.id, alice).unwrap(), Some(84));
         assert_eq!(wallet.balance(block_2.id, bob).unwrap(), Some(20));
-    }
-
-    #[test]
-    fn test_utxos_for_amount() {
-        let alice_1 = pk(1);
-        let alice_2 = pk(2);
-        let bob = pk(3);
-
-        let ledger = LedgerState::from_utxos([
-            Utxo::new(tx_hash(0), 0, Note::new(4, alice_1)),
-            Utxo::new(tx_hash(0), 1, Note::new(3, alice_2)),
-            Utxo::new(tx_hash(0), 2, Note::new(5, alice_2)),
-            Utxo::new(tx_hash(0), 3, Note::new(10, alice_2)),
-            Utxo::new(tx_hash(0), 4, Note::new(20, bob)),
-        ]);
-
-        let genesis = HeaderId::from([0u8; 32]);
-
-        let wallet = Wallet::from_lib([alice_1, alice_2, bob], genesis, &ledger);
-
-        // requesting 2 NMO from alices keys
-        assert_eq!(
-            wallet
-                .utxos_for_amount(genesis, 2, [alice_1, alice_2])
-                .unwrap(),
-            Some(vec![Utxo::new(tx_hash(0), 1, Note::new(3, alice_2))])
-        );
-
-        // requesting 3 NMO from alices keys
-        assert_eq!(
-            wallet
-                .utxos_for_amount(genesis, 3, [alice_1, alice_2])
-                .unwrap(),
-            Some(vec![Utxo::new(tx_hash(0), 1, Note::new(3, alice_2))])
-        );
-
-        // requesting 4 NMO from alices keys
-        assert_eq!(
-            wallet
-                .utxos_for_amount(genesis, 4, [alice_1, alice_2])
-                .unwrap(),
-            Some(vec![Utxo::new(tx_hash(0), 0, Note::new(4, alice_1))])
-        );
-
-        // requesting 5 NMO from alices keys
-        // returns 2 notes despite a note of exactly 5 NMO available to alice
-        assert_eq!(
-            wallet
-                .utxos_for_amount(genesis, 5, [alice_1, alice_2])
-                .unwrap(),
-            Some(vec![
-                Utxo::new(tx_hash(0), 1, Note::new(3, alice_2)),
-                Utxo::new(tx_hash(0), 0, Note::new(4, alice_1)),
-            ])
-        );
     }
 
     #[test]
