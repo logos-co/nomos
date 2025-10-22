@@ -193,14 +193,6 @@ impl LedgerState {
     ) -> Result<Self, Error> {
         for (op, proof) in ops {
             match (op, proof) {
-                // The signature for channel ops can be verified before reaching this point,
-                // as you only need the signer's public key and tx hash
-                // Callers are expected to validate the proof before calling this function.
-                (Op::ChannelBlob(op), None) => {
-                    self.channels =
-                        self.channels
-                            .apply_msg(op.channel, &op.parent, op.id(), &op.signer)?;
-                }
                 (Op::ChannelInscribe(op), None) => {
                     self.channels =
                         self.channels
