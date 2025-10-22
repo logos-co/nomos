@@ -29,7 +29,7 @@ use serde::{Serialize, de::DeserializeOwned};
 use services_utils::wait_until_services_are_ready;
 use tokio::sync::oneshot;
 use tracing::{debug, error, info, trace};
-use wallet::{Wallet, WalletBlock, WalletError, WalletState};
+use wallet::{Wallet, WalletBlock, WalletError};
 
 #[derive(Debug, thiserror::Error)]
 pub enum WalletServiceError {
@@ -240,9 +240,20 @@ where
         storage: &StorageAdapter<Storage, Tx, RuntimeServiceId>,
         cryptarchia: &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
     ) {
+        match &msg {
+            WalletMsg::GetBalance { tip, .. }
+            | WalletMsg::FundTx { tip, .. }
+            | WalletMsg::GetLeaderAgedNotes { tip, .. } => {
+                if let Err(err) =
+                    Self::backfill_if_not_in_sync(*tip, wallet, storage, cryptarchia).await
+                {
+                    error!(err=?err, "Failed backfilling wallet to message tip {tip:?}, will attempt to continue processing the message {msg:?}");
+                }
+            }
+        }
+
         match msg {
             WalletMsg::GetBalance { tip, pk, resp_tx } => {
-                Self::try_sync_to_tip(tip, wallet, storage, cryptarchia).await;
                 let balance = wallet.balance(tip, pk);
                 if resp_tx.send(balance).is_err() {
                     error!("Failed to respond to GetBalance");
@@ -256,28 +267,12 @@ where
                 funding_pks,
                 resp_tx,
             } => {
-                Self::try_sync_to_tip(tip, wallet, storage, cryptarchia).await;
                 Self::fund_tx(tip, &tx_builder, change_pk, funding_pks, resp_tx, wallet);
             }
 
             WalletMsg::GetLeaderAgedNotes { tip, resp_tx } => {
-                Self::try_sync_to_tip(tip, wallet, storage, cryptarchia).await;
                 Self::get_leader_aged_notes(tip, resp_tx, wallet, cryptarchia).await;
             }
-        }
-    }
-
-    async fn try_sync_to_tip(
-        tip: HeaderId,
-        wallet: &mut Wallet,
-        storage: &StorageAdapter<Storage, Tx, RuntimeServiceId>,
-        cryptarchia: &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
-    ) {
-        if let Err(err) =
-            Self::fetch_wallet_state_with_backfill(tip, wallet, storage, cryptarchia).await
-        {
-            // If there is a failure during backfilling, we log the error and continue.
-            error!(err=?err, "Failed while backfilling wallet during responding to fund_tx");
         }
     }
 
@@ -334,31 +329,29 @@ where
         }
     }
 
-    async fn fetch_wallet_state_with_backfill(
+    async fn backfill_if_not_in_sync(
         tip: HeaderId,
         wallet: &mut Wallet,
-        storage_adapter: &StorageAdapter<Storage, Tx, RuntimeServiceId>,
-        cryptarchia_api: &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
-    ) -> Result<WalletState, WalletServiceError> {
-        match wallet.wallet_state_at(tip) {
-            Ok(wallet_state) => Ok(wallet_state),
-            Err(WalletError::UnknownBlock(missing_block)) => {
-                // The caller knows a more recent tip than the wallet.
-                //
-                // To resolve this, we do a JIT backfill to try to sync the wallet with
-                // cryptarchia. If that still can't find the corresponding wallet state
-                // after the backfill, we return an error to the caller
-                let headers = Self::fetch_missing_headers(missing_block, cryptarchia_api).await?;
-                Self::backfill_missing_blocks(&headers, wallet, storage_adapter).await?;
+        storage: &StorageAdapter<Storage, Tx, RuntimeServiceId>,
+        cryptarchia: &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
+    ) -> Result<(), WalletServiceError> {
+        if wallet.has_processed_block(tip) {
+            // We are already in sync with `tip`.
+            return Ok(());
+        }
 
-                wallet
-                    .wallet_state_at(tip)
-                    .map_err(|_| WalletServiceError::FailedToFetchWalletStateForBlock(tip))
-            }
-            Err(err) => {
-                error!(err=?err, "unexexpected error while applying block to wallet");
-                Err(WalletServiceError::FailedToFetchWalletStateForBlock(tip))
-            }
+        // The caller knows a more recent tip than the wallet.
+        // To resolve this, we do a JIT backfill to try to sync the wallet with
+        // cryptarchia. If we still have not caught up after the backfill, we return an
+        // error to the caller
+        let headers = Self::fetch_missing_headers(tip, cryptarchia).await?;
+        Self::backfill_missing_blocks(&headers, wallet, storage).await?;
+
+        if wallet.has_processed_block(tip) {
+            Ok(())
+        } else {
+            error!("Failed to backfill wallet to {tip}");
+            Err(WalletServiceError::FailedToFetchWalletStateForBlock(tip))
         }
     }
 
