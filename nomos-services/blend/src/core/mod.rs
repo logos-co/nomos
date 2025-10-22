@@ -516,20 +516,14 @@ where
                     membership,
                 },
         }) => {
-            let reward_session_info = reward::SessionInfo::new(
+            blending_token_collector.rotate_session(&reward::SessionInfo::new(
                 session,
                 current_public_inputs.leader.pol_epoch_nonce,
                 membership.size() as u64,
                 poq_core_public_inputs.quota,
                 settings.scheduler.cover.message_frequency_per_round,
             )
-            .expect("Reward session info must be created successfully. Panicking since the service cannot continue with this session");
-            if let Some(activity_proof) =
-                blending_token_collector.rotate_session(&reward_session_info)
-            {
-                info!(target: LOG_TARGET, "Activity proof generated: {activity_proof:?}");
-                submit_activity_proof(activity_proof);
-            }
+            .expect("Reward session info must be created successfully. Panicking since the service cannot continue with this session"));
 
             let new_inputs = PoQVerificationInputsMinusSigningKey {
                 session,

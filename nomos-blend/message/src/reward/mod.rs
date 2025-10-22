@@ -57,10 +57,9 @@ impl BlendingTokenCollector {
     /// the session transition period.
     ///
     /// If there was a previous session that has not yet been consumed for
-    /// an activity proof, the activity proof is computed and returned.
-    pub fn rotate_session(&mut self, new_session_info: &SessionInfo) -> Option<ActivityProof> {
-        let activity_proof = self.compute_activity_proof_for_previous_session();
-
+    /// an activity proof, it is discarded because its activity proof is
+    /// no longer acceptable by the protocol.
+    pub fn rotate_session(&mut self, new_session_info: &SessionInfo) {
         self.previous_session_tokens = Some(std::mem::replace(
             &mut self.current_session_tokens,
             BlendingTokensForSession::new(
@@ -70,8 +69,6 @@ impl BlendingTokenCollector {
             ),
         ));
         self.current_session_randomness = new_session_info.session_randomness;
-
-        activity_proof
     }
 }
 
