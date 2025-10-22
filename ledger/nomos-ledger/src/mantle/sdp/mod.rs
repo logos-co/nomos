@@ -139,8 +139,8 @@ impl ServiceState {
         if self.declarations.contains_key(&id) {
             return Err(Error::DuplicateDeclaration(id));
         }
-        self.declarations = self.declarations.insert(id, declaration.clone());
-        self.active.declarations = self.active.declarations.insert(id, declaration);
+        self.declarations.insert_mut(id, declaration.clone());
+        self.active.declarations.insert_mut(id, declaration);
         Ok(())
     }
 
