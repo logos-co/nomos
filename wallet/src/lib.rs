@@ -288,6 +288,17 @@ impl Wallet {
         Ok(self.wallet_state_at(tip)?.balance(pk))
     }
 
+    pub fn fund_tx<G: GasConstants>(
+        &self,
+        tip: HeaderId,
+        tx_builder: &MantleTxBuilder,
+        change_pk: PublicKey,
+        funding_pks: impl IntoIterator<Item = impl Borrow<PublicKey>>,
+    ) -> Result<MantleTxBuilder, WalletError> {
+        self.wallet_state_at(tip)?
+            .fund_tx::<G>(tx_builder, change_pk, funding_pks)
+    }
+
     pub fn utxos_for_amount(
         &self,
         tip: HeaderId,

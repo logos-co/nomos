@@ -12,7 +12,10 @@ use chain_service::{
 use nomos_core::{
     block::Block,
     header::HeaderId,
-    mantle::{AuthenticatedMantleTx, Utxo, Value, keys::PublicKey},
+    mantle::{
+        AuthenticatedMantleTx, Utxo, Value, gas::MainnetGasConstants, keys::PublicKey,
+        tx_builder::MantleTxBuilder,
+    },
 };
 use nomos_storage::{api::chain::StorageChainApi, backends::StorageBackend};
 use overwatch::{
@@ -51,17 +54,24 @@ pub enum WalletMsg {
     GetBalance {
         tip: HeaderId,
         pk: PublicKey,
-        tx: oneshot::Sender<Result<Option<Value>, WalletError>>,
+        resp_tx: oneshot::Sender<Result<Option<Value>, WalletError>>,
+    },
+    FundTx {
+        tip: HeaderId,
+        tx_builder: MantleTxBuilder,
+        change_pk: PublicKey,
+        funding_pks: Vec<PublicKey>,
+        resp_tx: oneshot::Sender<Result<MantleTxBuilder, WalletError>>,
     },
     GetUtxosForAmount {
         tip: HeaderId,
         amount: Value,
         pks: Vec<PublicKey>,
-        tx: oneshot::Sender<Result<Option<Vec<Utxo>>, WalletError>>,
+        resp_tx: oneshot::Sender<Result<Option<Vec<Utxo>>, WalletError>>,
     },
     GetLeaderAgedNotes {
         tip: HeaderId,
-        tx: oneshot::Sender<Result<Vec<Utxo>, WalletServiceError>>,
+        resp_tx: oneshot::Sender<Result<Vec<Utxo>, WalletServiceError>>,
     },
 }
 
@@ -237,25 +247,50 @@ where
         cryptarchia_api: &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
     ) {
         match msg {
-            WalletMsg::GetBalance { tip, pk, tx } => {
+            WalletMsg::GetBalance { tip, pk, resp_tx } => {
                 let balance = wallet.balance(tip, pk);
-                if tx.send(balance).is_err() {
+                if resp_tx.send(balance).is_err() {
                     error!("Failed to respond to GetBalance");
                 }
             }
+
+            WalletMsg::FundTx {
+                tip,
+                tx_builder,
+                change_pk,
+                funding_pks,
+                resp_tx,
+            } => {
+                // Ensure we are in sync with tip.
+                let _ = Self::fetch_wallet_state_with_backfill(
+                    tip,
+                    wallet,
+                    storage_adapter,
+                    cryptarchia_api,
+                );
+
+                let funded_tx =
+                    wallet.fund_tx::<MainnetGasConstants>(tip, &tx_builder, change_pk, funding_pks);
+
+                if resp_tx.send(funded_tx).is_err() {
+                    error!("Failed to respond to FundTx");
+                }
+            }
+
             WalletMsg::GetUtxosForAmount {
                 tip,
                 amount,
                 pks,
-                tx,
+                resp_tx,
             } => {
                 let utxos = wallet.utxos_for_amount(tip, amount, pks);
-                if tx.send(utxos).is_err() {
+                if resp_tx.send(utxos).is_err() {
                     error!("Failed to respond to GetUtxosForAmount");
                 }
             }
-            WalletMsg::GetLeaderAgedNotes { tip, tx } => {
-                Self::get_leader_aged_notes(tip, tx, wallet, storage_adapter, cryptarchia_api)
+
+            WalletMsg::GetLeaderAgedNotes { tip, resp_tx } => {
+                Self::get_leader_aged_notes(tip, resp_tx, wallet, storage_adapter, cryptarchia_api)
                     .await;
             }
         }
