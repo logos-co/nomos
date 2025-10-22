@@ -262,12 +262,18 @@ where
                 resp_tx,
             } => {
                 // Ensure we are in sync with tip.
-                let _ = Self::fetch_wallet_state_with_backfill(
+                if let Err(err) = Self::fetch_wallet_state_with_backfill(
                     tip,
                     wallet,
                     storage_adapter,
                     cryptarchia_api,
-                );
+                )
+                .await
+                {
+                    error!(err=?err, "Failed while backfilling wallet during responding to fund_tx");
+                    // Will continue to attempt to fund the tx despite the
+                    // failed backfill.
+                }
 
                 let funded_tx =
                     wallet.fund_tx::<MainnetGasConstants>(tip, &tx_builder, change_pk, funding_pks);

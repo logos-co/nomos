@@ -1,5 +1,3 @@
-use std::borrow::Borrow;
-
 use nomos_core::{
     header::HeaderId,
     mantle::{Utxo, Value, keys::PublicKey, tx_builder::MantleTxBuilder},
