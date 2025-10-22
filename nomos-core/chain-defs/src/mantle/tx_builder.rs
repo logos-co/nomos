@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use super::{GasConstants, GasCost as _, MantleTx, Note, Op, Utxo, keys::PublicKey};
 use crate::mantle::ledger::Tx as LedgerTx;
 
@@ -73,21 +75,38 @@ impl MantleTxBuilder {
     }
 
     #[must_use]
-    pub fn return_change<G: GasConstants>(self, change_reciever: PublicKey) -> Self {
+    pub fn return_change<G: GasConstants>(self, change_pk: PublicKey) -> Option<Self> {
         // Calculate the funding delta with a dummy change note to account for
         // the gas cost increase from adding the output
         let delta_with_change = self.with_dummy_change_note().funding_delta::<G>();
-        assert!(
-            delta_with_change > 0,
-            "It's assumed that that the tx has enough funds to merit a change note"
-        );
 
-        let change = u64::try_from(delta_with_change).expect("Positive funding delta must fit in u64");
+        match delta_with_change.cmp(&0) {
+            Ordering::Less | Ordering::Equal => {
+                // NOTE: the `Equal` is important here since we
+                // cannot create zero-valued outputs.
 
-        self.add_ledger_output(Note {
-            value: change,
-            pk: change_reciever,
-        })
+                // The increase in cost due to the change note means
+                // we have insufficient funds, need more UTXO's.
+                None
+            }
+            Ordering::Greater => {
+                // We have enough balance to cover the increase in cost from the change
+                // note. Use return_change which properly accounts for the gas cost
+                // increase from adding the change output.
+                let change =
+                    u64::try_from(delta_with_change).expect("Positive delta must fit in u64");
+
+                let tx_with_change = self.add_ledger_output(Note {
+                    value: change,
+                    pk: change_pk,
+                });
+
+                // Now the net balance should exactly equal the gas cost.
+                assert_eq!(tx_with_change.funding_delta::<G>(), 0);
+
+                Some(tx_with_change)
+            }
+        }
     }
 
     #[must_use]

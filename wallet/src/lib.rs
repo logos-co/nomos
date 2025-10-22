@@ -103,31 +103,11 @@ impl WalletState {
                 }
                 Ordering::Greater => {
                     // We have enough balance, but we need to introduce a change note.
-                    // The change note will slightly increase the storage cost of the tx.
-                    let funding_delta_with_change = funded_tx_builder
-                        .with_dummy_change_note()
-                        .funding_delta::<G>();
+                    // The change note will slightly increase the storage cost of the tx so there is a chance that we will not be able to fund the tx with the change note.
 
-                    match funding_delta_with_change.cmp(&0) {
-                        Ordering::Less | Ordering::Equal => {
-                            // NOTE: the `Equal` is important here since we
-                            // cannot create zero-valued notes.
-
-                            // The increase in cost due to the change note means
-                            // we have insufficient funds, need more UTXO's.
-                        }
-                        Ordering::Greater => {
-                            // We have enough balance to cover the increase in cost from the change
-                            // note. Use return_change which properly accounts for the gas cost
-                            // increase from adding the change output.
-                            let funded_tx_with_change_builder =
-                                funded_tx_builder.return_change::<G>(change_pk);
-
-                            // Now the net balance should exactly equal the gas cost.
-                            assert_eq!(funded_tx_with_change_builder.funding_delta::<G>(), 0);
-
-                            return Ok(funded_tx_with_change_builder);
-                        }
+                    if let Some(tx_with_change) = funded_tx_builder.return_change::<G>(change_pk) {
+                        // We were able to fund the tx with change note added.
+                        return Ok(tx_with_change);
                     }
                 }
             }
