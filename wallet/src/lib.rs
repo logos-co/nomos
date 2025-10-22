@@ -103,7 +103,8 @@ impl WalletState {
                 }
                 Ordering::Greater => {
                     // We have enough balance, but we need to introduce a change note.
-                    // The change note will slightly increase the storage cost of the tx so there is a chance that we will not be able to fund the tx with the change note.
+                    // The change note will slightly increase the storage cost of the tx so there is
+                    // a chance that we will not be able to fund the tx with the change note.
 
                     if let Some(tx_with_change) = funded_tx_builder.return_change::<G>(change_pk) {
                         // We were able to fund the tx with change note added.
@@ -300,7 +301,7 @@ impl Wallet {
         self.wallet_states
             .get(&tip)
             .cloned()
-            .ok_or(WalletError::UnknownBlock)
+            .ok_or(WalletError::UnknownBlock(tip))
     }
 
     /// Prune wallet states for blocks that have been pruned from the chain.

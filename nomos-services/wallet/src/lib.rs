@@ -34,10 +34,10 @@ pub enum WalletServiceError {
     LedgerStateNotFound(HeaderId),
 
     #[error("Wallet state corresponding to block {0} not found")]
-    WalletStateNotFound(HeaderId),
+    FailedToFetchWalletStateForBlock(HeaderId),
 
     #[error("Failed to apply historical block {0} to wallet")]
-    BackfillFailedToApplyBlock(HeaderId),
+    FailedToApplyBlock(HeaderId),
 
     #[error("Block {0} not found in storage during wallet sync")]
     BlockNotFoundInStorage(HeaderId),
@@ -190,6 +190,7 @@ where
                 Some(msg) = service_resources_handle.inbound_relay.recv() => {
                     Self::handle_wallet_message(msg, &mut wallet, &storage_adapter, &cryptarchia_api).await;
                 }
+
                 Ok(header_id) = new_block_receiver.recv() => {
                     let Some(block) = storage_adapter.get_block(&header_id).await else {
                         error!(block_id=?header_id, "Missing block in storage");
@@ -200,13 +201,17 @@ where
                         Ok(()) => {
                             trace!(block_id = ?wallet_block.id, "Applied block to wallet");
                         }
-                        Err(WalletError::UnknownBlock) => {
+                        Err(WalletError::UnknownBlock(block_id)) => {
 
-                            info!(block_id = ?header_id, "Missing block in wallet, backfilling");
+                            info!(block_id = ?block_id, "Missing block in wallet, backfilling");
                             Self::backfill_missing_blocks(&Self::fetch_missing_headers(wallet_block.id, &cryptarchia_api).await?, &mut wallet, &storage_adapter).await?;
+                        },
+                        Err(err) => {
+                            error!(err=?err, "unexexpected error while applying block to wallet");
                         }
                     }
                 }
+
                 Ok(lib_update) = lib_receiver.recv() => {
                     Self::handle_lib_update(&lib_update, &mut wallet);
                 }
@@ -279,10 +284,7 @@ where
         {
             Ok(wallet_state) => wallet_state,
             Err(err) => {
-                error!(
-                    err = ?err,
-                    "Failed to fetch wallet state"
-                );
+                error!(err = ?err, "Failed to fetch wallet state");
                 Self::send_err(tx, err);
                 return;
             }
@@ -307,29 +309,26 @@ where
         storage_adapter: &StorageAdapter<Storage, Tx, RuntimeServiceId>,
         cryptarchia_api: &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
     ) -> Result<WalletState, WalletServiceError> {
-        let wallet_state = match wallet.wallet_state_at(tip) {
-            Ok(wallet_state) => wallet_state,
-            Err(WalletError::UnknownBlock) => {
-                // There may be a race condition here where the caller knows a more recent
-                // tip than the wallet. In that case, we will have received a
-                // LedgerState for the tip from Cryptarchia, but we would be missing the
-                // WalletState for that tip.
+        match wallet.wallet_state_at(tip) {
+            Ok(wallet_state) => Ok(wallet_state),
+            Err(WalletError::UnknownBlock(missing_block)) => {
+                // The caller knows a more recent tip than the wallet.
                 //
                 // To resolve this, we do a JIT backfill to try to sync the wallet with
                 // cryptarchia. If that still can't find the corresponding wallet state
                 // after the backfill, we return an error to the caller
-                let headers = Self::fetch_missing_headers(tip, cryptarchia_api).await?;
+                let headers = Self::fetch_missing_headers(missing_block, cryptarchia_api).await?;
                 Self::backfill_missing_blocks(&headers, wallet, storage_adapter).await?;
 
-                let Ok(wallet_state) = wallet.wallet_state_at(tip) else {
-                    return Err(WalletServiceError::WalletStateNotFound(tip));
-                };
-
-                wallet_state
+                wallet
+                    .wallet_state_at(tip)
+                    .map_err(|_| WalletServiceError::FailedToFetchWalletStateForBlock(tip))
             }
-        };
-
-        Ok(wallet_state)
+            Err(err) => {
+                error!(err=?err, "unexexpected error while applying block to wallet");
+                Err(WalletServiceError::FailedToFetchWalletStateForBlock(tip))
+            }
+        }
     }
 
     fn handle_lib_update(lib_update: &LibUpdate, wallet: &mut Wallet) {
@@ -372,7 +371,7 @@ where
                     err = %e,
                     "Failed to apply backfill block to wallet"
                 );
-                return Err(WalletServiceError::BackfillFailedToApplyBlock(header_id));
+                return Err(WalletServiceError::FailedToApplyBlock(header_id));
             }
         }
 
