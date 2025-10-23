@@ -230,6 +230,11 @@ impl LedgerState {
         }
     }
 
+    #[cfg(test)]
+    pub fn set_mantle(&mut self, mantle_ledger: mantle::LedgerState) {
+        self.mantle_ledger = mantle_ledger;
+    }
+
     pub fn from_genesis_tx<Id>(
         tx: impl GenesisTx,
         config: &Config,

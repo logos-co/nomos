@@ -1,6 +1,7 @@
 use std::{num::NonZero, sync::Arc};
 
 use chain_leader::LeaderConfig;
+use chain_service::StartingState;
 use cryptarchia_engine::EpochConfig;
 use nomos_core::{
     mantle::{
@@ -22,6 +23,7 @@ pub struct ConsensusParams {
     pub n_participants: usize,
     pub security_param: NonZero<u32>,
     pub active_slot_coeff: f64,
+    pub starting_state: Option<StartingState>,
 }
 
 impl ConsensusParams {
@@ -36,6 +38,7 @@ impl ConsensusParams {
             security_param: NonZero::new(10).unwrap(),
             // a block should be produced (on average) every slot
             active_slot_coeff: 0.9,
+            starting_state: None,
         }
     }
 }

@@ -64,14 +64,14 @@ pub enum Error {
 // State at the beginning of this session
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct SessionState {
+pub struct SessionState {
     declarations: Declarations,
     session_n: u64,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ServiceState {
+pub struct ServiceState {
     // state of declarations at block b
     declarations: Declarations,
     // (current) active session
@@ -239,6 +239,18 @@ impl SdpLedger {
                 session_n: 1,
             },
         };
+        self.services = self.services.insert(service_type, service_state);
+        self
+    }
+
+    // TODO: genesis init
+    #[cfg(test)]
+    #[must_use]
+    pub fn with_service_state(
+        mut self,
+        service_type: ServiceType,
+        service_state: ServiceState,
+    ) -> Self {
         self.services = self.services.insert(service_type, service_state);
         self
     }

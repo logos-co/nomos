@@ -56,6 +56,21 @@ impl LedgerState {
         }
     }
 
+    #[cfg(test)]
+    pub fn set_channels(&mut self, channels: channel::Channels) {
+        self.channels = channels
+    }
+
+    #[cfg(test)]
+    pub fn set_sdp(&mut self, sdp: sdp::SdpLedger) {
+        self.sdp = sdp
+    }
+
+    #[cfg(test)]
+    pub fn set_leaders(&mut self, leaders: leader::LeaderState) {
+        self.leaders = leaders
+    }
+
     pub fn from_genesis_tx(
         tx: impl GenesisTx,
         config: &Config,

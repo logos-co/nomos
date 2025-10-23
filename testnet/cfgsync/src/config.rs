@@ -298,6 +298,7 @@ mod cfgsync_tests {
                 n_participants: 10,
                 security_param: NonZero::new(10).unwrap(),
                 active_slot_coeff: 0.9,
+                starting_state: None,
             },
             &DaParams {
                 subnetwork_size: 2,
