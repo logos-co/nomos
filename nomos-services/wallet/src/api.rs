@@ -1,6 +1,6 @@
 use nomos_core::{
     header::HeaderId,
-    mantle::{Utxo, Value, keys::PublicKey},
+    mantle::{Utxo, Value, keys::PublicKey, tx_builder::MantleTxBuilder},
 };
 use overwatch::{
     DynError,
@@ -62,42 +62,44 @@ where
         tip: HeaderId,
         pk: PublicKey,
     ) -> Result<Option<Value>, DynError> {
-        let (tx, rx) = oneshot::channel();
+        let (resp_tx, rx) = oneshot::channel();
 
         self.relay
-            .send(WalletMsg::GetBalance { tip, pk, tx })
+            .send(WalletMsg::GetBalance { tip, pk, resp_tx })
             .await
             .map_err(|e| format!("Failed to send balance request: {e:?}"))?;
 
         Ok(rx.await??)
     }
 
-    pub async fn get_utxos_for_amount(
+    pub async fn fund_tx(
         &self,
         tip: HeaderId,
-        amount: Value,
-        pks: Vec<PublicKey>,
-    ) -> Result<Option<Vec<Utxo>>, DynError> {
-        let (tx, rx) = oneshot::channel();
+        tx_builder: MantleTxBuilder,
+        change_pk: PublicKey,
+        funding_pks: Vec<PublicKey>,
+    ) -> Result<MantleTxBuilder, DynError> {
+        let (resp_tx, rx) = oneshot::channel();
 
         self.relay
-            .send(WalletMsg::GetUtxosForAmount {
+            .send(WalletMsg::FundTx {
                 tip,
-                amount,
-                pks,
-                tx,
+                tx_builder,
+                change_pk,
+                funding_pks,
+                resp_tx,
             })
             .await
-            .map_err(|e| format!("Failed to send get_utxos_for_amount request: {e:?}"))?;
+            .map_err(|e| format!("Failed to send fund_tx request: {e:?}"))?;
 
         Ok(rx.await??)
     }
 
     pub async fn get_leader_aged_notes(&self, tip: HeaderId) -> Result<Vec<Utxo>, DynError> {
-        let (tx, rx) = oneshot::channel();
+        let (resp_tx, rx) = oneshot::channel();
 
         self.relay
-            .send(WalletMsg::GetLeaderAgedNotes { tip, tx })
+            .send(WalletMsg::GetLeaderAgedNotes { tip, resp_tx })
             .await
             .map_err(|e| format!("Failed to send get_leader_aged_notes request: {e:?}"))?;
 
