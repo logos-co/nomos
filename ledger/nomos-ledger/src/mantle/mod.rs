@@ -63,9 +63,14 @@ impl LedgerState {
         config: &Config,
         utxo_tree: &UtxoTree,
     ) -> Result<Self, Error> {
-        let ops = tx.mantle_tx().ops.iter().map(|op| (op, None));
-        let ledger = Self::new().try_apply_genesis_ops(config, utxo_tree, ops)?;
-        Ok(ledger)
+        let channels = channel::Channels::from_genesis_tx(&tx)?;
+        let sdp = sdp::SdpLedger::from_genesis_tx(&config.sdp_config, utxo_tree, &tx)?;
+
+        Ok(Self {
+            channels,
+            sdp,
+            leaders: leader::LeaderState::new(),
+        })
     }
 
     pub fn try_apply_tx<Constants: GasConstants>(
@@ -183,30 +188,6 @@ impl LedgerState {
         }
 
         Ok((self, balance))
-    }
-
-    fn try_apply_genesis_ops<'a>(
-        mut self,
-        config: &Config,
-        _utxo_tree: &UtxoTree,
-        ops: impl Iterator<Item = (&'a Op, Option<&'a OpProof>)> + 'a,
-    ) -> Result<Self, Error> {
-        for (op, proof) in ops {
-            match (op, proof) {
-                (Op::ChannelInscribe(op), None) => {
-                    self.channels =
-                        self.channels
-                            .apply_msg(op.channel_id, &op.parent, op.id(), &op.signer)?;
-                }
-                (Op::SDPDeclare(op), None) => {
-                    self.sdp = self.sdp.apply_genesis_declare_msg(op, &config.sdp_config)?;
-                }
-                _ => {
-                    return Err(Error::UnsupportedOp);
-                }
-            }
-        }
-        Ok(self)
     }
 }
 
