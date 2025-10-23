@@ -54,9 +54,12 @@ use nomos_executor::{api::backend::AxumBackendSettings, config::Config};
 use nomos_http_api_common::paths::{
     CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_BLACKLISTED_PEERS, DA_BLOCK_PEER, DA_GET_MEMBERSHIP,
     DA_GET_SHARES_COMMITMENTS, DA_HISTORIC_SAMPLING, DA_MONITOR_STATS, DA_UNBLOCK_PEER,
-    MANTLE_METRICS, STORAGE_BLOCK, UPDATE_MEMBERSHIP,
+    MANTLE_METRICS, NETWORK_INFO, STORAGE_BLOCK, UPDATE_MEMBERSHIP,
 };
-use nomos_network::{backends::libp2p::Libp2pConfig, config::NetworkConfig};
+use nomos_network::{
+    backends::libp2p::{Libp2pConfig, Libp2pInfo},
+    config::NetworkConfig,
+};
 use nomos_node::{
     RocksBackendSettings,
     api::testing::handlers::HistoricSamplingRequest,
@@ -226,6 +229,10 @@ impl Executor {
             .json()
             .await
             .unwrap()
+    }
+
+    pub async fn network_info(&self) -> Libp2pInfo {
+        self.get(NETWORK_INFO).await.unwrap().json().await.unwrap()
     }
 
     pub async fn consensus_info(&self) -> CryptarchiaInfo {

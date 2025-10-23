@@ -9,6 +9,7 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
+async-trait              = "0.1"
 blst                     = { version = "0.3.11" }
 broadcast-service        = { workspace = true }
 chain-leader             = { workspace = true }

@@ -29,7 +29,7 @@ use nomos_da_network_core::{
     swarm::{BalancerStats, DAConnectionPolicySettings, MonitorStats},
 };
 use nomos_da_network_service::{
-    NetworkConfig as DaNetworkConfig, api::http::ApiAdapterSettings,
+    MembershipResponse, NetworkConfig as DaNetworkConfig, api::http::ApiAdapterSettings,
     backends::libp2p::common::DaNetworkBackendSettings,
 };
 use nomos_da_sampling::{
@@ -42,10 +42,14 @@ use nomos_da_verifier::{
     storage::adapters::rocksdb::RocksAdapterSettings as VerifierStorageAdapterSettings,
 };
 use nomos_http_api_common::paths::{
-    CRYPTARCHIA_HEADERS, CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_GET_SHARES_COMMITMENTS,
-    DA_HISTORIC_SAMPLING, DA_MONITOR_STATS, STORAGE_BLOCK, UPDATE_MEMBERSHIP,
+    CRYPTARCHIA_HEADERS, CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_GET_MEMBERSHIP,
+    DA_GET_SHARES_COMMITMENTS, DA_HISTORIC_SAMPLING, DA_MONITOR_STATS, NETWORK_INFO, STORAGE_BLOCK,
+    UPDATE_MEMBERSHIP,
 };
-use nomos_network::{backends::libp2p::Libp2pConfig, config::NetworkConfig};
+use nomos_network::{
+    backends::libp2p::{Libp2pConfig, Libp2pInfo},
+    config::NetworkConfig,
+};
 use nomos_node::{
     Config, HeaderId, RocksBackendSettings,
     api::{backend::AxumBackendSettings, testing::handlers::HistoricSamplingRequest},
@@ -354,6 +358,27 @@ impl Validator {
             .json()
             .await
             .unwrap()
+    }
+
+    pub async fn da_get_membership(
+        &self,
+        session_id: SessionNumber,
+    ) -> Result<MembershipResponse, reqwest::Error> {
+        let response = CLIENT
+            .post(format!(
+                "http://{}{}",
+                self.testing_http_addr, DA_GET_MEMBERSHIP
+            ))
+            .header("Content-Type", "application/json")
+            .body(serde_json::to_string(&session_id).unwrap())
+            .send()
+            .await?;
+
+        response.error_for_status()?.json().await
+    }
+
+    pub async fn network_info(&self) -> Libp2pInfo {
+        self.get(NETWORK_INFO).await.unwrap().json().await.unwrap()
     }
 
     pub async fn get_shares(
