@@ -8,10 +8,10 @@ use backends::{SdpBackend, SdpBackendError};
 use futures::{Stream, StreamExt as _};
 use nomos_core::{
     block::BlockNumber,
-    mantle::tx_builder::MantleTxBuilder,
+    mantle::{NoteId, tx_builder::MantleTxBuilder},
     sdp::{
         ActiveMessage, ActivityMetadata, DeclarationId, DeclarationMessage, Locator, ProviderId,
-        ServiceType, WithdrawMessage,
+        ServiceType, WithdrawMessage, ZkPublicKey,
     },
 };
 use overwatch::{
@@ -57,9 +57,16 @@ pub type BlockUpdateStream = Pin<Box<dyn Stream<Item = BlockEvent> + Send + Sync
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SdpSettings {
-    /// Declaration ID for this node (set after posting declaration and
+    /// Declaration info for this node (set after posting declaration and
     /// restarting)
-    pub declaration_id: Option<DeclarationId>,
+    pub declaration: Option<Declaration>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Declaration {
+    pub id: DeclarationId,
+    pub zk_id: ZkPublicKey,
+    pub locked_note_id: NoteId,
 }
 
 pub enum SdpMessage {
@@ -83,7 +90,7 @@ pub struct SdpService<Backend, RuntimeServiceId> {
     backend: PhantomData<Backend>,
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     finalized_update_tx: broadcast::Sender<BlockEvent>,
-    current_declaration_id: Option<DeclarationId>,
+    current_declaration: Option<Declaration>,
     nonce: u64,
 }
 
@@ -113,7 +120,7 @@ where
         let (finalized_update_tx, _) = broadcast::channel(BROADCAST_CHANNEL_SIZE);
 
         Ok(Self {
-            current_declaration_id: settings.declaration_id,
+            current_declaration: settings.declaration,
             backend: PhantomData,
             service_resources_handle,
             finalized_update_tx,
@@ -174,7 +181,7 @@ where
         wallet_adapter: &MockWalletAdapter,
         mempool_adapter: &MockMempoolAdapter,
     ) {
-        self.current_declaration_id = Some(declaration.id());
+        self.update_declaration(declaration.as_ref());
         self.nonce = 0;
 
         let tx_builder = MantleTxBuilder::new();
@@ -202,7 +209,7 @@ where
         mempool_adapter: &MockMempoolAdapter,
     ) {
         // Check if we have a declaration_id
-        let Some(declaration_id) = self.current_declaration_id else {
+        let Some(ref declaration) = self.current_declaration else {
             tracing::error!("No declaration_id set. Cannot post activity without declaration.");
             return;
         };
@@ -211,7 +218,7 @@ where
         self.nonce += 1;
 
         let active_message = ActiveMessage {
-            declaration_id,
+            declaration_id: declaration.id,
             nonce,
             metadata,
         };
@@ -237,12 +244,8 @@ where
         wallet_adapter: &MockWalletAdapter,
         mempool_adapter: &MockMempoolAdapter,
     ) {
-        if self.current_declaration_id != Some(declaration_id) {
-            tracing::error!(
-                "Cannot withdraw declaration_id {:?}. Current declaration is {:?}",
-                declaration_id,
-                self.current_declaration_id
-            );
+        if let Err(e) = self.validate_withdrawal(&declaration_id) {
+            tracing::error!("{}", e);
             return;
         }
 
@@ -269,7 +272,32 @@ where
             return;
         }
 
-        self.current_declaration_id = None;
+        self.current_declaration = None;
+    }
+
+    fn validate_withdrawal(&self, declaration_id: &DeclarationId) -> Result<(), &'static str> {
+        let declaration = self
+            .current_declaration
+            .as_ref()
+            .ok_or("No declaration_id set. Cannot post withdrawal without declaration.")?;
+
+        if *declaration_id != declaration.id {
+            return Err(
+                "Wrong declaration_id set. Cannot post withdrawal without proper declaration id.",
+            );
+        }
+
+        Ok(())
+    }
+
+    fn update_declaration(&mut self, declaration: &DeclarationMessage) {
+        let new_declaration = Declaration {
+            id: declaration.id(),
+            zk_id: declaration.zk_id,
+            locked_note_id: declaration.locked_note_id,
+        };
+
+        self.current_declaration = Some(new_declaration);
     }
 }
 

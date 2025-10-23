@@ -570,9 +570,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
             trigger_sampling_delay: adjust_timeout(Duration::from_secs(5)),
         },
         membership: config.membership_config.service_settings,
-        sdp: SdpSettings {
-            declaration_id: None,
-        },
+        sdp: SdpSettings { declaration: None },
         wallet: nomos_wallet::WalletServiceSettings {
             known_keys: HashSet::from_iter([config.consensus_config.leader_config.pk]),
         },

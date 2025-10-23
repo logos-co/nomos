@@ -17,17 +17,14 @@ impl SdpWalletAdapter for MockWalletAdapter {
     fn new() -> Self {
         Self {}
     }
-
     fn declare_tx(
         &self,
         tx_builder: MantleTxBuilder,
         declaration: Box<DeclarationMessage>,
     ) -> Result<SignedMantleTx, Self::Error> {
-        // Hardcoded signing key for Ed25519 signature (provider_id proof)
         let signing_key = SigningKey::from_bytes(&[0u8; 32]);
 
-        // Build the Op
-        let declare_op = Op::SDPDeclare(*declaration);
+        let declare_op = Op::SDPDeclare(*declaration.clone());
         let mantle_tx = tx_builder.push_op(declare_op).build();
         let tx_hash = mantle_tx.hash();
 
@@ -35,10 +32,9 @@ impl SdpWalletAdapter for MockWalletAdapter {
 
         let zk_sig = DummyZkSignature::prove(&ZkSignaturePublic {
             msg_hash: tx_hash.into(),
-            pks: vec![], // Mock: would include [note.public_key, declaration.zk_id]
+            pks: vec![declaration.zk_id.0],
         });
 
-        // Create signed transaction with BOTH signatures
         Ok(SignedMantleTx::new(
             mantle_tx,
             vec![OpProof::ZkAndEd25519Sigs {
