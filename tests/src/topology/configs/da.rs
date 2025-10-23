@@ -2,6 +2,8 @@ use std::{
     collections::HashSet, env, path::PathBuf, str::FromStr as _, sync::LazyLock, time::Duration,
 };
 
+use ed25519_dalek::SigningKey;
+use nomos_core::sdp::ProviderId;
 use nomos_da_network_core::swarm::{
     DAConnectionMonitorSettings, DAConnectionPolicySettings, ReplicationConfig,
 };
@@ -79,6 +81,7 @@ impl Default for DaParams {
 #[derive(Debug, Clone)]
 pub struct GeneralDaConfig {
     pub node_key: ed25519::SecretKey,
+    pub provider_id: ProviderId,
     pub peer_id: PeerId,
     pub membership: NomosDaMembership,
     pub listening_address: Multiaddr,
@@ -137,10 +140,14 @@ pub fn create_da_configs(
             let verifier_sk_bytes = verifier_sk.to_bytes();
             let peer_id = peer_ids[i];
 
+            let dalek_signing_key = SigningKey::from_bytes(id);
+            let provider_id = ProviderId(dalek_signing_key.verifying_key());
+
             let subnetwork_ids = membership.membership(&peer_id);
 
             GeneralDaConfig {
                 node_key,
+                provider_id,
                 peer_id,
                 membership: membership.clone(),
                 listening_address: listening_addresses[i].clone(),

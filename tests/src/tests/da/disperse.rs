@@ -2,7 +2,32 @@ use std::time::Duration;
 
 use chain_service::StartingState;
 use futures::StreamExt as _;
+<<<<<<< HEAD
 use kzgrs_backend::{common::share::DaShare, reconstruction::reconstruct_without_missing_data};
+=======
+use groth16::Fr;
+use kzgrs_backend::{
+    common::share::DaShare, dispersal::Index, reconstruction::reconstruct_without_missing_data,
+};
+use nomos_core::{
+    mantle::{Note, NoteId, Utxo},
+    sdp::{
+        Declaration, DeclarationId, DeclarationMessage, Locator, ProviderId, ServiceType,
+        ZkPublicKey,
+    },
+};
+use nomos_ledger::{
+    LedgerState,
+    mantle::{
+        self,
+        sdp::{SdpLedger, SessionState},
+    },
+};
+use nomos_node::HeaderId;
+use num_bigint::BigUint;
+use rand::{RngCore, thread_rng};
+use rpds::HashTrieMapSync;
+>>>>>>> 6dbac01f (Init ledger from lib state)
 use serial_test::serial;
 use subnetworks_assignations::MembershipHandler as _;
 use tests::{
@@ -54,9 +79,38 @@ async fn disseminate_retrieve_reconstruct() {
     const ITERATIONS: usize = 10;
 
     let configs = create_general_configs(2);
-    // need initial ledger state with SDP declarations / locators. Are those being
-    // transmitted? they might not be transmitted. But anyway need to put that
-    // out.
+
+    let declarations: HashTrieMapSync<DeclarationId, Declaration> = configs
+        .iter()
+        .map(|c| {
+            let msg = DeclarationMessage {
+                service_type: ServiceType::DataAvailability,
+                locators: vec![Locator(c.da_config.listening_address.clone())],
+                provider_id: c.da_config.provider_id,
+                zk_id: ZkPublicKey(BigUint::from(1u8).into()),
+                locked_note_id: utxo().id(),
+            };
+            let id = msg.id();
+            let declaration = Declaration::new(0, &msg);
+            (id, declaration)
+        })
+        .collect();
+
+    let sdp_ledger = SdpLedger::new();
+    let sdp_ledger =
+        sdp_ledger.with_active_service_state(ServiceType::DataAvailability, declarations);
+
+    let mut mantle_ledger = mantle::LedgerState::new();
+    mantle_ledger.set_sdp(sdp_ledger);
+
+    let mut ledger_state = LedgerState::from_utxos([] as [Utxo; 0]);
+    ledger_state.set_mantle(mantle_ledger);
+
+    let starting_state = StartingState::Lib {
+        lib_id: [0u8; 32].into(),
+        lib_ledger_state: Box::new(ledger_state),
+        genesis_id: [0u8; 32].into(),
+    };
 
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let executor = &topology.executors()[0];
@@ -321,5 +375,20 @@ async fn split_2025_death_payload() {
         128, 84, 169, 217, 162, 189, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     ];
+<<<<<<< HEAD
     let _ = disseminate_with_metadata(executor, &data).await.unwrap();
+=======
+    let _ = disseminate_with_metadata(executor, &data, create_metadata(&app_id, 0u64))
+        .await
+        .unwrap();
+}
+
+pub fn utxo() -> Utxo {
+    let tx_hash: Fr = BigUint::from(thread_rng().next_u64()).into();
+    Utxo {
+        tx_hash: tx_hash.into(),
+        output_index: 0,
+        note: Note::new(10000, Fr::from(BigUint::from(0u8)).into()),
+    }
+>>>>>>> 6dbac01f (Init ledger from lib state)
 }
