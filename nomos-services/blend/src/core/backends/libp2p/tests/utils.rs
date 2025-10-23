@@ -1,17 +1,18 @@
 use core::{ops::RangeInclusive, time::Duration};
 
 use async_trait::async_trait;
-use futures::{
-    StreamExt as _,
-    stream::{Pending, pending},
-};
+use futures::StreamExt as _;
 use libp2p::{
     Multiaddr, PeerId, Swarm, allow_block_list, connection_limits, core::transport::ListenerId,
     identity::Keypair,
 };
 use libp2p_swarm_test::SwarmExt as _;
 use nomos_blend_message::{
-    crypto::keys::Ed25519PrivateKey, encap::ProofsVerifier as ProofsVerifierTrait,
+    crypto::{
+        keys::Ed25519PrivateKey,
+        proofs::quota::inputs::prove::public::{CoreInputs, LeaderInputs},
+    },
+    encap::ProofsVerifier as ProofsVerifierTrait,
 };
 use nomos_blend_network::core::{
     Config, NetworkBehaviour,
@@ -21,8 +22,8 @@ use nomos_blend_network::core::{
 use nomos_blend_scheduling::{
     membership::{Membership, Node},
     message_blend::crypto::IncomingEncapsulatedMessageWithValidatedPublicHeader,
-    session::SessionEvent,
 };
+use nomos_core::crypto::ZkHash;
 use nomos_libp2p::{Protocol, SwarmEvent};
 use nomos_utils::blake_rng::BlakeRng;
 use rand::SeedableRng as _;
@@ -35,7 +36,7 @@ use tokio_stream::wrappers::IntervalStream;
 use crate::{
     core::{
         backends::{
-            SessionInfo,
+            PublicInfo, SessionInfo,
             libp2p::{BlendSwarm, behaviour::BlendBehaviour, swarm::BlendSwarmMessage},
         },
         settings::BlendConfig,
@@ -43,12 +44,8 @@ use crate::{
     test_utils::{PROTOCOL_NAME, crypto::MockProofsVerifier},
 };
 
-pub type InnerSwarm<ProofsVerifier> = BlendSwarm<
-    Pending<SessionEvent<SessionInfo<PeerId>>>,
-    BlakeRng,
-    ProofsVerifier,
-    TestObservationWindowProvider,
->;
+pub type InnerSwarm<ProofsVerifier> =
+    BlendSwarm<BlakeRng, ProofsVerifier, TestObservationWindowProvider>;
 
 pub struct TestSwarm<ProofsVerifier>
 where
@@ -98,9 +95,13 @@ impl SwarmBuilder {
             behaviour_constructor,
             swarm_message_receiver,
             incoming_message_sender,
-            pending(),
-            self.membership
-                .unwrap_or_else(|| Membership::new_without_local(&[])),
+            {
+                let mut default_public_info = default_public_info();
+                if let Some(membership) = self.membership {
+                    default_public_info.session.membership = membership;
+                }
+                default_public_info
+            },
             BlakeRng::from_entropy(),
             3u64.try_into().unwrap(),
             1usize.try_into().unwrap(),
@@ -111,6 +112,27 @@ impl SwarmBuilder {
             swarm_message_sender,
             incoming_message_receiver,
         }
+    }
+}
+
+fn default_public_info() -> PublicInfo<PeerId> {
+    use groth16::Field as _;
+
+    PublicInfo {
+        session: SessionInfo {
+            membership: Membership::new_without_local(&[]),
+            session: 1,
+            core_public_inputs: CoreInputs {
+                quota: 1,
+                zk_root: ZkHash::ZERO,
+            },
+        },
+        epoch: LeaderInputs {
+            pol_ledger_aged: ZkHash::ZERO,
+            pol_epoch_nonce: ZkHash::ZERO,
+            message_quota: 1,
+            total_stake: 1,
+        },
     }
 }
 
