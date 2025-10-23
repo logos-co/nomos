@@ -10,8 +10,9 @@ use tests::{
     common::da::{
         APP_ID, disseminate_with_metadata, wait_for_blob_onchain, wait_for_shares_number,
     },
+    nodes::executor::{Executor, create_executor_config},
     secret_key_to_peer_id,
-    topology::{Topology, TopologyConfig},
+    topology::{Topology, TopologyConfig, configs::create_general_configs},
 };
 
 #[ignore = "for manual usage, disseminate_retrieve_reconstruct is preferred for ci"]
@@ -105,6 +106,54 @@ async fn disseminate_retrieve_reconstruct() {
     assert!(executor.monitor_stats().await.0.is_empty());
     assert_eq!(validator.balancer_stats().await.len(), 2);
     assert!(validator.monitor_stats().await.0.is_empty());
+}
+
+#[tokio::test]
+#[serial]
+async fn disseminate_from_non_membership() {
+    const ITERATIONS: usize = 10;
+
+    let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
+    let executor = &topology.executors()[0];
+    let num_subnets = executor.config().da_network.backend.num_subnets as usize;
+
+    let app_id = hex::decode(APP_ID).unwrap();
+    let app_id: [u8; 32] = app_id.clone().try_into().unwrap();
+
+    let lone_general_config = create_general_configs(1).into_iter().next().unwrap();
+    let mut lone_executor_config = create_executor_config(lone_general_config);
+    lone_executor_config.membership = executor.config().membership.clone();
+    let lone_executor = Executor::spawn(lone_executor_config).await;
+
+    let data = [1u8; 31 * ITERATIONS];
+
+    for i in 0..ITERATIONS {
+        let data_size = 31 * (i + 1);
+        println!("disseminating {data_size} bytes, iteration {i}");
+        let data = &data[..data_size]; // test increasing size data
+        let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, Index::from(i as u64));
+        let blob_id = disseminate_with_metadata(&lone_executor, data, metadata)
+            .await
+            .unwrap();
+
+        wait_for_shares_number(executor, blob_id, num_subnets).await;
+
+        let share_commitments = executor.get_commitments(blob_id).await.unwrap();
+        let mut executor_shares = executor
+            .get_shares(blob_id, [].into(), [].into(), true)
+            .await
+            .unwrap()
+            .map(|light_share| DaShare::from((light_share, share_commitments.clone())))
+            .collect::<Vec<_>>()
+            .await;
+
+        executor_shares.sort_by_key(|share| share.share_idx);
+
+        // Reconstruction is performed from the one of the two shares.
+        let reconstructed = reconstruct_without_missing_data(&[executor_shares[0].clone()]);
+
+        assert_eq!(reconstructed, data);
+    }
 }
 
 #[ignore = "Reenable when tools to inspect mempool are added"]
