@@ -80,7 +80,10 @@ fn create_genesis_tx(utxos: &[Utxo]) -> GenesisTx {
     };
 
     // Wrap in GenesisTx
-    GenesisTx::from_tx(mantle_tx).expect("Invalid genesis transaction")
+    GenesisTx::from_tx(mantle_tx)
+        .expect("Invalid genesis transaction")
+        .with_proofs(vec![None])
+        .expect("One empty proof for inscription")
 }
 
 #[must_use]

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use ed25519::signature::Verifier as _;
 use nomos_core::mantle::{
-    TxHash,
+    GenesisTx, TxHash,
     ops::channel::{ChannelId, Ed25519PublicKey as PublicKey, MsgId, set_keys::SetKeysOp},
 };
 #[cfg(feature = "serde")]
@@ -48,6 +48,11 @@ impl Default for Channels {
 }
 
 impl Channels {
+    pub fn from_genesis_tx(tx: impl GenesisTx) -> Result<Self, Error> {
+        let op = tx.genesis_inscription();
+        Self::default().apply_msg(op.channel_id, &op.parent, op.id(), &op.signer)
+    }
+
     pub fn apply_msg(
         mut self,
         channel_id: ChannelId,
