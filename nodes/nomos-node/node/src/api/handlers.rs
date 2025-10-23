@@ -12,9 +12,7 @@ use axum::{
     response::{IntoResponse as _, Response},
 };
 use broadcast_service::BlockBroadcastService;
-use futures::StreamExt as _;
 use nomos_api::http::{
-    DynError,
     consensus::{self, Cryptarchia},
     da::{self, BalancerMessageFactory, DaVerifier, MonitorMessageFactory},
     libp2p, mantle, mempool,
@@ -45,8 +43,17 @@ use tx_service::{
     TxMempoolService, backend::Mempool,
     network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
 };
+#[cfg(feature = "block-explorer")]
+use {
+    crate::api::queries::BlockRangeQuery,
+    chain_service::ConsensusMsg,
+    nomos_core::{block::Block, mantle::TxHash},
+    nomos_libp2p::libp2p::bytes::Bytes,
+    nomos_storage::api::chain::StorageChainApi,
+    overwatch::services::ServiceData,
+};
 
-use crate::api::backend::DaStorageBackend;
+use crate::api::{backend::DaStorageBackend, responses};
 
 #[macro_export]
 macro_rules! make_request_and_return_response {
@@ -341,25 +348,10 @@ where
     RuntimeServiceId:
         Debug + Sync + Display + AsServiceId<BlockBroadcastService<RuntimeServiceId>> + 'static,
 {
-    match mantle::lib_block_stream(&handle).await {
-        Ok(shares) => {
-            let stream = shares.map(|res| {
-                let info = res?;
-                let mut bytes = serde_json::to_vec(&info).map_err(|e| Box::new(e) as DynError)?;
-                bytes.push(b'\n');
-                Ok::<_, DynError>(bytes)
-            });
-
-            let body = Body::from_stream(stream);
-
-            Response::builder()
-                .status(StatusCode::OK)
-                .header("content-type", "application/x-ndjson")
-                .body(body)
-                .unwrap()
-                .into_response()
-        }
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    let stream = mantle::lib_block_stream(&handle).await;
+    match stream {
+        Ok(stream) => responses::ndjson::from_stream_result(stream),
+        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
     }
 }
 
@@ -962,4 +954,82 @@ where
         <SignedMantleTx as Transaction>::Hash,
         RuntimeServiceId,
     >(&handle, tx, Transaction::hash))
+}
+
+#[cfg(feature = "block-explorer")]
+#[utoipa::path(
+    get,
+    path = paths::BLOCKS,
+    params(BlockRangeQuery),
+    responses(
+        (status = 200, description = "Get blocks"),
+        (status = 500, description = "Internal server error", body = String),
+    )
+)]
+pub async fn blocks<Transaction, StorageBackend, RuntimeServiceId>(
+    State(handle): State<OverwatchHandle<RuntimeServiceId>>,
+    Query(query): Query<BlockRangeQuery>,
+) -> Response
+where
+    Transaction: Clone
+        + Eq
+        + Serialize
+        + DeserializeOwned
+        + Send
+        + Sync
+        + 'static
+        + nomos_core::mantle::Transaction<Hash = TxHash>,
+    StorageBackend: nomos_storage::backends::StorageBackend + Send + Sync + 'static, /* TODO: StorageChainApi */
+    StorageBackend::Block: Serialize,
+    <StorageBackend as StorageChainApi>::Block:
+        TryFrom<Block<Transaction>> + TryInto<Block<Transaction>>,
+    <StorageBackend as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
+    RuntimeServiceId: Debug
+        + Sync
+        + Display
+        + 'static
+        + AsServiceId<StorageService<StorageBackend, RuntimeServiceId>>,
+{
+    make_request_and_return_response!(mantle::get_blocks(&handle, query.slot_from, query.slot_to))
+}
+
+#[cfg(feature = "block-explorer")]
+#[utoipa::path(
+    get,
+    path = paths::BLOCKS_STREAM,
+    responses(
+        (status = 200, description = "Get blocks"),
+        (status = 500, description = "Internal server error", body = String),
+    )
+)]
+pub async fn blocks_stream<Transaction, StorageBackend, ConsensusService, RuntimeServiceId>(
+    State(handle): State<OverwatchHandle<RuntimeServiceId>>,
+) -> Response
+where
+    Transaction: Clone
+        + Eq
+        + Serialize
+        + DeserializeOwned
+        + Send
+        + Sync
+        + 'static
+        + nomos_core::mantle::Transaction<Hash = TxHash>,
+    StorageBackend: nomos_storage::backends::StorageBackend + Send + Sync + 'static,
+    StorageBackend::Block: Serialize,
+    <StorageBackend as StorageChainApi>::Block:
+        TryFrom<Block<Transaction>> + TryInto<Block<Transaction>>,
+    <StorageBackend as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
+    ConsensusService: ServiceData<Message = ConsensusMsg<Transaction>> + 'static,
+    RuntimeServiceId: Debug
+        + Sync
+        + Display
+        + 'static
+        + AsServiceId<ConsensusService>
+        + AsServiceId<StorageService<StorageBackend, RuntimeServiceId>>,
+{
+    let stream = mantle::get_new_blocks_stream::<_, _, ConsensusService, _>(&handle).await;
+    match stream {
+        Ok(stream) => responses::ndjson::from_stream(stream),
+        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
+    }
 }
