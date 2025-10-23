@@ -193,7 +193,7 @@ where
                 original_size,
                 signer,
             )
-            .map_err(Box::new)?;
+            .map_err(DynError::from)?;
 
         handler.disperse_tx(blob_id, tx.clone()).await?;
         tracing::debug!("Dispersing {blob_id:?} shares");
