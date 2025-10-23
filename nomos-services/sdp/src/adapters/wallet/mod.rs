@@ -1,7 +1,7 @@
 pub mod mock;
 
 use nomos_core::{
-    mantle::{SignedMantleTx, tx_builder::MantleTxBuilder},
+    mantle::{NoteId, SignedMantleTx, tx_builder::MantleTxBuilder},
     sdp::{ActiveMessage, DeclarationMessage, WithdrawMessage, ZkPublicKey},
 };
 
@@ -23,6 +23,7 @@ pub trait SdpWalletAdapter {
         tx_builder: MantleTxBuilder,
         withdrawn_message: WithdrawMessage,
         zk_id: ZkPublicKey,
+        locked_note_id: NoteId,
     ) -> Result<SignedMantleTx, Self::Error>;
 
     fn active_tx(

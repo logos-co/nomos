@@ -264,14 +264,18 @@ where
 
         let tx_builder = MantleTxBuilder::new();
 
-        let signed_tx =
-            match wallet_adapter.withdraw_tx(tx_builder, withdraw_message, declaration.zk_id) {
-                Ok(tx) => tx,
-                Err(e) => {
-                    tracing::error!("Failed to create withdrawal transaction: {:?}", e);
-                    return;
-                }
-            };
+        let signed_tx = match wallet_adapter.withdraw_tx(
+            tx_builder,
+            withdraw_message,
+            declaration.zk_id,
+            declaration.locked_note_id,
+        ) {
+            Ok(tx) => tx,
+            Err(e) => {
+                tracing::error!("Failed to create withdrawal transaction: {:?}", e);
+                return;
+            }
+        };
 
         if let Err(e) = mempool_adapter.post_tx(signed_tx).await {
             tracing::error!("Failed to post withdrawal to mempool: {:?}", e);

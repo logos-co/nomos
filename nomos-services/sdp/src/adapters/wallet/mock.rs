@@ -2,7 +2,7 @@ use std::convert::Infallible;
 
 use ed25519_dalek::{Signer as _, SigningKey};
 use nomos_core::{
-    mantle::{Op, OpProof, SignedMantleTx, Transaction as _, tx_builder::MantleTxBuilder},
+    mantle::{NoteId, Op, OpProof, SignedMantleTx, Transaction as _, tx_builder::MantleTxBuilder},
     proofs::zksig::{DummyZkSignature, ZkSignaturePublic},
     sdp::{ActiveMessage, DeclarationMessage, WithdrawMessage, ZkPublicKey},
 };
@@ -55,6 +55,7 @@ impl SdpWalletAdapter for MockWalletAdapter {
         tx_builder: MantleTxBuilder,
         withdrawn_message: WithdrawMessage,
         zk_id: ZkPublicKey,
+        locked_note_id: NoteId,
     ) -> Result<SignedMantleTx, Self::Error> {
         // Build the Op
         let withdraw_op = Op::SDPWithdraw(withdrawn_message);
@@ -65,7 +66,7 @@ impl SdpWalletAdapter for MockWalletAdapter {
         // declare_info.zk_id])
         let zk_signature = DummyZkSignature::prove(&ZkSignaturePublic {
             msg_hash: tx_hash.into(),
-            pks: vec![zk_id.0],
+            pks: vec![*locked_note_id.as_fr(), zk_id.0],
         });
 
         Ok(SignedMantleTx::new(
