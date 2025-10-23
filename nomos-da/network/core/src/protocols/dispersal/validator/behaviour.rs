@@ -179,9 +179,6 @@ impl<M: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static> Netw
         local_addr: &Multiaddr,
         remote_addr: &Multiaddr,
     ) -> Result<THandler<Self>, ConnectionDenied> {
-        if !self.membership.is_allowed(&peer) {
-            return Ok(Either::Right(libp2p::swarm::dummy::ConnectionHandler));
-        }
         self.stream_behaviour
             .handle_established_inbound_connection(connection_id, peer, local_addr, remote_addr)
             .map(Either::Left)
