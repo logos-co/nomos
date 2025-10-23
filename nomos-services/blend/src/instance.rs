@@ -239,17 +239,14 @@ where
 
     /// Handles the expiration of the transition period,
     /// by shutting down the previous Core mode if exists.
-    // TODO: Before shutting down the previous Core mode, notify it to submit
-    // activity proof in case it terminates before detecting the end of the
-    // transition period.
     async fn handle_transition_period_expired(self) -> Self {
         match self {
             Self::EdgeAfterCore { mode, prev } => {
-                prev.shutdown().await;
+                prev.graceful_shutdown().await;
                 Self::Edge(mode)
             }
             Self::BroadcastAfterCore { mode, prev } => {
-                prev.shutdown().await;
+                prev.graceful_shutdown().await;
                 Self::Broadcast(mode)
             }
             _ => self,

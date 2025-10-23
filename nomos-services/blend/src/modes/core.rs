@@ -1,9 +1,13 @@
-use std::fmt::{Debug, Display};
+use std::{
+    fmt::{Debug, Display},
+    time::Duration,
+};
 
 use overwatch::{
     overwatch::OverwatchHandle,
     services::{AsServiceId, ServiceData},
 };
+use tokio::time::sleep;
 
 use crate::modes::{Error, ondemand::OnDemandServiceMode};
 
@@ -26,5 +30,18 @@ where
 
     pub async fn shutdown(self) {
         self.0.shutdown().await;
+    }
+
+    pub async fn graceful_shutdown(self) {
+        // Give the core service time to detect/handle the end of session transition
+        // period.
+        // TODO: Replace with a sophisticated mechanism:
+        // - Deprecate Mode and Instance by letting services handle their own state
+        //   transitions. Then, they can run their cleanup logic before spawning
+        //   (switching to) a new service.
+        // - Or, add graceful shutdown to Overwatch: Notify a service so that it can run
+        //   its cleanup logic before shutting down.
+        sleep(Duration::from_millis(500)).await;
+        self.shutdown().await;
     }
 }
