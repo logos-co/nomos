@@ -69,6 +69,16 @@ pub enum WalletMsg {
     },
 }
 
+impl WalletMsg {
+    pub fn tip(&self) -> HeaderId {
+        match self {
+            WalletMsg::GetBalance { tip, .. }
+            | WalletMsg::FundTx { tip, .. }
+            | WalletMsg::GetLeaderAgedNotes { tip, .. } => *tip,
+        }
+    }
+}
+
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct WalletServiceSettings {
     pub known_keys: HashSet<PublicKey>,
@@ -240,16 +250,10 @@ where
         storage: &StorageAdapter<Storage, Tx, RuntimeServiceId>,
         cryptarchia: &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
     ) {
-        match &msg {
-            WalletMsg::GetBalance { tip, .. }
-            | WalletMsg::FundTx { tip, .. }
-            | WalletMsg::GetLeaderAgedNotes { tip, .. } => {
-                if let Err(err) =
-                    Self::backfill_if_not_in_sync(*tip, wallet, storage, cryptarchia).await
-                {
-                    error!(err=?err, "Failed backfilling wallet to message tip {tip:?}, will attempt to continue processing the message {msg:?}");
-                }
-            }
+        if let Err(err) =
+            Self::backfill_if_not_in_sync(msg.tip(), wallet, storage, cryptarchia).await
+        {
+            error!(err=?err, "Failed backfilling wallet to message tip, will attempt to continue processing the message {msg:?}");
         }
 
         match msg {
