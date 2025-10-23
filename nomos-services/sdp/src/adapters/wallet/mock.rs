@@ -4,7 +4,7 @@ use ed25519_dalek::{Signer as _, SigningKey};
 use nomos_core::{
     mantle::{Op, OpProof, SignedMantleTx, Transaction as _, tx_builder::MantleTxBuilder},
     proofs::zksig::{DummyZkSignature, ZkSignaturePublic},
-    sdp::{ActiveMessage, DeclarationMessage, WithdrawMessage},
+    sdp::{ActiveMessage, DeclarationMessage, WithdrawMessage, ZkPublicKey},
 };
 
 use crate::adapters::wallet::SdpWalletAdapter;
@@ -22,6 +22,7 @@ impl SdpWalletAdapter for MockWalletAdapter {
         tx_builder: MantleTxBuilder,
         declaration: Box<DeclarationMessage>,
     ) -> Result<SignedMantleTx, Self::Error> {
+        // todo: this is for mock, we need signing key in production
         let signing_key = SigningKey::from_bytes(&[0u8; 32]);
 
         let declare_op = Op::SDPDeclare(*declaration.clone());
@@ -53,6 +54,7 @@ impl SdpWalletAdapter for MockWalletAdapter {
         &self,
         tx_builder: MantleTxBuilder,
         withdrawn_message: WithdrawMessage,
+        zk_id: ZkPublicKey,
     ) -> Result<SignedMantleTx, Self::Error> {
         // Build the Op
         let withdraw_op = Op::SDPWithdraw(withdrawn_message);
@@ -63,7 +65,7 @@ impl SdpWalletAdapter for MockWalletAdapter {
         // declare_info.zk_id])
         let zk_signature = DummyZkSignature::prove(&ZkSignaturePublic {
             msg_hash: tx_hash.into(),
-            pks: vec![], // Mock: would include [locked_note.pk, zk_id]
+            pks: vec![zk_id.0],
         });
 
         Ok(SignedMantleTx::new(
@@ -81,6 +83,7 @@ impl SdpWalletAdapter for MockWalletAdapter {
         &self,
         tx_builder: MantleTxBuilder,
         active_message: ActiveMessage,
+        zk_id: ZkPublicKey,
     ) -> Result<SignedMantleTx, Self::Error> {
         let active_op = Op::SDPActive(active_message);
         let mantle_tx = tx_builder.push_op(active_op).build();
@@ -88,7 +91,7 @@ impl SdpWalletAdapter for MockWalletAdapter {
 
         let zk_signature = DummyZkSignature::prove(&ZkSignaturePublic {
             msg_hash: tx_hash.into(),
-            pks: vec![], // Mock: would include [zk_id]
+            pks: vec![zk_id.0],
         });
 
         Ok(SignedMantleTx::new(

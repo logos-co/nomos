@@ -225,13 +225,16 @@ where
 
         let tx_builder = MantleTxBuilder::new();
 
-        let signed_tx = match wallet_adapter.active_tx(tx_builder, active_message) {
-            Ok(tx) => tx,
-            Err(e) => {
-                tracing::error!("Failed to create activity transaction: {:?}", e);
-                return;
-            }
-        };
+        let declaration = self.current_declaration.as_ref().unwrap();
+
+        let signed_tx =
+            match wallet_adapter.active_tx(tx_builder, active_message, declaration.zk_id) {
+                Ok(tx) => tx,
+                Err(e) => {
+                    tracing::error!("Failed to create activity transaction: {:?}", e);
+                    return;
+                }
+            };
 
         if let Err(e) = mempool_adapter.post_tx(signed_tx).await {
             tracing::error!("Failed to post activity to mempool: {:?}", e);
@@ -252,20 +255,23 @@ where
         let nonce = self.nonce;
         self.nonce += 1;
 
+        let declaration = self.current_declaration.as_ref().unwrap(); //unwrap is ok as it is validated above
         let withdraw_message = WithdrawMessage {
             declaration_id,
             nonce,
+            locked_note_id: declaration.locked_note_id,
         };
 
         let tx_builder = MantleTxBuilder::new();
 
-        let signed_tx = match wallet_adapter.withdraw_tx(tx_builder, withdraw_message) {
-            Ok(tx) => tx,
-            Err(e) => {
-                tracing::error!("Failed to create withdrawal transaction: {:?}", e);
-                return;
-            }
-        };
+        let signed_tx =
+            match wallet_adapter.withdraw_tx(tx_builder, withdraw_message, declaration.zk_id) {
+                Ok(tx) => tx,
+                Err(e) => {
+                    tracing::error!("Failed to create withdrawal transaction: {:?}", e);
+                    return;
+                }
+            };
 
         if let Err(e) = mempool_adapter.post_tx(signed_tx).await {
             tracing::error!("Failed to post withdrawal to mempool: {:?}", e);

@@ -246,6 +246,7 @@ impl DeclarationMessage {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct WithdrawMessage {
     pub declaration_id: DeclarationId,
+    pub locked_note_id: NoteId,
     pub nonce: Nonce,
 }
 
@@ -254,6 +255,7 @@ impl WithdrawMessage {
     pub fn payload_bytes(&self) -> Bytes {
         let mut buff = BytesMut::new();
         buff.extend_from_slice(self.declaration_id.0.as_ref());
+        buff.extend_from_slice(&self.locked_note_id.as_bytes());
         buff.extend_from_slice(&(self.nonce.to_le_bytes()));
         buff.freeze()
     }
