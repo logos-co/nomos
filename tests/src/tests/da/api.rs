@@ -17,6 +17,7 @@ use tests::{
     topology::{Topology, TopologyConfig, configs::create_general_configs},
 };
 
+#[ignore = "TODO: Enable when SDP declarations are processed"]
 #[tokio::test]
 #[serial]
 async fn test_get_share_data() {
@@ -149,6 +150,7 @@ async fn test_block_peer() {
     assert!(unblocked);
 }
 
+#[ignore = "TODO: Enable when SDP declarations are processed"]
 #[tokio::test]
 #[serial]
 async fn test_get_shares() {

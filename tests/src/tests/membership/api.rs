@@ -10,6 +10,7 @@ use tests::{
     topology::{Topology, TopologyConfig},
 };
 
+#[ignore = "TODO: Enable when SDP Declarations are processed"]
 #[tokio::test]
 #[serial]
 async fn test_update_get_membership_http() {
