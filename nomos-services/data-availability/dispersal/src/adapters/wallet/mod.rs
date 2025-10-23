@@ -4,7 +4,7 @@ use nomos_core::{
     da::BlobId,
     mantle::{
         SignedMantleTx,
-        ops::channel::{ChannelId, MsgId},
+        ops::channel::{ChannelId, Ed25519PublicKey, MsgId},
     },
 };
 
@@ -21,5 +21,6 @@ pub trait DaWalletAdapter {
         parent_msg_id: MsgId,
         blob_id: BlobId,
         blob_size: usize,
+        signer: Ed25519PublicKey,
     ) -> Result<SignedMantleTx, Self::Error>;
 }

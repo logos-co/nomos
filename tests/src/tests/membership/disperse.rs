@@ -4,7 +4,6 @@ use std::{
 };
 
 use futures::StreamExt as _;
-use kzgrs_backend::dispersal::Index;
 use nomos_core::{
     da::BlobId,
     sdp::{Locator, ProviderId},
@@ -14,7 +13,7 @@ use nomos_utils::net::get_available_udp_port;
 use rand::{Rng as _, thread_rng};
 use serial_test::serial;
 use tests::{
-    common::da::{APP_ID, disseminate_with_metadata, wait_for_blob_onchain},
+    common::da::{disseminate_with_metadata, wait_for_blob_onchain},
     nodes::{executor::Executor, validator::Validator},
     topology::{
         Topology, TopologyConfig,
@@ -150,14 +149,11 @@ async fn update_executor_membership(executor: &Executor, finalize_block_event: &
 async fn perform_dissemination_tests(executor: &Executor) {
     const ITERATIONS: usize = 10;
     let data = [1u8; 31];
-    let metadata = create_test_metadata();
     let mut onchain = false;
 
     for i in 0..ITERATIONS {
         println!("iteration {i}");
-        let blob_id = disseminate_with_metadata(executor, &data, metadata)
-            .await
-            .unwrap();
+        let blob_id = disseminate_with_metadata(executor, &data).await.unwrap();
 
         if !onchain {
             wait_for_blob_onchain(executor, blob_id).await;
@@ -166,12 +162,6 @@ async fn perform_dissemination_tests(executor: &Executor) {
 
         verify_share_replication(executor, blob_id).await;
     }
-}
-
-fn create_test_metadata() -> kzgrs_backend::dispersal::Metadata {
-    let app_id = hex::decode(APP_ID).unwrap();
-    let app_id: [u8; 32] = app_id.try_into().unwrap();
-    kzgrs_backend::dispersal::Metadata::new(app_id, Index::from(0))
 }
 
 async fn verify_share_replication(executor: &Executor, blob_id: BlobId) {

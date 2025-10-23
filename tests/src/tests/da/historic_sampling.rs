@@ -1,9 +1,8 @@
 use futures::StreamExt as _;
-use kzgrs_backend::dispersal::Index;
 use nomos_core::da::BlobId;
 use nomos_sdp::BlockEvent;
 use tests::{
-    common::da::{APP_ID, disseminate_with_metadata, wait_for_blob_onchain},
+    common::da::{disseminate_with_metadata, wait_for_blob_onchain},
     nodes::executor::Executor,
     topology::{Topology, TopologyConfig},
 };
@@ -42,10 +41,9 @@ async fn test_historical_sampling_across_sessions() {
 async fn disseminate_blobs_in_session_zero(executor: &Executor) -> Vec<BlobId> {
     let mut blob_ids = Vec::new();
     let data = [1u8; 31];
-    let metadata = create_test_metadata();
 
     for i in 0..3 {
-        let blob_id = disseminate_with_metadata(executor, &data, metadata)
+        let blob_id = disseminate_with_metadata(executor, &data)
             .await
             .expect("Failed to disseminate blob");
 
@@ -112,12 +110,6 @@ async fn test_sampling_scenarios(executor: &Executor, blob_ids: &[BlobId]) {
 
     // Run both tests concurrently
     tokio::join!(valid_future, invalid_future);
-}
-
-fn create_test_metadata() -> kzgrs_backend::dispersal::Metadata {
-    let app_id = hex::decode(APP_ID).unwrap();
-    let app_id: [u8; 32] = app_id.try_into().unwrap();
-    kzgrs_backend::dispersal::Metadata::new(app_id, Index::from(0))
 }
 
 async fn verify_share_replication(executor: &Executor, blob_id: BlobId) {

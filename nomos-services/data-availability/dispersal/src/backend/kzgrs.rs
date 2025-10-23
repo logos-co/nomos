@@ -10,7 +10,7 @@ use nomos_core::{
     da::{BlobId, DaDispersal, DaEncoder},
     mantle::{
         SignedMantleTx,
-        ops::channel::{ChannelId, MsgId},
+        ops::channel::{ChannelId, Ed25519PublicKey, MsgId},
     },
 };
 use nomos_da_network_service::backends::ProcessingError;
@@ -174,6 +174,7 @@ where
         handler: DispersalHandler<NetworkAdapter, WalletAdapter>,
         channel_id: ChannelId,
         parent_msg_id: MsgId,
+        signer: Ed25519PublicKey,
         encoded_data: <encoder::DaEncoder as DaEncoder>::EncodedData,
         original_size: usize,
     ) -> Result<SignedMantleTx, DynError> {
@@ -182,7 +183,7 @@ where
         tracing::debug!("Dispersing {blob_id:?} transaction");
         let wallet_adapter = handler.wallet_adapter.as_ref();
         let tx = wallet_adapter
-            .blob_tx(channel_id, parent_msg_id, blob_id, original_size)
+            .blob_tx(channel_id, parent_msg_id, blob_id, original_size, signer)
             .map_err(Box::new)?;
 
         handler.disperse_tx(blob_id, tx.clone()).await?;
@@ -200,6 +201,7 @@ where
         handler: DispersalHandler<NetworkAdapter, WalletAdapter>,
         channel_id: ChannelId,
         parent_msg_id: MsgId,
+        signer: Ed25519PublicKey,
         encoded_data: EncodedData,
         original_size: usize,
         sender: oneshot::Sender<Result<BlobId, DynError>>,
@@ -213,6 +215,7 @@ where
                     handler.clone(),
                     channel_id,
                     parent_msg_id,
+                    signer,
                     encoded_data.clone(),
                     original_size,
                 )
@@ -289,6 +292,7 @@ where
         &self,
         channel_id: ChannelId,
         parent_msg_id: MsgId,
+        signer: Ed25519PublicKey,
         data: Vec<u8>,
         sender: oneshot::Sender<Result<Self::BlobId, DynError>>,
     ) -> Result<DispersalTask, DynError> {
@@ -307,6 +311,7 @@ where
             handler,
             channel_id,
             parent_msg_id,
+            signer,
             encoded_data,
             original_size,
             sender,

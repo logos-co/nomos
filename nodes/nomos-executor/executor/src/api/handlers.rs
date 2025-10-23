@@ -1,7 +1,6 @@
 use std::fmt::{Debug, Display};
 
 use axum::{Json, extract::State, response::Response};
-use kzgrs_backend::dispersal::Metadata;
 use nomos_api::http::da::{self, DaDispersal};
 use nomos_da_dispersal::{adapters::network::DispersalNetworkAdapter, backend::DispersalBackend};
 use nomos_da_network_core::SubnetworkId;
@@ -22,7 +21,7 @@ use subnetworks_assignations::MembershipHandler;
 )]
 pub async fn disperse_data<Backend, NetworkAdapter, Membership, RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
-    Json(dispersal_req): Json<DispersalRequest<Metadata>>,
+    Json(dispersal_req): Json<DispersalRequest>,
 ) -> Response
 where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
@@ -45,5 +44,11 @@ where
         NetworkAdapter,
         Membership,
         RuntimeServiceId,
-    >(&handle, dispersal_req.channel_id, dispersal_req.data))
+    >(
+        &handle,
+        dispersal_req.channel_id,
+        dispersal_req.parent_msg_id,
+        dispersal_req.signer,
+        dispersal_req.data
+    ))
 }

@@ -7,13 +7,15 @@ use nomos_core::{
     mantle::{
         MantleTx, Note, Op, OpProof, SignedMantleTx, Transaction as _, Utxo,
         ledger::Tx as LedgerTx,
-        ops::channel::{ChannelId, MsgId, blob::BlobOp},
+        ops::channel::{ChannelId, Ed25519PublicKey, MsgId, blob::BlobOp},
     },
     proofs::zksig::{DummyZkSignature, ZkSignaturePublic},
 };
 use num_bigint::BigUint;
 
 use super::DaWalletAdapter;
+
+pub struct MockWalletAdapterSettings {}
 
 pub struct MockWalletAdapter;
 
@@ -28,8 +30,9 @@ impl DaWalletAdapter for MockWalletAdapter {
         &self,
         channel_id: ChannelId,
         parent_msg_id: MsgId,
-        blob: BlobId,
+        blob_id: BlobId,
         blob_size: usize,
+        _signer: Ed25519PublicKey,
     ) -> Result<SignedMantleTx, Self::Error> {
         // TODO: This mock implementation targets to only work with integration tests.
         // When integration tests genesis_state changes, this part should be updated, or
@@ -50,7 +53,7 @@ impl DaWalletAdapter for MockWalletAdapter {
 
         let blob_op = BlobOp {
             channel: channel_id,
-            blob,
+            blob: blob_id,
             blob_size: blob_size as u64,
             da_storage_gas_price: 3000,
             parent: parent_msg_id,
@@ -67,6 +70,9 @@ impl DaWalletAdapter for MockWalletAdapter {
         // Sign the transaction hash
         let tx_hash = mantle_tx.hash();
         let signature = signing_key.sign(&tx_hash.as_signing_bytes());
+
+        // TODO: Wallet service will expect a BlobOp, and transform that into a
+        // SignedMantleTx.
 
         // Create signed transaction with valid signature proof
         Ok(SignedMantleTx::new(
