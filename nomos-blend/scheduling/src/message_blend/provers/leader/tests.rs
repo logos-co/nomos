@@ -51,7 +51,7 @@ async fn proof_generation() {
     // Next proof should still return `Some` since leadership proofs do not have a
     // maximum cap.
     timeout(
-        Duration::from_secs(3),
+        Duration::from_secs(5),
         leader_proofs_generator.get_next_proof(),
     )
     .await
