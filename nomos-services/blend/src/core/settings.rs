@@ -5,6 +5,7 @@ use nomos_blend_scheduling::{
     membership::Membership, message_blend::crypto::SessionCryptographicProcessorSettings,
     message_scheduler::session_info::SessionInfo, session::SessionEvent,
 };
+use nomos_core::mantle::keys::{PublicKey, SecretKey};
 use nomos_utils::math::NonNegativeF64;
 use serde::{Deserialize, Serialize};
 
@@ -16,6 +17,7 @@ pub struct BlendConfig<BackendSettings> {
     pub crypto: SessionCryptographicProcessorSettings,
     pub scheduler: SchedulerSettingsExt,
     pub time: TimingSettings,
+    pub zk: ZkSettings,
     pub minimum_network_size: NonZeroU64,
 }
 
@@ -145,6 +147,19 @@ impl<BackendSettings> BlendConfig<BackendSettings> {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ZkSettings {
+    #[serde(rename = "secret_key")]
+    pub sk: SecretKey,
+}
+
+impl ZkSettings {
+    #[must_use]
+    pub fn public_key(&self) -> PublicKey {
+        self.sk.to_public_key()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use futures::FutureExt as _;
@@ -234,6 +249,9 @@ mod tests {
                 epoch_transition_period_in_slots: NonZeroU64::new(1).unwrap(),
             },
             minimum_network_size: NonZeroU64::new(1).unwrap(),
+            zk: ZkSettings {
+                sk: SecretKey::one(),
+            },
         }
     }
 

@@ -105,11 +105,8 @@ pub async fn spawn_run(
             .expect("channel opened");
     }
 
-    let session_stream = ReceiverStream::new(session_receiver).map(|membership| MembershipInfo {
-        membership,
-        session_number: 1,
-        zk_root: ZkHash::ZERO,
-    });
+    let session_stream = ReceiverStream::new(session_receiver)
+        .map(|membership| MembershipInfo::from_membership_and_session_number(membership, 1));
 
     let settings = settings(local_node, minimal_network_size, node_id_sender);
     let join_handle = tokio::spawn(async move {

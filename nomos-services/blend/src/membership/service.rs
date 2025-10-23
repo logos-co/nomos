@@ -1,9 +1,13 @@
 use std::{collections::BTreeSet, hash::Hash, marker::PhantomData};
 
 use futures::StreamExt as _;
-use nomos_blend_message::crypto::keys::Ed25519PublicKey;
+use groth16::fr_from_bytes_unchecked;
+use nomos_blend_message::crypto::{keys::Ed25519PublicKey, random_sized_bytes};
 use nomos_blend_scheduling::membership::{Membership, Node};
-use nomos_core::sdp::{Locator, ProviderId, ServiceType};
+use nomos_core::{
+    mantle::keys::PublicKey,
+    sdp::{Locator, ProviderId, ServiceType},
+};
 use nomos_membership_service::{
     MembershipMessage, MembershipSnapshotStream, backends::MembershipBackendError,
 };
@@ -14,7 +18,16 @@ use overwatch::{
 use tokio::sync::oneshot;
 use tracing::warn;
 
-use crate::membership::{MembershipInfo, MembershipStream, ServiceMessage, node_id};
+use crate::{
+    membership::{MembershipInfo, MembershipStream, ServiceMessage, ZkInfo, node_id},
+    merkle::MerkleTree,
+};
+
+#[derive(Debug, Clone)]
+struct ZkNode<NodeId> {
+    pub node: Node<NodeId>,
+    pub zk_key: PublicKey,
+}
 
 pub struct Adapter<Service, NodeId>
 where
@@ -25,6 +38,7 @@ where
     /// A signing public key of the local node, required to
     /// build a [`Membership`] instance.
     signing_public_key: Ed25519PublicKey,
+    zk_public_key: Option<PublicKey>,
     _phantom: PhantomData<NodeId>,
 }
 
@@ -41,10 +55,12 @@ where
     fn new(
         relay: OutboundRelay<ServiceMessage<Self>>,
         signing_public_key: Ed25519PublicKey,
+        zk_public_key: Option<PublicKey>,
     ) -> Self {
         Self {
             relay,
             signing_public_key,
+            zk_public_key,
             _phantom: PhantomData,
         }
     }
@@ -53,10 +69,8 @@ where
     ///
     /// It returns a stream of [`Membership`] instances,
     async fn subscribe(&self) -> Result<MembershipStream<Self::NodeId>, Self::Error> {
-        use groth16::Field as _;
-        use nomos_core::crypto::ZkHash;
-
         let signing_public_key = self.signing_public_key;
+        let maybe_zk_public_key = self.zk_public_key;
         Ok(Box::pin(
             self.subscribe_stream(ServiceType::BlendNetwork)
                 .await?
@@ -68,12 +82,28 @@ where
                         })
                         .collect::<Vec<_>>()
                 })
-                .map(move |nodes| MembershipInfo {
-                    membership: Membership::new(&nodes, &signing_public_key),
-                    // TODO: Replace with actual value.
-                    session_number: 0,
-                    // TODO: Replace with actual value.
-                    zk_root: ZkHash::ZERO,
+                .map(move |nodes| {
+                    let (membership_nodes, zk_public_keys): (Vec<_>, Vec<_>) = nodes
+                        .into_iter()
+                        .map(|ZkNode { node, zk_key }| (node, zk_key))
+                        .unzip();
+                    let membership = Membership::new(&membership_nodes, &signing_public_key);
+                    let zk_tree = MerkleTree::new(zk_public_keys).expect(
+                        "Should not fail to build merkle tree of core nodes' zk public keys.",
+                    );
+                    let core_and_path_selectors = maybe_zk_public_key
+                        .map(|zk_public_key| zk_tree.get_proof_for_key(&zk_public_key))
+                        .expect("Zk public key of core node should be part of membership info.");
+                    let zk_info = ZkInfo {
+                        core_and_path_selectors,
+                        root: zk_tree.root(),
+                    };
+                    MembershipInfo {
+                        membership,
+                        zk: zk_info,
+                        // TODO: Replace with actual value.
+                        session_number: 0,
+                    }
                 }),
         ))
     }
@@ -112,7 +142,7 @@ where
 fn node_from_provider<NodeId>(
     provider_id: &ProviderId,
     locators: &BTreeSet<Locator>,
-) -> Option<Node<NodeId>>
+) -> Option<ZkNode<NodeId>>
 where
     NodeId: node_id::TryFrom,
 {
@@ -129,10 +159,14 @@ where
             warn!("Failed to decode provider_id to public_key: {e:?}");
         })
         .ok()?;
-    Some(Node {
-        id,
-        address,
-        public_key,
+    Some(ZkNode {
+        node: Node {
+            id,
+            address,
+            public_key,
+            // TODO: Return actual zk key as returned by the chain broadcast service
+        },
+        zk_key: PublicKey::new(fr_from_bytes_unchecked(&random_sized_bytes::<32>())),
     })
 }
 

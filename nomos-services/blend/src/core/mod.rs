@@ -15,7 +15,6 @@ use backends::BlendBackend;
 use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 use fork_stream::StreamExt as _;
 use futures::{Stream, StreamExt as _, future::join_all, stream::pending};
-use groth16::Field as _;
 use network::NetworkAdapter;
 use nomos_blend_message::{
     PayloadType,
@@ -41,10 +40,7 @@ use nomos_blend_scheduling::{
     session::{SessionEvent, UninitializedSessionEventStream},
     stream::UninitializedFirstReadyStream,
 };
-use nomos_core::{
-    codec::{DeserializeOp as _, SerializeOp as _},
-    crypto::ZkHash,
-};
+use nomos_core::codec::{DeserializeOp as _, SerializeOp as _};
 use nomos_network::NetworkService;
 use nomos_time::{SlotTick, TimeService, TimeServiceMessage};
 use nomos_utils::blake_rng::BlakeRng;
@@ -71,7 +67,7 @@ use crate::{
         ChainApi, EpochEvent, EpochHandler, LeaderInputsMinusQuota,
         PolInfoProvider as PolInfoProviderTrait,
     },
-    membership::{self, MembershipInfo},
+    membership::{self, MembershipInfo, ZkInfo},
     message::{NetworkMessage, ProcessedMessage, ServiceMessage},
     session::{CoreSessionInfo, CoreSessionPublicInfo},
     settings::FIRST_STREAM_ITEM_READY_TIMEOUT,
@@ -255,6 +251,7 @@ where
         // Initialize membership stream for session and core-related public PoQ inputs.
         let session_stream = async {
             let config = blend_config.clone();
+            let zk_secret_key = config.zk.sk.clone();
 
             MembershipAdapter::new(
                 overwatch_handle
@@ -262,6 +259,7 @@ where
                     .await
                     .expect("Failed to get relay channel with membership service."),
                 blend_config.crypto.non_ephemeral_signing_key.public_key(),
+                Some(blend_config.zk.public_key()),
             )
             .subscribe()
             .await
@@ -269,8 +267,12 @@ where
             .map(
                 move |MembershipInfo {
                           membership,
-                          zk_root,
                           session_number,
+                          zk:
+                              ZkInfo {
+                                  core_and_path_selectors,
+                                  root: zk_root,
+                              },
                       }| CoreSessionInfo {
                     public: CoreSessionPublicInfo {
                         poq_core_public_inputs: CoreInputs {
@@ -280,11 +282,10 @@ where
                         membership,
                         session: session_number,
                     },
-                    // TODO: Replace this with actual Merkle path computation based on the ZK key in
-                    // the settings (not yet implemented).
                     private: ProofOfCoreQuotaInputs {
-                        core_sk: ZkHash::ZERO,
-                        core_path_and_selectors: [(ZkHash::ZERO, false); _],
+                        core_sk: *zk_secret_key.as_fr(),
+                        core_path_and_selectors: core_and_path_selectors
+                            .expect("Core merkle path should be present for a core node."),
                     },
                 },
             )

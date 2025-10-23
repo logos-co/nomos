@@ -6,14 +6,37 @@ use std::pin::Pin;
 use futures::Stream;
 use nomos_blend_message::crypto::keys::Ed25519PublicKey;
 use nomos_blend_scheduling::membership::Membership;
-use nomos_core::crypto::ZkHash;
+use nomos_core::{crypto::ZkHash, mantle::keys::PublicKey};
 use overwatch::services::{ServiceData, relay::OutboundRelay};
+use poq::CorePathAndSelectors;
 
 #[derive(Clone, Debug)]
 pub struct MembershipInfo<NodeId> {
     pub membership: Membership<NodeId>,
-    pub zk_root: ZkHash,
+    pub zk: ZkInfo,
     pub session_number: u64,
+}
+
+impl<NodeId> MembershipInfo<NodeId> {
+    #[cfg(test)]
+    #[must_use]
+    pub fn from_membership_and_session_number(
+        membership: Membership<NodeId>,
+        session_number: u64,
+    ) -> Self {
+        Self {
+            membership,
+            session_number,
+            zk: ZkInfo::default(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+#[cfg_attr(test, derive(Default))]
+pub struct ZkInfo {
+    pub root: ZkHash,
+    pub core_and_path_selectors: Option<CorePathAndSelectors>,
 }
 
 pub type MembershipStream<NodeId> =
@@ -32,6 +55,7 @@ pub trait Adapter {
     fn new(
         relay: OutboundRelay<ServiceMessage<Self>>,
         signing_public_key: Ed25519PublicKey,
+        zk_public_key: Option<PublicKey>,
     ) -> Self;
 
     /// Subscribe to membership updates.
