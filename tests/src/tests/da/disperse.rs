@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use chain_service::StartingState;
 use futures::StreamExt as _;
 use kzgrs_backend::{common::share::DaShare, reconstruction::reconstruct_without_missing_data};
 use serial_test::serial;
@@ -51,6 +52,11 @@ async fn disseminate_and_retrieve() {
 #[serial]
 async fn disseminate_retrieve_reconstruct() {
     const ITERATIONS: usize = 10;
+
+    let configs = create_general_configs(2);
+    // need initial ledger state with SDP declarations / locators. Are those being
+    // transmitted? they might not be transmitted. But anyway need to put that
+    // out.
 
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let executor = &topology.executors()[0];

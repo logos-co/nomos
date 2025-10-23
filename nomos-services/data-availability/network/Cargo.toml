@@ -13,6 +13,7 @@ async-trait = "0.1"
 bitvec      = "1"
 
 blake2                   = { workspace = true }
+broadcast-service        = { workspace = true }
 common-http-client       = { workspace = true }
 futures                  = { default-features = false, version = "0.3" }
 kzgrs-backend            = { workspace = true }

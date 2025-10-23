@@ -68,6 +68,7 @@ impl CfgSyncConfig {
             n_participants: self.n_hosts,
             security_param: self.security_param,
             active_slot_coeff: self.active_slot_coeff,
+            starting_state: None,
         }
     }
 
