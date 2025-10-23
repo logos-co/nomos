@@ -176,7 +176,7 @@ impl PrunedBlocksInfo {
 
 #[derive(Clone)]
 struct Cryptarchia {
-    ledger: nomos_ledger::Ledger<HeaderId>,
+    pub ledger: nomos_ledger::Ledger<HeaderId>,
     consensus: cryptarchia_engine::Cryptarchia<HeaderId>,
     genesis_id: HeaderId,
 }
@@ -1199,35 +1199,13 @@ where
                 error!("Could not notify LIB update to services: {e}");
             }
 
-            let sessions = cryptarchia.active_sessions_numbers(&new_lib)?;
-            for (service, session_number) in &sessions {
-                let prev_session_num = previous_session_numbers.get(service).copied().unwrap_or(0);
-
-                if session_number != &prev_session_num {
-                    if let Ok(providers) = cryptarchia.active_session_providers(&new_lib, *service)
-                    {
-                        let update = SessionUpdate {
-                            session_number: *session_number,
-                            providers,
-                        };
-
-                        let broadcast_future = match service {
-                            ServiceType::BlendNetwork => {
-                                broadcast_blend_session(relays.broadcast_relay(), update).boxed()
-                            }
-                            ServiceType::DataAvailability => {
-                                broadcast_da_session(relays.broadcast_relay(), update).boxed()
-                            }
-                        };
-
-                        if let Err(e) = broadcast_future.await {
-                            error!("Failed to broadcast session update for {service:?}: {e}");
-                        }
-                    } else {
-                        error!("Could not get session providers for service: {service:?}");
-                    }
-                }
-            }
+            Self::broadcast_session_updates_for_block(
+                &cryptarchia,
+                &new_lib,
+                relays,
+                Some(&previous_session_numbers),
+            )
+            .await;
         }
 
         Ok((cryptarchia, pruned_blocks))
@@ -1328,6 +1306,7 @@ where
             bootstrap_config,
             self.state.last_engine_state.as_ref(),
         );
+
         let mut cryptarchia = Cryptarchia::from_lib(
             lib_id,
             self.state.lib_ledger_state.clone(),
@@ -1343,6 +1322,13 @@ where
 
         // Skip LIB block since it's already applied
         let blocks = blocks.into_iter().skip(1);
+
+        // Stream the already applied state.
+        let init_tip = cryptarchia.tip();
+        if let Err(e) = self.new_block_subscription_sender.send(init_tip) {
+            error!("Could not notify new block to services {e}");
+        }
+        Self::broadcast_session_updates_for_block(&cryptarchia, &init_tip, relays, None).await;
 
         let mut pruned_blocks = PrunedBlocks::new();
         for block in blocks {
@@ -1538,6 +1524,66 @@ where
         .await;
 
         (cryptarchia, storage_blocks_to_remove)
+    }
+
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "TODO: Address this at some point."
+    )]
+    async fn broadcast_session_updates_for_block(
+        cryptarchia: &Cryptarchia,
+        block_id: &HeaderId,
+        relays: &CryptarchiaConsensusRelays<
+            Mempool,
+            MempoolNetAdapter,
+            NetAdapter,
+            SamplingBackend,
+            Storage,
+            RuntimeServiceId,
+        >,
+        previous_sessions: Option<&HashMap<ServiceType, u64>>,
+    ) {
+        let new_sessions = match cryptarchia.active_sessions_numbers(block_id) {
+            Ok(s) => s,
+            Err(e) => {
+                error!("Could not get active session numbers for block {block_id:?}: {e}");
+                return;
+            }
+        };
+
+        for (service, new_session_number) in &new_sessions {
+            // If `previous_sessions` is provided, check if the session number has changed.
+            // Otherwise, always broadcast (for initialization).
+            let should_broadcast = previous_sessions
+                .is_none_or(|prev| prev.get(service).copied().unwrap_or(0) != *new_session_number);
+
+            if should_broadcast {
+                match cryptarchia.active_session_providers(block_id, *service) {
+                    Ok(providers) => {
+                        let update = SessionUpdate {
+                            session_number: *new_session_number,
+                            providers,
+                        };
+
+                        let broadcast_future = match service {
+                            ServiceType::BlendNetwork => {
+                                broadcast_blend_session(relays.broadcast_relay(), update).boxed()
+                            }
+                            ServiceType::DataAvailability => {
+                                broadcast_da_session(relays.broadcast_relay(), update).boxed()
+                            }
+                        };
+
+                        if let Err(e) = broadcast_future.await {
+                            error!("Failed to broadcast session update for {service:?}: {e}");
+                        }
+                    }
+                    Err(e) => {
+                        error!("Could not get session providers for service {service:?}: {e}");
+                    }
+                }
+            }
+        }
     }
 }
 

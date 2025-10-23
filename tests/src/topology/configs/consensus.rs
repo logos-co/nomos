@@ -1,7 +1,6 @@
 use std::{num::NonZero, sync::Arc};
 
 use chain_leader::LeaderConfig;
-use chain_service::StartingState;
 use cryptarchia_engine::EpochConfig;
 use nomos_core::{
     mantle::{
@@ -23,7 +22,6 @@ pub struct ConsensusParams {
     pub n_participants: usize,
     pub security_param: NonZero<u32>,
     pub active_slot_coeff: f64,
-    pub starting_state: Option<StartingState>,
 }
 
 impl ConsensusParams {
@@ -38,7 +36,6 @@ impl ConsensusParams {
             security_param: NonZero::new(10).unwrap(),
             // a block should be produced (on average) every slot
             active_slot_coeff: 0.9,
-            starting_state: None,
         }
     }
 }
@@ -50,7 +47,7 @@ pub struct GeneralConsensusConfig {
     pub leader_config: LeaderConfig,
     pub ledger_config: nomos_ledger::Config,
     pub genesis_tx: GenesisTx,
-    pub starting_state: Option<StartingState>,
+    pub utxos: Vec<Utxo>,
 }
 
 fn create_genesis_tx(utxos: &[Utxo]) -> GenesisTx {
@@ -151,7 +148,7 @@ pub fn create_consensus_configs(
             leader_config: LeaderConfig { pk, sk },
             ledger_config: ledger_config.clone(),
             genesis_tx: genesis_tx.clone(),
-            starting_state: consensus_params.starting_state.clone(),
+            utxos: utxos.clone(),
         })
         .collect()
 }

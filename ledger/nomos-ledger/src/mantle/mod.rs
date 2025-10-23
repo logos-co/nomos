@@ -51,23 +51,11 @@ impl LedgerState {
     pub fn new() -> Self {
         Self {
             channels: channel::Channels::new(),
-            sdp: sdp::SdpLedger::new(),
+            sdp: sdp::SdpLedger::new()
+                .with_service(ServiceType::BlendNetwork)
+                .with_service(ServiceType::DataAvailability),
             leaders: leader::LeaderState::new(),
         }
-    }
-
-    #[cfg(test)]
-    pub fn set_channels(&mut self, channels: channel::Channels) {
-        self.channels = channels
-    }
-
-    pub fn set_sdp(&mut self, sdp: sdp::SdpLedger) {
-        self.sdp = sdp
-    }
-
-    #[cfg(test)]
-    pub fn set_leaders(&mut self, leaders: leader::LeaderState) {
-        self.leaders = leaders
     }
 
     pub fn from_genesis_tx(
@@ -75,9 +63,8 @@ impl LedgerState {
         config: &Config,
         utxo_tree: &UtxoTree,
     ) -> Result<Self, Error> {
-        let tx_hash = tx.hash();
         let ops = tx.mantle_tx().ops.iter().map(|op| (op, None));
-        let (ledger, _) = Self::new().try_apply_ops(0, config, utxo_tree, tx_hash, ops)?;
+        let ledger = Self::new().try_apply_genesis_ops(config, utxo_tree, ops)?;
         Ok(ledger)
     }
 
@@ -196,6 +183,38 @@ impl LedgerState {
         }
 
         Ok((self, balance))
+    }
+
+    fn try_apply_genesis_ops<'a>(
+        mut self,
+        config: &Config,
+        _utxo_tree: &UtxoTree,
+        ops: impl Iterator<Item = (&'a Op, Option<&'a OpProof>)> + 'a,
+    ) -> Result<Self, Error> {
+        for (op, proof) in ops {
+            match (op, proof) {
+                // The signature for channel ops can be verified before reaching this point,
+                // as you only need the signer's public key and tx hash
+                // Callers are expected to validate the proof before calling this function.
+                (Op::ChannelBlob(op), None) => {
+                    self.channels =
+                        self.channels
+                            .apply_msg(op.channel, &op.parent, op.id(), &op.signer)?;
+                }
+                (Op::ChannelInscribe(op), None) => {
+                    self.channels =
+                        self.channels
+                            .apply_msg(op.channel_id, &op.parent, op.id(), &op.signer)?;
+                }
+                (Op::SDPDeclare(op), None) => {
+                    self.sdp = self.sdp.apply_genesis_declare_msg(op, &config.sdp_config)?;
+                }
+                _ => {
+                    return Err(Error::UnsupportedOp);
+                }
+            }
+        }
+        Ok(self)
     }
 }
 

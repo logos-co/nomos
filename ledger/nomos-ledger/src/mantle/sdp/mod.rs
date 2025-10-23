@@ -64,14 +64,14 @@ pub enum Error {
 // State at the beginning of this session
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SessionState {
+struct SessionState {
     declarations: Declarations,
     session_n: u64,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ServiceState {
+struct ServiceState {
     // state of declarations at block b
     declarations: Declarations,
     // (current) active session
@@ -128,6 +128,19 @@ impl ServiceState {
             return Err(Error::DuplicateDeclaration(id));
         }
         self.declarations = self.declarations.insert(id, declaration);
+        Ok(())
+    }
+
+    fn declare_genesis(
+        &mut self,
+        id: DeclarationId,
+        declaration: Declaration,
+    ) -> Result<(), Error> {
+        if self.declarations.contains_key(&id) {
+            return Err(Error::DuplicateDeclaration(id));
+        }
+        self.declarations = self.declarations.insert(id, declaration.clone());
+        self.active.declarations = self.active.declarations.insert(id, declaration);
         Ok(())
     }
 
@@ -220,40 +233,12 @@ impl SdpLedger {
         }
     }
 
-    // TODO: genesis init
-    #[cfg(test)]
     #[must_use]
-    fn with_service(mut self, service_type: ServiceType) -> Self {
+    pub fn with_service(mut self, service_type: ServiceType) -> Self {
         let service_state = ServiceState {
             declarations: rpds::HashTrieMapSync::new_sync(),
             active: SessionState {
                 declarations: rpds::HashTrieMapSync::new_sync(),
-                session_n: 0,
-            },
-            past_session: SessionState {
-                declarations: rpds::HashTrieMapSync::new_sync(),
-                session_n: 0,
-            },
-            forming: SessionState {
-                declarations: rpds::HashTrieMapSync::new_sync(),
-                session_n: 1,
-            },
-        };
-        self.services = self.services.insert(service_type, service_state);
-        self
-    }
-
-    // TODO: genesis init
-    #[must_use]
-    pub fn with_active_service_state(
-        mut self,
-        service_type: ServiceType,
-        declarations: Declarations,
-    ) -> Self {
-        let service_state = ServiceState {
-            declarations: declarations.clone(),
-            active: SessionState {
-                declarations,
                 session_n: 0,
             },
             past_session: SessionState {
@@ -321,6 +306,22 @@ impl SdpLedger {
                 note,
                 &op.locked_note_id,
             )?;
+        } else {
+            return Err(Error::ServiceNotFound(op.service_type));
+        }
+
+        Ok(self)
+    }
+
+    pub fn apply_genesis_declare_msg(
+        mut self,
+        op: &SDPDeclareOp,
+        _config: &Config,
+    ) -> Result<Self, Error> {
+        let declaration_id = op.id();
+        let declaration = Declaration::new(self.block_number, op);
+        if let Some(service_state) = self.services.get_mut(&op.service_type) {
+            service_state.declare_genesis(declaration_id, declaration)?;
         } else {
             return Err(Error::ServiceNotFound(op.service_type));
         }

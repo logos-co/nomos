@@ -8,6 +8,7 @@ mod tests {
     #[cfg(target_arch = "x86_64")]
     use rand_core::{OsRng, TryRngCore as _};
 
+    #[ignore = "Reenable when codebase migrated to ed25519_dalek 3.0.0"]
     #[cfg(target_arch = "x86_64")]
     #[expect(
         clippy::undocumented_unsafe_blocks,

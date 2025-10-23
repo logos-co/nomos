@@ -17,11 +17,10 @@ chain-service            = { workspace = true }
 common-http-client       = { workspace = true }
 cryptarchia-engine       = { features = ["serde"], workspace = true }
 cryptarchia-sync         = { workspace = true }
-ed25519-dalek            = { default-features = false, features = ["serde"], version = "2.2.0" }
+ed25519-dalek            = { version = "2.2.0", features = ["rand_core", "serde"] }
 executor-http-client     = { workspace = true }
 futures                  = { default-features = false, version = "0.3" }
 futures-util             = { default-features = false, version = "0.3.31" }
-groth16                  = { workspace = true }
 hex                      = { default-features = false, version = "0.4.3" }
 kzgrs-backend            = { workspace = true }
 nomos-api                = { workspace = true }
@@ -51,7 +50,6 @@ num-bigint               = { version = "0.4", default-features = false }
 rand                     = { workspace = true }
 rand_core                = { version = "^0.9" }
 reqwest                  = { workspace = true, features = ["json"] }
-rpds                     = { default-features = false, version = "1.1.1" }
 serde                    = { version = "1", features = ["derive"] }
 serde_json               = "1.0"
 serde_yaml               = "0.9"

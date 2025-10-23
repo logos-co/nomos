@@ -1,33 +1,7 @@
 use std::time::Duration;
 
-use chain_service::StartingState;
 use futures::StreamExt as _;
-<<<<<<< HEAD
 use kzgrs_backend::{common::share::DaShare, reconstruction::reconstruct_without_missing_data};
-=======
-use groth16::Fr;
-use kzgrs_backend::{
-    common::share::DaShare, dispersal::Index, reconstruction::reconstruct_without_missing_data,
-};
-use nomos_core::{
-    mantle::{Note, NoteId, Utxo},
-    sdp::{
-        Declaration, DeclarationId, DeclarationMessage, Locator, ProviderId, ServiceType,
-        ZkPublicKey,
-    },
-};
-use nomos_ledger::{
-    LedgerState,
-    mantle::{
-        self,
-        sdp::{SdpLedger, SessionState},
-    },
-};
-use nomos_node::HeaderId;
-use num_bigint::BigUint;
-use rand::{RngCore, thread_rng};
-use rpds::HashTrieMapSync;
->>>>>>> 6dbac01f (Init ledger from lib state)
 use serial_test::serial;
 use subnetworks_assignations::MembershipHandler as _;
 use tests::{
@@ -36,6 +10,13 @@ use tests::{
     secret_key_to_peer_id,
     topology::{Topology, TopologyConfig, configs::create_general_configs},
 };
+
+struct ProviderInfo {
+    pub provider_id: ProviderId,
+    pub zk_id: ZkPublicKey,
+    pub locator: Locator,
+    pub locked_note_id: NoteId,
+}
 
 #[ignore = "for manual usage, disseminate_retrieve_reconstruct is preferred for ci"]
 #[tokio::test]
@@ -78,42 +59,43 @@ async fn disseminate_and_retrieve() {
 async fn disseminate_retrieve_reconstruct() {
     const ITERATIONS: usize = 10;
 
-    let configs = create_general_configs(2);
-
-    let declarations: HashTrieMapSync<DeclarationId, Declaration> = configs
+    let mut configs = create_general_configs(2);
+    let providers: Vec<_> = configs
         .iter()
-        .map(|c| {
-            let msg = DeclarationMessage {
-                service_type: ServiceType::DataAvailability,
-                locators: vec![Locator(c.da_config.listening_address.clone())],
-                provider_id: c.da_config.provider_id,
-                zk_id: ZkPublicKey(BigUint::from(1u8).into()),
-                locked_note_id: utxo().id(),
-            };
-            let id = msg.id();
-            let declaration = Declaration::new(0, &msg);
-            (id, declaration)
+        .enumerate()
+        .map(|(i, c)| ProviderInfo {
+            provider_id: c.da_config.provider_id,
+            zk_id: ZkPublicKey(BigUint::from(0u8).into()),
+            locator: Locator(c.da_config.listening_address.clone()),
+            locked_note_id: c.consensus_config.utxos[i].id(),
         })
         .collect();
 
-    let sdp_ledger = SdpLedger::new();
-    let sdp_ledger =
-        sdp_ledger.with_active_service_state(ServiceType::DataAvailability, declarations);
+    let ledger_tx = configs[0]
+        .consensus_config
+        .genesis_tx
+        .mantle_tx()
+        .ledger_tx
+        .clone();
+    let genesis_tx = create_genesis_tx_with_da_declarations(ledger_tx, providers);
 
-    let mut mantle_ledger = mantle::LedgerState::new();
-    mantle_ledger.set_sdp(sdp_ledger);
+    for c in &mut configs {
+        c.consensus_config.genesis_tx = genesis_tx.clone();
+    }
 
-    let mut ledger_state = LedgerState::from_utxos([] as [Utxo; 0]);
-    ledger_state.set_mantle(mantle_ledger);
+    let mut config_iter = configs.into_iter();
+    let validator_config =
+        create_validator_config(config_iter.next().expect("Missing config for Validator"));
+    let executor_config =
+        create_executor_config(config_iter.next().expect("Missing config for Executor"));
 
-    let starting_state = StartingState::Lib {
-        lib_id: [0u8; 32].into(),
-        lib_ledger_state: Box::new(ledger_state),
-        genesis_id: [0u8; 32].into(),
-    };
+    let (validator_result, executor) = tokio::join!(
+        Validator::spawn(validator_config),
+        Executor::spawn(executor_config)
+    );
 
-    let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
-    let executor = &topology.executors()[0];
+    let validator = validator_result.unwrap();
+
     let num_subnets = executor.config().da_network.backend.num_subnets as usize;
 
     let data = [1u8; 31 * ITERATIONS];
@@ -122,9 +104,9 @@ async fn disseminate_retrieve_reconstruct() {
         let data_size = 31 * (i + 1);
         println!("disseminating {data_size} bytes, iteration {i}");
         let data = &data[..data_size]; // test increasing size data
-        let blob_id = disseminate_with_metadata(executor, data).await.unwrap();
+        let blob_id = disseminate_with_metadata(&executor, data).await.unwrap();
 
-        wait_for_shares_number(executor, blob_id, num_subnets).await;
+        wait_for_shares_number(&executor, blob_id, num_subnets).await;
 
         let share_commitments = executor.get_commitments(blob_id).await.unwrap();
         let mut executor_shares = executor
@@ -142,8 +124,6 @@ async fn disseminate_retrieve_reconstruct() {
 
         assert_eq!(reconstructed, data);
     }
-
-    let validator = &topology.validators()[0];
 
     // TODO think about a test with malicious/unhealthy peers that'd trigger
     // recording some monitor stats too
@@ -282,8 +262,41 @@ async fn four_subnets_disseminate_retrieve_reconstruct() {
 async fn disseminate_same_data() {
     const ITERATIONS: usize = 10;
 
-    let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
-    let executor = &topology.executors()[0];
+    let mut configs = create_general_configs(2);
+    let providers: Vec<_> = configs
+        .iter()
+        .enumerate()
+        .map(|(i, c)| ProviderInfo {
+            provider_id: c.da_config.provider_id,
+            zk_id: ZkPublicKey(BigUint::from(0u8).into()),
+            locator: Locator(c.da_config.listening_address.clone()),
+            locked_note_id: c.consensus_config.utxos[i].id(),
+        })
+        .collect();
+
+    let ledger_tx = configs[0]
+        .consensus_config
+        .genesis_tx
+        .mantle_tx()
+        .ledger_tx
+        .clone();
+    let genesis_tx = create_genesis_tx_with_da_declarations(ledger_tx, providers);
+
+    for c in &mut configs {
+        c.consensus_config.genesis_tx = genesis_tx.clone();
+    }
+
+    let mut config_iter = configs.into_iter();
+    let validator_config =
+        create_validator_config(config_iter.next().expect("Missing config for Validator"));
+    let executor_config =
+        create_executor_config(config_iter.next().expect("Missing config for Executor"));
+
+    let (_validator, executor) = tokio::join!(
+        Validator::spawn(validator_config),
+        Executor::spawn(executor_config)
+    );
+
     let num_subnets = executor.config().da_network.backend.num_subnets as usize;
 
     let data = [1u8; 31];
@@ -293,11 +306,11 @@ async fn disseminate_same_data() {
         let blob_id = disseminate_with_metadata(executor, &data).await.unwrap();
 
         if !onchain {
-            wait_for_blob_onchain(executor, blob_id).await;
+            wait_for_blob_onchain(&executor, blob_id).await;
             onchain = true;
         }
 
-        wait_for_shares_number(executor, blob_id, num_subnets).await;
+        wait_for_shares_number(&executor, blob_id, num_subnets).await;
         let executor_shares = executor
             .get_shares(blob_id, [].into(), [].into(), true)
             .await
@@ -375,20 +388,5 @@ async fn split_2025_death_payload() {
         128, 84, 169, 217, 162, 189, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     ];
-<<<<<<< HEAD
     let _ = disseminate_with_metadata(executor, &data).await.unwrap();
-=======
-    let _ = disseminate_with_metadata(executor, &data, create_metadata(&app_id, 0u64))
-        .await
-        .unwrap();
-}
-
-pub fn utxo() -> Utxo {
-    let tx_hash: Fr = BigUint::from(thread_rng().next_u64()).into();
-    Utxo {
-        tx_hash: tx_hash.into(),
-        output_index: 0,
-        note: Note::new(10000, Fr::from(BigUint::from(0u8)).into()),
-    }
->>>>>>> 6dbac01f (Init ledger from lib state)
 }
