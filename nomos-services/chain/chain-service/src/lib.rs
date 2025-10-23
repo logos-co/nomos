@@ -41,7 +41,7 @@ pub use nomos_ledger::EpochState;
 use nomos_ledger::LedgerState;
 use nomos_network::{NetworkService, message::ChainSyncEvent};
 use nomos_storage::{StorageService, api::chain::StorageChainApi, backends::StorageBackend};
-use nomos_time::TimeService;
+use nomos_time::{SlotTick, TimeService, TimeServiceMessage};
 use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
     services::{AsServiceId, ServiceCore, ServiceData, relay::OutboundRelay, state::StateUpdater},
@@ -67,7 +67,7 @@ use tx_service::{
 };
 
 use crate::{
-    blob::{BlobValidation, RecentBlobValidation, SkipBlobValidation},
+    blob::{BlobValidation, BlockType, new_blob_validation},
     bootstrap::{
         ibd::{self, InitialBlockDownload},
         state::choose_engine_state,
@@ -582,6 +582,8 @@ where
             .notifier()
             .get_updated_settings();
 
+        let consensus_base_period_length = ledger_config.base_period_length();
+
         // TODO: check active slot coeff is exactly 1/30
         let (cryptarchia, pruned_blocks) = self
             .initialize_cryptarchia(&bootstrap_config, ledger_config, &relays)
@@ -619,6 +621,16 @@ where
         )
         .await?;
 
+        let mut slot_timer = {
+            let (sender, receiver) = oneshot::channel();
+            relays
+                .time_relay()
+                .send(TimeServiceMessage::Subscribe { sender })
+                .await
+                .expect("Request time subscription to time service should succeed");
+            receiver.await?
+        };
+
         // Run IBD (Initial Block Download).
         // TODO: Currently, we're passing a closure that processes each block.
         //       It needs to be replaced with a trait, which requires substantial
@@ -628,17 +640,24 @@ where
             cryptarchia,
             storage_blocks_to_remove,
             network_adapter,
-            |cryptarchia, storage_blocks_to_remove, block| {
+            &mut slot_timer,
+            |cryptarchia, storage_blocks_to_remove, block, current_slot| {
                 let relays = &relays;
                 let state_updater = &self.service_resources_handle.state_updater;
                 let new_block_subscription_sender = &self.new_block_subscription_sender;
                 let lib_subscription_sender = &self.lib_subscription_sender;
+                let blob_validation = new_blob_validation::<Mempool::Item>(
+                    block.header().slot(),
+                    &BlockType::Historic,
+                    current_slot,
+                    consensus_base_period_length,
+                    relays.sampling_relay(),
+                );
                 async move {
                     Self::process_block_and_update_state(
                         cryptarchia,
                         block,
-                        // TODO: Enable this once entering DA window: https://github.com/logos-co/nomos/issues/1675
-                        &SkipBlobValidation,
+                        blob_validation,
                         &storage_blocks_to_remove,
                         relays,
                         new_block_subscription_sender,
@@ -697,18 +716,17 @@ where
                 .state_recording_interval,
         );
 
-        let mut blob_validation: Box<dyn BlobValidation<_, _> + Send + Sync> =
-            if cryptarchia.is_boostrapping() {
-                Box::new(SkipBlobValidation)
-            } else {
-                Box::new(RecentBlobValidation::new(relays.sampling_relay().clone()))
-            };
-
         // Mark the service as ready if the chain is in the Online state.
         // If not, it will be marked as ready after Prolonged Bootstrap Period ends.
         if cryptarchia.state().is_online() {
             self.notify_service_ready();
         }
+
+        let mut current_slot = slot_timer
+            .next()
+            .await
+            .expect("slot timer should never end")
+            .slot;
 
         let async_loop = async {
             loop {
@@ -720,7 +738,6 @@ where
                             &storage_blocks_to_remove,
                             relays.storage_adapter(),
                         ).await;
-                        blob_validation = Box::new(RecentBlobValidation::new(relays.sampling_relay().clone()));
                         Self::update_state(
                             &cryptarchia,
                             storage_blocks_to_remove.clone(),
@@ -728,6 +745,10 @@ where
                         );
 
                         self.notify_service_ready();
+                    }
+
+                    Some(SlotTick { slot, .. }) = slot_timer.next() => {
+                        current_slot = slot;
                     }
 
                     Some(block) = incoming_blocks.next() => {
@@ -742,7 +763,13 @@ where
                         match Self::process_block_and_update_state(
                                     cryptarchia.clone(),
                                     block.clone(),
-                                    blob_validation.as_ref(),
+                                    new_blob_validation(
+                                        block.header().slot(),
+                                        &BlockType::Recent,
+                                        current_slot,
+                                        consensus_base_period_length,
+                                        relays.sampling_relay(),
+                                    ),
                                     &storage_blocks_to_remove,
                                     &relays,
                                     &self.new_block_subscription_sender,
@@ -777,8 +804,7 @@ where
                             match Self::process_block_and_update_state(
                                     cryptarchia.clone(),
                                     *block,
-                                    // Skip this since the block was already built with valid blobs.
-                                    &SkipBlobValidation,
+                                    None, // No blob validation since the block was already built with valid blobs
                                     &storage_blocks_to_remove,
                                     &relays,
                                     &self.new_block_subscription_sender,
@@ -824,7 +850,13 @@ where
                         match Self::process_block_and_update_state(
                             cryptarchia.clone(),
                             block.clone(),
-                            blob_validation.as_ref(),
+                            new_blob_validation(
+                                block.header().slot(),
+                                &BlockType::Historic,
+                                current_slot,
+                                consensus_base_period_length,
+                                relays.sampling_relay(),
+                            ),
                             &storage_blocks_to_remove,
                             &relays,
                             &self.new_block_subscription_sender,
@@ -1035,7 +1067,9 @@ where
     async fn process_block_and_update_state(
         cryptarchia: Cryptarchia,
         block: Block<Mempool::Item>,
-        blob_validation: &(impl BlobValidation<SamplingBackend::BlobId, Mempool::Item> + Sync + ?Sized),
+        blob_validation: Option<
+            Box<dyn BlobValidation<SamplingBackend::BlobId, Mempool::Item> + Send + Sync>,
+        >,
         storage_blocks_to_remove: &HashSet<HeaderId>,
         relays: &CryptarchiaConsensusRelays<
             Mempool,
@@ -1104,7 +1138,9 @@ where
     async fn process_block(
         cryptarchia: Cryptarchia,
         block: Block<Mempool::Item>,
-        blob_validation: &(impl BlobValidation<SamplingBackend::BlobId, Mempool::Item> + Sync + ?Sized),
+        blob_validation: Option<
+            Box<dyn BlobValidation<SamplingBackend::BlobId, Mempool::Item> + Send + Sync>,
+        >,
         relays: &CryptarchiaConsensusRelays<
             Mempool,
             MempoolNetAdapter,
@@ -1117,8 +1153,6 @@ where
         lib_broadcaster: &broadcast::Sender<LibUpdate>,
     ) -> Result<(Cryptarchia, PrunedBlocks<HeaderId>), Error> {
         debug!("received proposal {:?}", block);
-
-        blob_validation.validate(&block).await?;
 
         // TODO: filter on time?
         let header = block.header();
@@ -1135,6 +1169,10 @@ where
 
         let (cryptarchia, pruned_blocks) = cryptarchia.try_apply_header(header)?;
         let new_lib = cryptarchia.lib();
+
+        if let Some(blob_validation) = blob_validation {
+            blob_validation.validate(&block).await?;
+        }
 
         // remove included content from mempool
         relays
@@ -1349,7 +1387,7 @@ where
             match Self::process_block(
                 cryptarchia.clone(),
                 block,
-                &SkipBlobValidation,
+                None,
                 relays,
                 &self.new_block_subscription_sender,
                 &self.lib_subscription_sender,

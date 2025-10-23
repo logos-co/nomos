@@ -1,8 +1,10 @@
 use std::{collections::HashSet, fmt::Debug, hash::Hash, marker::PhantomData};
 
+use cryptarchia_engine::Slot;
 use cryptarchia_sync::GetTipResponse;
 use futures::StreamExt as _;
 use nomos_core::header::HeaderId;
+use nomos_time::{EpochSlotTickStream, SlotTick};
 use overwatch::DynError;
 use tracing::{debug, error};
 
@@ -15,27 +17,28 @@ use crate::{
 // TODO: Replace ProcessBlock closures with a trait
 //       that implements block processing.
 //       https://github.com/logos-co/nomos/issues/1505
-pub struct InitialBlockDownload<NetAdapter, ProcessBlockFn, ProcessBlockFut, RuntimeServiceId>
+pub struct InitialBlockDownload<'ibd, NetAdapter, ProcessBlockFn, ProcessBlockFut, RuntimeServiceId>
 where
     NetAdapter: NetworkAdapter<RuntimeServiceId>,
     NetAdapter::PeerId: Clone + Eq + Hash,
-    ProcessBlockFn: Fn(Cryptarchia, HashSet<HeaderId>, NetAdapter::Block) -> ProcessBlockFut,
+    ProcessBlockFn: Fn(Cryptarchia, HashSet<HeaderId>, NetAdapter::Block, Slot) -> ProcessBlockFut,
     ProcessBlockFut: Future<Output = Result<(Cryptarchia, HashSet<HeaderId>), Error>>,
 {
     config: IbdConfig<NetAdapter::PeerId>,
     cryptarchia: Cryptarchia,
     storage_blocks_to_remove: HashSet<HeaderId>,
     network: NetAdapter,
+    slot_timer: &'ibd mut EpochSlotTickStream,
     process_block: ProcessBlockFn,
     _phantom: PhantomData<RuntimeServiceId>,
 }
 
-impl<NetAdapter, ProcessBlockFn, ProcessBlockFut, RuntimeServiceId>
-    InitialBlockDownload<NetAdapter, ProcessBlockFn, ProcessBlockFut, RuntimeServiceId>
+impl<'ibd, NetAdapter, ProcessBlockFn, ProcessBlockFut, RuntimeServiceId>
+    InitialBlockDownload<'ibd, NetAdapter, ProcessBlockFn, ProcessBlockFut, RuntimeServiceId>
 where
     NetAdapter: NetworkAdapter<RuntimeServiceId>,
     NetAdapter::PeerId: Clone + Eq + Hash,
-    ProcessBlockFn: Fn(Cryptarchia, HashSet<HeaderId>, NetAdapter::Block) -> ProcessBlockFut,
+    ProcessBlockFn: Fn(Cryptarchia, HashSet<HeaderId>, NetAdapter::Block, Slot) -> ProcessBlockFut,
     ProcessBlockFut: Future<Output = Result<(Cryptarchia, HashSet<HeaderId>), Error>>,
 {
     pub const fn new(
@@ -43,6 +46,7 @@ where
         cryptarchia: Cryptarchia,
         storage_blocks_to_remove: HashSet<HeaderId>,
         network: NetAdapter,
+        slot_timer: &'ibd mut EpochSlotTickStream,
         process_block: ProcessBlockFn,
     ) -> Self {
         Self {
@@ -50,6 +54,7 @@ where
             cryptarchia,
             storage_blocks_to_remove,
             network,
+            slot_timer,
             process_block,
             _phantom: PhantomData,
         }
@@ -57,13 +62,14 @@ where
 }
 
 impl<NetAdapter, ProcessBlockFn, ProcessBlockFut, RuntimeServiceId>
-    InitialBlockDownload<NetAdapter, ProcessBlockFn, ProcessBlockFut, RuntimeServiceId>
+    InitialBlockDownload<'_, NetAdapter, ProcessBlockFn, ProcessBlockFut, RuntimeServiceId>
 where
     NetAdapter: NetworkAdapter<RuntimeServiceId> + Send + Sync,
     NetAdapter::PeerId: Copy + Clone + Eq + Hash + Debug + Send + Sync + Unpin,
     NetAdapter::Block: Debug + Unpin,
-    ProcessBlockFn:
-        Fn(Cryptarchia, HashSet<HeaderId>, NetAdapter::Block) -> ProcessBlockFut + Send + Sync,
+    ProcessBlockFn: Fn(Cryptarchia, HashSet<HeaderId>, NetAdapter::Block, Slot) -> ProcessBlockFut
+        + Send
+        + Sync,
     ProcessBlockFut: Future<Output = Result<(Cryptarchia, HashSet<HeaderId>), Error>> + Send,
     RuntimeServiceId: Sync,
 {
@@ -192,12 +198,34 @@ where
         NetAdapter::PeerId: 'a,
         NetAdapter::Block: 'a,
     {
-        // Repeat until there is no download remaining.
-        while let Some(output) = downloads.next().await {
-            if let Err(e) = self.handle_downloads_output(output, &mut downloads).await {
-                error!("A peer was dropped from IBD due to error: {e:?}");
-                if downloads.is_empty() {
-                    return Err(Error::AllPeersFailed);
+        let mut current_slot = self
+            .slot_timer
+            .next()
+            .await
+            .expect("slot timer should never end")
+            .slot;
+
+        loop {
+            tokio::select! {
+                Some(SlotTick { slot, .. }) = self.slot_timer.next() => {
+                    current_slot = slot;
+                }
+
+                output = downloads.next() => {
+                    match output {
+                        Some(output) => {
+                            if let Err(e) = self.handle_downloads_output(output, current_slot, &mut downloads).await {
+                                error!("A peer was dropped from IBD due to error: {e:?}");
+                                if downloads.is_empty() {
+                                    return Err(Error::AllPeersFailed);
+                                }
+                            }
+                        },
+                        None => {
+                            // No download remains.
+                            break;
+                        },
+                    }
                 }
             }
         }
@@ -212,6 +240,7 @@ where
     async fn handle_downloads_output<'a>(
         &mut self,
         output: DownloadsOutput<NetAdapter::PeerId, NetAdapter::Block>,
+        current_slot: Slot,
         downloads: &mut Downloads<'a, NetAdapter::PeerId, NetAdapter::Block>,
     ) -> Result<(), Error>
     where
@@ -223,7 +252,8 @@ where
                 self.handle_delay_completed(delay, downloads).await
             }
             DownloadsOutput::BlockReceived { block, download } => {
-                self.handle_block_received(block, download, downloads).await
+                self.handle_block_received(block, current_slot, download, downloads)
+                    .await
             }
             DownloadsOutput::DownloadCompleted(download) => {
                 self.handle_download_completed(download, downloads).await
@@ -239,6 +269,7 @@ where
     async fn handle_block_received<'a>(
         &mut self,
         block: NetAdapter::Block,
+        current_slot: Slot,
         download: Download<NetAdapter::PeerId, NetAdapter::Block>,
         downloads: &mut Downloads<'a, NetAdapter::PeerId, NetAdapter::Block>,
     ) -> Result<(), Error>
@@ -256,6 +287,7 @@ where
             self.cryptarchia.clone(),
             self.storage_blocks_to_remove.clone(),
             block,
+            current_slot,
         )
         .await
         .inspect_err(|e| {
@@ -351,9 +383,9 @@ pub enum Error {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, iter::empty, num::NonZero, sync::Arc};
+    use std::{collections::HashMap, iter::empty, num::NonZero, sync::Arc, time::Duration};
 
-    use cryptarchia_engine::{EpochConfig, Slot};
+    use cryptarchia_engine::{Epoch, EpochConfig};
     use nomos_core::sdp::{MinStake, ServiceParameters, ServiceType};
     use nomos_ledger::LedgerState;
     use nomos_network::{NetworkService, backends::NetworkBackend, message::ChainSyncEvent};
@@ -361,7 +393,8 @@ mod tests {
         overwatch::OverwatchHandle,
         services::{ServiceData, relay::OutboundRelay},
     };
-    use tokio_stream::wrappers::BroadcastStream;
+    use tokio::time::interval;
+    use tokio_stream::wrappers::{BroadcastStream, IntervalStream};
 
     use super::*;
     use crate::network::BoxedStream;
@@ -373,6 +406,7 @@ mod tests {
             new_cryptarchia(),
             HashSet::new(),
             MockNetworkAdapter::<()>::new(HashMap::new()),
+            &mut slot_timer(),
             process_block,
         )
         .run()
@@ -401,6 +435,7 @@ mod tests {
             new_cryptarchia(),
             HashSet::new(),
             MockNetworkAdapter::<()>::new(HashMap::from([(NodeId(0), peer.clone())])),
+            &mut slot_timer(),
             process_block,
         )
         .run()
@@ -429,6 +464,7 @@ mod tests {
             new_cryptarchia(),
             HashSet::new(),
             MockNetworkAdapter::<()>::new(HashMap::from([(NodeId(0), peer.clone())])),
+            &mut slot_timer(),
             process_block,
         )
         .run()
@@ -470,6 +506,7 @@ mod tests {
                 (NodeId(0), peer0.clone()),
                 (NodeId(1), peer1.clone()),
             ])),
+            &mut slot_timer(),
             process_block,
         )
         .run()
@@ -515,6 +552,7 @@ mod tests {
                 (NodeId(0), peer0.clone()),
                 (NodeId(1), peer1.clone()),
             ])),
+            &mut slot_timer(),
             process_block,
         )
         .run()
@@ -559,6 +597,7 @@ mod tests {
                 (NodeId(0), peer0.clone()),
                 (NodeId(1), peer1.clone()),
             ])),
+            &mut slot_timer(),
             process_block,
         )
         .run()
@@ -601,6 +640,7 @@ mod tests {
                 (NodeId(0), peer0.clone()),
                 (NodeId(1), peer1.clone()),
             ])),
+            &mut slot_timer(),
             process_block,
         )
         .run()
@@ -645,6 +685,7 @@ mod tests {
                 (NodeId(0), peer0.clone()),
                 (NodeId(1), peer1.clone()),
             ])),
+            &mut slot_timer(),
             process_block,
         )
         .run()
@@ -689,6 +730,7 @@ mod tests {
                 (NodeId(0), peer0.clone()),
                 (NodeId(1), peer1.clone()),
             ])),
+            &mut slot_timer(),
             process_block,
         )
         .run()
@@ -743,6 +785,7 @@ mod tests {
                 (NodeId(0), peer0.clone()),
                 (NodeId(1), peer1.clone()),
             ])),
+            &mut slot_timer(),
             process_block,
         )
         .run()
@@ -752,10 +795,23 @@ mod tests {
         assert!(matches!(result, Err(Error::AllPeersFailed)));
     }
 
+    /// Creates a slot timer that yields a slot tick every 1s.
+    fn slot_timer() -> EpochSlotTickStream {
+        Box::pin(
+            IntervalStream::new(interval(Duration::from_secs(1)))
+                .enumerate()
+                .map(|(i, _)| SlotTick {
+                    epoch: Epoch::new(i as u32),
+                    slot: Slot::new(i as u64),
+                }),
+        )
+    }
+
     async fn process_block(
         mut cryptarchia: Cryptarchia,
         storage_blocks_to_remove: HashSet<HeaderId>,
         block: Block,
+        _current_slot: Slot,
     ) -> Result<(Cryptarchia, HashSet<HeaderId>), Error> {
         // Add the block only to the consensus, not to the ledger state
         // because the mocked block doesn't have a proof.
@@ -778,7 +834,7 @@ mod tests {
     fn config(peers: HashSet<NodeId>) -> IbdConfig<NodeId> {
         IbdConfig {
             peers,
-            delay_before_new_download: std::time::Duration::from_millis(1),
+            delay_before_new_download: Duration::from_millis(1),
         }
     }
 
