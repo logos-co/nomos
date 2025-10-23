@@ -568,10 +568,7 @@ fn find_expected_peer_counts(
             }
 
             expected[idx].insert(peer_idx);
-
-            if peer_idx < expected.len() {
-                expected[peer_idx].insert(idx);
-            }
+            expected[peer_idx].insert(idx);
         }
     }
 
