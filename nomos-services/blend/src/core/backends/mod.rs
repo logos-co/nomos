@@ -5,7 +5,8 @@ use std::{fmt::Debug, pin::Pin};
 
 use futures::Stream;
 use nomos_blend_message::crypto::proofs::{
-    PoQVerificationInputsMinusSigningKey, quota::inputs::prove::public::LeaderInputs,
+    PoQVerificationInputsMinusSigningKey,
+    quota::inputs::prove::public::{CoreInputs, LeaderInputs},
 };
 use nomos_blend_scheduling::{
     EncapsulatedMessage, membership::Membership,
@@ -16,9 +17,39 @@ use overwatch::overwatch::handle::OverwatchHandle;
 
 use crate::core::settings::BlendConfig;
 
+pub type EpochInfo = LeaderInputs;
+
+#[derive(Debug, Clone)]
+pub struct PublicInfo<NodeId> {
+    pub session: SessionInfo<NodeId>,
+    pub epoch: EpochInfo,
+}
+
+impl<NodeId> From<PublicInfo<NodeId>> for PoQVerificationInputsMinusSigningKey {
+    fn from(
+        PublicInfo {
+            epoch,
+            session:
+                SessionInfo {
+                    core_public_inputs,
+                    session,
+                    ..
+                },
+        }: PublicInfo<NodeId>,
+    ) -> Self {
+        Self {
+            core: core_public_inputs,
+            leader: epoch,
+            session,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct SessionInfo<NodeId> {
     pub membership: Membership<NodeId>,
-    pub poq_verification_inputs: PoQVerificationInputsMinusSigningKey,
+    pub session: u64,
+    pub core_public_inputs: CoreInputs,
 }
 
 pub type SessionStream<NodeId> =
@@ -32,15 +63,18 @@ pub trait BlendBackend<NodeId, Rng, ProofsVerifier, RuntimeServiceId> {
     fn new(
         service_config: BlendConfig<Self::Settings>,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
-        current_session_info: SessionInfo<NodeId>,
-        session_stream: SessionStream<NodeId>,
+        current_public_info: PublicInfo<NodeId>,
         rng: Rng,
     ) -> Self;
     fn shutdown(self);
     /// Publish a message to the blend network.
     async fn publish(&self, msg: EncapsulatedMessage);
+    /// Rotate session.
+    async fn rotate_session(&mut self, new_session_info: SessionInfo<NodeId>);
+    /// Complete the session transition.
+    async fn complete_session_transition(&mut self);
     /// Rotate the epoch for the ongoing session.
-    async fn rotate_epoch(&mut self, new_epoch_public_info: LeaderInputs);
+    async fn rotate_epoch(&mut self, new_epoch_public_info: EpochInfo);
     /// Complete the epoch transition.
     async fn complete_epoch_transition(&mut self);
     /// Listen to messages received from the blend network.
