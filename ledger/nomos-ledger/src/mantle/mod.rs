@@ -61,7 +61,6 @@ impl LedgerState {
         self.channels = channels
     }
 
-    #[cfg(test)]
     pub fn set_sdp(&mut self, sdp: sdp::SdpLedger) {
         self.sdp = sdp
     }

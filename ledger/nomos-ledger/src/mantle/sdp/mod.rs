@@ -244,13 +244,27 @@ impl SdpLedger {
     }
 
     // TODO: genesis init
-    #[cfg(test)]
     #[must_use]
-    pub fn with_service_state(
+    pub fn with_active_service_state(
         mut self,
         service_type: ServiceType,
-        service_state: ServiceState,
+        declarations: Declarations,
     ) -> Self {
+        let service_state = ServiceState {
+            declarations: declarations.clone(),
+            active: SessionState {
+                declarations,
+                session_n: 0,
+            },
+            past_session: SessionState {
+                declarations: rpds::HashTrieMapSync::new_sync(),
+                session_n: 0,
+            },
+            forming: SessionState {
+                declarations: rpds::HashTrieMapSync::new_sync(),
+                session_n: 1,
+            },
+        };
         self.services = self.services.insert(service_type, service_state);
         self
     }

@@ -50,6 +50,7 @@ pub struct GeneralConsensusConfig {
     pub leader_config: LeaderConfig,
     pub ledger_config: nomos_ledger::Config,
     pub genesis_tx: GenesisTx,
+    pub starting_state: Option<StartingState>,
 }
 
 fn create_genesis_tx(utxos: &[Utxo]) -> GenesisTx {
@@ -150,6 +151,7 @@ pub fn create_consensus_configs(
             leader_config: LeaderConfig { pk, sk },
             ledger_config: ledger_config.clone(),
             genesis_tx: genesis_tx.clone(),
+            starting_state: consensus_params.starting_state.clone(),
         })
         .collect()
 }
