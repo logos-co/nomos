@@ -23,6 +23,7 @@ use crate::{
     merkle::MerkleTree,
 };
 
+/// Wrapper around [`Node`] that includes its ZK public key.
 #[derive(Debug, Clone)]
 struct ZkNode<NodeId> {
     pub node: Node<NodeId>,
@@ -87,13 +88,13 @@ where
                         .into_iter()
                         .map(|ZkNode { node, zk_key }| (node, zk_key))
                         .unzip();
-                    let membership = Membership::new(&membership_nodes, &signing_public_key);
                     let zk_tree = MerkleTree::new(zk_public_keys).expect(
                         "Should not fail to build merkle tree of core nodes' zk public keys.",
                     );
                     let core_and_path_selectors = maybe_zk_public_key
                         .map(|zk_public_key| zk_tree.get_proof_for_key(&zk_public_key))
                         .expect("Zk public key of core node should be part of membership info.");
+                    let membership = Membership::new(&membership_nodes, &signing_public_key);
                     let zk_info = ZkInfo {
                         core_and_path_selectors,
                         root: zk_tree.root(),
@@ -136,7 +137,7 @@ where
     }
 }
 
-/// Builds a [`Node`] from a [`ProviderId`] and a set of [`Locator`]s.
+/// Builds a [`ZkNode`] from a [`ProviderId`] and a set of [`Locator`]s.
 /// Returns [`None`] if the locators set is empty or if the provider ID cannot
 /// be decoded.
 fn node_from_provider<NodeId>(
@@ -164,8 +165,9 @@ where
             id,
             address,
             public_key,
-            // TODO: Return actual zk key as returned by the chain broadcast service
         },
+        // TODO: Return actual zk key as returned by the chain broadcast service, once we migrate to
+        // it.
         zk_key: PublicKey::new(fr_from_bytes_unchecked(&random_sized_bytes::<32>())),
     })
 }
