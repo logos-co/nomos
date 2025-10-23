@@ -26,11 +26,7 @@ use nomos_blend_service::{
     settings::TimingSettings,
 };
 use nomos_core::{
-    block::Block,
-    da::BlobId,
-    header::HeaderId,
-    mantle::{SignedMantleTx, keys::SecretKey},
-    sdp::SessionNumber,
+    block::Block, da::BlobId, header::HeaderId, mantle::SignedMantleTx, sdp::SessionNumber,
 };
 use nomos_da_dispersal::{
     DispersalServiceSettings,
@@ -431,7 +427,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                 },
             },
             zk: ZkSettings {
-                sk: SecretKey::one(),
+                sk: config.blend_config.secret_zk_key,
             },
             minimum_network_size: 1
                 .try_into()

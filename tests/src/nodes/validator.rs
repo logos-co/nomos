@@ -25,12 +25,7 @@ use nomos_blend_service::{
     },
     settings::TimingSettings,
 };
-use nomos_core::{
-    block::Block,
-    da::BlobId,
-    mantle::{SignedMantleTx, keys::SecretKey},
-    sdp::SessionNumber,
-};
+use nomos_core::{block::Block, da::BlobId, mantle::SignedMantleTx, sdp::SessionNumber};
 use nomos_da_network_core::{
     protocols::sampling::SubnetsConfig,
     swarm::{BalancerStats, DAConnectionPolicySettings, MonitorStats},
@@ -475,7 +470,7 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                 },
             },
             zk: ZkSettings {
-                sk: SecretKey::one(),
+                sk: config.blend_config.secret_zk_key,
             },
             minimum_network_size: 1
                 .try_into()

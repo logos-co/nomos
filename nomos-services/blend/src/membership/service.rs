@@ -2,10 +2,10 @@ use std::{collections::BTreeSet, hash::Hash, marker::PhantomData};
 
 use futures::StreamExt as _;
 use groth16::fr_from_bytes_unchecked;
-use nomos_blend_message::crypto::{keys::Ed25519PublicKey, random_sized_bytes};
+use nomos_blend_message::crypto::keys::Ed25519PublicKey;
 use nomos_blend_scheduling::membership::{Membership, Node};
 use nomos_core::{
-    mantle::keys::PublicKey,
+    mantle::keys::{PublicKey, SecretKey},
     sdp::{Locator, ProviderId, ServiceType},
 };
 use nomos_membership_service::{
@@ -91,9 +91,11 @@ where
                     let zk_tree = MerkleTree::new(zk_public_keys).expect(
                         "Should not fail to build merkle tree of core nodes' zk public keys.",
                     );
-                    let core_and_path_selectors = maybe_zk_public_key
-                        .map(|zk_public_key| zk_tree.get_proof_for_key(&zk_public_key))
-                        .expect("Zk public key of core node should be part of membership info.");
+                    let core_and_path_selectors = maybe_zk_public_key.map(|zk_public_key| {
+                        zk_tree
+                            .get_proof_for_key(&zk_public_key)
+                            .expect("Zk public key of core node should be part of membership info.")
+                    });
                     let membership = Membership::new(&membership_nodes, &signing_public_key);
                     let zk_info = ZkInfo {
                         core_and_path_selectors,
@@ -154,21 +156,25 @@ where
             warn!("Failed to decode provider_id to node ID: {e:?}");
         })
         .ok()?;
-    let public_key = (*provider_id)
-        .try_into()
+    let public_key = Ed25519PublicKey::try_from(*provider_id)
         .map_err(|e| {
             warn!("Failed to decode provider_id to public_key: {e:?}");
         })
         .ok()?;
+    // We temporarily derive this from the node's public key, else integration
+    // tests would fail. This logic must be the same used in
+    // `tests::topology::configs` for `GeneralBlendConfig::secret_zk_key`.
+    // TODO: Return actual zk key as returned by the chain broadcast service, once
+    // we migrate to it.
+    let zk_public_key =
+        SecretKey::new(fr_from_bytes_unchecked(public_key.as_bytes())).to_public_key();
     Some(ZkNode {
         node: Node {
             id,
             address,
             public_key,
         },
-        // TODO: Return actual zk key as returned by the chain broadcast service, once we migrate to
-        // it.
-        zk_key: PublicKey::new(fr_from_bytes_unchecked(&random_sized_bytes::<32>())),
+        zk_key: zk_public_key,
     })
 }
 
