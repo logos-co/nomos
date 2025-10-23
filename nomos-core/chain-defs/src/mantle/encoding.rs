@@ -568,11 +568,7 @@ fn encode_sdp_active(op: &SDPActiveOp) -> Vec<u8> {
     bytes.extend(encode_uint64(op.nonce));
 
     // Metadata - convert ActivityMetadata to bytes
-    let metadata_bytes = op
-        .metadata
-        .as_ref()
-        .map(ActivityMetadata::to_metadata_bytes)
-        .unwrap_or_default();
+    let metadata_bytes = op.metadata.to_metadata_bytes();
 
     bytes.extend(encode_uint32(metadata_bytes.len() as u32));
     bytes.extend(&metadata_bytes);
@@ -1451,7 +1447,7 @@ mod tests {
         let sdp_active_op = SDPActiveOp {
             declaration_id: DeclarationId([0x22; 32]),
             nonce: 99,
-            metadata: Some(metadata),
+            metadata,
         };
 
         let mantle_tx = MantleTx {
@@ -1498,10 +1494,16 @@ mod tests {
             signer: signing_key.verifying_key(),
         };
 
+        let proof = DaActivityProof {
+            current_session: u64::MAX,
+            previous_session_opinions: vec![0xFF; 1000],
+            current_session_opinions: vec![0xAA; 2000],
+        };
+
         let sdp_active_op = SDPActiveOp {
             declaration_id: DeclarationId([0x33; 32]),
             nonce: 55,
-            metadata: None,
+            metadata: ActivityMetadata::DataAvailability(proof),
         };
 
         let mantle_tx = MantleTx {

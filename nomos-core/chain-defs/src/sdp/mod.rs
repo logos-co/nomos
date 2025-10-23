@@ -263,7 +263,7 @@ impl WithdrawMessage {
 pub struct ActiveMessage {
     pub declaration_id: DeclarationId,
     pub nonce: Nonce,
-    pub metadata: Option<ActivityMetadata>,
+    pub metadata: ActivityMetadata,
 }
 
 impl ActiveMessage {
@@ -272,9 +272,7 @@ impl ActiveMessage {
         let mut buff = BytesMut::new();
         buff.extend_from_slice(self.declaration_id.0.as_ref());
         buff.extend_from_slice(&(self.nonce.to_le_bytes()));
-        if let Some(metadata) = &self.metadata {
-            buff.extend_from_slice(&metadata.to_metadata_bytes());
-        }
+        buff.extend_from_slice(&self.metadata.to_metadata_bytes());
         buff.freeze()
     }
 }
@@ -315,9 +313,9 @@ impl DaActivityProof {
     }
 
     /// Parse metadata bytes using nom combinators
-    pub fn from_metadata_bytes(bytes: &[u8]) -> Result<Option<Self>, Box<dyn std::error::Error>> {
+    pub fn from_metadata_bytes(bytes: &[u8]) -> Result<Self, Box<dyn std::error::Error>> {
         if bytes.is_empty() {
-            return Ok(None);
+            return Err("empty metadata bytes".to_owned().into());
         }
 
         if bytes.len() < DA_MIN_METADATA_SIZE {
@@ -332,7 +330,7 @@ impl DaActivityProof {
         let (_, proof) =
             parse_da_activity_proof(bytes).map_err(|e| format!("Failed to parse metadata: {e}"))?;
 
-        Ok(Some(proof))
+        Ok(proof)
     }
 }
 
@@ -396,9 +394,9 @@ impl ActivityMetadata {
         }
     }
 
-    pub fn from_metadata_bytes(bytes: &[u8]) -> Result<Option<Self>, Box<dyn std::error::Error>> {
+    pub fn from_metadata_bytes(bytes: &[u8]) -> Result<Self, Box<dyn std::error::Error>> {
         if bytes.is_empty() {
-            return Ok(None);
+            return Err("empty metadata bytes".to_owned().into());
         }
 
         // Read version byte to determine variant
@@ -407,26 +405,9 @@ impl ActivityMetadata {
         match version {
             DA_ACTIVE_METADATA_VERSION_BYTE => {
                 let proof_opt = DaActivityProof::from_metadata_bytes(bytes)?;
-                Ok(proof_opt.map(Self::DataAvailability))
+                Ok(Self::DataAvailability(proof_opt))
             }
             _ => Err(format!("Unknown metadata version: {version:#x}").into()),
-        }
-    }
-}
-
-pub enum SdpMessage {
-    Declare(Box<DeclarationMessage>),
-    Activity(ActiveMessage),
-    Withdraw(WithdrawMessage),
-}
-
-impl SdpMessage {
-    #[must_use]
-    pub fn declaration_id(&self) -> DeclarationId {
-        match self {
-            Self::Declare(message) => message.id(),
-            Self::Activity(message) => message.declaration_id,
-            Self::Withdraw(message) => message.declaration_id,
         }
     }
 }
@@ -444,10 +425,7 @@ mod tests {
         };
 
         let bytes = proof.to_metadata_bytes();
-        let decoded = DaActivityProof::from_metadata_bytes(&bytes)
-            .unwrap()
-            .expect("Should have activity proof metadata");
-
+        let decoded = DaActivityProof::from_metadata_bytes(&bytes).unwrap();
         assert_eq!(proof, decoded);
     }
 
@@ -460,9 +438,7 @@ mod tests {
         };
 
         let bytes = proof.to_metadata_bytes();
-        let decoded = DaActivityProof::from_metadata_bytes(&bytes)
-            .unwrap()
-            .expect("Should have activity proof metadata");
+        let decoded = DaActivityProof::from_metadata_bytes(&bytes).unwrap();
 
         assert_eq!(proof, decoded);
     }
@@ -524,9 +500,7 @@ mod tests {
         // Total: version(1) + session(8) + prev_len(4) + curr_len(4) = 17 bytes
         assert_eq!(bytes.len(), DA_MIN_METADATA_SIZE);
 
-        let decoded = DaActivityProof::from_metadata_bytes(&bytes)
-            .unwrap()
-            .expect("Should have activity proof metadata");
+        let decoded = DaActivityProof::from_metadata_bytes(&bytes).unwrap();
         assert_eq!(proof, decoded);
     }
 
@@ -539,9 +513,7 @@ mod tests {
         };
 
         let bytes = proof.to_metadata_bytes();
-        let decoded = DaActivityProof::from_metadata_bytes(&bytes)
-            .unwrap()
-            .expect("Should have activity proof metadata");
+        let decoded = DaActivityProof::from_metadata_bytes(&bytes).unwrap();
 
         assert_eq!(proof, decoded);
         assert_eq!(decoded.previous_session_opinions.len(), 1000);
@@ -605,9 +577,7 @@ mod tests {
         let metadata = ActivityMetadata::DataAvailability(proof.clone());
 
         let bytes = metadata.to_metadata_bytes();
-        let decoded = ActivityMetadata::from_metadata_bytes(&bytes)
-            .unwrap()
-            .expect("Should have activity proof metadata");
+        let decoded = ActivityMetadata::from_metadata_bytes(&bytes).unwrap();
 
         assert_eq!(metadata, decoded);
 
@@ -617,8 +587,8 @@ mod tests {
 
     #[test]
     fn test_activity_metadata_empty_bytes() {
-        let result = ActivityMetadata::from_metadata_bytes(&[]).expect("should be OK");
-        assert!(result.is_none());
+        let result = ActivityMetadata::from_metadata_bytes(&[]);
+        assert!(result.is_err());
     }
 
     #[test]
@@ -646,7 +616,7 @@ mod tests {
         let message = ActiveMessage {
             declaration_id: DeclarationId([0xAA; 32]),
             nonce: 42,
-            metadata: Some(metadata),
+            metadata,
         };
 
         let bytes = message.payload_bytes();
@@ -660,19 +630,5 @@ mod tests {
         // Verify nonce
         let nonce_bytes: [u8; 8] = bytes[32..40].try_into().unwrap();
         assert_eq!(u64::from_le_bytes(nonce_bytes), 42);
-    }
-
-    #[test]
-    fn test_active_message_without_metadata() {
-        let message = ActiveMessage {
-            declaration_id: DeclarationId([0xBB; 32]),
-            nonce: 123,
-            metadata: None,
-        };
-
-        let bytes = message.payload_bytes();
-
-        // Should only have declaration_id + nonce
-        assert_eq!(bytes.len(), 40); // 32 + 8
     }
 }
