@@ -1,15 +1,11 @@
 use std::time::Duration;
 
 use futures::StreamExt as _;
-use kzgrs_backend::{
-    common::share::DaShare, dispersal::Index, reconstruction::reconstruct_without_missing_data,
-};
+use kzgrs_backend::{common::share::DaShare, reconstruction::reconstruct_without_missing_data};
 use serial_test::serial;
 use subnetworks_assignations::MembershipHandler as _;
 use tests::{
-    common::da::{
-        APP_ID, disseminate_with_metadata, wait_for_blob_onchain, wait_for_shares_number,
-    },
+    common::da::{disseminate_with_metadata, wait_for_blob_onchain, wait_for_shares_number},
     nodes::executor::{Executor, create_executor_config},
     secret_key_to_peer_id,
     topology::{Topology, TopologyConfig, configs::create_general_configs},
@@ -24,14 +20,9 @@ async fn disseminate_and_retrieve() {
     let validator = &topology.validators()[0];
 
     let data = [1u8; 31];
-    let app_id = hex::decode(APP_ID).unwrap();
-    let metadata =
-        kzgrs_backend::dispersal::Metadata::new(app_id.clone().try_into().unwrap(), 0u64.into());
-
     tokio::time::sleep(Duration::from_secs(15)).await;
-    let blob_id = disseminate_with_metadata(executor, &data, metadata)
-        .await
-        .unwrap();
+
+    let blob_id = disseminate_with_metadata(executor, &data).await.unwrap();
     tokio::time::sleep(Duration::from_secs(20)).await;
 
     wait_for_blob_onchain(executor, blob_id).await;
@@ -65,19 +56,13 @@ async fn disseminate_retrieve_reconstruct() {
     let executor = &topology.executors()[0];
     let num_subnets = executor.config().da_network.backend.num_subnets as usize;
 
-    let app_id = hex::decode(APP_ID).unwrap();
-    let app_id: [u8; 32] = app_id.clone().try_into().unwrap();
-
     let data = [1u8; 31 * ITERATIONS];
 
     for i in 0..ITERATIONS {
         let data_size = 31 * (i + 1);
         println!("disseminating {data_size} bytes, iteration {i}");
         let data = &data[..data_size]; // test increasing size data
-        let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, Index::from(i as u64));
-        let blob_id = disseminate_with_metadata(executor, data, metadata)
-            .await
-            .unwrap();
+        let blob_id = disseminate_with_metadata(executor, data).await.unwrap();
 
         wait_for_shares_number(executor, blob_id, num_subnets).await;
 
@@ -114,15 +99,12 @@ async fn disseminate_from_non_membership() {
     const ITERATIONS: usize = 10;
 
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
-    let executor = &topology.executors()[0];
-    let num_subnets = executor.config().da_network.backend.num_subnets as usize;
-
-    let app_id = hex::decode(APP_ID).unwrap();
-    let app_id: [u8; 32] = app_id.clone().try_into().unwrap();
+    let membership_executor = &topology.executors()[0];
+    let num_subnets = membership_executor.config().da_network.backend.num_subnets as usize;
 
     let lone_general_config = create_general_configs(1).into_iter().next().unwrap();
     let mut lone_executor_config = create_executor_config(lone_general_config);
-    lone_executor_config.membership = executor.config().membership.clone();
+    lone_executor_config.membership = membership_executor.config().membership.clone();
     let lone_executor = Executor::spawn(lone_executor_config).await;
 
     let data = [1u8; 31 * ITERATIONS];
@@ -131,15 +113,14 @@ async fn disseminate_from_non_membership() {
         let data_size = 31 * (i + 1);
         println!("disseminating {data_size} bytes, iteration {i}");
         let data = &data[..data_size]; // test increasing size data
-        let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, Index::from(i as u64));
-        let blob_id = disseminate_with_metadata(&lone_executor, data, metadata)
+        let blob_id = disseminate_with_metadata(&lone_executor, data)
             .await
             .unwrap();
 
-        wait_for_shares_number(executor, blob_id, num_subnets).await;
+        wait_for_shares_number(membership_executor, blob_id, num_subnets).await;
 
-        let share_commitments = executor.get_commitments(blob_id).await.unwrap();
-        let mut executor_shares = executor
+        let share_commitments = membership_executor.get_commitments(blob_id).await.unwrap();
+        let mut executor_shares = membership_executor
             .get_shares(blob_id, [].into(), [].into(), true)
             .await
             .unwrap()
@@ -188,20 +169,13 @@ async fn four_subnets_disseminate_retrieve_reconstruct() {
         .expect("Validator subnet 1 not found");
 
     let executor = &topology.executors()[0];
-
-    let app_id = hex::decode(APP_ID).unwrap();
-    let app_id: [u8; 32] = app_id.clone().try_into().unwrap();
-
     let data = [1u8; 31 * ITERATIONS];
 
     for i in 0..ITERATIONS {
         let data_size = 31 * (i + 1);
         println!("disseminating {data_size} bytes");
         let data = &data[..data_size]; // test increasing size data
-        let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, Index::from(i as u64));
-        let blob_id = disseminate_with_metadata(executor, data, metadata)
-            .await
-            .unwrap();
+        let blob_id = disseminate_with_metadata(executor, data).await.unwrap();
 
         wait_for_blob_onchain(executor, blob_id).await;
 
@@ -254,15 +228,9 @@ async fn disseminate_same_data() {
 
     let data = [1u8; 31];
 
-    let app_id = hex::decode(APP_ID).unwrap();
-    let app_id: [u8; 32] = app_id.clone().try_into().unwrap();
-    let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, Index::from(0));
-
     let mut onchain = false;
     for _ in 0..ITERATIONS {
-        let blob_id = disseminate_with_metadata(executor, &data, metadata)
-            .await
-            .unwrap();
+        let blob_id = disseminate_with_metadata(executor, &data).await.unwrap();
 
         if !onchain {
             wait_for_blob_onchain(executor, blob_id).await;
@@ -289,17 +257,12 @@ async fn disseminate_same_data() {
 async fn local_testnet() {
     let topology = Topology::spawn(TopologyConfig::validators_and_executor(3, 2, 2)).await;
     let executor = &topology.executors()[0];
-    let app_id = hex::decode(APP_ID).expect("Invalid APP_ID");
 
     let mut index = 0u64;
     loop {
-        let _ = disseminate_with_metadata(
-            executor,
-            &generate_data(index),
-            create_metadata(&app_id, index),
-        )
-        .await
-        .unwrap();
+        let _ = disseminate_with_metadata(executor, &generate_data(index))
+            .await
+            .unwrap();
 
         index += 1;
         tokio::time::sleep(Duration::from_secs(30)).await;
@@ -310,20 +273,12 @@ fn generate_data(index: u64) -> Vec<u8> {
     (index as u8..index as u8 + 31).collect()
 }
 
-fn create_metadata(app_id: &[u8], index: u64) -> kzgrs_backend::dispersal::Metadata {
-    kzgrs_backend::dispersal::Metadata::new(
-        app_id.try_into().expect("Failed to convert APP_ID"),
-        index.into(),
-    )
-}
-
 #[ignore = "for local debugging"]
 #[tokio::test]
 #[serial]
 async fn split_2025_death_payload() {
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let executor = &topology.executors()[0];
-    let app_id = hex::decode(APP_ID).expect("Invalid APP_ID");
 
     let data = vec![
         32, 0, 0, 0, 0, 0, 0, 0, 34, 88, 212, 64, 57, 70, 21, 63, 42, 117, 231, 187, 244, 0, 62,
@@ -360,7 +315,5 @@ async fn split_2025_death_payload() {
         128, 84, 169, 217, 162, 189, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     ];
-    let _ = disseminate_with_metadata(executor, &data, create_metadata(&app_id, 0u64))
-        .await
-        .unwrap();
+    let _ = disseminate_with_metadata(executor, &data).await.unwrap();
 }

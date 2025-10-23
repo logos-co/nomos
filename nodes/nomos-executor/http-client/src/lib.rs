@@ -4,7 +4,7 @@ pub use common_http_client::{BasicAuthCredentials, CommonHttpClient, Error};
 use futures::Stream;
 use nomos_core::{
     da::{BlobId, blob::Share},
-    mantle::ops::channel::ChannelId,
+    mantle::ops::channel::{ChannelId, Ed25519PublicKey, MsgId},
 };
 use nomos_http_api_common::{paths, types::DispersalRequest};
 use reqwest::Url;
@@ -24,26 +24,25 @@ impl ExecutorHttpClient {
     }
 
     /// Send a `Blob` to be dispersed
-    pub async fn publish_blob<Metadata>(
+    pub async fn publish_blob(
         &self,
         base_url: Url,
         channel_id: ChannelId,
+        parent_msg_id: MsgId,
+        signer: Ed25519PublicKey,
         data: Vec<u8>,
-        metadata: Metadata,
-    ) -> Result<BlobId, Error>
-    where
-        Metadata: Serialize + Send + Sync,
-    {
+    ) -> Result<BlobId, Error> {
         let req = DispersalRequest {
             channel_id,
+            parent_msg_id,
+            signer,
             data,
-            metadata,
         };
         let path = paths::DISPERSE_DATA.trim_start_matches('/');
         let request_url = base_url.join(path).map_err(Error::Url)?;
 
         self.client
-            .post::<DispersalRequest<Metadata>, BlobId>(request_url, &req)
+            .post::<DispersalRequest, BlobId>(request_url, &req)
             .await
     }
 

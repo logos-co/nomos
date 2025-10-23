@@ -5,13 +5,12 @@ use ed25519_dalek::SigningKey;
 use nomos_core::{
     da::BlobId,
     mantle::{
-        MantleTx, Note, Op, OpProof, SignedMantleTx, Transaction as _, Utxo,
-        ledger::Tx as LedgerTx,
-        ops::channel::{ChannelId, MsgId, blob::BlobOp},
+        Op, OpProof, SignedMantleTx, Transaction as _,
+        ops::channel::{ChannelId, Ed25519PublicKey, MsgId, blob::BlobOp},
+        tx_builder::MantleTxBuilder,
     },
     proofs::zksig::{DummyZkSignature, ZkSignaturePublic},
 };
-use num_bigint::BigUint;
 
 use super::DaWalletAdapter;
 
@@ -26,10 +25,12 @@ impl DaWalletAdapter for MockWalletAdapter {
 
     fn blob_tx(
         &self,
+        tx_builder: MantleTxBuilder,
         channel_id: ChannelId,
         parent_msg_id: MsgId,
-        blob: BlobId,
+        blob_id: BlobId,
         blob_size: usize,
+        _signer: Ed25519PublicKey,
     ) -> Result<SignedMantleTx, Self::Error> {
         // TODO: This mock implementation targets to only work with integration tests.
         // When integration tests genesis_state changes, this part should be updated, or
@@ -42,27 +43,18 @@ impl DaWalletAdapter for MockWalletAdapter {
         let signing_key = SigningKey::from_bytes(&[0u8; 32]);
         let signer = signing_key.verifying_key();
 
-        let utxo = Utxo {
-            note: Note::new(1, BigUint::from(0u8).into()),
-            tx_hash: BigUint::from(0u8).into(),
-            output_index: 0,
-        };
-
         let blob_op = BlobOp {
             channel: channel_id,
-            blob,
+            blob: blob_id,
             blob_size: blob_size as u64,
             da_storage_gas_price: 3000,
             parent: parent_msg_id,
             signer,
         };
 
-        let mantle_tx = MantleTx {
-            ops: vec![Op::ChannelBlob(blob_op)],
-            ledger_tx: LedgerTx::new(vec![utxo.id()], vec![]),
-            storage_gas_price: 3000,
-            execution_gas_price: 3000,
-        };
+        // TODO: Wallet service will expect a BlobOp, and transform that into a
+        // SignedMantleTx.
+        let mantle_tx = tx_builder.push_op(Op::ChannelBlob(blob_op)).build();
 
         // Sign the transaction hash
         let tx_hash = mantle_tx.hash();

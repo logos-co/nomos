@@ -11,7 +11,7 @@ use reqwest::Url;
 use serial_test::serial;
 use tests::{
     adjust_timeout,
-    common::da::{APP_ID, DA_TESTS_TIMEOUT, disseminate_with_metadata, wait_for_blob_onchain},
+    common::da::{DA_TESTS_TIMEOUT, disseminate_with_metadata, wait_for_blob_onchain},
     nodes::validator::{Validator, create_validator_config},
     secret_key_to_peer_id,
     topology::{Topology, TopologyConfig, configs::create_general_configs},
@@ -30,13 +30,7 @@ async fn test_get_share_data() {
     let executor = &topology.executors()[0];
 
     let data = [1u8; 31];
-    let app_id = hex::decode(APP_ID).unwrap();
-    let app_id: [u8; 32] = app_id.clone().try_into().unwrap();
-    let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, 0u64.into());
-
-    let blob_id = disseminate_with_metadata(executor, &data, metadata)
-        .await
-        .unwrap();
+    let blob_id = disseminate_with_metadata(executor, &data).await.unwrap();
 
     wait_for_blob_onchain(executor, blob_id).await;
 
@@ -76,13 +70,7 @@ async fn test_get_commitments_from_peers() {
     let lone_validator = Validator::spawn(lone_validator_config).await.unwrap();
 
     let data = [1u8; 31];
-    let app_id = hex::decode(APP_ID).unwrap();
-    let app_id: [u8; 32] = app_id.clone().try_into().unwrap();
-    let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, 0u64.into());
-
-    let blob_id = disseminate_with_metadata(executor, &data, metadata)
-        .await
-        .unwrap();
+    let blob_id = disseminate_with_metadata(executor, &data).await.unwrap();
     tokio::time::sleep(Duration::from_secs(5)).await;
     lone_validator.get_commitments(blob_id).await.unwrap();
 
@@ -174,13 +162,7 @@ async fn test_get_shares() {
     let num_subnets = executor.config().da_network.backend.num_subnets as usize;
 
     let data = [1u8; 31];
-    let app_id = hex::decode(APP_ID).unwrap();
-    let app_id: [u8; 32] = app_id.try_into().unwrap();
-    let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, 0u64.into());
-
-    let blob_id = disseminate_with_metadata(executor, &data, metadata)
-        .await
-        .unwrap();
+    let blob_id = disseminate_with_metadata(executor, &data).await.unwrap();
 
     wait_for_blob_onchain(executor, blob_id).await;
 
