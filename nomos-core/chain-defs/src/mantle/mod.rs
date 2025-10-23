@@ -57,6 +57,7 @@ pub trait AuthenticatedMantleTx: Transaction<Hash = TxHash> + GasCost {
 pub trait GenesisTx: Transaction<Hash = TxHash> {
     fn genesis_inscription(&self) -> &InscriptionOp;
     fn mantle_tx(&self) -> &MantleTx;
+    fn op_proofs(&self) -> &Vec<Option<OpProof>>;
 }
 
 impl<T: Transaction> Transaction for &T {
@@ -85,6 +86,10 @@ impl<T: AuthenticatedMantleTx> AuthenticatedMantleTx for &T {
 impl<T: GenesisTx> GenesisTx for &T {
     fn genesis_inscription(&self) -> &InscriptionOp {
         T::genesis_inscription(self)
+    }
+
+    fn op_proofs(&self) -> &Vec<Option<OpProof>> {
+        T::op_proofs(self)
     }
 
     fn mantle_tx(&self) -> &MantleTx {
