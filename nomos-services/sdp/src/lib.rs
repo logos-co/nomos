@@ -77,6 +77,7 @@ pub enum SdpMessage {
     },
     PostDeclaration {
         declaration: Box<DeclarationMessage>,
+        reply_channel: oneshot::Sender<Result<DeclarationId, DynError>>,
     },
     PostActivity {
         metadata: ActivityMetadata, // DA/Blend specific metadata
@@ -155,9 +156,17 @@ where
                     self.handle_post_activity(metadata, &wallet_adapter, &mempool_adapter)
                         .await;
                 }
-                SdpMessage::PostDeclaration { declaration } => {
-                    self.handle_post_declaration(declaration, &wallet_adapter, &mempool_adapter)
-                        .await;
+                SdpMessage::PostDeclaration {
+                    declaration,
+                    reply_channel,
+                } => {
+                    self.handle_post_declaration(
+                        declaration,
+                        &wallet_adapter,
+                        &mempool_adapter,
+                        reply_channel,
+                    )
+                    .await;
                 }
                 SdpMessage::PostWithdrawal { declaration_id } => {
                     self.handle_post_withdrawal(declaration_id, &wallet_adapter, &mempool_adapter)
@@ -176,17 +185,15 @@ where
     RuntimeServiceId: AsServiceId<Self> + Clone + Display + Send + Sync + 'static,
 {
     async fn handle_post_declaration(
-        &mut self,
+        &self,
         declaration: Box<DeclarationMessage>,
         wallet_adapter: &MockWalletAdapter,
         mempool_adapter: &MockMempoolAdapter,
+        reply_channel: oneshot::Sender<Result<DeclarationId, DynError>>,
     ) {
-        self.update_declaration(declaration.as_ref());
-        self.nonce = 0;
-
         let tx_builder = MantleTxBuilder::new();
 
-        let signed_tx = match wallet_adapter.declare_tx(tx_builder, declaration) {
+        let signed_tx = match wallet_adapter.declare_tx(tx_builder, declaration.clone()) {
             Ok(tx) => tx,
             Err(e) => {
                 tracing::error!("Failed to create declaration transaction: {:?}", e);
@@ -199,7 +206,9 @@ where
             return;
         }
 
-        tracing::info!("Declaration posted successfully");
+        if let Err(e) = reply_channel.send(Ok(declaration.id())) {
+            tracing::error!("Failed to send post declaration response: {:?}", e);
+        }
     }
 
     async fn handle_post_activity(
@@ -298,16 +307,6 @@ where
         }
 
         Ok(())
-    }
-
-    fn update_declaration(&mut self, declaration: &DeclarationMessage) {
-        let new_declaration = Declaration {
-            id: declaration.id(),
-            zk_id: declaration.zk_id,
-            locked_note_id: declaration.locked_note_id,
-        };
-
-        self.current_declaration = Some(new_declaration);
     }
 }
 
