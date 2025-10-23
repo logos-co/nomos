@@ -63,7 +63,7 @@ async fn disseminate_retrieve_reconstruct() {
         let data_size = 31 * (i + 1);
         println!("disseminating {data_size} bytes, iteration {i}");
         let data = &data[..data_size]; // test increasing size data
-        let blob_id = disseminate_with_metadata(&executor, data).await.unwrap();
+        let blob_id = disseminate_with_metadata(executor, data).await.unwrap();
 
         wait_for_shares_number(executor, blob_id, num_subnets).await;
 
