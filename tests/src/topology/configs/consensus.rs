@@ -2,9 +2,10 @@ use std::{num::NonZero, sync::Arc};
 
 use chain_leader::LeaderConfig;
 use cryptarchia_engine::EpochConfig;
+use ed25519_dalek::ed25519::signature::SignerMut as _;
 use nomos_core::{
     mantle::{
-        MantleTx, Note, NoteId, Utxo,
+        MantleTx, Note, OpProof, Utxo,
         genesis_tx::GenesisTx,
         keys::{PublicKey, SecretKey},
         ledger::Tx as LedgerTx,
@@ -13,8 +14,10 @@ use nomos_core::{
             channel::{ChannelId, Ed25519PublicKey, MsgId, inscribe::InscriptionOp},
         },
     },
+    proofs::zksig::{DummyZkSignature, ZkSignaturePublic},
     sdp::{DeclarationMessage, Locator, ProviderId, ServiceParameters, ServiceType, ZkPublicKey},
 };
+use nomos_node::Transaction as _;
 use num_bigint::BigUint;
 
 #[derive(Clone)]
@@ -40,12 +43,14 @@ impl ConsensusParams {
     }
 }
 
+#[derive(Clone)]
 pub struct ProviderInfo {
     pub service_type: ServiceType,
     pub provider_id: ProviderId,
     pub zk_id: ZkPublicKey,
     pub locator: Locator,
-    pub locked_note_id: NoteId,
+    pub note: Note,
+    pub signer: ed25519_dalek::SigningKey,
 }
 
 /// General consensus configuration for a chosen participant, that later could
@@ -175,16 +180,22 @@ pub fn create_genesis_tx_with_declarations(
         parent: MsgId::root(),
         signer: Ed25519PublicKey::from_bytes(&[0; 32]).unwrap(),
     };
+    let ledger_tx_hash = ledger_tx.hash();
 
     let mut ops = vec![Op::ChannelInscribe(inscription)];
 
-    for provider in providers {
+    for provider in &providers {
+        let utxo = Utxo {
+            tx_hash: ledger_tx_hash,
+            output_index: 0,
+            note: provider.note,
+        };
         let declaration = DeclarationMessage {
             service_type: provider.service_type,
-            locators: vec![provider.locator],
-            provider_id: provider.provider_id,
+            locators: vec![provider.locator.clone()],
+            provider_id: ProviderId(provider.signer.verifying_key()),
             zk_id: provider.zk_id,
-            locked_note_id: provider.locked_note_id,
+            locked_note_id: utxo.id(),
         };
         ops.push(Op::SDPDeclare(declaration));
     }
@@ -196,5 +207,26 @@ pub fn create_genesis_tx_with_declarations(
         storage_gas_price: 0,
     };
 
-    GenesisTx::from_tx(mantle_tx).expect("Invalid genesis transaction")
+    let mantle_tx_hash = mantle_tx.hash();
+    let mut op_proofs = vec![None];
+
+    for mut provider in providers {
+        let zk_sig = DummyZkSignature::prove(&ZkSignaturePublic {
+            pks: vec![provider.note.pk.into(), provider.zk_id.0],
+            msg_hash: mantle_tx_hash.0,
+        });
+        let ed25519_sig = provider
+            .signer
+            .sign(mantle_tx_hash.as_signing_bytes().as_ref());
+
+        op_proofs.push(Some(OpProof::ZkAndEd25519Sigs {
+            zk_sig,
+            ed25519_sig,
+        }));
+    }
+
+    GenesisTx::from_tx(mantle_tx)
+        .expect("Invalid genesis transaction")
+        .with_proofs(op_proofs)
+        .expect("Correct number of proofs should be set")
 }
