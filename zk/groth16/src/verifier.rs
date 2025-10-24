@@ -1,7 +1,14 @@
-use std::error::Error;
+use std::{
+    error::Error,
+    ops::{Mul as _, Neg as _},
+};
 
-use ark_ec::pairing::Pairing;
+use ark_bn254::{Bn254, Fr, G1Affine, G1Projective};
+use ark_ec::{CurveGroup as _, VariableBaseMSM as _, pairing::Pairing};
+use ark_ff::{UniformRand as _, Zero as _};
 use ark_groth16::{Groth16, r1cs_to_qap::LibsnarkReduction};
+use ark_relations::r1cs::Result as R1CSResult;
+use ark_std::rand::thread_rng;
 
 use crate::{proof::Proof, verification_key::PreparedVerificationKey};
 
@@ -12,6 +19,52 @@ pub fn groth16_verify<E: Pairing>(
 ) -> Result<bool, impl Error + use<E>> {
     let proof: ark_groth16::Proof<E> = proof.into();
     Groth16::<E, LibsnarkReduction>::verify_proof(vk.as_ref(), &proof, public_inputs)
+}
+
+pub fn groth16_batch_verify(
+    vk: &PreparedVerificationKey<Bn254>,
+    proofs: &[Proof<Bn254>],
+    public_inputs: &[Vec<Fr>],
+) -> R1CSResult<bool> {
+    let mut rng = thread_rng();
+    let ri: Vec<Fr> = std::iter::repeat_with(|| Fr::rand(&mut rng))
+        .take(proofs.len())
+        .collect();
+    let r_sum: Fr = ri.iter().sum();
+
+    let pis_c: Vec<G1Affine> = proofs.iter().map(|proof| proof.pi_c).collect();
+
+    let batched_pi_c = G1Projective::msm(&pis_c, &ri).unwrap().into_affine();
+
+    let batched_public_inputs: Vec<Fr> = std::iter::once(r_sum)
+        .chain((0..vk.gamma_abc_g1().len() - 1).map(|i| {
+            ri.iter()
+                .zip(public_inputs.iter())
+                .map(|(r, pi)| *r * pi[i])
+                .sum()
+        }))
+        .collect();
+
+    let batched_ic = G1Projective::msm(vk.gamma_abc_g1(), &batched_public_inputs)
+        .unwrap()
+        .into_affine();
+
+    let mut g1_terms: Vec<_> = Vec::with_capacity(proofs.len() + 3);
+    let mut g2_terms: Vec<_> = Vec::with_capacity(proofs.len() + 3);
+
+    for (i, proof) in proofs.iter().enumerate() {
+        g1_terms.push(proof.pi_a.mul(ri[i]).into_affine());
+        g2_terms.push(proof.pi_b.into());
+    }
+    g1_terms.push(vk.alpha_g1().mul(r_sum).neg().into());
+    g2_terms.push(vk.beta_g2().into());
+    g1_terms.push(batched_ic);
+    g2_terms.push(vk.gamma_g2_neg_pc().clone());
+    g1_terms.push(batched_pi_c);
+    g2_terms.push(vk.delta_g2_neg_pc().clone());
+
+    let test = Bn254::multi_pairing(g1_terms, g2_terms);
+    Ok(test.is_zero())
 }
 
 #[cfg(all(test, feature = "deser"))]
