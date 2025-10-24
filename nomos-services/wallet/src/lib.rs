@@ -70,11 +70,12 @@ pub enum WalletMsg {
 }
 
 impl WalletMsg {
-    pub fn tip(&self) -> HeaderId {
+    #[must_use]
+    pub const fn tip(&self) -> HeaderId {
         match self {
-            WalletMsg::GetBalance { tip, .. }
-            | WalletMsg::FundTx { tip, .. }
-            | WalletMsg::GetLeaderAgedNotes { tip, .. } => *tip,
+            Self::GetBalance { tip, .. }
+            | Self::FundTx { tip, .. }
+            | Self::GetLeaderAgedNotes { tip, .. } => *tip,
         }
     }
 }

@@ -1,4 +1,5 @@
-//! This module contains a simple implementation of [`KMSBackend`] where keys are preloaded from config file.
+//! This module contains a simple implementation of [`KMSBackend`] where keys
+//! are preloaded from config file.
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
@@ -10,10 +11,9 @@ pub enum PreloadBackendError {
     #[error(transparent)]
     KeyError(#[from] keys::errors::KeyError),
     #[error("KeyId ({0:?}) is not registered")]
-    KeyIdNotRegistered(String),
-
+    NotRegisteredKeyId(String),
     #[error("KeyId {0} is already registered")]
-    KeyIdAlreadRegistered(String),
+    AlreadRegisteredKeyId(String),
 }
 
 pub struct PreloadKMSBackend {
@@ -22,8 +22,7 @@ pub struct PreloadKMSBackend {
 
 /// This setting contains all [`Key`]s to be loaded into the
 /// [`PreloadKMSBackend`]. This implements [`serde::Serialize`] for users to
-/// populate the settings from bytes. The [`PreloadKey`] also implements
-/// [`zeroize::ZeroizeOnDrop`] for security.
+/// populate the settings from bytes.
 #[derive(Serialize, Deserialize)]
 pub struct PreloadKMSBackendSettings {
     pub keys: HashMap<String, keys::Key>,
@@ -42,14 +41,15 @@ impl KMSBackend for PreloadKMSBackend {
         }
     }
 
-    // Key's after initialization will be held in memory but not persisted across restarts
+    // Key's after initialization will be held in memory but not persisted across
+    // restarts
     fn register(
         &mut self,
         key_id: Self::KeyId,
         key: Self::Key,
     ) -> Result<Self::KeyId, Self::Error> {
         if self.keys.contains_key(&key_id) {
-            return Err(PreloadBackendError::KeyIdAlreadRegistered(key_id));
+            return Err(PreloadBackendError::AlreadRegisteredKeyId(key_id));
         }
         self.keys.insert(key_id.clone(), key);
 
@@ -63,7 +63,7 @@ impl KMSBackend for PreloadKMSBackend {
         Ok(self
             .keys
             .get(&key_id)
-            .ok_or(PreloadBackendError::KeyIdNotRegistered(key_id))?
+            .ok_or(PreloadBackendError::NotRegisteredKeyId(key_id))?
             .as_public_key())
     }
 
@@ -75,7 +75,7 @@ impl KMSBackend for PreloadKMSBackend {
         Ok(self
             .keys
             .get(&key_id)
-            .ok_or(PreloadBackendError::KeyIdNotRegistered(key_id))?
+            .ok_or(PreloadBackendError::NotRegisteredKeyId(key_id))?
             .sign(&payload)?)
     }
 
@@ -89,7 +89,7 @@ impl KMSBackend for PreloadKMSBackend {
             .map(|key_id| {
                 self.keys
                     .get(&key_id)
-                    .ok_or(PreloadBackendError::KeyIdNotRegistered(key_id))
+                    .ok_or(PreloadBackendError::NotRegisteredKeyId(key_id))
             })
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -104,7 +104,7 @@ impl KMSBackend for PreloadKMSBackend {
         let key = self
             .keys
             .get_mut(&key_id)
-            .ok_or(PreloadBackendError::KeyIdNotRegistered(key_id))?;
+            .ok_or(PreloadBackendError::NotRegisteredKeyId(key_id))?;
 
         operator(key).await
     }
@@ -140,7 +140,7 @@ mod tests {
         // Check if the key was preloaded successfully with the same key type.
         assert_eq!(
             backend.register(key_id.clone(), key.clone()).unwrap_err(),
-            PreloadBackendError::KeyIdAlreadRegistered(key_id.clone())
+            PreloadBackendError::AlreadRegisteredKeyId(key_id.clone())
         );
 
         let public_key = key.as_public_key();
@@ -171,7 +171,7 @@ mod tests {
         // Fetching public key fails
         assert_eq!(
             backend.public_key(key_id.clone()).unwrap_err(),
-            PreloadBackendError::KeyIdNotRegistered(key_id.clone())
+            PreloadBackendError::NotRegisteredKeyId(key_id.clone())
         );
 
         // Signing with a key id fails
@@ -179,7 +179,7 @@ mod tests {
         let encoded_data = PayloadEncoding::Ed25519(data);
         assert_eq!(
             backend.sign(key_id.clone(), encoded_data).unwrap_err(),
-            PreloadBackendError::KeyIdNotRegistered(key_id.clone())
+            PreloadBackendError::NotRegisteredKeyId(key_id.clone())
         );
 
         // Excuting with a key id fails
@@ -188,7 +188,7 @@ mod tests {
                 .execute(key_id.clone(), noop_operator::<PreloadKMSBackend>())
                 .await
                 .unwrap_err(),
-            PreloadBackendError::KeyIdNotRegistered(key_id.clone()),
+            PreloadBackendError::NotRegisteredKeyId(key_id.clone()),
         );
 
         // Registering the key works
