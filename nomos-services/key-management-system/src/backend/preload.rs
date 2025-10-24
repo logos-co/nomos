@@ -148,7 +148,7 @@ mod tests {
         assert_eq!(backend_public_key, public_key);
 
         let payload = PayloadEncoding::Ed25519(Bytes::from("data"));
-        let signature = key.sign(&payload).unwrap().into();
+        let signature = key.sign(&payload).unwrap();
         let backend_signature = backend.sign(key_id.clone(), payload).unwrap();
         assert_eq!(backend_signature, signature);
 
