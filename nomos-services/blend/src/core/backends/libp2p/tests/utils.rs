@@ -77,12 +77,6 @@ impl SwarmBuilder {
         self
     }
 
-    pub fn with_public_info(mut self, public_info: PublicInfo<PeerId>) -> Self {
-        assert!(self.public_info.is_none());
-        self.public_info = Some(public_info);
-        self
-    }
-
     pub fn build<BehaviourConstructor, ProofsVerifier>(
         self,
         behaviour_constructor: BehaviourConstructor,
