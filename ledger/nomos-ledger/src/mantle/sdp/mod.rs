@@ -586,6 +586,7 @@ mod tests {
         let withdraw_op = &SDPWithdrawOp {
             declaration_id,
             nonce: 1,
+            locked_note_id: note_id,
         };
         let sdp_ledger = apply_withdraw_with_dummies(
             sdp_ledger,

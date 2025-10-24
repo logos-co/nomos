@@ -203,16 +203,11 @@ fn decode_sdp_withdraw(input: &[u8]) -> IResult<&[u8], SDPWithdrawOp> {
     let (input, nonce) = decode_uint64(input)?;
     let (input, locked_note_id) = map(decode_field_element, NoteId).parse(input)?;
 
-    // NOTE: The ABNF specifies a LockedNoteId field, but the WithdrawMessage
-    // struct does not have this field. We decode it but drop it for now.
-    eprintln!(
-        "WARNING: SDPWithdraw LockedNoteId field decoded but dropped. Declaration ID: {declaration_id:?}, nonce: {nonce}, locked_note: {locked_note_id:?}"
-    );
-
     Ok((
         input,
         SDPWithdrawOp {
             declaration_id,
+            locked_note_id,
             nonce,
         },
     ))
@@ -556,9 +551,7 @@ fn encode_sdp_withdraw(op: &SDPWithdrawOp) -> Vec<u8> {
     let mut bytes = Vec::new();
     bytes.extend(encode_hash32(&op.declaration_id.0));
     bytes.extend(encode_uint64(op.nonce));
-    // NOTE: ABNF specifies LockedNoteId field, but Rust struct doesn't have it
-    // We encode zeros as a placeholder to match the wire format
-    bytes.extend(encode_field_element(&Fr::from(0u64)));
+    bytes.extend(encode_field_element(op.locked_note_id.as_ref()));
     bytes
 }
 
@@ -568,11 +561,7 @@ fn encode_sdp_active(op: &SDPActiveOp) -> Vec<u8> {
     bytes.extend(encode_uint64(op.nonce));
 
     // Metadata - convert ActivityMetadata to bytes
-    let metadata_bytes = op
-        .metadata
-        .as_ref()
-        .map(ActivityMetadata::to_metadata_bytes)
-        .unwrap_or_default();
+    let metadata_bytes = op.metadata.to_metadata_bytes();
 
     bytes.extend(encode_uint32(metadata_bytes.len() as u32));
     bytes.extend(&metadata_bytes);
@@ -758,6 +747,7 @@ mod tests {
     use ark_ff::Field as _;
     use ed25519::{Signature, signature::SignerMut as _};
     use ed25519_dalek::SigningKey;
+    use num_bigint::BigUint;
 
     use super::*;
     use crate::{mantle::Transaction as _, proofs::zksig::ZkSignaturePublic, sdp::DaActivityProof};
@@ -1410,9 +1400,12 @@ mod tests {
 
     #[test]
     fn test_predict_signed_mantle_tx_size_with_sdp_withdraw() {
+        let locked_note_id = NoteId(BigUint::from(123u64).into());
+
         let sdp_withdraw_op = SDPWithdrawOp {
             declaration_id: DeclarationId([0x11; 32]),
             nonce: 42,
+            locked_note_id,
         };
 
         let mantle_tx = MantleTx {
@@ -1451,7 +1444,7 @@ mod tests {
         let sdp_active_op = SDPActiveOp {
             declaration_id: DeclarationId([0x22; 32]),
             nonce: 99,
-            metadata: Some(metadata),
+            metadata,
         };
 
         let mantle_tx = MantleTx {
@@ -1498,10 +1491,16 @@ mod tests {
             signer: signing_key.verifying_key(),
         };
 
+        let proof = DaActivityProof {
+            current_session: u64::MAX,
+            previous_session_opinions: vec![0xFF; 1000],
+            current_session_opinions: vec![0xAA; 2000],
+        };
+
         let sdp_active_op = SDPActiveOp {
             declaration_id: DeclarationId([0x33; 32]),
             nonce: 55,
-            metadata: None,
+            metadata: ActivityMetadata::DataAvailability(proof),
         };
 
         let mantle_tx = MantleTx {
