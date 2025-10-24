@@ -1,8 +1,13 @@
 [package]
-edition = { workspace = true }
-license = { workspace = true }
-name    = "chain-service"
-version = "0.1.0"
+categories  = { workspace = true }
+description = { workspace = true }
+edition     = { workspace = true }
+keywords    = { workspace = true }
+license     = { workspace = true }
+name        = "chain-service"
+readme      = { workspace = true }
+repository  = { workspace = true }
+version     = { workspace = true }
 
 [lints]
 workspace = true
@@ -24,7 +29,7 @@ nomos-network      = { workspace = true }
 nomos-storage      = { workspace = true }
 nomos-time         = { workspace = true }
 nomos-utils        = { workspace = true }
-num-bigint         = { version = "0.4", default-features = false }
+num-bigint         = { default-features = false, version = "0.4" }
 overwatch          = { workspace = true }
 rand               = { default-features = false, version = "0.8" }
 serde              = { default-features = false, version = "1" }
