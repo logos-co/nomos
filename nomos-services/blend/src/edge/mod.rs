@@ -52,7 +52,7 @@ use crate::{
         ChainApi, EpochEvent, EpochHandler, LeaderInputsMinusQuota, PolEpochInfo,
         PolInfoProvider as PolInfoProviderTrait,
     },
-    membership::{self, MembershipInfo},
+    membership::{self, MembershipInfo, ZkInfo},
     message::{NetworkMessage, ServiceMessage},
     settings::FIRST_STREAM_ITEM_READY_TIMEOUT,
 };
@@ -203,6 +203,8 @@ where
                 .await
                 .expect("Failed to get relay channel with membership service."),
             settings.crypto.non_ephemeral_signing_key.public_key(),
+            // No ZK stuff needs to be computed by edge nodes, so no ZK key is specified here.
+            None,
         )
         .subscribe()
         .await
@@ -373,7 +375,7 @@ where
 
     let mut current_public_inputs = PoQVerificationInputsMinusSigningKey {
         core: CoreInputs {
-            zk_root: current_membership_info.zk_root,
+            zk_root: current_membership_info.zk.root,
             // TODO: Replace with actually computed value.
             quota: 1,
         },
@@ -428,7 +430,9 @@ fn handle_new_session<Backend, NodeId, ProofsGenerator, RuntimeServiceId>(
     MembershipInfo {
         membership: new_membership,
         session_number: new_session_number,
-        zk_root: new_zk_root,
+        zk: ZkInfo {
+            root: new_zk_root, ..
+        },
     }: MembershipInfo<NodeId>,
     settings: &Settings<Backend, NodeId, RuntimeServiceId>,
     current_epoch_private_info: ProofOfLeadershipQuotaInputs,

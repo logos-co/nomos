@@ -46,6 +46,7 @@ pub mod session;
 pub mod settings;
 
 mod instance;
+mod merkle;
 mod modes;
 mod service_components;
 pub use self::service_components::ServiceComponents;
@@ -155,6 +156,9 @@ where
                 .relay::<MembershipService<EdgeService>>()
                 .await?,
             settings.crypto.non_ephemeral_signing_key.public_key(),
+            // We don't need to generate secret zk info in the proxy service, so we ignore the
+            // secret key at this level.
+            None,
         )
         .subscribe()
         .await?;

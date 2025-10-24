@@ -16,14 +16,19 @@ use zksign::{ZkSignProof, ZkSignVerifierInputs, ZkSignWitnessInputs, prove, veri
 #[serde(transparent)]
 pub struct SecretKey(#[serde(with = "serde_fr")] Fr);
 
-static NOMOS_KDF_V1: LazyLock<Fr> =
-    LazyLock::new(|| BigUint::from_bytes_le(b"NOMOS_KDF_V1").into());
+static NOMOS_KDF: LazyLock<Fr> = LazyLock::new(|| BigUint::from_bytes_le(b"NOMOS_KDF").into());
 
 impl SecretKey {
     #[must_use]
     pub const fn zero() -> Self {
         Self(Fr::ZERO)
     }
+
+    #[must_use]
+    pub const fn one() -> Self {
+        Self(Fr::ONE)
+    }
+
     #[must_use]
     pub const fn new(key: Fr) -> Self {
         Self(key)
@@ -36,7 +41,7 @@ impl SecretKey {
 
     #[must_use]
     pub fn to_public_key(&self) -> PublicKey {
-        PublicKey(Poseidon2Bn254Hasher::digest(&[*NOMOS_KDF_V1, self.0]))
+        PublicKey(Poseidon2Bn254Hasher::digest(&[*NOMOS_KDF, self.0]))
     }
 
     #[must_use]
@@ -60,7 +65,7 @@ impl SecretKey {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 #[serde(transparent)]
 pub struct PublicKey(#[serde(with = "serde_fr")] Fr);
 
@@ -78,6 +83,11 @@ impl PublicKey {
     #[must_use]
     pub const fn as_fr(&self) -> &Fr {
         &self.0
+    }
+
+    #[must_use]
+    pub const fn into_inner(self) -> Fr {
+        self.0
     }
 
     #[must_use]

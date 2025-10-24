@@ -20,7 +20,9 @@ use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
 use nomos_api::http::membership::MembershipUpdateRequest;
 use nomos_blend_scheduling::message_blend::crypto::SessionCryptographicProcessorSettings;
 use nomos_blend_service::{
-    core::settings::{CoverTrafficSettingsExt, MessageDelayerSettingsExt, SchedulerSettingsExt},
+    core::settings::{
+        CoverTrafficSettingsExt, MessageDelayerSettingsExt, SchedulerSettingsExt, ZkSettings,
+    },
     settings::TimingSettings,
 };
 use nomos_core::{block::Block, da::BlobId, mantle::SignedMantleTx, sdp::SessionNumber};
@@ -466,6 +468,9 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                     maximum_release_delay_in_rounds: NonZeroU64::try_from(3u64)
                         .expect("Maximum release delay between rounds cannot be zero."),
                 },
+            },
+            zk: ZkSettings {
+                sk: config.blend_config.secret_zk_key,
             },
             minimum_network_size: 1
                 .try_into()
