@@ -1,51 +1,37 @@
+use nomos_libp2p::{Multiaddr, ed25519::SecretKey};
 use overwatch::services::ServiceData;
 use serde::{Deserialize, Serialize};
 
 use crate::{BlendCoreService, BlendEdgeService, BlendService};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct BlendConfig(<BlendCoreService as ServiceData>::Settings);
+pub struct BlendConfig(<BlendService as ServiceData>::Settings);
 
 impl BlendConfig {
     #[must_use]
-    pub const fn new(core: <BlendCoreService as ServiceData>::Settings) -> Self {
-        Self(core)
-    }
-
-    fn proxy(&self) -> <BlendService as ServiceData>::Settings {
-        nomos_blend_service::settings::Settings {
-            crypto: self.0.crypto.clone(),
-            time: self.0.time.clone(),
-            minimal_network_size: self.0.minimum_network_size,
-        }
+    pub const fn new(settings: <BlendService as ServiceData>::Settings) -> Self {
+        Self(settings)
     }
 
     fn core(&self) -> <BlendCoreService as ServiceData>::Settings {
-        self.0.clone()
+        self.0.clone().into()
     }
 
     fn edge(&self) -> <BlendEdgeService as ServiceData>::Settings {
-        nomos_blend_service::edge::settings::BlendConfig {
-            backend: nomos_blend_service::edge::backends::libp2p::Libp2pBlendBackendSettings {
-                node_key: self.0.backend.node_key.clone(),
-                // TODO: Allow for edge service settings to be included here.
-                max_dial_attempts_per_peer_per_message: 3
-                    .try_into()
-                    .expect("Max dial attempts per peer per message cannot be zero."),
-                protocol_name: self.0.backend.protocol_name.clone(),
-                // TODO: Allow for edge service settings to be included here.
-                replication_factor: 4
-                    .try_into()
-                    .expect("Edge message replication factor cannot be zero."),
-            },
-            crypto: self.0.crypto.clone(),
-            time: self.0.time.clone(),
-            minimum_network_size: self.0.minimum_network_size,
-        }
+        self.0.clone().into()
     }
 
-    pub const fn get_mut(&mut self) -> &mut <BlendCoreService as ServiceData>::Settings {
-        &mut self.0
+    pub fn set_listening_address(&mut self, listening_address: Multiaddr) {
+        self.0.core.backend.listening_address = listening_address;
+    }
+
+    pub fn set_node_key(&mut self, key: SecretKey) {
+        self.0.core.backend.node_key = key.clone();
+        self.0.edge.backend.node_key = key;
+    }
+
+    pub const fn set_blend_layers(&mut self, layers: u64) {
+        self.0.common.crypto.num_blend_layers = layers;
     }
 }
 
@@ -57,6 +43,6 @@ impl From<BlendConfig>
     )
 {
     fn from(config: BlendConfig) -> Self {
-        (config.proxy(), config.core(), config.edge())
+        (config.0.clone(), config.core(), config.edge())
     }
 }

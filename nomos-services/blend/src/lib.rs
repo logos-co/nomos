@@ -29,9 +29,11 @@ use crate::{
     core::{
         network::NetworkAdapter as NetworkAdapterTrait,
         service_components::{
-            MessageComponents, NetworkBackendOfService, ServiceComponents as CoreServiceComponents,
+            BlendBackendSettingsOfService, MessageComponents, NetworkBackendOfService,
+            ServiceComponents as CoreServiceComponents,
         },
     },
+    edge::service_components::ServiceComponents as EdgeServiceComponents,
     instance::{Instance, Mode},
     membership::{Adapter as _, MembershipInfo},
     settings::{FIRST_STREAM_ITEM_READY_TIMEOUT, Settings},
@@ -59,7 +61,7 @@ const LOG_TARGET: &str = "blend::service";
 pub struct BlendService<CoreService, EdgeService, RuntimeServiceId>
 where
     CoreService: ServiceData + CoreServiceComponents<RuntimeServiceId>,
-    EdgeService: ServiceData,
+    EdgeService: EdgeServiceComponents,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     _phantom: PhantomData<(CoreService, EdgeService)>,
@@ -69,9 +71,12 @@ impl<CoreService, EdgeService, RuntimeServiceId> ServiceData
     for BlendService<CoreService, EdgeService, RuntimeServiceId>
 where
     CoreService: ServiceData + CoreServiceComponents<RuntimeServiceId>,
-    EdgeService: ServiceData,
+    EdgeService: EdgeServiceComponents,
 {
-    type Settings = Settings;
+    type Settings = Settings<
+        BlendBackendSettingsOfService<CoreService, RuntimeServiceId>,
+        <EdgeService as EdgeServiceComponents>::BackendSettings,
+    >;
     type State = NoState<Self::Settings>;
     type StateOperator = NoOperator<Self::State>;
     type Message = CoreService::Message;
@@ -91,13 +96,16 @@ where
                                 + Sync
                                 + 'static,
             NodeId: Clone + Hash + Eq + Send + Sync + 'static,
+            BackendSettings: Clone + Send + Sync,
         > + Send
         + 'static,
     EdgeService: ServiceData<Message = CoreService::Message>
         // We tie the core and edge proofs generator to be the same type, to avoid mistakes in the
         // node configuration where the two services use different verification logic
-        + edge::ServiceComponents<ProofsGenerator = CoreService::ProofsGenerator>
-        + Send
+        + EdgeServiceComponents<
+            BackendSettings: Clone + Send + Sync,
+            ProofsGenerator = CoreService::ProofsGenerator,
+        > + Send
         + 'static,
     EdgeService::MembershipAdapter:
         membership::Adapter<NodeId = CoreService::NodeId, Error: Send + Sync + 'static> + Send,
@@ -142,7 +150,7 @@ where
         } = self;
 
         let settings = settings_handle.notifier().get_updated_settings();
-        let minimal_network_size = settings.minimal_network_size.get() as usize;
+        let minimal_network_size = settings.common.minimum_network_size.get() as usize;
 
         wait_until_services_are_ready!(
             &overwatch_handle,
@@ -155,7 +163,11 @@ where
             overwatch_handle
                 .relay::<MembershipService<EdgeService>>()
                 .await?,
-            settings.crypto.non_ephemeral_signing_key.public_key(),
+            settings
+                .common
+                .crypto
+                .non_ephemeral_signing_key
+                .public_key(),
             // We don't need to generate secret zk info in the proxy service, so we ignore the
             // secret key at this level.
             None,
@@ -167,7 +179,7 @@ where
             UninitializedSessionEventStream::new(
                 membership_stream,
                 FIRST_STREAM_ITEM_READY_TIMEOUT,
-                settings.time.session_transition_period(),
+                settings.common.time.session_transition_period(),
             )
             .await_first_ready()
             .await
