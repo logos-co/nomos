@@ -49,10 +49,10 @@ impl<CoreBackendSettings, EdgeBackendSettings>
         Self {
             backend,
             crypto,
-            minimum_network_size,
             scheduler,
             time,
             zk,
+            minimum_network_size,
         }
     }
 }
@@ -79,8 +79,8 @@ impl<CoreBackendSettings, EdgeBackendSettings>
         Self {
             backend,
             crypto,
-            minimum_network_size,
             time,
+            minimum_network_size,
             cover,
         }
     }

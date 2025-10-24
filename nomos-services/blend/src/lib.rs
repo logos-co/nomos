@@ -61,6 +61,7 @@ const LOG_TARGET: &str = "blend::service";
 pub struct BlendService<CoreService, EdgeService, RuntimeServiceId>
 where
     CoreService: ServiceData + CoreServiceComponents<RuntimeServiceId>,
+    EdgeService: EdgeServiceComponents,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     _phantom: PhantomData<(CoreService, EdgeService)>,
@@ -70,10 +71,11 @@ impl<CoreService, EdgeService, RuntimeServiceId> ServiceData
     for BlendService<CoreService, EdgeService, RuntimeServiceId>
 where
     CoreService: ServiceData + CoreServiceComponents<RuntimeServiceId>,
+    EdgeService: EdgeServiceComponents,
 {
     type Settings = Settings<
         BlendBackendSettingsOfService<CoreService, RuntimeServiceId>,
-        BlendBackendSettingsOfService<EdgeService, RuntimeServiceId>,
+        <EdgeService as EdgeServiceComponents>::BackendSettings,
     >;
     type State = NoState<Self::Settings>;
     type StateOperator = NoOperator<Self::State>;
@@ -100,8 +102,10 @@ where
     EdgeService: ServiceData<Message = CoreService::Message>
         // We tie the core and edge proofs generator to be the same type, to avoid mistakes in the
         // node configuration where the two services use different verification logic
-        + EdgeServiceComponents<ProofsGenerator = CoreService::ProofsGenerator>
-        + Send
+        + EdgeServiceComponents<
+            BackendSettings: Clone + Send + Sync,
+            ProofsGenerator = CoreService::ProofsGenerator,
+        > + Send
         + 'static,
     EdgeService::MembershipAdapter:
         membership::Adapter<NodeId = CoreService::NodeId, Error: Send + Sync + 'static> + Send,

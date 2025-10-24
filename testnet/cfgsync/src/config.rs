@@ -333,7 +333,7 @@ mod cfgsync_tests {
         for (host, config) in &configs {
             let network_port = config.network_config.swarm_config.port;
             let da_network_port = extract_port(&config.da_config.listening_address);
-            let blend_port = extract_port(&config.blend_config.backend.listening_address);
+            let blend_port = extract_port(&config.blend_config.backend_core.listening_address);
 
             assert_eq!(network_port, host.network_port);
             assert_eq!(da_network_port, host.da_network_port);

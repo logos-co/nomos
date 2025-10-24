@@ -1,3 +1,4 @@
+use nomos_libp2p::{Multiaddr, ed25519::SecretKey};
 use overwatch::services::ServiceData;
 use serde::{Deserialize, Serialize};
 
@@ -20,8 +21,17 @@ impl BlendConfig {
         self.0.clone().into()
     }
 
-    pub const fn get_mut(&mut self) -> &mut <BlendCoreService as ServiceData>::Settings {
-        &mut self.0
+    pub fn set_listening_address(&mut self, listening_address: Multiaddr) {
+        self.0.core.backend.listening_address = listening_address;
+    }
+
+    pub fn set_node_key(&mut self, key: SecretKey) {
+        self.0.core.backend.node_key = key.clone();
+        self.0.edge.backend.node_key = key;
+    }
+
+    pub const fn set_blend_layers(&mut self, layers: u64) {
+        self.0.common.crypto.num_blend_layers = layers;
     }
 }
 
@@ -33,6 +43,6 @@ impl From<BlendConfig>
     )
 {
     fn from(config: BlendConfig) -> Self {
-        (config.proxy(), config.core(), config.edge())
+        (config.0.clone(), config.core(), config.edge())
     }
 }
