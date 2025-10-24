@@ -66,7 +66,7 @@ impl Default for CoverTrafficSettings {
 
 impl CoverTrafficSettings {
     #[must_use]
-    pub fn session_quota(
+    pub(crate) fn session_quota(
         &self,
         crypto: &SessionCryptographicProcessorSettings,
         timings: &TimingSettings,
