@@ -357,7 +357,7 @@ where
             },
             session: SessionInfo {
                 membership: current_membership_info.public.membership.clone(),
-                session: current_membership_info.public.session,
+                session_number: current_membership_info.public.session,
                 core_public_inputs: current_membership_info.public.poq_core_public_inputs,
             },
         };
@@ -531,7 +531,7 @@ where
 
             let new_session_info = SessionInfo {
                 membership: new_membership.clone(),
-                session: new_session,
+                session_number: new_session,
                 core_public_inputs: new_core_public_inputs,
             };
             backend.rotate_session(new_session_info.clone()).await;

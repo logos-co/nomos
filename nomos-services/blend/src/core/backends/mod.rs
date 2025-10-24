@@ -47,7 +47,7 @@ where
             },
             session: SessionInfo {
                 membership: Membership::new_without_local(&[]),
-                session: 1,
+                session_number: 1,
                 core_public_inputs: CoreInputs {
                     zk_root: ZkHash::ZERO,
                     quota: 1,
@@ -72,7 +72,7 @@ impl<NodeId> From<Membership<NodeId>> for PublicInfo<NodeId> {
             },
             session: SessionInfo {
                 membership: value,
-                session: 1,
+                session_number: 1,
                 core_public_inputs: CoreInputs {
                     zk_root: ZkHash::ZERO,
                     quota: 1,
@@ -89,7 +89,7 @@ impl<NodeId> From<PublicInfo<NodeId>> for PoQVerificationInputsMinusSigningKey {
             session:
                 SessionInfo {
                     core_public_inputs,
-                    session,
+                    session_number: session,
                     ..
                 },
         }: PublicInfo<NodeId>,
@@ -108,7 +108,7 @@ pub struct SessionInfo<NodeId> {
     /// Current session membership.
     pub membership: Membership<NodeId>,
     /// Current session number.
-    pub session: u64,
+    pub session_number: u64,
     /// Current session `PoQ` verification inputs.
     pub core_public_inputs: CoreInputs,
 }
