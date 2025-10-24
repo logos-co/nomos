@@ -121,7 +121,7 @@ struct SignatureSerde {
     pi_c: GenericArray<u8, U32>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Signature(#[serde(with = "SignatureSerde")] ZkSignProof);
 

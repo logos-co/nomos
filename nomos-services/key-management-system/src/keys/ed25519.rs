@@ -5,7 +5,7 @@ use zeroize::ZeroizeOnDrop;
 
 use crate::keys::{errors::KeyError, secured_key::SecuredKey};
 
-#[derive(Serialize, Deserialize, ZeroizeOnDrop)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Clone, ZeroizeOnDrop)]
 pub struct Ed25519Key(pub(crate) ed25519_dalek::SigningKey);
 
 impl SecuredKey for Ed25519Key {

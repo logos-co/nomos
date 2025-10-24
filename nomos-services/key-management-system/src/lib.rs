@@ -1,5 +1,5 @@
-mod backend;
-mod keys;
+pub mod backend;
+pub mod keys;
 
 use std::{
     fmt::{Debug, Display, Formatter},

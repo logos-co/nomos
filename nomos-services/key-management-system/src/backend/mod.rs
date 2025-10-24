@@ -1,4 +1,3 @@
-#[cfg(feature = "preload")]
 pub mod preload;
 
 use crate::{KMSOperatorBackend, keys::secured_key::SecuredKey};
