@@ -287,8 +287,7 @@ where
                 },
             )
         }
-        .await
-        .fork();
+        .await;
 
         // Initialize clock stream for epoch-related public PoQ inputs.
         let clock_stream = async {
