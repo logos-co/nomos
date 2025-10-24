@@ -12,7 +12,7 @@ use crate::keys::secured_key::SecuredKey;
     dead_code,
     reason = "Variants' usage depends on feature gates: At any point in time, at least one will be unused."
 )]
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq, Eq)]
 pub enum KeyError {
     #[error(transparent)]
     Encoding(EncodingError),
@@ -28,7 +28,7 @@ impl From<EncodingError> for KeyError {
     }
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq, Eq)]
 pub enum EncodingError {
     #[error("Required encoding: {0}")]
     Requires(String),

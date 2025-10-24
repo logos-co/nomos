@@ -80,6 +80,7 @@ fn build_encoding_enum(
         .map(|variant| build_encoding_enum_variant(encoding_type, variant));
 
     quote! {
+        #[derive(Debug, PartialEq, Eq, Clone)]
         pub enum #encoding_enum_ident {
             #(#encoding_enum_variants),*
         }

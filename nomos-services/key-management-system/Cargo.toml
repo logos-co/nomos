@@ -27,10 +27,3 @@ zeroize                      = { workspace = true }
 ed25519-dalek = { default-features = false, features = ["rand_core"], version = "2" }
 rand          = { features = ["getrandom"], workspace = true }
 serde         = { default-features = false, features = ["std"], version = "1" }
-
-[features]
-all-keys    = ["key-ed25519", "key-zk"]
-default     = ["preload"]
-key-ed25519 = []
-key-zk      = []
-preload     = []
