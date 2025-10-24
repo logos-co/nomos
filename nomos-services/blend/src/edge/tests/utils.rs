@@ -28,6 +28,7 @@ use tokio::{sync::mpsc, task::JoinHandle};
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::{
+    core::settings::CoverTrafficSettings,
     edge::{backends::BlendBackend, handlers::Error, run, settings::BlendConfig},
     epoch_info::{EpochHandler, PolEpochInfo, PolInfoProvider},
     membership::MembershipInfo,
@@ -168,6 +169,7 @@ pub fn settings(
         },
         backend: msg_sender,
         minimum_network_size: NonZeroU64::new(minimum_network_size).unwrap(),
+        cover: CoverTrafficSettings::default(),
     }
 }
 

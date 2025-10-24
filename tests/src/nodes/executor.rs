@@ -20,9 +20,7 @@ use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
 use nomos_api::http::membership::MembershipUpdateRequest;
 use nomos_blend_scheduling::message_blend::crypto::SessionCryptographicProcessorSettings;
 use nomos_blend_service::{
-    core::settings::{
-        CoverTrafficSettingsExt, MessageDelayerSettingsExt, SchedulerSettingsExt, ZkSettings,
-    },
+    core::settings::{CoverTrafficSettings, MessageDelayerSettings, SchedulerSettings, ZkSettings},
     settings::TimingSettings,
 };
 use nomos_core::{
@@ -414,14 +412,14 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                 epoch_transition_period_in_slots: NonZeroU64::try_from(2_600)
                     .expect("Epoch transition period in slots cannot be zero."),
             },
-            scheduler: SchedulerSettingsExt {
-                cover: CoverTrafficSettingsExt {
+            scheduler: SchedulerSettings {
+                cover: CoverTrafficSettings {
                     intervals_for_safety_buffer: 100,
                     message_frequency_per_round: NonNegativeF64::try_from(1f64)
                         .expect("Message frequency per round cannot be negative."),
                     redundancy_parameter: 0,
                 },
-                delayer: MessageDelayerSettingsExt {
+                delayer: MessageDelayerSettings {
                     maximum_release_delay_in_rounds: NonZeroU64::try_from(3u64)
                         .expect("Maximum release delay between rounds cannot be zero."),
                 },
@@ -429,7 +427,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
             zk: ZkSettings {
                 sk: config.blend_config.secret_zk_key,
             },
-            minimum_network_size: 1
+            minimal_network_size: 1
                 .try_into()
                 .expect("Minimum Blend network size cannot be zero."),
         }),
