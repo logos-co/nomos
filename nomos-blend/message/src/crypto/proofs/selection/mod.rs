@@ -24,7 +24,7 @@ const DOMAIN_SEPARATION_TAG: [u8; 9] = *b"BlendNode";
 /// A Proof of Selection as described in the Blend v1 spec: <https://www.notion.so/nomos-tech/Blend-Protocol-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81d6bb3febd62b598138>.
 // TODO: To avoid proofs being misused, remove the `Clone` and `Copy` derives,
 // so once a proof is verified it cannot be (mis)used anymore.
-#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct ProofOfSelection {
     #[serde(with = "groth16::serde::serde_fr")]
     selection_randomness: ZkHash,
@@ -65,7 +65,7 @@ impl ProofOfSelection {
         // Condition 1: https://www.notion.so/nomos-tech/Blend-Protocol-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df819991e6f9455ff7ec92
         let selection_randomness_bytes = fr_to_bytes(&self.selection_randomness);
         let selection_randomness_blake_hash =
-            blake2b512(&[&DOMAIN_SEPARATION_TAG[..], &selection_randomness_bytes[..]].concat());
+            blake2b512(&[&DOMAIN_SEPARATION_TAG[..], &selection_randomness_bytes[..]]);
         let pseudo_random_output: u64 = {
             let pseudo_random_output_bytes =
                 pseudo_random_sized_bytes::<8>(&selection_randomness_blake_hash);

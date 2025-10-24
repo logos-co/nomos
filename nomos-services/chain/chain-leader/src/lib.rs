@@ -1,19 +1,21 @@
+use crate::mempool::MempoolAdapter as _;
 mod blend;
 mod leadership;
+mod mempool;
 mod relays;
 
 use core::fmt::Debug;
 use std::{collections::BTreeSet, fmt::Display, time::Duration};
 
 use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
-use cryptarchia_engine::Slot;
-use futures::{StreamExt as _, TryFutureExt as _};
+use cryptarchia_engine::{Epoch, Slot};
+use futures::StreamExt as _;
 pub use leadership::LeaderConfig;
 use nomos_core::{
     block::Block,
     da,
     header::{Header, HeaderId},
-    mantle::{AuthenticatedMantleTx, Op, Transaction, TxHash, TxSelect},
+    mantle::{AuthenticatedMantleTx, Op, Transaction, TxHash, TxSelect, keys::SecretKey},
     proofs::leader_proof::{Groth16LeaderProof, LeaderPrivate},
 };
 use nomos_da_sampling::{
@@ -27,15 +29,21 @@ use overwatch::{
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use services_utils::wait_until_services_are_ready;
 use thiserror::Error;
-use tokio::sync::{broadcast, oneshot};
-use tracing::{Level, debug, error, info, instrument, span};
+use tokio::sync::{oneshot, watch};
+use tracing::{Level, error, info, instrument, span};
 use tracing_futures::Instrument as _;
 use tx_service::{
-    MempoolMsg, TxMempoolService, backend::RecoverableMempool,
-    network::NetworkAdapter as MempoolAdapter,
+    TxMempoolService,
+    backend::{MemPool, RecoverableMempool},
+    network::NetworkAdapter as MempoolNetworkAdapter,
+    storage::MempoolStorageAdapter,
 };
 
-use crate::{blend::BlendAdapter, leadership::Leader, relays::CryptarchiaConsensusRelays};
+use crate::{
+    blend::BlendAdapter,
+    leadership::{Leader, WinningPoLSlotNotifier},
+    relays::CryptarchiaConsensusRelays,
+};
 
 type SamplingRelay<BlobId> = OutboundRelay<DaSamplingServiceMsg<BlobId>>;
 
@@ -55,15 +63,20 @@ pub enum Error {
 
 #[derive(Debug)]
 pub enum LeaderMsg {
-    /// Request a new broadcast receiver that will yield all winning slots of
-    /// the future epochs.
+    /// Request a new receiver that yields PoL-winning slot information.
     ///
-    /// The stream will yield items in one of two cases:
-    /// * a new epoch starts -> winning slots for the new epoch
-    /// * this service has just started mid-epoch -> winning slots for the
-    ///   current epoch
+    /// The stream will yield items in one of the following cases:
+    /// * a new epoch starts -> immediately the first winning slot of the new
+    ///   epoch, if any
+    /// * this service is started mid-epoch -> immediately the first winning
+    ///   slot of the ongoing epoch (the slot can also be in the past compared
+    ///   to the current slot as returned by the time service), if any
+    /// * a new winning slot (other than the very first one in the ongoing
+    ///   epoch) is identified when proposing blocks
+    /// * a new consumer subscribes -> the latest value that was sent to all the
+    ///   other consumers, if any
     WinningPolEpochSlotStreamSubscribe {
-        sender: oneshot::Sender<broadcast::Receiver<LeaderPrivate>>,
+        sender: oneshot::Sender<watch::Receiver<Option<(LeaderPrivate, SecretKey, Epoch)>>>,
     },
 }
 
@@ -87,16 +100,19 @@ pub struct CryptarchiaLeader<
     SamplingStorage,
     TimeBackend,
     CryptarchiaService,
+    Wallet,
     RuntimeServiceId,
 > where
     BlendService: nomos_blend_service::ServiceComponents,
     Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash>,
-    Mempool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
+    Mempool::Storage: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
+    Mempool::RecoveryState: Serialize + DeserializeOwned,
     Mempool::Settings: Clone,
     Mempool::Item: Clone + Eq + Debug + 'static,
     Mempool::Item: AuthenticatedMantleTx,
     MempoolNetAdapter:
-        MempoolAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>,
+        MempoolNetworkAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>,
+    <MempoolNetAdapter as MempoolNetworkAdapter<RuntimeServiceId>>::Settings: Send + Sync,
     TxS: TxSelect<Tx = Mempool::Item>,
     TxS::Settings: Send,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
@@ -107,9 +123,10 @@ pub struct CryptarchiaLeader<
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync + 'static,
     CryptarchiaService: CryptarchiaServiceData,
+    Wallet: nomos_wallet::api::WalletServiceData,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-    winning_pol_epoch_slots_sender: broadcast::Sender<LeaderPrivate>,
+    winning_pol_epoch_slots_sender: watch::Sender<Option<(LeaderPrivate, SecretKey, Epoch)>>,
 }
 
 impl<
@@ -122,6 +139,7 @@ impl<
     SamplingStorage,
     TimeBackend,
     CryptarchiaService,
+    Wallet,
     RuntimeServiceId,
 > ServiceData
     for CryptarchiaLeader<
@@ -134,16 +152,19 @@ impl<
         SamplingStorage,
         TimeBackend,
         CryptarchiaService,
+        Wallet,
         RuntimeServiceId,
     >
 where
     BlendService: nomos_blend_service::ServiceComponents,
     Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash>,
-    Mempool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
+    Mempool::RecoveryState: Serialize + DeserializeOwned,
+    Mempool::Storage: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
     Mempool::Settings: Clone,
     Mempool::Item: AuthenticatedMantleTx + Clone + Eq + Debug,
     MempoolNetAdapter:
-        MempoolAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>,
+        MempoolNetworkAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>,
+    <MempoolNetAdapter as MempoolNetworkAdapter<RuntimeServiceId>>::Settings: Send + Sync,
     TxS: TxSelect<Tx = Mempool::Item>,
     TxS::Settings: Send,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
@@ -154,6 +175,7 @@ where
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync + 'static,
     CryptarchiaService: CryptarchiaServiceData,
+    Wallet: nomos_wallet::api::WalletServiceData,
 {
     type Settings = LeaderSettings<TxS::Settings, BlendService::BroadcastSettings>;
     type State = overwatch::services::state::NoState<Self::Settings>;
@@ -172,6 +194,7 @@ impl<
     SamplingStorage,
     TimeBackend,
     CryptarchiaService,
+    Wallet,
     RuntimeServiceId,
 > ServiceCore<RuntimeServiceId>
     for CryptarchiaLeader<
@@ -184,6 +207,7 @@ impl<
         SamplingStorage,
         TimeBackend,
         CryptarchiaService,
+        Wallet,
         RuntimeServiceId,
     >
 where
@@ -195,7 +219,8 @@ where
         + 'static,
     BlendService::BroadcastSettings: Clone + Send + Sync,
     Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash> + Send + Sync + 'static,
-    Mempool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
+    Mempool::Storage: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
+    Mempool::RecoveryState: Serialize + DeserializeOwned,
     Mempool::Settings: Clone + Send + Sync + 'static,
     Mempool::Item: Transaction<Hash = Mempool::Key>
         + Debug
@@ -208,10 +233,11 @@ where
         + Unpin
         + 'static,
     Mempool::Item: AuthenticatedMantleTx,
-    MempoolNetAdapter: MempoolAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>
+    MempoolNetAdapter: MempoolNetworkAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>
         + Send
         + Sync
         + 'static,
+    <MempoolNetAdapter as MempoolNetworkAdapter<RuntimeServiceId>>::Settings: Send + Sync,
     TxS: TxSelect<Tx = Mempool::Item> + Clone + Send + Sync + 'static,
     TxS::Settings: Send + Sync + 'static,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send + 'static,
@@ -224,6 +250,7 @@ where
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync + 'static,
     CryptarchiaService: CryptarchiaServiceData<Tx = Mempool::Item>,
+    Wallet: nomos_wallet::api::WalletServiceData,
     RuntimeServiceId: Debug
         + Send
         + Sync
@@ -237,6 +264,7 @@ where
                 SamplingNetworkAdapter,
                 SamplingStorage,
                 Mempool,
+                Mempool::Storage,
                 RuntimeServiceId,
             >,
         >
@@ -249,13 +277,14 @@ where
             >,
         >
         + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>
-        + AsServiceId<CryptarchiaService>,
+        + AsServiceId<CryptarchiaService>
+        + AsServiceId<Wallet>,
 {
     fn init(
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
         _initial_state: Self::State,
     ) -> Result<Self, DynError> {
-        let (winning_pol_epoch_slots_sender, _) = broadcast::channel(16);
+        let winning_pol_epoch_slots_sender = watch::Sender::new(None);
 
         Ok(Self {
             service_resources_handle,
@@ -293,9 +322,35 @@ where
 
         // TODO: check active slot coeff is exactly 1/30
 
-        let leader = Leader::new(leader_config.utxos.clone(), leader_config.sk, ledger_config);
+        let leader = Leader::new(leader_config.sk, ledger_config);
+        let mut winning_pol_slot_notifier =
+            WinningPoLSlotNotifier::new(&leader, &self.winning_pol_epoch_slots_sender);
+
+        let wallet_api = nomos_wallet::api::WalletApi::<Wallet, RuntimeServiceId>::new(
+            self.service_resources_handle
+                .overwatch_handle
+                .relay::<Wallet>()
+                .await?,
+        );
 
         let tx_selector = TxS::new(transaction_selector_settings);
+
+        let blend_adapter = BlendAdapter::<BlendService>::new(
+            relays.blend_relay().clone(),
+            blend_broadcast_settings.clone(),
+        );
+
+        wait_until_services_are_ready!(
+            &self.service_resources_handle.overwatch_handle,
+            Some(Duration::from_secs(60)),
+            BlendService,
+            TxMempoolService<_, _, _, _, _,_>,
+            DaSamplingService<_, _, _, _>,
+            TimeService<_, _>,
+            CryptarchiaService,
+            Wallet
+        )
+        .await?;
 
         let mut slot_timer = {
             let (sender, receiver) = oneshot::channel();
@@ -307,32 +362,17 @@ where
             receiver.await?
         };
 
-        let blend_adapter = BlendAdapter::<BlendService>::new(
-            relays.blend_relay().clone(),
-            blend_broadcast_settings.clone(),
-        );
-
         self.service_resources_handle.status_updater.notify_ready();
         info!(
             "Service '{}' is ready.",
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
 
-        wait_until_services_are_ready!(
-            &self.service_resources_handle.overwatch_handle,
-            Some(Duration::from_secs(60)),
-            BlendService,
-            TxMempoolService<_, _, _, _, _>,
-            DaSamplingService<_, _, _, _>,
-            TimeService<_, _>,
-            CryptarchiaService
-        )
-        .await?;
-
         let async_loop = async {
             loop {
                 tokio::select! {
-                    Some(SlotTick { slot, .. }) = slot_timer.next() => {
+                    Some(SlotTick { slot, epoch }) = slot_timer.next() => {
+                        info!("Received SlotTick for slot {}, ep {}", u64::from(slot), u32::from(epoch));
                         let chain_info = match cryptarchia_api.info().await {
                             Ok(info) => info,
                             Err(e) => {
@@ -354,9 +394,7 @@ where
                             }
                         };
 
-                        let aged_tree = tip_state.aged_commitments();
-                        let latest_tree = tip_state.latest_commitments();
-                        debug!("ticking for slot {}", u64::from(slot));
+                        let latest_tree = tip_state.latest_utxos();
 
                         let epoch_state = match cryptarchia_api.get_epoch_state(slot).await {
                             Ok(Some(state)) => state,
@@ -369,8 +407,19 @@ where
                                 continue;
                             }
                         };
-                        if let Some(proof) = leader.build_proof_for(aged_tree, latest_tree, &epoch_state, slot).await {
-                            debug!("proposing block...");
+
+                        let eligible_utxos = match wallet_api.get_leader_aged_notes(parent).await {
+                            Ok(utxos) => utxos,
+                            Err(e) => {
+                                error!("Failed to fetch leader aged notes from wallet: {:?}", e);
+                                continue;
+                            }
+                        };
+
+                        // If it's a new epoch or the service just started, pre-compute the first winning slot and notify consumers.
+                        winning_pol_slot_notifier.process_epoch(&eligible_utxos, &epoch_state);
+
+                        if let Some(proof) = leader.build_proof_for(&eligible_utxos, latest_tree, &epoch_state, slot, &winning_pol_slot_notifier).await {
                             // TODO: spawn as a separate task?
                             let block = Self::propose_block(
                                 parent,
@@ -404,7 +453,7 @@ where
             }
         };
 
-        // It sucks to use `CRYPTARCHIA_ID` when we have `<RuntimeServiceId as
+        // It sucks to use `LEADER_ID` when we have `<RuntimeServiceId as
         // AsServiceId<Self>>::SERVICE_ID`.
         // Somehow it just does not let us use it.
         //
@@ -427,6 +476,7 @@ impl<
     SamplingStorage,
     TimeBackend,
     CryptarchiaService,
+    Wallet,
     RuntimeServiceId,
 >
     CryptarchiaLeader<
@@ -439,6 +489,7 @@ impl<
         SamplingStorage,
         TimeBackend,
         CryptarchiaService,
+        Wallet,
         RuntimeServiceId,
     >
 where
@@ -450,7 +501,7 @@ where
         + 'static,
     BlendService::BroadcastSettings: Send + Sync,
     Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash> + Send + Sync + 'static,
-    Mempool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
+    Mempool::RecoveryState: Serialize + DeserializeOwned,
     Mempool::Settings: Clone + Send + Sync + 'static,
     Mempool::Item: Transaction<Hash = Mempool::Key>
         + Debug
@@ -462,10 +513,12 @@ where
         + Sync
         + 'static,
     Mempool::Item: AuthenticatedMantleTx,
-    MempoolNetAdapter: MempoolAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>
+    MempoolNetAdapter: MempoolNetworkAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>
         + Send
         + Sync
         + 'static,
+    <MempoolNetAdapter as MempoolNetworkAdapter<RuntimeServiceId>>::Settings: Send + Sync,
+    <Mempool as MemPool>::Storage: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
     TxS: TxSelect<Tx = Mempool::Item> + Clone + Send + Sync + 'static,
     TxS::Settings: Send + Sync + 'static,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
@@ -476,6 +529,8 @@ where
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
     CryptarchiaService: CryptarchiaServiceData<Tx = Mempool::Item>,
+    Wallet: nomos_wallet::api::WalletServiceData,
+    RuntimeServiceId: Sync + Send + 'static,
 {
     #[expect(clippy::allow_attributes_without_reason)]
     #[instrument(level = "debug", skip(tx_selector, relays))]
@@ -493,24 +548,28 @@ where
         >,
     ) -> Option<Block<Mempool::Item>> {
         let mut output = None;
-        let txs = get_mempool_contents(relays.mempool_relay().clone()).map_err(DynError::from);
+        let txs = relays.mempool_adapter().get_mempool_view([0; 32].into());
         let sampling_relay = relays.sampling_relay().clone();
         let blobs_ids = get_sampled_blobs(sampling_relay);
         match futures::try_join!(txs, blobs_ids) {
-            Ok((txs, blobs)) => {
-                let txs = tx_selector
-                    .select_tx_from(txs.filter(|tx|
+            Ok((txs_stream, blobs)) => {
+                let filtered_stream = txs_stream.filter(move |tx| {
                     // skip txs that try to include a blob which is not yet sampled
-                    tx.mantle_tx().ops.iter().all(|op| match op {
+                    let is_valid = tx.mantle_tx().ops.iter().all(|op| match op {
                         Op::ChannelBlob(op) => blobs.contains(&op.blob),
                         _ => true,
-                    })))
-                    .collect::<Vec<_>>();
-                let content_id = [0; 32].into(); // TODO: calculate the actual content id
+                    });
 
+                    async move { is_valid }
+                });
+
+                let selected_txs_stream = tx_selector.select_tx_from(filtered_stream);
+                let txs: Vec<_> = selected_txs_stream.collect().await;
+
+                let content_id = [0; 32].into(); // TODO: calculate the actual content id
                 // TODO: this should probably be a proposal or be transformed into a proposal
                 let block = Block::new(Header::new(parent, content_id, slot, proof), txs);
-                debug!("proposed block with id {:?}", block.header().id());
+                info!("proposed block with id {:?}", block.header().id());
                 output = Some(block);
             }
             Err(e) => {
@@ -520,26 +579,6 @@ where
 
         output
     }
-}
-
-async fn get_mempool_contents<Payload, Item, Key>(
-    mempool: OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>,
-) -> Result<Box<dyn Iterator<Item = Item> + Send>, oneshot::error::RecvError>
-where
-    Key: Send,
-    Payload: Send,
-{
-    let (reply_channel, rx) = oneshot::channel();
-
-    mempool
-        .send(MempoolMsg::View {
-            ancestor_hint: [0; 32].into(),
-            reply_channel,
-        })
-        .await
-        .unwrap_or_else(|(e, _)| eprintln!("Could not get transactions from mempool {e}"));
-
-    rx.await
 }
 
 async fn get_sampled_blobs<BlobId>(
@@ -560,7 +599,7 @@ where
 
 fn handle_inbound_message(
     msg: LeaderMsg,
-    winning_pol_epoch_slots_sender: &broadcast::Sender<LeaderPrivate>,
+    winning_pol_epoch_slots_sender: &watch::Sender<Option<(LeaderPrivate, SecretKey, Epoch)>>,
 ) {
     let LeaderMsg::WinningPolEpochSlotStreamSubscribe { sender } = msg;
 

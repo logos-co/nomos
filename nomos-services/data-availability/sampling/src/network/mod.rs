@@ -3,7 +3,7 @@ pub mod adapters;
 use std::{collections::HashSet, pin::Pin};
 
 use futures::Stream;
-use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId};
+use nomos_core::{da::BlobId, header::HeaderId, sdp::SessionNumber};
 use nomos_da_network_service::{
     NetworkService,
     api::ApiAdapter,
@@ -11,6 +11,7 @@ use nomos_da_network_service::{
         NetworkBackend,
         libp2p::common::{CommitmentsEvent, HistoricSamplingEvent, SamplingEvent},
     },
+    sdp::SdpAdapter,
 };
 use overwatch::{
     DynError,
@@ -26,6 +27,7 @@ pub trait NetworkAdapter<RuntimeServiceId> {
     type Storage;
     type MembershipAdapter;
     type ApiAdapter: ApiAdapter;
+    type SdpAdapter: SdpAdapter<RuntimeServiceId>;
 
     async fn new(
         network_relay: OutboundRelay<
@@ -35,6 +37,7 @@ pub trait NetworkAdapter<RuntimeServiceId> {
                 Self::MembershipAdapter,
                 Self::Storage,
                 Self::ApiAdapter,
+                Self::SdpAdapter,
                 RuntimeServiceId,
             > as ServiceData>::Message,
         >,

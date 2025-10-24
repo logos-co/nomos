@@ -18,6 +18,7 @@ use crate::{
             MessageComponents, NetworkBackendOfService, ServiceComponents as CoreServiceComponents,
         },
     },
+    membership::MembershipInfo,
     modes::{self, BroadcastMode, CoreMode, EdgeMode},
 };
 
@@ -135,12 +136,12 @@ where
     /// Handles a session event, potentially causing a mode transition.
     pub async fn handle_session_event(
         self,
-        event: SessionEvent<Membership<CoreService::NodeId>>,
+        event: SessionEvent<MembershipInfo<CoreService::NodeId>>,
         overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
         minimal_network_size: usize,
     ) -> Result<Self, modes::Error> {
         match event {
-            SessionEvent::NewSession(membership) => {
+            SessionEvent::NewSession(MembershipInfo { membership, .. }) => {
                 self.transition(
                     Mode::choose(&membership, minimal_network_size),
                     overwatch_handle,
@@ -238,6 +239,9 @@ where
 
     /// Handles the expiration of the transition period,
     /// by shutting down the previous Core mode if exists.
+    // TODO: Before shutting down the previous Core mode, notify it to submit
+    // activity proof in case it terminates before detecting the end of the
+    // transition period.
     async fn handle_transition_period_expired(self) -> Self {
         match self {
             Self::EdgeAfterCore { mode, prev } => {
@@ -506,7 +510,10 @@ mod tests {
             let instance = instance
                 .handle_session_event(
                     // With an empty membership smaller than the minimal size.
-                    SessionEvent::NewSession(membership(&[], local_node)),
+                    SessionEvent::NewSession(MembershipInfo::from_membership_and_session_number(
+                        membership(&[], local_node),
+                        1,
+                    )),
                     handle,
                     minimal_network_size,
                 )
@@ -528,7 +535,10 @@ mod tests {
             // Broadcast -> Edge
             let instance = instance
                 .handle_session_event(
-                    SessionEvent::NewSession(membership(&[1], local_node)),
+                    SessionEvent::NewSession(MembershipInfo::from_membership_and_session_number(
+                        membership(&[1], local_node),
+                        1,
+                    )),
                     handle,
                     minimal_network_size,
                 )
@@ -539,7 +549,10 @@ mod tests {
             // Edge -> Edge (stay)
             let instance = instance
                 .handle_session_event(
-                    SessionEvent::NewSession(membership(&[1], local_node)),
+                    SessionEvent::NewSession(MembershipInfo::from_membership_and_session_number(
+                        membership(&[1], local_node),
+                        1,
+                    )),
                     handle,
                     minimal_network_size,
                 )
@@ -550,7 +563,10 @@ mod tests {
             // Edge -> Core
             let instance = instance
                 .handle_session_event(
-                    SessionEvent::NewSession(membership(&[1], 1)),
+                    SessionEvent::NewSession(MembershipInfo::from_membership_and_session_number(
+                        membership(&[1], 1),
+                        1,
+                    )),
                     handle,
                     minimal_network_size,
                 )

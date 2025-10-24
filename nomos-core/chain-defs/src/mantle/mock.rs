@@ -5,11 +5,12 @@ use blake2::{
     digest::{Update as _, VariableOutput as _},
 };
 use groth16::Fr;
+use num_bigint::BigUint;
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::{
-    codec::SerdeOp,
-    mantle::{Transaction, TransactionHasher},
+    codec::SerializeOp as _,
+    mantle::{Transaction, TransactionHasher, TxHash},
 };
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, serde::Serialize, serde::Deserialize)]
@@ -21,7 +22,8 @@ pub struct MockTransaction<M> {
 impl<M: Serialize + DeserializeOwned + Clone> MockTransaction<M> {
     pub fn new(content: M) -> Self {
         let id = MockTxId::try_from(
-            <M as SerdeOp>::serialize(&content)
+            content
+                .to_bytes()
                 .expect("MockTransaction should be able to be serialized")
                 .as_ref(),
         )
@@ -54,7 +56,7 @@ impl<M: Serialize + DeserializeOwned + Clone> Transaction for MockTransaction<M>
 impl<M: Serialize + DeserializeOwned + Clone> From<M> for MockTransaction<M> {
     fn from(msg: M) -> Self {
         let id = MockTxId::try_from(
-            <M as SerdeOp>::serialize(&msg)
+            msg.to_bytes()
                 .expect("MockTransaction should be able to be serialized")
                 .as_ref(),
         )
@@ -111,5 +113,13 @@ impl TryFrom<&[u8]> for MockTxId {
 impl<M> From<&MockTransaction<M>> for MockTxId {
     fn from(msg: &MockTransaction<M>) -> Self {
         msg.id
+    }
+}
+
+impl From<MockTxId> for TxHash {
+    fn from(id: MockTxId) -> Self {
+        let bytes = id.0;
+        let big_uint = BigUint::from_bytes_be(&bytes);
+        Self::from(big_uint)
     }
 }

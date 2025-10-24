@@ -18,7 +18,7 @@ use libp2p::{
     },
 };
 use libp2p_stream::Control;
-use nomos_core::{block::SessionNumber, da::BlobId};
+use nomos_core::{da::BlobId, sdp::SessionNumber};
 use nomos_da_messages::{sampling, sampling::SampleResponse};
 use rand::{rngs::ThreadRng, seq::IteratorRandom as _};
 use subnetworks_assignations::MembershipHandler;

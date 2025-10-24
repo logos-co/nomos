@@ -5,6 +5,7 @@ use nomos_da_network_service::{
     NetworkService,
     api::ApiAdapter,
     backends::{NetworkBackend, libp2p::common::BroadcastValidationResultSender},
+    sdp::SdpAdapter,
 };
 use overwatch::services::{ServiceData, relay::OutboundRelay};
 use subnetworks_assignations::MembershipHandler;
@@ -24,6 +25,7 @@ pub trait NetworkAdapter<RuntimeServiceId> {
     type Storage;
     type MembershipAdapter;
     type ApiAdapter: ApiAdapter;
+    type SdpAdapter: SdpAdapter<RuntimeServiceId>;
 
     async fn new(
         settings: Self::Settings,
@@ -34,6 +36,7 @@ pub trait NetworkAdapter<RuntimeServiceId> {
                 Self::MembershipAdapter,
                 Self::Storage,
                 Self::ApiAdapter,
+                Self::SdpAdapter,
                 RuntimeServiceId,
             > as ServiceData>::Message,
         >,

@@ -3,6 +3,7 @@ pub mod api;
 pub mod backends;
 pub mod membership;
 mod opinion_aggregator;
+pub mod sdp;
 pub mod storage;
 
 use std::{
@@ -10,6 +11,7 @@ use std::{
     fmt::{self, Debug, Display},
     marker::PhantomData,
     pin::Pin,
+    sync::Arc,
     time::Duration,
 };
 
@@ -18,7 +20,11 @@ use backends::{ConnectionStatus, NetworkBackend};
 use futures::{Stream, stream::select};
 use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};
 use libp2p::{Multiaddr, PeerId};
-use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId};
+use nomos_core::{
+    da::BlobId,
+    header::HeaderId,
+    sdp::{ProviderId, SessionNumber},
+};
 use nomos_da_network_core::{
     SubnetworkId, addressbook::AddressBookHandler as _,
     protocols::sampling::opinions::OpinionEvent, swarm::BalancerStats,
@@ -48,10 +54,11 @@ use crate::{
     addressbook::{AddressBook, AddressBookSnapshot},
     api::ApiAdapter as ApiAdapterTrait,
     membership::{
-        MembershipAdapter,
+        MembershipAdapter, SubnetworkPeers,
         handler::{DaMembershipHandler, SharedMembershipHandler},
     },
-    opinion_aggregator::OpinionAggregator,
+    opinion_aggregator::{OpinionAggregator, OpinionError},
+    sdp::SdpAdapter as SdpAdapterTrait,
 };
 
 pub type DaAddressbook = AddressBook;
@@ -155,6 +162,7 @@ pub struct NetworkService<
     MembershipServiceAdapter,
     StorageAdapter,
     ApiAdapter,
+    SdpAdapter,
     RuntimeServiceId,
 > where
     Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
@@ -166,7 +174,6 @@ pub struct NetworkService<
     membership: DaMembershipHandler<Membership>,
     addressbook: DaAddressbook,
     api_adapter: ApiAdapter,
-    phantom: PhantomData<MembershipServiceAdapter>,
     subnet_refresh_sender: Sender<()>,
     balancer_stats_stream: UnboundedReceiverStream<BalancerStats>,
     opinion_stream: UnboundedReceiverStream<OpinionEvent>,
@@ -191,14 +198,22 @@ pub struct NetworkState<
     )>,
 }
 
-impl<Backend, Membership, MembershipServiceAdapter, StorageAdapter, ApiAdapter, RuntimeServiceId>
-    ServiceData
+impl<
+    Backend,
+    Membership,
+    MembershipServiceAdapter,
+    StorageAdapter,
+    ApiAdapter,
+    SdpAdapter,
+    RuntimeServiceId,
+> ServiceData
     for NetworkService<
         Backend,
         Membership,
         MembershipServiceAdapter,
         StorageAdapter,
         ApiAdapter,
+        SdpAdapter,
         RuntimeServiceId,
     >
 where
@@ -220,14 +235,22 @@ where
 }
 
 #[async_trait]
-impl<Backend, Membership, MembershipServiceAdapter, StorageAdapter, ApiAdapter, RuntimeServiceId>
-    ServiceCore<RuntimeServiceId>
+impl<
+    Backend,
+    Membership,
+    MembershipServiceAdapter,
+    StorageAdapter,
+    ApiAdapter,
+    SdpAdapter,
+    RuntimeServiceId,
+> ServiceCore<RuntimeServiceId>
     for NetworkService<
         Backend,
         Membership,
         MembershipServiceAdapter,
         StorageAdapter,
         ApiAdapter,
+        SdpAdapter,
         RuntimeServiceId,
     >
 where
@@ -256,6 +279,7 @@ where
         + Sync
         + 'static,
     ApiAdapter::Settings: Clone + Send + Sync,
+    SdpAdapter: SdpAdapterTrait<RuntimeServiceId> + Send + Sync,
     <MembershipServiceAdapter::MembershipService as ServiceData>::Message: Send + Sync + 'static,
     RuntimeServiceId: AsServiceId<Self>
         + Clone
@@ -311,7 +335,6 @@ where
             membership,
             addressbook,
             api_adapter,
-            phantom: PhantomData,
             subnet_refresh_sender,
             balancer_stats_stream,
             opinion_stream,
@@ -345,13 +368,20 @@ where
             .relay::<StorageAdapter::StorageService>()
             .await?;
 
-        let storage_adapter = StorageAdapter::new(storage_service_relay);
-        let membership_storage =
-            MembershipStorage::new(storage_adapter, membership.clone(), addressbook.clone());
+        let storage_adapter = Arc::new(StorageAdapter::new(storage_service_relay));
+        let membership_storage = MembershipStorage::new(
+            Arc::clone(&storage_adapter),
+            membership.clone(),
+            addressbook.clone(),
+        );
 
         let membership_service_adapter = MembershipServiceAdapter::new(membership_service_relay);
 
-        let mut opinion_aggregator = OpinionAggregator::<Membership>::new(backend.local_peer_id());
+        let sdp_adapter = SdpAdapter::new(overwatch_handle).await?;
+
+        let (local_peer_id, local_provider_id) = backend.local_peer_id();
+        let mut opinion_aggregator =
+            OpinionAggregator::new(storage_adapter, local_peer_id, local_provider_id);
 
         wait_until_services_are_ready!(
             &self.service_resources_handle.overwatch_handle,
@@ -384,27 +414,29 @@ where
                 Some(msg) = inbound_relay.recv() => {
                     Self::handle_network_service_message(msg, backend, &membership_storage, api_adapter, addressbook).await;
                 }
-                Some((session_id, providers)) = membership_updates_stream.next() => {
-                    if providers.is_empty() {
+                Some(update) = membership_updates_stream.next() => {
+                    if update.peers.is_empty() {
                         // todo: this is a short term fix, handle empty providers in assignations
-                        tracing::error!("Received empty membership for session {session_id}: skipping session update");
+                        tracing::error!("Received empty membership for session {}: skipping session update", update.session_id);
                         continue
                     }
                     tracing::debug!(
                         "Received membership update for session {}: {:?}",
-                        session_id, providers
+                        update.session_id, update.peers
                     );
-                    match Self::handle_membership_update(session_id, providers, &membership_storage).await {
-                        Ok(current_membership) => {
-                            let opinions = opinion_aggregator.handle_session_change(current_membership);
-                            if let Some(opinions) = opinions {
-                                tracing::debug!("Processing opinions {opinions:?}");
-                                // todo: sdp_adapter.process_opinions(opinions).await;
-                            }
+
+                    Self::handle_opinion_session_change(&sdp_adapter, &mut opinion_aggregator, &update).await;
+                    match Self::handle_membership_update(
+                        update.session_id,
+                        update.peers,
+                        &membership_storage,
+                        update.provider_mappings,
+                    ).await {
+                        Ok(_) => {
                             let _ = subnet_refresh_sender.send(()).await;
                         }
                         Err(e) => {
-                            tracing::error!("Error handling membership update for session {session_id}: {e}");
+                            tracing::error!("Error handling membership update for session {}: {e}", update.session_id);
                         }
                     }
                 }
@@ -426,14 +458,22 @@ where
     }
 }
 
-impl<Backend, Membership, MembershipServiceAdapter, StorageAdapter, ApiAdapter, RuntimeServiceId>
-    Drop
+impl<
+    Backend,
+    Membership,
+    MembershipServiceAdapter,
+    StorageAdapter,
+    ApiAdapter,
+    SdpAdapter,
+    RuntimeServiceId,
+> Drop
     for NetworkService<
         Backend,
         Membership,
         MembershipServiceAdapter,
         StorageAdapter,
         ApiAdapter,
+        SdpAdapter,
         RuntimeServiceId,
     >
 where
@@ -446,13 +486,22 @@ where
     }
 }
 
-impl<Backend, Membership, MembershipServiceAdapter, StorageAdapter, ApiAdapter, RuntimeServiceId>
+impl<
+    Backend,
+    Membership,
+    MembershipServiceAdapter,
+    StorageAdapter,
+    ApiAdapter,
+    SdpAdapter,
+    RuntimeServiceId,
+>
     NetworkService<
         Backend,
         Membership,
         MembershipServiceAdapter,
         StorageAdapter,
         ApiAdapter,
+        SdpAdapter,
         RuntimeServiceId,
     >
 where
@@ -464,6 +513,7 @@ where
     ApiAdapter:
         ApiAdapterTrait<BlobId = BlobId, Commitments = DaSharesCommitments> + Send + Sync + 'static,
     ApiAdapter::Settings: Clone + Send,
+    SdpAdapter: SdpAdapterTrait<RuntimeServiceId> + Send + Sync,
     Backend: NetworkBackend<RuntimeServiceId, HistoricMembership = SharedMembershipHandler<Membership>>
         + Send
         + Sync
@@ -475,7 +525,7 @@ where
     async fn handle_network_service_message(
         msg: DaNetworkMsg<Backend, DaSharesCommitments, RuntimeServiceId>,
         backend: &mut Backend,
-        membership_storage: &MembershipStorage<StorageAdapter, Membership, DaAddressbook>,
+        membership_storage: &MembershipStorage<Arc<StorageAdapter>, Membership, DaAddressbook>,
         api_adapter: &ApiAdapter,
         addressbook: &DaAddressbook,
     ) {
@@ -562,14 +612,18 @@ where
     async fn handle_membership_update(
         session_id: SessionNumber,
         update: HashMap<Membership::Id, Multiaddr>,
-        storage: &MembershipStorage<StorageAdapter, Membership, DaAddressbook>,
+        storage: &MembershipStorage<Arc<StorageAdapter>, Membership, DaAddressbook>,
+        provider_mappings: HashMap<Membership::Id, ProviderId>,
     ) -> Result<Membership, DynError> {
-        let current_membership = storage.update(session_id, update).await?;
+        let current_membership = storage
+            .update(session_id, update, provider_mappings)
+            .await?;
         Ok(current_membership)
     }
+
     async fn handle_historic_sample_request(
         backend: &Backend,
-        membership_storage: &MembershipStorage<StorageAdapter, Membership, AddressBook>,
+        membership_storage: &MembershipStorage<Arc<StorageAdapter>, Membership, AddressBook>,
         session_id: SessionNumber,
         block_id: HeaderId,
         blob_ids: HashSet<[u8; 32]>,
@@ -588,6 +642,33 @@ where
             send.await;
         } else {
             tracing::error!("No membership found for session {session_id}");
+        }
+    }
+
+    async fn handle_opinion_session_change(
+        sdp_adapter: &SdpAdapter,
+        opinion_aggregator: &mut OpinionAggregator<Arc<StorageAdapter>>,
+        new_providers: &SubnetworkPeers<Membership::Id>,
+    ) {
+        let opinions = match opinion_aggregator
+            .handle_session_change(new_providers)
+            .await
+        {
+            Ok(opinions) => opinions,
+            Err(OpinionError::InsufficientData) => {
+                tracing::debug!(
+                    "Insufficient data to generate opinions (first session), skip forming session"
+                );
+                return;
+            }
+            Err(OpinionError::Error(e)) => {
+                tracing::error!("Failed to generate opinions: {e}");
+                return;
+            }
+        };
+
+        if let Err(err) = sdp_adapter.post_activity(opinions).await {
+            tracing::error!("Could not post activity opinions: {err}");
         }
     }
 }

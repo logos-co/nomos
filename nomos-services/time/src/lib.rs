@@ -26,7 +26,7 @@ use crate::backends::TimeBackend;
 
 pub mod backends;
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SlotTick {
     pub epoch: Epoch,
     pub slot: Slot,

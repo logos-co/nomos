@@ -1,5 +1,5 @@
 use libp2p::PeerId;
-use nomos_core::block::SessionNumber;
+use nomos_core::sdp::SessionNumber;
 
 #[derive(Debug, Clone)]
 pub enum Opinion {

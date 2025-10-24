@@ -34,7 +34,7 @@ impl AsRef<[u8]> for Witness {
     }
 }
 
-pub fn generate_witness(inputs: &PoQWitnessInputs) -> Result<Witness, std::io::Error> {
+pub fn generate_witness(inputs: PoQWitnessInputs) -> Result<Witness, std::io::Error> {
     let poq_inputs_json: PoQInputsJson = inputs.into();
     let str_inputs: String =
         serde_json::to_string(&poq_inputs_json).expect("Failed to serialize inputs");

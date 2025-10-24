@@ -1,7 +1,9 @@
-use std::hash::Hash;
+use std::{hash::Hash, pin::Pin};
 
+use futures::Stream;
 use thiserror::Error;
 
+pub mod encoding;
 pub mod gas;
 pub mod genesis_tx;
 pub mod keys;
@@ -11,6 +13,7 @@ pub mod mock;
 pub mod ops;
 pub mod select;
 pub mod tx;
+pub mod tx_builder;
 
 pub use gas::{GasConstants, GasCost};
 use groth16::Fr;
@@ -20,6 +23,8 @@ pub use ops::{Op, OpProof};
 pub use tx::{MantleTx, SignedMantleTx, TxHash};
 
 use crate::proofs::zksig::ZkSignatureProof;
+
+pub const MAX_MANTLE_TXS: usize = 1024;
 
 pub type TransactionHasher<T> = fn(&T) -> <T as Transaction>::Hash;
 
@@ -44,13 +49,14 @@ pub trait AuthenticatedMantleTx: Transaction<Hash = TxHash> + GasCost {
     /// Returns the proof of the ledger transaction
     fn ledger_tx_proof(&self) -> &impl ZkSignatureProof;
 
-    fn ops_with_proof(&self) -> impl Iterator<Item = (&Op, Option<&OpProof>)>;
+    fn ops_with_proof(&self) -> impl Iterator<Item = (&Op, &OpProof)>;
 }
 
 /// A genesis transaction as specified in
 //  https://www.notion.so/nomos-tech/Bedrock-Genesis-Block-21d261aa09df80bb8dc3c768802eb527?d=27a261aa09df808e9c66001cf0585dee
-pub trait GenesisTx: AuthenticatedMantleTx {
+pub trait GenesisTx: Transaction<Hash = TxHash> {
     fn genesis_inscription(&self) -> &InscriptionOp;
+    fn mantle_tx(&self) -> &MantleTx;
 }
 
 impl<T: Transaction> Transaction for &T {
@@ -71,8 +77,18 @@ impl<T: AuthenticatedMantleTx> AuthenticatedMantleTx for &T {
         T::ledger_tx_proof(self)
     }
 
-    fn ops_with_proof(&self) -> impl Iterator<Item = (&Op, Option<&OpProof>)> {
+    fn ops_with_proof(&self) -> impl Iterator<Item = (&Op, &OpProof)> {
         T::ops_with_proof(self)
+    }
+}
+
+impl<T: GenesisTx> GenesisTx for &T {
+    fn genesis_inscription(&self) -> &InscriptionOp {
+        T::genesis_inscription(self)
+    }
+
+    fn mantle_tx(&self) -> &MantleTx {
+        T::mantle_tx(self)
     }
 }
 
@@ -81,10 +97,9 @@ pub trait TxSelect {
     type Settings: Clone;
     fn new(settings: Self::Settings) -> Self;
 
-    fn select_tx_from<'i, I: Iterator<Item = Self::Tx> + 'i>(
-        &self,
-        txs: I,
-    ) -> impl Iterator<Item = Self::Tx> + 'i;
+    fn select_tx_from<'i, S>(&self, txs: S) -> Pin<Box<dyn Stream<Item = Self::Tx> + Send + 'i>>
+    where
+        S: Stream<Item = Self::Tx> + Send + 'i;
 }
 
 #[derive(Debug, Error)]

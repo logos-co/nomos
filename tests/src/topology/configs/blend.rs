@@ -3,16 +3,19 @@ use std::{num::NonZeroU64, str::FromStr as _};
 
 use nomos_blend_message::crypto::keys::Ed25519PrivateKey;
 use nomos_blend_service::core::backends::libp2p::Libp2pBlendBackendSettings;
+use nomos_core::mantle::keys::SecretKey;
 use nomos_libp2p::{
     Multiaddr,
     ed25519::{self},
     protocol_name::StreamProtocol,
 };
+use num_bigint::BigUint;
 
 #[derive(Clone)]
 pub struct GeneralBlendConfig {
     pub backend: Libp2pBlendBackendSettings,
     pub private_key: Ed25519PrivateKey,
+    pub secret_zk_key: SecretKey,
 }
 
 #[must_use]
@@ -24,6 +27,9 @@ pub fn create_blend_configs(ids: &[[u8; 32]], ports: &[u16]) -> Vec<GeneralBlend
             let node_key = ed25519::SecretKey::try_from_bytes(&mut node_key_bytes)
                 .expect("Failed to generate secret key from bytes");
 
+            let private_key = Ed25519PrivateKey::from(*id);
+            let secret_zk_key =
+                SecretKey::from(BigUint::from_bytes_le(private_key.public_key().as_bytes()));
             GeneralBlendConfig {
                 backend: Libp2pBlendBackendSettings {
                     listening_address: Multiaddr::from_str(&format!(
@@ -43,7 +49,8 @@ pub fn create_blend_configs(ids: &[[u8; 32]], ports: &[u16]) -> Vec<GeneralBlend
                         .expect("Max dial attempts per peer cannot be zero."),
                     protocol_name: StreamProtocol::new("/blend/integration-tests"),
                 },
-                private_key: Ed25519PrivateKey::from(*id),
+                private_key,
+                secret_zk_key,
             }
         })
         .collect()

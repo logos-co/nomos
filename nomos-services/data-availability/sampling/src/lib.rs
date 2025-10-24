@@ -14,7 +14,7 @@ use backend::{DaSamplingServiceBackend, SamplingState};
 use futures::{FutureExt as _, Stream, future::BoxFuture, stream::FuturesUnordered};
 use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
 use network::NetworkAdapter;
-use nomos_core::{block::SessionNumber, da::BlobId, header::HeaderId};
+use nomos_core::{da::BlobId, header::HeaderId, sdp::SessionNumber};
 use nomos_da_network_core::protocols::sampling::errors::SamplingError;
 use nomos_da_network_service::{
     NetworkService,
@@ -583,6 +583,7 @@ where
                 SamplingNetwork::MembershipAdapter,
                 SamplingNetwork::Storage,
                 SamplingNetwork::ApiAdapter,
+                SamplingNetwork::SdpAdapter,
                 RuntimeServiceId,
             >,
         > + AsServiceId<StorageService<SamplingStorage::Backend, RuntimeServiceId>>
@@ -615,7 +616,7 @@ where
 
         let network_relay = service_resources_handle
             .overwatch_handle
-            .relay::<NetworkService<_, _, _, _, _, _>>()
+            .relay::<NetworkService<_, _, _, _, _, _, _>>()
             .await?;
         let mut network_adapter = SamplingNetwork::new(network_relay).await;
         let mut sampling_message_stream = network_adapter.listen_to_sampling_messages().await?;
@@ -641,7 +642,7 @@ where
         wait_until_services_are_ready!(
             &service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
-            NetworkService<_, _, _, _,_, _>,
+            NetworkService<_, _, _, _,_, _, _>,
             StorageService<_, _>
         )
         .await?;

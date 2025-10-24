@@ -1,12 +1,13 @@
 use bytes::Bytes;
 use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
 use nomos_core::{
+    codec::{DeserializeOp as _, SerializeOp as _},
     da::{BlobId, blob::Share},
     mantle::SignedMantleTx,
 };
 use nomos_storage::{
     api::da::{DaConverter, StorageDaApi},
-    backends::{SerdeOp, rocksdb::RocksBackend},
+    backends::rocksdb::RocksBackend,
 };
 
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
@@ -38,34 +39,34 @@ impl DaConverter<RocksBackend> for DaStorageConverter {
     }
 
     fn share_to_storage(service_share: DaLightShare) -> Result<Bytes, Self::Error> {
-        <DaLightShare as SerdeOp>::serialize(&service_share)
+        service_share.to_bytes()
     }
 
     fn share_from_storage(backend_share: Bytes) -> Result<DaLightShare, Self::Error> {
-        <DaLightShare as SerdeOp>::deserialize(&backend_share)
+        DaLightShare::from_bytes(&backend_share)
     }
 
     fn commitments_to_storage(
         service_commitments: DaSharesCommitments,
     ) -> Result<Bytes, Self::Error> {
-        <DaSharesCommitments as SerdeOp>::serialize(&service_commitments)
+        service_commitments.to_bytes()
     }
 
     fn commitments_from_storage(
         backend_commitments: Bytes,
     ) -> Result<DaSharesCommitments, Self::Error> {
-        <DaSharesCommitments as SerdeOp>::deserialize(&backend_commitments)
+        DaSharesCommitments::from_bytes(&backend_commitments)
     }
 
     fn tx_to_storage(
         service_tx: SignedMantleTx,
     ) -> Result<<RocksBackend as StorageDaApi>::Tx, Self::Error> {
-        <SignedMantleTx as SerdeOp>::serialize(&service_tx)
+        service_tx.to_bytes()
     }
 
     fn tx_from_storage(
         backend_tx: <RocksBackend as StorageDaApi>::Tx,
     ) -> Result<SignedMantleTx, Self::Error> {
-        <SignedMantleTx as SerdeOp>::deserialize(&backend_tx)
+        SignedMantleTx::from_bytes(&backend_tx)
     }
 }

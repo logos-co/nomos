@@ -5,7 +5,7 @@ use zeroize::ZeroizeOnDrop;
 
 use crate::keys::{errors::KeyError, secured_key::SecuredKey};
 
-#[derive(Serialize, Deserialize, ZeroizeOnDrop)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Clone, ZeroizeOnDrop)]
 pub struct Ed25519Key(pub(crate) ed25519_dalek::SigningKey);
 
 impl SecuredKey for Ed25519Key {
@@ -16,6 +16,13 @@ impl SecuredKey for Ed25519Key {
 
     fn sign(&self, payload: &Self::Payload) -> Result<Self::Signature, Self::Error> {
         Ok(self.0.sign(payload.iter().as_slice()))
+    }
+
+    fn sign_multiple(
+        _keys: &[&Self],
+        _payload: &Self::Payload,
+    ) -> Result<Self::Signature, Self::Error> {
+        unimplemented!("Multi-key signature is not implemented for Ed25519 keys.")
     }
 
     fn as_public_key(&self) -> VerifyingKey {

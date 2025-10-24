@@ -4,7 +4,7 @@ use cryptarchia_engine::{Epoch, Slot};
 use groth16::{Fr, fr_from_bytes};
 use nomos_core::{
     crypto::{ZkDigest, ZkHasher},
-    mantle::{AuthenticatedMantleTx, NoteId, Utxo, Value, gas::GasConstants},
+    mantle::{AuthenticatedMantleTx, GenesisTx, NoteId, Utxo, Value, gas::GasConstants},
     proofs::{
         leader_proof::{self, LeaderPublic},
         zksig::{ZkSignatureProof as _, ZkSignaturePublic},
@@ -13,7 +13,7 @@ use nomos_core::{
 
 pub type UtxoTree = utxotree::UtxoTree<NoteId, Utxo, ZkHasher>;
 use super::{Balance, Config, LedgerError};
-use crate::mantle::locked_notes::LockedNotes;
+use crate::mantle::sdp::locked_notes::LockedNotes;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -166,8 +166,8 @@ impl LedgerState {
     {
         assert_eq!(config.epoch(slot), self.epoch_state.epoch);
         let public_inputs = LeaderPublic::new(
-            self.aged_commitments().root(),
-            self.latest_commitments().root(),
+            self.aged_utxos().root(),
+            self.latest_utxos().root(),
             self.epoch_state.nonce,
             slot.into(),
             self.epoch_state.total_stake,
@@ -268,17 +268,17 @@ impl LedgerState {
     }
 
     #[must_use]
-    pub const fn latest_commitments(&self) -> &UtxoTree {
+    pub const fn latest_utxos(&self) -> &UtxoTree {
         &self.utxos
     }
 
     #[must_use]
-    pub const fn aged_commitments(&self) -> &UtxoTree {
+    pub const fn aged_utxos(&self) -> &UtxoTree {
         &self.epoch_state.utxos
     }
 
     pub fn from_genesis_tx<Id>(
-        tx: impl AuthenticatedMantleTx,
+        tx: impl GenesisTx,
         epoch_nonce: Fr,
     ) -> Result<Self, LedgerError<Id>> {
         if !tx.mantle_tx().ledger_tx.inputs.is_empty() {
@@ -339,7 +339,7 @@ impl core::fmt::Debug for LedgerState {
 
 #[cfg(test)]
 pub mod tests {
-    use std::num::NonZero;
+    use std::{num::NonZero, sync::Arc};
 
     use cryptarchia_engine::EpochConfig;
     use groth16::Field as _;
@@ -350,6 +350,7 @@ pub mod tests {
             gas::MainnetGasConstants, ledger::Tx as LedgerTx, ops::leader_claim::VoucherCm,
         },
         proofs::zksig::DummyZkSignature,
+        sdp::{ServiceParameters, ServiceType},
     };
     use num_bigint::BigUint;
     use rand::{RngCore as _, thread_rng};
@@ -378,6 +379,10 @@ pub mod tests {
     impl LeaderProof for DummyProof {
         fn verify(&self, public_inputs: &LeaderPublic) -> bool {
             &self.public == public_inputs
+        }
+
+        fn verify_genesis(&self) -> bool {
+            true
         }
 
         fn entropy(&self) -> Fr {
@@ -433,20 +438,20 @@ pub mod tests {
     // produce a proof for a note
     #[must_use]
     pub fn generate_proof(ledger_state: &LedgerState, utxo: &Utxo, slot: Slot) -> DummyProof {
-        let latest_tree = ledger_state.latest_commitments();
-        let aged_tree = ledger_state.aged_commitments();
+        let latest_tree = ledger_state.latest_utxos();
+        let aged_tree = ledger_state.aged_utxos();
         DummyProof {
             public: LeaderPublic::new(
                 if aged_tree.contains(&utxo.id()) {
                     aged_tree.root()
                 } else {
-                    println!("Note not found in aged commitments, using zero root");
+                    println!("Note not found in aged utxos, using zero root");
                     Fr::from(0u8)
                 },
                 if latest_tree.contains(&utxo.id()) {
                     latest_tree.root()
                 } else {
-                    println!("Note not found in latest commitments, using zero root");
+                    println!("Note not found in latest utxos, using zero root");
                     Fr::from(0u8)
                 },
                 ledger_state.epoch_state.nonce,
@@ -459,7 +464,7 @@ pub mod tests {
     }
 
     #[must_use]
-    pub const fn config() -> Config {
+    pub fn config() -> Config {
         Config {
             epoch_config: EpochConfig {
                 epoch_stake_distribution_stabilization: NonZero::new(4).unwrap(),
@@ -470,15 +475,36 @@ pub mod tests {
                 security_param: NonZero::new(1).unwrap(),
                 active_slot_coeff: 1.0,
             },
-            service_params: nomos_core::sdp::ServiceParameters {
-                lock_period: 10,
-                inactivity_period: 20,
-                retention_period: 100,
-                timestamp: 0,
-            },
-            min_stake: nomos_core::sdp::MinStake {
-                threshold: 1,
-                timestamp: 0,
+            sdp_config: crate::mantle::sdp::Config {
+                service_params: Arc::new(
+                    [
+                        (
+                            ServiceType::BlendNetwork,
+                            ServiceParameters {
+                                lock_period: 10,
+                                inactivity_period: 20,
+                                retention_period: 100,
+                                timestamp: 0,
+                                session_duration: 10,
+                            },
+                        ),
+                        (
+                            ServiceType::DataAvailability,
+                            ServiceParameters {
+                                lock_period: 10,
+                                inactivity_period: 20,
+                                retention_period: 100,
+                                timestamp: 0,
+                                session_duration: 10,
+                            },
+                        ),
+                    ]
+                    .into(),
+                ),
+                min_stake: nomos_core::sdp::MinStake {
+                    threshold: 1,
+                    timestamp: 0,
+                },
             },
         }
     }
@@ -534,7 +560,7 @@ pub mod tests {
     ) -> HeaderId {
         let id = update_ledger(ledger, parent, slot, utxo_proof).unwrap();
         // we still don't have transactions, so the only way to add a commitment to
-        // spendable commitments and test epoch snapshotting is by doing this
+        // spendable utxos and test epoch snapshotting is by doing this
         // manually
         let mut block_state = ledger.states[&id].clone().cryptarchia_ledger;
         block_state.utxos = block_state.utxos.insert(utxo_add.id(), utxo_add).0;
@@ -682,7 +708,7 @@ pub mod tests {
         let proof = DummyProof {
             public: LeaderPublic {
                 aged_root: Fr::from(0u8), // Invalid aged root
-                latest_root: ledger_state.latest_commitments().root(),
+                latest_root: ledger_state.latest_utxos().root(),
                 epoch_nonce: ledger_state.epoch_state.nonce,
                 slot: slot.into(),
                 total_stake: ledger_state.epoch_state.total_stake,
@@ -705,7 +731,7 @@ pub mod tests {
         let slot = Slot::genesis() + 1;
         let proof = DummyProof {
             public: LeaderPublic {
-                aged_root: ledger_state.aged_commitments().root(),
+                aged_root: ledger_state.aged_utxos().root(),
                 latest_root: BigUint::from(1u8).into(), // Invalid latest root
                 epoch_nonce: ledger_state.epoch_state.nonce,
                 slot: slot.into(),
@@ -736,7 +762,7 @@ pub mod tests {
         };
         SignedMantleTx {
             ops_proofs: vec![],
-            ledger_tx_proof: DummyZkSignature::prove(ZkSignaturePublic {
+            ledger_tx_proof: DummyZkSignature::prove(&ZkSignaturePublic {
                 pks,
                 msg_hash: mantle_tx.hash().into(),
             }),
@@ -912,34 +938,5 @@ pub mod tests {
 
         let result = ledger_state.try_apply_tx::<(), MainnetGasConstants>(&locked_notes, tx);
         assert!(matches!(result, Err(LedgerError::ZeroValueNote)));
-    }
-
-    #[test]
-    fn test_input_in_genesis() {
-        let input_utxo = Utxo {
-            tx_hash: Fr::from(BigUint::from(1u8)).into(),
-            output_index: 0,
-            note: Note::new(10000, Fr::from(BigUint::from(1u8)).into()),
-        };
-
-        let tx = create_tx(
-            &[&input_utxo],
-            vec![Note::new(0, Fr::from(BigUint::from(2u8)).into())],
-        );
-
-        assert!(matches!(
-            LedgerState::from_genesis_tx::<()>(tx, Fr::ZERO),
-            Err(LedgerError::InputInGenesis(_))
-        ));
-        let tx = create_tx(
-            &[],
-            vec![Note::new(10000, Fr::from(BigUint::from(2u8)).into())],
-        );
-        assert_eq!(
-            LedgerState::from_genesis_tx::<()>(tx, Fr::ONE)
-                .unwrap()
-                .nonce,
-            Fr::ONE
-        );
     }
 }

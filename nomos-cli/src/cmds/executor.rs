@@ -2,26 +2,27 @@ use std::{path::PathBuf, sync::mpsc::Sender};
 
 use clap::Args;
 use executor_http_client::{BasicAuthCredentials, ExecutorHttpClient};
-use kzgrs_backend::{dispersal::Metadata, encoder::DaEncoderParams};
-use nomos_core::{da::BlobId, mantle::ops::channel::ChannelId};
+use kzgrs_backend::encoder::DaEncoderParams;
+use nomos_core::{
+    da::BlobId,
+    mantle::ops::channel::{ChannelId, Ed25519PublicKey, MsgId},
+};
 use reqwest::Url;
 
 #[derive(Args, Debug)]
 pub struct Disseminate {
     #[clap(short, long)]
     pub channel_id: String,
+    #[clap(short, long)]
+    pub parent_msg_id: String,
+    #[clap(short, long)]
+    pub signer: String,
     /// Text to disseminate.
     #[clap(short, long, required_unless_present("file"))]
     pub data: Option<String>,
     /// File to disseminate.
     #[clap(short, long)]
     pub file: Option<PathBuf>,
-    /// Application ID for dispersed data.
-    #[clap(long)]
-    pub app_id: String,
-    /// Index for the Blob associated with Application ID.
-    #[clap(long)]
-    pub index: u64,
     /// Executor address which is responsible for dissemination.
     #[clap(long)]
     pub addr: Url,
@@ -62,11 +63,15 @@ impl Disseminate {
 
         let channel_id: [u8; 32] = hex::decode(&self.channel_id)?
             .try_into()
-            .map_err(|_| "Invalid app_id")?;
-        let app_id: [u8; 32] = hex::decode(&self.app_id)?
+            .map_err(|_| "Invalid channel_id")?;
+        let parent_msg_id: [u8; 32] = hex::decode(&self.parent_msg_id)?
             .try_into()
-            .map_err(|_| "Invalid app_id")?;
-        let metadata = Metadata::new(app_id, self.index.into());
+            .map_err(|_| "Invalid parent_msg_id")?;
+        let signer_bytes: [u8; 32] = hex::decode(&self.signer)?
+            .try_into()
+            .map_err(|_| "Invalid signer hex: must be 32 bytes")?;
+        let signer: Ed25519PublicKey = Ed25519PublicKey::from_bytes(&signer_bytes)
+            .map_err(|e| format!("Invalid signer public key: {e}"))?;
 
         let (res_sender, res_receiver) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
@@ -75,8 +80,9 @@ impl Disseminate {
                 &client,
                 self.addr.clone(),
                 channel_id.into(),
+                parent_msg_id.into(),
+                signer,
                 bytes,
-                metadata,
             );
         });
 
@@ -105,11 +111,12 @@ async fn disperse_data(
     client: &ExecutorHttpClient,
     base_url: Url,
     channel_id: ChannelId,
+    parent_msg_id: MsgId,
+    signer: Ed25519PublicKey,
     bytes: Vec<u8>,
-    metadata: Metadata,
 ) {
     let res = client
-        .publish_blob(base_url, channel_id, bytes, metadata)
+        .publish_blob(base_url, channel_id, parent_msg_id, signer, bytes)
         .await
         .map_err(|err| format!("Failed to publish blob: {err:?}"));
     res_sender.send(res).unwrap();

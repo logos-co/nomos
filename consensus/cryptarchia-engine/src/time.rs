@@ -25,12 +25,22 @@ impl Epoch {
     pub const fn new(inner: u32) -> Self {
         Self(inner)
     }
+
+    #[must_use]
+    pub const fn into_inner(self) -> u32 {
+        self.0
+    }
 }
 
 impl Slot {
     #[must_use]
     pub const fn new(inner: u64) -> Self {
         Self(inner)
+    }
+
+    #[must_use]
+    pub const fn into_inner(self) -> u64 {
+        self.0
     }
 
     #[must_use]
@@ -153,6 +163,11 @@ impl EpochConfig {
         (u64::from(slot) / self.epoch_length(base_period_length))
             .try_into()
             .expect("Epoch should build from a correct configuration")
+    }
+
+    #[must_use]
+    pub fn starting_slot(&self, epoch: &Epoch, base_period_length: NonZero<u64>) -> Slot {
+        Slot::from(u64::from(u32::from(*epoch)) * self.epoch_length(base_period_length))
     }
 }
 

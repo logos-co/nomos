@@ -1,12 +1,18 @@
 pub mod backend;
 pub mod network;
 pub mod processor;
+pub mod storage;
 pub mod tx;
 pub mod verify;
 
-use std::fmt::{Debug, Error, Formatter};
+use std::{
+    collections::BTreeSet,
+    fmt::{Debug, Error, Formatter},
+    pin::Pin,
+};
 
 use backend::{MempoolError, Status};
+use futures::Stream;
 use tokio::sync::oneshot::Sender;
 pub use tx::{service::TxMempoolService, settings::TxMempoolSettings};
 
@@ -18,15 +24,10 @@ pub enum MempoolMsg<BlockId, Payload, Item, Key> {
     },
     View {
         ancestor_hint: BlockId,
-        reply_channel: Sender<Box<dyn Iterator<Item = Item> + Send>>,
+        reply_channel: Sender<Pin<Box<dyn Stream<Item = Item> + Send>>>,
     },
     Prune {
         ids: Vec<Key>,
-    },
-    #[cfg(test)]
-    BlockItems {
-        block: BlockId,
-        reply_channel: Sender<Option<Box<dyn Iterator<Item = Item> + Send>>>,
     },
     MarkInBlock {
         ids: Vec<Key>,
@@ -38,6 +39,10 @@ pub enum MempoolMsg<BlockId, Payload, Item, Key> {
     Status {
         items: Vec<Key>,
         reply_channel: Sender<Vec<Status<BlockId>>>,
+    },
+    GetTransactionsByHashes {
+        hashes: BTreeSet<Key>,
+        reply_channel: Sender<Pin<Box<dyn Stream<Item = Item> + Send>>>,
     },
 }
 
@@ -51,7 +56,7 @@ where
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         match self {
             Self::View { ancestor_hint, .. } => {
-                write!(f, "MempoolMsg::View {{ ancestor_hint: {ancestor_hint:?}}}")
+                write!(f, "MempoolMsg::View {{ ancestor_hint: {ancestor_hint:?} }}")
             }
             Self::Add { payload, .. } => write!(f, "MempoolMsg::Add{{payload: {payload:?}}}"),
             Self::Prune { ids } => write!(f, "MempoolMsg::Prune{{ids: {ids:?}}}"),
@@ -61,12 +66,12 @@ where
                     "MempoolMsg::MarkInBlock{{ids: {ids:?}, block: {block:?}}}"
                 )
             }
-            #[cfg(test)]
-            Self::BlockItems { block, .. } => {
-                write!(f, "MempoolMsg::BlockItem{{block: {block:?}}}")
-            }
             Self::Metrics { .. } => write!(f, "MempoolMsg::Metrics"),
             Self::Status { items, .. } => write!(f, "MempoolMsg::Status{{items: {items:?}}}"),
+            Self::GetTransactionsByHashes { hashes, .. } => write!(
+                f,
+                "MempoolMsg::GetTransactionsByHashes{{hashes: {hashes:?}}}"
+            ),
         }
     }
 }

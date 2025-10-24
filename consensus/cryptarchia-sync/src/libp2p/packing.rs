@@ -1,7 +1,7 @@
 use std::io;
 
 use futures::{AsyncReadExt, AsyncWriteExt};
-use nomos_core::codec::{self, SerdeOp};
+use nomos_core::codec::{self, DeserializeOp as _, SerializeOp as _};
 use serde::{Serialize, de::DeserializeOwned};
 use thiserror::Error;
 
@@ -28,7 +28,7 @@ where
     Message: Serialize + DeserializeOwned + Sync,
     Writer: AsyncWriteExt + Send + Unpin,
 {
-    let packed_message = <Message as SerdeOp>::serialize(message)?;
+    let packed_message = message.to_bytes()?;
 
     let length_prefix: LenType =
         packed_message
@@ -64,5 +64,5 @@ where
     let data_length = read_data_length(reader).await?;
     let mut data = vec![0u8; data_length];
     reader.read_exact(&mut data).await?;
-    Ok(<Message as SerdeOp>::deserialize(&data)?)
+    Ok(Message::from_bytes(&data)?)
 }

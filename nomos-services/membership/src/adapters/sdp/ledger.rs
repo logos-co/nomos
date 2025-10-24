@@ -1,29 +1,27 @@
 use std::marker::PhantomData;
 
 use async_trait::async_trait;
-use nomos_sdp::{FinalizedBlockUpdateStream, SdpMessage, SdpService, backends::SdpBackend};
+use nomos_sdp::{BlockUpdateStream, SdpMessage, SdpService, backends::SdpBackend};
 use overwatch::services::relay::OutboundRelay;
 use tokio::sync::oneshot;
 
 use super::{SdpAdapter, SdpAdapterError};
 
-pub struct LedgerSdpAdapter<Backend, Metadata, RuntimeServiceId>
+pub struct LedgerSdpAdapter<Backend, RuntimeServiceId>
 where
     Backend: SdpBackend + Send + Sync + 'static,
 {
     relay: OutboundRelay<SdpMessage>,
-    _phantom: PhantomData<(Backend, Metadata, RuntimeServiceId)>,
+    _phantom: PhantomData<(Backend, RuntimeServiceId)>,
 }
 
 #[async_trait]
-impl<Backend, Metadata, RuntimeServiceId> SdpAdapter
-    for LedgerSdpAdapter<Backend, Metadata, RuntimeServiceId>
+impl<Backend, RuntimeServiceId> SdpAdapter for LedgerSdpAdapter<Backend, RuntimeServiceId>
 where
     Backend: SdpBackend + Send + Sync + 'static,
-    Metadata: Send + Sync + 'static,
     RuntimeServiceId: Send + Sync + 'static,
 {
-    type SdpService = SdpService<Backend, Metadata, RuntimeServiceId>;
+    type SdpService = SdpService<Backend, RuntimeServiceId>;
 
     fn new(relay: OutboundRelay<SdpMessage>) -> Self {
         Self {
@@ -32,7 +30,7 @@ where
         }
     }
 
-    async fn lib_blocks_stream(&self) -> Result<FinalizedBlockUpdateStream, SdpAdapterError> {
+    async fn lib_blocks_stream(&self) -> Result<BlockUpdateStream, SdpAdapterError> {
         let (sender, receiver) = oneshot::channel();
 
         self.relay

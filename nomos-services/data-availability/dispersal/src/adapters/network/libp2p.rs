@@ -19,6 +19,7 @@ use nomos_da_network_service::{
         },
     },
     membership::MembershipAdapter,
+    sdp::SdpAdapter as SdpAdapterTrait,
 };
 use overwatch::{
     DynError,
@@ -34,6 +35,7 @@ pub struct Libp2pNetworkAdapter<
     MembershipServiceAdapter,
     StorageAdapter,
     ApiAdapter,
+    SdpAdapter,
     RuntimeServiceId,
 > where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
@@ -44,6 +46,7 @@ pub struct Libp2pNetworkAdapter<
         + 'static,
     MembershipServiceAdapter: MembershipAdapter,
     ApiAdapter: ApiAdapterTrait,
+    SdpAdapter: SdpAdapterTrait<RuntimeServiceId>,
 {
     outbound_relay: OutboundRelay<
         DaNetworkMsg<DaNetworkExecutorBackend<Membership>, DaSharesCommitments, RuntimeServiceId>,
@@ -53,15 +56,17 @@ pub struct Libp2pNetworkAdapter<
         MembershipServiceAdapter,
         StorageAdapter,
         ApiAdapter,
+        SdpAdapter,
     )>,
 }
 
-impl<Membership, MembershipServiceAdapter, StorageAdapter, ApiAdapter, RuntimeServiceId>
+impl<Membership, MembershipServiceAdapter, StorageAdapter, ApiAdapter, SdpAdapter, RuntimeServiceId>
     Libp2pNetworkAdapter<
         Membership,
         MembershipServiceAdapter,
         StorageAdapter,
         ApiAdapter,
+        SdpAdapter,
         RuntimeServiceId,
     >
 where
@@ -73,6 +78,7 @@ where
         + 'static,
     MembershipServiceAdapter: MembershipAdapter + Sync,
     ApiAdapter: ApiAdapterTrait + Sync,
+    SdpAdapter: SdpAdapterTrait<RuntimeServiceId> + Sync,
     StorageAdapter: Sync,
     RuntimeServiceId: Sync,
 {
@@ -88,13 +94,14 @@ where
 }
 
 #[async_trait::async_trait]
-impl<Membership, MembershipServiceAdapter, StorageAdapter, ApiAdapter, RuntimeServiceId>
+impl<Membership, MembershipServiceAdapter, StorageAdapter, ApiAdapter, SdpAdapter, RuntimeServiceId>
     DispersalNetworkAdapter
     for Libp2pNetworkAdapter<
         Membership,
         MembershipServiceAdapter,
         StorageAdapter,
         ApiAdapter,
+        SdpAdapter,
         RuntimeServiceId,
     >
 where
@@ -106,6 +113,7 @@ where
         + 'static,
     MembershipServiceAdapter: MembershipAdapter + Sync,
     ApiAdapter: ApiAdapterTrait + Sync,
+    SdpAdapter: SdpAdapterTrait<RuntimeServiceId> + Sync,
     StorageAdapter: Sync,
     RuntimeServiceId: Sync,
 {
@@ -115,6 +123,7 @@ where
         MembershipServiceAdapter,
         StorageAdapter,
         ApiAdapter,
+        SdpAdapter,
         RuntimeServiceId,
     >;
 

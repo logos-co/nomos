@@ -3,7 +3,7 @@ use std::{collections::HashSet, time::Duration};
 use common_http_client::CommonHttpClient;
 use futures_util::stream::StreamExt as _;
 use kzgrs_backend::common::share::DaShare;
-use nomos_core::da::blob::LightShare as _;
+use nomos_core::{da::blob::LightShare as _, sdp::SessionNumber};
 use nomos_da_network_service::membership::adapters::service::peer_id_from_provider_id;
 use nomos_libp2p::ed25519;
 use rand::{RngCore as _, rngs::OsRng};
@@ -11,7 +11,7 @@ use reqwest::Url;
 use serial_test::serial;
 use tests::{
     adjust_timeout,
-    common::da::{APP_ID, DA_TESTS_TIMEOUT, disseminate_with_metadata, wait_for_blob_onchain},
+    common::da::{DA_TESTS_TIMEOUT, disseminate_with_metadata, wait_for_blob_onchain},
     nodes::validator::{Validator, create_validator_config},
     secret_key_to_peer_id,
     topology::{Topology, TopologyConfig, configs::create_general_configs},
@@ -21,19 +21,16 @@ use tests::{
 #[serial]
 async fn test_get_share_data() {
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
+
+    topology.wait_network_ready().await;
+    topology
+        .wait_membership_ready_for_session(SessionNumber::from(0u64))
+        .await;
+
     let executor = &topology.executors()[0];
 
-    // Wait for nodes to initialise
-    tokio::time::sleep(Duration::from_secs(5)).await;
-
     let data = [1u8; 31];
-    let app_id = hex::decode(APP_ID).unwrap();
-    let app_id: [u8; 32] = app_id.clone().try_into().unwrap();
-    let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, 0u64.into());
-
-    let blob_id = disseminate_with_metadata(executor, &data, metadata)
-        .await
-        .unwrap();
+    let blob_id = disseminate_with_metadata(executor, &data).await.unwrap();
 
     wait_for_blob_onchain(executor, blob_id).await;
 
@@ -58,8 +55,10 @@ async fn test_get_commitments_from_peers() {
     let validator = &interconnected_topology.validators()[0];
     let executor = &interconnected_topology.executors()[0];
 
-    // Wait for nodes to initialise
-    tokio::time::sleep(Duration::from_secs(5)).await;
+    interconnected_topology.wait_network_ready().await;
+    interconnected_topology
+        .wait_membership_ready_for_session(SessionNumber::from(0u64))
+        .await;
 
     // Create independent node that only knows about membership of
     // `interconnected_topology` nodes. This validator will not receive any data
@@ -71,13 +70,7 @@ async fn test_get_commitments_from_peers() {
     let lone_validator = Validator::spawn(lone_validator_config).await.unwrap();
 
     let data = [1u8; 31];
-    let app_id = hex::decode(APP_ID).unwrap();
-    let app_id: [u8; 32] = app_id.clone().try_into().unwrap();
-    let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, 0u64.into());
-
-    let blob_id = disseminate_with_metadata(executor, &data, metadata)
-        .await
-        .unwrap();
+    let blob_id = disseminate_with_metadata(executor, &data).await.unwrap();
     tokio::time::sleep(Duration::from_secs(5)).await;
     lone_validator.get_commitments(blob_id).await.unwrap();
 
@@ -160,20 +153,16 @@ async fn test_block_peer() {
 #[serial]
 async fn test_get_shares() {
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
+    topology.wait_network_ready().await;
+    topology
+        .wait_membership_ready_for_session(SessionNumber::from(0u64))
+        .await;
+
     let executor = &topology.executors()[0];
     let num_subnets = executor.config().da_network.backend.num_subnets as usize;
 
-    // Wait for nodes to initialise
-    tokio::time::sleep(Duration::from_secs(5)).await;
-
     let data = [1u8; 31];
-    let app_id = hex::decode(APP_ID).unwrap();
-    let app_id: [u8; 32] = app_id.try_into().unwrap();
-    let metadata = kzgrs_backend::dispersal::Metadata::new(app_id, 0u64.into());
-
-    let blob_id = disseminate_with_metadata(executor, &data, metadata)
-        .await
-        .unwrap();
+    let blob_id = disseminate_with_metadata(executor, &data).await.unwrap();
 
     wait_for_blob_onchain(executor, blob_id).await;
 

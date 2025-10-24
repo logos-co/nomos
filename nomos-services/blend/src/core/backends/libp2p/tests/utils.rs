@@ -11,10 +11,7 @@ use libp2p::{
 };
 use libp2p_swarm_test::SwarmExt as _;
 use nomos_blend_message::{
-    crypto::keys::Ed25519PrivateKey,
-    encap::{
-        ProofsVerifier as ProofsVerifierTrait, encapsulated::PoQVerificationInputMinusSigningKey,
-    },
+    crypto::keys::Ed25519PrivateKey, encap::ProofsVerifier as ProofsVerifierTrait,
 };
 use nomos_blend_network::core::{
     Config, NetworkBehaviour,
@@ -119,19 +116,16 @@ impl SwarmBuilder {
 
 pub struct BlendBehaviourBuilder<ProofsVerifier> {
     peer_id: PeerId,
-    proofs_verifier_and_inputs: (ProofsVerifier, PoQVerificationInputMinusSigningKey),
+    proofs_verifier: ProofsVerifier,
     membership: Option<Membership<PeerId>>,
     observation_window: Option<(Duration, RangeInclusive<u64>)>,
 }
 
 impl<ProofsVerifier> BlendBehaviourBuilder<ProofsVerifier> {
-    pub fn new(
-        identity: &Keypair,
-        proofs_verifier_and_inputs: (ProofsVerifier, PoQVerificationInputMinusSigningKey),
-    ) -> Self {
+    pub fn new(identity: &Keypair, proofs_verifier: ProofsVerifier) -> Self {
         Self {
             peer_id: identity.public().to_peer_id(),
-            proofs_verifier_and_inputs,
+            proofs_verifier,
             membership: None,
             observation_window: None,
         }
@@ -192,8 +186,7 @@ where
                 self.membership,
                 self.peer_id,
                 PROTOCOL_NAME,
-                self.proofs_verifier_and_inputs.1,
-                self.proofs_verifier_and_inputs.0,
+                self.proofs_verifier,
             ),
             limits: connection_limits::Behaviour::new(
                 connection_limits::ConnectionLimits::default(),

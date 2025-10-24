@@ -11,7 +11,7 @@ inputs:
     required: false
     default: 'bin/circuits'
   version:
-    description: Version of the circuits to download. Expected to be in the format of 'X.Y.Z' (without 'v' prefix). Use '*' to get the latest version.
+    description: Version of the circuits to download. Expected to be in the format of 'vX.Y.Z'. Use '*' to get the latest version.
     required: false
     default: '*'
 
@@ -36,9 +36,9 @@ runs:
       id: download-circuits
       uses: robinraju/release-downloader@v1
       with:
-        repository: "logos-co/nomos-pocs"
+        repository: "logos-co/nomos-circuits"
         latest: ${{ steps.normalise-os.outputs.latest }}
-        tag: "circom_circuits-v${{ inputs.version }}"
+        tag: "${{ inputs.version }}"
         fileName: '*-${{ steps.normalise-os.outputs.os }}-*.tar.gz'
         token: ${{ inputs.github-token }}
         out-file-path: ${{ inputs.download-directory }}

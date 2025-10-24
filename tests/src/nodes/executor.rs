@@ -10,23 +10,23 @@ use std::{
 
 use broadcast_service::BlockInfo;
 use chain_leader::LeaderSettings;
-use chain_service::{CryptarchiaInfo, CryptarchiaSettings, OrphanConfig, SyncConfig};
+use chain_service::{
+    CryptarchiaInfo, CryptarchiaSettings, OrphanConfig, StartingState, SyncConfig,
+};
 use common_http_client::CommonHttpClient;
 use cryptarchia_engine::time::SlotConfig;
 use futures::Stream;
 use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
 use nomos_api::http::membership::MembershipUpdateRequest;
-use nomos_blend_scheduling::message_blend::SessionCryptographicProcessorSettings;
+use nomos_blend_scheduling::message_blend::crypto::SessionCryptographicProcessorSettings;
 use nomos_blend_service::{
-    core::settings::{CoverTrafficSettingsExt, MessageDelayerSettingsExt, SchedulerSettingsExt},
+    core::settings::{
+        CoverTrafficSettingsExt, MessageDelayerSettingsExt, SchedulerSettingsExt, ZkSettings,
+    },
     settings::TimingSettings,
 };
 use nomos_core::{
-    block::{Block, SessionNumber},
-    da::BlobId,
-    header::HeaderId,
-    mantle::SignedMantleTx,
-    sdp::FinalizedBlockEvent,
+    block::Block, da::BlobId, header::HeaderId, mantle::SignedMantleTx, sdp::SessionNumber,
 };
 use nomos_da_dispersal::{
     DispersalServiceSettings,
@@ -56,14 +56,18 @@ use nomos_executor::{api::backend::AxumBackendSettings, config::Config};
 use nomos_http_api_common::paths::{
     CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_BLACKLISTED_PEERS, DA_BLOCK_PEER, DA_GET_MEMBERSHIP,
     DA_GET_SHARES_COMMITMENTS, DA_HISTORIC_SAMPLING, DA_MONITOR_STATS, DA_UNBLOCK_PEER,
-    MANTLE_METRICS, STORAGE_BLOCK, UPDATE_MEMBERSHIP,
+    MANTLE_METRICS, NETWORK_INFO, STORAGE_BLOCK, UPDATE_MEMBERSHIP,
 };
-use nomos_network::{backends::libp2p::Libp2pConfig, config::NetworkConfig};
+use nomos_network::{
+    backends::libp2p::{Libp2pConfig, Libp2pInfo},
+    config::NetworkConfig,
+};
 use nomos_node::{
     RocksBackendSettings,
     api::testing::handlers::HistoricSamplingRequest,
     config::{blend::BlendConfig, mempool::MempoolConfig},
 };
+use nomos_sdp::{BlockEvent, SdpSettings};
 use nomos_time::{
     TimeServiceSettings,
     backends::{NtpTimeBackendSettings, ntp::async_client::NTPClientSettings},
@@ -229,6 +233,10 @@ impl Executor {
             .unwrap()
     }
 
+    pub async fn network_info(&self) -> Libp2pInfo {
+        self.get(NETWORK_INFO).await.unwrap().json().await.unwrap()
+    }
+
     pub async fn consensus_info(&self) -> CryptarchiaInfo {
         self.get(CRYPTARCHIA_INFO)
             .await
@@ -294,10 +302,7 @@ impl Executor {
             .await
     }
 
-    pub async fn update_membership(
-        &self,
-        update_event: FinalizedBlockEvent,
-    ) -> Result<(), reqwest::Error> {
+    pub async fn update_membership(&self, update_event: BlockEvent) -> Result<(), reqwest::Error> {
         let update_event = MembershipUpdateRequest { update_event };
         let json_body = serde_json::to_string(&update_event).unwrap();
 
@@ -406,6 +411,8 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                     .expect("Rounds per observation window cannot be zero."),
                 rounds_per_session_transition_period: NonZeroU64::try_from(30u64)
                     .expect("Rounds per session transition period cannot be zero."),
+                epoch_transition_period_in_slots: NonZeroU64::try_from(2_600)
+                    .expect("Epoch transition period in slots cannot be zero."),
             },
             scheduler: SchedulerSettingsExt {
                 cover: CoverTrafficSettingsExt {
@@ -419,14 +426,18 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                         .expect("Maximum release delay between rounds cannot be zero."),
                 },
             },
+            zk: ZkSettings {
+                sk: config.blend_config.secret_zk_key,
+            },
             minimum_network_size: 1
                 .try_into()
                 .expect("Minimum Blend network size cannot be zero."),
         }),
         cryptarchia: CryptarchiaSettings {
-            config: config.consensus_config.ledger_config,
-            genesis_id: HeaderId::from([0; 32]),
-            genesis_state: config.consensus_config.genesis_state,
+            config: config.consensus_config.ledger_config.clone(),
+            starting_state: StartingState::Genesis {
+                genesis_tx: config.consensus_config.genesis_tx,
+            },
             network_adapter_settings:
                 chain_service::network::adapters::libp2p::LibP2pAdapterSettings {
                     topic: String::from(nomos_node::CONSENSUS_TOPIC),
@@ -453,8 +464,8 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
         },
         cryptarchia_leader: LeaderSettings {
             transaction_selector_settings: (),
-            config: config.consensus_config.ledger_config,
-            leader_config: config.consensus_config.leader_config,
+            config: config.consensus_config.ledger_config.clone(),
+            leader_config: config.consensus_config.leader_config.clone(),
             blend_broadcast_settings:
                 nomos_blend_service::core::network::libp2p::Libp2pBroadcastSettings {
                     topic: String::from(nomos_node::CONSENSUS_TOPIC),
@@ -564,7 +575,12 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
             trigger_sampling_delay: adjust_timeout(Duration::from_secs(5)),
         },
         membership: config.membership_config.service_settings,
-        sdp: (),
+        sdp: SdpSettings {
+            declaration_id: None,
+        },
+        wallet: nomos_wallet::WalletServiceSettings {
+            known_keys: HashSet::from_iter([config.consensus_config.leader_config.pk]),
+        },
 
         testing_http: nomos_api::ApiServiceSettings {
             backend_settings: AxumBackendSettings {

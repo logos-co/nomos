@@ -1,19 +1,16 @@
-use std::{
-    collections::{BTreeSet, HashMap},
-    time::Duration,
-};
+use std::collections::{BTreeSet, HashMap};
 
 use futures::StreamExt as _;
-use kzgrs_backend::dispersal::Index;
 use nomos_core::{
     da::BlobId,
-    sdp::{FinalizedBlockEvent, FinalizedBlockEventUpdate, Locator, ProviderId},
+    sdp::{Locator, ProviderId, SessionNumber},
 };
+use nomos_sdp::{BlockEvent, BlockEventUpdate, DeclarationState};
 use nomos_utils::net::get_available_udp_port;
 use rand::{Rng as _, thread_rng};
 use serial_test::serial;
 use tests::{
-    common::da::{APP_ID, disseminate_with_metadata, wait_for_blob_onchain},
+    common::da::{disseminate_with_metadata, wait_for_blob_onchain},
     nodes::{executor::Executor, validator::Validator},
     topology::{
         Topology, TopologyConfig,
@@ -30,6 +27,11 @@ async fn update_membership_and_disseminate() {
     let (ids, da_ports, blend_ports) = generate_test_ids_and_ports(n_participants);
     let topology =
         Topology::spawn_with_empty_membership(topology_config, &ids, &da_ports, &blend_ports).await;
+
+    topology.wait_network_ready().await;
+    topology
+        .wait_membership_empty_for_session(SessionNumber::from(0u64))
+        .await;
 
     // Create a new membership with DA nodes.
     let membership_config = create_membership_configs(
@@ -50,8 +52,9 @@ async fn update_membership_and_disseminate() {
     update_all_validators(&topology, &finalize_block_event).await;
     update_all_executors(&topology, &finalize_block_event).await;
 
-    // Wait for nodes to initialise
-    tokio::time::sleep(Duration::from_secs(5)).await;
+    topology
+        .wait_membership_ready_for_session(SessionNumber::from(1u64))
+        .await;
 
     perform_dissemination_tests(&topology.executors()[0]).await;
 }
@@ -70,9 +73,7 @@ fn generate_test_ids_and_ports(n_participants: usize) -> (Vec<[u8; 32]>, Vec<u16
     (ids, da_ports, blend_ports)
 }
 
-fn create_finalized_block_event(
-    membership_config: &GeneralMembershipConfig,
-) -> FinalizedBlockEvent {
+fn create_finalized_block_event(membership_config: &GeneralMembershipConfig) -> BlockEvent {
     let providers = membership_config
         .service_settings
         .backend
@@ -82,7 +83,7 @@ fn create_finalized_block_event(
 
     let finalized_block_event_updates = create_block_event_updates(providers);
 
-    FinalizedBlockEvent {
+    BlockEvent {
         block_number: 1,
         updates: finalized_block_event_updates,
     }
@@ -90,34 +91,31 @@ fn create_finalized_block_event(
 
 fn create_block_event_updates(
     providers: &HashMap<ProviderId, BTreeSet<Locator>>,
-) -> Vec<FinalizedBlockEventUpdate> {
+) -> Vec<BlockEventUpdate> {
     providers
         .iter()
-        .map(|(provider_id, locators)| FinalizedBlockEventUpdate {
+        .map(|(provider_id, locators)| BlockEventUpdate {
             service_type: nomos_core::sdp::ServiceType::DataAvailability,
             provider_id: *provider_id,
-            state: nomos_core::sdp::FinalizedDeclarationState::Active,
+            state: DeclarationState::Active,
             locators: locators.clone(),
         })
         .collect()
 }
 
-async fn update_all_validators(topology: &Topology, finalize_block_event: &FinalizedBlockEvent) {
+async fn update_all_validators(topology: &Topology, finalize_block_event: &BlockEvent) {
     for validator in topology.validators() {
         update_validator_membership(validator, finalize_block_event).await;
     }
 }
 
-async fn update_all_executors(topology: &Topology, finalize_block_event: &FinalizedBlockEvent) {
+async fn update_all_executors(topology: &Topology, finalize_block_event: &BlockEvent) {
     for executor in topology.executors() {
         update_executor_membership(executor, finalize_block_event).await;
     }
 }
 
-async fn update_validator_membership(
-    validator: &Validator,
-    finalize_block_event: &FinalizedBlockEvent,
-) {
+async fn update_validator_membership(validator: &Validator, finalize_block_event: &BlockEvent) {
     let res = validator
         .update_membership(finalize_block_event.clone())
         .await;
@@ -125,7 +123,7 @@ async fn update_validator_membership(
 
     for block_number in 2..=3 {
         let res = validator
-            .update_membership(FinalizedBlockEvent {
+            .update_membership(BlockEvent {
                 block_number,
                 updates: vec![],
             })
@@ -134,10 +132,7 @@ async fn update_validator_membership(
     }
 }
 
-async fn update_executor_membership(
-    executor: &Executor,
-    finalize_block_event: &FinalizedBlockEvent,
-) {
+async fn update_executor_membership(executor: &Executor, finalize_block_event: &BlockEvent) {
     let res = executor
         .update_membership(finalize_block_event.clone())
         .await;
@@ -145,7 +140,7 @@ async fn update_executor_membership(
 
     for block_number in 2..=3 {
         let res = executor
-            .update_membership(FinalizedBlockEvent {
+            .update_membership(BlockEvent {
                 block_number,
                 updates: vec![],
             })
@@ -157,14 +152,11 @@ async fn update_executor_membership(
 async fn perform_dissemination_tests(executor: &Executor) {
     const ITERATIONS: usize = 10;
     let data = [1u8; 31];
-    let metadata = create_test_metadata();
     let mut onchain = false;
 
     for i in 0..ITERATIONS {
         println!("iteration {i}");
-        let blob_id = disseminate_with_metadata(executor, &data, metadata)
-            .await
-            .unwrap();
+        let blob_id = disseminate_with_metadata(executor, &data).await.unwrap();
 
         if !onchain {
             wait_for_blob_onchain(executor, blob_id).await;
@@ -173,12 +165,6 @@ async fn perform_dissemination_tests(executor: &Executor) {
 
         verify_share_replication(executor, blob_id).await;
     }
-}
-
-fn create_test_metadata() -> kzgrs_backend::dispersal::Metadata {
-    let app_id = hex::decode(APP_ID).unwrap();
-    let app_id: [u8; 32] = app_id.try_into().unwrap();
-    kzgrs_backend::dispersal::Metadata::new(app_id, Index::from(0))
 }
 
 async fn verify_share_replication(executor: &Executor, blob_id: BlobId) {

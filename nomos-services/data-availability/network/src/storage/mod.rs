@@ -2,11 +2,12 @@ pub mod adapters;
 use std::{
     collections::{HashMap, HashSet},
     hash::Hash,
+    sync::Arc,
 };
 
 use blake2::{Blake2b512, Digest as _, digest::Update as BlakeUpdate};
 use multiaddr::Multiaddr;
-use nomos_core::block::SessionNumber;
+use nomos_core::sdp::{ProviderId, SessionNumber};
 use nomos_utils::blake_rng::BlakeRng;
 use overwatch::{
     DynError,
@@ -30,14 +31,20 @@ pub trait MembershipStorageAdapter<Id, NetworkId> {
         &self,
         session_id: SessionNumber,
         assignations: Assignations<Id, NetworkId>,
+        provider_mappings: HashMap<Id, ProviderId>,
     ) -> Result<(), DynError>;
+
     async fn get(
         &self,
         session_id: SessionNumber,
     ) -> Result<Option<Assignations<Id, NetworkId>>, DynError>;
 
     async fn store_addresses(&self, ids: HashMap<Id, Multiaddr>) -> Result<(), DynError>;
+
     async fn get_address(&self, id: Id) -> Result<Option<Multiaddr>, DynError>;
+
+    async fn get_provider_id(&self, id: Id) -> Result<Option<ProviderId>, DynError>;
+
     async fn prune(&self);
 }
 
@@ -75,6 +82,7 @@ where
         &self,
         session_id: SessionNumber,
         new_members: AddressBookSnapshot<Membership::Id>,
+        provider_mappings: HashMap<Membership::Id, ProviderId>,
     ) -> Result<Membership, DynError> {
         let mut hasher = Blake2b512::default();
         BlakeUpdate::update(&mut hasher, session_id.to_le_bytes().as_slice());
@@ -101,7 +109,7 @@ where
 
         // update membership storage
         self.membership_adapter
-            .store(session_id, assignations)
+            .store(session_id, assignations, provider_mappings)
             .await?;
         self.membership_adapter.store_addresses(new_members).await?;
 
@@ -128,5 +136,53 @@ where
         }
 
         Ok(Some(membership.unwrap()))
+    }
+}
+
+#[async_trait::async_trait]
+impl<Id, NetworkId, T> MembershipStorageAdapter<Id, NetworkId> for Arc<T>
+where
+    T: MembershipStorageAdapter<Id, NetworkId> + Send + Sync,
+    Id: Send + Sync + 'static,
+    NetworkId: Send + Sync + 'static,
+{
+    type StorageService = T::StorageService;
+
+    fn new(relay: OutboundRelay<<Self::StorageService as ServiceData>::Message>) -> Self {
+        Self::new(T::new(relay))
+    }
+
+    async fn store(
+        &self,
+        session_id: SessionNumber,
+        assignations: Assignations<Id, NetworkId>,
+        provider_mappings: HashMap<Id, ProviderId>,
+    ) -> Result<(), DynError> {
+        (**self)
+            .store(session_id, assignations, provider_mappings)
+            .await
+    }
+
+    async fn get(
+        &self,
+        session_id: SessionNumber,
+    ) -> Result<Option<Assignations<Id, NetworkId>>, DynError> {
+        (**self).get(session_id).await
+    }
+
+    async fn store_addresses(&self, ids: HashMap<Id, Multiaddr>) -> Result<(), DynError> {
+        (**self).store_addresses(ids).await
+    }
+
+    async fn get_address(&self, id: Id) -> Result<Option<Multiaddr>, DynError> {
+        (**self).get_address(id).await
+    }
+
+    async fn get_provider_id(&self, id: Id) -> Result<Option<ProviderId>, DynError> {
+        (**self).get_provider_id(id).await
+    }
+
+    async fn prune(&self) {
+        (**self).prune().await;
     }
 }

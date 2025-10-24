@@ -1,6 +1,7 @@
 pub mod api;
 mod blob;
 mod bootstrap;
+mod mempool;
 pub mod network;
 mod relays;
 mod states;
@@ -9,19 +10,19 @@ mod sync;
 
 use core::fmt::Debug;
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fmt::Display,
     hash::Hash,
     path::PathBuf,
     time::Duration,
 };
 
-use broadcast_service::{BlockBroadcastMsg, BlockBroadcastService, BlockInfo};
+use broadcast_service::{BlockBroadcastMsg, BlockBroadcastService, BlockInfo, SessionUpdate};
 use bytes::Bytes;
 use cryptarchia_engine::PrunedBlocks;
 pub use cryptarchia_engine::{Epoch, Slot};
 use cryptarchia_sync::{GetTipResponse, ProviderResponse};
-use futures::StreamExt as _;
+use futures::{FutureExt as _, StreamExt as _};
 use network::NetworkAdapter;
 use nomos_core::{
     block::Block,
@@ -29,8 +30,9 @@ use nomos_core::{
     header::{Header, HeaderId},
     mantle::{
         AuthenticatedMantleTx, SignedMantleTx, Transaction, TxHash, gas::MainnetGasConstants,
-        ops::leader_claim::VoucherCm,
+        genesis_tx::GenesisTx, ops::leader_claim::VoucherCm,
     },
+    sdp::{ProviderId, ProviderInfo, ServiceType},
 };
 use nomos_da_sampling::{
     DaSamplingService, DaSamplingServiceMsg, backend::DaSamplingServiceBackend,
@@ -51,14 +53,18 @@ use services_utils::{
     overwatch::{JsonFileBackend, RecoveryOperator, recovery::backends::FileBackendSettings},
     wait_until_services_are_ready,
 };
+use strum::IntoEnumIterator as _;
 use thiserror::Error;
 use tokio::{
     sync::{broadcast, mpsc, oneshot},
     time::Instant,
 };
-use tracing::{Level, debug, error, info, instrument, span};
+use tracing::{Level, debug, error, info, instrument, span, warn};
 use tracing_futures::Instrument as _;
-use tx_service::{MempoolMsg, TxMempoolService, backend::RecoverableMempool};
+use tx_service::{
+    TxMempoolService, backend::RecoverableMempool,
+    network::NetworkAdapter as MempoolNetworkAdapter, storage::MempoolStorageAdapter,
+};
 
 use crate::{
     blob::{BlobValidation, RecentBlobValidation, SkipBlobValidation},
@@ -66,6 +72,7 @@ use crate::{
         ibd::{self, InitialBlockDownload},
         state::choose_engine_state,
     },
+    mempool::MempoolAdapter as _,
     relays::CryptarchiaConsensusRelays,
     states::CryptarchiaConsensusState,
     storage::{StorageAdapter as _, adapters::StorageAdapter},
@@ -92,8 +99,14 @@ pub enum Error {
     Consensus(#[from] cryptarchia_engine::Error<HeaderId>),
     #[error("Storage error: {0}")]
     Storage(String),
+    #[error("Mempool error: {0}")]
+    Mempool(String),
     #[error("Blob validation failed: {0}")]
     BlobValidationFailed(#[from] blob::Error),
+    #[error("Block header id not found: {0}")]
+    HeaderIdNotFound(HeaderId),
+    #[error("Service session not found: {0:?}")]
+    ServiceSessionNotFound(ServiceType),
 }
 
 #[derive(Debug)]
@@ -165,6 +178,7 @@ impl PrunedBlocksInfo {
 struct Cryptarchia {
     ledger: nomos_ledger::Ledger<HeaderId>,
     consensus: cryptarchia_engine::Cryptarchia<HeaderId>,
+    genesis_id: HeaderId,
 }
 
 impl Cryptarchia {
@@ -172,6 +186,7 @@ impl Cryptarchia {
     pub fn from_lib(
         lib_id: HeaderId,
         lib_ledger_state: LedgerState,
+        genesis_id: HeaderId,
         ledger_config: nomos_ledger::Config,
         state: cryptarchia_engine::State,
     ) -> Self {
@@ -182,6 +197,7 @@ impl Cryptarchia {
                 state,
             ),
             ledger: <nomos_ledger::Ledger<_>>::new(lib_id, lib_ledger_state, ledger_config),
+            genesis_id,
         }
     }
 
@@ -210,7 +226,11 @@ impl Cryptarchia {
         )?;
         let (consensus, pruned_blocks) = self.consensus.receive_block(id, parent, slot)?;
 
-        let mut cryptarchia = Self { ledger, consensus };
+        let mut cryptarchia = Self {
+            ledger,
+            consensus,
+            genesis_id: self.genesis_id,
+        };
         // Prune the ledger states of all the pruned blocks.
         cryptarchia.prune_ledger_states(pruned_blocks.all());
 
@@ -257,6 +277,7 @@ impl Cryptarchia {
             Self {
                 ledger: self.ledger,
                 consensus,
+                genesis_id: self.genesis_id,
             },
             pruned_blocks,
         )
@@ -273,6 +294,33 @@ impl Cryptarchia {
     fn has_block(&self, block_id: &HeaderId) -> bool {
         self.consensus.branches().get(block_id).is_some()
     }
+
+    fn active_session_providers(
+        &self,
+        block_id: &HeaderId,
+        service_type: ServiceType,
+    ) -> Result<HashMap<ProviderId, ProviderInfo>, Error> {
+        let ledger = self
+            .ledger
+            .state(block_id)
+            .ok_or(Error::HeaderIdNotFound(*block_id))?;
+
+        ledger
+            .active_session_providers(service_type, self.ledger.config())
+            .ok_or(Error::ServiceSessionNotFound(service_type))
+    }
+
+    fn active_sessions_numbers(
+        &self,
+        block_id: &HeaderId,
+    ) -> Result<HashMap<ServiceType, u64>, Error> {
+        let ledger = self
+            .ledger
+            .state(block_id)
+            .ok_or(Error::HeaderIdNotFound(*block_id))?;
+
+        Ok(ledger.active_sessions())
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -281,12 +329,23 @@ where
     NodeId: Clone + Eq + Hash,
 {
     pub config: nomos_ledger::Config,
-    pub genesis_id: HeaderId,
-    pub genesis_state: LedgerState,
+    pub starting_state: StartingState,
     pub network_adapter_settings: NetworkAdapterSettings,
     pub recovery_file: PathBuf,
     pub bootstrap: BootstrapConfig<NodeId>,
     pub sync: SyncConfig,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub enum StartingState {
+    Genesis {
+        genesis_tx: GenesisTx,
+    },
+    Lib {
+        lib_id: HeaderId,
+        lib_ledger_state: Box<LedgerState>,
+        genesis_id: HeaderId,
+    },
 }
 
 impl<NodeId, NetworkAdapterSettings> FileBackendSettings
@@ -316,15 +375,16 @@ pub struct CryptarchiaConsensus<
     NetAdapter::Settings: Send,
     NetAdapter::PeerId: Clone + Eq + Hash,
     Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash>,
-    Mempool::RecoveryState: Serialize + DeserializeOwned,
+    Mempool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     Mempool::Settings: Clone,
-    Mempool::Item: AuthenticatedMantleTx + Clone + Eq + Debug + 'static,
-    MempoolNetAdapter: tx_service::network::NetworkAdapter<
-            RuntimeServiceId,
-            Payload = Mempool::Item,
-            Key = Mempool::Key,
-        >,
+    Mempool::Storage: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
+    Mempool::Item: Clone + Eq + Debug + 'static,
+    Mempool::Item: AuthenticatedMantleTx,
+    MempoolNetAdapter:
+        MempoolNetworkAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>,
+    MempoolNetAdapter::Settings: Send + Sync,
     Storage: StorageBackend + Send + Sync + 'static,
+    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
@@ -336,7 +396,7 @@ pub struct CryptarchiaConsensus<
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     new_block_subscription_sender: broadcast::Sender<HeaderId>,
     lib_subscription_sender: broadcast::Sender<LibUpdate>,
-    initial_state: <Self as ServiceData>::State,
+    state: <Self as ServiceData>::State,
 }
 
 impl<
@@ -366,15 +426,15 @@ where
     NetAdapter::Settings: Send,
     NetAdapter::PeerId: Clone + Eq + Hash,
     Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash>,
-    Mempool::RecoveryState: Serialize + DeserializeOwned,
+    Mempool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     Mempool::Settings: Clone,
+    Mempool::Storage: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
     Mempool::Item: AuthenticatedMantleTx + Clone + Eq + Debug,
-    MempoolNetAdapter: tx_service::network::NetworkAdapter<
-            RuntimeServiceId,
-            Payload = Mempool::Item,
-            Key = Mempool::Key,
-        >,
+    MempoolNetAdapter:
+        MempoolNetworkAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>,
+    MempoolNetAdapter::Settings: Send + Sync,
     Storage: StorageBackend + Send + Sync + 'static,
+    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
@@ -421,9 +481,11 @@ where
     NetAdapter::Settings: Send + Sync + 'static,
     NetAdapter::PeerId: Clone + Eq + Hash + Copy + Debug + Send + Sync + Unpin + 'static,
     Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash> + Send + Sync + 'static,
-    Mempool::RecoveryState: Serialize + DeserializeOwned,
+    Mempool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     Mempool::Settings: Clone + Send + Sync + 'static,
-    Mempool::Item: AuthenticatedMantleTx
+    Mempool::Storage: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
+    Mempool::Item: Transaction<Hash = Mempool::Key>
+        + AuthenticatedMantleTx
         + Debug
         + Clone
         + Eq
@@ -433,15 +495,15 @@ where
         + Sync
         + Unpin
         + 'static,
-    MempoolNetAdapter: tx_service::network::NetworkAdapter<
-            RuntimeServiceId,
-            Payload = Mempool::Item,
-            Key = Mempool::Key,
-        > + Send
+    MempoolNetAdapter: MempoolNetworkAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>
+        + Send
         + Sync
         + 'static,
-    Storage: StorageChainApi + StorageBackend + Send + Sync + 'static,
-    Storage::Block: TryFrom<Block<Mempool::Item>> + TryInto<Block<Mempool::Item>> + Into<Bytes>,
+    MempoolNetAdapter::Settings: Send + Sync,
+    Storage: StorageBackend + Send + Sync + 'static,
+    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
+    <Storage as StorageChainApi>::Block:
+        TryFrom<Block<Mempool::Item>> + TryInto<Block<Mempool::Item>> + Into<Bytes>,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + Send + 'static,
@@ -464,6 +526,7 @@ where
                 SamplingNetworkAdapter,
                 SamplingStorage,
                 Mempool,
+                Mempool::Storage,
                 RuntimeServiceId,
             >,
         >
@@ -489,7 +552,7 @@ where
             service_resources_handle,
             new_block_subscription_sender,
             lib_subscription_sender,
-            initial_state,
+            state: initial_state,
         })
     }
 
@@ -509,7 +572,6 @@ where
 
         let CryptarchiaSettings {
             config: ledger_config,
-            genesis_id,
             network_adapter_settings,
             bootstrap: bootstrap_config,
             sync: sync_config,
@@ -521,16 +583,14 @@ where
             .get_updated_settings();
 
         // TODO: check active slot coeff is exactly 1/30
-
+        let (cryptarchia, pruned_blocks) = self
+            .initialize_cryptarchia(&bootstrap_config, ledger_config, &relays)
+            .await;
         // These are blocks that have been pruned by the cryptarchia engine but have not
         // yet been deleted from the storage layer.
-        let storage_blocks_to_remove = self.initial_state.storage_blocks_to_remove.clone();
-        let (cryptarchia, pruned_blocks) = self
-            .initialize_cryptarchia(genesis_id, &bootstrap_config, ledger_config, &relays)
-            .await;
         let storage_blocks_to_remove = Self::delete_pruned_blocks_from_storage(
             pruned_blocks.stale_blocks().copied(),
-            &storage_blocks_to_remove,
+            &self.state.storage_blocks_to_remove,
             relays.storage_adapter(),
         )
         .await;
@@ -552,7 +612,7 @@ where
             &self.service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
             NetworkService<_, _>,
-            TxMempoolService<_, _, _, _, _>,
+            TxMempoolService<_, _, _, _, _, _>,
             DaSamplingService<_, _, _, _>,
             StorageService<_, _>,
             TimeService<_, _>
@@ -842,9 +902,11 @@ where
     NetAdapter::Settings: Send + Sync + 'static,
     NetAdapter::PeerId: Clone + Eq + Hash + Copy + Debug + Send + Sync,
     Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash> + Send + Sync + 'static,
-    Mempool::RecoveryState: Serialize + DeserializeOwned,
+    Mempool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     Mempool::Settings: Clone + Send + Sync + 'static,
-    Mempool::Item: AuthenticatedMantleTx
+    Mempool::Storage: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
+    Mempool::Item: Transaction<Hash = Mempool::Key>
+        + AuthenticatedMantleTx
         + Debug
         + Clone
         + Eq
@@ -853,15 +915,15 @@ where
         + Send
         + Sync
         + 'static,
-    MempoolNetAdapter: tx_service::network::NetworkAdapter<
-            RuntimeServiceId,
-            Payload = Mempool::Item,
-            Key = Mempool::Key,
-        > + Send
+    MempoolNetAdapter: MempoolNetworkAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>
+        + Send
         + Sync
         + 'static,
-    Storage: StorageChainApi + StorageBackend + Send + Sync + 'static,
-    Storage::Block: TryFrom<Block<Mempool::Item>> + TryInto<Block<Mempool::Item>> + Into<Bytes>,
+    MempoolNetAdapter::Settings: Send + Sync,
+    Storage: StorageBackend + Send + Sync + 'static,
+    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
+    <Storage as StorageChainApi>::Block:
+        TryFrom<Block<Mempool::Item>> + TryInto<Block<Mempool::Item>> + Into<Bytes>,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
@@ -1063,16 +1125,29 @@ where
         let id = header.id();
         let prev_lib = cryptarchia.lib();
 
+        let previous_session_numbers = match cryptarchia.active_sessions_numbers(&prev_lib) {
+            Ok(session_numbers) => session_numbers,
+            Err(e) => {
+                warn!("Error getting previous session numbers: {e}");
+                ServiceType::iter().map(|s| (s, 0)).collect()
+            }
+        };
+
         let (cryptarchia, pruned_blocks) = cryptarchia.try_apply_header(header)?;
         let new_lib = cryptarchia.lib();
 
         // remove included content from mempool
-        mark_in_block(
-            relays.mempool_relay().clone(),
-            block.transactions().map(Transaction::hash),
-            id,
-        )
-        .await;
+        relays
+            .mempool_adapter()
+            .mark_transactions_in_block(
+                &block
+                    .transactions()
+                    .map(Transaction::hash)
+                    .collect::<Vec<_>>(),
+                id,
+            )
+            .await
+            .unwrap_or_else(|e| error!("Could not mark transactions in block: {e}"));
 
         mark_blob_in_block(
             relays.sampling_relay().clone(),
@@ -1122,6 +1197,36 @@ where
 
             if let Err(e) = lib_broadcaster.send(lib_update) {
                 error!("Could not notify LIB update to services: {e}");
+            }
+
+            let sessions = cryptarchia.active_sessions_numbers(&new_lib)?;
+            for (service, session_number) in &sessions {
+                let prev_session_num = previous_session_numbers.get(service).copied().unwrap_or(0);
+
+                if session_number != &prev_session_num {
+                    if let Ok(providers) = cryptarchia.active_session_providers(&new_lib, *service)
+                    {
+                        let update = SessionUpdate {
+                            session_number: *session_number,
+                            providers,
+                        };
+
+                        let broadcast_future = match service {
+                            ServiceType::BlendNetwork => {
+                                broadcast_blend_session(relays.broadcast_relay(), update).boxed()
+                            }
+                            ServiceType::DataAvailability => {
+                                broadcast_da_session(relays.broadcast_relay(), update).boxed()
+                            }
+                        };
+
+                        if let Err(e) = broadcast_future.await {
+                            error!("Failed to broadcast session update for {service:?}: {e}");
+                        }
+                    } else {
+                        error!("Could not get session providers for service: {service:?}");
+                    }
+                }
             }
         }
 
@@ -1198,17 +1303,12 @@ where
     ///
     /// # Arguments
     ///
-    /// * `initial_state` - The initial state of cryptarchia.
-    /// * `lib_id` - The LIB block id.
-    /// * `lib_state` - The LIB ledger state.
-    /// * `leader` - The leader instance. It needs to be a Leader initialised to
-    ///   genesis. This function will update the leader if needed.
+    /// * `bootstrap_config` - The bootstrap configuration.
     /// * `ledger_config` - The ledger configuration.
     /// * `relays` - The relays object containing all the necessary relays for
     ///   the consensus.
     async fn initialize_cryptarchia(
         &self,
-        genesis_id: HeaderId,
         bootstrap_config: &BootstrapConfig<NetAdapter::PeerId>,
         ledger_config: nomos_ledger::Config,
         relays: &CryptarchiaConsensusRelays<
@@ -1220,23 +1320,26 @@ where
             RuntimeServiceId,
         >,
     ) -> (Cryptarchia, PrunedBlocks<HeaderId>) {
-        let lib_id = self.initial_state.lib;
+        let lib_id = self.state.lib;
+        let genesis_id = self.state.genesis_id;
         let state = choose_engine_state(
             lib_id,
             genesis_id,
             bootstrap_config,
-            self.initial_state.last_engine_state.as_ref(),
+            self.state.last_engine_state.as_ref(),
         );
         let mut cryptarchia = Cryptarchia::from_lib(
             lib_id,
-            self.initial_state.lib_ledger_state.clone(),
+            self.state.lib_ledger_state.clone(),
+            genesis_id,
             ledger_config,
             state,
         );
 
+        // We reapply blocks here instead of saving ledger states to correcly make use
+        // of structural sharing If forking is low, this might not be necessary
         let blocks =
-            Self::get_blocks_in_range(lib_id, self.initial_state.tip, relays.storage_adapter())
-                .await;
+            Self::get_blocks_in_range(lib_id, self.state.tip, relays.storage_adapter()).await;
 
         // Skip LIB block since it's already applied
         let blocks = blocks.into_iter().skip(1);
@@ -1438,23 +1541,6 @@ where
     }
 }
 
-async fn mark_in_block<Payload, Item, Key>(
-    mempool: OutboundRelay<MempoolMsg<HeaderId, Payload, Item, Key>>,
-    ids: impl Iterator<Item = Key>,
-    block: HeaderId,
-) where
-    Key: Send,
-    Payload: Send,
-{
-    mempool
-        .send(MempoolMsg::MarkInBlock {
-            ids: ids.collect(),
-            block,
-        })
-        .await
-        .unwrap_or_else(|(e, _)| error!("Could not mark items in block: {e}"));
-}
-
 async fn mark_blob_in_block<BlobId: Debug + Send>(
     sampling_relay: SamplingRelay<BlobId>,
     blobs_id: Vec<BlobId>,
@@ -1473,6 +1559,26 @@ async fn broadcast_finalized_block(
 ) -> Result<(), DynError> {
     broadcast_relay
         .send(BlockBroadcastMsg::BroadcastFinalizedBlock(block_info))
+        .await
+        .map_err(|(error, _)| Box::new(error) as DynError)
+}
+
+async fn broadcast_blend_session(
+    broadcast_relay: &BroadcastRelay,
+    session: SessionUpdate,
+) -> Result<(), DynError> {
+    broadcast_relay
+        .send(BlockBroadcastMsg::BroadcastBlendSession(session))
+        .await
+        .map_err(|(error, _)| Box::new(error) as DynError)
+}
+
+async fn broadcast_da_session(
+    broadcast_relay: &BroadcastRelay,
+    session: SessionUpdate,
+) -> Result<(), DynError> {
+    broadcast_relay
+        .send(BlockBroadcastMsg::BroadcastDASession(session))
         .await
         .map_err(|(error, _)| Box::new(error) as DynError)
 }

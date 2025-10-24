@@ -6,7 +6,8 @@ use nomos_core::{
     da::{DaDispersal, DaEncoder},
     mantle::{
         SignedMantleTx,
-        ops::channel::{ChannelId, MsgId},
+        ops::channel::{ChannelId, Ed25519PublicKey, MsgId},
+        tx_builder::MantleTxBuilder,
     },
 };
 use overwatch::DynError;
@@ -33,8 +34,10 @@ pub trait DispersalBackend {
 
     async fn process_dispersal(
         &self,
+        tx_builder: MantleTxBuilder,
         channel_id: ChannelId,
         parent_msg_id: MsgId,
+        signer: Ed25519PublicKey,
         data: Vec<u8>,
         sender: oneshot::Sender<Result<Self::BlobId, DynError>>,
     ) -> Result<DispersalTask, DynError>;

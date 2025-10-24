@@ -6,7 +6,7 @@ use clap::Subcommand;
 #[derive(Debug, Subcommand)]
 pub enum Command {
     /// Send data to the executor for encoding and dispersal.
-    Disseminate(executor::Disseminate),
+    Disseminate(Box<executor::Disseminate>),
     Reconstruct(validator::Reconstruct),
 }
 

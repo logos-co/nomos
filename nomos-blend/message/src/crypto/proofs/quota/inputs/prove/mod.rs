@@ -26,16 +26,16 @@ impl TryFrom<Inputs> for PoQWitnessInputs {
         let (signing_key_first_half, signing_key_second_half) =
             split_ephemeral_signing_key(value.public.signing_key);
         let chain_input_data = PoQChainInputsData {
-            core_root: value.public.core_root,
-            pol_epoch_nonce: value.public.pol_epoch_nonce,
-            pol_ledger_aged: value.public.pol_ledger_aged,
+            core_root: value.public.core.zk_root,
+            pol_epoch_nonce: value.public.leader.pol_epoch_nonce,
+            pol_ledger_aged: value.public.leader.pol_ledger_aged,
             session: value.public.session,
-            total_stake: value.public.total_stake,
+            total_stake: value.public.leader.total_stake,
         };
         let common_input_data = PoQCommonInputsData {
-            core_quota: value.public.core_quota,
+            core_quota: value.public.core.quota,
             index: value.private.key_index,
-            leader_quota: value.public.leader_quota,
+            leader_quota: value.public.leader.message_quota,
             message_key: (
                 fr_from_bytes(&signing_key_first_half[..]).expect(
                     "First half of signing public key does not represent a valid `Fr` point.",
@@ -60,14 +60,14 @@ fn witness_input_for_proof_type(
     proof_type: ProofType,
 ) -> Result<PoQWitnessInputs, PoQInputsFromDataError> {
     match proof_type {
-        ProofType::CoreQuota(ProofOfCoreQuotaInputs {
-            core_path,
-            core_path_selectors,
-            core_sk,
-        }) => {
+        ProofType::CoreQuota(core_quota_private_inputs) => {
+            let ProofOfCoreQuotaInputs {
+                core_path_and_selectors,
+                core_sk,
+            } = *core_quota_private_inputs;
+
             let blend_input_data = PoQBlendInputsData {
-                core_path,
-                core_path_selectors,
+                core_path_and_selectors,
                 core_sk,
             };
             PoQWitnessInputs::from_core_node_data(
@@ -76,21 +76,21 @@ fn witness_input_for_proof_type(
                 blend_input_data,
             )
         }
-        ProofType::LeadershipQuota(ProofOfLeadershipQuotaInputs {
-            aged_path,
-            aged_selector,
-            note_value,
-            output_number,
-            slot,
-            slot_secret,
-            slot_secret_path,
-            starting_slot,
-            transaction_hash,
-            ..
-        }) => {
+        ProofType::LeadershipQuota(leadership_quota_private_inputs) => {
+            let ProofOfLeadershipQuotaInputs {
+                aged_path_and_selectors,
+                note_value,
+                output_number,
+                slot,
+                slot_secret,
+                slot_secret_path,
+                starting_slot,
+                transaction_hash,
+                ..
+            } = *leadership_quota_private_inputs;
+
             let wallet_input_data = PoQWalletInputsData {
-                aged_path,
-                aged_selector,
+                aged_path_and_selectors,
                 note_value,
                 output_number,
                 slot,

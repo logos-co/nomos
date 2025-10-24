@@ -35,7 +35,7 @@ impl DaShare {
     pub fn column_id(&self) -> Vec<u8> {
         let mut hasher = Blake2b::<U32>::new();
         hasher.update(self.column.as_bytes());
-        hasher.finalize().as_slice().to_vec()
+        hasher.finalize().to_vec()
     }
 
     #[must_use]

@@ -9,7 +9,7 @@ use nomos_blend_message::encap;
 use nomos_blend_scheduling::membership::{Membership, Node};
 
 use crate::core::{
-    tests::utils::{AlwaysTrueVerifier, PROTOCOL_NAME, default_poq_verification_inputs},
+    tests::utils::{AlwaysTrueVerifier, PROTOCOL_NAME},
     with_edge::behaviour::Behaviour,
 };
 
@@ -69,8 +69,8 @@ impl BehaviourBuilder {
             minimum_network_size: self
                 .minimum_network_size
                 .unwrap_or_else(|| 1usize.try_into().unwrap()),
-            session_poq_verification_inputs: default_poq_verification_inputs(),
-            poq_verifier: AlwaysTrueVerifier,
+            current_session_poq_verifier: AlwaysTrueVerifier,
+            previous_session_poq_verifier: None,
         }
     }
 }

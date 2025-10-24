@@ -1,6 +1,6 @@
 macro_rules! adapter_for {
     ($DaNetworkBackend:ident, $DaNetworkMessage:ident, $DaEventKind:ident, $DaNetworkEvent:ident) => {
-        pub struct Libp2pAdapter<Membership,MembershipServiceAdapter, StorageAdapter, ApiAdapter,RuntimeServiceId>
+        pub struct Libp2pAdapter<Membership,MembershipServiceAdapter, StorageAdapter, ApiAdapter, SdpAdapter, RuntimeServiceId>
         where
             Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
                 + Debug
@@ -13,12 +13,12 @@ macro_rules! adapter_for {
 
         {
             network_relay: OutboundRelay<
-                <NetworkService<$DaNetworkBackend<Membership>, Membership, MembershipServiceAdapter, StorageAdapter,ApiAdapter, RuntimeServiceId> as ServiceData>::Message,
+                <NetworkService<$DaNetworkBackend<Membership>, Membership, MembershipServiceAdapter, StorageAdapter,ApiAdapter, SdpAdapter, RuntimeServiceId> as ServiceData>::Message,
             >,
         }
 
         #[async_trait::async_trait]
-        impl<Membership, MembershipServiceAdapter, StorageAdapter, ApiAdapter,RuntimeServiceId> NetworkAdapter<RuntimeServiceId> for Libp2pAdapter<Membership, MembershipServiceAdapter, StorageAdapter,ApiAdapter, RuntimeServiceId>
+        impl<Membership, MembershipServiceAdapter, StorageAdapter, ApiAdapter,SdpAdapter,RuntimeServiceId> NetworkAdapter<RuntimeServiceId> for Libp2pAdapter<Membership, MembershipServiceAdapter, StorageAdapter,ApiAdapter, SdpAdapter,RuntimeServiceId>
         where
             Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
                 + Debug
@@ -36,6 +36,7 @@ macro_rules! adapter_for {
                 + Send
                 + Sync
                 + 'static,
+            SdpAdapter: SdpAdapterTrait<RuntimeServiceId>,
 
         {
             type Backend = $DaNetworkBackend<Membership>;
@@ -44,9 +45,10 @@ macro_rules! adapter_for {
             type Storage = StorageAdapter;
             type MembershipAdapter = MembershipServiceAdapter;
             type ApiAdapter = ApiAdapter;
+            type SdpAdapter = SdpAdapter;
 
             async fn new(
-                network_relay: OutboundRelay<<NetworkService<Self::Backend, Self::Membership, Self::MembershipAdapter, Self::Storage, Self::ApiAdapter, RuntimeServiceId> as ServiceData>::Message>,
+                network_relay: OutboundRelay<<NetworkService<Self::Backend, Self::Membership, Self::MembershipAdapter, Self::Storage, Self::ApiAdapter, Self::SdpAdapter, RuntimeServiceId> as ServiceData>::Message>,
             ) -> Self {
                 Self { network_relay }
             }

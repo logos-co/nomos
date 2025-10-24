@@ -1,16 +1,20 @@
 use std::{hash::Hash, marker::PhantomData};
 
-use nomos_blend_scheduling::message_blend::{
-    ProofsGenerator as ProofsGeneratorTrait, crypto::send::SessionCryptographicProcessor,
+use nomos_blend_message::crypto::proofs::{
+    PoQVerificationInputsMinusSigningKey,
+    quota::inputs::prove::private::ProofOfLeadershipQuotaInputs,
+};
+use nomos_blend_scheduling::{
+    membership::Membership,
+    message_blend::{
+        crypto::leader::send::SessionCryptographicProcessor, provers::leader::LeaderProofsGenerator,
+    },
 };
 use nomos_utils::blake_rng::BlakeRng;
 use overwatch::overwatch::OverwatchHandle;
 use rand::SeedableRng as _;
 
-use crate::{
-    edge::{LOG_TARGET, Settings, backends::BlendBackend},
-    session::SessionInfo,
-};
+use crate::edge::{LOG_TARGET, Settings, backends::BlendBackend};
 
 pub struct MessageHandler<Backend, NodeId, ProofsGenerator, RuntimeServiceId> {
     cryptographic_processor: SessionCryptographicProcessor<NodeId, ProofsGenerator>,
@@ -23,7 +27,7 @@ impl<Backend, NodeId, ProofsGenerator, RuntimeServiceId>
 where
     Backend: BlendBackend<NodeId, RuntimeServiceId>,
     NodeId: Clone + Send + 'static,
-    ProofsGenerator: ProofsGeneratorTrait,
+    ProofsGenerator: LeaderProofsGenerator,
 {
     /// Creates a [`MessageHandler`] with the given membership.
     ///
@@ -33,32 +37,43 @@ where
     /// 2. The local node is not a core node.
     pub fn try_new_with_edge_condition_check(
         settings: &Settings<Backend, NodeId, RuntimeServiceId>,
-        session_info: SessionInfo<NodeId>,
+        membership: Membership<NodeId>,
+        public_info: PoQVerificationInputsMinusSigningKey,
+        private_info: ProofOfLeadershipQuotaInputs,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
     ) -> Result<Self, Error>
     where
         NodeId: Eq + Hash,
     {
-        let membership_size = session_info.membership.size();
+        let membership_size = membership.size();
         if membership_size < settings.minimum_network_size.get() as usize {
             Err(Error::NetworkIsTooSmall(membership_size))
-        } else if session_info.membership.contains_local() {
+        } else if membership.contains_local() {
             Err(Error::LocalIsCoreNode)
         } else {
-            Ok(Self::new(settings, session_info, overwatch_handle))
+            Ok(Self::new(
+                settings,
+                membership,
+                public_info,
+                private_info,
+                overwatch_handle,
+            ))
         }
     }
 
     fn new(
         settings: &Settings<Backend, NodeId, RuntimeServiceId>,
-        SessionInfo {
-            membership,
-            poq_generation_and_verification_inputs: poq_inputs,
-        }: SessionInfo<NodeId>,
+        membership: Membership<NodeId>,
+        public_info: PoQVerificationInputsMinusSigningKey,
+        private_info: ProofOfLeadershipQuotaInputs,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
     ) -> Self {
-        let cryptographic_processor =
-            SessionCryptographicProcessor::new(&settings.crypto, membership.clone(), poq_inputs);
+        let cryptographic_processor = SessionCryptographicProcessor::new(
+            &settings.crypto,
+            membership.clone(),
+            public_info,
+            private_info,
+        );
         let backend = Backend::new(
             settings.backend.clone(),
             overwatch_handle,
@@ -78,7 +93,7 @@ impl<Backend, NodeId, ProofsGenerator, RuntimeServiceId>
 where
     NodeId: Eq + Hash + Clone + Send + 'static,
     Backend: BlendBackend<NodeId, RuntimeServiceId> + Sync,
-    ProofsGenerator: ProofsGeneratorTrait,
+    ProofsGenerator: LeaderProofsGenerator,
 {
     /// Blend a new message received from another service.
     pub async fn handle_messages_to_blend(&mut self, message: Vec<u8>) {

@@ -63,7 +63,7 @@ where
         }
     }
 
-    #[cfg(feature = "unsafe-test-functions")]
+    #[cfg(any(test, feature = "unsafe-test-functions"))]
     #[must_use]
     pub fn new_without_local(nodes: &[Node<NodeId>]) -> Self {
         Self::new(nodes, &[0; _].try_into().unwrap())

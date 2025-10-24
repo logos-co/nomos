@@ -1,4 +1,3 @@
-#[cfg(feature = "preload")]
 pub mod preload;
 
 use crate::{KMSOperatorBackend, keys::secured_key::SecuredKey};
@@ -23,6 +22,12 @@ pub trait KMSBackend {
     fn sign(
         &self,
         key_id: Self::KeyId,
+        payload: <Self::Key as SecuredKey>::Payload,
+    ) -> Result<<Self::Key as SecuredKey>::Signature, Self::Error>;
+
+    fn sign_multiple(
+        &self,
+        key_ids: Vec<Self::KeyId>,
         payload: <Self::Key as SecuredKey>::Payload,
     ) -> Result<<Self::Key as SecuredKey>::Signature, Self::Error>;
 

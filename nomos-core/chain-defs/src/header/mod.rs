@@ -7,6 +7,7 @@ pub const BEDROCK_VERSION: u8 = 1;
 
 use crate::{
     crypto::Hasher,
+    mantle::{Transaction as _, TxHash, genesis_tx::GenesisTx},
     proofs::leader_proof::{Groth16LeaderProof, LeaderProof},
     utils::{display_hex_bytes_newtype, serde_bytes_newtype},
 };
@@ -77,6 +78,17 @@ impl Header {
             proof_of_leadership,
         }
     }
+
+    #[must_use]
+    pub fn genesis(tx: &GenesisTx) -> Self {
+        let tx_hash: TxHash = tx.hash();
+        Self::new(
+            HeaderId([0; 32]),
+            ContentId::from(fr_to_bytes(&tx_hash.0)),
+            Slot::from(0u64),
+            Groth16LeaderProof::genesis(),
+        )
+    }
 }
 
 impl From<[u8; 32]> for HeaderId {
@@ -130,9 +142,12 @@ pub enum Error {
 
 #[test]
 fn test_serde() {
+    use crate::codec::{DeserializeOp as _, SerializeOp as _};
+    let header = HeaderId([0; 32]);
     assert_eq!(
-        <HeaderId as crate::codec::SerdeOp>::deserialize::<HeaderId>(
-            &<HeaderId as crate::codec::SerdeOp>::serialize(&HeaderId([0; 32]))
+        HeaderId::from_bytes(
+            &header
+                .to_bytes()
                 .expect("HeaderId should be able to be serialized")
         )
         .unwrap(),

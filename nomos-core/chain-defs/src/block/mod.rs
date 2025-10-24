@@ -2,10 +2,12 @@ use ::serde::{Deserialize, Serialize, de::DeserializeOwned};
 use bytes::Bytes;
 use poseidon2::Fr;
 
-use crate::{codec::SerdeOp, header::Header};
+use crate::{
+    codec::{DeserializeOp as _, SerializeOp as _},
+    header::Header,
+};
 pub type TxHash = [u8; 32];
 pub type BlockNumber = u64;
-pub type SessionNumber = u64;
 
 /// A block proposal
 #[derive(Clone, Debug)]
@@ -74,7 +76,7 @@ impl<Tx: Clone + Eq + Serialize + DeserializeOwned> TryFrom<Bytes> for Block<Tx>
     type Error = crate::codec::Error;
 
     fn try_from(bytes: Bytes) -> Result<Self, Self::Error> {
-        <Self as SerdeOp>::deserialize(&bytes)
+        Self::from_bytes(&bytes)
     }
 }
 
@@ -82,6 +84,6 @@ impl<Tx: Clone + Eq + Serialize + DeserializeOwned> TryFrom<Block<Tx>> for Bytes
     type Error = crate::codec::Error;
 
     fn try_from(block: Block<Tx>) -> Result<Self, Self::Error> {
-        <Block<Tx> as SerdeOp>::serialize(&block)
+        block.to_bytes()
     }
 }
