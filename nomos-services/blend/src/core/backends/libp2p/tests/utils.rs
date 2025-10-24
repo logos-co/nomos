@@ -1,10 +1,7 @@
 use core::{ops::RangeInclusive, time::Duration};
 
 use async_trait::async_trait;
-use futures::{
-    StreamExt as _,
-    stream::{Pending, pending},
-};
+use futures::StreamExt as _;
 use libp2p::{
     Multiaddr, PeerId, Swarm, allow_block_list, connection_limits, core::transport::ListenerId,
     identity::Keypair,
@@ -21,7 +18,6 @@ use nomos_blend_network::core::{
 use nomos_blend_scheduling::{
     membership::{Membership, Node},
     message_blend::crypto::IncomingEncapsulatedMessageWithValidatedPublicHeader,
-    session::SessionEvent,
 };
 use nomos_libp2p::{Protocol, SwarmEvent};
 use nomos_utils::blake_rng::BlakeRng;
@@ -35,7 +31,7 @@ use tokio_stream::wrappers::IntervalStream;
 use crate::{
     core::{
         backends::{
-            SessionInfo,
+            PublicInfo,
             libp2p::{BlendSwarm, behaviour::BlendBehaviour, swarm::BlendSwarmMessage},
         },
         settings::BlendConfig,
@@ -43,12 +39,8 @@ use crate::{
     test_utils::{PROTOCOL_NAME, crypto::MockProofsVerifier},
 };
 
-pub type InnerSwarm<ProofsVerifier> = BlendSwarm<
-    Pending<SessionEvent<SessionInfo<PeerId>>>,
-    BlakeRng,
-    ProofsVerifier,
-    TestObservationWindowProvider,
->;
+pub type InnerSwarm<ProofsVerifier> =
+    BlendSwarm<BlakeRng, ProofsVerifier, TestObservationWindowProvider>;
 
 pub struct TestSwarm<ProofsVerifier>
 where
@@ -62,23 +54,26 @@ where
 
 #[derive(Default)]
 pub struct SwarmBuilder {
-    membership: Option<Membership<PeerId>>,
+    public_info: Option<PublicInfo<PeerId>>,
 }
 
 impl SwarmBuilder {
     pub fn with_membership(mut self, membership: Membership<PeerId>) -> Self {
-        assert!(self.membership.is_none());
-        self.membership = Some(membership);
+        assert!(self.public_info.is_none());
+        self.public_info = Some(membership.into());
         self
     }
 
     pub fn with_empty_membership(mut self) -> Self {
-        assert!(self.membership.is_none());
-        self.membership = Some(Membership::new_without_local(&[Node {
-            address: Multiaddr::empty(),
-            id: PeerId::random(),
-            public_key: Ed25519PrivateKey::generate().public_key(),
-        }]));
+        assert!(self.public_info.is_none());
+        self.public_info = Some(
+            Membership::new_without_local(&[Node {
+                address: Multiaddr::empty(),
+                id: PeerId::random(),
+                public_key: Ed25519PrivateKey::generate().public_key(),
+            }])
+            .into(),
+        );
         self
     }
 
@@ -98,9 +93,7 @@ impl SwarmBuilder {
             behaviour_constructor,
             swarm_message_receiver,
             incoming_message_sender,
-            pending(),
-            self.membership
-                .unwrap_or_else(|| Membership::new_without_local(&[])),
+            self.public_info.unwrap_or_default(),
             BlakeRng::from_entropy(),
             3u64.try_into().unwrap(),
             1usize.try_into().unwrap(),

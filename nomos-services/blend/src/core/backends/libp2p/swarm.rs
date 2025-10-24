@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 
-use futures::{Stream, StreamExt as _};
+use futures::StreamExt as _;
 use libp2p::{
     Multiaddr, PeerId, Swarm, SwarmBuilder,
     swarm::{ConnectionId, dial_opts::PeerCondition},
@@ -28,7 +28,6 @@ use nomos_blend_scheduling::{
         IncomingEncapsulatedMessageWithValidatedPublicHeader,
         OutgoingEncapsulatedMessageWithValidatedPublicHeader,
     },
-    session::SessionEvent,
 };
 use nomos_libp2p::{DialOpts, SwarmEvent};
 use rand::RngCore;
@@ -36,7 +35,7 @@ use tokio::sync::{broadcast, mpsc};
 
 use crate::core::{
     backends::{
-        SessionInfo,
+        PublicInfo, SessionInfo,
         libp2p::{
             LOG_TARGET, Libp2pBlendBackendSettings,
             behaviour::{BlendBehaviour, BlendBehaviourEvent},
@@ -48,6 +47,8 @@ use crate::core::{
 #[derive(Debug)]
 pub enum BlendSwarmMessage {
     Publish(Box<EncapsulatedMessage>),
+    StartNewSession(SessionInfo<PeerId>),
+    CompleteSessionTransition,
     StartNewEpoch(LeaderInputs),
     CompleteEpochTransition,
 }
@@ -70,7 +71,7 @@ impl DialAttempt {
     }
 }
 
-pub struct BlendSwarm<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider>
+pub struct BlendSwarm<Rng, ProofsVerifier, ObservationWindowProvider>
 where
     ProofsVerifier: ProofsVerifierTrait + 'static,
     ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
@@ -80,31 +81,28 @@ where
     swarm_messages_receiver: mpsc::Receiver<BlendSwarmMessage>,
     incoming_message_sender:
         broadcast::Sender<IncomingEncapsulatedMessageWithValidatedPublicHeader>,
-    session_stream: SessionStream,
-    latest_session_info: Membership<PeerId>,
+    public_info: PublicInfo<PeerId>,
     rng: Rng,
     max_dial_attempts_per_connection: NonZeroU64,
     ongoing_dials: HashMap<PeerId, DialAttempt>,
     minimum_network_size: NonZeroUsize,
 }
 
-pub struct SwarmParams<'config, SessionStream, Rng, ProofsVerifier> {
+pub struct SwarmParams<'config, Rng> {
     pub config: &'config BlendConfig<Libp2pBlendBackendSettings>,
-    pub current_membership: Membership<PeerId>,
-    pub session_stream: SessionStream,
+    pub current_public_info: PublicInfo<PeerId>,
     pub rng: Rng,
     pub swarm_message_receiver: mpsc::Receiver<BlendSwarmMessage>,
     pub incoming_message_sender:
         broadcast::Sender<IncomingEncapsulatedMessageWithValidatedPublicHeader>,
     pub minimum_network_size: NonZeroUsize,
-    pub proofs_verifier: ProofsVerifier,
 }
 
-impl<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider>
-    BlendSwarm<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider>
+impl<Rng, ProofsVerifier, ObservationWindowProvider>
+    BlendSwarm<Rng, ProofsVerifier, ObservationWindowProvider>
 where
     Rng: RngCore,
-    ProofsVerifier: ProofsVerifierTrait + Clone + 'static,
+    ProofsVerifier: ProofsVerifierTrait + Clone,
     ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
         + for<'c> From<(
             &'c BlendConfig<Libp2pBlendBackendSettings>,
@@ -114,14 +112,12 @@ where
     pub(super) fn new(
         SwarmParams {
             config,
-            current_membership,
-            session_stream,
+            current_public_info,
             rng,
             swarm_message_receiver: swarm_messages_receiver,
             incoming_message_sender,
             minimum_network_size,
-            proofs_verifier,
-        }: SwarmParams<SessionStream, Rng, ProofsVerifier>,
+        }: SwarmParams<Rng>,
     ) -> Self {
         let keypair = config.backend.keypair();
         let listening_address = config.backend.listening_address.clone();
@@ -129,7 +125,11 @@ where
             .with_tokio()
             .with_quic()
             .with_behaviour(|_| {
-                BlendBehaviour::new(config, current_membership.clone(), proofs_verifier)
+                BlendBehaviour::new(
+                    config,
+                    current_public_info.session.membership.clone(),
+                    ProofsVerifier::new(current_public_info.clone().into()),
+                )
             })
             .expect("Blend Behaviour should be built")
             .with_swarm_config(|cfg| {
@@ -148,8 +148,7 @@ where
             swarm,
             swarm_messages_receiver,
             incoming_message_sender,
-            session_stream,
-            latest_session_info: current_membership,
+            public_info: current_public_info,
             rng,
             max_dial_attempts_per_connection: config.backend.max_dial_attempts_per_peer,
             ongoing_dials: HashMap::with_capacity(
@@ -164,13 +163,13 @@ where
     }
 }
 
-impl<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider>
-    BlendSwarm<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider>
+impl<Rng, ProofsVerifier, ObservationWindowProvider>
+    BlendSwarm<Rng, ProofsVerifier, ObservationWindowProvider>
 where
     Rng: RngCore,
     ProofsVerifier: ProofsVerifierTrait,
-    ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
-        + 'static,
+    ObservationWindowProvider:
+        IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>,
 {
     /// Dial random peers from the membership list,
     /// excluding the currently connected peers, the peers that we are already
@@ -186,8 +185,8 @@ where
             .collect();
         // We need to clone else we would not be able to call `self.dial` inside which
         // requires access to `&mut self`.
-        let latest_session_info = self.latest_session_info.clone();
-        latest_session_info
+        let current_membership = self.public_info.session.membership.clone();
+        current_membership
             .filter_and_choose_remote_nodes(&mut self.rng, amount, &exclude_peers)
             .for_each(|peer| {
                 let peer_address = peer.address.clone();
@@ -196,6 +195,78 @@ where
             });
     }
 
+    /// Dial new peers, if necessary, to maintain the peering degree.
+    /// We aim to have at least the peering degree number of "healthy" peers.
+    fn check_and_dial_new_peers_except(&mut self, except: Option<PeerId>) {
+        let membership_size = self.public_info.session.membership.size();
+        if membership_size < self.minimum_network_size.get() {
+            tracing::warn!(target: LOG_TARGET, "Not dialing any peers because set of core nodes is smaller than the minimum network size. {membership_size} < {}", self.minimum_network_size.get());
+            return;
+        }
+        let num_new_conns_needed = self
+            .minimum_healthy_peering_degree()
+            .saturating_sub(self.num_healthy_peers());
+        let available_connection_slots = self.available_connection_slots();
+        if num_new_conns_needed > available_connection_slots {
+            tracing::debug!(target: LOG_TARGET, "To maintain the minimum healthy peering degree the node would need to create {num_new_conns_needed} new connections, but only {available_connection_slots} slots are available.");
+        }
+        let connections_to_establish = num_new_conns_needed.min(available_connection_slots);
+        self.dial_random_peers_except(connections_to_establish, except);
+    }
+
+    fn handle_disconnected_peer(&mut self, peer_id: PeerId, peer_state: NegotiatedPeerState) {
+        tracing::debug!(target: LOG_TARGET, "Peer {peer_id} disconnected with state {peer_state:?}.");
+        if peer_state.is_spammy() {
+            self.swarm.behaviour_mut().blocked_peers.block_peer(peer_id);
+        }
+        self.check_and_dial_new_peers_except(Some(peer_id));
+    }
+
+    fn handle_unhealthy_peer(&mut self, peer_id: PeerId) {
+        tracing::debug!(target: LOG_TARGET, "Peer {peer_id} is unhealthy");
+        self.check_and_dial_new_peers_except(Some(peer_id));
+    }
+
+    fn handle_blend_core_behaviour_event(&mut self, blend_event: CoreToCoreEvent) {
+        match blend_event {
+            nomos_blend_network::core::with_core::behaviour::Event::Message(msg, conn) => {
+                // Forward message received from node to all other core nodes.
+                self.forward_validated_swarm_message(&(*msg).clone().into(), conn);
+                // Bubble up to service for decapsulation and delaying.
+                self.report_message_to_service(*msg);
+            }
+            nomos_blend_network::core::with_core::behaviour::Event::UnhealthyPeer(peer_id) => {
+                self.handle_unhealthy_peer(peer_id);
+            }
+            nomos_blend_network::core::with_core::behaviour::Event::HealthyPeer(peer_id) => {
+                Self::handle_healthy_peer(peer_id);
+            }
+            nomos_blend_network::core::with_core::behaviour::Event::PeerDisconnected(
+                peer_id,
+                peer_state,
+            ) => {
+                self.handle_disconnected_peer(peer_id, peer_state);
+            }
+            nomos_blend_network::core::with_core::behaviour::Event::OutboundConnectionUpgradeFailed(peer_id) => {
+                // If we ran out of dial attempts, we try to connect to another random peer that we are not yet connected to.
+                if self.retry_dial(peer_id).is_some() {
+                    self.dial_random_peers_except(1, Some(peer_id));
+                }
+            }
+            nomos_blend_network::core::with_core::behaviour::Event::OutboundConnectionUpgradeSucceeded(peer_id) => {
+                assert!(self.ongoing_dials.remove(&peer_id).is_some(), "Peer ID for a successfully upgraded connection must be present in storage");
+            }
+        }
+    }
+}
+
+impl<Rng, ProofsVerifier, ObservationWindowProvider>
+    BlendSwarm<Rng, ProofsVerifier, ObservationWindowProvider>
+where
+    ProofsVerifier: ProofsVerifierTrait,
+    ObservationWindowProvider:
+        IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>,
+{
     /// It tries to dial the specified peer, by setting or increasing the
     /// counter of attempted dials towards the peer.
     ///
@@ -259,187 +330,6 @@ where
         }
         tracing::trace!(target: LOG_TARGET, "Maximum attempts ({}) reached for peer {peer_id:?}. Re-dialing stopped.", self.max_dial_attempts_per_connection);
         self.ongoing_dials.remove(&peer_id)
-    }
-
-    /// Dial new peers, if necessary, to maintain the peering degree.
-    /// We aim to have at least the peering degree number of "healthy" peers.
-    fn check_and_dial_new_peers_except(&mut self, except: Option<PeerId>) {
-        let membership_size = self.latest_session_info.size();
-        if self.latest_session_info.size() < self.minimum_network_size.get() {
-            tracing::warn!(target: LOG_TARGET, "Not dialing any peers because set of core nodes is smaller than the minimum network size. {membership_size} < {}", self.minimum_network_size.get());
-            return;
-        }
-        let num_new_conns_needed = self
-            .minimum_healthy_peering_degree()
-            .saturating_sub(self.num_healthy_peers());
-        let available_connection_slots = self.available_connection_slots();
-        if num_new_conns_needed > available_connection_slots {
-            tracing::debug!(target: LOG_TARGET, "To maintain the minimum healthy peering degree the node would need to create {num_new_conns_needed} new connections, but only {available_connection_slots} slots are available.");
-        }
-        let connections_to_establish = num_new_conns_needed.min(available_connection_slots);
-        self.dial_random_peers_except(connections_to_establish, except);
-    }
-
-    fn handle_disconnected_peer(&mut self, peer_id: PeerId, peer_state: NegotiatedPeerState) {
-        tracing::debug!(target: LOG_TARGET, "Peer {peer_id} disconnected with state {peer_state:?}.");
-        if peer_state.is_spammy() {
-            self.swarm.behaviour_mut().blocked_peers.block_peer(peer_id);
-        }
-        self.check_and_dial_new_peers_except(Some(peer_id));
-    }
-
-    fn handle_unhealthy_peer(&mut self, peer_id: PeerId) {
-        tracing::debug!(target: LOG_TARGET, "Peer {peer_id} is unhealthy");
-        self.check_and_dial_new_peers_except(Some(peer_id));
-    }
-
-    fn handle_event(
-        &mut self,
-        event: SwarmEvent<BlendBehaviourEvent<ProofsVerifier, ObservationWindowProvider>>,
-    ) {
-        match event {
-            SwarmEvent::Behaviour(BlendBehaviourEvent::Blend(NetworkBehaviourEvent::WithCore(
-                e,
-            ))) => {
-                self.handle_blend_core_behaviour_event(e);
-            }
-            SwarmEvent::Behaviour(BlendBehaviourEvent::Blend(NetworkBehaviourEvent::WithEdge(
-                e,
-            ))) => {
-                self.handle_blend_edge_behaviour_event(e);
-            }
-            // In case we fail to dial a peer, we retry. If the maximum number of trials is reached,
-            // we re-evaluate the healthy connections and open a new one if needed, ignoring the
-            // peer that we just failed to dial.
-            SwarmEvent::OutgoingConnectionError {
-                peer_id,
-                connection_id,
-                error,
-            } => {
-                tracing::error!(
-                    target: LOG_TARGET,
-                    "Dialing error for peer: {peer_id:?} on connection: {connection_id:?}. Error: {error:?}"
-                );
-                // We don't retry if `peer_id` is `None` or if we've achieved the maximum number
-                // of retries for this peer.
-                let is_connection_retried =
-                    peer_id.is_some_and(|peer_id| self.retry_dial(peer_id).is_none());
-                if !is_connection_retried {
-                    self.check_and_dial_new_peers_except(peer_id);
-                }
-            }
-            _ => {
-                tracing::debug!(target: LOG_TARGET, "Received event from blend network that will be ignored.");
-                tracing::info!(counter.ignored_event = 1);
-            }
-        }
-    }
-
-    fn handle_blend_core_behaviour_event(&mut self, blend_event: CoreToCoreEvent) {
-        match blend_event {
-            nomos_blend_network::core::with_core::behaviour::Event::Message(msg, conn) => {
-                // Forward message received from node to all other core nodes.
-                self.forward_validated_swarm_message(&(*msg).clone().into(), conn);
-                // Bubble up to service for decapsulation and delaying.
-                self.report_message_to_service(*msg);
-            }
-            nomos_blend_network::core::with_core::behaviour::Event::UnhealthyPeer(peer_id) => {
-                self.handle_unhealthy_peer(peer_id);
-            }
-            nomos_blend_network::core::with_core::behaviour::Event::HealthyPeer(peer_id) => {
-                Self::handle_healthy_peer(peer_id);
-            }
-            nomos_blend_network::core::with_core::behaviour::Event::PeerDisconnected(
-                peer_id,
-                peer_state,
-            ) => {
-                self.handle_disconnected_peer(peer_id, peer_state);
-            }
-            nomos_blend_network::core::with_core::behaviour::Event::OutboundConnectionUpgradeFailed(peer_id) => {
-                // If we ran out of dial attempts, we try to connect to another random peer that we are not yet connected to.
-                if self.retry_dial(peer_id).is_some() {
-                    self.dial_random_peers_except(1, Some(peer_id));
-                }
-            }
-            nomos_blend_network::core::with_core::behaviour::Event::OutboundConnectionUpgradeSucceeded(peer_id) => {
-                assert!(self.ongoing_dials.remove(&peer_id).is_some(), "Peer ID for a successfully upgraded connection must be present in storage");
-            }
-        }
-    }
-
-    #[cfg(test)]
-    #[expect(clippy::too_many_arguments, reason = "Test-only constructor.")]
-    pub fn new_test<BehaviourConstructor>(
-        behaviour_constructor: BehaviourConstructor,
-        swarm_messages_receiver: mpsc::Receiver<BlendSwarmMessage>,
-        incoming_message_sender: broadcast::Sender<
-            IncomingEncapsulatedMessageWithValidatedPublicHeader,
-        >,
-        session_stream: SessionStream,
-        latest_session_info: Membership<PeerId>,
-        rng: Rng,
-        max_dial_attempts_per_connection: NonZeroU64,
-        minimum_network_size: NonZeroUsize,
-    ) -> Self
-    where
-        BehaviourConstructor: FnOnce(
-            libp2p::identity::Keypair,
-        )
-            -> BlendBehaviour<ProofsVerifier, ObservationWindowProvider>,
-    {
-        use crate::test_utils::memory_test_swarm;
-
-        Self {
-            incoming_message_sender,
-            latest_session_info,
-            max_dial_attempts_per_connection,
-            ongoing_dials: HashMap::new(),
-            rng,
-            session_stream,
-            swarm: memory_test_swarm(Duration::from_secs(1), behaviour_constructor),
-            swarm_messages_receiver,
-            minimum_network_size,
-        }
-    }
-}
-
-impl<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider>
-    BlendSwarm<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider>
-where
-    ProofsVerifier: ProofsVerifierTrait,
-    ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
-        + 'static,
-{
-    fn handle_swarm_message(&mut self, msg: BlendSwarmMessage) {
-        match msg {
-            BlendSwarmMessage::Publish(msg) => {
-                self.handle_publish_swarm_message(*msg);
-            }
-            BlendSwarmMessage::StartNewEpoch(new_epoch_public) => {
-                self.swarm
-                    .behaviour_mut()
-                    .blend
-                    .start_new_epoch(new_epoch_public);
-            }
-            BlendSwarmMessage::CompleteEpochTransition => {
-                self.swarm.behaviour_mut().blend.finish_epoch_transition();
-            }
-        }
-    }
-
-    fn handle_publish_swarm_message(&mut self, msg: EncapsulatedMessage) {
-        if let Err(e) = self
-            .swarm
-            .behaviour_mut()
-            .blend
-            .with_core_mut()
-            .validate_and_publish_message(msg)
-        {
-            tracing::error!(target: LOG_TARGET, "Failed to publish message to blend network: {e:?}");
-            tracing::info!(counter.failed_outbound_messages = 1);
-        } else {
-            tracing::info!(counter.successful_outbound_messages = 1);
-        }
     }
 
     fn publish_validated_swarm_message(
@@ -528,13 +418,155 @@ where
             }
         }
     }
+
+    fn handle_publish_swarm_message(&mut self, msg: EncapsulatedMessage) {
+        if let Err(e) = self
+            .swarm
+            .behaviour_mut()
+            .blend
+            .with_core_mut()
+            .validate_and_publish_message(msg)
+        {
+            tracing::error!(target: LOG_TARGET, "Failed to publish message to blend network: {e:?}");
+            tracing::info!(counter.failed_outbound_messages = 1);
+        } else {
+            tracing::info!(counter.successful_outbound_messages = 1);
+        }
+    }
 }
 
-impl<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider>
-    BlendSwarm<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider>
+impl<Rng, ProofsVerifier, ObservationWindowProvider>
+    BlendSwarm<Rng, ProofsVerifier, ObservationWindowProvider>
+where
+    ProofsVerifier: ProofsVerifierTrait + Clone,
+    ObservationWindowProvider:
+        IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>,
+{
+    fn handle_swarm_message(&mut self, msg: BlendSwarmMessage) {
+        match msg {
+            BlendSwarmMessage::Publish(msg) => {
+                self.handle_publish_swarm_message(*msg);
+            }
+            BlendSwarmMessage::StartNewSession(new_session_info) => {
+                self.public_info.session = new_session_info;
+                self.swarm.behaviour_mut().blend.start_new_session(
+                    self.public_info.session.membership.clone(),
+                    ProofsVerifier::new(self.public_info.clone().into()),
+                );
+            }
+            BlendSwarmMessage::CompleteSessionTransition => {
+                self.swarm.behaviour_mut().blend.finish_session_transition();
+            }
+            BlendSwarmMessage::StartNewEpoch(new_epoch_public) => {
+                self.public_info.epoch = new_epoch_public;
+                self.swarm
+                    .behaviour_mut()
+                    .blend
+                    .start_new_epoch(self.public_info.epoch);
+            }
+            BlendSwarmMessage::CompleteEpochTransition => {
+                self.swarm.behaviour_mut().blend.finish_epoch_transition();
+            }
+        }
+    }
+}
+
+impl<Rng, ProofsVerifier, ObservationWindowProvider>
+    BlendSwarm<Rng, ProofsVerifier, ObservationWindowProvider>
 where
     Rng: RngCore,
-    SessionStream: Stream<Item = SessionEvent<SessionInfo<PeerId>>> + Unpin,
+    ProofsVerifier: ProofsVerifierTrait + Clone,
+    ObservationWindowProvider:
+        IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>,
+{
+    fn handle_event(
+        &mut self,
+        event: SwarmEvent<BlendBehaviourEvent<ProofsVerifier, ObservationWindowProvider>>,
+    ) {
+        match event {
+            SwarmEvent::Behaviour(BlendBehaviourEvent::Blend(NetworkBehaviourEvent::WithCore(
+                e,
+            ))) => {
+                self.handle_blend_core_behaviour_event(e);
+            }
+            SwarmEvent::Behaviour(BlendBehaviourEvent::Blend(NetworkBehaviourEvent::WithEdge(
+                e,
+            ))) => {
+                self.handle_blend_edge_behaviour_event(e);
+            }
+            // In case we fail to dial a peer, we retry. If the maximum number of trials is reached,
+            // we re-evaluate the healthy connections and open a new one if needed, ignoring the
+            // peer that we just failed to dial.
+            SwarmEvent::OutgoingConnectionError {
+                peer_id,
+                connection_id,
+                error,
+            } => {
+                tracing::error!(
+                    target: LOG_TARGET,
+                    "Dialing error for peer: {peer_id:?} on connection: {connection_id:?}. Error: {error:?}"
+                );
+                // We don't retry if `peer_id` is `None` or if we've achieved the maximum number
+                // of retries for this peer.
+                let is_connection_retried =
+                    peer_id.is_some_and(|peer_id| self.retry_dial(peer_id).is_none());
+                if !is_connection_retried {
+                    self.check_and_dial_new_peers_except(peer_id);
+                }
+            }
+            _ => {
+                tracing::debug!(target: LOG_TARGET, "Received event from blend network that will be ignored.");
+                tracing::info!(counter.ignored_event = 1);
+            }
+        }
+    }
+}
+
+impl<Rng, ProofsVerifier, ObservationWindowProvider>
+    BlendSwarm<Rng, ProofsVerifier, ObservationWindowProvider>
+where
+    Rng: RngCore,
+    ProofsVerifier: ProofsVerifierTrait,
+    ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
+        + 'static,
+{
+    #[cfg(test)]
+    pub fn new_test<BehaviourConstructor>(
+        behaviour_constructor: BehaviourConstructor,
+        swarm_messages_receiver: mpsc::Receiver<BlendSwarmMessage>,
+        incoming_message_sender: broadcast::Sender<
+            IncomingEncapsulatedMessageWithValidatedPublicHeader,
+        >,
+        current_public_info: PublicInfo<PeerId>,
+        rng: Rng,
+        max_dial_attempts_per_connection: NonZeroU64,
+        minimum_network_size: NonZeroUsize,
+    ) -> Self
+    where
+        BehaviourConstructor: FnOnce(
+            libp2p::identity::Keypair,
+        )
+            -> BlendBehaviour<ProofsVerifier, ObservationWindowProvider>,
+    {
+        use crate::test_utils::memory_test_swarm;
+
+        Self {
+            incoming_message_sender,
+            public_info: current_public_info,
+            max_dial_attempts_per_connection,
+            ongoing_dials: HashMap::new(),
+            rng,
+            swarm: memory_test_swarm(Duration::from_secs(1), behaviour_constructor),
+            swarm_messages_receiver,
+            minimum_network_size,
+        }
+    }
+}
+
+impl<Rng, ProofsVerifier, ObservationWindowProvider>
+    BlendSwarm<Rng, ProofsVerifier, ObservationWindowProvider>
+where
+    Rng: RngCore,
     ProofsVerifier: ProofsVerifierTrait + Clone,
     ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
         + 'static,
@@ -567,18 +599,6 @@ where
                 self.handle_event(event);
                 predicate_matched
             }
-            Some(event) = self.session_stream.next() => {
-                match event {
-                    SessionEvent::NewSession(SessionInfo { membership, poq_verification_inputs }) => {
-                        self.latest_session_info = membership.clone();
-                        self.swarm.behaviour_mut().blend.start_new_session(membership, ProofsVerifier::new(poq_verification_inputs));
-                    },
-                    SessionEvent::TransitionPeriodExpired => {
-                        self.swarm.behaviour_mut().blend.finish_session_transition();
-                    },
-                }
-                false
-            }
         }
     }
 
@@ -602,8 +622,8 @@ where
 }
 
 // We implement `Deref` so we are able to call swarm methods on our own swarm.
-impl<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider> Deref
-    for BlendSwarm<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider>
+impl<Rng, ProofsVerifier, ObservationWindowProvider> Deref
+    for BlendSwarm<Rng, ProofsVerifier, ObservationWindowProvider>
 where
     ProofsVerifier: ProofsVerifierTrait,
     ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
@@ -619,8 +639,8 @@ where
 #[cfg(test)]
 // We implement `DerefMut` only for tests, since we do not want to give people a
 // chance to bypass our API.
-impl<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider> core::ops::DerefMut
-    for BlendSwarm<SessionStream, Rng, ProofsVerifier, ObservationWindowProvider>
+impl<Rng, ProofsVerifier, ObservationWindowProvider> core::ops::DerefMut
+    for BlendSwarm<Rng, ProofsVerifier, ObservationWindowProvider>
 where
     ProofsVerifier: ProofsVerifierTrait,
     ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
