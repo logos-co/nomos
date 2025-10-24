@@ -197,7 +197,7 @@ pub type BlendCoreService<SamplingAdapter, RuntimeServiceId> =
         RuntimeServiceId,
     >;
 pub type BlendEdgeService<SamplingAdapter, RuntimeServiceId> = nomos_blend_service::edge::BlendService<
-        nomos_blend_service::edge::backends::libp2p::Libp2pBlendBackend,
+        nomos_blend_service::edge::backends::libp2p::Libp2pBlendBackend, 
         PeerId,
         <nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<RuntimeServiceId>>::BroadcastSettings,
         BlendMembershipAdapter<RuntimeServiceId>,

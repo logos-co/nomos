@@ -9,6 +9,7 @@ pub trait ServiceComponents {
     /// Adapter for membership service.
     type MembershipAdapter;
     type ProofsGenerator;
+    type BackendSettings;
 }
 
 impl<
@@ -37,6 +38,7 @@ where
     Backend: BlendBackend<NodeId, RuntimeServiceId>,
     NodeId: Clone,
 {
+    type BackendSettings = Backend::Settings;
     type BroadcastSettings = BroadcastSettings;
     type MembershipAdapter = MembershipAdapter;
     type ProofsGenerator = ProofsGenerator;
