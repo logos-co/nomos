@@ -236,6 +236,7 @@ impl SdpLedger {
             .with_service(ServiceType::DataAvailability);
 
         let ops = tx.mantle_tx().ops.iter().zip(tx.op_proofs().iter());
+
         for (op, proof) in ops {
             if let (
                 Op::SDPDeclare(op),
@@ -257,13 +258,15 @@ impl SdpLedger {
             .services
             .get_mut(&ServiceType::BlendNetwork)
             .expect("SDP initialized with Blend in this method");
-        blend_state.active = blend_state.forming.clone();
+        blend_state.active.declarations = blend_state.declarations.clone();
+        blend_state.forming.declarations = blend_state.declarations.clone();
 
         let da_state = sdp
             .services
             .get_mut(&ServiceType::DataAvailability)
             .expect("SDP initialized with DA in this method");
-        da_state.active = da_state.forming.clone();
+        da_state.active.declarations = da_state.declarations.clone();
+        da_state.forming.declarations = da_state.declarations.clone();
 
         Ok(sdp)
     }
