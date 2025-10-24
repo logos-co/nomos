@@ -15,7 +15,7 @@ use backends::BlendBackend;
 use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 use fork_stream::StreamExt as _;
 use futures::{
-    Stream, StreamExt as _,
+    StreamExt as _,
     future::{join_all, ready},
 };
 use network::NetworkAdapter;

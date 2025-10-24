@@ -328,16 +328,16 @@ pub fn update_blend(blend: &mut BlendConfig, blend_args: BlendArgs) -> Result<()
     } = blend_args;
 
     if let Some(addr) = blend_addr {
-        blend.get_mut().backend.listening_address = addr;
+        blend.set_listening_address(addr);
     }
 
     if let Some(node_key) = blend_node_key {
         let mut key_bytes = hex::decode(node_key)?;
-        blend.get_mut().backend.node_key = SecretKey::try_from_bytes(key_bytes.as_mut_slice())?;
+        blend.set_node_key(SecretKey::try_from_bytes(key_bytes.as_mut_slice())?);
     }
 
     if let Some(num_blend_layers) = blend_num_blend_layers {
-        blend.get_mut().crypto.num_blend_layers = num_blend_layers as u64;
+        blend.set_blend_layers(num_blend_layers as u64);
     }
 
     Ok(())
