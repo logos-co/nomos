@@ -106,71 +106,16 @@ pub fn create_consensus_configs(
     ids: &[[u8; 32]],
     consensus_params: &ConsensusParams,
 ) -> Vec<GeneralConsensusConfig> {
-    let derive_key_material = |prefix: &[u8], id_bytes: &[u8]| -> [u8; 16] {
-        let mut sk_data = [0; 16];
-        let prefix_len = prefix.len();
-
-        sk_data[..prefix_len].copy_from_slice(prefix);
-        let remaining_len = 16 - prefix_len;
-        sk_data[prefix_len..].copy_from_slice(&id_bytes[..remaining_len]);
-
-        sk_data
-    };
-
     let mut leader_keys = Vec::new();
-    let mut da_notes = Vec::new();
     let mut blend_notes = Vec::new();
-    let mut utxos = Vec::new();
+    let mut da_notes = Vec::new();
 
-    let mut output_index = 0;
-    // Create notes for leader, Blend and DA declarations.
-    for &id in ids.iter() {
-        let sk_leader_data = derive_key_material(b"ld", &id);
-        let sk_leader = SecretKey::from(BigUint::from_bytes_le(&sk_leader_data));
-        let pk_leader = sk_leader.to_public_key();
-        leader_keys.push((pk_leader, sk_leader));
-        utxos.push(Utxo {
-            note: Note::new(1, pk_leader),
-            tx_hash: BigUint::from(0u8).into(),
-            output_index: 0,
-        });
-        output_index += 1; // Assume output index which will be set by the ledger tx.
-
-        let sk_da_data = derive_key_material(b"da", &id);
-        let sk_da = SecretKey::from(BigUint::from_bytes_le(&sk_da_data));
-        let pk_da = sk_da.to_public_key();
-        let note_da = Note::new(1, pk_da);
-        da_notes.push(ServiceNote {
-            pk: pk_da,
-            sk: sk_da,
-            note: note_da,
-            output_index,
-        });
-        utxos.push(Utxo {
-            note: note_da,
-            tx_hash: BigUint::from(0u8).into(),
-            output_index: 0,
-        });
-        output_index += 1;
-
-        let sk_blend_data = derive_key_material(b"bn", &id);
-        let sk_blend = SecretKey::from(BigUint::from_bytes_le(&sk_blend_data));
-        let pk_blend = sk_blend.to_public_key();
-        let note_blend = Note::new(1, pk_blend);
-        blend_notes.push(ServiceNote {
-            pk: pk_blend,
-            sk: sk_blend,
-            note: note_blend,
-            output_index,
-        });
-        utxos.push(Utxo {
-            note: note_blend,
-            tx_hash: BigUint::from(0u8).into(),
-            output_index: 0,
-        });
-        output_index += 1;
-    }
-
+    let utxos = create_utxos_for_leader_and_services(
+        ids,
+        &mut leader_keys,
+        &mut blend_notes,
+        &mut da_notes,
+    );
     let genesis_tx = create_genesis_tx(&utxos);
     let ledger_config = nomos_ledger::Config {
         epoch_config: EpochConfig {
@@ -226,6 +171,79 @@ pub fn create_consensus_configs(
             blend_notes: blend_notes.clone(),
         })
         .collect()
+}
+
+fn create_utxos_for_leader_and_services(
+    ids: &[[u8; 32]],
+    leader_keys: &mut Vec<(PublicKey, SecretKey)>,
+    blend_notes: &mut Vec<ServiceNote>,
+    da_notes: &mut Vec<ServiceNote>,
+) -> Vec<Utxo> {
+    let derive_key_material = |prefix: &[u8], id_bytes: &[u8]| -> [u8; 16] {
+        let mut sk_data = [0; 16];
+        let prefix_len = prefix.len();
+
+        sk_data[..prefix_len].copy_from_slice(prefix);
+        let remaining_len = 16 - prefix_len;
+        sk_data[prefix_len..].copy_from_slice(&id_bytes[..remaining_len]);
+
+        sk_data
+    };
+
+    let mut utxos = Vec::new();
+
+    // Assume output index which will be set by the ledger tx.
+    let mut output_index = 0;
+
+    // Create notes for leader, Blend and DA declarations.
+    for &id in ids {
+        let sk_leader_data = derive_key_material(b"ld", &id);
+        let sk_leader = SecretKey::from(BigUint::from_bytes_le(&sk_leader_data));
+        let pk_leader = sk_leader.to_public_key();
+        leader_keys.push((pk_leader, sk_leader));
+        utxos.push(Utxo {
+            note: Note::new(1, pk_leader),
+            tx_hash: BigUint::from(0u8).into(),
+            output_index: 0,
+        });
+        output_index += 1;
+
+        let sk_da_data = derive_key_material(b"da", &id);
+        let sk_da = SecretKey::from(BigUint::from_bytes_le(&sk_da_data));
+        let pk_da = sk_da.to_public_key();
+        let note_da = Note::new(1, pk_da);
+        da_notes.push(ServiceNote {
+            pk: pk_da,
+            sk: sk_da,
+            note: note_da,
+            output_index,
+        });
+        utxos.push(Utxo {
+            note: note_da,
+            tx_hash: BigUint::from(0u8).into(),
+            output_index: 0,
+        });
+        output_index += 1;
+
+        let sk_blend_data = derive_key_material(b"bn", &id);
+        let sk_blend = SecretKey::from(BigUint::from_bytes_le(&sk_blend_data));
+        let pk_blend = sk_blend.to_public_key();
+        let note_blend = Note::new(1, pk_blend);
+        blend_notes.push(ServiceNote {
+            pk: pk_blend,
+            sk: sk_blend,
+            note: note_blend,
+            output_index,
+        });
+        utxos.push(Utxo {
+            note: note_blend,
+            tx_hash: BigUint::from(0u8).into(),
+            output_index: 0,
+        });
+        output_index += 1;
+    }
+
+    utxos
 }
 
 #[must_use]
