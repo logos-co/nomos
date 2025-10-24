@@ -19,10 +19,67 @@ use crate::core::settings::BlendConfig;
 
 pub type EpochInfo = LeaderInputs;
 
+/// The public info for both current session and current epoch. Used to derive
+/// `PoQ` verification inputs.
 #[derive(Debug, Clone)]
 pub struct PublicInfo<NodeId> {
+    /// Current session public info.
     pub session: SessionInfo<NodeId>,
+    /// Current epoch public info.
     pub epoch: EpochInfo,
+}
+
+#[cfg(test)]
+impl<NodeId> Default for PublicInfo<NodeId>
+where
+    NodeId: Clone + core::hash::Hash + Eq,
+{
+    fn default() -> Self {
+        use groth16::Field as _;
+        use nomos_core::crypto::ZkHash;
+
+        Self {
+            epoch: LeaderInputs {
+                message_quota: 1,
+                pol_epoch_nonce: ZkHash::ZERO,
+                pol_ledger_aged: ZkHash::ZERO,
+                total_stake: 1,
+            },
+            session: SessionInfo {
+                membership: Membership::new_without_local(&[]),
+                session: 1,
+                core_public_inputs: CoreInputs {
+                    zk_root: ZkHash::ZERO,
+                    quota: 1,
+                },
+            },
+        }
+    }
+}
+
+#[cfg(test)]
+impl<NodeId> From<Membership<NodeId>> for PublicInfo<NodeId> {
+    fn from(value: Membership<NodeId>) -> Self {
+        use groth16::Field as _;
+        use nomos_core::crypto::ZkHash;
+
+        Self {
+            epoch: LeaderInputs {
+                message_quota: 1,
+                pol_epoch_nonce: ZkHash::ZERO,
+                pol_ledger_aged: ZkHash::ZERO,
+                total_stake: 1,
+            },
+            session: SessionInfo {
+                membership: value,
+                session: 1,
+                core_public_inputs: CoreInputs {
+                    zk_root: ZkHash::ZERO,
+                    quota: 1,
+                },
+            },
+        }
+    }
 }
 
 impl<NodeId> From<PublicInfo<NodeId>> for PoQVerificationInputsMinusSigningKey {
@@ -45,10 +102,14 @@ impl<NodeId> From<PublicInfo<NodeId>> for PoQVerificationInputsMinusSigningKey {
     }
 }
 
+/// The public session-related info.
 #[derive(Debug, Clone)]
 pub struct SessionInfo<NodeId> {
+    /// Current session membership.
     pub membership: Membership<NodeId>,
+    /// Current session number.
     pub session: u64,
+    /// Current session `PoQ` verification inputs.
     pub core_public_inputs: CoreInputs,
 }
 

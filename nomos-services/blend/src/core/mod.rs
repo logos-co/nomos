@@ -494,7 +494,7 @@ async fn handle_session_event<
         ProofsGenerator,
         ProofsVerifier,
     >,
-    current_public_inputs: PublicInfo<NodeId>,
+    current_public_info: PublicInfo<NodeId>,
     blending_token_collector: &mut BlendingTokenCollector,
     backend: &mut Backend,
 ) -> Result<
@@ -515,39 +515,39 @@ where
             private,
             public:
                 CoreSessionPublicInfo {
-                    poq_core_public_inputs,
-                    session,
-                    membership,
+                    poq_core_public_inputs: new_core_public_inputs,
+                    session: new_session,
+                    membership: new_membership,
                 },
         }) => {
             blending_token_collector.rotate_session(&reward::SessionInfo::new(
-                session,
-                &current_public_inputs.epoch.pol_epoch_nonce,
-                membership.size() as u64,
-                poq_core_public_inputs.quota,
+                new_session,
+                &current_public_info.epoch.pol_epoch_nonce,
+                new_membership.size() as u64,
+                new_core_public_inputs.quota,
                 settings.scheduler.cover.message_frequency_per_round,
             )
             .expect("Reward session info must be created successfully. Panicking since the service cannot continue with this session"));
 
             let new_session_info = SessionInfo {
-                membership: membership.clone(),
-                session,
-                core_public_inputs: poq_core_public_inputs,
+                membership: new_membership.clone(),
+                session: new_session,
+                core_public_inputs: new_core_public_inputs,
             };
             backend.rotate_session(new_session_info.clone()).await;
 
-            let new_inputs = PublicInfo {
+            let new_public_info = PublicInfo {
                 session: new_session_info,
-                ..current_public_inputs
+                ..current_public_info
             };
             let new_processor = CoreCryptographicProcessor::try_new_with_core_condition_check(
-                membership,
+                new_membership,
                 settings.minimum_network_size,
                 &settings.crypto,
-                new_inputs.clone().into(),
+                new_public_info.clone().into(),
                 private,
             )?;
-            Ok((new_processor, new_inputs))
+            Ok((new_processor, new_public_info))
         }
         SessionEvent::TransitionPeriodExpired => {
             if let Some(activity_proof) =
@@ -557,7 +557,7 @@ where
                 submit_activity_proof(activity_proof);
             }
             backend.complete_session_transition().await;
-            Ok((current_cryptographic_processor, current_public_inputs))
+            Ok((current_cryptographic_processor, current_public_info))
         }
     }
 }
@@ -764,7 +764,7 @@ async fn handle_clock_event<
         ProofsVerifier,
     >,
     backend: &mut Backend,
-    current_public_inputs: PublicInfo<NodeId>,
+    current_public_info: PublicInfo<NodeId>,
 ) -> PublicInfo<NodeId>
 where
     ProofsGenerator: CoreAndLeaderProofsGenerator,
@@ -774,7 +774,7 @@ where
     RuntimeServiceId: Sync,
 {
     let Some(epoch_event) = epoch_handler.tick(slot_tick).await else {
-        return current_public_inputs;
+        return current_public_info;
     };
 
     match epoch_event {
@@ -789,21 +789,21 @@ where
                 pol_ledger_aged,
                 total_stake,
             };
-            let new_public_inputs = PublicInfo {
+            let new_public_info = PublicInfo {
                 epoch: new_leader_inputs,
-                ..current_public_inputs
+                ..current_public_info
             };
 
             cryptographic_processor.rotate_epoch(new_leader_inputs);
             backend.rotate_epoch(new_leader_inputs).await;
 
-            new_public_inputs
+            new_public_info
         }
         EpochEvent::OldEpochTransitionPeriodExpired => {
             cryptographic_processor.complete_epoch_transition();
             backend.complete_epoch_transition().await;
 
-            current_public_inputs
+            current_public_info
         }
         EpochEvent::NewEpochAndOldEpochTransitionExpired(LeaderInputsMinusQuota {
             pol_epoch_nonce,
@@ -818,7 +818,7 @@ where
             };
             let new_public_inputs = PublicInfo {
                 epoch: new_leader_inputs,
-                ..current_public_inputs
+                ..current_public_info
             };
 
             // Complete transition of previous epoch, then set the current epoch as the old

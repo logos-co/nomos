@@ -71,16 +71,6 @@ impl DialAttempt {
     }
 }
 
-pub struct SwarmParams<'config, Rng> {
-    pub config: &'config BlendConfig<Libp2pBlendBackendSettings>,
-    pub current_public_info: PublicInfo<PeerId>,
-    pub rng: Rng,
-    pub swarm_message_receiver: mpsc::Receiver<BlendSwarmMessage>,
-    pub incoming_message_sender:
-        broadcast::Sender<IncomingEncapsulatedMessageWithValidatedPublicHeader>,
-    pub minimum_network_size: NonZeroUsize,
-}
-
 pub struct BlendSwarm<Rng, ProofsVerifier, ObservationWindowProvider>
 where
     ProofsVerifier: ProofsVerifierTrait + 'static,
@@ -98,214 +88,78 @@ where
     minimum_network_size: NonZeroUsize,
 }
 
-impl<Rng, ProofsVerifier, ObservationWindowProvider>
-    BlendSwarm<Rng, ProofsVerifier, ObservationWindowProvider>
-where
-    ProofsVerifier: ProofsVerifierTrait,
-    ObservationWindowProvider:
-        IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>,
-{
-    /// It tries to dial the specified peer, by setting or increasing the
-    /// counter of attempted dials towards the peer.
-    ///
-    /// This function always tries to dial and update the counter of attempted
-    /// dials. Any checks about the maximum allowed dials must be performed in
-    /// the context of the calling function.
-    fn dial(&mut self, peer_id: PeerId, address: Multiaddr) {
-        tracing::trace!(target: LOG_TARGET, "Dialing peer {peer_id:?} at address {address:?}.");
-        // Set to `1` if first dial or bump to the next value if a retry.
-        match self.ongoing_dials.entry(peer_id) {
-            Entry::Vacant(empty_entry) => {
-                empty_entry.insert(DialAttempt {
-                    address: address.clone(),
-                    attempt_number: 1.try_into().unwrap(),
-                });
-            }
-            Entry::Occupied(mut existing_entry) => {
-                let last_attempt_number = existing_entry.get().attempt_number;
-                existing_entry.get_mut().attempt_number =
-                    last_attempt_number.checked_add(1).unwrap();
-            }
-        }
-
-        if let Err(e) = self.swarm.dial(
-            DialOpts::peer_id(peer_id)
-                .addresses(vec![address])
-                // We use `Always` since we want to be able to dial a peer even if we already have
-                // an established connection with it that belongs to the previous session.
-                .condition(PeerCondition::Always)
-                .build(),
-        ) {
-            tracing::error!(target: LOG_TARGET, "Failed to dial peer {peer_id:?}: {e:?}");
-            self.retry_dial(peer_id);
-        }
-    }
-
-    #[cfg(test)]
-    pub fn dial_peer_at_addr(&mut self, peer_id: PeerId, address: Multiaddr) {
-        self.dial(peer_id, address);
-    }
-
-    #[cfg(test)]
-    pub const fn ongoing_dials(&self) -> &HashMap<PeerId, DialAttempt> {
-        &self.ongoing_dials
-    }
-
-    /// Attempt to retry dialing the specified peer, if the maximum attempts
-    /// have not already been performed.
-    ///
-    /// It returns `None` if a new dial attempt is performed, `Some` otherwise
-    /// with the dial details of the peer that has been removed from the map
-    /// of ongoing dials.
-    fn retry_dial(&mut self, peer_id: PeerId) -> Option<DialAttempt> {
-        let DialAttempt {
-            address,
-            attempt_number,
-        } = self.ongoing_dials.get(&peer_id).unwrap();
-        if *attempt_number < self.max_dial_attempts_per_connection {
-            self.dial(peer_id, address.clone());
-            return None;
-        }
-        tracing::trace!(target: LOG_TARGET, "Maximum attempts ({}) reached for peer {peer_id:?}. Re-dialing stopped.", self.max_dial_attempts_per_connection);
-        self.ongoing_dials.remove(&peer_id)
-    }
-
-    fn minimum_healthy_peering_degree(&self) -> usize {
-        self.swarm
-            .behaviour()
-            .blend
-            .with_core()
-            .minimum_healthy_peering_degree()
-    }
-
-    fn num_healthy_peers(&self) -> usize {
-        self.swarm.behaviour().blend.with_core().num_healthy_peers()
-    }
-
-    fn available_connection_slots(&self) -> usize {
-        self.swarm
-            .behaviour()
-            .blend
-            .with_core()
-            .available_connection_slots()
-    }
-
-    fn handle_healthy_peer(peer_id: PeerId) {
-        tracing::debug!(target: LOG_TARGET, "Peer {peer_id} is healthy again");
-    }
-
-    fn publish_validated_swarm_message(
-        &mut self,
-        msg: &OutgoingEncapsulatedMessageWithValidatedPublicHeader,
-    ) {
-        if let Err(e) = self
-            .swarm
-            .behaviour_mut()
-            .blend
-            .with_core_mut()
-            .publish_validated_message(msg)
-        {
-            tracing::error!(target: LOG_TARGET, "Failed to publish message to blend network: {e:?}");
-            tracing::info!(counter.failed_outbound_messages = 1);
-        } else {
-            tracing::info!(counter.successful_outbound_messages = 1);
-        }
-    }
-
-    fn forward_validated_swarm_message(
-        &mut self,
-        msg: &OutgoingEncapsulatedMessageWithValidatedPublicHeader,
-        except: (PeerId, ConnectionId),
-    ) {
-        if let Err(e) = self
-            .swarm
-            .behaviour_mut()
-            .blend
-            .with_core_mut()
-            .forward_validated_message(msg, except)
-        {
-            tracing::error!(target: LOG_TARGET, "Failed to forward message to blend network: {e:?}");
-            tracing::info!(counter.failed_outbound_messages = 1);
-        } else {
-            tracing::info!(counter.successful_outbound_messages = 1);
-        }
-    }
-
-    #[expect(
-        clippy::cognitive_complexity,
-        reason = "Tracing macros generate more code that triggers this warning."
-    )]
-    fn report_message_to_service(&self, msg: IncomingEncapsulatedMessageWithValidatedPublicHeader) {
-        tracing::debug!("Received message from a peer: {msg:?}");
-
-        if let Err(e) = self.incoming_message_sender.send(msg) {
-            tracing::error!(target: LOG_TARGET, "Failed to send incoming message to channel: {e}");
-            tracing::info!(counter.failed_inbound_messages = 1);
-        } else {
-            tracing::info!(counter.successful_inbound_messages = 1);
-        }
-    }
-
-    fn handle_blend_edge_behaviour_event(&mut self, blend_event: CoreToEdgeEvent) {
-        match blend_event {
-            nomos_blend_network::core::with_edge::behaviour::Event::Message(msg) => {
-                // Forward message received from edge node to all the core nodes.
-                self.publish_validated_swarm_message(&msg.clone().into());
-                // Bubble up to service for decapsulation and delaying.
-                self.report_message_to_service(msg);
-            }
-        }
-    }
-
-    fn handle_publish_swarm_message(&mut self, msg: EncapsulatedMessage) {
-        if let Err(e) = self
-            .swarm
-            .behaviour_mut()
-            .blend
-            .with_core_mut()
-            .validate_and_publish_message(msg)
-        {
-            tracing::error!(target: LOG_TARGET, "Failed to publish message to blend network: {e:?}");
-            tracing::info!(counter.failed_outbound_messages = 1);
-        } else {
-            tracing::info!(counter.successful_outbound_messages = 1);
-        }
-    }
+pub struct SwarmParams<'config, Rng> {
+    pub config: &'config BlendConfig<Libp2pBlendBackendSettings>,
+    pub current_public_info: PublicInfo<PeerId>,
+    pub rng: Rng,
+    pub swarm_message_receiver: mpsc::Receiver<BlendSwarmMessage>,
+    pub incoming_message_sender:
+        broadcast::Sender<IncomingEncapsulatedMessageWithValidatedPublicHeader>,
+    pub minimum_network_size: NonZeroUsize,
 }
 
 impl<Rng, ProofsVerifier, ObservationWindowProvider>
     BlendSwarm<Rng, ProofsVerifier, ObservationWindowProvider>
 where
+    Rng: RngCore,
     ProofsVerifier: ProofsVerifierTrait + Clone,
-    ObservationWindowProvider:
-        IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>,
+    ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
+        + for<'c> From<(
+            &'c BlendConfig<Libp2pBlendBackendSettings>,
+            &'c Membership<PeerId>,
+        )> + 'static,
 {
-    fn handle_swarm_message(&mut self, msg: BlendSwarmMessage) {
-        match msg {
-            BlendSwarmMessage::Publish(msg) => {
-                self.handle_publish_swarm_message(*msg);
-            }
-            BlendSwarmMessage::StartNewSession(new_session_info) => {
-                self.public_info.session = new_session_info;
-                self.swarm.behaviour_mut().blend.start_new_session(
-                    self.public_info.session.membership.clone(),
-                    ProofsVerifier::new(self.public_info.clone().into()),
-                );
-            }
-            BlendSwarmMessage::CompleteSessionTransition => {
-                self.swarm.behaviour_mut().blend.finish_session_transition();
-            }
-            BlendSwarmMessage::StartNewEpoch(new_epoch_public) => {
-                self.public_info.epoch = new_epoch_public;
-                self.swarm
-                    .behaviour_mut()
-                    .blend
-                    .start_new_epoch(self.public_info.epoch);
-            }
-            BlendSwarmMessage::CompleteEpochTransition => {
-                self.swarm.behaviour_mut().blend.finish_epoch_transition();
-            }
-        }
+    pub(super) fn new(
+        SwarmParams {
+            config,
+            current_public_info,
+            rng,
+            swarm_message_receiver: swarm_messages_receiver,
+            incoming_message_sender,
+            minimum_network_size,
+        }: SwarmParams<Rng>,
+    ) -> Self {
+        let keypair = config.backend.keypair();
+        let listening_address = config.backend.listening_address.clone();
+        let mut swarm = SwarmBuilder::with_existing_identity(keypair)
+            .with_tokio()
+            .with_quic()
+            .with_behaviour(|_| {
+                BlendBehaviour::new(
+                    config,
+                    current_public_info.session.membership.clone(),
+                    ProofsVerifier::new(current_public_info.clone().into()),
+                )
+            })
+            .expect("Blend Behaviour should be built")
+            .with_swarm_config(|cfg| {
+                // The idle timeout starts ticking once there are no active streams on a
+                // connection. We want the connection to be closed as soon as
+                // all streams are dropped.
+                cfg.with_idle_connection_timeout(Duration::ZERO)
+            })
+            .build();
+
+        swarm.listen_on(listening_address).unwrap_or_else(|e| {
+            panic!("Failed to listen on Blend network: {e:?}");
+        });
+
+        let mut self_instance = Self {
+            swarm,
+            swarm_messages_receiver,
+            incoming_message_sender,
+            public_info: current_public_info,
+            rng,
+            max_dial_attempts_per_connection: config.backend.max_dial_attempts_per_peer,
+            ongoing_dials: HashMap::with_capacity(
+                *config.backend.core_peering_degree.start() as usize
+            ),
+            minimum_network_size,
+        };
+
+        self_instance.check_and_dial_new_peers_except(None);
+
+        self_instance
     }
 }
 
@@ -409,65 +263,211 @@ where
 impl<Rng, ProofsVerifier, ObservationWindowProvider>
     BlendSwarm<Rng, ProofsVerifier, ObservationWindowProvider>
 where
-    Rng: RngCore,
-    ProofsVerifier: ProofsVerifierTrait + Clone,
-    ObservationWindowProvider: IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>
-        + for<'c> From<(
-            &'c BlendConfig<Libp2pBlendBackendSettings>,
-            &'c Membership<PeerId>,
-        )> + 'static,
+    ProofsVerifier: ProofsVerifierTrait,
+    ObservationWindowProvider:
+        IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>,
 {
-    pub(super) fn new(
-        SwarmParams {
-            config,
-            current_public_info,
-            rng,
-            swarm_message_receiver: swarm_messages_receiver,
-            incoming_message_sender,
-            minimum_network_size,
-        }: SwarmParams<Rng>,
-    ) -> Self {
-        let keypair = config.backend.keypair();
-        let listening_address = config.backend.listening_address.clone();
-        let mut swarm = SwarmBuilder::with_existing_identity(keypair)
-            .with_tokio()
-            .with_quic()
-            .with_behaviour(|_| {
-                BlendBehaviour::new(
-                    config,
-                    current_public_info.session.membership.clone(),
-                    ProofsVerifier::new(current_public_info.clone().into()),
-                )
-            })
-            .expect("Blend Behaviour should be built")
-            .with_swarm_config(|cfg| {
-                // The idle timeout starts ticking once there are no active streams on a
-                // connection. We want the connection to be closed as soon as
-                // all streams are dropped.
-                cfg.with_idle_connection_timeout(Duration::ZERO)
-            })
-            .build();
+    /// It tries to dial the specified peer, by setting or increasing the
+    /// counter of attempted dials towards the peer.
+    ///
+    /// This function always tries to dial and update the counter of attempted
+    /// dials. Any checks about the maximum allowed dials must be performed in
+    /// the context of the calling function.
+    fn dial(&mut self, peer_id: PeerId, address: Multiaddr) {
+        tracing::trace!(target: LOG_TARGET, "Dialing peer {peer_id:?} at address {address:?}.");
+        // Set to `1` if first dial or bump to the next value if a retry.
+        match self.ongoing_dials.entry(peer_id) {
+            Entry::Vacant(empty_entry) => {
+                empty_entry.insert(DialAttempt {
+                    address: address.clone(),
+                    attempt_number: 1.try_into().unwrap(),
+                });
+            }
+            Entry::Occupied(mut existing_entry) => {
+                let last_attempt_number = existing_entry.get().attempt_number;
+                existing_entry.get_mut().attempt_number =
+                    last_attempt_number.checked_add(1).unwrap();
+            }
+        }
 
-        swarm.listen_on(listening_address).unwrap_or_else(|e| {
-            panic!("Failed to listen on Blend network: {e:?}");
-        });
+        if let Err(e) = self.swarm.dial(
+            DialOpts::peer_id(peer_id)
+                .addresses(vec![address])
+                // We use `Always` since we want to be able to dial a peer even if we already have
+                // an established connection with it that belongs to the previous session.
+                .condition(PeerCondition::Always)
+                .build(),
+        ) {
+            tracing::error!(target: LOG_TARGET, "Failed to dial peer {peer_id:?}: {e:?}");
+            self.retry_dial(peer_id);
+        }
+    }
 
-        let mut self_instance = Self {
-            swarm,
-            swarm_messages_receiver,
-            incoming_message_sender,
-            public_info: current_public_info,
-            rng,
-            max_dial_attempts_per_connection: config.backend.max_dial_attempts_per_peer,
-            ongoing_dials: HashMap::with_capacity(
-                *config.backend.core_peering_degree.start() as usize
-            ),
-            minimum_network_size,
-        };
+    #[cfg(test)]
+    pub fn dial_peer_at_addr(&mut self, peer_id: PeerId, address: Multiaddr) {
+        self.dial(peer_id, address);
+    }
 
-        self_instance.check_and_dial_new_peers_except(None);
+    #[cfg(test)]
+    pub const fn ongoing_dials(&self) -> &HashMap<PeerId, DialAttempt> {
+        &self.ongoing_dials
+    }
 
-        self_instance
+    /// Attempt to retry dialing the specified peer, if the maximum attempts
+    /// have not already been performed.
+    ///
+    /// It returns `None` if a new dial attempt is performed, `Some` otherwise
+    /// with the dial details of the peer that has been removed from the map
+    /// of ongoing dials.
+    fn retry_dial(&mut self, peer_id: PeerId) -> Option<DialAttempt> {
+        let DialAttempt {
+            address,
+            attempt_number,
+        } = self.ongoing_dials.get(&peer_id).unwrap();
+        if *attempt_number < self.max_dial_attempts_per_connection {
+            self.dial(peer_id, address.clone());
+            return None;
+        }
+        tracing::trace!(target: LOG_TARGET, "Maximum attempts ({}) reached for peer {peer_id:?}. Re-dialing stopped.", self.max_dial_attempts_per_connection);
+        self.ongoing_dials.remove(&peer_id)
+    }
+
+    fn publish_validated_swarm_message(
+        &mut self,
+        msg: &OutgoingEncapsulatedMessageWithValidatedPublicHeader,
+    ) {
+        if let Err(e) = self
+            .swarm
+            .behaviour_mut()
+            .blend
+            .with_core_mut()
+            .publish_validated_message(msg)
+        {
+            tracing::error!(target: LOG_TARGET, "Failed to publish message to blend network: {e:?}");
+            tracing::info!(counter.failed_outbound_messages = 1);
+        } else {
+            tracing::info!(counter.successful_outbound_messages = 1);
+        }
+    }
+
+    fn forward_validated_swarm_message(
+        &mut self,
+        msg: &OutgoingEncapsulatedMessageWithValidatedPublicHeader,
+        except: (PeerId, ConnectionId),
+    ) {
+        if let Err(e) = self
+            .swarm
+            .behaviour_mut()
+            .blend
+            .with_core_mut()
+            .forward_validated_message(msg, except)
+        {
+            tracing::error!(target: LOG_TARGET, "Failed to forward message to blend network: {e:?}");
+            tracing::info!(counter.failed_outbound_messages = 1);
+        } else {
+            tracing::info!(counter.successful_outbound_messages = 1);
+        }
+    }
+
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "Tracing macros generate more code that triggers this warning."
+    )]
+    fn report_message_to_service(&self, msg: IncomingEncapsulatedMessageWithValidatedPublicHeader) {
+        tracing::debug!("Received message from a peer: {msg:?}");
+
+        if let Err(e) = self.incoming_message_sender.send(msg) {
+            tracing::error!(target: LOG_TARGET, "Failed to send incoming message to channel: {e}");
+            tracing::info!(counter.failed_inbound_messages = 1);
+        } else {
+            tracing::info!(counter.successful_inbound_messages = 1);
+        }
+    }
+
+    fn minimum_healthy_peering_degree(&self) -> usize {
+        self.swarm
+            .behaviour()
+            .blend
+            .with_core()
+            .minimum_healthy_peering_degree()
+    }
+
+    fn num_healthy_peers(&self) -> usize {
+        self.swarm.behaviour().blend.with_core().num_healthy_peers()
+    }
+
+    fn available_connection_slots(&self) -> usize {
+        self.swarm
+            .behaviour()
+            .blend
+            .with_core()
+            .available_connection_slots()
+    }
+
+    fn handle_healthy_peer(peer_id: PeerId) {
+        tracing::debug!(target: LOG_TARGET, "Peer {peer_id} is healthy again");
+    }
+
+    fn handle_blend_edge_behaviour_event(&mut self, blend_event: CoreToEdgeEvent) {
+        match blend_event {
+            nomos_blend_network::core::with_edge::behaviour::Event::Message(msg) => {
+                // Forward message received from edge node to all the core nodes.
+                self.publish_validated_swarm_message(&msg.clone().into());
+                // Bubble up to service for decapsulation and delaying.
+                self.report_message_to_service(msg);
+            }
+        }
+    }
+
+    fn handle_publish_swarm_message(&mut self, msg: EncapsulatedMessage) {
+        if let Err(e) = self
+            .swarm
+            .behaviour_mut()
+            .blend
+            .with_core_mut()
+            .validate_and_publish_message(msg)
+        {
+            tracing::error!(target: LOG_TARGET, "Failed to publish message to blend network: {e:?}");
+            tracing::info!(counter.failed_outbound_messages = 1);
+        } else {
+            tracing::info!(counter.successful_outbound_messages = 1);
+        }
+    }
+}
+
+impl<Rng, ProofsVerifier, ObservationWindowProvider>
+    BlendSwarm<Rng, ProofsVerifier, ObservationWindowProvider>
+where
+    ProofsVerifier: ProofsVerifierTrait + Clone,
+    ObservationWindowProvider:
+        IntervalStreamProvider<IntervalStream: Unpin + Send, IntervalItem = RangeInclusive<u64>>,
+{
+    fn handle_swarm_message(&mut self, msg: BlendSwarmMessage) {
+        match msg {
+            BlendSwarmMessage::Publish(msg) => {
+                self.handle_publish_swarm_message(*msg);
+            }
+            BlendSwarmMessage::StartNewSession(new_session_info) => {
+                self.public_info.session = new_session_info;
+                self.swarm.behaviour_mut().blend.start_new_session(
+                    self.public_info.session.membership.clone(),
+                    ProofsVerifier::new(self.public_info.clone().into()),
+                );
+            }
+            BlendSwarmMessage::CompleteSessionTransition => {
+                self.swarm.behaviour_mut().blend.finish_session_transition();
+            }
+            BlendSwarmMessage::StartNewEpoch(new_epoch_public) => {
+                self.public_info.epoch = new_epoch_public;
+                self.swarm
+                    .behaviour_mut()
+                    .blend
+                    .start_new_epoch(self.public_info.epoch);
+            }
+            BlendSwarmMessage::CompleteEpochTransition => {
+                self.swarm.behaviour_mut().blend.finish_epoch_transition();
+            }
+        }
     }
 }
 

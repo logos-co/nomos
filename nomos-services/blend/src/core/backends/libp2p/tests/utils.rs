@@ -8,11 +8,7 @@ use libp2p::{
 };
 use libp2p_swarm_test::SwarmExt as _;
 use nomos_blend_message::{
-    crypto::{
-        keys::Ed25519PrivateKey,
-        proofs::quota::inputs::prove::public::{CoreInputs, LeaderInputs},
-    },
-    encap::ProofsVerifier as ProofsVerifierTrait,
+    crypto::keys::Ed25519PrivateKey, encap::ProofsVerifier as ProofsVerifierTrait,
 };
 use nomos_blend_network::core::{
     Config, NetworkBehaviour,
@@ -23,7 +19,6 @@ use nomos_blend_scheduling::{
     membership::{Membership, Node},
     message_blend::crypto::IncomingEncapsulatedMessageWithValidatedPublicHeader,
 };
-use nomos_core::crypto::ZkHash;
 use nomos_libp2p::{Protocol, SwarmEvent};
 use nomos_utils::blake_rng::BlakeRng;
 use rand::SeedableRng as _;
@@ -36,7 +31,7 @@ use tokio_stream::wrappers::IntervalStream;
 use crate::{
     core::{
         backends::{
-            PublicInfo, SessionInfo,
+            PublicInfo,
             libp2p::{BlendSwarm, behaviour::BlendBehaviour, swarm::BlendSwarmMessage},
         },
         settings::BlendConfig,
@@ -59,23 +54,32 @@ where
 
 #[derive(Default)]
 pub struct SwarmBuilder {
-    membership: Option<Membership<PeerId>>,
+    public_info: Option<PublicInfo<PeerId>>,
 }
 
 impl SwarmBuilder {
     pub fn with_membership(mut self, membership: Membership<PeerId>) -> Self {
-        assert!(self.membership.is_none());
-        self.membership = Some(membership);
+        assert!(self.public_info.is_none());
+        self.public_info = Some(membership.into());
         self
     }
 
     pub fn with_empty_membership(mut self) -> Self {
-        assert!(self.membership.is_none());
-        self.membership = Some(Membership::new_without_local(&[Node {
-            address: Multiaddr::empty(),
-            id: PeerId::random(),
-            public_key: Ed25519PrivateKey::generate().public_key(),
-        }]));
+        assert!(self.public_info.is_none());
+        self.public_info = Some(
+            Membership::new_without_local(&[Node {
+                address: Multiaddr::empty(),
+                id: PeerId::random(),
+                public_key: Ed25519PrivateKey::generate().public_key(),
+            }])
+            .into(),
+        );
+        self
+    }
+
+    pub fn with_public_info(mut self, public_info: PublicInfo<PeerId>) -> Self {
+        assert!(self.public_info.is_none());
+        self.public_info = Some(public_info);
         self
     }
 
@@ -95,13 +99,7 @@ impl SwarmBuilder {
             behaviour_constructor,
             swarm_message_receiver,
             incoming_message_sender,
-            {
-                let mut default_public_info = default_public_info();
-                if let Some(membership) = self.membership {
-                    default_public_info.session.membership = membership;
-                }
-                default_public_info
-            },
+            self.public_info.unwrap_or_default(),
             BlakeRng::from_entropy(),
             3u64.try_into().unwrap(),
             1usize.try_into().unwrap(),
@@ -112,27 +110,6 @@ impl SwarmBuilder {
             swarm_message_sender,
             incoming_message_receiver,
         }
-    }
-}
-
-fn default_public_info() -> PublicInfo<PeerId> {
-    use groth16::Field as _;
-
-    PublicInfo {
-        session: SessionInfo {
-            membership: Membership::new_without_local(&[]),
-            session: 1,
-            core_public_inputs: CoreInputs {
-                quota: 1,
-                zk_root: ZkHash::ZERO,
-            },
-        },
-        epoch: LeaderInputs {
-            pol_ledger_aged: ZkHash::ZERO,
-            pol_epoch_nonce: ZkHash::ZERO,
-            message_quota: 1,
-            total_stake: 1,
-        },
     }
 }
 
