@@ -76,8 +76,9 @@ impl MerkleTree {
     /// Create a new merkle tree with the provided keys.
     ///
     /// Keys are sorted by their numeric value, as described in the [`PoQ` specification](https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#215261aa09df81ec850ad7965bf6e76b).
-    /// If the input vector is empty or of it larger than the maximum number of
-    /// leaves supported by this fixed-height Merkle tree, it returns an error.
+    /// If the input vector is empty or if it is larger than the maximum number
+    /// of leaves supported by this fixed-height Merkle tree, it returns an
+    /// error.
     pub fn new(mut keys: Vec<PublicKey>) -> Result<Self, Error> {
         if keys.is_empty() {
             return Err(Error::EmptyKeySet);
