@@ -176,7 +176,7 @@ impl PrunedBlocksInfo {
 
 #[derive(Clone)]
 struct Cryptarchia {
-    pub ledger: nomos_ledger::Ledger<HeaderId>,
+    ledger: nomos_ledger::Ledger<HeaderId>,
     consensus: cryptarchia_engine::Cryptarchia<HeaderId>,
     genesis_id: HeaderId,
 }
@@ -1306,7 +1306,6 @@ where
             bootstrap_config,
             self.state.last_engine_state.as_ref(),
         );
-
         let mut cryptarchia = Cryptarchia::from_lib(
             lib_id,
             self.state.lib_ledger_state.clone(),

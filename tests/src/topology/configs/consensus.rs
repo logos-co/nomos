@@ -4,7 +4,7 @@ use chain_leader::LeaderConfig;
 use cryptarchia_engine::EpochConfig;
 use nomos_core::{
     mantle::{
-        MantleTx, Note, Utxo,
+        MantleTx, Note, NoteId, Utxo,
         genesis_tx::GenesisTx,
         keys::{PublicKey, SecretKey},
         ledger::Tx as LedgerTx,
@@ -13,7 +13,7 @@ use nomos_core::{
             channel::{ChannelId, Ed25519PublicKey, MsgId, inscribe::InscriptionOp},
         },
     },
-    sdp::{ServiceParameters, ServiceType},
+    sdp::{DeclarationMessage, Locator, ProviderId, ServiceParameters, ServiceType, ZkPublicKey},
 };
 use num_bigint::BigUint;
 
@@ -38,6 +38,14 @@ impl ConsensusParams {
             active_slot_coeff: 0.9,
         }
     }
+}
+
+pub struct ProviderInfo {
+    pub service_type: ServiceType,
+    pub provider_id: ProviderId,
+    pub zk_id: ZkPublicKey,
+    pub locator: Locator,
+    pub locked_note_id: NoteId,
 }
 
 /// General consensus configuration for a chosen participant, that later could
@@ -151,4 +159,39 @@ pub fn create_consensus_configs(
             utxos: utxos.clone(),
         })
         .collect()
+}
+
+#[must_use]
+pub fn create_genesis_tx_with_declarations(
+    ledger_tx: LedgerTx,
+    providers: Vec<ProviderInfo>,
+) -> GenesisTx {
+    let inscription = InscriptionOp {
+        channel_id: ChannelId::from([0; 32]),
+        inscription: vec![103, 101, 110, 101, 115, 105, 115], // "genesis" in bytes
+        parent: MsgId::root(),
+        signer: Ed25519PublicKey::from_bytes(&[0; 32]).unwrap(),
+    };
+
+    let mut ops = vec![Op::ChannelInscribe(inscription)];
+
+    for provider in providers {
+        let declaration = DeclarationMessage {
+            service_type: provider.service_type,
+            locators: vec![provider.locator],
+            provider_id: provider.provider_id,
+            zk_id: provider.zk_id,
+            locked_note_id: provider.locked_note_id,
+        };
+        ops.push(Op::SDPDeclare(declaration));
+    }
+
+    let mantle_tx = MantleTx {
+        ops,
+        ledger_tx,
+        execution_gas_price: 0,
+        storage_gas_price: 0,
+    };
+
+    GenesisTx::from_tx(mantle_tx).expect("Invalid genesis transaction")
 }

@@ -11,13 +11,6 @@ use tests::{
     topology::{Topology, TopologyConfig, configs::create_general_configs},
 };
 
-struct ProviderInfo {
-    pub provider_id: ProviderId,
-    pub zk_id: ZkPublicKey,
-    pub locator: Locator,
-    pub locked_note_id: NoteId,
-}
-
 #[ignore = "for manual usage, disseminate_retrieve_reconstruct is preferred for ci"]
 #[tokio::test]
 #[serial]
@@ -59,43 +52,8 @@ async fn disseminate_and_retrieve() {
 async fn disseminate_retrieve_reconstruct() {
     const ITERATIONS: usize = 10;
 
-    let mut configs = create_general_configs(2);
-    let providers: Vec<_> = configs
-        .iter()
-        .enumerate()
-        .map(|(i, c)| ProviderInfo {
-            provider_id: c.da_config.provider_id,
-            zk_id: ZkPublicKey(BigUint::from(0u8).into()),
-            locator: Locator(c.da_config.listening_address.clone()),
-            locked_note_id: c.consensus_config.utxos[i].id(),
-        })
-        .collect();
-
-    let ledger_tx = configs[0]
-        .consensus_config
-        .genesis_tx
-        .mantle_tx()
-        .ledger_tx
-        .clone();
-    let genesis_tx = create_genesis_tx_with_da_declarations(ledger_tx, providers);
-
-    for c in &mut configs {
-        c.consensus_config.genesis_tx = genesis_tx.clone();
-    }
-
-    let mut config_iter = configs.into_iter();
-    let validator_config =
-        create_validator_config(config_iter.next().expect("Missing config for Validator"));
-    let executor_config =
-        create_executor_config(config_iter.next().expect("Missing config for Executor"));
-
-    let (validator_result, executor) = tokio::join!(
-        Validator::spawn(validator_config),
-        Executor::spawn(executor_config)
-    );
-
-    let validator = validator_result.unwrap();
-
+    let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
+    let executor = &topology.executors()[0];
     let num_subnets = executor.config().da_network.backend.num_subnets as usize;
 
     let data = [1u8; 31 * ITERATIONS];
@@ -106,7 +64,7 @@ async fn disseminate_retrieve_reconstruct() {
         let data = &data[..data_size]; // test increasing size data
         let blob_id = disseminate_with_metadata(&executor, data).await.unwrap();
 
-        wait_for_shares_number(&executor, blob_id, num_subnets).await;
+        wait_for_shares_number(executor, blob_id, num_subnets).await;
 
         let share_commitments = executor.get_commitments(blob_id).await.unwrap();
         let mut executor_shares = executor
@@ -124,6 +82,8 @@ async fn disseminate_retrieve_reconstruct() {
 
         assert_eq!(reconstructed, data);
     }
+
+    let validator = &topology.validators()[0];
 
     // TODO think about a test with malicious/unhealthy peers that'd trigger
     // recording some monitor stats too
@@ -262,41 +222,8 @@ async fn four_subnets_disseminate_retrieve_reconstruct() {
 async fn disseminate_same_data() {
     const ITERATIONS: usize = 10;
 
-    let mut configs = create_general_configs(2);
-    let providers: Vec<_> = configs
-        .iter()
-        .enumerate()
-        .map(|(i, c)| ProviderInfo {
-            provider_id: c.da_config.provider_id,
-            zk_id: ZkPublicKey(BigUint::from(0u8).into()),
-            locator: Locator(c.da_config.listening_address.clone()),
-            locked_note_id: c.consensus_config.utxos[i].id(),
-        })
-        .collect();
-
-    let ledger_tx = configs[0]
-        .consensus_config
-        .genesis_tx
-        .mantle_tx()
-        .ledger_tx
-        .clone();
-    let genesis_tx = create_genesis_tx_with_da_declarations(ledger_tx, providers);
-
-    for c in &mut configs {
-        c.consensus_config.genesis_tx = genesis_tx.clone();
-    }
-
-    let mut config_iter = configs.into_iter();
-    let validator_config =
-        create_validator_config(config_iter.next().expect("Missing config for Validator"));
-    let executor_config =
-        create_executor_config(config_iter.next().expect("Missing config for Executor"));
-
-    let (_validator, executor) = tokio::join!(
-        Validator::spawn(validator_config),
-        Executor::spawn(executor_config)
-    );
-
+    let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
+    let executor = &topology.executors()[0];
     let num_subnets = executor.config().da_network.backend.num_subnets as usize;
 
     let data = [1u8; 31];
@@ -306,11 +233,11 @@ async fn disseminate_same_data() {
         let blob_id = disseminate_with_metadata(executor, &data).await.unwrap();
 
         if !onchain {
-            wait_for_blob_onchain(&executor, blob_id).await;
+            wait_for_blob_onchain(executor, blob_id).await;
             onchain = true;
         }
 
-        wait_for_shares_number(&executor, blob_id, num_subnets).await;
+        wait_for_shares_number(executor, blob_id, num_subnets).await;
         let executor_shares = executor
             .get_shares(blob_id, [].into(), [].into(), true)
             .await
