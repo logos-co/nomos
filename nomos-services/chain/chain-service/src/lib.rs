@@ -1525,10 +1525,6 @@ where
         (cryptarchia, storage_blocks_to_remove)
     }
 
-    #[expect(
-        clippy::cognitive_complexity,
-        reason = "TODO: Address this at some point."
-    )]
     async fn broadcast_session_updates_for_block(
         cryptarchia: &Cryptarchia,
         block_id: &HeaderId,
@@ -1542,51 +1538,74 @@ where
         >,
         previous_sessions: Option<&HashMap<ServiceType, u64>>,
     ) {
-        let new_sessions = match cryptarchia.active_sessions_numbers(block_id) {
-            Ok(s) => s,
-            Err(e) => {
-                error!("Could not get active session numbers for block {block_id:?}: {e}");
-                return;
-            }
+        let Ok(new_sessions) = cryptarchia.active_sessions_numbers(block_id) else {
+            error!("Could not get active session numbers for block {block_id:?}");
+            return;
         };
 
         for (service, new_session_number) in &new_sessions {
-            // If `previous_sessions` is provided, check if the session number has changed.
-            // Otherwise, always broadcast (for initialization).
-            let should_broadcast = previous_sessions.is_none_or(|prev| {
-                prev.get(service)
-                    .copied()
-                    .expect("previous session number is set")
-                    != *new_session_number
-            });
+            Self::handle_service_update(
+                cryptarchia,
+                block_id,
+                relays,
+                previous_sessions,
+                service,
+                new_session_number,
+            )
+            .await;
+        }
+    }
 
-            if !should_broadcast {
-                return;
-            }
+    async fn handle_service_update(
+        cryptarchia: &Cryptarchia,
+        block_id: &HeaderId,
+        relays: &CryptarchiaConsensusRelays<
+            Mempool,
+            MempoolNetAdapter,
+            NetAdapter,
+            SamplingBackend,
+            Storage,
+            RuntimeServiceId,
+        >,
+        previous_sessions: Option<&HashMap<ServiceType, u64>>,
+        service: &ServiceType,
+        new_session_number: &u64,
+    ) {
+        // If `previous_sessions` is provided, check if the session number has changed.
+        // Otherwise, always broadcast (for initialization).
+        if previous_sessions.is_some_and(|prev| {
+            prev.get(service)
+                .copied()
+                .expect("previous session number is set")
+                == *new_session_number
+        }) {
+            return;
+        }
 
-            match cryptarchia.active_session_providers(block_id, *service) {
-                Ok(providers) => {
-                    let update = SessionUpdate {
-                        session_number: *new_session_number,
-                        providers,
-                    };
+        match cryptarchia.active_session_providers(block_id, *service) {
+            Ok(providers) => {
+                let update = SessionUpdate {
+                    session_number: *new_session_number,
+                    providers,
+                };
 
-                    let broadcast_future = match service {
-                        ServiceType::BlendNetwork => {
-                            broadcast_blend_session(relays.broadcast_relay(), update).boxed()
-                        }
-                        ServiceType::DataAvailability => {
-                            broadcast_da_session(relays.broadcast_relay(), update).boxed()
-                        }
-                    };
+                let broadcast_relay = relays.broadcast_relay();
 
-                    if let Err(e) = broadcast_future.await {
-                        error!("Failed to broadcast session update for {service:?}: {e}");
+                let broadcast_future = match service {
+                    ServiceType::BlendNetwork => {
+                        broadcast_blend_session(broadcast_relay, update).boxed()
                     }
+                    ServiceType::DataAvailability => {
+                        broadcast_da_session(broadcast_relay, update).boxed()
+                    }
+                };
+
+                if let Err(e) = broadcast_future.await {
+                    error!("Failed to broadcast session update for {service:?}: {e}");
                 }
-                Err(e) => {
-                    error!("Could not get session providers for service {service:?}: {e}");
-                }
+            }
+            Err(e) => {
+                error!("Could not get session providers for service {service:?}: {e}");
             }
         }
     }
