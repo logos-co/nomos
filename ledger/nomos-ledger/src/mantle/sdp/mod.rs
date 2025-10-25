@@ -7,7 +7,7 @@ use locked_notes::LockedNotes;
 use nomos_core::{
     block::BlockNumber,
     mantle::{
-        GenesisTx, Note, NoteId, Op, OpProof, TxHash,
+        Note, NoteId, OpProof, TxHash,
         ops::sdp::{SDPActiveOp, SDPDeclareOp, SDPWithdrawOp},
     },
     proofs::zksig::{ZkSignatureProof, ZkSignaturePublic},
@@ -63,8 +63,8 @@ pub enum Error {
     InvalidSignature,
     #[error("Note not found: {0:?}")]
     NoteNotFound(NoteId),
-    #[error("Unsupported operation")]
-    UnsupportedOp,
+    #[error("Invalid proof")]
+    InvalidProof,
 }
 
 // State at the beginning of this session
@@ -226,32 +226,28 @@ impl SdpLedger {
         }
     }
 
-    pub fn from_genesis_tx(
+    pub fn from_genesis<'a>(
         config: &Config,
         utxo_tree: &UtxoTree,
-        tx: impl GenesisTx,
+        tx_hash: TxHash,
+        ops: impl Iterator<Item = (&'a SDPDeclareOp, &'a OpProof)> + 'a,
     ) -> Result<Self, Error> {
         let mut sdp = Self::new()
             .with_service(ServiceType::BlendNetwork)
             .with_service(ServiceType::DataAvailability);
 
-        let ops = tx.mantle_tx().ops.iter().zip(tx.op_proofs().iter());
-
         for (op, proof) in ops {
-            if let (
-                Op::SDPDeclare(op),
-                Some(OpProof::ZkAndEd25519Sigs {
-                    zk_sig,
-                    ed25519_sig,
-                }),
-            ) = (op, proof)
-            {
-                let Some((utxo, _)) = utxo_tree.utxos().get(&op.locked_note_id) else {
-                    return Err(Error::NoteNotFound(op.locked_note_id));
-                };
-                sdp =
-                    sdp.apply_declare_msg(op, utxo.note, zk_sig, ed25519_sig, tx.hash(), config)?;
-            }
+            let OpProof::ZkAndEd25519Sigs {
+                zk_sig,
+                ed25519_sig,
+            } = proof
+            else {
+                return Err(Error::InvalidProof);
+            };
+            let Some((utxo, _)) = utxo_tree.utxos().get(&op.locked_note_id) else {
+                return Err(Error::NoteNotFound(op.locked_note_id));
+            };
+            sdp = sdp.apply_declare_msg(op, utxo.note, zk_sig, ed25519_sig, tx_hash, config)?;
         }
 
         let blend_state = sdp

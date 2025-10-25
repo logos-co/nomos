@@ -97,7 +97,7 @@ fn create_genesis_tx(utxos: &[Utxo]) -> GenesisTx {
     // Wrap in GenesisTx
     GenesisTx::from_tx(mantle_tx)
         .expect("Invalid genesis transaction")
-        .with_proofs(vec![None])
+        .with_proofs(vec![OpProof::NoProof])
         .expect("One empty proof for inscription")
 }
 
@@ -286,7 +286,7 @@ pub fn create_genesis_tx_with_declarations(
     };
 
     let mantle_tx_hash = mantle_tx.hash();
-    let mut op_proofs = vec![None];
+    let mut op_proofs = vec![OpProof::NoProof];
 
     for mut provider in providers {
         let zk_sig = DummyZkSignature::prove(&ZkSignaturePublic {
@@ -297,10 +297,10 @@ pub fn create_genesis_tx_with_declarations(
             .signer
             .sign(mantle_tx_hash.as_signing_bytes().as_ref());
 
-        op_proofs.push(Some(OpProof::ZkAndEd25519Sigs {
+        op_proofs.push(OpProof::ZkAndEd25519Sigs {
             zk_sig,
             ed25519_sig,
-        }));
+        });
     }
 
     GenesisTx::from_tx(mantle_tx)

@@ -2,7 +2,7 @@ use groth16::Fr;
 use poseidon2::Digest;
 use serde::{Deserialize, Serialize};
 
-use super::OpProof;
+use super::{OpProof, ops::sdp::SDPDeclareOp};
 use crate::{
     crypto::ZkHasher,
     mantle::{
@@ -18,7 +18,7 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct GenesisTx {
     mantle_tx: MantleTx,
-    op_proofs: Vec<Option<OpProof>>,
+    op_proofs: Vec<OpProof>,
 }
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
@@ -71,7 +71,7 @@ impl GenesisTx {
         })
     }
 
-    pub fn with_proofs(mut self, op_proofs: Vec<Option<OpProof>>) -> Result<Self, Error> {
+    pub fn with_proofs(mut self, op_proofs: Vec<OpProof>) -> Result<Self, Error> {
         let num_ops = self.mantle_tx.ops.len();
         let num_proofs = op_proofs.len();
 
@@ -134,7 +134,21 @@ impl crate::mantle::GenesisTx for GenesisTx {
         }
     }
 
-    fn op_proofs(&self) -> &Vec<Option<OpProof>> {
+    fn sdp_ops(&self) -> impl Iterator<Item = (&SDPDeclareOp, &OpProof)> {
+        self.mantle_tx
+            .ops
+            .iter()
+            .zip(self.op_proofs.iter())
+            .filter_map(|(op, proof)| {
+                if let Op::SDPDeclare(sdp_msg) = op {
+                    Some((sdp_msg, proof))
+                } else {
+                    None
+                }
+            })
+    }
+
+    fn op_proofs(&self) -> &Vec<OpProof> {
         &self.op_proofs
     }
 
@@ -151,7 +165,7 @@ impl<'de> Deserialize<'de> for GenesisTx {
         #[derive(Deserialize)]
         struct UncheckedGenesisTx {
             mantle_tx: MantleTx,
-            op_proofs: Vec<Option<OpProof>>,
+            op_proofs: Vec<OpProof>,
         }
 
         let genesis_tx = UncheckedGenesisTx::deserialize(deserializer)?;
@@ -173,7 +187,7 @@ mod tests {
         mantle::{
             keys::PublicKey,
             ledger::{Note, Tx as LedgerTx, Utxo, Value},
-            ops::{channel::blob::BlobOp, sdp::SDPDeclareOp},
+            ops::channel::blob::BlobOp,
         },
         sdp::{ProviderId, ServiceType, ZkPublicKey},
     };
@@ -453,7 +467,7 @@ mod tests {
         );
 
         // Serialize and deserialize with proofs.
-        let genesis_tx = genesis_tx.with_proofs(vec![None]).unwrap();
+        let genesis_tx = genesis_tx.with_proofs(vec![OpProof::NoProof]).unwrap();
         let json_str = serde_json::to_string(&genesis_tx).expect("Serialization should succeed");
         let deserialized: GenesisTx = serde_json::from_str(&json_str).unwrap();
 
