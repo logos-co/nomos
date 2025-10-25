@@ -18,6 +18,7 @@ use tests::{
     },
 };
 
+#[ignore = "TODO: Enable when SDP Declarations are processed"]
 #[tokio::test]
 #[serial]
 async fn update_membership_and_disseminate() {

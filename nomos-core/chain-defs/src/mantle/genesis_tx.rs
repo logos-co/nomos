@@ -2,6 +2,7 @@ use groth16::Fr;
 use poseidon2::Digest;
 use serde::{Deserialize, Serialize};
 
+use super::{OpProof, SignedMantleTx, ops::sdp::SDPDeclareOp};
 use crate::{
     crypto::ZkHasher,
     mantle::{
@@ -12,11 +13,11 @@ use crate::{
             channel::{ChannelId, MsgId, inscribe::InscriptionOp},
         },
     },
+    proofs::zksig::DummyZkSignature,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(transparent)]
-pub struct GenesisTx(MantleTx);
+pub struct GenesisTx(SignedMantleTx);
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
 pub enum Error {
@@ -30,6 +31,8 @@ pub enum Error {
     MissingInscription,
     #[error("Invalid genesis inscription: {0:?}")]
     InvalidInscription(Box<Op>),
+    #[error("Unequal number of ops ({num_ops}) and proofs ({num_proofs})")]
+    UnequalNumberOfProofs { num_ops: usize, num_proofs: usize },
 }
 
 impl GenesisTx {
@@ -60,7 +63,26 @@ impl GenesisTx {
             return Err(Error::UnsupportedGenesisOp(unsupported_ops));
         }
 
-        Ok(Self(mantle_tx))
+        Ok(Self(SignedMantleTx {
+            mantle_tx,
+            ops_proofs: vec![OpProof::NoProof],
+            ledger_tx_proof: DummyZkSignature::from_bytes([0u8; 128]),
+        }))
+    }
+
+    pub fn with_proofs(mut self, ops_proofs: Vec<OpProof>) -> Result<Self, Error> {
+        let num_ops = self.0.mantle_tx.ops.len();
+        let num_proofs = ops_proofs.len();
+
+        if num_ops != num_proofs {
+            return Err(Error::UnequalNumberOfProofs {
+                num_ops,
+                num_proofs,
+            });
+        }
+
+        self.0.ops_proofs = ops_proofs;
+        Ok(self)
     }
 }
 
@@ -91,7 +113,7 @@ impl Transaction for GenesisTx {
         |tx| <ZkHasher as Digest>::digest(&tx.as_signing_frs()).into();
     type Hash = TxHash;
     fn as_signing_frs(&self) -> Vec<Fr> {
-        self.0.as_signing_frs()
+        self.0.mantle_tx.as_signing_frs()
     }
 }
 
@@ -105,14 +127,32 @@ impl GasCost for GenesisTx {
 impl crate::mantle::GenesisTx for GenesisTx {
     fn genesis_inscription(&self) -> &InscriptionOp {
         // Safe to unwrap because we validated this in from_tx
-        match &self.0.ops[0] {
+        match &self.mantle_tx().ops[0] {
             Op::ChannelInscribe(op) => op,
             _ => unreachable!("GenesisTx always has a valid inscription as first op"),
         }
     }
 
+    fn sdp_ops(&self) -> impl Iterator<Item = (&SDPDeclareOp, &OpProof)> {
+        self.mantle_tx()
+            .ops
+            .iter()
+            .zip(self.op_proofs().iter())
+            .filter_map(|(op, proof)| {
+                if let Op::SDPDeclare(sdp_msg) = op {
+                    Some((sdp_msg, proof))
+                } else {
+                    None
+                }
+            })
+    }
+
+    fn op_proofs(&self) -> &Vec<OpProof> {
+        &self.0.ops_proofs
+    }
+
     fn mantle_tx(&self) -> &MantleTx {
-        &self.0
+        &self.0.mantle_tx
     }
 }
 
@@ -121,8 +161,12 @@ impl<'de> Deserialize<'de> for GenesisTx {
     where
         D: serde::Deserializer<'de>,
     {
-        let tx = MantleTx::deserialize(deserializer)?;
-        Self::from_tx(tx).map_err(serde::de::Error::custom)
+        let genesis_tx = SignedMantleTx::deserialize(deserializer)?;
+
+        Self::from_tx(genesis_tx.mantle_tx)
+            .map_err(serde::de::Error::custom)?
+            .with_proofs(genesis_tx.ops_proofs)
+            .map_err(serde::de::Error::custom)
     }
 }
 
@@ -136,7 +180,7 @@ mod tests {
         mantle::{
             keys::PublicKey,
             ledger::{Note, Tx as LedgerTx, Utxo, Value},
-            ops::{channel::blob::BlobOp, sdp::SDPDeclareOp},
+            ops::channel::blob::BlobOp,
         },
         sdp::{ProviderId, ServiceType, ZkPublicKey},
     };
@@ -401,9 +445,24 @@ mod tests {
         // Serialize to JSON
         let json_str = serde_json::to_string(&genesis_tx).expect("Serialization should succeed");
 
-        // Deserialize from JSON
-        let deserialized: GenesisTx =
-            serde_json::from_str(&json_str).expect("Deserialization should succeed");
+        // Deserialize from JSON fails because of missing proofs.
+        let result = serde_json::from_str::<GenesisTx>(&json_str)
+            .unwrap_err()
+            .to_string();
+
+        assert_eq!(
+            result,
+            Error::UnequalNumberOfProofs {
+                num_ops: 1,
+                num_proofs: 0
+            }
+            .to_string()
+        );
+
+        // Serialize and deserialize with proofs.
+        let genesis_tx = genesis_tx.with_proofs(vec![OpProof::NoProof]).unwrap();
+        let json_str = serde_json::to_string(&genesis_tx).expect("Serialization should succeed");
+        let deserialized: GenesisTx = serde_json::from_str(&json_str).unwrap();
 
         // Verify they're equal
         assert_eq!(genesis_tx, deserialized);
