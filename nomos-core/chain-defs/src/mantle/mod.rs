@@ -18,8 +18,8 @@ pub mod tx_builder;
 pub use gas::{GasConstants, GasCost};
 use groth16::Fr;
 pub use ledger::{Note, NoteId, Utxo, Value};
-use ops::channel::inscribe::InscriptionOp;
 pub use ops::{Op, OpProof};
+use ops::{channel::inscribe::InscriptionOp, sdp::SDPDeclareOp};
 pub use tx::{MantleTx, SignedMantleTx, TxHash};
 
 use crate::proofs::zksig::ZkSignatureProof;
@@ -56,8 +56,9 @@ pub trait AuthenticatedMantleTx: Transaction<Hash = TxHash> + GasCost {
 //  https://www.notion.so/nomos-tech/Bedrock-Genesis-Block-21d261aa09df80bb8dc3c768802eb527?d=27a261aa09df808e9c66001cf0585dee
 pub trait GenesisTx: Transaction<Hash = TxHash> {
     fn genesis_inscription(&self) -> &InscriptionOp;
+    fn sdp_ops(&self) -> impl Iterator<Item = (&SDPDeclareOp, &OpProof)>;
     fn mantle_tx(&self) -> &MantleTx;
-    fn op_proofs(&self) -> &Vec<Option<OpProof>>;
+    fn op_proofs(&self) -> &Vec<OpProof>;
 }
 
 impl<T: Transaction> Transaction for &T {
@@ -88,7 +89,11 @@ impl<T: GenesisTx> GenesisTx for &T {
         T::genesis_inscription(self)
     }
 
-    fn op_proofs(&self) -> &Vec<Option<OpProof>> {
+    fn sdp_ops(&self) -> impl Iterator<Item = (&SDPDeclareOp, &OpProof)> {
+        T::sdp_ops(self)
+    }
+
+    fn op_proofs(&self) -> &Vec<OpProof> {
         T::op_proofs(self)
     }
 

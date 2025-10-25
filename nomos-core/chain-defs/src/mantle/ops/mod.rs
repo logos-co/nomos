@@ -58,6 +58,7 @@ pub enum Op {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OpProof {
+    NoProof,
     Ed25519Sig(#[serde(with = "ed25519_serde::sig_hex")] ed25519::Signature),
     ZkSig(zksig::DummyZkSignature),
     ZkAndEd25519Sigs {
