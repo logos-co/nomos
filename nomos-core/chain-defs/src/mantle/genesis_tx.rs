@@ -2,7 +2,7 @@ use groth16::Fr;
 use poseidon2::Digest;
 use serde::{Deserialize, Serialize};
 
-use super::{OpProof, ops::sdp::SDPDeclareOp};
+use super::{OpProof, SignedMantleTx, ops::sdp::SDPDeclareOp};
 use crate::{
     crypto::ZkHasher,
     mantle::{
@@ -13,13 +13,11 @@ use crate::{
             channel::{ChannelId, MsgId, inscribe::InscriptionOp},
         },
     },
+    proofs::zksig::DummyZkSignature,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct GenesisTx {
-    mantle_tx: MantleTx,
-    op_proofs: Vec<OpProof>,
-}
+pub struct GenesisTx(SignedMantleTx);
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
 pub enum Error {
@@ -65,15 +63,16 @@ impl GenesisTx {
             return Err(Error::UnsupportedGenesisOp(unsupported_ops));
         }
 
-        Ok(Self {
+        Ok(Self(SignedMantleTx {
             mantle_tx,
-            op_proofs: vec![],
-        })
+            ops_proofs: vec![],
+            ledger_tx_proof: DummyZkSignature::from_bytes([0u8; 128]),
+        }))
     }
 
-    pub fn with_proofs(mut self, op_proofs: Vec<OpProof>) -> Result<Self, Error> {
-        let num_ops = self.mantle_tx.ops.len();
-        let num_proofs = op_proofs.len();
+    pub fn with_proofs(mut self, ops_proofs: Vec<OpProof>) -> Result<Self, Error> {
+        let num_ops = self.0.mantle_tx.ops.len();
+        let num_proofs = ops_proofs.len();
 
         if num_ops != num_proofs {
             return Err(Error::UnequalNumberOfProofs {
@@ -82,7 +81,7 @@ impl GenesisTx {
             });
         }
 
-        self.op_proofs = op_proofs;
+        self.0.ops_proofs = ops_proofs;
         Ok(self)
     }
 }
@@ -114,7 +113,7 @@ impl Transaction for GenesisTx {
         |tx| <ZkHasher as Digest>::digest(&tx.as_signing_frs()).into();
     type Hash = TxHash;
     fn as_signing_frs(&self) -> Vec<Fr> {
-        self.mantle_tx.as_signing_frs()
+        self.0.mantle_tx.as_signing_frs()
     }
 }
 
@@ -128,17 +127,17 @@ impl GasCost for GenesisTx {
 impl crate::mantle::GenesisTx for GenesisTx {
     fn genesis_inscription(&self) -> &InscriptionOp {
         // Safe to unwrap because we validated this in from_tx
-        match &self.mantle_tx.ops[0] {
+        match &self.mantle_tx().ops[0] {
             Op::ChannelInscribe(op) => op,
             _ => unreachable!("GenesisTx always has a valid inscription as first op"),
         }
     }
 
     fn sdp_ops(&self) -> impl Iterator<Item = (&SDPDeclareOp, &OpProof)> {
-        self.mantle_tx
+        self.mantle_tx()
             .ops
             .iter()
-            .zip(self.op_proofs.iter())
+            .zip(self.op_proofs().iter())
             .filter_map(|(op, proof)| {
                 if let Op::SDPDeclare(sdp_msg) = op {
                     Some((sdp_msg, proof))
@@ -149,11 +148,11 @@ impl crate::mantle::GenesisTx for GenesisTx {
     }
 
     fn op_proofs(&self) -> &Vec<OpProof> {
-        &self.op_proofs
+        &self.0.ops_proofs
     }
 
     fn mantle_tx(&self) -> &MantleTx {
-        &self.mantle_tx
+        &self.0.mantle_tx
     }
 }
 
@@ -162,17 +161,11 @@ impl<'de> Deserialize<'de> for GenesisTx {
     where
         D: serde::Deserializer<'de>,
     {
-        #[derive(Deserialize)]
-        struct UncheckedGenesisTx {
-            mantle_tx: MantleTx,
-            op_proofs: Vec<OpProof>,
-        }
-
-        let genesis_tx = UncheckedGenesisTx::deserialize(deserializer)?;
+        let genesis_tx = SignedMantleTx::deserialize(deserializer)?;
 
         Self::from_tx(genesis_tx.mantle_tx)
             .map_err(serde::de::Error::custom)?
-            .with_proofs(genesis_tx.op_proofs)
+            .with_proofs(genesis_tx.ops_proofs)
             .map_err(serde::de::Error::custom)
     }
 }
@@ -459,11 +452,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Error::UnequalNumberOfProofs {
-                num_ops: 1,
-                num_proofs: 0
-            }
-            .to_string()
+            "Number of proofs (0) does not match number of operations (1)"
         );
 
         // Serialize and deserialize with proofs.
