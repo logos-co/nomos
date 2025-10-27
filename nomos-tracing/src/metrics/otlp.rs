@@ -1,4 +1,4 @@
-use std::error::Error;
+use std::{env, error::Error};
 
 use opentelemetry::{KeyValue, global};
 use opentelemetry_otlp::{ExportConfig, Protocol, WithExportConfig as _};
@@ -25,7 +25,8 @@ where
     let resource = Resource::new(vec![KeyValue::new(
         opentelemetry_semantic_conventions::resource::SERVICE_NAME,
         config.host_identifier,
-    )]);
+    )])
+    .merge(&Resource::new(env_resource_attributes()));
 
     let export_config = ExportConfig {
         endpoint: config.endpoint.into(),
@@ -47,4 +48,24 @@ where
 
     global::set_meter_provider(meter_provider.clone());
     Ok(MetricsLayer::new(meter_provider))
+}
+
+fn env_resource_attributes() -> Vec<KeyValue> {
+    env::var("OTEL_RESOURCE_ATTRIBUTES").map_or_else(
+        |_| Vec::new(),
+        |raw| {
+            raw.split(',')
+                .filter_map(|pair| {
+                    let mut parts = pair.splitn(2, '=');
+                    let key = parts.next()?.trim();
+                    let value = parts.next().unwrap_or("").trim();
+                    if key.is_empty() {
+                        None
+                    } else {
+                        Some(KeyValue::new(key.to_owned(), value.to_owned()))
+                    }
+                })
+                .collect()
+        },
+    )
 }

@@ -756,6 +756,8 @@ where
                                 orphan_downloader.remove_orphan(&block.header().id());
 
                                 info!(counter.consensus_processed_blocks = 1);
+                                let tx_count = block.transactions().count() as u64;
+                                info!(counter.consensus_transactions_total = tx_count);
                             }
                             Err(Error::Ledger(nomos_ledger::LedgerError::ParentNotFound(parent))
                                 | Error::Consensus(cryptarchia_engine::Error::ParentMissing(parent)),) => {
@@ -774,9 +776,11 @@ where
                         // Handle ProcessBlock separately since it needs async and access to more state
                         if let ConsensusMsg::ProcessLeaderBlock { block, tx } = msg {
                             // TODO: move this into the process_message() function after making the process_message async.
+                            let block = *block;
+                            let tx_count = block.transactions().count() as u64;
                             match Self::process_block_and_update_state(
                                     cryptarchia.clone(),
-                                    *block,
+                                    block,
                                     // Skip this since the block was already built with valid blobs.
                                     &SkipBlobValidation,
                                     &storage_blocks_to_remove,
@@ -785,13 +789,15 @@ where
                                     &self.lib_subscription_sender,
                                     &self.service_resources_handle.state_updater,
                                 ).await {
-                                Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
-                                    cryptarchia = new_cryptarchia;
-                                    storage_blocks_to_remove = new_storage_blocks_to_remove;
-                                    tx.send(Ok(())).unwrap_or_else(|_| {
-                                        error!("Could not send process block result through channel");
-                                    });
-                                }
+                            Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
+                                cryptarchia = new_cryptarchia;
+                                storage_blocks_to_remove = new_storage_blocks_to_remove;
+                                tx.send(Ok(())).unwrap_or_else(|_| {
+                                    error!("Could not send process block result through channel");
+                                });
+                                info!(counter.consensus_processed_blocks = 1);
+                                info!(counter.consensus_transactions_total = tx_count);
+                            }
                                 Err(e) => {
                                     let error_msg = format!("Failed to process block: {e:?}");
                                     error!(target: LOG_TARGET, "{}", error_msg);
@@ -836,6 +842,8 @@ where
                                 storage_blocks_to_remove = new_storage_blocks_to_remove;
 
                                 info!(counter.consensus_processed_blocks = 1);
+                                let tx_count = block.transactions().count() as u64;
+                                info!(counter.consensus_transactions_total = tx_count);
                             }
                             Err(e) => {
                                 error!(target: LOG_TARGET, "Error processing orphan downloader block: {e:?}");

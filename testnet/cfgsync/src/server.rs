@@ -1,21 +1,25 @@
 use std::{fs, net::Ipv4Addr, num::NonZero, path::PathBuf, sync::Arc, time::Duration};
 
 use axum::{Json, Router, extract::State, http::StatusCode, response::IntoResponse, routing::post};
+use integration_configs::{
+    nodes::{create_executor_config, create_validator_config},
+    topology::configs::{consensus::ConsensusParams, da::DaParams},
+};
 use nomos_da_network_core::swarm::{
     DAConnectionMonitorSettings, DAConnectionPolicySettings, ReplicationConfig,
 };
 use nomos_tracing_service::TracingSettings;
 use nomos_utils::bounded_duration::{MinimalBoundedDuration, SECOND};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use serde_with::serde_as;
-use tests::{
-    nodes::{executor::create_executor_config, validator::create_validator_config},
-    topology::configs::{consensus::ConsensusParams, da::DaParams},
-};
 use tokio::sync::oneshot::channel;
 
 use crate::{
-    config::Host,
+    config::{
+        DEFAULT_API_PORT, DEFAULT_BLEND_PORT, DEFAULT_DA_NETWORK_PORT, DEFAULT_LIBP2P_NETWORK_PORT,
+        DEFAULT_TESTING_HTTP_PORT, Host,
+    },
     repo::{ConfigRepo, RepoResponse},
 };
 
@@ -112,48 +116,130 @@ impl CfgSyncConfig {
 pub struct ClientIp {
     pub ip: Ipv4Addr,
     pub identifier: String,
+    #[serde(default)]
+    pub network_port: Option<u16>,
+    #[serde(default)]
+    pub da_network_port: Option<u16>,
+    #[serde(default)]
+    pub blend_port: Option<u16>,
+    #[serde(default)]
+    pub api_port: Option<u16>,
+    #[serde(default)]
+    pub testing_http_port: Option<u16>,
 }
 
 async fn validator_config(
     State(config_repo): State<Arc<ConfigRepo>>,
     Json(payload): Json<ClientIp>,
 ) -> impl IntoResponse {
-    let ClientIp { ip, identifier } = payload;
+    let ClientIp {
+        ip,
+        identifier,
+        network_port,
+        da_network_port,
+        blend_port,
+        api_port,
+        testing_http_port,
+    } = payload;
+
+    println!(
+        "validator request: ip={ip} identifier={identifier} network_port={network_port:?} da_port={da_network_port:?} blend_port={blend_port:?} api_port={api_port:?} testing_http_port={testing_http_port:?}"
+    );
 
     let (reply_tx, reply_rx) = channel();
-    config_repo.register(Host::default_validator_from_ip(ip, identifier), reply_tx);
+    let host = Host::validator(
+        ip,
+        identifier,
+        network_port.unwrap_or(DEFAULT_LIBP2P_NETWORK_PORT),
+        da_network_port.unwrap_or(DEFAULT_DA_NETWORK_PORT),
+        blend_port.unwrap_or(DEFAULT_BLEND_PORT),
+        api_port.unwrap_or(DEFAULT_API_PORT),
+        testing_http_port.unwrap_or(DEFAULT_TESTING_HTTP_PORT),
+    );
+    config_repo.register(host, reply_tx);
 
-    (reply_rx.await).map_or_else(
-        |_| (StatusCode::INTERNAL_SERVER_ERROR, "Error receiving config").into_response(),
-        |config_response| match config_response {
-            RepoResponse::Config(config) => {
-                let config = create_validator_config(*config);
-                (StatusCode::OK, Json(config)).into_response()
+    match reply_rx.await {
+        Ok(RepoResponse::Config(config)) => {
+            println!("validator config ready");
+            let config = create_validator_config(*config);
+            match sanitize_config(config) {
+                Ok(value) => (StatusCode::OK, Json(value)).into_response(),
+                Err(err) => {
+                    println!("validator config serialization failed: {err}");
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Error serializing config",
+                    )
+                        .into_response()
+                }
             }
-            RepoResponse::Timeout => (StatusCode::REQUEST_TIMEOUT).into_response(),
-        },
-    )
+        }
+        Ok(RepoResponse::Timeout) => {
+            println!("validator config timeout");
+            (StatusCode::REQUEST_TIMEOUT).into_response()
+        }
+        Err(_) => {
+            println!("validator config channel closed");
+            (StatusCode::INTERNAL_SERVER_ERROR, "Error receiving config").into_response()
+        }
+    }
 }
 
 async fn executor_config(
     State(config_repo): State<Arc<ConfigRepo>>,
     Json(payload): Json<ClientIp>,
 ) -> impl IntoResponse {
-    let ClientIp { ip, identifier } = payload;
+    let ClientIp {
+        ip,
+        identifier,
+        network_port,
+        da_network_port,
+        blend_port,
+        api_port,
+        testing_http_port,
+    } = payload;
+
+    println!(
+        "executor request: ip={ip} identifier={identifier} network_port={network_port:?} da_port={da_network_port:?} blend_port={blend_port:?} api_port={api_port:?} testing_http_port={testing_http_port:?}"
+    );
 
     let (reply_tx, reply_rx) = channel();
-    config_repo.register(Host::default_executor_from_ip(ip, identifier), reply_tx);
+    let host = Host::executor(
+        ip,
+        identifier,
+        network_port.unwrap_or(DEFAULT_LIBP2P_NETWORK_PORT),
+        da_network_port.unwrap_or(DEFAULT_DA_NETWORK_PORT),
+        blend_port.unwrap_or(DEFAULT_BLEND_PORT),
+        api_port.unwrap_or(DEFAULT_API_PORT.saturating_add(1)),
+        testing_http_port.unwrap_or(DEFAULT_TESTING_HTTP_PORT),
+    );
+    config_repo.register(host, reply_tx);
 
-    (reply_rx.await).map_or_else(
-        |_| (StatusCode::INTERNAL_SERVER_ERROR, "Error receiving config").into_response(),
-        |config_response| match config_response {
-            RepoResponse::Config(config) => {
-                let config = create_executor_config(*config);
-                (StatusCode::OK, Json(config)).into_response()
+    match reply_rx.await {
+        Ok(RepoResponse::Config(config)) => {
+            println!("executor config ready");
+            let config = create_executor_config(*config);
+            match sanitize_config(config) {
+                Ok(value) => (StatusCode::OK, Json(value)).into_response(),
+                Err(err) => {
+                    println!("executor config serialization failed: {err}");
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Error serializing config",
+                    )
+                        .into_response()
+                }
             }
-            RepoResponse::Timeout => (StatusCode::REQUEST_TIMEOUT).into_response(),
-        },
-    )
+        }
+        Ok(RepoResponse::Timeout) => {
+            println!("executor config timeout");
+            (StatusCode::REQUEST_TIMEOUT).into_response()
+        }
+        Err(_) => {
+            println!("executor config channel closed");
+            (StatusCode::INTERNAL_SERVER_ERROR, "Error receiving config").into_response()
+        }
+    }
 }
 
 pub fn cfgsync_app(config_repo: Arc<ConfigRepo>) -> Router {
@@ -161,4 +247,11 @@ pub fn cfgsync_app(config_repo: Arc<ConfigRepo>) -> Router {
         .route("/validator", post(validator_config))
         .route("/executor", post(executor_config))
         .with_state(config_repo)
+}
+
+fn sanitize_config<T>(config: T) -> Result<Value, serde_json::Error>
+where
+    T: Serialize,
+{
+    serde_json::to_value(config)
 }

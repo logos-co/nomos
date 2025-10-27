@@ -2,20 +2,94 @@ use std::time::Duration;
 
 use chain_service::CryptarchiaInfo;
 use common_http_client::Error;
+use ed25519_dalek::{Signer as _, SigningKey};
 use executor_http_client::ExecutorHttpClient;
 use futures::StreamExt as _;
 use nomos_core::{
     da::BlobId,
+    header::HeaderId,
     mantle::{
-        AuthenticatedMantleTx as _, Op,
-        ops::channel::{Ed25519PublicKey, MsgId},
+        AuthenticatedMantleTx as _, MantleTx, Op, OpProof, SignedMantleTx, Transaction as _,
+        ledger::Tx as LedgerTx,
+        ops::channel::{ChannelId, Ed25519PublicKey, MsgId, inscribe::InscriptionOp},
     },
 };
+use rand::rngs::OsRng;
 use reqwest::Url;
+use testing_framework_core::scenario::{ClientError, NodeClient};
 
 use crate::{adjust_timeout, nodes::executor::Executor};
 
 pub const DA_TESTS_TIMEOUT: u64 = 120;
+
+#[must_use]
+pub fn build_channel_inscription(channel_id: ChannelId) -> (SignedMantleTx, Ed25519PublicKey) {
+    let signing_key = SigningKey::generate(&mut OsRng);
+    let signer = signing_key.verifying_key();
+
+    let inscription_op = InscriptionOp {
+        channel_id,
+        inscription: format!("Test channel inscription {channel_id:?}").into_bytes(),
+        parent: MsgId::root(),
+        signer,
+    };
+
+    let mantle_tx = MantleTx {
+        ops: vec![Op::ChannelInscribe(inscription_op)],
+        ledger_tx: LedgerTx::new(vec![], vec![]),
+        storage_gas_price: 0,
+        execution_gas_price: 0,
+    };
+
+    let tx_hash = mantle_tx.hash();
+    let signature = signing_key.sign(&tx_hash.as_signing_bytes());
+
+    let signed = SignedMantleTx::new(
+        mantle_tx,
+        vec![OpProof::Ed25519Sig(signature)],
+        nomos_core::proofs::zksig::DummyZkSignature::prove(
+            &nomos_core::proofs::zksig::ZkSignaturePublic {
+                msg_hash: tx_hash.into(),
+                pks: vec![],
+            },
+        ),
+    )
+    .expect("valid inscription transaction");
+
+    (signed, signer)
+}
+
+pub async fn wait_for_channel_inclusion(
+    client: &dyn NodeClient,
+    channel_id: ChannelId,
+    timeout: Duration,
+) -> Result<(u64, HeaderId), ClientError> {
+    let observe = async {
+        loop {
+            let info = client.consensus_info().await?;
+            if let Some(block) = client.get_block(info.tip).await? {
+                let found = block
+                    .transactions()
+                    .flat_map(|tx| tx.mantle_tx().ops.iter())
+                    .any(|op| {
+                        matches!(
+                            op,
+                            Op::ChannelInscribe(inscribe) if inscribe.channel_id == channel_id
+                        )
+                    });
+                if found {
+                    return Ok((info.height, info.tip));
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    };
+
+    tokio::time::timeout(timeout, observe)
+        .await
+        .map_err(|_| ClientError::Http("timed out waiting for channel inclusion".into()))?
+}
+
 pub async fn disseminate_with_metadata(executor: &Executor, data: &[u8]) -> Result<BlobId, Error> {
     let executor_config = executor.config();
     let backend_address = executor_config.http.backend_settings.address;

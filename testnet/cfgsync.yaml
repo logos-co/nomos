@@ -1,16 +1,16 @@
 port: 4400
-n_hosts: 4
-timeout: 10
+n_hosts: 1
+timeout: 30
 
 # ConsensusConfig related parameters
 security_param: 10
 active_slot_coeff: 0.9
 
 # DaConfig related parameters
-subnetwork_size: 2
-dispersal_factor: 2
+subnetwork_size: 1
+dispersal_factor: 1
 num_samples: 1
-num_subnets: 2
+num_subnets: 1
 old_blobs_check_interval: "5.0"
 blobs_validity_duration: "60.0"
 global_params_path: "/kzgrs_test_params"
@@ -32,18 +32,13 @@ retry_commitments_limit: 5
 
 # Tracing
 tracing_settings:
-  logger: !Loki
-    endpoint: http://loki:3100/
-    host_identifier: node
-  tracing: !Otlp
-    endpoint: http://tempo:4317/
-    sample_ratio: 0.5
-    service_name: node
+  logger: !File
+    directory: ./logs
+    prefix: node
+  tracing: None
   filter: !EnvFilter
     filters:
       nomos: debug
-  metrics: !Otlp
-    endpoint: http://prometheus:9090/api/v1/otlp/v1/metrics
-    host_identifier: node
+  metrics: None
   console: None
   level: INFO
