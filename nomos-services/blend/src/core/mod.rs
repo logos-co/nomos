@@ -56,7 +56,7 @@ use crate::{
         backends::{PublicInfo, SessionInfo},
         processor::{CoreCryptographicProcessor, Error},
         settings::BlendConfig,
-        state::ServiceState,
+        state::{RecoveryServiceState, ServiceState},
     },
     epoch_info::{
         ChainApi, EpochEvent, EpochHandler, LeaderInputsMinusQuota,
@@ -76,7 +76,7 @@ pub(super) mod service_components;
 
 mod processor;
 mod state;
-pub use state::ServiceState as CoreServiceState;
+pub use state::RecoveryServiceState as CoreServiceState;
 
 const LOG_TARGET: &str = "blend::service::core";
 
@@ -104,6 +104,7 @@ pub struct BlendService<
     Network: NetworkAdapter<RuntimeServiceId>,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
+    last_saved_state: Option<ServiceState>,
     _phantom: PhantomData<(
         Backend,
         MembershipAdapter,
@@ -146,7 +147,7 @@ where
     Network: NetworkAdapter<RuntimeServiceId>,
 {
     type Settings = BlendConfig<Backend::Settings>;
-    type State = ServiceState<Backend::Settings>;
+    type State = RecoveryServiceState<Backend::Settings>;
     type StateOperator = RecoveryOperator<StateRecoveryBackend>;
     type Message = ServiceMessage<Network::BroadcastSettings>;
 }
@@ -205,10 +206,11 @@ where
 {
     fn init(
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-        _initial_state: Self::State,
+        recovery_initial_state: Self::State,
     ) -> Result<Self, overwatch::DynError> {
         Ok(Self {
             service_resources_handle,
+            last_saved_state: recovery_initial_state.service_state,
             _phantom: PhantomData,
         })
     }
@@ -222,8 +224,9 @@ where
                     ref overwatch_handle,
                     ref settings_handle,
                     ref status_updater,
-                    ..
+                    ref mut state_updater,
                 },
+            last_saved_state: current_state,
             ..
         } = self;
 
@@ -399,9 +402,26 @@ where
         );
 
         let mut message_scheduler = {
+            let scheduler_core_quota = {
+                let consumed_session_core_quota = if let Some(current_state) = current_state
+                    && current_state.last_seen_session == current_membership_info.public.session
+                {
+                    tracing::debug!(target: LOG_TARGET, "Found previous state for session {:?} with already consumed core quota {:?}.", current_state.last_seen_session, current_state.spent_core_quota);
+                    current_state.spent_core_quota
+                } else {
+                    tracing::trace!(target: LOG_TARGET, "No previous state or old stored session found when starting the node.");
+                    0
+                };
+                let scheduler_core_quota = blend_config
+                    .session_quota(current_membership_info.public.membership.size())
+                    .saturating_sub(consumed_session_core_quota);
+                if scheduler_core_quota == 0 {
+                    tracing::debug!(target: LOG_TARGET, "Calculated scheduler core quota of `0`. No cover messages will be generated for the remainder of this session.");
+                }
+                scheduler_core_quota
+            };
             let initial_scheduler_session_info = SchedulerSessionInfo {
-                core_quota: blend_config
-                    .session_quota(current_membership_info.public.membership.size()),
+                core_quota: scheduler_core_quota,
                 session_number: u128::from(current_membership_info.public.session).into(),
             };
             let scheduler_stream = remaining_session_stream
