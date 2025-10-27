@@ -1,0 +1,14 @@
+[package]
+edition.workspace = true
+license.workspace = true
+name              = "testing-framework-runner-local"
+version           = "0.1.0"
+
+[lints]
+workspace = true
+
+[dependencies]
+futures                = { version = "0.3", default-features = false }
+testing-framework-core = { path = "../../core" }
+thiserror              = { workspace = true }
+tokio                  = { workspace = true }

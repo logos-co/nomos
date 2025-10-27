@@ -1,0 +1,20 @@
+{{- if .Values.prometheus.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  labels:
+    {{- include "nomos-runner.prometheusLabels" . | nindent 4 }}
+spec:
+  type: {{ .Values.prometheus.service.type | default "NodePort" }}
+  selector:
+    {{- include "nomos-runner.prometheusLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: 9090
+      targetPort: http
+      {{- if and (eq (default "NodePort" .Values.prometheus.service.type) "NodePort") .Values.prometheus.service.nodePort }}
+      nodePort: {{ .Values.prometheus.service.nodePort }}
+      {{- end }}
+{{- end }}
