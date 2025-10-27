@@ -408,8 +408,10 @@ where
         let mut current_recovery_checkpoint = if let Some(saved_state) = last_saved_state
             && saved_state.last_seen_session() == current_membership_info.public.session
         {
+            tracing::debug!(target: LOG_TARGET, "Found recovery state for session {:?}: {saved_state:?}", current_membership_info.public.session);
             saved_state
         } else {
+            tracing::debug!(target: LOG_TARGET, "No recovery state found for session {:?}. Initializing a new one.", current_membership_info.public.session);
             ServiceState::with_session(current_membership_info.public.session)
         };
 
@@ -500,10 +502,10 @@ where
                 }
                 Some(session_event) = remaining_session_stream.next() => {
                     match handle_session_event(session_event, &blend_config, crypto_processor, current_public_info, current_recovery_checkpoint, &mut blending_token_collector, &mut backend).await {
-                        Ok((new_crypto_processor, new_public_info, new_session_state)) => {
+                        Ok((new_crypto_processor, new_public_info, new_recovery_checkpoint)) => {
                             crypto_processor = new_crypto_processor;
                             current_public_info = new_public_info;
-                            current_recovery_checkpoint = new_session_state;
+                            current_recovery_checkpoint = new_recovery_checkpoint;
                         }
                         Err(e) => {
                             tracing::error!(
@@ -806,9 +808,10 @@ where
     tracing::debug!(target: LOG_TARGET, "Sent out {total_message_count} processed and/or cover messages at this release window.");
 
     // Update state by tracking the quota consumed by this release round.
-    let new_state = current_recovery_checkpoint.with_consumed_core_quota(consumed_quota);
-    state_updater.update(Some(new_state.clone().into()));
-    new_state
+    let new_recovery_checkpoint =
+        current_recovery_checkpoint.by_consuming_core_quota(consumed_quota);
+    state_updater.update(Some(new_recovery_checkpoint.clone().into()));
+    new_recovery_checkpoint
 }
 
 /// Handle a clock event by calling into the epoch handler and process the
