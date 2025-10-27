@@ -405,7 +405,7 @@ where
 
         // Initialize the current session state. If the session matches the stored one,
         // retrieves the tracked consumed core quota. Else, fallback to `0`.
-        let mut current_session_state = if let Some(saved_state) = last_saved_state
+        let mut current_recovery_checkpoint = if let Some(saved_state) = last_saved_state
             && saved_state.last_seen_session() == current_membership_info.public.session
         {
             saved_state
@@ -416,7 +416,7 @@ where
         let mut message_scheduler = {
             let scheduler_starting_core_quota = blend_config
                 .session_quota(current_membership_info.public.membership.size())
-                .saturating_sub(current_session_state.spent_core_quota());
+                .saturating_sub(current_recovery_checkpoint.spent_core_quota());
             let initial_scheduler_session_info = SchedulerSessionInfo {
                 core_quota: scheduler_starting_core_quota,
                 session_number: u128::from(current_membership_info.public.session).into(),
@@ -490,7 +490,7 @@ where
                     handle_incoming_blend_message(incoming_message, &mut message_scheduler, &crypto_processor, &mut blending_token_collector);
                 }
                 Some(round_info) = message_scheduler.next() => {
-                    current_session_state = handle_release_round(round_info, &mut crypto_processor, &mut rng, &backend, &network_adapter, state_updater, current_session_state).await;
+                    current_recovery_checkpoint = handle_release_round(round_info, &mut crypto_processor, &mut rng, &backend, &network_adapter, state_updater, current_recovery_checkpoint).await;
                 }
                 Some(clock_tick) = remaining_clock_stream.next() => {
                     current_public_info = handle_clock_event(clock_tick, &blend_config, &mut epoch_handler, &mut crypto_processor, &mut backend, current_public_info).await;
@@ -499,10 +499,11 @@ where
                     handle_new_secret_epoch_info(pol_info.poq_private_inputs, &mut crypto_processor);
                 }
                 Some(session_event) = remaining_session_stream.next() => {
-                    match handle_session_event(session_event, &blend_config, crypto_processor, current_public_info, &mut blending_token_collector, &mut backend).await {
-                        Ok((new_crypto_processor, new_public_info)) => {
+                    match handle_session_event(session_event, &blend_config, crypto_processor, current_public_info, current_recovery_checkpoint, &mut blending_token_collector, &mut backend).await {
+                        Ok((new_crypto_processor, new_public_info, new_session_state)) => {
                             crypto_processor = new_crypto_processor;
                             current_public_info = new_public_info;
+                            current_recovery_checkpoint = new_session_state;
                         }
                         Err(e) => {
                             tracing::error!(
@@ -541,12 +542,14 @@ async fn handle_session_event<
         ProofsVerifier,
     >,
     current_public_info: PublicInfo<NodeId>,
+    current_state: ServiceState,
     blending_token_collector: &mut BlendingTokenCollector,
     backend: &mut Backend,
 ) -> Result<
     (
         CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
         PublicInfo<NodeId>,
+        ServiceState,
     ),
     Error,
 >
@@ -593,7 +596,14 @@ where
                 new_public_info.clone().into(),
                 private,
             )?;
-            Ok((new_processor, new_public_info))
+            Ok((
+                new_processor,
+                new_public_info,
+                // No need to store the new state, since if the node crashes before the first
+                // release round of the new session, we will ignore the old state as it belongs to
+                // an old session.
+                ServiceState::with_session(new_session),
+            ))
         }
         SessionEvent::TransitionPeriodExpired => {
             if let Some(activity_proof) =
@@ -603,7 +613,11 @@ where
                 submit_activity_proof(activity_proof);
             }
             backend.complete_session_transition().await;
-            Ok((current_cryptographic_processor, current_public_info))
+            Ok((
+                current_cryptographic_processor,
+                current_public_info,
+                current_state,
+            ))
         }
     }
 }
@@ -751,7 +765,7 @@ async fn handle_release_round<
     backend: &Backend,
     network_adapter: &NetAdapter,
     state_updater: &StateUpdater<Option<RecoveryServiceState<Backend::Settings>>>,
-    current_state: ServiceState,
+    current_recovery_checkpoint: ServiceState,
 ) -> ServiceState
 where
     NodeId: Eq + Hash + 'static,
@@ -792,7 +806,7 @@ where
     tracing::debug!(target: LOG_TARGET, "Sent out {total_message_count} processed and/or cover messages at this release window.");
 
     // Update state by tracking the quota consumed by this release round.
-    let new_state = current_state.with_consumed_core_quota(consumed_quota);
+    let new_state = current_recovery_checkpoint.with_consumed_core_quota(consumed_quota);
     state_updater.update(Some(new_state.clone().into()));
     new_state
 }

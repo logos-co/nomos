@@ -18,6 +18,10 @@ impl ServiceState {
         }
     }
 
+    pub const fn with_session(session: u64) -> Self {
+        Self::new(session, 0)
+    }
+
     pub const fn last_seen_session(&self) -> u64 {
         self.last_seen_session
     }
