@@ -1,6 +1,6 @@
-use nomos_tracing::{
-    logging::loki::LokiConfig, metrics::otlp::OtlpMetricsConfig, tracing::otlp::OtlpTracingConfig,
-};
+use std::path::PathBuf;
+
+use nomos_tracing::logging::local::FileConfig;
 use nomos_tracing_service::{
     ConsoleLayer, FilterLayer, LoggerLayer, MetricsLayer, TracingLayer, TracingSettings,
 };
@@ -18,26 +18,17 @@ impl GeneralTracingConfig {
         let host_identifier = format!("node-{id}");
         Self {
             tracing_settings: TracingSettings {
-                logger: LoggerLayer::Loki(LokiConfig {
-                    endpoint: "http://localhost:3100".try_into().unwrap(),
-                    host_identifier: host_identifier.clone(),
+                logger: LoggerLayer::File(FileConfig {
+                    directory: PathBuf::from("./logs"),
+                    prefix: Some(host_identifier.into()),
                 }),
-                tracing: TracingLayer::Otlp(OtlpTracingConfig {
-                    endpoint: "http://localhost:4317".try_into().unwrap(),
-                    sample_ratio: 0.5,
-                    service_name: host_identifier.clone(),
-                }),
+                tracing: TracingLayer::None,
                 filter: FilterLayer::EnvFilter(nomos_tracing::filter::envfilter::EnvFilterConfig {
                     filters: std::iter::once(&("nomos", "debug"))
                         .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
                         .collect(),
                 }),
-                metrics: MetricsLayer::Otlp(OtlpMetricsConfig {
-                    endpoint: "http://127.0.0.1:9090/api/v1/otlp/v1/metrics"
-                        .try_into()
-                        .unwrap(),
-                    host_identifier,
-                }),
+                metrics: MetricsLayer::None,
                 console: ConsoleLayer::None,
                 level: Level::DEBUG,
             },
@@ -63,6 +54,18 @@ fn create_debug_configs(ids: &[[u8; 32]]) -> Vec<GeneralTracingConfig> {
 
 fn create_default_configs(ids: &[[u8; 32]]) -> Vec<GeneralTracingConfig> {
     ids.iter()
-        .map(|_| GeneralTracingConfig::default())
+        .map(|_| GeneralTracingConfig {
+            tracing_settings: TracingSettings {
+                logger: LoggerLayer::File(FileConfig {
+                    directory: PathBuf::from("./logs"),
+                    prefix: Some(PathBuf::from("nomos-node")),
+                }),
+                tracing: TracingLayer::None,
+                filter: FilterLayer::None,
+                metrics: MetricsLayer::None,
+                console: ConsoleLayer::None,
+                level: Level::INFO,
+            },
+        })
         .collect()
 }
