@@ -1,6 +1,5 @@
 use std::{
-    collections::HashMap,
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     net::SocketAddr,
     num::{NonZeroU64, NonZeroUsize},
     path::PathBuf,
@@ -17,6 +16,7 @@ use chain_service::{
 use common_http_client::CommonHttpClient;
 use cryptarchia_engine::time::SlotConfig;
 use futures::Stream;
+use key_management_system::{KMSServiceSettings, backend::preload::PreloadKMSBackendSettings};
 use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
 use nomos_api::http::membership::MembershipUpdateRequest;
 use nomos_blend_scheduling::message_blend::crypto::SessionCryptographicProcessorSettings;
@@ -42,7 +42,6 @@ use nomos_da_verifier::{
     backend::{kzgrs::KzgrsDaVerifierSettings, trigger::MempoolPublishTriggerConfig},
     storage::adapters::rocksdb::RocksAdapterSettings as VerifierStorageAdapterSettings,
 };
-use key_management_system::{KMSServiceSettings, backend::preload::PreloadKMSBackendSettings};
 use nomos_http_api_common::paths::{
     CRYPTARCHIA_HEADERS, CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_GET_MEMBERSHIP,
     DA_GET_SHARES_COMMITMENTS, DA_HISTORIC_SAMPLING, DA_MONITOR_STATS, NETWORK_INFO, STORAGE_BLOCK,
