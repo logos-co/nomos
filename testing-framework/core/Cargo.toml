@@ -1,0 +1,47 @@
+[package]
+edition.workspace = true
+license.workspace = true
+name              = "testing-framework-core"
+version           = "0.1.0"
+
+[lints]
+workspace = true
+
+[features]
+default = []
+
+[dependencies]
+anyhow                   = "1"
+async-trait              = "0.1"
+broadcast-service        = { workspace = true }
+cfgsync                  = { workspace = true }
+chain-service            = { workspace = true }
+common-http-client       = { workspace = true }
+futures                  = { default-features = false, version = "0.3" }
+integration-configs      = { workspace = true }
+kzgrs-backend            = { workspace = true }
+nomos-api                = { workspace = true }
+nomos-core               = { workspace = true }
+nomos-da-network-core    = { workspace = true }
+nomos-da-network-service = { workspace = true }
+nomos-executor           = { workspace = true, default-features = false, features = ["testing", "tracing"] }
+nomos-http-api-common    = { workspace = true }
+nomos-libp2p             = { workspace = true }
+nomos-network            = { workspace = true, features = ["libp2p"] }
+nomos-node               = { workspace = true, default-features = false, features = ["testing"] }
+nomos-sdp                = { workspace = true }
+nomos-tracing            = { workspace = true }
+nomos-tracing-service    = { workspace = true }
+nomos-utils              = { workspace = true }
+prometheus-http-query    = "0.8"
+rand                     = { workspace = true }
+reqwest                  = { workspace = true, features = ["json"] }
+serde                    = { workspace = true, features = ["derive"] }
+serde_json               = { workspace = true }
+serde_with               = { version = "3", default-features = false, features = ["macros"] }
+serde_yaml               = { workspace = true }
+tempfile                 = { workspace = true }
+thiserror                = { workspace = true }
+tokio                    = { workspace = true, features = ["macros", "process", "rt-multi-thread", "time"] }
+tracing                  = { workspace = true }
+tx-service               = { workspace = true, features = ["libp2p", "mock"] }

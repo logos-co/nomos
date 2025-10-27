@@ -51,4 +51,22 @@ Use "Explore" tab to select data source: "Loki", "Tempo", "Prometheus". Promethe
 - Loki - to kickstart your query, select "host" as label filter, and "nomo-0" or other nodes as value, this will show all logs for selected host.
 - Tempo - to kickstart your query, enter "{}" as TraceQL query to see all traces.
 
+### 4. Run the Docker-Based Compose Runner Scenario
 
+The `compose_runner_tx_workload` integration test (in the `tests-workflows` crate) exercises the reusable Docker runner that provisions a single validator and executor via `docker compose`. The test is opt-in (`#[ignore]`) because it requires a working Docker daemon. To launch it:
+
+```bash
+POL_PROOF_DEV_MODE=true cargo test -p tests-workflows compose_runner_tx_workload -- --ignored
+```
+
+Make sure Docker is running locally before executing the command. The runner will automatically clean up the temporary workspace and shut down the compose project when the test completes.
+
+### 5. Run the Kubernetes Runner Scenario
+
+The `k8s_runner_single_transaction` test deploys validators and cfgsync into a Kubernetes cluster using a Helm chart that lives in `testing-framework/runners/k8s/helm/nomos-runner`. In addition to a working `kubectl` context that points at your cluster (Docker Desktop works fine), you must have the `helm` CLI available in `PATH`.
+
+```bash
+POL_PROOF_DEV_MODE=true cargo test -p tests-workflows k8s_runner_tx_workload -- --ignored --nocapture
+```
+
+The test creates a temporary namespace and Helm release (`nomos-k8s-<uuid>`). Set `K8S_RUNNER_PRESERVE=1` to keep the release and namespace around for manual inspection; otherwise they are uninstalled when the test handle is dropped.

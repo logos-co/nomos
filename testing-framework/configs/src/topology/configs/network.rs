@@ -5,7 +5,7 @@ use nomos_utils::net::get_available_udp_port;
 
 use crate::node_address_from_port;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub enum Libp2pNetworkLayout {
     #[default]
     Star,
@@ -13,7 +13,7 @@ pub enum Libp2pNetworkLayout {
     Full,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct NetworkParams {
     pub libp2p_network_layout: Libp2pNetworkLayout,
 }

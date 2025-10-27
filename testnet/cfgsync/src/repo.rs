@@ -4,8 +4,10 @@ use std::{
     time::Duration,
 };
 
+use integration_configs::topology::configs::{
+    GeneralConfig, consensus::ConsensusParams, da::DaParams,
+};
 use nomos_tracing_service::TracingSettings;
-use tests::topology::configs::{GeneralConfig, consensus::ConsensusParams, da::DaParams};
 use tokio::{sync::oneshot::Sender, time::timeout};
 
 use crate::{
@@ -70,36 +72,46 @@ impl ConfigRepo {
     }
 
     pub fn register(&self, host: Host, reply_tx: Sender<RepoResponse>) {
-        let mut waiting_hosts = self.waiting_hosts.lock().unwrap();
-        waiting_hosts.insert(host, reply_tx);
+        println!(
+            "register host: kind={:?} ip={} identifier={}",
+            host.kind, host.ip, host.identifier
+        );
+        let waiting_hosts_len = {
+            let mut waiting_hosts = self.waiting_hosts.lock().unwrap();
+            waiting_hosts.insert(host, reply_tx);
+            waiting_hosts.len()
+        };
+        println!("waiting hosts count: {waiting_hosts_len}");
     }
 
     async fn run(&self) {
-        let timeout_duration = self.timeout_duration;
+        loop {
+            let timeout_duration = self.timeout_duration;
 
-        if timeout(timeout_duration, self.wait_for_hosts()).await == Ok(()) {
-            println!("All hosts have announced their IPs");
+            if timeout(timeout_duration, self.wait_for_hosts()).await == Ok(()) {
+                println!("All hosts have announced their IPs");
 
-            let mut waiting_hosts = self.waiting_hosts.lock().unwrap();
-            let hosts = waiting_hosts.keys().cloned().collect();
+                let mut waiting_hosts = self.waiting_hosts.lock().unwrap();
+                let hosts = waiting_hosts.keys().cloned().collect();
 
-            let configs = create_node_configs(
-                &self.consensus_params,
-                &self.da_params,
-                &self.tracing_settings,
-                hosts,
-            );
+                let configs = create_node_configs(
+                    &self.consensus_params,
+                    &self.da_params,
+                    &self.tracing_settings,
+                    hosts,
+                );
 
-            for (host, sender) in waiting_hosts.drain() {
-                let config = configs.get(&host).expect("host should have a config");
-                let _ = sender.send(RepoResponse::Config(Box::new(config.to_owned())));
-            }
-        } else {
-            println!("Timeout: Not all hosts announced within the time limit");
+                for (host, sender) in waiting_hosts.drain() {
+                    let config = configs.get(&host).expect("host should have a config");
+                    let _ = sender.send(RepoResponse::Config(Box::new(config.to_owned())));
+                }
+            } else {
+                println!("Timeout: Not all hosts announced within the time limit");
 
-            let mut waiting_hosts = self.waiting_hosts.lock().unwrap();
-            for (_, sender) in waiting_hosts.drain() {
-                let _ = sender.send(RepoResponse::Timeout);
+                let mut waiting_hosts = self.waiting_hosts.lock().unwrap();
+                for (_, sender) in waiting_hosts.drain() {
+                    let _ = sender.send(RepoResponse::Timeout);
+                }
             }
         }
     }
@@ -107,6 +119,11 @@ impl ConfigRepo {
     async fn wait_for_hosts(&self) {
         loop {
             if self.waiting_hosts.lock().unwrap().len() >= self.n_hosts {
+                println!(
+                    "required hosts reached: {}/{}",
+                    self.waiting_hosts.lock().unwrap().len(),
+                    self.n_hosts
+                );
                 break;
             }
             tokio::time::sleep(Duration::from_secs(1)).await;

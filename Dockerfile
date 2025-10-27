@@ -28,7 +28,10 @@ RUN apt-get update && apt-get install -yq \
 RUN chmod +x testnet/scripts/download_circuit_binaries.sh && \
     testnet/scripts/download_circuit_binaries.sh "$VERSION" "$PLATFORM"
 
-RUN cargo build --release -p nomos-node
+RUN cargo build --release \
+    -p nomos-node --features pol-dev-mode \
+    -p nomos-executor --features pol-dev-mode \
+    -p cfgsync
 
 # ===========================
 # NODE IMAGE
@@ -51,7 +54,10 @@ RUN apt-get update && apt-get install -yq \
 
 COPY --from=builder /nomos/zk/proofs /opt/nomos/proofs
 COPY --from=builder /nomos/bin/circuits /opt/nomos/circuits
-COPY --from=builder /nomos/target/release/nomos-node /usr/local/bin/nomos-node
+COPY --from=builder /nomos/target/release/nomos-node /usr/bin/nomos-node
+COPY --from=builder /nomos/target/release/nomos-executor /usr/bin/nomos-executor
+COPY --from=builder /nomos/target/release/cfgsync-client /usr/bin/cfgsync-client
+COPY --from=builder /nomos/target/release/cfgsync-server /usr/bin/cfgsync-server
 
 ENV NOMOS_POL_PROVING_KEY_PATH="/opt/nomos/proofs/pol/src/proving_key/pol.zkey" \
     NOMOS_POC_PROVING_KEY_PATH="/opt/nomos/proofs/poc/src/proving_key/proof_of_claim.zkey" \
