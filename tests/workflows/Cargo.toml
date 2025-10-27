@@ -1,0 +1,19 @@
+[package]
+edition.workspace = true
+license.workspace = true
+name              = "tests-workflows"
+version           = "0.1.0"
+
+[dependencies]
+ed25519-dalek                    = { version = "2.2.0", features = ["rand_core", "serde"] }
+futures                          = { version = "0.3", default-features = false }
+nomos-core                       = { workspace = true }
+rand                             = { workspace = true }
+testing-framework-core           = { workspace = true }
+testing-framework-runner-compose = { workspace = true }
+testing-framework-runner-k8s     = { workspace = true }
+testing-framework-runner-local   = { workspace = true }
+tokio                            = { workspace = true, features = ["macros", "net", "rt-multi-thread", "time"] }
+
+[lints]
+workspace = true

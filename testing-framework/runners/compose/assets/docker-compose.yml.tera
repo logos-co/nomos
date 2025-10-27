@@ -1,0 +1,61 @@
+services:
+  prometheus:
+    image: prom/prometheus:v3.0.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d
+      - --web.enable-otlp-receiver
+      - --enable-feature=otlp-write-receiver
+    volumes:
+      - ./testnet/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:z
+    ports:
+      - {{ prometheus.host_port }}
+    restart: on-failure
+
+{% for node in validators %}
+  {{ node.name }}:
+    image: {{ node.image }}
+{% if node.platform %}    platform: {{ node.platform }}
+{% endif %}    entrypoint: {{ node.entrypoint }}
+    volumes:
+{% for volume in node.volumes %}
+      - {{ volume }}
+{% endfor %}
+    extra_hosts:
+{% for host in node.extra_hosts %}
+      - {{ host }}
+{% endfor %}
+    ports:
+{% for port in node.ports %}
+      - {{ port }}
+{% endfor %}
+    environment:
+{% for env in node.environment %}
+      {{ env.key }}: "{{ env.value }}"
+{% endfor %}
+    restart: on-failure
+
+{% endfor %}{% for node in executors %}
+  {{ node.name }}:
+    image: {{ node.image }}
+{% if node.platform %}    platform: {{ node.platform }}
+{% endif %}    entrypoint: {{ node.entrypoint }}
+    volumes:
+{% for volume in node.volumes %}
+      - {{ volume }}
+{% endfor %}
+    extra_hosts:
+{% for host in node.extra_hosts %}
+      - {{ host }}
+{% endfor %}
+    ports:
+{% for port in node.ports %}
+      - {{ port }}
+{% endfor %}
+    environment:
+{% for env in node.environment %}
+      {{ env.key }}: "{{ env.value }}"
+{% endfor %}
+    restart: on-failure
+
+{% endfor %}
