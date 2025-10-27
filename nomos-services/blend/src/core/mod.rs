@@ -55,8 +55,9 @@ use crate::{
     core::{
         backends::{PublicInfo, SessionInfo},
         processor::{CoreCryptographicProcessor, Error},
+        scheduler::{RoundInfoAndConsumedQuota, SchedulerWrapper},
         settings::BlendConfig,
-        state::{RecoveryServiceState, RoundInfoAndConsumedQuota, SchedulerWrapper, ServiceState},
+        state::{RecoveryServiceState, ServiceState},
     },
     epoch_info::{
         ChainApi, EpochEvent, EpochHandler, LeaderInputsMinusQuota,
@@ -75,6 +76,7 @@ pub mod settings;
 pub(super) mod service_components;
 
 mod processor;
+mod scheduler;
 mod state;
 pub use state::RecoveryServiceState as CoreServiceState;
 
