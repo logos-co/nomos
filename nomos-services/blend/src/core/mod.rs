@@ -410,7 +410,7 @@ where
         {
             saved_state
         } else {
-            ServiceState::new(current_membership_info.public.session, 0)
+            ServiceState::with_session(current_membership_info.public.session)
         };
 
         let mut message_scheduler = {
@@ -542,7 +542,7 @@ async fn handle_session_event<
         ProofsVerifier,
     >,
     current_public_info: PublicInfo<NodeId>,
-    current_state: ServiceState,
+    current_recovery_checkpoint: ServiceState,
     blending_token_collector: &mut BlendingTokenCollector,
     backend: &mut Backend,
 ) -> Result<
@@ -601,7 +601,7 @@ where
                 new_public_info,
                 // No need to store the new state, since if the node crashes before the first
                 // release round of the new session, we will ignore the old state as it belongs to
-                // an old session.
+                // an old session and create a new one anyway.
                 ServiceState::with_session(new_session),
             ))
         }
@@ -616,7 +616,7 @@ where
             Ok((
                 current_cryptographic_processor,
                 current_public_info,
-                current_state,
+                current_recovery_checkpoint,
             ))
         }
     }

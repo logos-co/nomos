@@ -183,6 +183,12 @@ fn loop_until_valid_proof(
 
 pub type BlendMembershipAdapter<RuntimeServiceId> =
     Adapter<BlockBroadcastService<RuntimeServiceId>, PeerId>;
+pub type CoreStateOperatorBackend = JsonFileBackend<
+    CoreServiceState<nomos_blend_service::core::backends::libp2p::Libp2pBlendBackendSettings>,
+    nomos_blend_service::core::settings::BlendConfig<
+        nomos_blend_service::core::backends::libp2p::Libp2pBlendBackendSettings,
+    >,
+>;
 pub type BlendCoreService<SamplingAdapter, RuntimeServiceId> =
     nomos_blend_service::core::BlendService<
         nomos_blend_service::core::backends::libp2p::Libp2pBlendBackend,
@@ -194,14 +200,7 @@ pub type BlendCoreService<SamplingAdapter, RuntimeServiceId> =
         NtpTimeBackend,
         CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
         PolInfoProvider<SamplingAdapter>,
-        JsonFileBackend<
-            CoreServiceState<
-                nomos_blend_service::core::backends::libp2p::Libp2pBlendBackendSettings,
-            >,
-            nomos_blend_service::core::settings::BlendConfig<
-                nomos_blend_service::core::backends::libp2p::Libp2pBlendBackendSettings,
-            >,
-        >,
+        CoreStateOperatorBackend,
         RuntimeServiceId,
     >;
 pub type BlendEdgeService<SamplingAdapter, RuntimeServiceId> = nomos_blend_service::edge::BlendService<

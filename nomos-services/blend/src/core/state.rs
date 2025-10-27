@@ -5,21 +5,21 @@ use serde::{Deserialize, Serialize};
 use crate::core::settings::BlendConfig;
 
 #[derive(Clone, Serialize, Deserialize)]
+/// Recovery state for Blend core service.
 pub struct ServiceState {
+    /// The last session that was saved.
     last_seen_session: u64,
+    /// The last value for the core quota allowance for the session that is
+    /// tracked.
     spent_core_quota: u64,
 }
 
 impl ServiceState {
-    pub const fn new(last_seen_session: u64, spent_core_quota: u64) -> Self {
-        Self {
-            last_seen_session,
-            spent_core_quota,
-        }
-    }
-
     pub const fn with_session(session: u64) -> Self {
-        Self::new(session, 0)
+        Self {
+            last_seen_session: session,
+            spent_core_quota: 0,
+        }
     }
 
     pub const fn last_seen_session(&self) -> u64 {

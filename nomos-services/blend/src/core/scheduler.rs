@@ -11,8 +11,17 @@ use nomos_blend_scheduling::{
     message_scheduler::{Settings, round_info::RoundInfo, session_info::SessionInfo},
 };
 
+/// A wrapper around a [`MessageScheduler`] that keeps track of how much quota
+/// allowance is consumed at each release round.
+///
+/// The used allowance is used in the core service state recovery logic, so that
+/// a node that is shut down and restarted in the same session won't go above
+/// its allocated core quota allowance.
 pub struct SchedulerWrapper<SessionClock, Rng, ProcessedMessage> {
+    /// The inner message scheduler.
     scheduler: MessageScheduler<SessionClock, Rng, ProcessedMessage>,
+    /// The amount of core quota consumed by data messages in the current
+    /// release round.
     release_round_consumed_quota: u64,
 }
 
@@ -35,7 +44,8 @@ where
 
 impl<SessionClock, Rng, ProcessedMessage> SchedulerWrapper<SessionClock, Rng, ProcessedMessage> {
     // Method overridden from the underlying message scheduler, so that we capture
-    // its calls instead of dereferencing them to the underlying scheduler.
+    // its calls instead of dereferencing them to the underlying scheduler. The rest
+    // of the calls are instead dereferenced to the underlying scheduler.
     pub fn notify_new_data_message(&mut self) {
         self.release_round_consumed_quota = self
             .release_round_consumed_quota
@@ -63,6 +73,8 @@ impl<SessionClock, Rng, ProcessedMessage> DerefMut
     }
 }
 
+/// A wrapper around a [`RoundInfo`] that returns also the amount of core quota
+/// used in the current release round.
 pub struct RoundInfoAndConsumedQuota<ProcessedMessage> {
     pub info: RoundInfo<ProcessedMessage>,
     pub consumed_quota: u64,
@@ -78,8 +90,9 @@ where
     type Item = RoundInfoAndConsumedQuota<ProcessedMessage>;
 
     // We poll the underlying scheduler, and if it yields a new round, we count how
-    // many core quota with "consumed" between data and cover messages for this
-    // release round. Then, we reset the counter for the next release round.
+    // much core quota allowance was "consumed" between data and cover messages for
+    // this release round. Then, we reset the counter for the next release
+    // round.
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.scheduler.poll_next_unpin(cx) {
             Poll::Ready(Some(round_info)) => {
