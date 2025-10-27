@@ -4,7 +4,7 @@ use cryptarchia_engine::{EpochConfig, Slot, time::SlotConfig};
 use time::OffsetDateTime;
 
 use crate::{
-    EpochSlotTickStream,
+    EpochSlotTickStream, SlotTick,
     backends::{TimeBackend, common::slot_timer},
 };
 
@@ -27,13 +27,14 @@ impl TimeBackend for SystemTimeBackend {
         Self { settings }
     }
 
-    fn tick_stream(self) -> EpochSlotTickStream {
+    fn tick_stream(self) -> (SlotTick, EpochSlotTickStream) {
         let Self { settings } = self;
         let local_date = OffsetDateTime::now_utc();
+        let current_slot = Slot::from_offset_and_config(local_date, settings.slot_config);
         slot_timer(
             settings.slot_config,
             local_date,
-            Slot::from_offset_and_config(local_date, settings.slot_config),
+            current_slot,
             settings.epoch_config,
             settings.base_period_length,
         )
@@ -71,7 +72,8 @@ mod test {
             base_period_length: NonZero::new(10).unwrap(),
         };
         let backend = SystemTimeBackend::init(settings);
-        let stream = backend.tick_stream();
+        let (current_slot_tick, stream) = backend.tick_stream();
+        assert_eq!(current_slot_tick.slot, 0.into());
         let result: Vec<_> = stream
             .take(SAMPLE_SIZE as usize)
             .map(|slot_tick| slot_tick.slot)
