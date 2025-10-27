@@ -1,16 +1,8 @@
-use std::{num::NonZeroU64, time::Duration};
+use core::{num::NonZeroU64, time::Duration};
 
-use nomos_blend_scheduling::message_blend::crypto::SessionCryptographicProcessorSettings;
 use serde::{Deserialize, Serialize};
 
 use crate::epoch_info::EpochHandler;
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct Settings {
-    pub crypto: SessionCryptographicProcessorSettings,
-    pub time: TimingSettings,
-    pub minimal_network_size: NonZeroU64,
-}
 
 #[serde_with::serde_as]
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -55,5 +47,3 @@ impl TimingSettings {
         EpochHandler::new(chain_service, self.epoch_transition_period_in_slots)
     }
 }
-
-pub(crate) const FIRST_STREAM_ITEM_READY_TIMEOUT: Duration = Duration::from_secs(5);

@@ -10,7 +10,7 @@ use crate::{
 /// service expects.
 pub trait ServiceComponents<RuntimeServiceId> {
     type NetworkAdapter;
-    type BlendBackend;
+    type BackendSettings;
     type NodeId;
     type Rng;
     type ProofsGenerator;
@@ -45,7 +45,7 @@ where
     Network: crate::core::network::NetworkAdapter<RuntimeServiceId>,
 {
     type NetworkAdapter = Network;
-    type BlendBackend = Backend;
+    type BackendSettings = Backend::Settings;
     type NodeId = NodeId;
     type Rng = BlakeRng;
     type ProofsGenerator = ProofsGenerator;
@@ -54,6 +54,8 @@ where
 pub type NetworkBackendOfService<Service, RuntimeServiceId> = <<Service as ServiceComponents<
     RuntimeServiceId,
 >>::NetworkAdapter as crate::core::network::NetworkAdapter<RuntimeServiceId>>::Backend;
+pub type BlendBackendSettingsOfService<Service, RuntimeServiceId> =
+    <Service as ServiceComponents<RuntimeServiceId>>::BackendSettings;
 
 pub trait MessageComponents {
     type Payload;

@@ -376,8 +376,11 @@ where
     let mut current_public_inputs = PoQVerificationInputsMinusSigningKey {
         core: CoreInputs {
             zk_root: current_membership_info.zk.root,
-            // TODO: Replace with actually computed value.
-            quota: 1,
+            quota: settings.cover.session_quota(
+                &settings.crypto,
+                &settings.time,
+                current_membership_info.membership.size(),
+            ),
         },
         leader: current_epoch_info,
         session: current_membership_info.session_number,
@@ -458,8 +461,11 @@ where
     let new_public_inputs = PoQVerificationInputsMinusSigningKey {
         session: new_session_number,
         core: CoreInputs {
-            // TODO: Replace with actually computed value.
-            quota: 1,
+            quota: settings.cover.session_quota(
+                &settings.crypto,
+                &settings.time,
+                new_membership.size(),
+            ),
             zk_root: new_zk_root,
         },
         ..current_public_inputs

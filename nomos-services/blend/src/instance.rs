@@ -632,7 +632,7 @@ mod tests {
 
     impl CoreServiceComponents<RuntimeServiceId> for CoreService {
         type NetworkAdapter = TestNetworkAdapter;
-        type BlendBackend = ();
+        type BackendSettings = ();
         type NodeId = u8;
         type Rng = ();
         type ProofsGenerator = ();

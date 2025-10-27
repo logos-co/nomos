@@ -14,7 +14,10 @@ use async_trait::async_trait;
 use backends::BlendBackend;
 use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 use fork_stream::StreamExt as _;
-use futures::{Stream, StreamExt as _, future::join_all};
+use futures::{
+    StreamExt as _,
+    future::{join_all, ready},
+};
 use network::NetworkAdapter;
 use nomos_blend_message::{
     PayloadType,
@@ -33,7 +36,9 @@ use nomos_blend_scheduling::{
         crypto::IncomingEncapsulatedMessageWithValidatedPublicHeader,
         provers::core_and_leader::CoreAndLeaderProofsGenerator,
     },
-    message_scheduler::{MessageScheduler, round_info::RoundInfo},
+    message_scheduler::{
+        MessageScheduler, round_info::RoundInfo, session_info::SessionInfo as SchedulerSessionInfo,
+    },
     session::{SessionEvent, UninitializedSessionEventStream},
     stream::UninitializedFirstReadyStream,
 };
@@ -383,22 +388,36 @@ where
         );
 
         let mut message_scheduler = {
-            let session_stream = remaining_session_stream.clone();
-            // Take only the membership out of `CoreSessionInfo`.
-            let membership_stream = map_session_event_stream(
-                session_stream,
-                |CoreSessionInfo {
-                     public: CoreSessionPublicInfo { membership, .. },
-                     ..
-                 }| membership,
-            );
-            let (initial_scheduler_session_info, scheduler_session_info_stream) = blend_config
-                .session_info_stream(
-                    &current_membership_info.public.membership,
-                    membership_stream,
+            let initial_scheduler_session_info = SchedulerSessionInfo {
+                core_quota: blend_config
+                    .session_quota(current_membership_info.public.membership.size()),
+                session_number: u128::from(current_membership_info.public.session).into(),
+            };
+            let scheduler_stream = remaining_session_stream
+                .clone()
+                .filter_map(|event| {
+                    ready(if let SessionEvent::NewSession(new_session_info) = event {
+                        Some(new_session_info)
+                    } else {
+                        None
+                    })
+                })
+                .map(
+                    |CoreSessionInfo {
+                         public:
+                             CoreSessionPublicInfo {
+                                 membership,
+                                 session,
+                                 ..
+                             },
+                         ..
+                     }| SchedulerSessionInfo {
+                        core_quota: blend_config.session_quota(membership.size()),
+                        session_number: u128::from(session).into(),
+                    },
                 );
             MessageScheduler::<_, _, ProcessedMessage<Network::BroadcastSettings>>::new(
-                scheduler_session_info_stream,
+                scheduler_stream,
                 initial_scheduler_session_info,
                 BlakeRng::from_entropy(),
                 blend_config.scheduler_settings(),
@@ -845,20 +864,6 @@ fn handle_new_secret_epoch_info<NodeId, ProofsGenerator, ProofsVerifier>(
     ProofsGenerator: CoreAndLeaderProofsGenerator,
 {
     cryptographic_processor.set_epoch_private(new_pol_info);
-}
-
-fn map_session_event_stream<InputStream, Input, Output, MappingFn>(
-    input_stream: InputStream,
-    mapping_fn: MappingFn,
-) -> impl Stream<Item = SessionEvent<Output>>
-where
-    InputStream: Stream<Item = SessionEvent<Input>>,
-    MappingFn: FnOnce(Input) -> Output + Copy + 'static,
-{
-    input_stream.map(move |event| match event {
-        SessionEvent::NewSession(input) => SessionEvent::NewSession(mapping_fn(input)),
-        SessionEvent::TransitionPeriodExpired => SessionEvent::TransitionPeriodExpired,
-    })
 }
 
 /// Submits an activity proof to the SDP service.
