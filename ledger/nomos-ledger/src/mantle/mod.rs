@@ -64,8 +64,12 @@ impl LedgerState {
         utxo_tree: &UtxoTree,
     ) -> Result<Self, Error> {
         let channels = channel::Channels::from_genesis(tx.genesis_inscription())?;
-        let sdp =
-            sdp::SdpLedger::from_genesis(&config.sdp_config, utxo_tree, tx.hash(), tx.sdp_ops())?;
+        let sdp = sdp::SdpLedger::from_genesis(
+            &config.sdp_config,
+            utxo_tree,
+            tx.hash(),
+            tx.sdp_declarations(),
+        )?;
 
         Ok(Self {
             channels,

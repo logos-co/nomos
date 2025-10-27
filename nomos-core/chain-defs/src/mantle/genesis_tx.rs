@@ -13,7 +13,6 @@ use crate::{
             channel::{ChannelId, MsgId, inscribe::InscriptionOp},
         },
     },
-    proofs::zksig::DummyZkSignature,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -31,12 +30,12 @@ pub enum Error {
     MissingInscription,
     #[error("Invalid genesis inscription: {0:?}")]
     InvalidInscription(Box<Op>),
-    #[error("Unequal number of ops ({num_ops}) and proofs ({num_proofs})")]
-    UnequalNumberOfProofs { num_ops: usize, num_proofs: usize },
 }
 
 impl GenesisTx {
-    pub fn from_tx(mantle_tx: MantleTx) -> Result<Self, Error> {
+    pub fn from_tx(signed_mantle_tx: SignedMantleTx) -> Result<Self, Error> {
+        let mantle_tx = &signed_mantle_tx.mantle_tx;
+
         // Genesis transactions must have gas prices of zero
         if mantle_tx.execution_gas_price != 0 || mantle_tx.storage_gas_price != 0 {
             return Err(Error::InvalidGenesisGasPrice);
@@ -63,26 +62,7 @@ impl GenesisTx {
             return Err(Error::UnsupportedGenesisOp(unsupported_ops));
         }
 
-        Ok(Self(SignedMantleTx {
-            mantle_tx,
-            ops_proofs: vec![],
-            ledger_tx_proof: DummyZkSignature::from_bytes([0u8; 128]),
-        }))
-    }
-
-    pub fn with_proofs(mut self, ops_proofs: Vec<OpProof>) -> Result<Self, Error> {
-        let num_ops = self.0.mantle_tx.ops.len();
-        let num_proofs = ops_proofs.len();
-
-        if num_ops != num_proofs {
-            return Err(Error::UnequalNumberOfProofs {
-                num_ops,
-                num_proofs,
-            });
-        }
-
-        self.0.ops_proofs = ops_proofs;
-        Ok(self)
+        Ok(Self(signed_mantle_tx))
     }
 }
 
@@ -133,11 +113,11 @@ impl crate::mantle::GenesisTx for GenesisTx {
         }
     }
 
-    fn sdp_ops(&self) -> impl Iterator<Item = (&SDPDeclareOp, &OpProof)> {
+    fn sdp_declarations(&self) -> impl Iterator<Item = (&SDPDeclareOp, &OpProof)> {
         self.mantle_tx()
             .ops
             .iter()
-            .zip(self.op_proofs().iter())
+            .zip(self.0.ops_proofs.iter())
             .filter_map(|(op, proof)| {
                 if let Op::SDPDeclare(sdp_msg) = op {
                     Some((sdp_msg, proof))
@@ -145,10 +125,6 @@ impl crate::mantle::GenesisTx for GenesisTx {
                     None
                 }
             })
-    }
-
-    fn op_proofs(&self) -> &Vec<OpProof> {
-        &self.0.ops_proofs
     }
 
     fn mantle_tx(&self) -> &MantleTx {
@@ -161,12 +137,8 @@ impl<'de> Deserialize<'de> for GenesisTx {
     where
         D: serde::Deserializer<'de>,
     {
-        let genesis_tx = SignedMantleTx::deserialize(deserializer)?;
-
-        Self::from_tx(genesis_tx.mantle_tx)
-            .map_err(serde::de::Error::custom)?
-            .with_proofs(genesis_tx.ops_proofs)
-            .map_err(serde::de::Error::custom)
+        let tx = SignedMantleTx::deserialize(deserializer)?;
+        Self::from_tx(tx).map_err(serde::de::Error::custom)
     }
 }
 
@@ -182,6 +154,7 @@ mod tests {
             ledger::{Note, Tx as LedgerTx, Utxo, Value},
             ops::channel::blob::BlobOp,
         },
+        proofs::zksig::DummyZkSignature,
         sdp::{ProviderId, ServiceType, ZkPublicKey},
     };
 
@@ -226,57 +199,74 @@ mod tests {
 
     // Helper function to create a basic signed transaction
     // Genesis transactions don't need verified proofs for Blob/Inscription ops
-    fn create_tx(ops: Vec<Op>) -> MantleTx {
+    fn create_tx(ops: Vec<Op>, ops_proofs: Vec<OpProof>) -> SignedMantleTx {
         let ledger_tx = LedgerTx::new(vec![], vec![create_test_note(1000)]);
-        MantleTx {
+        let mantle_tx = MantleTx {
             ops,
             ledger_tx,
             execution_gas_price: 0,
             storage_gas_price: 0,
+        };
+        SignedMantleTx {
+            mantle_tx,
+            ops_proofs,
+            ledger_tx_proof: DummyZkSignature::from_bytes([0u8; 128]),
         }
     }
 
     #[test]
     fn test_inscription_fields() {
         // check inscription with channel id [1; 32] fails
-        let tx = create_tx(vec![Op::ChannelInscribe(inscription_op(
-            ChannelId::from([1; 32]),
-            MsgId::root(),
-            VerifyingKey::from_bytes(&[0; 32]).unwrap(),
-        ))]);
+        let tx = create_tx(
+            vec![Op::ChannelInscribe(inscription_op(
+                ChannelId::from([1; 32]),
+                MsgId::root(),
+                VerifyingKey::from_bytes(&[0; 32]).unwrap(),
+            ))],
+            vec![OpProof::NoProof],
+        );
         assert!(matches!(
             GenesisTx::from_tx(tx),
             Err(Error::InvalidInscription(_))
         ));
 
         // check inscription with non-root parent fails
-        let tx = create_tx(vec![Op::ChannelInscribe(inscription_op(
-            ChannelId::from([0; 32]),
-            MsgId::from([1; 32]),
-            VerifyingKey::from_bytes(&[0; 32]).unwrap(),
-        ))]);
+        let tx = create_tx(
+            vec![Op::ChannelInscribe(inscription_op(
+                ChannelId::from([0; 32]),
+                MsgId::from([1; 32]),
+                VerifyingKey::from_bytes(&[0; 32]).unwrap(),
+            ))],
+            vec![OpProof::NoProof],
+        );
         assert!(matches!(
             GenesisTx::from_tx(tx),
             Err(Error::InvalidInscription(_))
         ));
 
         // check inscription with non-zero signer fails
-        let tx = create_tx(vec![Op::ChannelInscribe(inscription_op(
-            ChannelId::from([0; 32]),
-            MsgId::root(),
-            VerifyingKey::from_bytes(&[1; 32]).unwrap(),
-        ))]);
+        let tx = create_tx(
+            vec![Op::ChannelInscribe(inscription_op(
+                ChannelId::from([0; 32]),
+                MsgId::root(),
+                VerifyingKey::from_bytes(&[1; 32]).unwrap(),
+            ))],
+            vec![OpProof::NoProof],
+        );
         assert!(matches!(
             GenesisTx::from_tx(tx),
             Err(Error::InvalidInscription(_))
         ));
 
         // check valid inscription passes
-        let tx = create_tx(vec![Op::ChannelInscribe(inscription_op(
-            ChannelId::from([0; 32]),
-            MsgId::root(),
-            VerifyingKey::from_bytes(&[0; 32]).unwrap(),
-        ))]);
+        let tx = create_tx(
+            vec![Op::ChannelInscribe(inscription_op(
+                ChannelId::from([0; 32]),
+                MsgId::root(),
+                VerifyingKey::from_bytes(&[0; 32]).unwrap(),
+            ))],
+            vec![OpProof::NoProof],
+        );
         assert!(GenesisTx::from_tx(tx).is_ok());
     }
 
@@ -326,7 +316,8 @@ mod tests {
 
         // Execute all test cases
         for (ops, expected_err) in test_cases {
-            let tx = create_tx(ops);
+            let ops_proofs = vec![OpProof::NoProof; ops.len()];
+            let tx = create_tx(ops, ops_proofs);
             let result = GenesisTx::from_tx(tx);
             match expected_err {
                 Some(expected) => assert_eq!(result, Err(expected)),
@@ -395,7 +386,8 @@ mod tests {
 
         // Execute all test cases
         for (ops, expected_err) in test_cases {
-            let tx = create_tx(ops);
+            let ops_proofs = vec![OpProof::NoProof; ops.len()];
+            let tx = create_tx(ops, ops_proofs);
             let result = GenesisTx::from_tx(tx);
             match expected_err {
                 Some(expected) => assert_eq!(result, Err(expected)),
@@ -407,57 +399,51 @@ mod tests {
     #[test]
     fn test_genesis_fees() {
         // Should succeed with zero gas prices
-        let mut tx = create_tx(vec![Op::ChannelInscribe(inscription_op(
-            ChannelId::from([0; 32]),
-            MsgId::root(),
-            VerifyingKey::from_bytes(&[0; 32]).unwrap(),
-        ))]);
-        assert!(GenesisTx::from_tx(tx.clone()).is_ok());
+        let mut signed_mantle_tx = create_tx(
+            vec![Op::ChannelInscribe(inscription_op(
+                ChannelId::from([0; 32]),
+                MsgId::root(),
+                VerifyingKey::from_bytes(&[0; 32]).unwrap(),
+            ))],
+            vec![OpProof::NoProof],
+        );
+        assert!(GenesisTx::from_tx(signed_mantle_tx.clone()).is_ok());
 
         // Test with non-zero execution gas price
-        tx.execution_gas_price = 1;
-        let result = GenesisTx::from_tx(tx.clone());
+        signed_mantle_tx.mantle_tx.execution_gas_price = 1;
+        let result = GenesisTx::from_tx(signed_mantle_tx.clone());
         assert_eq!(result, Err(Error::InvalidGenesisGasPrice));
 
         // test with non-zero storage gas price
-        tx.storage_gas_price = 1;
-        tx.execution_gas_price = 0;
-        let result = GenesisTx::from_tx(tx.clone());
+        signed_mantle_tx.mantle_tx.storage_gas_price = 1;
+        signed_mantle_tx.mantle_tx.execution_gas_price = 0;
+        let result = GenesisTx::from_tx(signed_mantle_tx.clone());
         assert_eq!(result, Err(Error::InvalidGenesisGasPrice));
 
         // test with both gas prices non-zero
-        tx.storage_gas_price = 1;
-        tx.execution_gas_price = 1;
-        let result = GenesisTx::from_tx(tx);
+        signed_mantle_tx.mantle_tx.storage_gas_price = 1;
+        signed_mantle_tx.mantle_tx.execution_gas_price = 1;
+        let result = GenesisTx::from_tx(signed_mantle_tx);
         assert_eq!(result, Err(Error::InvalidGenesisGasPrice));
     }
 
     #[test]
     fn test_genesis_tx_serde() {
         // Create a genesis transaction with inscription (no signature proof required)
-        let tx = create_tx(vec![Op::ChannelInscribe(inscription_op(
-            ChannelId::from([0; 32]),
-            MsgId::root(),
-            VerifyingKey::from_bytes(&[0; 32]).unwrap(),
-        ))]);
-        let genesis_tx = GenesisTx::from_tx(tx).expect("Valid genesis transaction");
+        let signed_mantle_tx = create_tx(
+            vec![Op::ChannelInscribe(inscription_op(
+                ChannelId::from([0; 32]),
+                MsgId::root(),
+                VerifyingKey::from_bytes(&[0; 32]).unwrap(),
+            ))],
+            vec![OpProof::NoProof],
+        );
+        let genesis_tx = GenesisTx::from_tx(signed_mantle_tx).expect("Valid genesis transaction");
 
         // Serialize to JSON
         let json_str = serde_json::to_string(&genesis_tx).expect("Serialization should succeed");
 
-        // Deserialize from JSON fails because of missing proofs.
-        let result = serde_json::from_str::<GenesisTx>(&json_str)
-            .unwrap_err()
-            .to_string();
-
-        assert_eq!(
-            result,
-            "Number of proofs (0) does not match number of operations (1)"
-        );
-
-        // Serialize and deserialize with proofs.
-        let genesis_tx = genesis_tx.with_proofs(vec![OpProof::NoProof]).unwrap();
-        let json_str = serde_json::to_string(&genesis_tx).expect("Serialization should succeed");
+        // Deserialize from JSON
         let deserialized: GenesisTx = serde_json::from_str(&json_str).unwrap();
 
         // Verify they're equal

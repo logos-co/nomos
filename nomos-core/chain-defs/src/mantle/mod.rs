@@ -56,9 +56,8 @@ pub trait AuthenticatedMantleTx: Transaction<Hash = TxHash> + GasCost {
 //  https://www.notion.so/nomos-tech/Bedrock-Genesis-Block-21d261aa09df80bb8dc3c768802eb527?d=27a261aa09df808e9c66001cf0585dee
 pub trait GenesisTx: Transaction<Hash = TxHash> {
     fn genesis_inscription(&self) -> &InscriptionOp;
-    fn sdp_ops(&self) -> impl Iterator<Item = (&SDPDeclareOp, &OpProof)>;
+    fn sdp_declarations(&self) -> impl Iterator<Item = (&SDPDeclareOp, &OpProof)>;
     fn mantle_tx(&self) -> &MantleTx;
-    fn op_proofs(&self) -> &Vec<OpProof>;
 }
 
 impl<T: Transaction> Transaction for &T {
@@ -89,12 +88,8 @@ impl<T: GenesisTx> GenesisTx for &T {
         T::genesis_inscription(self)
     }
 
-    fn sdp_ops(&self) -> impl Iterator<Item = (&SDPDeclareOp, &OpProof)> {
-        T::sdp_ops(self)
-    }
-
-    fn op_proofs(&self) -> &Vec<OpProof> {
-        T::op_proofs(self)
+    fn sdp_declarations(&self) -> impl Iterator<Item = (&SDPDeclareOp, &OpProof)> {
+        T::sdp_declarations(self)
     }
 
     fn mantle_tx(&self) -> &MantleTx {

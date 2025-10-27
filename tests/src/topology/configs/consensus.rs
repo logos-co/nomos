@@ -17,7 +17,7 @@ use nomos_core::{
     proofs::zksig::{DummyZkSignature, ZkSignaturePublic},
     sdp::{DeclarationMessage, Locator, ProviderId, ServiceParameters, ServiceType, ZkPublicKey},
 };
-use nomos_node::Transaction as _;
+use nomos_node::{SignedMantleTx, Transaction as _};
 use num_bigint::BigUint;
 
 #[derive(Clone)]
@@ -93,12 +93,14 @@ fn create_genesis_tx(utxos: &[Utxo]) -> GenesisTx {
         execution_gas_price: 0,
         storage_gas_price: 0,
     };
+    let signed_mantle_tx = SignedMantleTx {
+        mantle_tx,
+        ops_proofs: vec![OpProof::NoProof],
+        ledger_tx_proof: DummyZkSignature::from_bytes([0u8; 128]),
+    };
 
     // Wrap in GenesisTx
-    GenesisTx::from_tx(mantle_tx)
-        .expect("Invalid genesis transaction")
-        .with_proofs(vec![OpProof::NoProof])
-        .expect("One empty proof for inscription")
+    GenesisTx::from_tx(signed_mantle_tx).expect("Invalid genesis transaction")
 }
 
 #[must_use]
@@ -286,7 +288,7 @@ pub fn create_genesis_tx_with_declarations(
     };
 
     let mantle_tx_hash = mantle_tx.hash();
-    let mut op_proofs = vec![OpProof::NoProof];
+    let mut ops_proofs = vec![OpProof::NoProof];
 
     for mut provider in providers {
         let zk_sig = DummyZkSignature::prove(&ZkSignaturePublic {
@@ -297,14 +299,17 @@ pub fn create_genesis_tx_with_declarations(
             .signer
             .sign(mantle_tx_hash.as_signing_bytes().as_ref());
 
-        op_proofs.push(OpProof::ZkAndEd25519Sigs {
+        ops_proofs.push(OpProof::ZkAndEd25519Sigs {
             zk_sig,
             ed25519_sig,
         });
     }
 
-    GenesisTx::from_tx(mantle_tx)
-        .expect("Invalid genesis transaction")
-        .with_proofs(op_proofs)
-        .expect("Correct number of proofs should be set")
+    let signed_mantle_tx = SignedMantleTx {
+        mantle_tx,
+        ops_proofs,
+        ledger_tx_proof: DummyZkSignature::from_bytes([0u8; 128]),
+    };
+
+    GenesisTx::from_tx(signed_mantle_tx).expect("Invalid genesis transaction")
 }
