@@ -43,7 +43,7 @@ use nomos_time::{SlotTick, TimeService, TimeServiceMessage};
 use nomos_utils::blake_rng::BlakeRng;
 use overwatch::{
     OpaqueServiceResourcesHandle,
-    services::{AsServiceId, ServiceCore, ServiceData},
+    services::{AsServiceId, ServiceCore, ServiceData, state::StateUpdater},
 };
 use rand::{RngCore, SeedableRng as _, seq::SliceRandom as _};
 use serde::{Deserialize, Serialize};
@@ -56,7 +56,7 @@ use crate::{
         backends::{PublicInfo, SessionInfo},
         processor::{CoreCryptographicProcessor, Error},
         settings::BlendConfig,
-        state::{RecoveryServiceState, ServiceState},
+        state::{RecoveryServiceState, RoundInfoAndConsumedQuota, SchedulerWrapper, ServiceState},
     },
     epoch_info::{
         ChainApi, EpochEvent, EpochHandler, LeaderInputsMinusQuota,
@@ -224,9 +224,9 @@ where
                     ref overwatch_handle,
                     ref settings_handle,
                     ref status_updater,
-                    ref mut state_updater,
+                    ref state_updater,
                 },
-            last_saved_state: current_state,
+            last_saved_state,
             ..
         } = self;
 
@@ -401,27 +401,22 @@ where
             .expect("Reward session info must be created successfully. Panicking since the service cannot continue with this session")
         );
 
+        // Initialize the current session state. If the session matches the stored one,
+        // retrieves the tracked consumed core quota. Else, fallback to `0`.
+        let mut current_session_state = if let Some(saved_state) = last_saved_state
+            && saved_state.last_seen_session() == current_membership_info.public.session
+        {
+            saved_state
+        } else {
+            ServiceState::new(current_membership_info.public.session, 0)
+        };
+
         let mut message_scheduler = {
-            let scheduler_core_quota = {
-                let consumed_session_core_quota = if let Some(current_state) = current_state
-                    && current_state.last_seen_session == current_membership_info.public.session
-                {
-                    tracing::debug!(target: LOG_TARGET, "Found previous state for session {:?} with already consumed core quota {:?}.", current_state.last_seen_session, current_state.spent_core_quota);
-                    current_state.spent_core_quota
-                } else {
-                    tracing::trace!(target: LOG_TARGET, "No previous state or old stored session found when starting the node.");
-                    0
-                };
-                let scheduler_core_quota = blend_config
-                    .session_quota(current_membership_info.public.membership.size())
-                    .saturating_sub(consumed_session_core_quota);
-                if scheduler_core_quota == 0 {
-                    tracing::debug!(target: LOG_TARGET, "Calculated scheduler core quota of `0`. No cover messages will be generated for the remainder of this session.");
-                }
-                scheduler_core_quota
-            };
+            let scheduler_starting_core_quota = blend_config
+                .session_quota(current_membership_info.public.membership.size())
+                .saturating_sub(current_session_state.spent_core_quota());
             let initial_scheduler_session_info = SchedulerSessionInfo {
-                core_quota: scheduler_core_quota,
+                core_quota: scheduler_starting_core_quota,
                 session_number: u128::from(current_membership_info.public.session).into(),
             };
             let scheduler_stream = remaining_session_stream
@@ -447,7 +442,7 @@ where
                         session_number: u128::from(session).into(),
                     },
                 );
-            MessageScheduler::<_, _, ProcessedMessage<Network::BroadcastSettings>>::new(
+            SchedulerWrapper::<_, _, ProcessedMessage<Network::BroadcastSettings>>::new(
                 scheduler_stream,
                 initial_scheduler_session_info,
                 BlakeRng::from_entropy(),
@@ -493,7 +488,7 @@ where
                     handle_incoming_blend_message(incoming_message, &mut message_scheduler, &crypto_processor, &mut blending_token_collector);
                 }
                 Some(round_info) = message_scheduler.next() => {
-                    handle_release_round(round_info, &mut crypto_processor, &mut rng, &backend, &network_adapter).await;
+                    current_session_state = handle_release_round(round_info, &mut crypto_processor, &mut rng, &backend, &network_adapter, state_updater, current_session_state).await;
                 }
                 Some(clock_tick) = remaining_clock_stream.next() => {
                     current_public_info = handle_clock_event(clock_tick, &blend_config, &mut epoch_handler, &mut crypto_processor, &mut backend, current_public_info).await;
@@ -636,7 +631,7 @@ async fn handle_local_data_message<
         ProofsVerifier,
     >,
     backend: &Backend,
-    scheduler: &mut MessageScheduler<SessionClock, Rng, ProcessedMessage<BroadcastSettings>>,
+    scheduler: &mut SchedulerWrapper<SessionClock, Rng, ProcessedMessage<BroadcastSettings>>,
 ) where
     NodeId: Eq + Hash + Send + 'static,
     Rng: RngCore + Send,
@@ -737,10 +732,14 @@ async fn handle_release_round<
     ProofsVerifier,
     RuntimeServiceId,
 >(
-    RoundInfo {
-        cover_message_generation_flag,
-        processed_messages,
-    }: RoundInfo<ProcessedMessage<NetAdapter::BroadcastSettings>>,
+    RoundInfoAndConsumedQuota {
+        info:
+            RoundInfo {
+                cover_message_generation_flag,
+                processed_messages,
+            },
+        consumed_quota,
+    }: RoundInfoAndConsumedQuota<ProcessedMessage<NetAdapter::BroadcastSettings>>,
     cryptographic_processor: &mut CoreCryptographicProcessor<
         NodeId,
         ProofsGenerator,
@@ -749,7 +748,10 @@ async fn handle_release_round<
     rng: &mut Rng,
     backend: &Backend,
     network_adapter: &NetAdapter,
-) where
+    state_updater: &StateUpdater<Option<RecoveryServiceState<Backend::Settings>>>,
+    current_state: ServiceState,
+) -> ServiceState
+where
     NodeId: Eq + Hash + 'static,
     Rng: RngCore + Send,
     Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId> + Sync,
@@ -786,6 +788,11 @@ async fn handle_release_round<
     // Release all messages concurrently, and wait for all of them to be sent.
     join_all(processed_messages_relay_futures).await;
     tracing::debug!(target: LOG_TARGET, "Sent out {total_message_count} processed and/or cover messages at this release window.");
+
+    // Update state by tracking the quota consumed by this release round.
+    let new_state = current_state.with_consumed_core_quota(consumed_quota);
+    state_updater.update(Some(new_state.clone().into()));
+    new_state
 }
 
 /// Handle a clock event by calling into the epoch handler and process the
