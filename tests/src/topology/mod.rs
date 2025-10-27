@@ -166,7 +166,7 @@ impl Topology {
                 provider_id: ProviderId(da_conf.signer.verifying_key()),
                 zk_id: ZkPublicKey(BigUint::from(0u8).into()),
                 locator: Locator(da_conf.listening_address.clone()),
-                note: consensus_configs[0].da_notes[i].note,
+                note: consensus_configs[0].da_notes[i].clone(),
                 signer: da_conf.signer.clone(),
             })
             .collect();
@@ -179,7 +179,7 @@ impl Topology {
                     provider_id: ProviderId(blend_conf.signer.verifying_key()),
                     zk_id: ZkPublicKey(BigUint::from(0u8).into()),
                     locator: Locator(blend_conf.backend_core.listening_address.clone()),
-                    note: consensus_configs[0].blend_notes[i].note,
+                    note: consensus_configs[0].blend_notes[i].clone(),
                     signer: blend_conf.signer.clone(),
                 }),
         );

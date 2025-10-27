@@ -49,7 +49,7 @@ pub struct ProviderInfo {
     pub provider_id: ProviderId,
     pub zk_id: ZkPublicKey,
     pub locator: Locator,
-    pub note: Note,
+    pub note: ServiceNote,
     pub signer: ed25519_dalek::SigningKey,
 }
 
@@ -70,6 +70,7 @@ pub struct ServiceNote {
     pub pk: PublicKey,
     pub sk: SecretKey,
     pub note: Note,
+    pub output_index: usize,
 }
 
 fn create_genesis_tx(utxos: &[Utxo]) -> GenesisTx {
@@ -121,6 +122,7 @@ pub fn create_consensus_configs(
     let mut blend_notes = Vec::new();
     let mut utxos = Vec::new();
 
+    let mut output_index = 0;
     // Create notes for leader, Blend and DA declarations.
     for &id in ids.iter() {
         let sk_leader_data = derive_key_material(b"ld", &id);
@@ -132,6 +134,7 @@ pub fn create_consensus_configs(
             tx_hash: BigUint::from(0u8).into(),
             output_index: 0,
         });
+        output_index += 1; // Assume output index which will be set by the ledger tx.
 
         let sk_da_data = derive_key_material(b"da", &id);
         let sk_da = SecretKey::from(BigUint::from_bytes_le(&sk_da_data));
@@ -141,12 +144,14 @@ pub fn create_consensus_configs(
             pk: pk_da,
             sk: sk_da,
             note: note_da,
+            output_index,
         });
         utxos.push(Utxo {
             note: note_da,
             tx_hash: BigUint::from(0u8).into(),
             output_index: 0,
         });
+        output_index += 1;
 
         let sk_blend_data = derive_key_material(b"bn", &id);
         let sk_blend = SecretKey::from(BigUint::from_bytes_le(&sk_blend_data));
@@ -156,12 +161,14 @@ pub fn create_consensus_configs(
             pk: pk_blend,
             sk: sk_blend,
             note: note_blend,
+            output_index,
         });
         utxos.push(Utxo {
             note: note_blend,
             tx_hash: BigUint::from(0u8).into(),
             output_index: 0,
         });
+        output_index += 1;
     }
 
     let genesis_tx = create_genesis_tx(&utxos);
@@ -232,6 +239,7 @@ pub fn create_genesis_tx_with_declarations(
         parent: MsgId::root(),
         signer: Ed25519PublicKey::from_bytes(&[0; 32]).unwrap(),
     };
+
     let ledger_tx_hash = ledger_tx.hash();
 
     let mut ops = vec![Op::ChannelInscribe(inscription)];
@@ -239,8 +247,8 @@ pub fn create_genesis_tx_with_declarations(
     for provider in &providers {
         let utxo = Utxo {
             tx_hash: ledger_tx_hash,
-            output_index: 0,
-            note: provider.note,
+            output_index: provider.note.output_index,
+            note: provider.note.note,
         };
         let declaration = DeclarationMessage {
             service_type: provider.service_type,
