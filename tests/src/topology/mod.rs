@@ -161,23 +161,28 @@ impl Topology {
         let mut providers: Vec<_> = da_configs
             .iter()
             .enumerate()
-            .map(|(i, c)| ProviderInfo {
+            .map(|(i, da_conf)| ProviderInfo {
                 service_type: ServiceType::DataAvailability,
-                provider_id: ProviderId(c.signer.verifying_key()),
+                provider_id: ProviderId(da_conf.signer.verifying_key()),
                 zk_id: ZkPublicKey(BigUint::from(0u8).into()),
-                locator: Locator(c.listening_address.clone()),
-                note: consensus_configs[0].utxos[i].note,
-                signer: c.signer.clone(),
+                locator: Locator(da_conf.listening_address.clone()),
+                note: consensus_configs[0].da_notes[i].note,
+                signer: da_conf.signer.clone(),
             })
             .collect();
-        providers.extend(blend_configs.iter().enumerate().map(|(i, c)| ProviderInfo {
-            service_type: ServiceType::BlendNetwork,
-            provider_id: ProviderId(c.signer.verifying_key()),
-            zk_id: ZkPublicKey(BigUint::from(0u8).into()),
-            locator: Locator(c.backend_core.listening_address.clone()),
-            note: consensus_configs[0].utxos[i].note,
-            signer: c.signer.clone(),
-        }));
+        providers.extend(
+            blend_configs
+                .iter()
+                .enumerate()
+                .map(|(i, blend_conf)| ProviderInfo {
+                    service_type: ServiceType::BlendNetwork,
+                    provider_id: ProviderId(blend_conf.signer.verifying_key()),
+                    zk_id: ZkPublicKey(BigUint::from(0u8).into()),
+                    locator: Locator(blend_conf.backend_core.listening_address.clone()),
+                    note: consensus_configs[0].blend_notes[i].note,
+                    signer: blend_conf.signer.clone(),
+                }),
+        );
 
         let ledger_tx = consensus_configs[0]
             .genesis_tx
