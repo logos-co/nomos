@@ -97,6 +97,11 @@ where
             settings,
         }
     }
+
+    #[cfg(feature = "unsafe-test-functions")]
+    pub const fn cover_traffic_module(&self) -> &SessionCoverTraffic<RoundClock> {
+        &self.cover_traffic
+    }
 }
 
 impl<SessionClock, Rng, ProcessedMessage> MessageScheduler<SessionClock, Rng, ProcessedMessage> {
