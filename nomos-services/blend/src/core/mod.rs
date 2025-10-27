@@ -1,8 +1,3 @@
-pub mod backends;
-pub mod network;
-mod processor;
-pub mod settings;
-
 use std::{
     fmt::{Debug, Display},
     hash::Hash,
@@ -48,14 +43,11 @@ use nomos_time::{SlotTick, TimeService, TimeServiceMessage};
 use nomos_utils::blake_rng::BlakeRng;
 use overwatch::{
     OpaqueServiceResourcesHandle,
-    services::{
-        AsServiceId, ServiceCore, ServiceData,
-        state::{NoOperator, NoState},
-    },
+    services::{AsServiceId, ServiceCore, ServiceData},
 };
 use rand::{RngCore, SeedableRng as _, seq::SliceRandom as _};
 use serde::{Deserialize, Serialize};
-use services_utils::wait_until_services_are_ready;
+use services_utils::{overwatch::RecoveryOperator, wait_until_services_are_ready};
 use tokio::sync::oneshot;
 use tracing::info;
 
@@ -64,6 +56,7 @@ use crate::{
         backends::{PublicInfo, SessionInfo},
         processor::{CoreCryptographicProcessor, Error},
         settings::BlendConfig,
+        state::ServiceState,
     },
     epoch_info::{
         ChainApi, EpochEvent, EpochHandler, LeaderInputsMinusQuota,
@@ -75,7 +68,15 @@ use crate::{
     settings::FIRST_STREAM_ITEM_READY_TIMEOUT,
 };
 
+pub mod backends;
+pub mod network;
+pub mod settings;
+
 pub(super) mod service_components;
+
+mod processor;
+mod state;
+pub use state::ServiceState as CoreServiceState;
 
 const LOG_TARGET: &str = "blend::service::core";
 
@@ -96,6 +97,7 @@ pub struct BlendService<
     TimeBackend,
     ChainService,
     PolInfoProvider,
+    StateRecoveryBackend,
     RuntimeServiceId,
 > where
     Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId>,
@@ -108,6 +110,7 @@ pub struct BlendService<
         ProofsGenerator,
         TimeBackend,
         ChainService,
+        StateRecoveryBackend,
         PolInfoProvider,
     )>,
 }
@@ -122,6 +125,7 @@ impl<
     TimeBackend,
     ChainService,
     PolInfoProvider,
+    StateRecoveryBackend,
     RuntimeServiceId,
 > ServiceData
     for BlendService<
@@ -134,6 +138,7 @@ impl<
         TimeBackend,
         ChainService,
         PolInfoProvider,
+        StateRecoveryBackend,
         RuntimeServiceId,
     >
 where
@@ -141,8 +146,8 @@ where
     Network: NetworkAdapter<RuntimeServiceId>,
 {
     type Settings = BlendConfig<Backend::Settings>;
-    type State = NoState<Self::Settings>;
-    type StateOperator = NoOperator<Self::State>;
+    type State = ServiceState<Backend::Settings>;
+    type StateOperator = RecoveryOperator<StateRecoveryBackend>;
     type Message = ServiceMessage<Network::BroadcastSettings>;
 }
 
@@ -157,6 +162,7 @@ impl<
     TimeBackend,
     ChainService,
     PolInfoProvider,
+    StateRecoveryBackend,
     RuntimeServiceId,
 > ServiceCore<RuntimeServiceId>
     for BlendService<
@@ -169,6 +175,7 @@ impl<
         TimeBackend,
         ChainService,
         PolInfoProvider,
+        StateRecoveryBackend,
         RuntimeServiceId,
     >
 where
@@ -182,6 +189,7 @@ where
     TimeBackend: nomos_time::backends::TimeBackend + Send,
     ChainService: CryptarchiaServiceData<Tx: Send + Sync>,
     PolInfoProvider: PolInfoProviderTrait<RuntimeServiceId, Stream: Send + Unpin + 'static> + Send,
+    StateRecoveryBackend: Send,
     RuntimeServiceId: AsServiceId<NetworkService<Network::Backend, RuntimeServiceId>>
         + AsServiceId<<MembershipAdapter as membership::Adapter>::Service>
         + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>

@@ -394,6 +394,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                     epoch_transition_period_in_slots: NonZeroU64::try_from(2_600)
                         .expect("Epoch transition period in slots cannot be zero."),
                 },
+                recovery_path_prefix: "./recovery/blend".into(),
             },
             core: nomos_blend_service::settings::CoreSettings {
                 backend: config.blend_config.backend_core,

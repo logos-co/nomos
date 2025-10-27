@@ -36,6 +36,7 @@ impl<CoreBackendSettings, EdgeBackendSettings>
                     crypto,
                     minimum_network_size,
                     time,
+                    recovery_path_prefix,
                 },
             core:
                 CoreSettings {
@@ -53,6 +54,7 @@ impl<CoreBackendSettings, EdgeBackendSettings>
             time,
             zk,
             minimum_network_size,
+            recovery_path: recovery_path_prefix.join("core"),
         }
     }
 }
@@ -67,6 +69,7 @@ impl<CoreBackendSettings, EdgeBackendSettings>
                     crypto,
                     minimum_network_size,
                     time,
+                    ..
                 },
             edge: EdgeSettings { backend },
             core:
