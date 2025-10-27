@@ -1,3 +1,4 @@
+pub mod adapters;
 pub mod backends;
 
 use std::{collections::BTreeSet, fmt::Display, marker::PhantomData, pin::Pin};
@@ -7,7 +8,11 @@ use backends::{SdpBackend, SdpBackendError};
 use futures::{Stream, StreamExt as _};
 use nomos_core::{
     block::BlockNumber,
-    sdp::{ActivityMetadata, DeclarationId, Locator, ProviderId, ServiceType},
+    mantle::{NoteId, tx_builder::MantleTxBuilder},
+    sdp::{
+        ActiveMessage, ActivityMetadata, DeclarationId, DeclarationMessage, Locator, ProviderId,
+        ServiceType, WithdrawMessage, ZkPublicKey,
+    },
 };
 use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
@@ -19,6 +24,11 @@ use overwatch::{
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
+
+use crate::adapters::{
+    mempool::{SdpMempoolAdapter as _, mock::MockMempoolAdapter},
+    wallet::{SdpWalletAdapter as _, mock::MockWalletAdapter},
+};
 
 const BROADCAST_CHANNEL_SIZE: usize = 128;
 
@@ -47,9 +57,16 @@ pub type BlockUpdateStream = Pin<Box<dyn Stream<Item = BlockEvent> + Send + Sync
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SdpSettings {
-    /// Declaration ID for this node (set after posting declaration and
+    /// Declaration info for this node (set after posting declaration and
     /// restarting)
-    pub declaration_id: Option<DeclarationId>,
+    pub declaration: Option<Declaration>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Declaration {
+    pub id: DeclarationId,
+    pub zk_id: ZkPublicKey,
+    pub locked_note_id: NoteId,
 }
 
 pub enum SdpMessage {
@@ -58,10 +75,8 @@ pub enum SdpMessage {
     Subscribe {
         result_sender: oneshot::Sender<BlockUpdateStream>,
     },
-
     PostDeclaration {
-        service_type: ServiceType,
-        locators: Vec<Locator>,
+        declaration: Box<DeclarationMessage>,
         reply_channel: oneshot::Sender<Result<DeclarationId, DynError>>,
     },
     PostActivity {
@@ -76,7 +91,8 @@ pub struct SdpService<Backend, RuntimeServiceId> {
     backend: PhantomData<Backend>,
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     finalized_update_tx: broadcast::Sender<BlockEvent>,
-    _current_declaration_id: Option<DeclarationId>,
+    current_declaration: Option<Declaration>,
+    nonce: u64,
 }
 
 impl<Backend, RuntimeServiceId> ServiceData for SdpService<Backend, RuntimeServiceId> {
@@ -105,10 +121,11 @@ where
         let (finalized_update_tx, _) = broadcast::channel(BROADCAST_CHANNEL_SIZE);
 
         Ok(Self {
-            _current_declaration_id: settings.declaration_id,
+            current_declaration: settings.declaration,
             backend: PhantomData,
             service_resources_handle,
             finalized_update_tx,
+            nonce: 0,
         })
     }
 
@@ -118,6 +135,9 @@ where
             "Service '{}' is ready.",
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
+
+        let wallet_adapter = MockWalletAdapter::new();
+        let mempool_adapter = MockMempoolAdapter::new();
 
         while let Some(msg) = self.service_resources_handle.inbound_relay.recv().await {
             match msg {
@@ -133,11 +153,157 @@ where
                     }
                 }
                 SdpMessage::PostActivity { metadata, .. } => {
-                    tracing::debug!("todo: implement post activity {:?}", metadata);
+                    self.handle_post_activity(metadata, &wallet_adapter, &mempool_adapter)
+                        .await;
                 }
-                SdpMessage::PostDeclaration { .. } => todo!("implement post declaration"),
-                SdpMessage::PostWithdrawal { .. } => todo!("implement post withdrawal"),
+                SdpMessage::PostDeclaration {
+                    declaration,
+                    reply_channel,
+                } => {
+                    self.handle_post_declaration(
+                        declaration,
+                        &wallet_adapter,
+                        &mempool_adapter,
+                        reply_channel,
+                    )
+                    .await;
+                }
+                SdpMessage::PostWithdrawal { declaration_id } => {
+                    self.handle_post_withdrawal(declaration_id, &wallet_adapter, &mempool_adapter)
+                        .await;
+                }
             }
+        }
+
+        Ok(())
+    }
+}
+
+impl<Backend, RuntimeServiceId> SdpService<Backend, RuntimeServiceId>
+where
+    Backend: SdpBackend + Send + Sync + 'static,
+    RuntimeServiceId: AsServiceId<Self> + Clone + Display + Send + Sync + 'static,
+{
+    async fn handle_post_declaration(
+        &self,
+        declaration: Box<DeclarationMessage>,
+        wallet_adapter: &MockWalletAdapter,
+        mempool_adapter: &MockMempoolAdapter,
+        reply_channel: oneshot::Sender<Result<DeclarationId, DynError>>,
+    ) {
+        let tx_builder = MantleTxBuilder::new();
+
+        let signed_tx = match wallet_adapter.declare_tx(tx_builder, declaration.clone()) {
+            Ok(tx) => tx,
+            Err(e) => {
+                tracing::error!("Failed to create declaration transaction: {:?}", e);
+                return;
+            }
+        };
+
+        if let Err(e) = mempool_adapter.post_tx(signed_tx).await {
+            tracing::error!("Failed to post declaration to mempool: {:?}", e);
+            return;
+        }
+
+        if let Err(e) = reply_channel.send(Ok(declaration.id())) {
+            tracing::error!("Failed to send post declaration response: {:?}", e);
+        }
+    }
+
+    async fn handle_post_activity(
+        &mut self,
+        metadata: ActivityMetadata,
+        wallet_adapter: &MockWalletAdapter,
+        mempool_adapter: &MockMempoolAdapter,
+    ) {
+        // Check if we have a declaration_id
+        let Some(ref declaration) = self.current_declaration else {
+            tracing::error!("No declaration_id set. Cannot post activity without declaration.");
+            return;
+        };
+
+        let nonce = self.nonce;
+        self.nonce += 1;
+
+        let active_message = ActiveMessage {
+            declaration_id: declaration.id,
+            nonce,
+            metadata,
+        };
+
+        let tx_builder = MantleTxBuilder::new();
+
+        let declaration = self.current_declaration.as_ref().unwrap();
+
+        let signed_tx =
+            match wallet_adapter.active_tx(tx_builder, active_message, declaration.zk_id) {
+                Ok(tx) => tx,
+                Err(e) => {
+                    tracing::error!("Failed to create activity transaction: {:?}", e);
+                    return;
+                }
+            };
+
+        if let Err(e) = mempool_adapter.post_tx(signed_tx).await {
+            tracing::error!("Failed to post activity to mempool: {:?}", e);
+        }
+    }
+
+    async fn handle_post_withdrawal(
+        &mut self,
+        declaration_id: DeclarationId,
+        wallet_adapter: &MockWalletAdapter,
+        mempool_adapter: &MockMempoolAdapter,
+    ) {
+        if let Err(e) = self.validate_withdrawal(&declaration_id) {
+            tracing::error!("{}", e);
+            return;
+        }
+
+        let nonce = self.nonce;
+        self.nonce += 1;
+
+        let declaration = self.current_declaration.as_ref().unwrap(); //unwrap is ok as it is validated above
+        let withdraw_message = WithdrawMessage {
+            declaration_id,
+            nonce,
+            locked_note_id: declaration.locked_note_id,
+        };
+
+        let tx_builder = MantleTxBuilder::new();
+
+        let signed_tx = match wallet_adapter.withdraw_tx(
+            tx_builder,
+            withdraw_message,
+            declaration.zk_id,
+            declaration.locked_note_id,
+        ) {
+            Ok(tx) => tx,
+            Err(e) => {
+                tracing::error!("Failed to create withdrawal transaction: {:?}", e);
+                return;
+            }
+        };
+
+        if let Err(e) = mempool_adapter.post_tx(signed_tx).await {
+            tracing::error!("Failed to post withdrawal to mempool: {:?}", e);
+            return;
+        }
+
+        self.current_declaration = None;
+    }
+
+    fn validate_withdrawal(&self, declaration_id: &DeclarationId) -> Result<(), &'static str> {
+        let declaration = self
+            .current_declaration
+            .as_ref()
+            .ok_or("No declaration_id set. Cannot post withdrawal without declaration.")?;
+
+        if *declaration_id != declaration.id {
+            return Err(
+                "Wrong declaration_id set. Cannot post withdrawal without proper declaration id.",
+            );
         }
 
         Ok(())

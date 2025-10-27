@@ -98,9 +98,7 @@ async fn main() -> Result<()> {
             time: config.time,
             storage: config.storage,
             system_sig: (),
-            sdp: SdpSettings {
-                declaration_id: None,
-            },
+            sdp: SdpSettings { declaration: None },
             membership: config.membership,
             wallet: config.wallet,
             #[cfg(feature = "testing")]
