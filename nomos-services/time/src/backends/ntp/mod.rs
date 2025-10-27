@@ -60,7 +60,7 @@ impl TimeBackend for NtpTimeBackend {
         Self { settings, client }
     }
 
-    fn tick_stream(self) -> EpochSlotTickStream {
+    fn tick_stream(self) -> (SlotTick, EpochSlotTickStream) {
         let Self { settings, client } = self;
         let mut update_interval = interval(settings.update_interval);
         // if we miss a tick just try next one
@@ -84,20 +84,23 @@ impl TimeBackend for NtpTimeBackend {
         ));
         // compute the initial slot ticking stream
         let local_date = OffsetDateTime::now_utc();
-        let slot_timer = slot_timer(
+        let (current_slot_tick, slot_timer) = slot_timer(
             settings.slot_config,
             local_date,
             Slot::from_offset_and_config(local_date, settings.slot_config),
             settings.epoch_config,
             settings.base_period_length,
         );
-        Pin::new(Box::new(NtpStream {
-            interval,
-            slot_config: settings.slot_config,
-            epoch_config: settings.epoch_config,
-            base_period_length: settings.base_period_length,
-            slot_timer,
-        }))
+        (
+            current_slot_tick,
+            Pin::new(Box::new(NtpStream {
+                interval,
+                slot_config: settings.slot_config,
+                epoch_config: settings.epoch_config,
+                base_period_length: settings.base_period_length,
+                slot_timer,
+            })),
+        )
     }
 }
 
@@ -135,7 +138,7 @@ impl Stream for NtpStream {
             let current_slot = Slot::from_offset_and_config(date, self.slot_config);
             let epoch_config = self.epoch_config;
             let base_period_length = self.base_period_length;
-            self.slot_timer = slot_timer(
+            (_, self.slot_timer) = slot_timer(
                 self.slot_config,
                 date,
                 current_slot,
