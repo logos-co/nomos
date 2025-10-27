@@ -14,7 +14,7 @@ pub use crate::keys::{ed25519::Ed25519Key, zk::ZkKey};
 ///
 /// Works as a [`SecuredKey`] over [`Encoding`], delegating requests to the
 /// appropriate key.
-#[derive(Serialize, Deserialize, ZeroizeOnDrop, PartialEq, Eq, Clone, KmsEnumKey)]
+#[derive(Serialize, Deserialize, ZeroizeOnDrop, PartialEq, Eq, Clone, Debug, KmsEnumKey)]
 pub enum Key {
     Ed25519(Ed25519Key),
     Zk(ZkKey),

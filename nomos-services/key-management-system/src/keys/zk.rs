@@ -4,7 +4,7 @@ use zeroize::ZeroizeOnDrop;
 
 use crate::keys::{errors::KeyError, secured_key::SecuredKey};
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Clone, ZeroizeOnDrop)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Clone, Debug, ZeroizeOnDrop)]
 pub struct ZkKey(pub(crate) SecretKey);
 
 impl SecuredKey for ZkKey {

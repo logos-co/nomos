@@ -118,9 +118,9 @@ where
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct KMSServiceSettings<BackendSettings> {
-    backend_settings: BackendSettings,
+    pub backend_settings: BackendSettings,
 }
 
 pub struct KMSService<Backend, RuntimeServiceId>

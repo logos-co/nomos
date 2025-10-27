@@ -139,11 +139,13 @@ pub(crate) type DaNetworkAdapter = nomos_da_sampling::network::adapters::validat
     RuntimeServiceId,
 >;
 
-pub(crate) type CryptarchiaService =
-    generic_services::CryptarchiaService<DaNetworkAdapter, RuntimeServiceId>;
+pub(crate) type KeyManagementService = generic_services::KeyManagementService<RuntimeServiceId>;
 
 pub(crate) type WalletService =
     generic_services::WalletService<CryptarchiaService, RuntimeServiceId>;
+
+pub(crate) type CryptarchiaService =
+    generic_services::CryptarchiaService<DaNetworkAdapter, RuntimeServiceId>;
 
 pub(crate) type CryptarchiaLeaderService = generic_services::CryptarchiaLeaderService<
     CryptarchiaService,
@@ -223,6 +225,7 @@ pub struct Nomos {
     http: ApiService,
     storage: StorageService,
     system_sig: SystemSigService,
+    key_management: KeyManagementService,
     wallet: WalletService,
     #[cfg(feature = "testing")]
     testing_http: TestingApiService<RuntimeServiceId>,
@@ -260,6 +263,7 @@ pub fn run_node_from_config(config: Config) -> Result<Overwatch<RuntimeServiceId
             time: config.time,
             storage: config.storage,
             system_sig: (),
+            key_management: config.key_management,
             sdp: SdpSettings { declaration: None },
             membership: config.membership,
             wallet: config.wallet,

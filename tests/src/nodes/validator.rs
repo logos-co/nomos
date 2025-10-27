@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     collections::HashSet,
     net::SocketAddr,
     num::{NonZeroU64, NonZeroUsize},
@@ -41,6 +42,7 @@ use nomos_da_verifier::{
     backend::{kzgrs::KzgrsDaVerifierSettings, trigger::MempoolPublishTriggerConfig},
     storage::adapters::rocksdb::RocksAdapterSettings as VerifierStorageAdapterSettings,
 };
+use key_management_system::{KMSServiceSettings, backend::preload::PreloadKMSBackendSettings};
 use nomos_http_api_common::paths::{
     CRYPTARCHIA_HEADERS, CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_GET_MEMBERSHIP,
     DA_GET_SHARES_COMMITMENTS, DA_HISTORIC_SAMPLING, DA_MONITOR_STATS, NETWORK_INFO, STORAGE_BLOCK,
@@ -619,6 +621,11 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
         sdp: SdpSettings { declaration: None },
         wallet: WalletServiceSettings {
             known_keys: HashSet::from_iter([config.consensus_config.leader_config.pk]),
+        },
+        key_management: KMSServiceSettings {
+            backend_settings: PreloadKMSBackendSettings {
+                keys: HashMap::new(),
+            },
         },
         testing_http: nomos_api::ApiServiceSettings {
             backend_settings: AxumBackendSettings {
