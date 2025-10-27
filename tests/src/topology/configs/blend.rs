@@ -7,7 +7,7 @@ use nomos_blend_service::{
     core::backends::libp2p::Libp2pBlendBackendSettings as Libp2pCoreBlendBackendSettings,
     edge::backends::libp2p::Libp2pBlendBackendSettings as Libp2pEdgeBlendBackendSettings,
 };
-use nomos_core::{mantle::keys::SecretKey, sdp::ProviderId};
+use nomos_core::mantle::keys::SecretKey;
 use nomos_libp2p::{
     Multiaddr,
     ed25519::{self},
@@ -21,7 +21,7 @@ pub struct GeneralBlendConfig {
     pub backend_edge: Libp2pEdgeBlendBackendSettings,
     pub private_key: Ed25519PrivateKey,
     pub secret_zk_key: SecretKey,
-    pub provider_id: ProviderId,
+    pub signer: SigningKey,
 }
 
 #[must_use]
@@ -32,8 +32,7 @@ pub fn create_blend_configs(ids: &[[u8; 32]], ports: &[u16]) -> Vec<GeneralBlend
             let mut node_key_bytes = *id;
             let node_key = ed25519::SecretKey::try_from_bytes(&mut node_key_bytes)
                 .expect("Failed to generate secret key from bytes");
-            let dalek_signing_key = SigningKey::from_bytes(id);
-            let provider_id = ProviderId(dalek_signing_key.verifying_key());
+            let signer = SigningKey::from_bytes(id);
 
             let private_key = Ed25519PrivateKey::from(*id);
             let secret_zk_key =
@@ -65,7 +64,7 @@ pub fn create_blend_configs(ids: &[[u8; 32]], ports: &[u16]) -> Vec<GeneralBlend
                 },
                 private_key,
                 secret_zk_key,
-                provider_id,
+                signer,
             }
         })
         .collect()
