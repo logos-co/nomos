@@ -21,7 +21,7 @@ use tokio_stream::wrappers::BroadcastStream;
 
 use crate::core::{
     backends::{
-        BlendBackend, SessionInfo, SessionStream,
+        BlendBackend, PublicInfo, SessionInfo,
         libp2p::{
             swarm::{BlendSwarm, BlendSwarmMessage, SwarmParams},
             tokio_provider::ObservationWindowTokioIntervalProvider,
@@ -65,28 +65,23 @@ where
     fn new(
         config: BlendConfig<Self::Settings>,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
-        SessionInfo {
-            membership: current_membership,
-            poq_verification_inputs,
-        }: SessionInfo<PeerId>,
-        session_stream: SessionStream<PeerId>,
+        current_public_info: PublicInfo<PeerId>,
         rng: Rng,
     ) -> Self {
         let (swarm_message_sender, swarm_message_receiver) = mpsc::channel(CHANNEL_SIZE);
         let (incoming_message_sender, _) = broadcast::channel(CHANNEL_SIZE);
         let minimum_network_size = config.minimum_network_size.try_into().unwrap();
 
-        let swarm =
-            BlendSwarm::<_, _, _, ObservationWindowTokioIntervalProvider>::new(SwarmParams {
+        let swarm = BlendSwarm::<_, ProofsVerifier, ObservationWindowTokioIntervalProvider>::new(
+            SwarmParams {
                 config: &config,
-                current_membership,
+                current_public_info,
                 incoming_message_sender: incoming_message_sender.clone(),
                 minimum_network_size,
-                proofs_verifier: ProofsVerifier::new(poq_verification_inputs),
                 rng,
-                session_stream,
                 swarm_message_receiver,
-            });
+            },
+        );
 
         let (swarm_task_abort_handle, swarm_task_abort_registration) = AbortHandle::new_pair();
         overwatch_handle
@@ -111,6 +106,26 @@ where
             .await
         {
             tracing::error!(target: LOG_TARGET, "Failed to send message to BlendSwarm: {e}");
+        }
+    }
+
+    async fn rotate_session(&mut self, new_session_info: SessionInfo<PeerId>) {
+        if let Err(e) = self
+            .swarm_message_sender
+            .send(BlendSwarmMessage::StartNewSession(new_session_info))
+            .await
+        {
+            tracing::error!(target: LOG_TARGET, "Failed to send new public session info to BlendSwarm: {e}");
+        }
+    }
+
+    async fn complete_session_transition(&mut self) {
+        if let Err(e) = self
+            .swarm_message_sender
+            .send(BlendSwarmMessage::CompleteSessionTransition)
+            .await
+        {
+            tracing::error!(target: LOG_TARGET, "Failed to send session transition termination command to BlendSwarm: {e}");
         }
     }
 

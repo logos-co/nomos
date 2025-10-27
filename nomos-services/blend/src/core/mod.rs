@@ -14,17 +14,14 @@ use async_trait::async_trait;
 use backends::BlendBackend;
 use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 use fork_stream::StreamExt as _;
-use futures::{Stream, StreamExt as _, future::join_all, stream::pending};
+use futures::{Stream, StreamExt as _, future::join_all};
 use network::NetworkAdapter;
 use nomos_blend_message::{
     PayloadType,
     crypto::{
-        proofs::{
-            PoQVerificationInputsMinusSigningKey,
-            quota::inputs::prove::{
-                private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs},
-                public::{CoreInputs, LeaderInputs},
-            },
+        proofs::quota::inputs::prove::{
+            private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs},
+            public::{CoreInputs, LeaderInputs},
         },
         random_sized_bytes,
     },
@@ -59,7 +56,7 @@ use tracing::info;
 
 use crate::{
     core::{
-        backends::SessionInfo,
+        backends::{PublicInfo, SessionInfo},
         processor::{CoreCryptographicProcessor, Error},
         settings::BlendConfig,
     },
@@ -290,8 +287,7 @@ where
                 },
             )
         }
-        .await
-        .fork();
+        .await;
 
         // Initialize clock stream for epoch-related public PoQ inputs.
         let clock_stream = async {
@@ -351,14 +347,17 @@ where
             current_membership_info.public.membership.size()
         );
 
-        let mut current_public_inputs = PoQVerificationInputsMinusSigningKey {
-            core: current_membership_info.public.poq_core_public_inputs,
-            session: current_membership_info.public.session,
-            leader: LeaderInputs {
-                message_quota: blend_config.crypto.num_blend_layers,
-                pol_epoch_nonce,
+        let mut current_public_info = PublicInfo {
+            epoch: LeaderInputs {
                 pol_ledger_aged,
+                pol_epoch_nonce,
+                message_quota: blend_config.crypto.num_blend_layers,
                 total_stake,
+            },
+            session: SessionInfo {
+                membership: current_membership_info.public.membership.clone(),
+                session_number: current_membership_info.public.session,
+                core_public_inputs: current_membership_info.public.poq_core_public_inputs,
             },
         };
 
@@ -367,7 +366,7 @@ where
                 current_membership_info.public.membership.clone(),
                 blend_config.minimum_network_size,
                 &blend_config.crypto,
-                current_public_inputs,
+                current_public_info.clone().into(),
                 current_membership_info.private,
             )
             .expect("The initial membership should satisfy the core node condition");
@@ -409,13 +408,7 @@ where
         let mut backend = Backend::new(
             blend_config.clone(),
             overwatch_handle.clone(),
-            SessionInfo {
-                membership: current_membership_info.public.membership,
-                poq_verification_inputs: current_public_inputs,
-            },
-            // TODO: Replace with stream that yields on every session with the latest epoch info.
-            // It will most likely be a mapping of the session and epoch stream iterators.
-            pending().boxed(),
+            current_public_info.clone(),
             BlakeRng::from_entropy(),
         );
 
@@ -453,16 +446,16 @@ where
                     handle_release_round(round_info, &mut crypto_processor, &mut rng, &backend, &network_adapter).await;
                 }
                 Some(clock_tick) = remaining_clock_stream.next() => {
-                    current_public_inputs = handle_clock_event(clock_tick, &blend_config, &mut epoch_handler, &mut crypto_processor, &mut backend, current_public_inputs).await;
+                    current_public_info = handle_clock_event(clock_tick, &blend_config, &mut epoch_handler, &mut crypto_processor, &mut backend, current_public_info).await;
                 }
                 Some(pol_info) = secret_pol_info_stream.next() => {
                     handle_new_secret_epoch_info(pol_info.poq_private_inputs, &mut crypto_processor);
                 }
                 Some(session_event) = remaining_session_stream.next() => {
-                    match handle_session_event(session_event, &blend_config, crypto_processor, current_public_inputs, &mut blending_token_collector) {
-                        Ok((new_crypto_processor, new_public_inputs)) => {
+                    match handle_session_event(session_event, &blend_config, crypto_processor, current_public_info, &mut blending_token_collector, &mut backend).await {
+                        Ok((new_crypto_processor, new_public_info)) => {
                             crypto_processor = new_crypto_processor;
-                            current_public_inputs = new_public_inputs;
+                            current_public_info = new_public_info;
                         }
                         Err(e) => {
                             tracing::error!(
@@ -485,60 +478,75 @@ where
 /// on a new session with its new membership. It also creates new public inputs
 /// for `PoQ` verification in this new session. It ignores the transition period
 /// expiration event and returns the previous cryptographic processor as is.
-fn handle_session_event<NodeId, ProofsGenerator, ProofsVerifier, BackendSettings>(
+async fn handle_session_event<
+    NodeId,
+    ProofsGenerator,
+    ProofsVerifier,
+    Backend,
+    BlakeRng,
+    RuntimeServiceId,
+>(
     event: SessionEvent<CoreSessionInfo<NodeId>>,
-    settings: &BlendConfig<BackendSettings>,
+    settings: &BlendConfig<Backend::Settings>,
     current_cryptographic_processor: CoreCryptographicProcessor<
         NodeId,
         ProofsGenerator,
         ProofsVerifier,
     >,
-    current_public_inputs: PoQVerificationInputsMinusSigningKey,
+    current_public_info: PublicInfo<NodeId>,
     blending_token_collector: &mut BlendingTokenCollector,
+    backend: &mut Backend,
 ) -> Result<
     (
         CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
-        PoQVerificationInputsMinusSigningKey,
+        PublicInfo<NodeId>,
     ),
     Error,
 >
 where
-    NodeId: Eq + Hash + Send,
+    NodeId: Eq + Hash + Clone + Send,
     ProofsGenerator: CoreAndLeaderProofsGenerator,
     ProofsVerifier: ProofsVerifierTrait,
+    Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId>,
 {
     match event {
         SessionEvent::NewSession(CoreSessionInfo {
             private,
             public:
                 CoreSessionPublicInfo {
-                    poq_core_public_inputs,
-                    session,
-                    membership,
+                    poq_core_public_inputs: new_core_public_inputs,
+                    session: new_session,
+                    membership: new_membership,
                 },
         }) => {
             blending_token_collector.rotate_session(&reward::SessionInfo::new(
-                session,
-                &current_public_inputs.leader.pol_epoch_nonce,
-                membership.size() as u64,
-                poq_core_public_inputs.quota,
+                new_session,
+                &current_public_info.epoch.pol_epoch_nonce,
+                new_membership.size() as u64,
+                new_core_public_inputs.quota,
                 settings.scheduler.cover.message_frequency_per_round,
             )
             .expect("Reward session info must be created successfully. Panicking since the service cannot continue with this session"));
 
-            let new_inputs = PoQVerificationInputsMinusSigningKey {
-                session,
-                core: poq_core_public_inputs,
-                ..current_public_inputs
+            let new_session_info = SessionInfo {
+                membership: new_membership.clone(),
+                session_number: new_session,
+                core_public_inputs: new_core_public_inputs,
+            };
+            backend.rotate_session(new_session_info.clone()).await;
+
+            let new_public_info = PublicInfo {
+                session: new_session_info,
+                ..current_public_info
             };
             let new_processor = CoreCryptographicProcessor::try_new_with_core_condition_check(
-                membership,
+                new_membership,
                 settings.minimum_network_size,
                 &settings.crypto,
-                new_inputs,
+                new_public_info.clone().into(),
                 private,
             )?;
-            Ok((new_processor, new_inputs))
+            Ok((new_processor, new_public_info))
         }
         SessionEvent::TransitionPeriodExpired => {
             if let Some(activity_proof) =
@@ -547,7 +555,8 @@ where
                 info!(target: LOG_TARGET, "Activity proof generated: {activity_proof:?}");
                 submit_activity_proof(activity_proof);
             }
-            Ok((current_cryptographic_processor, current_public_inputs))
+            backend.complete_session_transition().await;
+            Ok((current_cryptographic_processor, current_public_info))
         }
     }
 }
@@ -754,8 +763,8 @@ async fn handle_clock_event<
         ProofsVerifier,
     >,
     backend: &mut Backend,
-    current_public_inputs: PoQVerificationInputsMinusSigningKey,
-) -> PoQVerificationInputsMinusSigningKey
+    current_public_info: PublicInfo<NodeId>,
+) -> PublicInfo<NodeId>
 where
     ProofsGenerator: CoreAndLeaderProofsGenerator,
     ProofsVerifier: ProofsVerifierTrait,
@@ -764,7 +773,7 @@ where
     RuntimeServiceId: Sync,
 {
     let Some(epoch_event) = epoch_handler.tick(slot_tick).await else {
-        return current_public_inputs;
+        return current_public_info;
     };
 
     match epoch_event {
@@ -779,21 +788,21 @@ where
                 pol_ledger_aged,
                 total_stake,
             };
-            let new_public_inputs = PoQVerificationInputsMinusSigningKey {
-                leader: new_leader_inputs,
-                ..current_public_inputs
+            let new_public_info = PublicInfo {
+                epoch: new_leader_inputs,
+                ..current_public_info
             };
 
             cryptographic_processor.rotate_epoch(new_leader_inputs);
             backend.rotate_epoch(new_leader_inputs).await;
 
-            new_public_inputs
+            new_public_info
         }
         EpochEvent::OldEpochTransitionPeriodExpired => {
             cryptographic_processor.complete_epoch_transition();
             backend.complete_epoch_transition().await;
 
-            current_public_inputs
+            current_public_info
         }
         EpochEvent::NewEpochAndOldEpochTransitionExpired(LeaderInputsMinusQuota {
             pol_epoch_nonce,
@@ -806,9 +815,9 @@ where
                 pol_ledger_aged,
                 total_stake,
             };
-            let new_public_inputs = PoQVerificationInputsMinusSigningKey {
-                leader: new_leader_inputs,
-                ..current_public_inputs
+            let new_public_inputs = PublicInfo {
+                epoch: new_leader_inputs,
+                ..current_public_info
             };
 
             // Complete transition of previous epoch, then set the current epoch as the old
