@@ -4,16 +4,21 @@ use std::{collections::HashSet, time::Duration};
 
 use configs::{
     GeneralConfig,
+    consensus::{ProviderInfo, create_genesis_tx_with_declarations},
     da::{DaParams, create_da_configs},
     network::{NetworkParams, create_network_configs},
     tracing::create_tracing_configs,
 };
 use futures::future::join_all;
-use nomos_core::sdp::SessionNumber;
+use nomos_core::{
+    mantle::GenesisTx as _,
+    sdp::{Locator, ProviderId, ServiceType, SessionNumber, ZkPublicKey},
+};
 use nomos_da_network_core::swarm::DAConnectionPolicySettings;
 use nomos_da_network_service::MembershipResponse;
 use nomos_network::backends::libp2p::Libp2pInfo;
 use nomos_utils::net::get_available_udp_port;
+use num_bigint::BigUint;
 use rand::{Rng as _, thread_rng};
 use tokio::time::{sleep, timeout};
 
@@ -131,7 +136,7 @@ impl Topology {
             blend_ports.push(get_available_udp_port().unwrap());
         }
 
-        let consensus_configs = create_consensus_configs(&ids, &config.consensus_params);
+        let mut consensus_configs = create_consensus_configs(&ids, &config.consensus_params);
         let bootstrapping_config = create_bootstrap_configs(&ids, SHORT_PROLONGED_BOOTSTRAP_PERIOD);
         let da_configs = create_da_configs(&ids, &config.da_params, &da_ports);
         let membership_configs = create_membership_configs(
@@ -151,6 +156,43 @@ impl Topology {
         let api_configs = create_api_configs(&ids);
         let tracing_configs = create_tracing_configs(&ids);
         let time_config = default_time_config();
+
+        // Setup genesis TX with Blend and DA service declarations.
+        let mut providers: Vec<_> = da_configs
+            .iter()
+            .enumerate()
+            .map(|(i, da_conf)| ProviderInfo {
+                service_type: ServiceType::DataAvailability,
+                provider_id: ProviderId(da_conf.signer.verifying_key()),
+                zk_id: ZkPublicKey(BigUint::from(0u8).into()),
+                locator: Locator(da_conf.listening_address.clone()),
+                note: consensus_configs[0].da_notes[i].clone(),
+                signer: da_conf.signer.clone(),
+            })
+            .collect();
+        providers.extend(
+            blend_configs
+                .iter()
+                .enumerate()
+                .map(|(i, blend_conf)| ProviderInfo {
+                    service_type: ServiceType::BlendNetwork,
+                    provider_id: ProviderId(blend_conf.signer.verifying_key()),
+                    zk_id: ZkPublicKey(BigUint::from(0u8).into()),
+                    locator: Locator(blend_conf.backend_core.listening_address.clone()),
+                    note: consensus_configs[0].blend_notes[i].clone(),
+                    signer: blend_conf.signer.clone(),
+                }),
+        );
+
+        let ledger_tx = consensus_configs[0]
+            .genesis_tx
+            .mantle_tx()
+            .ledger_tx
+            .clone();
+        let genesis_tx = create_genesis_tx_with_declarations(ledger_tx, providers);
+        for c in &mut consensus_configs {
+            c.genesis_tx = genesis_tx.clone();
+        }
 
         let mut node_configs = vec![];
 

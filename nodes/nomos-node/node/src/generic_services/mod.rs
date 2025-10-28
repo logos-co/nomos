@@ -146,12 +146,7 @@ pub type MembershipService<RuntimeServiceId> = nomos_membership_service::Members
 
 pub type MembershipSdp<RuntimeServiceId> = LedgerSdpAdapter<MockSdpBackend, RuntimeServiceId>;
 
-pub type DaMembershipAdapter<RuntimeServiceId> = MembershipServiceAdapter<
-    MembershipBackend<RuntimeServiceId>,
-    LedgerSdpAdapter<MockSdpBackend, RuntimeServiceId>,
-    MembershipStorageGeneric<RuntimeServiceId>,
-    RuntimeServiceId,
->;
+pub type DaMembershipAdapter<RuntimeServiceId> = MembershipServiceAdapter<RuntimeServiceId>;
 
 pub type SdpService<RuntimeServiceId> = nomos_sdp::SdpService<MockSdpBackend, RuntimeServiceId>;
 pub type SdpServiceAdapterGeneric<RuntimeServiceId> =

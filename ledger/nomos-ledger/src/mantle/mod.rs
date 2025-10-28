@@ -51,7 +51,9 @@ impl LedgerState {
     pub fn new() -> Self {
         Self {
             channels: channel::Channels::new(),
-            sdp: sdp::SdpLedger::new(),
+            sdp: sdp::SdpLedger::new()
+                .with_service(ServiceType::BlendNetwork)
+                .with_service(ServiceType::DataAvailability),
             leaders: leader::LeaderState::new(),
         }
     }
@@ -61,10 +63,19 @@ impl LedgerState {
         config: &Config,
         utxo_tree: &UtxoTree,
     ) -> Result<Self, Error> {
-        let tx_hash = tx.hash();
-        let ops = tx.mantle_tx().ops.iter().map(|op| (op, None));
-        let (ledger, _) = Self::new().try_apply_ops(0, config, utxo_tree, tx_hash, ops)?;
-        Ok(ledger)
+        let channels = channel::Channels::from_genesis(tx.genesis_inscription())?;
+        let sdp = sdp::SdpLedger::from_genesis(
+            &config.sdp_config,
+            utxo_tree,
+            tx.hash(),
+            tx.sdp_declarations(),
+        )?;
+
+        Ok(Self {
+            channels,
+            sdp,
+            leaders: leader::LeaderState::new(),
+        })
     }
 
     pub fn try_apply_tx<Constants: GasConstants>(

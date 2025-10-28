@@ -3,7 +3,10 @@ use std::sync::Arc;
 use ed25519::signature::Verifier as _;
 use nomos_core::mantle::{
     TxHash,
-    ops::channel::{ChannelId, Ed25519PublicKey as PublicKey, MsgId, set_keys::SetKeysOp},
+    ops::channel::{
+        ChannelId, Ed25519PublicKey as PublicKey, MsgId, inscribe::InscriptionOp,
+        set_keys::SetKeysOp,
+    },
 };
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -48,6 +51,10 @@ impl Default for Channels {
 }
 
 impl Channels {
+    pub fn from_genesis(op: &InscriptionOp) -> Result<Self, Error> {
+        Self::default().apply_msg(op.channel_id, &op.parent, op.id(), &op.signer)
+    }
+
     pub fn apply_msg(
         mut self,
         channel_id: ChannelId,
