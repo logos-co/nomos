@@ -9,11 +9,11 @@ mod serde {
     };
 
     #[derive(Clone, Serialize, Deserialize)]
+    /// Recovery state that is serialized and deserialized to file.
+    ///
+    /// For details about its fields, check [`ServiceState`].
     pub struct SerializableServiceState<BroadcastSettings> {
-        /// The last session that was saved.
         last_seen_session: u64,
-        /// The last value for the core quota allowance for the session that is
-        /// tracked.
         spent_core_quota: u64,
         #[serde(bound(
             deserialize = "BroadcastSettings: Deserialize<'de> + Eq + core::hash::Hash"
@@ -22,6 +22,9 @@ mod serde {
     }
 
     impl<BroadcastSettings> SerializableServiceState<BroadcastSettings> {
+        /// Consume the serializable state to create an actual state object, by
+        /// passing it an Overwatch
+        /// [`overwatch::services::state::StateUpdater`].
         pub fn into_state_with_state_updater<BackendSettings>(
             self,
             state_updater: overwatch::services::state::StateUpdater<
@@ -66,8 +69,12 @@ mod service {
     };
 
     #[derive(Clone)]
+    /// Recovery state for Blend core service.
     pub struct ServiceState<BackendSettings, BroadcastSettings> {
+        /// The last session that was saved.
         last_seen_session: u64,
+        /// The last value for the core quota allowance for the session that is
+        /// tracked.
         spent_core_quota: u64,
         unsent_processed_messages: HashSet<ProcessedMessage<BroadcastSettings>>,
         state_updater: overwatch::services::state::StateUpdater<
@@ -105,6 +112,11 @@ mod service {
             }
         }
 
+        /// Create a new instance with the provided session, and empty state for
+        /// the rest.
+        ///
+        /// This is typically used on session rotations or when no previous
+        /// state was recovered.
         pub fn with_session(
             session: u64,
             state_updater: overwatch::services::state::StateUpdater<
@@ -114,6 +126,9 @@ mod service {
             Self::new(session, 0, HashSet::new(), state_updater)
         }
 
+        /// Consume `self` to return a [`StateUpdater`], which can be used to
+        /// batch changes before they are stored using the underlying
+        /// [`overwatch::services::state::StateUpdater`].
         pub const fn start_updating(self) -> StateUpdater<BackendSettings, BroadcastSettings> {
             StateUpdater::new(self)
         }
@@ -129,7 +144,7 @@ mod service {
                 .expect("Spent core quota addition overflow.");
         }
 
-        pub const fn spent_core_quota(&self) -> u64 {
+        pub const fn spent_quota(&self) -> u64 {
             self.spent_core_quota
         }
 
@@ -190,6 +205,7 @@ mod service {
             }
         }
 
+        /// Reference to the messages currently marked as unsent.
         pub const fn unsent_processed_messages(
             &self,
         ) -> &HashSet<ProcessedMessage<BroadcastSettings>> {
@@ -209,8 +225,13 @@ mod state_updater {
 
     use crate::{core::state::service::ServiceState, message::ProcessedMessage};
 
+    /// A state updater which gathers changes to the underlying [`ServiceState`]
+    /// before committing them via the underlying
+    /// [`overwatch::services::state::StateUpdater`].
     pub struct StateUpdater<BackendSettings, BroadcastSettings> {
         inner: ServiceState<BackendSettings, BroadcastSettings>,
+        /// Flag indicating whether ANY changes happened since this object
+        /// creation.
         changed: bool,
     }
 
@@ -231,6 +252,15 @@ mod state_updater {
             self.inner.spend_quota(amount);
         }
 
+        /// Consumes `self` and return the **changed** state without storing the
+        /// changes via the underlying
+        /// `overwatch::services::state::StateUpdater`.
+        ///
+        /// It is important to note that it is not equivalent to calling
+        /// rollback, since any changes applied before calling this function
+        /// will still be applied to the returned object.
+        /// In case the original state is needed, it needs to be `.clone()`d
+        /// before consuming it to produce this state updater instance.
         pub fn consume_without_committing(
             self,
         ) -> ServiceState<BackendSettings, BroadcastSettings> {
@@ -243,6 +273,9 @@ mod state_updater {
         BackendSettings: Clone,
         BroadcastSettings: Clone,
     {
+        /// Consumes `self` and stores the latest state via the underlying
+        /// `overwatch::services::state::StateUpdater`, returning the updated
+        /// [`ServiceState`].
         pub fn commit_changes(self) -> ServiceState<BackendSettings, BroadcastSettings> {
             if self.changed {
                 self.inner
@@ -257,6 +290,11 @@ mod state_updater {
     where
         BroadcastSettings: Eq + Hash,
     {
+        /// Mark a new [`ProcessedMessage`] as unsent, meaning that it has been
+        /// decapsulated and scheduled for release but not yet released.
+        ///
+        /// It returns `Ok` if the message was not already present, `Err`
+        /// otherwise.
         pub fn add_unsent_message(
             &mut self,
             message: ProcessedMessage<BroadcastSettings>,
@@ -265,6 +303,11 @@ mod state_updater {
             self.inner.add_unsent_message(message)
         }
 
+        /// Mark a new [`ProcessedMessage`] as sent, meaning that it has been
+        /// released by the Blend release module.
+        ///
+        /// It returns `Ok` if the message was correctly removed (i.e. it was
+        /// found), `Err` otherwise.
         pub fn remove_sent_message(
             &mut self,
             message: &ProcessedMessage<BroadcastSettings>,
@@ -273,6 +316,8 @@ mod state_updater {
             self.inner.remove_sent_message(message)
         }
 
+        /// Drain the underlying storage for the processed messages and return
+        /// an iterator over them.
         pub fn take_unsent_processed_messages(
             &mut self,
         ) -> impl Iterator<Item = ProcessedMessage<BroadcastSettings>> {
@@ -294,6 +339,14 @@ mod recovery_state {
     };
 
     #[derive(Clone, Serialize, Deserialize)]
+    /// Recovery state type as expected by the file-based recovery operator.
+    ///
+    /// This type is required since Overwatch does not allow for recovered state
+    /// to be `None`, hence we need to wrap the actual state into this type to
+    /// make it an `Option`.
+    ///
+    /// If Overwatch will start supporting optional states, this type will most
+    /// likely go.
     pub struct RecoveryServiceState<BackendSettings, BroadcastSettings> {
         #[serde(bound(
             deserialize = "BroadcastSettings: Deserialize<'de> + Eq + core::hash::Hash"

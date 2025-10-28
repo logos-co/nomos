@@ -214,6 +214,8 @@ where
         let state_updater = service_resources_handle.state_updater.clone();
         Ok(Self {
             service_resources_handle,
+            // We consume the serializable state into the state type we interact with in the
+            // service.
             last_saved_state: recovery_initial_state
                 .service_state
                 .map(|s| s.into_state_with_state_updater(state_updater)),
@@ -422,7 +424,7 @@ where
         let mut message_scheduler = {
             let scheduler_starting_core_quota = blend_config
                 .session_quota(current_membership_info.public.membership.size())
-                .saturating_sub(current_recovery_checkpoint.spent_core_quota());
+                .saturating_sub(current_recovery_checkpoint.spent_quota());
             let initial_scheduler_session_info = SchedulerSessionInfo {
                 core_quota: scheduler_starting_core_quota,
                 session_number: u128::from(current_membership_info.public.session).into(),
@@ -455,6 +457,8 @@ where
                 initial_scheduler_session_info,
                 BlakeRng::from_entropy(),
                 blend_config.scheduler_settings(),
+                // We don't consume the map because we will remove the items one by one once they
+                // will be scheduled for release.
                 current_recovery_checkpoint
                     .unsent_processed_messages()
                     .clone()
@@ -820,16 +824,16 @@ where
         // While we iterate and map the messages to the sending futures, we update the recovery state to remove each message.
         .inspect(|message_to_release| {
             if state_updater.remove_sent_message(message_to_release).is_err() {
-                tracing::warn!(target: LOG_TARGET, "Previously processed network message should be present in the recovery state but was not found.");
+                tracing::warn!(target: LOG_TARGET, "Previously processed message should be present in the recovery state but was not found.");
             }
         })
         .map(
-            |message_to_release|
-             -> Box<dyn Future<Output = ()> + Send + Unpin> {
+            |message_to_release| -> Box<dyn Future<Output = ()> + Send + Unpin> {
                 match message_to_release {
-                    ProcessedMessage::Network(network_message) => {
-                        Box::new(network_adapter.broadcast(network_message.message, network_message.broadcast_settings))
-                    },
+                    ProcessedMessage::Network(NetworkMessage {
+                        broadcast_settings,
+                        message,
+                    }) => Box::new(network_adapter.broadcast(message, broadcast_settings)),
                     ProcessedMessage::Encapsulated(encapsulated_message) => {
                         Box::new(backend.publish(*encapsulated_message))
                     }
@@ -837,7 +841,6 @@ where
             },
         )
         .collect::<Vec<_>>();
-
     if cover_message_generation_flag.is_some() {
         let cover_message = cryptographic_processor
             .encapsulate_cover_payload(&random_sized_bytes::<{ size_of::<u32>() }>())
