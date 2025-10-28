@@ -14,13 +14,13 @@ pub enum ServiceMessage<BroadcastSettings> {
 /// To eventually broadcast the message to the network service,
 /// [`BroadcastSettings`] must be included in the [`NetworkMessage`].
 /// [`BroadcastSettings`] is a generic type defined by [`NetworkAdapter`].
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct NetworkMessage<BroadcastSettings> {
     pub message: Vec<u8>,
     pub broadcast_settings: BroadcastSettings,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum ProcessedMessage<BroadcastSettings> {
     Network(NetworkMessage<BroadcastSettings>),
     Encapsulated(Box<EncapsulatedMessage>),

@@ -27,7 +27,7 @@ use crate::{
 pub type MessageIdentifier = Ed25519PublicKey;
 
 /// An encapsulated message that is sent to the blend network.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct EncapsulatedMessage<const ENCAPSULATION_COUNT: usize> {
     /// A public header that is not encapsulated.
     public_header: PublicHeader,
@@ -140,7 +140,7 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
 /// Part of the message that should be encapsulated.
 // TODO: Consider having `InitializedPart`
 // that just finished the initialization step and doesn't have `decapsulate` method.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct EncapsulatedPart<const ENCAPSULATION_COUNT: usize> {
     private_header: EncapsulatedPrivateHeader<ENCAPSULATION_COUNT>,
     payload: EncapsulatedPayload,
@@ -285,7 +285,7 @@ fn signing_body<const ENCAPSULATION_COUNT: usize>(
 /// headers.
 // TODO: Consider having `InitializedPrivateHeader`
 // that just finished the initialization step and doesn't have `decapsulate` method.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub(super) struct EncapsulatedPrivateHeader<const ENCAPSULATION_COUNT: usize>(
     #[serde(with = "serde_big_array::BigArray")] [EncapsulatedBlendingHeader; ENCAPSULATION_COUNT],
 );
@@ -461,7 +461,7 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPrivateHeader<ENCAPSULATION_C
 
 /// A blending header encapsulated zero or more times.
 // TODO: Consider having `SerializedBlendingHeader` (not encapsulated).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 struct EncapsulatedBlendingHeader(Vec<u8>);
 
 impl EncapsulatedBlendingHeader {
@@ -500,7 +500,7 @@ impl EncapsulatedBlendingHeader {
 
 /// A payload encapsulated zero or more times.
 // TODO: Consider having `SerializedPayload` (not encapsulated).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 struct EncapsulatedPayload(Vec<u8>);
 
 impl EncapsulatedPayload {
