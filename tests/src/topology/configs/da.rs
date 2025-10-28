@@ -46,7 +46,7 @@ impl Default for DaParams {
     fn default() -> Self {
         Self {
             subnetwork_size: 2,
-            dispersal_factor: 2,
+            dispersal_factor: 1,
             num_samples: 1,
             num_subnets: 2,
             old_blobs_check_interval: Duration::from_secs(5),

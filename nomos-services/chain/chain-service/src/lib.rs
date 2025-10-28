@@ -611,6 +611,7 @@ where
         wait_until_services_are_ready!(
             &self.service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
+            BlockBroadcastService<_>,
             NetworkService<_, _>,
             TxMempoolService<_, _, _, _, _, _>,
             DaSamplingService<_, _, _, _>,

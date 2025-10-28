@@ -13,15 +13,21 @@ use overwatch::{
     },
 };
 use serde::{Deserialize, Serialize};
-use tokio::sync::{broadcast, oneshot, watch};
+use tokio::sync::{broadcast, oneshot};
 use tracing::{error, info};
 
 const BROADCAST_CHANNEL_SIZE: usize = 128;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionUpdate {
     pub session_number: SessionNumber,
     pub providers: HashMap<ProviderId, ProviderInfo>,
+}
+
+#[derive(Debug)]
+pub struct SessionSubscription {
+    pub last_session: Option<SessionUpdate>,
+    pub receiver: broadcast::Receiver<SessionUpdate>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -39,18 +45,21 @@ pub enum BlockBroadcastMsg {
         result_sender: oneshot::Sender<broadcast::Receiver<BlockInfo>>,
     },
     SubscribeBlendSession {
-        result_sender: oneshot::Sender<watch::Receiver<Option<SessionUpdate>>>,
+        result_sender: oneshot::Sender<SessionSubscription>,
     },
     SubscribeDASession {
-        result_sender: oneshot::Sender<watch::Receiver<Option<SessionUpdate>>>,
+        result_sender: oneshot::Sender<SessionSubscription>,
     },
 }
 
 pub struct BlockBroadcastService<RuntimeServiceId> {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     finalized_blocks: broadcast::Sender<BlockInfo>,
-    blend_session: watch::Sender<Option<SessionUpdate>>,
-    da_session: watch::Sender<Option<SessionUpdate>>,
+    blend_session: broadcast::Sender<SessionUpdate>,
+    da_session: broadcast::Sender<SessionUpdate>,
+    // For sending latest session on subscription.
+    last_blend_session: Option<SessionUpdate>,
+    last_da_session: Option<SessionUpdate>,
 }
 
 impl<RuntimeServiceId> ServiceData for BlockBroadcastService<RuntimeServiceId> {
@@ -70,14 +79,16 @@ where
         _initial_state: Self::State,
     ) -> Result<Self, overwatch::DynError> {
         let (finalized_blocks, _) = broadcast::channel(BROADCAST_CHANNEL_SIZE);
-        let (blend_session, _) = watch::channel(None);
-        let (da_session, _) = watch::channel(None);
+        let (blend_session, _) = broadcast::channel(BROADCAST_CHANNEL_SIZE);
+        let (da_session, _) = broadcast::channel(BROADCAST_CHANNEL_SIZE);
 
         Ok(Self {
             service_resources_handle,
             finalized_blocks,
             blend_session,
             da_session,
+            last_blend_session: None,
+            last_da_session: None,
         })
     }
 
@@ -96,12 +107,14 @@ where
                     }
                 }
                 BlockBroadcastMsg::BroadcastBlendSession(session) => {
-                    if let Err(err) = self.blend_session.send(Some(session)) {
+                    self.last_blend_session = Some(session.clone());
+                    if let Err(err) = self.blend_session.send(session) {
                         error!("Could not send to new blocks channel: {err}");
                     }
                 }
                 BlockBroadcastMsg::BroadcastDASession(session) => {
-                    if let Err(err) = self.da_session.send(Some(session)) {
+                    self.last_da_session = Some(session.clone());
+                    if let Err(err) = self.da_session.send(session) {
                         error!("Could not send to new blocks channel: {err}");
                     }
                 }
@@ -114,12 +127,18 @@ where
                     }
                 }
                 BlockBroadcastMsg::SubscribeBlendSession { result_sender } => {
-                    if let Err(err) = result_sender.send(self.blend_session.subscribe()) {
+                    if let Err(err) = result_sender.send(SessionSubscription {
+                        last_session: self.last_blend_session.clone(),
+                        receiver: self.blend_session.subscribe(),
+                    }) {
                         error!("Could not subscribe to blend session channel: {err:?}");
                     }
                 }
                 BlockBroadcastMsg::SubscribeDASession { result_sender } => {
-                    if let Err(err) = result_sender.send(self.da_session.subscribe()) {
+                    if let Err(err) = result_sender.send(SessionSubscription {
+                        last_session: self.last_da_session.clone(),
+                        receiver: self.da_session.subscribe(),
+                    }) {
                         error!("Could not subscribe to DA session channel: {err:?}");
                     }
                 }

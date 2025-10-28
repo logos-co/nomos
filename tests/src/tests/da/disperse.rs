@@ -56,8 +56,9 @@ async fn disseminate_retrieve_reconstruct() {
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let executor = &topology.executors()[0];
     let num_subnets = executor.config().da_network.backend.num_subnets as usize;
-
     let data = [1u8; 31 * ITERATIONS];
+
+    topology.wait_membership_ready().await;
 
     for i in 0..ITERATIONS {
         let data_size = 31 * (i + 1);
@@ -118,6 +119,8 @@ async fn disseminate_from_non_membership() {
     let lone_executor = Executor::spawn(lone_executor_config).await;
 
     let data = [1u8; 31 * ITERATIONS];
+
+    topology.wait_membership_ready().await;
 
     for i in 0..ITERATIONS {
         let data_size = 31 * (i + 1);
@@ -237,6 +240,8 @@ async fn disseminate_same_data() {
     let num_subnets = executor.config().da_network.backend.num_subnets as usize;
 
     let data = [1u8; 31];
+
+    topology.wait_membership_ready().await;
 
     let mut onchain = false;
     for _ in 0..ITERATIONS {

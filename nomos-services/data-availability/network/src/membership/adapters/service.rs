@@ -1,13 +1,13 @@
 use std::collections::{BTreeSet, HashMap};
 
-use broadcast_service::BlockBroadcastService;
-use futures::{StreamExt as _, future};
+use broadcast_service::{BlockBroadcastService, SessionSubscription};
+use futures::{StreamExt as _, future, stream::iter};
 use libp2p::{Multiaddr, PeerId, core::signed_envelope::DecodingError};
 use nomos_core::sdp::{Locator, ProviderId, ProviderInfo, SessionNumber};
 use nomos_libp2p::ed25519;
 use overwatch::services::{ServiceData, relay::OutboundRelay};
 use tokio::sync::oneshot;
-use tokio_stream::wrappers::WatchStream;
+use tokio_stream::wrappers::BroadcastStream;
 
 use crate::membership::{
     MembershipAdapter, MembershipAdapterError, PeerMultiaddrStream, SubnetworkPeers,
@@ -39,35 +39,47 @@ where
             })
             .await
             .map_err(|(e, _)| MembershipAdapterError::Other(e.into()))?;
-        let watch_receiver = receiver
+        let SessionSubscription {
+            last_session,
+            receiver,
+        } = receiver
             .await
             .map_err(|e| MembershipAdapterError::Other(e.into()))?;
 
-        let converted_stream = WatchStream::new(watch_receiver)
-            .filter(|update| future::ready(update.is_some()))
-            .map(|update| {
-                let session = update.unwrap();
+        let initial_stream = iter(last_session).map(session_to_peers);
+        let updates_stream = BroadcastStream::new(receiver)
+            .filter_map(|update_result| {
+                future::ready(match update_result {
+                    Ok(session) => Some(session),
+                    Err(e) => {
+                        tracing::warn!("Broadcast stream error in membership adapter: {:?}", e);
+                        None
+                    }
+                })
+            })
+            .map(session_to_peers);
 
-                let mut peers = HashMap::new();
-                let mut provider_mappings = HashMap::new();
+        Ok(Box::pin(initial_stream.chain(updates_stream)))
+    }
+}
 
-                session
-                    .providers
-                    .into_iter()
-                    .filter_map(process_provider)
-                    .for_each(|(peer_id, multiaddr, provider_id)| {
-                        peers.insert(peer_id, multiaddr);
-                        provider_mappings.insert(peer_id, provider_id);
-                    });
+fn session_to_peers(session: broadcast_service::SessionUpdate) -> SubnetworkPeers<PeerId> {
+    let mut peers = HashMap::new();
+    let mut provider_mappings = HashMap::new();
 
-                SubnetworkPeers {
-                    session_id: session.session_number,
-                    peers,
-                    provider_mappings,
-                }
-            });
+    session
+        .providers
+        .into_iter()
+        .filter_map(process_provider)
+        .for_each(|(peer_id, multiaddr, provider_id)| {
+            peers.insert(peer_id, multiaddr);
+            provider_mappings.insert(peer_id, provider_id);
+        });
 
-        Ok(Box::pin(converted_stream))
+    SubnetworkPeers {
+        session_id: session.session_number,
+        peers,
+        provider_mappings,
     }
 }
 
