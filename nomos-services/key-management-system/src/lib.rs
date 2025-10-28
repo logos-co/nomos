@@ -1,8 +1,9 @@
+pub mod api;
 pub mod backend;
 pub mod keys;
 
 use std::{
-    fmt::{Debug, Display, Formatter},
+    fmt::{Debug, Display},
     pin::Pin,
 };
 
@@ -54,7 +55,7 @@ pub enum KMSSigningStrategy<KeyId> {
     Multi(Vec<KeyId>),
 }
 
-pub enum KMSMessage<Backend, Payload, Signature, PublicKey, KeyError, OperatorError>
+pub enum KMSMessage<Backend>
 where
     Backend: KMSBackend,
 {
@@ -65,62 +66,17 @@ where
     },
     PublicKey {
         key_id: Backend::KeyId,
-        reply_channel: oneshot::Sender<PublicKey>,
+        reply_channel: oneshot::Sender<<Backend::Key as SecuredKey>::PublicKey>,
     },
     Sign {
         signing_strategy: KMSSigningStrategy<Backend::KeyId>,
-        payload: Payload,
-        reply_channel: oneshot::Sender<Signature>,
+        payload: <Backend::Key as SecuredKey>::Payload,
+        reply_channel: oneshot::Sender<<Backend::Key as SecuredKey>::Signature>,
     },
     Execute {
         key_id: Backend::KeyId,
-        operator: KMSOperator<Payload, Signature, PublicKey, KeyError, OperatorError>,
+        operator: KMSOperatorKey<Backend::Key, <Backend as KMSBackend>::Error>,
     },
-}
-
-pub type KMSMessageBackend<Backend> = KMSMessage<
-    Backend,
-    <<Backend as KMSBackend>::Key as SecuredKey>::Payload,
-    <<Backend as KMSBackend>::Key as SecuredKey>::Signature,
-    <<Backend as KMSBackend>::Key as SecuredKey>::PublicKey,
-    <<Backend as KMSBackend>::Key as SecuredKey>::Error,
-    <Backend as KMSBackend>::Error,
->;
-
-impl<Backend> Debug for KMSMessageBackend<Backend>
-where
-    Backend: KMSBackend,
-    Backend::KeyId: Debug,
-    Backend::Key: Debug,
-{
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Register {
-                key_id, key_type, ..
-            } => {
-                write!(
-                    f,
-                    "KMS-Register {{ KeyId: {key_id:?}, KeyScheme: {key_type:?} }}"
-                )
-            }
-            Self::PublicKey { key_id, .. } => {
-                write!(f, "KMS-PublicKey {{ KeyId: {key_id:?} }}")
-            }
-            Self::Sign {
-                signing_strategy, ..
-            } => {
-                write!(f, "KMS-Sign {{ KeyId: {signing_strategy:?} }}")
-            }
-            Self::Execute { .. } => {
-                write!(f, "KMS-Execute")
-            }
-        }
-    }
-}
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct KMSServiceSettings<BackendSettings> {
-    pub backend_settings: BackendSettings,
 }
 
 pub struct KMSService<Backend, RuntimeServiceId>
@@ -141,10 +97,10 @@ where
     Backend::Key: Debug,
     Backend::Settings: Clone,
 {
-    type Settings = KMSServiceSettings<Backend::Settings>;
+    type Settings = Backend::Settings;
     type State = NoState<Self::Settings>;
     type StateOperator = NoOperator<Self::State>;
-    type Message = KMSMessageBackend<Backend>;
+    type Message = KMSMessage<Backend>;
 }
 
 #[async_trait::async_trait]
@@ -165,7 +121,7 @@ where
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
         _initial_state: Self::State,
     ) -> Result<Self, DynError> {
-        let KMSServiceSettings { backend_settings } = service_resources_handle
+        let backend_settings = service_resources_handle
             .settings_handle
             .notifier()
             .get_updated_settings();
@@ -209,7 +165,7 @@ where
     Backend::Settings: Clone,
     Backend::Error: Debug,
 {
-    async fn handle_kms_message(message: KMSMessageBackend<Backend>, backend: &mut Backend) {
+    async fn handle_kms_message(message: KMSMessage<Backend>, backend: &mut Backend) {
         match message {
             KMSMessage::Register {
                 key_id,
