@@ -99,7 +99,6 @@ async fn main() -> Result<()> {
             storage: config.storage,
             system_sig: (),
             sdp: SdpSettings { declaration: None },
-            membership: config.membership,
             wallet: config.wallet,
             #[cfg(feature = "testing")]
             testing_http: config.testing_http,

@@ -33,7 +33,6 @@ use crate::{
         blend::create_blend_configs,
         bootstrap::{SHORT_PROLONGED_BOOTSTRAP_PERIOD, create_bootstrap_configs},
         consensus::{ConsensusParams, create_consensus_configs},
-        membership::{MembershipNode, create_membership_configs},
         time::default_time_config,
     },
 };
@@ -139,18 +138,6 @@ impl Topology {
         let mut consensus_configs = create_consensus_configs(&ids, &config.consensus_params);
         let bootstrapping_config = create_bootstrap_configs(&ids, SHORT_PROLONGED_BOOTSTRAP_PERIOD);
         let da_configs = create_da_configs(&ids, &config.da_params, &da_ports);
-        let membership_configs = create_membership_configs(
-            ids.iter()
-                .zip(&da_ports)
-                .zip(&blend_ports)
-                .map(|((&id, &da_port), &blend_port)| MembershipNode {
-                    id,
-                    da_port: Some(da_port),
-                    blend_port: Some(blend_port),
-                })
-                .collect::<Vec<_>>()
-                .as_slice(),
-        );
         let network_configs = create_network_configs(&ids, &config.network_params);
         let blend_configs = create_blend_configs(&ids, &blend_ports);
         let api_configs = create_api_configs(&ids);
@@ -206,7 +193,6 @@ impl Topology {
                 api_config: api_configs[i].clone(),
                 tracing_config: tracing_configs[i].clone(),
                 time_config: time_config.clone(),
-                membership_config: membership_configs[i].clone(),
             });
         }
 
@@ -235,17 +221,6 @@ impl Topology {
         let blend_configs = create_blend_configs(ids, blend_ports);
         let api_configs = create_api_configs(ids);
         // Create membership configs without DA nodes.
-        let membership_configs = create_membership_configs(
-            ids.iter()
-                .zip(blend_ports)
-                .map(|(&id, &blend_port)| MembershipNode {
-                    id,
-                    da_port: None,
-                    blend_port: Some(blend_port),
-                })
-                .collect::<Vec<_>>()
-                .as_slice(),
-        );
         let tracing_configs = create_tracing_configs(ids);
         let time_config = default_time_config();
 
@@ -261,7 +236,6 @@ impl Topology {
                 api_config: api_configs[i].clone(),
                 tracing_config: tracing_configs[i].clone(),
                 time_config: time_config.clone(),
-                membership_config: membership_configs[i].clone(),
             });
         }
         let (validators, executors) =

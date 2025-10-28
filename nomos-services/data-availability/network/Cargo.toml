@@ -25,7 +25,6 @@ nomos-core               = { workspace = true }
 nomos-da-messages        = { workspace = true }
 nomos-da-network-core    = { workspace = true }
 nomos-libp2p             = { workspace = true }
-nomos-membership-service = { workspace = true }
 nomos-sdp                = { workspace = true }
 nomos-storage            = { workspace = true }
 nomos-tracing            = { workspace = true }

@@ -21,7 +21,7 @@ use crate::{
     DaVerifierService, KeyManagementService, NetworkService, RuntimeServiceId, StorageService,
     TimeService,
     config::mempool::MempoolConfig,
-    generic_services::{MembershipService, SdpService, WalletService},
+    generic_services::{SdpService, WalletService},
 };
 
 pub mod blend;
@@ -210,7 +210,6 @@ pub struct Config {
     pub blend: BlendConfig,
     pub da_network: <DaNetworkService as ServiceData>::Settings,
     pub da_verifier: <DaVerifierService as ServiceData>::Settings,
-    pub membership: <MembershipService<RuntimeServiceId> as ServiceData>::Settings,
     pub sdp: <SdpService<RuntimeServiceId> as ServiceData>::Settings,
     pub da_sampling: <DaSamplingService as ServiceData>::Settings,
     pub http: <ApiService as ServiceData>::Settings,

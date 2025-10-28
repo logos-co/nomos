@@ -64,8 +64,7 @@ pub use crate::config::{Config, CryptarchiaLeaderArgs, HttpArgs, LogArgs, Networ
 use crate::{
     api::backend::AxumBackend,
     generic_services::{
-        DaMembershipAdapter, DaMembershipStorageGeneric, MembershipService, SdpService,
-        SdpServiceAdapterGeneric,
+        DaMembershipAdapter, DaMembershipStorageGeneric, SdpService, SdpServiceAdapterGeneric,
     },
 };
 
@@ -219,7 +218,6 @@ pub struct Nomos {
     cryptarchia: CryptarchiaService,
     cryptarchia_leader: CryptarchiaLeaderService,
     block_broadcast: BlockBroadcastService,
-    membership: MembershipService<RuntimeServiceId>,
     sdp: SdpService<RuntimeServiceId>,
     time: TimeService,
     http: ApiService,
@@ -265,7 +263,6 @@ pub fn run_node_from_config(config: Config) -> Result<Overwatch<RuntimeServiceId
             system_sig: (),
             key_management: config.key_management,
             sdp: SdpSettings { declaration: None },
-            membership: config.membership,
             wallet: config.wallet,
             #[cfg(feature = "testing")]
             testing_http: config.testing_http,

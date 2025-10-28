@@ -29,8 +29,8 @@ use nomos_node::Tracing;
 use nomos_node::{
     BlobInfo, DaNetworkApiAdapter, NetworkBackend, NomosDaMembership, RocksBackend, SystemSig,
     generic_services::{
-        DaMembershipAdapter, DaMembershipStorageGeneric, MembershipService, SdpService,
-        SdpServiceAdapterGeneric, VerifierMempoolAdapter,
+        DaMembershipAdapter, DaMembershipStorageGeneric, SdpService, SdpServiceAdapterGeneric,
+        VerifierMempoolAdapter,
     },
 };
 use nomos_time::backends::NtpTimeBackend;
@@ -205,7 +205,6 @@ pub struct NomosExecutor {
     da_verifier: DaVerifierService,
     da_sampling: DaSamplingService,
     da_network: DaNetworkService,
-    membership: MembershipService<RuntimeServiceId>,
     sdp: SdpService<RuntimeServiceId>,
     mempool: MempoolService,
     cryptarchia: CryptarchiaService,
