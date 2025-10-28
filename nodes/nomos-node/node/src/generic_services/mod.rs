@@ -110,8 +110,16 @@ pub type CryptarchiaService<SamplingAdapter, RuntimeServiceId> = CryptarchiaCons
     RuntimeServiceId,
 >;
 
-pub type WalletService<Cryptarchia, RuntimeServiceId> =
-    nomos_wallet::WalletService<Cryptarchia, SignedMantleTx, RocksBackend, RuntimeServiceId>;
+pub type KeyManagementService<RuntimeServiceId> =
+    key_management_system::KMSService<PreloadKMSBackend, RuntimeServiceId>;
+
+pub type WalletService<Cryptarchia, RuntimeServiceId> = nomos_wallet::WalletService<
+    KeyManagementService<RuntimeServiceId>,
+    Cryptarchia,
+    SignedMantleTx,
+    RocksBackend,
+    RuntimeServiceId,
+>;
 
 pub type CryptarchiaLeaderService<Cryptarchia, Wallet, SamplingAdapter, RuntimeServiceId> =
     CryptarchiaLeader<
@@ -159,6 +167,3 @@ pub type SdpServiceAdapterGeneric<RuntimeServiceId> =
 
 pub type DaMembershipStorageGeneric<RuntimeServiceId> =
     RocksAdapter<RocksBackend, RuntimeServiceId>;
-
-pub type KeyManagementService<RuntimeServiceId> =
-    key_management_system::KMSService<PreloadKMSBackend, RuntimeServiceId>;

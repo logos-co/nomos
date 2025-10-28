@@ -9,12 +9,16 @@ use chain_service::{
     api::{CryptarchiaServiceApi, CryptarchiaServiceData},
     storage::{StorageAdapter as _, adapters::storage::StorageAdapter},
 };
-use key_management_system::{KMSService, api::KmsServiceApi, backend::preload::PreloadKMSBackend};
+use key_management_system::{
+    api::{KmsServiceApi, KmsServiceData},
+    backend::preload::PreloadKMSBackend,
+    keys::{Ed25519Key, secured_key::SecuredKey},
+};
 use nomos_core::{
     block::Block,
     header::HeaderId,
     mantle::{
-        AuthenticatedMantleTx, SignedMantleTx, Transaction as _, Utxo, Value,
+        AuthenticatedMantleTx, SignedMantleTx, Transaction as _, TxHash, Utxo, Value,
         gas::MainnetGasConstants,
         keys::PublicKey,
         ops::{Op, OpProof, channel::ChannelId},
@@ -102,15 +106,13 @@ pub struct WalletServiceSettings {
     pub known_keys: HashSet<PublicKey>,
 }
 
-pub struct WalletService<Cryptarchia, Tx, Storage, RuntimeServiceId> {
+pub struct WalletService<Kms, Cryptarchia, Tx, Storage, RuntimeServiceId> {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-    _storage: std::marker::PhantomData<Storage>,
-    _tx: std::marker::PhantomData<Tx>,
-    _cryptarchia: std::marker::PhantomData<Cryptarchia>,
+    _marker: std::marker::PhantomData<(Kms, Cryptarchia, Tx, Storage)>,
 }
 
-impl<Cryptarchia, Tx, Storage, RuntimeServiceId> ServiceData
-    for WalletService<Cryptarchia, Tx, Storage, RuntimeServiceId>
+impl<Kms, Cryptarchia, Tx, Storage, RuntimeServiceId> ServiceData
+    for WalletService<Kms, Cryptarchia, Tx, Storage, RuntimeServiceId>
 {
     type Settings = WalletServiceSettings;
     type State = NoState<Self::Settings>;
@@ -119,9 +121,10 @@ impl<Cryptarchia, Tx, Storage, RuntimeServiceId> ServiceData
 }
 
 #[async_trait]
-impl<Cryptarchia, Tx, Storage, RuntimeServiceId> ServiceCore<RuntimeServiceId>
-    for WalletService<Cryptarchia, Tx, Storage, RuntimeServiceId>
+impl<Kms, Cryptarchia, Tx, Storage, RuntimeServiceId> ServiceCore<RuntimeServiceId>
+    for WalletService<Kms, Cryptarchia, Tx, Storage, RuntimeServiceId>
 where
+    Kms: KmsServiceData<Backend = PreloadKMSBackend> + Send + Sync,
     Tx: AuthenticatedMantleTx + Send + Sync + Clone + Eq + Serialize + DeserializeOwned + 'static,
     Cryptarchia: CryptarchiaServiceData<Tx = Tx>,
     Storage: StorageBackend + Send + Sync + 'static,
@@ -130,7 +133,7 @@ where
     RuntimeServiceId: AsServiceId<Self>
         + AsServiceId<Cryptarchia>
         + AsServiceId<nomos_storage::StorageService<Storage, RuntimeServiceId>>
-        + AsServiceId<KMSService<PreloadKMSBackend, RuntimeServiceId>>
+        + AsServiceId<Kms>
         + std::fmt::Debug
         + std::fmt::Display
         + Send
@@ -143,9 +146,7 @@ where
     ) -> Result<Self, DynError> {
         Ok(Self {
             service_resources_handle,
-            _storage: std::marker::PhantomData,
-            _tx: std::marker::PhantomData,
-            _cryptarchia: std::marker::PhantomData,
+            _marker: std::marker::PhantomData,
         })
     }
 
@@ -160,7 +161,7 @@ where
             Some(Duration::from_secs(60)),
             nomos_storage::StorageService<_, _>,
             Cryptarchia,
-            KMSService<PreloadKMSBackend, _>
+            Kms
         )
         .await?;
 
@@ -181,14 +182,12 @@ where
         .await?;
 
         // Create KMS API for transaction signing
-        let kms_relay = service_resources_handle
-            .overwatch_handle
-            .relay::<KMSService<PreloadKMSBackend, RuntimeServiceId>>()
-            .await?;
-        let kms =
-            KmsServiceApi::<KMSService<PreloadKMSBackend, RuntimeServiceId>, RuntimeServiceId>::new(
-                kms_relay,
-            );
+        let kms = KmsServiceApi::<Kms, RuntimeServiceId>::new(
+            service_resources_handle
+                .overwatch_handle
+                .relay::<Kms>()
+                .await?,
+        );
 
         // Create StorageAdapter for cleaner block operations
         let storage_adapter =
@@ -266,19 +265,17 @@ where
     }
 }
 
-impl<Cryptarchia, Tx, Storage, RuntimeServiceId>
-    WalletService<Cryptarchia, Tx, Storage, RuntimeServiceId>
+impl<Kms, Cryptarchia, Tx, Storage, RuntimeServiceId>
+    WalletService<Kms, Cryptarchia, Tx, Storage, RuntimeServiceId>
 where
+    Kms: KmsServiceData<Backend = PreloadKMSBackend>,
     Tx: AuthenticatedMantleTx + Send + Sync + Clone + Eq + Serialize + DeserializeOwned + 'static,
     Cryptarchia: CryptarchiaServiceData<Tx = Tx> + Send + 'static,
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as StorageChainApi>::Block: TryFrom<Block<Tx>> + TryInto<Block<Tx>>,
     <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
-    RuntimeServiceId: AsServiceId<Cryptarchia>
-        + AsServiceId<KMSService<PreloadKMSBackend, RuntimeServiceId>>
-        + std::fmt::Debug
-        + std::fmt::Display
-        + Sync,
+    RuntimeServiceId:
+        AsServiceId<Cryptarchia> + AsServiceId<Kms> + std::fmt::Debug + std::fmt::Display + Sync,
 {
     #[expect(
         clippy::cognitive_complexity,
@@ -289,7 +286,7 @@ where
         wallet: &mut Wallet,
         storage: &StorageAdapter<Storage, Tx, RuntimeServiceId>,
         cryptarchia: &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
-        kms: &KmsServiceApi<KMSService<PreloadKMSBackend, RuntimeServiceId>, RuntimeServiceId>,
+        kms: &KmsServiceApi<Kms, RuntimeServiceId>,
     ) {
         if let Err(err) =
             Self::backfill_if_not_in_sync(msg.tip(), wallet, storage, cryptarchia).await
@@ -340,12 +337,21 @@ where
         change_pk: PublicKey,
         funding_pks: Vec<PublicKey>,
         wallet: &Wallet,
-        kms: &KmsServiceApi<KMSService<PreloadKMSBackend, RuntimeServiceId>, RuntimeServiceId>,
+        kms: &KmsServiceApi<Kms, RuntimeServiceId>,
         cryptarchia: &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
     ) -> Result<SignedMantleTx, WalletServiceError> {
-        let mantle_tx = wallet
-            .fund_tx::<MainnetGasConstants>(tip, tx_builder, change_pk, funding_pks)?
-            .build();
+        let funded_tx_builder =
+            wallet.fund_tx::<MainnetGasConstants>(tip, tx_builder, change_pk, funding_pks)?;
+
+        // Extract input public keys before building the transaction
+        let input_pks: Vec<_> = funded_tx_builder
+            .ledger_inputs()
+            .iter()
+            .map(|utxo| utxo.note.pk.as_fr())
+            .copied()
+            .collect();
+
+        let mantle_tx = funded_tx_builder.build();
 
         let ledger_state = cryptarchia
             .get_ledger_state(tip)
@@ -354,60 +360,19 @@ where
             .ok_or(WalletServiceError::LedgerStateNotFound(tip))?;
 
         let tx_hash = mantle_tx.hash();
-        let tx_hash_bytes: Bytes = tx_hash.into();
 
         let mut ops_proofs = Vec::new();
         for op in &mantle_tx.ops {
             let proof = match op {
                 Op::ChannelInscribe(inscribe_op) => {
-                    // Requires OpProof::Ed25519Sig
-                    // Sign the tx hash with the signer's Ed25519 key
-                    // Use hex-encoded public key as key_id
-                    let signer_hex = hex::encode(inscribe_op.signer.as_bytes());
-
-                    let payload = key_management_system::keys::PayloadEncoding::Ed25519(
-                        tx_hash_bytes.clone(),
-                    );
-                    let signature = kms
-                        .sign(signer_hex, payload)
-                        .await
-                        .map_err(WalletServiceError::KmsApi)?;
-
-                    let key_management_system::keys::SignatureEncoding::Ed25519(ed25519_sig) =
-                        signature
-                    else {
-                        return Err(WalletServiceError::KmsApi(
-                            "Expected Ed25519 signature".into(),
-                        ));
-                    };
-
+                    let ed25519_sig = Self::sign_ed25519(tx_hash, inscribe_op.signer, kms).await?;
                     OpProof::Ed25519Sig(ed25519_sig)
                 }
                 Op::ChannelBlob(blob_op) => {
-                    // Requires OpProof::Ed25519Sig
-                    // Sign the tx hash with the signer's Ed25519 key
-                    let signer_hex = hex::encode(blob_op.signer.as_bytes());
-
-                    let payload = key_management_system::keys::PayloadEncoding::Ed25519(
-                        tx_hash_bytes.clone(),
-                    );
-                    let signature = kms
-                        .sign(signer_hex, payload)
-                        .await
-                        .map_err(WalletServiceError::KmsApi)?;
-
-                    let key_management_system::keys::SignatureEncoding::Ed25519(ed25519_sig) =
-                        signature
-                    else {
-                        return Err(WalletServiceError::KmsApi(
-                            "Expected Ed25519 signature".into(),
-                        ));
-                    };
-
+                    let ed25519_sig = Self::sign_ed25519(tx_hash, blob_op.signer, kms).await?;
                     OpProof::Ed25519Sig(ed25519_sig)
                 }
                 Op::ChannelSetKeys(set_keys_op) => {
-                    // Requires OpProof::Ed25519Sig
                     // Look up the channel from the ledger state to get the authorized key
                     let channel = ledger_state
                         .mantle_ledger()
@@ -415,31 +380,12 @@ where
                         .channel_state(&set_keys_op.channel)
                         .ok_or(WalletServiceError::MissingChannelState(set_keys_op.channel))?;
 
-                    let authority_key = channel.keys[0]; // First key is authority key
-
-                    let authority_hex = hex::encode(authority_key.as_bytes());
-                    let payload = key_management_system::keys::PayloadEncoding::Ed25519(
-                        tx_hash_bytes.clone(),
-                    );
-                    let signature = kms
-                        .sign(authority_hex, payload)
-                        .await
-                        .map_err(WalletServiceError::KmsApi)?;
-
-                    let key_management_system::keys::SignatureEncoding::Ed25519(ed25519_sig) =
-                        signature
-                    else {
-                        return Err(WalletServiceError::KmsApi(
-                            "Expected Ed25519 signature".into(),
-                        ));
-                    };
+                    let authorized_key = channel.keys[0]; // First key is authority key
+                    let ed25519_sig = Self::sign_ed25519(tx_hash, authorized_key, kms).await?;
 
                     OpProof::Ed25519Sig(ed25519_sig)
                 }
                 Op::SDPDeclare(declare_op) => {
-                    // Requires OpProof::ZkAndEd25519Sigs
-                    // Needs both a ZK signature and an Ed25519 signature
-
                     // TODO: Use real KMS ZK signatures
                     // Currently OpProof uses DummyZkSignature, but KMS returns real Signature.
                     // Once OpProof is updated to use real signatures, we should:
@@ -452,23 +398,8 @@ where
                         pks: vec![declare_op.zk_id.0],
                     });
 
-                    // Sign with Ed25519 key (provider_id)
-                    let provider_hex = hex::encode(declare_op.provider_id.0.as_bytes());
-                    let ed25519_payload = key_management_system::keys::PayloadEncoding::Ed25519(
-                        tx_hash_bytes.clone(),
-                    );
-                    let ed25519_signature = kms
-                        .sign(provider_hex, ed25519_payload)
-                        .await
-                        .map_err(WalletServiceError::KmsApi)?;
-
-                    let key_management_system::keys::SignatureEncoding::Ed25519(ed25519_sig) =
-                        ed25519_signature
-                    else {
-                        return Err(WalletServiceError::KmsApi(
-                            "Expected Ed25519 signature".into(),
-                        ));
-                    };
+                    let ed25519_sig =
+                        Self::sign_ed25519(tx_hash, declare_op.provider_id.0, kms).await?;
 
                     OpProof::ZkAndEd25519Sigs {
                         zk_sig,
@@ -551,7 +482,7 @@ where
         // TODO: Replace with real KMS ZK signature when available
         let ledger_tx_proof = DummyZkSignature::prove(&ZkSignaturePublic {
             msg_hash: mantle_tx.hash().into(),
-            pks: vec![],
+            pks: input_pks,
         });
 
         // Create the signed transaction
@@ -560,6 +491,30 @@ where
             .expect("Failed to create signed transaction with dummy signatures");
 
         Ok(signed_mantle_tx)
+    }
+
+    async fn sign_ed25519(
+        tx_hash: TxHash,
+        pk: <Ed25519Key as SecuredKey>::PublicKey,
+        kms: &KmsServiceApi<Kms, RuntimeServiceId>,
+    ) -> Result<<Ed25519Key as SecuredKey>::Signature, WalletServiceError> {
+        // Use hex-encoded public key as key_id
+        let key_id = hex::encode(pk.as_bytes());
+
+        let payload =
+            key_management_system::keys::PayloadEncoding::Ed25519(tx_hash.as_signing_bytes());
+        let signature = kms
+            .sign(key_id, payload)
+            .await
+            .map_err(WalletServiceError::KmsApi)?;
+
+        let key_management_system::keys::SignatureEncoding::Ed25519(ed25519_sig) = signature else {
+            return Err(WalletServiceError::KmsApi(
+                "Expected Ed25519 signature".into(),
+            ));
+        };
+
+        Ok(ed25519_sig)
     }
 
     async fn get_leader_aged_notes(

@@ -13,14 +13,16 @@ use crate::{WalletMsg, WalletServiceSettings};
 pub trait WalletServiceData:
     ServiceData<Settings = WalletServiceSettings, Message = WalletMsg>
 {
+    type Kms;
     type Cryptarchia;
     type Tx;
     type Storage;
 }
 
-impl<Cryptarchia, Tx, Storage, RuntimeServiceId> WalletServiceData
-    for crate::WalletService<Cryptarchia, Tx, Storage, RuntimeServiceId>
+impl<Kms, Cryptarchia, Tx, Storage, RuntimeServiceId> WalletServiceData
+    for crate::WalletService<Kms, Cryptarchia, Tx, Storage, RuntimeServiceId>
 {
+    type Kms = Kms;
     type Cryptarchia = Cryptarchia;
     type Tx = Tx;
     type Storage = Storage;
