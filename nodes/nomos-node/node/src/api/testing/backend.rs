@@ -1,7 +1,4 @@
-use std::{
-    fmt::{Debug, Display},
-    time::Duration,
-};
+use std::fmt::{Debug, Display};
 
 use axum::{
     Router,
@@ -22,13 +19,11 @@ use nomos_da_sampling::{
     },
 };
 use nomos_http_api_common::{
-    paths::{DA_GET_MEMBERSHIP, DA_HISTORIC_SAMPLING, UPDATE_MEMBERSHIP},
+    paths::{DA_GET_MEMBERSHIP, DA_HISTORIC_SAMPLING},
     utils::create_rate_limit_layer,
 };
-use nomos_membership_service::MembershipService as MembershipServiceTrait;
 pub use nomos_network::backends::libp2p::Libp2p as NetworkBackend;
 use overwatch::{DynError, overwatch::handle::OverwatchHandle, services::AsServiceId};
-use services_utils::wait_until_services_are_ready;
 use tokio::net::TcpListener;
 use tower::limit::ConcurrencyLimitLayer;
 use tower_http::{
@@ -42,12 +37,9 @@ use crate::{
     DaMembershipStorage, DaNetworkApiAdapter, NomosDaMembership,
     api::{
         backend::AxumBackendSettings,
-        testing::handlers::{da_get_membership, da_historic_sampling, update_membership},
+        testing::handlers::{da_get_membership, da_historic_sampling},
     },
-    generic_services::{
-        self, DaMembershipAdapter, MembershipBackend, MembershipSdp, MembershipService,
-        MembershipStorageGeneric, SdpService, SdpServiceAdapterGeneric,
-    },
+    generic_services::{self, DaMembershipAdapter, SdpService, SdpServiceAdapterGeneric},
 };
 pub struct TestAxumBackend {
     settings: AxumBackendSettings,
@@ -84,7 +76,6 @@ where
         + Debug
         + Clone
         + 'static
-        + AsServiceId<MembershipService<RuntimeServiceId>>
         + AsServiceId<TestDaNetworkService<RuntimeServiceId>>
         + AsServiceId<TestDaSamplingService<RuntimeServiceId>>
         + AsServiceId<SdpService<RuntimeServiceId>>,
@@ -101,14 +92,8 @@ where
 
     async fn wait_until_ready(
         &mut self,
-        overwatch_handle: OverwatchHandle<RuntimeServiceId>,
+        _overwatch_handle: OverwatchHandle<RuntimeServiceId>,
     ) -> Result<(), DynError> {
-        wait_until_services_are_ready!(
-            &overwatch_handle,
-            Some(Duration::from_secs(60)),
-            MembershipServiceTrait<_, _, _, _>
-        )
-        .await?;
         Ok(())
     }
 
@@ -129,17 +114,6 @@ where
 
         // Simple router with ONLY testing endpoints
         let app = Router::new()
-            .route(
-                UPDATE_MEMBERSHIP,
-                post(
-                    update_membership::<
-                        MembershipBackend<RuntimeServiceId>,
-                        MembershipSdp<RuntimeServiceId>,
-                        MembershipStorageGeneric<RuntimeServiceId>,
-                        RuntimeServiceId,
-                    >,
-                ),
-            )
             .route(
                 DA_GET_MEMBERSHIP,
                 post(

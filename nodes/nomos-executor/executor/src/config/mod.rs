@@ -5,7 +5,7 @@ use nomos_node::{
         BlendArgs, blend::BlendConfig, mempool::MempoolConfig, update_blend,
         update_cryptarchia_leader_consensus, update_network,
     },
-    generic_services::{MembershipService, SdpService},
+    generic_services::SdpService,
 };
 use overwatch::services::ServiceData;
 use serde::{Deserialize, Serialize};
@@ -24,7 +24,6 @@ pub struct Config {
     pub blend: BlendConfig,
     pub da_dispersal: <DaDispersalService as ServiceData>::Settings,
     pub da_network: <DaNetworkService as ServiceData>::Settings,
-    pub membership: <MembershipService<RuntimeServiceId> as ServiceData>::Settings,
     pub sdp: <SdpService<RuntimeServiceId> as ServiceData>::Settings,
     pub da_verifier: <DaVerifierService as ServiceData>::Settings,
     pub da_sampling: <DaSamplingService as ServiceData>::Settings,

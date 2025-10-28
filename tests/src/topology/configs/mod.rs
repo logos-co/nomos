@@ -4,13 +4,10 @@ pub mod blend;
 pub mod bootstrap;
 pub mod consensus;
 pub mod da;
-pub mod membership;
 pub mod network;
 pub mod tracing;
 
 pub mod time;
-
-use std::iter::repeat;
 
 use blend::GeneralBlendConfig;
 use consensus::GeneralConsensusConfig;
@@ -25,7 +22,6 @@ use crate::topology::configs::{
     bootstrap::{GeneralBootstrapConfig, SHORT_PROLONGED_BOOTSTRAP_PERIOD},
     consensus::ConsensusParams,
     da::DaParams,
-    membership::{GeneralMembershipConfig, MembershipNode},
     network::NetworkParams,
     time::GeneralTimeConfig,
 };
@@ -37,7 +33,6 @@ pub struct GeneralConfig {
     pub bootstrapping_config: GeneralBootstrapConfig,
     pub da_config: GeneralDaConfig,
     pub network_config: GeneralNetworkConfig,
-    pub membership_config: GeneralMembershipConfig,
     pub blend_config: GeneralBlendConfig,
     pub tracing_config: GeneralTracingConfig,
     pub time_config: GeneralTimeConfig,
@@ -86,25 +81,6 @@ pub fn create_general_configs_with_blend_core_subset(
     let api_configs = api::create_api_configs(&ids);
     let blend_configs = blend::create_blend_configs(&ids, &blend_ports);
     let tracing_configs = tracing::create_tracing_configs(&ids);
-    let membership_configs = membership::create_membership_configs(
-        ids.iter()
-            .zip(&da_ports)
-            .zip(
-                // Take only the first n_blend_core_nodes blend ports.
-                blend_ports
-                    .iter()
-                    .take(n_blend_core_nodes)
-                    .map(|&port| Some(port))
-                    .chain(repeat(None)),
-            )
-            .map(|((&id, &da_port), blend_port)| MembershipNode {
-                id,
-                da_port: Some(da_port),
-                blend_port,
-            })
-            .collect::<Vec<_>>()
-            .as_slice(),
-    );
     let time_config = time::default_time_config();
     let mut general_configs = vec![];
 
@@ -115,7 +91,6 @@ pub fn create_general_configs_with_blend_core_subset(
             bootstrapping_config: bootstrap_config[i].clone(),
             da_config: da_configs[i].clone(),
             network_config: network_configs[i].clone(),
-            membership_config: membership_configs[i].clone(),
             blend_config: blend_configs[i].clone(),
             tracing_config: tracing_configs[i].clone(),
             time_config: time_config.clone(),

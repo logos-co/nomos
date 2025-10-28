@@ -35,7 +35,6 @@ members = [
   "nomos-services/data-availability/verifier",
   "nomos-services/key-management-system",
   "nomos-services/key-management-system-macros",
-  "nomos-services/membership",
   "nomos-services/network",
   "nomos-services/sdp",
   "nomos-services/storage",
@@ -103,7 +102,6 @@ nomos-http-api-common        = { default-features = false, path = "./nodes/api-c
 nomos-ledger                 = { default-features = false, path = "./ledger/nomos-ledger" }
 nomos-libp2p                 = { default-features = false, path = "./nomos-libp2p" }
 nomos-mantle-core            = { default-features = false, path = "./nomos-mantle" }
-nomos-membership-service     = { default-features = false, path = "./nomos-services/membership" }
 nomos-network                = { default-features = false, path = "./nomos-services/network" }
 nomos-node                   = { default-features = false, path = "./nodes/nomos-node/node" }
 nomos-sdp                    = { default-features = false, path = "./nomos-services/sdp" }

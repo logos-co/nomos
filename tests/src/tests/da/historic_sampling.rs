@@ -1,6 +1,5 @@
 use futures::StreamExt as _;
 use nomos_core::da::BlobId;
-use nomos_sdp::BlockEvent;
 use tests::{
     common::da::{disseminate_with_metadata, wait_for_blob_onchain},
     nodes::executor::Executor,
@@ -18,17 +17,7 @@ async fn test_historical_sampling_across_sessions() {
     tokio::time::sleep(Duration::from_secs(15)).await;
     let blob_ids = disseminate_blobs_in_session_zero(executor).await;
 
-    // Blocks 1-4: Complete session 0 and form session 1 on ALL nodes
-    for block_num in 1..=4 {
-        update_all_nodes(
-            &topology,
-            BlockEvent {
-                block_number: block_num,
-                updates: vec![],
-            },
-        )
-        .await;
-    }
+    // todo: Blocks 1-4: Complete session 0 and form session 1 on ALL nodes
 
     // todo: add more complex cases with multiple sessions
 
@@ -57,24 +46,6 @@ async fn disseminate_blobs_in_session_zero(executor: &Executor) -> Vec<BlobId> {
     }
 
     blob_ids
-}
-
-async fn update_all_nodes(topology: &Topology, event: BlockEvent) {
-    // Update all validators
-    for validator in topology.validators() {
-        validator
-            .update_membership(event.clone())
-            .await
-            .expect("Failed to update validator membership");
-    }
-
-    // Update all executors
-    for executor in topology.executors() {
-        executor
-            .update_membership(event.clone())
-            .await
-            .expect("Failed to update executor membership");
-    }
 }
 
 async fn test_sampling_scenarios(executor: &Executor, blob_ids: &[BlobId]) {

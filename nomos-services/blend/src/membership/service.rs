@@ -1,21 +1,20 @@
-use std::{collections::BTreeSet, hash::Hash, marker::PhantomData};
+use std::{hash::Hash, marker::PhantomData};
 
-use futures::StreamExt as _;
+use broadcast_service::{BlockBroadcastMsg, SessionSubscription, SessionUpdate};
+use futures::{StreamExt as _, future, stream::iter};
 use groth16::fr_from_bytes_unchecked;
 use nomos_blend_message::crypto::keys::Ed25519PublicKey;
 use nomos_blend_scheduling::membership::{Membership, Node};
 use nomos_core::{
     mantle::keys::{PublicKey, SecretKey},
-    sdp::{Locator, ProviderId, ServiceType},
-};
-use nomos_membership_service::{
-    MembershipMessage, MembershipSnapshotStream, backends::MembershipBackendError,
+    sdp::{ProviderId, ProviderInfo},
 };
 use overwatch::{
     DynError,
     services::{ServiceData, relay::OutboundRelay},
 };
 use tokio::sync::oneshot;
+use tokio_stream::wrappers::BroadcastStream;
 use tracing::warn;
 
 use crate::{
@@ -46,7 +45,7 @@ where
 #[async_trait::async_trait]
 impl<Service, NodeId> super::Adapter for Adapter<Service, NodeId>
 where
-    Service: ServiceData<Message = MembershipMessage>,
+    Service: ServiceData<Message = BlockBroadcastMsg>,
     NodeId: node_id::TryFrom + Clone + Hash + Eq + Sync,
 {
     type Service = Service;
@@ -72,14 +71,30 @@ where
     async fn subscribe(&self) -> Result<MembershipStream<Self::NodeId>, Self::Error> {
         let signing_public_key = self.signing_public_key;
         let maybe_zk_public_key = self.zk_public_key;
+
+        let SessionSubscription {
+            last_session,
+            receiver,
+        } = self.subscribe_stream().await?;
+
+        let initial_stream =
+            iter(last_session).chain(BroadcastStream::new(receiver).filter_map(|update_result| {
+                future::ready(match update_result {
+                    Ok(session) => Some(session),
+                    Err(e) => {
+                        tracing::warn!("Broadcast stream error in membership adapter: {:?}", e);
+                        None
+                    }
+                })
+            }));
+
         Ok(Box::pin(
-            self.subscribe_stream(ServiceType::BlendNetwork)
-                .await?
-                .map(|(_, providers_map)| {
-                    providers_map
+            initial_stream
+                .map(|SessionUpdate { providers, .. }| {
+                    providers
                         .iter()
-                        .filter_map(|(provider_id, locators)| {
-                            node_from_provider::<NodeId>(provider_id, locators)
+                        .filter_map(|(provider_id, provider_info)| {
+                            node_from_provider::<NodeId>(provider_id, provider_info)
                         })
                         .collect::<Vec<_>>()
                 })
@@ -114,28 +129,21 @@ where
 
 impl<Service, NodeId> Adapter<Service, NodeId>
 where
-    Service: ServiceData<Message = MembershipMessage>,
+    Service: ServiceData<Message = BlockBroadcastMsg>,
     NodeId: Sync,
 {
     /// Subscribe to membership updates for the given service type.
-    async fn subscribe_stream(
-        &self,
-        service_type: ServiceType,
-    ) -> Result<MembershipSnapshotStream, Error> {
+    async fn subscribe_stream(&self) -> Result<SessionSubscription, Error> {
         let (sender, receiver) = oneshot::channel();
 
         self.relay
-            .send(MembershipMessage::Subscribe {
-                service_type,
+            .send(BlockBroadcastMsg::SubscribeBlendSession {
                 result_sender: sender,
             })
             .await
             .map_err(|(e, _)| Error::Other(e.into()))?;
 
-        receiver
-            .await
-            .map_err(|e| Error::Other(e.into()))?
-            .map_err(Error::Backend)
+        receiver.await.map_err(|e| Error::Other(e.into()))
     }
 }
 
@@ -144,12 +152,13 @@ where
 /// be decoded.
 fn node_from_provider<NodeId>(
     provider_id: &ProviderId,
-    locators: &BTreeSet<Locator>,
+    provider_info: &ProviderInfo,
 ) -> Option<ZkNode<NodeId>>
 where
     NodeId: node_id::TryFrom,
 {
     let provider_id = provider_id.0.as_bytes();
+    let ProviderInfo { locators, .. } = provider_info;
     let address = locators.first()?.0.clone();
     let id = NodeId::try_from_provider_id(provider_id)
         .map_err(|e| {
@@ -180,8 +189,6 @@ where
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("Backend error: {0}")]
-    Backend(#[from] MembershipBackendError),
     #[error("Other error: {0}")]
     Other(#[from] DynError),
 }

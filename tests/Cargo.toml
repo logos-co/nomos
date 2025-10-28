@@ -38,7 +38,6 @@ nomos-executor           = { default-features = false, features = ["testing", "t
 nomos-http-api-common    = { workspace = true }
 nomos-ledger             = { features = ["serde"], workspace = true }
 nomos-libp2p             = { workspace = true }
-nomos-membership-service = { workspace = true }
 nomos-network            = { features = ["libp2p"], workspace = true }
 nomos-node               = { default-features = false, features = ["testing"], workspace = true }
 nomos-sdp                = { workspace = true }
@@ -51,7 +50,6 @@ num-bigint               = { version = "0.4", default-features = false }
 rand                     = { workspace = true }
 rand_core                = { version = "^0.9" }
 reqwest                  = { workspace = true, features = ["json"] }
-serde                    = { version = "1", features = ["derive"] }
 serde_json               = "1.0"
 serde_yaml               = "0.9"
 serial_test              = "3.1.1"
@@ -89,10 +87,6 @@ path = "src/tests/da/api.rs"
 [[test]]
 name = "test_mempool_api"
 path = "src/tests/mempool/api.rs"
-
-[[test]]
-name = "test_membership_api"
-path = "src/tests/membership/api.rs"
 
 [[test]]
 name = "test_membership_disperse"

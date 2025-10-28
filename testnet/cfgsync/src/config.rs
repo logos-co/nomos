@@ -1,31 +1,19 @@
-use std::{
-    collections::{BTreeSet, HashMap},
-    net::Ipv4Addr,
-    str::FromStr as _,
-};
+use std::{collections::HashMap, net::Ipv4Addr, str::FromStr as _};
 
-use nomos_core::sdp::{Locator, ServiceType};
-use nomos_libp2p::{Multiaddr, ed25519, multiaddr};
-use nomos_membership_service::{
-    MembershipServiceSettings, backends::membership::MembershipBackendSettings,
-};
+use nomos_libp2p::{Multiaddr, multiaddr};
 use nomos_tracing_service::{LoggerLayer, MetricsLayer, TracingLayer, TracingSettings};
 use nomos_utils::net::get_available_udp_port;
 use rand::{Rng as _, thread_rng};
-use tests::{
-    secret_key_to_provider_id,
-    topology::configs::{
-        GeneralConfig,
-        api::GeneralApiConfig,
-        blend::create_blend_configs,
-        bootstrap::{SHORT_PROLONGED_BOOTSTRAP_PERIOD, create_bootstrap_configs},
-        consensus::{ConsensusParams, create_consensus_configs},
-        da::{DaParams, create_da_configs},
-        membership::GeneralMembershipConfig,
-        network::{NetworkParams, create_network_configs},
-        time::default_time_config,
-        tracing::GeneralTracingConfig,
-    },
+use tests::topology::configs::{
+    GeneralConfig,
+    api::GeneralApiConfig,
+    blend::create_blend_configs,
+    bootstrap::{SHORT_PROLONGED_BOOTSTRAP_PERIOD, create_bootstrap_configs},
+    consensus::{ConsensusParams, create_consensus_configs},
+    da::{DaParams, create_da_configs},
+    network::{NetworkParams, create_network_configs},
+    time::default_time_config,
+    tracing::GeneralTracingConfig,
 };
 
 const DEFAULT_LIBP2P_NETWORK_PORT: u16 = 3000;
@@ -93,7 +81,6 @@ pub fn create_node_configs(
     let bootstrap_configs = create_bootstrap_configs(&ids, SHORT_PROLONGED_BOOTSTRAP_PERIOD);
     let da_configs = create_da_configs(&ids, da_params, &ports);
     let network_configs = create_network_configs(&ids, &NetworkParams::default());
-    let membership_configs = create_membership_configs(&ids, &hosts);
     let blend_configs = create_blend_configs(
         &ids,
         hosts
@@ -161,7 +148,6 @@ pub fn create_node_configs(
                 api_config,
                 tracing_config,
                 time_config,
-                membership_config: membership_configs[i].clone(),
             },
         );
     }
@@ -208,60 +194,6 @@ fn update_tracing_identifier(
             level: settings.level,
         },
     }
-}
-
-#[must_use]
-pub fn create_membership_configs(ids: &[[u8; 32]], hosts: &[Host]) -> Vec<GeneralMembershipConfig> {
-    let mut providers = HashMap::new();
-
-    for (i, id) in ids.iter().enumerate() {
-        let mut node_key_bytes = *id;
-        let node_key = ed25519::SecretKey::try_from_bytes(&mut node_key_bytes)
-            .expect("Failed to generate secret key from bytes");
-        let provider_id = secret_key_to_provider_id(node_key.clone());
-
-        let da_listening_address = Multiaddr::from_str(&format!(
-            "/ip4/{}/udp/{}/quic-v1",
-            hosts[i].ip, hosts[i].da_network_port,
-        ))
-        .expect("Failed to create multiaddr for DA");
-        let blend_listening_address = Multiaddr::from_str(&format!(
-            "/ip4/{}/udp/{}/quic-v1",
-            hosts[i].ip, hosts[i].blend_port,
-        ))
-        .expect("Failed to create multiaddr for Blend");
-
-        providers
-            .entry(ServiceType::DataAvailability)
-            .or_insert_with(HashMap::new)
-            .insert(
-                provider_id,
-                BTreeSet::from([Locator::new(da_listening_address)]),
-            );
-        providers
-            .entry(ServiceType::BlendNetwork)
-            .or_insert_with(HashMap::new)
-            .insert(
-                provider_id,
-                BTreeSet::from([Locator::new(blend_listening_address)]),
-            );
-    }
-
-    let mock_backend_settings = MembershipBackendSettings {
-        session_sizes: HashMap::from([
-            (ServiceType::DataAvailability, 4),
-            (ServiceType::BlendNetwork, 10),
-        ]),
-        session_zero_providers: providers,
-    };
-
-    let config = GeneralMembershipConfig {
-        service_settings: MembershipServiceSettings {
-            backend: mock_backend_settings,
-        },
-    };
-
-    ids.iter().map(|_| config.clone()).collect()
 }
 
 #[cfg(test)]

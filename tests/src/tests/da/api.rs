@@ -4,7 +4,6 @@ use common_http_client::CommonHttpClient;
 use futures_util::stream::StreamExt as _;
 use kzgrs_backend::common::share::DaShare;
 use nomos_core::{da::blob::LightShare as _, sdp::SessionNumber};
-use nomos_da_network_service::membership::adapters::service::peer_id_from_provider_id;
 use nomos_libp2p::ed25519;
 use rand::{RngCore as _, rngs::OsRng};
 use reqwest::Url;
@@ -52,7 +51,6 @@ async fn test_get_share_data() {
 #[ignore = "Reenable after transaction mempool is used"]
 async fn test_get_commitments_from_peers() {
     let interconnected_topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
-    let validator = &interconnected_topology.validators()[0];
     let executor = &interconnected_topology.executors()[0];
 
     interconnected_topology.wait_network_ready().await;
@@ -65,8 +63,7 @@ async fn test_get_commitments_from_peers() {
     // from the previous two, so it will need to query the DA network over the
     // sampling protocol for the share commitments.
     let lone_general_config = create_general_configs(1).into_iter().next().unwrap();
-    let mut lone_validator_config = create_validator_config(lone_general_config);
-    lone_validator_config.membership = validator.config().membership.clone();
+    let lone_validator_config = create_validator_config(lone_general_config);
     let lone_validator = Validator::spawn(lone_validator_config).await.unwrap();
 
     let data = [1u8; 31];
@@ -94,23 +91,15 @@ async fn test_block_peer() {
     let blacklisted_peers = executor.blacklisted_peers().await;
     assert!(blacklisted_peers.is_empty());
 
-    let membership = executor
-        .config()
-        .membership
-        .backend
-        .session_zero_providers
-        .get(&nomos_core::sdp::ServiceType::DataAvailability)
-        .expect("Expected data availability membership");
-    assert!(!membership.is_empty());
-
-    // take second peer ID from the membership set
-    let existing_provider_id = *membership
+    topology.wait_membership_ready().await;
+    let existing_peer_id = *executor
+        .da_get_membership(0u64)
+        .await
+        .unwrap()
+        .addressbook
         .keys()
-        .nth(1)
-        .expect("Expected at least two provider IDs in the membership set");
-
-    let existing_peer_id = peer_id_from_provider_id(existing_provider_id.0.as_bytes())
-        .expect("Failed to convert provider ID to PeerId");
+        .next()
+        .unwrap();
 
     // try block/unblock peer id combinations
     let blocked = executor.block_peer(existing_peer_id.to_string()).await;

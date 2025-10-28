@@ -17,7 +17,6 @@ use common_http_client::CommonHttpClient;
 use cryptarchia_engine::time::SlotConfig;
 use futures::Stream;
 use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
-use nomos_api::http::membership::MembershipUpdateRequest;
 use nomos_blend_scheduling::message_blend::crypto::SessionCryptographicProcessorSettings;
 use nomos_blend_service::{
     core::settings::{CoverTrafficSettings, MessageDelayerSettings, SchedulerSettings, ZkSettings},
@@ -54,7 +53,7 @@ use nomos_executor::{api::backend::AxumBackendSettings, config::Config};
 use nomos_http_api_common::paths::{
     CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_BLACKLISTED_PEERS, DA_BLOCK_PEER, DA_GET_MEMBERSHIP,
     DA_GET_SHARES_COMMITMENTS, DA_HISTORIC_SAMPLING, DA_MONITOR_STATS, DA_UNBLOCK_PEER,
-    MANTLE_METRICS, NETWORK_INFO, STORAGE_BLOCK, UPDATE_MEMBERSHIP,
+    MANTLE_METRICS, NETWORK_INFO, STORAGE_BLOCK,
 };
 use nomos_network::{
     backends::libp2p::{Libp2pConfig, Libp2pInfo},
@@ -65,7 +64,7 @@ use nomos_node::{
     api::testing::handlers::HistoricSamplingRequest,
     config::{blend::BlendConfig, mempool::MempoolConfig},
 };
-use nomos_sdp::{BlockEvent, SdpSettings};
+use nomos_sdp::SdpSettings;
 use nomos_time::{
     TimeServiceSettings,
     backends::{NtpTimeBackendSettings, ntp::async_client::NTPClientSettings},
@@ -298,27 +297,6 @@ impl Executor {
                 blob_id,
             )
             .await
-    }
-
-    pub async fn update_membership(&self, update_event: BlockEvent) -> Result<(), reqwest::Error> {
-        let update_event = MembershipUpdateRequest { update_event };
-        let json_body = serde_json::to_string(&update_event).unwrap();
-
-        let response = CLIENT
-            .post(format!(
-                "http://{}{}",
-                self.testing_http_addr, UPDATE_MEMBERSHIP
-            ))
-            .header("Content-Type", "application/json")
-            .body(json_body)
-            .send()
-            .await;
-
-        assert!(response.is_ok(), "{}", DA_GET_TESTING_ENDPOINT_ERROR);
-
-        let response = response.unwrap();
-        response.error_for_status()?;
-        Ok(())
     }
 
     pub async fn da_get_membership(
@@ -579,7 +557,6 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
             pool_recovery_path: "./recovery/mempool.json".into(),
             trigger_sampling_delay: adjust_timeout(Duration::from_secs(5)),
         },
-        membership: config.membership_config.service_settings,
         sdp: SdpSettings { declaration: None },
         wallet: nomos_wallet::WalletServiceSettings {
             known_keys: HashSet::from_iter([config.consensus_config.leader_config.pk]),

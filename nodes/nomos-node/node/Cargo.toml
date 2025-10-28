@@ -39,7 +39,6 @@ nomos-da-sampling        = { features = ["libp2p", "rocksdb-backend"], workspace
 nomos-da-verifier        = { features = ["libp2p"], workspace = true }
 nomos-http-api-common    = { workspace = true, features = ["profiling"] }
 nomos-libp2p             = { workspace = true }
-nomos-membership-service = { workspace = true }
 nomos-network            = { workspace = true }
 nomos-sdp                = { workspace = true }
 nomos-storage            = { workspace = true }
