@@ -22,6 +22,7 @@ chain-service            = { workspace = true }
 common-http-client       = { workspace = true }
 cryptarchia-engine       = { features = ["serde"], workspace = true }
 cryptarchia-sync         = { workspace = true }
+ed25519                  = "2.2"
 ed25519-dalek            = { version = "2.2.0", features = ["rand_core", "serde"] }
 executor-http-client     = { workspace = true }
 futures                  = { default-features = false, version = "0.3" }
@@ -105,3 +106,7 @@ path = "src/tests/da/historic_sampling.rs"
 [[test]]
 name = "test_invalid_tx_handling"
 path = "src/tests/cryptarchia/invalid_tx_handling.rs"
+
+[[test]]
+name = "test_mantle_channel_ops"
+path = "src/tests/mantle/channel_ops.rs"

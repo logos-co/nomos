@@ -9,7 +9,7 @@ use nomos_core::{
     block::BlockNumber,
     mantle::{
         AuthenticatedMantleTx, GasConstants, GenesisTx, NoteId, TxHash,
-        ops::{Op, OpProof, leader_claim::VoucherCm},
+        ops::{Op, OpProof, channel::ChannelId, leader_claim::VoucherCm},
     },
     sdp::{ProviderId, ProviderInfo, ServiceType, SessionNumber},
 };
@@ -204,6 +204,11 @@ impl LedgerState {
 
         Ok((self, balance))
     }
+
+    #[must_use]
+    pub fn get_channel(&self, channel_id: &ChannelId) -> Option<&channel::ChannelState> {
+        self.channels.channels.get(channel_id)
+    }
 }
 
 #[cfg(test)]
@@ -213,9 +218,7 @@ mod tests {
         MantleTx, SignedMantleTx, Transaction as _,
         gas::MainnetGasConstants,
         ledger::Tx as LedgerTx,
-        ops::channel::{
-            ChannelId, MsgId, blob::BlobOp, inscribe::InscriptionOp, set_keys::SetKeysOp,
-        },
+        ops::channel::{MsgId, blob::BlobOp, inscribe::InscriptionOp, set_keys::SetKeysOp},
     };
 
     use super::*;
