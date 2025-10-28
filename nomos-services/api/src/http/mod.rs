@@ -5,4 +5,5 @@ pub mod libp2p;
 pub mod mantle;
 pub mod membership;
 pub mod mempool;
+pub mod sdp;
 pub mod storage;
