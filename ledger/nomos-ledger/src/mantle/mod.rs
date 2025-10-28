@@ -58,6 +58,27 @@ impl LedgerState {
         }
     }
 
+    /// Get a specific channel state by channel ID
+    #[must_use]
+    pub fn get_channel(
+        &self,
+        channel_id: &nomos_core::mantle::ops::channel::ChannelId,
+    ) -> Option<&channel::ChannelState> {
+        self.channels.channels.get(channel_id)
+    }
+
+    /// Get all channels as an iterator
+    pub fn iter_channels(
+        &self,
+    ) -> impl Iterator<
+        Item = (
+            &nomos_core::mantle::ops::channel::ChannelId,
+            &channel::ChannelState,
+        ),
+    > {
+        self.channels.channels.iter()
+    }
+
     pub fn from_genesis_tx(
         tx: impl GenesisTx,
         config: &Config,

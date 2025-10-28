@@ -144,6 +144,33 @@ pub struct LedgerState {
 }
 
 impl LedgerState {
+    /// Get a specific channel state by channel ID
+    #[must_use]
+    pub fn get_channel(
+        &self,
+        channel_id: &nomos_core::mantle::ops::channel::ChannelId,
+    ) -> Option<&mantle::channel::ChannelState> {
+        self.mantle_ledger.get_channel(channel_id)
+    }
+
+    /// Get all channels as an iterator
+    pub fn iter_channels(
+        &self,
+    ) -> impl Iterator<
+        Item = (
+            &nomos_core::mantle::ops::channel::ChannelId,
+            &mantle::channel::ChannelState,
+        ),
+    > {
+        self.mantle_ledger.iter_channels()
+    }
+
+    /// Get the cryptarchia ledger state for read-only access
+    #[must_use]
+    pub const fn cryptarchia_ledger(&self) -> &CryptarchiaLedger {
+        &self.cryptarchia_ledger
+    }
+
     fn try_update<LeaderProof, Id, Constants>(
         self,
         slot: Slot,

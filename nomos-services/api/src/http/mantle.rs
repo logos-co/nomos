@@ -5,7 +5,7 @@ use broadcast_service::{BlockBroadcastMsg, BlockBroadcastService, BlockInfo};
 use futures::{Stream, StreamExt as _};
 use nomos_core::{
     header::HeaderId,
-    mantle::{SignedMantleTx, Transaction},
+    mantle::{SignedMantleTx, Transaction, ops::channel::ChannelId},
 };
 use overwatch::services::AsServiceId;
 use tokio::sync::oneshot;
@@ -15,6 +15,8 @@ use tx_service::{
     network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
     tx::service::openapi::Status,
 };
+
+use super::mantle_state::ChannelState;
 
 pub type MempoolService<SamplingNetworkAdapter, SamplingStorage, StorageAdapter, RuntimeServiceId> =
     TxMempoolService<
@@ -149,4 +151,85 @@ where
         .map(|result| result.map_err(|e| Box::new(e) as crate::http::DynError));
 
     Ok(stream)
+}
+
+/// Get channel state by channel ID from the actual chain service
+pub async fn get_channel_state<
+    SamplingBackend,
+    SamplingNetworkAdapter,
+    SamplingStorage,
+    StorageAdapter,
+    TimeBackend,
+    RuntimeServiceId,
+>(
+    handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
+    channel_id: ChannelId,
+) -> Result<Option<ChannelState>, super::DynError>
+where
+    SamplingBackend: nomos_da_sampling::backend::DaSamplingServiceBackend<BlobId = [u8; 32]> + Send,
+    SamplingBackend::Settings: Clone,
+    SamplingBackend::Share: Debug + 'static,
+    SamplingBackend::BlobId: Debug + 'static,
+    SamplingNetworkAdapter:
+        nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync + 'static,
+    SamplingStorage:
+        nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync + 'static,
+    StorageAdapter: tx_service::storage::MempoolStorageAdapter<
+            RuntimeServiceId,
+            Item = SignedMantleTx,
+            Key = <SignedMantleTx as Transaction>::Hash,
+        > + Send
+        + Sync
+        + Clone
+        + 'static,
+    StorageAdapter::Error: Debug,
+    TimeBackend: nomos_time::backends::TimeBackend,
+    TimeBackend::Settings: Clone + Send + Sync,
+    RuntimeServiceId: Debug
+        + Send
+        + Sync
+        + Display
+        + 'static
+        + AsServiceId<
+            super::consensus::Cryptarchia<
+                SamplingBackend,
+                SamplingNetworkAdapter,
+                SamplingStorage,
+                StorageAdapter,
+                TimeBackend,
+                RuntimeServiceId,
+            >,
+        >,
+{
+    use chain_service::ConsensusMsg;
+
+    let relay = handle
+        .relay::<super::consensus::Cryptarchia<
+            SamplingBackend,
+            SamplingNetworkAdapter,
+            SamplingStorage,
+            StorageAdapter,
+            TimeBackend,
+            RuntimeServiceId,
+        >>()
+        .await?;
+    let (sender, receiver) = oneshot::channel();
+
+    relay
+        .send(ConsensusMsg::GetChannelState {
+            channel_id,
+            tx: sender,
+        })
+        .await
+        .map_err(|(e, _)| e)?;
+
+    if let Some(channel_state) = receiver.await? {
+        Ok(Some(ChannelState {
+            channel_id,
+            tip: channel_state.tip,
+            accredited_keys: channel_state.keys.to_vec(),
+        }))
+    } else {
+        Ok(None)
+    }
 }
