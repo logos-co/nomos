@@ -5,7 +5,7 @@ use std::{
     path::PathBuf,
     process::{Child, Command, Stdio},
     str::FromStr as _,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use broadcast_service::BlockInfo;
@@ -23,7 +23,12 @@ use nomos_blend_service::{
     core::settings::{CoverTrafficSettings, MessageDelayerSettings, SchedulerSettings, ZkSettings},
     settings::TimingSettings,
 };
-use nomos_core::{block::Block, da::BlobId, mantle::SignedMantleTx, sdp::SessionNumber};
+use nomos_core::{
+    block::Block,
+    da::BlobId,
+    mantle::{SignedMantleTx, Transaction as _},
+    sdp::SessionNumber,
+};
 use nomos_da_network_core::{
     protocols::sampling::SubnetsConfig,
     swarm::{BalancerStats, DAConnectionPolicySettings, MonitorStats},
@@ -389,6 +394,40 @@ impl Validator {
         self.http_client
             .get_lib_stream(Url::from_str(&format!("http://{}", self.addr))?)
             .await
+    }
+
+    /// Wait for a list of transactions to be included in blocks
+    pub async fn wait_for_transactions_inclusion(
+        &self,
+        tx_hashes: Vec<nomos_core::mantle::TxHash>,
+        timeout: Duration,
+    ) -> Vec<Option<HeaderId>> {
+        let start = Instant::now();
+        let mut results = vec![None; tx_hashes.len()];
+
+        while start.elapsed() < timeout {
+            let headers = self.get_headers(None, None).await;
+
+            for header_id in headers.iter().take(10) {
+                if let Some(block) = self.get_block(*header_id).await {
+                    for tx in block.transactions() {
+                        for (i, target_hash) in tx_hashes.iter().enumerate() {
+                            if tx.hash() == *target_hash && results[i].is_none() {
+                                results[i] = Some(*header_id);
+                            }
+                        }
+                    }
+                }
+            }
+
+            if results.iter().all(Option::is_some) {
+                break;
+            }
+
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+
+        results
     }
 }
 
