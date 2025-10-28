@@ -85,6 +85,16 @@ impl LedgerState {
     }
 
     #[must_use]
+    pub const fn sdp_ledger(&self) -> &sdp::SdpLedger {
+        &self.sdp
+    }
+
+    #[must_use]
+    pub const fn channels(&self) -> &channel::Channels {
+        &self.channels
+    }
+
+    #[must_use]
     pub fn active_session_providers(
         &self,
         service_type: ServiceType,

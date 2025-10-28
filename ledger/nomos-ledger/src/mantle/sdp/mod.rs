@@ -389,6 +389,13 @@ impl SdpLedger {
             .collect()
     }
 
+    #[must_use]
+    pub fn get_declaration(&self, declaration_id: &DeclarationId) -> Option<&Declaration> {
+        self.services
+            .iter()
+            .find_map(|(_, state)| state.declarations.get(declaration_id))
+    }
+
     fn get_service<'a>(
         &self,
         declaration_id: &DeclarationId,

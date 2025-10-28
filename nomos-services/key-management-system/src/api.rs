@@ -66,9 +66,6 @@ where
         Self::from(relay)
     }
 
-    /// Register a new key in the KMS
-    ///
-    /// Returns a tuple of (`KeyId`, `PublicKey`)
     pub async fn register(
         &self,
         key_id: <Kms::Backend as KMSBackend>::KeyId,
@@ -88,7 +85,6 @@ where
         Ok(rx.await?)
     }
 
-    /// Get the public key for a registered key ID
     pub async fn public_key(
         &self,
         key_id: <Kms::Backend as KMSBackend>::KeyId,
@@ -106,7 +102,6 @@ where
         Ok(rx.await?)
     }
 
-    /// Sign a payload with a single key
     pub async fn sign(
         &self,
         key_id: <Kms::Backend as KMSBackend>::KeyId,
@@ -126,7 +121,6 @@ where
         Ok(rx.await?)
     }
 
-    /// Sign a payload with multiple keys (multi-signature)
     pub async fn sign_multiple(
         &self,
         key_ids: Vec<<Kms::Backend as KMSBackend>::KeyId>,
@@ -146,9 +140,6 @@ where
         Ok(rx.await?)
     }
 
-    /// Execute a custom operator with a key
-    ///
-    /// This allows for advanced key operations beyond signing
     pub async fn execute(
         &self,
         key_id: <Kms::Backend as KMSBackend>::KeyId,

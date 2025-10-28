@@ -17,7 +17,7 @@ use nomos_core::{
         AuthenticatedMantleTx, SignedMantleTx, Transaction as _, Utxo, Value,
         gas::MainnetGasConstants,
         keys::PublicKey,
-        ops::{Op, OpProof},
+        ops::{Op, OpProof, channel::ChannelId},
         tx_builder::MantleTxBuilder,
     },
     proofs::zksig::{DummyZkSignature, ZkSignaturePublic},
@@ -53,8 +53,17 @@ pub enum WalletServiceError {
     #[error(transparent)]
     WalletError(#[from] WalletError),
 
+    #[error("KMS API error: {0}")]
+    KmsApi(DynError),
+
     #[error("Cryptarchia API error: {0}")]
-    CryptarchiaApi(#[from] DynError),
+    CryptarchiaApi(DynError),
+
+    #[error("Channel {0:?} is missing state in ledger")]
+    MissingChannelState(ChannelId),
+
+    #[error("Declaration {0:?} is missing in ledger")]
+    MissingDeclaration(nomos_core::sdp::DeclarationId),
 }
 
 #[derive(Debug)]
@@ -62,14 +71,14 @@ pub enum WalletMsg {
     GetBalance {
         tip: HeaderId,
         pk: PublicKey,
-        resp_tx: oneshot::Sender<Result<Option<Value>, WalletError>>,
+        resp_tx: oneshot::Sender<Result<Option<Value>, WalletServiceError>>,
     },
     FundAndSignTx {
         tip: HeaderId,
         tx_builder: MantleTxBuilder,
         change_pk: PublicKey,
         funding_pks: Vec<PublicKey>,
-        resp_tx: oneshot::Sender<Result<SignedMantleTx, WalletError>>,
+        resp_tx: oneshot::Sender<Result<SignedMantleTx, WalletServiceError>>,
     },
     GetLeaderAgedNotes {
         tip: HeaderId,
@@ -290,7 +299,10 @@ where
 
         match msg {
             WalletMsg::GetBalance { tip, pk, resp_tx } => {
-                let balance = wallet.balance(tip, pk);
+                let balance = wallet
+                    .balance(tip, pk)
+                    .map_err(WalletServiceError::WalletError);
+
                 if resp_tx.send(balance).is_err() {
                     error!("Failed to respond to GetBalance");
                 }
@@ -302,9 +314,16 @@ where
                 funding_pks,
                 resp_tx,
             } => {
-                let signed_tx_res =
-                    Self::fund_and_sign_tx(tip, &tx_builder, change_pk, funding_pks, wallet, kms)
-                        .await;
+                let signed_tx_res = Self::fund_and_sign_tx(
+                    tip,
+                    &tx_builder,
+                    change_pk,
+                    funding_pks,
+                    wallet,
+                    kms,
+                    cryptarchia,
+                )
+                .await;
                 if resp_tx.send(signed_tx_res).is_err() {
                     error!("Failed to respond to FundAndSignTx");
                 }
@@ -322,15 +341,18 @@ where
         funding_pks: Vec<PublicKey>,
         wallet: &Wallet,
         kms: &KmsServiceApi<KMSService<PreloadKMSBackend, RuntimeServiceId>, RuntimeServiceId>,
-    ) -> Result<SignedMantleTx, WalletError> {
-        let funded_tx =
-            wallet.fund_tx::<MainnetGasConstants>(tip, tx_builder, change_pk, funding_pks)?;
+        cryptarchia: &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
+    ) -> Result<SignedMantleTx, WalletServiceError> {
+        let mantle_tx = wallet
+            .fund_tx::<MainnetGasConstants>(tip, tx_builder, change_pk, funding_pks)?
+            .build();
 
-        // Build the transaction
-        let mantle_tx = funded_tx.build();
+        let ledger_state = cryptarchia
+            .get_ledger_state(tip)
+            .await
+            .map_err(WalletServiceError::CryptarchiaApi)?
+            .ok_or(WalletServiceError::LedgerStateNotFound(tip))?;
 
-        // Create operation proofs for each operation
-        // Pattern match on each operation type to determine required proof
         let tx_hash = mantle_tx.hash();
         let tx_hash_bytes: Bytes = tx_hash.into();
 
@@ -346,14 +368,17 @@ where
                     let payload = key_management_system::keys::PayloadEncoding::Ed25519(
                         tx_hash_bytes.clone(),
                     );
-                    let signature = kms.sign(signer_hex, payload).await.map_err(|e| {
-                        WalletError::Internal(format!("Failed to sign ChannelInscribe: {e}"))
-                    })?;
+                    let signature = kms
+                        .sign(signer_hex, payload)
+                        .await
+                        .map_err(WalletServiceError::KmsApi)?;
 
                     let key_management_system::keys::SignatureEncoding::Ed25519(ed25519_sig) =
                         signature
                     else {
-                        return Err(WalletError::Internal("Expected Ed25519 signature".into()));
+                        return Err(WalletServiceError::KmsApi(
+                            "Expected Ed25519 signature".into(),
+                        ));
                     };
 
                     OpProof::Ed25519Sig(ed25519_sig)
@@ -366,52 +391,151 @@ where
                     let payload = key_management_system::keys::PayloadEncoding::Ed25519(
                         tx_hash_bytes.clone(),
                     );
-                    let signature = kms.sign(signer_hex, payload).await.map_err(|e| {
-                        WalletError::Internal(format!("Failed to sign ChannelBlob: {e}"))
-                    })?;
+                    let signature = kms
+                        .sign(signer_hex, payload)
+                        .await
+                        .map_err(WalletServiceError::KmsApi)?;
 
                     let key_management_system::keys::SignatureEncoding::Ed25519(ed25519_sig) =
                         signature
                     else {
-                        return Err(WalletError::Internal("Expected Ed25519 signature".into()));
+                        return Err(WalletServiceError::KmsApi(
+                            "Expected Ed25519 signature".into(),
+                        ));
                     };
 
                     OpProof::Ed25519Sig(ed25519_sig)
                 }
                 Op::ChannelSetKeys(set_keys_op) => {
                     // Requires OpProof::Ed25519Sig
-                    // Sign the tx hash with the channel owner's Ed25519 key
-                    //
-                    // TODO: Determine channel authority
-                    // SetKeysOp doesn't include the signer in the operation data.
-                    // We need to:
-                    // 1. Track channel ownership in wallet state (creator of ChannelInscribe)
-                    // 2. Look up which key has authority over set_keys_op.channel
-                    // 3. Or require the caller to specify the signing key when building the tx
-                    //
-                    // For now, return an error indicating this needs to be implemented.
-                    return Err(WalletError::Internal(format!(
-                        "ChannelSetKeys signing not yet implemented: need to determine signing authority for channel {}",
-                        hex::encode(set_keys_op.channel.as_ref())
-                    )));
+                    // Look up the channel from the ledger state to get the authorized key
+                    let channel = ledger_state
+                        .mantle_ledger()
+                        .channels()
+                        .channel_state(&set_keys_op.channel)
+                        .ok_or(WalletServiceError::MissingChannelState(set_keys_op.channel))?;
+
+                    let authority_key = channel.keys[0]; // First key is authority key
+
+                    let authority_hex = hex::encode(authority_key.as_bytes());
+                    let payload = key_management_system::keys::PayloadEncoding::Ed25519(
+                        tx_hash_bytes.clone(),
+                    );
+                    let signature = kms
+                        .sign(authority_hex, payload)
+                        .await
+                        .map_err(WalletServiceError::KmsApi)?;
+
+                    let key_management_system::keys::SignatureEncoding::Ed25519(ed25519_sig) =
+                        signature
+                    else {
+                        return Err(WalletServiceError::KmsApi(
+                            "Expected Ed25519 signature".into(),
+                        ));
+                    };
+
+                    OpProof::Ed25519Sig(ed25519_sig)
                 }
-                Op::SDPDeclare(_declare_op) => {
+                Op::SDPDeclare(declare_op) => {
                     // Requires OpProof::ZkAndEd25519Sigs
                     // Needs both a ZK signature and an Ed25519 signature
-                    // TODO: Use KMS to create both signatures
-                    todo!("Sign SDPDeclare with ZK and Ed25519")
+
+                    // TODO: Use real KMS ZK signatures
+                    // Currently OpProof uses DummyZkSignature, but KMS returns real Signature.
+                    // Once OpProof is updated to use real signatures, we should:
+                    // 1. Call KMS with the ZK key
+                    // 2. Convert the result to the OpProof signature type
+                    //
+                    // For now, generate a dummy ZK signature using the standard prove() method
+                    let zk_sig = DummyZkSignature::prove(&ZkSignaturePublic {
+                        msg_hash: mantle_tx.hash().into(),
+                        pks: vec![declare_op.zk_id.0],
+                    });
+
+                    // Sign with Ed25519 key (provider_id)
+                    let provider_hex = hex::encode(declare_op.provider_id.0.as_bytes());
+                    let ed25519_payload = key_management_system::keys::PayloadEncoding::Ed25519(
+                        tx_hash_bytes.clone(),
+                    );
+                    let ed25519_signature = kms
+                        .sign(provider_hex, ed25519_payload)
+                        .await
+                        .map_err(WalletServiceError::KmsApi)?;
+
+                    let key_management_system::keys::SignatureEncoding::Ed25519(ed25519_sig) =
+                        ed25519_signature
+                    else {
+                        return Err(WalletServiceError::KmsApi(
+                            "Expected Ed25519 signature".into(),
+                        ));
+                    };
+
+                    OpProof::ZkAndEd25519Sigs {
+                        zk_sig,
+                        ed25519_sig,
+                    }
                 }
-                Op::SDPWithdraw(_withdraw_op) => {
+                Op::SDPWithdraw(withdraw_op) => {
                     // Requires OpProof::ZkSig
-                    // Sign with ZK signature only
-                    // TODO: Use KMS to create ZK signature
-                    todo!("Sign SDPWithdraw with ZK")
+                    // Look up the declaration from the ledger state to get the zk_id
+                    let declaration = ledger_state
+                        .mantle_ledger()
+                        .sdp_ledger()
+                        .get_declaration(&withdraw_op.declaration_id)
+                        .ok_or(WalletServiceError::MissingDeclaration(
+                            withdraw_op.declaration_id,
+                        ))?;
+
+                    // Generate dummy ZK signature using the declaration's zk_id
+                    // TODO: Use real KMS ZK signatures once OpProof supports real Signature type
+                    let locked_note = ledger_state
+                        .mantle_ledger()
+                        .locked_notes()
+                        .get(&declaration.locked_note_id)
+                        .ok_or_else(|| {
+                            WalletError::Internal(format!(
+                                "Locked note not found for declaration: {:?}",
+                                declaration.locked_note_id
+                            ))
+                        })?;
+
+                    let zk_sig = DummyZkSignature::prove(&ZkSignaturePublic {
+                        msg_hash: mantle_tx.hash().into(),
+                        pks: vec![locked_note.pk.into(), declaration.zk_id.0],
+                    });
+
+                    OpProof::ZkSig(zk_sig)
                 }
-                Op::SDPActive(_active_op) => {
+                Op::SDPActive(active_op) => {
                     // Requires OpProof::ZkSig
-                    // Sign with ZK signature only
-                    // TODO: Use KMS to create ZK signature
-                    todo!("Sign SDPActive with ZK")
+                    // Look up the declaration from the ledger state to get the zk_id
+                    let declaration = ledger_state
+                        .mantle_ledger()
+                        .sdp_ledger()
+                        .get_declaration(&active_op.declaration_id)
+                        .ok_or(WalletServiceError::MissingDeclaration(
+                            active_op.declaration_id,
+                        ))?;
+
+                    // Generate dummy ZK signature using the declaration's zk_id
+                    // TODO: Use real KMS ZK signatures once OpProof supports real Signature type
+                    let locked_note = ledger_state
+                        .mantle_ledger()
+                        .locked_notes()
+                        .get(&declaration.locked_note_id)
+                        .ok_or_else(|| {
+                            WalletError::Internal(format!(
+                                "Locked note not found for declaration: {:?}",
+                                declaration.locked_note_id
+                            ))
+                        })?;
+
+                    let zk_sig = DummyZkSignature::prove(&ZkSignaturePublic {
+                        msg_hash: mantle_tx.hash().into(),
+                        pks: vec![locked_note.pk.into(), declaration.zk_id.0],
+                    });
+
+                    OpProof::ZkSig(zk_sig)
                 }
                 Op::LeaderClaim(_claim_op) => {
                     // Requires OpProof::LeaderClaimProof (Groth16 proof)
@@ -516,7 +640,10 @@ where
         missing_block: HeaderId,
         cryptarchia_api: &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
     ) -> Result<Vec<HeaderId>, WalletServiceError> {
-        Ok(cryptarchia_api.get_headers_to_lib(missing_block).await?)
+        cryptarchia_api
+            .get_headers_to_lib(missing_block)
+            .await
+            .map_err(WalletServiceError::CryptarchiaApi)
     }
 
     async fn backfill_missing_blocks(
