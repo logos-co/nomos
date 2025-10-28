@@ -10,10 +10,15 @@ pub mod tracing;
 pub mod time;
 
 use blend::GeneralBlendConfig;
-use consensus::GeneralConsensusConfig;
+use consensus::{GeneralConsensusConfig, ProviderInfo, create_genesis_tx_with_declarations};
 use da::GeneralDaConfig;
 use network::GeneralNetworkConfig;
+use nomos_core::{
+    mantle::GenesisTx as _,
+    sdp::{Locator, ProviderId, ServiceType, ZkPublicKey},
+};
 use nomos_utils::net::get_available_udp_port;
+use num_bigint::BigUint;
 use rand::{Rng as _, thread_rng};
 use tracing::GeneralTracingConfig;
 
@@ -73,7 +78,7 @@ pub fn create_general_configs_with_blend_core_subset(
     }
 
     let consensus_params = ConsensusParams::default_for_participants(n_nodes);
-    let consensus_configs = consensus::create_consensus_configs(&ids, &consensus_params);
+    let mut consensus_configs = consensus::create_consensus_configs(&ids, &consensus_params);
     let bootstrap_config =
         bootstrap::create_bootstrap_configs(&ids, SHORT_PROLONGED_BOOTSTRAP_PERIOD);
     let network_configs = network::create_network_configs(&ids, network_params);
@@ -82,6 +87,29 @@ pub fn create_general_configs_with_blend_core_subset(
     let blend_configs = blend::create_blend_configs(&ids, &blend_ports);
     let tracing_configs = tracing::create_tracing_configs(&ids);
     let time_config = time::default_time_config();
+
+    let providers: Vec<_> = blend_configs
+        .iter()
+        .enumerate()
+        .map(|(i, blend_conf)| ProviderInfo {
+            service_type: ServiceType::BlendNetwork,
+            provider_id: ProviderId(blend_conf.signer.verifying_key()),
+            zk_id: ZkPublicKey(BigUint::from(0u8).into()),
+            locator: Locator(blend_conf.backend_core.listening_address.clone()),
+            note: consensus_configs[0].blend_notes[i].clone(),
+            signer: blend_conf.signer.clone(),
+        })
+        .collect();
+    let ledger_tx = consensus_configs[0]
+        .genesis_tx
+        .mantle_tx()
+        .ledger_tx
+        .clone();
+    let genesis_tx = create_genesis_tx_with_declarations(ledger_tx, providers);
+    for c in &mut consensus_configs {
+        c.genesis_tx = genesis_tx.clone();
+    }
+
     let mut general_configs = vec![];
 
     for i in 0..n_nodes {
