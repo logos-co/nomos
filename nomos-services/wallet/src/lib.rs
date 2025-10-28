@@ -280,10 +280,6 @@ where
     RuntimeServiceId:
         AsServiceId<Cryptarchia> + AsServiceId<Kms> + std::fmt::Debug + std::fmt::Display + Sync,
 {
-    #[expect(
-        clippy::cognitive_complexity,
-        reason = "Complex message handling logic, will be refactored when implementing actual KMS proofs"
-    )]
     async fn handle_wallet_message(
         msg: WalletMsg,
         wallet: &mut Wallet,
@@ -299,13 +295,7 @@ where
 
         match msg {
             WalletMsg::GetBalance { tip, pk, resp_tx } => {
-                let balance = wallet
-                    .balance(tip, pk)
-                    .map_err(WalletServiceError::WalletError);
-
-                if resp_tx.send(balance).is_err() {
-                    error!("Failed to respond to GetBalance");
-                }
+                Self::handle_get_balance(tip, pk, resp_tx, wallet);
             }
             WalletMsg::FundAndSignTx {
                 tip,
@@ -314,19 +304,20 @@ where
                 funding_pks,
                 resp_tx,
             } => {
-                let signed_tx_res = Self::fund_and_sign_tx(
+                let funded = match wallet.fund_tx::<MainnetGasConstants>(
                     tip,
                     &tx_builder,
                     change_pk,
                     funding_pks,
-                    wallet,
-                    kms,
-                    cryptarchia,
-                )
-                .await;
-                if resp_tx.send(signed_tx_res).is_err() {
-                    error!("Failed to respond to FundAndSignTx");
-                }
+                ) {
+                    Ok(funded) => funded,
+                    Err(err) => {
+                        Self::send_err(resp_tx, WalletServiceError::from(err));
+                        return;
+                    }
+                };
+
+                Self::handle_sign_tx(tip, funded, resp_tx, kms, cryptarchia).await;
             }
             WalletMsg::GetLeaderAgedNotes { tip, resp_tx } => {
                 Self::get_leader_aged_notes(tip, resp_tx, wallet, cryptarchia).await;
@@ -334,26 +325,49 @@ where
         }
     }
 
-    async fn fund_and_sign_tx(
+    fn handle_get_balance(
         tip: HeaderId,
-        tx_builder: &MantleTxBuilder,
-        change_pk: PublicKey,
-        funding_pks: Vec<PublicKey>,
+        pk: PublicKey,
+        resp_tx: oneshot::Sender<Result<Option<u64>, WalletServiceError>>,
         wallet: &Wallet,
+    ) {
+        let balance = wallet
+            .balance(tip, pk)
+            .map_err(WalletServiceError::WalletError);
+
+        if resp_tx.send(balance).is_err() {
+            error!("Failed to respond to GetBalance");
+        }
+    }
+
+    async fn handle_sign_tx(
+        tip: HeaderId,
+        tx_builder: MantleTxBuilder,
+        resp_tx: oneshot::Sender<Result<SignedMantleTx, WalletServiceError>>,
+        kms: &KmsServiceApi<Kms, RuntimeServiceId>,
+        cryptarchia: &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
+    ) {
+        let signed_tx_res = Self::sign_tx(tip, tx_builder, kms, cryptarchia).await;
+
+        if resp_tx.send(signed_tx_res).is_err() {
+            error!("Failed to respond to FundAndSignTx");
+        }
+    }
+
+    async fn sign_tx(
+        tip: HeaderId,
+        tx_builder: MantleTxBuilder,
         kms: &KmsServiceApi<Kms, RuntimeServiceId>,
         cryptarchia: &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
     ) -> Result<SignedMantleTx, WalletServiceError> {
-        let funded_tx_builder =
-            wallet.fund_tx::<MainnetGasConstants>(tip, tx_builder, change_pk, funding_pks)?;
-
         // Extract input public keys before building the transaction
-        let input_pks: Vec<Fr> = funded_tx_builder
+        let input_pks: Vec<Fr> = tx_builder
             .ledger_inputs()
             .iter()
             .map(|utxo| utxo.note.pk.into())
             .collect();
 
-        let mantle_tx = funded_tx_builder.build();
+        let mantle_tx = tx_builder.build();
 
         let ledger_state = cryptarchia
             .get_ledger_state(tip)

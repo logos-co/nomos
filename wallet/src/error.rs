@@ -7,6 +7,4 @@ pub enum WalletError {
     UnknownBlock(HeaderId),
     #[error("Wallet does not have enough funds, available={available}")]
     InsufficientFunds { available: u64 },
-    #[error("Internal error: {0}")]
-    Internal(String),
 }
