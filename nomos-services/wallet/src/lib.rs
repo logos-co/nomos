@@ -9,13 +9,15 @@ use chain_service::{
     api::{CryptarchiaServiceApi, CryptarchiaServiceData},
     storage::{StorageAdapter as _, adapters::storage::StorageAdapter},
 };
+use key_management_system::{KMSService, api::KmsServiceApi, backend::preload::PreloadKMSBackend};
 use nomos_core::{
     block::Block,
     header::HeaderId,
     mantle::{
-        AuthenticatedMantleTx, SignedMantleTx, Transaction, Utxo, Value, gas::MainnetGasConstants,
+        AuthenticatedMantleTx, SignedMantleTx, Transaction as _, Utxo, Value,
+        gas::MainnetGasConstants,
         keys::PublicKey,
-        ops::OpProof,
+        ops::{Op, OpProof},
         tx_builder::MantleTxBuilder,
     },
     proofs::zksig::{DummyZkSignature, ZkSignaturePublic},
@@ -95,6 +97,7 @@ pub struct WalletService<Cryptarchia, Tx, Storage, RuntimeServiceId> {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     _storage: std::marker::PhantomData<Storage>,
     _tx: std::marker::PhantomData<Tx>,
+    _cryptarchia: std::marker::PhantomData<Cryptarchia>,
 }
 
 impl<Cryptarchia, Tx, Storage, RuntimeServiceId> ServiceData
@@ -118,6 +121,7 @@ where
     RuntimeServiceId: AsServiceId<Self>
         + AsServiceId<Cryptarchia>
         + AsServiceId<nomos_storage::StorageService<Storage, RuntimeServiceId>>
+        + AsServiceId<KMSService<PreloadKMSBackend, RuntimeServiceId>>
         + std::fmt::Debug
         + std::fmt::Display
         + Send
@@ -132,6 +136,7 @@ where
             service_resources_handle,
             _storage: std::marker::PhantomData,
             _tx: std::marker::PhantomData,
+            _cryptarchia: std::marker::PhantomData,
         })
     }
 
@@ -145,7 +150,8 @@ where
             &service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
             nomos_storage::StorageService<_, _>,
-            Cryptarchia
+            Cryptarchia,
+            KMSService<PreloadKMSBackend, _>
         )
         .await?;
 
@@ -164,6 +170,16 @@ where
             &service_resources_handle.overwatch_handle,
         )
         .await?;
+
+        // Create KMS API for transaction signing
+        let kms_relay = service_resources_handle
+            .overwatch_handle
+            .relay::<KMSService<PreloadKMSBackend, RuntimeServiceId>>()
+            .await?;
+        let kms = KmsServiceApi::<
+            KMSService<PreloadKMSBackend, RuntimeServiceId>,
+            RuntimeServiceId,
+        >::new(kms_relay);
 
         // Create StorageAdapter for cleaner block operations
         let storage_adapter =
@@ -209,7 +225,7 @@ where
         loop {
             tokio::select! {
                 Some(msg) = service_resources_handle.inbound_relay.recv() => {
-                    Self::handle_wallet_message(msg, &mut wallet, &storage_adapter, &cryptarchia_api).await;
+                    Self::handle_wallet_message(msg, &mut wallet, &storage_adapter, &cryptarchia_api, &kms).await;
                 }
 
                 Ok(header_id) = new_block_receiver.recv() => {
@@ -251,11 +267,16 @@ where
     <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
     RuntimeServiceId: AsServiceId<Cryptarchia> + std::fmt::Debug + std::fmt::Display + Sync,
 {
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "Complex message handling logic, will be refactored when implementing actual KMS proofs"
+    )]
     async fn handle_wallet_message(
         msg: WalletMsg,
         wallet: &mut Wallet,
         storage: &StorageAdapter<Storage, Tx, RuntimeServiceId>,
         cryptarchia: &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
+        kms: &KmsServiceApi<KMSService<PreloadKMSBackend, RuntimeServiceId>, RuntimeServiceId>,
     ) {
         if let Err(err) =
             Self::backfill_if_not_in_sync(msg.tip(), wallet, storage, cryptarchia).await
@@ -277,8 +298,15 @@ where
                 funding_pks,
                 resp_tx,
             } => {
-                let signed_tx_res =
-                    Self::fund_and_sign_tx(tip, &tx_builder, change_pk, funding_pks, wallet).await;
+                let signed_tx_res = Self::fund_and_sign_tx(
+                    tip,
+                    &tx_builder,
+                    change_pk,
+                    funding_pks,
+                    wallet,
+                    kms,
+                )
+                .await;
                 if resp_tx.send(signed_tx_res).is_err() {
                     error!("Failed to respond to FundAndSignTx");
                 }
@@ -289,12 +317,17 @@ where
         }
     }
 
+    #[expect(
+        clippy::unused_async,
+        reason = "Function will use async KMS API calls for proof generation in future implementation"
+    )]
     async fn fund_and_sign_tx(
         tip: HeaderId,
         tx_builder: &MantleTxBuilder,
         change_pk: PublicKey,
         funding_pks: Vec<PublicKey>,
         wallet: &Wallet,
+        _kms: &KmsServiceApi<KMSService<PreloadKMSBackend, RuntimeServiceId>, RuntimeServiceId>,
     ) -> Result<SignedMantleTx, WalletError> {
         let funded_tx =
             wallet.fund_tx::<MainnetGasConstants>(tip, tx_builder, change_pk, funding_pks)?;
@@ -303,8 +336,57 @@ where
         let mantle_tx = funded_tx.build();
 
         // Create operation proofs for each operation
-        // TODO: Replace with real KMS signatures when available
-        let ops_proofs: Vec<OpProof> = vec![];
+        // Pattern match on each operation type to determine required proof
+        let ops_proofs: Vec<OpProof> = mantle_tx
+            .ops
+            .iter()
+            .map(|op| {
+                match op {
+                    Op::ChannelInscribe(_inscribe_op) => {
+                        // Requires OpProof::Ed25519Sig
+                        // Sign the tx hash with the signer's Ed25519 key
+                        // TODO: Use KMS to sign with inscribe_op.signer
+                        todo!("Sign ChannelInscribe with Ed25519")
+                    }
+                    Op::ChannelBlob(_blob_op) => {
+                        // Requires OpProof::Ed25519Sig
+                        // Sign the tx hash with the signer's Ed25519 key
+                        // TODO: Use KMS to sign with blob_op.signer
+                        todo!("Sign ChannelBlob with Ed25519")
+                    }
+                    Op::ChannelSetKeys(_set_keys_op) => {
+                        // Requires OpProof::Ed25519Sig
+                        // Sign the tx hash with the channel owner's Ed25519 key
+                        // TODO: Use KMS to sign with the channel owner key
+                        todo!("Sign ChannelSetKeys with Ed25519")
+                    }
+                    Op::SDPDeclare(_declare_op) => {
+                        // Requires OpProof::ZkAndEd25519Sigs
+                        // Needs both a ZK signature and an Ed25519 signature
+                        // TODO: Use KMS to create both signatures
+                        todo!("Sign SDPDeclare with ZK and Ed25519")
+                    }
+                    Op::SDPWithdraw(_withdraw_op) => {
+                        // Requires OpProof::ZkSig
+                        // Sign with ZK signature only
+                        // TODO: Use KMS to create ZK signature
+                        todo!("Sign SDPWithdraw with ZK")
+                    }
+                    Op::SDPActive(_active_op) => {
+                        // Requires OpProof::ZkSig
+                        // Sign with ZK signature only
+                        // TODO: Use KMS to create ZK signature
+                        todo!("Sign SDPActive with ZK")
+                    }
+                    Op::LeaderClaim(_claim_op) => {
+                        // Requires OpProof::LeaderClaimProof (Groth16 proof)
+                        // This is not yet implemented in the codebase
+                        // TODO: Implement Groth16 proof generation for leader claims
+                        todo!("Generate Groth16 proof for LeaderClaim")
+                    }
+                }
+            })
+            .collect();
 
         // Create ZK signature proof for the ledger transaction
         // TODO: Replace with real KMS ZK signature when available

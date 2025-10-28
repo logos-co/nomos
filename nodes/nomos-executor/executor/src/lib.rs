@@ -121,6 +121,9 @@ pub(crate) type CryptarchiaService =
 pub(crate) type WalletService =
     nomos_node::generic_services::WalletService<CryptarchiaService, RuntimeServiceId>;
 
+pub(crate) type KeyManagementService =
+    nomos_node::generic_services::KeyManagementService<RuntimeServiceId>;
+
 pub(crate) type CryptarchiaLeaderService = nomos_node::generic_services::CryptarchiaLeaderService<
     CryptarchiaService,
     WalletService,
@@ -216,6 +219,7 @@ pub struct NomosExecutor {
     storage: StorageService,
     system_sig: SystemSigService,
     wallet: WalletService,
+    key_management: KeyManagementService,
     #[cfg(feature = "testing")]
     testing_http: TestingApiService<RuntimeServiceId>,
 }

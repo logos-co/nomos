@@ -101,6 +101,7 @@ async fn main() -> Result<()> {
             sdp: SdpSettings { declaration: None },
             membership: config.membership,
             wallet: config.wallet,
+            key_management: config.key_management,
             #[cfg(feature = "testing")]
             testing_http: config.testing_http,
         },
