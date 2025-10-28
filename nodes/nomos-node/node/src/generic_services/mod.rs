@@ -1,5 +1,6 @@
 use chain_leader::CryptarchiaLeader;
 use chain_service::{CryptarchiaConsensus, network::adapters::libp2p::LibP2pAdapter};
+use key_management_system::backend::preload::PreloadKMSBackend;
 use kzgrs_backend::common::share::DaShare;
 use nomos_core::{
     header::HeaderId,
@@ -158,3 +159,6 @@ pub type SdpServiceAdapterGeneric<RuntimeServiceId> =
 
 pub type DaMembershipStorageGeneric<RuntimeServiceId> =
     RocksAdapter<RocksBackend, RuntimeServiceId>;
+
+pub type KeyManagementService<RuntimeServiceId> =
+    key_management_system::KMSService<PreloadKMSBackend, RuntimeServiceId>;

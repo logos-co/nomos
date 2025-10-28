@@ -18,7 +18,8 @@ use tracing::Level;
 
 use crate::{
     ApiService, CryptarchiaLeaderService, CryptarchiaService, DaNetworkService, DaSamplingService,
-    DaVerifierService, NetworkService, RuntimeServiceId, StorageService, TimeService,
+    DaVerifierService, KeyManagementService, NetworkService, RuntimeServiceId, StorageService,
+    TimeService,
     config::mempool::MempoolConfig,
     generic_services::{MembershipService, SdpService, WalletService},
 };
@@ -217,6 +218,7 @@ pub struct Config {
     pub cryptarchia_leader: <CryptarchiaLeaderService as ServiceData>::Settings,
     pub time: <TimeService as ServiceData>::Settings,
     pub storage: <StorageService as ServiceData>::Settings,
+    pub key_management: <KeyManagementService as ServiceData>::Settings,
     pub mempool: MempoolConfig,
     pub wallet: <WalletService<CryptarchiaService, RuntimeServiceId> as ServiceData>::Settings,
 
