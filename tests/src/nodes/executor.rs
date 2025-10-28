@@ -61,9 +61,8 @@ use nomos_network::{
     config::NetworkConfig,
 };
 use nomos_node::{
-    RocksBackendSettings,
-    api::testing::handlers::HistoricSamplingRequest,
-    config::{blend::BlendConfig, mempool::MempoolConfig},
+    RocksBackendSettings, api::testing::handlers::HistoricSamplingRequest,
+    config::mempool::MempoolConfig,
 };
 use nomos_sdp::{BlockEvent, SdpSettings};
 use nomos_time::{
@@ -392,7 +391,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                 initial_peers: config.network_config.initial_peers,
             },
         },
-        blend: BlendConfig::new(nomos_blend_service::settings::Settings {
+        blend: nomos_blend_service::settings::Settings {
             common: nomos_blend_service::settings::CommonSettings {
                 crypto: SessionCryptographicProcessorSettings {
                     non_ephemeral_signing_key: config.blend_config.private_key.clone(),
@@ -437,7 +436,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
             edge: nomos_blend_service::settings::EdgeSettings {
                 backend: config.blend_config.backend_edge,
             },
-        }),
+        },
         cryptarchia: CryptarchiaSettings {
             config: config.consensus_config.ledger_config.clone(),
             starting_state: StartingState::Genesis {

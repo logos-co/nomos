@@ -93,10 +93,6 @@ pub(crate) type DaSamplingAdapter = SamplingLibp2pAdapter<
     RuntimeServiceId,
 >;
 
-pub(crate) type BlendCoreService =
-    generic_services::blend::BlendCoreService<DaSamplingAdapter, RuntimeServiceId>;
-pub(crate) type BlendEdgeService =
-    generic_services::blend::BlendEdgeService<DaSamplingAdapter, RuntimeServiceId>;
 pub(crate) type BlendService =
     generic_services::blend::BlendService<DaSamplingAdapter, RuntimeServiceId>;
 
@@ -210,8 +206,6 @@ pub struct Nomos {
     tracing: TracingService,
     network: NetworkService,
     blend: BlendService,
-    blend_core: BlendCoreService,
-    blend_edge: BlendEdgeService,
     da_verifier: DaVerifierService,
     da_sampling: DaSamplingService,
     da_network: DaNetworkService,
@@ -232,14 +226,10 @@ pub struct Nomos {
 }
 
 pub fn run_node_from_config(config: Config) -> Result<Overwatch<RuntimeServiceId>, DynError> {
-    let (blend_config, blend_core_config, blend_edge_config) = config.blend.into();
-
     let app = OverwatchRunner::<Nomos>::run(
         NomosServiceSettings {
             network: config.network,
-            blend: blend_config,
-            blend_core: blend_core_config,
-            blend_edge: blend_edge_config,
+            blend: config.blend,
             block_broadcast: (),
             #[cfg(feature = "tracing")]
             tracing: config.tracing,
@@ -278,17 +268,12 @@ pub fn run_node_from_config(config: Config) -> Result<Overwatch<RuntimeServiceId
 
 pub async fn get_services_to_start(
     app: &Overwatch<RuntimeServiceId>,
-    must_blend_service_group_start: bool,
+    must_blend_service_start: bool,
     must_da_service_group_start: bool,
 ) -> Result<Vec<RuntimeServiceId>, OverwatchError> {
     let mut service_ids = app.handle().retrieve_service_ids().await?;
 
-    // Exclude core and edge blend services, which will be started
-    // on demand by the blend service.
-    let blend_inner_service_ids = [RuntimeServiceId::BlendCore, RuntimeServiceId::BlendEdge];
-    service_ids.retain(|value| !blend_inner_service_ids.contains(value));
-
-    if !must_blend_service_group_start {
+    if !must_blend_service_start {
         service_ids.retain(|value| value != &RuntimeServiceId::Blend);
     }
 

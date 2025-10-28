@@ -33,7 +33,7 @@ use nomos_blend_service::{
 use nomos_core::{codec::DeserializeOp as _, crypto::ZkHash};
 use nomos_da_sampling::network::NetworkAdapter;
 use nomos_libp2p::PeerId;
-use nomos_time::backends::NtpTimeBackend;
+use nomos_time::{TimeService, backends::NtpTimeBackend};
 use overwatch::{overwatch::OverwatchHandle, services::AsServiceId};
 use pol::{PolChainInputsData, PolWalletInputsData, PolWitnessInputsData};
 use poq::{AGED_NOTE_MERKLE_TREE_HEIGHT, SLOT_SECRET_MERKLE_TREE_HEIGHT};
@@ -183,33 +183,19 @@ fn loop_until_valid_proof(
 
 pub type BlendMembershipAdapter<RuntimeServiceId> =
     Adapter<MembershipService<RuntimeServiceId>, PeerId>;
-pub type BlendCoreService<SamplingAdapter, RuntimeServiceId> =
-    nomos_blend_service::core::BlendService<
-        nomos_blend_service::core::backends::libp2p::Libp2pBlendBackend,
-        PeerId,
-        nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
-        BlendMembershipAdapter<RuntimeServiceId>,
-        BlendProofsGenerator,
-        BlendProofsVerifier,
-        NtpTimeBackend,
-        CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
-        PolInfoProvider<SamplingAdapter>,
-        RuntimeServiceId,
-    >;
-pub type BlendEdgeService<SamplingAdapter, RuntimeServiceId> = nomos_blend_service::edge::BlendService<
-        nomos_blend_service::edge::backends::libp2p::Libp2pBlendBackend,
-        PeerId,
-        <nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<RuntimeServiceId>>::BroadcastSettings,
-        BlendMembershipAdapter<RuntimeServiceId>,
-        BlendProofsGenerator,
-        NtpTimeBackend,
-        CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
-        PolInfoProvider<SamplingAdapter>,
-        RuntimeServiceId
-    >;
+
 pub type BlendService<SamplingAdapter, RuntimeServiceId> = nomos_blend_service::BlendService<
-    BlendCoreService<SamplingAdapter, RuntimeServiceId>,
-    BlendEdgeService<SamplingAdapter, RuntimeServiceId>,
+    nomos_blend_service::core::backends::libp2p::Libp2pBlendBackend,
+    nomos_blend_service::edge::backends::libp2p::Libp2pBlendBackend,
+    <nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<RuntimeServiceId>>::BroadcastSettings,
+    BlendMembershipAdapter<RuntimeServiceId>,
+    CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
+    nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
+TimeService<NtpTimeBackend, RuntimeServiceId>,
+    PolInfoProvider<SamplingAdapter>,
+    BlendProofsGenerator,
+    BlendProofsGenerator,
+    BlendProofsVerifier,
     RuntimeServiceId,
 >;
 

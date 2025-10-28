@@ -3,7 +3,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use blend::BlendConfig;
 use clap::{Parser, ValueEnum, builder::OsStr};
 use color_eyre::eyre::{Result, eyre};
 use hex::FromHex as _;
@@ -17,14 +16,13 @@ use serde::{Deserialize, Serialize};
 use tracing::Level;
 
 use crate::{
-    ApiService, CryptarchiaLeaderService, CryptarchiaService, DaNetworkService, DaSamplingService,
-    DaVerifierService, KeyManagementService, NetworkService, RuntimeServiceId, StorageService,
-    TimeService,
+    ApiService, BlendService, CryptarchiaLeaderService, CryptarchiaService, DaNetworkService,
+    DaSamplingService, DaVerifierService, KeyManagementService, NetworkService, RuntimeServiceId,
+    StorageService, TimeService,
     config::mempool::MempoolConfig,
     generic_services::{MembershipService, SdpService, WalletService},
 };
 
-pub mod blend;
 pub mod mempool;
 #[cfg(test)]
 mod tests;
@@ -207,7 +205,7 @@ pub struct DaArgs {
 pub struct Config {
     pub tracing: <Tracing<RuntimeServiceId> as ServiceData>::Settings,
     pub network: <NetworkService as ServiceData>::Settings,
-    pub blend: BlendConfig,
+    pub blend: <BlendService as ServiceData>::Settings,
     pub da_network: <DaNetworkService as ServiceData>::Settings,
     pub da_verifier: <DaVerifierService as ServiceData>::Settings,
     pub membership: <MembershipService<RuntimeServiceId> as ServiceData>::Settings,
@@ -321,7 +319,10 @@ pub fn update_network<RuntimeServiceId>(
     Ok(())
 }
 
-pub fn update_blend(blend: &mut BlendConfig, blend_args: BlendArgs) -> Result<()> {
+pub fn update_blend(
+    blend: &mut <BlendService as ServiceData>::Settings,
+    blend_args: BlendArgs,
+) -> Result<()> {
     let BlendArgs {
         blend_addr,
         blend_node_key,
@@ -330,16 +331,18 @@ pub fn update_blend(blend: &mut BlendConfig, blend_args: BlendArgs) -> Result<()
     } = blend_args;
 
     if let Some(addr) = blend_addr {
-        blend.set_listening_address(addr);
+        blend.core.backend.listening_address = addr;
     }
 
     if let Some(node_key) = blend_node_key {
         let mut key_bytes = hex::decode(node_key)?;
-        blend.set_node_key(SecretKey::try_from_bytes(key_bytes.as_mut_slice())?);
+        let key = SecretKey::try_from_bytes(key_bytes.as_mut_slice())?;
+        blend.core.backend.node_key = key.clone();
+        blend.edge.backend.node_key = key;
     }
 
     if let Some(num_blend_layers) = blend_num_blend_layers {
-        blend.set_blend_layers(num_blend_layers as u64);
+        blend.common.crypto.num_blend_layers = num_blend_layers as u64;
     }
 
     Ok(())
