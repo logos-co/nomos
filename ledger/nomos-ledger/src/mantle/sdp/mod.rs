@@ -7,7 +7,7 @@ use locked_notes::LockedNotes;
 use nomos_core::{
     block::BlockNumber,
     mantle::{
-        Note, TxHash,
+        Note, NoteId, OpProof, TxHash,
         ops::sdp::{SDPActiveOp, SDPDeclareOp, SDPWithdrawOp},
     },
     proofs::zksig::{ZkSignatureProof, ZkSignaturePublic},
@@ -16,6 +16,8 @@ use nomos_core::{
         ServiceType, SessionNumber,
     },
 };
+
+use crate::UtxoTree;
 
 type Declarations = rpds::HashTrieMapSync<DeclarationId, Declaration>;
 
@@ -59,6 +61,10 @@ pub enum Error {
     LockingError(#[from] locked_notes::Error),
     #[error("Invalid signature")]
     InvalidSignature,
+    #[error("Note not found: {0:?}")]
+    NoteNotFound(NoteId),
+    #[error("Invalid proof")]
+    InvalidProof,
 }
 
 // State at the beginning of this session
@@ -220,10 +226,49 @@ impl SdpLedger {
         }
     }
 
-    // TODO: genesis init
-    #[cfg(test)]
+    pub fn from_genesis<'a>(
+        config: &Config,
+        utxo_tree: &UtxoTree,
+        tx_hash: TxHash,
+        ops: impl Iterator<Item = (&'a SDPDeclareOp, &'a OpProof)> + 'a,
+    ) -> Result<Self, Error> {
+        let mut sdp = Self::new()
+            .with_service(ServiceType::BlendNetwork)
+            .with_service(ServiceType::DataAvailability);
+
+        for (op, proof) in ops {
+            let OpProof::ZkAndEd25519Sigs {
+                zk_sig,
+                ed25519_sig,
+            } = proof
+            else {
+                return Err(Error::InvalidProof);
+            };
+            let Some((utxo, _)) = utxo_tree.utxos().get(&op.locked_note_id) else {
+                return Err(Error::NoteNotFound(op.locked_note_id));
+            };
+            sdp = sdp.apply_declare_msg(op, utxo.note, zk_sig, ed25519_sig, tx_hash, config)?;
+        }
+
+        let blend_state = sdp
+            .services
+            .get_mut(&ServiceType::BlendNetwork)
+            .expect("SDP initialized with Blend in this method");
+        blend_state.active.declarations = blend_state.declarations.clone();
+        blend_state.forming.declarations = blend_state.declarations.clone();
+
+        let da_state = sdp
+            .services
+            .get_mut(&ServiceType::DataAvailability)
+            .expect("SDP initialized with DA in this method");
+        da_state.active.declarations = da_state.declarations.clone();
+        da_state.forming.declarations = da_state.declarations.clone();
+
+        Ok(sdp)
+    }
+
     #[must_use]
-    fn with_service(mut self, service_type: ServiceType) -> Self {
+    pub fn with_service(mut self, service_type: ServiceType) -> Self {
         let service_state = ServiceState {
             declarations: rpds::HashTrieMapSync::new_sync(),
             active: SessionState {

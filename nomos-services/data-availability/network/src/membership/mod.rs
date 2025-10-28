@@ -18,6 +18,7 @@ use thiserror::Error;
 
 pub type Assignations<Id, NetworkId> = HashMap<NetworkId, HashSet<Id>>;
 
+#[derive(Debug)]
 pub struct SubnetworkPeers<Id> {
     pub session_id: SessionNumber,
     pub peers: HashMap<Id, Multiaddr>,

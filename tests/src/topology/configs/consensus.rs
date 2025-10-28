@@ -2,9 +2,10 @@ use std::{num::NonZero, sync::Arc};
 
 use chain_leader::LeaderConfig;
 use cryptarchia_engine::EpochConfig;
+use ed25519_dalek::ed25519::signature::SignerMut as _;
 use nomos_core::{
     mantle::{
-        MantleTx, Note, Utxo,
+        MantleTx, Note, OpProof, Utxo,
         genesis_tx::GenesisTx,
         keys::{PublicKey, SecretKey},
         ledger::Tx as LedgerTx,
@@ -13,8 +14,10 @@ use nomos_core::{
             channel::{ChannelId, Ed25519PublicKey, MsgId, inscribe::InscriptionOp},
         },
     },
-    sdp::{ServiceParameters, ServiceType},
+    proofs::zksig::{DummyZkSignature, ZkSignaturePublic},
+    sdp::{DeclarationMessage, Locator, ProviderId, ServiceParameters, ServiceType, ZkPublicKey},
 };
+use nomos_node::{SignedMantleTx, Transaction as _};
 use num_bigint::BigUint;
 
 #[derive(Clone)]
@@ -40,6 +43,16 @@ impl ConsensusParams {
     }
 }
 
+#[derive(Clone)]
+pub struct ProviderInfo {
+    pub service_type: ServiceType,
+    pub provider_id: ProviderId,
+    pub zk_id: ZkPublicKey,
+    pub locator: Locator,
+    pub note: ServiceNote,
+    pub signer: ed25519_dalek::SigningKey,
+}
+
 /// General consensus configuration for a chosen participant, that later could
 /// be converted into a specific service or services configuration.
 #[derive(Clone)]
@@ -47,6 +60,17 @@ pub struct GeneralConsensusConfig {
     pub leader_config: LeaderConfig,
     pub ledger_config: nomos_ledger::Config,
     pub genesis_tx: GenesisTx,
+    pub utxos: Vec<Utxo>,
+    pub blend_notes: Vec<ServiceNote>,
+    pub da_notes: Vec<ServiceNote>,
+}
+
+#[derive(Clone)]
+pub struct ServiceNote {
+    pub pk: PublicKey,
+    pub sk: SecretKey,
+    pub note: Note,
+    pub output_index: usize,
 }
 
 fn create_genesis_tx(utxos: &[Utxo]) -> GenesisTx {
@@ -69,9 +93,14 @@ fn create_genesis_tx(utxos: &[Utxo]) -> GenesisTx {
         execution_gas_price: 0,
         storage_gas_price: 0,
     };
+    let signed_mantle_tx = SignedMantleTx {
+        mantle_tx,
+        ops_proofs: vec![OpProof::NoProof],
+        ledger_tx_proof: DummyZkSignature::from_bytes([0u8; 128]),
+    };
 
     // Wrap in GenesisTx
-    GenesisTx::from_tx(mantle_tx).expect("Invalid genesis transaction")
+    GenesisTx::from_tx(signed_mantle_tx).expect("Invalid genesis transaction")
 }
 
 #[must_use]
@@ -79,25 +108,16 @@ pub fn create_consensus_configs(
     ids: &[[u8; 32]],
     consensus_params: &ConsensusParams,
 ) -> Vec<GeneralConsensusConfig> {
-    let keys = ids
-        .iter()
-        .map(|&id| {
-            let mut sk = [0; 16];
-            sk.copy_from_slice(&id[0..16]);
-            let sk = SecretKey::from(BigUint::from_bytes_le(&sk));
-            let pk = PublicKey::from(BigUint::from(0u8)); // TODO: derive from sk
-            (pk, sk)
-        })
-        .collect::<Vec<_>>();
+    let mut leader_keys = Vec::new();
+    let mut blend_notes = Vec::new();
+    let mut da_notes = Vec::new();
 
-    let utxos = keys
-        .iter()
-        .map(|(pk, _)| Utxo {
-            note: Note::new(1, *pk),
-            tx_hash: BigUint::from(0u8).into(),
-            output_index: 0,
-        })
-        .collect::<Vec<_>>();
+    let utxos = create_utxos_for_leader_and_services(
+        ids,
+        &mut leader_keys,
+        &mut blend_notes,
+        &mut da_notes,
+    );
     let genesis_tx = create_genesis_tx(&utxos);
     let ledger_config = nomos_ledger::Config {
         epoch_config: EpochConfig {
@@ -142,11 +162,154 @@ pub fn create_consensus_configs(
         },
     };
 
-    keys.into_iter()
+    leader_keys
+        .into_iter()
         .map(|(pk, sk)| GeneralConsensusConfig {
             leader_config: LeaderConfig { pk, sk },
             ledger_config: ledger_config.clone(),
             genesis_tx: genesis_tx.clone(),
+            utxos: utxos.clone(),
+            da_notes: da_notes.clone(),
+            blend_notes: blend_notes.clone(),
         })
         .collect()
+}
+
+fn create_utxos_for_leader_and_services(
+    ids: &[[u8; 32]],
+    leader_keys: &mut Vec<(PublicKey, SecretKey)>,
+    blend_notes: &mut Vec<ServiceNote>,
+    da_notes: &mut Vec<ServiceNote>,
+) -> Vec<Utxo> {
+    let derive_key_material = |prefix: &[u8], id_bytes: &[u8]| -> [u8; 16] {
+        let mut sk_data = [0; 16];
+        let prefix_len = prefix.len();
+
+        sk_data[..prefix_len].copy_from_slice(prefix);
+        let remaining_len = 16 - prefix_len;
+        sk_data[prefix_len..].copy_from_slice(&id_bytes[..remaining_len]);
+
+        sk_data
+    };
+
+    let mut utxos = Vec::new();
+
+    // Assume output index which will be set by the ledger tx.
+    let mut output_index = 0;
+
+    // Create notes for leader, Blend and DA declarations.
+    for &id in ids {
+        let sk_leader_data = derive_key_material(b"ld", &id);
+        let sk_leader = SecretKey::from(BigUint::from_bytes_le(&sk_leader_data));
+        let pk_leader = sk_leader.to_public_key();
+        leader_keys.push((pk_leader, sk_leader));
+        utxos.push(Utxo {
+            note: Note::new(1, pk_leader),
+            tx_hash: BigUint::from(0u8).into(),
+            output_index: 0,
+        });
+        output_index += 1;
+
+        let sk_da_data = derive_key_material(b"da", &id);
+        let sk_da = SecretKey::from(BigUint::from_bytes_le(&sk_da_data));
+        let pk_da = sk_da.to_public_key();
+        let note_da = Note::new(1, pk_da);
+        da_notes.push(ServiceNote {
+            pk: pk_da,
+            sk: sk_da,
+            note: note_da,
+            output_index,
+        });
+        utxos.push(Utxo {
+            note: note_da,
+            tx_hash: BigUint::from(0u8).into(),
+            output_index: 0,
+        });
+        output_index += 1;
+
+        let sk_blend_data = derive_key_material(b"bn", &id);
+        let sk_blend = SecretKey::from(BigUint::from_bytes_le(&sk_blend_data));
+        let pk_blend = sk_blend.to_public_key();
+        let note_blend = Note::new(1, pk_blend);
+        blend_notes.push(ServiceNote {
+            pk: pk_blend,
+            sk: sk_blend,
+            note: note_blend,
+            output_index,
+        });
+        utxos.push(Utxo {
+            note: note_blend,
+            tx_hash: BigUint::from(0u8).into(),
+            output_index: 0,
+        });
+        output_index += 1;
+    }
+
+    utxos
+}
+
+#[must_use]
+pub fn create_genesis_tx_with_declarations(
+    ledger_tx: LedgerTx,
+    providers: Vec<ProviderInfo>,
+) -> GenesisTx {
+    let inscription = InscriptionOp {
+        channel_id: ChannelId::from([0; 32]),
+        inscription: vec![103, 101, 110, 101, 115, 105, 115], // "genesis" in bytes
+        parent: MsgId::root(),
+        signer: Ed25519PublicKey::from_bytes(&[0; 32]).unwrap(),
+    };
+
+    let ledger_tx_hash = ledger_tx.hash();
+
+    let mut ops = vec![Op::ChannelInscribe(inscription)];
+
+    for provider in &providers {
+        let utxo = Utxo {
+            tx_hash: ledger_tx_hash,
+            output_index: provider.note.output_index,
+            note: provider.note.note,
+        };
+        let declaration = DeclarationMessage {
+            service_type: provider.service_type,
+            locators: vec![provider.locator.clone()],
+            provider_id: ProviderId(provider.signer.verifying_key()),
+            zk_id: provider.zk_id,
+            locked_note_id: utxo.id(),
+        };
+        ops.push(Op::SDPDeclare(declaration));
+    }
+
+    let mantle_tx = MantleTx {
+        ops,
+        ledger_tx,
+        execution_gas_price: 0,
+        storage_gas_price: 0,
+    };
+
+    let mantle_tx_hash = mantle_tx.hash();
+    let mut ops_proofs = vec![OpProof::NoProof];
+
+    for mut provider in providers {
+        let zk_sig = DummyZkSignature::prove(&ZkSignaturePublic {
+            pks: vec![provider.note.pk.into(), provider.zk_id.0],
+            msg_hash: mantle_tx_hash.0,
+        });
+        let ed25519_sig = provider
+            .signer
+            .sign(mantle_tx_hash.as_signing_bytes().as_ref());
+
+        ops_proofs.push(OpProof::ZkAndEd25519Sigs {
+            zk_sig,
+            ed25519_sig,
+        });
+    }
+
+    let signed_mantle_tx = SignedMantleTx {
+        mantle_tx,
+        ops_proofs,
+        ledger_tx_proof: DummyZkSignature::from_bytes([0u8; 128]),
+    };
+
+    GenesisTx::from_tx(signed_mantle_tx).expect("Invalid genesis transaction")
 }
