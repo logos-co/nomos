@@ -985,11 +985,10 @@ where
         + 'static
         + AsServiceId<nomos_sdp::SdpService<Backend, RuntimeServiceId>>,
 {
-    let request = nomos_api::http::sdp::DeclarationRequest { declaration };
     make_request_and_return_response!(nomos_api::http::sdp::post_declaration_handler::<
         Backend,
         RuntimeServiceId,
-    >(handle, request))
+    >(handle, declaration))
 }
 
 #[utoipa::path(
@@ -1013,11 +1012,10 @@ where
         + 'static
         + AsServiceId<nomos_sdp::SdpService<Backend, RuntimeServiceId>>,
 {
-    let request = nomos_api::http::sdp::ActivityRequest { metadata };
     make_request_and_return_response!(nomos_api::http::sdp::post_activity_handler::<
         Backend,
         RuntimeServiceId,
-    >(handle, request))
+    >(handle, metadata))
 }
 
 #[utoipa::path(
@@ -1041,9 +1039,8 @@ where
         + 'static
         + AsServiceId<nomos_sdp::SdpService<Backend, RuntimeServiceId>>,
 {
-    let request = nomos_api::http::sdp::WithdrawalRequest { declaration_id };
     make_request_and_return_response!(nomos_api::http::sdp::post_withdrawal_handler::<
         Backend,
         RuntimeServiceId,
-    >(handle, request))
+    >(handle, declaration_id))
 }

@@ -3,26 +3,10 @@ use std::fmt::{Debug, Display};
 use nomos_core::sdp::{ActivityMetadata, DeclarationId, DeclarationMessage};
 use nomos_sdp::SdpService;
 use overwatch::{DynError, overwatch::OverwatchHandle};
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct DeclarationRequest {
-    pub declaration: DeclarationMessage,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ActivityRequest {
-    pub metadata: ActivityMetadata,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct WithdrawalRequest {
-    pub declaration_id: DeclarationId,
-}
 
 pub async fn post_declaration_handler<Backend, RuntimeServiceId>(
     handle: OverwatchHandle<RuntimeServiceId>,
-    payload: DeclarationRequest,
+    declaration: DeclarationMessage,
 ) -> Result<DeclarationId, DynError>
 where
     Backend: nomos_sdp::backends::SdpBackend + Send + Sync + 'static,
@@ -38,7 +22,7 @@ where
 
     relay
         .send(nomos_sdp::SdpMessage::PostDeclaration {
-            declaration: Box::new(payload.declaration),
+            declaration: Box::new(declaration),
             reply_channel: reply_tx,
         })
         .await
@@ -49,7 +33,7 @@ where
 
 pub async fn post_activity_handler<Backend, RuntimeServiceId>(
     handle: OverwatchHandle<RuntimeServiceId>,
-    payload: ActivityRequest,
+    metadata: ActivityMetadata,
 ) -> Result<(), DynError>
 where
     Backend: nomos_sdp::backends::SdpBackend + Send + Sync + 'static,
@@ -63,9 +47,7 @@ where
     let relay = handle.relay().await?;
 
     relay
-        .send(nomos_sdp::SdpMessage::PostActivity {
-            metadata: payload.metadata,
-        })
+        .send(nomos_sdp::SdpMessage::PostActivity { metadata })
         .await
         .map_err(|(e, _)| e)?;
 
@@ -74,7 +56,7 @@ where
 
 pub async fn post_withdrawal_handler<Backend, RuntimeServiceId>(
     handle: OverwatchHandle<RuntimeServiceId>,
-    payload: WithdrawalRequest,
+    declaration_id: DeclarationId,
 ) -> Result<(), DynError>
 where
     Backend: nomos_sdp::backends::SdpBackend + Send + Sync + 'static,
@@ -88,9 +70,7 @@ where
     let relay = handle.relay().await?;
 
     relay
-        .send(nomos_sdp::SdpMessage::PostWithdrawal {
-            declaration_id: payload.declaration_id,
-        })
+        .send(nomos_sdp::SdpMessage::PostWithdrawal { declaration_id })
         .await
         .map_err(|(e, _)| e)?;
 
