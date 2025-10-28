@@ -12,6 +12,7 @@ async-trait            = "0.1"
 broadcast-service      = { workspace = true }
 chain-service          = { workspace = true }
 cryptarchia-engine     = { workspace = true }
+derivative             = { default-features = false, version = "2" }
 fork_stream            = { workspace = true }
 futures                = { default-features = false, version = "0.3" }
 groth16                = { default-features = false, workspace = true }
