@@ -24,7 +24,7 @@ use nomos_core::{
         ops::{Op, OpProof, channel::ChannelId},
         tx_builder::MantleTxBuilder,
     },
-    proofs::zksig::{DummyZkSignature, ZkSignaturePublic},
+    proofs::zksig::{DummyZkSignature, Fr, ZkSignaturePublic},
 };
 use nomos_storage::{api::chain::StorageChainApi, backends::StorageBackend};
 use overwatch::{
@@ -347,11 +347,10 @@ where
             wallet.fund_tx::<MainnetGasConstants>(tip, tx_builder, change_pk, funding_pks)?;
 
         // Extract input public keys before building the transaction
-        let input_pks: Vec<_> = funded_tx_builder
+        let input_pks: Vec<Fr> = funded_tx_builder
             .ledger_inputs()
             .iter()
-            .map(|utxo| utxo.note.pk.as_fr())
-            .copied()
+            .map(|utxo| utxo.note.pk.into())
             .collect();
 
         let mantle_tx = funded_tx_builder.build();
@@ -376,31 +375,28 @@ where
                     OpProof::Ed25519Sig(ed25519_sig)
                 }
                 Op::ChannelSetKeys(set_keys_op) => {
-                    // Look up the channel from the ledger state to get the authorized key
                     let channel = ledger_state
                         .mantle_ledger()
                         .channels()
                         .channel_state(&set_keys_op.channel)
                         .ok_or(WalletServiceError::MissingChannelState(set_keys_op.channel))?;
 
-                    let authorized_key = channel.keys[0]; // First key is authority key
+                    let authorized_key = channel.keys[0]; // First key is authorized key (guaranteed non-empty)
                     let ed25519_sig = Self::sign_ed25519(tx_hash, authorized_key, kms).await?;
 
                     OpProof::Ed25519Sig(ed25519_sig)
                 }
                 Op::SDPDeclare(declare_op) => {
-                    // TODO: Use real KMS ZK signatures
-                    // Currently OpProof uses DummyZkSignature, but KMS returns real Signature.
-                    // Once OpProof is updated to use real signatures, we should:
-                    // 1. Call KMS with the ZK key
-                    // 2. Convert the result to the OpProof signature type
-                    //
-                    // For now, generate a dummy ZK signature using the standard prove() method
-                    let zk_sig = DummyZkSignature::prove(&ZkSignaturePublic {
-                        msg_hash: tx_hash.into(),
-                        pks: vec![declare_op.zk_id.0],
-                    });
+                    let locked_note = ledger_state
+                        .mantle_ledger()
+                        .locked_notes()
+                        .get(&declare_op.locked_note_id)
+                        .ok_or(WalletServiceError::MissingLockedNote(
+                            declare_op.locked_note_id,
+                        ))?;
 
+                    let zk_sig =
+                        Self::sign_zksig(tx_hash, [locked_note.pk.into(), declare_op.zk_id.0]);
                     let ed25519_sig =
                         Self::sign_ed25519(tx_hash, declare_op.provider_id.0, kms).await?;
 
@@ -410,7 +406,6 @@ where
                     }
                 }
                 Op::SDPWithdraw(withdraw_op) => {
-                    // Look up the declaration from the ledger state to get the zk_id
                     let declaration = ledger_state
                         .mantle_ledger()
                         .sdp_ledger()
@@ -419,8 +414,6 @@ where
                             withdraw_op.declaration_id,
                         ))?;
 
-                    // Generate dummy ZK signature using the declaration's zk_id
-                    // TODO: Use real KMS ZK signatures once OpProof supports real Signature type
                     let locked_note = ledger_state
                         .mantle_ledger()
                         .locked_notes()
@@ -429,15 +422,12 @@ where
                             declaration.locked_note_id,
                         ))?;
 
-                    let zk_sig = DummyZkSignature::prove(&ZkSignaturePublic {
-                        msg_hash: tx_hash.into(),
-                        pks: vec![locked_note.pk.into(), declaration.zk_id.0],
-                    });
+                    let zk_sig =
+                        Self::sign_zksig(tx_hash, [locked_note.pk.into(), declaration.zk_id.0]);
 
                     OpProof::ZkSig(zk_sig)
                 }
                 Op::SDPActive(active_op) => {
-                    // Look up the declaration from the ledger state to get the zk_id
                     let declaration = ledger_state
                         .mantle_ledger()
                         .sdp_ledger()
@@ -446,34 +436,21 @@ where
                             active_op.declaration_id,
                         ))?;
 
-                    let zk_sig = DummyZkSignature::prove(&ZkSignaturePublic {
-                        msg_hash: mantle_tx.hash().into(),
-                        pks: vec![declaration.zk_id.0],
-                    });
+                    let zk_sig = Self::sign_zksig(tx_hash, [declaration.zk_id.0]);
 
                     OpProof::ZkSig(zk_sig)
                 }
                 Op::LeaderClaim(_claim_op) => {
-                    // This is not yet implemented in the codebase
-                    // TODO: Implement Groth16 proof generation for leader claims
-                    todo!("Generate Groth16 proof for LeaderClaim")
+                    todo!("LeaderClaim proof not yet implemented")
                 }
             };
             ops_proofs.push(proof);
         }
 
-        // Create ZK signature proof for the ledger transaction
-        // TODO: Replace with real KMS ZK signature once SignedMantleTx is updated to
-        // use real proofs
-        let ledger_tx_proof = DummyZkSignature::prove(&ZkSignaturePublic {
-            msg_hash: mantle_tx.hash().into(),
-            pks: input_pks,
-        });
+        let ledger_tx_proof = Self::sign_zksig(tx_hash, input_pks);
 
-        // Create the signed transaction
-        // This should always succeed with dummy signatures
         let signed_mantle_tx = SignedMantleTx::new(mantle_tx, ops_proofs, ledger_tx_proof)
-            .expect("Failed to create signed transaction with dummy signatures");
+            .expect("Failed to create signed transaction");
 
         Ok(signed_mantle_tx)
     }
@@ -483,7 +460,7 @@ where
         pk: <Ed25519Key as SecuredKey>::PublicKey,
         kms: &KmsServiceApi<Kms, RuntimeServiceId>,
     ) -> Result<<Ed25519Key as SecuredKey>::Signature, WalletServiceError> {
-        // Use hex-encoded public key as key_id
+        // Use hex-encoded public key as key_id for now
         let key_id = hex::encode(pk.as_bytes());
 
         let payload =
@@ -500,6 +477,13 @@ where
         };
 
         Ok(ed25519_sig)
+    }
+
+    fn sign_zksig(tx_hash: TxHash, pks: impl IntoIterator<Item = Fr>) -> DummyZkSignature {
+        // TODO: Use real ZK signatures once SignedMantleTx is updated
+        let msg_hash = tx_hash.into();
+        let pks = Vec::from_iter(pks);
+        DummyZkSignature::prove(&ZkSignaturePublic { msg_hash, pks })
     }
 
     async fn get_leader_aged_notes(
