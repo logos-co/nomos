@@ -28,7 +28,6 @@ use nomos_blend_scheduling::message_blend::provers::{
 };
 use nomos_blend_service::{
     ProofOfLeadershipQuotaInputs, ProofsVerifier,
-    core::CoreServiceState,
     epoch_info::{PolEpochInfo, PolInfoProvider as PolInfoProviderTrait},
     membership::service::Adapter,
 };
@@ -39,7 +38,7 @@ use nomos_time::backends::NtpTimeBackend;
 use overwatch::{overwatch::OverwatchHandle, services::AsServiceId};
 use pol::{PolChainInputsData, PolWalletInputsData, PolWitnessInputsData};
 use poq::{AGED_NOTE_MERKLE_TREE_HEIGHT, SLOT_SECRET_MERKLE_TREE_HEIGHT};
-use services_utils::{overwatch::JsonFileBackend, wait_until_services_are_ready};
+use services_utils::wait_until_services_are_ready;
 use tokio::sync::oneshot::channel;
 use tokio_stream::wrappers::WatchStream;
 
@@ -183,12 +182,6 @@ fn loop_until_valid_proof(
 
 pub type BlendMembershipAdapter<RuntimeServiceId> =
     Adapter<BlockBroadcastService<RuntimeServiceId>, PeerId>;
-pub type CoreStateOperatorBackend = JsonFileBackend<
-    CoreServiceState<nomos_blend_service::core::backends::libp2p::Libp2pBlendBackendSettings>,
-    nomos_blend_service::core::settings::BlendConfig<
-        nomos_blend_service::core::backends::libp2p::Libp2pBlendBackendSettings,
-    >,
->;
 pub type BlendCoreService<SamplingAdapter, RuntimeServiceId> =
     nomos_blend_service::core::BlendService<
         nomos_blend_service::core::backends::libp2p::Libp2pBlendBackend,
@@ -200,7 +193,6 @@ pub type BlendCoreService<SamplingAdapter, RuntimeServiceId> =
         NtpTimeBackend,
         CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
         PolInfoProvider<SamplingAdapter>,
-        CoreStateOperatorBackend,
         RuntimeServiceId,
     >;
 pub type BlendEdgeService<SamplingAdapter, RuntimeServiceId> = nomos_blend_service::edge::BlendService<

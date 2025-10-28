@@ -47,7 +47,10 @@ use overwatch::{
 };
 use rand::{RngCore, SeedableRng as _, seq::SliceRandom as _};
 use serde::{Deserialize, Serialize};
-use services_utils::{overwatch::RecoveryOperator, wait_until_services_are_ready};
+use services_utils::{
+    overwatch::{JsonFileBackend, RecoveryOperator},
+    wait_until_services_are_ready,
+};
 use tokio::sync::oneshot;
 use tracing::info;
 
@@ -99,7 +102,6 @@ pub struct BlendService<
     TimeBackend,
     ChainService,
     PolInfoProvider,
-    StateRecoveryBackend,
     RuntimeServiceId,
 > where
     Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId>,
@@ -113,7 +115,6 @@ pub struct BlendService<
         ProofsGenerator,
         TimeBackend,
         ChainService,
-        StateRecoveryBackend,
         PolInfoProvider,
     )>,
 }
@@ -128,7 +129,6 @@ impl<
     TimeBackend,
     ChainService,
     PolInfoProvider,
-    StateRecoveryBackend,
     RuntimeServiceId,
 > ServiceData
     for BlendService<
@@ -141,7 +141,6 @@ impl<
         TimeBackend,
         ChainService,
         PolInfoProvider,
-        StateRecoveryBackend,
         RuntimeServiceId,
     >
 where
@@ -150,7 +149,9 @@ where
 {
     type Settings = BlendConfig<Backend::Settings>;
     type State = RecoveryServiceState<Backend::Settings>;
-    type StateOperator = RecoveryOperator<StateRecoveryBackend>;
+    type StateOperator = RecoveryOperator<
+        JsonFileBackend<RecoveryServiceState<Backend::Settings>, BlendConfig<Backend::Settings>>,
+    >;
     type Message = ServiceMessage<Network::BroadcastSettings>;
 }
 
@@ -165,7 +166,6 @@ impl<
     TimeBackend,
     ChainService,
     PolInfoProvider,
-    StateRecoveryBackend,
     RuntimeServiceId,
 > ServiceCore<RuntimeServiceId>
     for BlendService<
@@ -178,7 +178,6 @@ impl<
         TimeBackend,
         ChainService,
         PolInfoProvider,
-        StateRecoveryBackend,
         RuntimeServiceId,
     >
 where
@@ -192,7 +191,6 @@ where
     TimeBackend: nomos_time::backends::TimeBackend + Send,
     ChainService: CryptarchiaServiceData<Tx: Send + Sync>,
     PolInfoProvider: PolInfoProviderTrait<RuntimeServiceId, Stream: Send + Unpin + 'static> + Send,
-    StateRecoveryBackend: Send,
     RuntimeServiceId: AsServiceId<NetworkService<Network::Backend, RuntimeServiceId>>
         + AsServiceId<<MembershipAdapter as membership::Adapter>::Service>
         + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>

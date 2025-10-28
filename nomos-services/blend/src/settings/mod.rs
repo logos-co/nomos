@@ -47,6 +47,11 @@ impl<CoreBackendSettings, EdgeBackendSettings>
             ..
         }: Settings<CoreBackendSettings, EdgeBackendSettings>,
     ) -> Self {
+        let recovery_path = {
+            let mut path = recovery_path_prefix.join("core");
+            path.set_extension("json");
+            path
+        };
         Self {
             backend,
             crypto,
@@ -54,7 +59,7 @@ impl<CoreBackendSettings, EdgeBackendSettings>
             time,
             zk,
             minimum_network_size,
-            recovery_path: recovery_path_prefix.join("core"),
+            recovery_path,
         }
     }
 }

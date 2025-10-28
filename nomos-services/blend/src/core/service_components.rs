@@ -26,7 +26,6 @@ impl<
     TimeBackend,
     ChainService,
     PolInfoProvider,
-    StateRecoveryBackend,
     RuntimeServiceId,
 > ServiceComponents<RuntimeServiceId>
     for BlendService<
@@ -39,7 +38,6 @@ impl<
         TimeBackend,
         ChainService,
         PolInfoProvider,
-        StateRecoveryBackend,
         RuntimeServiceId,
     >
 where
