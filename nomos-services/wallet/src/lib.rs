@@ -13,9 +13,12 @@ use nomos_core::{
     block::Block,
     header::HeaderId,
     mantle::{
-        AuthenticatedMantleTx, Utxo, Value, gas::MainnetGasConstants, keys::PublicKey,
+        AuthenticatedMantleTx, SignedMantleTx, Transaction, Utxo, Value, gas::MainnetGasConstants,
+        keys::PublicKey,
+        ops::OpProof,
         tx_builder::MantleTxBuilder,
     },
+    proofs::zksig::{DummyZkSignature, ZkSignaturePublic},
 };
 use nomos_storage::{api::chain::StorageChainApi, backends::StorageBackend};
 use overwatch::{
@@ -45,6 +48,9 @@ pub enum WalletServiceError {
     #[error("Block {0} not found in storage during wallet sync")]
     BlockNotFoundInStorage(HeaderId),
 
+    #[error(transparent)]
+    WalletError(#[from] WalletError),
+
     #[error("Cryptarchia API error: {0}")]
     CryptarchiaApi(#[from] DynError),
 }
@@ -56,12 +62,12 @@ pub enum WalletMsg {
         pk: PublicKey,
         resp_tx: oneshot::Sender<Result<Option<Value>, WalletError>>,
     },
-    FundTx {
+    FundAndSignTx {
         tip: HeaderId,
         tx_builder: MantleTxBuilder,
         change_pk: PublicKey,
         funding_pks: Vec<PublicKey>,
-        resp_tx: oneshot::Sender<Result<MantleTxBuilder, WalletError>>,
+        resp_tx: oneshot::Sender<Result<SignedMantleTx, WalletError>>,
     },
     GetLeaderAgedNotes {
         tip: HeaderId,
@@ -74,7 +80,7 @@ impl WalletMsg {
     pub const fn tip(&self) -> HeaderId {
         match self {
             Self::GetBalance { tip, .. }
-            | Self::FundTx { tip, .. }
+            | Self::FundAndSignTx { tip, .. }
             | Self::GetLeaderAgedNotes { tip, .. } => *tip,
         }
     }
@@ -264,37 +270,56 @@ where
                     error!("Failed to respond to GetBalance");
                 }
             }
-
-            WalletMsg::FundTx {
+            WalletMsg::FundAndSignTx {
                 tip,
                 tx_builder,
                 change_pk,
                 funding_pks,
                 resp_tx,
             } => {
-                Self::fund_tx(tip, &tx_builder, change_pk, funding_pks, resp_tx, wallet);
+                let signed_tx_res =
+                    Self::fund_and_sign_tx(tip, &tx_builder, change_pk, funding_pks, wallet).await;
+                if resp_tx.send(signed_tx_res).is_err() {
+                    error!("Failed to respond to FundAndSignTx");
+                }
             }
-
             WalletMsg::GetLeaderAgedNotes { tip, resp_tx } => {
                 Self::get_leader_aged_notes(tip, resp_tx, wallet, cryptarchia).await;
             }
         }
     }
 
-    fn fund_tx(
+    async fn fund_and_sign_tx(
         tip: HeaderId,
         tx_builder: &MantleTxBuilder,
         change_pk: PublicKey,
         funding_pks: Vec<PublicKey>,
-        resp_tx: oneshot::Sender<Result<MantleTxBuilder, WalletError>>,
         wallet: &Wallet,
-    ) {
+    ) -> Result<SignedMantleTx, WalletError> {
         let funded_tx =
-            wallet.fund_tx::<MainnetGasConstants>(tip, tx_builder, change_pk, funding_pks);
+            wallet.fund_tx::<MainnetGasConstants>(tip, tx_builder, change_pk, funding_pks)?;
 
-        if resp_tx.send(funded_tx).is_err() {
-            error!("Failed to respond to FundTx");
-        }
+        // Build the transaction
+        let mantle_tx = funded_tx.build();
+
+        // Create operation proofs for each operation
+        // TODO: Replace with real KMS signatures when available
+        let ops_proofs: Vec<OpProof> = vec![];
+
+        // Create ZK signature proof for the ledger transaction
+        // TODO: Replace with real KMS ZK signature when available
+        let tx_hash = mantle_tx.hash();
+        let ledger_tx_proof = DummyZkSignature::prove(&ZkSignaturePublic {
+            msg_hash: tx_hash.into(),
+            pks: vec![],
+        });
+
+        // Create the signed transaction
+        // This should always succeed with dummy signatures
+        let signed_mantle_tx = SignedMantleTx::new(mantle_tx, ops_proofs, ledger_tx_proof)
+            .expect("Failed to create signed transaction with dummy signatures");
+
+        Ok(signed_mantle_tx)
     }
 
     async fn get_leader_aged_notes(

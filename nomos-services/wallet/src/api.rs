@@ -72,17 +72,17 @@ where
         Ok(rx.await??)
     }
 
-    pub async fn fund_tx(
+    pub async fn fund_and_sign_tx(
         &self,
         tip: HeaderId,
         tx_builder: MantleTxBuilder,
         change_pk: PublicKey,
         funding_pks: Vec<PublicKey>,
-    ) -> Result<MantleTxBuilder, DynError> {
+    ) -> Result<nomos_core::mantle::SignedMantleTx, DynError> {
         let (resp_tx, rx) = oneshot::channel();
 
         self.relay
-            .send(WalletMsg::FundTx {
+            .send(WalletMsg::FundAndSignTx {
                 tip,
                 tx_builder,
                 change_pk,
@@ -90,7 +90,7 @@ where
                 resp_tx,
             })
             .await
-            .map_err(|e| format!("Failed to send fund_tx request: {e:?}"))?;
+            .map_err(|e| format!("Failed to send fund_and_sign_tx request: {e:?}"))?;
 
         Ok(rx.await??)
     }
