@@ -229,7 +229,7 @@ where
                     ref status_updater,
                     ref state_updater,
                 },
-            last_saved_state,
+            mut last_saved_state,
             ..
         } = self;
 
@@ -406,7 +406,7 @@ where
 
         // Initialize the current session state. If the session matches the stored one,
         // retrieves the tracked consumed core quota. Else, fallback to `0`.
-        let mut current_recovery_checkpoint = if let Some(saved_state) = last_saved_state
+        let mut current_recovery_checkpoint = if let Some(saved_state) = last_saved_state.take()
             && saved_state.last_seen_session() == current_membership_info.public.session
         {
             tracing::debug!(target: LOG_TARGET, "Found recovery state for session {:?}: {saved_state:?}", current_membership_info.public.session);
@@ -447,12 +447,10 @@ where
                         session_number: u128::from(session).into(),
                     },
                 );
-            SchedulerWrapper::<_, _, ProcessedMessage<Network::BroadcastSettings>>::new(
-                scheduler_stream,
+            SchedulerWrapper::new_with_initial_messages(scheduler_stream,
                 initial_scheduler_session_info,
                 BlakeRng::from_entropy(),
-                blend_config.scheduler_settings(),
-            )
+                blend_config.scheduler_settings(), current_recovery_checkpoint.take_unsent_processed_messages())
         };
 
         let mut backend = Backend::new(

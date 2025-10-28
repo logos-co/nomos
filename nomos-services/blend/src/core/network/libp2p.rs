@@ -17,7 +17,7 @@ pub struct Libp2pAdapter<RuntimeServiceId> {
 
 /// Settings used to broadcast messages to the network service that uses libp2p
 /// backend.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct Libp2pBroadcastSettings {
     pub topic: String,
 }

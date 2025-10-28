@@ -40,6 +40,21 @@ where
             scheduler: MessageScheduler::new(session_clock, initial_session_info, rng, settings),
         }
     }
+
+    pub fn new_with_initial_messages<Messages>(
+        session_clock: SessionClock,
+        initial_session_info: SessionInfo,
+        rng: Rng,
+        settings: Settings,
+        messages: Messages,
+    ) -> Self
+    where
+        Messages: Iterator<Item = ProcessedMessage>,
+    {
+        let mut self_instance = Self::new(session_clock, initial_session_info, rng, settings);
+        messages.for_each(|m| self_instance.schedule_message(m));
+        self_instance
+    }
 }
 
 impl<SessionClock, Rng, ProcessedMessage> SchedulerWrapper<SessionClock, Rng, ProcessedMessage> {

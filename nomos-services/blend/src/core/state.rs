@@ -34,8 +34,10 @@ impl<BroadcastSettings> ServiceState<BroadcastSettings> {
         self.spent_core_quota
     }
 
-    pub const fn unsent_processed_messages(&self) -> &HashSet<ProcessedMessage<BroadcastSettings>> {
-        &self.unsent_processed_messages
+    pub fn take_unsent_processed_messages(
+        &mut self,
+    ) -> impl Iterator<Item = ProcessedMessage<BroadcastSettings>> {
+        self.unsent_processed_messages.drain()
     }
 
     pub const fn by_consuming_core_quota(mut self, amount: u64) -> Self {
