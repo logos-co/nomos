@@ -68,6 +68,9 @@ pub enum WalletServiceError {
 
     #[error("Declaration {0:?} is missing in ledger")]
     MissingDeclaration(nomos_core::sdp::DeclarationId),
+
+    #[error("Locked note {0:?} is missing in ledger")]
+    MissingLockedNote(nomos_core::mantle::NoteId),
 }
 
 #[derive(Debug)]
@@ -394,7 +397,7 @@ where
                     //
                     // For now, generate a dummy ZK signature using the standard prove() method
                     let zk_sig = DummyZkSignature::prove(&ZkSignaturePublic {
-                        msg_hash: mantle_tx.hash().into(),
+                        msg_hash: tx_hash.into(),
                         pks: vec![declare_op.zk_id.0],
                     });
 
@@ -407,7 +410,6 @@ where
                     }
                 }
                 Op::SDPWithdraw(withdraw_op) => {
-                    // Requires OpProof::ZkSig
                     // Look up the declaration from the ledger state to get the zk_id
                     let declaration = ledger_state
                         .mantle_ledger()
@@ -423,22 +425,18 @@ where
                         .mantle_ledger()
                         .locked_notes()
                         .get(&declaration.locked_note_id)
-                        .ok_or_else(|| {
-                            WalletError::Internal(format!(
-                                "Locked note not found for declaration: {:?}",
-                                declaration.locked_note_id
-                            ))
-                        })?;
+                        .ok_or(WalletServiceError::MissingLockedNote(
+                            declaration.locked_note_id,
+                        ))?;
 
                     let zk_sig = DummyZkSignature::prove(&ZkSignaturePublic {
-                        msg_hash: mantle_tx.hash().into(),
+                        msg_hash: tx_hash.into(),
                         pks: vec![locked_note.pk.into(), declaration.zk_id.0],
                     });
 
                     OpProof::ZkSig(zk_sig)
                 }
                 Op::SDPActive(active_op) => {
-                    // Requires OpProof::ZkSig
                     // Look up the declaration from the ledger state to get the zk_id
                     let declaration = ledger_state
                         .mantle_ledger()
@@ -448,28 +446,14 @@ where
                             active_op.declaration_id,
                         ))?;
 
-                    // Generate dummy ZK signature using the declaration's zk_id
-                    // TODO: Use real KMS ZK signatures once OpProof supports real Signature type
-                    let locked_note = ledger_state
-                        .mantle_ledger()
-                        .locked_notes()
-                        .get(&declaration.locked_note_id)
-                        .ok_or_else(|| {
-                            WalletError::Internal(format!(
-                                "Locked note not found for declaration: {:?}",
-                                declaration.locked_note_id
-                            ))
-                        })?;
-
                     let zk_sig = DummyZkSignature::prove(&ZkSignaturePublic {
                         msg_hash: mantle_tx.hash().into(),
-                        pks: vec![locked_note.pk.into(), declaration.zk_id.0],
+                        pks: vec![declaration.zk_id.0],
                     });
 
                     OpProof::ZkSig(zk_sig)
                 }
                 Op::LeaderClaim(_claim_op) => {
-                    // Requires OpProof::LeaderClaimProof (Groth16 proof)
                     // This is not yet implemented in the codebase
                     // TODO: Implement Groth16 proof generation for leader claims
                     todo!("Generate Groth16 proof for LeaderClaim")
@@ -479,7 +463,8 @@ where
         }
 
         // Create ZK signature proof for the ledger transaction
-        // TODO: Replace with real KMS ZK signature when available
+        // TODO: Replace with real KMS ZK signature once SignedMantleTx is updated to
+        // use real proofs
         let ledger_tx_proof = DummyZkSignature::prove(&ZkSignaturePublic {
             msg_hash: mantle_tx.hash().into(),
             pks: input_pks,
