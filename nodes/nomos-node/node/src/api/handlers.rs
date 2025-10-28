@@ -21,7 +21,7 @@ use nomos_api::http::{
 use nomos_core::{
     da::{BlobId, DaVerifier as CoreDaVerifier, blob::Share},
     header::HeaderId,
-    mantle::{SignedMantleTx, Transaction},
+    mantle::{SignedMantleTx, Transaction, ops::channel::ChannelId},
     sdp::SessionNumber,
 };
 use nomos_da_messages::http::da::{
@@ -1206,4 +1206,65 @@ pub mod wallet {
             Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
         }
     }
+}
+
+#[utoipa::path(
+    get,
+    path = "/mantle/channels/{channel_id}",
+    responses(
+        (status = 200, description = "Get channel state by ID", body = Option<ChannelState>),
+        (status = 500, description = "Internal server error", body = String),
+    )
+)]
+pub async fn get_channel_state<
+    SamplingBackend,
+    SamplingNetworkAdapter,
+    SamplingStorage,
+    StorageAdapter,
+    TimeBackend,
+    RuntimeServiceId,
+>(
+    State(handle): State<OverwatchHandle<RuntimeServiceId>>,
+    Path(channel_id): Path<String>,
+) -> Response
+where
+    SamplingBackend: DaSamplingServiceBackend<BlobId = BlobId> + Send,
+    SamplingBackend::Settings: Clone,
+    SamplingBackend::Share: Debug + 'static,
+    SamplingBackend::BlobId: Debug + 'static,
+    SamplingNetworkAdapter:
+        nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync + 'static,
+    SamplingStorage:
+        nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync + 'static,
+    StorageAdapter: tx_service::storage::MempoolStorageAdapter<
+            RuntimeServiceId,
+            Item = SignedMantleTx,
+            Key = <SignedMantleTx as Transaction>::Hash,
+        > + Send
+        + Sync
+        + Clone
+        + 'static,
+    StorageAdapter::Error: Debug,
+    TimeBackend: nomos_time::backends::TimeBackend,
+    TimeBackend::Settings: Clone + Send + Sync,
+    RuntimeServiceId:
+        Debug + Send + Sync + Display + 'static + AsServiceId<Cryptarchia<RuntimeServiceId>>,
+{
+    let channel_bytes = match hex::decode(&channel_id) {
+        Ok(bytes) if bytes.len() == 32 => {
+            let mut buf = [0u8; 32];
+            buf.copy_from_slice(&bytes);
+            ChannelId::from(buf)
+        }
+        _ => return (StatusCode::BAD_REQUEST, "Invalid channel ID format").into_response(),
+    };
+
+    make_request_and_return_response!(mantle::get_channel_state::<
+        SamplingBackend,
+        SamplingNetworkAdapter,
+        SamplingStorage,
+        StorageAdapter,
+        TimeBackend,
+        RuntimeServiceId,
+    >(&handle, channel_bytes))
 }

@@ -6,9 +6,10 @@ use chain_service::ConsensusMsg;
 use futures::{Stream, StreamExt as _};
 use nomos_core::{
     header::HeaderId,
-    mantle::{SignedMantleTx, Transaction},
+    mantle::{SignedMantleTx, Transaction, ops::channel::ChannelId},
     sdp::Declaration,
 };
+use nomos_ledger::mantle::channel::ChannelState;
 use overwatch::services::AsServiceId;
 use tokio::sync::oneshot;
 use tokio_stream::wrappers::BroadcastStream;
@@ -364,4 +365,73 @@ where
         .collect();
 
     Ok(declarations)
+}
+
+pub async fn get_channel_state<
+    SamplingBackend,
+    SamplingNetworkAdapter,
+    SamplingStorage,
+    StorageAdapter,
+    TimeBackend,
+    RuntimeServiceId,
+>(
+    handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
+    channel_id: ChannelId,
+) -> Result<Option<ChannelState>, super::DynError>
+where
+    SamplingBackend: nomos_da_sampling::backend::DaSamplingServiceBackend<BlobId = [u8; 32]> + Send,
+    SamplingBackend::Settings: Clone,
+    SamplingBackend::Share: Debug + 'static,
+    SamplingBackend::BlobId: Debug + 'static,
+    SamplingNetworkAdapter:
+        nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync + 'static,
+    SamplingStorage:
+        nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync + 'static,
+    StorageAdapter: tx_service::storage::MempoolStorageAdapter<
+            RuntimeServiceId,
+            Item = SignedMantleTx,
+            Key = <SignedMantleTx as Transaction>::Hash,
+        > + Send
+        + Sync
+        + Clone
+        + 'static,
+    StorageAdapter::Error: Debug,
+    TimeBackend: nomos_time::backends::TimeBackend,
+    TimeBackend::Settings: Clone + Send + Sync,
+    RuntimeServiceId: Debug
+        + Send
+        + Sync
+        + Display
+        + 'static
+        + AsServiceId<super::consensus::Cryptarchia<RuntimeServiceId>>,
+{
+    let relay = handle
+        .relay::<super::consensus::Cryptarchia<RuntimeServiceId>>()
+        .await?;
+    let (info_sender, info_receiver) = oneshot::channel();
+
+    relay
+        .send(ConsensusMsg::Info { tx: info_sender })
+        .await
+        .map_err(|(e, _)| e)?;
+
+    let info = info_receiver
+        .await
+        .map_err(|e| Box::new(e) as super::DynError)?;
+
+    let (ledger_sender, ledger_receiver) = oneshot::channel();
+
+    relay
+        .send(ConsensusMsg::GetLedgerState {
+            block_id: info.tip,
+            tx: ledger_sender,
+        })
+        .await
+        .map_err(|(e, _)| e)?;
+
+    let ledger_state = ledger_receiver
+        .await
+        .map_err(|e| Box::new(e) as super::DynError)?;
+
+    Ok(ledger_state.and_then(|state| state.get_channel(&channel_id).cloned()))
 }

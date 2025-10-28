@@ -66,8 +66,8 @@ use {
 use super::handlers::{
     add_share, add_tx, balancer_stats, blacklisted_peers, block, block_peer, cryptarchia_headers,
     cryptarchia_info, cryptarchia_lib_stream, da_get_commitments, da_get_light_share,
-    da_get_shares, da_get_storage_commitments, libp2p_info, mantle_metrics, mantle_status,
-    monitor_stats, unblock_peer, wallet,
+    da_get_shares, da_get_storage_commitments, get_channel_state, libp2p_info, mantle_metrics,
+    mantle_status, monitor_stats, unblock_peer, wallet,
 };
 use crate::{
     WalletService,
@@ -376,6 +376,19 @@ where
             .route(
                 paths::MANTLE_STATUS,
                 routing::post(mantle_status::<MempoolStorageAdapter, RuntimeServiceId>),
+            )
+            .route(
+                paths::MANTLE_CHANNEL_BY_ID,
+                routing::get(
+                    get_channel_state::<
+                        SamplingBackend,
+                        SamplingNetworkAdapter,
+                        SamplingStorage,
+                        MempoolStorageAdapter,
+                        TimeBackend,
+                        RuntimeServiceId,
+                    >,
+                ),
             )
             .route(
                 paths::CRYPTARCHIA_INFO,

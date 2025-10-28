@@ -223,7 +223,6 @@ impl Cryptarchia {
         self.consensus.lib()
     }
 
-    /// Create a new [`Cryptarchia`] with the updated state.
     #[must_use = "Returns a new instance with the updated state, without modifying the original."]
     fn try_apply_block<Tx>(
         &self,

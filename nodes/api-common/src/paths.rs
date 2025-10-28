@@ -30,6 +30,9 @@ pub mod wallet {
     pub const TRANSACTIONS_TRANSFER_FUNDS: &str = "/wallet/transactions/transfer-funds";
 }
 
+// mantle state paths
+pub const MANTLE_CHANNEL_BY_ID: &str = "/mantle/channels/:channel_id";
+
 // testing paths
 pub const UPDATE_MEMBERSHIP: &str = "/test/membership/update";
 pub const DA_GET_MEMBERSHIP: &str = "/test/da/membership";
