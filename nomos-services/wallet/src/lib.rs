@@ -176,10 +176,10 @@ where
             .overwatch_handle
             .relay::<KMSService<PreloadKMSBackend, RuntimeServiceId>>()
             .await?;
-        let kms = KmsServiceApi::<
-            KMSService<PreloadKMSBackend, RuntimeServiceId>,
-            RuntimeServiceId,
-        >::new(kms_relay);
+        let kms =
+            KmsServiceApi::<KMSService<PreloadKMSBackend, RuntimeServiceId>, RuntimeServiceId>::new(
+                kms_relay,
+            );
 
         // Create StorageAdapter for cleaner block operations
         let storage_adapter =
@@ -265,7 +265,11 @@ where
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as StorageChainApi>::Block: TryFrom<Block<Tx>> + TryInto<Block<Tx>>,
     <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
-    RuntimeServiceId: AsServiceId<Cryptarchia> + std::fmt::Debug + std::fmt::Display + Sync,
+    RuntimeServiceId: AsServiceId<Cryptarchia>
+        + AsServiceId<KMSService<PreloadKMSBackend, RuntimeServiceId>>
+        + std::fmt::Debug
+        + std::fmt::Display
+        + Sync,
 {
     #[expect(
         clippy::cognitive_complexity,
@@ -298,15 +302,9 @@ where
                 funding_pks,
                 resp_tx,
             } => {
-                let signed_tx_res = Self::fund_and_sign_tx(
-                    tip,
-                    &tx_builder,
-                    change_pk,
-                    funding_pks,
-                    wallet,
-                    kms,
-                )
-                .await;
+                let signed_tx_res =
+                    Self::fund_and_sign_tx(tip, &tx_builder, change_pk, funding_pks, wallet, kms)
+                        .await;
                 if resp_tx.send(signed_tx_res).is_err() {
                     error!("Failed to respond to FundAndSignTx");
                 }
@@ -317,17 +315,13 @@ where
         }
     }
 
-    #[expect(
-        clippy::unused_async,
-        reason = "Function will use async KMS API calls for proof generation in future implementation"
-    )]
     async fn fund_and_sign_tx(
         tip: HeaderId,
         tx_builder: &MantleTxBuilder,
         change_pk: PublicKey,
         funding_pks: Vec<PublicKey>,
         wallet: &Wallet,
-        _kms: &KmsServiceApi<KMSService<PreloadKMSBackend, RuntimeServiceId>, RuntimeServiceId>,
+        kms: &KmsServiceApi<KMSService<PreloadKMSBackend, RuntimeServiceId>, RuntimeServiceId>,
     ) -> Result<SignedMantleTx, WalletError> {
         let funded_tx =
             wallet.fund_tx::<MainnetGasConstants>(tip, tx_builder, change_pk, funding_pks)?;
@@ -337,62 +331,102 @@ where
 
         // Create operation proofs for each operation
         // Pattern match on each operation type to determine required proof
-        let ops_proofs: Vec<OpProof> = mantle_tx
-            .ops
-            .iter()
-            .map(|op| {
-                match op {
-                    Op::ChannelInscribe(_inscribe_op) => {
-                        // Requires OpProof::Ed25519Sig
-                        // Sign the tx hash with the signer's Ed25519 key
-                        // TODO: Use KMS to sign with inscribe_op.signer
-                        todo!("Sign ChannelInscribe with Ed25519")
-                    }
-                    Op::ChannelBlob(_blob_op) => {
-                        // Requires OpProof::Ed25519Sig
-                        // Sign the tx hash with the signer's Ed25519 key
-                        // TODO: Use KMS to sign with blob_op.signer
-                        todo!("Sign ChannelBlob with Ed25519")
-                    }
-                    Op::ChannelSetKeys(_set_keys_op) => {
-                        // Requires OpProof::Ed25519Sig
-                        // Sign the tx hash with the channel owner's Ed25519 key
-                        // TODO: Use KMS to sign with the channel owner key
-                        todo!("Sign ChannelSetKeys with Ed25519")
-                    }
-                    Op::SDPDeclare(_declare_op) => {
-                        // Requires OpProof::ZkAndEd25519Sigs
-                        // Needs both a ZK signature and an Ed25519 signature
-                        // TODO: Use KMS to create both signatures
-                        todo!("Sign SDPDeclare with ZK and Ed25519")
-                    }
-                    Op::SDPWithdraw(_withdraw_op) => {
-                        // Requires OpProof::ZkSig
-                        // Sign with ZK signature only
-                        // TODO: Use KMS to create ZK signature
-                        todo!("Sign SDPWithdraw with ZK")
-                    }
-                    Op::SDPActive(_active_op) => {
-                        // Requires OpProof::ZkSig
-                        // Sign with ZK signature only
-                        // TODO: Use KMS to create ZK signature
-                        todo!("Sign SDPActive with ZK")
-                    }
-                    Op::LeaderClaim(_claim_op) => {
-                        // Requires OpProof::LeaderClaimProof (Groth16 proof)
-                        // This is not yet implemented in the codebase
-                        // TODO: Implement Groth16 proof generation for leader claims
-                        todo!("Generate Groth16 proof for LeaderClaim")
-                    }
+        let tx_hash = mantle_tx.hash();
+        let tx_hash_bytes: Bytes = tx_hash.into();
+
+        let mut ops_proofs = Vec::new();
+        for op in &mantle_tx.ops {
+            let proof = match op {
+                Op::ChannelInscribe(inscribe_op) => {
+                    // Requires OpProof::Ed25519Sig
+                    // Sign the tx hash with the signer's Ed25519 key
+                    // Use hex-encoded public key as key_id
+                    let signer_hex = hex::encode(inscribe_op.signer.as_bytes());
+
+                    let payload = key_management_system::keys::PayloadEncoding::Ed25519(
+                        tx_hash_bytes.clone(),
+                    );
+                    let signature = kms.sign(signer_hex, payload).await.map_err(|e| {
+                        WalletError::Internal(format!("Failed to sign ChannelInscribe: {e}"))
+                    })?;
+
+                    let key_management_system::keys::SignatureEncoding::Ed25519(ed25519_sig) =
+                        signature
+                    else {
+                        return Err(WalletError::Internal("Expected Ed25519 signature".into()));
+                    };
+
+                    OpProof::Ed25519Sig(ed25519_sig)
                 }
-            })
-            .collect();
+                Op::ChannelBlob(blob_op) => {
+                    // Requires OpProof::Ed25519Sig
+                    // Sign the tx hash with the signer's Ed25519 key
+                    let signer_hex = hex::encode(blob_op.signer.as_bytes());
+
+                    let payload = key_management_system::keys::PayloadEncoding::Ed25519(
+                        tx_hash_bytes.clone(),
+                    );
+                    let signature = kms.sign(signer_hex, payload).await.map_err(|e| {
+                        WalletError::Internal(format!("Failed to sign ChannelBlob: {e}"))
+                    })?;
+
+                    let key_management_system::keys::SignatureEncoding::Ed25519(ed25519_sig) =
+                        signature
+                    else {
+                        return Err(WalletError::Internal("Expected Ed25519 signature".into()));
+                    };
+
+                    OpProof::Ed25519Sig(ed25519_sig)
+                }
+                Op::ChannelSetKeys(set_keys_op) => {
+                    // Requires OpProof::Ed25519Sig
+                    // Sign the tx hash with the channel owner's Ed25519 key
+                    //
+                    // TODO: Determine channel authority
+                    // SetKeysOp doesn't include the signer in the operation data.
+                    // We need to:
+                    // 1. Track channel ownership in wallet state (creator of ChannelInscribe)
+                    // 2. Look up which key has authority over set_keys_op.channel
+                    // 3. Or require the caller to specify the signing key when building the tx
+                    //
+                    // For now, return an error indicating this needs to be implemented.
+                    return Err(WalletError::Internal(format!(
+                        "ChannelSetKeys signing not yet implemented: need to determine signing authority for channel {}",
+                        hex::encode(set_keys_op.channel.as_ref())
+                    )));
+                }
+                Op::SDPDeclare(_declare_op) => {
+                    // Requires OpProof::ZkAndEd25519Sigs
+                    // Needs both a ZK signature and an Ed25519 signature
+                    // TODO: Use KMS to create both signatures
+                    todo!("Sign SDPDeclare with ZK and Ed25519")
+                }
+                Op::SDPWithdraw(_withdraw_op) => {
+                    // Requires OpProof::ZkSig
+                    // Sign with ZK signature only
+                    // TODO: Use KMS to create ZK signature
+                    todo!("Sign SDPWithdraw with ZK")
+                }
+                Op::SDPActive(_active_op) => {
+                    // Requires OpProof::ZkSig
+                    // Sign with ZK signature only
+                    // TODO: Use KMS to create ZK signature
+                    todo!("Sign SDPActive with ZK")
+                }
+                Op::LeaderClaim(_claim_op) => {
+                    // Requires OpProof::LeaderClaimProof (Groth16 proof)
+                    // This is not yet implemented in the codebase
+                    // TODO: Implement Groth16 proof generation for leader claims
+                    todo!("Generate Groth16 proof for LeaderClaim")
+                }
+            };
+            ops_proofs.push(proof);
+        }
 
         // Create ZK signature proof for the ledger transaction
         // TODO: Replace with real KMS ZK signature when available
-        let tx_hash = mantle_tx.hash();
         let ledger_tx_proof = DummyZkSignature::prove(&ZkSignaturePublic {
-            msg_hash: tx_hash.into(),
+            msg_hash: mantle_tx.hash().into(),
             pks: vec![],
         });
 
