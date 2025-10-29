@@ -22,10 +22,13 @@ use reqwest::Url;
 use crate::{adjust_timeout, nodes::executor::Executor};
 
 const TEST_SIGNING_KEY_BYTES: [u8; 32] = [0u8; 32];
+
 pub const DA_TESTS_TIMEOUT: u64 = 120;
+
 pub async fn disseminate_with_metadata(
     executor: &Executor,
     channel_id: ChannelId,
+    parent_msg_id: MsgId,
     data: &[u8],
 ) -> Result<BlobId, Error> {
     let executor_config = executor.config();
@@ -33,7 +36,6 @@ pub async fn disseminate_with_metadata(
     let client = ExecutorHttpClient::new(None);
     let exec_url = Url::parse(&format!("http://{backend_address}")).unwrap();
 
-    let parent_msg_id = MsgId::root();
     let signer = SigningKey::from_bytes(&TEST_SIGNING_KEY_BYTES).verifying_key();
 
     client
@@ -41,57 +43,59 @@ pub async fn disseminate_with_metadata(
         .await
 }
 
-/// `wait_for_blob_onchain` tracks the latest chain updates, if new blocks
-/// doesn't contain the provided `blob_id` it will wait for ever.
-pub async fn wait_for_blob_onchain(executor: &Executor, blob_id: BlobId) {
+/// Wait for the specified blob to appear on-chain and return its message id.
+pub async fn wait_for_blob_onchain(
+    executor: &Executor,
+    channel_id: ChannelId,
+    blob_id: BlobId,
+) -> MsgId {
+    const POLL_DELAY_MS: u64 = 200;
     let block_fut = async {
-        let mut onchain = false;
-        while !onchain {
+        loop {
             let CryptarchiaInfo { tip, .. } = executor.consensus_info().await;
-            if let Some(block) = executor.get_block(tip).await
-                && block
-                    .transactions()
-                    .flat_map(|tx| tx.mantle_tx().ops.iter())
-                    .filter_map(|op| {
-                        if let Op::ChannelBlob(op) = op {
-                            Some(op.blob)
-                        } else {
-                            None
+            if let Some(block) = executor.get_block(tip).await {
+                for tx in block.transactions() {
+                    for op in &tx.mantle_tx().ops {
+                        if let Op::ChannelBlob(blob_op) = op
+                            && blob_op.channel == channel_id
+                            && blob_op.blob == blob_id
+                        {
+                            return blob_op.id();
                         }
-                    })
-                    .any(|blob| blob == blob_id)
-            {
-                onchain = true;
+                    }
+                }
             }
-            tokio::time::sleep(Duration::from_millis(200)).await;
+
+            tokio::time::sleep(Duration::from_millis(POLL_DELAY_MS)).await;
         }
     };
 
     let timeout = adjust_timeout(Duration::from_secs(DA_TESTS_TIMEOUT));
-    assert!(
-        (tokio::time::timeout(timeout, block_fut).await).is_ok(),
-        "timed out waiting for blob shares"
-    );
+    tokio::time::timeout(timeout, block_fut)
+        .await
+        .unwrap_or_else(|_| panic!("timed out waiting for blob shares"))
 }
 
 /// Sets up a test channel by sending an inscription transaction and waiting for
 /// it to be included in a block.
-/// Returns the channel ID that was created.
-pub async fn setup_test_channel(executor: &Executor) -> ChannelId {
+///
+/// Returns the channel ID together with the inscription message id, which
+/// should be used as the parent for the first blob operation.
+pub async fn setup_test_channel(executor: &Executor) -> (ChannelId, MsgId) {
     let test_channel_id = ChannelId::from([1u8; 32]);
     let inscription_tx = create_inscription_transaction_with_id(test_channel_id);
     executor.add_tx(inscription_tx).await.unwrap();
 
-    wait_for_inscription_onchain(executor, test_channel_id).await;
+    let inscription_id = wait_for_inscription_onchain(executor, test_channel_id).await;
 
-    test_channel_id
+    (test_channel_id, inscription_id)
 }
 
 /// Creates an inscription transaction using the same hardcoded key as the mock
-/// wallet adapter
+/// wallet adapter.
 #[must_use]
 pub fn create_inscription_transaction_with_id(id: ChannelId) -> SignedMantleTx {
-    let signing_key = SigningKey::from_bytes(&[0u8; 32]);
+    let signing_key = SigningKey::from_bytes(&TEST_SIGNING_KEY_BYTES);
     let signer = signing_key.verifying_key();
 
     let inscription_op = InscriptionOp {
@@ -122,33 +126,31 @@ pub fn create_inscription_transaction_with_id(id: ChannelId) -> SignedMantleTx {
     .unwrap()
 }
 
-/// Wait for inscription transaction to be included in a block
-async fn wait_for_inscription_onchain(executor: &Executor, channel_id: ChannelId) {
+async fn wait_for_inscription_onchain(executor: &Executor, channel_id: ChannelId) -> MsgId {
     let block_fut = async {
-        let mut onchain = false;
-        while !onchain {
+        loop {
             let info = executor.consensus_info().await;
             if let Some(block) = executor.get_block(info.tip).await {
-                onchain = block
-                    .transactions()
-                    .flat_map(|tx| tx.mantle_tx().ops.iter())
-                    .any(|op| {
-                        if let Op::ChannelInscribe(inscribe_op) = op {
-                            inscribe_op.channel_id == channel_id
-                        } else {
-                            false
+                for tx in block.transactions() {
+                    for op in &tx.mantle_tx().ops {
+                        if let Op::ChannelInscribe(inscribe_op) = op
+                            && inscribe_op.channel_id == channel_id
+                        {
+                            return inscribe_op.id();
                         }
-                    });
+                    }
+                }
             }
             tokio::time::sleep(Duration::from_millis(200)).await;
         }
     };
 
     let timeout = adjust_timeout(Duration::from_secs(DA_TESTS_TIMEOUT));
-    assert!(
-        tokio::time::timeout(timeout, block_fut).await.is_ok(),
-        "timed out waiting for inscription transaction to be included in block"
-    );
+    tokio::time::timeout(timeout, block_fut)
+        .await
+        .unwrap_or_else(|_| {
+            panic!("timed out waiting for inscription transaction to be included in block")
+        })
 }
 
 pub async fn wait_for_shares_number(executor: &Executor, blob_id: BlobId, num_shares: usize) {
