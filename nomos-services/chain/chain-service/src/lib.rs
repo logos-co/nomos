@@ -26,7 +26,7 @@ use futures::{FutureExt as _, StreamExt as _};
 use network::NetworkAdapter;
 use nomos_core::{
     block::{Block, Proposal},
-    da::{self},
+    da,
     header::HeaderId,
     mantle::{
         AuthenticatedMantleTx, Transaction, TxHash,
@@ -34,7 +34,7 @@ use nomos_core::{
         genesis_tx::GenesisTx,
         ops::{Op, leader_claim::VoucherCm},
     },
-    sdp::{ProviderId, ProviderInfo, ServiceType},
+    sdp::{Declaration, DeclarationId, ProviderId, ProviderInfo, ServiceType},
 };
 use nomos_da_sampling::{
     DaSamplingService, DaSamplingServiceMsg, backend::DaSamplingServiceBackend,
@@ -135,6 +135,9 @@ pub enum ConsensusMsg<Tx> {
     GetLedgerState {
         block_id: HeaderId,
         tx: oneshot::Sender<Option<LedgerState>>,
+    },
+    GetSdpDeclarations {
+        tx: oneshot::Sender<Vec<(DeclarationId, Declaration)>>,
     },
     GetEpochState {
         slot: Slot,
@@ -397,7 +400,7 @@ pub struct CryptarchiaConsensus<
     Mempool::Item: AuthenticatedMantleTx,
     MempoolNetAdapter:
         MempoolNetworkAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>,
-    MempoolDaAdapter: DaMempoolAdapter,
+    MempoolDaAdapter: DaMempoolAdapter + Send + Sync + 'static,
     MempoolNetAdapter::Settings: Send + Sync,
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
@@ -450,7 +453,7 @@ where
     Mempool::Item: AuthenticatedMantleTx + Clone + Eq + Debug,
     MempoolNetAdapter:
         MempoolNetworkAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>,
-    MempoolDaAdapter: DaMempoolAdapter,
+    MempoolDaAdapter: DaMempoolAdapter + Send + Sync + 'static,
     MempoolNetAdapter::Settings: Send + Sync,
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
@@ -520,8 +523,8 @@ where
         + Send
         + Sync
         + 'static,
-    MempoolDaAdapter: DaMempoolAdapter + Send + Sync + 'static,
     MempoolNetAdapter::Settings: Send + Sync,
+    MempoolDaAdapter: DaMempoolAdapter + Send + Sync + 'static,
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
     <Storage as StorageChainApi>::Block:
@@ -915,8 +918,8 @@ where
         + Send
         + Sync
         + 'static,
-    MempoolDaAdapter: DaMempoolAdapter + Send + Sync + 'static,
     MempoolNetAdapter::Settings: Send + Sync,
+    MempoolDaAdapter: DaMempoolAdapter + Send + Sync + 'static,
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
     <Storage as StorageChainApi>::Block:
@@ -1006,6 +1009,18 @@ where
                 let ledger_state = cryptarchia.ledger.state(&block_id).cloned();
                 tx.send(ledger_state).unwrap_or_else(|_| {
                     error!("Could not send ledger state through channel");
+                });
+            }
+            ConsensusMsg::GetSdpDeclarations { tx } => {
+                let tip = cryptarchia.tip();
+                let declarations = cryptarchia
+                    .ledger
+                    .state(&tip)
+                    .map(LedgerState::sdp_declarations)
+                    .unwrap_or_default();
+
+                tx.send(declarations).unwrap_or_else(|_| {
+                    error!("Could not send SDP declarations through channel");
                 });
             }
             ConsensusMsg::GetEpochState { slot, tx } => {
