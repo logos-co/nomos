@@ -386,7 +386,6 @@ where
         share_verifier: &ShareVerifier,
         tasks: &mut PendingTasks<'_>,
     ) {
-        tracing::info!("Received DA blob from mempool: {blob_id:?}");
         // TODO: Add trigger_sampling_delay here if needed
 
         Self::handle_service_message(
