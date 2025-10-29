@@ -53,6 +53,7 @@ async fn test_get_share_data() {
 
 #[tokio::test]
 #[serial]
+#[ignore = "Reenable after transaction mempool is used"]
 async fn test_get_commitments_from_peers() {
     let interconnected_topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let executor = &interconnected_topology.executors()[0];
