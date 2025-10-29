@@ -6,6 +6,7 @@ use futures::{Stream, StreamExt as _};
 use nomos_core::{
     header::HeaderId,
     mantle::{SignedMantleTx, Transaction},
+    sdp::Declaration,
 };
 use overwatch::services::AsServiceId;
 use tokio::sync::oneshot;
@@ -332,4 +333,76 @@ where
         .collect::<Vec<_>>();
 
     Ok(blocks)
+}
+
+pub async fn get_sdp_declarations<
+    SamplingBackend,
+    SamplingNetworkAdapter,
+    SamplingStorage,
+    StorageAdapter,
+    TimeBackend,
+    RuntimeServiceId,
+>(
+    handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
+) -> Result<Vec<Declaration>, super::DynError>
+where
+    SamplingBackend: nomos_da_sampling::backend::DaSamplingServiceBackend<BlobId = [u8; 32]> + Send,
+    SamplingBackend::Settings: Clone,
+    SamplingBackend::Share: Debug + 'static,
+    SamplingBackend::BlobId: Debug + 'static,
+    SamplingNetworkAdapter:
+        nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync + 'static,
+    SamplingStorage:
+        nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync + 'static,
+    StorageAdapter: tx_service::storage::MempoolStorageAdapter<
+            RuntimeServiceId,
+            Item = SignedMantleTx,
+            Key = <SignedMantleTx as Transaction>::Hash,
+        > + Send
+        + Sync
+        + Clone
+        + 'static,
+    StorageAdapter::Error: Debug,
+    TimeBackend: nomos_time::backends::TimeBackend,
+    TimeBackend::Settings: Clone + Send + Sync,
+    RuntimeServiceId: Debug
+        + Send
+        + Sync
+        + Display
+        + 'static
+        + AsServiceId<
+            super::consensus::Cryptarchia<
+                SamplingBackend,
+                SamplingNetworkAdapter,
+                SamplingStorage,
+                StorageAdapter,
+                TimeBackend,
+                RuntimeServiceId,
+            >,
+        >,
+{
+    let relay = handle
+        .relay::<super::consensus::Cryptarchia<
+            SamplingBackend,
+            SamplingNetworkAdapter,
+            SamplingStorage,
+            StorageAdapter,
+            TimeBackend,
+            RuntimeServiceId,
+        >>()
+        .await?;
+    let (sender, receiver) = oneshot::channel();
+
+    relay
+        .send(ConsensusMsg::GetSdpDeclarations { tx: sender })
+        .await
+        .map_err(|(e, _)| e)?;
+
+    let declarations = receiver
+        .await?
+        .into_iter()
+        .map(|(_, declaration)| declaration)
+        .collect();
+
+    Ok(declarations)
 }
