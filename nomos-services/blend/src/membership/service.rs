@@ -74,15 +74,23 @@ where
 
         Ok(Box::pin(
             session_stream
-                .map(|SessionUpdate { providers, .. }| {
-                    providers
-                        .iter()
-                        .filter_map(|(provider_id, provider_info)| {
-                            node_from_provider::<NodeId>(provider_id, provider_info)
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .map(move |nodes| {
+                .map(
+                    |SessionUpdate {
+                         providers,
+                         session_number,
+                     }| {
+                        (
+                            providers
+                                .iter()
+                                .filter_map(|(provider_id, provider_info)| {
+                                    node_from_provider::<NodeId>(provider_id, provider_info)
+                                })
+                                .collect::<Vec<_>>(),
+                            session_number,
+                        )
+                    },
+                )
+                .map(move |(nodes, session_number)| {
                     let (membership_nodes, zk_public_keys): (Vec<_>, Vec<_>) = nodes
                         .into_iter()
                         .map(|ZkNode { node, zk_key }| (node, zk_key))
@@ -103,8 +111,7 @@ where
                     MembershipInfo {
                         membership,
                         zk: zk_info,
-                        // TODO: Replace with actual value.
-                        session_number: 0,
+                        session_number,
                     }
                 }),
         ))
@@ -142,7 +149,7 @@ where
     NodeId: node_id::TryFrom,
 {
     let provider_id = provider_id.0.as_bytes();
-    let ProviderInfo { locators, .. } = provider_info;
+    let ProviderInfo { locators, zk_id } = provider_info;
     let address = locators.first()?.0.clone();
     let id = NodeId::try_from_provider_id(provider_id)
         .map_err(|e| {
@@ -154,14 +161,13 @@ where
             warn!("Failed to decode provider_id to public_key: {e:?}");
         })
         .ok()?;
-    let zk_key = provider_info.zk_id;
     Some(ZkNode {
         node: Node {
             id,
             address,
             public_key,
         },
-        zk_key,
+        zk_key: *zk_id,
     })
 }
 

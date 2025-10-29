@@ -163,7 +163,8 @@ where
     }
 }
 
-/// Create a stream from the current optional value and the broadcast sender.
+/// Create a stream from the current optional, last-processed value and the
+/// broadcast sender.
 ///
 /// The stream immediately yields the current value if `Some`, else it will wait
 /// for the first `Ok` value as returned by the broadcast channel wrapper
