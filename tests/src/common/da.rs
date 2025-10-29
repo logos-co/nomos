@@ -21,21 +21,23 @@ use reqwest::Url;
 
 use crate::{adjust_timeout, nodes::executor::Executor};
 
-pub const APP_ID: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+const TEST_SIGNING_KEY_BYTES: [u8; 32] = [0u8; 32];
 pub const DA_TESTS_TIMEOUT: u64 = 120;
 pub async fn disseminate_with_metadata(
     executor: &Executor,
     channel_id: ChannelId,
     data: &[u8],
-    metadata: kzgrs_backend::dispersal::Metadata,
 ) -> Result<BlobId, Error> {
     let executor_config = executor.config();
     let backend_address = executor_config.http.backend_settings.address;
     let client = ExecutorHttpClient::new(None);
     let exec_url = Url::parse(&format!("http://{backend_address}")).unwrap();
 
+    let parent_msg_id = MsgId::root();
+    let signer = SigningKey::from_bytes(&TEST_SIGNING_KEY_BYTES).verifying_key();
+
     client
-        .publish_blob(exec_url, channel_id, data.to_vec(), metadata)
+        .publish_blob(exec_url, channel_id, parent_msg_id, signer, data.to_vec())
         .await
 }
 

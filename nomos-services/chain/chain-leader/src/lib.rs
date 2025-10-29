@@ -10,7 +10,7 @@ use std::{collections::BTreeSet, fmt::Display, iter, pin::Pin, time::Duration};
 use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 use cryptarchia_engine::{Epoch, Slot};
 use ed25519_dalek::SigningKey;
-use futures::{StreamExt as _, stream};
+use futures::{StreamExt as _, future, stream};
 pub use leadership::LeaderConfig;
 use nomos_core::{
     block::{Block, MAX_TRANSACTIONS},
@@ -571,13 +571,15 @@ where
             }
         };
 
-        let filtered_stream = txs_stream.filter(move |tx| {
-            let is_valid = tx.mantle_tx().ops.iter().all(|op| match op {
-                Op::ChannelBlob(op) => blobs.contains(&op.blob),
-                _ => true,
-            });
+        let filtered_stream = txs_stream.filter({
+            move |tx| {
+                let is_valid = tx.mantle_tx().ops.iter().all(|op| match op {
+                    Op::ChannelBlob(op) => blobs.contains(&op.blob),
+                    _ => true,
+                });
 
-            async move { is_valid }
+                future::ready(is_valid)
+            }
         });
 
         let mut tx_stream: Pin<Box<_>> = Box::pin(filtered_stream);
