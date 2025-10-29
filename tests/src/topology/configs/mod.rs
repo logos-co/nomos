@@ -14,8 +14,8 @@ use consensus::{GeneralConsensusConfig, ProviderInfo, create_genesis_tx_with_dec
 use da::GeneralDaConfig;
 use network::GeneralNetworkConfig;
 use nomos_core::{
-    mantle::GenesisTx as _,
-    sdp::{Locator, ProviderId, ServiceType, ZkPublicKey},
+    mantle::{GenesisTx as _, keys::PublicKey},
+    sdp::{Locator, ProviderId, ServiceType},
 };
 use nomos_utils::net::get_available_udp_port;
 use num_bigint::BigUint;
@@ -94,7 +94,7 @@ pub fn create_general_configs_with_blend_core_subset(
         .map(|(i, blend_conf)| ProviderInfo {
             service_type: ServiceType::BlendNetwork,
             provider_id: ProviderId(blend_conf.signer.verifying_key()),
-            zk_id: ZkPublicKey(BigUint::from(0u8).into()),
+            zk_id: PublicKey::new(BigUint::from(0u8).into()),
             locator: Locator(blend_conf.backend_core.listening_address.clone()),
             note: consensus_configs[0].blend_notes[i].clone(),
             signer: blend_conf.signer.clone(),

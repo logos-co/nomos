@@ -23,10 +23,7 @@ use crate::{
             sdp::{SDPActiveOp, SDPDeclareOp, SDPWithdrawOp},
         },
     },
-    sdp::{
-        ActivityMetadata, DeclarationId, Locator, ProviderId, ServiceType,
-        ZkPublicKey as SdpZkPublicKey,
-    },
+    sdp::{ActivityMetadata, DeclarationId, Locator, ProviderId, ServiceType},
 };
 
 // ==============================================================================
@@ -165,7 +162,7 @@ fn decode_sdp_declare(input: &[u8]) -> IResult<&[u8], SDPDeclareOp> {
     let (input, provider_key) = decode_ed25519_public_key(input)?;
     let provider_id = ProviderId(provider_key);
     let (input, zk_fr) = decode_field_element(input)?;
-    let zk_id = SdpZkPublicKey(zk_fr);
+    let zk_id = PublicKey::new(zk_fr);
     let (input, locked_note_id) = map(decode_field_element, NoteId).parse(input)?;
 
     Ok((
@@ -263,7 +260,7 @@ fn decode_leader_claim(input: &[u8]) -> IResult<&[u8], LeaderClaimOp> {
 // ==============================================================================
 
 fn decode_note(input: &[u8]) -> IResult<&[u8], Note> {
-    // Note = Value ZkPublicKey
+    // Note = Value PublicKey
     let (input, value) = decode_uint64(input)?;
     let (input, pk) = decode_zk_public_key(input)?;
 
@@ -365,7 +362,7 @@ fn decode_dummy_zk_signature(input: &[u8]) -> IResult<&[u8], DummyZkSignature> {
 }
 
 fn decode_zk_public_key(input: &[u8]) -> IResult<&[u8], PublicKey> {
-    // ZkPublicKey = FieldElement
+    // PublicKey = FieldElement
     map(decode_field_element, PublicKey::new).parse(input)
 }
 
@@ -541,7 +538,7 @@ fn encode_sdp_declare(op: &SDPDeclareOp) -> Vec<u8> {
     // ProviderId
     bytes.extend(encode_ed25519_public_key(&op.provider_id.0));
     // ZkId
-    bytes.extend(encode_field_element(&op.zk_id.0));
+    bytes.extend(encode_field_element(op.zk_id.as_fr()));
     // LockedNoteId
     bytes.extend(encode_field_element(op.locked_note_id.as_ref()));
     bytes
@@ -1368,7 +1365,7 @@ mod tests {
             service_type: ServiceType::BlendNetwork,
             locators: vec![Locator::new(locator1), Locator::new(locator2)],
             provider_id: ProviderId(signing_key.verifying_key()),
-            zk_id: SdpZkPublicKey(BigUint::from(42u64).into()),
+            zk_id: PublicKey::new(BigUint::from(42u64).into()),
             locked_note_id: NoteId(BigUint::from(123u64).into()),
         };
 
@@ -1596,7 +1593,7 @@ mod tests {
             service_type: ServiceType::DataAvailability,
             locators: vec![Locator::new(locator)],
             provider_id: ProviderId(signing_key1.verifying_key()),
-            zk_id: SdpZkPublicKey(BigUint::from(999u64).into()),
+            zk_id: PublicKey::new(BigUint::from(999u64).into()),
             locked_note_id: NoteId(BigUint::from(888u64).into()),
         };
 

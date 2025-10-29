@@ -160,7 +160,7 @@ impl ServiceState {
             )))?;
 
         if !sig.verify(&ZkSignaturePublic {
-            pks: vec![note.pk.into(), declaration.zk_id.0],
+            pks: vec![note.pk.into(), declaration.zk_id.into_inner()],
             msg_hash: tx_hash.0,
         }) {
             return Err(Error::InvalidSignature);
@@ -194,7 +194,7 @@ impl ServiceState {
         let note = locked_notes.unlock(declaration.service_type, &declaration.locked_note_id)?;
 
         if !sig.verify(&ZkSignaturePublic {
-            pks: vec![note.pk.into(), declaration.zk_id.0],
+            pks: vec![note.pk.into(), declaration.zk_id.into_inner()],
             msg_hash: tx_hash.0,
         }) {
             return Err(Error::InvalidSignature);
@@ -320,7 +320,7 @@ impl SdpLedger {
         config: &Config,
     ) -> Result<Self, Error> {
         if !zk_sig.verify(&ZkSignaturePublic {
-            pks: vec![note.pk.into(), op.zk_id.0],
+            pks: vec![note.pk.into(), op.zk_id.into_inner()],
             msg_hash: tx_hash.0,
         }) {
             return Err(Error::InvalidSignature);
@@ -485,7 +485,7 @@ mod tests {
 
     use ed25519_dalek::{Signer as _, SigningKey};
     use groth16::Fr;
-    use nomos_core::{proofs::zksig::DummyZkSignature, sdp::ZkPublicKey};
+    use nomos_core::{mantle::keys::PublicKey, proofs::zksig::DummyZkSignature};
     use num_bigint::BigUint;
 
     use super::*;
@@ -542,7 +542,7 @@ mod tests {
         let utxo = utxo();
         let note = utxo.note;
         let tx_hash = TxHash(Fr::from(0u8));
-        let zk_sig = create_dummy_zk_sig(note.pk.into(), op.zk_id.0, tx_hash.0);
+        let zk_sig = create_dummy_zk_sig(note.pk.into(), op.zk_id.into_inner(), tx_hash.0);
         let signing_key = create_signing_key();
         let ed25519_sig = signing_key.sign(tx_hash.as_signing_bytes().as_ref());
 
@@ -573,7 +573,7 @@ mod tests {
         let op = &SDPDeclareOp {
             service_type: service_a,
             locked_note_id: note_id,
-            zk_id: ZkPublicKey(BigUint::from(0u8).into()),
+            zk_id: PublicKey::new(BigUint::from(0u8).into()),
             provider_id: ProviderId(signing_key.verifying_key()),
             locators: Vec::new(),
         };
@@ -613,7 +613,7 @@ mod tests {
         let declare_op = &SDPDeclareOp {
             service_type: service_a,
             locked_note_id: note_id,
-            zk_id: ZkPublicKey(BigUint::from(0u8).into()),
+            zk_id: PublicKey::new(BigUint::from(0u8).into()),
             provider_id: ProviderId(signing_key.verifying_key()),
             locators: Vec::new(),
         };
@@ -644,7 +644,7 @@ mod tests {
             sdp_ledger,
             withdraw_op,
             utxo.note.pk.into(),
-            declare_op.zk_id.0,
+            declare_op.zk_id.into_inner(),
             &config,
         )
         .unwrap();
@@ -666,7 +666,7 @@ mod tests {
         let op = &SDPDeclareOp {
             service_type: service_a,
             locked_note_id: note_id,
-            zk_id: ZkPublicKey(BigUint::from(0u8).into()),
+            zk_id: PublicKey::new(BigUint::from(0u8).into()),
             provider_id: ProviderId(signing_key.verifying_key()),
             locators: Vec::new(),
         };
@@ -779,7 +779,7 @@ mod tests {
         let declare_op = &SDPDeclareOp {
             service_type: service_a,
             locked_note_id: utxo().id(),
-            zk_id: ZkPublicKey(BigUint::from(0u8).into()),
+            zk_id: PublicKey::new(BigUint::from(0u8).into()),
             provider_id: ProviderId(signing_key.verifying_key()),
             locators: Vec::new(),
         };
@@ -841,7 +841,7 @@ mod tests {
         let declare_op_1 = &SDPDeclareOp {
             service_type: service_a,
             locked_note_id: utxo().id(),
-            zk_id: ZkPublicKey(BigUint::from(1u8).into()),
+            zk_id: PublicKey::new(BigUint::from(1u8).into()),
             provider_id: ProviderId(signing_key.verifying_key()),
             locators: Vec::new(),
         };
@@ -864,7 +864,7 @@ mod tests {
         let declare_op_2 = &SDPDeclareOp {
             service_type: service_a,
             locked_note_id: utxo().id(),
-            zk_id: ZkPublicKey(BigUint::from(2u8).into()),
+            zk_id: PublicKey::new(BigUint::from(2u8).into()),
             provider_id: ProviderId(signing_key.verifying_key()),
             locators: Vec::new(),
         };
@@ -921,7 +921,7 @@ mod tests {
         let declare_op = &SDPDeclareOp {
             service_type: service_a,
             locked_note_id: utxo().id(),
-            zk_id: ZkPublicKey(BigUint::from(0u8).into()),
+            zk_id: PublicKey::new(BigUint::from(0u8).into()),
             provider_id: ProviderId(signing_key.verifying_key()),
             locators: Vec::new(),
         };
@@ -978,7 +978,7 @@ mod tests {
         let declare_op_1 = &SDPDeclareOp {
             service_type: service_a,
             locked_note_id: utxo().id(),
-            zk_id: ZkPublicKey(BigUint::from(1u8).into()),
+            zk_id: PublicKey::new(BigUint::from(1u8).into()),
             provider_id: ProviderId(signing_key.verifying_key()),
             locators: Vec::new(),
         };
@@ -1004,7 +1004,7 @@ mod tests {
         let declare_op_2 = &SDPDeclareOp {
             service_type: service_a,
             locked_note_id: utxo().id(),
-            zk_id: ZkPublicKey(BigUint::from(2u8).into()),
+            zk_id: PublicKey::new(BigUint::from(2u8).into()),
             provider_id: ProviderId(signing_key.verifying_key()),
             locators: Vec::new(),
         };

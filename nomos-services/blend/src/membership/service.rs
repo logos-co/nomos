@@ -1,12 +1,11 @@
 use std::{hash::Hash, marker::PhantomData};
 
 use broadcast_service::{BlockBroadcastMsg, SessionSubscription, SessionUpdate};
-use futures::{StreamExt as _, future, stream::iter};
-use groth16::fr_from_bytes_unchecked;
+use futures::StreamExt as _;
 use nomos_blend_message::crypto::keys::Ed25519PublicKey;
 use nomos_blend_scheduling::membership::{Membership, Node};
 use nomos_core::{
-    mantle::keys::{PublicKey, SecretKey},
+    mantle::keys::PublicKey,
     sdp::{ProviderId, ProviderInfo},
 };
 use overwatch::{
@@ -14,7 +13,6 @@ use overwatch::{
     services::{ServiceData, relay::OutboundRelay},
 };
 use tokio::sync::oneshot;
-use tokio_stream::wrappers::BroadcastStream;
 use tracing::warn;
 
 use crate::{
@@ -72,24 +70,10 @@ where
         let signing_public_key = self.signing_public_key;
         let maybe_zk_public_key = self.zk_public_key;
 
-        let SessionSubscription {
-            last_session,
-            receiver,
-        } = self.subscribe_stream().await?;
-
-        let initial_stream =
-            iter(last_session).chain(BroadcastStream::new(receiver).filter_map(|update_result| {
-                future::ready(match update_result {
-                    Ok(session) => Some(session),
-                    Err(e) => {
-                        tracing::warn!("Broadcast stream error in membership adapter: {:?}", e);
-                        None
-                    }
-                })
-            }));
+        let session_stream = self.subscribe_stream().await?;
 
         Ok(Box::pin(
-            initial_stream
+            session_stream
                 .map(|SessionUpdate { providers, .. }| {
                     providers
                         .iter()
@@ -170,20 +154,14 @@ where
             warn!("Failed to decode provider_id to public_key: {e:?}");
         })
         .ok()?;
-    // We temporarily derive this from the node's public key, else integration
-    // tests would fail. This logic must be the same used in
-    // `tests::topology::configs` for `GeneralBlendConfig::secret_zk_key`.
-    // TODO: Return actual zk key as returned by the chain broadcast service, once
-    // we migrate to it.
-    let zk_public_key =
-        SecretKey::new(fr_from_bytes_unchecked(public_key.as_bytes())).to_public_key();
+    let zk_key = provider_info.zk_id;
     Some(ZkNode {
         node: Node {
             id,
             address,
             public_key,
         },
-        zk_key: zk_public_key,
+        zk_key,
     })
 }
 

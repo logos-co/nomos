@@ -15,7 +15,7 @@ use nomos_core::{
         },
     },
     proofs::zksig::{DummyZkSignature, ZkSignaturePublic},
-    sdp::{DeclarationMessage, Locator, ProviderId, ServiceParameters, ServiceType, ZkPublicKey},
+    sdp::{DeclarationMessage, Locator, ProviderId, ServiceParameters, ServiceType},
 };
 use nomos_node::{SignedMantleTx, Transaction as _};
 use num_bigint::BigUint;
@@ -47,7 +47,7 @@ impl ConsensusParams {
 pub struct ProviderInfo {
     pub service_type: ServiceType,
     pub provider_id: ProviderId,
-    pub zk_id: ZkPublicKey,
+    pub zk_id: PublicKey,
     pub locator: Locator,
     pub note: ServiceNote,
     pub signer: ed25519_dalek::SigningKey,
@@ -292,7 +292,7 @@ pub fn create_genesis_tx_with_declarations(
 
     for mut provider in providers {
         let zk_sig = DummyZkSignature::prove(&ZkSignaturePublic {
-            pks: vec![provider.note.pk.into(), provider.zk_id.0],
+            pks: vec![provider.note.pk.into(), provider.zk_id.into_inner()],
             msg_hash: mantle_tx_hash.0,
         });
         let ed25519_sig = provider
