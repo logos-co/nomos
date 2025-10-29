@@ -67,7 +67,7 @@ pub fn create_general_configs_with_blend_core_subset(
         "n_blend_core_nodes({n_blend_core_nodes}) must be less than or equal to n_nodes({n_nodes})",
     );
 
-    let mut ids = vec![[0; 32]; n_nodes];
+    let mut ids: Vec<_> = (0..n_nodes).map(|i| [i as u8; 32]).collect();
     let mut da_ports = vec![];
     let mut blend_ports = vec![];
 
