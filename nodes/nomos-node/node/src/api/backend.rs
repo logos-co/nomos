@@ -272,8 +272,6 @@ where
                     <SignedMantleTx as Transaction>::Hash,
                     RuntimeServiceId,
                 >,
-                SamplingNetworkAdapter,
-                SamplingStorage,
                 Mempool<
                     HeaderId,
                     SignedMantleTx,
@@ -342,7 +340,7 @@ where
             nomos_da_network_service::NetworkService<_, _, _, _, _, _, _>,
             nomos_network::NetworkService<_, _>,
             DaStorageService<_>,
-            TxMempoolService<_, _, _, _, _, _>
+            TxMempoolService<_, _, _,  _>
         )
         .await?;
         Ok(())
@@ -368,25 +366,11 @@ where
             .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
             .route(
                 paths::MANTLE_METRICS,
-                routing::get(
-                    mantle_metrics::<
-                        SamplingNetworkAdapter,
-                        SamplingStorage,
-                        MempoolStorageAdapter,
-                        RuntimeServiceId,
-                    >,
-                ),
+                routing::get(mantle_metrics::<MempoolStorageAdapter, RuntimeServiceId>),
             )
             .route(
                 paths::MANTLE_STATUS,
-                routing::post(
-                    mantle_status::<
-                        SamplingNetworkAdapter,
-                        SamplingStorage,
-                        MempoolStorageAdapter,
-                        RuntimeServiceId,
-                    >,
-                ),
+                routing::post(mantle_status::<MempoolStorageAdapter, RuntimeServiceId>),
             )
             .route(
                 paths::CRYPTARCHIA_INFO,
@@ -483,14 +467,7 @@ where
             )
             .route(
                 paths::MEMPOOL_ADD_TX,
-                routing::post(
-                    add_tx::<
-                        SamplingNetworkAdapter,
-                        SamplingStorage,
-                        MempoolStorageAdapter,
-                        RuntimeServiceId,
-                    >,
-                ),
+                routing::post(add_tx::<MempoolStorageAdapter, RuntimeServiceId>),
             )
             .route(
                 paths::DA_GET_SHARES_COMMITMENTS,

@@ -78,14 +78,8 @@ where
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
     RuntimeServiceId: Send + Sync,
 {
-    type MempoolService = TxMempoolService<
-        MempoolNetAdapter,
-        SamplingNetworkAdapter,
-        SamplingStorage,
-        Mempool,
-        Mempool::Storage,
-        RuntimeServiceId,
-    >;
+    type MempoolService =
+        TxMempoolService<MempoolNetAdapter, Mempool, Mempool::Storage, RuntimeServiceId>;
     type Tx = SignedMantleTx;
 
     fn new(mempool_relay: OutboundRelay<<Self::MempoolService as ServiceData>::Message>) -> Self {

@@ -25,14 +25,12 @@ use crate::{MB16, generic_services::blend::BlendService};
 
 pub mod blend;
 
-pub type TxMempoolService<SamplingNetworkAdapter, RuntimeServiceId> = tx_service::TxMempoolService<
+pub type TxMempoolService<RuntimeServiceId> = tx_service::TxMempoolService<
     tx_service::network::adapters::libp2p::Libp2pAdapter<
         SignedMantleTx,
         <SignedMantleTx as Transaction>::Hash,
         RuntimeServiceId,
     >,
-    SamplingNetworkAdapter,
-    nomos_da_sampling::storage::adapters::rocksdb::RocksAdapter<DaShare, DaStorageConverter>,
     Mempool<
         HeaderId,
         SignedMantleTx,

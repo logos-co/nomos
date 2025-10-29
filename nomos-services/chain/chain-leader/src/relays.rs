@@ -123,14 +123,7 @@ where
             + 'static
             + AsServiceId<BlendService>
             + AsServiceId<
-                TxMempoolService<
-                    MempoolNetAdapter,
-                    SamplingNetworkAdapter,
-                    SamplingStorage,
-                    Mempool,
-                    Mempool::Storage,
-                    RuntimeServiceId,
-                >,
+                TxMempoolService<MempoolNetAdapter, Mempool, Mempool::Storage, RuntimeServiceId>,
             >
             + AsServiceId<
                 DaSamplingService<
@@ -155,7 +148,7 @@ where
 
         let mempool_relay = service_resources_handle
             .overwatch_handle
-            .relay::<TxMempoolService<_, _, _, _, _, _>>()
+            .relay::<TxMempoolService<_, _, _, _>>()
             .await
             .expect("Relay connection with MempoolService should succeed");
 

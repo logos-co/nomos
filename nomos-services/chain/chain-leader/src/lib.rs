@@ -259,14 +259,7 @@ where
         + AsServiceId<Self>
         + AsServiceId<BlendService>
         + AsServiceId<
-            TxMempoolService<
-                MempoolNetAdapter,
-                SamplingNetworkAdapter,
-                SamplingStorage,
-                Mempool,
-                Mempool::Storage,
-                RuntimeServiceId,
-            >,
+            TxMempoolService<MempoolNetAdapter, Mempool, Mempool::Storage, RuntimeServiceId>,
         >
         + AsServiceId<
             DaSamplingService<
@@ -347,7 +340,7 @@ where
             &self.service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
             BlendService,
-            TxMempoolService<_, _, _, _, _,_>,
+            TxMempoolService<_, _, _, _>,
             DaSamplingService<_, _, _, _>,
             TimeService<_, _>,
             CryptarchiaService,

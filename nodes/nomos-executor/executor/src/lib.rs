@@ -103,8 +103,7 @@ pub(crate) type DaNetworkService = nomos_da_network_service::NetworkService<
     RuntimeServiceId,
 >;
 
-pub(crate) type MempoolService =
-    nomos_node::generic_services::TxMempoolService<DaNetworkAdapter, RuntimeServiceId>;
+pub(crate) type MempoolService = nomos_node::generic_services::TxMempoolService<RuntimeServiceId>;
 
 pub(crate) type DaNetworkAdapter = nomos_da_sampling::network::adapters::executor::Libp2pAdapter<
     NomosDaMembership,

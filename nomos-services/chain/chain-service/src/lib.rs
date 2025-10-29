@@ -521,14 +521,7 @@ where
         + AsServiceId<NetworkService<NetAdapter::Backend, RuntimeServiceId>>
         + AsServiceId<BlockBroadcastService<RuntimeServiceId>>
         + AsServiceId<
-            TxMempoolService<
-                MempoolNetAdapter,
-                SamplingNetworkAdapter,
-                SamplingStorage,
-                Mempool,
-                Mempool::Storage,
-                RuntimeServiceId,
-            >,
+            TxMempoolService<MempoolNetAdapter, Mempool, Mempool::Storage, RuntimeServiceId>,
         >
         + AsServiceId<
             DaSamplingService<
@@ -624,7 +617,7 @@ where
             Some(Duration::from_secs(60)),
             BlockBroadcastService<_>,
             NetworkService<_, _>,
-            TxMempoolService<_, _, _, _, _, _>,
+            TxMempoolService<_, _, _, _>,
             DaSamplingService<_, _, _, _>,
             StorageService<_, _>,
             TimeService<_, _>
