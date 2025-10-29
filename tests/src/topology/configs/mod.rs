@@ -14,11 +14,10 @@ use consensus::{GeneralConsensusConfig, ProviderInfo, create_genesis_tx_with_dec
 use da::GeneralDaConfig;
 use network::GeneralNetworkConfig;
 use nomos_core::{
-    mantle::{GenesisTx as _, keys::PublicKey},
+    mantle::GenesisTx as _,
     sdp::{Locator, ProviderId, ServiceType},
 };
 use nomos_utils::net::get_available_udp_port;
-use num_bigint::BigUint;
 use rand::{Rng as _, thread_rng};
 use tracing::GeneralTracingConfig;
 
@@ -67,6 +66,8 @@ pub fn create_general_configs_with_blend_core_subset(
         "n_blend_core_nodes({n_blend_core_nodes}) must be less than or equal to n_nodes({n_nodes})",
     );
 
+    // Blend relies on each node declaring a different ZK public key, so we need
+    // different IDs to generate different keys.
     let mut ids: Vec<_> = (0..n_nodes).map(|i| [i as u8; 32]).collect();
     let mut da_ports = vec![];
     let mut blend_ports = vec![];
@@ -94,7 +95,7 @@ pub fn create_general_configs_with_blend_core_subset(
         .map(|(i, blend_conf)| ProviderInfo {
             service_type: ServiceType::BlendNetwork,
             provider_id: ProviderId(blend_conf.signer.verifying_key()),
-            zk_id: PublicKey::new(BigUint::from(0u8).into()),
+            zk_id: blend_conf.secret_zk_key.to_public_key(),
             locator: Locator(blend_conf.backend_core.listening_address.clone()),
             note: consensus_configs[0].blend_notes[i].clone(),
             signer: blend_conf.signer.clone(),

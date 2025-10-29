@@ -164,7 +164,7 @@ impl Topology {
                 .map(|(i, blend_conf)| ProviderInfo {
                     service_type: ServiceType::BlendNetwork,
                     provider_id: ProviderId(blend_conf.signer.verifying_key()),
-                    zk_id: PublicKey::new(BigUint::from(0u8).into()),
+                    zk_id: blend_conf.secret_zk_key.to_public_key(),
                     locator: Locator(blend_conf.backend_core.listening_address.clone()),
                     note: consensus_configs[0].blend_notes[i].clone(),
                     signer: blend_conf.signer.clone(),

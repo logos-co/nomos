@@ -143,13 +143,12 @@ where
 /// be decoded.
 fn node_from_provider<NodeId>(
     provider_id: &ProviderId,
-    provider_info: &ProviderInfo,
+    ProviderInfo { locators, zk_id }: &ProviderInfo,
 ) -> Option<ZkNode<NodeId>>
 where
     NodeId: node_id::TryFrom,
 {
     let provider_id = provider_id.0.as_bytes();
-    let ProviderInfo { locators, zk_id } = provider_info;
     let address = locators.first()?.0.clone();
     let id = NodeId::try_from_provider_id(provider_id)
         .map_err(|e| {
