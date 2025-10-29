@@ -43,7 +43,7 @@ use nomos_time::{SlotTick, TimeService, TimeServiceMessage};
 use nomos_utils::blake_rng::BlakeRng;
 use overwatch::{
     OpaqueServiceResourcesHandle,
-    services::{AsServiceId, ServiceCore, ServiceData, state::StateUpdater},
+    services::{AsServiceId, ServiceCore, ServiceData},
 };
 use rand::{RngCore, SeedableRng as _, seq::SliceRandom as _};
 use serde::{Deserialize, Serialize};
@@ -108,7 +108,7 @@ pub struct BlendService<
     Network: NetworkAdapter<RuntimeServiceId>,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-    last_saved_state: Option<ServiceState>,
+    last_saved_state: Option<ServiceState<Backend::Settings, Network::BroadcastSettings>>,
     _phantom: PhantomData<(
         Backend,
         MembershipAdapter,
@@ -148,9 +148,12 @@ where
     Network: NetworkAdapter<RuntimeServiceId>,
 {
     type Settings = BlendConfig<Backend::Settings>;
-    type State = RecoveryServiceState<Backend::Settings>;
+    type State = RecoveryServiceState<Backend::Settings, Network::BroadcastSettings>;
     type StateOperator = RecoveryOperator<
-        JsonFileBackend<RecoveryServiceState<Backend::Settings>, BlendConfig<Backend::Settings>>,
+        JsonFileBackend<
+            RecoveryServiceState<Backend::Settings, Network::BroadcastSettings>,
+            BlendConfig<Backend::Settings>,
+        >,
     >;
     type Message = ServiceMessage<Network::BroadcastSettings>;
 }
@@ -183,7 +186,7 @@ impl<
 where
     Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId> + Send + Sync,
     NodeId: Clone + Send + Eq + Hash + Sync + 'static,
-    Network: NetworkAdapter<RuntimeServiceId, BroadcastSettings: Unpin> + Send + Sync,
+    Network: NetworkAdapter<RuntimeServiceId, BroadcastSettings: Eq + Hash + Unpin> + Send + Sync,
     MembershipAdapter: membership::Adapter<NodeId = NodeId, Error: Send + Sync + 'static> + Send,
     membership::ServiceMessage<MembershipAdapter>: Send + Sync + 'static,
     ProofsGenerator: CoreAndLeaderProofsGenerator + Send,
@@ -208,9 +211,14 @@ where
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
         recovery_initial_state: Self::State,
     ) -> Result<Self, overwatch::DynError> {
+        let state_updater = service_resources_handle.state_updater.clone();
         Ok(Self {
             service_resources_handle,
-            last_saved_state: recovery_initial_state.service_state,
+            // We consume the serializable state into the state type we interact with in the
+            // service.
+            last_saved_state: recovery_initial_state
+                .service_state
+                .map(|s| s.into_state_with_state_updater(state_updater)),
             _phantom: PhantomData,
         })
     }
@@ -224,9 +232,9 @@ where
                     ref overwatch_handle,
                     ref settings_handle,
                     ref status_updater,
-                    ref state_updater,
+                    state_updater,
                 },
-            last_saved_state,
+            mut last_saved_state,
             ..
         } = self;
 
@@ -403,20 +411,20 @@ where
 
         // Initialize the current session state. If the session matches the stored one,
         // retrieves the tracked consumed core quota. Else, fallback to `0`.
-        let mut current_recovery_checkpoint = if let Some(saved_state) = last_saved_state
+        let mut current_recovery_checkpoint = if let Some(saved_state) = last_saved_state.take()
             && saved_state.last_seen_session() == current_membership_info.public.session
         {
             tracing::debug!(target: LOG_TARGET, "Found recovery state for session {:?}: {saved_state:?}", current_membership_info.public.session);
             saved_state
         } else {
             tracing::debug!(target: LOG_TARGET, "No recovery state found for session {:?}. Initializing a new one.", current_membership_info.public.session);
-            ServiceState::with_session(current_membership_info.public.session)
+            ServiceState::with_session(current_membership_info.public.session, state_updater)
         };
 
         let mut message_scheduler = {
             let scheduler_starting_core_quota = blend_config
                 .session_quota(current_membership_info.public.membership.size())
-                .saturating_sub(current_recovery_checkpoint.spent_core_quota());
+                .saturating_sub(current_recovery_checkpoint.spent_quota());
             let initial_scheduler_session_info = SchedulerSessionInfo {
                 core_quota: scheduler_starting_core_quota,
                 session_number: u128::from(current_membership_info.public.session).into(),
@@ -444,11 +452,17 @@ where
                         session_number: u128::from(session).into(),
                     },
                 );
-            SchedulerWrapper::<_, _, ProcessedMessage<Network::BroadcastSettings>>::new(
+            SchedulerWrapper::new_with_initial_messages(
                 scheduler_stream,
                 initial_scheduler_session_info,
                 BlakeRng::from_entropy(),
                 blend_config.scheduler_settings(),
+                // We don't consume the map because we will remove the items one by one once they
+                // will be scheduled for release.
+                current_recovery_checkpoint
+                    .unsent_processed_messages()
+                    .clone()
+                    .into_iter(),
             )
         };
 
@@ -487,10 +501,10 @@ where
                     handle_local_data_message(local_data_message, &mut crypto_processor, &backend, &mut message_scheduler).await;
                 }
                 Some(incoming_message) = blend_messages.next() => {
-                    handle_incoming_blend_message(incoming_message, &mut message_scheduler, &crypto_processor, &mut blending_token_collector);
+                    current_recovery_checkpoint = handle_incoming_blend_message(incoming_message, &mut message_scheduler, &crypto_processor, &mut blending_token_collector, current_recovery_checkpoint);
                 }
                 Some(round_info) = message_scheduler.next() => {
-                    current_recovery_checkpoint = handle_release_round(round_info, &mut crypto_processor, &mut rng, &backend, &network_adapter, state_updater, current_recovery_checkpoint).await;
+                    current_recovery_checkpoint = handle_release_round(round_info, &mut crypto_processor, &mut rng, &backend, &network_adapter, current_recovery_checkpoint).await;
                 }
                 Some(clock_tick) = remaining_clock_stream.next() => {
                     current_public_info = handle_clock_event(clock_tick, &blend_config, &mut epoch_handler, &mut crypto_processor, &mut backend, current_public_info).await;
@@ -532,6 +546,7 @@ async fn handle_session_event<
     ProofsVerifier,
     Backend,
     BlakeRng,
+    BroadcastSettings,
     RuntimeServiceId,
 >(
     event: SessionEvent<CoreSessionInfo<NodeId>>,
@@ -542,14 +557,14 @@ async fn handle_session_event<
         ProofsVerifier,
     >,
     current_public_info: PublicInfo<NodeId>,
-    current_recovery_checkpoint: ServiceState,
+    current_recovery_checkpoint: ServiceState<Backend::Settings, BroadcastSettings>,
     blending_token_collector: &mut BlendingTokenCollector,
     backend: &mut Backend,
 ) -> Result<
     (
         CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
         PublicInfo<NodeId>,
-        ServiceState,
+        ServiceState<Backend::Settings, BroadcastSettings>,
     ),
     Error,
 >
@@ -557,6 +572,7 @@ where
     NodeId: Eq + Hash + Clone + Send,
     ProofsGenerator: CoreAndLeaderProofsGenerator,
     ProofsVerifier: ProofsVerifierTrait,
+    BroadcastSettings: Send + Sync,
     Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId>,
 {
     match event {
@@ -596,13 +612,14 @@ where
                 new_public_info.clone().into(),
                 private,
             )?;
+            let state_updater = current_recovery_checkpoint.into_components().3;
             Ok((
                 new_processor,
                 new_public_info,
                 // No need to store the new state, since if the node crashes before the first
                 // release round of the new session, we will ignore the old state as it belongs to
                 // an old session and create a new one anyway.
-                ServiceState::with_session(new_session),
+                ServiceState::with_session(new_session, state_updater),
             ))
         }
         SessionEvent::TransitionPeriodExpired => {
@@ -676,11 +693,16 @@ async fn handle_local_data_message<
 
 /// Processes an already unwrapped and validated Blend message received from
 /// a core or edge peer.
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "TODO: Address this at some point."
+)]
 fn handle_incoming_blend_message<
     Rng,
     NodeId,
     SessionClock,
     BroadcastSettings,
+    BackendSettings,
     ProofsGenerator,
     ProofsVerifier,
 >(
@@ -688,16 +710,21 @@ fn handle_incoming_blend_message<
     scheduler: &mut MessageScheduler<SessionClock, Rng, ProcessedMessage<BroadcastSettings>>,
     cryptographic_processor: &CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
     blending_token_collector: &mut BlendingTokenCollector,
-) where
+    current_recovery_checkpoint: ServiceState<BackendSettings, BroadcastSettings>,
+) -> ServiceState<BackendSettings, BroadcastSettings>
+where
     NodeId: 'static,
-    BroadcastSettings: Serialize + for<'de> Deserialize<'de> + Send,
+    BroadcastSettings: Serialize + for<'de> Deserialize<'de> + Eq + Hash + Clone + Send,
+    BackendSettings: Clone,
     ProofsVerifier: ProofsVerifierTrait,
 {
     let Ok(decapsulated_message) = cryptographic_processor.decapsulate_message(validated_encapsulated_message).inspect_err(|e| {
         tracing::debug!(target: LOG_TARGET, "Failed to decapsulate received message with error {e:?}");
     }) else {
-        return;
+        return current_recovery_checkpoint;
     };
+
+    let mut state_updater = current_recovery_checkpoint.start_updating();
 
     match decapsulated_message {
         DecapsulationOutput::Completed {
@@ -708,15 +735,25 @@ fn handle_incoming_blend_message<
             match fully_decapsulated_message.into_components() {
                 (PayloadType::Cover, _) => {
                     tracing::info!(target: LOG_TARGET, "Discarding received cover message.");
+                    state_updater.into_inner()
                 }
                 (PayloadType::Data, serialized_data_message) => {
                     tracing::debug!(target: LOG_TARGET, "Processing a fully decapsulated data message.");
                     if let Ok(deserialized_network_message) =
                         NetworkMessage::from_bytes(&serialized_data_message)
                     {
-                        scheduler.schedule_message(deserialized_network_message.into());
+                        let processed_message =
+                            ProcessedMessage::from(deserialized_network_message);
+                        scheduler.schedule_message(processed_message.clone());
+                        assert_eq!(
+                            state_updater.add_unsent_message(processed_message),
+                            Ok(()),
+                            "There should not be another copy of the same data message already processed."
+                        );
+                        state_updater.commit_changes()
                     } else {
                         tracing::debug!(target: LOG_TARGET, "Unrecognized data message from blend backend. Dropping.");
+                        state_updater.into_inner()
                     }
                 }
             }
@@ -726,7 +763,14 @@ fn handle_incoming_blend_message<
             blending_token,
         } => {
             blending_token_collector.insert(blending_token);
-            scheduler.schedule_message(remaining_encapsulated_message.into());
+            let processed_message = ProcessedMessage::from(remaining_encapsulated_message);
+            scheduler.schedule_message(processed_message.clone());
+            assert_eq!(
+                state_updater.add_unsent_message(processed_message),
+                Ok(()),
+                "There should not be another copy of the same encapsulated message already processed."
+            );
+            state_updater.commit_changes()
         }
     }
 }
@@ -764,18 +808,25 @@ async fn handle_release_round<
     rng: &mut Rng,
     backend: &Backend,
     network_adapter: &NetAdapter,
-    state_updater: &StateUpdater<Option<RecoveryServiceState<Backend::Settings>>>,
-    current_recovery_checkpoint: ServiceState,
-) -> ServiceState
+    current_recovery_checkpoint: ServiceState<Backend::Settings, NetAdapter::BroadcastSettings>,
+) -> ServiceState<Backend::Settings, NetAdapter::BroadcastSettings>
 where
     NodeId: Eq + Hash + 'static,
     Rng: RngCore + Send,
     Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId> + Sync,
     ProofsGenerator: CoreAndLeaderProofsGenerator,
-    NetAdapter: NetworkAdapter<RuntimeServiceId> + Sync,
+    NetAdapter: NetworkAdapter<RuntimeServiceId, BroadcastSettings: Eq + Hash> + Sync,
 {
+    let mut state_updater = current_recovery_checkpoint.start_updating();
+
     let mut processed_messages_relay_futures = processed_messages
         .into_iter()
+        // While we iterate and map the messages to the sending futures, we update the recovery state to remove each message.
+        .inspect(|message_to_release| {
+            if state_updater.remove_sent_message(message_to_release).is_err() {
+                tracing::warn!(target: LOG_TARGET, "Previously processed message should be present in the recovery state but was not found.");
+            }
+        })
         .map(
             |message_to_release| -> Box<dyn Future<Output = ()> + Send + Unpin> {
                 match message_to_release {
@@ -806,10 +857,8 @@ where
     tracing::debug!(target: LOG_TARGET, "Sent out {total_message_count} processed and/or cover messages at this release window.");
 
     // Update state by tracking the quota consumed by this release round.
-    let new_recovery_checkpoint =
-        current_recovery_checkpoint.by_consuming_core_quota(consumed_quota);
-    state_updater.update(Some(new_recovery_checkpoint.clone().into()));
-    new_recovery_checkpoint
+    state_updater.consume_core_quota(consumed_quota);
+    state_updater.commit_changes()
 }
 
 /// Handle a clock event by calling into the epoch handler and process the
