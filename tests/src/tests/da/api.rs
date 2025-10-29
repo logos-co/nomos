@@ -30,14 +30,14 @@ async fn test_get_share_data() {
         .await;
 
     let executor = &topology.executors()[0];
-    let channel_id = setup_test_channel(executor).await;
+    let (channel_id, parent_msg_id) = setup_test_channel(executor).await;
 
     let data = [1u8; 31];
-    let blob_id = disseminate_with_metadata(executor, channel_id, &data)
+    let blob_id = disseminate_with_metadata(executor, channel_id, parent_msg_id, &data)
         .await
         .unwrap();
 
-    wait_for_blob_onchain(executor, blob_id).await;
+    let _ = wait_for_blob_onchain(executor, channel_id, blob_id).await;
 
     // Wait for transactions to be stored
     tokio::time::sleep(Duration::from_secs(2)).await;
@@ -73,13 +73,16 @@ async fn test_get_commitments_from_peers() {
     lone_validator_config.membership = validator.config().membership.clone();
     let lone_validator = Validator::spawn(lone_validator_config).await.unwrap();
 
-    let test_channel_id = setup_test_channel(executor).await;
+    let (test_channel_id, parent_msg_id) = setup_test_channel(executor).await;
 
     let data = [1u8; 31];
-    let blob_id = disseminate_with_metadata(executor, test_channel_id, &data)
+    let blob_id = disseminate_with_metadata(executor, test_channel_id, parent_msg_id, &data)
         .await
         .unwrap();
     tokio::time::sleep(Duration::from_secs(5)).await;
+
+    let _ = wait_for_blob_onchain(executor, test_channel_id, blob_id).await;
+
     lone_validator.get_commitments(blob_id).await.unwrap();
 
     let timeout = adjust_timeout(Duration::from_secs(DA_TESTS_TIMEOUT));
@@ -167,15 +170,15 @@ async fn test_get_shares() {
         .await;
 
     let executor = &topology.executors()[0];
-    let channel_id = setup_test_channel(executor).await;
+    let (channel_id, parent_msg_id) = setup_test_channel(executor).await;
     let num_subnets = executor.config().da_network.backend.num_subnets as usize;
 
     let data = [1u8; 31];
-    let blob_id = disseminate_with_metadata(executor, channel_id, &data)
+    let blob_id = disseminate_with_metadata(executor, channel_id, parent_msg_id, &data)
         .await
         .unwrap();
 
-    wait_for_blob_onchain(executor, blob_id).await;
+    let _ = wait_for_blob_onchain(executor, channel_id, blob_id).await;
 
     // Wait for transactions to be stored
     tokio::time::sleep(Duration::from_secs(2)).await;

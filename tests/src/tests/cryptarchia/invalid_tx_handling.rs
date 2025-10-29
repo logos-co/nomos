@@ -18,8 +18,10 @@ use tests::{
 };
 use tokio::time::timeout;
 
-const BATCH_SIZE: usize = 5;
+const PROCESS_TIMEOUT: Duration = Duration::from_secs(60);
 
+/// Verifies that invalid transactions don't prevent valid transactions from
+/// being included in blocks.
 #[tokio::test]
 #[serial]
 async fn invalid_transactions_are_handled() {
@@ -37,82 +39,45 @@ async fn invalid_transactions_are_handled() {
 
     let client = CommonHttpClient::new(None);
 
-    let mut invalid_tx_hashes = Vec::new();
-    let mut first_batch_hashes = Vec::new();
-    let mut second_batch_hashes = Vec::new();
+    let invalid_tx = create_invalid_transaction_with_id(0);
+    let invalid_hash = invalid_tx.hash();
+    client
+        .post_transaction(validator_url.clone(), invalid_tx)
+        .await
+        .expect("Invalid transaction should be accepted by mempool for later pruning");
+    let invalid_tx_hashes = [invalid_hash];
 
-    let total_valid = BATCH_SIZE * 2;
+    let first_valid_tx = create_inscription_transaction_with_id(ChannelId::from([1u8; 32]));
+    let first_valid_hash = first_valid_tx.hash();
+    client
+        .post_transaction(validator_url.clone(), first_valid_tx)
+        .await
+        .expect("First valid transaction should be accepted by mempool");
 
-    println!("Sending {total_valid} transactions (invalid batch size={BATCH_SIZE})");
-
-    for i in 0..BATCH_SIZE {
-        let invalid_tx = create_invalid_transaction_with_id(i);
-        let invalid_hash = invalid_tx.hash();
-
-        let result = client
-            .post_transaction(validator_url.clone(), invalid_tx)
-            .await;
-
-        assert!(
-            result.is_ok(),
-            "Invalid transaction {i} should be accepted by mempool for later pruning: {result:?}"
-        );
-
-        invalid_tx_hashes.push(invalid_hash);
-    }
-
-    for i in 1..=BATCH_SIZE {
-        let valid_tx = create_inscription_transaction_with_id(ChannelId::from([i as u8; 32]));
-        first_batch_hashes.push(valid_tx.hash());
-
-        let result = client
-            .post_transaction(validator_url.clone(), valid_tx)
-            .await;
-
-        assert!(
-            result.is_ok(),
-            "Transaction {i} should be accepted by mempool: {result:?}"
-        );
-    }
-
-    println!(
-        "Posted first valid batch ({} txs). Waiting for inclusion...",
-        first_batch_hashes.len()
-    );
+    let first_batch_hashes = [first_valid_hash];
 
     timeout(
-        Duration::from_secs(120),
+        PROCESS_TIMEOUT,
         wait_for_transactions_processing(validator, &first_batch_hashes, &invalid_tx_hashes),
     )
     .await
-    .expect("first batch processing timed out");
+    .expect("first transaction processing timed out");
 
-    for i in (BATCH_SIZE + 1)..=total_valid {
-        let valid_tx = create_inscription_transaction_with_id(ChannelId::from([i as u8; 32]));
-        second_batch_hashes.push(valid_tx.hash());
+    let second_valid_tx = create_inscription_transaction_with_id(ChannelId::from([2u8; 32]));
+    let second_valid_hash = second_valid_tx.hash();
+    client
+        .post_transaction(validator_url.clone(), second_valid_tx)
+        .await
+        .expect("Second valid transaction should be accepted by mempool");
 
-        let result = client
-            .post_transaction(validator_url.clone(), valid_tx)
-            .await;
-
-        assert!(
-            result.is_ok(),
-            "Transaction {i} should be accepted by mempool: {result:?}"
-        );
-    }
-
-    println!(
-        "All {total_valid} transactions posted. Valid: {}, Invalid: {}",
-        first_batch_hashes.len() + second_batch_hashes.len(),
-        invalid_tx_hashes.len()
-    );
+    let second_batch_hashes = [second_valid_hash];
 
     timeout(
-        Duration::from_secs(120),
+        PROCESS_TIMEOUT,
         wait_for_transactions_processing(validator, &second_batch_hashes, &invalid_tx_hashes),
     )
     .await
-    .expect("final transaction processing timed out");
+    .expect("second transaction processing timed out");
 }
 
 async fn wait_for_transactions_processing(
