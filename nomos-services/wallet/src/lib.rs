@@ -26,6 +26,7 @@ use nomos_core::{
     },
     proofs::zksig::{DummyZkSignature, Fr, ZkSignaturePublic},
 };
+use nomos_ledger::LedgerState;
 use nomos_storage::{api::chain::StorageChainApi, backends::StorageBackend};
 use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
@@ -320,7 +321,20 @@ where
                     }
                 };
 
-                Self::handle_sign_tx(tip, funded, resp_tx, kms, cryptarchia).await;
+                let ledger = match cryptarchia.get_ledger_state(tip).await {
+                    Ok(Some(ledger)) => ledger,
+                    Ok(None) => {
+                        return Self::send_err(
+                            resp_tx,
+                            WalletServiceError::LedgerStateNotFound(tip),
+                        );
+                    }
+                    Err(err) => {
+                        return Self::send_err(resp_tx, WalletServiceError::CryptarchiaApi(err));
+                    }
+                };
+
+                Self::handle_sign_tx(funded, ledger, resp_tx, kms).await;
             }
             WalletMsg::GetLeaderAgedNotes { tip, resp_tx } => {
                 Self::get_leader_aged_notes(tip, resp_tx, wallet, cryptarchia).await;
@@ -344,13 +358,12 @@ where
     }
 
     async fn handle_sign_tx(
-        tip: HeaderId,
         tx_builder: MantleTxBuilder,
+        ledger: LedgerState,
         resp_tx: oneshot::Sender<Result<SignedMantleTx, WalletServiceError>>,
         kms: &KmsServiceApi<Kms, RuntimeServiceId>,
-        cryptarchia: &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
     ) {
-        let signed_tx_res = Self::sign_tx(tip, tx_builder, kms, cryptarchia).await;
+        let signed_tx_res = Self::sign_tx(tx_builder, ledger, kms).await;
 
         if resp_tx.send(signed_tx_res).is_err() {
             error!("Failed to respond to FundAndSignTx");
@@ -358,10 +371,9 @@ where
     }
 
     async fn sign_tx(
-        tip: HeaderId,
         tx_builder: MantleTxBuilder,
+        ledger: LedgerState,
         kms: &KmsServiceApi<Kms, RuntimeServiceId>,
-        cryptarchia: &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
     ) -> Result<SignedMantleTx, WalletServiceError> {
         // Extract input public keys before building the transaction
         let input_pks: Vec<Fr> = tx_builder
@@ -371,12 +383,6 @@ where
             .collect();
 
         let mantle_tx = tx_builder.build();
-
-        let ledger_state = cryptarchia
-            .get_ledger_state(tip)
-            .await
-            .map_err(WalletServiceError::CryptarchiaApi)?
-            .ok_or(WalletServiceError::LedgerStateNotFound(tip))?;
 
         let tx_hash = mantle_tx.hash();
 
@@ -392,7 +398,7 @@ where
                     OpProof::Ed25519Sig(ed25519_sig)
                 }
                 Op::ChannelSetKeys(set_keys_op) => {
-                    let channel = ledger_state
+                    let channel = ledger
                         .mantle_ledger()
                         .channels()
                         .channel_state(&set_keys_op.channel)
@@ -404,7 +410,7 @@ where
                     OpProof::Ed25519Sig(ed25519_sig)
                 }
                 Op::SDPDeclare(declare_op) => {
-                    let locked_note = ledger_state
+                    let locked_note = ledger
                         .mantle_ledger()
                         .locked_notes()
                         .get(&declare_op.locked_note_id)
@@ -423,7 +429,7 @@ where
                     }
                 }
                 Op::SDPWithdraw(withdraw_op) => {
-                    let declaration = ledger_state
+                    let declaration = ledger
                         .mantle_ledger()
                         .sdp_ledger()
                         .get_declaration(&withdraw_op.declaration_id)
@@ -431,7 +437,7 @@ where
                             withdraw_op.declaration_id,
                         ))?;
 
-                    let locked_note = ledger_state
+                    let locked_note = ledger
                         .mantle_ledger()
                         .locked_notes()
                         .get(&declaration.locked_note_id)
@@ -445,7 +451,7 @@ where
                     OpProof::ZkSig(zk_sig)
                 }
                 Op::SDPActive(active_op) => {
-                    let declaration = ledger_state
+                    let declaration = ledger
                         .mantle_ledger()
                         .sdp_ledger()
                         .get_declaration(&active_op.declaration_id)
