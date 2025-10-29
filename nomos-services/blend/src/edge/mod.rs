@@ -7,7 +7,7 @@ mod tests;
 use std::{hash::Hash, marker::PhantomData};
 
 use backends::BlendBackend;
-use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
+use chain_service::api::CryptarchiaServiceData;
 use nomos_blend_message::crypto::proofs::{
     PoQVerificationInputsMinusSigningKey,
     quota::inputs::prove::{
@@ -20,7 +20,6 @@ use nomos_blend_scheduling::{
     session::SessionEvent,
 };
 use nomos_core::codec::SerializeOp as _;
-use nomos_time::SlotTick;
 use overwatch::overwatch::OverwatchHandle;
 use serde::Serialize;
 use settings::BlendConfig;
@@ -29,7 +28,7 @@ use tracing::{debug, info};
 use crate::{
     context::{self, Context},
     edge::handlers::{Error, MessageHandler},
-    epoch_info::{EpochEvent, EpochHandler, LeaderInputsMinusQuota, PolEpochInfo},
+    epoch_info::{EpochEvent, LeaderInputsMinusQuota, PolEpochInfo},
     membership::{MembershipInfo, ZkInfo},
     message::{NetworkMessage, ServiceMessage},
     mode::{self, Mode},
@@ -209,20 +208,20 @@ where
                         .to_vec();
                     message_handler.handle_messages_to_blend(message).await;
                 }
-                context::Event::ClockTick(clock_tick) => {
-                    let (new_message_handler, new_public_inputs) = handle_clock_event(
-                        clock_tick,
-                        &settings,
-                        &context.current_private_leader_info,
-                        &context.overwatch_handle,
-                        &context.current_membership_info.membership,
-                        &mut context.epoch_handler,
-                        message_handler,
-                        current_public_inputs,
-                    )
-                    .await;
-                    message_handler = new_message_handler;
-                    current_public_inputs = new_public_inputs;
+                context::Event::ClockTick {
+                    maybe_epoch_event, ..
+                } => {
+                    if let Some(epoch_event) = maybe_epoch_event {
+                        (message_handler, current_public_inputs) = handle_epoch_event(
+                            epoch_event,
+                            &settings,
+                            &context.current_private_leader_info,
+                            &context.overwatch_handle,
+                            &context.current_membership_info.membership,
+                            message_handler,
+                            current_public_inputs,
+                        );
+                    }
                 }
                 context::Event::SecretPolInfo(new_secret_pol_info) => {
                     message_handler = handle_new_secret_epoch_info(
@@ -302,11 +301,7 @@ where
     Ok((new_handler, new_public_inputs))
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "TODO: Address this at some point."
-)]
-/// It fetches the new epoch state if a new epoch tick is provided, which will
+/// Handles the new epoch state, which will
 /// result in new `PoQ` public inputs. A new handler is also created if the
 /// secret `PoL` info for the same epoch has already been provided by the
 /// `PoLInfoProvider`.
@@ -316,8 +311,8 @@ where
 /// In case this is called before the secret info is obtained, only the public
 /// inputs are updated, and the message handler will be updated once the secret
 /// info is received.
-async fn handle_clock_event<Backend, NodeId, ProofsGenerator, ChainService, RuntimeServiceId>(
-    slot_tick: SlotTick,
+fn handle_epoch_event<Backend, NodeId, ProofsGenerator, RuntimeServiceId>(
+    epoch_event: EpochEvent,
     settings: &Settings<Backend, NodeId, RuntimeServiceId>,
     PolEpochInfo {
         nonce: current_secret_inputs_nonce,
@@ -325,10 +320,6 @@ async fn handle_clock_event<Backend, NodeId, ProofsGenerator, ChainService, Runt
     }: &PolEpochInfo,
     overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
     current_membership: &Membership<NodeId>,
-    epoch_handler: &mut EpochHandler<
-        CryptarchiaServiceApi<ChainService, RuntimeServiceId>,
-        RuntimeServiceId,
-    >,
     current_message_handler: MessageHandler<Backend, NodeId, ProofsGenerator, RuntimeServiceId>,
     current_public_inputs: PoQVerificationInputsMinusSigningKey,
 ) -> (
@@ -339,13 +330,8 @@ where
     Backend: BlendBackend<NodeId, RuntimeServiceId> + Send,
     NodeId: Clone + Eq + Hash + Send + Sync + 'static,
     ProofsGenerator: LeaderProofsGenerator + Send,
-    ChainService: CryptarchiaServiceData<Tx: Send + Sync> + Send + Sync,
     RuntimeServiceId: Clone + Send + Sync,
 {
-    let Some(epoch_event) = epoch_handler.tick(slot_tick).await else {
-        return (current_message_handler, current_public_inputs);
-    };
-
     let new_leader_inputs = match epoch_event {
         EpochEvent::NewEpoch(LeaderInputsMinusQuota {
             pol_epoch_nonce,

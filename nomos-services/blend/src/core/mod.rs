@@ -7,7 +7,7 @@ use std::{hash::Hash, marker::PhantomData};
 
 use async_trait::async_trait;
 use backends::BlendBackend;
-use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
+use chain_service::api::CryptarchiaServiceData;
 use futures::{
     StreamExt as _,
     future::{join_all, ready},
@@ -37,7 +37,6 @@ use nomos_blend_scheduling::{
     session::SessionEvent,
 };
 use nomos_core::codec::{DeserializeOp as _, SerializeOp as _};
-use nomos_time::SlotTick;
 use nomos_utils::blake_rng::BlakeRng;
 use rand::{RngCore, SeedableRng as _, seq::SliceRandom as _};
 use serde::{Deserialize, Serialize};
@@ -50,7 +49,7 @@ use crate::{
         processor::{CoreCryptographicProcessor, Error},
         settings::BlendConfig,
     },
-    epoch_info::{EpochEvent, EpochHandler, LeaderInputsMinusQuota},
+    epoch_info::{EpochEvent, LeaderInputsMinusQuota},
     membership::{MembershipInfo, ZkInfo},
     message::{NetworkMessage, ProcessedMessage, ServiceMessage},
     mode::{self, Mode},
@@ -300,8 +299,12 @@ where
                         context::Event::ServiceMessage(message) => {
                             handle_local_data_message(message, &mut crypto_processor, &backend, &mut message_scheduler).await;
                         },
-                        context::Event::ClockTick(clock_tick) => {
-                            (current_public_info, context.current_leader_inputs_minus_quota) = handle_clock_event(clock_tick, &settings, &mut context.epoch_handler, &mut crypto_processor, &mut backend, current_public_info, context.current_leader_inputs_minus_quota).await;
+                        context::Event::ClockTick {
+                            maybe_epoch_event, ..
+                        } => {
+                            if let Some(epoch_event) = maybe_epoch_event {
+                                current_public_info = handle_epoch_event(epoch_event, &settings, &mut crypto_processor, &mut backend, current_public_info).await;
+                            }
                         },
                         context::Event::SecretPolInfo(pol_info) => {
                             handle_new_secret_epoch_info(pol_info.poq_private_inputs, &mut crypto_processor);
@@ -732,21 +735,16 @@ async fn handle_release_round<
 /// `PoQ` public inputs. At the end of an epoch transition period, it will
 /// interact with the Blend components to communicate the end of such transition
 /// period.
-async fn handle_clock_event<
+async fn handle_epoch_event<
     NodeId,
     ProofsGenerator,
     ProofsVerifier,
-    ChainService,
     Backend,
     Rng,
     RuntimeServiceId,
 >(
-    slot_tick: SlotTick,
+    epoch_event: EpochEvent,
     settings: &BlendConfig<Backend::Settings>,
-    epoch_handler: &mut EpochHandler<
-        CryptarchiaServiceApi<ChainService, RuntimeServiceId>,
-        RuntimeServiceId,
-    >,
     cryptographic_processor: &mut CoreCryptographicProcessor<
         NodeId,
         ProofsGenerator,
@@ -754,19 +752,13 @@ async fn handle_clock_event<
     >,
     backend: &mut Backend,
     current_public_info: PublicInfo<NodeId>,
-    current_leader_inputs_minus_quota: LeaderInputsMinusQuota,
-) -> (PublicInfo<NodeId>, LeaderInputsMinusQuota)
+) -> PublicInfo<NodeId>
 where
     ProofsGenerator: CoreAndLeaderProofsGenerator,
     ProofsVerifier: ProofsVerifierTrait,
-    ChainService: CryptarchiaServiceData<Tx: Send + Sync> + Sync,
     Backend: BlendBackend<NodeId, Rng, ProofsVerifier, RuntimeServiceId>,
     RuntimeServiceId: Send + Sync,
 {
-    let Some(epoch_event) = epoch_handler.tick(slot_tick).await else {
-        return (current_public_info, current_leader_inputs_minus_quota);
-    };
-
     match epoch_event {
         EpochEvent::NewEpoch(LeaderInputsMinusQuota {
             pol_epoch_nonce,
@@ -787,20 +779,13 @@ where
             cryptographic_processor.rotate_epoch(new_leader_inputs);
             backend.rotate_epoch(new_leader_inputs).await;
 
-            (
-                new_public_info,
-                LeaderInputsMinusQuota {
-                    pol_ledger_aged,
-                    pol_epoch_nonce,
-                    total_stake,
-                },
-            )
+            new_public_info
         }
         EpochEvent::OldEpochTransitionPeriodExpired => {
             cryptographic_processor.complete_epoch_transition();
             backend.complete_epoch_transition().await;
 
-            (current_public_info, current_leader_inputs_minus_quota)
+            current_public_info
         }
         EpochEvent::NewEpochAndOldEpochTransitionExpired(LeaderInputsMinusQuota {
             pol_epoch_nonce,
@@ -825,14 +810,7 @@ where
             cryptographic_processor.rotate_epoch(new_leader_inputs);
             backend.rotate_epoch(new_leader_inputs).await;
 
-            (
-                new_public_inputs,
-                LeaderInputsMinusQuota {
-                    pol_ledger_aged,
-                    pol_epoch_nonce,
-                    total_stake,
-                },
-            )
+            new_public_inputs
         }
     }
 }

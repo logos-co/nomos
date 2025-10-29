@@ -6,7 +6,7 @@ use nomos_time::SlotTick;
 use overwatch::overwatch::OverwatchHandle;
 
 use crate::{
-    epoch_info::{EpochHandler, LeaderInputsMinusQuota, PolEpochInfo},
+    epoch_info::{EpochEvent, EpochHandler, LeaderInputsMinusQuota, PolEpochInfo},
     membership::MembershipInfo,
     message::ServiceMessage,
 };
@@ -44,7 +44,8 @@ impl<NodeId, BroadcastSettings, ChainService, RuntimeServiceId>
     Context<NodeId, BroadcastSettings, ChainService, RuntimeServiceId>
 where
     NodeId: Clone,
-    ChainService: CryptarchiaServiceData,
+    ChainService: CryptarchiaServiceData<Tx: Send + Sync>,
+    RuntimeServiceId: Send + Sync,
 {
     /// Advances the context by waiting for the next item from any of the
     /// streams.
@@ -58,7 +59,16 @@ where
             }
             Some(clock_tick) = self.clock_stream.next() => {
                 self.current_clock = clock_tick;
-                Some(Event::ClockTick(clock_tick))
+
+                let maybe_epoch_event = self.epoch_handler.tick(clock_tick).await;
+                if let Some(EpochEvent::NewEpoch(leader_inputs_minus_quota) | EpochEvent::NewEpochAndOldEpochTransitionExpired(leader_inputs_minus_quota)) = maybe_epoch_event {
+                    self.current_leader_inputs_minus_quota = leader_inputs_minus_quota;
+                }
+
+                Some(Event::ClockTick {
+                    clock_tick,
+                    maybe_epoch_event,
+                })
             }
             Some(pol_info) = self.secret_pol_info_stream.next() => {
                 self.current_private_leader_info = pol_info.clone();
@@ -85,7 +95,10 @@ where
 )]
 pub enum Event<NodeId, BroadcastSettings> {
     ServiceMessage(ServiceMessage<BroadcastSettings>),
-    ClockTick(SlotTick),
+    ClockTick {
+        clock_tick: SlotTick,
+        maybe_epoch_event: Option<EpochEvent>,
+    },
     SecretPolInfo(PolEpochInfo),
     SessionEvent(SessionEvent<MembershipInfo<NodeId>>),
 }
