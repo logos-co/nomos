@@ -26,7 +26,7 @@ pub trait MempoolStorageAdapter<RuntimeServiceId>: Send + Sync {
 
     async fn get_items(
         &self,
-        keys: BTreeSet<Self::Key>,
+        keys: &BTreeSet<Self::Key>,
     ) -> Result<Pin<Box<dyn Stream<Item = Self::Item> + Send>>, Self::Error>;
 
     async fn remove_items(&mut self, keys: &[Self::Key]) -> Result<(), Self::Error>;
