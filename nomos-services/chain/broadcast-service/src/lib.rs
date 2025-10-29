@@ -3,11 +3,7 @@ use std::{collections::HashMap, fmt::Display};
 
 use async_trait::async_trait;
 use derivative::Derivative;
-use futures::{
-    Stream, StreamExt as _,
-    future::ready,
-    stream::{once, pending},
-};
+use futures::{Stream, StreamExt as _, future::ready, stream::iter};
 use nomos_core::{
     header::HeaderId,
     sdp::{ProviderId, ProviderInfo, SessionNumber},
@@ -173,12 +169,8 @@ fn create_session_stream(
     current_value: Option<SessionUpdate>,
     sender: &broadcast::Sender<SessionUpdate>,
 ) -> SessionSubscription {
-    let initial_item_stream = current_value.map_or_else(
-        || Box::pin(pending()) as Pin<Box<dyn Stream<Item = SessionUpdate> + Send + Sync>>,
-        |v| Box::pin(once(ready(v))) as Pin<Box<dyn Stream<Item = SessionUpdate> + Send + Sync>>,
-    );
     Box::pin(
-        initial_item_stream
+        iter(current_value)
             .chain(BroadcastStream::new(sender.subscribe()).filter_map(|item| ready(item.ok()))),
     )
 }

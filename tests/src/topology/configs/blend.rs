@@ -35,6 +35,9 @@ pub fn create_blend_configs(ids: &[[u8; 32]], ports: &[u16]) -> Vec<GeneralBlend
             let signer = SigningKey::from_bytes(id);
 
             let private_key = Ed25519PrivateKey::from(*id);
+            // We need unique ZK secret keys, so we just derive them deterministically from
+            // the generated Ed25519 public keys, which are guaranteed to be unique because
+            // they are in turned derived from node ID.
             let secret_zk_key =
                 SecretKey::from(BigUint::from_bytes_le(private_key.public_key().as_bytes()));
             GeneralBlendConfig {
