@@ -252,8 +252,8 @@ mod state_updater {
             self.inner.spend_quota(amount);
         }
 
-        /// Consumes `self` and return the **changed** state without storing the
-        /// changes via the underlying
+        /// Consumes `self` and return the state with any changes applied to it,
+        /// without storing those changes via the underlying
         /// `overwatch::services::state::StateUpdater`.
         ///
         /// It is important to note that it is not equivalent to calling
