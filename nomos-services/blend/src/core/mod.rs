@@ -1,8 +1,3 @@
-pub mod backends;
-pub mod network;
-mod processor;
-pub mod settings;
-
 use std::{
     fmt::{Debug, Display},
     hash::Hash,
@@ -48,14 +43,14 @@ use nomos_time::{SlotTick, TimeService, TimeServiceMessage};
 use nomos_utils::blake_rng::BlakeRng;
 use overwatch::{
     OpaqueServiceResourcesHandle,
-    services::{
-        AsServiceId, ServiceCore, ServiceData,
-        state::{NoOperator, NoState},
-    },
+    services::{AsServiceId, ServiceCore, ServiceData, state::StateUpdater},
 };
 use rand::{RngCore, SeedableRng as _, seq::SliceRandom as _};
 use serde::{Deserialize, Serialize};
-use services_utils::wait_until_services_are_ready;
+use services_utils::{
+    overwatch::{JsonFileBackend, RecoveryOperator},
+    wait_until_services_are_ready,
+};
 use tokio::sync::oneshot;
 use tracing::info;
 
@@ -63,7 +58,9 @@ use crate::{
     core::{
         backends::{PublicInfo, SessionInfo},
         processor::{CoreCryptographicProcessor, Error},
+        scheduler::{RoundInfoAndConsumedQuota, SchedulerWrapper},
         settings::BlendConfig,
+        state::{RecoveryServiceState, ServiceState},
     },
     epoch_info::{
         ChainApi, EpochEvent, EpochHandler, LeaderInputsMinusQuota,
@@ -75,7 +72,16 @@ use crate::{
     settings::FIRST_STREAM_ITEM_READY_TIMEOUT,
 };
 
+pub mod backends;
+pub mod network;
+pub mod settings;
+
 pub(super) mod service_components;
+
+mod processor;
+mod scheduler;
+mod state;
+pub use state::RecoveryServiceState as CoreServiceState;
 
 const LOG_TARGET: &str = "blend::service::core";
 
@@ -102,6 +108,7 @@ pub struct BlendService<
     Network: NetworkAdapter<RuntimeServiceId>,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
+    last_saved_state: Option<ServiceState>,
     _phantom: PhantomData<(
         Backend,
         MembershipAdapter,
@@ -141,8 +148,10 @@ where
     Network: NetworkAdapter<RuntimeServiceId>,
 {
     type Settings = BlendConfig<Backend::Settings>;
-    type State = NoState<Self::Settings>;
-    type StateOperator = NoOperator<Self::State>;
+    type State = RecoveryServiceState<Backend::Settings>;
+    type StateOperator = RecoveryOperator<
+        JsonFileBackend<RecoveryServiceState<Backend::Settings>, BlendConfig<Backend::Settings>>,
+    >;
     type Message = ServiceMessage<Network::BroadcastSettings>;
 }
 
@@ -197,10 +206,11 @@ where
 {
     fn init(
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-        _initial_state: Self::State,
+        recovery_initial_state: Self::State,
     ) -> Result<Self, overwatch::DynError> {
         Ok(Self {
             service_resources_handle,
+            last_saved_state: recovery_initial_state.service_state,
             _phantom: PhantomData,
         })
     }
@@ -214,8 +224,9 @@ where
                     ref overwatch_handle,
                     ref settings_handle,
                     ref status_updater,
-                    ..
+                    ref state_updater,
                 },
+            last_saved_state,
             ..
         } = self;
 
@@ -390,10 +401,24 @@ where
             .expect("Reward session info must be created successfully. Panicking since the service cannot continue with this session")
         );
 
+        // Initialize the current session state. If the session matches the stored one,
+        // retrieves the tracked consumed core quota. Else, fallback to `0`.
+        let mut current_recovery_checkpoint = if let Some(saved_state) = last_saved_state
+            && saved_state.last_seen_session() == current_membership_info.public.session
+        {
+            tracing::debug!(target: LOG_TARGET, "Found recovery state for session {:?}: {saved_state:?}", current_membership_info.public.session);
+            saved_state
+        } else {
+            tracing::debug!(target: LOG_TARGET, "No recovery state found for session {:?}. Initializing a new one.", current_membership_info.public.session);
+            ServiceState::with_session(current_membership_info.public.session)
+        };
+
         let mut message_scheduler = {
+            let scheduler_starting_core_quota = blend_config
+                .session_quota(current_membership_info.public.membership.size())
+                .saturating_sub(current_recovery_checkpoint.spent_core_quota());
             let initial_scheduler_session_info = SchedulerSessionInfo {
-                core_quota: blend_config
-                    .session_quota(current_membership_info.public.membership.size()),
+                core_quota: scheduler_starting_core_quota,
                 session_number: u128::from(current_membership_info.public.session).into(),
             };
             let scheduler_stream = remaining_session_stream
@@ -419,7 +444,7 @@ where
                         session_number: u128::from(session).into(),
                     },
                 );
-            MessageScheduler::<_, _, ProcessedMessage<Network::BroadcastSettings>>::new(
+            SchedulerWrapper::<_, _, ProcessedMessage<Network::BroadcastSettings>>::new(
                 scheduler_stream,
                 initial_scheduler_session_info,
                 BlakeRng::from_entropy(),
@@ -465,7 +490,7 @@ where
                     handle_incoming_blend_message(incoming_message, &mut message_scheduler, &crypto_processor, &mut blending_token_collector);
                 }
                 Some(round_info) = message_scheduler.next() => {
-                    handle_release_round(round_info, &mut crypto_processor, &mut rng, &backend, &network_adapter).await;
+                    current_recovery_checkpoint = handle_release_round(round_info, &mut crypto_processor, &mut rng, &backend, &network_adapter, state_updater, current_recovery_checkpoint).await;
                 }
                 Some(clock_tick) = remaining_clock_stream.next() => {
                     current_public_info = handle_clock_event(clock_tick, &blend_config, &mut epoch_handler, &mut crypto_processor, &mut backend, current_public_info).await;
@@ -474,10 +499,11 @@ where
                     handle_new_secret_epoch_info(pol_info.poq_private_inputs, &mut crypto_processor);
                 }
                 Some(session_event) = remaining_session_stream.next() => {
-                    match handle_session_event(session_event, &blend_config, crypto_processor, current_public_info, &mut blending_token_collector, &mut backend).await {
-                        Ok((new_crypto_processor, new_public_info)) => {
+                    match handle_session_event(session_event, &blend_config, crypto_processor, current_public_info, current_recovery_checkpoint, &mut blending_token_collector, &mut backend).await {
+                        Ok((new_crypto_processor, new_public_info, new_recovery_checkpoint)) => {
                             crypto_processor = new_crypto_processor;
                             current_public_info = new_public_info;
+                            current_recovery_checkpoint = new_recovery_checkpoint;
                         }
                         Err(e) => {
                             tracing::error!(
@@ -516,12 +542,14 @@ async fn handle_session_event<
         ProofsVerifier,
     >,
     current_public_info: PublicInfo<NodeId>,
+    current_recovery_checkpoint: ServiceState,
     blending_token_collector: &mut BlendingTokenCollector,
     backend: &mut Backend,
 ) -> Result<
     (
         CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
         PublicInfo<NodeId>,
+        ServiceState,
     ),
     Error,
 >
@@ -568,7 +596,14 @@ where
                 new_public_info.clone().into(),
                 private,
             )?;
-            Ok((new_processor, new_public_info))
+            Ok((
+                new_processor,
+                new_public_info,
+                // No need to store the new state, since if the node crashes before the first
+                // release round of the new session, we will ignore the old state as it belongs to
+                // an old session and create a new one anyway.
+                ServiceState::with_session(new_session),
+            ))
         }
         SessionEvent::TransitionPeriodExpired => {
             if let Some(activity_proof) =
@@ -578,7 +613,11 @@ where
                 submit_activity_proof(activity_proof);
             }
             backend.complete_session_transition().await;
-            Ok((current_cryptographic_processor, current_public_info))
+            Ok((
+                current_cryptographic_processor,
+                current_public_info,
+                current_recovery_checkpoint,
+            ))
         }
     }
 }
@@ -608,7 +647,7 @@ async fn handle_local_data_message<
         ProofsVerifier,
     >,
     backend: &Backend,
-    scheduler: &mut MessageScheduler<SessionClock, Rng, ProcessedMessage<BroadcastSettings>>,
+    scheduler: &mut SchedulerWrapper<SessionClock, Rng, ProcessedMessage<BroadcastSettings>>,
 ) where
     NodeId: Eq + Hash + Send + 'static,
     Rng: RngCore + Send,
@@ -709,10 +748,14 @@ async fn handle_release_round<
     ProofsVerifier,
     RuntimeServiceId,
 >(
-    RoundInfo {
-        cover_message_generation_flag,
-        processed_messages,
-    }: RoundInfo<ProcessedMessage<NetAdapter::BroadcastSettings>>,
+    RoundInfoAndConsumedQuota {
+        info:
+            RoundInfo {
+                cover_message_generation_flag,
+                processed_messages,
+            },
+        consumed_quota,
+    }: RoundInfoAndConsumedQuota<ProcessedMessage<NetAdapter::BroadcastSettings>>,
     cryptographic_processor: &mut CoreCryptographicProcessor<
         NodeId,
         ProofsGenerator,
@@ -721,7 +764,10 @@ async fn handle_release_round<
     rng: &mut Rng,
     backend: &Backend,
     network_adapter: &NetAdapter,
-) where
+    state_updater: &StateUpdater<Option<RecoveryServiceState<Backend::Settings>>>,
+    current_recovery_checkpoint: ServiceState,
+) -> ServiceState
+where
     NodeId: Eq + Hash + 'static,
     Rng: RngCore + Send,
     Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId> + Sync,
@@ -758,6 +804,12 @@ async fn handle_release_round<
     // Release all messages concurrently, and wait for all of them to be sent.
     join_all(processed_messages_relay_futures).await;
     tracing::debug!(target: LOG_TARGET, "Sent out {total_message_count} processed and/or cover messages at this release window.");
+
+    // Update state by tracking the quota consumed by this release round.
+    let new_recovery_checkpoint =
+        current_recovery_checkpoint.by_consuming_core_quota(consumed_quota);
+    state_updater.update(Some(new_recovery_checkpoint.clone().into()));
+    new_recovery_checkpoint
 }
 
 /// Handle a clock event by calling into the epoch handler and process the

@@ -74,7 +74,7 @@ impl<RoundClock> SessionCoverTraffic<RoundClock> {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "unsafe-test-functions"))]
     pub const fn unprocessed_data_messages(&self) -> usize {
         self.unprocessed_data_messages
     }

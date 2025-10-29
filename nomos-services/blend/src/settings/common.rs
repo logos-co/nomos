@@ -1,4 +1,5 @@
 use core::num::NonZeroU64;
+use std::path::PathBuf;
 
 use nomos_blend_scheduling::message_blend::crypto::SessionCryptographicProcessorSettings;
 use serde::{Deserialize, Serialize};
@@ -10,4 +11,5 @@ pub struct CommonSettings {
     pub crypto: SessionCryptographicProcessorSettings,
     pub time: TimingSettings,
     pub minimum_network_size: NonZeroU64,
+    pub recovery_path_prefix: PathBuf,
 }

@@ -26,6 +26,7 @@ blend:
     # TODO: Change with a proper value
     epoch_transition_period_in_slots: 2600
   minimum_network_size: 1
+  recovery_path_prefix: ./recovery/blend
   core:
     backend:
       listening_address: /ip4/127.0.0.1/udp/3001/quic-v1

@@ -1,9 +1,10 @@
-use std::num::NonZeroU64;
+use std::{num::NonZeroU64, path::PathBuf};
 
 use nomos_blend_scheduling::message_blend::crypto::SessionCryptographicProcessorSettings;
 use nomos_core::mantle::keys::{PublicKey, SecretKey};
 use nomos_utils::math::NonNegativeF64;
 use serde::{Deserialize, Serialize};
+use services_utils::overwatch::recovery::backends::FileBackendSettings;
 
 use crate::settings::TimingSettings;
 
@@ -15,6 +16,7 @@ pub struct BlendConfig<BackendSettings> {
     pub time: TimingSettings,
     pub zk: ZkSettings,
     pub minimum_network_size: NonZeroU64,
+    pub recovery_path: PathBuf,
 }
 
 impl<BackendSettings> BlendConfig<BackendSettings> {
@@ -32,6 +34,12 @@ impl<BackendSettings> BlendConfig<BackendSettings> {
             round_duration: self.time.round_duration,
             rounds_per_interval: self.time.rounds_per_interval,
         }
+    }
+}
+
+impl<BackendSettings> FileBackendSettings for BlendConfig<BackendSettings> {
+    fn recovery_file(&self) -> &PathBuf {
+        &self.recovery_path
     }
 }
 
