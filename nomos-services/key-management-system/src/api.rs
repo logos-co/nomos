@@ -38,19 +38,6 @@ where
     _id: std::marker::PhantomData<RuntimeServiceId>,
 }
 
-impl<Kms, RuntimeServiceId> From<OutboundRelay<Kms::Message>>
-    for KmsServiceApi<Kms, RuntimeServiceId>
-where
-    Kms: KmsServiceData,
-{
-    fn from(relay: OutboundRelay<Kms::Message>) -> Self {
-        Self {
-            relay,
-            _id: std::marker::PhantomData,
-        }
-    }
-}
-
 impl<Kms, RuntimeServiceId> KmsServiceApi<Kms, RuntimeServiceId>
 where
     Kms: KmsServiceData,
@@ -62,8 +49,11 @@ where
     RuntimeServiceId: AsServiceId<Kms> + Debug + Display + Sync,
 {
     #[must_use]
-    pub fn new(relay: OutboundRelay<Kms::Message>) -> Self {
-        Self::from(relay)
+    pub const fn new(relay: OutboundRelay<Kms::Message>) -> Self {
+        Self {
+            relay,
+            _id: std::marker::PhantomData,
+        }
     }
 
     pub async fn register(

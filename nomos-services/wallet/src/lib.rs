@@ -179,10 +179,13 @@ where
             .await?;
 
         // Create the API wrapper for cleaner communication
-        let cryptarchia_api = CryptarchiaServiceApi::<Cryptarchia, RuntimeServiceId>::new(
-            &service_resources_handle.overwatch_handle,
-        )
-        .await?;
+        let cryptarchia_api = CryptarchiaServiceApi::<Cryptarchia, _>::new(
+            service_resources_handle
+                .overwatch_handle
+                .relay::<Cryptarchia>()
+                .await
+                .expect("Failed to estabilish connection with Cryptarchia"),
+        );
 
         // Create KMS API for transaction signing
         let kms = KmsServiceApi::<Kms, RuntimeServiceId>::new(

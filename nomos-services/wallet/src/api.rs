@@ -36,27 +36,17 @@ where
     _id: std::marker::PhantomData<RuntimeServiceId>,
 }
 
-impl<Wallet, RuntimeServiceId> From<OutboundRelay<Wallet::Message>>
-    for WalletApi<Wallet, RuntimeServiceId>
-where
-    Wallet: WalletServiceData,
-{
-    fn from(relay: OutboundRelay<Wallet::Message>) -> Self {
-        Self {
-            relay,
-            _id: std::marker::PhantomData,
-        }
-    }
-}
-
 impl<Wallet, RuntimeServiceId> WalletApi<Wallet, RuntimeServiceId>
 where
     Wallet: WalletServiceData,
     RuntimeServiceId: AsServiceId<Wallet> + std::fmt::Debug + std::fmt::Display + Sync,
 {
     #[must_use]
-    pub fn new(relay: OutboundRelay<Wallet::Message>) -> Self {
-        Self::from(relay)
+    pub const fn new(relay: OutboundRelay<Wallet::Message>) -> Self {
+        Self {
+            relay,
+            _id: std::marker::PhantomData,
+        }
     }
 
     pub async fn get_balance(

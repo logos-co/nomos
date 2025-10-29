@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use chain_service::Slot;
 use nomos_ledger::EpochState;
-use overwatch::overwatch::OverwatchHandle;
 
 use crate::epoch_info::ChainApi;
 
@@ -23,10 +22,6 @@ pub struct TestChainService;
 
 #[async_trait]
 impl<RuntimeServiceId> ChainApi<RuntimeServiceId> for TestChainService {
-    async fn new(_: &OverwatchHandle<RuntimeServiceId>) -> Self {
-        Self
-    }
-
     async fn get_epoch_state_for_slot(&self, _slot: Slot) -> EpochState {
         default_epoch_state()
     }

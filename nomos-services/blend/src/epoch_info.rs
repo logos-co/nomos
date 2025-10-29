@@ -36,7 +36,6 @@ const LOG_TARGET: &str = "blend::service::epoch";
 /// fetch the epoch state for a given slot.
 #[async_trait]
 pub trait ChainApi<RuntimeServiceId> {
-    async fn new(overwatch_handle: &OverwatchHandle<RuntimeServiceId>) -> Self;
     async fn get_epoch_state_for_slot(&self, slot: Slot) -> EpochState;
 }
 
@@ -47,10 +46,6 @@ where
     Cryptarchia: CryptarchiaServiceData<Tx: Send + Sync>,
     RuntimeServiceId: Send + Sync,
 {
-    async fn new(overwatch_handle: &OverwatchHandle<RuntimeServiceId>) -> Self {
-        Self::new(overwatch_handle).await
-    }
-
     async fn get_epoch_state_for_slot(&self, slot: Slot) -> EpochState {
         self.get_epoch_state(slot)
             .await
