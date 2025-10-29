@@ -43,7 +43,6 @@ pub enum BlockBroadcastMsg {
     BroadcastBlendSession(SessionUpdate),
     BroadcastDASession(SessionUpdate),
     SubscribeToFinalizedBlocks {
-        #[derivative(Debug = "ignore")]
         result_sender: oneshot::Sender<broadcast::Receiver<BlockInfo>>,
     },
     SubscribeBlendSession {
