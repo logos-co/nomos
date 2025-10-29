@@ -29,8 +29,8 @@ use nomos_node::Tracing;
 use nomos_node::{
     BlobInfo, DaNetworkApiAdapter, NetworkBackend, NomosDaMembership, RocksBackend, SystemSig,
     generic_services::{
-        DaMembershipAdapter, DaMembershipStorageGeneric, SdpService, SdpServiceAdapterGeneric,
-        VerifierMempoolAdapter,
+        DaMembershipAdapter, DaMembershipStorageGeneric, SamplingMempoolAdapter, SdpService,
+        SdpServiceAdapterGeneric, VerifierMempoolAdapter,
     },
 };
 use nomos_time::backends::NtpTimeBackend;
@@ -86,7 +86,7 @@ pub(crate) type DaVerifierService = nomos_node::generic_services::DaVerifierServ
         SdpServiceAdapterGeneric<RuntimeServiceId>,
         RuntimeServiceId,
     >,
-    VerifierMempoolAdapter<DaNetworkAdapter, RuntimeServiceId>,
+    VerifierMempoolAdapter<RuntimeServiceId>,
     RuntimeServiceId,
 >;
 
@@ -176,8 +176,9 @@ pub(crate) type ApiService = nomos_api::ApiService<
         kzgrs_backend::dispersal::Metadata,
         KzgrsSamplingBackend,
         DaNetworkAdapter,
+        SamplingMempoolAdapter<RuntimeServiceId>,
         SamplingStorageAdapter<DaShare, DaStorageConverter>,
-        VerifierMempoolAdapter<DaNetworkAdapter, RuntimeServiceId>,
+        VerifierMempoolAdapter<RuntimeServiceId>,
         NtpTimeBackend,
         DaNetworkApiAdapter,
         SdpServiceAdapterGeneric<RuntimeServiceId>,

@@ -36,6 +36,7 @@ use nomos_core::{
 };
 use nomos_da_sampling::{
     DaSamplingService, DaSamplingServiceMsg, backend::DaSamplingServiceBackend,
+    mempool::DaMempoolAdapter,
 };
 pub use nomos_ledger::EpochState;
 use nomos_ledger::LedgerState;
@@ -363,6 +364,7 @@ pub struct CryptarchiaConsensus<
     NetAdapter,
     Mempool,
     MempoolNetAdapter,
+    MempoolDaAdapter,
     Storage,
     SamplingBackend,
     SamplingNetworkAdapter,
@@ -382,6 +384,7 @@ pub struct CryptarchiaConsensus<
     Mempool::Item: AuthenticatedMantleTx,
     MempoolNetAdapter:
         MempoolNetworkAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>,
+    MempoolDaAdapter: DaMempoolAdapter,
     MempoolNetAdapter::Settings: Send + Sync,
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
@@ -403,6 +406,7 @@ impl<
     NetAdapter,
     Mempool,
     MempoolNetAdapter,
+    MempoolDaAdapter,
     Storage,
     SamplingBackend,
     SamplingNetworkAdapter,
@@ -414,6 +418,7 @@ impl<
         NetAdapter,
         Mempool,
         MempoolNetAdapter,
+        MempoolDaAdapter,
         Storage,
         SamplingBackend,
         SamplingNetworkAdapter,
@@ -432,6 +437,7 @@ where
     Mempool::Item: AuthenticatedMantleTx + Clone + Eq + Debug,
     MempoolNetAdapter:
         MempoolNetworkAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>,
+    MempoolDaAdapter: DaMempoolAdapter,
     MempoolNetAdapter::Settings: Send + Sync,
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
@@ -454,6 +460,7 @@ impl<
     NetAdapter,
     Mempool,
     MempoolNetAdapter,
+    MempoolDaAdapter,
     Storage,
     SamplingBackend,
     SamplingNetworkAdapter,
@@ -465,6 +472,7 @@ impl<
         NetAdapter,
         Mempool,
         MempoolNetAdapter,
+        MempoolDaAdapter,
         Storage,
         SamplingBackend,
         SamplingNetworkAdapter,
@@ -499,6 +507,7 @@ where
         + Send
         + Sync
         + 'static,
+    MempoolDaAdapter: DaMempoolAdapter + Send + Sync + 'static,
     MempoolNetAdapter::Settings: Send + Sync,
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
@@ -528,6 +537,7 @@ where
                 SamplingBackend,
                 SamplingNetworkAdapter,
                 SamplingStorage,
+                MempoolDaAdapter,
                 RuntimeServiceId,
             >,
         >
@@ -554,6 +564,7 @@ where
         let relays: CryptarchiaConsensusRelays<
             Mempool,
             MempoolNetAdapter,
+            MempoolDaAdapter,
             NetAdapter,
             SamplingBackend,
             Storage,
@@ -618,7 +629,7 @@ where
             BlockBroadcastService<_>,
             NetworkService<_, _>,
             TxMempoolService<_, _, _, _>,
-            DaSamplingService<_, _, _, _>,
+            DaSamplingService<_, _, _, _, _>,
             StorageService<_, _>,
             TimeService<_, _>
         )
@@ -871,6 +882,7 @@ impl<
     NetAdapter,
     Mempool,
     MempoolNetAdapter,
+    MempoolDaAdapter,
     Storage,
     SamplingBackend,
     SamplingNetworkAdapter,
@@ -882,6 +894,7 @@ impl<
         NetAdapter,
         Mempool,
         MempoolNetAdapter,
+        MempoolDaAdapter,
         Storage,
         SamplingBackend,
         SamplingNetworkAdapter,
@@ -915,6 +928,7 @@ where
         + Send
         + Sync
         + 'static,
+    MempoolDaAdapter: DaMempoolAdapter + Send + Sync + 'static,
     MempoolNetAdapter::Settings: Send + Sync,
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
@@ -1036,6 +1050,7 @@ where
         relays: &CryptarchiaConsensusRelays<
             Mempool,
             MempoolNetAdapter,
+            MempoolDaAdapter,
             NetAdapter,
             SamplingBackend,
             Storage,
@@ -1107,6 +1122,7 @@ where
         relays: &CryptarchiaConsensusRelays<
             Mempool,
             MempoolNetAdapter,
+            MempoolDaAdapter,
             NetAdapter,
             SamplingBackend,
             Storage,
@@ -1296,6 +1312,7 @@ where
         relays: &CryptarchiaConsensusRelays<
             Mempool,
             MempoolNetAdapter,
+            MempoolDaAdapter,
             NetAdapter,
             SamplingBackend,
             Storage,
@@ -1536,6 +1553,7 @@ where
         relays: &CryptarchiaConsensusRelays<
             Mempool,
             MempoolNetAdapter,
+            MempoolDaAdapter,
             NetAdapter,
             SamplingBackend,
             Storage,
@@ -1567,6 +1585,7 @@ where
         relays: &CryptarchiaConsensusRelays<
             Mempool,
             MempoolNetAdapter,
+            MempoolDaAdapter,
             NetAdapter,
             SamplingBackend,
             Storage,

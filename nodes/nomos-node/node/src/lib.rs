@@ -3,7 +3,7 @@ pub mod config;
 pub mod generic_services;
 
 use color_eyre::eyre::{Result, eyre};
-use generic_services::VerifierMempoolAdapter;
+use generic_services::{SamplingMempoolAdapter, VerifierMempoolAdapter};
 use kzgrs_backend::common::share::DaShare;
 pub use kzgrs_backend::dispersal::BlobInfo;
 pub use nomos_blend_service::{
@@ -108,7 +108,7 @@ pub(crate) type DaVerifierService = generic_services::DaVerifierService<
         SdpServiceAdapterGeneric<RuntimeServiceId>,
         RuntimeServiceId,
     >,
-    VerifierMempoolAdapter<DaNetworkAdapter, RuntimeServiceId>,
+    VerifierMempoolAdapter<RuntimeServiceId>,
     RuntimeServiceId,
 >;
 
@@ -182,8 +182,9 @@ pub(crate) type ApiService = nomos_api::ApiService<
             SdpServiceAdapterGeneric<RuntimeServiceId>,
             RuntimeServiceId,
         >,
+        SamplingMempoolAdapter<RuntimeServiceId>,
         SamplingStorageAdapter<DaShare, DaStorageConverter>,
-        VerifierMempoolAdapter<DaNetworkAdapter, RuntimeServiceId>,
+        VerifierMempoolAdapter<RuntimeServiceId>,
         NtpTimeBackend,
         DaNetworkApiAdapter,
         SdpServiceAdapterGeneric<RuntimeServiceId>,

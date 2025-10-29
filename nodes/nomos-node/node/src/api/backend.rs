@@ -82,6 +82,7 @@ pub struct AxumBackend<
     DaStorageConverter,
     SamplingBackend,
     SamplingNetworkAdapter,
+    SamplingMempoolAdapter,
     SamplingStorage,
     VerifierMempoolAdapter,
     TimeBackend,
@@ -107,6 +108,7 @@ pub struct AxumBackend<
     _mempool_storage_adapter: core::marker::PhantomData<MempoolStorageAdapter>,
     _da_membership: core::marker::PhantomData<(DaMembershipAdapter, DaMembershipStorage)>,
     _verifier_mempool_adapter: core::marker::PhantomData<VerifierMempoolAdapter>,
+    _sampling_mempool_adapter: core::marker::PhantomData<SamplingMempoolAdapter>,
 }
 
 #[derive(OpenApi)]
@@ -134,6 +136,7 @@ impl<
     DaStorageConverter,
     SamplingBackend,
     SamplingNetworkAdapter,
+    SamplingMempoolAdapter,
     SamplingStorage,
     VerifierMempoolAdapter,
     TimeBackend,
@@ -154,6 +157,7 @@ impl<
         DaStorageConverter,
         SamplingBackend,
         SamplingNetworkAdapter,
+        SamplingMempoolAdapter,
         SamplingStorage,
         VerifierMempoolAdapter,
         TimeBackend,
@@ -187,6 +191,7 @@ where
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
     SamplingBackend::BlobId: Debug + 'static,
+    SamplingMempoolAdapter: nomos_da_sampling::mempool::DaMempoolAdapter,
     DaShare::LightShare: LightShare<ShareIndex = <DaShare as Share>::ShareIndex>
         + Serialize
         + DeserializeOwned
@@ -220,6 +225,7 @@ where
         + Clone
         + 'static,
     MempoolStorageAdapter::Error: Debug,
+    SamplingMempoolAdapter: nomos_da_sampling::mempool::DaMempoolAdapter + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Send
@@ -288,6 +294,7 @@ where
                 SamplingBackend,
                 SamplingNetworkAdapter,
                 SamplingStorage,
+                SamplingMempoolAdapter,
                 RuntimeServiceId,
             >,
         >
@@ -318,6 +325,7 @@ where
             _mempool_storage_adapter: core::marker::PhantomData,
             _da_membership: core::marker::PhantomData,
             _verifier_mempool_adapter: core::marker::PhantomData,
+            _sampling_mempool_adapter: core::marker::PhantomData,
         })
     }
 
@@ -477,6 +485,7 @@ where
                         SamplingBackend,
                         SamplingNetworkAdapter,
                         SamplingStorage,
+                        SamplingMempoolAdapter,
                         RuntimeServiceId,
                     >,
                 ),

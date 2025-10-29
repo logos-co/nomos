@@ -612,6 +612,7 @@ pub async fn da_get_commitments<
     SamplingBackend,
     SamplingNetwork,
     SamplingStorage,
+    SamplingMempoolAdapter,
     RuntimeServiceId,
 >(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
@@ -622,16 +623,24 @@ where
     SamplingBackend: DaSamplingServiceBackend<BlobId = DaBlobId>,
     SamplingNetwork: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
+    SamplingMempoolAdapter: nomos_da_sampling::mempool::DaMempoolAdapter,
     RuntimeServiceId: Debug
         + Sync
         + Display
         + AsServiceId<
-            DaSamplingService<SamplingBackend, SamplingNetwork, SamplingStorage, RuntimeServiceId>,
+            DaSamplingService<
+                SamplingBackend,
+                SamplingNetwork,
+                SamplingStorage,
+                SamplingMempoolAdapter,
+                RuntimeServiceId,
+            >,
         >,
 {
     make_request_and_return_response!(da::get_commitments::<
         SamplingBackend,
         SamplingNetwork,
+        SamplingMempoolAdapter,
         SamplingStorage,
         RuntimeServiceId,
     >(&handle, blob_id))

@@ -32,6 +32,7 @@ use nomos_da_network_service::{
 };
 use nomos_da_sampling::{
     DaSamplingService, DaSamplingServiceMsg, backend::DaSamplingServiceBackend,
+    mempool::DaMempoolAdapter as DaMempoolSamplingAdapter,
 };
 use nomos_da_verifier::{
     DaVerifierMsg, DaVerifierService, backend::VerifierBackend, mempool::DaMempoolAdapter,
@@ -135,7 +136,13 @@ where
         .map_err(|_| DynError::from("Failed to add share"))
 }
 
-pub async fn get_commitments<SamplingBackend, SamplingNetwork, SamplingStorage, RuntimeServiceId>(
+pub async fn get_commitments<
+    SamplingBackend,
+    SamplingNetwork,
+    DaSamplingMempool,
+    SamplingStorage,
+    RuntimeServiceId,
+>(
     handle: &OverwatchHandle<RuntimeServiceId>,
     blob_id: SamplingBackend::BlobId,
 ) -> Result<Option<DaSharesCommitments>, DynError>
@@ -144,11 +151,18 @@ where
     <SamplingBackend as DaSamplingServiceBackend>::BlobId: Send + 'static,
     SamplingNetwork: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
+    DaSamplingMempool: DaMempoolSamplingAdapter,
     RuntimeServiceId: Debug
         + Sync
         + Display
         + AsServiceId<
-            DaSamplingService<SamplingBackend, SamplingNetwork, SamplingStorage, RuntimeServiceId>,
+            DaSamplingService<
+                SamplingBackend,
+                SamplingNetwork,
+                SamplingStorage,
+                DaSamplingMempool,
+                RuntimeServiceId,
+            >,
         >,
 {
     let relay = handle.relay().await?;
@@ -407,6 +421,7 @@ pub async fn da_historic_sampling<
     SamplingBackend,
     SamplingNetwork,
     SamplingStorage,
+    DaSamplingMempool,
     RuntimeServiceId,
 >(
     handle: OverwatchHandle<RuntimeServiceId>,
@@ -419,11 +434,18 @@ where
     <SamplingBackend as DaSamplingServiceBackend>::BlobId: Send + Eq + Hash + 'static,
     SamplingNetwork: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
+    DaSamplingMempool: DaMempoolSamplingAdapter,
     RuntimeServiceId: Debug
         + Sync
         + Display
         + AsServiceId<
-            DaSamplingService<SamplingBackend, SamplingNetwork, SamplingStorage, RuntimeServiceId>,
+            DaSamplingService<
+                SamplingBackend,
+                SamplingNetwork,
+                SamplingStorage,
+                DaSamplingMempool,
+                RuntimeServiceId,
+            >,
         >,
 {
     let relay = handle.relay().await?;

@@ -91,6 +91,7 @@ pub struct AxumBackend<
     Metadata,
     SamplingBackend,
     SamplingNetworkAdapter,
+    SamplingMempoolAdapter,
     SamplingStorage,
     VerifierMempoolAdapter,
     TimeBackend,
@@ -118,6 +119,7 @@ pub struct AxumBackend<
         Metadata,
         SamplingBackend,
         SamplingNetworkAdapter,
+        SamplingMempoolAdapter,
         SamplingStorage,
         VerifierMempoolAdapter,
         TimeBackend,
@@ -158,6 +160,7 @@ impl<
     Metadata,
     SamplingBackend,
     SamplingNetworkAdapter,
+    SamplingMempoolAdapter,
     SamplingStorage,
     VerifierMempoolAdapter,
     TimeBackend,
@@ -183,6 +186,7 @@ impl<
         Metadata,
         SamplingBackend,
         SamplingNetworkAdapter,
+        SamplingMempoolAdapter,
         SamplingStorage,
         VerifierMempoolAdapter,
         TimeBackend,
@@ -295,6 +299,7 @@ where
         + Clone
         + 'static,
     MempoolStorageAdapter::Error: Debug,
+    SamplingMempoolAdapter: nomos_da_sampling::mempool::DaMempoolAdapter + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Send
@@ -365,6 +370,7 @@ where
                 SamplingBackend,
                 SamplingNetworkAdapter,
                 SamplingStorage,
+                SamplingMempoolAdapter,
                 RuntimeServiceId,
             >,
         >
@@ -536,6 +542,7 @@ where
                         SamplingBackend,
                         SamplingNetworkAdapter,
                         SamplingStorage,
+                        SamplingMempoolAdapter,
                         RuntimeServiceId,
                     >,
                 ),

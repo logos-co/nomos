@@ -10,7 +10,9 @@ use nomos_da_network_service::{
     NetworkService, api::ApiAdapter as ApiAdapterTrait, backends::NetworkBackend,
     sdp::SdpAdapter as SdpAdapterTrait,
 };
-use nomos_da_sampling::{DaSamplingService, backend::DaSamplingServiceBackend};
+use nomos_da_sampling::{
+    DaSamplingService, backend::DaSamplingServiceBackend, mempool::DaMempoolAdapter,
+};
 use overwatch::{overwatch::OverwatchHandle, services::AsServiceId};
 use serde::{Deserialize, Serialize};
 use subnetworks_assignations::MembershipHandler;
@@ -74,6 +76,7 @@ pub async fn da_historic_sampling<
     SamplingBackend,
     SamplingNetwork,
     SamplingStorage,
+    SamplingMempoolAdapter,
     RuntimeServiceId,
 >(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
@@ -84,17 +87,25 @@ where
     <SamplingBackend as DaSamplingServiceBackend>::BlobId: Send + Eq + Hash + 'static,
     SamplingNetwork: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
+    SamplingMempoolAdapter: DaMempoolAdapter,
     RuntimeServiceId: Debug
         + Sync
         + Display
         + AsServiceId<
-            DaSamplingService<SamplingBackend, SamplingNetwork, SamplingStorage, RuntimeServiceId>,
+            DaSamplingService<
+                SamplingBackend,
+                SamplingNetwork,
+                SamplingStorage,
+                SamplingMempoolAdapter,
+                RuntimeServiceId,
+            >,
         >,
 {
     make_request_and_return_response!(da::da_historic_sampling::<
         SamplingBackend,
         SamplingNetwork,
         SamplingStorage,
+        SamplingMempoolAdapter,
         RuntimeServiceId,
     >(
         handle,
