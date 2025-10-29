@@ -134,4 +134,9 @@ impl Channels {
             channels: rpds::HashTrieMapSync::new_sync(),
         }
     }
+
+    #[must_use]
+    pub fn channel_state(&self, channel_id: &ChannelId) -> Option<&ChannelState> {
+        self.channels.get(channel_id)
+    }
 }

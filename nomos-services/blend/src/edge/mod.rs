@@ -234,9 +234,12 @@ where
         });
 
         let epoch_handler = async {
-            let chain_service = CryptarchiaServiceApi::<ChainService, _>::new(&overwatch_handle)
-                .await
-                .expect("Failed to establish channel with chain service.");
+            let chain_service = CryptarchiaServiceApi::<ChainService, _>::new(
+                overwatch_handle
+                    .relay::<ChainService>()
+                    .await
+                    .expect("Failed to establish channel with chain service."),
+            );
             EpochHandler::new(
                 chain_service,
                 settings.time.epoch_transition_period_in_slots,

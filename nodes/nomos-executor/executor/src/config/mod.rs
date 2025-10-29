@@ -12,8 +12,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     ApiService, CryptarchiaLeaderService, CryptarchiaService, DaDispersalService, DaNetworkService,
-    DaSamplingService, DaVerifierService, NetworkService, RuntimeServiceId, StorageService,
-    TimeService, WalletService,
+    DaSamplingService, DaVerifierService, KeyManagementService, NetworkService, RuntimeServiceId,
+    StorageService, TimeService, WalletService,
 };
 
 #[derive(Deserialize, Debug, Clone, Serialize)]
@@ -34,6 +34,7 @@ pub struct Config {
     pub storage: <StorageService as ServiceData>::Settings,
     pub mempool: MempoolConfig,
     pub wallet: <WalletService as ServiceData>::Settings,
+    pub key_management: <KeyManagementService as ServiceData>::Settings,
 
     #[cfg(feature = "testing")]
     pub testing_http: <ApiService as ServiceData>::Settings,

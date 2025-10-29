@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     net::SocketAddr,
     num::{NonZeroU64, NonZeroUsize},
     path::PathBuf,
@@ -16,6 +16,7 @@ use chain_service::{
 use common_http_client::CommonHttpClient;
 use cryptarchia_engine::time::SlotConfig;
 use futures::Stream;
+use key_management_system::backend::preload::PreloadKMSBackendSettings;
 use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
 use nomos_blend_scheduling::message_blend::crypto::SessionCryptographicProcessorSettings;
 use nomos_blend_service::{
@@ -560,6 +561,9 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
         sdp: SdpSettings { declaration: None },
         wallet: nomos_wallet::WalletServiceSettings {
             known_keys: HashSet::from_iter([config.consensus_config.leader_config.pk]),
+        },
+        key_management: PreloadKMSBackendSettings {
+            keys: HashMap::new(),
         },
 
         testing_http: nomos_api::ApiServiceSettings {

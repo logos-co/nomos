@@ -147,6 +147,11 @@ impl MantleTxBuilder {
     }
 
     #[must_use]
+    pub fn ledger_inputs(&self) -> &[Utxo] {
+        &self.ledger_inputs
+    }
+
+    #[must_use]
     pub fn build(self) -> MantleTx {
         self.mantle_tx
     }

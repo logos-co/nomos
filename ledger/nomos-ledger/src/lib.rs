@@ -271,6 +271,11 @@ impl LedgerState {
     }
 
     #[must_use]
+    pub const fn mantle_ledger(&self) -> &MantleLedger {
+        &self.mantle_ledger
+    }
+
+    #[must_use]
     pub fn active_session_providers(
         &self,
         service_type: ServiceType,

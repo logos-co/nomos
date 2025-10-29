@@ -1,6 +1,7 @@
 use blake2::Digest as _;
 use generic_array::{GenericArray, typenum::U128};
-use groth16::{Fr, fr_to_bytes, serde::serde_fr};
+pub use groth16::Fr;
+use groth16::{fr_to_bytes, serde::serde_fr};
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeAs, SerializeAs, serde_as};
 
