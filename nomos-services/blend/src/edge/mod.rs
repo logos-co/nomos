@@ -32,7 +32,7 @@ use crate::{
     epoch_info::{EpochEvent, EpochHandler, LeaderInputsMinusQuota, PolEpochInfo},
     membership::{MembershipInfo, ZkInfo},
     message::{NetworkMessage, ServiceMessage},
-    mode::{self, Mode, ModeKind},
+    mode::{self, Mode},
 };
 
 const LOG_TARGET: &str = "blend::service::edge";
@@ -166,13 +166,8 @@ where
 {
     async fn run(
         mut self: Box<Self>,
-    ) -> Result<
-        (
-            ModeKind,
-            Context<NodeId, BroadcastSettings, ChainService, RuntimeServiceId>,
-        ),
-        mode::Error,
-    > {
+    ) -> Result<Context<NodeId, BroadcastSettings, ChainService, RuntimeServiceId>, mode::Error>
+    {
         let Self {
             mut context,
             settings,
@@ -199,19 +194,9 @@ where
                             message_handler = new_message_handler;
                             current_public_inputs = new_public_inputs;
                         }
-                        Err(Error::LocalIsCoreNode) => {
-                            info!(
-                                target: LOG_TARGET,
-                                "Terminating edge mode as the node in the new membership is core",
-                            );
-                            return Ok((ModeKind::Core, context));
-                        }
-                        Err(Error::NetworkIsTooSmall(size)) => {
-                            info!(
-                                target: LOG_TARGET,
-                                "Terminating edge mode as the new membership is too small: {size}",
-                            );
-                            return Ok((ModeKind::Broadcast, context));
+                        Err(e) => {
+                            info!(target: LOG_TARGET, "Terminating edge mode: {e:?}");
+                            return Ok(context);
                         }
                     }
                 }

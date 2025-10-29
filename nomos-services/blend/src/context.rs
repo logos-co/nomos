@@ -14,8 +14,9 @@ use crate::{
 /// Holds all the streams used across different [`Mode`]s.
 ///
 /// It can be passed to a mode and handled over to the next mode.
-/// If the first mode have read all the streams by [`Context::advance`] without delay,
-/// the next mode will be able to immediately read the latest item from each stream.
+/// If the first mode have read all the streams by [`Context::advance`] without
+/// delay, the next mode will be able to immediately read the latest item from
+/// each stream.
 pub struct Context<NodeId, BroadcastSettings, ChainService, RuntimeServiceId>
 where
     NodeId: Clone,

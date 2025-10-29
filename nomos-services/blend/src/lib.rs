@@ -44,7 +44,7 @@ use crate::{
     edge::EdgeMode,
     epoch_info::{EpochEvent, EpochHandler},
     message::ServiceMessage,
-    mode::{Mode, ModeKind},
+    mode::Mode,
     settings::{FIRST_STREAM_ITEM_READY_TIMEOUT, Settings},
 };
 
@@ -198,10 +198,11 @@ where
             <MembershipAdapter as membership::Adapter>::NodeId,
             RuntimeServiceId,
         > + Send
-        + Sync,
+        + Sync
+        + 'static,
     BroadcastSettings: Serialize + Send + Unpin + 'static,
     MembershipAdapter:
-        membership::Adapter<NodeId: Clone + Eq + Hash + Send + Sync + 'static> + Send,
+        membership::Adapter<NodeId: Clone + Eq + Hash + Send + Sync + 'static> + Send + 'static,
     <<MembershipAdapter as membership::Adapter>::Service as ServiceData>::Message: Send + 'static,
     ChainService: CryptarchiaServiceData<Tx: Send + Sync> + Sync,
     NetworkAdapter: NetworkAdapterTrait<RuntimeServiceId, BroadcastSettings = BroadcastSettings>
@@ -210,10 +211,11 @@ where
         + Sync
         + 'static,
     TimeService: ServiceData<Message = TimeServiceMessage> + Send,
-    PolInfoProvider:
-        epoch_info::PolInfoProvider<RuntimeServiceId, Stream: Send + Unpin + 'static> + Send,
+    PolInfoProvider: epoch_info::PolInfoProvider<RuntimeServiceId, Stream: Send + Unpin + 'static>
+        + Send
+        + 'static,
     CoreProofsGenerator: CoreAndLeaderProofsGenerator + Send + 'static,
-    EdgeProofsGenerator: LeaderProofsGenerator + Send,
+    EdgeProofsGenerator: LeaderProofsGenerator + Send + 'static,
     ProofsVerifier: encap::ProofsVerifier + Send + 'static,
     RuntimeServiceId: AsServiceId<Self>
         + AsServiceId<<MembershipAdapter as membership::Adapter>::Service>
@@ -259,7 +261,6 @@ where
         } = self;
 
         let settings = settings_handle.notifier().get_updated_settings();
-        let minimal_network_size = settings.common.minimum_network_size.get() as usize;
 
         wait_until_services_are_ready!(
             &overwatch_handle,
@@ -402,92 +403,129 @@ where
             overwatch_handle: overwatch_handle.clone(),
         };
 
-        let mut mode: Box<
-            dyn Mode<
-                    Context<
-                        <MembershipAdapter as membership::Adapter>::NodeId,
-                        BroadcastSettings,
-                        ChainService,
-                        RuntimeServiceId,
-                    >,
-                > + Send,
-        > = {
-            if context.current_membership_info.membership.size() < minimal_network_size {
-                todo!("Create BroadcastMode")
-            } else if context.current_membership_info.membership.contains_local() {
-                Box::new(
-                    CoreMode::<
-                        CoreBackend,
-                        <MembershipAdapter as membership::Adapter>::NodeId,
-                        NetworkAdapter,
-                        MembershipAdapter,
-                        CoreProofsGenerator,
-                        ProofsVerifier,
-                        ChainService,
-                        PolInfoProvider,
-                        RuntimeServiceId,
-                    >::new(
-                        context, settings.clone().into(), network_adapter.clone()
-                    )
-                    .expect("CoreMode must be created successfully."),
-                )
-            } else {
-                Box::new(
-                    EdgeMode::<
-                        EdgeBackend,
-                        <MembershipAdapter as membership::Adapter>::NodeId,
-                        BroadcastSettings,
-                        MembershipAdapter,
-                        EdgeProofsGenerator,
-                        ChainService,
-                        PolInfoProvider,
-                        RuntimeServiceId,
-                    >::new(context, settings.clone().into())
-                    .expect("EdgeMode must be created successfully."),
-                )
-            }
-        };
-
+        let mut mode = Self::new_mode_for_current_session(context, &settings, &network_adapter);
         loop {
             match mode.run().await {
-                Ok((next_mode_kind, context)) => {
-                    mode = match next_mode_kind {
-                        ModeKind::Core => Box::new(
-                            CoreMode::<
-                                CoreBackend,
-                                <MembershipAdapter as membership::Adapter>::NodeId,
-                                NetworkAdapter,
-                                MembershipAdapter,
-                                CoreProofsGenerator,
-                                ProofsVerifier,
-                                ChainService,
-                                PolInfoProvider,
-                                RuntimeServiceId,
-                            >::new(
-                                context, settings.clone().into(), network_adapter.clone()
-                            )
-                            .expect("CoreMode must be created successfully."),
-                        ),
-                        ModeKind::Edge => Box::new(
-                            EdgeMode::<
-                                EdgeBackend,
-                                <MembershipAdapter as membership::Adapter>::NodeId,
-                                BroadcastSettings,
-                                MembershipAdapter,
-                                EdgeProofsGenerator,
-                                ChainService,
-                                PolInfoProvider,
-                                RuntimeServiceId,
-                            >::new(context, settings.clone().into())
-                            .expect("EdgeMode must be created successfully."),
-                        ),
-                        ModeKind::Broadcast => todo!("Create BroadcastMode"),
-                    };
+                Ok(context) => {
+                    mode = Self::new_mode_for_current_session(context, &settings, &network_adapter);
                 }
                 Err(e) => {
                     panic!("error when running mode: {e:?}")
                 }
             }
+        }
+    }
+}
+
+impl<
+    CoreBackend,
+    EdgeBackend,
+    BroadcastSettings,
+    MembershipAdapter,
+    ChainService,
+    NetworkAdapter,
+    TimeService,
+    PolInfoProvider,
+    CoreProofsGenerator,
+    EdgeProofsGenerator,
+    ProofsVerifier,
+    RuntimeServiceId,
+>
+    BlendService<
+        CoreBackend,
+        EdgeBackend,
+        BroadcastSettings,
+        MembershipAdapter,
+        ChainService,
+        NetworkAdapter,
+        TimeService,
+        PolInfoProvider,
+        CoreProofsGenerator,
+        EdgeProofsGenerator,
+        ProofsVerifier,
+        RuntimeServiceId,
+    >
+where
+    CoreBackend: core::backends::BlendBackend<
+            <MembershipAdapter as membership::Adapter>::NodeId,
+            BlakeRng,
+            ProofsVerifier,
+            RuntimeServiceId,
+        > + Send
+        + Sync
+        + 'static,
+    EdgeBackend: edge::backends::BlendBackend<
+            <MembershipAdapter as membership::Adapter>::NodeId,
+            RuntimeServiceId,
+        > + Send
+        + Sync
+        + 'static,
+    BroadcastSettings: Serialize + Send + Unpin + 'static,
+    MembershipAdapter:
+        membership::Adapter<NodeId: Clone + Eq + Hash + Send + Sync + 'static> + Send + 'static,
+    ChainService: CryptarchiaServiceData<Tx: Send + Sync> + Sync,
+    NetworkAdapter: NetworkAdapterTrait<RuntimeServiceId, BroadcastSettings = BroadcastSettings>
+        + Clone
+        + Send
+        + Sync
+        + 'static,
+    PolInfoProvider: Send + 'static,
+    CoreProofsGenerator: CoreAndLeaderProofsGenerator + Send + 'static,
+    EdgeProofsGenerator: LeaderProofsGenerator + Send + 'static,
+    ProofsVerifier: encap::ProofsVerifier + Send + 'static,
+    RuntimeServiceId: Clone + Send + Sync + 'static,
+{
+    fn new_mode_for_current_session(
+        context: Context<
+            <MembershipAdapter as membership::Adapter>::NodeId,
+            BroadcastSettings,
+            ChainService,
+            RuntimeServiceId,
+        >,
+        settings: &Settings<CoreBackend::Settings, EdgeBackend::Settings>,
+        network_adapter: &NetworkAdapter,
+    ) -> Box<
+        dyn Mode<
+                Context<
+                    <MembershipAdapter as membership::Adapter>::NodeId,
+                    BroadcastSettings,
+                    ChainService,
+                    RuntimeServiceId,
+                >,
+            > + Send,
+    > {
+        let minimal_network_size = settings.common.minimum_network_size.get() as usize;
+        if context.current_membership_info.membership.size() < minimal_network_size {
+            todo!("Create BroadcastMode")
+        } else if context.current_membership_info.membership.contains_local() {
+            Box::new(
+                CoreMode::<
+                    CoreBackend,
+                    <MembershipAdapter as membership::Adapter>::NodeId,
+                    NetworkAdapter,
+                    MembershipAdapter,
+                    CoreProofsGenerator,
+                    ProofsVerifier,
+                    ChainService,
+                    PolInfoProvider,
+                    RuntimeServiceId,
+                >::new(context, settings.clone().into(), network_adapter.clone())
+                .expect("CoreMode must be created successfully."),
+            )
+        } else {
+            Box::new(
+                EdgeMode::<
+                    EdgeBackend,
+                    <MembershipAdapter as membership::Adapter>::NodeId,
+                    BroadcastSettings,
+                    MembershipAdapter,
+                    EdgeProofsGenerator,
+                    ChainService,
+                    PolInfoProvider,
+                    RuntimeServiceId,
+                >::new(context, settings.clone().into())
+                .expect("EdgeMode must be created successfully."),
+            )
         }
     }
 }

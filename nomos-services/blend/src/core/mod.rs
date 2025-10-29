@@ -53,7 +53,7 @@ use crate::{
     epoch_info::{EpochEvent, EpochHandler, LeaderInputsMinusQuota},
     membership::{MembershipInfo, ZkInfo},
     message::{NetworkMessage, ProcessedMessage, ServiceMessage},
-    mode::{self, Mode, ModeKind},
+    mode::{self, Mode},
     session::{CoreSessionInfo, CoreSessionPublicInfo},
 };
 
@@ -268,10 +268,7 @@ where
     async fn run(
         mut self: Box<Self>,
     ) -> Result<
-        (
-            ModeKind,
-            Context<NodeId, Network::BroadcastSettings, ChainService, RuntimeServiceId>,
-        ),
+        Context<NodeId, Network::BroadcastSettings, ChainService, RuntimeServiceId>,
         mode::Error,
     > {
         let Self {
@@ -315,11 +312,8 @@ where
                                     crypto_processor = new_crypto_processor;
                                     current_public_info = new_public_info;
                                 }
-                                Err((Error::LocalIsNotCoreNode, prev_crypto_processor, new_membership_info)) => {
-                                    tracing::info!(
-                                        target: LOG_TARGET,
-                                        "Terminating core mode as the node in the new membership is not core",
-                                    );
+                                Err((e, prev_crypto_processor)) => {
+                                    tracing::info!(target: LOG_TARGET, "Terminating core mode: {e:?}");
                                     // Spawn-and-forget the final session transition handler
                                     let final_session_transition_handler = FinalSessionTransitionTask {
                                         settings,
@@ -333,17 +327,7 @@ where
                                     context.overwatch_handle.runtime().spawn(async move {
                                         final_session_transition_handler.run().await;
                                     });
-
-                                    context.current_membership_info = new_membership_info;
-                                    return Ok((ModeKind::Edge, context));
-                                }
-                                Err((Error::NetworkIsTooSmall(size), _, new_membership_info)) => {
-                                    tracing::info!(
-                                        target: LOG_TARGET,
-                                        "Terminating core mode as the new membership is too small: {size}",
-                                    );
-                                    context.current_membership_info = new_membership_info;
-                                    return Ok((ModeKind::Broadcast, context));
+                                    return Ok(context);
                                 }
                             }
                         },
@@ -501,7 +485,6 @@ async fn handle_session_event<
     (
         Error,
         CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
-        MembershipInfo<NodeId>,
     ),
 >
 where
@@ -549,7 +532,7 @@ where
                 new_public_info.clone().into(),
                 private,
             )
-            .map_err(|e| (e, current_cryptographic_processor, new_membership_info))?;
+            .map_err(|e| (e, current_cryptographic_processor))?;
             Ok((new_processor, new_public_info))
         }
         SessionEvent::TransitionPeriodExpired => {
