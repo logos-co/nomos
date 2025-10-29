@@ -131,7 +131,8 @@ impl Leader {
             .epoch_config
             .starting_slot(&epoch_state.epoch, self.config.base_period_length())
             .into();
-        let leader_pk = ed25519_dalek::VerifyingKey::from_bytes(&[0; 32]).unwrap(); // TODO: get actual leader public key
+        let leader_signing_key = ed25519_dalek::SigningKey::from_bytes(&[0; 32]);
+        let leader_pk = leader_signing_key.verifying_key(); // TODO: get actual leader public key
 
         LeaderPrivate::new(
             public_inputs,

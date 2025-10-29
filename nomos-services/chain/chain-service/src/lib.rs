@@ -27,9 +27,9 @@ use network::NetworkAdapter;
 use nomos_core::{
     block::{Block, Proposal},
     da::{self},
-    header::{Header, HeaderId},
+    header::HeaderId,
     mantle::{
-        AuthenticatedMantleTx, SignedMantleTx, Transaction, TxHash, gas::MainnetGasConstants,
+        AuthenticatedMantleTx, Transaction, TxHash, gas::MainnetGasConstants,
         genesis_tx::GenesisTx, ops::leader_claim::VoucherCm,
     },
     sdp::{ProviderId, ProviderInfo, ServiceType},
@@ -216,7 +216,14 @@ impl Cryptarchia {
 
     /// Create a new [`Cryptarchia`] with the updated state.
     #[must_use = "Returns a new instance with the updated state, without modifying the original."]
-    fn try_apply_header(&self, header: &Header) -> Result<(Self, PrunedBlocks<HeaderId>), Error> {
+    fn try_apply_block<Tx>(
+        &self,
+        block: &Block<Tx>,
+    ) -> Result<(Self, PrunedBlocks<HeaderId>), Error>
+    where
+        Tx: AuthenticatedMantleTx,
+    {
+        let header = block.header();
         let id = header.id();
         let parent = header.parent();
         let slot = header.slot();
@@ -227,7 +234,7 @@ impl Cryptarchia {
             slot,
             header.leader_proof(),
             VoucherCm::default(), // TODO: add the new voucher commitment here
-            std::iter::empty::<&SignedMantleTx>(),
+            block.transactions(),
         )?;
         let (consensus, pruned_blocks) = self.consensus.receive_block(id, parent, slot)?;
 
@@ -1170,7 +1177,7 @@ where
             }
         };
 
-        let (cryptarchia, pruned_blocks) = cryptarchia.try_apply_header(header)?;
+        let (cryptarchia, pruned_blocks) = cryptarchia.try_apply_block(&block)?;
         let new_lib = cryptarchia.lib();
 
         if let Some(blob_validation) = blob_validation {

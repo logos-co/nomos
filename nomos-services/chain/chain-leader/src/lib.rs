@@ -5,18 +5,21 @@ mod mempool;
 mod relays;
 
 use core::fmt::Debug;
-use std::{collections::BTreeSet, fmt::Display, time::Duration};
+use std::{collections::BTreeSet, fmt::Display, iter, pin::Pin, time::Duration};
 
 use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 use cryptarchia_engine::{Epoch, Slot};
 use ed25519_dalek::SigningKey;
-use futures::StreamExt as _;
+use futures::{StreamExt as _, future, stream};
 pub use leadership::LeaderConfig;
 use nomos_core::{
-    block::Block,
+    block::{Block, MAX_TRANSACTIONS},
     da,
     header::HeaderId,
-    mantle::{AuthenticatedMantleTx, Op, Transaction, TxHash, TxSelect, keys::SecretKey},
+    mantle::{
+        AuthenticatedMantleTx, Op, Transaction, TxHash, TxSelect, gas::MainnetGasConstants,
+        keys::SecretKey, ops::leader_claim::VoucherCm,
+    },
     proofs::leader_proof::{Groth16LeaderProof, LeaderPrivate},
 };
 use nomos_da_sampling::{
@@ -329,7 +332,7 @@ where
 
         // TODO: check active slot coeff is exactly 1/30
 
-        let leader = Leader::new(leader_config.sk, ledger_config);
+        let leader = Leader::new(leader_config.sk, ledger_config.clone());
         let mut winning_pol_slot_notifier =
             WinningPoLSlotNotifier::new(&leader, &self.winning_pol_epoch_slots_sender);
 
@@ -433,8 +436,11 @@ where
                                 slot,
                                 proof,
                                 tx_selector.clone(),
-                                &relays
-                            ).await;
+                                &relays,
+                                tip_state,
+                                &ledger_config,
+                            )
+                            .await;
 
                             if let Some(block) = block {
                                 // Process our own block first to ensure it's valid
@@ -544,7 +550,10 @@ where
     RuntimeServiceId: Sync + Send + 'static,
 {
     #[expect(clippy::allow_attributes_without_reason)]
-    #[instrument(level = "debug", skip(tx_selector, relays))]
+    #[instrument(
+        level = "debug",
+        skip(tx_selector, relays, ledger_state, ledger_config)
+    )]
     async fn propose_block(
         parent: HeaderId,
         slot: Slot,
@@ -558,55 +567,106 @@ where
             SamplingBackend,
             RuntimeServiceId,
         >,
+        mut ledger_state: nomos_ledger::LedgerState,
+        ledger_config: &nomos_ledger::Config,
     ) -> Option<Block<Mempool::Item>> {
-        let mut output = None;
         let txs = relays.mempool_adapter().get_mempool_view([0; 32].into());
         let sampling_relay = relays.sampling_relay().clone();
         let blobs_ids = get_sampled_blobs(sampling_relay);
-        match futures::try_join!(txs, blobs_ids) {
-            Ok((txs_stream, blobs)) => {
-                let filtered_stream = txs_stream.filter(move |tx| {
-                    // skip txs that try to include a blob which is not yet sampled
-                    let is_valid = tx.mantle_tx().ops.iter().all(|op| match op {
-                        Op::ChannelBlob(op) => blobs.contains(&op.blob),
-                        _ => true,
-                    });
-
-                    async move { is_valid }
-                });
-
-                let selected_txs_stream = tx_selector.select_tx_from(filtered_stream);
-                let txs: Vec<_> = selected_txs_stream.collect().await;
-
-                // TODO: use valid signing key
-                let dummy_signing_key = SigningKey::from_bytes(&[1u8; 32]);
-
-                // TODO: calculate service reward
-                let service_reward = None;
-
-                let block = match Block::create(
-                    parent,
-                    slot,
-                    proof,
-                    txs,
-                    service_reward,
-                    &dummy_signing_key,
-                ) {
-                    Ok(block) => block,
-                    Err(e) => {
-                        error!("Failed to create valid block during proposal: {e}");
-                        return None;
-                    }
-                };
-
-                output = Some(block);
-            }
+        let (txs_stream, blobs) = match futures::try_join!(txs, blobs_ids) {
+            Ok(result) => result,
             Err(e) => {
                 error!("Could not fetch block transactions: {e}");
+                return None;
+            }
+        };
+
+        let filtered_stream = txs_stream.filter({
+            move |tx| {
+                let is_valid = tx.mantle_tx().ops.iter().all(|op| match op {
+                    Op::ChannelBlob(op) => blobs.contains(&op.blob),
+                    _ => true,
+                });
+
+                future::ready(is_valid)
+            }
+        });
+
+        let mut tx_stream: Pin<Box<_>> = Box::pin(filtered_stream);
+
+        ledger_state = match ledger_state
+            .clone()
+            .try_apply_header::<Groth16LeaderProof, HeaderId>(
+                slot,
+                &proof,
+                VoucherCm::default(),
+                ledger_config,
+            ) {
+            Ok(state) => state,
+            Err(e) => {
+                error!("Header validation/application failed: {e:?}");
+                return None;
+            }
+        };
+
+        let mut valid_txs = Vec::new();
+        let mut invalid_tx_hashes = Vec::new();
+
+        while let Some(tx) = tx_stream.next().await {
+            let tx_hash = tx.hash();
+            match ledger_state
+                .clone()
+                .try_apply_contents::<HeaderId, MainnetGasConstants>(
+                    ledger_config,
+                    iter::once(tx.clone()),
+                ) {
+                Ok(new_state) => {
+                    ledger_state = new_state;
+                    valid_txs.push(tx);
+                }
+                Err(err) => {
+                    tracing::debug!(
+                        "failed to apply tx {:?} during block assembly: {:?}",
+                        tx_hash,
+                        err
+                    );
+                    invalid_tx_hashes.push(tx_hash);
+                }
             }
         }
 
-        output
+        if !invalid_tx_hashes.is_empty()
+            && let Err(e) = relays
+                .mempool_adapter()
+                .remove_transactions(&invalid_tx_hashes)
+                .await
+        {
+            error!("Failed to remove invalid transactions from mempool: {e:?}");
+        }
+
+        let valid_tx_stream = stream::iter(valid_txs);
+        let selected_txs_stream = tx_selector.select_tx_from(valid_tx_stream);
+        let txs: Vec<_> = selected_txs_stream.take(MAX_TRANSACTIONS).collect().await;
+
+        // TODO: use PoL signing key
+        let dummy_signing_key = SigningKey::from_bytes(&[0u8; 32]);
+
+        let block = match Block::create(parent, slot, proof, txs, None, &dummy_signing_key) {
+            Ok(block) => block,
+            Err(e) => {
+                error!("Failed to create valid block during proposal: {e}");
+                return None;
+            }
+        };
+
+        info!(
+            "proposed block with id {:?} containing {} transactions ({} removed)",
+            block.header().id(),
+            block.transactions().len(),
+            invalid_tx_hashes.len()
+        );
+
+        Some(block)
     }
 }
 
