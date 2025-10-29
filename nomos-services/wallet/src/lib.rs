@@ -324,13 +324,12 @@ where
                 let ledger = match cryptarchia.get_ledger_state(tip).await {
                     Ok(Some(ledger)) => ledger,
                     Ok(None) => {
-                        return Self::send_err(
-                            resp_tx,
-                            WalletServiceError::LedgerStateNotFound(tip),
-                        );
+                        Self::send_err(resp_tx, WalletServiceError::LedgerStateNotFound(tip));
+                        return;
                     }
                     Err(err) => {
-                        return Self::send_err(resp_tx, WalletServiceError::CryptarchiaApi(err));
+                        Self::send_err(resp_tx, WalletServiceError::CryptarchiaApi(err));
+                        return;
                     }
                 };
 
@@ -383,7 +382,6 @@ where
             .collect();
 
         let mantle_tx = tx_builder.build();
-
         let tx_hash = mantle_tx.hash();
 
         let mut ops_proofs = Vec::new();
