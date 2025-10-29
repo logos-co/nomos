@@ -26,8 +26,8 @@ use nomos_blend_service::{
 use nomos_core::{
     block::Block,
     da::BlobId,
-    mantle::{SignedMantleTx, Transaction as _},
-    sdp::SessionNumber,
+    mantle::{SignedMantleTx, Transaction as _, TxHash},
+    sdp::{Declaration, SessionNumber},
 };
 use nomos_da_network_core::{
     protocols::sampling::SubnetsConfig,
@@ -243,6 +243,21 @@ impl Validator {
         }
     }
 
+    pub async fn get_sdp_declarations(&self) -> Vec<Declaration> {
+        CLIENT
+            .get(format!(
+                "http://{}{}",
+                self.testing_http_addr,
+                nomos_http_api_common::paths::TEST_MANTLE_SDP_DECLARATIONS
+            ))
+            .send()
+            .await
+            .expect("Failed to fetch SDP declarations")
+            .json::<Vec<Declaration>>()
+            .await
+            .expect("Failed to deserialize SDP declarations response")
+    }
+
     pub async fn da_historic_sampling(
         &self,
         session_id: SessionNumber,
@@ -307,6 +322,8 @@ impl Validator {
         }
 
         let res = req.send().await;
+
+        println!("res: {res:?}");
 
         res.unwrap().json::<Vec<HeaderId>>().await.unwrap()
     }
@@ -397,34 +414,35 @@ impl Validator {
     /// Wait for a list of transactions to be included in blocks
     pub async fn wait_for_transactions_inclusion(
         &self,
-        tx_hashes: Vec<nomos_core::mantle::TxHash>,
+        tx_hashes: Vec<TxHash>,
         timeout: Duration,
     ) -> Vec<Option<HeaderId>> {
-        let start = std::time::Instant::now();
         let mut results = vec![None; tx_hashes.len()];
 
-        while start.elapsed() < timeout {
-            let headers = self.get_headers(None, None).await;
+        let _ = tokio::time::timeout(timeout, async {
+            loop {
+                let headers = self.get_headers(None, None).await;
 
-            for header_id in headers.iter().take(10) {
-                if let Some(block) = self.get_block(*header_id).await {
-                    for tx in block.transactions() {
-                        for (i, target_hash) in tx_hashes.iter().enumerate() {
-                            if tx.hash() == *target_hash && results[i].is_none() {
-                                results[i] = Some(*header_id);
+                for header_id in headers.iter().take(10) {
+                    if let Some(block) = self.get_block(*header_id).await {
+                        for tx in block.transactions() {
+                            for (i, target_hash) in tx_hashes.iter().enumerate() {
+                                if tx.hash() == *target_hash && results[i].is_none() {
+                                    results[i] = Some(*header_id);
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            // Check if all transactions are found
-            if results.iter().all(Option::is_some) {
-                break;
-            }
+                if results.iter().all(Option::is_some) {
+                    return;
+                }
 
-            tokio::time::sleep(Duration::from_millis(500)).await;
-        }
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+        })
+        .await;
 
         results
     }

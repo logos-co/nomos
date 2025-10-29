@@ -435,6 +435,19 @@ impl SdpLedger {
     }
 
     #[must_use]
+    pub fn declarations(&self) -> Vec<(DeclarationId, Declaration)> {
+        self.services
+            .iter()
+            .flat_map(|(_, service_state)| {
+                service_state
+                    .declarations
+                    .iter()
+                    .map(|(id, declaration)| (*id, declaration.clone()))
+            })
+            .collect()
+    }
+
+    #[must_use]
     pub fn get_declaration(&self, declaration_id: &DeclarationId) -> Option<&Declaration> {
         self.services
             .iter()

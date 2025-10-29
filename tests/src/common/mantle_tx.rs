@@ -1,7 +1,9 @@
+use ed25519::Signature;
 use ed25519_dalek::{Signer as _, ed25519};
 use nomos_core::{
     mantle::{
-        MantleTx, SignedMantleTx, Transaction as _,
+        MantleTx, Note, NoteId, SignedMantleTx, Transaction as _,
+        keys::PublicKey,
         ledger::Tx as LedgerTx,
         ops::{
             Op, OpProof,
@@ -10,8 +12,13 @@ use nomos_core::{
                 set_keys::SetKeysOp,
             },
         },
+        tx::TxHash,
     },
     proofs::zksig::{DummyZkSignature, ZkSignaturePublic},
+    sdp::{
+        ActiveMessage, ActivityMetadata, DaActivityProof, DeclarationMessage, ServiceType,
+        WithdrawMessage,
+    },
 };
 
 #[must_use]
@@ -31,7 +38,6 @@ pub fn create_channel_inscribe_tx(
         signer: verifying_key,
     };
 
-    // Use empty ledger tx for zero gas transactions
     let ledger_tx = LedgerTx::new(vec![], vec![]);
 
     let inscribe_tx = MantleTx {
@@ -45,7 +51,7 @@ pub fn create_channel_inscribe_tx(
     let signature_bytes = signing_key
         .sign(tx_hash.as_signing_bytes().as_ref())
         .to_bytes();
-    let signature = ed25519::Signature::from_bytes(&signature_bytes);
+    let signature = Signature::from_bytes(&signature_bytes);
 
     SignedMantleTx {
         ops_proofs: vec![OpProof::Ed25519Sig(signature)],
@@ -88,7 +94,7 @@ pub fn create_channel_blob_tx(
     let signature_bytes = signing_key
         .sign(tx_hash.as_signing_bytes().as_ref())
         .to_bytes();
-    let signature = ed25519::Signature::from_bytes(&signature_bytes);
+    let signature = Signature::from_bytes(&signature_bytes);
 
     SignedMantleTx {
         ops_proofs: vec![OpProof::Ed25519Sig(signature)],
@@ -122,7 +128,7 @@ pub fn create_channel_set_keys_tx(
     let signature_bytes = signing_key
         .sign(tx_hash.as_signing_bytes().as_ref())
         .to_bytes();
-    let signature = ed25519::Signature::from_bytes(&signature_bytes);
+    let signature = Signature::from_bytes(&signature_bytes);
 
     SignedMantleTx {
         ops_proofs: vec![OpProof::Ed25519Sig(signature)],
@@ -132,4 +138,121 @@ pub fn create_channel_set_keys_tx(
         }),
         mantle_tx: set_keys_tx,
     }
+}
+
+fn declaration_zk_public(tx_hash: TxHash, note: &Note, zk_id: &PublicKey) -> ZkSignaturePublic {
+    ZkSignaturePublic {
+        msg_hash: tx_hash.into(),
+        pks: vec![note.pk.into(), (*zk_id).into()],
+    }
+}
+
+#[must_use]
+pub fn create_sdp_declare_tx(
+    provider_signing_key: &ed25519_dalek::SigningKey,
+    service_type: ServiceType,
+    locators: Vec<nomos_core::sdp::Locator>,
+    zk_id: PublicKey,
+    locked_note_id: NoteId,
+    note: Note,
+) -> (SignedMantleTx, DeclarationMessage) {
+    let provider_pk_bytes = provider_signing_key.verifying_key().to_bytes();
+    let provider_id = nomos_core::sdp::ProviderId::try_from(provider_pk_bytes)
+        .expect("Valid provider id from signing key");
+
+    let declaration = DeclarationMessage {
+        service_type,
+        locators,
+        provider_id,
+        zk_id,
+        locked_note_id,
+    };
+
+    let mantle_tx = MantleTx {
+        ops: vec![Op::SDPDeclare(declaration.clone())],
+        ledger_tx: LedgerTx::new(vec![], vec![]),
+        execution_gas_price: 0,
+        storage_gas_price: 0,
+    };
+
+    let tx_hash = mantle_tx.hash();
+
+    let ed25519_signature_bytes = provider_signing_key
+        .sign(tx_hash.as_signing_bytes().as_ref())
+        .to_bytes();
+    let ed25519_sig = Signature::from_bytes(&ed25519_signature_bytes);
+
+    let zk_sig =
+        DummyZkSignature::prove(&declaration_zk_public(tx_hash, &note, &declaration.zk_id));
+
+    let signed_tx = SignedMantleTx {
+        ops_proofs: vec![OpProof::ZkAndEd25519Sigs {
+            zk_sig,
+            ed25519_sig,
+        }],
+        ledger_tx_proof: DummyZkSignature::prove(&ZkSignaturePublic {
+            msg_hash: tx_hash.into(),
+            pks: vec![],
+        }),
+        mantle_tx,
+    };
+
+    (signed_tx, declaration)
+}
+
+#[must_use]
+pub fn create_sdp_active_tx(active: ActiveMessage, zk_id: PublicKey, note: Note) -> SignedMantleTx {
+    let mantle_tx = MantleTx {
+        ops: vec![Op::SDPActive(active)],
+        ledger_tx: LedgerTx::new(vec![], vec![]),
+        execution_gas_price: 0,
+        storage_gas_price: 0,
+    };
+
+    let tx_hash = mantle_tx.hash();
+    let zk_sig = DummyZkSignature::prove(&declaration_zk_public(tx_hash, &note, &zk_id));
+
+    SignedMantleTx {
+        ops_proofs: vec![OpProof::ZkSig(zk_sig)],
+        ledger_tx_proof: DummyZkSignature::prove(&ZkSignaturePublic {
+            msg_hash: tx_hash.into(),
+            pks: vec![],
+        }),
+        mantle_tx,
+    }
+}
+
+#[must_use]
+pub fn create_sdp_withdraw_tx(
+    withdraw: WithdrawMessage,
+    zk_id: PublicKey,
+    note: Note,
+) -> SignedMantleTx {
+    let mantle_tx = MantleTx {
+        ops: vec![Op::SDPWithdraw(withdraw)],
+        ledger_tx: LedgerTx::new(vec![], vec![]),
+        execution_gas_price: 0,
+        storage_gas_price: 0,
+    };
+
+    let tx_hash = mantle_tx.hash();
+    let zk_sig = DummyZkSignature::prove(&declaration_zk_public(tx_hash, &note, &zk_id));
+
+    SignedMantleTx {
+        ops_proofs: vec![OpProof::ZkSig(zk_sig)],
+        ledger_tx_proof: DummyZkSignature::prove(&ZkSignaturePublic {
+            msg_hash: tx_hash.into(),
+            pks: vec![],
+        }),
+        mantle_tx,
+    }
+}
+
+#[must_use]
+pub const fn empty_da_activity_proof() -> ActivityMetadata {
+    ActivityMetadata::DataAvailability(DaActivityProof {
+        current_session: 0,
+        previous_session_opinions: vec![],
+        current_session_opinions: vec![],
+    })
 }

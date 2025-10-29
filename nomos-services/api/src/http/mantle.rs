@@ -5,7 +5,8 @@ use broadcast_service::{BlockBroadcastMsg, BlockBroadcastService, BlockInfo};
 use futures::{Stream, StreamExt as _};
 use nomos_core::{
     header::HeaderId,
-    mantle::{SignedMantleTx, Transaction, ops::channel::ChannelId},
+    mantle::{SignedMantleTx, Transaction},
+    sdp::Declaration,
 };
 use overwatch::services::AsServiceId;
 use tokio::sync::oneshot;
@@ -15,8 +16,6 @@ use tx_service::{
     network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
     tx::service::openapi::Status,
 };
-
-use super::mantle_state::ChannelState;
 
 pub type MempoolService<SamplingNetworkAdapter, SamplingStorage, StorageAdapter, RuntimeServiceId> =
     TxMempoolService<
@@ -153,8 +152,7 @@ where
     Ok(stream)
 }
 
-/// Get channel state by channel ID from the actual chain service
-pub async fn get_channel_state<
+pub async fn get_sdp_declarations<
     SamplingBackend,
     SamplingNetworkAdapter,
     SamplingStorage,
@@ -163,8 +161,7 @@ pub async fn get_channel_state<
     RuntimeServiceId,
 >(
     handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
-    channel_id: ChannelId,
-) -> Result<Option<ChannelState>, super::DynError>
+) -> Result<Vec<Declaration>, super::DynError>
 where
     SamplingBackend: nomos_da_sampling::backend::DaSamplingServiceBackend<BlobId = [u8; 32]> + Send,
     SamplingBackend::Settings: Clone,
@@ -216,20 +213,15 @@ where
     let (sender, receiver) = oneshot::channel();
 
     relay
-        .send(ConsensusMsg::GetChannelState {
-            channel_id,
-            tx: sender,
-        })
+        .send(ConsensusMsg::GetSdpDeclarations { tx: sender })
         .await
         .map_err(|(e, _)| e)?;
 
-    if let Some(channel_state) = receiver.await? {
-        Ok(Some(ChannelState {
-            channel_id,
-            tip: channel_state.tip,
-            accredited_keys: channel_state.keys.to_vec(),
-        }))
-    } else {
-        Ok(None)
-    }
+    let declarations = receiver
+        .await?
+        .into_iter()
+        .map(|(_, declaration)| declaration)
+        .collect();
+
+    Ok(declarations)
 }

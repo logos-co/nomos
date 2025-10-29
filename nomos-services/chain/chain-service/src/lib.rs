@@ -32,7 +32,7 @@ use nomos_core::{
         AuthenticatedMantleTx, Transaction, TxHash, gas::MainnetGasConstants,
         genesis_tx::GenesisTx, ops::leader_claim::VoucherCm,
     },
-    sdp::{ProviderId, ProviderInfo, ServiceType},
+    sdp::{Declaration, DeclarationId, ProviderId, ProviderInfo, ServiceType},
 };
 use nomos_da_sampling::{
     DaSamplingService, DaSamplingServiceMsg, backend::DaSamplingServiceBackend,
@@ -129,9 +129,8 @@ pub enum ConsensusMsg<Tx> {
         block_id: HeaderId,
         tx: oneshot::Sender<Option<LedgerState>>,
     },
-    GetChannelState {
-        channel_id: nomos_core::mantle::ops::channel::ChannelId,
-        tx: oneshot::Sender<Option<nomos_ledger::mantle::channel::ChannelState>>,
+    GetSdpDeclarations {
+        tx: oneshot::Sender<Vec<(DeclarationId, Declaration)>>,
     },
     GetEpochState {
         slot: Slot,
@@ -213,14 +212,15 @@ impl Cryptarchia {
         self.consensus.lib()
     }
 
+    /// Create a new [`Cryptarchia`] with the updated state.
     #[must_use = "Returns a new instance with the updated state, without modifying the original."]
-    fn try_apply_header<Item>(
+    fn try_apply_header<Tx>(
         &self,
         header: &Header,
-        block: &Block<Item>,
+        block: &Block<Tx>,
     ) -> Result<(Self, PrunedBlocks<HeaderId>), Error>
     where
-        Item: AuthenticatedMantleTx + Clone,
+        Tx: AuthenticatedMantleTx + Clone,
     {
         let id = header.id();
         let parent = header.parent();
@@ -232,7 +232,7 @@ impl Cryptarchia {
             slot,
             header.leader_proof(),
             VoucherCm::default(), // TODO: add the new voucher commitment here
-            block.transactions(), // Use actual transactions instead of empty iterator
+            block.transactions().cloned(),
         )?;
         let (consensus, pruned_blocks) = self.consensus.receive_block(id, parent, slot)?;
 
@@ -787,7 +787,6 @@ where
                     Some(msg) = self.service_resources_handle.inbound_relay.next() => {
                         // Handle ProcessBlock separately since it needs async and access to more state
                         if let ConsensusMsg::ProcessLeaderBlock { block, tx } = msg {
-                            info!("Processing block from leader: {:?}", block.header().id());
                             // TODO: move this into the process_message() function after making the process_message async.
                             match Self::process_block_and_update_state::<RecentBlobStrategy>(
                                     cryptarchia.clone(),
@@ -1025,14 +1024,16 @@ where
                     error!("Could not send ledger state through channel");
                 });
             }
-            ConsensusMsg::GetChannelState { channel_id, tx } => {
+            ConsensusMsg::GetSdpDeclarations { tx } => {
                 let tip = cryptarchia.tip();
-                let channel_state = cryptarchia
+                let declarations = cryptarchia
                     .ledger
                     .state(&tip)
-                    .and_then(|state| state.get_channel(&channel_id).cloned());
-                tx.send(channel_state).unwrap_or_else(|_| {
-                    error!("Could not send channel state through channel");
+                    .map(LedgerState::sdp_declarations)
+                    .unwrap_or_default();
+
+                tx.send(declarations).unwrap_or_else(|_| {
+                    error!("Could not send SDP declarations through channel");
                 });
             }
             ConsensusMsg::GetEpochState { slot, tx } => {
@@ -1162,7 +1163,6 @@ where
         };
 
         let (cryptarchia, pruned_blocks) = cryptarchia.try_apply_header(header, &block)?;
-
         let new_lib = cryptarchia.lib();
 
         if let Some(blob_validation) = blob_validation {

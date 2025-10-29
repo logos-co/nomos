@@ -93,7 +93,6 @@ impl Channels {
                 keys: Arc::clone(&channel.keys),
             },
         );
-
         Ok(self)
     }
 

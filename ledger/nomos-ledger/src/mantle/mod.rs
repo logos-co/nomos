@@ -11,7 +11,7 @@ use nomos_core::{
         AuthenticatedMantleTx, GasConstants, GenesisTx, NoteId, TxHash,
         ops::{Op, OpProof, leader_claim::VoucherCm},
     },
-    sdp::{ProviderId, ProviderInfo, ServiceType, SessionNumber},
+    sdp::{Declaration, DeclarationId, ProviderId, ProviderInfo, ServiceType, SessionNumber},
 };
 use sdp::{Error as SdpLedgerError, locked_notes::LockedNotes};
 
@@ -56,27 +56,6 @@ impl LedgerState {
                 .with_service(ServiceType::DataAvailability),
             leaders: leader::LeaderState::new(),
         }
-    }
-
-    /// Get a specific channel state by channel ID
-    #[must_use]
-    pub fn get_channel(
-        &self,
-        channel_id: &nomos_core::mantle::ops::channel::ChannelId,
-    ) -> Option<&channel::ChannelState> {
-        self.channels.channels.get(channel_id)
-    }
-
-    /// Get all channels as an iterator
-    pub fn iter_channels(
-        &self,
-    ) -> impl Iterator<
-        Item = (
-            &nomos_core::mantle::ops::channel::ChannelId,
-            &channel::ChannelState,
-        ),
-    > {
-        self.channels.channels.iter()
     }
 
     pub fn from_genesis_tx(
@@ -139,6 +118,11 @@ impl LedgerState {
     #[must_use]
     pub fn active_sessions(&self) -> HashMap<ServiceType, SessionNumber> {
         self.sdp.active_sessions()
+    }
+
+    #[must_use]
+    pub fn sdp_declarations(&self) -> Vec<(DeclarationId, Declaration)> {
+        self.sdp.declarations()
     }
 
     pub fn try_apply_header(
