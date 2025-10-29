@@ -1,6 +1,6 @@
 pub mod backends;
 mod handlers;
-pub(crate) mod service_components;
+pub(crate) mod mode_components;
 pub mod settings;
 #[cfg(test)]
 mod tests;
@@ -15,6 +15,7 @@ use std::{
 use backends::BlendBackend;
 use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 use futures::{Stream, StreamExt as _};
+pub(crate) use mode_components::ModeComponents;
 use nomos_blend_message::crypto::proofs::{
     PoQVerificationInputsMinusSigningKey,
     quota::inputs::prove::{
@@ -31,20 +32,15 @@ use nomos_blend_scheduling::{
 use nomos_core::codec::SerializeOp as _;
 use nomos_time::{SlotTick, TimeService, TimeServiceMessage};
 use overwatch::{
-    OpaqueServiceResourcesHandle,
+    DynError, OpaqueServiceResourcesHandle,
     overwatch::OverwatchHandle,
-    services::{
-        AsServiceId, ServiceCore, ServiceData,
-        resources::ServiceResourcesHandle,
-        state::{NoOperator, NoState},
-    },
+    services::{AsServiceId, ServiceData},
 };
 use serde::{Serialize, de::DeserializeOwned};
-pub(crate) use service_components::ServiceComponents;
 use services_utils::wait_until_services_are_ready;
 use settings::BlendConfig;
 use tokio::sync::oneshot;
-use tracing::{debug, error, info};
+use tracing::{debug, info};
 
 use crate::{
     edge::handlers::{Error, MessageHandler},
@@ -54,6 +50,7 @@ use crate::{
     },
     membership::{self, MembershipInfo, ZkInfo},
     message::{NetworkMessage, ServiceMessage},
+    mode::Mode,
     settings::FIRST_STREAM_ITEM_READY_TIMEOUT,
 };
 
@@ -62,7 +59,7 @@ const LOG_TARGET: &str = "blend::service::edge";
 type Settings<Backend, NodeId, RuntimeServiceId> =
     BlendConfig<<Backend as BlendBackend<NodeId, RuntimeServiceId>>::Settings>;
 
-pub struct BlendService<
+pub struct EdgeMode<
     Backend,
     NodeId,
     BroadcastSettings,
@@ -72,32 +69,9 @@ pub struct BlendService<
     ChainService,
     PolInfoProvider,
     RuntimeServiceId,
-> where
-    Backend: BlendBackend<NodeId, RuntimeServiceId>,
-    NodeId: Clone,
-{
-    service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
+> {
+    #[expect(clippy::type_complexity, reason = "Generics are necessary")]
     _phantom: PhantomData<(
-        MembershipAdapter,
-        ProofsGenerator,
-        TimeBackend,
-        ChainService,
-        PolInfoProvider,
-    )>,
-}
-
-impl<
-    Backend,
-    NodeId,
-    BroadcastSettings,
-    MembershipAdapter,
-    ProofsGenerator,
-    TimeBackend,
-    ChainService,
-    PolInfoProvider,
-    RuntimeServiceId,
-> ServiceData
-    for BlendService<
         Backend,
         NodeId,
         BroadcastSettings,
@@ -107,15 +81,7 @@ impl<
         ChainService,
         PolInfoProvider,
         RuntimeServiceId,
-    >
-where
-    Backend: BlendBackend<NodeId, RuntimeServiceId>,
-    NodeId: Clone,
-{
-    type Settings = BlendConfig<Backend::Settings>;
-    type State = NoState<Self::Settings>;
-    type StateOperator = NoOperator<Self::State>;
-    type Message = ServiceMessage<BroadcastSettings>;
+    )>,
 }
 
 #[async_trait::async_trait]
@@ -129,8 +95,8 @@ impl<
     ChainService,
     PolInfoProvider,
     RuntimeServiceId,
-> ServiceCore<RuntimeServiceId>
-    for BlendService<
+> Mode<RuntimeServiceId>
+    for EdgeMode<
         Backend,
         NodeId,
         BroadcastSettings,
@@ -152,7 +118,6 @@ where
     ChainService: CryptarchiaServiceData<Tx: Send + Sync>,
     PolInfoProvider: PolInfoProviderTrait<RuntimeServiceId, Stream: Send + Unpin + 'static> + Send,
     RuntimeServiceId: AsServiceId<<MembershipAdapter as membership::Adapter>::Service>
-        + AsServiceId<Self>
         + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>
         + AsServiceId<ChainService>
         + Display
@@ -163,30 +128,29 @@ where
         + Unpin
         + 'static,
 {
-    fn init(
-        service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-        _initial_state: Self::State,
-    ) -> Result<Self, overwatch::DynError> {
-        Ok(Self {
-            service_resources_handle,
-            _phantom: PhantomData,
-        })
-    }
+    type Settings = BlendConfig<Backend::Settings>;
+    type Message = ServiceMessage<BroadcastSettings>;
 
-    async fn run(mut self) -> Result<(), overwatch::DynError> {
-        let Self {
-            service_resources_handle:
-                ServiceResourcesHandle {
-                    inbound_relay,
-                    overwatch_handle,
-                    settings_handle,
-                    status_updater,
-                    ..
-                },
+    async fn run<Service>(
+        mut service_resource_handle: OpaqueServiceResourcesHandle<Service, RuntimeServiceId>,
+    ) -> Result<OpaqueServiceResourcesHandle<Service, RuntimeServiceId>, DynError>
+    where
+        Service: ServiceData<
+                Settings: Into<Self::Settings> + Clone + Send + Sync,
+                State: Send + Sync,
+                Message = Self::Message,
+            >,
+    {
+        let OpaqueServiceResourcesHandle::<Service, RuntimeServiceId> {
+            inbound_relay,
+            overwatch_handle,
+            settings_handle,
+            status_updater,
             ..
-        } = self;
+        } = &mut service_resource_handle;
 
-        let settings = settings_handle.notifier().get_updated_settings();
+        let settings: BlendConfig<Backend::Settings> =
+            settings_handle.notifier().get_updated_settings().into();
 
         wait_until_services_are_ready!(
             &overwatch_handle,
@@ -234,7 +198,7 @@ where
         });
 
         let epoch_handler = async {
-            let chain_service = CryptarchiaServiceApi::<ChainService, _>::new(&overwatch_handle)
+            let chain_service = CryptarchiaServiceApi::<ChainService, _>::new(overwatch_handle)
                 .await
                 .expect("Failed to establish channel with chain service.");
             EpochHandler::new(
@@ -244,7 +208,7 @@ where
         }
         .await;
 
-        run::<Backend, _, ProofsGenerator, _, PolInfoProvider, _>(
+        let result = run::<Backend, _, ProofsGenerator, _, PolInfoProvider, _>(
             UninitializedSessionEventStream::new(
                 session_stream,
                 FIRST_STREAM_ITEM_READY_TIMEOUT,
@@ -254,21 +218,24 @@ where
             messages_to_blend_stream,
             epoch_handler,
             &settings,
-            &overwatch_handle,
+            overwatch_handle,
             || {
                 status_updater.notify_ready();
-                info!(
-                    target: LOG_TARGET,
-                    "Service '{}' is ready.",
-                    <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
-                );
+                info!(target: LOG_TARGET, "Blend service became ready by EdgeMode");
             },
         )
-        .await
-        .map_err(|e| {
-            error!(target: LOG_TARGET, "Edge blend service is being terminated with error: {e:?}");
-            e.into()
-        })
+        .await;
+
+        match result {
+            Ok(()) => Ok(service_resource_handle),
+            Err(e @ (Error::LocalIsCoreNode | Error::NetworkIsTooSmall(_))) => {
+                info!(
+                    target: LOG_TARGET,
+                    "Terminating the edge mode as the new membership does not satisfy the edge node condition: {e:?}",
+                );
+                return Ok(service_resource_handle);
+            }
+        }
     }
 }
 

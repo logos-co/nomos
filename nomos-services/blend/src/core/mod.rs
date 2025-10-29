@@ -47,11 +47,8 @@ use nomos_network::NetworkService;
 use nomos_time::{SlotTick, TimeService, TimeServiceMessage};
 use nomos_utils::blake_rng::BlakeRng;
 use overwatch::{
-    OpaqueServiceResourcesHandle,
-    services::{
-        AsServiceId, ServiceCore, ServiceData,
-        state::{NoOperator, NoState},
-    },
+    DynError, OpaqueServiceResourcesHandle,
+    services::{AsServiceId, ServiceData},
 };
 use rand::{RngCore, SeedableRng as _, seq::SliceRandom as _};
 use serde::{Deserialize, Serialize};
@@ -71,22 +68,23 @@ use crate::{
     },
     membership::{self, MembershipInfo, ZkInfo},
     message::{NetworkMessage, ProcessedMessage, ServiceMessage},
+    mode::Mode,
     session::{CoreSessionInfo, CoreSessionPublicInfo},
     settings::FIRST_STREAM_ITEM_READY_TIMEOUT,
 };
 
-pub(super) mod service_components;
+pub(super) mod mode_components;
 
 const LOG_TARGET: &str = "blend::service::core";
 
-/// A blend service that sends messages to the blend network
+/// A core mode that sends messages to the blend network
 /// and broadcasts fully unwrapped messages through the [`NetworkService`].
 ///
 /// The blend backend and the network adapter are generic types that are
 /// independent of each other. For example, the blend backend can use the
 /// libp2p network stack, while the network adapter can use the other network
 /// backend.
-pub struct BlendService<
+pub struct CoreMode<
     Backend,
     NodeId,
     Network,
@@ -97,34 +95,9 @@ pub struct BlendService<
     ChainService,
     PolInfoProvider,
     RuntimeServiceId,
-> where
-    Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId>,
-    Network: NetworkAdapter<RuntimeServiceId>,
-{
-    service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
+> {
+    #[expect(clippy::type_complexity, reason = "Generics are necessary")]
     _phantom: PhantomData<(
-        Backend,
-        MembershipAdapter,
-        ProofsGenerator,
-        TimeBackend,
-        ChainService,
-        PolInfoProvider,
-    )>,
-}
-
-impl<
-    Backend,
-    NodeId,
-    Network,
-    MembershipAdapter,
-    ProofsGenerator,
-    ProofsVerifier,
-    TimeBackend,
-    ChainService,
-    PolInfoProvider,
-    RuntimeServiceId,
-> ServiceData
-    for BlendService<
         Backend,
         NodeId,
         Network,
@@ -135,15 +108,7 @@ impl<
         ChainService,
         PolInfoProvider,
         RuntimeServiceId,
-    >
-where
-    Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId>,
-    Network: NetworkAdapter<RuntimeServiceId>,
-{
-    type Settings = BlendConfig<Backend::Settings>;
-    type State = NoState<Self::Settings>;
-    type StateOperator = NoOperator<Self::State>;
-    type Message = ServiceMessage<Network::BroadcastSettings>;
+    )>,
 }
 
 #[async_trait]
@@ -158,8 +123,8 @@ impl<
     ChainService,
     PolInfoProvider,
     RuntimeServiceId,
-> ServiceCore<RuntimeServiceId>
-    for BlendService<
+> Mode<RuntimeServiceId>
+    for CoreMode<
         Backend,
         NodeId,
         Network,
@@ -172,13 +137,14 @@ impl<
         RuntimeServiceId,
     >
 where
-    Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId> + Send + Sync,
+    Backend:
+        BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId> + Send + Sync + 'static,
     NodeId: Clone + Send + Eq + Hash + Sync + 'static,
-    Network: NetworkAdapter<RuntimeServiceId, BroadcastSettings: Unpin> + Send + Sync,
+    Network: NetworkAdapter<RuntimeServiceId, BroadcastSettings: Unpin> + Send + Sync + 'static,
     MembershipAdapter: membership::Adapter<NodeId = NodeId, Error: Send + Sync + 'static> + Send,
     membership::ServiceMessage<MembershipAdapter>: Send + Sync + 'static,
-    ProofsGenerator: CoreAndLeaderProofsGenerator + Send,
-    ProofsVerifier: ProofsVerifierTrait + Clone + Send,
+    ProofsGenerator: CoreAndLeaderProofsGenerator + Send + 'static,
+    ProofsVerifier: ProofsVerifierTrait + Clone + Send + 'static,
     TimeBackend: nomos_time::backends::TimeBackend + Send,
     ChainService: CryptarchiaServiceData<Tx: Send + Sync>,
     PolInfoProvider: PolInfoProviderTrait<RuntimeServiceId, Stream: Send + Unpin + 'static> + Send,
@@ -186,7 +152,6 @@ where
         + AsServiceId<<MembershipAdapter as membership::Adapter>::Service>
         + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>
         + AsServiceId<ChainService>
-        + AsServiceId<Self>
         + Clone
         + Debug
         + Display
@@ -195,31 +160,29 @@ where
         + Unpin
         + 'static,
 {
-    fn init(
-        service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-        _initial_state: Self::State,
-    ) -> Result<Self, overwatch::DynError> {
-        Ok(Self {
-            service_resources_handle,
-            _phantom: PhantomData,
-        })
-    }
+    type Settings = BlendConfig<Backend::Settings>;
+    type Message = ServiceMessage<Network::BroadcastSettings>;
 
     #[expect(clippy::too_many_lines, reason = "TODO: Address this at some point.")]
-    async fn run(mut self) -> Result<(), overwatch::DynError> {
-        let Self {
-            service_resources_handle:
-                OpaqueServiceResourcesHandle::<Self, RuntimeServiceId> {
-                    ref mut inbound_relay,
-                    ref overwatch_handle,
-                    ref settings_handle,
-                    ref status_updater,
-                    ..
-                },
+    async fn run<Service>(
+        mut service_resource_handle: OpaqueServiceResourcesHandle<Service, RuntimeServiceId>,
+    ) -> Result<OpaqueServiceResourcesHandle<Service, RuntimeServiceId>, DynError>
+    where
+        Service: ServiceData<
+                Settings: Into<Self::Settings> + Clone + Send + Sync,
+                State: Send + Sync,
+                Message = Self::Message,
+            >,
+    {
+        let OpaqueServiceResourcesHandle::<Service, RuntimeServiceId> {
+            inbound_relay,
+            overwatch_handle,
+            settings_handle,
+            status_updater,
             ..
-        } = self;
+        } = &mut service_resource_handle;
 
-        let blend_config = settings_handle.notifier().get_updated_settings();
+        let blend_config: Self::Settings = settings_handle.notifier().get_updated_settings().into();
 
         wait_until_services_are_ready!(
             &overwatch_handle,
@@ -393,6 +356,7 @@ where
                     .session_quota(current_membership_info.public.membership.size()),
                 session_number: u128::from(current_membership_info.public.session).into(),
             };
+            let blend_config_cloned = blend_config.clone();
             let scheduler_stream = remaining_session_stream
                 .clone()
                 .filter_map(|event| {
@@ -403,16 +367,16 @@ where
                     })
                 })
                 .map(
-                    |CoreSessionInfo {
-                         public:
-                             CoreSessionPublicInfo {
-                                 membership,
-                                 session,
-                                 ..
-                             },
-                         ..
-                     }| SchedulerSessionInfo {
-                        core_quota: blend_config.session_quota(membership.size()),
+                    move |CoreSessionInfo {
+                              public:
+                                  CoreSessionPublicInfo {
+                                      membership,
+                                      session,
+                                      ..
+                                  },
+                              ..
+                          }| SchedulerSessionInfo {
+                        core_quota: blend_config_cloned.session_quota(membership.size()),
                         session_number: u128::from(session).into(),
                     },
                 );
@@ -438,11 +402,7 @@ where
         let mut rng = BlakeRng::from_entropy();
 
         status_updater.notify_ready();
-        tracing::info!(
-            target: LOG_TARGET,
-            "Service '{}' is ready.",
-            <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
-        );
+        tracing::info!(target: LOG_TARGET, "Blend service became ready by CoreMode");
 
         // There might be services that depend on Blend to be ready before starting, so
         // we cannot wait for the stream to be sent before we signal we are
@@ -476,18 +436,44 @@ where
                             crypto_processor = new_crypto_processor;
                             current_public_info = new_public_info;
                         }
-                        Err(e) => {
-                            tracing::error!(
+                        Err((e @ (Error::LocalIsNotCoreNode | Error::NetworkIsTooSmall(_)), prev_crypto_processor)) => {
+                            crypto_processor = prev_crypto_processor;
+                            tracing::info!(
                                 target: LOG_TARGET,
-                                "Terminating the '{}' service as the new membership does not satisfy the core node condition: {e:?}",
-                                <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
+                                "Terminating the core mode as the new membership does not satisfy the core node condition: {e:?}",
                             );
-                            return Err(e.into());
+                            break;
+
                         }
                     }
                 }
             }
         }
+
+        // Before exiting the core mode, spawn-and-forget a task that finishes the last
+        // session transition period.
+        overwatch_handle.runtime().spawn(async move {
+            let mut session_transition_period_timer = Box::pin(tokio::time::sleep(
+                blend_config.time.session_transition_period(),
+            ));
+
+            loop {
+                tokio::select! {
+                    () = &mut session_transition_period_timer => {
+                        info!(target: LOG_TARGET, "Final session transition period has passed");
+                        return;
+                    }
+                    Some(incoming_message) = blend_messages.next() => {
+                        handle_incoming_blend_message(incoming_message, &mut message_scheduler, &crypto_processor, &mut blending_token_collector);
+                    }
+                    Some(round_info) = message_scheduler.next() => {
+                        handle_release_round(round_info, &mut crypto_processor, &mut rng, &backend, &network_adapter).await;
+                    }
+                }
+            }
+        });
+
+        return Ok(service_resource_handle);
     }
 }
 
@@ -520,7 +506,10 @@ async fn handle_session_event<
         CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
         PublicInfo<NodeId>,
     ),
-    Error,
+    (
+        Error,
+        CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
+    ),
 >
 where
     NodeId: Eq + Hash + Clone + Send,
@@ -564,7 +553,8 @@ where
                 &settings.crypto,
                 new_public_info.clone().into(),
                 private,
-            )?;
+            )
+            .map_err(|e| (e, current_cryptographic_processor))?;
             Ok((new_processor, new_public_info))
         }
         SessionEvent::TransitionPeriodExpired => {

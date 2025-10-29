@@ -6,14 +6,17 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures::StreamExt as _;
+use futures::{FutureExt as _, StreamExt as _, future::BoxFuture};
 pub use nomos_blend_message::{
     crypto::proofs::{
         RealProofsVerifier, quota::inputs::prove::private::ProofOfLeadershipQuotaInputs,
     },
     encap::ProofsVerifier,
 };
-use nomos_blend_scheduling::session::UninitializedSessionEventStream;
+use nomos_blend_scheduling::{
+    membership::Membership,
+    session::{SessionEvent, UninitializedSessionEventStream},
+};
 use nomos_network::NetworkService;
 use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
@@ -27,15 +30,15 @@ use tracing::{debug, error, info};
 
 use crate::{
     core::{
-        network::NetworkAdapter as NetworkAdapterTrait,
-        service_components::{
-            BlendBackendSettingsOfService, MessageComponents, NetworkBackendOfService,
-            ServiceComponents as CoreServiceComponents,
+        mode_components::{
+            BlendBackendSettingsOfMode, MessageComponents, ModeComponents as CoreModeComponents,
+            NetworkBackendOfMode,
         },
+        network::NetworkAdapter as NetworkAdapterTrait,
     },
-    edge::service_components::ServiceComponents as EdgeServiceComponents,
-    instance::{Instance, Mode},
+    edge::mode_components::ModeComponents as EdgeModeComponents,
     membership::{Adapter as _, MembershipInfo},
+    mode::Mode,
     settings::{FIRST_STREAM_ITEM_READY_TIMEOUT, Settings},
 };
 
@@ -47,9 +50,9 @@ pub mod message;
 pub mod session;
 pub mod settings;
 
-mod instance;
+pub mod broadcast;
 mod merkle;
-mod modes;
+mod mode;
 mod service_components;
 pub use self::service_components::ServiceComponents;
 
@@ -58,40 +61,43 @@ mod test_utils;
 
 const LOG_TARGET: &str = "blend::service";
 
-pub struct BlendService<CoreService, EdgeService, RuntimeServiceId>
+pub struct BlendService<CoreMode, EdgeMode, BroadcastMode, RuntimeServiceId>
 where
-    CoreService: ServiceData + CoreServiceComponents<RuntimeServiceId>,
-    EdgeService: EdgeServiceComponents,
+    CoreMode: Mode<RuntimeServiceId> + CoreModeComponents<RuntimeServiceId>,
+    EdgeMode: EdgeModeComponents,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-    _phantom: PhantomData<(CoreService, EdgeService)>,
+    _phantom: PhantomData<(CoreMode, EdgeMode)>,
 }
 
-impl<CoreService, EdgeService, RuntimeServiceId> ServiceData
-    for BlendService<CoreService, EdgeService, RuntimeServiceId>
+impl<CoreMode, EdgeMode, BroadcastMode, RuntimeServiceId> ServiceData
+    for BlendService<CoreMode, EdgeMode, BroadcastMode, RuntimeServiceId>
 where
-    CoreService: ServiceData + CoreServiceComponents<RuntimeServiceId>,
-    EdgeService: EdgeServiceComponents,
+    CoreMode: Mode<RuntimeServiceId> + CoreModeComponents<RuntimeServiceId>,
+    EdgeMode: EdgeModeComponents,
 {
     type Settings = Settings<
-        BlendBackendSettingsOfService<CoreService, RuntimeServiceId>,
-        <EdgeService as EdgeServiceComponents>::BackendSettings,
+        BlendBackendSettingsOfMode<CoreMode, RuntimeServiceId>,
+        <EdgeMode as EdgeModeComponents>::BackendSettings,
     >;
     type State = NoState<Self::Settings>;
     type StateOperator = NoOperator<Self::State>;
-    type Message = CoreService::Message;
+    type Message = CoreMode::Message;
 }
 
 #[async_trait]
-impl<CoreService, EdgeService, RuntimeServiceId> ServiceCore<RuntimeServiceId>
-    for BlendService<CoreService, EdgeService, RuntimeServiceId>
+impl<CoreMode, EdgeMode, BroadcastMode, RuntimeServiceId> ServiceCore<RuntimeServiceId>
+    for BlendService<CoreMode, EdgeMode, BroadcastMode, RuntimeServiceId>
 where
-    CoreService: ServiceData<Message: MessageComponents<Payload: Into<Vec<u8>>> + Send + Sync + 'static>
-        + CoreServiceComponents<
+    CoreMode: Mode<
+            RuntimeServiceId,
+            Settings: From<Self::Settings>,
+            Message: MessageComponents<Payload: Into<Vec<u8>>> + Send + Sync + 'static,
+        > + CoreModeComponents<
             RuntimeServiceId,
             NetworkAdapter: NetworkAdapterTrait<
                 RuntimeServiceId,
-                BroadcastSettings = BroadcastSettings<CoreService>,
+                BroadcastSettings = BroadcastSettings<CoreMode, RuntimeServiceId>,
             > + Send
                                 + Sync
                                 + 'static,
@@ -99,26 +105,23 @@ where
             BackendSettings: Clone + Send + Sync,
         > + Send
         + 'static,
-    EdgeService: ServiceData<Message = CoreService::Message>
+    EdgeMode: Mode<RuntimeServiceId, Settings: From<Self::Settings>, Message = CoreMode::Message>
         // We tie the core and edge proofs generator to be the same type, to avoid mistakes in the
         // node configuration where the two services use different verification logic
-        + EdgeServiceComponents<
+        + EdgeModeComponents<
             BackendSettings: Clone + Send + Sync,
-            ProofsGenerator = CoreService::ProofsGenerator,
+            ProofsGenerator = CoreMode::ProofsGenerator,
         > + Send
         + 'static,
-    EdgeService::MembershipAdapter:
-        membership::Adapter<NodeId = CoreService::NodeId, Error: Send + Sync + 'static> + Send,
-    membership::ServiceMessage<EdgeService::MembershipAdapter>: Send + Sync + 'static,
+    EdgeMode::MembershipAdapter:
+        membership::Adapter<NodeId = CoreMode::NodeId, Error: Send + Sync + 'static> + Send,
+    membership::ServiceMessage<EdgeMode::MembershipAdapter>: Send + Sync + 'static,
+    BroadcastMode: Mode<RuntimeServiceId, Settings: From<Self::Settings>, Message = CoreMode::Message>
+        + 'static,
     RuntimeServiceId: AsServiceId<Self>
-        + AsServiceId<CoreService>
-        + AsServiceId<EdgeService>
-        + AsServiceId<MembershipService<EdgeService>>
+        + AsServiceId<MembershipService<EdgeMode>>
         + AsServiceId<
-            NetworkService<
-                NetworkBackendOfService<CoreService, RuntimeServiceId>,
-                RuntimeServiceId,
-            >,
+            NetworkService<NetworkBackendOfMode<CoreMode, RuntimeServiceId>, RuntimeServiceId>,
         > + Debug
         + Display
         + Clone
@@ -138,30 +141,27 @@ where
 
     async fn run(mut self) -> Result<(), DynError> {
         let Self {
-            service_resources_handle:
-                OpaqueServiceResourcesHandle::<Self, RuntimeServiceId> {
-                    ref mut inbound_relay,
-                    ref overwatch_handle,
-                    ref settings_handle,
-                    ref status_updater,
-                    ..
-                },
+            service_resources_handle,
             ..
         } = self;
 
-        let settings = settings_handle.notifier().get_updated_settings();
+        let settings = service_resources_handle
+            .settings_handle
+            .notifier()
+            .get_updated_settings();
         let minimal_network_size = settings.common.minimum_network_size.get() as usize;
 
         wait_until_services_are_ready!(
-            &overwatch_handle,
+            &service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
-            MembershipService<EdgeService>
+            MembershipService<EdgeMode>
         )
         .await?;
 
-        let membership_stream = <MembershipAdapter<EdgeService> as membership::Adapter>::new(
-            overwatch_handle
-                .relay::<MembershipService<EdgeService>>()
+        let membership_stream = <MembershipAdapter<EdgeMode> as membership::Adapter>::new(
+            service_resources_handle
+                .overwatch_handle
+                .relay::<MembershipService<EdgeMode>>()
                 .await?,
             settings
                 .common
@@ -175,7 +175,7 @@ where
         .subscribe()
         .await?;
 
-        let (MembershipInfo { membership, .. }, mut remaining_session_stream) =
+        let (MembershipInfo { mut membership, .. }, mut remaining_session_stream) =
             UninitializedSessionEventStream::new(
                 membership_stream,
                 FIRST_STREAM_ITEM_READY_TIMEOUT,
@@ -191,39 +191,90 @@ where
             membership.size()
         );
 
-        let mut instance = Instance::<CoreService, EdgeService, RuntimeServiceId>::new(
-            Mode::choose(&membership, minimal_network_size),
-            overwatch_handle,
-        )
-        .await?;
-
-        status_updater.notify_ready();
-        info!(
-            target: LOG_TARGET,
-            "Service '{}' is ready.",
-            <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
-        );
+        let mut mode_runner = Box::pin(run_mode::<
+            Self,
+            _,
+            CoreMode,
+            EdgeMode,
+            BroadcastMode,
+            RuntimeServiceId,
+        >(
+            service_resources_handle,
+            &membership,
+            minimal_network_size,
+        ));
 
         loop {
             tokio::select! {
-                Some(session_event) = remaining_session_stream.next() => {
-                    debug!(target: LOG_TARGET, "Received a new session event");
-                    instance = instance.handle_session_event(session_event, overwatch_handle, minimal_network_size).await?;
-                },
-                Some(message) = inbound_relay.next() => {
-                    if let Err(e) = instance.handle_inbound_message(message).await {
-                        error!(target: LOG_TARGET, "Failed to handle inbound message: {e:?}");
+                result = &mut mode_runner => {
+                    match result {
+                        Ok(service_resources_handle) => {
+                            info!(target: LOG_TARGET, "Mode finished. Switching to a new mode.");
+                            mode_runner = Box::pin(run_mode::<
+                                Self,
+                                _,
+                                CoreMode,
+                                EdgeMode,
+                                BroadcastMode,
+                                RuntimeServiceId,
+                            >(
+                                service_resources_handle,
+                                &membership,
+                                minimal_network_size,
+                            ));
+                        },
+                        Err(e) => {
+                            error!(target: LOG_TARGET, "Error while running mode: {e}");
+                            return Err(e);
+                        },
                     }
+                },
+                Some(SessionEvent::NewSession(membership_info)) = remaining_session_stream.next() => {
+                    debug!(target: LOG_TARGET, "Received a new session event");
+                    membership = membership_info.membership;
                 },
             }
         }
     }
 }
 
-type BroadcastSettings<CoreService> =
-    <<CoreService as ServiceData>::Message as MessageComponents>::BroadcastSettings;
+fn run_mode<Service, NodeId, CoreMode, EdgeMode, BroadcastMode, RuntimeServiceId>(
+    service_resources_handle: OpaqueServiceResourcesHandle<Service, RuntimeServiceId>,
+    membership: &Membership<NodeId>,
+    minimal_network_size: usize,
+) -> BoxFuture<'static, Result<OpaqueServiceResourcesHandle<Service, RuntimeServiceId>, DynError>>
+where
+    Service: ServiceData<
+            Settings: Into<CoreMode::Settings>
+                          + Into<EdgeMode::Settings>
+                          + Into<BroadcastMode::Settings>
+                          + Clone
+                          + Send
+                          + Sync
+                          + 'static,
+            State: Send + Sync + 'static,
+            Message = CoreMode::Message,
+        > + 'static,
+    CoreMode: Mode<RuntimeServiceId, Message: Send + 'static> + 'static,
+    EdgeMode: Mode<RuntimeServiceId, Message = Service::Message> + 'static,
+    BroadcastMode: Mode<RuntimeServiceId, Message = Service::Message> + 'static,
+    RuntimeServiceId: 'static,
+{
+    if membership.size() < minimal_network_size {
+        info!(target: LOG_TARGET, "Running in Broadcast mode...");
+        BroadcastMode::run::<Service>(service_resources_handle).boxed()
+    } else if membership.contains_local() {
+        info!(target: LOG_TARGET, "Running in Core mode...");
+        CoreMode::run::<Service>(service_resources_handle).boxed()
+    } else {
+        info!(target: LOG_TARGET, "Running in Edge mode...");
+        EdgeMode::run::<Service>(service_resources_handle).boxed()
+    }
+}
 
-type MembershipAdapter<EdgeService> = <EdgeService as edge::ServiceComponents>::MembershipAdapter;
+type BroadcastSettings<CoreMode, RuntimeServiceId> =
+    <<CoreMode as Mode<RuntimeServiceId>>::Message as MessageComponents>::BroadcastSettings;
 
-type MembershipService<EdgeService> =
-    <MembershipAdapter<EdgeService> as membership::Adapter>::Service;
+type MembershipAdapter<EdgeMode> = <EdgeMode as edge::ModeComponents>::MembershipAdapter;
+
+type MembershipService<EdgeMode> = <MembershipAdapter<EdgeMode> as membership::Adapter>::Service;

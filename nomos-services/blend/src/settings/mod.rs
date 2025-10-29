@@ -85,3 +85,11 @@ impl<CoreBackendSettings, EdgeBackendSettings>
         }
     }
 }
+
+impl<CoreBackendSettings, EdgeBackendSettings>
+    From<Settings<CoreBackendSettings, EdgeBackendSettings>> for CommonSettings
+{
+    fn from(Settings { common, .. }: Settings<CoreBackendSettings, EdgeBackendSettings>) -> Self {
+        common
+    }
+}

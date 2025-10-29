@@ -66,14 +66,10 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    let (blend_config, blend_core_config, blend_edge_config) = config.blend.into();
-
     let app = OverwatchRunner::<NomosExecutor>::run(
         NomosExecutorServiceSettings {
             network: config.network,
-            blend: blend_config,
-            blend_core: blend_core_config,
-            blend_edge: blend_edge_config,
+            blend: config.blend,
             block_broadcast: (),
             #[cfg(feature = "tracing")]
             tracing: config.tracing,
@@ -119,12 +115,5 @@ async fn main() -> Result<()> {
 async fn get_services_to_start(
     app: &Overwatch<RuntimeServiceId>,
 ) -> Result<Vec<RuntimeServiceId>, OverwatchError> {
-    let mut service_ids = app.handle().retrieve_service_ids().await?;
-
-    // Exclude core and edge blend services, which will be started
-    // on demand by the blend service.
-    let blend_inner_service_ids = [RuntimeServiceId::BlendCore, RuntimeServiceId::BlendEdge];
-    service_ids.retain(|value| !blend_inner_service_ids.contains(value));
-
-    Ok(service_ids)
+    app.handle().retrieve_service_ids().await
 }

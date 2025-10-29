@@ -42,7 +42,8 @@ use tokio::sync::oneshot::channel;
 use tokio_stream::wrappers::WatchStream;
 
 use crate::generic_services::{
-    CryptarchiaLeaderService, CryptarchiaService, MembershipService, WalletService,
+    CryptarchiaLeaderService, CryptarchiaService, MembershipService, NetworkService, TimeService,
+    WalletService,
 };
 
 // TODO: Replace this with the actual verifier once the verification inputs are
@@ -183,20 +184,19 @@ fn loop_until_valid_proof(
 
 pub type BlendMembershipAdapter<RuntimeServiceId> =
     Adapter<MembershipService<RuntimeServiceId>, PeerId>;
-pub type BlendCoreService<SamplingAdapter, RuntimeServiceId> =
-    nomos_blend_service::core::BlendService<
-        nomos_blend_service::core::backends::libp2p::Libp2pBlendBackend,
-        PeerId,
-        nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
-        BlendMembershipAdapter<RuntimeServiceId>,
-        BlendProofsGenerator,
-        BlendProofsVerifier,
-        NtpTimeBackend,
-        CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
-        PolInfoProvider<SamplingAdapter>,
-        RuntimeServiceId,
-    >;
-pub type BlendEdgeService<SamplingAdapter, RuntimeServiceId> = nomos_blend_service::edge::BlendService<
+pub type BlendCoreMode<SamplingAdapter, RuntimeServiceId> = nomos_blend_service::core::CoreMode<
+    nomos_blend_service::core::backends::libp2p::Libp2pBlendBackend,
+    PeerId,
+    nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
+    BlendMembershipAdapter<RuntimeServiceId>,
+    BlendProofsGenerator,
+    BlendProofsVerifier,
+    NtpTimeBackend,
+    CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
+    PolInfoProvider<SamplingAdapter>,
+    RuntimeServiceId,
+>;
+pub type BlendEdgeMode<SamplingAdapter, RuntimeServiceId> = nomos_blend_service::edge::EdgeMode<
         nomos_blend_service::edge::backends::libp2p::Libp2pBlendBackend,
         PeerId,
         <nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<RuntimeServiceId>>::BroadcastSettings,
@@ -207,9 +207,14 @@ pub type BlendEdgeService<SamplingAdapter, RuntimeServiceId> = nomos_blend_servi
         PolInfoProvider<SamplingAdapter>,
         RuntimeServiceId
     >;
+pub type BlendBroadcastMode<RuntimeServiceId> = nomos_blend_service::broadcast::BroadcastMode<
+    nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
+    BlendMembershipAdapter<RuntimeServiceId>,
+>;
 pub type BlendService<SamplingAdapter, RuntimeServiceId> = nomos_blend_service::BlendService<
-    BlendCoreService<SamplingAdapter, RuntimeServiceId>,
-    BlendEdgeService<SamplingAdapter, RuntimeServiceId>,
+    BlendCoreMode<SamplingAdapter, RuntimeServiceId>,
+    BlendEdgeMode<SamplingAdapter, RuntimeServiceId>,
+    BlendBroadcastMode<RuntimeServiceId>,
     RuntimeServiceId,
 >;
 
@@ -221,7 +226,7 @@ pub struct PolInfoProvider<SamplingAdapter>(PhantomData<SamplingAdapter>);
 impl<SamplingAdapter, RuntimeServiceId> PolInfoProviderTrait<RuntimeServiceId>
     for PolInfoProvider<SamplingAdapter>
 where
-    SamplingAdapter: NetworkAdapter<RuntimeServiceId> + 'static,
+    SamplingAdapter: NetworkAdapter<RuntimeServiceId> + Send + 'static,
     RuntimeServiceId: AsServiceId<
             CryptarchiaLeaderService<
                 CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
@@ -232,10 +237,16 @@ where
                 SamplingAdapter,
                 RuntimeServiceId,
             >,
-        > + Debug
+        > + AsServiceId<CryptarchiaService<SamplingAdapter, RuntimeServiceId>>
+        + AsServiceId<NetworkService<RuntimeServiceId>>
+        + AsServiceId<MembershipService<RuntimeServiceId>>
+        + AsServiceId<TimeService<RuntimeServiceId>>
+        + Debug
         + Display
+        + Clone
         + Send
         + Sync
+        + Unpin
         + 'static,
 {
     type Stream = Box<dyn Stream<Item = PolEpochInfo> + Send + Unpin>;

@@ -1,14 +1,14 @@
 use nomos_utils::blake_rng::BlakeRng;
 
 use crate::{
-    core::{BlendService, backends::BlendBackend},
+    core::{CoreMode, backends::BlendBackend},
     message::ServiceMessage,
 };
 
 /// Helper trait to help the Blend proxy service rely on the concrete types of
 /// the core Blend service without having to specify all the generics the core
 /// service expects.
-pub trait ServiceComponents<RuntimeServiceId> {
+pub trait ModeComponents<RuntimeServiceId> {
     type NetworkAdapter;
     type BackendSettings;
     type NodeId;
@@ -27,8 +27,8 @@ impl<
     ChainService,
     PolInfoProvider,
     RuntimeServiceId,
-> ServiceComponents<RuntimeServiceId>
-    for BlendService<
+> ModeComponents<RuntimeServiceId>
+    for CoreMode<
         Backend,
         NodeId,
         Network,
@@ -51,11 +51,11 @@ where
     type ProofsGenerator = ProofsGenerator;
 }
 
-pub type NetworkBackendOfService<Service, RuntimeServiceId> = <<Service as ServiceComponents<
+pub type NetworkBackendOfMode<Mode, RuntimeServiceId> = <<Mode as ModeComponents<
     RuntimeServiceId,
 >>::NetworkAdapter as crate::core::network::NetworkAdapter<RuntimeServiceId>>::Backend;
-pub type BlendBackendSettingsOfService<Service, RuntimeServiceId> =
-    <Service as ServiceComponents<RuntimeServiceId>>::BackendSettings;
+pub type BlendBackendSettingsOfMode<Service, RuntimeServiceId> =
+    <Service as ModeComponents<RuntimeServiceId>>::BackendSettings;
 
 pub trait MessageComponents {
     type Payload;

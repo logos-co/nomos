@@ -19,6 +19,7 @@ use nomos_da_verifier::{
 use nomos_membership_service::{
     adapters::sdp::ledger::LedgerSdpAdapter, backends::membership::PersistentMembershipBackend,
 };
+use nomos_network::backends::libp2p::Libp2p as Libp2pNetworkBackend;
 use nomos_sdp::backends::mock::MockSdpBackend;
 use nomos_storage::backends::rocksdb::RocksBackend;
 use nomos_time::backends::NtpTimeBackend;
@@ -27,6 +28,9 @@ use tx_service::{backend::pool::Mempool, storage::adapters::rocksdb::RocksStorag
 use crate::{MB16, generic_services::blend::BlendService};
 
 pub mod blend;
+
+pub type NetworkService<RuntimeServiceId> =
+    nomos_network::NetworkService<Libp2pNetworkBackend, RuntimeServiceId>;
 
 pub type TxMempoolService<SamplingNetworkAdapter, RuntimeServiceId> = tx_service::TxMempoolService<
     tx_service::network::adapters::libp2p::Libp2pAdapter<

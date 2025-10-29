@@ -44,10 +44,6 @@ type DaMembershipStorage = DaMembershipStorageGeneric<RuntimeServiceId>;
 
 pub(crate) type NetworkService = nomos_network::NetworkService<NetworkBackend, RuntimeServiceId>;
 
-pub(crate) type BlendCoreService =
-    nomos_node::generic_services::blend::BlendCoreService<DaNetworkAdapter, RuntimeServiceId>;
-pub(crate) type BlendEdgeService =
-    nomos_node::generic_services::blend::BlendEdgeService<DaNetworkAdapter, RuntimeServiceId>;
 pub(crate) type BlendService =
     nomos_node::generic_services::blend::BlendService<DaNetworkAdapter, RuntimeServiceId>;
 
@@ -199,8 +195,6 @@ pub struct NomosExecutor {
     tracing: TracingService,
     network: NetworkService,
     blend: BlendService,
-    blend_core: BlendCoreService,
-    blend_edge: BlendEdgeService,
     da_dispersal: DaDispersalService,
     da_verifier: DaVerifierService,
     da_sampling: DaSamplingService,
