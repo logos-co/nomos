@@ -18,7 +18,7 @@ pub type RewardAmount = u64;
 pub trait Rewards: Clone + PartialEq + Eq + Send + Sync + std::fmt::Debug {
     /// Update rewards state when an active message is received.
     ///
-    /// Called when a provider submits an active message with optional metadata
+    /// Called when a provider submits an active message with metadata
     /// (e.g., activity proofs containing opinions about other providers).
     fn update_active(
         &mut self,

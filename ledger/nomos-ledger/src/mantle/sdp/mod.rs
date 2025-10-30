@@ -42,7 +42,13 @@ impl Service {
         }
     }
 
-    const fn state(&mut self) -> &mut ServiceState<NoopRewards> {
+    const fn state_mut(&mut self) -> &mut ServiceState<NoopRewards> {
+        match self {
+            Self::DataAvailability(state) | Self::BlendNetwork(state) => state,
+        }
+    }
+
+    const fn state(&self) -> &ServiceState<NoopRewards> {
         match self {
             Self::DataAvailability(state) | Self::BlendNetwork(state) => state,
         }
@@ -365,7 +371,7 @@ impl SdpLedger {
             .services
             .get_mut(&ServiceType::BlendNetwork)
             .expect("SDP initialized with Blend in this method")
-            .state();
+            .state_mut();
 
         blend.active.declarations = blend.declarations.clone();
         blend.forming.declarations = blend.declarations.clone();
@@ -374,7 +380,7 @@ impl SdpLedger {
             .services
             .get_mut(&ServiceType::DataAvailability)
             .expect("SDP initialized with DA in this method")
-            .state();
+            .state_mut();
 
         da.active.declarations = da.declarations.clone();
         da.forming.declarations = da.declarations.clone();
@@ -558,7 +564,7 @@ impl SdpLedger {
     pub fn get_declaration(&self, declaration_id: &DeclarationId) -> Option<&Declaration> {
         self.services
             .iter()
-            .find_map(|(_, state)| state.declarations.get(declaration_id))
+            .find_map(|(_, state)| state.state().declarations.get(declaration_id))
     }
 
     fn get_service<'a>(
