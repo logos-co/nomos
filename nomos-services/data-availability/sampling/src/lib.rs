@@ -93,7 +93,7 @@ pub struct DaSamplingServiceSettings<BackendSettings, ShareVerifierSettings> {
     pub sampling_settings: BackendSettings,
     pub share_verifier_settings: ShareVerifierSettings,
     pub commitments_wait_duration: Duration,
-    pub sdp_blob_trigger_sampling_delay: Option<Duration>,
+    pub sdp_blob_trigger_sampling_delay: Duration,
 }
 
 pub struct GenericDaSamplingService<
@@ -381,16 +381,12 @@ where
 
     fn handle_incoming_blob(
         blob_id: BlobId,
-        sdp_blob_trigger_sampling_delay: Option<Duration>,
+        sdp_blob_trigger_sampling_delay: Duration,
         tasks: &PendingTasks<'_>,
     ) {
-        let Some(delay) = sdp_blob_trigger_sampling_delay else {
-            return; // No delay configured, don't trigger sampling
-        };
-
         // Trigger sampling after delay
         let delayed_future = async move {
-            tokio::time::sleep(delay).await;
+            tokio::time::sleep(sdp_blob_trigger_sampling_delay).await;
             blob_id
         }
         .boxed();

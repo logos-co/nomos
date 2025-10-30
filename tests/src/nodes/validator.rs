@@ -563,7 +563,7 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                 domain_size: config.da_config.num_subnets as usize,
             },
             commitments_wait_duration: Duration::from_secs(1),
-            sdp_blob_trigger_sampling_delay: None,
+            sdp_blob_trigger_sampling_delay: adjust_timeout(Duration::from_secs(5)),
         },
         storage: RocksBackendSettings {
             db_path: "./db".into(),
@@ -589,7 +589,6 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
         },
         mempool: MempoolConfig {
             pool_recovery_path: "./recovery/mempool.json".into(),
-            trigger_sampling_delay: adjust_timeout(Duration::from_secs(5)),
         },
         sdp: SdpSettings { declaration: None },
         wallet: WalletServiceSettings {
