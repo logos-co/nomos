@@ -107,7 +107,7 @@ where
     RoundClock: Stream<Item = Round> + Unpin,
     Rng: rand::Rng + Unpin,
 {
-    type Item = ();
+    type Item = Round;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let new_round = match self.round_clock.poll_next_unpin(cx) {
@@ -125,7 +125,7 @@ where
                 &mut self.rng,
             );
             debug!(target: LOG_TARGET, "Round {new_round} is a release round.");
-            return Poll::Ready(Some(()));
+            return Poll::Ready(Some(new_round));
         }
         trace!(target: LOG_TARGET, "Round {new_round} is not a release round.");
         // Awake to trigger a new round clock tick.
@@ -179,7 +179,10 @@ mod tests {
         };
         let mut cx = Context::from_waker(noop_waker_ref());
 
-        assert_eq!(delayer.poll_next_unpin(&mut cx), Poll::Ready(Some(())));
+        assert_eq!(
+            delayer.poll_next_unpin(&mut cx),
+            Poll::Ready(Some(1u128.into()))
+        );
         // Check that next release round has been updated with an offset in the
         // expected range [1, 3], so the new value must be in the range [2, 4].
         assert!((2..=4).contains(&delayer.next_release_round.inner()));

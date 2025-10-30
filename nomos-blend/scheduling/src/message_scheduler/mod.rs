@@ -7,7 +7,7 @@ use core::{
 };
 
 use futures::{Stream, StreamExt as _, stream::empty};
-use tracing::{info, trace};
+use tracing::{debug, info, trace};
 
 use crate::{
     cover_traffic::SessionCoverTraffic,
@@ -44,6 +44,7 @@ pub struct MessageScheduler<SessionClock, Rng, ProcessedMessage> {
     /// The settings to initialize all the required sub-streams.
     settings: Settings,
     message_queue: MessageQueue<Rng, ProcessedMessage>,
+    unprocessed_data_messages: usize,
 }
 
 impl<SessionClock, Rng, ProcessedMessage> MessageScheduler<SessionClock, Rng, ProcessedMessage>
@@ -92,6 +93,7 @@ where
             session_clock,
             settings,
             message_queue: MessageQueue::new(rng),
+            unprocessed_data_messages: 0,
         }
     }
 
@@ -102,11 +104,15 @@ where
 }
 
 impl<SessionClock, Rng, ProcessedMessage> MessageScheduler<SessionClock, Rng, ProcessedMessage> {
-    /// Notify the cover message submodule that a new data message has been
+    /// Notify the scheduler that a new data message has been
     /// generated in this session, which will reduce the number of cover
     /// messages generated going forward.
     pub fn notify_new_data_message(&mut self) {
-        self.cover_traffic.notify_new_data_message();
+        self.unprocessed_data_messages = self
+            .unprocessed_data_messages
+            .checked_add(1)
+            .expect("Overflow when incrementing unprocessed data message count.");
+        debug!(target: LOG_TARGET, "New data message event registered. Unprocessed messages count: {}", self.unprocessed_data_messages);
     }
 
     /// Add a new processed message to the release queue, for
@@ -121,6 +127,7 @@ impl<SessionClock, Rng, ProcessedMessage> MessageScheduler<SessionClock, Rng, Pr
         release_delayer: SessionReleaseClock<RoundClock, Rng>,
         session_clock: SessionClock,
         message_queue: MessageQueue<Rng, ProcessedMessage>,
+        unprocessed_data_messages: usize,
     ) -> Self {
         Self {
             cover_traffic,
@@ -129,6 +136,7 @@ impl<SessionClock, Rng, ProcessedMessage> MessageScheduler<SessionClock, Rng, Pr
             // These are not needed when all fields are provided as arguments.
             settings: Settings::default(),
             message_queue,
+            unprocessed_data_messages,
         }
     }
 }
@@ -149,10 +157,13 @@ where
             settings,
             session_clock,
             message_queue,
+            unprocessed_data_messages,
         } = &mut *self;
         // We update session info on new sessions.
         let rng = release_clock.rng().clone();
         match session_clock.poll_next_unpin(cx) {
+            Poll::Ready(None) => return Poll::Ready(None),
+            Poll::Pending => {}
             Poll::Ready(Some(new_session_info)) => {
                 setup_new_session(
                     cover_traffic,
@@ -162,53 +173,46 @@ where
                     new_session_info,
                 );
             }
-            Poll::Ready(None) => return Poll::Ready(None),
-            Poll::Pending => {}
         }
 
         // Process any new generated cover message
         match cover_traffic.poll_next_unpin(cx) {
+            Poll::Ready(None) => return Poll::Ready(None),
+            Poll::Pending => {}
             Poll::Ready(Some(())) => {
                 message_queue.add_cover_message();
             }
-            Poll::Ready(None) => return Poll::Ready(None)
-            Poll::Pending => {}
         }
 
-        // We poll the sub-stream and return the right result accordingly.
-        let release_delayer_output = release_delayer.poll_next_unpin(cx);
+        // We finally check if we are in a release round
+        let release_round = match release_clock.poll_next_unpin(cx) {
+            Poll::Ready(None) => return Poll::Ready(None),
+            Poll::Pending => {
+                return Poll::Pending;
+            }
+            Poll::Ready(Some(release_round)) => release_round,
+        };
 
-        match (cover_traffic_output, release_delayer_output) {
-            // If none of the sub-streams is ready, we do not return anything.
-            (Poll::Pending, Poll::Pending) => {
-                // Awake to trigger a new round clock tick.
-                cx.waker().wake_by_ref();
-                Poll::Pending
-            }
-            // Bubble up `Poll::Ready(None)` if any sub-stream returns it.
-            (Poll::Ready(None), _) | (_, Poll::Ready(None)) => Poll::Ready(None),
-            // If at least one sub-stream yields a result, we yield a new result, which might also
-            // contain no actual elements if the cover message module did not yield a new cover
-            // message and there were no queue messages to be released in this release
-            // window.
-            (cover_message_ready_output, processed_messages_ready_output) => {
-                let cover_message =
-                    (cover_message_ready_output == Poll::Ready(Some(()))).then_some(());
-                let processed_messages = if let Poll::Ready(Some(processed_messages)) =
-                    processed_messages_ready_output
-                {
-                    processed_messages
-                } else {
-                    vec![]
-                };
-                let round_info = RoundInfo {
-                    processed_messages,
-                    cover_message_generation_flag: cover_message,
-                };
-                info!(target: LOG_TARGET, "Emitting new round info {round_info:?}.");
-                Poll::Ready(Some(round_info))
-            }
-        }
+        let Some(release_message_batch) = message_queue.take_next_random_n_elements(
+            settings.maximum_messages_released_per_round.get() as usize,
+        ) else {
+            trace!(target: LOG_TARGET, "No messages to release at this release round {release_round}.");
+            // Awake to trigger polling of the next release round.
+            cx.waker().wake_by_ref();
+            return Poll::Pending;
+        };
+
+        let (processed_messages, cover_messages) = release_message_batch.into_components();
+
+        let cover_messages_to_ignore = (*unprocessed_data_messages).min(cover_messages);
+        *unprocessed_data_messages =
+            unprocessed_data_messages.saturating_sub(cover_messages_to_ignore);
+
+        let remaining_cover_messages = cover_messages.saturating_sub(cover_messages_to_ignore);
+
+        let release_round_info = RoundInfo::new(processed_messages, remaining_cover_messages);
+        info!(target: LOG_TARGET, "Emitting new round info {release_round_info:?}.");
+        Poll::Ready(Some(release_round_info))
     }
 }
 

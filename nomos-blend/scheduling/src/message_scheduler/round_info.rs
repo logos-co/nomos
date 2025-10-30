@@ -5,6 +5,8 @@ use core::{
 
 use futures::Stream;
 
+use crate::message_scheduler::message_queue::MessageBatch;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Round(u128);
 
@@ -33,14 +35,5 @@ impl Display for Round {
     }
 }
 
-/// Information can the message scheduler can yield when being polled.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RoundInfo<ProcessedMessage> {
-    /// The list of messages to be released.
-    pub processed_messages: Vec<ProcessedMessage>,
-    /// Flag indicating (if `Some`) whether a new cover message should be
-    /// generated during this release round.
-    pub cover_message_generation_flag: Option<()>,
-}
-
+pub type RoundInfo<ProcessedMessage> = MessageBatch<ProcessedMessage>;
 pub type RoundClock = Box<dyn Stream<Item = Round> + Send + Unpin>;

@@ -1,8 +1,25 @@
 use rand::{Rng as _, RngCore};
 
+#[derive(Debug)]
 pub struct MessageBatch<ProcessedMessage> {
     processed_messages: Vec<ProcessedMessage>,
     cover_messages_count: usize,
+}
+
+impl<ProcessedMessage> MessageBatch<ProcessedMessage> {
+    pub(super) fn new(
+        processed_messages: Vec<ProcessedMessage>,
+        cover_messages_count: usize,
+    ) -> Self {
+        Self {
+            cover_messages_count,
+            processed_messages,
+        }
+    }
+
+    pub fn into_components(self) -> (Vec<ProcessedMessage>, usize) {
+        (self.processed_messages, self.cover_messages_count)
+    }
 }
 
 pub struct MessageQueue<Rng, ProcessedMessage> {
