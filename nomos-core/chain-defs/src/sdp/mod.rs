@@ -2,7 +2,6 @@ use std::hash::Hash;
 
 use blake2::{Blake2b, Digest as _};
 use bytes::{Bytes, BytesMut};
-use groth16::{Fr, serde::serde_fr};
 use multiaddr::Multiaddr;
 use nom::{
     IResult, Parser as _,
@@ -12,7 +11,10 @@ use nom::{
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use strum::EnumIter;
 
-use crate::{block::BlockNumber, mantle::NoteId};
+use crate::{
+    block::BlockNumber,
+    mantle::{NoteId, keys::PublicKey},
+};
 
 pub type SessionNumber = u64;
 pub type StakeThreshold = u64;
@@ -158,16 +160,13 @@ pub struct DeclarationId(pub [u8; 32]);
 #[serde(transparent)]
 pub struct ActivityId(pub [u8; 32]);
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
-pub struct ZkPublicKey(#[serde(with = "serde_fr")] pub Fr);
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Declaration {
     pub service_type: ServiceType,
     pub provider_id: ProviderId,
     pub locked_note_id: NoteId,
     pub locators: Vec<Locator>,
-    pub zk_id: ZkPublicKey,
+    pub zk_id: PublicKey,
     pub created: BlockNumber,
     pub active: BlockNumber,
     pub withdrawn: Option<BlockNumber>,
@@ -177,7 +176,7 @@ pub struct Declaration {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProviderInfo {
     pub locators: Vec<Locator>,
-    pub zk_id: ZkPublicKey,
+    pub zk_id: PublicKey,
 }
 
 impl Declaration {
@@ -202,7 +201,7 @@ pub struct DeclarationMessage {
     pub service_type: ServiceType,
     pub locators: Vec<Locator>,
     pub provider_id: ProviderId,
-    pub zk_id: ZkPublicKey,
+    pub zk_id: PublicKey,
     pub locked_note_id: NoteId,
 }
 
@@ -220,7 +219,7 @@ impl DeclarationMessage {
         // declaration_id = Hash(service||provider_id||zk_id||locators)
         hasher.update(service.as_bytes());
         hasher.update(self.provider_id.0);
-        for number in self.zk_id.0.0.0 {
+        for number in self.zk_id.as_fr().0.0 {
             hasher.update(number.to_le_bytes());
         }
         for locator in &self.locators {
@@ -238,7 +237,7 @@ impl DeclarationMessage {
             buff.extend_from_slice(locator.0.as_ref());
         }
         buff.extend_from_slice(self.provider_id.0.as_ref());
-        buff.extend(self.zk_id.0.0.0.iter().flat_map(|n| n.to_le_bytes()));
+        buff.extend(self.zk_id.as_fr().0.0.iter().flat_map(|n| n.to_le_bytes()));
         buff.freeze()
     }
 }

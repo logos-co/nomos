@@ -416,8 +416,10 @@ where
                             declare_op.locked_note_id,
                         ))?;
 
-                    let zk_sig =
-                        Self::sign_zksig(tx_hash, [locked_note.pk.into(), declare_op.zk_id.0]);
+                    let zk_sig = Self::sign_zksig(
+                        tx_hash,
+                        [locked_note.pk.into(), declare_op.zk_id.into_inner()],
+                    );
                     let ed25519_sig =
                         Self::sign_ed25519(tx_hash, declare_op.provider_id.0, kms).await?;
 
@@ -443,8 +445,10 @@ where
                             declaration.locked_note_id,
                         ))?;
 
-                    let zk_sig =
-                        Self::sign_zksig(tx_hash, [locked_note.pk.into(), declaration.zk_id.0]);
+                    let zk_sig = Self::sign_zksig(
+                        tx_hash,
+                        [locked_note.pk.into(), declaration.zk_id.into_inner()],
+                    );
 
                     OpProof::ZkSig(zk_sig)
                 }
@@ -457,7 +461,7 @@ where
                             active_op.declaration_id,
                         ))?;
 
-                    let zk_sig = Self::sign_zksig(tx_hash, [declaration.zk_id.0]);
+                    let zk_sig = Self::sign_zksig(tx_hash, [declaration.zk_id.into_inner()]);
 
                     OpProof::ZkSig(zk_sig)
                 }

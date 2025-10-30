@@ -155,7 +155,7 @@ mod tests {
             ops::channel::blob::BlobOp,
         },
         proofs::zksig::DummyZkSignature,
-        sdp::{ProviderId, ServiceType, ZkPublicKey},
+        sdp::{ProviderId, ServiceType},
     };
 
     fn inscription_op(channel_id: ChannelId, parent: MsgId, signer: VerifyingKey) -> InscriptionOp {
@@ -175,7 +175,7 @@ mod tests {
         SDPDeclareOp {
             service_type: ServiceType::BlendNetwork,
             locked_note_id: utxo_to_use.id(),
-            zk_id: ZkPublicKey(BigUint::from(zk_id_value).into()),
+            zk_id: PublicKey::new(BigUint::from(zk_id_value).into()),
             provider_id: ProviderId(verifying_key),
             locators: [].into(),
         }
