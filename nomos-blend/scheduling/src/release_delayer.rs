@@ -1,5 +1,4 @@
 use core::{
-    mem,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -12,9 +11,9 @@ use crate::message_scheduler::round_info::Round;
 
 const LOG_TARGET: &str = "blend::scheduling::delay";
 
-/// A scheduler for delaying processed messages and batch them into release
-/// rounds, as per the specification.
-pub struct SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage> {
+/// A scheduler for randomly delaying processed messages, as per the
+/// specification.
+pub struct SessionReleaseClock<RoundClock, Rng> {
     /// The maximum delay, in terms of rounds, between two consecutive release
     /// rounds.
     maximum_release_delay_in_rounds: NonZeroU64,
@@ -24,13 +23,9 @@ pub struct SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage> {
     rng: Rng,
     /// The clock ticking at the beginning of each new round.
     round_clock: RoundClock,
-    /// The messages temporarily queued by the scheduler in between release
-    /// rounds.
-    unreleased_messages: Vec<ProcessedMessage>,
 }
 
-impl<RoundClock, Rng, ProcessedMessage>
-    SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage>
+impl<RoundClock, Rng> SessionReleaseClock<RoundClock, Rng>
 where
     Rng: rand::Rng,
 {
@@ -51,41 +46,24 @@ where
             next_release_round: NonZeroU128::from(next_release_round).get().into(),
             rng,
             round_clock,
-            unreleased_messages: Vec::new(),
         }
     }
 }
 
-impl<RoundClock, Rng, ProcessedMessage>
-    SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage>
-{
+impl<RoundClock, Rng> SessionReleaseClock<RoundClock, Rng> {
     #[cfg(test)]
     pub const fn with_test_values(
         maximum_release_delay_in_rounds: NonZeroU64,
         next_release_round: Round,
         rng: Rng,
         round_clock: RoundClock,
-        unreleased_messages: Vec<ProcessedMessage>,
     ) -> Self {
         Self {
             maximum_release_delay_in_rounds,
             next_release_round,
             rng,
             round_clock,
-            unreleased_messages,
         }
-    }
-
-    #[cfg(test)]
-    pub fn unreleased_messages(&self) -> &[ProcessedMessage] {
-        &self.unreleased_messages
-    }
-
-    /// Add a new message to the queue to be released at the next release round
-    /// along with any other queued message.
-    pub fn schedule_message(&mut self, message: ProcessedMessage) {
-        self.unreleased_messages.push(message);
-        debug!(target: LOG_TARGET, "New message scheduled. Pending message count: {}", self.unreleased_messages.len());
     }
 
     /// Get a reference to the stored rng.
@@ -124,14 +102,12 @@ where
         .expect("Randomly generated offset should be strictly positive.")
 }
 
-impl<RoundClock, Rng, ProcessedMessage> Stream
-    for SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage>
+impl<RoundClock, Rng> Stream for SessionReleaseClock<RoundClock, Rng>
 where
     RoundClock: Stream<Item = Round> + Unpin,
     Rng: rand::Rng + Unpin,
-    ProcessedMessage: Unpin,
 {
-    type Item = Vec<ProcessedMessage>;
+    type Item = ();
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let new_round = match self.round_clock.poll_next_unpin(cx) {
@@ -148,10 +124,8 @@ where
                 self.maximum_release_delay_in_rounds,
                 &mut self.rng,
             );
-            // Return the unreleased messages and clear the buffer.
-            let messages = mem::take(&mut self.unreleased_messages);
             debug!(target: LOG_TARGET, "Round {new_round} is a release round.");
-            return Poll::Ready(Some(messages));
+            return Poll::Ready(Some(()));
         }
         trace!(target: LOG_TARGET, "Round {new_round} is not a release round.");
         // Awake to trigger a new round clock tick.
@@ -173,21 +147,20 @@ mod tests {
     use core::task::{Context, Poll};
     use std::num::NonZeroU64;
 
-    use futures::{StreamExt as _, io::empty, task::noop_waker_ref};
+    use futures::{StreamExt as _, task::noop_waker_ref};
     use nomos_utils::blake_rng::BlakeRng;
     use rand::SeedableRng as _;
     use tokio_stream::iter;
 
-    use crate::release_delayer::SessionProcessedMessageDelayer;
+    use crate::release_delayer::SessionReleaseClock;
 
     #[test]
     fn poll_none_on_unscheduled_round() {
-        let mut delayer = SessionProcessedMessageDelayer::<_, _, ()> {
+        let mut delayer = SessionReleaseClock {
             maximum_release_delay_in_rounds: NonZeroU64::new(3).expect("Non-zero usize"),
             next_release_round: 1u128.into(),
             rng: BlakeRng::from_entropy(),
             round_clock: iter([0u128]).map(Into::into),
-            unreleased_messages: vec![],
         };
         let mut cx = Context::from_waker(noop_waker_ref());
 
@@ -197,53 +170,18 @@ mod tests {
     }
 
     #[test]
-    fn poll_empty_on_scheduled_round_with_empty_queue() {
-        let mut delayer = SessionProcessedMessageDelayer::<_, _, ()> {
+    fn poll_some_on_scheduled_round() {
+        let mut delayer = SessionReleaseClock {
             maximum_release_delay_in_rounds: NonZeroU64::new(3).expect("Non-zero usize"),
             next_release_round: 1u128.into(),
             rng: BlakeRng::from_entropy(),
             round_clock: iter([1u128]).map(Into::into),
-            unreleased_messages: vec![],
         };
         let mut cx = Context::from_waker(noop_waker_ref());
 
-        assert_eq!(delayer.poll_next_unpin(&mut cx), Poll::Ready(Some(vec![])));
+        assert_eq!(delayer.poll_next_unpin(&mut cx), Poll::Ready(Some(())));
         // Check that next release round has been updated with an offset in the
         // expected range [1, 3], so the new value must be in the range [2, 4].
         assert!((2..=4).contains(&delayer.next_release_round.inner()));
-    }
-
-    #[test]
-    fn poll_non_empty_on_scheduled_round_with_non_empty_queue() {
-        let mut delayer = SessionProcessedMessageDelayer::<_, _, ()> {
-            maximum_release_delay_in_rounds: NonZeroU64::new(3).expect("Non-zero usize"),
-            next_release_round: 1u128.into(),
-            rng: BlakeRng::from_entropy(),
-            round_clock: iter([1u128]).map(Into::into),
-            unreleased_messages: vec![()],
-        };
-        let mut cx = Context::from_waker(noop_waker_ref());
-
-        assert_eq!(
-            delayer.poll_next_unpin(&mut cx),
-            Poll::Ready(Some(vec![()]))
-        );
-        // Check that next release round has been updated with an offset in the
-        // expected range [1, 3], so the new value must be in the range [2, 4].
-        assert!((2..=4).contains(&delayer.next_release_round.inner()));
-    }
-
-    #[test]
-    fn add_message_to_queue() {
-        let mut delayer = SessionProcessedMessageDelayer::<_, _, bool> {
-            maximum_release_delay_in_rounds: NonZeroU64::new(3).expect("Non-zero usize"),
-            next_release_round: 1u128.into(),
-            rng: BlakeRng::from_entropy(),
-            round_clock: empty(),
-            unreleased_messages: vec![],
-        };
-        delayer.schedule_message(true);
-        // Check that the new message was added to the queue.
-        assert_eq!(delayer.unreleased_messages, vec![true]);
     }
 }

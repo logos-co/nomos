@@ -16,7 +16,7 @@ use crate::{
         session_info::SessionInfo,
         utils::setup_new_session,
     },
-    release_delayer::SessionProcessedMessageDelayer,
+    release_delayer::SessionReleaseClock,
 };
 
 pub mod round_info;
@@ -37,7 +37,7 @@ pub struct MessageScheduler<SessionClock, Rng, ProcessedMessage> {
     cover_traffic: SessionCoverTraffic<RoundClock>,
     /// The module responsible for delaying the release of processed messages
     /// that have not been fully decapsulated.
-    release_delayer: SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage>,
+    release_delayer: SessionReleaseClock<RoundClock, Rng, ProcessedMessage>,
     /// The multi-consumer stream forked on each sub-stream.
     round_clock: RoundClock,
     /// The input stream that ticks upon a session change.
@@ -70,14 +70,13 @@ where
             &mut rng,
             Box::new(empty()) as RoundClock,
         );
-        let mut initial_release_delayer =
-            SessionProcessedMessageDelayer::<_, _, ProcessedMessage>::new(
-                crate::release_delayer::Settings {
-                    maximum_release_delay_in_rounds: settings.maximum_release_delay_in_rounds,
-                },
-                rng.clone(),
-                Box::new(empty()) as RoundClock,
-            );
+        let mut initial_release_delayer = SessionReleaseClock::<_, _, ProcessedMessage>::new(
+            crate::release_delayer::Settings {
+                maximum_release_delay_in_rounds: settings.maximum_release_delay_in_rounds,
+            },
+            rng.clone(),
+            Box::new(empty()) as RoundClock,
+        );
         let mut initial_round_clock = Box::new(empty()) as RoundClock;
 
         setup_new_session(
@@ -121,7 +120,7 @@ impl<SessionClock, Rng, ProcessedMessage> MessageScheduler<SessionClock, Rng, Pr
     #[cfg(test)]
     pub fn with_test_values(
         cover_traffic: SessionCoverTraffic<RoundClock>,
-        release_delayer: SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage>,
+        release_delayer: SessionReleaseClock<RoundClock, Rng, ProcessedMessage>,
         round_clock: RoundClock,
         session_clock: SessionClock,
     ) -> Self {

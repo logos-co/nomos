@@ -16,7 +16,7 @@ use crate::{
         round_info::{Round, RoundInfo},
         session_info::SessionInfo,
     },
-    release_delayer::SessionProcessedMessageDelayer,
+    release_delayer::SessionReleaseClock,
 };
 
 #[tokio::test]
@@ -31,7 +31,7 @@ async fn no_substream_ready() {
             0,
         ),
         // Round `1` scheduled, tick will yield round `0`.
-        SessionProcessedMessageDelayer::with_test_values(
+        SessionReleaseClock::with_test_values(
             NonZeroU64::try_from(1).unwrap(),
             1u128.into(),
             rng,
@@ -62,7 +62,7 @@ async fn cover_traffic_substream_ready() {
             0,
         ),
         // Round `1` scheduled, tick will yield round `0`.
-        SessionProcessedMessageDelayer::with_test_values(
+        SessionReleaseClock::with_test_values(
             NonZeroU64::try_from(1).unwrap(),
             1u128.into(),
             rng,
@@ -98,7 +98,7 @@ async fn release_delayer_substream_ready() {
             0,
         ),
         // Round `0` scheduled, tick will yield round `0`.
-        SessionProcessedMessageDelayer::with_test_values(
+        SessionReleaseClock::with_test_values(
             NonZeroU64::try_from(1).unwrap(),
             0u128.into(),
             rng,
@@ -134,7 +134,7 @@ async fn both_substreams_ready() {
             0,
         ),
         // Round `0` scheduled, tick will yield round `0`.
-        SessionProcessedMessageDelayer::with_test_values(
+        SessionReleaseClock::with_test_values(
             NonZeroU64::try_from(1).unwrap(),
             0u128.into(),
             rng,
@@ -171,7 +171,7 @@ async fn round_change() {
             0,
         ),
         // Round `2` scheduled, tick will yield round `0` then round `1`, then round `2`.
-        SessionProcessedMessageDelayer::with_test_values(
+        SessionReleaseClock::with_test_values(
             NonZeroU64::try_from(1).unwrap(),
             2u128.into(),
             rng,
@@ -218,7 +218,7 @@ async fn session_change() {
             // One data message to process.
             1,
         ),
-        SessionProcessedMessageDelayer::with_test_values(
+        SessionReleaseClock::with_test_values(
             NonZeroU64::try_from(1).unwrap(),
             2u128.into(),
             rng,

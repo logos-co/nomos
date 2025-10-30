@@ -7,14 +7,14 @@ use tracing::trace;
 use crate::{
     cover_traffic::SessionCoverTraffic,
     message_scheduler::{LOG_TARGET, Settings, round_info::RoundClock, session_info::SessionInfo},
-    release_delayer::SessionProcessedMessageDelayer,
+    release_delayer::SessionReleaseClock,
 };
 
 /// Reset the sub-streams providing the new session info and the round clock at
 /// the beginning of a new session.
 pub(super) fn setup_new_session<Rng, ProcessedMessage>(
     cover_traffic: &mut SessionCoverTraffic<RoundClock>,
-    release_delayer: &mut SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage>,
+    release_delayer: &mut SessionReleaseClock<RoundClock, Rng, ProcessedMessage>,
     round_clock: &mut RoundClock,
     settings: Settings,
     mut rng: Rng,
@@ -70,11 +70,11 @@ pub(super) fn instantiate_new_message_delayer<Rng, ProcessedMessage>(
     rng: Rng,
     round_clock: RoundClock,
     settings: &Settings,
-) -> SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage>
+) -> SessionReleaseClock<RoundClock, Rng, ProcessedMessage>
 where
     Rng: rand::Rng,
 {
-    SessionProcessedMessageDelayer::new(
+    SessionReleaseClock::new(
         crate::release_delayer::Settings {
             maximum_release_delay_in_rounds: settings.maximum_release_delay_in_rounds,
         },
