@@ -5,6 +5,7 @@ use nomos_core::{
     block::Block,
     da,
     mantle::{AuthenticatedMantleTx, Op},
+    sdp::SessionNumber,
 };
 use nomos_da_sampling::DaSamplingServiceMsg;
 use nomos_time::TimeServiceMessage;
@@ -42,7 +43,11 @@ impl<S: Strategy + Sync> Validation<S> {
     /// If the block is outside the blob validation window, which is calculated
     /// based on the current slot and the consensus base period length,
     /// no validation is performed and `Ok(())` is returned.
-    pub async fn validate<Tx>(&self, block: &Block<Tx>) -> Result<(), Error>
+    pub async fn validate<Tx>(
+        &self,
+        block: &Block<Tx>,
+        active_session_number_before_block: SessionNumber,
+    ) -> Result<(), Error>
     where
         Tx: AuthenticatedMantleTx + Sync,
     {
@@ -54,7 +59,12 @@ impl<S: Strategy + Sync> Validation<S> {
             return Ok(());
         }
 
-        S::validate(block, &self.sampling_relay).await
+        S::validate(
+            block,
+            active_session_number_before_block,
+            &self.sampling_relay,
+        )
+        .await
     }
 }
 
@@ -84,6 +94,7 @@ const fn blob_validation_window_in_slots(consensus_base_period_length: NonZero<u
 pub trait Strategy {
     async fn validate<Tx>(
         block: &Block<Tx>,
+        active_session_number_before_block: SessionNumber,
         sampling_relay: &SamplingRelay<da::BlobId>,
     ) -> Result<(), Error>
     where
@@ -99,6 +110,7 @@ pub struct RecentBlobStrategy;
 impl Strategy for RecentBlobStrategy {
     async fn validate<Tx>(
         block: &Block<Tx>,
+        _active_session_number_before_block: SessionNumber,
         sampling_relay: &SamplingRelay<da::BlobId>,
     ) -> Result<(), Error>
     where
@@ -106,17 +118,7 @@ impl Strategy for RecentBlobStrategy {
     {
         debug!(target = LOG_TARGET, "Validating recent blobs");
         let sampled_blobs = get_sampled_blobs(sampling_relay).await?;
-        let all_blobs_sampled = block
-            .transactions()
-            .flat_map(|tx| tx.mantle_tx().ops.iter())
-            .filter_map(|op| {
-                if let Op::ChannelBlob(op) = op {
-                    Some(op.blob)
-                } else {
-                    None
-                }
-            })
-            .all(|blob| sampled_blobs.contains(&blob));
+        let all_blobs_sampled = blobs_in_block(block).all(|blob| sampled_blobs.contains(&blob));
         if all_blobs_sampled {
             Ok(())
         } else {
@@ -133,15 +135,21 @@ pub struct HistoricBlobStrategy;
 #[async_trait::async_trait]
 impl Strategy for HistoricBlobStrategy {
     async fn validate<Tx>(
-        _block: &Block<Tx>,
-        _sampling_relay: &SamplingRelay<da::BlobId>,
+        block: &Block<Tx>,
+        active_session_number_before_block: SessionNumber,
+        sampling_relay: &SamplingRelay<da::BlobId>,
     ) -> Result<(), Error>
     where
         Tx: AuthenticatedMantleTx + Sync,
     {
         debug!(target = LOG_TARGET, "Validating historic blobs");
-        // TODO: trigger historic sampling and wait for completion: https://github.com/logos-co/nomos/issues/1838
-        Ok(())
+        if request_historic_sampling(sampling_relay, block, active_session_number_before_block)
+            .await?
+        {
+            Ok(())
+        } else {
+            Err(Error::InvalidBlobs)
+        }
     }
 }
 
@@ -170,6 +178,43 @@ where
         .await
         .map_err(|(e, _)| e)?;
     Ok(receiver.await?)
+}
+
+async fn request_historic_sampling<Tx>(
+    sampling_relay: &SamplingRelay<da::BlobId>,
+    block: &Block<Tx>,
+    active_session_number_before_block: SessionNumber,
+) -> Result<bool, Error>
+where
+    Tx: AuthenticatedMantleTx + Sync,
+{
+    let (reply_sender, reply_receiver) = oneshot::channel();
+    sampling_relay
+        .send(DaSamplingServiceMsg::RequestHistoricSampling {
+            session_id: active_session_number_before_block,
+            block_id: block.header().id(),
+            blob_ids: blobs_in_block(block).collect(),
+            reply_channel: reply_sender,
+        })
+        .await
+        .map_err(|(e, _)| e)?;
+    Ok(reply_receiver.await?)
+}
+
+fn blobs_in_block<Tx>(block: &Block<Tx>) -> impl Iterator<Item = da::BlobId>
+where
+    Tx: AuthenticatedMantleTx + Sync,
+{
+    block
+        .transactions()
+        .flat_map(|tx| tx.mantle_tx().ops.iter())
+        .filter_map(|op| {
+            if let Op::ChannelBlob(op) = op {
+                Some(op.blob)
+            } else {
+                None
+            }
+        })
 }
 
 #[cfg(test)]
