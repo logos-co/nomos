@@ -139,6 +139,9 @@ da_sampling:
   commitments_wait_duration:
     secs: 2
     nanos: 0
+  sdp_blob_trigger_sampling_delay:
+    secs: 2
+    nanos: 0
 http:
   backend_settings:
     address: 127.0.0.1:8722
