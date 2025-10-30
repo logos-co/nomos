@@ -784,7 +784,7 @@ where
                         }
                     }
 
-                     Some(blob_id) = blob_stream.next() => {
+                    Some(blob_id) = blob_stream.next() => {
                         Self::handle_incoming_blob(
                             blob_id,
                             sdp_blob_trigger_sampling_delay,
