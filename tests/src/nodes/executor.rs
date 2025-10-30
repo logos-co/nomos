@@ -480,6 +480,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
             },
             subnet_refresh_interval: config.da_config.subnets_refresh_interval,
             subnet_threshold: config.da_config.num_subnets as usize,
+            min_session_members: config.da_config.num_subnets as usize,
         },
         da_verifier: DaVerifierServiceSettings {
             share_verifier_settings: KzgrsDaVerifierSettings {
