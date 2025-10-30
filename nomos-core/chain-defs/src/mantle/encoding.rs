@@ -260,7 +260,7 @@ fn decode_leader_claim(input: &[u8]) -> IResult<&[u8], LeaderClaimOp> {
 // ==============================================================================
 
 fn decode_note(input: &[u8]) -> IResult<&[u8], Note> {
-    // Note = Value PublicKey
+    // Note = Value ZkPublicKey
     let (input, value) = decode_uint64(input)?;
     let (input, pk) = decode_zk_public_key(input)?;
 
@@ -362,7 +362,7 @@ fn decode_dummy_zk_signature(input: &[u8]) -> IResult<&[u8], DummyZkSignature> {
 }
 
 fn decode_zk_public_key(input: &[u8]) -> IResult<&[u8], PublicKey> {
-    // PublicKey = FieldElement
+    // ZkPublicKey = FieldElement
     map(decode_field_element, PublicKey::new).parse(input)
 }
 
