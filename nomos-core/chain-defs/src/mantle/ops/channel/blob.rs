@@ -6,12 +6,16 @@ pub(crate) const DA_COLUMNS: u64 = 1024;
 pub(crate) const DA_ELEMENT_SIZE: u64 = 32;
 
 use super::{ChannelId, Ed25519PublicKey, MsgId};
-use crate::{crypto::Digest as _, da::BlobId, mantle::gas::Gas, utils::ed25519_serde::Ed25519Hex};
+use crate::{
+    crypto::Digest as _, da::BlobId, mantle::gas::Gas, sdp::SessionNumber,
+    utils::ed25519_serde::Ed25519Hex,
+};
 
 #[serde_as]
 #[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct BlobOp {
     pub channel: ChannelId,
+    pub current_session: SessionNumber,
     pub blob: BlobId,
     pub blob_size: u64,
     pub da_storage_gas_price: Gas,

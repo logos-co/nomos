@@ -200,9 +200,12 @@ where
                     } = dispersal_msg;
                     match backend.process_dispersal(
                         tx_builder,
-                        channel_id,
-                        parent_msg_id,
-                        signer,
+                        backend::InitialBlobOpArgs {
+                            channel_id,
+                            current_session: 0u64,
+                            parent_msg_id,
+                            signer,
+                        },
                         data,
                         reply_channel,
                     )

@@ -3,16 +3,14 @@ use std::convert::Infallible;
 use ed25519::signature::Signer as _;
 use ed25519_dalek::SigningKey;
 use nomos_core::{
-    da::BlobId,
     mantle::{
-        Op, OpProof, SignedMantleTx, Transaction as _,
-        ops::channel::{ChannelId, Ed25519PublicKey, MsgId, blob::BlobOp},
+        Op, OpProof, SignedMantleTx, Transaction as _, ops::channel::blob::BlobOp,
         tx_builder::MantleTxBuilder,
     },
     proofs::zksig::{DummyZkSignature, ZkSignaturePublic},
 };
 
-use super::DaWalletAdapter;
+use super::{BlobOpArgs, DaWalletAdapter};
 
 pub struct MockWalletAdapter;
 
@@ -26,16 +24,20 @@ impl DaWalletAdapter for MockWalletAdapter {
     fn blob_tx(
         &self,
         tx_builder: MantleTxBuilder,
-        channel_id: ChannelId,
-        parent_msg_id: MsgId,
-        blob_id: BlobId,
-        blob_size: usize,
-        _signer: Ed25519PublicKey,
+        blob_op_args: BlobOpArgs,
     ) -> Result<SignedMantleTx, Self::Error> {
         // TODO: This mock implementation targets to only work with integration tests.
         // When integration tests genesis_state changes, this part should be updated, or
         // removed all together after an actual wallet service can create signed mantle
         // transaction with blob operation.
+        let BlobOpArgs {
+            channel_id,
+            current_session,
+            parent_msg_id,
+            blob_id,
+            blob_size,
+            ..
+        } = blob_op_args;
 
         // Hardcoded signing key for testing (matches the all-zeros key expected in
         // tests) TODO: In production, this should come from a key management
@@ -45,6 +47,7 @@ impl DaWalletAdapter for MockWalletAdapter {
 
         let blob_op = BlobOp {
             channel: channel_id,
+            current_session,
             blob: blob_id,
             blob_size: blob_size as u64,
             da_storage_gas_price: 3000,

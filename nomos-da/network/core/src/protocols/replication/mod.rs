@@ -337,6 +337,7 @@ mod test {
 
         let base_op = Op::ChannelBlob(BlobOp {
             channel: ChannelId::from([2; 32]),
+            current_session: 0u64,
             blob: [0u8; 32],
             blob_size: 0,
             da_storage_gas_price: 0,
