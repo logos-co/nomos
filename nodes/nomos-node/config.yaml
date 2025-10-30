@@ -140,7 +140,7 @@ da_sampling:
     secs: 2
     nanos: 0
   sdp_blob_trigger_sampling_delay:
-    secs: 2
+    secs: 5
     nanos: 0
 http:
   backend_settings:
