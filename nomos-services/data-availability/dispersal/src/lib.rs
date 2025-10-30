@@ -4,13 +4,19 @@ use std::{
     time::Duration,
 };
 
-use adapters::wallet::{DaWalletAdapter, mock::MockWalletAdapter};
+use adapters::{
+    session::service::BroadcastSessionAdapter,
+    wallet::{DaWalletAdapter, mock::MockWalletAdapter},
+};
 use backend::DispersalTask;
 use futures::{StreamExt as _, stream::FuturesUnordered};
-use nomos_core::mantle::{
-    Transaction as _,
-    ops::channel::{ChannelId, Ed25519PublicKey, MsgId},
-    tx_builder::MantleTxBuilder,
+use nomos_core::{
+    mantle::{
+        Transaction as _,
+        ops::channel::{ChannelId, Ed25519PublicKey, MsgId},
+        tx_builder::MantleTxBuilder,
+    },
+    sdp::SessionNumber,
 };
 use nomos_da_network_core::{PeerId, SubnetworkId};
 use overwatch::{
@@ -24,13 +30,23 @@ use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use services_utils::wait_until_services_are_ready;
 use subnetworks_assignations::MembershipHandler;
+use thiserror::Error;
 use tokio::sync::oneshot;
 use tracing::error;
 
-use crate::{adapters::network::DispersalNetworkAdapter, backend::DispersalBackend};
+use crate::{
+    adapters::{network::DispersalNetworkAdapter, session::SessionAdapter},
+    backend::DispersalBackend,
+};
 
 pub mod adapters;
 pub mod backend;
+
+#[derive(Error, Debug)]
+pub enum DispersalServiceError {
+    #[error("Current session info is not available")]
+    SessionUnavailable,
+}
 
 #[derive(Debug)]
 pub enum DaDispersalMsg<B: DispersalBackend> {
@@ -56,6 +72,7 @@ pub type DispersalService<Backend, NetworkAdapter, Membership, RuntimeServiceId>
         NetworkAdapter,
         MockWalletAdapter,
         Membership,
+        BroadcastSessionAdapter<RuntimeServiceId>,
         RuntimeServiceId,
     >;
 
@@ -64,6 +81,7 @@ pub struct GenericDispersalService<
     NetworkAdapter,
     WalletAdapter,
     Membership,
+    Session,
     RuntimeServiceId,
 > where
     Membership: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>
@@ -76,18 +94,20 @@ pub struct GenericDispersalService<
     Backend::BlobId: Serialize,
     Backend::Settings: Clone,
     NetworkAdapter: DispersalNetworkAdapter,
+    Session: SessionAdapter,
     WalletAdapter: DaWalletAdapter,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     _backend: PhantomData<Backend>,
 }
 
-impl<Backend, NetworkAdapter, WalletAdapter, Membership, RuntimeServiceId> ServiceData
+impl<Backend, NetworkAdapter, WalletAdapter, Membership, Session, RuntimeServiceId> ServiceData
     for GenericDispersalService<
         Backend,
         NetworkAdapter,
         WalletAdapter,
         Membership,
+        Session,
         RuntimeServiceId,
     >
 where
@@ -100,6 +120,7 @@ where
     Backend: DispersalBackend<NetworkAdapter = NetworkAdapter>,
     Backend::BlobId: Serialize,
     Backend::Settings: Clone,
+    Session: SessionAdapter,
     NetworkAdapter: DispersalNetworkAdapter,
     WalletAdapter: DaWalletAdapter,
 {
@@ -110,13 +131,14 @@ where
 }
 
 #[async_trait::async_trait]
-impl<Backend, NetworkAdapter, WalletAdapter, Membership, RuntimeServiceId>
+impl<Backend, NetworkAdapter, WalletAdapter, Membership, Session, RuntimeServiceId>
     ServiceCore<RuntimeServiceId>
     for GenericDispersalService<
         Backend,
         NetworkAdapter,
         WalletAdapter,
         Membership,
+        Session,
         RuntimeServiceId,
     >
 where
@@ -133,6 +155,8 @@ where
     Backend::BlobId: Debug + Serialize,
     NetworkAdapter: DispersalNetworkAdapter<SubnetworkId = Membership::NetworkId> + Send,
     <NetworkAdapter::NetworkService as ServiceData>::Message: 'static,
+    Session: SessionAdapter + Send,
+    <Session::Service as ServiceData>::Message: 'static,
     WalletAdapter: DaWalletAdapter + Send,
     RuntimeServiceId: Debug
         + Sync
@@ -140,6 +164,7 @@ where
         + Send
         + AsServiceId<Self>
         + AsServiceId<NetworkAdapter::NetworkService>
+        + AsServiceId<Session::Service>
         + 'static,
 {
     fn init(
@@ -169,8 +194,16 @@ where
             .relay::<NetworkAdapter::NetworkService>()
             .await?;
         let network_adapter = NetworkAdapter::new(network_relay);
+
         let wallet_adapter = WalletAdapter::new();
         let backend = Backend::init(backend_settings, network_adapter, wallet_adapter);
+
+        let session_relay = service_resources_handle
+            .overwatch_handle
+            .relay::<Session::Service>()
+            .await?;
+        let session_adapter = Session::new(session_relay);
+
         let mut inbound_relay = service_resources_handle.inbound_relay;
         let mut disperse_tasks: FuturesUnordered<DispersalTask> = FuturesUnordered::new();
 
@@ -183,9 +216,13 @@ where
         wait_until_services_are_ready!(
             &service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
-            NetworkAdapter::NetworkService
+            NetworkAdapter::NetworkService,
+            Session::Service
         )
         .await?;
+
+        let mut sessions_stream = session_adapter.subscribe().await?;
+        let mut current_session: Option<SessionNumber> = None;
 
         loop {
             tokio::select! {
@@ -198,11 +235,17 @@ where
                         data,
                         reply_channel,
                     } = dispersal_msg;
+                    let Some(current_session) = current_session else {
+                        if let Err(e) = reply_channel.send(Err(DispersalServiceError::SessionUnavailable.into())) {
+                        tracing::error!("Failed to send dispersal error: {e:?}");
+                        }
+                        continue
+                    };
                     match backend.process_dispersal(
                         tx_builder,
                         backend::InitialBlobOpArgs {
                             channel_id,
-                            current_session: 0u64,
+                            current_session,
                             parent_msg_id,
                             signer,
                         },
@@ -220,6 +263,9 @@ where
                     } else {
                         tracing::error!("Dispersal failed after all retry attempts");
                     }
+                }
+                Some(new_session) = sessions_stream.next() => {
+                    current_session = Some(new_session);
                 }
             }
         }
