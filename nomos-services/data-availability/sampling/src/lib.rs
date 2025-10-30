@@ -47,6 +47,7 @@ struct PendingTasks<'a> {
     long_tasks: &'a mut FuturesUnordered<BoxFuture<'static, ()>>,
     sampling_continuations:
         &'a mut FuturesUnordered<BoxFuture<'static, (BlobId, Option<DaSharesCommitments>)>>,
+    delayed_sdp_sampling_triggers: &'a mut FuturesUnordered<BoxFuture<'static, BlobId>>,
 }
 
 pub type DaSamplingService<
@@ -92,6 +93,7 @@ pub struct DaSamplingServiceSettings<BackendSettings, ShareVerifierSettings> {
     pub sampling_settings: BackendSettings,
     pub share_verifier_settings: ShareVerifierSettings,
     pub commitments_wait_duration: Duration,
+    pub sdp_blob_trigger_sampling_delay: Option<Duration>,
 }
 
 pub struct GenericDaSamplingService<
@@ -377,27 +379,23 @@ where
         }
     }
 
-    async fn handle_incoming_blob(
+    fn handle_incoming_blob(
         blob_id: BlobId,
-        network_adapter: &mut SamplingNetwork,
-        storage_adapter: &SamplingStorage,
-        sampler: &mut SamplingBackend,
-        commitments_wait_duration: Duration,
-        share_verifier: &ShareVerifier,
-        tasks: &mut PendingTasks<'_>,
+        sdp_blob_trigger_sampling_delay: Option<Duration>,
+        tasks: &PendingTasks<'_>,
     ) {
-        // TODO: Add trigger_sampling_delay here if needed
+        let Some(delay) = sdp_blob_trigger_sampling_delay else {
+            return; // No delay configured, don't trigger sampling
+        };
 
-        Self::handle_service_message(
-            DaSamplingServiceMsg::TriggerSampling { blob_id },
-            network_adapter,
-            storage_adapter,
-            sampler,
-            commitments_wait_duration,
-            share_verifier,
-            tasks,
-        )
-        .await;
+        // Trigger sampling after delay
+        let delayed_future = async move {
+            tokio::time::sleep(delay).await;
+            blob_id
+        }
+        .boxed();
+
+        tasks.delayed_sdp_sampling_triggers.push(delayed_future);
     }
 
     async fn request_commitments_from_network(
@@ -684,6 +682,7 @@ where
             sampling_settings,
             share_verifier_settings,
             commitments_wait_duration,
+            sdp_blob_trigger_sampling_delay,
         } = service_resources_handle
             .settings_handle
             .notifier()
@@ -732,6 +731,8 @@ where
         let mut blob_stream = mempool_adapter.subscribe().await?;
 
         let mut long_tasks: FuturesUnordered<BoxFuture<'static, ()>> = FuturesUnordered::new();
+        let mut delayed_sdp_sampling_triggers: FuturesUnordered<BoxFuture<'static, BlobId>> =
+            FuturesUnordered::new();
         let mut sampling_continuations: FuturesUnordered<
             BoxFuture<'static, (BlobId, Option<DaSharesCommitments>)>,
         > = FuturesUnordered::new();
@@ -749,6 +750,7 @@ where
                             &mut PendingTasks {
                                 long_tasks: &mut long_tasks,
                                 sampling_continuations: &mut sampling_continuations,
+                                delayed_sdp_sampling_triggers: &mut delayed_sdp_sampling_triggers,
                             }
                         ).await;
                     }
@@ -785,15 +787,27 @@ where
                      Some(blob_id) = blob_stream.next() => {
                         Self::handle_incoming_blob(
                             blob_id,
+                            sdp_blob_trigger_sampling_delay,
+                            &PendingTasks {
+                                long_tasks: &mut long_tasks,
+                                sampling_continuations: &mut sampling_continuations,
+                                delayed_sdp_sampling_triggers: &mut delayed_sdp_sampling_triggers,
+                            }
+                        );
+                    }
+                    Some(blob_id) = delayed_sdp_sampling_triggers.next() => {
+                        Self::handle_service_message(
+                            DaSamplingServiceMsg::TriggerSampling { blob_id },
                             &mut network_adapter,
                             &storage_adapter,
                             &mut sampler,
                             commitments_wait_duration,
                             &share_verifier,
                             &mut PendingTasks {
-                                long_tasks: &mut long_tasks,
-                                sampling_continuations: &mut sampling_continuations,
-                            }
+                                    long_tasks: &mut long_tasks,
+                                    sampling_continuations: &mut sampling_continuations,
+                                    delayed_sdp_sampling_triggers: &mut delayed_sdp_sampling_triggers,
+                                }
                         ).await;
                     }
                     // Process completed long tasks (they just run to completion)

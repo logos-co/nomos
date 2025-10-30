@@ -521,6 +521,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                 domain_size: config.da_config.num_subnets as usize,
             },
             commitments_wait_duration: Duration::from_secs(1),
+            sdp_blob_trigger_sampling_delay: None,
         },
         storage: RocksBackendSettings {
             db_path: "./db".into(),
