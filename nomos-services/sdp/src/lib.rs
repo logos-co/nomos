@@ -1,7 +1,7 @@
 pub mod adapters;
 pub mod backends;
 
-use std::{collections::BTreeSet, fmt::Display, marker::PhantomData, pin::Pin};
+use std::{collections::BTreeSet, fmt::Display, marker::PhantomData, pin::Pin, time::Duration};
 
 use async_trait::async_trait;
 use backends::{SdpBackend, SdpBackendError};
@@ -22,11 +22,14 @@ use overwatch::{
     },
 };
 use serde::{Deserialize, Serialize};
-use tokio::sync::{broadcast, oneshot};
+use tokio::{
+    sync::{broadcast, oneshot},
+    time::timeout,
+};
 use tokio_stream::wrappers::BroadcastStream;
 
 use crate::adapters::{
-    mempool::{SdpMempoolAdapter as _, mock::MockMempoolAdapter},
+    mempool::SdpMempoolAdapter as SdpMempoolAdapterTrait,
     wallet::{SdpWalletAdapter as _, mock::MockWalletAdapter},
 };
 
@@ -87,7 +90,7 @@ pub enum SdpMessage {
     },
 }
 
-pub struct SdpService<Backend, RuntimeServiceId> {
+pub struct SdpService<Backend, SdpMempoolAdapter, RuntimeServiceId> {
     backend: PhantomData<Backend>,
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     finalized_update_tx: broadcast::Sender<BlockEvent>,
@@ -95,7 +98,9 @@ pub struct SdpService<Backend, RuntimeServiceId> {
     nonce: u64,
 }
 
-impl<Backend, RuntimeServiceId> ServiceData for SdpService<Backend, RuntimeServiceId> {
+impl<Backend, SdpMempoolAdapter, RuntimeServiceId> ServiceData
+    for SdpService<Backend, SdpMempoolAdapter, RuntimeServiceId>
+{
     type Settings = SdpSettings;
     type State = NoState<Self::Settings>;
     type StateOperator = NoOperator<Self::State>;
@@ -103,10 +108,11 @@ impl<Backend, RuntimeServiceId> ServiceData for SdpService<Backend, RuntimeServi
 }
 
 #[async_trait]
-impl<Backend, RuntimeServiceId> ServiceCore<RuntimeServiceId>
-    for SdpService<Backend, RuntimeServiceId>
+impl<Backend, SdpMempoolAdapter, RuntimeServiceId> ServiceCore<RuntimeServiceId>
+    for SdpService<Backend, SdpMempoolAdapter, RuntimeServiceId>
 where
     Backend: SdpBackend + Send + Sync + 'static,
+    SdpMempoolAdapter: SdpMempoolAdapterTrait<RuntimeServiceId> + Send + Sync + 'static,
     RuntimeServiceId: AsServiceId<Self> + Clone + Display + Send + Sync + 'static,
 {
     fn init(
@@ -137,7 +143,13 @@ where
         );
 
         let wallet_adapter = MockWalletAdapter::new();
-        let mempool_adapter = MockMempoolAdapter::new();
+
+        let mempool_adapter = timeout(
+            Duration::from_secs(3),
+            SdpMempoolAdapter::new(&self.service_resources_handle.overwatch_handle),
+        )
+        .await
+        .map_err(|_| "Mempool adapter initialization failed")??;
 
         while let Some(msg) = self.service_resources_handle.inbound_relay.recv().await {
             match msg {
@@ -179,16 +191,18 @@ where
     }
 }
 
-impl<Backend, RuntimeServiceId> SdpService<Backend, RuntimeServiceId>
+impl<Backend, SdpMempoolAdapter, RuntimeServiceId>
+    SdpService<Backend, SdpMempoolAdapter, RuntimeServiceId>
 where
     Backend: SdpBackend + Send + Sync + 'static,
+    SdpMempoolAdapter: SdpMempoolAdapterTrait<RuntimeServiceId> + Send + Sync + 'static,
     RuntimeServiceId: AsServiceId<Self> + Clone + Display + Send + Sync + 'static,
 {
     async fn handle_post_declaration(
         &self,
         declaration: Box<DeclarationMessage>,
         wallet_adapter: &MockWalletAdapter,
-        mempool_adapter: &MockMempoolAdapter,
+        mempool_adapter: &SdpMempoolAdapter,
         reply_channel: oneshot::Sender<Result<DeclarationId, DynError>>,
     ) {
         let tx_builder = MantleTxBuilder::new();
@@ -215,7 +229,7 @@ where
         &mut self,
         metadata: ActivityMetadata,
         wallet_adapter: &MockWalletAdapter,
-        mempool_adapter: &MockMempoolAdapter,
+        mempool_adapter: &SdpMempoolAdapter,
     ) {
         // Check if we have a declaration_id
         let Some(ref declaration) = self.current_declaration else {
@@ -254,7 +268,7 @@ where
         &mut self,
         declaration_id: DeclarationId,
         wallet_adapter: &MockWalletAdapter,
-        mempool_adapter: &MockMempoolAdapter,
+        mempool_adapter: &SdpMempoolAdapter,
     ) {
         if let Err(e) = self.validate_withdrawal(&declaration_id) {
             tracing::error!("{}", e);

@@ -4,7 +4,10 @@ use std::{
 };
 
 use async_trait::async_trait;
-use nomos_sdp::{SdpMessage, SdpService, backends::SdpBackend};
+use nomos_sdp::{
+    SdpMessage, SdpService, adapters::mempool::SdpMempoolAdapter as SdpMempoolAdapterTrait,
+    backends::SdpBackend,
+};
 use overwatch::{
     overwatch::OverwatchHandle,
     services::{AsServiceId, relay::OutboundRelay},
@@ -15,20 +18,21 @@ use crate::{
     sdp::{SdpAdapter, SdpAdapterError},
 };
 
-pub struct SdpServiceAdapter<Backend, RuntimeServiceId>
+pub struct SdpServiceAdapter<Backend, SdpMempoolAdapter, RuntimeServiceId>
 where
     Backend: SdpBackend + Send + Sync + 'static,
 {
     relay: OutboundRelay<SdpMessage>,
-    _phantom: PhantomData<(Backend, RuntimeServiceId)>,
+    _phantom: PhantomData<(Backend, SdpMempoolAdapter, RuntimeServiceId)>,
 }
 
 #[async_trait]
-impl<Backend, RuntimeServiceId> SdpAdapter<RuntimeServiceId>
-    for SdpServiceAdapter<Backend, RuntimeServiceId>
+impl<Backend, SdpMempoolAdapter, RuntimeServiceId> SdpAdapter<RuntimeServiceId>
+    for SdpServiceAdapter<Backend, SdpMempoolAdapter, RuntimeServiceId>
 where
     Backend: SdpBackend + Send + Sync + 'static,
-    RuntimeServiceId: AsServiceId<SdpService<Backend, RuntimeServiceId>>
+    SdpMempoolAdapter: SdpMempoolAdapterTrait<RuntimeServiceId> + Send + Sync + 'static,
+    RuntimeServiceId: AsServiceId<SdpService<Backend, SdpMempoolAdapter, RuntimeServiceId>>
         + Send
         + Sync
         + Debug
@@ -39,7 +43,7 @@ where
         overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
     ) -> Result<Self, SdpAdapterError> {
         let relay = overwatch_handle
-            .relay::<SdpService<Backend, RuntimeServiceId>>()
+            .relay::<SdpService<Backend, SdpMempoolAdapter, RuntimeServiceId>>()
             .await
             .map_err(|e| SdpAdapterError::Other(Box::new(e)))?;
 

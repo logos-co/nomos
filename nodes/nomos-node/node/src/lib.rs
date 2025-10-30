@@ -88,7 +88,7 @@ pub(crate) type DaSamplingAdapter = SamplingLibp2pAdapter<
     DaMembershipAdapter<RuntimeServiceId>,
     DaMembershipStorage,
     DaNetworkApiAdapter,
-    SdpServiceAdapterGeneric<RuntimeServiceId>,
+    SdpServiceAdapterGeneric<DaSamplingAdapter, RuntimeServiceId>,
     RuntimeServiceId,
 >;
 
@@ -106,7 +106,7 @@ pub(crate) type DaVerifierService = generic_services::DaVerifierService<
         DaMembershipAdapter<RuntimeServiceId>,
         DaMembershipStorage,
         DaNetworkApiAdapter,
-        SdpServiceAdapterGeneric<RuntimeServiceId>,
+        SdpServiceAdapterGeneric<DaSamplingAdapter, RuntimeServiceId>,
         RuntimeServiceId,
     >,
     VerifierMempoolAdapter<DaNetworkAdapter, RuntimeServiceId>,
@@ -122,7 +122,7 @@ pub(crate) type DaNetworkService = nomos_da_network_service::NetworkService<
     DaMembershipAdapter<RuntimeServiceId>,
     DaMembershipStorage,
     DaNetworkApiAdapter,
-    SdpServiceAdapterGeneric<RuntimeServiceId>,
+    SdpServiceAdapterGeneric<DaSamplingAdapter, RuntimeServiceId>,
     RuntimeServiceId,
 >;
 
@@ -134,7 +134,7 @@ pub(crate) type DaNetworkAdapter = nomos_da_sampling::network::adapters::validat
     DaMembershipAdapter<RuntimeServiceId>,
     DaMembershipStorage,
     DaNetworkApiAdapter,
-    SdpServiceAdapterGeneric<RuntimeServiceId>,
+    SdpServiceAdapterGeneric<DaSamplingAdapter, RuntimeServiceId>,
     RuntimeServiceId,
 >;
 
@@ -170,7 +170,7 @@ pub(crate) type ApiService = nomos_api::ApiService<
             DaMembershipAdapter<RuntimeServiceId>,
             DaMembershipStorage,
             DaNetworkApiAdapter,
-            SdpServiceAdapterGeneric<RuntimeServiceId>,
+            SdpServiceAdapterGeneric<DaSamplingAdapter, RuntimeServiceId>,
             RuntimeServiceId,
         >,
         VerifierStorageAdapter<DaShare, DaStorageConverter>,
@@ -181,14 +181,14 @@ pub(crate) type ApiService = nomos_api::ApiService<
             DaMembershipAdapter<RuntimeServiceId>,
             DaMembershipStorage,
             DaNetworkApiAdapter,
-            SdpServiceAdapterGeneric<RuntimeServiceId>,
+            SdpServiceAdapterGeneric<DaSamplingAdapter, RuntimeServiceId>,
             RuntimeServiceId,
         >,
         SamplingStorageAdapter<DaShare, DaStorageConverter>,
         VerifierMempoolAdapter<DaNetworkAdapter, RuntimeServiceId>,
         NtpTimeBackend,
         DaNetworkApiAdapter,
-        SdpServiceAdapterGeneric<RuntimeServiceId>,
+        SdpServiceAdapterGeneric<DaSamplingAdapter, RuntimeServiceId>,
         ApiStorageAdapter<RuntimeServiceId>,
         RocksStorageAdapter<SignedMantleTx, TxHash>,
     >,

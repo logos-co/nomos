@@ -21,9 +21,13 @@ use nomos_storage::backends::rocksdb::RocksBackend;
 use nomos_time::backends::NtpTimeBackend;
 use tx_service::{backend::pool::Mempool, storage::adapters::rocksdb::RocksStorageAdapter};
 
-use crate::{MB16, generic_services::blend::BlendService};
+use crate::{
+    MB16,
+    generic_services::{blend::BlendService, sdp::SdpTxPublisher},
+};
 
 pub mod blend;
+pub mod sdp;
 
 pub type TxMempoolService<SamplingNetworkAdapter, RuntimeServiceId> = tx_service::TxMempoolService<
     tx_service::network::adapters::libp2p::Libp2pAdapter<
@@ -135,9 +139,17 @@ pub type CryptarchiaLeaderService<Cryptarchia, Wallet, SamplingAdapter, RuntimeS
 
 pub type DaMembershipAdapter<RuntimeServiceId> = MembershipServiceAdapter<RuntimeServiceId>;
 
-pub type SdpService<RuntimeServiceId> = nomos_sdp::SdpService<MockSdpBackend, RuntimeServiceId>;
-pub type SdpServiceAdapterGeneric<RuntimeServiceId> =
-    SdpServiceAdapter<MockSdpBackend, RuntimeServiceId>;
+pub type SdpService<SamplingAdapter, RuntimeServiceId> = nomos_sdp::SdpService<
+    MockSdpBackend,
+    SdpTxPublisher<SamplingAdapter, RuntimeServiceId>,
+    RuntimeServiceId,
+>;
+
+pub type SdpServiceAdapterGeneric<SamplingAdapter, RuntimeServiceId> = SdpServiceAdapter<
+    MockSdpBackend,
+    SdpTxPublisher<SamplingAdapter, RuntimeServiceId>,
+    RuntimeServiceId,
+>;
 
 pub type DaMembershipStorageGeneric<RuntimeServiceId> =
     RocksAdapter<RocksBackend, RuntimeServiceId>;
