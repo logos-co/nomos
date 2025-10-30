@@ -40,15 +40,18 @@ use nomos_storage::{StorageService, api::da::DaConverter, backends::rocksdb::Roc
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use subnetworks_assignations::MembershipHandler;
+use tokio_stream::StreamExt as _;
 use tx_service::{
     TxMempoolService, backend::Mempool,
     network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
 };
 #[cfg(feature = "block-explorer")]
 use {
-    crate::api::queries::BlockRangeQuery,
+    crate::api::{queries::BlockRangeQuery, serializers::blocks::ApiBlock},
     chain_service::ConsensusMsg,
-    nomos_core::{block::Block, mantle::TxHash},
+    futures::FutureExt as _,
+    nomos_api::http::DynError,
+    nomos_core::block::Block,
     nomos_libp2p::libp2p::bytes::Bytes,
     nomos_storage::api::chain::StorageChainApi,
     overwatch::services::ServiceData,
@@ -1025,23 +1028,15 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn blocks<Transaction, StorageBackend, RuntimeServiceId>(
+pub async fn blocks<StorageBackend, RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
     Query(query): Query<BlockRangeQuery>,
 ) -> Response
 where
-    Transaction: Clone
-        + Eq
-        + Serialize
-        + DeserializeOwned
-        + Send
-        + Sync
-        + 'static
-        + nomos_core::mantle::Transaction<Hash = TxHash>,
     StorageBackend: nomos_storage::backends::StorageBackend + Send + Sync + 'static, /* TODO: StorageChainApi */
     StorageBackend::Block: Serialize,
     <StorageBackend as StorageChainApi>::Block:
-        TryFrom<Block<Transaction>> + TryInto<Block<Transaction>>,
+        TryFrom<Block<SignedMantleTx>> + TryInto<Block<SignedMantleTx>>,
     <StorageBackend as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
     RuntimeServiceId: Debug
         + Sync
@@ -1049,7 +1044,11 @@ where
         + 'static
         + AsServiceId<StorageService<StorageBackend, RuntimeServiceId>>,
 {
-    make_request_and_return_response!(mantle::get_blocks(&handle, query.slot_from, query.slot_to))
+    let api_blocks = mantle::get_blocks(&handle, query.slot_from, query.slot_to).map(|blocks| {
+        let api_blocks = blocks?.into_iter().map(ApiBlock::from).collect::<Vec<_>>();
+        Ok::<Vec<ApiBlock>, DynError>(api_blocks)
+    });
+    make_request_and_return_response!(api_blocks)
 }
 
 #[cfg(feature = "block-explorer")]
@@ -1061,24 +1060,16 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn blocks_stream<Transaction, StorageBackend, ConsensusService, RuntimeServiceId>(
+pub async fn blocks_stream<StorageBackend, ConsensusService, RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
 ) -> Response
 where
-    Transaction: Clone
-        + Eq
-        + Serialize
-        + DeserializeOwned
-        + Send
-        + Sync
-        + 'static
-        + nomos_core::mantle::Transaction<Hash = TxHash>,
     StorageBackend: nomos_storage::backends::StorageBackend + Send + Sync + 'static,
     StorageBackend::Block: Serialize,
     <StorageBackend as StorageChainApi>::Block:
-        TryFrom<Block<Transaction>> + TryInto<Block<Transaction>>,
+        TryFrom<Block<SignedMantleTx>> + TryInto<Block<SignedMantleTx>>,
     <StorageBackend as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
-    ConsensusService: ServiceData<Message = ConsensusMsg<Transaction>> + 'static,
+    ConsensusService: ServiceData<Message = ConsensusMsg<SignedMantleTx>> + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Display
@@ -1086,7 +1077,9 @@ where
         + AsServiceId<ConsensusService>
         + AsServiceId<StorageService<StorageBackend, RuntimeServiceId>>,
 {
-    let stream = mantle::get_new_blocks_stream::<_, _, ConsensusService, _>(&handle).await;
+    let stream = mantle::get_new_blocks_stream::<_, _, ConsensusService, _>(&handle)
+        .await
+        .map(|stream| stream.map(ApiBlock::from));
     match stream {
         Ok(stream) => responses::ndjson::from_stream(stream),
         Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),

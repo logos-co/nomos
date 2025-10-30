@@ -572,13 +572,12 @@ where
         let app = app
             .route(
                 paths::BLOCKS,
-                routing::get(blocks::<SignedMantleTx, DaStorageBackend, RuntimeServiceId>),
+                routing::get(blocks::<DaStorageBackend, RuntimeServiceId>),
             )
             .route(
                 paths::BLOCKS_STREAM,
                 routing::get(
                     blocks_stream::<
-                        SignedMantleTx,
                         DaStorageBackend,
                         CryptarchiaConsensus<_, _, _, _, _, _, _, _, _, _>,
                         RuntimeServiceId,
