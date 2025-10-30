@@ -16,7 +16,7 @@ use crate::{
         round_info::{Round, RoundInfo},
         session_info::SessionInfo,
     },
-    release_delayer::SessionReleaseClock,
+    release_clock::SessionReleaseClock,
 };
 
 #[tokio::test]
@@ -235,11 +235,11 @@ async fn session_change() {
         }])),
     );
     assert_eq!(scheduler.cover_traffic.unprocessed_data_messages(), 1);
-    assert_eq!(scheduler.release_delayer.unreleased_messages().len(), 1);
+    assert_eq!(scheduler.release_clock.unreleased_messages().len(), 1);
     let mut cx = Context::from_waker(noop_waker_ref());
 
     // Poll after new session. All the sub-streams should be reset.
     let _ = scheduler.poll_next_unpin(&mut cx);
     assert_eq!(scheduler.cover_traffic.unprocessed_data_messages(), 0);
-    assert_eq!(scheduler.release_delayer.unreleased_messages().len(), 0);
+    assert_eq!(scheduler.release_clock.unreleased_messages().len(), 0);
 }

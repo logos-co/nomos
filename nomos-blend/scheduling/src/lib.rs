@@ -10,5 +10,5 @@ pub use message_scheduler::MessageScheduler;
 pub mod stream;
 
 mod cover_traffic;
-mod release_delayer;
+mod release_clock;
 mod serde;

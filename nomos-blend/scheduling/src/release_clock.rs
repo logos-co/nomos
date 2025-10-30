@@ -152,7 +152,7 @@ mod tests {
     use rand::SeedableRng as _;
     use tokio_stream::iter;
 
-    use crate::release_delayer::SessionReleaseClock;
+    use crate::release_clock::SessionReleaseClock;
 
     #[test]
     fn poll_none_on_unscheduled_round() {

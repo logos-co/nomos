@@ -12,13 +12,15 @@ use tracing::{info, trace};
 use crate::{
     cover_traffic::SessionCoverTraffic,
     message_scheduler::{
+        message_queue::MessageQueue,
         round_info::{RoundClock, RoundInfo},
         session_info::SessionInfo,
         utils::setup_new_session,
     },
-    release_delayer::SessionReleaseClock,
+    release_clock::SessionReleaseClock,
 };
 
+mod message_queue;
 pub mod round_info;
 pub mod session_info;
 mod utils;
@@ -35,15 +37,13 @@ pub struct MessageScheduler<SessionClock, Rng, ProcessedMessage> {
     /// allowed session quota and accounting for data messages generated within
     /// the session.
     cover_traffic: SessionCoverTraffic<RoundClock>,
-    /// The module responsible for delaying the release of processed messages
-    /// that have not been fully decapsulated.
-    release_delayer: SessionReleaseClock<RoundClock, Rng, ProcessedMessage>,
-    /// The multi-consumer stream forked on each sub-stream.
-    round_clock: RoundClock,
+    /// The release clock.
+    release_clock: SessionReleaseClock<RoundClock, Rng>,
     /// The input stream that ticks upon a session change.
     session_clock: SessionClock,
     /// The settings to initialize all the required sub-streams.
     settings: Settings,
+    message_queue: MessageQueue<Rng, ProcessedMessage>,
 }
 
 impl<SessionClock, Rng, ProcessedMessage> MessageScheduler<SessionClock, Rng, ProcessedMessage>
@@ -70,30 +70,28 @@ where
             &mut rng,
             Box::new(empty()) as RoundClock,
         );
-        let mut initial_release_delayer = SessionReleaseClock::<_, _, ProcessedMessage>::new(
-            crate::release_delayer::Settings {
+        let mut initial_release_clock = SessionReleaseClock::new(
+            crate::release_clock::Settings {
                 maximum_release_delay_in_rounds: settings.maximum_release_delay_in_rounds,
             },
             rng.clone(),
             Box::new(empty()) as RoundClock,
         );
-        let mut initial_round_clock = Box::new(empty()) as RoundClock;
 
         setup_new_session(
             &mut initial_cover_traffic,
-            &mut initial_release_delayer,
-            &mut initial_round_clock,
+            &mut initial_release_clock,
             settings,
-            rng,
+            rng.clone(),
             initial_session_info,
         );
 
         Self {
             cover_traffic: initial_cover_traffic,
-            release_delayer: initial_release_delayer,
-            round_clock: initial_round_clock,
+            release_clock: initial_release_clock,
             session_clock,
             settings,
+            message_queue: MessageQueue::new(rng),
         }
     }
 
@@ -111,26 +109,26 @@ impl<SessionClock, Rng, ProcessedMessage> MessageScheduler<SessionClock, Rng, Pr
         self.cover_traffic.notify_new_data_message();
     }
 
-    /// Add a new processed message to the release delayer component queue, for
-    /// release during the next release window.
+    /// Add a new processed message to the release queue, for
+    /// release during one of the future release windows.
     pub fn schedule_message(&mut self, message: ProcessedMessage) {
-        self.release_delayer.schedule_message(message);
+        self.message_queue.add_processed_message(message);
     }
 
     #[cfg(test)]
     pub fn with_test_values(
         cover_traffic: SessionCoverTraffic<RoundClock>,
-        release_delayer: SessionReleaseClock<RoundClock, Rng, ProcessedMessage>,
-        round_clock: RoundClock,
+        release_delayer: SessionReleaseClock<RoundClock, Rng>,
         session_clock: SessionClock,
+        message_queue: MessageQueue<Rng, ProcessedMessage>,
     ) -> Self {
         Self {
             cover_traffic,
-            release_delayer,
-            round_clock,
+            release_clock: release_delayer,
             session_clock,
             // These are not needed when all fields are provided as arguments.
             settings: Settings::default(),
+            message_queue,
         }
     }
 }
@@ -147,19 +145,18 @@ where
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let Self {
             cover_traffic,
-            release_delayer,
-            round_clock,
+            release_clock,
             settings,
             session_clock,
+            message_queue,
         } = &mut *self;
         // We update session info on new sessions.
-        let rng = release_delayer.rng().clone();
+        let rng = release_clock.rng().clone();
         match session_clock.poll_next_unpin(cx) {
             Poll::Ready(Some(new_session_info)) => {
                 setup_new_session(
                     cover_traffic,
-                    release_delayer,
-                    round_clock,
+                    release_clock,
                     *settings,
                     rng,
                     new_session_info,
@@ -169,16 +166,16 @@ where
             Poll::Pending => {}
         }
 
-        // We do not return anything if a new round has not elapsed.
-        let new_round = match round_clock.poll_next_unpin(cx) {
-            Poll::Pending => return Poll::Pending,
-            Poll::Ready(None) => return Poll::Ready(None),
-            Poll::Ready(Some(new_round)) => new_round,
-        };
-        trace!(target: LOG_TARGET, "New round {new_round} started.");
+        // Process any new generated cover message
+        match cover_traffic.poll_next_unpin(cx) {
+            Poll::Ready(Some(())) => {
+                message_queue.add_cover_message();
+            }
+            Poll::Ready(None) => return Poll::Ready(None)
+            Poll::Pending => {}
+        }
 
         // We poll the sub-stream and return the right result accordingly.
-        let cover_traffic_output = cover_traffic.poll_next_unpin(cx);
         let release_delayer_output = release_delayer.poll_next_unpin(cx);
 
         match (cover_traffic_output, release_delayer_output) {
@@ -222,6 +219,7 @@ pub struct Settings {
     pub maximum_release_delay_in_rounds: NonZeroU64,
     pub round_duration: Duration,
     pub rounds_per_interval: NonZeroU64,
+    pub maximum_messages_released_per_round: NonZeroU64,
 }
 
 #[cfg(test)]
@@ -233,6 +231,7 @@ impl Default for Settings {
             maximum_release_delay_in_rounds: NonZeroU64::try_from(1).unwrap(),
             round_duration: Duration::from_secs(1),
             rounds_per_interval: NonZeroU64::try_from(1).unwrap(),
+            maximum_messages_released_per_round: NonZeroU64::try_from(1).unwrap(),
         }
     }
 }

@@ -7,15 +7,14 @@ use tracing::trace;
 use crate::{
     cover_traffic::SessionCoverTraffic,
     message_scheduler::{LOG_TARGET, Settings, round_info::RoundClock, session_info::SessionInfo},
-    release_delayer::SessionReleaseClock,
+    release_clock::SessionReleaseClock,
 };
 
 /// Reset the sub-streams providing the new session info and the round clock at
 /// the beginning of a new session.
-pub(super) fn setup_new_session<Rng, ProcessedMessage>(
+pub(super) fn setup_new_session<Rng>(
     cover_traffic: &mut SessionCoverTraffic<RoundClock>,
-    release_delayer: &mut SessionReleaseClock<RoundClock, Rng, ProcessedMessage>,
-    round_clock: &mut RoundClock,
+    release_clock: &mut SessionReleaseClock<RoundClock, Rng>,
     settings: Settings,
     mut rng: Rng,
     new_session_info: SessionInfo,
@@ -37,12 +36,11 @@ pub(super) fn setup_new_session<Rng, ProcessedMessage>(
         &settings,
         new_session_info.core_quota,
     );
-    *release_delayer = instantiate_new_message_delayer(
+    *release_clock = instantiate_new_release_clock(
         rng,
         Box::new(round_clock_fork.clone()) as RoundClock,
         &settings,
     );
-    *round_clock = Box::new(round_clock_fork) as RoundClock;
 }
 
 pub(super) fn instantiate_new_cover_scheduler<Rng>(
@@ -66,16 +64,16 @@ where
     )
 }
 
-pub(super) fn instantiate_new_message_delayer<Rng, ProcessedMessage>(
+pub(super) fn instantiate_new_release_clock<Rng>(
     rng: Rng,
     round_clock: RoundClock,
     settings: &Settings,
-) -> SessionReleaseClock<RoundClock, Rng, ProcessedMessage>
+) -> SessionReleaseClock<RoundClock, Rng>
 where
     Rng: rand::Rng,
 {
     SessionReleaseClock::new(
-        crate::release_delayer::Settings {
+        crate::release_clock::Settings {
             maximum_release_delay_in_rounds: settings.maximum_release_delay_in_rounds,
         },
         rng,
