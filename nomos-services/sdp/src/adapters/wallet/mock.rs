@@ -2,9 +2,12 @@ use std::convert::Infallible;
 
 use ed25519_dalek::{Signer as _, SigningKey};
 use nomos_core::{
-    mantle::{NoteId, Op, OpProof, SignedMantleTx, Transaction as _, tx_builder::MantleTxBuilder},
+    mantle::{
+        NoteId, Op, OpProof, SignedMantleTx, Transaction as _, keys::PublicKey,
+        tx_builder::MantleTxBuilder,
+    },
     proofs::zksig::{DummyZkSignature, ZkSignaturePublic},
-    sdp::{ActiveMessage, DeclarationMessage, WithdrawMessage, ZkPublicKey},
+    sdp::{ActiveMessage, DeclarationMessage, WithdrawMessage},
 };
 
 use crate::adapters::wallet::SdpWalletAdapter;
@@ -33,7 +36,7 @@ impl SdpWalletAdapter for MockWalletAdapter {
 
         let zk_sig = DummyZkSignature::prove(&ZkSignaturePublic {
             msg_hash: tx_hash.into(),
-            pks: vec![declaration.zk_id.0],
+            pks: vec![declaration.zk_id.into_inner()],
         });
 
         Ok(SignedMantleTx::new(
@@ -54,7 +57,7 @@ impl SdpWalletAdapter for MockWalletAdapter {
         &self,
         tx_builder: MantleTxBuilder,
         withdrawn_message: WithdrawMessage,
-        zk_id: ZkPublicKey,
+        zk_id: PublicKey,
         locked_note_id: NoteId,
     ) -> Result<SignedMantleTx, Self::Error> {
         // Build the Op
@@ -66,7 +69,7 @@ impl SdpWalletAdapter for MockWalletAdapter {
         // declare_info.zk_id])
         let zk_signature = DummyZkSignature::prove(&ZkSignaturePublic {
             msg_hash: tx_hash.into(),
-            pks: vec![*locked_note_id.as_fr(), zk_id.0],
+            pks: vec![*locked_note_id.as_fr(), zk_id.into_inner()],
         });
 
         Ok(SignedMantleTx::new(
@@ -84,7 +87,7 @@ impl SdpWalletAdapter for MockWalletAdapter {
         &self,
         tx_builder: MantleTxBuilder,
         active_message: ActiveMessage,
-        zk_id: ZkPublicKey,
+        zk_id: PublicKey,
     ) -> Result<SignedMantleTx, Self::Error> {
         let active_op = Op::SDPActive(active_message);
         let mantle_tx = tx_builder.push_op(active_op).build();
@@ -92,7 +95,7 @@ impl SdpWalletAdapter for MockWalletAdapter {
 
         let zk_signature = DummyZkSignature::prove(&ZkSignaturePublic {
             msg_hash: tx_hash.into(),
-            pks: vec![zk_id.0],
+            pks: vec![zk_id.into_inner()],
         });
 
         Ok(SignedMantleTx::new(

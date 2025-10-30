@@ -1,6 +1,9 @@
+use core::{fmt::Debug, pin::Pin};
 use std::{collections::HashMap, fmt::Display};
 
 use async_trait::async_trait;
+use derivative::Derivative;
+use futures::{Stream, StreamExt as _, future::ready, stream::iter};
 use nomos_core::{
     header::HeaderId,
     sdp::{ProviderId, ProviderInfo, SessionNumber},
@@ -14,20 +17,17 @@ use overwatch::{
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, oneshot};
+use tokio_stream::wrappers::BroadcastStream;
 use tracing::{error, info};
 
 const BROADCAST_CHANNEL_SIZE: usize = 128;
+
+pub type SessionSubscription = Pin<Box<dyn Stream<Item = SessionUpdate> + Send + Sync>>;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionUpdate {
     pub session_number: SessionNumber,
     pub providers: HashMap<ProviderId, ProviderInfo>,
-}
-
-#[derive(Debug)]
-pub struct SessionSubscription {
-    pub last_session: Option<SessionUpdate>,
-    pub receiver: broadcast::Receiver<SessionUpdate>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -36,7 +36,8 @@ pub struct BlockInfo {
     pub header_id: HeaderId,
 }
 
-#[derive(Debug)]
+#[derive(Derivative)]
+#[derivative(Debug)]
 pub enum BlockBroadcastMsg {
     BroadcastFinalizedBlock(BlockInfo),
     BroadcastBlendSession(SessionUpdate),
@@ -45,9 +46,11 @@ pub enum BlockBroadcastMsg {
         result_sender: oneshot::Sender<broadcast::Receiver<BlockInfo>>,
     },
     SubscribeBlendSession {
+        #[derivative(Debug = "ignore")]
         result_sender: oneshot::Sender<SessionSubscription>,
     },
     SubscribeDASession {
+        #[derivative(Debug = "ignore")]
         result_sender: oneshot::Sender<SessionSubscription>,
     },
 }
@@ -127,19 +130,25 @@ where
                     }
                 }
                 BlockBroadcastMsg::SubscribeBlendSession { result_sender } => {
-                    if let Err(err) = result_sender.send(SessionSubscription {
-                        last_session: self.last_blend_session.clone(),
-                        receiver: self.blend_session.subscribe(),
-                    }) {
-                        error!("Could not subscribe to blend session channel: {err:?}");
+                    if result_sender
+                        .send(create_session_stream(
+                            self.last_blend_session.clone(),
+                            &self.blend_session,
+                        ))
+                        .is_err()
+                    {
+                        error!("Could not subscribe to blend session channel.");
                     }
                 }
                 BlockBroadcastMsg::SubscribeDASession { result_sender } => {
-                    if let Err(err) = result_sender.send(SessionSubscription {
-                        last_session: self.last_da_session.clone(),
-                        receiver: self.da_session.subscribe(),
-                    }) {
-                        error!("Could not subscribe to DA session channel: {err:?}");
+                    if result_sender
+                        .send(create_session_stream(
+                            self.last_da_session.clone(),
+                            &self.da_session,
+                        ))
+                        .is_err()
+                    {
+                        error!("Could not subscribe to DA session channel.");
                     }
                 }
             }
@@ -147,4 +156,20 @@ where
 
         Ok(())
     }
+}
+
+/// Create a stream from the current optional, last-processed value and the
+/// broadcast sender.
+///
+/// The stream immediately yields the current value if `Some`, else it will wait
+/// for the first `Ok` value as returned by the broadcast channel wrapper
+/// stream.
+fn create_session_stream(
+    current_value: Option<SessionUpdate>,
+    sender: &broadcast::Sender<SessionUpdate>,
+) -> SessionSubscription {
+    Box::pin(
+        iter(current_value)
+            .chain(BroadcastStream::new(sender.subscribe()).filter_map(|item| ready(item.ok()))),
+    )
 }

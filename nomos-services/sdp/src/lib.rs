@@ -8,10 +8,10 @@ use backends::{SdpBackend, SdpBackendError};
 use futures::{Stream, StreamExt as _};
 use nomos_core::{
     block::BlockNumber,
-    mantle::{NoteId, tx_builder::MantleTxBuilder},
+    mantle::{NoteId, keys::PublicKey, tx_builder::MantleTxBuilder},
     sdp::{
         ActiveMessage, ActivityMetadata, DeclarationId, DeclarationMessage, Locator, ProviderId,
-        ServiceType, WithdrawMessage, ZkPublicKey,
+        ServiceType, WithdrawMessage,
     },
 };
 use overwatch::{
@@ -65,7 +65,7 @@ pub struct SdpSettings {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Declaration {
     pub id: DeclarationId,
-    pub zk_id: ZkPublicKey,
+    pub zk_id: PublicKey,
     pub locked_note_id: NoteId,
 }
 

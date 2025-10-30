@@ -11,8 +11,8 @@ use configs::{
 };
 use futures::future::join_all;
 use nomos_core::{
-    mantle::GenesisTx as _,
-    sdp::{Locator, ProviderId, ServiceType, SessionNumber, ZkPublicKey},
+    mantle::{GenesisTx as _, keys::PublicKey},
+    sdp::{Locator, ProviderId, ServiceType, SessionNumber},
 };
 use nomos_da_network_core::swarm::DAConnectionPolicySettings;
 use nomos_da_network_service::MembershipResponse;
@@ -151,7 +151,7 @@ impl Topology {
             .map(|(i, da_conf)| ProviderInfo {
                 service_type: ServiceType::DataAvailability,
                 provider_id: ProviderId(da_conf.signer.verifying_key()),
-                zk_id: ZkPublicKey(BigUint::from(0u8).into()),
+                zk_id: PublicKey::new(BigUint::from(0u8).into()),
                 locator: Locator(da_conf.listening_address.clone()),
                 note: consensus_configs[0].da_notes[i].clone(),
                 signer: da_conf.signer.clone(),
@@ -164,7 +164,7 @@ impl Topology {
                 .map(|(i, blend_conf)| ProviderInfo {
                     service_type: ServiceType::BlendNetwork,
                     provider_id: ProviderId(blend_conf.signer.verifying_key()),
-                    zk_id: ZkPublicKey(BigUint::from(0u8).into()),
+                    zk_id: blend_conf.secret_zk_key.to_public_key(),
                     locator: Locator(blend_conf.backend_core.listening_address.clone()),
                     note: consensus_configs[0].blend_notes[i].clone(),
                     signer: blend_conf.signer.clone(),

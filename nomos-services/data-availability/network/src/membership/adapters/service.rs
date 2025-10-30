@@ -1,13 +1,12 @@
 use std::collections::{BTreeSet, HashMap};
 
-use broadcast_service::{BlockBroadcastService, SessionSubscription};
-use futures::{StreamExt as _, future, stream::iter};
+use broadcast_service::BlockBroadcastService;
+use futures::StreamExt as _;
 use libp2p::{Multiaddr, PeerId, core::signed_envelope::DecodingError};
 use nomos_core::sdp::{Locator, ProviderId, ProviderInfo, SessionNumber};
 use nomos_libp2p::ed25519;
 use overwatch::services::{ServiceData, relay::OutboundRelay};
 use tokio::sync::oneshot;
-use tokio_stream::wrappers::BroadcastStream;
 
 use crate::membership::{
     MembershipAdapter, MembershipAdapterError, PeerMultiaddrStream, SubnetworkPeers,
@@ -39,27 +38,11 @@ where
             })
             .await
             .map_err(|(e, _)| MembershipAdapterError::Other(e.into()))?;
-        let SessionSubscription {
-            last_session,
-            receiver,
-        } = receiver
+        let receiver_stream = receiver
             .await
             .map_err(|e| MembershipAdapterError::Other(e.into()))?;
 
-        let initial_stream = iter(last_session).map(session_to_peers);
-        let updates_stream = BroadcastStream::new(receiver)
-            .filter_map(|update_result| {
-                future::ready(match update_result {
-                    Ok(session) => Some(session),
-                    Err(e) => {
-                        tracing::warn!("Broadcast stream error in membership adapter: {:?}", e);
-                        None
-                    }
-                })
-            })
-            .map(session_to_peers);
-
-        Ok(Box::pin(initial_stream.chain(updates_stream)))
+        Ok(Box::pin(receiver_stream.map(session_to_peers)))
     }
 }
 
