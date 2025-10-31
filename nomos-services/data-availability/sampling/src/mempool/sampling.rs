@@ -74,21 +74,15 @@ where
         let blob_stream = tokio_stream::wrappers::BroadcastStream::new(rx)
             .filter_map(|result| async move { result.ok() })
             .flat_map(|tx: Self::Tx| {
-                // Extract blob IDs from the transaction
-                let blob_ids: Vec<BlobId> = tx
-                    .mantle_tx
-                    .ops
-                    .iter()
-                    .filter_map(|op| {
-                        if let Op::ChannelBlob(blob_op) = op {
-                            Some(blob_op.blob)
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
+                let blob_ids_iter = tx.mantle_tx.ops.into_iter().filter_map(|op| {
+                    if let Op::ChannelBlob(blob_op) = op {
+                        Some(blob_op.blob)
+                    } else {
+                        None
+                    }
+                });
 
-                tokio_stream::iter(blob_ids)
+                tokio_stream::iter(blob_ids_iter)
             });
 
         Ok(Box::pin(blob_stream))
