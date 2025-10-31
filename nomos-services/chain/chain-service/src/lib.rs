@@ -1144,7 +1144,12 @@ where
         let new_lib = cryptarchia.lib();
 
         if let Some(blob_validation) = blob_validation {
-            blob_validation.validate(&block).await?;
+            let active_session_number_before_block = previous_session_numbers
+                .get(&ServiceType::DataAvailability)
+                .ok_or_else(|| Error::ServiceSessionNotFound(ServiceType::DataAvailability))?;
+            blob_validation
+                .validate(&block, *active_session_number_before_block)
+                .await?;
         }
 
         // remove included content from mempool
