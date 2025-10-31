@@ -514,20 +514,57 @@ where
                 }
                 Some(session_event) = remaining_session_stream.next() => {
                     match handle_session_event(session_event, &blend_config, crypto_processor, current_public_info, current_recovery_checkpoint, &mut blending_token_collector, &mut backend).await {
-                        Ok((new_crypto_processor, new_public_info, new_recovery_checkpoint)) => {
-                            crypto_processor = new_crypto_processor;
-                            current_public_info = new_public_info;
-                            current_recovery_checkpoint = new_recovery_checkpoint;
+                        Ok(output) => {
+                            crypto_processor = output.crypto_processor;
+                            current_public_info = output.public_info;
+                            current_recovery_checkpoint = output.recovery_checkpoint;
                         }
-                        Err(e) => {
+                        Err((e, output)) => {
                             tracing::error!(
                                 target: LOG_TARGET,
                                 "Terminating the '{}' service as the new membership does not satisfy the core node condition: {e:?}",
                                 <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
                             );
-                            return Err(e.into());
+                            crypto_processor = output.crypto_processor;
+                            current_public_info = output.public_info;
+                            current_recovery_checkpoint = output.recovery_checkpoint;
+                            break;
                         }
                     }
+                }
+            }
+        }
+
+        // The main event loop has ended because the node is no longer a core node
+        // in the new session.
+        // Before terminating the service, complete the old session during the
+        // session transition period.
+        //
+        // First, drop unnecessary streams to not block senders.
+        drop((
+            // Don't receive local data messages, as they shouldn't be sent in the old session.
+            inbound_relay,
+            // Don't receive secret PoL info updates, as new messages are not generated for the old
+            // session.
+            secret_pol_info_stream,
+        ));
+        loop {
+            tokio::select! {
+                Some(incoming_message) = blend_messages.next() => {
+                    current_recovery_checkpoint = handle_incoming_blend_message(incoming_message, &mut message_scheduler, &crypto_processor, &mut blending_token_collector, current_recovery_checkpoint);
+                }
+                Some(round_info) = message_scheduler.next() => {
+                    current_recovery_checkpoint = handle_release_round(round_info, &mut crypto_processor, &mut rng, &backend, &network_adapter, current_recovery_checkpoint).await;
+                }
+                Some(clock_tick) = remaining_clock_stream.next() => {
+                    current_public_info = handle_clock_event(clock_tick, &blend_config, &mut epoch_handler, &mut crypto_processor, &mut backend, current_public_info).await;
+                }
+                Some(SessionEvent::TransitionPeriodExpired) = remaining_session_stream.next() => {
+                    compute_and_submit_activity_proof_for_previous_session(&mut blending_token_collector);
+                    // Now the core service is no longer needed for the current (new) session,
+                    // and the remaining session transition has been completed,
+                    // so the service terminates here.
+                    return Ok(());
                 }
             }
         }
@@ -561,12 +598,23 @@ async fn handle_session_event<
     blending_token_collector: &mut BlendingTokenCollector,
     backend: &mut Backend,
 ) -> Result<
+    HandleSessionEventOutput<
+        NodeId,
+        ProofsGenerator,
+        ProofsVerifier,
+        Backend::Settings,
+        BroadcastSettings,
+    >,
     (
-        CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
-        PublicInfo<NodeId>,
-        ServiceState<Backend::Settings, BroadcastSettings>,
+        Error,
+        HandleSessionEventOutput<
+            NodeId,
+            ProofsGenerator,
+            ProofsVerifier,
+            Backend::Settings,
+            BroadcastSettings,
+        >,
     ),
-    Error,
 >
 where
     NodeId: Eq + Hash + Clone + Send,
@@ -605,37 +653,69 @@ where
                 session: new_session_info,
                 ..current_public_info
             };
-            let new_processor = CoreCryptographicProcessor::try_new_with_core_condition_check(
+            let new_processor = match CoreCryptographicProcessor::try_new_with_core_condition_check(
                 new_membership,
                 settings.minimum_network_size,
                 &settings.crypto,
                 new_public_info.clone().into(),
                 private,
-            )?;
+            ) {
+                Ok(new_processor) => new_processor,
+                Err(e) => {
+                    return Err((
+                        e,
+                        HandleSessionEventOutput {
+                            crypto_processor: current_cryptographic_processor,
+                            public_info: current_public_info,
+                            recovery_checkpoint: current_recovery_checkpoint,
+                        },
+                    ));
+                }
+            };
             let state_updater = current_recovery_checkpoint.into_components().3;
-            Ok((
-                new_processor,
-                new_public_info,
+            Ok(HandleSessionEventOutput {
+                crypto_processor: new_processor,
+                public_info: new_public_info,
                 // No need to store the new state, since if the node crashes before the first
                 // release round of the new session, we will ignore the old state as it belongs to
                 // an old session and create a new one anyway.
-                ServiceState::with_session(new_session, state_updater),
-            ))
+                recovery_checkpoint: ServiceState::with_session(new_session, state_updater),
+            })
         }
         SessionEvent::TransitionPeriodExpired => {
-            if let Some(activity_proof) =
-                blending_token_collector.compute_activity_proof_for_previous_session()
-            {
-                info!(target: LOG_TARGET, "Activity proof generated: {activity_proof:?}");
-                submit_activity_proof(activity_proof);
-            }
+            compute_and_submit_activity_proof_for_previous_session(blending_token_collector);
             backend.complete_session_transition().await;
-            Ok((
-                current_cryptographic_processor,
-                current_public_info,
-                current_recovery_checkpoint,
-            ))
+            Ok(HandleSessionEventOutput {
+                crypto_processor: current_cryptographic_processor,
+                public_info: current_public_info,
+                recovery_checkpoint: current_recovery_checkpoint,
+            })
         }
+    }
+}
+
+struct HandleSessionEventOutput<
+    NodeId,
+    ProofsGenerator,
+    ProofsVerifier,
+    BackendSettings,
+    BroadcastSettings,
+> {
+    crypto_processor: CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
+    public_info: PublicInfo<NodeId>,
+    recovery_checkpoint: ServiceState<BackendSettings, BroadcastSettings>,
+}
+
+fn compute_and_submit_activity_proof_for_previous_session(
+    blending_token_collector: &mut BlendingTokenCollector,
+) {
+    if let Some(activity_proof) =
+        blending_token_collector.compute_activity_proof_for_previous_session()
+    {
+        info!(target: LOG_TARGET, "Activity proof generated for the old session: {activity_proof:?}");
+        submit_activity_proof(activity_proof);
+    } else {
+        info!(target: LOG_TARGET, "No activity proof generated for the old session");
     }
 }
 
