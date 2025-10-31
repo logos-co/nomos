@@ -213,7 +213,21 @@ mod tests {
     use core::iter::repeat_n;
 
     use groth16::{Field as _, fr_from_bytes_unchecked};
-    use nomos_core::{crypto::ZkHash, mantle::keys::PublicKey};
+    use nomos_blend_message::crypto::{
+        keys::Ed25519PublicKey,
+        proofs::quota::{
+            ProofOfQuota,
+            inputs::prove::{
+                PrivateInputs, PublicInputs,
+                private::ProofOfCoreQuotaInputs,
+                public::{CoreInputs, LeaderInputs},
+            },
+        },
+    };
+    use nomos_core::{
+        crypto::ZkHash,
+        mantle::keys::{PublicKey, SecretKey},
+    };
     use num_bigint::BigUint;
 
     use crate::merkle::{Error, MerkleTree, TOTAL_MERKLE_LEAVES};
@@ -353,5 +367,87 @@ mod tests {
     fn duplicate_keys() {
         let key = PublicKey::new(ZkHash::ONE);
         assert_eq!(MerkleTree::new(vec![key, key]), Err(Error::DuplicateKey));
+    }
+
+    #[test]
+    fn poq_interaction() {
+        let sk1 = SecretKey::new("1".parse::<BigUint>().unwrap().into());
+        let sk2 = SecretKey::new("2".parse::<BigUint>().unwrap().into());
+        let sk3 = SecretKey::new("3".parse::<BigUint>().unwrap().into());
+        let sk4 = SecretKey::new("4".parse::<BigUint>().unwrap().into());
+        let keys = [
+            sk1.to_public_key(),
+            sk2.to_public_key(),
+            sk3.to_public_key(),
+            sk4.to_public_key(),
+        ]
+        .to_vec();
+        let merkle_tree = MerkleTree::new(keys).unwrap();
+
+        let public_inputs = {
+            let core_inputs = CoreInputs {
+                quota: 1,
+                zk_root: merkle_tree.root(),
+            };
+            let leader_inputs = LeaderInputs {
+                message_quota: 1,
+                pol_epoch_nonce: ZkHash::ZERO,
+                pol_ledger_aged: ZkHash::ZERO,
+                total_stake: 1,
+            };
+            let session = 1;
+            let signing_key: Ed25519PublicKey = [10; 32].try_into().unwrap();
+            PublicInputs {
+                core: core_inputs,
+                leader: leader_inputs,
+                session,
+                signing_key,
+            }
+        };
+
+        let secret_inputs_sk1 = ProofOfCoreQuotaInputs {
+            core_path_and_selectors: merkle_tree.get_proof_for_key(&sk1.to_public_key()).unwrap(),
+            core_sk: sk1.into_inner(),
+        };
+        let secret_inputs_sk2 = ProofOfCoreQuotaInputs {
+            core_path_and_selectors: merkle_tree.get_proof_for_key(&sk2.to_public_key()).unwrap(),
+            core_sk: sk2.into_inner(),
+        };
+        let secret_inputs_sk3 = ProofOfCoreQuotaInputs {
+            core_path_and_selectors: merkle_tree.get_proof_for_key(&sk3.to_public_key()).unwrap(),
+            core_sk: sk3.into_inner(),
+        };
+        let secret_inputs_sk4 = ProofOfCoreQuotaInputs {
+            core_path_and_selectors: merkle_tree.get_proof_for_key(&sk4.to_public_key()).unwrap(),
+            core_sk: sk4.into_inner(),
+        };
+
+        let (poq, _) = ProofOfQuota::new(
+            &public_inputs,
+            PrivateInputs::new_proof_of_core_quota_inputs(0, secret_inputs_sk1),
+        )
+        .unwrap();
+        poq.verify(&public_inputs).unwrap();
+
+        let (poq, _) = ProofOfQuota::new(
+            &public_inputs,
+            PrivateInputs::new_proof_of_core_quota_inputs(0, secret_inputs_sk2),
+        )
+        .unwrap();
+        poq.verify(&public_inputs).unwrap();
+
+        let (poq, _) = ProofOfQuota::new(
+            &public_inputs,
+            PrivateInputs::new_proof_of_core_quota_inputs(0, secret_inputs_sk3),
+        )
+        .unwrap();
+        poq.verify(&public_inputs).unwrap();
+
+        let (poq, _) = ProofOfQuota::new(
+            &public_inputs,
+            PrivateInputs::new_proof_of_core_quota_inputs(0, secret_inputs_sk4),
+        )
+        .unwrap();
+        poq.verify(&public_inputs).unwrap();
     }
 }
