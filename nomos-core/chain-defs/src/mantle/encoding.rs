@@ -113,8 +113,9 @@ fn decode_channel_inscribe(input: &[u8]) -> IResult<&[u8], InscriptionOp> {
 }
 
 fn decode_channel_blob(input: &[u8]) -> IResult<&[u8], BlobOp> {
-    // ChannelBlob = ChannelId BlobId BlobSize DaStorageGasPrice Parent Signer
-    // Signer = Ed25519PublicKey
+    // ChannelBlob = ChannelId Session BlobId BlobSize DaStorageGasPrice Parent
+    // Signer Session = Uint64
+    // Signer  = Ed25519PublicKey
     let (input, channel) = map(decode_hash32, ChannelId::from).parse(input)?;
     let (input, session) = decode_uint64(input)?;
     let (input, blob) = decode_hash32(input)?;
