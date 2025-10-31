@@ -62,11 +62,10 @@ impl From<&Input<Bn254>> for InputDeser {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(feature = "deser")]
     use ark_ff::Field as _;
 
-    #[cfg(feature = "deser")]
     use super::*;
+
     #[cfg(feature = "deser")]
     #[test]
     fn serialize_zero() {

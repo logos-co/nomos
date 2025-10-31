@@ -85,6 +85,7 @@ impl From<PoQWitnessInputs> for PoQInputsJson {
 #[derive(Deserialize, Serialize)]
 pub struct PoQVerifierInputJson([Groth16InputDeser; 11]);
 
+#[derive(Clone)]
 pub struct PoQVerifierInput {
     pub key_nullifier: Groth16Input,
     pub session: Groth16Input,
