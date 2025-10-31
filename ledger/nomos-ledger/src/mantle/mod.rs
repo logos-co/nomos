@@ -11,7 +11,7 @@ use nomos_core::{
         AuthenticatedMantleTx, GasConstants, GenesisTx, NoteId, TxHash,
         ops::{Op, OpProof, leader_claim::VoucherCm},
     },
-    sdp::{ProviderId, ProviderInfo, ServiceType, SessionNumber},
+    sdp::{Declaration, DeclarationId, ProviderId, ProviderInfo, ServiceType, SessionNumber},
 };
 use sdp::{Error as SdpLedgerError, locked_notes::LockedNotes};
 
@@ -118,6 +118,11 @@ impl LedgerState {
     #[must_use]
     pub fn active_sessions(&self) -> HashMap<ServiceType, SessionNumber> {
         self.sdp.active_sessions()
+    }
+
+    #[must_use]
+    pub fn sdp_declarations(&self) -> Vec<(DeclarationId, Declaration)> {
+        self.sdp.declarations()
     }
 
     pub fn try_apply_header(

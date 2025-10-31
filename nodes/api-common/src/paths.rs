@@ -21,6 +21,11 @@ pub const SDP_POST_DECLARATION: &str = "/sdp/declaration";
 pub const SDP_POST_ACTIVITY: &str = "/sdp/activity";
 pub const SDP_POST_WITHDRAWAL: &str = "/sdp/withdrawal";
 
+pub const MANTLE_SDP_DECLARATIONS: &str = "/mantle/sdp/declarations";
+
+// testing-only mantle state paths
+pub const TEST_MANTLE_SDP_DECLARATIONS: &str = "/test/mantle/sdp/declarations";
+
 // testing paths
 pub const UPDATE_MEMBERSHIP: &str = "/test/membership/update";
 pub const DA_GET_MEMBERSHIP: &str = "/test/da/membership";

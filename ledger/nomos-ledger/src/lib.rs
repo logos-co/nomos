@@ -21,7 +21,7 @@ use nomos_core::{
         ops::leader_claim::VoucherCm,
     },
     proofs::leader_proof,
-    sdp::{ProviderId, ProviderInfo, ServiceType, SessionNumber},
+    sdp::{Declaration, DeclarationId, ProviderId, ProviderInfo, ServiceType, SessionNumber},
 };
 use thiserror::Error;
 
@@ -273,6 +273,11 @@ impl LedgerState {
     #[must_use]
     pub const fn mantle_ledger(&self) -> &MantleLedger {
         &self.mantle_ledger
+    }
+
+    #[must_use]
+    pub fn sdp_declarations(&self) -> Vec<(DeclarationId, Declaration)> {
+        self.mantle_ledger.sdp_declarations()
     }
 
     #[must_use]

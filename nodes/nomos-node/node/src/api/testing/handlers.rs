@@ -4,13 +4,18 @@ use std::{
 };
 
 use axum::{Json, extract::State, response::Response};
-use nomos_api::http::da;
-use nomos_core::{header::HeaderId, sdp::SessionNumber};
+use nomos_api::http::{da, mantle};
+use nomos_core::{
+    header::HeaderId,
+    mantle::{SignedMantleTx, Transaction},
+    sdp::SessionNumber,
+};
 use nomos_da_network_service::{
     NetworkService, api::ApiAdapter as ApiAdapterTrait, backends::NetworkBackend,
     sdp::SdpAdapter as SdpAdapterTrait,
 };
 use nomos_da_sampling::{DaSamplingService, backend::DaSamplingServiceBackend};
+use nomos_time::backends::TimeBackend;
 use overwatch::{overwatch::OverwatchHandle, services::AsServiceId};
 use serde::{Deserialize, Serialize};
 use subnetworks_assignations::MembershipHandler;
@@ -102,4 +107,60 @@ where
         request.block_id,
         request.blob_ids
     ))
+}
+
+pub async fn get_sdp_declarations<
+    SamplingBackend,
+    SamplingNetworkAdapter,
+    SamplingStorage,
+    StorageAdapter,
+    TimeBackendImpl,
+    RuntimeServiceId,
+>(
+    State(handle): State<OverwatchHandle<RuntimeServiceId>>,
+) -> Response
+where
+    SamplingBackend: DaSamplingServiceBackend<BlobId = [u8; 32]> + Send,
+    SamplingBackend::Settings: Clone,
+    SamplingBackend::Share: Debug + 'static,
+    SamplingBackend::BlobId: Debug + 'static,
+    SamplingNetworkAdapter:
+        nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync + 'static,
+    SamplingStorage:
+        nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync + 'static,
+    StorageAdapter: tx_service::storage::MempoolStorageAdapter<
+            RuntimeServiceId,
+            Item = SignedMantleTx,
+            Key = <SignedMantleTx as Transaction>::Hash,
+        > + Send
+        + Sync
+        + Clone
+        + 'static,
+    StorageAdapter::Error: Debug,
+    TimeBackendImpl: TimeBackend,
+    TimeBackendImpl::Settings: Clone + Send + Sync,
+    RuntimeServiceId: Debug
+        + Send
+        + Sync
+        + Display
+        + 'static
+        + AsServiceId<
+            nomos_api::http::consensus::Cryptarchia<
+                SamplingBackend,
+                SamplingNetworkAdapter,
+                SamplingStorage,
+                StorageAdapter,
+                TimeBackendImpl,
+                RuntimeServiceId,
+            >,
+        >,
+{
+    make_request_and_return_response!(mantle::get_sdp_declarations::<
+        SamplingBackend,
+        SamplingNetworkAdapter,
+        SamplingStorage,
+        StorageAdapter,
+        TimeBackendImpl,
+        RuntimeServiceId,
+    >(&handle))
 }

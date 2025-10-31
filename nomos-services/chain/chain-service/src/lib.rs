@@ -29,10 +29,10 @@ use nomos_core::{
     da,
     header::{Header, HeaderId},
     mantle::{
-        AuthenticatedMantleTx, SignedMantleTx, Transaction, TxHash, gas::MainnetGasConstants,
+        AuthenticatedMantleTx, Transaction, TxHash, gas::MainnetGasConstants,
         genesis_tx::GenesisTx, ops::leader_claim::VoucherCm,
     },
-    sdp::{ProviderId, ProviderInfo, ServiceType},
+    sdp::{Declaration, DeclarationId, ProviderId, ProviderInfo, ServiceType},
 };
 use nomos_da_sampling::{
     DaSamplingService, DaSamplingServiceMsg, backend::DaSamplingServiceBackend,
@@ -129,6 +129,9 @@ pub enum ConsensusMsg<Tx> {
         block_id: HeaderId,
         tx: oneshot::Sender<Option<LedgerState>>,
     },
+    GetSdpDeclarations {
+        tx: oneshot::Sender<Vec<(DeclarationId, Declaration)>>,
+    },
     GetEpochState {
         slot: Slot,
         tx: oneshot::Sender<Option<EpochState>>,
@@ -211,7 +214,14 @@ impl Cryptarchia {
 
     /// Create a new [`Cryptarchia`] with the updated state.
     #[must_use = "Returns a new instance with the updated state, without modifying the original."]
-    fn try_apply_header(&self, header: &Header) -> Result<(Self, PrunedBlocks<HeaderId>), Error> {
+    fn try_apply_header<Tx>(
+        &self,
+        header: &Header,
+        block: &Block<Tx>,
+    ) -> Result<(Self, PrunedBlocks<HeaderId>), Error>
+    where
+        Tx: AuthenticatedMantleTx + Clone,
+    {
         let id = header.id();
         let parent = header.parent();
         let slot = header.slot();
@@ -222,7 +232,7 @@ impl Cryptarchia {
             slot,
             header.leader_proof(),
             VoucherCm::default(), // TODO: add the new voucher commitment here
-            std::iter::empty::<&SignedMantleTx>(),
+            block.transactions().cloned(),
         )?;
         let (consensus, pruned_blocks) = self.consensus.receive_block(id, parent, slot)?;
 
@@ -1014,6 +1024,18 @@ where
                     error!("Could not send ledger state through channel");
                 });
             }
+            ConsensusMsg::GetSdpDeclarations { tx } => {
+                let tip = cryptarchia.tip();
+                let declarations = cryptarchia
+                    .ledger
+                    .state(&tip)
+                    .map(LedgerState::sdp_declarations)
+                    .unwrap_or_default();
+
+                tx.send(declarations).unwrap_or_else(|_| {
+                    error!("Could not send SDP declarations through channel");
+                });
+            }
             ConsensusMsg::GetEpochState { slot, tx } => {
                 let epoch_state = cryptarchia.epoch_state_for_slot(slot).cloned();
                 tx.send(epoch_state).unwrap_or_else(|_| {
@@ -1140,7 +1162,7 @@ where
             }
         };
 
-        let (cryptarchia, pruned_blocks) = cryptarchia.try_apply_header(header)?;
+        let (cryptarchia, pruned_blocks) = cryptarchia.try_apply_header(header, &block)?;
         let new_lib = cryptarchia.lib();
 
         if let Some(blob_validation) = blob_validation {
