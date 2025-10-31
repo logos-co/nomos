@@ -767,8 +767,8 @@ where
                                     continue;
                                 }
 
-                        // Process the received block and update the cryptarchia state.
-                        match Self::process_block_and_update_state(
+                                // Process the received block and update the cryptarchia state.
+                                match Self::process_block_and_update_state(
                                     cryptarchia.clone(),
                                     block.clone(),
                                     Some(&recent_blob_validation),
@@ -777,26 +777,37 @@ where
                                     &self.new_block_subscription_sender,
                                     &self.lib_subscription_sender,
                                     &self.service_resources_handle.state_updater,
-                                ).await {
-                            Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
-                                cryptarchia = new_cryptarchia;
-                                storage_blocks_to_remove = new_storage_blocks_to_remove;
+                                )
+                                .await
+                                {
+                                    Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
+                                        cryptarchia = new_cryptarchia;
+                                        storage_blocks_to_remove = new_storage_blocks_to_remove;
 
-                                            orphan_downloader.remove_orphan(&block.header().id());
+                                        orphan_downloader.remove_orphan(&block.header().id());
 
-                                            info!(counter.consensus_processed_blocks = 1);
-                                        }
-                                        Err(Error::Ledger(nomos_ledger::LedgerError::ParentNotFound(parent))
-                                            | Error::Consensus(cryptarchia_engine::Error::ParentMissing(parent)),) => {
-
-                                            orphan_downloader.enqueue_orphan(block.header().id(), cryptarchia.tip(), cryptarchia.lib());
-
-                                            error!(target: LOG_TARGET, "Received proposal with parent {:?} that is not in the ledger state. Ignoring proposal.", parent);
-                                        }
-                                        Err(e) => {
-                                            error!(target: LOG_TARGET, "Error processing reconstructed block: {:?}", e);
-                                        }
+                                        info!(counter.consensus_processed_blocks = 1);
                                     }
+                                    Err(
+                                        Error::Ledger(nomos_ledger::LedgerError::ParentNotFound(parent))
+                                            | Error::Consensus(cryptarchia_engine::Error::ParentMissing(parent)),
+                                    ) => {
+                                        orphan_downloader.enqueue_orphan(
+                                            block.header().id(),
+                                            cryptarchia.tip(),
+                                            cryptarchia.lib(),
+                                        );
+
+                                        error!(
+                                            target: LOG_TARGET,
+                                            "Received block with parent {:?} that is not in the ledger state. Ignoring block.",
+                                            parent
+                                        );
+                                    }
+                                    Err(e) => {
+                                        error!(target: LOG_TARGET, "Error processing reconstructed block: {:?}", e);
+                                    }
+                                }
                             }
                             Err(e) => {
                                 error!(target: LOG_TARGET, "Failed to reconstruct block from proposal: {:?}", e);
