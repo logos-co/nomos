@@ -403,7 +403,6 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                         intervals_for_safety_buffer: 100,
                         message_frequency_per_round: NonNegativeF64::try_from(1f64)
                             .expect("Message frequency per round cannot be negative."),
-                        redundancy_parameter: 0,
                     },
                     delayer: MessageDelayerSettings {
                         maximum_release_delay_in_rounds: NonZeroU64::try_from(3u64)

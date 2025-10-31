@@ -339,7 +339,7 @@ impl core::fmt::Debug for LedgerState {
 
 #[cfg(test)]
 pub mod tests {
-    use std::{num::NonZero, sync::Arc};
+    use std::num::NonZero;
 
     use cryptarchia_engine::EpochConfig;
     use groth16::Field as _;
@@ -350,7 +350,7 @@ pub mod tests {
             gas::MainnetGasConstants, ledger::Tx as LedgerTx, ops::leader_claim::VoucherCm,
         },
         proofs::zksig::DummyZkSignature,
-        sdp::{ServiceParameters, ServiceType},
+        sdp::ServiceParameters,
     };
     use num_bigint::BigUint;
     use rand::{RngCore as _, thread_rng};
@@ -465,6 +465,28 @@ pub mod tests {
 
     #[must_use]
     pub fn config() -> Config {
+        let mut service_params = std::collections::HashMap::new();
+        service_params.insert(
+            nomos_core::sdp::ServiceType::DataAvailability,
+            ServiceParameters {
+                lock_period: 10,
+                inactivity_period: 20,
+                retention_period: 100,
+                timestamp: 0,
+                session_duration: 10,
+            },
+        );
+        service_params.insert(
+            nomos_core::sdp::ServiceType::BlendNetwork,
+            ServiceParameters {
+                lock_period: 10,
+                inactivity_period: 20,
+                retention_period: 100,
+                timestamp: 0,
+                session_duration: 10,
+            },
+        );
+
         Config {
             epoch_config: EpochConfig {
                 epoch_stake_distribution_stabilization: NonZero::new(4).unwrap(),
@@ -476,31 +498,7 @@ pub mod tests {
                 active_slot_coeff: 1.0,
             },
             sdp_config: crate::mantle::sdp::Config {
-                service_params: Arc::new(
-                    [
-                        (
-                            ServiceType::BlendNetwork,
-                            ServiceParameters {
-                                lock_period: 10,
-                                inactivity_period: 20,
-                                retention_period: 100,
-                                timestamp: 0,
-                                session_duration: 10,
-                            },
-                        ),
-                        (
-                            ServiceType::DataAvailability,
-                            ServiceParameters {
-                                lock_period: 10,
-                                inactivity_period: 20,
-                                retention_period: 100,
-                                timestamp: 0,
-                                session_duration: 10,
-                            },
-                        ),
-                    ]
-                    .into(),
-                ),
+                service_params: std::sync::Arc::new(service_params),
                 min_stake: nomos_core::sdp::MinStake {
                     threshold: 1,
                     timestamp: 0,
