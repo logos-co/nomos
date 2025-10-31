@@ -45,6 +45,7 @@ nomos-blend-message    = { workspace = true }
 nomos-blend-network    = { features = ["unsafe-test-functions"], workspace = true }
 nomos-blend-scheduling = { workspace = true, features = ["unsafe-test-functions"] }
 num-bigint             = { default-features = false, version = "0.4" }
+tempfile               = { workspace = true }
 test-log               = { default-features = false, version = "0.2.18", features = ["trace"] }
 
 [features]

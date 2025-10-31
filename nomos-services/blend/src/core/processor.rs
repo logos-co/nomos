@@ -97,7 +97,7 @@ pub enum Error {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use async_trait::async_trait;
     use nomos_blend_message::crypto::proofs::quota::inputs::prove::{
         private::ProofOfLeadershipQuotaInputs,

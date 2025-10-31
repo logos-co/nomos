@@ -10,7 +10,7 @@ use backends::BlendBackend;
 use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 use fork_stream::StreamExt as _;
 use futures::{
-    StreamExt as _,
+    Stream, StreamExt as _,
     future::{join_all, ready},
 };
 use network::NetworkAdapter;
@@ -43,7 +43,8 @@ use nomos_time::{SlotTick, TimeService, TimeServiceMessage};
 use nomos_utils::blake_rng::BlakeRng;
 use overwatch::{
     OpaqueServiceResourcesHandle,
-    services::{AsServiceId, ServiceCore, ServiceData},
+    overwatch::OverwatchHandle,
+    services::{AsServiceId, ServiceCore, ServiceData, state::StateUpdater},
 };
 use rand::{RngCore, SeedableRng as _, seq::SliceRandom as _};
 use serde::{Deserialize, Serialize};
@@ -63,7 +64,7 @@ use crate::{
         state::{RecoveryServiceState, ServiceState},
     },
     epoch_info::{
-        ChainApi, EpochEvent, EpochHandler, LeaderInputsMinusQuota,
+        ChainApi, EpochEvent, EpochHandler, LeaderInputsMinusQuota, PolEpochInfo,
         PolInfoProvider as PolInfoProviderTrait,
     },
     membership::{self, MembershipInfo, ZkInfo},
@@ -81,6 +82,8 @@ pub(super) mod service_components;
 mod processor;
 mod scheduler;
 mod state;
+#[cfg(test)]
+mod tests;
 pub use state::RecoveryServiceState as CoreServiceState;
 
 const LOG_TARGET: &str = "blend::service::core";
@@ -234,7 +237,7 @@ where
                     ref status_updater,
                     state_updater,
                 },
-            mut last_saved_state,
+            last_saved_state,
             ..
         } = self;
 
@@ -272,49 +275,17 @@ where
         }
         .await;
 
-        // Initialize membership stream for session and core-related public PoQ inputs.
-        let session_stream = async {
-            let config = blend_config.clone();
-            let zk_secret_key = config.zk.sk.clone();
-
-            MembershipAdapter::new(
-                overwatch_handle
-                    .relay::<<MembershipAdapter as membership::Adapter>::Service>()
-                    .await
-                    .expect("Failed to get relay channel with membership service."),
-                blend_config.crypto.non_ephemeral_signing_key.public_key(),
-                Some(blend_config.zk.public_key()),
-            )
-            .subscribe()
-            .await
-            .expect("Failed to get membership stream from membership service.")
-            .map(
-                move |MembershipInfo {
-                          membership,
-                          session_number,
-                          zk:
-                              ZkInfo {
-                                  core_and_path_selectors,
-                                  root: zk_root,
-                              },
-                      }| CoreSessionInfo {
-                    public: CoreSessionPublicInfo {
-                        poq_core_public_inputs: CoreInputs {
-                            quota: config.session_quota(membership.size()),
-                            zk_root,
-                        },
-                        membership,
-                        session: session_number,
-                    },
-                    private: ProofOfCoreQuotaInputs {
-                        core_sk: *zk_secret_key.as_fr(),
-                        core_path_and_selectors: core_and_path_selectors
-                            .expect("Core merkle path should be present for a core node."),
-                    },
-                },
-            )
-        }
-        .await;
+        let membership_stream = MembershipAdapter::new(
+            overwatch_handle
+                .relay::<<MembershipAdapter as membership::Adapter>::Service>()
+                .await
+                .expect("Failed to get relay channel with membership service."),
+            blend_config.crypto.non_ephemeral_signing_key.public_key(),
+            Some(blend_config.zk.public_key()),
+        )
+        .subscribe()
+        .await
+        .expect("Failed to get membership stream from membership service.");
 
         // Initialize clock stream for epoch-related public PoQ inputs.
         let clock_stream = async {
@@ -333,72 +304,216 @@ where
         }
         .await;
 
-        let (current_membership_info, mut remaining_session_stream) = Box::pin(
-            UninitializedSessionEventStream::new(
-                session_stream,
-                FIRST_STREAM_ITEM_READY_TIMEOUT,
-                blend_config.time.session_transition_period(),
-            )
-            .await_first_ready(),
-        )
-        .await
-        .map(|(membership_info, remaining_session_stream)| {
-            (membership_info, remaining_session_stream.fork())
-        })
-        .expect("The current session info must be available.");
-
+        // Initialize components for the service.
         let (
-            LeaderInputsMinusQuota {
-                pol_epoch_nonce,
-                pol_ledger_aged,
-                total_stake,
-            },
-            mut remaining_clock_stream,
-        ) = async {
-            let (clock_tick, remaining_clock_stream) =
-                UninitializedFirstReadyStream::new(clock_stream, Duration::from_secs(5))
-                    .first()
-                    .await
-                    .expect("The clock system must be available.");
-            let Some(EpochEvent::NewEpoch(new_epoch_info)) = epoch_handler.tick(clock_tick).await
-            else {
-                panic!("First poll result of epoch stream should be a `NewEpoch` event.");
-            };
-            (new_epoch_info, remaining_clock_stream)
-        }
+            remaining_session_stream,
+            remaining_clock_stream,
+            current_public_info,
+            crypto_processor,
+            blending_token_collector,
+            current_recovery_checkpoint,
+            message_scheduler,
+            mut backend,
+            rng,
+        ) = initialize::<
+            NodeId,
+            Backend,
+            Network,
+            CryptarchiaServiceApi<ChainService, RuntimeServiceId>,
+            ProofsGenerator,
+            ProofsVerifier,
+            RuntimeServiceId,
+        >(
+            blend_config.clone(),
+            membership_stream,
+            clock_stream,
+            &mut epoch_handler,
+            overwatch_handle.clone(),
+            last_saved_state,
+            state_updater,
+        )
         .await;
 
-        info!(
+        status_updater.notify_ready();
+        tracing::info!(
             target: LOG_TARGET,
-            "The current membership is ready: {} nodes.",
-            current_membership_info.public.membership.size()
+            "Service '{}' is ready.",
+            <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
 
-        let mut current_public_info = PublicInfo {
-            epoch: LeaderInputs {
-                pol_ledger_aged,
-                pol_epoch_nonce,
-                message_quota: blend_config.crypto.num_blend_layers,
-                total_stake,
+        // Initialize more components that can be successfully created after
+        // `notify_ready()`.
+        let secret_pol_info_stream = post_initialize::<PolInfoProvider, _>(overwatch_handle).await;
+
+        // Run the main event loop of the service.
+        run_event_loop(
+            inbound_relay,
+            backend.listen_to_incoming_messages(),
+            remaining_clock_stream,
+            secret_pol_info_stream,
+            remaining_session_stream,
+            &blend_config,
+            backend,
+            network_adapter,
+            epoch_handler,
+            message_scheduler,
+            rng,
+            blending_token_collector,
+            crypto_processor,
+            current_public_info,
+            current_recovery_checkpoint,
+        )
+        .await;
+
+        Ok(())
+    }
+}
+
+/// Initialize the components for the [`BlendService`].
+#[expect(clippy::too_many_lines, reason = "Need to initialize many components")]
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "Need to initialize many components"
+)]
+async fn initialize<
+    NodeId,
+    Backend,
+    NetAdapter,
+    ChainService,
+    ProofsGenerator,
+    ProofsVerifier,
+    RuntimeServiceId,
+>(
+    blend_config: BlendConfig<Backend::Settings>,
+    membership_stream: impl Stream<Item = MembershipInfo<NodeId>> + Send + Unpin + 'static,
+    clock_stream: impl Stream<Item = SlotTick> + Send + Sync + Unpin + 'static,
+    epoch_handler: &mut EpochHandler<ChainService, RuntimeServiceId>,
+    overwatch_handle: OverwatchHandle<RuntimeServiceId>,
+    mut last_saved_state: Option<ServiceState<Backend::Settings, NetAdapter::BroadcastSettings>>,
+    state_updater: StateUpdater<
+        Option<RecoveryServiceState<Backend::Settings, NetAdapter::BroadcastSettings>>,
+    >,
+) -> (
+    impl Stream<Item = SessionEvent<CoreSessionInfo<NodeId>>> + Unpin + Send + 'static,
+    impl Stream<Item = SlotTick> + Unpin + Send + Sync + 'static,
+    PublicInfo<NodeId>,
+    CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
+    BlendingTokenCollector,
+    ServiceState<Backend::Settings, NetAdapter::BroadcastSettings>,
+    SchedulerWrapper<
+        impl Stream<Item = SchedulerSessionInfo> + Unpin + Send + 'static,
+        BlakeRng,
+        ProcessedMessage<NetAdapter::BroadcastSettings>,
+    >,
+    Backend,
+    BlakeRng,
+)
+where
+    NodeId: Clone + Eq + Hash + Send + 'static,
+    Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId> + Sync,
+    NetAdapter: NetworkAdapter<RuntimeServiceId, BroadcastSettings: Eq + Hash>,
+    ChainService: ChainApi<RuntimeServiceId> + Sync,
+    ProofsGenerator: CoreAndLeaderProofsGenerator,
+    ProofsVerifier: ProofsVerifierTrait,
+    RuntimeServiceId: Sync,
+{
+    // Initialize membership stream for session and core-related public PoQ inputs.
+    let session_stream = async {
+        let config = blend_config.clone();
+        let zk_secret_key = config.zk.sk.clone();
+        membership_stream.map(
+            move |MembershipInfo {
+                      membership,
+                      session_number,
+                      zk:
+                          ZkInfo {
+                              core_and_path_selectors,
+                              root: zk_root,
+                          },
+                  }| CoreSessionInfo {
+                public: CoreSessionPublicInfo {
+                    poq_core_public_inputs: CoreInputs {
+                        quota: config.session_quota(membership.size()),
+                        zk_root,
+                    },
+                    membership,
+                    session: session_number,
+                },
+                private: ProofOfCoreQuotaInputs {
+                    core_sk: *zk_secret_key.as_fr(),
+                    core_path_and_selectors: core_and_path_selectors
+                        .expect("Core merkle path should be present for a core node."),
+                },
             },
-            session: SessionInfo {
-                membership: current_membership_info.public.membership.clone(),
-                session_number: current_membership_info.public.session,
-                core_public_inputs: current_membership_info.public.poq_core_public_inputs,
-            },
+        )
+    }
+    .await;
+    let (current_membership_info, remaining_session_stream) = Box::pin(
+        UninitializedSessionEventStream::new(
+            session_stream,
+            FIRST_STREAM_ITEM_READY_TIMEOUT,
+            blend_config.time.session_transition_period(),
+        )
+        .await_first_ready(),
+    )
+    .await
+    .map(|(membership_info, remaining_session_stream)| {
+        (membership_info, remaining_session_stream.fork())
+    })
+    .expect("The current session info must be available.");
+
+    let (
+        LeaderInputsMinusQuota {
+            pol_epoch_nonce,
+            pol_ledger_aged,
+            total_stake,
+        },
+        remaining_clock_stream,
+    ) = async {
+        let (clock_tick, remaining_clock_stream) =
+            UninitializedFirstReadyStream::new(clock_stream, Duration::from_secs(5))
+                .first()
+                .await
+                .expect("The clock system must be available.");
+        let Some(EpochEvent::NewEpoch(new_epoch_info)) = epoch_handler.tick(clock_tick).await
+        else {
+            panic!("First poll result of epoch stream should be a `NewEpoch` event.");
         };
+        (new_epoch_info, remaining_clock_stream)
+    }
+    .await;
 
-        let mut crypto_processor =
-            CoreCryptographicProcessor::<_, ProofsGenerator, _>::try_new_with_core_condition_check(
-                current_membership_info.public.membership.clone(),
-                blend_config.minimum_network_size,
-                &blend_config.crypto,
-                current_public_info.clone().into(),
-                current_membership_info.private,
-            )
-            .expect("The initial membership should satisfy the core node condition");
+    info!(
+        target: LOG_TARGET,
+        "The current membership is ready: {} nodes.",
+        current_membership_info.public.membership.size()
+    );
 
-        let mut blending_token_collector = BlendingTokenCollector::new(
+    let current_public_info = PublicInfo {
+        epoch: LeaderInputs {
+            pol_ledger_aged,
+            pol_epoch_nonce,
+            message_quota: blend_config.crypto.num_blend_layers,
+            total_stake,
+        },
+        session: SessionInfo {
+            membership: current_membership_info.public.membership.clone(),
+            session_number: current_membership_info.public.session,
+            core_public_inputs: current_membership_info.public.poq_core_public_inputs,
+        },
+    };
+
+    let crypto_processor =
+        CoreCryptographicProcessor::<_, ProofsGenerator, ProofsVerifier>::try_new_with_core_condition_check(
+            current_membership_info.public.membership.clone(),
+            blend_config.minimum_network_size,
+            &blend_config.crypto,
+            current_public_info.clone().into(),
+            current_membership_info.private,
+        )
+        .expect("The initial membership should satisfy the core node condition");
+
+    let blending_token_collector = BlendingTokenCollector::new(
             &reward::SessionInfo::new(
                 current_membership_info.public.session,
                 &pol_epoch_nonce,
@@ -409,163 +524,239 @@ where
             .expect("Reward session info must be created successfully. Panicking since the service cannot continue with this session")
         );
 
-        // Initialize the current session state. If the session matches the stored one,
-        // retrieves the tracked consumed core quota. Else, fallback to `0`.
-        let mut current_recovery_checkpoint = if let Some(saved_state) = last_saved_state.take()
-            && saved_state.last_seen_session() == current_membership_info.public.session
-        {
-            tracing::debug!(target: LOG_TARGET, "Found recovery state for session {:?}: {saved_state:?}", current_membership_info.public.session);
-            saved_state
-        } else {
-            tracing::debug!(target: LOG_TARGET, "No recovery state found for session {:?}. Initializing a new one.", current_membership_info.public.session);
-            ServiceState::with_session(current_membership_info.public.session, state_updater)
-        };
+    // Initialize the current session state. If the session matches the stored one,
+    // retrieves the tracked consumed core quota. Else, fallback to `0`.
+    let current_recovery_checkpoint = if let Some(saved_state) = last_saved_state.take()
+        && saved_state.last_seen_session() == current_membership_info.public.session
+    {
+        tracing::debug!(target: LOG_TARGET, "Found recovery state for session {:?}: {saved_state:?}", current_membership_info.public.session);
+        saved_state
+    } else {
+        tracing::debug!(target: LOG_TARGET, "No recovery state found for session {:?}. Initializing a new one.", current_membership_info.public.session);
+        ServiceState::with_session(current_membership_info.public.session, state_updater)
+    };
 
-        let mut message_scheduler = {
-            let scheduler_starting_core_quota = blend_config
-                .session_quota(current_membership_info.public.membership.size())
-                .saturating_sub(current_recovery_checkpoint.spent_quota());
-            let initial_scheduler_session_info = SchedulerSessionInfo {
-                core_quota: scheduler_starting_core_quota,
-                session_number: u128::from(current_membership_info.public.session).into(),
-            };
-            let scheduler_stream = remaining_session_stream
-                .clone()
-                .filter_map(|event| {
-                    ready(if let SessionEvent::NewSession(new_session_info) = event {
-                        Some(new_session_info)
-                    } else {
-                        None
-                    })
+    let message_scheduler = {
+        let scheduler_starting_core_quota = blend_config
+            .session_quota(current_membership_info.public.membership.size())
+            .saturating_sub(current_recovery_checkpoint.spent_quota());
+        let initial_scheduler_session_info = SchedulerSessionInfo {
+            core_quota: scheduler_starting_core_quota,
+            session_number: u128::from(current_membership_info.public.session).into(),
+        };
+        let blend_config_cloned = blend_config.clone();
+        let scheduler_stream = remaining_session_stream
+            .clone()
+            .filter_map(|event| {
+                ready(if let SessionEvent::NewSession(new_session_info) = event {
+                    Some(new_session_info)
+                } else {
+                    None
                 })
-                .map(
-                    |CoreSessionInfo {
-                         public:
-                             CoreSessionPublicInfo {
-                                 membership,
-                                 session,
-                                 ..
-                             },
-                         ..
-                     }| SchedulerSessionInfo {
-                        core_quota: blend_config.session_quota(membership.size()),
-                        session_number: u128::from(session).into(),
-                    },
-                );
-            SchedulerWrapper::new_with_initial_messages(
-                scheduler_stream,
-                initial_scheduler_session_info,
-                BlakeRng::from_entropy(),
-                blend_config.scheduler_settings(),
-                // We don't consume the map because we will remove the items one by one once they
-                // will be scheduled for release.
-                current_recovery_checkpoint
-                    .unsent_processed_messages()
-                    .clone()
-                    .into_iter(),
-            )
-        };
-
-        let mut backend = Backend::new(
-            blend_config.clone(),
-            overwatch_handle.clone(),
-            current_public_info.clone(),
+            })
+            .map(
+                move |CoreSessionInfo {
+                          public:
+                              CoreSessionPublicInfo {
+                                  membership,
+                                  session,
+                                  ..
+                              },
+                          ..
+                      }| SchedulerSessionInfo {
+                    core_quota: blend_config_cloned.session_quota(membership.size()),
+                    session_number: u128::from(session).into(),
+                },
+            );
+        SchedulerWrapper::new_with_initial_messages(
+            scheduler_stream,
+            initial_scheduler_session_info,
             BlakeRng::from_entropy(),
-        );
+            blend_config.scheduler_settings(),
+            // We don't consume the map because we will remove the items one by one once they
+            // will be scheduled for release.
+            current_recovery_checkpoint
+                .unsent_processed_messages()
+                .clone()
+                .into_iter(),
+        )
+    };
 
-        // Yields new messages received via Blend peers.
-        let mut blend_messages = backend.listen_to_incoming_messages();
+    let backend = Backend::new(
+        blend_config.clone(),
+        overwatch_handle,
+        current_public_info.clone(),
+        BlakeRng::from_entropy(),
+    );
 
-        // Rng for releasing messages.
-        let mut rng = BlakeRng::from_entropy();
+    // Rng for releasing messages.
+    let rng = BlakeRng::from_entropy();
 
-        status_updater.notify_ready();
-        tracing::info!(
-            target: LOG_TARGET,
-            "Service '{}' is ready.",
-            <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
-        );
+    (
+        remaining_session_stream,
+        remaining_clock_stream,
+        current_public_info,
+        crypto_processor,
+        blending_token_collector,
+        current_recovery_checkpoint,
+        message_scheduler,
+        backend,
+        rng,
+    )
+}
 
-        // There might be services that depend on Blend to be ready before starting, so
-        // we cannot wait for the stream to be sent before we signal we are
-        // ready, hence this should always be called after `notify_ready();`.
-        // Also, Blend services start even if such a stream is not immediately
-        // available, since they will simply keep blending cover messages.
-        let mut secret_pol_info_stream = PolInfoProvider::subscribe(overwatch_handle)
-            .await
-            .expect("Should not fail to subscribe to secret PoL info stream.");
+/// Post-initialization step that must be performed after signaling the service
+/// readiness to Overwatch.
+async fn post_initialize<PolInfoProvider, RuntimeServiceId>(
+    overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
+) -> impl Stream<Item = PolEpochInfo>
+where
+    PolInfoProvider: PolInfoProviderTrait<RuntimeServiceId, Stream: Send + Unpin + 'static> + Send,
+{
+    // There might be services that depend on Blend to be ready before starting, so
+    // we cannot wait for the stream to be sent before we signal we are
+    // ready, hence this should always be called after `notify_ready();`.
+    // Also, Blend services start even if such a stream is not immediately
+    // available, since they will simply keep blending cover messages.
+    PolInfoProvider::subscribe(overwatch_handle)
+        .await
+        .expect("Should not fail to subscribe to secret PoL info stream.")
+}
 
-        loop {
-            tokio::select! {
-                Some(local_data_message) = inbound_relay.next() => {
-                    handle_local_data_message(local_data_message, &mut crypto_processor, &backend, &mut message_scheduler).await;
-                }
-                Some(incoming_message) = blend_messages.next() => {
-                    current_recovery_checkpoint = handle_incoming_blend_message(incoming_message, &mut message_scheduler, &crypto_processor, &mut blending_token_collector, current_recovery_checkpoint);
-                }
-                Some(round_info) = message_scheduler.next() => {
-                    current_recovery_checkpoint = handle_release_round(round_info, &mut crypto_processor, &mut rng, &backend, &network_adapter, current_recovery_checkpoint).await;
-                }
-                Some(clock_tick) = remaining_clock_stream.next() => {
-                    current_public_info = handle_clock_event(clock_tick, &blend_config, &mut epoch_handler, &mut crypto_processor, &mut backend, current_public_info).await;
-                }
-                Some(pol_info) = secret_pol_info_stream.next() => {
-                    handle_new_secret_epoch_info(pol_info.poq_private_inputs, &mut crypto_processor);
-                }
-                Some(session_event) = remaining_session_stream.next() => {
-                    match handle_session_event(session_event, &blend_config, crypto_processor, current_public_info, current_recovery_checkpoint, &mut blending_token_collector, &mut backend).await {
-                        Ok(output) => {
-                            crypto_processor = output.crypto_processor;
-                            current_public_info = output.public_info;
-                            current_recovery_checkpoint = output.recovery_checkpoint;
-                        }
-                        Err((e, output)) => {
-                            tracing::error!(
-                                target: LOG_TARGET,
-                                "Terminating the '{}' service as the new membership does not satisfy the core node condition: {e:?}",
-                                <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
-                            );
-                            crypto_processor = output.crypto_processor;
-                            current_public_info = output.public_info;
-                            current_recovery_checkpoint = output.recovery_checkpoint;
-                            break;
-                        }
+/// Runs the main event loop of the service.
+#[expect(clippy::too_many_arguments, reason = "categorize args")]
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "For readability and to prevent misuse, both event loops are placed within a single function."
+)]
+async fn run_event_loop<
+    NodeId,
+    Backend,
+    SessionClock,
+    Rng,
+    NetAdapter,
+    ChainService,
+    ProofsGenerator,
+    ProofsVerifier,
+    RuntimeServiceId,
+>(
+    mut inbound_relay: impl Stream<Item = ServiceMessage<NetAdapter::BroadcastSettings>> + Unpin,
+    mut blend_messages: impl Stream<Item = IncomingEncapsulatedMessageWithValidatedPublicHeader>
+    + Send
+    + Unpin
+    + 'static,
+    mut remaining_clock_stream: impl Stream<Item = SlotTick> + Send + Sync + Unpin + 'static,
+    mut secret_pol_info_stream: impl Stream<Item = PolEpochInfo> + Unpin,
+    mut remaining_session_stream: impl Stream<Item = SessionEvent<CoreSessionInfo<NodeId>>> + Unpin,
+
+    blend_config: &BlendConfig<Backend::Settings>,
+    mut backend: Backend,
+    network_adapter: NetAdapter,
+    mut epoch_handler: EpochHandler<ChainService, RuntimeServiceId>,
+    mut message_scheduler: SchedulerWrapper<
+        SessionClock,
+        Rng,
+        ProcessedMessage<NetAdapter::BroadcastSettings>,
+    >,
+    mut rng: Rng,
+    mut blending_token_collector: BlendingTokenCollector,
+
+    mut crypto_processor: CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
+    mut current_public_info: PublicInfo<NodeId>,
+    mut current_recovery_checkpoint: ServiceState<Backend::Settings, NetAdapter::BroadcastSettings>,
+) where
+    NodeId: Clone + Eq + Hash + Send + 'static,
+    Rng: rand::Rng + Clone + Send + Unpin,
+    Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId> + Sync,
+    SessionClock: Stream<Item = SchedulerSessionInfo> + Unpin,
+    NetAdapter: NetworkAdapter<
+            RuntimeServiceId,
+            BroadcastSettings: Serialize
+                                   + for<'de> Deserialize<'de>
+                                   + Debug
+                                   + Eq
+                                   + Hash
+                                   + Clone
+                                   + Send
+                                   + Sync
+                                   + Unpin,
+        > + Sync,
+    ChainService: ChainApi<RuntimeServiceId> + Sync,
+    ProofsGenerator: CoreAndLeaderProofsGenerator,
+    ProofsVerifier: ProofsVerifierTrait,
+    RuntimeServiceId: Sync,
+{
+    // Main event loop that persists while the node is a core node.
+    // This can span across multiple sessions.
+    loop {
+        tokio::select! {
+            Some(local_data_message) = inbound_relay.next() => {
+                handle_local_data_message(local_data_message, &mut crypto_processor, &backend, &mut message_scheduler).await;
+            }
+            Some(incoming_message) = blend_messages.next() => {
+                current_recovery_checkpoint = handle_incoming_blend_message(incoming_message, &mut message_scheduler, &crypto_processor, &mut blending_token_collector, current_recovery_checkpoint);
+            }
+            Some(round_info) = message_scheduler.next() => {
+                current_recovery_checkpoint = handle_release_round(round_info, &mut crypto_processor, &mut rng, &backend, &network_adapter, current_recovery_checkpoint).await;
+            }
+            Some(clock_tick) = remaining_clock_stream.next() => {
+                current_public_info = handle_clock_event(clock_tick, blend_config, &mut epoch_handler, &mut crypto_processor, &mut backend, current_public_info).await;
+            }
+            Some(pol_info) = secret_pol_info_stream.next() => {
+                handle_new_secret_epoch_info(pol_info.poq_private_inputs, &mut crypto_processor);
+            }
+            Some(session_event) = remaining_session_stream.next() => {
+                match handle_session_event(session_event, blend_config, crypto_processor, current_public_info, current_recovery_checkpoint, &mut blending_token_collector, &mut backend).await {
+                    Ok(output) => {
+                        crypto_processor = output.crypto_processor;
+                        current_public_info = output.public_info;
+                        current_recovery_checkpoint = output.recovery_checkpoint;
+                    }
+                    Err((e @ (Error::LocalIsNotCoreNode | Error::NetworkIsTooSmall(_)), output)) => {
+                        tracing::info!(
+                            target: LOG_TARGET,
+                            "New membership does not satisfy the core node condition: {e:?}:  Exiting from the main event loop",
+                        );
+                        crypto_processor = output.crypto_processor;
+                        current_public_info = output.public_info;
+                        current_recovery_checkpoint = output.recovery_checkpoint;
+                        break;
                     }
                 }
             }
         }
+    }
 
-        // The main event loop has ended because the node is no longer a core node
-        // in the new session.
-        // Before terminating the service, complete the old session during the
-        // session transition period.
-        //
-        // First, drop unnecessary streams to not block senders.
-        drop((
-            // Don't receive local data messages, as they shouldn't be sent in the old session.
-            inbound_relay,
-            // Don't receive secret PoL info updates, as new messages are not generated for the old
-            // session.
-            secret_pol_info_stream,
-        ));
-        loop {
-            tokio::select! {
-                Some(incoming_message) = blend_messages.next() => {
-                    current_recovery_checkpoint = handle_incoming_blend_message(incoming_message, &mut message_scheduler, &crypto_processor, &mut blending_token_collector, current_recovery_checkpoint);
-                }
-                Some(round_info) = message_scheduler.next() => {
-                    current_recovery_checkpoint = handle_release_round(round_info, &mut crypto_processor, &mut rng, &backend, &network_adapter, current_recovery_checkpoint).await;
-                }
-                Some(clock_tick) = remaining_clock_stream.next() => {
-                    current_public_info = handle_clock_event(clock_tick, &blend_config, &mut epoch_handler, &mut crypto_processor, &mut backend, current_public_info).await;
-                }
-                Some(SessionEvent::TransitionPeriodExpired) = remaining_session_stream.next() => {
-                    compute_and_submit_activity_proof_for_previous_session(&mut blending_token_collector);
-                    // Now the core service is no longer needed for the current (new) session,
-                    // and the remaining session transition has been completed,
-                    // so the service terminates here.
-                    return Ok(());
-                }
+    // The main event loop has ended because the node is no longer a core node
+    // in the new session.
+    // Before terminating the service, complete the old session during a single
+    // session transition period.
+    //
+    // First, drop unnecessary streams to not block senders.
+    drop((
+        // Don't receive local data messages, as they shouldn't be sent in the old session.
+        inbound_relay,
+        // Don't receive secret PoL info updates, as new messages are not generated for the old
+        // session.
+        secret_pol_info_stream,
+    ));
+    loop {
+        tokio::select! {
+            Some(incoming_message) = blend_messages.next() => {
+                current_recovery_checkpoint = handle_incoming_blend_message(incoming_message, &mut message_scheduler, &crypto_processor, &mut blending_token_collector, current_recovery_checkpoint);
+            }
+            Some(round_info) = message_scheduler.next() => {
+                current_recovery_checkpoint = handle_release_round(round_info, &mut crypto_processor, &mut rng, &backend, &network_adapter, current_recovery_checkpoint).await;
+            }
+            Some(clock_tick) = remaining_clock_stream.next() => {
+                current_public_info = handle_clock_event(clock_tick, blend_config, &mut epoch_handler, &mut crypto_processor, &mut backend, current_public_info).await;
+            }
+            Some(SessionEvent::TransitionPeriodExpired) = remaining_session_stream.next() => {
+                compute_and_submit_activity_proof_for_previous_session(&mut blending_token_collector);
+                // Now the core service is no longer needed for the current (new) session,
+                // and the remaining session transition has been completed,
+                // so the service terminates here.
+                return;
             }
         }
     }
