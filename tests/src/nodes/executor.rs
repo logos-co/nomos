@@ -355,6 +355,21 @@ impl Executor {
             .get_lib_stream(Url::from_str(&format!("http://{}", self.addr))?)
             .await
     }
+
+    pub async fn add_tx(&self, tx: SignedMantleTx) -> Result<(), reqwest::Error> {
+        CLIENT
+            .post(format!(
+                "http://{}{}",
+                self.addr,
+                nomos_http_api_common::paths::MEMPOOL_ADD_TX
+            ))
+            .header("Content-Type", "application/json")
+            .body(serde_json::to_string(&tx).unwrap())
+            .send()
+            .await?
+            .error_for_status()?;
+        Ok(())
+    }
 }
 
 #[must_use]

@@ -48,7 +48,6 @@ nomos-utils              = { workspace = true }
 nomos-wallet             = { workspace = true }
 num-bigint               = { version = "0.4", default-features = false }
 rand                     = { workspace = true }
-rand_core                = { version = "^0.9" }
 reqwest                  = { workspace = true, features = ["json"] }
 serde_json               = "1.0"
 serde_yaml               = "0.9"
@@ -95,3 +94,7 @@ path = "src/tests/membership/disperse.rs"
 [[test]]
 name = "test_da_historic_sampling"
 path = "src/tests/da/historic_sampling.rs"
+
+[[test]]
+name = "test_invalid_tx_handling"
+path = "src/tests/cryptarchia/invalid_tx_handling.rs"
