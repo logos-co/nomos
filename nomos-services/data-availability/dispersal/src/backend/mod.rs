@@ -9,6 +9,7 @@ use nomos_core::{
         ops::channel::{ChannelId, Ed25519PublicKey, MsgId},
         tx_builder::MantleTxBuilder,
     },
+    sdp::SessionNumber,
 };
 use overwatch::DynError;
 use tokio::sync::oneshot;
@@ -16,6 +17,14 @@ use tokio::sync::oneshot;
 use crate::adapters::{network::DispersalNetworkAdapter, wallet::DaWalletAdapter};
 
 pub type DispersalTask = Pin<Box<dyn Future<Output = (ChannelId, Option<SignedMantleTx>)> + Send>>;
+
+#[derive(Copy, Clone)]
+pub struct InitialBlobOpArgs {
+    pub channel_id: ChannelId,
+    pub session: SessionNumber,
+    pub parent_msg_id: MsgId,
+    pub signer: Ed25519PublicKey,
+}
 
 #[async_trait::async_trait]
 pub trait DispersalBackend {
@@ -35,9 +44,7 @@ pub trait DispersalBackend {
     async fn process_dispersal(
         &self,
         tx_builder: MantleTxBuilder,
-        channel_id: ChannelId,
-        parent_msg_id: MsgId,
-        signer: Ed25519PublicKey,
+        blob_op_args: InitialBlobOpArgs,
         data: Vec<u8>,
         sender: oneshot::Sender<Result<Self::BlobId, DynError>>,
     ) -> Result<DispersalTask, DynError>;

@@ -184,6 +184,7 @@ mod tests {
     fn blob_op(channel_id: ChannelId, verifying_key: VerifyingKey) -> BlobOp {
         BlobOp {
             channel: channel_id,
+            session: 0u64,
             blob: [42; 32],
             blob_size: 1024,
             da_storage_gas_price: 10,

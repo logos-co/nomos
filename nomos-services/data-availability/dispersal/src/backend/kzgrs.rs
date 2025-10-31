@@ -8,11 +8,7 @@ use kzgrs_backend::{
 };
 use nomos_core::{
     da::{BlobId, DaDispersal, DaEncoder},
-    mantle::{
-        SignedMantleTx,
-        ops::channel::{ChannelId, Ed25519PublicKey, MsgId},
-        tx_builder::MantleTxBuilder,
-    },
+    mantle::{SignedMantleTx, tx_builder::MantleTxBuilder},
 };
 use nomos_da_network_service::backends::ProcessingError;
 use nomos_tracing::info_with_id;
@@ -24,8 +20,11 @@ use tokio::sync::oneshot;
 use tracing::instrument;
 
 use crate::{
-    adapters::{network::DispersalNetworkAdapter, wallet::DaWalletAdapter},
-    backend::{DispersalBackend, DispersalTask},
+    adapters::{
+        network::DispersalNetworkAdapter,
+        wallet::{BlobOpArgs, DaWalletAdapter},
+    },
+    backend::{DispersalBackend, DispersalTask, InitialBlobOpArgs},
 };
 
 #[serde_as]
@@ -174,25 +173,15 @@ where
     async fn disperse(
         handler: DispersalHandler<NetworkAdapter, WalletAdapter>,
         tx_builder: MantleTxBuilder,
-        channel_id: ChannelId,
-        parent_msg_id: MsgId,
-        signer: Ed25519PublicKey,
+        blob_op_args: BlobOpArgs,
         encoded_data: <encoder::DaEncoder as DaEncoder>::EncodedData,
-        original_size: usize,
     ) -> Result<SignedMantleTx, DynError> {
-        let blob_id = build_blob_id(&encoded_data.row_commitments);
+        let blob_id = blob_op_args.blob_id;
 
         tracing::debug!("Dispersing {blob_id:?} transaction");
         let wallet_adapter = handler.wallet_adapter.as_ref();
         let tx = wallet_adapter
-            .blob_tx(
-                tx_builder,
-                channel_id,
-                parent_msg_id,
-                blob_id,
-                original_size,
-                signer,
-            )
+            .blob_tx(tx_builder, blob_op_args)
             .map_err(DynError::from)?;
 
         handler.disperse_tx(blob_id, tx.clone()).await?;
@@ -202,33 +191,24 @@ where
         Ok(tx)
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "Dispersal tasks requires multiple arguments"
-    )]
     fn create_dispersal_task(
         handler: DispersalHandler<NetworkAdapter, WalletAdapter>,
         tx_builder: MantleTxBuilder,
-        channel_id: ChannelId,
-        parent_msg_id: MsgId,
-        signer: Ed25519PublicKey,
+        blob_op_args: BlobOpArgs,
         encoded_data: EncodedData,
-        original_size: usize,
         sender: oneshot::Sender<Result<BlobId, DynError>>,
-        blob_id: BlobId,
         retry_limit: usize,
         retry_cooldown: Duration,
     ) -> DispersalTask {
         Box::pin(async move {
+            let blob_id = blob_op_args.blob_id;
+            let channel_id = blob_op_args.channel_id;
             for attempt in 0..=retry_limit {
                 match Self::disperse(
                     handler.clone(),
                     tx_builder.clone(),
-                    channel_id,
-                    parent_msg_id,
-                    signer,
+                    blob_op_args.clone(),
                     encoded_data.clone(),
-                    original_size,
                 )
                 .await
                 {
@@ -302,9 +282,7 @@ where
     async fn process_dispersal(
         &self,
         tx_builder: MantleTxBuilder,
-        channel_id: ChannelId,
-        parent_msg_id: MsgId,
-        signer: Ed25519PublicKey,
+        blob_op_args: InitialBlobOpArgs,
         data: Vec<u8>,
         sender: oneshot::Sender<Result<Self::BlobId, DynError>>,
     ) -> Result<DispersalTask, DynError> {
@@ -322,13 +300,9 @@ where
         let dispersal_task = Self::create_dispersal_task(
             handler,
             tx_builder,
-            channel_id,
-            parent_msg_id,
-            signer,
+            BlobOpArgs::from_initial(blob_op_args, blob_id, original_size),
             encoded_data,
-            original_size,
             sender,
-            blob_id,
             self.settings.retry_limit,
             self.settings.retry_cooldown,
         );
