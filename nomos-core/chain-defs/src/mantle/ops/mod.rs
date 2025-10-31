@@ -210,12 +210,12 @@ mod tests {
         ]);
         let zero_string = "0000000000000000000000000000000000000000000000000000000000000000";
         let vk_hex = hex::encode(VK.as_bytes());
-        let payload = json!({"channel": zero_string, "current_session": 0u64, "blob": zeros, "blob_size": 0, "parent": zero_string, "signer": vk_hex, "da_storage_gas_price": 0});
+        let payload = json!({"channel": zero_string, "session": 0u64, "blob": zeros, "blob_size": 0, "parent": zero_string, "signer": vk_hex, "da_storage_gas_price": 0});
         let repr = json!({"opcode": 0x01, "payload": payload});
         println!("{:?}", serde_json::to_string(&repr).unwrap());
         let op = Op::ChannelBlob(BlobOp {
             channel: [0; 32].into(),
-            current_session: 0u64,
+            session: 0u64,
             blob: [0; 32],
             blob_size: 0,
             da_storage_gas_price: 0,
@@ -244,7 +244,7 @@ mod tests {
 
         let blob_op = BlobOp {
             channel: [0; 32].into(),
-            current_session: 0u64,
+            session: 0u64,
             blob: [0; 32],
             blob_size: 0,
             da_storage_gas_price: 0,

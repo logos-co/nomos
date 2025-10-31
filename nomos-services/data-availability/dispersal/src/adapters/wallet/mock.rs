@@ -32,7 +32,7 @@ impl DaWalletAdapter for MockWalletAdapter {
         // transaction with blob operation.
         let BlobOpArgs {
             channel_id,
-            current_session,
+            session,
             parent_msg_id,
             blob_id,
             blob_size,
@@ -47,7 +47,7 @@ impl DaWalletAdapter for MockWalletAdapter {
 
         let blob_op = BlobOp {
             channel: channel_id,
-            current_session,
+            session,
             blob: blob_id,
             blob_size: blob_size as u64,
             da_storage_gas_price: 3000,

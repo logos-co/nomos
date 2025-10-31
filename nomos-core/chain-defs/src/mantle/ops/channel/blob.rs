@@ -15,7 +15,7 @@ use crate::{
 #[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct BlobOp {
     pub channel: ChannelId,
-    pub current_session: SessionNumber,
+    pub session: SessionNumber,
     pub blob: BlobId,
     pub blob_size: u64,
     pub da_storage_gas_price: Gas,

@@ -116,7 +116,7 @@ fn decode_channel_blob(input: &[u8]) -> IResult<&[u8], BlobOp> {
     // ChannelBlob = ChannelId BlobId BlobSize DaStorageGasPrice Parent Signer
     // Signer = Ed25519PublicKey
     let (input, channel) = map(decode_hash32, ChannelId::from).parse(input)?;
-    let (input, current_session) = decode_uint64(input)?;
+    let (input, session) = decode_uint64(input)?;
     let (input, blob) = decode_hash32(input)?;
     let (input, blob_size) = decode_uint64(input)?;
     let (input, da_storage_gas_price) = decode_uint64(input)?;
@@ -127,7 +127,7 @@ fn decode_channel_blob(input: &[u8]) -> IResult<&[u8], BlobOp> {
         input,
         BlobOp {
             channel,
-            current_session,
+            session,
             blob,
             blob_size,
             da_storage_gas_price,
@@ -981,7 +981,7 @@ mod tests {
                 mantle_tx: MantleTx {
                     ops: vec![Op::ChannelBlob(BlobOp {
                         channel: ChannelId::from([0xAA; 32]),
-                        current_session: 0u64,
+                        session: 0u64,
                         blob: [0xBB; 32],
                         blob_size: 1024,
                         da_storage_gas_price: 10,
@@ -1125,7 +1125,7 @@ mod tests {
                         }),
                         Op::ChannelBlob(BlobOp {
                             channel: ChannelId::from([0x22; 32]),
-                            current_session: 0u64,
+                            session: 0u64,
                             blob: [0x33; 32],
                             blob_size: 2048,
                             da_storage_gas_price: 20,
@@ -1286,7 +1286,7 @@ mod tests {
         let mut signing_key = SigningKey::from_bytes(&[1; 32]);
         let blob_op = BlobOp {
             channel: ChannelId::from([0xCC; 32]),
-            current_session: 0u64,
+            session: 0u64,
             blob: [0xDD; 32],
             blob_size: 1024,
             da_storage_gas_price: 10,
@@ -1488,7 +1488,7 @@ mod tests {
 
         let blob_op = BlobOp {
             channel: ChannelId::from([0xCC; 32]),
-            current_session: 0u64,
+            session: 0u64,
             blob: [0xDD; 32],
             blob_size: 2048,
             da_storage_gas_price: 20,

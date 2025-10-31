@@ -235,7 +235,7 @@ where
                         data,
                         reply_channel,
                     } = dispersal_msg;
-                    let Some(current_session) = current_session else {
+                    let Some(session) = current_session else {
                         if let Err(e) = reply_channel.send(Err(DispersalServiceError::SessionUnavailable.into())) {
                         tracing::error!("Failed to send dispersal error: {e:?}");
                         }
@@ -245,7 +245,7 @@ where
                         tx_builder,
                         backend::InitialBlobOpArgs {
                             channel_id,
-                            current_session,
+                            session,
                             parent_msg_id,
                             signer,
                         },

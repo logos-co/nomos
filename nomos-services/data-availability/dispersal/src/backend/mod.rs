@@ -21,7 +21,7 @@ pub type DispersalTask = Pin<Box<dyn Future<Output = (ChannelId, Option<SignedMa
 #[derive(Copy, Clone)]
 pub struct InitialBlobOpArgs {
     pub channel_id: ChannelId,
-    pub current_session: SessionNumber,
+    pub session: SessionNumber,
     pub parent_msg_id: MsgId,
     pub signer: Ed25519PublicKey,
 }

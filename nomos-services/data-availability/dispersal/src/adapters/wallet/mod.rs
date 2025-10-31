@@ -15,7 +15,7 @@ use crate::backend::InitialBlobOpArgs;
 #[derive(Clone)]
 pub struct BlobOpArgs {
     pub channel_id: ChannelId,
-    pub current_session: SessionNumber,
+    pub session: SessionNumber,
     pub parent_msg_id: MsgId,
     pub blob_id: BlobId,
     pub blob_size: usize,
@@ -27,7 +27,7 @@ impl BlobOpArgs {
     pub const fn from_initial(args: InitialBlobOpArgs, blob_id: BlobId, blob_size: usize) -> Self {
         Self {
             channel_id: args.channel_id,
-            current_session: args.current_session,
+            session: args.session,
             parent_msg_id: args.parent_msg_id,
             signer: args.signer,
             blob_id,

@@ -273,7 +273,7 @@ mod tests {
 
         let blob_op = BlobOp {
             channel: channel_id,
-            current_session: 0u64,
+            session: 0u64,
             blob: [42; 32],
             blob_size: 1024,
             da_storage_gas_price: 10,
@@ -360,7 +360,7 @@ mod tests {
         // First, create a channel with one message
         let first_blob = BlobOp {
             channel: channel_id,
-            current_session: 0u64,
+            session: 0u64,
             blob: [1; 32],
             blob_size: 512,
             da_storage_gas_price: 5,
@@ -383,7 +383,7 @@ mod tests {
         let wrong_parent = MsgId::from([99; 32]);
         let second_blob = BlobOp {
             channel: channel_id,
-            current_session: 0u64,
+            session: 0u64,
             blob: [2; 32],
             blob_size: 512,
             da_storage_gas_price: 5,
@@ -407,7 +407,7 @@ mod tests {
         let empty_channel_id = ChannelId::from([8; 32]);
         let empty_blob = BlobOp {
             channel: empty_channel_id,
-            current_session: 0u64,
+            session: 0u64,
             blob: [3; 32],
             blob_size: 512,
             da_storage_gas_price: 5,
@@ -440,7 +440,7 @@ mod tests {
         // First, create a channel with authorized signer
         let first_blob = BlobOp {
             channel: channel_id,
-            current_session: 0u64,
+            session: 0u64,
             blob: [1; 32],
             blob_size: 512,
             da_storage_gas_price: 5,
@@ -463,7 +463,7 @@ mod tests {
         // Now try to add a message with unauthorized signer
         let second_blob = BlobOp {
             channel: channel_id,
-            current_session: 0u64,
+            session: 0u64,
             blob: [2; 32],
             blob_size: 512,
             da_storage_gas_price: 5,
@@ -529,7 +529,7 @@ mod tests {
 
         let blob_op = BlobOp {
             channel: channel1,
-            current_session: 0u64,
+            session: 0u64,
             blob: [42; 32],
             blob_size: 1024,
             da_storage_gas_price: 10,
@@ -551,7 +551,7 @@ mod tests {
 
         let blob_op2 = BlobOp {
             channel: channel1,
-            current_session: 0u64,
+            session: 0u64,
             blob: [43; 32],
             blob_size: 2048,
             da_storage_gas_price: 20,
