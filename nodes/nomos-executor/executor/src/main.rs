@@ -10,7 +10,7 @@ use nomos_node::{
 };
 use nomos_sdp::SdpSettings;
 use overwatch::overwatch::{Error as OverwatchError, Overwatch, OverwatchRunner};
-use tx_service::{processor::tx::SignedTxProcessorSettings, tx::settings::TxMempoolSettings};
+use tx_service::tx::settings::TxMempoolSettings;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -83,9 +83,6 @@ async fn main() -> Result<()> {
                 network_adapter: MempoolAdapterSettings {
                     topic: String::from(MANTLE_TOPIC),
                     id: <SignedMantleTx as Transaction>::hash,
-                },
-                processor: SignedTxProcessorSettings {
-                    trigger_sampling_delay: config.mempool.trigger_sampling_delay,
                 },
                 recovery_path: config.mempool.pool_recovery_path,
             },

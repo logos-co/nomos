@@ -6,7 +6,9 @@ use nomos_core::{
     header::HeaderId,
     mantle::{AuthenticatedMantleTx, TxHash},
 };
-use nomos_da_sampling::{DaSamplingService, backend::DaSamplingServiceBackend};
+use nomos_da_sampling::{
+    DaSamplingService, backend::DaSamplingServiceBackend, mempool::DaMempoolAdapter,
+};
 use nomos_time::{TimeService, TimeServiceMessage, backends::TimeBackend as TimeBackendTrait};
 use overwatch::{
     OpaqueServiceResourcesHandle,
@@ -27,26 +29,30 @@ pub struct CryptarchiaConsensusRelays<
     BlendService,
     Mempool,
     MempoolNetAdapter,
+    MempoolDaAdapter,
     SamplingBackend,
     RuntimeServiceId,
 > where
     BlendService: ServiceData,
     Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash>,
     MempoolNetAdapter: MempoolNetworkAdapter<RuntimeServiceId>,
+    MempoolDaAdapter: DaMempoolAdapter,
     SamplingBackend: DaSamplingServiceBackend,
 {
     blend_relay: BlendRelay<BlendService>,
     mempool_adapter: adapter::MempoolAdapter<Mempool::Item, Mempool::Item>,
     sampling_relay: SamplingRelay<SamplingBackend::BlobId>,
     time_relay: TimeRelay,
-    _mempool_adapter: std::marker::PhantomData<(MempoolNetAdapter, RuntimeServiceId)>,
+    _mempool_adapter:
+        std::marker::PhantomData<(MempoolNetAdapter, MempoolDaAdapter, RuntimeServiceId)>,
 }
 
-impl<BlendService, Mempool, MempoolNetAdapter, SamplingBackend, RuntimeServiceId>
+impl<BlendService, Mempool, MempoolNetAdapter, MempoolDaAdapter, SamplingBackend, RuntimeServiceId>
     CryptarchiaConsensusRelays<
         BlendService,
         Mempool,
         MempoolNetAdapter,
+        MempoolDaAdapter,
         SamplingBackend,
         RuntimeServiceId,
     >
@@ -69,6 +75,7 @@ where
         + Send
         + Sync,
     MempoolNetAdapter::Settings: Send + Sync,
+    MempoolDaAdapter: DaMempoolAdapter + Send + Sync + 'static,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
@@ -123,20 +130,14 @@ where
             + 'static
             + AsServiceId<BlendService>
             + AsServiceId<
-                TxMempoolService<
-                    MempoolNetAdapter,
-                    SamplingNetworkAdapter,
-                    SamplingStorage,
-                    Mempool,
-                    Mempool::Storage,
-                    RuntimeServiceId,
-                >,
+                TxMempoolService<MempoolNetAdapter, Mempool, Mempool::Storage, RuntimeServiceId>,
             >
             + AsServiceId<
                 DaSamplingService<
                     SamplingBackend,
                     SamplingNetworkAdapter,
                     SamplingStorage,
+                    MempoolDaAdapter,
                     RuntimeServiceId,
                 >,
             >
@@ -155,13 +156,13 @@ where
 
         let mempool_relay = service_resources_handle
             .overwatch_handle
-            .relay::<TxMempoolService<_, _, _, _, _, _>>()
+            .relay::<TxMempoolService<_, _, _, _>>()
             .await
             .expect("Relay connection with MempoolService should succeed");
 
         let sampling_relay = service_resources_handle
             .overwatch_handle
-            .relay::<DaSamplingService<_, _, _, _>>()
+            .relay::<DaSamplingService<_, _, _, _, _>>()
             .await
             .expect("Relay connection with SamplingService should succeed");
 

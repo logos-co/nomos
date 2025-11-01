@@ -9,7 +9,9 @@ use nomos_core::{
     header::HeaderId,
     mantle::{SignedMantleTx, Transaction},
 };
-use nomos_da_sampling::backend::DaSamplingServiceBackend;
+use nomos_da_sampling::{
+    backend::DaSamplingServiceBackend, mempool::sampling::SamplingMempoolNetworkAdapter,
+};
 use nomos_storage::backends::rocksdb::RocksBackend;
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId};
 use tokio::sync::oneshot;
@@ -38,6 +40,15 @@ pub type Cryptarchia<
     ConsensusNetworkAdapter<SignedMantleTx, RuntimeServiceId>,
     MempoolBackend<StorageAdapter, RuntimeServiceId>,
     MempoolNetworkAdapter<SignedMantleTx, <SignedMantleTx as Transaction>::Hash, RuntimeServiceId>,
+    SamplingMempoolNetworkAdapter<
+        MempoolNetworkAdapter<
+            SignedMantleTx,
+            <SignedMantleTx as Transaction>::Hash,
+            RuntimeServiceId,
+        >,
+        MempoolBackend<StorageAdapter, RuntimeServiceId>,
+        RuntimeServiceId,
+    >,
     RocksBackend,
     SamplingBackend,
     SamplingNetworkAdapter,

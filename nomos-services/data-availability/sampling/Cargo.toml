@@ -24,9 +24,11 @@ rand                     = { workspace = true }
 serde                    = { default-features = false, version = "1.0" }
 services-utils           = { workspace = true }
 subnetworks-assignations = { workspace = true }
+thiserror                = "1.0"
 tokio                    = { default-features = false, version = "1", features = ["test-util"] }
 tokio-stream             = { default-features = false, version = "0.1.15" }
 tracing                  = { workspace = true }
+tx-service               = { workspace = true }
 
 [dev-dependencies]
 kzgrs = { workspace = true }

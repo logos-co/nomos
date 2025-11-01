@@ -16,7 +16,10 @@ use nomos_network::{
     config::NetworkConfig,
     message::NetworkMsg,
 };
-use nomos_storage::{StorageService, backends::rocksdb::RocksBackend};
+use nomos_storage::{
+    StorageService,
+    backends::rocksdb::{self, RocksBackend},
+};
 use nomos_tracing_service::{Tracing, TracingSettings};
 use nomos_utils::noop_service::NoService;
 use overwatch::overwatch::OverwatchRunner;
@@ -30,20 +33,14 @@ use tempfile::TempDir;
 use tx_service::{
     MempoolMsg, TxMempoolSettings,
     backend::{Mempool, PoolRecoveryState},
-    network::{
-        NetworkAdapter,
-        adapters::mock::{MOCK_TX_CONTENT_TOPIC, MockAdapter},
-    },
-    processor::noop::NoOpPayloadProcessor,
+    network::adapters::mock::{MOCK_TX_CONTENT_TOPIC, MockAdapter},
     storage::adapters::rocksdb::RocksStorageAdapter,
     tx::{service::GenericTxMempoolService, state::TxMempoolState},
 };
 
-type NoProcessor<NetworkAdapter> = NoOpPayloadProcessor<NoService, NetworkAdapter>;
-
 type MockRecoveryBackend = JsonFileBackend<
-    TxMempoolState<PoolRecoveryState<HeaderId, MockTxId>, (), (), ()>,
-    TxMempoolSettings<(), (), ()>,
+    TxMempoolState<PoolRecoveryState<HeaderId, MockTxId>, (), ()>,
+    TxMempoolSettings<(), ()>,
 >;
 
 type MockMempoolService = GenericTxMempoolService<
@@ -55,7 +52,6 @@ type MockMempoolService = GenericTxMempoolService<
         RuntimeServiceId,
     >,
     MockAdapter<RuntimeServiceId>,
-    NoProcessor<<MockAdapter<RuntimeServiceId> as NetworkAdapter<RuntimeServiceId>>::Payload>,
     MockRecoveryBackend,
     RocksStorageAdapter<MockTransaction<MockMessage>, MockTxId>,
     RuntimeServiceId,
@@ -143,7 +139,7 @@ fn test_mock_mempool() {
                     weights: None,
                 },
             },
-            storage: nomos_storage::backends::rocksdb::RocksBackendSettings {
+            storage: rocksdb::RocksBackendSettings {
                 db_path,
                 read_only: false,
                 column_family: None,
@@ -151,7 +147,6 @@ fn test_mock_mempool() {
             mockpool: TxMempoolSettings {
                 pool: (),
                 network_adapter: (),
-                processor: (),
                 recovery_path: recovery_file_path.clone(),
             },
             logging: TracingSettings::default(),
@@ -218,7 +213,6 @@ fn test_mock_mempool() {
         let recovery_backend = MockRecoveryBackend::from_settings(&TxMempoolSettings {
             pool: (),
             network_adapter: (),
-            processor: (),
             recovery_path: recovery_file_path.clone(),
         });
         let recovered_state = recovery_backend

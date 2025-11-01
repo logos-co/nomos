@@ -2,7 +2,6 @@ use core::{fmt::Debug, hash::Hash};
 use std::fmt::Display;
 
 use nomos_core::header::HeaderId;
-use nomos_da_sampling::network::NetworkAdapter as DaSamplingNetworkAdapter;
 use nomos_network::backends::NetworkBackend;
 use overwatch::{DynError, services::AsServiceId};
 use serde::{Deserialize, Serialize};
@@ -12,8 +11,6 @@ use tx_service::{MempoolMsg, TxMempoolService, backend::Mempool, network::Networ
 pub async fn add_tx<
     MempoolNetworkBackend,
     MempoolNetworkAdapter,
-    SamplingNetworkAdapter,
-    SamplingStorage,
     StorageAdapter,
     Item,
     Key,
@@ -30,8 +27,6 @@ where
         + Sync
         + 'static,
     MempoolNetworkAdapter::Settings: Send + Sync,
-    SamplingNetworkAdapter: DaSamplingNetworkAdapter<RuntimeServiceId> + Send + Sync,
-    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
     StorageAdapter: tx_service::storage::MempoolStorageAdapter<RuntimeServiceId, Key = Key, Item = Item>
         + Clone
         + 'static,
@@ -45,8 +40,6 @@ where
         + AsServiceId<
             TxMempoolService<
                 MempoolNetworkAdapter,
-                SamplingNetworkAdapter,
-                SamplingStorage,
                 Mempool<HeaderId, Item, Key, StorageAdapter, RuntimeServiceId>,
                 StorageAdapter,
                 RuntimeServiceId,

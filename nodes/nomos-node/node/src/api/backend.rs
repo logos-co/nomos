@@ -82,6 +82,7 @@ pub struct AxumBackend<
     DaStorageConverter,
     SamplingBackend,
     SamplingNetworkAdapter,
+    SamplingMempoolAdapter,
     SamplingStorage,
     VerifierMempoolAdapter,
     TimeBackend,
@@ -107,6 +108,7 @@ pub struct AxumBackend<
     _mempool_storage_adapter: core::marker::PhantomData<MempoolStorageAdapter>,
     _da_membership: core::marker::PhantomData<(DaMembershipAdapter, DaMembershipStorage)>,
     _verifier_mempool_adapter: core::marker::PhantomData<VerifierMempoolAdapter>,
+    _sampling_mempool_adapter: core::marker::PhantomData<SamplingMempoolAdapter>,
 }
 
 #[derive(OpenApi)]
@@ -134,6 +136,7 @@ impl<
     DaStorageConverter,
     SamplingBackend,
     SamplingNetworkAdapter,
+    SamplingMempoolAdapter,
     SamplingStorage,
     VerifierMempoolAdapter,
     TimeBackend,
@@ -154,6 +157,7 @@ impl<
         DaStorageConverter,
         SamplingBackend,
         SamplingNetworkAdapter,
+        SamplingMempoolAdapter,
         SamplingStorage,
         VerifierMempoolAdapter,
         TimeBackend,
@@ -187,6 +191,7 @@ where
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
     SamplingBackend::BlobId: Debug + 'static,
+    SamplingMempoolAdapter: nomos_da_sampling::mempool::DaMempoolAdapter,
     DaShare::LightShare: LightShare<ShareIndex = <DaShare as Share>::ShareIndex>
         + Serialize
         + DeserializeOwned
@@ -220,6 +225,7 @@ where
         + Clone
         + 'static,
     MempoolStorageAdapter::Error: Debug,
+    SamplingMempoolAdapter: nomos_da_sampling::mempool::DaMempoolAdapter + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Send
@@ -272,8 +278,6 @@ where
                     <SignedMantleTx as Transaction>::Hash,
                     RuntimeServiceId,
                 >,
-                SamplingNetworkAdapter,
-                SamplingStorage,
                 Mempool<
                     HeaderId,
                     SignedMantleTx,
@@ -290,6 +294,7 @@ where
                 SamplingBackend,
                 SamplingNetworkAdapter,
                 SamplingStorage,
+                SamplingMempoolAdapter,
                 RuntimeServiceId,
             >,
         >
@@ -320,6 +325,7 @@ where
             _mempool_storage_adapter: core::marker::PhantomData,
             _da_membership: core::marker::PhantomData,
             _verifier_mempool_adapter: core::marker::PhantomData,
+            _sampling_mempool_adapter: core::marker::PhantomData,
         })
     }
 
@@ -342,7 +348,7 @@ where
             nomos_da_network_service::NetworkService<_, _, _, _, _, _, _>,
             nomos_network::NetworkService<_, _>,
             DaStorageService<_>,
-            TxMempoolService<_, _, _, _, _, _>
+            TxMempoolService<_, _, _,  _>
         )
         .await?;
         Ok(())
@@ -368,25 +374,11 @@ where
             .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
             .route(
                 paths::MANTLE_METRICS,
-                routing::get(
-                    mantle_metrics::<
-                        SamplingNetworkAdapter,
-                        SamplingStorage,
-                        MempoolStorageAdapter,
-                        RuntimeServiceId,
-                    >,
-                ),
+                routing::get(mantle_metrics::<MempoolStorageAdapter, RuntimeServiceId>),
             )
             .route(
                 paths::MANTLE_STATUS,
-                routing::post(
-                    mantle_status::<
-                        SamplingNetworkAdapter,
-                        SamplingStorage,
-                        MempoolStorageAdapter,
-                        RuntimeServiceId,
-                    >,
-                ),
+                routing::post(mantle_status::<MempoolStorageAdapter, RuntimeServiceId>),
             )
             .route(
                 paths::CRYPTARCHIA_INFO,
@@ -483,14 +475,7 @@ where
             )
             .route(
                 paths::MEMPOOL_ADD_TX,
-                routing::post(
-                    add_tx::<
-                        SamplingNetworkAdapter,
-                        SamplingStorage,
-                        MempoolStorageAdapter,
-                        RuntimeServiceId,
-                    >,
-                ),
+                routing::post(add_tx::<MempoolStorageAdapter, RuntimeServiceId>),
             )
             .route(
                 paths::DA_GET_SHARES_COMMITMENTS,
@@ -500,6 +485,7 @@ where
                         SamplingBackend,
                         SamplingNetworkAdapter,
                         SamplingStorage,
+                        SamplingMempoolAdapter,
                         RuntimeServiceId,
                     >,
                 ),

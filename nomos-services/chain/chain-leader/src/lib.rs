@@ -20,6 +20,7 @@ use nomos_core::{
 };
 use nomos_da_sampling::{
     DaSamplingService, DaSamplingServiceMsg, backend::DaSamplingServiceBackend,
+    mempool::DaMempoolAdapter,
 };
 use nomos_time::{SlotTick, TimeService, TimeServiceMessage};
 use overwatch::{
@@ -94,6 +95,7 @@ pub struct CryptarchiaLeader<
     BlendService,
     Mempool,
     MempoolNetAdapter,
+    MempoolDaAdapter,
     TxS,
     SamplingBackend,
     SamplingNetworkAdapter,
@@ -112,6 +114,7 @@ pub struct CryptarchiaLeader<
     Mempool::Item: AuthenticatedMantleTx,
     MempoolNetAdapter:
         MempoolNetworkAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>,
+    MempoolDaAdapter: DaMempoolAdapter + Send + Sync + 'static,
     <MempoolNetAdapter as MempoolNetworkAdapter<RuntimeServiceId>>::Settings: Send + Sync,
     TxS: TxSelect<Tx = Mempool::Item>,
     TxS::Settings: Send,
@@ -133,6 +136,7 @@ impl<
     BlendService,
     Mempool,
     MempoolNetAdapter,
+    MempoolDaAdapter,
     TxS,
     SamplingBackend,
     SamplingNetworkAdapter,
@@ -146,6 +150,7 @@ impl<
         BlendService,
         Mempool,
         MempoolNetAdapter,
+        MempoolDaAdapter,
         TxS,
         SamplingBackend,
         SamplingNetworkAdapter,
@@ -165,6 +170,7 @@ where
     MempoolNetAdapter:
         MempoolNetworkAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>,
     <MempoolNetAdapter as MempoolNetworkAdapter<RuntimeServiceId>>::Settings: Send + Sync,
+    MempoolDaAdapter: DaMempoolAdapter + Send + Sync + 'static,
     TxS: TxSelect<Tx = Mempool::Item>,
     TxS::Settings: Send,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
@@ -188,6 +194,7 @@ impl<
     BlendService,
     Mempool,
     MempoolNetAdapter,
+    MempoolDaAdapter,
     TxS,
     SamplingBackend,
     SamplingNetworkAdapter,
@@ -201,6 +208,7 @@ impl<
         BlendService,
         Mempool,
         MempoolNetAdapter,
+        MempoolDaAdapter,
         TxS,
         SamplingBackend,
         SamplingNetworkAdapter,
@@ -237,6 +245,7 @@ where
         + Send
         + Sync
         + 'static,
+    MempoolDaAdapter: DaMempoolAdapter + Send + Sync + 'static,
     <MempoolNetAdapter as MempoolNetworkAdapter<RuntimeServiceId>>::Settings: Send + Sync,
     TxS: TxSelect<Tx = Mempool::Item> + Clone + Send + Sync + 'static,
     TxS::Settings: Send + Sync + 'static,
@@ -259,20 +268,14 @@ where
         + AsServiceId<Self>
         + AsServiceId<BlendService>
         + AsServiceId<
-            TxMempoolService<
-                MempoolNetAdapter,
-                SamplingNetworkAdapter,
-                SamplingStorage,
-                Mempool,
-                Mempool::Storage,
-                RuntimeServiceId,
-            >,
+            TxMempoolService<MempoolNetAdapter, Mempool, Mempool::Storage, RuntimeServiceId>,
         >
         + AsServiceId<
             DaSamplingService<
                 SamplingBackend,
                 SamplingNetworkAdapter,
                 SamplingStorage,
+                MempoolDaAdapter,
                 RuntimeServiceId,
             >,
         >
@@ -347,8 +350,8 @@ where
             &self.service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
             BlendService,
-            TxMempoolService<_, _, _, _, _,_>,
-            DaSamplingService<_, _, _, _>,
+            TxMempoolService<_, _, _, _>,
+            DaSamplingService<_, _, _, _, _>,
             TimeService<_, _>,
             CryptarchiaService,
             Wallet
@@ -473,6 +476,7 @@ impl<
     BlendService,
     Mempool,
     MempoolNetAdapter,
+    MempoolDaAdapter,
     TxS,
     SamplingBackend,
     SamplingNetworkAdapter,
@@ -486,6 +490,7 @@ impl<
         BlendService,
         Mempool,
         MempoolNetAdapter,
+        MempoolDaAdapter,
         TxS,
         SamplingBackend,
         SamplingNetworkAdapter,
@@ -520,6 +525,7 @@ where
         + Send
         + Sync
         + 'static,
+    MempoolDaAdapter: DaMempoolAdapter + Send + Sync + 'static,
     <MempoolNetAdapter as MempoolNetworkAdapter<RuntimeServiceId>>::Settings: Send + Sync,
     <Mempool as MemPool>::Storage: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
     TxS: TxSelect<Tx = Mempool::Item> + Clone + Send + Sync + 'static,
@@ -546,6 +552,7 @@ where
             BlendService,
             Mempool,
             MempoolNetAdapter,
+            MempoolDaAdapter,
             SamplingBackend,
             RuntimeServiceId,
         >,

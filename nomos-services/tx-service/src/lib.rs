@@ -1,6 +1,5 @@
 pub mod backend;
 pub mod network;
-pub mod processor;
 pub mod storage;
 pub mod tx;
 pub mod verify;
@@ -13,7 +12,7 @@ use std::{
 
 use backend::{MempoolError, Status};
 use futures::Stream;
-use tokio::sync::oneshot::Sender;
+use tokio::sync::{broadcast, oneshot::Sender};
 pub use tx::{service::TxMempoolService, settings::TxMempoolSettings};
 
 pub enum MempoolMsg<BlockId, Payload, Item, Key> {
@@ -44,6 +43,9 @@ pub enum MempoolMsg<BlockId, Payload, Item, Key> {
         hashes: BTreeSet<Key>,
         reply_channel: Sender<Pin<Box<dyn Stream<Item = Item> + Send>>>,
     },
+    Subscribe {
+        reply_channel: Sender<broadcast::Receiver<Item>>,
+    },
 }
 
 impl<BlockId, Payload, Item, Key> Debug for MempoolMsg<BlockId, Payload, Item, Key>
@@ -72,6 +74,7 @@ where
                 f,
                 "MempoolMsg::GetTransactionsByHashes{{hashes: {hashes:?}}}"
             ),
+            Self::Subscribe { .. } => write!(f, "MempoolMsg::Subscribe"),
         }
     }
 }
