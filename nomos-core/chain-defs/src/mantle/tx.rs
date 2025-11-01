@@ -350,6 +350,7 @@ mod tests {
     fn create_test_blob_op(signing_key: &SigningKey) -> BlobOp {
         BlobOp {
             channel: [0; 32].into(),
+            session: 0u64,
             blob: [0; 32],
             blob_size: 0,
             da_storage_gas_price: 0,

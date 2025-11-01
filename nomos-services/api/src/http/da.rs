@@ -199,9 +199,11 @@ where
     Backend::BlobId: Serialize,
     NetworkAdapter: DispersalNetworkAdapter<SubnetworkId = Membership::NetworkId> + Send,
     RuntimeServiceId: Debug
+        + Send
         + Sync
         + Display
-        + AsServiceId<DaDispersal<Backend, NetworkAdapter, Membership, RuntimeServiceId>>,
+        + AsServiceId<DaDispersal<Backend, NetworkAdapter, Membership, RuntimeServiceId>>
+        + 'static,
 {
     // TODO: Should tx_builder come from wallet service?
     // Provide proper tx_builder when DA uses actual wallet instead of mock.

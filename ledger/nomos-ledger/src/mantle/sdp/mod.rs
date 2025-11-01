@@ -1,4 +1,5 @@
 pub mod locked_notes;
+pub mod rewards;
 
 use std::collections::HashMap;
 
@@ -16,10 +17,110 @@ use nomos_core::{
         ServiceType, SessionNumber,
     },
 };
+use rewards::{NoopRewards, Rewards};
 
 use crate::UtxoTree;
 
 type Declarations = rpds::HashTrieMapSync<DeclarationId, Declaration>;
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Service {
+    DataAvailability(ServiceState<NoopRewards>),
+    BlendNetwork(ServiceState<NoopRewards>),
+}
+
+impl Service {
+    fn try_apply_header(self, block_number: u64, config: &ServiceParameters) -> Self {
+        match self {
+            Self::DataAvailability(state) => {
+                Self::DataAvailability(state.try_apply_header(block_number, config))
+            }
+            Self::BlendNetwork(state) => {
+                Self::BlendNetwork(state.try_apply_header(block_number, config))
+            }
+        }
+    }
+
+    const fn state_mut(&mut self) -> &mut ServiceState<NoopRewards> {
+        match self {
+            Self::DataAvailability(state) | Self::BlendNetwork(state) => state,
+        }
+    }
+
+    const fn state(&self) -> &ServiceState<NoopRewards> {
+        match self {
+            Self::DataAvailability(state) | Self::BlendNetwork(state) => state,
+        }
+    }
+
+    fn declare(&mut self, id: DeclarationId, declaration: Declaration) -> Result<(), Error> {
+        match self {
+            Self::DataAvailability(state) | Self::BlendNetwork(state) => {
+                state.declare(id, declaration)
+            }
+        }
+    }
+
+    fn active(
+        &mut self,
+        active: &SDPActiveOp,
+        block_number: BlockNumber,
+        locked_notes: &LockedNotes,
+        sig: &impl ZkSignatureProof,
+        tx_hash: TxHash,
+    ) -> Result<(), Error> {
+        match self {
+            Self::DataAvailability(state) | Self::BlendNetwork(state) => {
+                state.active(active, block_number, locked_notes, sig, tx_hash)
+            }
+        }
+    }
+
+    fn withdraw(
+        &mut self,
+        withdraw: &SDPWithdrawOp,
+        block_number: BlockNumber,
+        locked_notes: &mut LockedNotes,
+        sig: &impl ZkSignatureProof,
+        tx_hash: TxHash,
+        config: &ServiceParameters,
+    ) -> Result<(), Error> {
+        match self {
+            Self::DataAvailability(state) | Self::BlendNetwork(state) => {
+                state.withdraw(withdraw, block_number, locked_notes, sig, tx_hash, config)
+            }
+        }
+    }
+
+    fn contains(&self, declaration_id: &DeclarationId) -> bool {
+        match self {
+            Self::DataAvailability(state) | Self::BlendNetwork(state) => {
+                state.contains(declaration_id)
+            }
+        }
+    }
+
+    const fn active_session(&self) -> &SessionState {
+        match self {
+            Self::DataAvailability(state) | Self::BlendNetwork(state) => &state.active,
+        }
+    }
+
+    #[cfg(test)]
+    const fn forming_session(&self) -> &SessionState {
+        match self {
+            Self::DataAvailability(state) | Self::BlendNetwork(state) => &state.forming,
+        }
+    }
+
+    #[cfg(test)]
+    const fn declarations(&self) -> &Declarations {
+        match self {
+            Self::DataAvailability(state) | Self::BlendNetwork(state) => &state.declarations,
+        }
+    }
+}
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -70,21 +171,21 @@ pub enum Error {
 // State at the beginning of this session
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct SessionState {
-    declarations: Declarations,
-    session_n: u64,
+pub struct SessionState {
+    pub declarations: Declarations,
+    pub session_n: u64,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ServiceState {
+struct ServiceState<R: Rewards> {
     // state of declarations at block b
     declarations: Declarations,
     // (current) active session
     // snapshot of `declarations` at the start of block ((b // config.session_duration) - 1) *
     // config.session_duration
     active: SessionState,
-    // he past session, used for rewards
+    // the past session, used for rewards
     // snapshot of `declarations` at the start of block ((b // config.session_duration) - 2) *
     // config.session_duration
     past_session: SessionState,
@@ -92,12 +193,14 @@ struct ServiceState {
     // snapshot of `declarations` at the start of block (b // config.session_duration) *
     // config.session_duration
     forming: SessionState,
+    // rewards calculation and tracking for this service
+    rewards: R,
 }
 
 impl SessionState {
-    fn update(
+    fn update<R: Rewards>(
         &self,
-        service_state: &ServiceState,
+        service_state: &ServiceState<R>,
         block_number: u64,
         config: &ServiceParameters,
     ) -> Self {
@@ -111,12 +214,11 @@ impl SessionState {
     }
 }
 
-impl ServiceState {
+impl<R: Rewards> ServiceState<R> {
     fn try_apply_header(mut self, block_number: u64, config: &ServiceParameters) -> Self {
         let current_session = block_number / config.session_duration;
         // shift all session!
         if current_session == self.active.session_n + 1 {
-            // TODO: distribute rewards
             self.past_session = self.active.clone();
             self.active = self.forming.clone();
             self.forming = SessionState {
@@ -126,6 +228,17 @@ impl ServiceState {
         } else {
             self.forming = self.forming.update(&self, block_number, config);
         }
+
+        // Update rewards with current session state and distribute rewards
+        let _rewards = self.rewards.update_session(
+            &self.active,
+            &self.past_session,
+            &self.forming,
+            block_number,
+            config,
+        );
+        // TODO: Process rewards distribution (e.g., mint reward notes)
+
         self
     }
 
@@ -167,6 +280,10 @@ impl ServiceState {
         }
 
         // TODO: check service specific logic
+
+        // Update rewards with active message metadata
+        self.rewards
+            .update_active(active.declaration_id, &active.metadata, block_number);
 
         Ok(())
     }
@@ -211,7 +328,7 @@ impl ServiceState {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SdpLedger {
-    services: rpds::HashTrieMapSync<ServiceType, ServiceState>,
+    services: rpds::HashTrieMapSync<ServiceType, Service>,
     locked_notes: LockedNotes,
     block_number: u64,
 }
@@ -250,19 +367,23 @@ impl SdpLedger {
             sdp = sdp.apply_declare_msg(op, utxo.note, zk_sig, ed25519_sig, tx_hash, config)?;
         }
 
-        let blend_state = sdp
+        let blend = sdp
             .services
             .get_mut(&ServiceType::BlendNetwork)
-            .expect("SDP initialized with Blend in this method");
-        blend_state.active.declarations = blend_state.declarations.clone();
-        blend_state.forming.declarations = blend_state.declarations.clone();
+            .expect("SDP initialized with Blend in this method")
+            .state_mut();
 
-        let da_state = sdp
+        blend.active.declarations = blend.declarations.clone();
+        blend.forming.declarations = blend.declarations.clone();
+
+        let da = sdp
             .services
             .get_mut(&ServiceType::DataAvailability)
-            .expect("SDP initialized with DA in this method");
-        da_state.active.declarations = da_state.declarations.clone();
-        da_state.forming.declarations = da_state.declarations.clone();
+            .expect("SDP initialized with DA in this method")
+            .state_mut();
+
+        da.active.declarations = da.declarations.clone();
+        da.forming.declarations = da.declarations.clone();
 
         Ok(sdp)
     }
@@ -283,8 +404,13 @@ impl SdpLedger {
                 declarations: rpds::HashTrieMapSync::new_sync(),
                 session_n: 1,
             },
+            rewards: NoopRewards,
         };
-        self.services = self.services.insert(service_type, service_state);
+        let service = match service_type {
+            ServiceType::DataAvailability => Service::DataAvailability(service_state),
+            ServiceType::BlendNetwork => Service::BlendNetwork(service_state),
+        };
+        self.services = self.services.insert(service_type, service);
         self
     }
 
@@ -397,11 +523,11 @@ impl SdpLedger {
         service_type: ServiceType,
         config: &Config,
     ) -> Option<HashMap<ProviderId, ProviderInfo>> {
-        let service_state = self.services.get(&service_type)?;
+        let service = self.services.get(&service_type)?;
         let service_params = config.service_params.get(&service_type)?;
 
-        let providers = service_state
-            .active
+        let providers = service
+            .active_session()
             .declarations
             .iter()
             .filter_map(|(_, declaration)| {
@@ -430,7 +556,7 @@ impl SdpLedger {
     pub fn active_sessions(&self) -> HashMap<ServiceType, SessionNumber> {
         self.services
             .iter()
-            .map(|(service_type, service_state)| (*service_type, service_state.active.session_n))
+            .map(|(service_type, service)| (*service_type, service.active_session().session_n))
             .collect()
     }
 
@@ -438,7 +564,7 @@ impl SdpLedger {
     pub fn get_declaration(&self, declaration_id: &DeclarationId) -> Option<&Declaration> {
         self.services
             .iter()
-            .find_map(|(_, state)| state.declarations.get(declaration_id))
+            .find_map(|(_, state)| state.state().declarations.get(declaration_id))
     }
 
     fn get_service<'a>(
@@ -462,12 +588,16 @@ impl SdpLedger {
 
     #[cfg(test)]
     fn get_forming_session(&self, service_type: ServiceType) -> Option<&SessionState> {
-        self.services.get(&service_type).map(|s| &s.forming)
+        self.services
+            .get(&service_type)
+            .map(Service::forming_session)
     }
 
     #[cfg(test)]
     fn get_active_session(&self, service_type: ServiceType) -> Option<&SessionState> {
-        self.services.get(&service_type).map(|s| &s.active)
+        self.services
+            .get(&service_type)
+            .map(Service::active_session)
     }
 
     #[cfg(test)]
@@ -475,7 +605,7 @@ impl SdpLedger {
         &self,
         service_type: ServiceType,
     ) -> Option<&rpds::HashTrieMapSync<DeclarationId, Declaration>> {
-        self.services.get(&service_type).map(|s| &s.declarations)
+        self.services.get(&service_type).map(Service::declarations)
     }
 }
 

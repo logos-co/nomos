@@ -35,9 +35,11 @@ where
     Backend::BlobId: Serialize,
     NetworkAdapter: DispersalNetworkAdapter<SubnetworkId = Membership::NetworkId> + Send,
     RuntimeServiceId: Debug
+        + Send
         + Sync
         + Display
-        + AsServiceId<DaDispersal<Backend, NetworkAdapter, Membership, RuntimeServiceId>>,
+        + AsServiceId<DaDispersal<Backend, NetworkAdapter, Membership, RuntimeServiceId>>
+        + 'static,
 {
     make_request_and_return_response!(da::disperse_data::<
         Backend,
