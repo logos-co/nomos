@@ -56,7 +56,7 @@ const LEADER_ID: &str = "Leader";
 
 pub(crate) const LOG_TARGET: &str = "cryptarchia::leader";
 
-#[derive(Debug, Clone, Error)]
+#[derive(Debug, Error)]
 pub enum Error {
     #[error("Ledger error: {0}")]
     Ledger(#[from] nomos_ledger::LedgerError<HeaderId>),
@@ -64,14 +64,8 @@ pub enum Error {
     Consensus(#[from] cryptarchia_engine::Error<HeaderId>),
     #[error("Storage error: {0}")]
     Storage(String),
-}
-
-#[derive(Debug, Error)]
-enum ProposeBlockError {
     #[error("Could not fetch block transactions: {0}")]
-    FetchTransactions(#[from] DynError),
-    #[error("Header validation/application failed: {0:?}")]
-    Header(#[from] nomos_ledger::LedgerError<HeaderId>),
+    FetchBlockTransactions(#[source] DynError),
     #[error("Failed to create valid block during proposal: {0}")]
     BlockCreation(#[from] BlockError),
 }
@@ -583,13 +577,13 @@ where
         >,
         mut ledger_state: nomos_ledger::LedgerState,
         ledger_config: &nomos_ledger::Config,
-    ) -> Result<Block<Mempool::Item>, ProposeBlockError> {
+    ) -> Result<Block<Mempool::Item>, Error> {
         let txs = relays.mempool_adapter().get_mempool_view([0; 32].into());
         let sampling_relay = relays.sampling_relay().clone();
         let blobs_ids = get_sampled_blobs(sampling_relay);
 
         let (txs_stream, blobs) =
-            futures::try_join!(txs, blobs_ids).map_err(ProposeBlockError::FetchTransactions)?;
+            futures::try_join!(txs, blobs_ids).map_err(Error::FetchBlockTransactions)?;
 
         let filtered_stream = txs_stream.filter(move |tx| {
             let is_valid = tx.mantle_tx().ops.iter().all(|op| match op {

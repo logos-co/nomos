@@ -750,69 +750,15 @@ where
                     }
 
                     Some(proposal) = incoming_proposals.next() => {
-                        if cryptarchia.has_block(&proposal.header().id()) {
-                            info!(target: LOG_TARGET, "Block {:?} already processed, ignoring", proposal.header().id());
-                            continue;
-                        }
-
-                        match reconstruct_block_from_proposal(
+                        self.handle_incoming_proposal(
                             proposal,
-                            relays.mempool_adapter()
-                        ).await {
-                            Ok(block) => {
-                                Self::log_received_block(&block);
-
-                                if cryptarchia.has_block(&block.header().id()) {
-                                    info!(target: LOG_TARGET, "Block {:?} already processed, ignoring", block.header().id());
-                                    continue;
-                                }
-
-                                // Process the received block and update the cryptarchia state.
-                                match Self::process_block_and_update_state(
-                                    cryptarchia.clone(),
-                                    block.clone(),
-                                    Some(&recent_blob_validation),
-                                    &storage_blocks_to_remove,
-                                    &relays,
-                                    &self.new_block_subscription_sender,
-                                    &self.lib_subscription_sender,
-                                    &self.service_resources_handle.state_updater,
-                                )
-                                .await
-                                {
-                                    Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
-                                        cryptarchia = new_cryptarchia;
-                                        storage_blocks_to_remove = new_storage_blocks_to_remove;
-
-                                        orphan_downloader.remove_orphan(&block.header().id());
-
-                                        info!(counter.consensus_processed_blocks = 1);
-                                    }
-                                    Err(
-                                        Error::Ledger(nomos_ledger::LedgerError::ParentNotFound(parent))
-                                            | Error::Consensus(cryptarchia_engine::Error::ParentMissing(parent)),
-                                    ) => {
-                                        orphan_downloader.enqueue_orphan(
-                                            block.header().id(),
-                                            cryptarchia.tip(),
-                                            cryptarchia.lib(),
-                                        );
-
-                                        error!(
-                                            target: LOG_TARGET,
-                                            "Received block with parent {:?} that is not in the ledger state. Ignoring block.",
-                                            parent
-                                        );
-                                    }
-                                    Err(e) => {
-                                        error!(target: LOG_TARGET, "Error processing reconstructed block: {:?}", e);
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                error!(target: LOG_TARGET, "Failed to reconstruct block from proposal: {:?}", e);
-                            }
-                        }
+                            &mut cryptarchia,
+                            &mut storage_blocks_to_remove,
+                            &recent_blob_validation,
+                            orphan_downloader.as_mut().get_mut(),
+                            &relays,
+                        )
+                        .await;
                     }
 
                     Some(msg) = self.service_resources_handle.inbound_relay.next() => {
@@ -1128,6 +1074,139 @@ where
         );
 
         Ok((cryptarchia, storage_blocks_to_remove))
+    }
+
+    async fn handle_incoming_proposal(
+        &self,
+        proposal: Proposal,
+        cryptarchia: &mut Cryptarchia,
+        storage_blocks_to_remove: &mut HashSet<HeaderId>,
+        recent_blob_validation: &blob::Validation<RecentBlobStrategy>,
+        orphan_downloader: &mut OrphanBlocksDownloader<NetAdapter, RuntimeServiceId>,
+        relays: &CryptarchiaConsensusRelays<
+            Mempool,
+            MempoolNetAdapter,
+            NetAdapter,
+            SamplingBackend,
+            Storage,
+            RuntimeServiceId,
+        >,
+    ) where
+        RuntimeServiceId: Send + Sync + 'static,
+    {
+        let block_id = proposal.header().id();
+
+        if cryptarchia.has_block(&block_id) {
+            info!(
+                target: LOG_TARGET,
+                "Block {:?} already processed, ignoring",
+                block_id
+            );
+            return;
+        }
+
+        let block = match reconstruct_block_from_proposal(proposal, relays.mempool_adapter()).await
+        {
+            Ok(block) => block,
+            Err(e) => {
+                error!(
+                    target: LOG_TARGET,
+                    "Failed to reconstruct block from proposal: {:?}",
+                    e
+                );
+                return;
+            }
+        };
+
+        self.apply_reconstructed_block(
+            block,
+            cryptarchia,
+            storage_blocks_to_remove,
+            recent_blob_validation,
+            orphan_downloader,
+            relays,
+        )
+        .await;
+    }
+
+    fn handle_proposal_processing_error(
+        err: Error,
+        block_id: HeaderId,
+        cryptarchia: &Cryptarchia,
+        orphan_downloader: &mut OrphanBlocksDownloader<NetAdapter, RuntimeServiceId>,
+    ) where
+        RuntimeServiceId: Send + Sync + 'static,
+    {
+        match err {
+            Error::Ledger(nomos_ledger::LedgerError::ParentNotFound(parent))
+            | Error::Consensus(cryptarchia_engine::Error::ParentMissing(parent)) => {
+                orphan_downloader.enqueue_orphan(block_id, cryptarchia.tip(), cryptarchia.lib());
+
+                error!(
+                    target: LOG_TARGET,
+                    "Received block with parent {:?} that is not in the ledger state. Ignoring block.",
+                    parent
+                );
+            }
+            other => {
+                error!(
+                    target: LOG_TARGET,
+                    "Error processing reconstructed block: {:?}",
+                    other
+                );
+            }
+        }
+    }
+
+    async fn apply_reconstructed_block(
+        &self,
+        block: Block<Mempool::Item>,
+        cryptarchia: &mut Cryptarchia,
+        storage_blocks_to_remove: &mut HashSet<HeaderId>,
+        recent_blob_validation: &blob::Validation<RecentBlobStrategy>,
+        orphan_downloader: &mut OrphanBlocksDownloader<NetAdapter, RuntimeServiceId>,
+        relays: &CryptarchiaConsensusRelays<
+            Mempool,
+            MempoolNetAdapter,
+            NetAdapter,
+            SamplingBackend,
+            Storage,
+            RuntimeServiceId,
+        >,
+    ) where
+        RuntimeServiceId: Send + Sync + 'static,
+    {
+        Self::log_received_block(&block);
+
+        let block_id = block.header().id();
+
+        match Self::process_block_and_update_state(
+            cryptarchia.clone(),
+            block,
+            Some(recent_blob_validation),
+            &*storage_blocks_to_remove,
+            relays,
+            &self.new_block_subscription_sender,
+            &self.lib_subscription_sender,
+            &self.service_resources_handle.state_updater,
+        )
+        .await
+        {
+            Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
+                *cryptarchia = new_cryptarchia;
+                *storage_blocks_to_remove = new_storage_blocks_to_remove;
+                orphan_downloader.remove_orphan(&block_id);
+                info!(counter.consensus_processed_blocks = 1);
+            }
+            Err(err) => {
+                Self::handle_proposal_processing_error(
+                    err,
+                    block_id,
+                    cryptarchia,
+                    orphan_downloader,
+                );
+            }
+        }
     }
 
     fn update_state(
