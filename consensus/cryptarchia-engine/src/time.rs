@@ -4,20 +4,19 @@ use std::{
     time::Duration,
 };
 
-#[cfg(feature = "serde")]
-use nomos_utils::bounded_duration::{MinimalBoundedDuration, SECOND};
-#[cfg(feature = "serde")]
 use serde_with::serde_as;
 use time::OffsetDateTime;
 #[cfg(feature = "tokio")]
 use tokio::time::{Interval, MissedTickBehavior};
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Clone, Debug, Eq, PartialEq, Copy, Hash, PartialOrd, Ord)]
+#[derive(
+    serde::Serialize, serde::Deserialize, Clone, Debug, Eq, PartialEq, Copy, Hash, PartialOrd, Ord,
+)]
 pub struct Slot(u64);
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Clone, Debug, Eq, PartialEq, Copy, Hash, PartialOrd, Ord)]
+#[derive(
+    serde::Serialize, serde::Deserialize, Clone, Debug, Eq, PartialEq, Copy, Hash, PartialOrd, Ord,
+)]
 pub struct Epoch(u32);
 
 impl Epoch {
@@ -133,8 +132,7 @@ impl Add<u32> for Epoch {
     }
 }
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Copy, Clone, Debug, PartialEq, Eq)]
 pub struct EpochConfig {
     // The stake distribution is always taken at the beginning of the previous epoch.
     // This parameters controls how many slots to wait for it to be stabilized
@@ -175,12 +173,11 @@ impl EpochConfig {
         Slot::from(u64::from(u32::from(*epoch)) * self.epoch_length(base_period_length))
     }
 }
-
-#[cfg_attr(feature = "serde", cfg_eval::cfg_eval, serde_with::serde_as)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Copy, Clone, Debug)]
+#[cfg_eval::cfg_eval]
+#[serde_with::serde_as]
+#[derive(Copy, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct SlotConfig {
-    #[cfg_attr(feature = "serde", serde_as(as = "MinimalBoundedDuration<1, SECOND>"))]
+    #[serde_as(as = "MinimalBoundedDuration<1, SECOND>")]
     pub slot_duration: Duration,
     /// Start of the first epoch
     pub chain_start_time: OffsetDateTime,

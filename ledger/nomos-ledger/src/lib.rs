@@ -135,8 +135,7 @@ where
     }
 }
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct LedgerState {
     block_number: BlockNumber,
     cryptarchia_ledger: CryptarchiaLedger,

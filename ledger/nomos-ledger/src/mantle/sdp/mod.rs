@@ -23,8 +23,7 @@ use crate::UtxoTree;
 
 type Declarations = rpds::HashTrieMapSync<DeclarationId, Declaration>;
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 enum Service {
     DataAvailability(ServiceState<NoopRewards>),
     BlendNetwork(ServiceState<NoopRewards>),
@@ -122,8 +121,7 @@ impl Service {
     }
 }
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct Config {
     pub service_params: std::sync::Arc<HashMap<ServiceType, ServiceParameters>>,
     pub min_stake: MinStake,
@@ -169,15 +167,13 @@ pub enum Error {
 }
 
 // State at the beginning of this session
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct SessionState {
     pub declarations: Declarations,
     pub session_n: u64,
 }
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]
 struct ServiceState<R: Rewards> {
     // state of declarations at block b
     declarations: Declarations,
@@ -325,8 +321,7 @@ impl<R: Rewards> ServiceState<R> {
     }
 }
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq, Default)]
 pub struct SdpLedger {
     services: rpds::HashTrieMapSync<ServiceType, Service>,
     locked_notes: LockedNotes,

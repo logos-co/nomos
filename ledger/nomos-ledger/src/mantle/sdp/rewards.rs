@@ -50,8 +50,7 @@ pub trait Rewards: Clone + PartialEq + Eq + Send + Sync + std::fmt::Debug {
 /// No-op rewards implementation that doesn't track or distribute any rewards.
 ///
 /// This is used as a placeholder for services that don't implement rewards yet.
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct NoopRewards;
 
 impl Rewards for NoopRewards {

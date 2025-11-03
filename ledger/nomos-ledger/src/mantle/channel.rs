@@ -8,7 +8,6 @@ use nomos_core::mantle::{
         set_keys::SetKeysOp,
     },
 };
-#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
@@ -30,14 +29,12 @@ pub enum Error {
     EmptyKeys { channel_id: ChannelId },
 }
 
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct Channels {
     pub channels: rpds::HashTrieMapSync<ChannelId, ChannelState>,
 }
 
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct ChannelState {
     pub tip: MsgId,
     // avoid cloning the keys every new message

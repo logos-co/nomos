@@ -17,7 +17,7 @@ futures             = { default-features = false, version = "0.3" }
 nomos-blend-service = { workspace = true }
 nomos-core          = { workspace = true }
 nomos-da-sampling   = { workspace = true }
-nomos-ledger        = { features = ["serde"], workspace = true }
+nomos-ledger        = { workspace = true }
 nomos-time          = { workspace = true }
 nomos-wallet        = { workspace = true }
 overwatch           = { workspace = true }

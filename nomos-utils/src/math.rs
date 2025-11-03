@@ -233,7 +233,7 @@ impl TryFrom<u64> for F64Ge1 {
 }
 
 mod serde {
-    use serde::Deserialize as _;
+    use ::serde::Deserialize as _;
 
     use crate::math::{F64Ge1, FiniteF64, NonNegativeF64, PositiveF64};
 
@@ -241,11 +241,11 @@ mod serde {
         deserializer: Deserializer,
     ) -> Result<f64, Deserializer::Error>
     where
-        Deserializer: serde::Deserializer<'de>,
+        Deserializer: ::serde::Deserializer<'de>,
     {
         let inner = f64::deserialize(deserializer)?;
         NonNegativeF64::try_from(inner).map_err(|()| {
-            serde::de::Error::custom("Deserialized f64 does not contain a valid value.")
+            ::serde::de::Error::custom("Deserialized f64 does not contain a valid value.")
         })?;
         Ok(inner)
     }
@@ -254,11 +254,11 @@ mod serde {
         deserializer: Deserializer,
     ) -> Result<FiniteF64, Deserializer::Error>
     where
-        Deserializer: serde::Deserializer<'de>,
+        Deserializer: ::serde::Deserializer<'de>,
     {
         let inner = FiniteF64::deserialize(deserializer)?;
         NonNegativeF64::try_from(inner)
-            .map_err(|()| serde::de::Error::custom("Deserialized f64 must be non-negative."))?;
+            .map_err(|()| ::serde::de::Error::custom("Deserialized f64 must be non-negative."))?;
         Ok(inner)
     }
 
@@ -266,11 +266,11 @@ mod serde {
         deserializer: Deserializer,
     ) -> Result<NonNegativeF64, Deserializer::Error>
     where
-        Deserializer: serde::Deserializer<'de>,
+        Deserializer: ::serde::Deserializer<'de>,
     {
         let inner = NonNegativeF64::deserialize(deserializer)?;
         PositiveF64::try_from(inner)
-            .map_err(|()| serde::de::Error::custom("Deserialized f64 must be positive."))?;
+            .map_err(|()| ::serde::de::Error::custom("Deserialized f64 must be positive."))?;
         Ok(inner)
     }
 
@@ -278,7 +278,7 @@ mod serde {
         deserializer: Deserializer,
     ) -> Result<PositiveF64, Deserializer::Error>
     where
-        Deserializer: serde::Deserializer<'de>,
+        Deserializer: ::serde::Deserializer<'de>,
     {
         let inner = PositiveF64::deserialize(deserializer)?;
         F64Ge1::try_from(inner)
@@ -342,7 +342,7 @@ mod tests {
     }
 
     mod serde_tests {
-        use serde::Deserialize;
+        use ::serde::Deserialize;
 
         use super::*;
 
