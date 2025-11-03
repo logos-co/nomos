@@ -13,7 +13,7 @@ use ed25519_dalek::SigningKey;
 use futures::{StreamExt as _, future, stream};
 pub use leadership::LeaderConfig;
 use nomos_core::{
-    block::{Block, MAX_TRANSACTIONS},
+    block::{Block, Error as BlockError, MAX_TRANSACTIONS},
     da,
     header::HeaderId,
     mantle::{
@@ -64,6 +64,16 @@ pub enum Error {
     Consensus(#[from] cryptarchia_engine::Error<HeaderId>),
     #[error("Storage error: {0}")]
     Storage(String),
+}
+
+#[derive(Debug, Error)]
+enum ProposeBlockError {
+    #[error("Could not fetch block transactions: {0}")]
+    FetchTransactions(#[from] DynError),
+    #[error("Header validation/application failed: {0:?}")]
+    Header(#[from] nomos_ledger::LedgerError<HeaderId>),
+    #[error("Failed to create valid block during proposal: {0}")]
+    BlockCreation(#[from] BlockError),
 }
 
 #[derive(Debug)]
@@ -431,7 +441,7 @@ where
 
                         if let Some(proof) = leader.build_proof_for(&eligible_utxos, latest_tree, &epoch_state, slot, &winning_pol_slot_notifier).await {
                             // TODO: spawn as a separate task?
-                            let block = Self::propose_block(
+                            match Self::propose_block(
                                 parent,
                                 slot,
                                 proof,
@@ -440,19 +450,23 @@ where
                                 tip_state,
                                 &ledger_config,
                             )
-                            .await;
-
-                            if let Some(block) = block {
-                                // Process our own block first to ensure it's valid
-                                match cryptarchia_api.process_leader_block(block.clone()).await {
-                                    Ok(()) => {
-                                        // Block successfully processed, now publish it to the network
-                                        let proposal = block.to_proposal();
-                                        blend_adapter.publish_proposal(proposal).await;
+                            .await
+                            {
+                                Ok(block) => {
+                                    // Process our own block first to ensure it's valid
+                                    match cryptarchia_api.process_leader_block(block.clone()).await {
+                                        Ok(()) => {
+                                            // Block successfully processed, now publish it to the network
+                                            let proposal = block.to_proposal();
+                                            blend_adapter.publish_proposal(proposal).await;
+                                        }
+                                        Err(e) => {
+                                            error!(target: LOG_TARGET, "Error processing local block: {:?}", e);
+                                        }
                                     }
-                                    Err(e) => {
-                                        error!(target: LOG_TARGET, "Error processing local block: {:?}", e);
-                                    }
+                                }
+                                Err(e) => {
+                                    error!(target: LOG_TARGET, "{e}");
                                 }
                             }
                         }
@@ -569,17 +583,13 @@ where
         >,
         mut ledger_state: nomos_ledger::LedgerState,
         ledger_config: &nomos_ledger::Config,
-    ) -> Option<Block<Mempool::Item>> {
+    ) -> Result<Block<Mempool::Item>, ProposeBlockError> {
         let txs = relays.mempool_adapter().get_mempool_view([0; 32].into());
         let sampling_relay = relays.sampling_relay().clone();
         let blobs_ids = get_sampled_blobs(sampling_relay);
-        let (txs_stream, blobs) = match futures::try_join!(txs, blobs_ids) {
-            Ok(result) => result,
-            Err(e) => {
-                error!("Could not fetch block transactions: {e}");
-                return None;
-            }
-        };
+
+        let (txs_stream, blobs) =
+            futures::try_join!(txs, blobs_ids).map_err(ProposeBlockError::FetchTransactions)?;
 
         let filtered_stream = txs_stream.filter({
             move |tx| {
@@ -594,20 +604,14 @@ where
 
         let mut tx_stream: Pin<Box<_>> = Box::pin(filtered_stream);
 
-        ledger_state = match ledger_state
+        ledger_state = ledger_state
             .clone()
             .try_apply_header::<Groth16LeaderProof, HeaderId>(
                 slot,
                 &proof,
                 VoucherCm::default(),
                 ledger_config,
-            ) {
-            Ok(state) => state,
-            Err(e) => {
-                error!("Header validation/application failed: {e:?}");
-                return None;
-            }
-        };
+            )?;
 
         let mut valid_txs = Vec::new();
         let mut invalid_tx_hashes = Vec::new();
@@ -651,13 +655,7 @@ where
         // TODO: use PoL signing key
         let dummy_signing_key = SigningKey::from_bytes(&[0u8; 32]);
 
-        let block = match Block::create(parent, slot, proof, txs, None, &dummy_signing_key) {
-            Ok(block) => block,
-            Err(e) => {
-                error!("Failed to create valid block during proposal: {e}");
-                return None;
-            }
-        };
+        let block = Block::create(parent, slot, proof, txs, None, &dummy_signing_key)?;
 
         info!(
             "proposed block with id {:?} containing {} transactions ({} removed)",
@@ -666,7 +664,7 @@ where
             invalid_tx_hashes.len()
         );
 
-        Some(block)
+        Ok(block)
     }
 }
 
