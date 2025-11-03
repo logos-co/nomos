@@ -19,14 +19,12 @@ pub type MerklePath<T> = Vec<MerkleNode<T>>;
 #[must_use]
 pub fn leaf(data: &[u8]) -> [u8; 32] {
     let mut hasher = Hasher::new();
-    hasher.update(b"NOMOS_MERKLE_LEAF");
     hasher.update(data);
     hasher.finalize().into()
 }
 
 pub fn node(left: impl AsRef<[u8]>, right: impl AsRef<[u8]>) -> [u8; 32] {
     let mut hasher = Hasher::new();
-    hasher.update(b"NOMOS_MERKLE_NODE");
     hasher.update(left.as_ref());
     hasher.update(right.as_ref());
     hasher.finalize().into()
