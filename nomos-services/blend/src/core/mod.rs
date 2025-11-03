@@ -709,7 +709,7 @@ async fn run_event_loop<
                 current_recovery_checkpoint = handle_release_round(round_info, &mut crypto_processor, &mut rng, &backend, &network_adapter, current_recovery_checkpoint).await;
             }
             Some(clock_tick) = remaining_clock_stream.next() => {
-                current_public_info = handle_clock_event(clock_tick, &blend_config, &mut epoch_handler, &mut crypto_processor, &mut backend, current_public_info).await;
+                current_public_info = handle_clock_event(clock_tick, blend_config, &mut epoch_handler, &mut crypto_processor, &mut backend, current_public_info).await;
             }
             Some(pol_info) = secret_pol_info_stream.next() => {
                 handle_new_secret_epoch_info(pol_info.poq_private_inputs, &mut crypto_processor);

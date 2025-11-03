@@ -229,12 +229,6 @@ mod service {
             &self.unsent_processed_messages
         }
 
-        pub(super) fn take_unsent_processed_messages(
-            &mut self,
-        ) -> impl Iterator<Item = ProcessedMessage<BroadcastSettings>> {
-            self.unsent_processed_messages.drain()
-        }
-
         pub(super) fn add_unsent_data_message(
             &mut self,
             message: EncapsulatedMessage,
@@ -359,15 +353,6 @@ mod state_updater {
         ) -> Result<(), ()> {
             self.changed = true;
             self.inner.remove_sent_processed_message(message)
-        }
-
-        /// Drain the underlying storage for the processed messages and return
-        /// an iterator over them.
-        pub fn take_unsent_processed_messages(
-            &mut self,
-        ) -> impl Iterator<Item = ProcessedMessage<BroadcastSettings>> {
-            self.changed = true;
-            self.inner.take_unsent_processed_messages()
         }
 
         /// Mark a new [`EncapsulatedMessage`] as unsent, meaning that it has

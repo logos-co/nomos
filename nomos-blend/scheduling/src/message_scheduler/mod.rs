@@ -141,11 +141,6 @@ impl<SessionClock, Rng, ProcessedMessage, DataMessage>
             data_messages,
         }
     }
-
-    #[cfg(feature = "unsafe-test-functions")]
-    pub const fn cover_traffic_module(&self) -> &SessionCoverTraffic<Rng, RoundClock> {
-        &self.cover_traffic
-    }
 }
 
 impl<SessionClock, Rng, ProcessedMessage, DataMessage> Stream
@@ -218,12 +213,12 @@ where
             }
             // Bubble up `Poll::Ready(None)` if any sub-stream returns it.
             (Poll::Ready(None), _, _) | (_, Poll::Ready(None), _) => return Poll::Ready(None),
-            // Data and cover messages.
+            // Data and cover messages, no processed messages.
             (Poll::Ready(Some(())), Poll::Pending, data_messages) => RoundInfo {
                 data_messages,
                 release_type: Some(RoundReleaseType::OnlyCoverMessage),
             },
-            // Data and processed messages.
+            // Data and processed messages, no cover message.
             (Poll::Pending, Poll::Ready(Some(processed_messages)), data_messages) => RoundInfo {
                 data_messages,
                 release_type: Some(RoundReleaseType::OnlyProcessedMessages(processed_messages)),
