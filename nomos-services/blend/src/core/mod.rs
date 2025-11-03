@@ -33,7 +33,9 @@ use nomos_blend_scheduling::{
         provers::core_and_leader::CoreAndLeaderProofsGenerator,
     },
     message_scheduler::{
-        MessageScheduler, round_info::RoundInfo, session_info::SessionInfo as SchedulerSessionInfo,
+        MessageScheduler,
+        round_info::{RoundInfo, RoundReleaseType},
+        session_info::SessionInfo as SchedulerSessionInfo,
     },
     session::{SessionEvent, UninitializedSessionEventStream},
     stream::UninitializedFirstReadyStream,
@@ -1100,9 +1102,8 @@ async fn handle_release_round<
     RuntimeServiceId,
 >(
     RoundInfo {
-        cover_message_generation_flag,
         data_messages,
-        processed_messages,
+        release_type,
     }: RoundInfo<ProcessedMessage<NetAdapter::BroadcastSettings>, EncapsulatedMessage>,
     cryptographic_processor: &mut CoreCryptographicProcessor<
         NodeId,
@@ -1121,9 +1122,10 @@ where
     ProofsGenerator: CoreAndLeaderProofsGenerator,
     NetAdapter: NetworkAdapter<RuntimeServiceId, BroadcastSettings: Eq + Hash> + Sync,
 {
-    let outgoing_message_count = data_messages.len()
-        + processed_messages.len()
-        + usize::from(cover_message_generation_flag.is_some());
+    let (processed_messages, should_generate_cover_message) =
+        release_type.map_or_else(|| (vec![], false), RoundReleaseType::into_components);
+    let outgoing_message_count =
+        data_messages.len() + processed_messages.len() + usize::from(should_generate_cover_message);
     let mut state_updater = current_recovery_checkpoint.start_updating();
 
     let data_messages_relay_futures = data_messages.into_iter()
@@ -1166,7 +1168,7 @@ where
         .chain(processed_messages_relay_futures)
         .collect::<Vec<_>>();
 
-    if cover_message_generation_flag.is_some() {
+    if should_generate_cover_message {
         let cover_message = cryptographic_processor
             .encapsulate_cover_payload(&random_sized_bytes::<{ size_of::<u32>() }>())
             .await

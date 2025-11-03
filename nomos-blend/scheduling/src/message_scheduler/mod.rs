@@ -13,7 +13,7 @@ use tracing::{info, trace};
 use crate::{
     cover_traffic::SessionCoverTraffic,
     message_scheduler::{
-        round_info::{RoundClock, RoundInfo},
+        round_info::{RoundClock, RoundInfo, RoundReleaseType},
         session_info::SessionInfo,
         utils::setup_new_session,
     },
@@ -198,7 +198,7 @@ where
         let cover_traffic_output = cover_traffic.poll_next_unpin(cx);
         let release_delayer_output = release_delayer.poll_next_unpin(cx);
 
-        match (
+        let round_info = match (
             cover_traffic_output,
             release_delayer_output,
             data_messages_to_release,
@@ -209,40 +209,37 @@ where
                 if data_messages.is_empty() {
                     // Awake to trigger a new round clock tick.
                     cx.waker().wake_by_ref();
-                    Poll::Pending
-                } else {
-                    Poll::Ready(Some(RoundInfo {
-                        processed_messages: vec![],
-                        cover_message_generation_flag: None,
-                        data_messages,
-                    }))
+                    return Poll::Pending;
+                }
+                RoundInfo {
+                    data_messages,
+                    release_type: None,
                 }
             }
             // Bubble up `Poll::Ready(None)` if any sub-stream returns it.
-            (Poll::Ready(None), _, _) | (_, Poll::Ready(None), _) => Poll::Ready(None),
-            // If at least one sub-stream yields a result, we yield a new result, which might also
-            // contain no actual elements if the cover message module did not yield a new cover
-            // message and there were no queue messages to be released in this release
-            // window.
-            (cover_message_ready_output, processed_messages_ready_output, data_messages) => {
-                let cover_message_generation_flag =
-                    (cover_message_ready_output == Poll::Ready(Some(()))).then_some(());
-                let processed_messages = if let Poll::Ready(Some(processed_messages)) =
-                    processed_messages_ready_output
-                {
-                    processed_messages
-                } else {
-                    vec![]
-                };
-                let round_info = RoundInfo {
-                    processed_messages,
-                    cover_message_generation_flag,
+            (Poll::Ready(None), _, _) | (_, Poll::Ready(None), _) => return Poll::Ready(None),
+            // Data and cover messages.
+            (Poll::Ready(Some(())), Poll::Pending, data_messages) => RoundInfo {
+                data_messages,
+                release_type: Some(RoundReleaseType::OnlyCoverMessage),
+            },
+            // Data and processed messages.
+            (Poll::Pending, Poll::Ready(Some(processed_messages)), data_messages) => RoundInfo {
+                data_messages,
+                release_type: Some(RoundReleaseType::OnlyProcessedMessages(processed_messages)),
+            },
+            // Data, cover, and processed messages.
+            (Poll::Ready(Some(())), Poll::Ready(Some(processed_messages)), data_messages) => {
+                RoundInfo {
                     data_messages,
-                };
-                info!(target: LOG_TARGET, "Emitting new round info {round_info:?}.");
-                Poll::Ready(Some(round_info))
+                    release_type: Some(RoundReleaseType::ProcessedAndCoverMessages(
+                        processed_messages,
+                    )),
+                }
             }
-        }
+        };
+        info!(target: LOG_TARGET, "Emitting new round info {round_info:?}.");
+        Poll::Ready(Some(round_info))
     }
 }
 

@@ -13,7 +13,7 @@ use crate::{
     cover_traffic::SessionCoverTraffic,
     message_scheduler::{
         MessageScheduler,
-        round_info::{Round, RoundInfo},
+        round_info::{Round, RoundInfo, RoundReleaseType},
         session_info::SessionInfo,
     },
     release_delayer::SessionProcessedMessageDelayer,
@@ -85,9 +85,8 @@ async fn no_substream_ready_with_data_messages() {
     assert_eq!(
         scheduler.poll_next_unpin(&mut cx),
         Poll::Ready(Some(RoundInfo {
-            processed_messages: vec![],
-            cover_message_generation_flag: None,
-            data_messages: vec![1, 2]
+            data_messages: vec![1, 2],
+            release_type: None
         }))
     );
     // We test that the released data messages have been removed from the queue.
@@ -126,9 +125,8 @@ async fn cover_traffic_substream_ready() {
     assert_eq!(
         scheduler.poll_next_unpin(&mut cx),
         Poll::Ready(Some(RoundInfo {
-            cover_message_generation_flag: Some(()),
-            processed_messages: vec![],
-            data_messages: vec![1]
+            data_messages: vec![1],
+            release_type: Some(RoundReleaseType::OnlyCoverMessage)
         }))
     );
 }
@@ -165,9 +163,8 @@ async fn release_delayer_substream_ready() {
     assert_eq!(
         scheduler.poll_next_unpin(&mut cx),
         Poll::Ready(Some(RoundInfo {
-            cover_message_generation_flag: None,
-            processed_messages: vec![1],
-            data_messages: vec![2]
+            data_messages: vec![2],
+            release_type: Some(RoundReleaseType::OnlyProcessedMessages(vec![1]))
         }))
     );
 }
@@ -205,9 +202,8 @@ async fn both_substreams_ready() {
     assert_eq!(
         scheduler.poll_next_unpin(&mut cx),
         Poll::Ready(Some(RoundInfo {
-            cover_message_generation_flag: Some(()),
-            processed_messages: vec![1],
-            data_messages: vec![]
+            data_messages: vec![],
+            release_type: Some(RoundReleaseType::ProcessedAndCoverMessages(vec![1]))
         }))
     );
 }
@@ -252,9 +248,8 @@ async fn round_change() {
     assert_eq!(
         scheduler.poll_next_unpin(&mut cx),
         Poll::Ready(Some(RoundInfo {
-            cover_message_generation_flag: Some(()),
-            processed_messages: vec![],
-            data_messages: vec![]
+            data_messages: vec![],
+            release_type: Some(RoundReleaseType::OnlyCoverMessage)
         }))
     );
     assert!(scheduler.data_messages.is_empty());
@@ -265,9 +260,8 @@ async fn round_change() {
     assert_eq!(
         scheduler.poll_next_unpin(&mut cx),
         Poll::Ready(Some(RoundInfo {
-            cover_message_generation_flag: None,
-            processed_messages: vec![()],
-            data_messages: vec![2]
+            data_messages: vec![2],
+            release_type: Some(RoundReleaseType::OnlyProcessedMessages(vec![()]))
         }))
     );
     assert!(scheduler.data_messages.is_empty());
@@ -278,9 +272,8 @@ async fn round_change() {
     assert_eq!(
         scheduler.poll_next_unpin(&mut cx),
         Poll::Ready(Some(RoundInfo {
-            cover_message_generation_flag: None,
-            processed_messages: vec![],
-            data_messages: vec![3]
+            data_messages: vec![3],
+            release_type: None
         }))
     );
     assert!(scheduler.data_messages.is_empty());
