@@ -4,7 +4,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use nomos_sdp::{SdpMessage, SdpService, backends::SdpBackend};
+use nomos_sdp::{SdpMessage, SdpService};
 use overwatch::{
     overwatch::OverwatchHandle,
     services::{AsServiceId, relay::OutboundRelay},
@@ -15,31 +15,22 @@ use crate::{
     sdp::{SdpAdapter, SdpAdapterError},
 };
 
-pub struct SdpServiceAdapter<Backend, RuntimeServiceId>
-where
-    Backend: SdpBackend + Send + Sync + 'static,
-{
+pub struct SdpServiceAdapter<RuntimeServiceId> {
     relay: OutboundRelay<SdpMessage>,
-    _phantom: PhantomData<(Backend, RuntimeServiceId)>,
+    _phantom: PhantomData<RuntimeServiceId>,
 }
 
 #[async_trait]
-impl<Backend, RuntimeServiceId> SdpAdapter<RuntimeServiceId>
-    for SdpServiceAdapter<Backend, RuntimeServiceId>
+impl<RuntimeServiceId> SdpAdapter<RuntimeServiceId> for SdpServiceAdapter<RuntimeServiceId>
 where
-    Backend: SdpBackend + Send + Sync + 'static,
-    RuntimeServiceId: AsServiceId<SdpService<Backend, RuntimeServiceId>>
-        + Send
-        + Sync
-        + Debug
-        + Display
-        + 'static,
+    RuntimeServiceId:
+        AsServiceId<SdpService<RuntimeServiceId>> + Send + Sync + Debug + Display + 'static,
 {
     async fn new(
         overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
     ) -> Result<Self, SdpAdapterError> {
         let relay = overwatch_handle
-            .relay::<SdpService<Backend, RuntimeServiceId>>()
+            .relay::<SdpService<RuntimeServiceId>>()
             .await
             .map_err(|e| SdpAdapterError::Other(Box::new(e)))?;
 

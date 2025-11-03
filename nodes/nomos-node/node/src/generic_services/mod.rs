@@ -16,7 +16,6 @@ use nomos_da_sampling::{
 use nomos_da_verifier::{
     backend::kzgrs::KzgrsDaVerifier, mempool::kzgrs::KzgrsMempoolNetworkAdapter,
 };
-use nomos_sdp::backends::mock::MockSdpBackend;
 use nomos_storage::backends::rocksdb::RocksBackend;
 use nomos_time::backends::NtpTimeBackend;
 use tx_service::{backend::pool::Mempool, storage::adapters::rocksdb::RocksStorageAdapter};
@@ -140,9 +139,8 @@ pub type CryptarchiaLeaderService<Cryptarchia, Wallet, SamplingAdapter, RuntimeS
 
 pub type DaMembershipAdapter<RuntimeServiceId> = MembershipServiceAdapter<RuntimeServiceId>;
 
-pub type SdpService<RuntimeServiceId> = nomos_sdp::SdpService<MockSdpBackend, RuntimeServiceId>;
-pub type SdpServiceAdapterGeneric<RuntimeServiceId> =
-    SdpServiceAdapter<MockSdpBackend, RuntimeServiceId>;
+pub type SdpService<RuntimeServiceId> = nomos_sdp::SdpService<RuntimeServiceId>;
+pub type SdpServiceAdapterGeneric<RuntimeServiceId> = SdpServiceAdapter<RuntimeServiceId>;
 
 pub type DaMembershipStorageGeneric<RuntimeServiceId> =
     RocksAdapter<RocksBackend, RuntimeServiceId>;

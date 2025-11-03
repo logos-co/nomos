@@ -949,21 +949,19 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn post_declaration<Backend, RuntimeServiceId>(
+pub async fn post_declaration<RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
     Json(declaration): Json<nomos_core::sdp::DeclarationMessage>,
 ) -> Response
 where
-    Backend: nomos_sdp::backends::SdpBackend + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Send
         + Display
         + 'static
-        + AsServiceId<nomos_sdp::SdpService<Backend, RuntimeServiceId>>,
+        + AsServiceId<nomos_sdp::SdpService<RuntimeServiceId>>,
 {
     make_request_and_return_response!(nomos_api::http::sdp::post_declaration_handler::<
-        Backend,
         RuntimeServiceId,
     >(handle, declaration))
 }
@@ -976,21 +974,19 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn post_activity<Backend, RuntimeServiceId>(
+pub async fn post_activity<RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
     Json(metadata): Json<nomos_core::sdp::ActivityMetadata>,
 ) -> Response
 where
-    Backend: nomos_sdp::backends::SdpBackend + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Send
         + Display
         + 'static
-        + AsServiceId<nomos_sdp::SdpService<Backend, RuntimeServiceId>>,
+        + AsServiceId<nomos_sdp::SdpService<RuntimeServiceId>>,
 {
     make_request_and_return_response!(nomos_api::http::sdp::post_activity_handler::<
-        Backend,
         RuntimeServiceId,
     >(handle, metadata))
 }
@@ -1003,21 +999,19 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn post_withdrawal<Backend, RuntimeServiceId>(
+pub async fn post_withdrawal<RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
     Json(declaration_id): Json<nomos_core::sdp::DeclarationId>,
 ) -> Response
 where
-    Backend: nomos_sdp::backends::SdpBackend + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Send
         + Display
         + 'static
-        + AsServiceId<nomos_sdp::SdpService<Backend, RuntimeServiceId>>,
+        + AsServiceId<nomos_sdp::SdpService<RuntimeServiceId>>,
 {
     make_request_and_return_response!(nomos_api::http::sdp::post_withdrawal_handler::<
-        Backend,
         RuntimeServiceId,
     >(handle, declaration_id))
 }
