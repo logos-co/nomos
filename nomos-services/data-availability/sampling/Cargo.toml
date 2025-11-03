@@ -34,6 +34,5 @@ tx-service               = { workspace = true }
 kzgrs = { workspace = true }
 
 [features]
-default         = ["libp2p"]
-libp2p          = []
-rocksdb-backend = ["nomos-storage/rocksdb-backend"]
+default = ["libp2p"]
+libp2p  = []

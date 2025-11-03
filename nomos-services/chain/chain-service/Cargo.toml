@@ -41,7 +41,7 @@ utoipa             = { optional = true, workspace = true }
 
 [dev-dependencies]
 nomos-network = { features = ["mock"], workspace = true }
-nomos-storage = { features = ["rocksdb-backend"], workspace = true }
+nomos-storage = { workspace = true }
 tempfile      = { workspace = true }
 
 [features]

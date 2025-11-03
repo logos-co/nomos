@@ -44,7 +44,6 @@ default         = []
 instrumentation = []
 libp2p          = ["nomos-network/libp2p"]
 mock            = ["nomos-core/mock", "nomos-network/mock"]
-rocksdb-backend = ["nomos-storage/rocksdb-backend"]
 
 # enable to help generate OpenAPI
 openapi = ["dep:serde_json", "dep:utoipa"]

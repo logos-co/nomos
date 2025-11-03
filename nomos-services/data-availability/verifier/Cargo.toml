@@ -30,5 +30,4 @@ tracing                  = { workspace = true }
 tx-service               = { workspace = true }
 
 [features]
-libp2p          = []
-rocksdb-backend = ["nomos-storage/rocksdb-backend"]
+libp2p = []

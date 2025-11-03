@@ -16,7 +16,7 @@ libp2p-identity    = { default-features = false, features = ["serde"], version =
 multiaddr          = { default-features = false, version = "0.18" }
 nomos-core         = { workspace = true }
 overwatch          = { workspace = true }
-rocksdb            = { default-features = false, features = ["bindgen-runtime"], optional = true, version = "0.24" }
+rocksdb            = { default-features = false, features = ["bindgen-runtime"], version = "0.24" }
 serde              = { default-features = false, version = "1.0" }
 thiserror          = "1.0"
 tokio              = { default-features = false, version = "1" }
@@ -27,11 +27,9 @@ tempfile = { workspace = true }
 tokio    = { default-features = false, version = "1" }
 
 [features]
-default         = []
-mock            = []
-rocksdb-backend = ["dep:rocksdb"]
+default = []
+mock    = []
 
 [[bin]]
-name              = "rocks"
-path              = "src/bin/rocks.rs"
-required-features = ["rocksdb-backend"]
+name = "rocks"
+path = "src/bin/rocks.rs"
