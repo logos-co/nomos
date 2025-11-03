@@ -591,15 +591,13 @@ where
         let (txs_stream, blobs) =
             futures::try_join!(txs, blobs_ids).map_err(ProposeBlockError::FetchTransactions)?;
 
-        let filtered_stream = txs_stream.filter({
-            move |tx| {
-                let is_valid = tx.mantle_tx().ops.iter().all(|op| match op {
-                    Op::ChannelBlob(op) => blobs.contains(&op.blob),
-                    _ => true,
-                });
+        let filtered_stream = txs_stream.filter(move |tx| {
+            let is_valid = tx.mantle_tx().ops.iter().all(|op| match op {
+                Op::ChannelBlob(op) => blobs.contains(&op.blob),
+                _ => true,
+            });
 
-                future::ready(is_valid)
-            }
+            future::ready(is_valid)
         });
 
         let mut tx_stream: Pin<Box<_>> = Box::pin(filtered_stream);
