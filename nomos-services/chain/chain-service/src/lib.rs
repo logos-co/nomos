@@ -1748,7 +1748,7 @@ where
     let header = proposal.header().clone();
     let signature = *proposal.signature();
 
-    let block = Block::recover(
+    let block = Block::reconstruct(
         header,
         reconstructed_transactions,
         service_reward,

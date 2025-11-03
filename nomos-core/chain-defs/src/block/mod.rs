@@ -115,7 +115,7 @@ impl<Tx> Block<Tx> {
         })
     }
 
-    pub fn recover(
+    pub fn reconstruct(
         header: Header,
         transactions: Vec<Tx>,
         service_reward: Option<Tx>,
@@ -306,13 +306,13 @@ mod tests {
         let header = valid_block.header().clone();
         let valid_signature = *valid_block.signature();
 
-        let _recovered_block = Block::recover(
+        let _reconstructed_block = Block::reconstruct(
             header.clone(),
             transactions.clone(),
             service_reward.clone(),
             valid_signature,
         )
-        .expect("Should recover block with valid signature");
+        .expect("Should reconstruct block with valid signature");
 
         let wrong_signing_key = SigningKey::from_bytes(&[1u8; 32]);
         let invalid_signature = header
@@ -320,11 +320,11 @@ mod tests {
             .expect("Signing should work");
 
         let invalid_block_result =
-            Block::recover(header, transactions, service_reward, invalid_signature);
+            Block::reconstruct(header, transactions, service_reward, invalid_signature);
 
         assert!(
             invalid_block_result.is_err(),
-            "Should not recover block with invalid signature"
+            "Should not reconstruct block with invalid signature"
         );
     }
 
