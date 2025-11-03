@@ -733,6 +733,12 @@ where
             BoxFuture<'static, (BlobId, Option<DaSharesCommitments>)>,
         > = FuturesUnordered::new();
 
+        let pending_tasks = &mut PendingTasks {
+            long_tasks: &mut long_tasks,
+            sampling_continuations: &mut sampling_continuations,
+            delayed_sdp_sampling_triggers: &mut delayed_sdp_sampling_triggers,
+        };
+
         loop {
             tokio::select! {
                     Some(service_message) = service_resources_handle.inbound_relay.recv() => {
@@ -743,11 +749,7 @@ where
                             &mut sampler,
                             commitments_wait_duration,
                             &share_verifier,
-                            &mut PendingTasks {
-                                long_tasks: &mut long_tasks,
-                                sampling_continuations: &mut sampling_continuations,
-                                delayed_sdp_sampling_triggers: &mut delayed_sdp_sampling_triggers,
-                            }
+                            pending_tasks,
                         ).await;
                     }
                     Some(sampling_message) = sampling_message_stream.next() => {
@@ -765,7 +767,7 @@ where
                         ).await;
                     }
                     // Handle completed sampling continuations
-                    Some((blob_id, commitments)) = sampling_continuations.next() => {
+                    Some((blob_id, commitments)) = pending_tasks.sampling_continuations.next() => {
                         if let Some(commitments) = commitments {
                             info_with_id!(blob_id, "Got commitments for triggered sampling");
                             sampler.add_commitments(&blob_id, commitments);
@@ -784,14 +786,10 @@ where
                         Self::handle_incoming_blob(
                             blob_id,
                             sdp_blob_trigger_sampling_delay,
-                            &PendingTasks {
-                                long_tasks: &mut long_tasks,
-                                sampling_continuations: &mut sampling_continuations,
-                                delayed_sdp_sampling_triggers: &mut delayed_sdp_sampling_triggers,
-                            }
+                            pending_tasks,
                         );
                     }
-                    Some(blob_id) = delayed_sdp_sampling_triggers.next() => {
+                    Some(blob_id) = pending_tasks.delayed_sdp_sampling_triggers.next() => {
                         Self::handle_service_message(
                             DaSamplingServiceMsg::TriggerSampling { blob_id },
                             &mut network_adapter,
@@ -799,15 +797,11 @@ where
                             &mut sampler,
                             commitments_wait_duration,
                             &share_verifier,
-                            &mut PendingTasks {
-                                    long_tasks: &mut long_tasks,
-                                    sampling_continuations: &mut sampling_continuations,
-                                    delayed_sdp_sampling_triggers: &mut delayed_sdp_sampling_triggers,
-                                }
+                            pending_tasks,
                         ).await;
                     }
                     // Process completed long tasks (they just run to completion)
-                    Some(()) = long_tasks.next() => {}
+                    Some(()) = pending_tasks.long_tasks.next() => {}
 
                     // cleanup not on time samples
                     _ = next_prune_tick.tick() => {
