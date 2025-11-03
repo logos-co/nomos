@@ -752,7 +752,7 @@ async fn run_event_loop<
                 current_public_info = handle_clock_event(clock_tick, blend_config, &mut epoch_handler, &mut crypto_processor, &mut backend, current_public_info).await;
             }
             Some(SessionEvent::TransitionPeriodExpired) = remaining_session_stream.next() => {
-                compute_and_submit_activity_proof_for_previous_session(&mut blending_token_collector);
+                handle_session_transition_expired(&mut backend, &mut blending_token_collector).await;
                 // Now the core service is no longer needed for the current (new) session,
                 // and the remaining session transition has been completed,
                 // so the service terminates here.
@@ -874,8 +874,7 @@ where
             })
         }
         SessionEvent::TransitionPeriodExpired => {
-            compute_and_submit_activity_proof_for_previous_session(blending_token_collector);
-            backend.complete_session_transition().await;
+            handle_session_transition_expired(backend, blending_token_collector).await;
             Ok(HandleSessionEventOutput {
                 crypto_processor: current_cryptographic_processor,
                 public_info: current_public_info,
@@ -883,6 +882,19 @@ where
             })
         }
     }
+}
+
+/// Handles [`SessionEvent::TransitionPeriodExpired`].
+async fn handle_session_transition_expired<Backend, NodeId, Rng, ProofsVerifier, RuntimeServiceId>(
+    backend: &mut Backend,
+    blending_token_collector: &mut BlendingTokenCollector,
+) where
+    Backend: BlendBackend<NodeId, Rng, ProofsVerifier, RuntimeServiceId>,
+    NodeId: Eq + Hash + Clone + Send,
+    ProofsVerifier: ProofsVerifierTrait,
+{
+    compute_and_submit_activity_proof_for_previous_session(blending_token_collector);
+    backend.complete_session_transition().await;
 }
 
 struct HandleSessionEventOutput<

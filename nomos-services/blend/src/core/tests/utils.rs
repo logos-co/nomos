@@ -17,7 +17,10 @@ use overwatch::{
     services::{ServiceData, relay::OutboundRelay, state::StateUpdater},
 };
 use tempfile::NamedTempFile;
-use tokio::sync::{broadcast, mpsc, watch};
+use tokio::sync::{
+    broadcast::{self},
+    mpsc, watch,
+};
 use tokio_stream::wrappers::{BroadcastStream, ReceiverStream};
 
 use crate::{
@@ -47,6 +50,11 @@ pub fn new_membership(size: u8) -> (Membership<NodeId>, Ed25519PrivateKey) {
     )
 }
 
+/// Creates a [`BlendConfig`] with the given parameters and reasonable defaults
+/// for the rest.
+///
+/// Also returns a [`NamedTempFile`] used for service recovery
+/// that must not be dropped, as doing so will delete the underlying temp file.
 pub fn settings<BackendSettings>(
     local_private_key: Ed25519PrivateKey,
     minimum_network_size: NonZeroU64,
@@ -87,7 +95,10 @@ pub fn new_stream<Item>() -> (impl Stream<Item = Item> + Unpin, mpsc::Sender<Ite
     (ReceiverStream::new(receiver), sender)
 }
 
-pub struct TestBlendBackend;
+pub struct TestBlendBackend {
+    // To notify tests about events occurring within the backend.
+    event_sender: broadcast::Sender<TestBlendBackendEvent>,
+}
 
 #[async_trait]
 impl<NodeId, Rng, ProofsVerifier, RuntimeServiceId>
@@ -103,13 +114,21 @@ where
         _current_public_info: PublicInfo<NodeId>,
         _rng: Rng,
     ) -> Self {
-        Self
+        let (event_sender, _) = broadcast::channel(CHANNEL_SIZE);
+        Self { event_sender }
     }
 
     fn shutdown(self) {}
     async fn publish(&self, _msg: EncapsulatedMessage) {}
     async fn rotate_session(&mut self, _new_session_info: SessionInfo<NodeId>) {}
-    async fn complete_session_transition(&mut self) {}
+
+    async fn complete_session_transition(&mut self) {
+        // Notify tests that the backend completed the session transition.
+        self.event_sender
+            .send(TestBlendBackendEvent::SessionTransitionCompleted)
+            .unwrap();
+    }
+
     async fn rotate_epoch(&mut self, _new_epoch_public_info: EpochInfo) {}
     async fn complete_epoch_transition(&mut self) {}
 
@@ -118,6 +137,37 @@ where
     ) -> Pin<Box<dyn Stream<Item = IncomingEncapsulatedMessageWithValidatedPublicHeader> + Send>>
     {
         unimplemented!()
+    }
+}
+
+impl TestBlendBackend {
+    /// Subscribes to backend test events.
+    pub fn subscribe_to_events(&self) -> broadcast::Receiver<TestBlendBackendEvent> {
+        self.event_sender.subscribe()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TestBlendBackendEvent {
+    SessionTransitionCompleted,
+}
+
+/// Waits for the given event to be received on the provided channel.
+/// All other events are ignored.
+///
+/// It panics if the channel is lagged or closed.
+pub async fn wait_for_blend_backend_event(
+    receiver: &mut broadcast::Receiver<TestBlendBackendEvent>,
+    event: TestBlendBackendEvent,
+) {
+    loop {
+        let received_event = receiver
+            .recv()
+            .await
+            .expect("channel shouldn't be closed or lagged");
+        if received_event == event {
+            return;
+        }
     }
 }
 

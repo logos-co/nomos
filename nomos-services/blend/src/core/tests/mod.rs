@@ -6,14 +6,14 @@ use groth16::Field as _;
 use nomos_core::crypto::ZkHash;
 use nomos_time::SlotTick;
 use poq::CORE_MERKLE_TREE_HEIGHT;
-use tokio::time::{sleep, timeout};
 
 use crate::{
     core::{
         initialize, post_initialize, run_event_loop,
         tests::utils::{
-            NodeId, TestBlendBackend, TestNetworkAdapter, dummy_overwatch_resources,
-            new_membership, new_stream, settings,
+            NodeId, TestBlendBackend, TestBlendBackendEvent, TestNetworkAdapter,
+            dummy_overwatch_resources, new_membership, new_stream, settings,
+            wait_for_blend_backend_event,
         },
     },
     epoch_info::EpochHandler,
@@ -123,6 +123,7 @@ async fn complete_old_session_after_main_loop_done() {
         state_updater,
     )
     .await;
+    let mut backend_event_receiver = backend.subscribe_to_events();
 
     // Run the event loop of the service in a separate task.
     let settings_cloned = settings.clone();
@@ -159,7 +160,11 @@ async fn complete_old_session_after_main_loop_done() {
 
     // Since the node is still core in the new session,
     // the service must keep running even after a session transition period.
-    sleep(settings.time.session_transition_period().mul_f64(1.5)).await;
+    wait_for_blend_backend_event(
+        &mut backend_event_receiver,
+        TestBlendBackendEvent::SessionTransitionCompleted,
+    )
+    .await;
     assert!(!join_handle.is_finished());
 
     // Send a new session with a new membership smaller than minimal size
@@ -169,11 +174,12 @@ async fn complete_old_session_after_main_loop_done() {
 
     // Since the network is smaller than the minimal size,
     // the service must stop after a session transition period.
-    timeout(
-        settings.time.session_transition_period().mul_f64(1.5),
-        join_handle,
+    wait_for_blend_backend_event(
+        &mut backend_event_receiver,
+        TestBlendBackendEvent::SessionTransitionCompleted,
     )
-    .await
-    .expect("the service should stop")
-    .expect("the service should stop without error");
+    .await;
+    join_handle
+        .await
+        .expect("the service should stop without error");
 }
