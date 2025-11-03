@@ -32,7 +32,3 @@ tx-service               = { workspace = true }
 
 [dev-dependencies]
 kzgrs = { workspace = true }
-
-[features]
-default = ["libp2p"]
-libp2p  = []

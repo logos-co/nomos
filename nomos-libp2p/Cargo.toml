@@ -11,7 +11,7 @@ workspace = true
 async-trait = { default-features = false, version = "0.1.88" }
 backon = { features = ["tokio-sleep"], version = "1.3.0" }
 blake2 = { default-features = false, version = "0.10" }
-cryptarchia-sync = { features = ["libp2p"], workspace = true }
+cryptarchia-sync = { workspace = true }
 default-net = { default-features = false, version = "0.14" }
 either = { default-features = false, version = "1.13.0" }
 futures = { default-features = false, version = "0.3" }

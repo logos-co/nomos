@@ -46,6 +46,5 @@ tempfile      = { workspace = true }
 
 [features]
 default      = []
-libp2p       = ["nomos-network/libp2p"]
 openapi      = ["dep:utoipa"]
 pol-dev-mode = ["nomos-core/pol-dev-mode"]

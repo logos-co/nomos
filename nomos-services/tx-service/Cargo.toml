@@ -42,7 +42,6 @@ tx-service            = { features = ["mock"], path = "." }
 [features]
 default         = []
 instrumentation = []
-libp2p          = ["nomos-network/libp2p"]
 mock            = ["nomos-core/mock", "nomos-network/mock"]
 
 # enable to help generate OpenAPI

@@ -30,13 +30,13 @@ kzgrs-backend            = { workspace = true }
 nomos-api                = { workspace = true }
 nomos-blend-message      = { workspace = true }
 nomos-blend-scheduling   = { workspace = true }
-nomos-blend-service      = { features = ["libp2p"], workspace = true }
+nomos-blend-service      = { workspace = true }
 nomos-core               = { workspace = true }
 nomos-da-messages        = { workspace = true }
 nomos-da-network-core    = { workspace = true }
 nomos-da-network-service = { workspace = true }
-nomos-da-sampling        = { features = ["libp2p"], workspace = true }
-nomos-da-verifier        = { features = ["libp2p"], workspace = true }
+nomos-da-sampling        = { workspace = true }
+nomos-da-verifier        = { workspace = true }
 nomos-http-api-common    = { workspace = true, features = ["profiling"] }
 nomos-libp2p             = { workspace = true }
 nomos-network            = { workspace = true }
