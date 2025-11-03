@@ -12,7 +12,7 @@ ignored = ["nomos-utils"]
 workspace = true
 
 [dependencies]
-cfg_eval    = { optional = true, version = "0.1" }
+cfg_eval    = { version = "0.1" }
 nomos-utils = { workspace = true }
 serde       = { default-features = false, version = "1.0" }
 serde_with  = { features = ["macros"], workspace = true }

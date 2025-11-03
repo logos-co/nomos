@@ -4,11 +4,11 @@ use std::{
     time::Duration,
 };
 
+use nomos_utils::bounded_duration::{MinimalBoundedDuration, SECOND};
 use serde_with::serde_as;
 use time::OffsetDateTime;
 #[cfg(feature = "tokio")]
 use tokio::time::{Interval, MissedTickBehavior};
-
 #[derive(
     serde::Serialize, serde::Deserialize, Clone, Debug, Eq, PartialEq, Copy, Hash, PartialOrd, Ord,
 )]
