@@ -721,6 +721,7 @@ async fn run_event_loop<
                         current_public_info = output.public_info;
                         current_recovery_checkpoint = output.recovery_checkpoint;
                         break;
+
                     }
                 }
             }

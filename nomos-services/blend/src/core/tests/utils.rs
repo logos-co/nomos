@@ -71,7 +71,6 @@ pub fn settings<BackendSettings>(
         scheduler: SchedulerSettings {
             cover: CoverTrafficSettings {
                 message_frequency_per_round: 1.0.try_into().unwrap(),
-                redundancy_parameter: 0,
                 intervals_for_safety_buffer: 0,
             },
             delayer: MessageDelayerSettings {
