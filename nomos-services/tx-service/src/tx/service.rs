@@ -30,7 +30,7 @@ use services_utils::{
 use tokio::sync::{broadcast, oneshot};
 
 use crate::{
-    MempoolMetrics, MempoolMsg, backend,
+    MempoolMetrics, MempoolMsg, TransactionsByHashesResponse, backend,
     backend::{MemPool as MemPoolTrait, MempoolError, RecoverableMempool},
     network::NetworkAdapter as NetworkAdapterTrait,
     storage::MempoolStorageAdapter,
@@ -448,7 +448,7 @@ where
     async fn partition_transactions_by_availability(
         pool: &Pool,
         hashes: Vec<Pool::Key>,
-    ) -> Result<crate::TransactionsByHashesResponse<Pool::Item, Pool::Key>, MempoolError> {
+    ) -> Result<TransactionsByHashesResponse<Pool::Item, Pool::Key>, MempoolError> {
         let keys_set: BTreeSet<Pool::Key> = hashes.into_iter().collect();
 
         let items_stream = pool
@@ -461,7 +461,7 @@ where
         let found_transactions: Vec<Pool::Item> = items_stream.collect().await;
 
         if found_transactions.len() == keys_set.len() {
-            return Ok(crate::TransactionsByHashesResponse::new(
+            return Ok(TransactionsByHashesResponse::new(
                 found_transactions,
                 BTreeSet::new(),
             ));
@@ -472,7 +472,7 @@ where
 
         let not_found_hashes: BTreeSet<Pool::Key> = &keys_set - &found_hashes;
 
-        Ok(crate::TransactionsByHashesResponse::new(
+        Ok(TransactionsByHashesResponse::new(
             found_transactions,
             not_found_hashes,
         ))
