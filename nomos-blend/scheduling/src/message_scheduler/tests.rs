@@ -218,17 +218,19 @@ async fn round_change() {
         Round::from(3),
     ];
     let mut scheduler = MessageScheduler::<_, _, (), u32>::with_test_values(
-        // Round `1` scheduled, tick will yield round `0` then round `1`, then round `2`.
+        // Round `1` and `2` scheduled, tick will yield round `0` then round `1`, round `2`, then
+        // round `3`.
         SessionCoverTraffic::with_test_values(
             Box::new(iter(rounds)),
-            HashSet::from_iter([1u128.into(), 3u128.into()]),
+            HashSet::from_iter([1u128.into(), 2u128.into()]),
             rng.clone(),
             0,
         ),
-        // Round `2` scheduled, tick will yield round `0` then round `1`, then round `2`.
+        // Round `3` scheduled, tick will yield round `0` then round `1`, round `2`, then round
+        // `3`.
         SessionProcessedMessageDelayer::with_test_values(
             NonZeroU64::try_from(1).unwrap(),
-            2u128.into(),
+            3u128.into(),
             rng,
             Box::new(iter(rounds)),
             vec![()],
@@ -254,26 +256,26 @@ async fn round_change() {
     );
     assert!(scheduler.data_messages.is_empty());
 
-    scheduler.queue_data_message(2);
-    // Poll for round `2`, which should return the processed messages and the queued
-    // data message.
-    assert_eq!(
-        scheduler.poll_next_unpin(&mut cx),
-        Poll::Ready(Some(RoundInfo {
-            data_messages: vec![2],
-            release_type: Some(RoundReleaseType::OnlyProcessedMessages(vec![()]))
-        }))
-    );
-    assert!(scheduler.data_messages.is_empty());
-
     scheduler.queue_data_message(3);
-    // Poll for round `3`, which should skip the cover message (even if scheduled)
-    // and should only return the queued data message instead.
+
+    // Poll for round `2`, which should skip the cover message (although it's
+    // scheduled) and should only return the queued data message instead.
     assert_eq!(
         scheduler.poll_next_unpin(&mut cx),
         Poll::Ready(Some(RoundInfo {
             data_messages: vec![3],
             release_type: None
+        }))
+    );
+    assert!(scheduler.data_messages.is_empty());
+
+    // Poll for round `3`, which should return the processed messages and the queued
+    // data message.
+    assert_eq!(
+        scheduler.poll_next_unpin(&mut cx),
+        Poll::Ready(Some(RoundInfo {
+            data_messages: vec![],
+            release_type: Some(RoundReleaseType::OnlyProcessedMessages(vec![()]))
         }))
     );
     assert!(scheduler.data_messages.is_empty());
