@@ -83,22 +83,22 @@ where
             return true;
         }
 
-        let should_emit = {
+        let should_skip = {
             // Threshold will be in the range (0, unprocessed_data_messages], since we
             // checked that `unprocessed_data_messages` is not `0`, and that
             // `scheduled_message_rounds` is not empty, hence no side of the fraction can be
             // `0`.
             let threshold =
                 self.unprocessed_data_messages as f64 / current_scheduled_messages_count as f64;
-            self.rng.gen_range(0f64..=1f64) > threshold
+            self.rng.gen_range(0f64..=1f64) <= threshold
         };
         // If we are not emitting a cover message because of an unprocessed data
         // message, "burn" one quota.
-        if !should_emit {
+        if should_skip {
             self.unprocessed_data_messages = self.unprocessed_data_messages.saturating_sub(1);
             trace!(target: LOG_TARGET, "Pre-schedule release skipped because of data message.");
         }
-        should_emit
+        !should_skip
     }
 }
 
