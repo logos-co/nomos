@@ -3,16 +3,12 @@ pub mod math;
 pub mod net;
 pub mod noop_service;
 
-#[cfg(feature = "types")]
 pub mod types;
 
-#[cfg(feature = "rng")]
 pub mod blake_rng;
 
-#[cfg(feature = "time")]
 pub mod bounded_duration;
 
-#[cfg(feature = "serde")]
 pub mod serde {
     fn serialize_human_readable_bytes_array<const N: usize, S: serde::Serializer>(
         src: [u8; N],

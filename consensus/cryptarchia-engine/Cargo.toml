@@ -13,7 +13,7 @@ workspace = true
 
 [dependencies]
 cfg_eval    = { optional = true, version = "0.1" }
-nomos-utils = { features = ["time"], optional = true, workspace = true }
+nomos-utils = { optional = true, workspace = true }
 serde       = { default-features = false, optional = true, version = "1.0" }
 serde_with  = { features = ["macros"], optional = true, workspace = true }
 thiserror   = "1"
