@@ -53,7 +53,7 @@ async fn no_substream_ready_and_no_data_messages() {
 }
 
 #[tokio::test]
-async fn no_substream_ready_but_data_messages() {
+async fn no_substream_ready_with_data_messages() {
     let rng = BlakeRng::from_entropy();
     let rounds = [Round::from(0)];
     let mut scheduler = MessageScheduler::<_, _, (), u32>::with_test_values(

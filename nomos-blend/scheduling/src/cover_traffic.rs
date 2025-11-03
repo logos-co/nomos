@@ -74,16 +74,12 @@ where
     ///       messages / the number of cover messages yet to release.
     fn consume_round(&mut self, round: &Round) -> bool {
         let current_scheduled_messages_count = self.scheduled_message_rounds.len();
+        // No need to consume a data message quota because this is not a release round.
         if self.scheduled_message_rounds.is_empty() || !self.scheduled_message_rounds.remove(round)
         {
             return false;
         }
-        let unprocessed_data_messages = {
-            let current_value = self.unprocessed_data_messages;
-            self.unprocessed_data_messages = self.unprocessed_data_messages.saturating_sub(1);
-            current_value
-        };
-        if unprocessed_data_messages == 0 {
+        if self.unprocessed_data_messages == 0 {
             return true;
         }
 
@@ -93,20 +89,15 @@ where
             // `scheduled_message_rounds` is not empty, hence no side of the fraction can be
             // `0`.
             let threshold =
-                unprocessed_data_messages as f64 / current_scheduled_messages_count as f64;
-            // More data messages than available release slots, so all release slots are to
-            // be skipped.
-            if threshold >= 1f64 {
-                false
-            } else {
-                let should_emit = self.rng.gen_range(0f64..=1f64) > threshold;
-                if !should_emit {
-                    trace!(target: LOG_TARGET, "Pre-schedule release skipped because of data message.");
-                }
-                should_emit
-            }
+                self.unprocessed_data_messages as f64 / current_scheduled_messages_count as f64;
+            self.rng.gen_range(0f64..=1f64) > threshold
         };
-        self.scheduled_message_rounds.remove(round);
+        // If we are not emitting a cover message because of an unprocessed data
+        // message, "burn" one quota.
+        if !should_emit {
+            self.unprocessed_data_messages = self.unprocessed_data_messages.saturating_sub(1);
+            trace!(target: LOG_TARGET, "Pre-schedule release skipped because of data message.");
+        }
         should_emit
     }
 }
@@ -268,7 +259,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn no_emission_on_scheduled_round_with_unprocessed_message() {
+    async fn no_emission_on_scheduled_round_with_single_unprocessed_message() {
         let mut scheduler = SessionCoverTraffic {
             round_clock: iter([0u128]).map(Into::into),
             scheduled_message_rounds: HashSet::from_iter([0u128.into()]),
@@ -279,8 +270,40 @@ mod tests {
 
         assert_eq!(scheduler.poll_next_unpin(&mut cx), Poll::Pending);
         // Check that the scheduled round has been removed from the set.
-        assert!(!scheduler.scheduled_message_rounds.contains(&1u128.into()));
+        assert!(!scheduler.scheduled_message_rounds.contains(&0u128.into()));
         // Check that the number of processed messages has been decremented.
+        assert_eq!(scheduler.unprocessed_data_messages, 0);
+    }
+
+    #[tokio::test]
+    async fn no_emission_on_scheduled_round_with_multiple_unprocessed_messages() {
+        let mut scheduler = SessionCoverTraffic {
+            round_clock: iter([0u128, 1u128, 2u128]).map(Into::into),
+            scheduled_message_rounds: HashSet::from_iter([
+                0u128.into(),
+                1u128.into(),
+                2u128.into(),
+            ]),
+            unprocessed_data_messages: 2,
+            rng: OsRng,
+        };
+        let mut cx = Context::from_waker(noop_waker_ref());
+
+        // We have a random factor, so we can't test step-by-step, but we can say that
+        // after polling the stream 3 times, we should have a single cover message
+        // generated.
+        let cover_message_count = (0u8..=2).fold(0u8, |count, _| {
+            if scheduler.poll_next_unpin(&mut cx) == Poll::Ready(Some(())) {
+                count + 1
+            } else {
+                count
+            }
+        });
+
+        // Out of `3` scheduled release rounds, only one will yield a cover message,
+        // since there's `2` unprocessed data messages.
+        assert_eq!(cover_message_count, 1);
+        // Check that the number of processed messages has been consumed.
         assert_eq!(scheduler.unprocessed_data_messages, 0);
     }
 

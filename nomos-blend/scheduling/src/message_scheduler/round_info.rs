@@ -5,7 +5,7 @@ use core::{
 
 use futures::Stream;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Round(u128);
 
 impl Round {
@@ -36,12 +36,14 @@ impl Display for Round {
 /// Information can the message scheduler can yield when being polled.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RoundInfo<ProcessedMessage, DataMessage> {
-    /// The list of processed messages to be released.
+    /// The list of processed messages to be released. It means this is a
+    /// release round for processed messages.
     pub processed_messages: Vec<ProcessedMessage>,
     /// Flag indicating (if `Some`) whether a new cover message should be
-    /// generated during this release round.
+    /// generated during this release round. It means this is a release round
+    /// for a cover message.
     pub cover_message_generation_flag: Option<()>,
-    /// The list of data messages to be released.
+    /// The list of data messages to be released. This can happen at any round.
     pub data_messages: Vec<DataMessage>,
 }
 
