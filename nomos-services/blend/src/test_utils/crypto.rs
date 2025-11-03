@@ -1,18 +1,48 @@
 use core::convert::Infallible;
 
+use async_trait::async_trait;
 use nomos_blend_message::{
     crypto::{
         keys::{Ed25519PrivateKey, Ed25519PublicKey},
         proofs::{
             PoQVerificationInputsMinusSigningKey,
-            quota::{ProofOfQuota, inputs::prove::public::LeaderInputs},
+            quota::{
+                ProofOfQuota,
+                inputs::prove::{
+                    private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs},
+                    public::LeaderInputs,
+                },
+            },
             selection::{ProofOfSelection, inputs::VerifyInputs},
         },
     },
     encap::ProofsVerifier,
 };
-use nomos_blend_scheduling::message_blend::provers::BlendLayerProof;
+use nomos_blend_scheduling::message_blend::provers::{
+    BlendLayerProof, ProofsGeneratorSettings, core_and_leader::CoreAndLeaderProofsGenerator,
+};
 use nomos_core::crypto::ZkHash;
+
+pub struct MockCoreAndLeaderProofsGenerator;
+
+#[async_trait]
+impl CoreAndLeaderProofsGenerator for MockCoreAndLeaderProofsGenerator {
+    fn new(_settings: ProofsGeneratorSettings, _private_inputs: ProofOfCoreQuotaInputs) -> Self {
+        Self
+    }
+
+    fn rotate_epoch(&mut self, _new_epoch_public: LeaderInputs) {}
+
+    fn set_epoch_private(&mut self, _new_epoch_private: ProofOfLeadershipQuotaInputs) {}
+
+    async fn get_next_core_proof(&mut self) -> Option<BlendLayerProof> {
+        Some(mock_blend_proof())
+    }
+
+    async fn get_next_leader_proof(&mut self) -> Option<BlendLayerProof> {
+        Some(mock_blend_proof())
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct MockProofsVerifier;

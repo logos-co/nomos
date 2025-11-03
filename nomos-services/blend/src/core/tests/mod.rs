@@ -10,9 +10,7 @@ use tokio::time::{sleep, timeout};
 
 use crate::{
     core::{
-        initialize, post_initialize,
-        processor::tests::MockCoreAndLeaderProofsGenerator,
-        run_event_loop,
+        initialize, post_initialize, run_event_loop,
         tests::utils::{
             NodeId, TestBlendBackend, TestNetworkAdapter, dummy_overwatch_resources,
             new_membership, new_stream, settings,
@@ -22,7 +20,7 @@ use crate::{
     membership::{MembershipInfo, ZkInfo},
     settings::TimingSettings,
     test_utils::{
-        crypto::MockProofsVerifier,
+        crypto::{MockCoreAndLeaderProofsGenerator, MockProofsVerifier},
         epoch::{OncePolStreamProvider, TestChainService},
     },
 };
