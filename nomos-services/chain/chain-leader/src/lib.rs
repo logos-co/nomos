@@ -304,10 +304,13 @@ where
         .await;
 
         // Create the API wrapper for chain service communication
-        let cryptarchia_api = CryptarchiaServiceApi::<CryptarchiaService, _>::new(
-            &self.service_resources_handle.overwatch_handle,
-        )
-        .await?;
+        let cryptarchia_api = CryptarchiaServiceApi::<CryptarchiaService, RuntimeServiceId>::new(
+            self.service_resources_handle
+                .overwatch_handle
+                .relay::<CryptarchiaService>()
+                .await
+                .expect("Failed to estabilish connection with Cryptarchia"),
+        );
 
         let LeaderSettings {
             config: ledger_config,

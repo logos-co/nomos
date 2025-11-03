@@ -23,10 +23,7 @@ use crate::{
             sdp::{SDPActiveOp, SDPDeclareOp, SDPWithdrawOp},
         },
     },
-    sdp::{
-        ActivityMetadata, DeclarationId, Locator, ProviderId, ServiceType,
-        ZkPublicKey as SdpZkPublicKey,
-    },
+    sdp::{ActivityMetadata, DeclarationId, Locator, ProviderId, ServiceType},
 };
 
 // ==============================================================================
@@ -116,9 +113,11 @@ fn decode_channel_inscribe(input: &[u8]) -> IResult<&[u8], InscriptionOp> {
 }
 
 fn decode_channel_blob(input: &[u8]) -> IResult<&[u8], BlobOp> {
-    // ChannelBlob = ChannelId BlobId BlobSize DaStorageGasPrice Parent Signer
-    // Signer = Ed25519PublicKey
+    // ChannelBlob = ChannelId Session BlobId BlobSize DaStorageGasPrice Parent
+    // Signer Session = Uint64
+    // Signer  = Ed25519PublicKey
     let (input, channel) = map(decode_hash32, ChannelId::from).parse(input)?;
+    let (input, session) = decode_uint64(input)?;
     let (input, blob) = decode_hash32(input)?;
     let (input, blob_size) = decode_uint64(input)?;
     let (input, da_storage_gas_price) = decode_uint64(input)?;
@@ -129,6 +128,7 @@ fn decode_channel_blob(input: &[u8]) -> IResult<&[u8], BlobOp> {
         input,
         BlobOp {
             channel,
+            session,
             blob,
             blob_size,
             da_storage_gas_price,
@@ -165,7 +165,7 @@ fn decode_sdp_declare(input: &[u8]) -> IResult<&[u8], SDPDeclareOp> {
     let (input, provider_key) = decode_ed25519_public_key(input)?;
     let provider_id = ProviderId(provider_key);
     let (input, zk_fr) = decode_field_element(input)?;
-    let zk_id = SdpZkPublicKey(zk_fr);
+    let zk_id = PublicKey::new(zk_fr);
     let (input, locked_note_id) = map(decode_field_element, NoteId).parse(input)?;
 
     Ok((
@@ -203,16 +203,11 @@ fn decode_sdp_withdraw(input: &[u8]) -> IResult<&[u8], SDPWithdrawOp> {
     let (input, nonce) = decode_uint64(input)?;
     let (input, locked_note_id) = map(decode_field_element, NoteId).parse(input)?;
 
-    // NOTE: The ABNF specifies a LockedNoteId field, but the WithdrawMessage
-    // struct does not have this field. We decode it but drop it for now.
-    eprintln!(
-        "WARNING: SDPWithdraw LockedNoteId field decoded but dropped. Declaration ID: {declaration_id:?}, nonce: {nonce}, locked_note: {locked_note_id:?}"
-    );
-
     Ok((
         input,
         SDPWithdrawOp {
             declaration_id,
+            locked_note_id,
             nonce,
         },
     ))
@@ -546,7 +541,7 @@ fn encode_sdp_declare(op: &SDPDeclareOp) -> Vec<u8> {
     // ProviderId
     bytes.extend(encode_ed25519_public_key(&op.provider_id.0));
     // ZkId
-    bytes.extend(encode_field_element(&op.zk_id.0));
+    bytes.extend(encode_field_element(op.zk_id.as_fr()));
     // LockedNoteId
     bytes.extend(encode_field_element(op.locked_note_id.as_ref()));
     bytes
@@ -556,9 +551,7 @@ fn encode_sdp_withdraw(op: &SDPWithdrawOp) -> Vec<u8> {
     let mut bytes = Vec::new();
     bytes.extend(encode_hash32(&op.declaration_id.0));
     bytes.extend(encode_uint64(op.nonce));
-    // NOTE: ABNF specifies LockedNoteId field, but Rust struct doesn't have it
-    // We encode zeros as a placeholder to match the wire format
-    bytes.extend(encode_field_element(&Fr::from(0u64)));
+    bytes.extend(encode_field_element(op.locked_note_id.as_ref()));
     bytes
 }
 
@@ -568,11 +561,7 @@ fn encode_sdp_active(op: &SDPActiveOp) -> Vec<u8> {
     bytes.extend(encode_uint64(op.nonce));
 
     // Metadata - convert ActivityMetadata to bytes
-    let metadata_bytes = op
-        .metadata
-        .as_ref()
-        .map(ActivityMetadata::to_metadata_bytes)
-        .unwrap_or_default();
+    let metadata_bytes = op.metadata.to_metadata_bytes();
 
     bytes.extend(encode_uint32(metadata_bytes.len() as u32));
     bytes.extend(&metadata_bytes);
@@ -758,6 +747,7 @@ mod tests {
     use ark_ff::Field as _;
     use ed25519::{Signature, signature::SignerMut as _};
     use ed25519_dalek::SigningKey;
+    use num_bigint::BigUint;
 
     use super::*;
     use crate::{mantle::Transaction as _, proofs::zksig::ZkSignaturePublic, sdp::DaActivityProof};
@@ -937,6 +927,7 @@ mod tests {
             0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, //
             0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, //
             0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, //
+            0, 0, 0, 0, 0, 0, 0, 0,                         // SessionNumber (u64)
             0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, // BlobId (32Byte)
             0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, //
             0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, //
@@ -991,6 +982,7 @@ mod tests {
                 mantle_tx: MantleTx {
                     ops: vec![Op::ChannelBlob(BlobOp {
                         channel: ChannelId::from([0xAA; 32]),
+                        session: 0u64,
                         blob: [0xBB; 32],
                         blob_size: 1024,
                         da_storage_gas_price: 10,
@@ -1051,6 +1043,7 @@ mod tests {
             0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, //
             0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, //
             0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, //
+            0, 0, 0, 0, 0, 0, 0, 0,                         // SessionNumber (u64)
             0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, // BlobId (32Byte)
             0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, //
             0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, //
@@ -1133,6 +1126,7 @@ mod tests {
                         }),
                         Op::ChannelBlob(BlobOp {
                             channel: ChannelId::from([0x22; 32]),
+                            session: 0u64,
                             blob: [0x33; 32],
                             blob_size: 2048,
                             da_storage_gas_price: 20,
@@ -1293,6 +1287,7 @@ mod tests {
         let mut signing_key = SigningKey::from_bytes(&[1; 32]);
         let blob_op = BlobOp {
             channel: ChannelId::from([0xCC; 32]),
+            session: 0u64,
             blob: [0xDD; 32],
             blob_size: 1024,
             da_storage_gas_price: 10,
@@ -1378,7 +1373,7 @@ mod tests {
             service_type: ServiceType::BlendNetwork,
             locators: vec![Locator::new(locator1), Locator::new(locator2)],
             provider_id: ProviderId(signing_key.verifying_key()),
-            zk_id: SdpZkPublicKey(BigUint::from(42u64).into()),
+            zk_id: PublicKey::new(BigUint::from(42u64).into()),
             locked_note_id: NoteId(BigUint::from(123u64).into()),
         };
 
@@ -1410,9 +1405,12 @@ mod tests {
 
     #[test]
     fn test_predict_signed_mantle_tx_size_with_sdp_withdraw() {
+        let locked_note_id = NoteId(BigUint::from(123u64).into());
+
         let sdp_withdraw_op = SDPWithdrawOp {
             declaration_id: DeclarationId([0x11; 32]),
             nonce: 42,
+            locked_note_id,
         };
 
         let mantle_tx = MantleTx {
@@ -1451,7 +1449,7 @@ mod tests {
         let sdp_active_op = SDPActiveOp {
             declaration_id: DeclarationId([0x22; 32]),
             nonce: 99,
-            metadata: Some(metadata),
+            metadata,
         };
 
         let mantle_tx = MantleTx {
@@ -1491,6 +1489,7 @@ mod tests {
 
         let blob_op = BlobOp {
             channel: ChannelId::from([0xCC; 32]),
+            session: 0u64,
             blob: [0xDD; 32],
             blob_size: 2048,
             da_storage_gas_price: 20,
@@ -1498,10 +1497,16 @@ mod tests {
             signer: signing_key.verifying_key(),
         };
 
+        let proof = DaActivityProof {
+            current_session: u64::MAX,
+            previous_session_opinions: vec![0xFF; 1000],
+            current_session_opinions: vec![0xAA; 2000],
+        };
+
         let sdp_active_op = SDPActiveOp {
             declaration_id: DeclarationId([0x33; 32]),
             nonce: 55,
-            metadata: None,
+            metadata: ActivityMetadata::DataAvailability(proof),
         };
 
         let mantle_tx = MantleTx {
@@ -1597,7 +1602,7 @@ mod tests {
             service_type: ServiceType::DataAvailability,
             locators: vec![Locator::new(locator)],
             provider_id: ProviderId(signing_key1.verifying_key()),
-            zk_id: SdpZkPublicKey(BigUint::from(999u64).into()),
+            zk_id: PublicKey::new(BigUint::from(999u64).into()),
             locked_note_id: NoteId(BigUint::from(888u64).into()),
         };
 

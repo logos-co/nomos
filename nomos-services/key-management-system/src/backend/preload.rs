@@ -23,7 +23,7 @@ pub struct PreloadKMSBackend {
 /// This setting contains all [`Key`]s to be loaded into the
 /// [`PreloadKMSBackend`]. This implements [`serde::Serialize`] for users to
 /// populate the settings from bytes.
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct PreloadKMSBackendSettings {
     pub keys: HashMap<String, keys::Key>,
 }

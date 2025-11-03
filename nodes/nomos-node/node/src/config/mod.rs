@@ -18,9 +18,10 @@ use tracing::Level;
 
 use crate::{
     ApiService, CryptarchiaLeaderService, CryptarchiaService, DaNetworkService, DaSamplingService,
-    DaVerifierService, NetworkService, RuntimeServiceId, StorageService, TimeService,
+    DaVerifierService, KeyManagementService, NetworkService, RuntimeServiceId, StorageService,
+    TimeService,
     config::mempool::MempoolConfig,
-    generic_services::{MembershipService, SdpService, WalletService},
+    generic_services::{SdpService, WalletService},
 };
 
 pub mod blend;
@@ -209,7 +210,6 @@ pub struct Config {
     pub blend: BlendConfig,
     pub da_network: <DaNetworkService as ServiceData>::Settings,
     pub da_verifier: <DaVerifierService as ServiceData>::Settings,
-    pub membership: <MembershipService<RuntimeServiceId> as ServiceData>::Settings,
     pub sdp: <SdpService<RuntimeServiceId> as ServiceData>::Settings,
     pub da_sampling: <DaSamplingService as ServiceData>::Settings,
     pub http: <ApiService as ServiceData>::Settings,
@@ -217,6 +217,7 @@ pub struct Config {
     pub cryptarchia_leader: <CryptarchiaLeaderService as ServiceData>::Settings,
     pub time: <TimeService as ServiceData>::Settings,
     pub storage: <StorageService as ServiceData>::Settings,
+    pub key_management: <KeyManagementService as ServiceData>::Settings,
     pub mempool: MempoolConfig,
     pub wallet: <WalletService<CryptarchiaService, RuntimeServiceId> as ServiceData>::Settings,
 
@@ -328,16 +329,16 @@ pub fn update_blend(blend: &mut BlendConfig, blend_args: BlendArgs) -> Result<()
     } = blend_args;
 
     if let Some(addr) = blend_addr {
-        blend.get_mut().backend.listening_address = addr;
+        blend.set_listening_address(addr);
     }
 
     if let Some(node_key) = blend_node_key {
         let mut key_bytes = hex::decode(node_key)?;
-        blend.get_mut().backend.node_key = SecretKey::try_from_bytes(key_bytes.as_mut_slice())?;
+        blend.set_node_key(SecretKey::try_from_bytes(key_bytes.as_mut_slice())?);
     }
 
     if let Some(num_blend_layers) = blend_num_blend_layers {
-        blend.get_mut().crypto.num_blend_layers = num_blend_layers as u64;
+        blend.set_blend_layers(num_blend_layers as u64);
     }
 
     Ok(())

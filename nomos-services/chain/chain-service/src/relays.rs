@@ -16,7 +16,7 @@ use nomos_network::{NetworkService, message::BackendNetworkMsg};
 use nomos_storage::{
     StorageMsg, StorageService, api::chain::StorageChainApi, backends::StorageBackend,
 };
-use nomos_time::{TimeService, backends::TimeBackend as TimeBackendTrait};
+use nomos_time::{TimeService, TimeServiceMessage, backends::TimeBackend as TimeBackendTrait};
 use overwatch::{
     OpaqueServiceResourcesHandle,
     services::{AsServiceId, relay::OutboundRelay},
@@ -39,6 +39,7 @@ type NetworkRelay<NetworkBackend, RuntimeServiceId> =
 pub type BroadcastRelay = OutboundRelay<BlockBroadcastMsg>;
 
 pub type StorageRelay<Storage> = OutboundRelay<StorageMsg<Storage>>;
+pub type TimeRelay = OutboundRelay<TimeServiceMessage>;
 
 pub struct CryptarchiaConsensusRelays<
     Mempool,
@@ -60,6 +61,7 @@ pub struct CryptarchiaConsensusRelays<
     mempool_adapter: MempoolAdapter<Mempool::Item, Mempool::Item>,
     storage_adapter: StorageAdapter<Storage, Mempool::Item, RuntimeServiceId>,
     sampling_relay: SamplingRelay<SamplingBackend::BlobId>,
+    time_relay: TimeRelay,
     _mempool_adapter: std::marker::PhantomData<MempoolNetAdapter>,
 }
 
@@ -107,6 +109,7 @@ where
         mempool_relay: OutboundRelay<MempoolMsg<HeaderId, Mempool::Item, Mempool::Item, TxHash>>,
         sampling_relay: SamplingRelay<SamplingBackend::BlobId>,
         storage_relay: StorageRelay<Storage>,
+        time_relay: TimeRelay,
     ) -> Self {
         let storage_adapter =
             StorageAdapter::<Storage, Mempool::Item, RuntimeServiceId>::new(storage_relay).await;
@@ -117,6 +120,7 @@ where
             mempool_adapter,
             storage_adapter,
             sampling_relay,
+            time_relay,
             _mempool_adapter: std::marker::PhantomData,
         }
     }
@@ -213,12 +217,19 @@ where
             .await
             .expect("Relay connection with StorageService should succeed");
 
+        let time_relay = service_resources_handle
+            .overwatch_handle
+            .relay::<TimeService<_, _>>()
+            .await
+            .expect("Relay connection with TimeService should succeed");
+
         Self::new(
             network_relay,
             broadcast_relay,
             mempool_relay,
             sampling_relay,
             storage_relay,
+            time_relay,
         )
         .await
     }
@@ -243,5 +254,9 @@ where
         &self,
     ) -> &StorageAdapter<Storage, Mempool::Item, RuntimeServiceId> {
         &self.storage_adapter
+    }
+
+    pub const fn time_relay(&self) -> &TimeRelay {
+        &self.time_relay
     }
 }

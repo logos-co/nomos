@@ -29,8 +29,8 @@ use nomos_node::Tracing;
 use nomos_node::{
     BlobInfo, DaNetworkApiAdapter, NetworkBackend, NomosDaMembership, RocksBackend, SystemSig,
     generic_services::{
-        DaMembershipAdapter, DaMembershipStorageGeneric, MembershipService, SdpService,
-        SdpServiceAdapterGeneric, VerifierMempoolAdapter,
+        DaMembershipAdapter, DaMembershipStorageGeneric, SdpService, SdpServiceAdapterGeneric,
+        VerifierMempoolAdapter,
     },
 };
 use nomos_time::backends::NtpTimeBackend;
@@ -121,6 +121,9 @@ pub(crate) type CryptarchiaService =
 pub(crate) type WalletService =
     nomos_node::generic_services::WalletService<CryptarchiaService, RuntimeServiceId>;
 
+pub(crate) type KeyManagementService =
+    nomos_node::generic_services::KeyManagementService<RuntimeServiceId>;
+
 pub(crate) type CryptarchiaLeaderService = nomos_node::generic_services::CryptarchiaLeaderService<
     CryptarchiaService,
     WalletService,
@@ -205,7 +208,6 @@ pub struct NomosExecutor {
     da_verifier: DaVerifierService,
     da_sampling: DaSamplingService,
     da_network: DaNetworkService,
-    membership: MembershipService<RuntimeServiceId>,
     sdp: SdpService<RuntimeServiceId>,
     mempool: MempoolService,
     cryptarchia: CryptarchiaService,
@@ -216,6 +218,7 @@ pub struct NomosExecutor {
     storage: StorageService,
     system_sig: SystemSigService,
     wallet: WalletService,
+    key_management: KeyManagementService,
     #[cfg(feature = "testing")]
     testing_http: TestingApiService<RuntimeServiceId>,
 }

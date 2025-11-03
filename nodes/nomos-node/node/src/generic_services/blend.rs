@@ -7,6 +7,7 @@ use core::{
 };
 
 use async_trait::async_trait;
+use broadcast_service::BlockBroadcastService;
 use chain_leader::LeaderMsg;
 use futures::{Stream, StreamExt as _};
 use nomos_blend_message::crypto::{
@@ -41,9 +42,7 @@ use services_utils::wait_until_services_are_ready;
 use tokio::sync::oneshot::channel;
 use tokio_stream::wrappers::WatchStream;
 
-use crate::generic_services::{
-    CryptarchiaLeaderService, CryptarchiaService, MembershipService, WalletService,
-};
+use crate::generic_services::{CryptarchiaLeaderService, CryptarchiaService, WalletService};
 
 // TODO: Replace this with the actual verifier once the verification inputs are
 // successfully fetched by the Blend service.
@@ -182,7 +181,7 @@ fn loop_until_valid_proof(
 }
 
 pub type BlendMembershipAdapter<RuntimeServiceId> =
-    Adapter<MembershipService<RuntimeServiceId>, PeerId>;
+    Adapter<BlockBroadcastService<RuntimeServiceId>, PeerId>;
 pub type BlendCoreService<SamplingAdapter, RuntimeServiceId> =
     nomos_blend_service::core::BlendService<
         nomos_blend_service::core::backends::libp2p::Libp2pBlendBackend,

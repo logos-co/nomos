@@ -49,7 +49,7 @@ async fn test_orphan_handling() {
 
     let config = create_validator_config(general_configs[n_initial_validators].clone());
 
-    let behind_node = vec![Validator::spawn(config).await.unwrap()];
+    let behind_node = [Validator::spawn(config).await.unwrap()];
 
     let mut behind_node_height = 0;
 

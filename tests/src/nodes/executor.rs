@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     net::SocketAddr,
     num::{NonZeroU64, NonZeroUsize},
     path::PathBuf,
@@ -16,13 +16,11 @@ use chain_service::{
 use common_http_client::CommonHttpClient;
 use cryptarchia_engine::time::SlotConfig;
 use futures::Stream;
+use key_management_system::backend::preload::PreloadKMSBackendSettings;
 use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
-use nomos_api::http::membership::MembershipUpdateRequest;
 use nomos_blend_scheduling::message_blend::crypto::SessionCryptographicProcessorSettings;
 use nomos_blend_service::{
-    core::settings::{
-        CoverTrafficSettingsExt, MessageDelayerSettingsExt, SchedulerSettingsExt, ZkSettings,
-    },
+    core::settings::{CoverTrafficSettings, MessageDelayerSettings, SchedulerSettings, ZkSettings},
     settings::TimingSettings,
 };
 use nomos_core::{
@@ -56,7 +54,7 @@ use nomos_executor::{api::backend::AxumBackendSettings, config::Config};
 use nomos_http_api_common::paths::{
     CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_BLACKLISTED_PEERS, DA_BLOCK_PEER, DA_GET_MEMBERSHIP,
     DA_GET_SHARES_COMMITMENTS, DA_HISTORIC_SAMPLING, DA_MONITOR_STATS, DA_UNBLOCK_PEER,
-    MANTLE_METRICS, NETWORK_INFO, STORAGE_BLOCK, UPDATE_MEMBERSHIP,
+    MANTLE_METRICS, NETWORK_INFO, STORAGE_BLOCK,
 };
 use nomos_network::{
     backends::libp2p::{Libp2pConfig, Libp2pInfo},
@@ -67,7 +65,7 @@ use nomos_node::{
     api::testing::handlers::HistoricSamplingRequest,
     config::{blend::BlendConfig, mempool::MempoolConfig},
 };
-use nomos_sdp::{BlockEvent, SdpSettings};
+use nomos_sdp::SdpSettings;
 use nomos_time::{
     TimeServiceSettings,
     backends::{NtpTimeBackendSettings, ntp::async_client::NTPClientSettings},
@@ -302,27 +300,6 @@ impl Executor {
             .await
     }
 
-    pub async fn update_membership(&self, update_event: BlockEvent) -> Result<(), reqwest::Error> {
-        let update_event = MembershipUpdateRequest { update_event };
-        let json_body = serde_json::to_string(&update_event).unwrap();
-
-        let response = CLIENT
-            .post(format!(
-                "http://{}{}",
-                self.testing_http_addr, UPDATE_MEMBERSHIP
-            ))
-            .header("Content-Type", "application/json")
-            .body(json_body)
-            .send()
-            .await;
-
-        assert!(response.is_ok(), "{}", DA_GET_TESTING_ENDPOINT_ERROR);
-
-        let response = response.unwrap();
-        response.error_for_status()?;
-        Ok(())
-    }
-
     pub async fn da_get_membership(
         &self,
         session_id: SessionNumber,
@@ -394,44 +371,51 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                 initial_peers: config.network_config.initial_peers,
             },
         },
-        blend: BlendConfig::new(nomos_blend_service::core::settings::BlendConfig {
-            backend: config.blend_config.backend,
-            crypto: SessionCryptographicProcessorSettings {
-                non_ephemeral_signing_key: config.blend_config.private_key.clone(),
-                num_blend_layers: 1,
-            },
-            time: TimingSettings {
-                round_duration: Duration::from_secs(1),
-                rounds_per_interval: NonZeroU64::try_from(30u64)
-                    .expect("Rounds per interval cannot be zero."),
-                // (21,600 blocks * 30s per block) / 1s per round = 648,000 rounds
-                rounds_per_session: NonZeroU64::try_from(648_000u64)
-                    .expect("Rounds per session cannot be zero."),
-                rounds_per_observation_window: NonZeroU64::try_from(30u64)
-                    .expect("Rounds per observation window cannot be zero."),
-                rounds_per_session_transition_period: NonZeroU64::try_from(30u64)
-                    .expect("Rounds per session transition period cannot be zero."),
-                epoch_transition_period_in_slots: NonZeroU64::try_from(2_600)
-                    .expect("Epoch transition period in slots cannot be zero."),
-            },
-            scheduler: SchedulerSettingsExt {
-                cover: CoverTrafficSettingsExt {
-                    intervals_for_safety_buffer: 100,
-                    message_frequency_per_round: NonNegativeF64::try_from(1f64)
-                        .expect("Message frequency per round cannot be negative."),
-                    redundancy_parameter: 0,
+        blend: BlendConfig::new(nomos_blend_service::settings::Settings {
+            common: nomos_blend_service::settings::CommonSettings {
+                crypto: SessionCryptographicProcessorSettings {
+                    non_ephemeral_signing_key: config.blend_config.private_key.clone(),
+                    num_blend_layers: 1,
                 },
-                delayer: MessageDelayerSettingsExt {
-                    maximum_release_delay_in_rounds: NonZeroU64::try_from(3u64)
-                        .expect("Maximum release delay between rounds cannot be zero."),
+                minimum_network_size: 1
+                    .try_into()
+                    .expect("Minimum Blend network size cannot be zero."),
+                time: TimingSettings {
+                    round_duration: Duration::from_secs(1),
+                    rounds_per_interval: NonZeroU64::try_from(30u64)
+                        .expect("Rounds per interval cannot be zero."),
+                    // (21,600 blocks * 30s per block) / 1s per round = 648,000 rounds
+                    rounds_per_session: NonZeroU64::try_from(648_000u64)
+                        .expect("Rounds per session cannot be zero."),
+                    rounds_per_observation_window: NonZeroU64::try_from(30u64)
+                        .expect("Rounds per observation window cannot be zero."),
+                    rounds_per_session_transition_period: NonZeroU64::try_from(30u64)
+                        .expect("Rounds per session transition period cannot be zero."),
+                    epoch_transition_period_in_slots: NonZeroU64::try_from(2_600)
+                        .expect("Epoch transition period in slots cannot be zero."),
+                },
+                recovery_path_prefix: "./recovery/blend".into(),
+            },
+            core: nomos_blend_service::settings::CoreSettings {
+                backend: config.blend_config.backend_core,
+                scheduler: SchedulerSettings {
+                    cover: CoverTrafficSettings {
+                        intervals_for_safety_buffer: 100,
+                        message_frequency_per_round: NonNegativeF64::try_from(1f64)
+                            .expect("Message frequency per round cannot be negative."),
+                    },
+                    delayer: MessageDelayerSettings {
+                        maximum_release_delay_in_rounds: NonZeroU64::try_from(3u64)
+                            .expect("Maximum release delay between rounds cannot be zero."),
+                    },
+                },
+                zk: ZkSettings {
+                    sk: config.blend_config.secret_zk_key,
                 },
             },
-            zk: ZkSettings {
-                sk: config.blend_config.secret_zk_key,
+            edge: nomos_blend_service::settings::EdgeSettings {
+                backend: config.blend_config.backend_edge,
             },
-            minimum_network_size: 1
-                .try_into()
-                .expect("Minimum Blend network size cannot be zero."),
         }),
         cryptarchia: CryptarchiaSettings {
             config: config.consensus_config.ledger_config.clone(),
@@ -574,12 +558,12 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
             pool_recovery_path: "./recovery/mempool.json".into(),
             trigger_sampling_delay: adjust_timeout(Duration::from_secs(5)),
         },
-        membership: config.membership_config.service_settings,
-        sdp: SdpSettings {
-            declaration_id: None,
-        },
+        sdp: SdpSettings { declaration: None },
         wallet: nomos_wallet::WalletServiceSettings {
             known_keys: HashSet::from_iter([config.consensus_config.leader_config.pk]),
+        },
+        key_management: PreloadKMSBackendSettings {
+            keys: HashMap::new(),
         },
 
         testing_http: nomos_api::ApiServiceSettings {

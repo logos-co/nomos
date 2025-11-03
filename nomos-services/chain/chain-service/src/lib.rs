@@ -67,7 +67,7 @@ use tx_service::{
 };
 
 use crate::{
-    blob::{BlobValidation, RecentBlobValidation, SkipBlobValidation},
+    blob::{HistoricBlobStrategy, RecentBlobStrategy},
     bootstrap::{
         ibd::{self, InitialBlockDownload},
         state::choose_engine_state,
@@ -91,7 +91,7 @@ const CRYPTARCHIA_ID: &str = "Cryptarchia";
 
 pub(crate) const LOG_TARGET: &str = "cryptarchia::service";
 
-#[derive(Debug, Clone, Error)]
+#[derive(Debug, Error)]
 pub enum Error {
     #[error("Ledger error: {0}")]
     Ledger(#[from] nomos_ledger::LedgerError<HeaderId>),
@@ -584,7 +584,7 @@ where
 
         // TODO: check active slot coeff is exactly 1/30
         let (cryptarchia, pruned_blocks) = self
-            .initialize_cryptarchia(&bootstrap_config, ledger_config, &relays)
+            .initialize_cryptarchia(&bootstrap_config, ledger_config.clone(), &relays)
             .await;
         // These are blocks that have been pruned by the cryptarchia engine but have not
         // yet been deleted from the storage layer.
@@ -608,9 +608,21 @@ where
             sync_config.orphan.max_orphan_cache_size,
         ));
 
+        let recent_blob_validation = blob::Validation::<RecentBlobStrategy>::new(
+            ledger_config.base_period_length(),
+            relays.sampling_relay().clone(),
+            relays.time_relay().clone(),
+        );
+        let historic_blob_validation = blob::Validation::<HistoricBlobStrategy>::new(
+            ledger_config.base_period_length(),
+            relays.sampling_relay().clone(),
+            relays.time_relay().clone(),
+        );
+
         wait_until_services_are_ready!(
             &self.service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
+            BlockBroadcastService<_>,
             NetworkService<_, _>,
             TxMempoolService<_, _, _, _, _, _>,
             DaSamplingService<_, _, _, _>,
@@ -633,12 +645,12 @@ where
                 let state_updater = &self.service_resources_handle.state_updater;
                 let new_block_subscription_sender = &self.new_block_subscription_sender;
                 let lib_subscription_sender = &self.lib_subscription_sender;
+                let historic_blob_validation = &historic_blob_validation;
                 async move {
                     Self::process_block_and_update_state(
                         cryptarchia,
                         block,
-                        // TODO: Enable this once entering DA window: https://github.com/logos-co/nomos/issues/1675
-                        &SkipBlobValidation,
+                        Some(historic_blob_validation),
                         &storage_blocks_to_remove,
                         relays,
                         new_block_subscription_sender,
@@ -697,13 +709,6 @@ where
                 .state_recording_interval,
         );
 
-        let mut blob_validation: Box<dyn BlobValidation<_, _> + Send + Sync> =
-            if cryptarchia.is_boostrapping() {
-                Box::new(SkipBlobValidation)
-            } else {
-                Box::new(RecentBlobValidation::new(relays.sampling_relay().clone()))
-            };
-
         // Mark the service as ready if the chain is in the Online state.
         // If not, it will be marked as ready after Prolonged Bootstrap Period ends.
         if cryptarchia.state().is_online() {
@@ -720,7 +725,6 @@ where
                             &storage_blocks_to_remove,
                             relays.storage_adapter(),
                         ).await;
-                        blob_validation = Box::new(RecentBlobValidation::new(relays.sampling_relay().clone()));
                         Self::update_state(
                             &cryptarchia,
                             storage_blocks_to_remove.clone(),
@@ -742,7 +746,7 @@ where
                         match Self::process_block_and_update_state(
                                     cryptarchia.clone(),
                                     block.clone(),
-                                    blob_validation.as_ref(),
+                                    Some(&recent_blob_validation),
                                     &storage_blocks_to_remove,
                                     &relays,
                                     &self.new_block_subscription_sender,
@@ -774,11 +778,10 @@ where
                         // Handle ProcessBlock separately since it needs async and access to more state
                         if let ConsensusMsg::ProcessLeaderBlock { block, tx } = msg {
                             // TODO: move this into the process_message() function after making the process_message async.
-                            match Self::process_block_and_update_state(
+                            match Self::process_block_and_update_state::<RecentBlobStrategy>(
                                     cryptarchia.clone(),
                                     *block,
-                                    // Skip this since the block was already built with valid blobs.
-                                    &SkipBlobValidation,
+                                    None, // No blob validation since the block was already built with valid blobs
                                     &storage_blocks_to_remove,
                                     &relays,
                                     &self.new_block_subscription_sender,
@@ -824,7 +827,7 @@ where
                         match Self::process_block_and_update_state(
                             cryptarchia.clone(),
                             block.clone(),
-                            blob_validation.as_ref(),
+                            Some(&historic_blob_validation),
                             &storage_blocks_to_remove,
                             &relays,
                             &self.new_block_subscription_sender,
@@ -1032,10 +1035,10 @@ where
         clippy::too_many_arguments,
         reason = "This function does too much, need to deal with this at some point"
     )]
-    async fn process_block_and_update_state(
+    async fn process_block_and_update_state<BlobStrategy>(
         cryptarchia: Cryptarchia,
         block: Block<Mempool::Item>,
-        blob_validation: &(impl BlobValidation<SamplingBackend::BlobId, Mempool::Item> + Sync + ?Sized),
+        blob_validation: Option<&blob::Validation<BlobStrategy>>,
         storage_blocks_to_remove: &HashSet<HeaderId>,
         relays: &CryptarchiaConsensusRelays<
             Mempool,
@@ -1050,7 +1053,10 @@ where
         state_updater: &StateUpdater<
             Option<CryptarchiaConsensusState<NetAdapter::PeerId, NetAdapter::Settings>>,
         >,
-    ) -> Result<(Cryptarchia, HashSet<HeaderId>), Error> {
+    ) -> Result<(Cryptarchia, HashSet<HeaderId>), Error>
+    where
+        BlobStrategy: blob::Strategy + Sync,
+    {
         let (cryptarchia, pruned_blocks) = Self::process_block(
             cryptarchia,
             block,
@@ -1101,10 +1107,10 @@ where
     /// A [`Block`] is only added if it's valid
     #[expect(clippy::allow_attributes_without_reason)]
     #[instrument(level = "debug", skip(cryptarchia, relays, blob_validation))]
-    async fn process_block(
+    async fn process_block<BlobStrategy>(
         cryptarchia: Cryptarchia,
         block: Block<Mempool::Item>,
-        blob_validation: &(impl BlobValidation<SamplingBackend::BlobId, Mempool::Item> + Sync + ?Sized),
+        blob_validation: Option<&blob::Validation<BlobStrategy>>,
         relays: &CryptarchiaConsensusRelays<
             Mempool,
             MempoolNetAdapter,
@@ -1115,10 +1121,11 @@ where
         >,
         new_block_subscription_sender: &broadcast::Sender<HeaderId>,
         lib_broadcaster: &broadcast::Sender<LibUpdate>,
-    ) -> Result<(Cryptarchia, PrunedBlocks<HeaderId>), Error> {
+    ) -> Result<(Cryptarchia, PrunedBlocks<HeaderId>), Error>
+    where
+        BlobStrategy: blob::Strategy + Sync,
+    {
         debug!("received proposal {:?}", block);
-
-        blob_validation.validate(&block).await?;
 
         // TODO: filter on time?
         let header = block.header();
@@ -1135,6 +1142,10 @@ where
 
         let (cryptarchia, pruned_blocks) = cryptarchia.try_apply_header(header)?;
         let new_lib = cryptarchia.lib();
+
+        if let Some(blob_validation) = blob_validation {
+            blob_validation.validate(&block).await?;
+        }
 
         // remove included content from mempool
         relays
@@ -1199,35 +1210,13 @@ where
                 error!("Could not notify LIB update to services: {e}");
             }
 
-            let sessions = cryptarchia.active_sessions_numbers(&new_lib)?;
-            for (service, session_number) in &sessions {
-                let prev_session_num = previous_session_numbers.get(service).copied().unwrap_or(0);
-
-                if session_number != &prev_session_num {
-                    if let Ok(providers) = cryptarchia.active_session_providers(&new_lib, *service)
-                    {
-                        let update = SessionUpdate {
-                            session_number: *session_number,
-                            providers,
-                        };
-
-                        let broadcast_future = match service {
-                            ServiceType::BlendNetwork => {
-                                broadcast_blend_session(relays.broadcast_relay(), update).boxed()
-                            }
-                            ServiceType::DataAvailability => {
-                                broadcast_da_session(relays.broadcast_relay(), update).boxed()
-                            }
-                        };
-
-                        if let Err(e) = broadcast_future.await {
-                            error!("Failed to broadcast session update for {service:?}: {e}");
-                        }
-                    } else {
-                        error!("Could not get session providers for service: {service:?}");
-                    }
-                }
-            }
+            Self::broadcast_session_updates_for_block(
+                &cryptarchia,
+                &new_lib,
+                relays,
+                Some(&previous_session_numbers),
+            )
+            .await;
         }
 
         Ok((cryptarchia, pruned_blocks))
@@ -1344,12 +1333,20 @@ where
         // Skip LIB block since it's already applied
         let blocks = blocks.into_iter().skip(1);
 
+        // Stream the already applied state.
+        let init_tip = cryptarchia.tip();
+        if let Err(e) = self.new_block_subscription_sender.send(init_tip) {
+            error!("Could not notify new block to services {e}");
+        }
+        Self::broadcast_session_updates_for_block(&cryptarchia, &init_tip, relays, None).await;
+
         let mut pruned_blocks = PrunedBlocks::new();
         for block in blocks {
-            match Self::process_block(
+            match Self::process_block::<HistoricBlobStrategy>(
                 cryptarchia.clone(),
                 block,
-                &SkipBlobValidation,
+                // Skip blob validation since these blocks were already validated by this node
+                None,
                 relays,
                 &self.new_block_subscription_sender,
                 &self.lib_subscription_sender,
@@ -1538,6 +1535,91 @@ where
         .await;
 
         (cryptarchia, storage_blocks_to_remove)
+    }
+
+    async fn broadcast_session_updates_for_block(
+        cryptarchia: &Cryptarchia,
+        block_id: &HeaderId,
+        relays: &CryptarchiaConsensusRelays<
+            Mempool,
+            MempoolNetAdapter,
+            NetAdapter,
+            SamplingBackend,
+            Storage,
+            RuntimeServiceId,
+        >,
+        previous_sessions: Option<&HashMap<ServiceType, u64>>,
+    ) {
+        let Ok(new_sessions) = cryptarchia.active_sessions_numbers(block_id) else {
+            error!("Could not get active session numbers for block {block_id:?}");
+            return;
+        };
+
+        for (service, new_session_number) in &new_sessions {
+            Self::handle_service_update(
+                cryptarchia,
+                block_id,
+                relays,
+                previous_sessions,
+                service,
+                new_session_number,
+            )
+            .await;
+        }
+    }
+
+    async fn handle_service_update(
+        cryptarchia: &Cryptarchia,
+        block_id: &HeaderId,
+        relays: &CryptarchiaConsensusRelays<
+            Mempool,
+            MempoolNetAdapter,
+            NetAdapter,
+            SamplingBackend,
+            Storage,
+            RuntimeServiceId,
+        >,
+        previous_sessions: Option<&HashMap<ServiceType, u64>>,
+        service: &ServiceType,
+        new_session_number: &u64,
+    ) {
+        // If `previous_sessions` is provided, check if the session number has changed.
+        // Otherwise, always broadcast (for initialization).
+        if previous_sessions.is_some_and(|prev| {
+            prev.get(service)
+                .copied()
+                .expect("previous session number is set")
+                == *new_session_number
+        }) {
+            return;
+        }
+
+        match cryptarchia.active_session_providers(block_id, *service) {
+            Ok(providers) => {
+                let update = SessionUpdate {
+                    session_number: *new_session_number,
+                    providers,
+                };
+
+                let broadcast_relay = relays.broadcast_relay();
+
+                let broadcast_future = match service {
+                    ServiceType::BlendNetwork => {
+                        broadcast_blend_session(broadcast_relay, update).boxed()
+                    }
+                    ServiceType::DataAvailability => {
+                        broadcast_da_session(broadcast_relay, update).boxed()
+                    }
+                };
+
+                if let Err(e) = broadcast_future.await {
+                    error!("Failed to broadcast session update for {service:?}: {e}");
+                }
+            }
+            Err(e) => {
+                error!("Could not get session providers for service {service:?}: {e}");
+            }
+        }
     }
 }
 

@@ -22,11 +22,12 @@ chain-service            = { workspace = true }
 common-http-client       = { workspace = true }
 cryptarchia-engine       = { features = ["serde"], workspace = true }
 cryptarchia-sync         = { workspace = true }
-ed25519-dalek            = { features = ["rand_core", "serde"], version = "3.0.0-pre.0" }
+ed25519-dalek            = { version = "2.2.0", features = ["rand_core", "serde"] }
 executor-http-client     = { workspace = true }
 futures                  = { default-features = false, version = "0.3" }
 futures-util             = { default-features = false, version = "0.3.31" }
 hex                      = { default-features = false, version = "0.4.3" }
+key-management-system    = { workspace = true }
 kzgrs-backend            = { workspace = true }
 nomos-api                = { workspace = true }
 nomos-blend-message      = { workspace = true }
@@ -42,7 +43,6 @@ nomos-executor           = { default-features = false, features = ["testing", "t
 nomos-http-api-common    = { workspace = true }
 nomos-ledger             = { features = ["serde"], workspace = true }
 nomos-libp2p             = { workspace = true }
-nomos-membership-service = { workspace = true }
 nomos-network            = { features = ["libp2p"], workspace = true }
 nomos-node               = { default-features = false, features = ["testing"], workspace = true }
 nomos-sdp                = { workspace = true }
@@ -55,7 +55,6 @@ num-bigint               = { default-features = false, version = "0.4" }
 rand                     = { workspace = true }
 rand_core                = { version = "^0.9" }
 reqwest                  = { features = ["json"], workspace = true }
-serde                    = { features = ["derive"], version = "1" }
 serde_json               = "1.0"
 serde_yaml               = "0.9"
 serial_test              = "3.1.1"
@@ -93,10 +92,6 @@ path = "src/tests/da/api.rs"
 [[test]]
 name = "test_mempool_api"
 path = "src/tests/mempool/api.rs"
-
-[[test]]
-name = "test_membership_api"
-path = "src/tests/membership/api.rs"
 
 [[test]]
 name = "test_membership_disperse"

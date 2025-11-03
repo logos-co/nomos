@@ -1,4 +1,5 @@
 pub mod locked_notes;
+pub mod rewards;
 
 use std::collections::HashMap;
 
@@ -7,7 +8,7 @@ use locked_notes::LockedNotes;
 use nomos_core::{
     block::BlockNumber,
     mantle::{
-        Note, TxHash,
+        Note, NoteId, OpProof, TxHash,
         ops::sdp::{SDPActiveOp, SDPDeclareOp, SDPWithdrawOp},
     },
     proofs::zksig::{ZkSignatureProof, ZkSignaturePublic},
@@ -16,8 +17,110 @@ use nomos_core::{
         ServiceType, SessionNumber,
     },
 };
+use rewards::{NoopRewards, Rewards};
+
+use crate::UtxoTree;
 
 type Declarations = rpds::HashTrieMapSync<DeclarationId, Declaration>;
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Service {
+    DataAvailability(ServiceState<NoopRewards>),
+    BlendNetwork(ServiceState<NoopRewards>),
+}
+
+impl Service {
+    fn try_apply_header(self, block_number: u64, config: &ServiceParameters) -> Self {
+        match self {
+            Self::DataAvailability(state) => {
+                Self::DataAvailability(state.try_apply_header(block_number, config))
+            }
+            Self::BlendNetwork(state) => {
+                Self::BlendNetwork(state.try_apply_header(block_number, config))
+            }
+        }
+    }
+
+    const fn state_mut(&mut self) -> &mut ServiceState<NoopRewards> {
+        match self {
+            Self::DataAvailability(state) | Self::BlendNetwork(state) => state,
+        }
+    }
+
+    const fn state(&self) -> &ServiceState<NoopRewards> {
+        match self {
+            Self::DataAvailability(state) | Self::BlendNetwork(state) => state,
+        }
+    }
+
+    fn declare(&mut self, id: DeclarationId, declaration: Declaration) -> Result<(), Error> {
+        match self {
+            Self::DataAvailability(state) | Self::BlendNetwork(state) => {
+                state.declare(id, declaration)
+            }
+        }
+    }
+
+    fn active(
+        &mut self,
+        active: &SDPActiveOp,
+        block_number: BlockNumber,
+        locked_notes: &LockedNotes,
+        sig: &impl ZkSignatureProof,
+        tx_hash: TxHash,
+    ) -> Result<(), Error> {
+        match self {
+            Self::DataAvailability(state) | Self::BlendNetwork(state) => {
+                state.active(active, block_number, locked_notes, sig, tx_hash)
+            }
+        }
+    }
+
+    fn withdraw(
+        &mut self,
+        withdraw: &SDPWithdrawOp,
+        block_number: BlockNumber,
+        locked_notes: &mut LockedNotes,
+        sig: &impl ZkSignatureProof,
+        tx_hash: TxHash,
+        config: &ServiceParameters,
+    ) -> Result<(), Error> {
+        match self {
+            Self::DataAvailability(state) | Self::BlendNetwork(state) => {
+                state.withdraw(withdraw, block_number, locked_notes, sig, tx_hash, config)
+            }
+        }
+    }
+
+    fn contains(&self, declaration_id: &DeclarationId) -> bool {
+        match self {
+            Self::DataAvailability(state) | Self::BlendNetwork(state) => {
+                state.contains(declaration_id)
+            }
+        }
+    }
+
+    const fn active_session(&self) -> &SessionState {
+        match self {
+            Self::DataAvailability(state) | Self::BlendNetwork(state) => &state.active,
+        }
+    }
+
+    #[cfg(test)]
+    const fn forming_session(&self) -> &SessionState {
+        match self {
+            Self::DataAvailability(state) | Self::BlendNetwork(state) => &state.forming,
+        }
+    }
+
+    #[cfg(test)]
+    const fn declarations(&self) -> &Declarations {
+        match self {
+            Self::DataAvailability(state) | Self::BlendNetwork(state) => &state.declarations,
+        }
+    }
+}
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -59,26 +162,30 @@ pub enum Error {
     LockingError(#[from] locked_notes::Error),
     #[error("Invalid signature")]
     InvalidSignature,
+    #[error("Note not found: {0:?}")]
+    NoteNotFound(NoteId),
+    #[error("Invalid proof")]
+    InvalidProof,
 }
 
 // State at the beginning of this session
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct SessionState {
-    declarations: Declarations,
-    session_n: u64,
+pub struct SessionState {
+    pub declarations: Declarations,
+    pub session_n: u64,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ServiceState {
+struct ServiceState<R: Rewards> {
     // state of declarations at block b
     declarations: Declarations,
     // (current) active session
     // snapshot of `declarations` at the start of block ((b // config.session_duration) - 1) *
     // config.session_duration
     active: SessionState,
-    // he past session, used for rewards
+    // the past session, used for rewards
     // snapshot of `declarations` at the start of block ((b // config.session_duration) - 2) *
     // config.session_duration
     past_session: SessionState,
@@ -86,12 +193,14 @@ struct ServiceState {
     // snapshot of `declarations` at the start of block (b // config.session_duration) *
     // config.session_duration
     forming: SessionState,
+    // rewards calculation and tracking for this service
+    rewards: R,
 }
 
 impl SessionState {
-    fn update(
+    fn update<R: Rewards>(
         &self,
-        service_state: &ServiceState,
+        service_state: &ServiceState<R>,
         block_number: u64,
         config: &ServiceParameters,
     ) -> Self {
@@ -105,12 +214,11 @@ impl SessionState {
     }
 }
 
-impl ServiceState {
+impl<R: Rewards> ServiceState<R> {
     fn try_apply_header(mut self, block_number: u64, config: &ServiceParameters) -> Self {
         let current_session = block_number / config.session_duration;
         // shift all session!
         if current_session == self.active.session_n + 1 {
-            // TODO: distribute rewards
             self.past_session = self.active.clone();
             self.active = self.forming.clone();
             self.forming = SessionState {
@@ -120,6 +228,17 @@ impl ServiceState {
         } else {
             self.forming = self.forming.update(&self, block_number, config);
         }
+
+        // Update rewards with current session state and distribute rewards
+        let _rewards = self.rewards.update_session(
+            &self.active,
+            &self.past_session,
+            &self.forming,
+            block_number,
+            config,
+        );
+        // TODO: Process rewards distribution (e.g., mint reward notes)
+
         self
     }
 
@@ -154,13 +273,17 @@ impl ServiceState {
             )))?;
 
         if !sig.verify(&ZkSignaturePublic {
-            pks: vec![note.pk.into(), declaration.zk_id.0],
+            pks: vec![note.pk.into(), declaration.zk_id.into_inner()],
             msg_hash: tx_hash.0,
         }) {
             return Err(Error::InvalidSignature);
         }
 
         // TODO: check service specific logic
+
+        // Update rewards with active message metadata
+        self.rewards
+            .update_active(active.declaration_id, &active.metadata, block_number);
 
         Ok(())
     }
@@ -188,7 +311,7 @@ impl ServiceState {
         let note = locked_notes.unlock(declaration.service_type, &declaration.locked_note_id)?;
 
         if !sig.verify(&ZkSignaturePublic {
-            pks: vec![note.pk.into(), declaration.zk_id.0],
+            pks: vec![note.pk.into(), declaration.zk_id.into_inner()],
             msg_hash: tx_hash.0,
         }) {
             return Err(Error::InvalidSignature);
@@ -205,7 +328,7 @@ impl ServiceState {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SdpLedger {
-    services: rpds::HashTrieMapSync<ServiceType, ServiceState>,
+    services: rpds::HashTrieMapSync<ServiceType, Service>,
     locked_notes: LockedNotes,
     block_number: u64,
 }
@@ -220,10 +343,53 @@ impl SdpLedger {
         }
     }
 
-    // TODO: genesis init
-    #[cfg(test)]
+    pub fn from_genesis<'a>(
+        config: &Config,
+        utxo_tree: &UtxoTree,
+        tx_hash: TxHash,
+        ops: impl Iterator<Item = (&'a SDPDeclareOp, &'a OpProof)> + 'a,
+    ) -> Result<Self, Error> {
+        let mut sdp = Self::new()
+            .with_service(ServiceType::BlendNetwork)
+            .with_service(ServiceType::DataAvailability);
+
+        for (op, proof) in ops {
+            let OpProof::ZkAndEd25519Sigs {
+                zk_sig,
+                ed25519_sig,
+            } = proof
+            else {
+                return Err(Error::InvalidProof);
+            };
+            let Some((utxo, _)) = utxo_tree.utxos().get(&op.locked_note_id) else {
+                return Err(Error::NoteNotFound(op.locked_note_id));
+            };
+            sdp = sdp.apply_declare_msg(op, utxo.note, zk_sig, ed25519_sig, tx_hash, config)?;
+        }
+
+        let blend = sdp
+            .services
+            .get_mut(&ServiceType::BlendNetwork)
+            .expect("SDP initialized with Blend in this method")
+            .state_mut();
+
+        blend.active.declarations = blend.declarations.clone();
+        blend.forming.declarations = blend.declarations.clone();
+
+        let da = sdp
+            .services
+            .get_mut(&ServiceType::DataAvailability)
+            .expect("SDP initialized with DA in this method")
+            .state_mut();
+
+        da.active.declarations = da.declarations.clone();
+        da.forming.declarations = da.declarations.clone();
+
+        Ok(sdp)
+    }
+
     #[must_use]
-    fn with_service(mut self, service_type: ServiceType) -> Self {
+    pub fn with_service(mut self, service_type: ServiceType) -> Self {
         let service_state = ServiceState {
             declarations: rpds::HashTrieMapSync::new_sync(),
             active: SessionState {
@@ -238,8 +404,13 @@ impl SdpLedger {
                 declarations: rpds::HashTrieMapSync::new_sync(),
                 session_n: 1,
             },
+            rewards: NoopRewards,
         };
-        self.services = self.services.insert(service_type, service_state);
+        let service = match service_type {
+            ServiceType::DataAvailability => Service::DataAvailability(service_state),
+            ServiceType::BlendNetwork => Service::BlendNetwork(service_state),
+        };
+        self.services = self.services.insert(service_type, service);
         self
     }
 
@@ -275,7 +446,7 @@ impl SdpLedger {
         config: &Config,
     ) -> Result<Self, Error> {
         if !zk_sig.verify(&ZkSignaturePublic {
-            pks: vec![note.pk.into(), op.zk_id.0],
+            pks: vec![note.pk.into(), op.zk_id.into_inner()],
             msg_hash: tx_hash.0,
         }) {
             return Err(Error::InvalidSignature);
@@ -352,11 +523,11 @@ impl SdpLedger {
         service_type: ServiceType,
         config: &Config,
     ) -> Option<HashMap<ProviderId, ProviderInfo>> {
-        let service_state = self.services.get(&service_type)?;
+        let service = self.services.get(&service_type)?;
         let service_params = config.service_params.get(&service_type)?;
 
-        let providers = service_state
-            .active
+        let providers = service
+            .active_session()
             .declarations
             .iter()
             .filter_map(|(_, declaration)| {
@@ -385,8 +556,15 @@ impl SdpLedger {
     pub fn active_sessions(&self) -> HashMap<ServiceType, SessionNumber> {
         self.services
             .iter()
-            .map(|(service_type, service_state)| (*service_type, service_state.active.session_n))
+            .map(|(service_type, service)| (*service_type, service.active_session().session_n))
             .collect()
+    }
+
+    #[must_use]
+    pub fn get_declaration(&self, declaration_id: &DeclarationId) -> Option<&Declaration> {
+        self.services
+            .iter()
+            .find_map(|(_, state)| state.state().declarations.get(declaration_id))
     }
 
     fn get_service<'a>(
@@ -410,12 +588,16 @@ impl SdpLedger {
 
     #[cfg(test)]
     fn get_forming_session(&self, service_type: ServiceType) -> Option<&SessionState> {
-        self.services.get(&service_type).map(|s| &s.forming)
+        self.services
+            .get(&service_type)
+            .map(Service::forming_session)
     }
 
     #[cfg(test)]
     fn get_active_session(&self, service_type: ServiceType) -> Option<&SessionState> {
-        self.services.get(&service_type).map(|s| &s.active)
+        self.services
+            .get(&service_type)
+            .map(Service::active_session)
     }
 
     #[cfg(test)]
@@ -423,7 +605,7 @@ impl SdpLedger {
         &self,
         service_type: ServiceType,
     ) -> Option<&rpds::HashTrieMapSync<DeclarationId, Declaration>> {
-        self.services.get(&service_type).map(|s| &s.declarations)
+        self.services.get(&service_type).map(Service::declarations)
     }
 }
 
@@ -433,7 +615,7 @@ mod tests {
 
     use ed25519_dalek::{Signer as _, SigningKey};
     use groth16::Fr;
-    use nomos_core::{proofs::zksig::DummyZkSignature, sdp::ZkPublicKey};
+    use nomos_core::{mantle::keys::PublicKey, proofs::zksig::DummyZkSignature};
     use num_bigint::BigUint;
 
     use super::*;
@@ -490,7 +672,7 @@ mod tests {
         let utxo = utxo();
         let note = utxo.note;
         let tx_hash = TxHash(Fr::from(0u8));
-        let zk_sig = create_dummy_zk_sig(note.pk.into(), op.zk_id.0, tx_hash.0);
+        let zk_sig = create_dummy_zk_sig(note.pk.into(), op.zk_id.into_inner(), tx_hash.0);
         let signing_key = create_signing_key();
         let ed25519_sig = signing_key.sign(tx_hash.as_signing_bytes().as_ref());
 
@@ -521,7 +703,7 @@ mod tests {
         let op = &SDPDeclareOp {
             service_type: service_a,
             locked_note_id: note_id,
-            zk_id: ZkPublicKey(BigUint::from(0u8).into()),
+            zk_id: PublicKey::new(BigUint::from(0u8).into()),
             provider_id: ProviderId(signing_key.verifying_key()),
             locators: Vec::new(),
         };
@@ -561,7 +743,7 @@ mod tests {
         let declare_op = &SDPDeclareOp {
             service_type: service_a,
             locked_note_id: note_id,
-            zk_id: ZkPublicKey(BigUint::from(0u8).into()),
+            zk_id: PublicKey::new(BigUint::from(0u8).into()),
             provider_id: ProviderId(signing_key.verifying_key()),
             locators: Vec::new(),
         };
@@ -586,12 +768,13 @@ mod tests {
         let withdraw_op = &SDPWithdrawOp {
             declaration_id,
             nonce: 1,
+            locked_note_id: note_id,
         };
         let sdp_ledger = apply_withdraw_with_dummies(
             sdp_ledger,
             withdraw_op,
             utxo.note.pk.into(),
-            declare_op.zk_id.0,
+            declare_op.zk_id.into_inner(),
             &config,
         )
         .unwrap();
@@ -613,7 +796,7 @@ mod tests {
         let op = &SDPDeclareOp {
             service_type: service_a,
             locked_note_id: note_id,
-            zk_id: ZkPublicKey(BigUint::from(0u8).into()),
+            zk_id: PublicKey::new(BigUint::from(0u8).into()),
             provider_id: ProviderId(signing_key.verifying_key()),
             locators: Vec::new(),
         };
@@ -726,7 +909,7 @@ mod tests {
         let declare_op = &SDPDeclareOp {
             service_type: service_a,
             locked_note_id: utxo().id(),
-            zk_id: ZkPublicKey(BigUint::from(0u8).into()),
+            zk_id: PublicKey::new(BigUint::from(0u8).into()),
             provider_id: ProviderId(signing_key.verifying_key()),
             locators: Vec::new(),
         };
@@ -788,7 +971,7 @@ mod tests {
         let declare_op_1 = &SDPDeclareOp {
             service_type: service_a,
             locked_note_id: utxo().id(),
-            zk_id: ZkPublicKey(BigUint::from(1u8).into()),
+            zk_id: PublicKey::new(BigUint::from(1u8).into()),
             provider_id: ProviderId(signing_key.verifying_key()),
             locators: Vec::new(),
         };
@@ -811,7 +994,7 @@ mod tests {
         let declare_op_2 = &SDPDeclareOp {
             service_type: service_a,
             locked_note_id: utxo().id(),
-            zk_id: ZkPublicKey(BigUint::from(2u8).into()),
+            zk_id: PublicKey::new(BigUint::from(2u8).into()),
             provider_id: ProviderId(signing_key.verifying_key()),
             locators: Vec::new(),
         };
@@ -868,7 +1051,7 @@ mod tests {
         let declare_op = &SDPDeclareOp {
             service_type: service_a,
             locked_note_id: utxo().id(),
-            zk_id: ZkPublicKey(BigUint::from(0u8).into()),
+            zk_id: PublicKey::new(BigUint::from(0u8).into()),
             provider_id: ProviderId(signing_key.verifying_key()),
             locators: Vec::new(),
         };
@@ -925,7 +1108,7 @@ mod tests {
         let declare_op_1 = &SDPDeclareOp {
             service_type: service_a,
             locked_note_id: utxo().id(),
-            zk_id: ZkPublicKey(BigUint::from(1u8).into()),
+            zk_id: PublicKey::new(BigUint::from(1u8).into()),
             provider_id: ProviderId(signing_key.verifying_key()),
             locators: Vec::new(),
         };
@@ -951,7 +1134,7 @@ mod tests {
         let declare_op_2 = &SDPDeclareOp {
             service_type: service_a,
             locked_note_id: utxo().id(),
-            zk_id: ZkPublicKey(BigUint::from(2u8).into()),
+            zk_id: PublicKey::new(BigUint::from(2u8).into()),
             provider_id: ProviderId(signing_key.verifying_key()),
             locators: Vec::new(),
         };

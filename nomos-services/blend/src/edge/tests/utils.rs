@@ -5,8 +5,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures::{Stream, StreamExt as _, future::ready, stream::once};
-use groth16::Field as _;
+use futures::{StreamExt as _, future::ready, stream::once};
 use nomos_blend_message::crypto::proofs::quota::inputs::prove::{
     private::ProofOfLeadershipQuotaInputs, public::LeaderInputs,
 };
@@ -20,7 +19,6 @@ use nomos_blend_scheduling::{
     session::UninitializedSessionEventStream,
     stream::UninitializedFirstReadyStream,
 };
-use nomos_core::crypto::ZkHash;
 use nomos_time::SlotTick;
 use overwatch::overwatch::{OverwatchHandle, commands::OverwatchCommand};
 use rand::{RngCore, rngs::OsRng};
@@ -28,38 +26,17 @@ use tokio::{sync::mpsc, task::JoinHandle};
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::{
+    core::settings::CoverTrafficSettings,
     edge::{backends::BlendBackend, handlers::Error, run, settings::BlendConfig},
-    epoch_info::{EpochHandler, PolEpochInfo, PolInfoProvider},
+    epoch_info::EpochHandler,
     membership::MembershipInfo,
     settings::{FIRST_STREAM_ITEM_READY_TIMEOUT, TimingSettings},
-    test_utils::{crypto::mock_blend_proof, epoch::TestChainService, membership::key},
+    test_utils::{
+        crypto::mock_blend_proof,
+        epoch::{OncePolStreamProvider, TestChainService},
+        membership::key,
+    },
 };
-
-struct OncePolStreamProvider;
-
-#[async_trait]
-impl<RuntimeServiceId> PolInfoProvider<RuntimeServiceId> for OncePolStreamProvider {
-    type Stream = Box<dyn Stream<Item = PolEpochInfo> + Send + Unpin>;
-
-    async fn subscribe(
-        _overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
-    ) -> Option<Self::Stream> {
-        Some(Box::new(once(ready(PolEpochInfo {
-            nonce: ZkHash::ZERO,
-            poq_private_inputs: ProofOfLeadershipQuotaInputs {
-                slot: 1,
-                note_value: 1,
-                transaction_hash: ZkHash::ZERO,
-                output_number: 1,
-                aged_path_and_selectors: [(ZkHash::ZERO, false); _],
-                slot_secret: ZkHash::ZERO,
-                slot_secret_path: [ZkHash::ZERO; _],
-                starting_slot: 1,
-                pol_secret_key: ZkHash::ZERO,
-            },
-        }))))
-    }
-}
 
 pub struct MockLeaderProofsGenerator;
 
@@ -168,6 +145,7 @@ pub fn settings(
         },
         backend: msg_sender,
         minimum_network_size: NonZeroU64::new(minimum_network_size).unwrap(),
+        cover: CoverTrafficSettings::default(),
     }
 }
 

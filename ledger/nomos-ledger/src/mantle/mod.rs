@@ -51,7 +51,9 @@ impl LedgerState {
     pub fn new() -> Self {
         Self {
             channels: channel::Channels::new(),
-            sdp: sdp::SdpLedger::new(),
+            sdp: sdp::SdpLedger::new()
+                .with_service(ServiceType::BlendNetwork)
+                .with_service(ServiceType::DataAvailability),
             leaders: leader::LeaderState::new(),
         }
     }
@@ -61,10 +63,19 @@ impl LedgerState {
         config: &Config,
         utxo_tree: &UtxoTree,
     ) -> Result<Self, Error> {
-        let tx_hash = tx.hash();
-        let ops = tx.mantle_tx().ops.iter().map(|op| (op, None));
-        let (ledger, _) = Self::new().try_apply_ops(0, config, utxo_tree, tx_hash, ops)?;
-        Ok(ledger)
+        let channels = channel::Channels::from_genesis(tx.genesis_inscription())?;
+        let sdp = sdp::SdpLedger::from_genesis(
+            &config.sdp_config,
+            utxo_tree,
+            tx.hash(),
+            tx.sdp_declarations(),
+        )?;
+
+        Ok(Self {
+            channels,
+            sdp,
+            leaders: leader::LeaderState::new(),
+        })
     }
 
     pub fn try_apply_tx<Constants: GasConstants>(
@@ -82,6 +93,16 @@ impl LedgerState {
     #[must_use]
     pub const fn locked_notes(&self) -> &LockedNotes {
         self.sdp.locked_notes()
+    }
+
+    #[must_use]
+    pub const fn sdp_ledger(&self) -> &sdp::SdpLedger {
+        &self.sdp
+    }
+
+    #[must_use]
+    pub const fn channels(&self) -> &channel::Channels {
+        &self.channels
     }
 
     #[must_use]
@@ -252,6 +273,7 @@ mod tests {
 
         let blob_op = BlobOp {
             channel: channel_id,
+            session: 0u64,
             blob: [42; 32],
             blob_size: 1024,
             da_storage_gas_price: 10,
@@ -338,6 +360,7 @@ mod tests {
         // First, create a channel with one message
         let first_blob = BlobOp {
             channel: channel_id,
+            session: 0u64,
             blob: [1; 32],
             blob_size: 512,
             da_storage_gas_price: 5,
@@ -360,6 +383,7 @@ mod tests {
         let wrong_parent = MsgId::from([99; 32]);
         let second_blob = BlobOp {
             channel: channel_id,
+            session: 0u64,
             blob: [2; 32],
             blob_size: 512,
             da_storage_gas_price: 5,
@@ -383,6 +407,7 @@ mod tests {
         let empty_channel_id = ChannelId::from([8; 32]);
         let empty_blob = BlobOp {
             channel: empty_channel_id,
+            session: 0u64,
             blob: [3; 32],
             blob_size: 512,
             da_storage_gas_price: 5,
@@ -415,6 +440,7 @@ mod tests {
         // First, create a channel with authorized signer
         let first_blob = BlobOp {
             channel: channel_id,
+            session: 0u64,
             blob: [1; 32],
             blob_size: 512,
             da_storage_gas_price: 5,
@@ -437,6 +463,7 @@ mod tests {
         // Now try to add a message with unauthorized signer
         let second_blob = BlobOp {
             channel: channel_id,
+            session: 0u64,
             blob: [2; 32],
             blob_size: 512,
             da_storage_gas_price: 5,
@@ -502,6 +529,7 @@ mod tests {
 
         let blob_op = BlobOp {
             channel: channel1,
+            session: 0u64,
             blob: [42; 32],
             blob_size: 1024,
             da_storage_gas_price: 10,
@@ -523,6 +551,7 @@ mod tests {
 
         let blob_op2 = BlobOp {
             channel: channel1,
+            session: 0u64,
             blob: [43; 32],
             blob_size: 2048,
             da_storage_gas_price: 20,

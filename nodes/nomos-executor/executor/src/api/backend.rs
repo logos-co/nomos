@@ -47,8 +47,9 @@ use nomos_node::{
         add_share, add_tx, balancer_stats, blacklisted_peers, block, block_peer,
         cryptarchia_headers, cryptarchia_info, da_get_commitments, da_get_light_share,
         da_get_shares, da_get_storage_commitments, libp2p_info, mantle_metrics, mantle_status,
-        monitor_stats, unblock_peer,
+        monitor_stats, post_activity, post_declaration, post_withdrawal, unblock_peer,
     },
+    generic_services::SdpService,
 };
 use nomos_storage::{StorageService, api::da};
 use overwatch::{DynError, overwatch::handle::OverwatchHandle, services::AsServiceId};
@@ -368,7 +369,8 @@ where
                 SamplingStorage,
                 RuntimeServiceId,
             >,
-        >,
+        >
+        + AsServiceId<SdpService<RuntimeServiceId>>,
 {
     type Error = std::io::Error;
     type Settings = AxumBackendSettings;
@@ -615,6 +617,24 @@ where
                         SdpAdapter,
                         RuntimeServiceId,
                     >,
+                ),
+            )
+            .route(
+                paths::SDP_POST_DECLARATION,
+                routing::post(
+                    post_declaration::<nomos_sdp::backends::mock::MockSdpBackend, RuntimeServiceId>,
+                ),
+            )
+            .route(
+                paths::SDP_POST_ACTIVITY,
+                routing::post(
+                    post_activity::<nomos_sdp::backends::mock::MockSdpBackend, RuntimeServiceId>,
+                ),
+            )
+            .route(
+                paths::SDP_POST_WITHDRAWAL,
+                routing::post(
+                    post_withdrawal::<nomos_sdp::backends::mock::MockSdpBackend, RuntimeServiceId>,
                 ),
             )
             .with_state(handle.clone())

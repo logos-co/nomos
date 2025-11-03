@@ -963,3 +963,84 @@ where
         RuntimeServiceId,
     >(&handle, tx, Transaction::hash))
 }
+
+#[utoipa::path(
+    post,
+    path = paths::SDP_POST_DECLARATION,
+    responses(
+        (status = 200, description = "Post declaration to SDP service", body = nomos_core::sdp::DeclarationId),
+        (status = 500, description = "Internal server error", body = String),
+    )
+)]
+pub async fn post_declaration<Backend, RuntimeServiceId>(
+    State(handle): State<OverwatchHandle<RuntimeServiceId>>,
+    Json(declaration): Json<nomos_core::sdp::DeclarationMessage>,
+) -> Response
+where
+    Backend: nomos_sdp::backends::SdpBackend + Send + Sync + 'static,
+    RuntimeServiceId: Debug
+        + Sync
+        + Send
+        + Display
+        + 'static
+        + AsServiceId<nomos_sdp::SdpService<Backend, RuntimeServiceId>>,
+{
+    make_request_and_return_response!(nomos_api::http::sdp::post_declaration_handler::<
+        Backend,
+        RuntimeServiceId,
+    >(handle, declaration))
+}
+
+#[utoipa::path(
+    post,
+    path = paths::SDP_POST_ACTIVITY,
+    responses(
+        (status = 200, description = "Post activity to SDP service"),
+        (status = 500, description = "Internal server error", body = String),
+    )
+)]
+pub async fn post_activity<Backend, RuntimeServiceId>(
+    State(handle): State<OverwatchHandle<RuntimeServiceId>>,
+    Json(metadata): Json<nomos_core::sdp::ActivityMetadata>,
+) -> Response
+where
+    Backend: nomos_sdp::backends::SdpBackend + Send + Sync + 'static,
+    RuntimeServiceId: Debug
+        + Sync
+        + Send
+        + Display
+        + 'static
+        + AsServiceId<nomos_sdp::SdpService<Backend, RuntimeServiceId>>,
+{
+    make_request_and_return_response!(nomos_api::http::sdp::post_activity_handler::<
+        Backend,
+        RuntimeServiceId,
+    >(handle, metadata))
+}
+
+#[utoipa::path(
+    post,
+    path = paths::SDP_POST_WITHDRAWAL,
+    responses(
+        (status = 200, description = "Post withdrawal to SDP service"),
+        (status = 500, description = "Internal server error", body = String),
+    )
+)]
+pub async fn post_withdrawal<Backend, RuntimeServiceId>(
+    State(handle): State<OverwatchHandle<RuntimeServiceId>>,
+    Json(declaration_id): Json<nomos_core::sdp::DeclarationId>,
+) -> Response
+where
+    Backend: nomos_sdp::backends::SdpBackend + Send + Sync + 'static,
+    RuntimeServiceId: Debug
+        + Sync
+        + Send
+        + Display
+        + 'static
+        + AsServiceId<nomos_sdp::SdpService<Backend, RuntimeServiceId>>,
+{
+    make_request_and_return_response!(nomos_api::http::sdp::post_withdrawal_handler::<
+        Backend,
+        RuntimeServiceId,
+    >(handle, declaration_id))
+}

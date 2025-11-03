@@ -1,15 +1,12 @@
-use std::{collections::BTreeSet, hash::Hash, marker::PhantomData};
+use std::{hash::Hash, marker::PhantomData};
 
+use broadcast_service::{BlockBroadcastMsg, SessionSubscription, SessionUpdate};
 use futures::StreamExt as _;
-use groth16::fr_from_bytes_unchecked;
 use nomos_blend_message::crypto::keys::Ed25519PublicKey;
 use nomos_blend_scheduling::membership::{Membership, Node};
 use nomos_core::{
-    mantle::keys::{PublicKey, SecretKey},
-    sdp::{Locator, ProviderId, ServiceType},
-};
-use nomos_membership_service::{
-    MembershipMessage, MembershipSnapshotStream, backends::MembershipBackendError,
+    mantle::keys::PublicKey,
+    sdp::{ProviderId, ProviderInfo},
 };
 use overwatch::{
     DynError,
@@ -46,7 +43,7 @@ where
 #[async_trait::async_trait]
 impl<Service, NodeId> super::Adapter for Adapter<Service, NodeId>
 where
-    Service: ServiceData<Message = MembershipMessage>,
+    Service: ServiceData<Message = BlockBroadcastMsg>,
     NodeId: node_id::TryFrom + Clone + Hash + Eq + Sync,
 {
     type Service = Service;
@@ -72,18 +69,28 @@ where
     async fn subscribe(&self) -> Result<MembershipStream<Self::NodeId>, Self::Error> {
         let signing_public_key = self.signing_public_key;
         let maybe_zk_public_key = self.zk_public_key;
+
+        let session_stream = self.subscribe_stream().await?;
+
         Ok(Box::pin(
-            self.subscribe_stream(ServiceType::BlendNetwork)
-                .await?
-                .map(|(_, providers_map)| {
-                    providers_map
-                        .iter()
-                        .filter_map(|(provider_id, locators)| {
-                            node_from_provider::<NodeId>(provider_id, locators)
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .map(move |nodes| {
+            session_stream
+                .map(
+                    |SessionUpdate {
+                         providers,
+                         session_number,
+                     }| {
+                        (
+                            providers
+                                .iter()
+                                .filter_map(|(provider_id, provider_info)| {
+                                    node_from_provider::<NodeId>(provider_id, provider_info)
+                                })
+                                .collect::<Vec<_>>(),
+                            session_number,
+                        )
+                    },
+                )
+                .map(move |(nodes, session_number)| {
                     let (membership_nodes, zk_public_keys): (Vec<_>, Vec<_>) = nodes
                         .into_iter()
                         .map(|ZkNode { node, zk_key }| (node, zk_key))
@@ -104,8 +111,7 @@ where
                     MembershipInfo {
                         membership,
                         zk: zk_info,
-                        // TODO: Replace with actual value.
-                        session_number: 0,
+                        session_number,
                     }
                 }),
         ))
@@ -114,28 +120,21 @@ where
 
 impl<Service, NodeId> Adapter<Service, NodeId>
 where
-    Service: ServiceData<Message = MembershipMessage>,
+    Service: ServiceData<Message = BlockBroadcastMsg>,
     NodeId: Sync,
 {
     /// Subscribe to membership updates for the given service type.
-    async fn subscribe_stream(
-        &self,
-        service_type: ServiceType,
-    ) -> Result<MembershipSnapshotStream, Error> {
+    async fn subscribe_stream(&self) -> Result<SessionSubscription, Error> {
         let (sender, receiver) = oneshot::channel();
 
         self.relay
-            .send(MembershipMessage::Subscribe {
-                service_type,
+            .send(BlockBroadcastMsg::SubscribeBlendSession {
                 result_sender: sender,
             })
             .await
             .map_err(|(e, _)| Error::Other(e.into()))?;
 
-        receiver
-            .await
-            .map_err(|e| Error::Other(e.into()))?
-            .map_err(Error::Backend)
+        receiver.await.map_err(|e| Error::Other(e.into()))
     }
 }
 
@@ -144,7 +143,7 @@ where
 /// be decoded.
 fn node_from_provider<NodeId>(
     provider_id: &ProviderId,
-    locators: &BTreeSet<Locator>,
+    ProviderInfo { locators, zk_id }: &ProviderInfo,
 ) -> Option<ZkNode<NodeId>>
 where
     NodeId: node_id::TryFrom,
@@ -161,27 +160,18 @@ where
             warn!("Failed to decode provider_id to public_key: {e:?}");
         })
         .ok()?;
-    // We temporarily derive this from the node's public key, else integration
-    // tests would fail. This logic must be the same used in
-    // `tests::topology::configs` for `GeneralBlendConfig::secret_zk_key`.
-    // TODO: Return actual zk key as returned by the chain broadcast service, once
-    // we migrate to it.
-    let zk_public_key =
-        SecretKey::new(fr_from_bytes_unchecked(public_key.as_bytes())).to_public_key();
     Some(ZkNode {
         node: Node {
             id,
             address,
             public_key,
         },
-        zk_key: zk_public_key,
+        zk_key: *zk_id,
     })
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("Backend error: {0}")]
-    Backend(#[from] MembershipBackendError),
     #[error("Other error: {0}")]
     Other(#[from] DynError),
 }

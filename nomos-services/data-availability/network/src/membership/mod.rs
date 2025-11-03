@@ -9,7 +9,6 @@ use std::{
 use futures::Stream;
 use libp2p::Multiaddr;
 use nomos_core::sdp::{ProviderId, SessionNumber};
-use nomos_membership_service::backends::MembershipBackendError;
 use overwatch::{
     DynError,
     services::{ServiceData, relay::OutboundRelay},
@@ -18,6 +17,7 @@ use thiserror::Error;
 
 pub type Assignations<Id, NetworkId> = HashMap<NetworkId, HashSet<Id>>;
 
+#[derive(Debug)]
 pub struct SubnetworkPeers<Id> {
     pub session_id: SessionNumber,
     pub peers: HashMap<Id, Multiaddr>,
@@ -29,9 +29,6 @@ pub type PeerMultiaddrStream<Id> =
 
 #[derive(Error, Debug)]
 pub enum MembershipAdapterError {
-    #[error("Backend error: {0}")]
-    Backend(#[from] MembershipBackendError),
-
     #[error("Other error: {0}")]
     Other(#[from] DynError),
 }

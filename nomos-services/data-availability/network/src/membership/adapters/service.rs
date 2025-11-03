@@ -1,10 +1,10 @@
-use std::{collections::HashMap, marker::PhantomData};
+use std::collections::{BTreeSet, HashMap};
 
+use broadcast_service::BlockBroadcastService;
 use futures::StreamExt as _;
 use libp2p::{Multiaddr, PeerId, core::signed_envelope::DecodingError};
-use nomos_core::sdp::{ProviderId, ServiceType};
+use nomos_core::sdp::{Locator, ProviderId, ProviderInfo, SessionNumber};
 use nomos_libp2p::ed25519;
-use nomos_membership_service::{MembershipMessage, MembershipService, MembershipSnapshotStream};
 use overwatch::services::{ServiceData, relay::OutboundRelay};
 use tokio::sync::oneshot;
 
@@ -12,101 +12,75 @@ use crate::membership::{
     MembershipAdapter, MembershipAdapterError, PeerMultiaddrStream, SubnetworkPeers,
 };
 
-pub struct MembershipServiceAdapter<Backend, SdpAdapter, StorageAdapter, RuntimeServiceId>
-where
-    Backend: nomos_membership_service::backends::MembershipBackend,
-    Backend::Settings: Clone,
-    SdpAdapter: nomos_membership_service::adapters::sdp::SdpAdapter,
-{
-    relay: OutboundRelay<
-        <MembershipService<Backend, SdpAdapter, StorageAdapter, RuntimeServiceId> as ServiceData>::Message,
-    >,
-    phantom: PhantomData<(Backend, SdpAdapter, RuntimeServiceId)>,
+pub struct MembershipServiceAdapter<RuntimeServiceId> {
+    relay: OutboundRelay<<BlockBroadcastService<RuntimeServiceId> as ServiceData>::Message>,
 }
 
-impl<Backend, SdpAdapter, StorageAdapter, RuntimeServiceId>
-    MembershipServiceAdapter<Backend, SdpAdapter, StorageAdapter, RuntimeServiceId>
-where
-    SdpAdapter: nomos_membership_service::adapters::sdp::SdpAdapter + Send + Sync + 'static,
-    Backend: nomos_membership_service::backends::MembershipBackend + Send + Sync + 'static,
-    Backend::Settings: Clone,
-    RuntimeServiceId: Send + Sync + 'static,
-{
-    async fn subscribe_stream(
-        &self,
-        service_type: ServiceType,
-    ) -> Result<MembershipSnapshotStream, MembershipAdapterError> {
-        let (sender, receiver) = oneshot::channel();
-
-        self.relay
-            .send(MembershipMessage::Subscribe {
-                result_sender: sender,
-                service_type,
-            })
-            .await
-            .map_err(|(e, _)| MembershipAdapterError::Other(e.into()))?;
-
-        receiver
-            .await
-            .map_err(|e| MembershipAdapterError::Other(e.into()))?
-            .map_err(MembershipAdapterError::Backend)
-    }
-}
+pub type MembershipProviders = (SessionNumber, HashMap<ProviderId, BTreeSet<Locator>>);
 
 #[async_trait::async_trait]
-impl<Backend, SdpAdapter, StorageAdapter, RuntimeServiceId> MembershipAdapter
-    for MembershipServiceAdapter<Backend, SdpAdapter, StorageAdapter, RuntimeServiceId>
+impl<RuntimeServiceId> MembershipAdapter for MembershipServiceAdapter<RuntimeServiceId>
 where
-    SdpAdapter: nomos_membership_service::adapters::sdp::SdpAdapter + Send + Sync + 'static,
-    Backend: nomos_membership_service::backends::MembershipBackend + Send + Sync + 'static,
-    Backend::Settings: Clone,
     RuntimeServiceId: Send + Sync + 'static,
 {
-    type MembershipService =
-        MembershipService<Backend, SdpAdapter, StorageAdapter, RuntimeServiceId>;
+    type MembershipService = BlockBroadcastService<RuntimeServiceId>;
     type Id = PeerId;
 
     fn new(relay: OutboundRelay<<Self::MembershipService as ServiceData>::Message>) -> Self {
-        Self {
-            phantom: PhantomData,
-            relay,
-        }
+        Self { relay }
     }
 
     async fn subscribe(&self) -> Result<PeerMultiaddrStream<Self::Id>, MembershipAdapterError> {
-        let input_stream = self.subscribe_stream(ServiceType::DataAvailability).await?;
-        let converted_stream = input_stream.map(|(session_id, providers_map)| {
-            let mut peers_map: HashMap<PeerId, Multiaddr> = HashMap::new();
-            let mut provider_mappings: HashMap<PeerId, ProviderId> = HashMap::new();
+        let (sender, receiver) = oneshot::channel();
+        self.relay
+            .send(broadcast_service::BlockBroadcastMsg::SubscribeDASession {
+                result_sender: sender,
+            })
+            .await
+            .map_err(|(e, _)| MembershipAdapterError::Other(e.into()))?;
+        let receiver_stream = receiver
+            .await
+            .map_err(|e| MembershipAdapterError::Other(e.into()))?;
 
-            for (provider_id, locators) in providers_map {
-                // TODO: Support multiple multiaddrs in the membership.
-                let Some(locator) = locators.first() else {
-                    continue;
-                };
+        Ok(Box::pin(receiver_stream.map(session_to_peers)))
+    }
+}
 
-                match peer_id_from_provider_id(provider_id.0.as_bytes()) {
-                    Ok(peer_id) => {
-                        peers_map.insert(peer_id, locator.0.clone());
-                        provider_mappings.insert(peer_id, provider_id);
-                    }
-                    Err(err) => {
-                        tracing::warn!(
-                            "Failed to parse PeerId from provider_id: {:?}, error: {:?}",
-                            provider_id.0,
-                            err
-                        );
-                    }
-                }
-            }
+fn session_to_peers(session: broadcast_service::SessionUpdate) -> SubnetworkPeers<PeerId> {
+    let mut peers = HashMap::new();
+    let mut provider_mappings = HashMap::new();
 
-            SubnetworkPeers {
-                session_id,
-                peers: peers_map,
-                provider_mappings,
-            }
+    session
+        .providers
+        .into_iter()
+        .filter_map(process_provider)
+        .for_each(|(peer_id, multiaddr, provider_id)| {
+            peers.insert(peer_id, multiaddr);
+            provider_mappings.insert(peer_id, provider_id);
         });
-        Ok(Box::pin(converted_stream))
+
+    SubnetworkPeers {
+        session_id: session.session_number,
+        peers,
+        provider_mappings,
+    }
+}
+
+fn process_provider(
+    (provider_id, info): (ProviderId, ProviderInfo),
+) -> Option<(PeerId, Multiaddr, ProviderId)> {
+    let locator = info.locators.into_iter().next()?;
+
+    match peer_id_from_provider_id(provider_id.0.as_bytes()) {
+        Ok(peer_id) => Some((peer_id, locator.0, provider_id)),
+        Err(err) => {
+            tracing::warn!(
+                "Failed to parse PeerId from provider_id: {:?}, error: {:?}",
+                provider_id.0,
+                err
+            );
+            None
+        }
     }
 }
 

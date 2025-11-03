@@ -4,47 +4,18 @@ use std::{
 };
 
 use axum::{Json, extract::State, response::Response};
-use nomos_api::http::{
-    da::{self},
-    membership::{self, MembershipUpdateRequest},
-};
+use nomos_api::http::da;
 use nomos_core::{header::HeaderId, sdp::SessionNumber};
 use nomos_da_network_service::{
     NetworkService, api::ApiAdapter as ApiAdapterTrait, backends::NetworkBackend,
     sdp::SdpAdapter as SdpAdapterTrait,
 };
 use nomos_da_sampling::{DaSamplingService, backend::DaSamplingServiceBackend};
-use nomos_membership_service::{
-    MembershipService, adapters::sdp::SdpAdapter, backends::MembershipBackend,
-};
 use overwatch::{overwatch::OverwatchHandle, services::AsServiceId};
 use serde::{Deserialize, Serialize};
 use subnetworks_assignations::MembershipHandler;
 
 use crate::make_request_and_return_response;
-
-pub async fn update_membership<Backend, Sdp, StorageAdapter, RuntimeServiceId>(
-    State(handle): State<OverwatchHandle<RuntimeServiceId>>,
-    Json(payload): Json<MembershipUpdateRequest>,
-) -> Response
-where
-    Backend: MembershipBackend + Send + Sync + 'static,
-    Sdp: SdpAdapter + Send + Sync + 'static,
-    Backend::Settings: Clone,
-    RuntimeServiceId: Send
-        + Sync
-        + Debug
-        + Display
-        + 'static
-        + AsServiceId<MembershipService<Backend, Sdp, StorageAdapter, RuntimeServiceId>>,
-{
-    make_request_and_return_response!(membership::update_membership_handler::<
-        Backend,
-        Sdp,
-        StorageAdapter,
-        RuntimeServiceId,
-    >(handle, payload))
-}
 
 pub async fn da_get_membership<
     Backend,

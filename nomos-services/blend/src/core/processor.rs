@@ -98,45 +98,16 @@ pub enum Error {
 
 #[cfg(test)]
 mod tests {
-    use async_trait::async_trait;
-    use nomos_blend_message::crypto::proofs::quota::inputs::prove::{
-        private::ProofOfLeadershipQuotaInputs,
-        public::{CoreInputs, LeaderInputs},
-    };
-    use nomos_blend_scheduling::message_blend::provers::{
-        BlendLayerProof, ProofsGeneratorSettings,
+    use nomos_blend_message::crypto::proofs::quota::inputs::prove::public::{
+        CoreInputs, LeaderInputs,
     };
     use nomos_core::crypto::ZkHash;
 
     use super::*;
     use crate::test_utils::{
-        crypto::{MockProofsVerifier, mock_blend_proof},
+        crypto::{MockCoreAndLeaderProofsGenerator, MockProofsVerifier},
         membership::{key, membership},
     };
-
-    pub struct MockCoreAndLeaderProofsGenerator;
-
-    #[async_trait]
-    impl CoreAndLeaderProofsGenerator for MockCoreAndLeaderProofsGenerator {
-        fn new(
-            _settings: ProofsGeneratorSettings,
-            _private_inputs: ProofOfCoreQuotaInputs,
-        ) -> Self {
-            Self
-        }
-
-        fn rotate_epoch(&mut self, _new_epoch_public: LeaderInputs) {}
-
-        fn set_epoch_private(&mut self, _new_epoch_private: ProofOfLeadershipQuotaInputs) {}
-
-        async fn get_next_core_proof(&mut self) -> Option<BlendLayerProof> {
-            Some(mock_blend_proof())
-        }
-
-        async fn get_next_leader_proof(&mut self) -> Option<BlendLayerProof> {
-            Some(mock_blend_proof())
-        }
-    }
 
     fn mock_verification_inputs() -> PoQVerificationInputsMinusSigningKey {
         use groth16::Field as _;

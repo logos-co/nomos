@@ -13,14 +13,16 @@ use crate::{WalletMsg, WalletServiceSettings};
 pub trait WalletServiceData:
     ServiceData<Settings = WalletServiceSettings, Message = WalletMsg>
 {
+    type Kms;
     type Cryptarchia;
     type Tx;
     type Storage;
 }
 
-impl<Cryptarchia, Tx, Storage, RuntimeServiceId> WalletServiceData
-    for crate::WalletService<Cryptarchia, Tx, Storage, RuntimeServiceId>
+impl<Kms, Cryptarchia, Tx, Storage, RuntimeServiceId> WalletServiceData
+    for crate::WalletService<Kms, Cryptarchia, Tx, Storage, RuntimeServiceId>
 {
+    type Kms = Kms;
     type Cryptarchia = Cryptarchia;
     type Tx = Tx;
     type Storage = Storage;
@@ -34,27 +36,17 @@ where
     _id: std::marker::PhantomData<RuntimeServiceId>,
 }
 
-impl<Wallet, RuntimeServiceId> From<OutboundRelay<Wallet::Message>>
-    for WalletApi<Wallet, RuntimeServiceId>
-where
-    Wallet: WalletServiceData,
-{
-    fn from(relay: OutboundRelay<Wallet::Message>) -> Self {
-        Self {
-            relay,
-            _id: std::marker::PhantomData,
-        }
-    }
-}
-
 impl<Wallet, RuntimeServiceId> WalletApi<Wallet, RuntimeServiceId>
 where
     Wallet: WalletServiceData,
     RuntimeServiceId: AsServiceId<Wallet> + std::fmt::Debug + std::fmt::Display + Sync,
 {
     #[must_use]
-    pub fn new(relay: OutboundRelay<Wallet::Message>) -> Self {
-        Self::from(relay)
+    pub const fn new(relay: OutboundRelay<Wallet::Message>) -> Self {
+        Self {
+            relay,
+            _id: std::marker::PhantomData,
+        }
     }
 
     pub async fn get_balance(
@@ -72,17 +64,17 @@ where
         Ok(rx.await??)
     }
 
-    pub async fn fund_tx(
+    pub async fn fund_and_sign_tx(
         &self,
         tip: HeaderId,
         tx_builder: MantleTxBuilder,
         change_pk: PublicKey,
         funding_pks: Vec<PublicKey>,
-    ) -> Result<MantleTxBuilder, DynError> {
+    ) -> Result<nomos_core::mantle::SignedMantleTx, DynError> {
         let (resp_tx, rx) = oneshot::channel();
 
         self.relay
-            .send(WalletMsg::FundTx {
+            .send(WalletMsg::FundAndSignTx {
                 tip,
                 tx_builder,
                 change_pk,
@@ -90,7 +82,7 @@ where
                 resp_tx,
             })
             .await
-            .map_err(|e| format!("Failed to send fund_tx request: {e:?}"))?;
+            .map_err(|e| format!("Failed to send fund_and_sign_tx request: {e:?}"))?;
 
         Ok(rx.await??)
     }

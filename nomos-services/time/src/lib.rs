@@ -38,12 +38,16 @@ pub enum TimeServiceMessage {
     Subscribe {
         sender: oneshot::Sender<EpochSlotTickStream>,
     },
+    CurrentSlot {
+        sender: oneshot::Sender<SlotTick>,
+    },
 }
 
 impl Debug for TimeServiceMessage {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Subscribe { .. } => f.write_str("New time service subscription"),
+            Self::Subscribe { .. } => f.write_str("Subscribe"),
+            Self::CurrentSlot { .. } => f.write_str("CurrentSlot"),
         }
     }
 }
@@ -106,7 +110,7 @@ where
             backend,
         } = self;
         let mut inbound_relay = service_resources_handle.inbound_relay;
-        let mut tick_stream = backend.tick_stream();
+        let (mut current_slot_tick, mut tick_stream) = backend.tick_stream();
 
         let (broadcast_sender, broadcast_receiver) = broadcast::channel(SLOTS_BUFFER);
 
@@ -119,28 +123,48 @@ where
         loop {
             tokio::select! {
                 Some(service_message) = inbound_relay.recv() => {
-                    match service_message {
-                        TimeServiceMessage::Subscribe { sender} => {
-                            let channel_stream = BroadcastStream::new(broadcast_receiver.resubscribe()).filter_map(|r| Box::pin(async {match r {
-                                Ok(tick) => Some(tick),
-                                Err(e) => {
-                                    // log lagging errors, services should always aim to be ready for next slot
-                                    error!("Lagging behind slot ticks: {e:?}");
-                                    None
-                                }
-                            }}));
-                            let stream = Pin::new(Box::new(channel_stream));
-                            if let Err(_e) = sender.send(stream) {
-                                error!("Error subscribing to time event: Couldn't send back a response");
-                            }
-                        }
-                    }
+                    handle_service_message(service_message, &broadcast_receiver, &current_slot_tick);
                 }
                 Some(slot_tick) = tick_stream.next() => {
+                    current_slot_tick = slot_tick;
                     if let Err(e) = broadcast_sender.send(slot_tick) {
                         error!("Error updating slot tick: {e}");
                     }
                 }
+            }
+        }
+    }
+}
+
+fn handle_service_message(
+    message: TimeServiceMessage,
+    broadcast_receiver: &broadcast::Receiver<SlotTick>,
+    current_slot_tick: &SlotTick,
+) {
+    match message {
+        TimeServiceMessage::Subscribe { sender } => {
+            let channel_stream =
+                BroadcastStream::new(broadcast_receiver.resubscribe()).filter_map(|result| {
+                    Box::pin(async {
+                        match result {
+                            Ok(tick) => Some(tick),
+                            Err(e) => {
+                                // log lagging errors, services should always aim to be ready for
+                                // next slot
+                                error!("Lagging behind slot ticks: {e:?}");
+                                None
+                            }
+                        }
+                    })
+                });
+            let stream = Pin::new(Box::new(channel_stream));
+            if sender.send(stream).is_err() {
+                error!("Couldn't send back a Subscribe response");
+            }
+        }
+        TimeServiceMessage::CurrentSlot { sender } => {
+            if sender.send(*current_slot_tick).is_err() {
+                error!("Couldn't send back a CurrentSlot response");
             }
         }
     }

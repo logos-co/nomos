@@ -63,7 +63,10 @@ use super::handlers::{
     da_get_shares, da_get_storage_commitments, libp2p_info, mantle_metrics, mantle_status,
     monitor_stats, unblock_peer,
 };
-use crate::generic_services::SdpService;
+use crate::{
+    api::handlers::{post_activity, post_declaration, post_withdrawal},
+    generic_services::SdpService,
+};
 
 pub(crate) type DaStorageBackend = RocksBackend;
 type DaStorageService<RuntimeServiceId> = StorageService<DaStorageBackend, RuntimeServiceId>;
@@ -555,6 +558,24 @@ where
                         SdpAdapter,
                         RuntimeServiceId,
                     >,
+                ),
+            )
+            .route(
+                paths::SDP_POST_DECLARATION,
+                routing::post(
+                    post_declaration::<nomos_sdp::backends::mock::MockSdpBackend, RuntimeServiceId>,
+                ),
+            )
+            .route(
+                paths::SDP_POST_ACTIVITY,
+                routing::post(
+                    post_activity::<nomos_sdp::backends::mock::MockSdpBackend, RuntimeServiceId>,
+                ),
+            )
+            .route(
+                paths::SDP_POST_WITHDRAWAL,
+                routing::post(
+                    post_withdrawal::<nomos_sdp::backends::mock::MockSdpBackend, RuntimeServiceId>,
                 ),
             )
             .with_state(handle.clone())

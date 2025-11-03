@@ -14,6 +14,7 @@ workspace = true
 
 [dependencies]
 async-trait              = "0.1"
+broadcast-service        = { workspace = true }
 ed25519                  = { default-features = false, version = "2.2.3" }
 ed25519-dalek            = { default-features = false, version = "2.2.0" }
 futures                  = { default-features = false, version = "0.3" }
@@ -28,6 +29,7 @@ serde                    = { default-features = false, version = "1.0" }
 serde_with               = { workspace = true }
 services-utils           = { workspace = true }
 subnetworks-assignations = { workspace = true }
+thiserror                = { workspace = true }
 tokio                    = "1"
 tokio-stream             = { default-features = false, version = "0.1.15" }
 tracing                  = { workspace = true }
