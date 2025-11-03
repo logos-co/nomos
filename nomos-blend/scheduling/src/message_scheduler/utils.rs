@@ -12,10 +12,11 @@ use crate::{
 
 /// Reset the sub-streams providing the new session info and the round clock at
 /// the beginning of a new session.
-pub(super) fn setup_new_session<Rng, ProcessedMessage>(
+pub(super) fn setup_new_session<Rng, ProcessedMessage, DataMessage>(
     cover_traffic: &mut SessionCoverTraffic<Rng, RoundClock>,
     release_delayer: &mut SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage>,
     round_clock: &mut RoundClock,
+    data_messages: &mut Vec<DataMessage>,
     settings: Settings,
     rng: Rng,
     new_session_info: SessionInfo,
@@ -43,6 +44,7 @@ pub(super) fn setup_new_session<Rng, ProcessedMessage>(
         &settings,
     );
     *round_clock = Box::new(round_clock_fork) as RoundClock;
+    data_messages.clear();
 }
 
 pub(super) fn instantiate_new_cover_scheduler<Rng>(

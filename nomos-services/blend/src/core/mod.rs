@@ -1028,7 +1028,7 @@ where
                     {
                         let processed_message =
                             ProcessedMessage::from(deserialized_network_message);
-                        scheduler.schedule_message(processed_message.clone());
+                        scheduler.schedule_processed_message(processed_message.clone());
                         assert_eq!(
                             state_updater.add_unsent_message(processed_message),
                             Ok(()),
@@ -1048,7 +1048,7 @@ where
         } => {
             blending_token_collector.insert(blending_token);
             let processed_message = ProcessedMessage::from(remaining_encapsulated_message);
-            scheduler.schedule_message(processed_message.clone());
+            scheduler.schedule_processed_message(processed_message.clone());
             assert_eq!(
                 state_updater.add_unsent_message(processed_message),
                 Ok(()),

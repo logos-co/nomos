@@ -35,12 +35,14 @@ impl Display for Round {
 
 /// Information can the message scheduler can yield when being polled.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RoundInfo<ProcessedMessage> {
-    /// The list of messages to be released.
+pub struct RoundInfo<ProcessedMessage, DataMessage> {
+    /// The list of processed messages to be released.
     pub processed_messages: Vec<ProcessedMessage>,
     /// Flag indicating (if `Some`) whether a new cover message should be
     /// generated during this release round.
     pub cover_message_generation_flag: Option<()>,
+    /// The list of data messages to be released.
+    pub data_messages: Vec<DataMessage>,
 }
 
 pub type RoundClock = Box<dyn Stream<Item = Round> + Send + Unpin>;

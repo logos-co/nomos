@@ -52,7 +52,7 @@ where
         Messages: Iterator<Item = ProcessedMessage>,
     {
         let mut self_instance = Self::new(session_clock, initial_session_info, rng, settings);
-        messages.for_each(|m| self_instance.schedule_message(m));
+        messages.for_each(|m| self_instance.schedule_processed_message(m));
         self_instance
     }
 }
