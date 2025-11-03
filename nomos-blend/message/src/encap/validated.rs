@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 use crate::{
     Error, MessageIdentifier,
     crypto::{keys::X25519PrivateKey, proofs::selection::inputs::VerifyInputs},
@@ -23,7 +25,7 @@ pub struct RequiredProofOfSelectionVerificationInputs {
 ///
 /// It can be decapsulated, but before being sent out as-is, it needs to be
 /// converted into its outgoing variant.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct IncomingEncapsulatedMessageWithValidatedPublicHeader<const ENCAPSULATION_COUNT: usize>(
     EncapsulatedMessage<ENCAPSULATION_COUNT>,
 );
@@ -129,7 +131,7 @@ impl<const ENCAPSULATION_COUNT: usize>
 /// This message type does not offer any operations since it is only meant to be
 /// used for outgoing messages that need serialization, hence it is used in
 /// places where an `EncapsulatedMessage` is expected.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct OutgoingEncapsulatedMessageWithValidatedPublicHeader<const ENCAPSULATION_COUNT: usize>(
     IncomingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>,
 );

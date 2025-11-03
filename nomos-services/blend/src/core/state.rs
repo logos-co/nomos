@@ -1,6 +1,7 @@
 mod serde {
     use std::collections::HashSet;
 
+    use nomos_blend_scheduling::message_blend::crypto::EncapsulatedMessage;
     use serde::{Deserialize, Serialize};
 
     use crate::{
@@ -19,6 +20,7 @@ mod serde {
             deserialize = "BroadcastSettings: Deserialize<'de> + Eq + core::hash::Hash"
         ))]
         unsent_processed_messages: HashSet<ProcessedMessage<BroadcastSettings>>,
+        unsent_data_messages: HashSet<EncapsulatedMessage>,
     }
 
     impl<BroadcastSettings> SerializableServiceState<BroadcastSettings> {
@@ -35,6 +37,7 @@ mod serde {
                 self.last_seen_session,
                 self.spent_core_quota,
                 self.unsent_processed_messages,
+                self.unsent_data_messages,
                 state_updater,
             )
         }
@@ -44,12 +47,18 @@ mod serde {
         for SerializableServiceState<BroadcastSettings>
     {
         fn from(value: ServiceState<BackendSettings, BroadcastSettings>) -> Self {
-            let (last_seen_session, spent_core_quota, unsent_processed_messages, _) =
-                value.into_components();
+            let (
+                last_seen_session,
+                spent_core_quota,
+                unsent_processed_messages,
+                unsent_data_messages,
+                _,
+            ) = value.into_components();
             Self {
                 last_seen_session,
                 spent_core_quota,
                 unsent_processed_messages,
+                unsent_data_messages,
             }
         }
     }
@@ -62,6 +71,8 @@ mod service {
         hash::Hash,
     };
     use std::collections::HashSet;
+
+    use nomos_blend_scheduling::message_blend::crypto::EncapsulatedMessage;
 
     use crate::{
         core::state::{recovery_state::RecoveryServiceState, state_updater::StateUpdater},
@@ -77,6 +88,7 @@ mod service {
         /// tracked.
         spent_core_quota: u64,
         unsent_processed_messages: HashSet<ProcessedMessage<BroadcastSettings>>,
+        unsent_data_messages: HashSet<EncapsulatedMessage>,
         state_updater: overwatch::services::state::StateUpdater<
             Option<RecoveryServiceState<BackendSettings, BroadcastSettings>>,
         >,
@@ -91,6 +103,7 @@ mod service {
                 .field("last_seen_session", &self.last_seen_session)
                 .field("spent_core_quota", &self.spent_core_quota)
                 .field("unsent_processed_messages", &self.unsent_processed_messages)
+                .field("unsent_data_messages", &self.unsent_data_messages)
                 .finish_non_exhaustive()
         }
     }
@@ -100,6 +113,7 @@ mod service {
             last_seen_session: u64,
             spent_core_quota: u64,
             unsent_processed_messages: HashSet<ProcessedMessage<BroadcastSettings>>,
+            unsent_data_messages: HashSet<EncapsulatedMessage>,
             state_updater: overwatch::services::state::StateUpdater<
                 Option<RecoveryServiceState<BackendSettings, BroadcastSettings>>,
             >,
@@ -108,6 +122,7 @@ mod service {
                 last_seen_session,
                 spent_core_quota,
                 unsent_processed_messages,
+                unsent_data_messages,
                 state_updater,
             }
         }
@@ -123,7 +138,7 @@ mod service {
                 Option<RecoveryServiceState<BackendSettings, BroadcastSettings>>,
             >,
         ) -> Self {
-            Self::new(session, 0, HashSet::new(), state_updater)
+            Self::new(session, 0, HashSet::new(), HashSet::new(), state_updater)
         }
 
         /// Consume `self` to return a [`StateUpdater`], which can be used to
@@ -158,6 +173,7 @@ mod service {
             u64,
             u64,
             HashSet<ProcessedMessage<BroadcastSettings>>,
+            HashSet<EncapsulatedMessage>,
             overwatch::services::state::StateUpdater<
                 Option<RecoveryServiceState<BackendSettings, BroadcastSettings>>,
             >,
@@ -166,6 +182,7 @@ mod service {
                 self.last_seen_session,
                 self.spent_core_quota,
                 self.unsent_processed_messages,
+                self.unsent_data_messages,
                 self.state_updater,
             )
         }
@@ -183,7 +200,7 @@ mod service {
     where
         BroadcastSettings: Eq + Hash,
     {
-        pub(super) fn add_unsent_message(
+        pub(super) fn add_unsent_processed_message(
             &mut self,
             message: ProcessedMessage<BroadcastSettings>,
         ) -> Result<(), ()> {
@@ -194,7 +211,7 @@ mod service {
             }
         }
 
-        pub(super) fn remove_sent_message(
+        pub(super) fn remove_sent_processed_message(
             &mut self,
             message: &ProcessedMessage<BroadcastSettings>,
         ) -> Result<(), ()> {
@@ -217,11 +234,39 @@ mod service {
         ) -> impl Iterator<Item = ProcessedMessage<BroadcastSettings>> {
             self.unsent_processed_messages.drain()
         }
+
+        pub(super) fn add_unsent_data_message(
+            &mut self,
+            message: EncapsulatedMessage,
+        ) -> Result<(), ()> {
+            if self.unsent_data_messages.insert(message) {
+                Ok(())
+            } else {
+                Err(())
+            }
+        }
+
+        pub(super) fn remove_sent_data_message(
+            &mut self,
+            message: &EncapsulatedMessage,
+        ) -> Result<(), ()> {
+            if self.unsent_data_messages.remove(message) {
+                Ok(())
+            } else {
+                Err(())
+            }
+        }
+
+        pub const fn unsent_data_messages(&self) -> &HashSet<EncapsulatedMessage> {
+            &self.unsent_data_messages
+        }
     }
 }
 
 mod state_updater {
     use core::hash::Hash;
+
+    use nomos_blend_scheduling::EncapsulatedMessage;
 
     use crate::{core::state::service::ServiceState, message::ProcessedMessage};
 
@@ -295,12 +340,12 @@ mod state_updater {
         ///
         /// It returns `Ok` if the message was not already present, `Err`
         /// otherwise.
-        pub fn add_unsent_message(
+        pub fn add_unsent_processed_message(
             &mut self,
             message: ProcessedMessage<BroadcastSettings>,
         ) -> Result<(), ()> {
             self.changed = true;
-            self.inner.add_unsent_message(message)
+            self.inner.add_unsent_processed_message(message)
         }
 
         /// Mark a new [`ProcessedMessage`] as sent, meaning that it has been
@@ -308,12 +353,12 @@ mod state_updater {
         ///
         /// It returns `Ok` if the message was correctly removed (i.e. it was
         /// found), `Err` otherwise.
-        pub fn remove_sent_message(
+        pub fn remove_sent_processed_message(
             &mut self,
             message: &ProcessedMessage<BroadcastSettings>,
         ) -> Result<(), ()> {
             self.changed = true;
-            self.inner.remove_sent_message(message)
+            self.inner.remove_sent_processed_message(message)
         }
 
         /// Drain the underlying storage for the processed messages and return
@@ -323,6 +368,29 @@ mod state_updater {
         ) -> impl Iterator<Item = ProcessedMessage<BroadcastSettings>> {
             self.changed = true;
             self.inner.take_unsent_processed_messages()
+        }
+
+        /// Mark a new [`EncapsulatedMessage`] as unsent, meaning that it has
+        /// been scheduled for release but not yet released.
+        ///
+        /// It returns `Ok` if the message was not already present, `Err`
+        /// otherwise.
+        pub fn add_unsent_data_message(&mut self, message: EncapsulatedMessage) -> Result<(), ()> {
+            self.changed = true;
+            self.inner.add_unsent_data_message(message)
+        }
+
+        /// Mark a new [`EncapsulatedMessage`] as sent, meaning that it has been
+        /// released by the Blend release module.
+        ///
+        /// It returns `Ok` if the message was correctly removed (i.e. it was
+        /// found), `Err` otherwise.
+        pub fn remove_sent_data_message(
+            &mut self,
+            message: &EncapsulatedMessage,
+        ) -> Result<(), ()> {
+            self.changed = true;
+            self.inner.remove_sent_data_message(message)
         }
     }
 }
