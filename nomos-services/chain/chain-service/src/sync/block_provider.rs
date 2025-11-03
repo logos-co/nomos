@@ -751,10 +751,9 @@ mod tests {
 
             for i in 0..count {
                 let slot = Slot::from(slot_offset + i as u64);
-                let Some(block) = self.build_block_with_parent(prev_header, slot) else {
-                    error!("Failed to build block with parent");
-                    break;
-                };
+                let block = self
+                    .build_block_with_parent(prev_header, slot)
+                    .expect("Failed to build block with parent");
                 let header_id = block.header().id();
 
                 blocks.push((block, header_id, prev_header, slot));
