@@ -72,18 +72,10 @@ macro_rules! make_request_and_return_response {
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn mantle_metrics<
-    SamplingNetworkAdapter,
-    SamplingStorage,
-    StorageAdapter,
-    RuntimeServiceId,
->(
+pub async fn mantle_metrics<StorageAdapter, RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
 ) -> Response
 where
-    SamplingNetworkAdapter:
-        nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
-    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
     StorageAdapter: tx_service::storage::MempoolStorageAdapter<
             RuntimeServiceId,
             Item = SignedMantleTx,
@@ -105,8 +97,6 @@ where
                     <SignedMantleTx as Transaction>::Hash,
                     RuntimeServiceId,
                 >,
-                SamplingNetworkAdapter,
-                SamplingStorage,
                 Mempool<
                     HeaderId,
                     SignedMantleTx,
@@ -120,8 +110,6 @@ where
         >,
 {
     make_request_and_return_response!(mantle::mantle_mempool_metrics::<
-        SamplingNetworkAdapter,
-        SamplingStorage,
         StorageAdapter,
         RuntimeServiceId,
     >(&handle))
@@ -135,19 +123,11 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn mantle_status<
-    SamplingNetworkAdapter,
-    SamplingStorage,
-    StorageAdapter,
-    RuntimeServiceId,
->(
+pub async fn mantle_status<StorageAdapter, RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
     Json(items): Json<Vec<<SignedMantleTx as Transaction>::Hash>>,
 ) -> Response
 where
-    SamplingNetworkAdapter:
-        nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
-    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
     StorageAdapter: tx_service::storage::MempoolStorageAdapter<
             RuntimeServiceId,
             Item = SignedMantleTx,
@@ -169,8 +149,6 @@ where
                     <SignedMantleTx as Transaction>::Hash,
                     RuntimeServiceId,
                 >,
-                SamplingNetworkAdapter,
-                SamplingStorage,
                 Mempool<
                     HeaderId,
                     SignedMantleTx,
@@ -184,8 +162,6 @@ where
         >,
 {
     make_request_and_return_response!(mantle::mantle_mempool_status::<
-        SamplingNetworkAdapter,
-        SamplingStorage,
         StorageAdapter,
         RuntimeServiceId,
     >(&handle, items))
@@ -636,6 +612,7 @@ pub async fn da_get_commitments<
     SamplingBackend,
     SamplingNetwork,
     SamplingStorage,
+    SamplingMempoolAdapter,
     RuntimeServiceId,
 >(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
@@ -646,16 +623,24 @@ where
     SamplingBackend: DaSamplingServiceBackend<BlobId = DaBlobId>,
     SamplingNetwork: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
+    SamplingMempoolAdapter: nomos_da_sampling::mempool::DaMempoolAdapter,
     RuntimeServiceId: Debug
         + Sync
         + Display
         + AsServiceId<
-            DaSamplingService<SamplingBackend, SamplingNetwork, SamplingStorage, RuntimeServiceId>,
+            DaSamplingService<
+                SamplingBackend,
+                SamplingNetwork,
+                SamplingStorage,
+                SamplingMempoolAdapter,
+                RuntimeServiceId,
+            >,
         >,
 {
     make_request_and_return_response!(da::get_commitments::<
         SamplingBackend,
         SamplingNetwork,
+        SamplingMempoolAdapter,
         SamplingStorage,
         RuntimeServiceId,
     >(&handle, blob_id))
@@ -904,15 +889,11 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn add_tx<SamplingNetworkAdapter, SamplingStorage, StorageAdapter, RuntimeServiceId>(
+pub async fn add_tx<StorageAdapter, RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
     Json(tx): Json<SignedMantleTx>,
 ) -> Response
 where
-    SamplingNetworkAdapter:
-        nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync + 'static,
-    SamplingStorage:
-        nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync + 'static,
     StorageAdapter: tx_service::storage::MempoolStorageAdapter<
             RuntimeServiceId,
             Item = SignedMantleTx,
@@ -934,8 +915,6 @@ where
                     <SignedMantleTx as Transaction>::Hash,
                     RuntimeServiceId,
                 >,
-                SamplingNetworkAdapter,
-                SamplingStorage,
                 Mempool<
                     HeaderId,
                     SignedMantleTx,
@@ -955,8 +934,6 @@ where
             <SignedMantleTx as Transaction>::Hash,
             RuntimeServiceId,
         >,
-        SamplingNetworkAdapter,
-        SamplingStorage,
         StorageAdapter,
         SignedMantleTx,
         <SignedMantleTx as Transaction>::Hash,

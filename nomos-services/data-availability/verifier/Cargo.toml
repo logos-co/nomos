@@ -15,7 +15,6 @@ libp2p                   = { workspace = true }
 nomos-core               = { workspace = true }
 nomos-da-network-core    = { workspace = true }
 nomos-da-network-service = { workspace = true }
-nomos-da-sampling        = { workspace = true }
 nomos-storage            = { workspace = true }
 nomos-tracing            = { workspace = true }
 nomos-utils              = { workspace = true, features = ["serde"] }

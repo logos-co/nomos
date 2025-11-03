@@ -1,6 +1,7 @@
 use std::{
     fmt::{Debug, Display},
     hash::Hash,
+    marker::PhantomData,
 };
 
 use broadcast_service::{BlockBroadcastMsg, BlockBroadcastService};
@@ -11,7 +12,9 @@ use nomos_core::{
     header::HeaderId,
     mantle::{AuthenticatedMantleTx, TxHash},
 };
-use nomos_da_sampling::{DaSamplingService, backend::DaSamplingServiceBackend};
+use nomos_da_sampling::{
+    DaSamplingService, backend::DaSamplingServiceBackend, mempool::DaMempoolAdapter,
+};
 use nomos_network::{NetworkService, message::BackendNetworkMsg};
 use nomos_storage::{
     StorageMsg, StorageService, api::chain::StorageChainApi, backends::StorageBackend,
@@ -44,6 +47,7 @@ pub type TimeRelay = OutboundRelay<TimeServiceMessage>;
 pub struct CryptarchiaConsensusRelays<
     Mempool,
     MempoolNetAdapter,
+    MempoolDaAdapter,
     NetworkAdapter,
     SamplingBackend,
     Storage,
@@ -51,6 +55,7 @@ pub struct CryptarchiaConsensusRelays<
 > where
     Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash> + Send + Sync,
     MempoolNetAdapter: tx_service::network::NetworkAdapter<RuntimeServiceId>,
+    MempoolDaAdapter: DaMempoolAdapter,
     NetworkAdapter: network::NetworkAdapter<RuntimeServiceId>,
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
@@ -62,13 +67,23 @@ pub struct CryptarchiaConsensusRelays<
     storage_adapter: StorageAdapter<Storage, Mempool::Item, RuntimeServiceId>,
     sampling_relay: SamplingRelay<SamplingBackend::BlobId>,
     time_relay: TimeRelay,
-    _mempool_adapter: std::marker::PhantomData<MempoolNetAdapter>,
+    _mempool_adapter: PhantomData<MempoolNetAdapter>,
+    _da_mempool_adapter: PhantomData<MempoolDaAdapter>,
 }
 
-impl<Mempool, MempoolNetAdapter, NetworkAdapter, SamplingBackend, Storage, RuntimeServiceId>
+impl<
+    Mempool,
+    MempoolNetAdapter,
+    MempoolDaAdapter,
+    NetworkAdapter,
+    SamplingBackend,
+    Storage,
+    RuntimeServiceId,
+>
     CryptarchiaConsensusRelays<
         Mempool,
         MempoolNetAdapter,
+        MempoolDaAdapter,
         NetworkAdapter,
         SamplingBackend,
         Storage,
@@ -92,6 +107,7 @@ where
         + Send
         + Sync,
     MempoolNetAdapter::Settings: Send + Sync,
+    MempoolDaAdapter: DaMempoolAdapter + Send + Sync + 'static,
     NetworkAdapter: network::NetworkAdapter<RuntimeServiceId>,
     NetworkAdapter::Settings: Send,
     NetworkAdapter::PeerId: Clone + Eq + Hash + Send + Sync,
@@ -121,7 +137,8 @@ where
             storage_adapter,
             sampling_relay,
             time_relay,
-            _mempool_adapter: std::marker::PhantomData,
+            _mempool_adapter: PhantomData,
+            _da_mempool_adapter: PhantomData,
         }
     }
 
@@ -137,6 +154,7 @@ where
                 NetworkAdapter,
                 Mempool,
                 MempoolNetAdapter,
+                MempoolDaAdapter,
                 Storage,
                 SamplingBackend,
                 SamplingNetworkAdapter,
@@ -164,20 +182,14 @@ where
             + AsServiceId<NetworkService<NetworkAdapter::Backend, RuntimeServiceId>>
             + AsServiceId<BlockBroadcastService<RuntimeServiceId>>
             + AsServiceId<
-                TxMempoolService<
-                    MempoolNetAdapter,
-                    SamplingNetworkAdapter,
-                    SamplingStorage,
-                    Mempool,
-                    Mempool::Storage,
-                    RuntimeServiceId,
-                >,
+                TxMempoolService<MempoolNetAdapter, Mempool, Mempool::Storage, RuntimeServiceId>,
             >
             + AsServiceId<
                 DaSamplingService<
                     SamplingBackend,
                     SamplingNetworkAdapter,
                     SamplingStorage,
+                    MempoolDaAdapter,
                     RuntimeServiceId,
                 >,
             >
@@ -201,13 +213,13 @@ where
 
         let mempool_relay = service_resources_handle
             .overwatch_handle
-            .relay::<TxMempoolService<_, _, _, _, _, _>>()
+            .relay::<TxMempoolService<_, _, _, _>>()
             .await
             .expect("Relay connection with MempoolService should succeed");
 
         let sampling_relay = service_resources_handle
             .overwatch_handle
-            .relay::<DaSamplingService<_, _, _, _>>()
+            .relay::<DaSamplingService<_, _, _, _, _>>()
             .await
             .expect("Relay connection with SamplingService should succeed");
 

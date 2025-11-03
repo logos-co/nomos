@@ -1,8 +1,10 @@
-use std::{fmt::Debug, marker::PhantomData};
+use std::{fmt::Debug, marker::PhantomData, pin::Pin};
 
+use futures::{Stream, StreamExt as _};
 use nomos_core::{
+    da::BlobId,
     header::HeaderId,
-    mantle::{SignedMantleTx, Transaction as _, TxHash},
+    mantle::{Op, SignedMantleTx, TxHash},
 };
 use overwatch::services::{ServiceData, relay::OutboundRelay};
 use serde::{Deserialize, Serialize};
@@ -18,7 +20,7 @@ use super::{DaMempoolAdapter, MempoolAdapterError};
 
 type MempoolRelay<Item, Key> = OutboundRelay<MempoolMsg<HeaderId, Item, Item, Key>>;
 
-pub struct KzgrsMempoolNetworkAdapter<MempoolNetAdapter, Mempool, RuntimeServiceId>
+pub struct SamplingMempoolNetworkAdapter<MempoolNetAdapter, Mempool, RuntimeServiceId>
 where
     Mempool: MemPool<BlockId = HeaderId, Key = TxHash>,
     MempoolNetAdapter: MempoolNetworkAdapter<RuntimeServiceId, Key = Mempool::Key>,
@@ -31,7 +33,7 @@ where
 
 #[async_trait::async_trait]
 impl<MempoolNetAdapter, Mempool, RuntimeServiceId> DaMempoolAdapter
-    for KzgrsMempoolNetworkAdapter<MempoolNetAdapter, Mempool, RuntimeServiceId>
+    for SamplingMempoolNetworkAdapter<MempoolNetAdapter, Mempool, RuntimeServiceId>
 where
     Mempool:
         RecoverableMempool<BlockId = HeaderId, Key = TxHash, Item = SignedMantleTx> + Send + Sync,
@@ -55,17 +57,34 @@ where
         }
     }
 
-    async fn post_tx(&self, tx: Self::Tx) -> Result<(), MempoolAdapterError> {
+    async fn subscribe(
+        &self,
+    ) -> Result<Pin<Box<dyn Stream<Item = BlobId> + Send>>, MempoolAdapterError> {
         let (reply_channel, receiver) = oneshot::channel();
         self.mempool_relay
-            .send(MempoolMsg::Add {
-                key: tx.hash(),
-                payload: tx,
-                reply_channel,
-            })
+            .send(MempoolMsg::Subscribe { reply_channel })
             .await
             .map_err(|(e, _)| MempoolAdapterError::Other(Box::new(e)))?;
 
-        receiver.await?.map_err(MempoolAdapterError::Mempool)
+        let rx = receiver
+            .await
+            .map_err(|e| MempoolAdapterError::Other(Box::new(e)))?;
+
+        // Filter and map to extract blob IDs from DA blob operations
+        let blob_stream = tokio_stream::wrappers::BroadcastStream::new(rx)
+            .filter_map(|result| async move { result.ok() })
+            .flat_map(|tx: Self::Tx| {
+                let blob_ids_iter = tx.mantle_tx.ops.into_iter().filter_map(|op| {
+                    if let Op::ChannelBlob(blob_op) = op {
+                        Some(blob_op.blob)
+                    } else {
+                        None
+                    }
+                });
+
+                tokio_stream::iter(blob_ids_iter)
+            });
+
+        Ok(Box::pin(blob_stream))
     }
 }

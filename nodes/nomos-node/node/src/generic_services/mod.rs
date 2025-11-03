@@ -25,14 +25,12 @@ use crate::{MB16, generic_services::blend::BlendService};
 
 pub mod blend;
 
-pub type TxMempoolService<SamplingNetworkAdapter, RuntimeServiceId> = tx_service::TxMempoolService<
+pub type TxMempoolService<RuntimeServiceId> = tx_service::TxMempoolService<
     tx_service::network::adapters::libp2p::Libp2pAdapter<
         SignedMantleTx,
         <SignedMantleTx as Transaction>::Hash,
         RuntimeServiceId,
     >,
-    SamplingNetworkAdapter,
-    nomos_da_sampling::storage::adapters::rocksdb::RocksAdapter<DaShare, DaStorageConverter>,
     Mempool<
         HeaderId,
         SignedMantleTx,
@@ -44,9 +42,16 @@ pub type TxMempoolService<SamplingNetworkAdapter, RuntimeServiceId> = tx_service
     RuntimeServiceId,
 >;
 
+pub type SamplingMempoolAdapter<RuntimeServiceId> =
+    nomos_da_sampling::mempool::sampling::SamplingMempoolNetworkAdapter<
+        MempoolAdapter<RuntimeServiceId>,
+        MempoolBackend<RuntimeServiceId>,
+        RuntimeServiceId,
+    >;
+
 pub type TimeService<RuntimeServiceId> = nomos_time::TimeService<NtpTimeBackend, RuntimeServiceId>;
 
-pub type VerifierMempoolAdapter<NetworkAdapter, RuntimeServiceId> = KzgrsMempoolNetworkAdapter<
+pub type VerifierMempoolAdapter<RuntimeServiceId> = KzgrsMempoolNetworkAdapter<
     tx_service::network::adapters::libp2p::Libp2pAdapter<SignedMantleTx, TxHash, RuntimeServiceId>,
     Mempool<
         HeaderId,
@@ -55,9 +60,6 @@ pub type VerifierMempoolAdapter<NetworkAdapter, RuntimeServiceId> = KzgrsMempool
         RocksStorageAdapter<SignedMantleTx, <SignedMantleTx as Transaction>::Hash>,
         RuntimeServiceId,
     >,
-    KzgrsSamplingBackend,
-    NetworkAdapter,
-    nomos_da_sampling::storage::adapters::rocksdb::RocksAdapter<DaShare, DaStorageConverter>,
     RuntimeServiceId,
 >;
 
@@ -78,6 +80,7 @@ pub type DaSamplingService<SamplingAdapter, RuntimeServiceId> =
         KzgrsSamplingBackend,
         SamplingAdapter,
         DaSamplingStorage,
+        SamplingMempoolAdapter<RuntimeServiceId>,
         RuntimeServiceId,
     >;
 
@@ -99,6 +102,7 @@ pub type CryptarchiaService<SamplingAdapter, RuntimeServiceId> = CryptarchiaCons
     LibP2pAdapter<SignedMantleTx, RuntimeServiceId>,
     MempoolBackend<RuntimeServiceId>,
     MempoolAdapter<RuntimeServiceId>,
+    SamplingMempoolAdapter<RuntimeServiceId>,
     RocksBackend,
     KzgrsSamplingBackend,
     SamplingAdapter,
@@ -123,6 +127,7 @@ pub type CryptarchiaLeaderService<Cryptarchia, Wallet, SamplingAdapter, RuntimeS
         BlendService<SamplingAdapter, RuntimeServiceId>,
         MempoolBackend<RuntimeServiceId>,
         MempoolAdapter<RuntimeServiceId>,
+        SamplingMempoolAdapter<RuntimeServiceId>,
         nomos_core::mantle::select::FillSize<MB16, SignedMantleTx>,
         KzgrsSamplingBackend,
         SamplingAdapter,
