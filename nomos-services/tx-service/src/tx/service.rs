@@ -330,6 +330,7 @@ where
                     network_relay,
                     state_updater,
                     settings,
+                    tx_broadcast,
                 )
                 .await;
             }
@@ -373,6 +374,10 @@ where
         }
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "This helper needs both networking and storage handles; splitting it would obscure the call site."
+    )]
     async fn handle_add_message(
         pool: &mut Pool,
         key: Pool::Key,
@@ -381,6 +386,7 @@ where
         network_relay: OutboundRelay<BackendNetworkMsg<NetworkAdapter::Backend, RuntimeServiceId>>,
         state_updater: MempoolStateUpdater<Pool, NetworkAdapter, RuntimeServiceId>,
         settings: NetworkAdapter::Settings,
+        tx_broadcast: &broadcast::Sender<Pool::Item>,
     ) where
         Pool::Settings: Send + Sync,
         NetworkAdapter::Settings: Send + Sync,
@@ -396,11 +402,10 @@ where
                     network_relay,
                     item_for_broadcast,
                     reply_channel,
+                    tx_broadcast,
                 );
             }
-            Err(e) => {
-                Self::handle_add_error(e, reply_channel);
-            }
+            Err(e) => Self::handle_add_error(e, reply_channel),
         }
     }
 
@@ -485,13 +490,17 @@ where
         network_relay: OutboundRelay<BackendNetworkMsg<NetworkAdapter::Backend, RuntimeServiceId>>,
         item_for_broadcast: Pool::Item,
         reply_channel: oneshot::Sender<Result<(), MempoolError>>,
+        tx_broadcast: &broadcast::Sender<Pool::Item>,
     ) {
         state_updater.update(Some(<Pool as RecoverableMempool>::save(pool).into()));
 
+        let broadcast_clone = item_for_broadcast.clone();
         tokio::spawn(async move {
             let adapter = NetworkAdapter::new(settings, network_relay).await;
             adapter.send(item_for_broadcast).await;
         });
+
+        let _ = tx_broadcast.send(broadcast_clone);
 
         if let Err(e) = reply_channel.send(Ok(())) {
             tracing::debug!("Failed to send add reply: {:?}", e);

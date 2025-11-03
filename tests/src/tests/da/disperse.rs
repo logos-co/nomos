@@ -64,7 +64,7 @@ async fn disseminate_retrieve_reconstruct() {
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let executor = &topology.executors()[0];
     let (channel_id, mut parent_msg_id) = setup_test_channel(executor).await;
-    let num_subnets = executor.config().da_network.backend.num_subnets as usize;
+    let num_samples = executor.config().da_sampling.sampling_settings.num_samples as usize;
     let data = [1u8; 31 * ITERATIONS];
 
     topology.wait_membership_ready().await;
@@ -79,7 +79,7 @@ async fn disseminate_retrieve_reconstruct() {
 
         parent_msg_id = wait_for_blob_onchain(executor, channel_id, blob_id).await;
 
-        wait_for_shares_number(executor, blob_id, num_subnets).await;
+        wait_for_shares_number(executor, blob_id, num_samples).await;
 
         let share_commitments = executor.get_commitments(blob_id).await.unwrap();
         let mut executor_shares = executor
@@ -116,7 +116,11 @@ async fn disseminate_from_non_membership() {
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let membership_executor = &topology.executors()[0];
     let (channel_id, mut parent_msg_id) = setup_test_channel(membership_executor).await;
-    let num_subnets = membership_executor.config().da_network.backend.num_subnets as usize;
+    let num_samples = membership_executor
+        .config()
+        .da_sampling
+        .sampling_settings
+        .num_samples as usize;
 
     let StartingState::Genesis { genesis_tx } = membership_executor
         .config()
@@ -146,7 +150,7 @@ async fn disseminate_from_non_membership() {
 
         parent_msg_id = wait_for_blob_onchain(membership_executor, channel_id, blob_id).await;
 
-        wait_for_shares_number(membership_executor, blob_id, num_subnets).await;
+        wait_for_shares_number(membership_executor, blob_id, num_samples).await;
 
         let share_commitments = membership_executor.get_commitments(blob_id).await.unwrap();
         let mut executor_shares = membership_executor

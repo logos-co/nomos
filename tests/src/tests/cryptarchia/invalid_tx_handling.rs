@@ -12,7 +12,7 @@ use num_bigint::BigUint;
 use reqwest::Url;
 use serial_test::serial;
 use tests::{
-    common::da::create_inscription_transaction_with_id,
+    common::{chain::scan_chain_until, da::create_inscription_transaction_with_id},
     nodes::validator::Validator,
     topology::{Topology, TopologyConfig},
 };
@@ -87,20 +87,28 @@ async fn wait_for_transactions_processing(
 ) {
     let mut found_valid_txs = HashSet::new();
     let mut found_invalid_txs = HashSet::new();
+    let mut scanned_blocks = HashSet::new();
 
     loop {
         let info = validator.consensus_info().await;
-        if let Some(block) = validator.get_block(info.tip).await {
-            for tx in block.transactions() {
-                let hash = nomos_core::mantle::Transaction::hash(tx);
-                if valid_tx_hashes.contains(&hash) {
-                    found_valid_txs.insert(hash);
+        let _: Option<()> = scan_chain_until(
+            info.tip,
+            &mut scanned_blocks,
+            |header_id| validator.get_block(header_id),
+            |block| {
+                for tx in block.transactions() {
+                    let hash = nomos_core::mantle::Transaction::hash(tx);
+                    if valid_tx_hashes.contains(&hash) {
+                        found_valid_txs.insert(hash);
+                    }
+                    if invalid_tx_hashes.contains(&hash) {
+                        found_invalid_txs.insert(hash);
+                    }
                 }
-                if invalid_tx_hashes.contains(&hash) {
-                    found_invalid_txs.insert(hash);
-                }
-            }
-        }
+                None
+            },
+        )
+        .await;
 
         if found_valid_txs.len() == valid_tx_hashes.len() {
             break;

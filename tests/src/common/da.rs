@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{collections::HashSet, time::Duration};
 
 use chain_service::CryptarchiaInfo;
 use common_http_client::Error;
@@ -6,6 +6,7 @@ use ed25519_dalek::{Signer as _, SigningKey};
 use executor_http_client::ExecutorHttpClient;
 use futures::StreamExt as _;
 use nomos_core::{
+    block::Block,
     da::BlobId,
     mantle::{
         AuthenticatedMantleTx as _, MantleTx, Op, SignedMantleTx, Transaction as _,
@@ -19,7 +20,7 @@ use nomos_core::{
 };
 use reqwest::Url;
 
-use crate::{adjust_timeout, nodes::executor::Executor};
+use crate::{adjust_timeout, common::chain::scan_chain_until, nodes::executor::Executor};
 
 const TEST_SIGNING_KEY_BYTES: [u8; 32] = [0u8; 32];
 
@@ -50,20 +51,30 @@ pub async fn wait_for_blob_onchain(
     blob_id: BlobId,
 ) -> MsgId {
     const POLL_DELAY_MS: u64 = 200;
+    let mut scanned_blocks = HashSet::new();
     let block_fut = async {
         loop {
             let CryptarchiaInfo { tip, .. } = executor.consensus_info().await;
-            if let Some(block) = executor.get_block(tip).await {
-                for tx in block.transactions() {
-                    for op in &tx.mantle_tx().ops {
+            if let Some(msg_id) = scan_chain_until(
+                tip,
+                &mut scanned_blocks,
+                |header_id| executor.get_block(header_id),
+                |block| {
+                    find_channel_op(block, &mut |op| {
                         if let Op::ChannelBlob(blob_op) = op
                             && blob_op.channel == channel_id
                             && blob_op.blob == blob_id
                         {
-                            return blob_op.id();
+                            Some(blob_op.id())
+                        } else {
+                            None
                         }
-                    }
-                }
+                    })
+                },
+            )
+            .await
+            {
+                return msg_id;
             }
 
             tokio::time::sleep(Duration::from_millis(POLL_DELAY_MS)).await;
@@ -128,18 +139,28 @@ pub fn create_inscription_transaction_with_id(id: ChannelId) -> SignedMantleTx {
 
 async fn wait_for_inscription_onchain(executor: &Executor, channel_id: ChannelId) -> MsgId {
     let block_fut = async {
+        let mut scanned_blocks = HashSet::new();
         loop {
             let info = executor.consensus_info().await;
-            if let Some(block) = executor.get_block(info.tip).await {
-                for tx in block.transactions() {
-                    for op in &tx.mantle_tx().ops {
+            if let Some(msg_id) = scan_chain_until(
+                info.tip,
+                &mut scanned_blocks,
+                |header_id| executor.get_block(header_id),
+                |block| {
+                    find_channel_op(block, &mut |op| {
                         if let Op::ChannelInscribe(inscribe_op) = op
                             && inscribe_op.channel_id == channel_id
                         {
-                            return inscribe_op.id();
+                            Some(inscribe_op.id())
+                        } else {
+                            None
                         }
-                    }
-                }
+                    })
+                },
+            )
+            .await
+            {
+                return msg_id;
             }
             tokio::time::sleep(Duration::from_millis(200)).await;
         }
@@ -172,4 +193,19 @@ pub async fn wait_for_shares_number(executor: &Executor, blob_id: BlobId, num_sh
         (tokio::time::timeout(timeout, shares_fut).await).is_ok(),
         "timed out waiting for blob shares"
     );
+}
+
+fn find_channel_op<F>(block: &Block<SignedMantleTx>, matcher: &mut F) -> Option<MsgId>
+where
+    F: FnMut(&Op) -> Option<MsgId>,
+{
+    for tx in block.transactions() {
+        for op in &tx.mantle_tx().ops {
+            if let Some(msg_id) = matcher(op) {
+                return Some(msg_id);
+            }
+        }
+    }
+
+    None
 }

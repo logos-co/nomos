@@ -29,8 +29,10 @@ use nomos_core::{
     da::{self},
     header::HeaderId,
     mantle::{
-        AuthenticatedMantleTx, Transaction, TxHash, gas::MainnetGasConstants,
-        genesis_tx::GenesisTx, ops::leader_claim::VoucherCm,
+        AuthenticatedMantleTx, Transaction, TxHash,
+        gas::MainnetGasConstants,
+        genesis_tx::GenesisTx,
+        ops::{Op, leader_claim::VoucherCm},
     },
     sdp::{ProviderId, ProviderInfo, ServiceType},
 };
@@ -1086,6 +1088,7 @@ where
         relays: &CryptarchiaConsensusRelays<
             Mempool,
             MempoolNetAdapter,
+            MempoolDaAdapter,
             NetAdapter,
             SamplingBackend,
             Storage,
@@ -1168,6 +1171,7 @@ where
         relays: &CryptarchiaConsensusRelays<
             Mempool,
             MempoolNetAdapter,
+            MempoolDaAdapter,
             NetAdapter,
             SamplingBackend,
             Storage,
@@ -1287,11 +1291,21 @@ where
             .await
             .unwrap_or_else(|e| error!("Could not mark transactions in block: {e}"));
 
-        mark_blob_in_block(
-            relays.sampling_relay().clone(),
-            vec![], // TODO: pass actual blob ids here
-        )
-        .await;
+        let blob_ids: Vec<da::BlobId> = block
+            .transactions()
+            .flat_map(|tx| tx.mantle_tx().ops.iter())
+            .filter_map(|op| {
+                if let Op::ChannelBlob(blob_op) = op {
+                    Some(blob_op.blob)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        if !blob_ids.is_empty() {
+            mark_blob_in_block(relays.sampling_relay().clone(), blob_ids).await;
+        }
 
         relays
             .storage_adapter()
