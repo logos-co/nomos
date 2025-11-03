@@ -14,7 +14,7 @@ const LOG_TARGET: &str = "blend::scheduling::cover";
 
 /// A scheduler for cover messages that can yield a new cover message when
 /// polled, as per the specification.
-pub struct SessionCoverTraffic<RoundClock> {
+pub struct SessionCoverTraffic<Rng, RoundClock> {
     /// The clock ticking at the beginning of each new round.
     round_clock: RoundClock,
     /// The pre-computed set of rounds that will result in a cover message
@@ -26,23 +26,26 @@ pub struct SessionCoverTraffic<RoundClock> {
     /// This is decreased every time this scheduler should emit a new cover
     /// message, but does not.
     unprocessed_data_messages: usize,
+    /// The RNG used to compute whether a cover message should be released if
+    /// there's unprocessed messages.
+    rng: Rng,
 }
 
-impl<RoundClock> SessionCoverTraffic<RoundClock> {
+impl<Rng, RoundClock> SessionCoverTraffic<Rng, RoundClock>
+where
+    Rng: rand::Rng,
+{
     /// Initialize the scheduler with the required details.
-    pub fn new<Rng>(
+    pub fn new(
         Settings {
             additional_safety_intervals,
             expected_intervals_per_session,
             rounds_per_interval,
             starting_quota,
         }: Settings,
-        rng: &mut Rng,
+        mut rng: Rng,
         round_clock: RoundClock,
-    ) -> Self
-    where
-        Rng: rand::Rng,
-    {
+    ) -> Self {
         let total_intervals = expected_intervals_per_session
             .get()
             .checked_add(additional_safety_intervals)
@@ -53,24 +56,74 @@ impl<RoundClock> SessionCoverTraffic<RoundClock> {
         debug!(target: LOG_TARGET, "Creating new cover message scheduler with {total_rounds} total rounds.");
 
         let scheduled_message_rounds =
-            schedule_message_rounds(starting_quota as usize, total_rounds, rng);
+            schedule_message_rounds(starting_quota as usize, total_rounds, &mut rng);
         Self {
             round_clock,
             scheduled_message_rounds,
             unprocessed_data_messages: 0,
+            rng,
         }
     }
 
+    /// Consider the given round a release round if ALL of the following
+    /// conditions are true:
+    /// * The round is a pre-scheduled release round AND
+    ///     * There is no unprocessed data message OR
+    ///     * The random flip coin returns a value above the calculated
+    ///       threshold, which is given by the number of unprocessed data
+    ///       messages / the number of cover messages yet to release.
+    fn consume_round(&mut self, round: &Round) -> bool {
+        let current_scheduled_messages_count = self.scheduled_message_rounds.len();
+        if self.scheduled_message_rounds.is_empty() || !self.scheduled_message_rounds.remove(round)
+        {
+            return false;
+        }
+        let unprocessed_data_messages = {
+            let current_value = self.unprocessed_data_messages;
+            self.unprocessed_data_messages = self.unprocessed_data_messages.saturating_sub(1);
+            current_value
+        };
+        if unprocessed_data_messages == 0 {
+            return true;
+        }
+
+        let should_emit = {
+            // Threshold will be in the range (0, unprocessed_data_messages], since we
+            // checked that `unprocessed_data_messages` is not `0`, and that
+            // `scheduled_message_rounds` is not empty, hence no side of the fraction can be
+            // `0`.
+            let threshold =
+                unprocessed_data_messages as f64 / current_scheduled_messages_count as f64;
+            // More data messages than available release slots, so all release slots are to
+            // be skipped.
+            if threshold >= 1f64 {
+                false
+            } else {
+                let should_emit = self.rng.gen_range(0f64..=1f64) > threshold;
+                if !should_emit {
+                    trace!(target: LOG_TARGET, "Pre-schedule release skipped because of data message.");
+                }
+                should_emit
+            }
+        };
+        self.scheduled_message_rounds.remove(round);
+        should_emit
+    }
+}
+
+impl<Rng, RoundClock> SessionCoverTraffic<Rng, RoundClock> {
     #[cfg(test)]
     pub const fn with_test_values(
         round_clock: RoundClock,
         scheduled_message_rounds: HashSet<Round>,
+        rng: Rng,
         unprocessed_data_messages: usize,
     ) -> Self {
         Self {
             round_clock,
             scheduled_message_rounds,
             unprocessed_data_messages,
+            rng,
         }
     }
 
@@ -90,9 +143,10 @@ impl<RoundClock> SessionCoverTraffic<RoundClock> {
     }
 }
 
-impl<RoundClock> Stream for SessionCoverTraffic<RoundClock>
+impl<Rng, RoundClock> Stream for SessionCoverTraffic<Rng, RoundClock>
 where
     RoundClock: Stream<Item = Round> + Unpin,
+    Rng: rand::Rng + Unpin,
 {
     type Item = ();
 
@@ -104,22 +158,11 @@ where
         };
 
         // If a new cover message is scheduled...
-        if self.scheduled_message_rounds.remove(&new_round) {
-            // Check if there's any unprocessed data message, and update the counter.
-            let Some(new_unprocessed_data_messages) = self.unprocessed_data_messages.checked_sub(1)
-            else {
-                // If the value was already zero, we emit a new cover message.
-                debug!(target: LOG_TARGET, "Emitting new cover message for round {new_round}");
-                return Poll::Ready(Some(()));
-            };
-            // Else, we skip emission and update the unprocessed data message counter.
-            self.unprocessed_data_messages = new_unprocessed_data_messages;
-            trace!(target: LOG_TARGET, "Skipping message emission because of override by data message.");
-            // Awake to trigger a new round clock tick.
-            cx.waker().wake_by_ref();
-            return Poll::Pending;
+        if self.consume_round(&new_round) {
+            debug!(target: LOG_TARGET, "Emitting new cover message for round {new_round}");
+            return Poll::Ready(Some(()));
         }
-        trace!(target: LOG_TARGET, "Not a pre-scheduled emission for round {new_round}.");
+        debug!(target: LOG_TARGET, "Not a pre-scheduled emission for round {new_round}.");
         // Awake to trigger a new round clock tick.
         cx.waker().wake_by_ref();
         Poll::Pending
@@ -178,16 +221,18 @@ mod tests {
     use std::collections::HashSet;
 
     use futures::{StreamExt as _, io::empty, task::noop_waker_ref};
+    use rand::rngs::OsRng;
     use tokio_stream::iter;
 
     use crate::cover_traffic::SessionCoverTraffic;
 
     #[tokio::test]
-    async fn no_emission_on_unscheduled_round() {
+    async fn no_emission_on_empty_schedule() {
         let mut scheduler = SessionCoverTraffic {
             round_clock: iter([0u128]).map(Into::into),
             scheduled_message_rounds: HashSet::default(),
             unprocessed_data_messages: 0,
+            rng: OsRng,
         };
         let mut cx = Context::from_waker(noop_waker_ref());
 
@@ -195,11 +240,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn emission_on_scheduled_round() {
+    async fn no_emission_on_unscheduled_round() {
+        let mut scheduler = SessionCoverTraffic {
+            round_clock: iter([0u128]).map(Into::into),
+            scheduled_message_rounds: HashSet::from_iter([1u128.into()]),
+            unprocessed_data_messages: 0,
+            rng: OsRng,
+        };
+        let mut cx = Context::from_waker(noop_waker_ref());
+
+        assert_eq!(scheduler.poll_next_unpin(&mut cx), Poll::Pending);
+    }
+
+    #[tokio::test]
+    async fn emission_on_scheduled_round_without_processed_messages() {
         let mut scheduler = SessionCoverTraffic {
             round_clock: iter([0u128]).map(Into::into),
             scheduled_message_rounds: HashSet::from_iter([0u128.into()]),
             unprocessed_data_messages: 0,
+            rng: OsRng,
         };
         let mut cx = Context::from_waker(noop_waker_ref());
 
@@ -214,6 +273,7 @@ mod tests {
             round_clock: iter([0u128]).map(Into::into),
             scheduled_message_rounds: HashSet::from_iter([0u128.into()]),
             unprocessed_data_messages: 1,
+            rng: OsRng,
         };
         let mut cx = Context::from_waker(noop_waker_ref());
 
@@ -225,11 +285,24 @@ mod tests {
     }
 
     #[test]
-    fn notify_new_data_message() {
+    fn notify_new_data_message_without_scheduled_rounds() {
+        let mut scheduler = SessionCoverTraffic {
+            round_clock: empty(),
+            scheduled_message_rounds: HashSet::new(),
+            unprocessed_data_messages: 0,
+            rng: OsRng,
+        };
+        scheduler.notify_new_data_message();
+        assert_eq!(scheduler.unprocessed_data_messages, 1);
+    }
+
+    #[test]
+    fn notify_new_data_message_with_scheduled_rounds() {
         let mut scheduler = SessionCoverTraffic {
             round_clock: empty(),
             scheduled_message_rounds: HashSet::from_iter([1u128.into()]),
             unprocessed_data_messages: 0,
+            rng: OsRng,
         };
         scheduler.notify_new_data_message();
         assert_eq!(scheduler.unprocessed_data_messages, 1);

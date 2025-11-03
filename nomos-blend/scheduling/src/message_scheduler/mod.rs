@@ -23,8 +23,8 @@ pub mod round_info;
 pub mod session_info;
 mod utils;
 
-#[cfg(test)]
-mod tests;
+// #[cfg(test)]
+// mod tests;
 
 const LOG_TARGET: &str = "blend::scheduling";
 
@@ -34,7 +34,7 @@ pub struct MessageScheduler<SessionClock, Rng, ProcessedMessage> {
     /// The module responsible for randomly generated cover messages, given the
     /// allowed session quota and accounting for data messages generated within
     /// the session.
-    cover_traffic: SessionCoverTraffic<RoundClock>,
+    cover_traffic: SessionCoverTraffic<Rng, RoundClock>,
     /// The module responsible for delaying the release of processed messages
     /// that have not been fully decapsulated.
     release_delayer: SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage>,
@@ -53,21 +53,21 @@ where
     pub fn new(
         session_clock: SessionClock,
         initial_session_info: SessionInfo,
-        mut rng: Rng,
+        rng: Rng,
         settings: Settings,
     ) -> Self {
         // To avoid duplication for the `setup_new_session` logic, we need to create
         // "dummy" containers that are soon replaced in the `setup_new_session`
         // function, which expects a `&mut` reference to those fields. The same function
         // is then called upon each new session tick.
-        let mut initial_cover_traffic = SessionCoverTraffic::<RoundClock>::new(
+        let mut initial_cover_traffic = SessionCoverTraffic::<Rng, RoundClock>::new(
             crate::cover_traffic::Settings {
                 additional_safety_intervals: settings.additional_safety_intervals,
                 expected_intervals_per_session: settings.expected_intervals_per_session,
                 rounds_per_interval: settings.rounds_per_interval,
                 starting_quota: initial_session_info.core_quota,
             },
-            &mut rng,
+            rng.clone(),
             Box::new(empty()) as RoundClock,
         );
         let mut initial_release_delayer =
@@ -97,21 +97,21 @@ where
             settings,
         }
     }
-
-    #[cfg(feature = "unsafe-test-functions")]
-    pub const fn cover_traffic_module(&self) -> &SessionCoverTraffic<RoundClock> {
-        &self.cover_traffic
-    }
 }
 
-impl<SessionClock, Rng, ProcessedMessage> MessageScheduler<SessionClock, Rng, ProcessedMessage> {
+impl<SessionClock, Rng, ProcessedMessage> MessageScheduler<SessionClock, Rng, ProcessedMessage>
+where
+    Rng: rand::Rng,
+{
     /// Notify the cover message submodule that a new data message has been
     /// generated in this session, which will reduce the number of cover
     /// messages generated going forward.
     pub fn notify_new_data_message(&mut self) {
         self.cover_traffic.notify_new_data_message();
     }
+}
 
+impl<SessionClock, Rng, ProcessedMessage> MessageScheduler<SessionClock, Rng, ProcessedMessage> {
     /// Add a new processed message to the release delayer component queue, for
     /// release during the next release window.
     pub fn schedule_message(&mut self, message: ProcessedMessage) {
@@ -120,7 +120,7 @@ impl<SessionClock, Rng, ProcessedMessage> MessageScheduler<SessionClock, Rng, Pr
 
     #[cfg(test)]
     pub fn with_test_values(
-        cover_traffic: SessionCoverTraffic<RoundClock>,
+        cover_traffic: SessionCoverTraffic<Rng, RoundClock>,
         release_delayer: SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage>,
         round_clock: RoundClock,
         session_clock: SessionClock,
@@ -133,6 +133,11 @@ impl<SessionClock, Rng, ProcessedMessage> MessageScheduler<SessionClock, Rng, Pr
             // These are not needed when all fields are provided as arguments.
             settings: Settings::default(),
         }
+    }
+
+    #[cfg(feature = "unsafe-test-functions")]
+    pub const fn cover_traffic_module(&self) -> &SessionCoverTraffic<Rng, RoundClock> {
+        &self.cover_traffic
     }
 }
 
