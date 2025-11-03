@@ -266,9 +266,6 @@ storage:
   column_family: blocks
 mempool:
   pool_recovery_path: ./recovery/mempool.json
-  trigger_sampling_delay:
-    secs: 5
-    nanos: 0
 membership:
   backend:
     session_sizes:
