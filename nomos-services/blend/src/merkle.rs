@@ -199,9 +199,12 @@ fn compute_selectors(
 
     // The selector at each level is determined by the bit at that position
     // in the binary representation of the index
-    // Bit 0 (LSB) determines position at level 0, bit 1 at level 1, etc.
-    for result_entry in result.iter_mut().take(CORE_MERKLE_TREE_HEIGHT) {
-        *result_entry = (idx & 1) == 1;
+    // Bit 0 (MSB) determines position at level 20, bit 1 at level 19, ..., bit 20
+    // at level 0.
+    for level in (0..CORE_MERKLE_TREE_HEIGHT).rev() {
+        *result
+            .get_mut(level)
+            .expect("Selector at level should exist.") = (idx & 1) == 1;
         idx >>= 1u8;
     }
 
@@ -369,21 +372,20 @@ mod tests {
         assert_eq!(MerkleTree::new(vec![key, key]), Err(Error::DuplicateKey));
     }
 
-    #[test]
-    fn poq_interaction() {
-        let sk1 = SecretKey::new("1".parse::<BigUint>().unwrap().into());
-        let sk2 = SecretKey::new("2".parse::<BigUint>().unwrap().into());
-        let sk3 = SecretKey::new("3".parse::<BigUint>().unwrap().into());
-        let sk4 = SecretKey::new("4".parse::<BigUint>().unwrap().into());
-        let keys = [
-            sk1.to_public_key(),
-            sk2.to_public_key(),
-            sk3.to_public_key(),
-            sk4.to_public_key(),
-        ]
-        .to_vec();
-        let merkle_tree = MerkleTree::new(keys).unwrap();
+    struct PoQInputs<const INPUTS: usize> {
+        public_inputs: PublicInputs,
+        secret_inputs: [ProofOfCoreQuotaInputs; INPUTS],
+    }
 
+    fn generate_inputs<const INPUTS: usize>() -> PoQInputs<INPUTS> {
+        let keys: Vec<_> = (1..=INPUTS as u64)
+            .map(|i| {
+                let sk = SecretKey::new(ZkHash::from(i));
+                let pk = sk.to_public_key();
+                (sk, pk)
+            })
+            .collect();
+        let merkle_tree = MerkleTree::new(keys.iter().map(|(_, pk)| *pk).collect()).unwrap();
         let public_inputs = {
             let core_inputs = CoreInputs {
                 quota: 1,
@@ -404,50 +406,107 @@ mod tests {
                 signing_key,
             }
         };
+        let secret_inputs = keys
+            .into_iter()
+            .map(|(sk, pk)| {
+                let proof = merkle_tree.get_proof_for_key(&pk).unwrap();
+                ProofOfCoreQuotaInputs {
+                    core_sk: sk.into_inner(),
+                    core_path_and_selectors: proof,
+                }
+            })
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
 
-        let secret_inputs_sk1 = ProofOfCoreQuotaInputs {
-            core_path_and_selectors: merkle_tree.get_proof_for_key(&sk1.to_public_key()).unwrap(),
-            core_sk: sk1.into_inner(),
-        };
-        let secret_inputs_sk2 = ProofOfCoreQuotaInputs {
-            core_path_and_selectors: merkle_tree.get_proof_for_key(&sk2.to_public_key()).unwrap(),
-            core_sk: sk2.into_inner(),
-        };
-        let secret_inputs_sk3 = ProofOfCoreQuotaInputs {
-            core_path_and_selectors: merkle_tree.get_proof_for_key(&sk3.to_public_key()).unwrap(),
-            core_sk: sk3.into_inner(),
-        };
-        let secret_inputs_sk4 = ProofOfCoreQuotaInputs {
-            core_path_and_selectors: merkle_tree.get_proof_for_key(&sk4.to_public_key()).unwrap(),
-            core_sk: sk4.into_inner(),
-        };
+        PoQInputs {
+            public_inputs,
+            secret_inputs,
+        }
+    }
 
-        let (poq, _) = ProofOfQuota::new(
-            &public_inputs,
-            PrivateInputs::new_proof_of_core_quota_inputs(0, secret_inputs_sk1),
-        )
-        .unwrap();
-        poq.verify(&public_inputs).unwrap();
+    #[test]
+    fn poq_interaction_single_key() {
+        let PoQInputs {
+            public_inputs,
+            secret_inputs,
+        } = generate_inputs::<1>();
 
-        let (poq, _) = ProofOfQuota::new(
-            &public_inputs,
-            PrivateInputs::new_proof_of_core_quota_inputs(0, secret_inputs_sk2),
-        )
-        .unwrap();
-        poq.verify(&public_inputs).unwrap();
+        for secret_input in secret_inputs {
+            let (poq, _) = ProofOfQuota::new(
+                &public_inputs,
+                PrivateInputs::new_proof_of_core_quota_inputs(0, secret_input),
+            )
+            .unwrap();
+            poq.verify(&public_inputs).unwrap();
+        }
+    }
 
-        let (poq, _) = ProofOfQuota::new(
-            &public_inputs,
-            PrivateInputs::new_proof_of_core_quota_inputs(0, secret_inputs_sk3),
-        )
-        .unwrap();
-        poq.verify(&public_inputs).unwrap();
+    #[test]
+    fn poq_interaction_two_keys() {
+        let PoQInputs {
+            public_inputs,
+            secret_inputs,
+        } = generate_inputs::<2>();
 
-        let (poq, _) = ProofOfQuota::new(
-            &public_inputs,
-            PrivateInputs::new_proof_of_core_quota_inputs(0, secret_inputs_sk4),
-        )
-        .unwrap();
-        poq.verify(&public_inputs).unwrap();
+        for secret_input in secret_inputs {
+            let (poq, _) = ProofOfQuota::new(
+                &public_inputs,
+                PrivateInputs::new_proof_of_core_quota_inputs(0, secret_input),
+            )
+            .unwrap();
+            poq.verify(&public_inputs).unwrap();
+        }
+    }
+
+    #[test]
+    fn poq_interaction_three_keys() {
+        let PoQInputs {
+            public_inputs,
+            secret_inputs,
+        } = generate_inputs::<3>();
+
+        for secret_input in secret_inputs {
+            let (poq, _) = ProofOfQuota::new(
+                &public_inputs,
+                PrivateInputs::new_proof_of_core_quota_inputs(0, secret_input),
+            )
+            .unwrap();
+            poq.verify(&public_inputs).unwrap();
+        }
+    }
+
+    #[test]
+    fn poq_interaction_four_keys() {
+        let PoQInputs {
+            public_inputs,
+            secret_inputs,
+        } = generate_inputs::<3>();
+
+        for secret_input in secret_inputs {
+            let (poq, _) = ProofOfQuota::new(
+                &public_inputs,
+                PrivateInputs::new_proof_of_core_quota_inputs(0, secret_input),
+            )
+            .unwrap();
+            poq.verify(&public_inputs).unwrap();
+        }
+    }
+
+    #[test]
+    fn poq_interaction_one_hundred_keys() {
+        let PoQInputs {
+            public_inputs,
+            secret_inputs,
+        } = generate_inputs::<100>();
+
+        for secret_input in secret_inputs {
+            let (poq, _) = ProofOfQuota::new(
+                &public_inputs,
+                PrivateInputs::new_proof_of_core_quota_inputs(0, secret_input),
+            )
+            .unwrap();
+            poq.verify(&public_inputs).unwrap();
+        }
     }
 }
