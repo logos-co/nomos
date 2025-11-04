@@ -38,6 +38,7 @@ use nomos_da_verifier::{backend::VerifierBackend, mempool::DaMempoolAdapter};
 pub use nomos_http_api_common::settings::AxumBackendSettings;
 use nomos_http_api_common::{paths, utils::create_rate_limit_layer};
 use nomos_libp2p::PeerId;
+use nomos_sdp::adapters::mempool::SdpMempoolAdapter;
 use nomos_storage::{StorageService, api::da::DaConverter, backends::rocksdb::RocksBackend};
 use overwatch::{DynError, overwatch::handle::OverwatchHandle, services::AsServiceId};
 use serde::{Serialize, de::DeserializeOwned};
@@ -63,10 +64,7 @@ use super::handlers::{
     da_get_shares, da_get_storage_commitments, libp2p_info, mantle_metrics, mantle_status,
     monitor_stats, unblock_peer,
 };
-use crate::{
-    api::handlers::{post_activity, post_declaration, post_withdrawal},
-    generic_services::SdpService,
-};
+use crate::api::handlers::{post_activity, post_declaration, post_withdrawal};
 
 pub(crate) type DaStorageBackend = RocksBackend;
 type DaStorageService<RuntimeServiceId> = StorageService<DaStorageBackend, RuntimeServiceId>;
@@ -90,6 +88,7 @@ pub struct AxumBackend<
     SdpAdapter,
     HttpStorageAdapter,
     MempoolStorageAdapter,
+    SdpMempool,
 > {
     settings: AxumBackendSettings,
     _share: core::marker::PhantomData<DaShare>,
@@ -109,6 +108,7 @@ pub struct AxumBackend<
     _da_membership: core::marker::PhantomData<(DaMembershipAdapter, DaMembershipStorage)>,
     _verifier_mempool_adapter: core::marker::PhantomData<VerifierMempoolAdapter>,
     _sampling_mempool_adapter: core::marker::PhantomData<SamplingMempoolAdapter>,
+    _sdp_mempool_adapter: core::marker::PhantomData<SdpMempool>,
 }
 
 #[derive(OpenApi)]
@@ -144,6 +144,7 @@ impl<
     SdpAdapter,
     StorageAdapter,
     MempoolStorageAdapter,
+    SdpMempool,
     RuntimeServiceId,
 > Backend<RuntimeServiceId>
     for AxumBackend<
@@ -165,6 +166,7 @@ impl<
         SdpAdapter,
         StorageAdapter,
         MempoolStorageAdapter,
+        SdpMempool,
     >
 where
     DaShare: Share + Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
@@ -225,6 +227,7 @@ where
         + Clone
         + 'static,
     MempoolStorageAdapter::Error: Debug,
+    SdpMempool: SdpMempoolAdapter + Send + Sync + 'static,
     SamplingMempoolAdapter: nomos_da_sampling::mempool::DaMempoolAdapter + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
@@ -298,7 +301,7 @@ where
                 RuntimeServiceId,
             >,
         >
-        + AsServiceId<SdpService<RuntimeServiceId>>,
+        + AsServiceId<nomos_sdp::SdpService<SdpMempool, RuntimeServiceId>>,
 {
     type Error = std::io::Error;
     type Settings = AxumBackendSettings;
@@ -326,6 +329,7 @@ where
             _da_membership: core::marker::PhantomData,
             _verifier_mempool_adapter: core::marker::PhantomData,
             _sampling_mempool_adapter: core::marker::PhantomData,
+            _sdp_mempool_adapter: core::marker::PhantomData,
         })
     }
 
@@ -548,15 +552,15 @@ where
             )
             .route(
                 paths::SDP_POST_DECLARATION,
-                routing::post(post_declaration::<RuntimeServiceId>),
+                routing::post(post_declaration::<SdpMempool, RuntimeServiceId>),
             )
             .route(
                 paths::SDP_POST_ACTIVITY,
-                routing::post(post_activity::<RuntimeServiceId>),
+                routing::post(post_activity::<SdpMempool, RuntimeServiceId>),
             )
             .route(
                 paths::SDP_POST_WITHDRAWAL,
-                routing::post(post_withdrawal::<RuntimeServiceId>),
+                routing::post(post_withdrawal::<SdpMempool, RuntimeServiceId>),
             )
             .with_state(handle.clone())
             .layer(TimeoutLayer::new(self.settings.timeout))

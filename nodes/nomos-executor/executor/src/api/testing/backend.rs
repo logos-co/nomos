@@ -79,7 +79,8 @@ where
         + 'static
         + AsServiceId<TestDaNetworkService<RuntimeServiceId>>
         + AsServiceId<TestDaSamplingService<RuntimeServiceId>>
-        + AsServiceId<SdpService<RuntimeServiceId>>,
+        + AsServiceId<SdpService<RuntimeServiceId>>
+        + AsServiceId<generic_services::TxMempoolService<RuntimeServiceId>>,
 {
     type Error = std::io::Error;
     type Settings = AxumBackendSettings;
