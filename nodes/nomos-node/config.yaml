@@ -95,6 +95,7 @@ da_network:
     secs: 30
     nanos: 0
   subnet_threshold: 2048
+  min_session_members: 2
 da_indexer:
   storage:
     blob_storage_directory: ./

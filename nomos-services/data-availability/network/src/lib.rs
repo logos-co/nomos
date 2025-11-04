@@ -69,6 +69,12 @@ pub struct MembershipResponse {
     pub addressbook: AddressBookSnapshot<PeerId>,
 }
 
+#[derive(Debug)]
+pub enum SessionStatus {
+    SufficientMembers,
+    InsufficientMembers,
+}
+
 pub enum DaNetworkMsg<Backend, Commitments, RuntimeServiceId>
 where
     Backend: NetworkBackend<RuntimeServiceId>,
@@ -144,6 +150,9 @@ pub struct NetworkConfig<
     // Number of connected subnetworks that the node requires to have in order to operate
     // correctly.
     pub subnet_threshold: usize,
+    // A minimal number of members during a DA session. If session has less than a minimum members,
+    // then DA network service stops processing any incoming and outgoing messages.
+    pub min_session_members: usize,
 }
 
 impl<Backend: NetworkBackend<RuntimeServiceId>, Membership, ApiAdapterSettings, RuntimeServiceId>
@@ -360,6 +369,16 @@ where
             ..
         } = self;
 
+        let NetworkConfig {
+            subnet_threshold,
+            min_session_members,
+            ..
+        } = self
+            .service_resources_handle
+            .settings_handle
+            .notifier()
+            .get_updated_settings();
+
         let membership_service_relay = overwatch_handle
             .relay::<MembershipServiceAdapter::MembershipService>()
             .await?;
@@ -373,6 +392,7 @@ where
             Arc::clone(&storage_adapter),
             membership.clone(),
             addressbook.clone(),
+            min_session_members,
         );
 
         let membership_service_adapter = MembershipServiceAdapter::new(membership_service_relay);
@@ -396,13 +416,6 @@ where
                 e
             })?;
 
-        let subnet_threshold = self
-            .service_resources_handle
-            .settings_handle
-            .notifier()
-            .get_updated_settings()
-            .subnet_threshold;
-
         status_updater.notify_ready();
         tracing::info!(
             "Service '{}' is ready.",
@@ -415,16 +428,6 @@ where
                     Self::handle_network_service_message(msg, backend, &membership_storage, api_adapter, addressbook).await;
                 }
                 Some(update) = membership_updates_stream.next() => {
-                    if update.peers.is_empty() {
-                        // todo: this is a short term fix, handle empty providers in assignations
-                        tracing::error!("Received empty membership for session {}: skipping session update", update.session_id);
-                        continue
-                    }
-                    tracing::debug!(
-                        "Received membership update for session {}: {:?}",
-                        update.session_id, update.peers
-                    );
-
                     Self::handle_opinion_session_change(&sdp_adapter, &mut opinion_aggregator, &update).await;
                     match Self::handle_membership_update(
                         update.session_id,
@@ -432,8 +435,9 @@ where
                         &membership_storage,
                         update.provider_mappings,
                     ).await {
-                        Ok(_) => {
+                        Ok(membership_status) => {
                             let _ = subnet_refresh_sender.send(()).await;
+                            backend.update_session_status(membership_status);
                         }
                         Err(e) => {
                             tracing::error!("Error handling membership update for session {}: {e}", update.session_id);
@@ -445,9 +449,9 @@ where
                         .filter(|stats| stats.inbound > 0 || stats.outbound > 0)
                         .count();
                     if connected_subnetworks < subnet_threshold {
-                        backend.update_status(ConnectionStatus::InsufficientSubnetworkConnections);
+                        backend.update_connection_status(ConnectionStatus::InsufficientSubnetworkConnections);
                     } else {
-                        backend.update_status(ConnectionStatus::Ready);
+                        backend.update_connection_status(ConnectionStatus::Ready);
                     }
                 }
                 Some(opinion_event) = opinion_stream.next() => {
@@ -614,11 +618,8 @@ where
         update: HashMap<Membership::Id, Multiaddr>,
         storage: &MembershipStorage<Arc<StorageAdapter>, Membership, DaAddressbook>,
         provider_mappings: HashMap<Membership::Id, ProviderId>,
-    ) -> Result<Membership, DynError> {
-        let current_membership = storage
-            .update(session_id, update, provider_mappings)
-            .await?;
-        Ok(current_membership)
+    ) -> Result<SessionStatus, DynError> {
+        storage.update(session_id, update, provider_mappings).await
     }
 
     async fn handle_historic_sample_request(
@@ -686,6 +687,7 @@ where
             api_adapter_settings: self.api_adapter_settings.clone(),
             subnet_refresh_interval: self.subnet_refresh_interval,
             subnet_threshold: self.subnet_threshold,
+            min_session_members: self.min_session_members,
         }
     }
 }

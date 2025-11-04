@@ -29,7 +29,7 @@ use tokio_stream::wrappers::BroadcastStream;
 use tracing::instrument;
 
 use crate::{
-    DaAddressbook,
+    DaAddressbook, SessionStatus,
     backends::{
         ConnectionStatus, NetworkBackend,
         libp2p::common::{
@@ -85,6 +85,7 @@ pub enum DaNetworkEvent {
 /// channels/streams
 pub struct DaNetworkValidatorBackend<Membership> {
     connection_status: ConnectionStatus,
+    session_status: SessionStatus,
     task_abort_handle: AbortHandle,
     replies_task_abort_handle: AbortHandle,
     shares_request_channel: UnboundedSender<BlobId>,
@@ -201,6 +202,7 @@ where
             local_peer_id,
             local_provider_id,
             connection_status: ConnectionStatus::InsufficientSubnetworkConnections,
+            session_status: SessionStatus::InsufficientMembers,
             task_abort_handle,
             replies_task_abort_handle,
             shares_request_channel,
@@ -255,8 +257,12 @@ where
         }
     }
 
-    fn update_status(&mut self, status: ConnectionStatus) {
+    fn update_connection_status(&mut self, status: ConnectionStatus) {
         self.connection_status = status;
+    }
+
+    fn update_session_status(&mut self, status: SessionStatus) {
+        self.session_status = status;
     }
 
     async fn subscribe(

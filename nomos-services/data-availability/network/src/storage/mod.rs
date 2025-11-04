@@ -14,9 +14,10 @@ use overwatch::{
     services::{ServiceData, relay::OutboundRelay},
 };
 use rand::SeedableRng as _;
-use subnetworks_assignations::{MembershipCreator, MembershipHandler};
+use subnetworks_assignations::{MembershipCreator, MembershipHandler, SubnetworkAssignations};
 
 use crate::{
+    SessionStatus,
     addressbook::{AddressBookMut, AddressBookSnapshot},
     membership::{Assignations, handler::DaMembershipHandler},
 };
@@ -52,6 +53,7 @@ pub struct MembershipStorage<MembershipAdapter, Membership, AddressBook> {
     membership_adapter: MembershipAdapter,
     membership_handler: DaMembershipHandler<Membership>,
     addressbook: AddressBook,
+    min_session_members: usize,
 }
 
 impl<MembershipAdapter, Membership, AddressBook>
@@ -70,11 +72,13 @@ where
         membership_adapter: MembershipAdapter,
         membership_handler: DaMembershipHandler<Membership>,
         addressbook: AddressBook,
+        min_session_members: usize,
     ) -> Self {
         Self {
             membership_adapter,
             membership_handler,
             addressbook,
+            min_session_members,
         }
     }
 
@@ -83,22 +87,37 @@ where
         session_id: SessionNumber,
         new_members: AddressBookSnapshot<Membership::Id>,
         provider_mappings: HashMap<Membership::Id, ProviderId>,
-    ) -> Result<Membership, DynError> {
+    ) -> Result<SessionStatus, DynError> {
         let mut hasher = Blake2b512::default();
         BlakeUpdate::update(&mut hasher, session_id.to_le_bytes().as_slice());
         let seed: [u8; 64] = hasher.finalize().into();
 
         let update: HashSet<Membership::Id> = new_members.keys().copied().collect();
 
-        // Scope the RNG so it's dropped before the await
-        let (updated_membership, assignations) = {
-            let mut rng = BlakeRng::from_seed(seed.into());
-            let updated_membership = self
-                .membership_handler
-                .membership()
-                .update(session_id, update, &mut rng);
-            let assignations = updated_membership.subnetworks();
-            (updated_membership, assignations)
+        let (membership_state, updated_membership, assignations) = {
+            if provider_mappings.len() < self.min_session_members {
+                let updated_membership = self
+                    .membership_handler
+                    .membership()
+                    .init(session_id, SubnetworkAssignations::new());
+                (
+                    SessionStatus::InsufficientMembers,
+                    updated_membership,
+                    SubnetworkAssignations::new(),
+                )
+            } else {
+                let mut rng = BlakeRng::from_seed(seed.into());
+                let updated_membership = self
+                    .membership_handler
+                    .membership()
+                    .update(session_id, update, &mut rng);
+                let assignations = updated_membership.subnetworks();
+                (
+                    SessionStatus::SufficientMembers,
+                    updated_membership,
+                    assignations,
+                )
+            }
         };
 
         tracing::debug!("Updating membership at session {session_id} with {assignations:?}");
@@ -113,7 +132,7 @@ where
             .await?;
         self.membership_adapter.store_addresses(new_members).await?;
 
-        Ok(updated_membership)
+        Ok(membership_state)
     }
 
     pub async fn get_historic_membership(
