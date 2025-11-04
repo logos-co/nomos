@@ -27,12 +27,15 @@ use nomos_blend_message::{
     reward::{self, ActivityProof, BlendingTokenCollector},
 };
 use nomos_blend_scheduling::{
+    EncapsulatedMessage,
     message_blend::{
         crypto::IncomingEncapsulatedMessageWithValidatedPublicHeader,
         provers::core_and_leader::CoreAndLeaderProofsGenerator,
     },
     message_scheduler::{
-        MessageScheduler, round_info::RoundInfo, session_info::SessionInfo as SchedulerSessionInfo,
+        MessageScheduler,
+        round_info::{RoundInfo, RoundReleaseType},
+        session_info::SessionInfo as SchedulerSessionInfo,
     },
     session::{SessionEvent, UninitializedSessionEventStream},
     stream::UninitializedFirstReadyStream,
@@ -59,7 +62,7 @@ use crate::{
     core::{
         backends::{PublicInfo, SessionInfo},
         processor::{CoreCryptographicProcessor, Error},
-        scheduler::{RoundInfoAndConsumedQuota, SchedulerWrapper},
+        scheduler::SchedulerWrapper,
         settings::BlendConfig,
         state::{RecoveryServiceState, ServiceState},
     },
@@ -404,6 +407,7 @@ async fn initialize<
         impl Stream<Item = SchedulerSessionInfo> + Unpin + Send + 'static,
         BlakeRng,
         ProcessedMessage<NetAdapter::BroadcastSettings>,
+        EncapsulatedMessage,
     >,
     Backend,
     BlakeRng,
@@ -579,6 +583,10 @@ where
                 .unsent_processed_messages()
                 .clone()
                 .into_iter(),
+            current_recovery_checkpoint
+                .unsent_data_messages()
+                .clone()
+                .into_iter(),
         )
     };
 
@@ -657,6 +665,7 @@ async fn run_event_loop<
         SessionClock,
         Rng,
         ProcessedMessage<NetAdapter::BroadcastSettings>,
+        EncapsulatedMessage,
     >,
     mut rng: Rng,
     mut blending_token_collector: BlendingTokenCollector,
@@ -691,7 +700,7 @@ async fn run_event_loop<
     loop {
         tokio::select! {
             Some(local_data_message) = inbound_relay.next() => {
-                handle_local_data_message(local_data_message, &mut crypto_processor, &backend, &mut message_scheduler).await;
+                current_recovery_checkpoint = handle_local_data_message(local_data_message, &mut crypto_processor, &mut message_scheduler, current_recovery_checkpoint).await;
             }
             Some(incoming_message) = blend_messages.next() => {
                 current_recovery_checkpoint = handle_incoming_blend_message(incoming_message, &mut message_scheduler, &crypto_processor, &mut blending_token_collector, current_recovery_checkpoint);
@@ -864,7 +873,7 @@ where
                     ));
                 }
             };
-            let state_updater = current_recovery_checkpoint.into_components().3;
+            let state_updater = current_recovery_checkpoint.into_components().4;
             Ok(HandleSessionEventOutput {
                 crypto_processor: new_processor,
                 public_info: new_public_info,
@@ -927,19 +936,16 @@ fn compute_and_submit_activity_proof_for_previous_session(
 ///
 /// When a new local data message is received, an attempt to serialize and
 /// encapsulate its payload is performed. If encapsulation is successful, the
-/// message is sent over the Blend network and the Blend scheduler notified of
-/// the new message sent.
-/// These messages do not go through the Blend scheduler hence are not delayed,
-/// as per the spec.
+/// message is queued with the Blend scheduler and blended during the next
+/// round.
 async fn handle_local_data_message<
     NodeId,
     Rng,
-    Backend,
+    BackendSettings,
     SessionClock,
     BroadcastSettings,
     ProofsGenerator,
     ProofsVerifier,
-    RuntimeServiceId,
 >(
     local_data_message: ServiceMessage<BroadcastSettings>,
     cryptographic_processor: &mut CoreCryptographicProcessor<
@@ -947,13 +953,19 @@ async fn handle_local_data_message<
         ProofsGenerator,
         ProofsVerifier,
     >,
-    backend: &Backend,
-    scheduler: &mut SchedulerWrapper<SessionClock, Rng, ProcessedMessage<BroadcastSettings>>,
-) where
+    scheduler: &mut SchedulerWrapper<
+        SessionClock,
+        Rng,
+        ProcessedMessage<BroadcastSettings>,
+        EncapsulatedMessage,
+    >,
+    current_recovery_checkpoint: ServiceState<BackendSettings, BroadcastSettings>,
+) -> ServiceState<BackendSettings, BroadcastSettings>
+where
     NodeId: Eq + Hash + Send + 'static,
     Rng: RngCore + Send,
-    Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId> + Sync,
-    BroadcastSettings: Serialize + for<'de> Deserialize<'de> + Send,
+    BackendSettings: Clone + Send + Sync,
+    BroadcastSettings: Serialize + for<'de> Deserialize<'de> + Hash + Eq + Clone + Send + Sync,
     ProofsGenerator: CoreAndLeaderProofsGenerator,
 {
     let ServiceMessage::Blend(message_payload) = local_data_message;
@@ -969,10 +981,18 @@ async fn handle_local_data_message<
             tracing::error!(target: LOG_TARGET, "Failed to wrap message: {e:?}");
         })
     else {
-        return;
+        return current_recovery_checkpoint;
     };
-    backend.publish(wrapped_message).await;
-    scheduler.notify_new_data_message();
+
+    scheduler.queue_data_message(wrapped_message.clone());
+
+    let mut state_updater = current_recovery_checkpoint.start_updating();
+    assert_eq!(
+        state_updater.add_unsent_data_message(wrapped_message),
+        Ok(()),
+        "There should not be another copy of the same encapsulated data message already processed."
+    );
+    state_updater.commit_changes()
 }
 
 /// Processes an already unwrapped and validated Blend message received from
@@ -991,7 +1011,12 @@ fn handle_incoming_blend_message<
     ProofsVerifier,
 >(
     validated_encapsulated_message: IncomingEncapsulatedMessageWithValidatedPublicHeader,
-    scheduler: &mut MessageScheduler<SessionClock, Rng, ProcessedMessage<BroadcastSettings>>,
+    scheduler: &mut MessageScheduler<
+        SessionClock,
+        Rng,
+        ProcessedMessage<BroadcastSettings>,
+        EncapsulatedMessage,
+    >,
     cryptographic_processor: &CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
     blending_token_collector: &mut BlendingTokenCollector,
     current_recovery_checkpoint: ServiceState<BackendSettings, BroadcastSettings>,
@@ -1028,9 +1053,9 @@ where
                     {
                         let processed_message =
                             ProcessedMessage::from(deserialized_network_message);
-                        scheduler.schedule_message(processed_message.clone());
+                        scheduler.schedule_processed_message(processed_message.clone());
                         assert_eq!(
-                            state_updater.add_unsent_message(processed_message),
+                            state_updater.add_unsent_processed_message(processed_message),
                             Ok(()),
                             "There should not be another copy of the same data message already processed."
                         );
@@ -1048,9 +1073,9 @@ where
         } => {
             blending_token_collector.insert(blending_token);
             let processed_message = ProcessedMessage::from(remaining_encapsulated_message);
-            scheduler.schedule_message(processed_message.clone());
+            scheduler.schedule_processed_message(processed_message.clone());
             assert_eq!(
-                state_updater.add_unsent_message(processed_message),
+                state_updater.add_unsent_processed_message(processed_message),
                 Ok(()),
                 "There should not be another copy of the same encapsulated message already processed."
             );
@@ -1076,14 +1101,10 @@ async fn handle_release_round<
     ProofsVerifier,
     RuntimeServiceId,
 >(
-    RoundInfoAndConsumedQuota {
-        info:
-            RoundInfo {
-                cover_message_generation_flag,
-                processed_messages,
-            },
-        consumed_quota,
-    }: RoundInfoAndConsumedQuota<ProcessedMessage<NetAdapter::BroadcastSettings>>,
+    RoundInfo {
+        data_messages,
+        release_type,
+    }: RoundInfo<ProcessedMessage<NetAdapter::BroadcastSettings>, EncapsulatedMessage>,
     cryptographic_processor: &mut CoreCryptographicProcessor<
         NodeId,
         ProofsGenerator,
@@ -1101,19 +1122,36 @@ where
     ProofsGenerator: CoreAndLeaderProofsGenerator,
     NetAdapter: NetworkAdapter<RuntimeServiceId, BroadcastSettings: Eq + Hash> + Sync,
 {
+    let (processed_messages, should_generate_cover_message) =
+        release_type.map_or_else(|| (vec![], false), RoundReleaseType::into_components);
+    let outgoing_message_count =
+        data_messages.len() + processed_messages.len() + usize::from(should_generate_cover_message);
     let mut state_updater = current_recovery_checkpoint.start_updating();
 
-    let mut processed_messages_relay_futures = processed_messages
-        .into_iter()
+    let data_messages_relay_futures = data_messages.into_iter()
         // While we iterate and map the messages to the sending futures, we update the recovery state to remove each message.
-        .inspect(|message_to_release| {
-            if state_updater.remove_sent_message(message_to_release).is_err() {
+        .inspect(|data_message_to_blend| {
+            if state_updater.remove_sent_data_message(data_message_to_blend).is_err() {
+                tracing::warn!(target: LOG_TARGET, "Recovered data message should be present in the recovery state but was not found.");
+            }
+            // Each data message that is sent is one less cover message that should be generated, hence we consume one core quota per data message here.
+            state_updater.consume_core_quota(1);
+        }).map(
+            |data_message_to_blend| -> Box<dyn Future<Output = ()> + Send + Unpin> {
+                Box::new(backend.publish(data_message_to_blend))
+            },
+        ).collect::<Vec<_>>();
+
+    let processed_messages_relay_futures = processed_messages
+        .into_iter()
+        .inspect(|processed_message_to_release| {
+            if state_updater.remove_sent_processed_message(processed_message_to_release).is_err() {
                 tracing::warn!(target: LOG_TARGET, "Previously processed message should be present in the recovery state but was not found.");
             }
         })
         .map(
-            |message_to_release| -> Box<dyn Future<Output = ()> + Send + Unpin> {
-                match message_to_release {
+            |processed_message_to_release| -> Box<dyn Future<Output = ()> + Send + Unpin> {
+                match processed_message_to_release {
                     ProcessedMessage::Network(NetworkMessage {
                         broadcast_settings,
                         message,
@@ -1123,25 +1161,27 @@ where
                     }
                 }
             },
-        )
+        ).collect::<Vec<_>>();
+
+    let mut message_futures = data_messages_relay_futures
+        .into_iter()
+        .chain(processed_messages_relay_futures)
         .collect::<Vec<_>>();
-    if cover_message_generation_flag.is_some() {
+
+    if should_generate_cover_message {
         let cover_message = cryptographic_processor
             .encapsulate_cover_payload(&random_sized_bytes::<{ size_of::<u32>() }>())
             .await
             .expect("Should not fail to generate new cover message");
-        processed_messages_relay_futures.push(Box::new(backend.publish(cover_message)));
+        state_updater.consume_core_quota(1);
+        message_futures.push(Box::new(backend.publish(cover_message)));
     }
-    // TODO: If we send all of them in parallel, do we still need to shuffle them?
-    processed_messages_relay_futures.shuffle(rng);
-    let total_message_count = processed_messages_relay_futures.len();
+    message_futures.shuffle(rng);
 
     // Release all messages concurrently, and wait for all of them to be sent.
-    join_all(processed_messages_relay_futures).await;
-    tracing::debug!(target: LOG_TARGET, "Sent out {total_message_count} processed and/or cover messages at this release window.");
+    join_all(message_futures).await;
+    tracing::debug!(target: LOG_TARGET, "Sent out {outgoing_message_count} data, processed and cover messages at this release window.");
 
-    // Update state by tracking the quota consumed by this release round.
-    state_updater.consume_core_quota(consumed_quota);
     state_updater.commit_changes()
 }
 
