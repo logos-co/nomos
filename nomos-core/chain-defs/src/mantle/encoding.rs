@@ -64,13 +64,13 @@ pub fn decode_mantle_tx(input: &[u8]) -> IResult<&[u8], MantleTx> {
 // Operation List Decoders
 // ==============================================================================
 
-fn decode_ops(input: &[u8]) -> IResult<&[u8], Vec<Op>> {
+pub fn decode_ops(input: &[u8]) -> IResult<&[u8], Vec<Op>> {
     // Ops = OpCount *Op
     let (input, op_count) = decode_byte(input)?;
     count(decode_op, op_count as usize).parse(input)
 }
 
-fn decode_op(input: &[u8]) -> IResult<&[u8], Op> {
+pub fn decode_op(input: &[u8]) -> IResult<&[u8], Op> {
     // Op = Opcode OpPayload
     let (input, opcode) = decode_byte(input)?;
 
@@ -610,7 +610,7 @@ fn encode_ledger_tx(tx: &LedgerTx) -> Vec<u8> {
 }
 
 /// Encode operations
-fn encode_op(op: &Op) -> Vec<u8> {
+pub fn encode_op(op: &Op) -> Vec<u8> {
     let mut bytes = Vec::new();
     match op {
         Op::ChannelInscribe(op) => {

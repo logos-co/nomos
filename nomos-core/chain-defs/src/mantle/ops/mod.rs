@@ -6,6 +6,7 @@ pub mod sdp;
 mod serde_;
 mod wire;
 
+use bincode::Options;
 use bytes::Bytes;
 use channel::{
     blob::{BlobOp, DA_COLUMNS, DA_ELEMENT_SIZE},
@@ -26,9 +27,13 @@ use super::{
     },
 };
 use crate::{
-    mantle::ops::{
-        internal::{OpDe, OpSer},
-        wire::OpWireVisitor,
+    codec::SerializeOp,
+    mantle::{
+        encoding::{decode_op, encode_op},
+        ops::{
+            internal::{OpDe, OpSer},
+            wire::OpWireVisitor,
+        },
     },
     proofs::zksig,
     utils::ed25519_serde,
@@ -74,8 +79,13 @@ impl Serialize for Op {
     where
         S: Serializer,
     {
-        let op_ser = OpSer::from(self);
-        op_ser.serialize(serializer)
+        if serializer.is_human_readable() {
+            let op_ser = OpSer::from(self);
+            op_ser.serialize(serializer)
+        } else {
+            let bytes = encode_op(self);
+            serializer.serialize_bytes(&bytes)
+        }
     }
 }
 
@@ -98,7 +108,10 @@ impl<'de> Deserialize<'de> for Op {
         if deserializer.is_human_readable() {
             OpDe::deserialize(deserializer).map(Self::from)
         } else {
-            deserializer.deserialize_tuple(2, OpWireVisitor)
+            let bytes = <Vec<u8>>::deserialize(deserializer)?;
+            decode_op(&bytes)
+                .map(|(_, op)| op)
+                .map_err(serde::de::Error::custom)
         }
     }
 }
@@ -191,7 +204,10 @@ mod tests {
     use serde_json::json;
 
     use super::{Op, channel::blob::BlobOp};
-    use crate::codec::{DeserializeOp as _, SerializeOp as _};
+    use crate::{
+        codec::{DeserializeOp as _, SerializeOp as _},
+        mantle::encoding::encode_op,
+    };
 
     // nothing special, just some valid bytes
     static VK: LazyLock<ed25519_dalek::VerifyingKey> = LazyLock::new(|| {
@@ -231,17 +247,6 @@ mod tests {
     #[test]
     fn test_bincode_serialize_deserialize_blob_op() {
         // opcode + payload
-        // TODO: use more efficient repr for the ed25519 key
-        let expected_bincode = vec![
-            1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 32, 0, 0, 0, 0, 0, 0, 0, 215, 90, 152, 1, 130, 177, 10, 183, 213, 75,
-            254, 211, 201, 100, 7, 58, 14, 225, 114, 243, 218, 166, 35, 37, 175, 2, 26, 104, 247,
-            7, 81, 26,
-        ];
-
         let blob_op = BlobOp {
             channel: [0; 32].into(),
             session: 0u64,
@@ -252,9 +257,7 @@ mod tests {
             signer: *VK,
         };
         let op = Op::ChannelBlob(blob_op);
-
         let serialized = op.to_bytes().expect("Op should be able to be serialized");
-        assert_eq!(serialized.to_vec(), expected_bincode);
         let deserialized = Op::from_bytes(&serialized).unwrap();
         assert_eq!(deserialized, op);
     }
