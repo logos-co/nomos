@@ -197,14 +197,12 @@ fn compute_selectors(
     let mut result = [false; CORE_MERKLE_TREE_HEIGHT];
     let mut idx = *index;
 
-    // The selector at each level is determined by the bit at that position
-    // in the binary representation of the index
-    // Bit 0 (MSB) determines position at level 20, bit 1 at level 19, ..., bit 20
-    // at level 0.
-    for level in (0..CORE_MERKLE_TREE_HEIGHT).rev() {
-        *result
-            .get_mut(level)
-            .expect("Selector at level should exist.") = (idx & 1) == 1;
+    // The selector at each level is determined by the corresponding bit of the leaf
+    // index. Iterating from the last element to the first (leaf → root):
+    // result[CORE_MERKLE_TREE_HEIGHT-1] (leaf level) = bit 0 (LSB) of index
+    // result[0] (root level) = MSB of index
+    for result_entry in result.iter_mut().take(CORE_MERKLE_TREE_HEIGHT).rev() {
+        *result_entry = (idx & 1) == 1;
         idx >>= 1u8;
     }
 
@@ -378,14 +376,16 @@ mod tests {
     }
 
     fn generate_inputs<const INPUTS: usize>() -> PoQInputs<INPUTS> {
-        let keys: Vec<_> = (1..=INPUTS as u64)
+        let keys: [_; INPUTS] = (1..=INPUTS as u64)
             .map(|i| {
                 let sk = SecretKey::new(ZkHash::from(i));
                 let pk = sk.to_public_key();
                 (sk, pk)
             })
-            .collect();
-        let merkle_tree = MerkleTree::new(keys.iter().map(|(_, pk)| *pk).collect()).unwrap();
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+        let merkle_tree = MerkleTree::new(keys.clone().map(|(_, pk)| pk).to_vec()).unwrap();
         let public_inputs = {
             let core_inputs = CoreInputs {
                 quota: 1,
@@ -406,18 +406,13 @@ mod tests {
                 signing_key,
             }
         };
-        let secret_inputs = keys
-            .into_iter()
-            .map(|(sk, pk)| {
-                let proof = merkle_tree.get_proof_for_key(&pk).unwrap();
-                ProofOfCoreQuotaInputs {
-                    core_sk: sk.into_inner(),
-                    core_path_and_selectors: proof,
-                }
-            })
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap();
+        let secret_inputs = keys.map(|(sk, pk)| {
+            let proof = merkle_tree.get_proof_for_key(&pk).unwrap();
+            ProofOfCoreQuotaInputs {
+                core_sk: sk.into_inner(),
+                core_path_and_selectors: proof,
+            }
+        });
 
         PoQInputs {
             public_inputs,
