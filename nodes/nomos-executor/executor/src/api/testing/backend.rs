@@ -26,7 +26,9 @@ use nomos_http_api_common::{
 use nomos_node::{
     DaNetworkApiAdapter, NomosDaMembership,
     api::testing::handlers::{da_get_membership, da_historic_sampling},
-    generic_services::{self, DaMembershipAdapter, SdpService, SdpServiceAdapterGeneric},
+    generic_services::{
+        self, DaMembershipAdapter, SamplingMempoolAdapter, SdpService, SdpServiceAdapterGeneric,
+    },
 };
 use overwatch::{DynError, overwatch::handle::OverwatchHandle, services::AsServiceId};
 use tokio::net::TcpListener;
@@ -141,6 +143,7 @@ where
                             RuntimeServiceId,
                         >,
                         SamplingStorageAdapter<DaShare, DaStorageConverter>,
+                        SamplingMempoolAdapter<RuntimeServiceId>,
                         RuntimeServiceId,
                     >,
                 ),

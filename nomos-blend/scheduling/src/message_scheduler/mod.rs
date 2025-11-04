@@ -1,5 +1,6 @@
 use core::{
     fmt::Debug,
+    mem::take,
     num::NonZeroU64,
     pin::Pin,
     task::{Context, Poll},
@@ -12,7 +13,7 @@ use tracing::{info, trace};
 use crate::{
     cover_traffic::SessionCoverTraffic,
     message_scheduler::{
-        round_info::{RoundClock, RoundInfo},
+        round_info::{RoundClock, RoundInfo, RoundReleaseType},
         session_info::SessionInfo,
         utils::setup_new_session,
     },
@@ -30,14 +31,16 @@ const LOG_TARGET: &str = "blend::scheduling";
 
 /// The initialized version of [`UninitializedMessageScheduler`] that is created
 /// after the session stream yields its first result.
-pub struct MessageScheduler<SessionClock, Rng, ProcessedMessage> {
+pub struct MessageScheduler<SessionClock, Rng, ProcessedMessage, DataMessage> {
     /// The module responsible for randomly generated cover messages, given the
     /// allowed session quota and accounting for data messages generated within
     /// the session.
-    cover_traffic: SessionCoverTraffic<RoundClock>,
+    cover_traffic: SessionCoverTraffic<Rng, RoundClock>,
     /// The module responsible for delaying the release of processed messages
     /// that have not been fully decapsulated.
     release_delayer: SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage>,
+    /// The queue of data messages that are stored in between rounds.
+    data_messages: Vec<DataMessage>,
     /// The multi-consumer stream forked on each sub-stream.
     round_clock: RoundClock,
     /// The input stream that ticks upon a session change.
@@ -46,28 +49,29 @@ pub struct MessageScheduler<SessionClock, Rng, ProcessedMessage> {
     settings: Settings,
 }
 
-impl<SessionClock, Rng, ProcessedMessage> MessageScheduler<SessionClock, Rng, ProcessedMessage>
+impl<SessionClock, Rng, ProcessedMessage, DataMessage>
+    MessageScheduler<SessionClock, Rng, ProcessedMessage, DataMessage>
 where
     Rng: rand::Rng + Clone,
 {
     pub fn new(
         session_clock: SessionClock,
         initial_session_info: SessionInfo,
-        mut rng: Rng,
+        rng: Rng,
         settings: Settings,
     ) -> Self {
         // To avoid duplication for the `setup_new_session` logic, we need to create
         // "dummy" containers that are soon replaced in the `setup_new_session`
         // function, which expects a `&mut` reference to those fields. The same function
         // is then called upon each new session tick.
-        let mut initial_cover_traffic = SessionCoverTraffic::<RoundClock>::new(
+        let mut initial_cover_traffic = SessionCoverTraffic::<Rng, RoundClock>::new(
             crate::cover_traffic::Settings {
                 additional_safety_intervals: settings.additional_safety_intervals,
                 expected_intervals_per_session: settings.expected_intervals_per_session,
                 rounds_per_interval: settings.rounds_per_interval,
                 starting_quota: initial_session_info.core_quota,
             },
-            &mut rng,
+            rng.clone(),
             Box::new(empty()) as RoundClock,
         );
         let mut initial_release_delayer =
@@ -79,11 +83,13 @@ where
                 Box::new(empty()) as RoundClock,
             );
         let mut initial_round_clock = Box::new(empty()) as RoundClock;
+        let mut initial_data_messages = Vec::new();
 
         setup_new_session(
             &mut initial_cover_traffic,
             &mut initial_release_delayer,
             &mut initial_round_clock,
+            &mut initial_data_messages,
             settings,
             rng,
             initial_session_info,
@@ -92,38 +98,38 @@ where
         Self {
             cover_traffic: initial_cover_traffic,
             release_delayer: initial_release_delayer,
+            data_messages: initial_data_messages,
             round_clock: initial_round_clock,
             session_clock,
             settings,
         }
     }
-
-    #[cfg(feature = "unsafe-test-functions")]
-    pub const fn cover_traffic_module(&self) -> &SessionCoverTraffic<RoundClock> {
-        &self.cover_traffic
-    }
 }
 
-impl<SessionClock, Rng, ProcessedMessage> MessageScheduler<SessionClock, Rng, ProcessedMessage> {
+impl<SessionClock, Rng, ProcessedMessage, DataMessage>
+    MessageScheduler<SessionClock, Rng, ProcessedMessage, DataMessage>
+{
     /// Notify the cover message submodule that a new data message has been
     /// generated in this session, which will reduce the number of cover
     /// messages generated going forward.
-    pub fn notify_new_data_message(&mut self) {
+    pub fn queue_data_message(&mut self, message: DataMessage) {
+        self.data_messages.push(message);
         self.cover_traffic.notify_new_data_message();
     }
 
     /// Add a new processed message to the release delayer component queue, for
     /// release during the next release window.
-    pub fn schedule_message(&mut self, message: ProcessedMessage) {
+    pub fn schedule_processed_message(&mut self, message: ProcessedMessage) {
         self.release_delayer.schedule_message(message);
     }
 
     #[cfg(test)]
     pub fn with_test_values(
-        cover_traffic: SessionCoverTraffic<RoundClock>,
+        cover_traffic: SessionCoverTraffic<Rng, RoundClock>,
         release_delayer: SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage>,
         round_clock: RoundClock,
         session_clock: SessionClock,
+        data_messages: Vec<DataMessage>,
     ) -> Self {
         Self {
             cover_traffic,
@@ -132,18 +138,20 @@ impl<SessionClock, Rng, ProcessedMessage> MessageScheduler<SessionClock, Rng, Pr
             session_clock,
             // These are not needed when all fields are provided as arguments.
             settings: Settings::default(),
+            data_messages,
         }
     }
 }
 
-impl<SessionClock, Rng, ProcessedMessage> Stream
-    for MessageScheduler<SessionClock, Rng, ProcessedMessage>
+impl<SessionClock, Rng, ProcessedMessage, DataMessage> Stream
+    for MessageScheduler<SessionClock, Rng, ProcessedMessage, DataMessage>
 where
     SessionClock: Stream<Item = SessionInfo> + Unpin,
     Rng: rand::Rng + Clone + Unpin,
     ProcessedMessage: Debug + Unpin,
+    DataMessage: Debug + Unpin,
 {
-    type Item = RoundInfo<ProcessedMessage>;
+    type Item = RoundInfo<ProcessedMessage, DataMessage>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let Self {
@@ -152,6 +160,7 @@ where
             round_clock,
             settings,
             session_clock,
+            data_messages,
         } = &mut *self;
         // We update session info on new sessions.
         let rng = release_delayer.rng().clone();
@@ -161,6 +170,7 @@ where
                     cover_traffic,
                     release_delayer,
                     round_clock,
+                    data_messages,
                     *settings,
                     rng,
                     new_session_info,
@@ -177,42 +187,54 @@ where
             Poll::Ready(Some(new_round)) => new_round,
         };
         trace!(target: LOG_TARGET, "New round {new_round} started.");
+        let data_messages_to_release = take(data_messages);
 
         // We poll the sub-stream and return the right result accordingly.
         let cover_traffic_output = cover_traffic.poll_next_unpin(cx);
         let release_delayer_output = release_delayer.poll_next_unpin(cx);
 
-        match (cover_traffic_output, release_delayer_output) {
-            // If none of the sub-streams is ready, we do not return anything.
-            (Poll::Pending, Poll::Pending) => {
-                // Awake to trigger a new round clock tick.
-                cx.waker().wake_by_ref();
-                Poll::Pending
+        let round_info = match (
+            cover_traffic_output,
+            release_delayer_output,
+            data_messages_to_release,
+        ) {
+            // If none of the sub-streams is ready, we return `Ready` if we have data messages to
+            // release at this round. Else, we return `Pending`.
+            (Poll::Pending, Poll::Pending, data_messages) => {
+                if data_messages.is_empty() {
+                    // Awake to trigger a new round clock tick.
+                    cx.waker().wake_by_ref();
+                    return Poll::Pending;
+                }
+                RoundInfo {
+                    data_messages,
+                    release_type: None,
+                }
             }
             // Bubble up `Poll::Ready(None)` if any sub-stream returns it.
-            (Poll::Ready(None), _) | (_, Poll::Ready(None)) => Poll::Ready(None),
-            // If at least one sub-stream yields a result, we yield a new result, which might also
-            // contain no actual elements if the cover message module did not yield a new cover
-            // message and there were no queue messages to be released in this release
-            // window.
-            (cover_message_ready_output, processed_messages_ready_output) => {
-                let cover_message =
-                    (cover_message_ready_output == Poll::Ready(Some(()))).then_some(());
-                let processed_messages = if let Poll::Ready(Some(processed_messages)) =
-                    processed_messages_ready_output
-                {
-                    processed_messages
-                } else {
-                    vec![]
-                };
-                let round_info = RoundInfo {
-                    processed_messages,
-                    cover_message_generation_flag: cover_message,
-                };
-                info!(target: LOG_TARGET, "Emitting new round info {round_info:?}.");
-                Poll::Ready(Some(round_info))
+            (Poll::Ready(None), _, _) | (_, Poll::Ready(None), _) => return Poll::Ready(None),
+            // Data and cover messages, no processed messages.
+            (Poll::Ready(Some(())), Poll::Pending, data_messages) => RoundInfo {
+                data_messages,
+                release_type: Some(RoundReleaseType::OnlyCoverMessage),
+            },
+            // Data and processed messages, no cover message.
+            (Poll::Pending, Poll::Ready(Some(processed_messages)), data_messages) => RoundInfo {
+                data_messages,
+                release_type: Some(RoundReleaseType::OnlyProcessedMessages(processed_messages)),
+            },
+            // Data, cover, and processed messages.
+            (Poll::Ready(Some(())), Poll::Ready(Some(processed_messages)), data_messages) => {
+                RoundInfo {
+                    data_messages,
+                    release_type: Some(RoundReleaseType::ProcessedAndCoverMessages(
+                        processed_messages,
+                    )),
+                }
             }
-        }
+        };
+        info!(target: LOG_TARGET, "Emitting new round info {round_info:?}.");
+        Poll::Ready(Some(round_info))
     }
 }
 

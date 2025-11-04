@@ -3,7 +3,7 @@ pub mod config;
 pub mod generic_services;
 
 use color_eyre::eyre::{Result, eyre};
-use generic_services::VerifierMempoolAdapter;
+use generic_services::{SamplingMempoolAdapter, VerifierMempoolAdapter};
 use kzgrs_backend::common::share::DaShare;
 pub use kzgrs_backend::dispersal::BlobInfo;
 pub use nomos_blend_service::{
@@ -56,7 +56,6 @@ pub use tx_service::{
         Libp2pAdapter as MempoolNetworkAdapter, Settings as MempoolAdapterSettings,
         Settings as AdapterSettings,
     },
-    processor::tx::SignedTxProcessorSettings,
     tx::settings::TxMempoolSettings,
 };
 
@@ -109,7 +108,7 @@ pub(crate) type DaVerifierService = generic_services::DaVerifierService<
         SdpServiceAdapterGeneric<RuntimeServiceId>,
         RuntimeServiceId,
     >,
-    VerifierMempoolAdapter<DaNetworkAdapter, RuntimeServiceId>,
+    VerifierMempoolAdapter<RuntimeServiceId>,
     RuntimeServiceId,
 >;
 
@@ -126,8 +125,7 @@ pub(crate) type DaNetworkService = nomos_da_network_service::NetworkService<
     RuntimeServiceId,
 >;
 
-pub(crate) type MempoolService =
-    generic_services::TxMempoolService<DaSamplingAdapter, RuntimeServiceId>;
+pub(crate) type MempoolService = generic_services::TxMempoolService<RuntimeServiceId>;
 
 pub(crate) type DaNetworkAdapter = nomos_da_sampling::network::adapters::validator::Libp2pAdapter<
     NomosDaMembership,
@@ -184,8 +182,9 @@ pub(crate) type ApiService = nomos_api::ApiService<
             SdpServiceAdapterGeneric<RuntimeServiceId>,
             RuntimeServiceId,
         >,
+        SamplingMempoolAdapter<RuntimeServiceId>,
         SamplingStorageAdapter<DaShare, DaStorageConverter>,
-        VerifierMempoolAdapter<DaNetworkAdapter, RuntimeServiceId>,
+        VerifierMempoolAdapter<RuntimeServiceId>,
         NtpTimeBackend,
         DaNetworkApiAdapter,
         SdpServiceAdapterGeneric<RuntimeServiceId>,
@@ -247,9 +246,6 @@ pub fn run_node_from_config(config: Config) -> Result<Overwatch<RuntimeServiceId
                 network_adapter: AdapterSettings {
                     topic: String::from(MANTLE_TOPIC),
                     id: <SignedMantleTx as Transaction>::hash,
-                },
-                processor: SignedTxProcessorSettings {
-                    trigger_sampling_delay: config.mempool.trigger_sampling_delay,
                 },
                 recovery_path: config.mempool.pool_recovery_path,
             },

@@ -4,18 +4,17 @@ use nomos_core::sdp::{ActivityMetadata, DeclarationId, DeclarationMessage};
 use nomos_sdp::SdpService;
 use overwatch::{DynError, overwatch::OverwatchHandle};
 
-pub async fn post_declaration_handler<Backend, RuntimeServiceId>(
+pub async fn post_declaration_handler<RuntimeServiceId>(
     handle: OverwatchHandle<RuntimeServiceId>,
     declaration: DeclarationMessage,
 ) -> Result<DeclarationId, DynError>
 where
-    Backend: nomos_sdp::backends::SdpBackend + Send + Sync + 'static,
     RuntimeServiceId: Send
         + Sync
         + Debug
         + Display
         + 'static
-        + overwatch::services::AsServiceId<SdpService<Backend, RuntimeServiceId>>,
+        + overwatch::services::AsServiceId<SdpService<RuntimeServiceId>>,
 {
     let relay = handle.relay().await?;
     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
@@ -31,18 +30,17 @@ where
     reply_rx.await?
 }
 
-pub async fn post_activity_handler<Backend, RuntimeServiceId>(
+pub async fn post_activity_handler<RuntimeServiceId>(
     handle: OverwatchHandle<RuntimeServiceId>,
     metadata: ActivityMetadata,
 ) -> Result<(), DynError>
 where
-    Backend: nomos_sdp::backends::SdpBackend + Send + Sync + 'static,
     RuntimeServiceId: Send
         + Sync
         + Debug
         + Display
         + 'static
-        + overwatch::services::AsServiceId<SdpService<Backend, RuntimeServiceId>>,
+        + overwatch::services::AsServiceId<SdpService<RuntimeServiceId>>,
 {
     let relay = handle.relay().await?;
 
@@ -54,18 +52,17 @@ where
     Ok(())
 }
 
-pub async fn post_withdrawal_handler<Backend, RuntimeServiceId>(
+pub async fn post_withdrawal_handler<RuntimeServiceId>(
     handle: OverwatchHandle<RuntimeServiceId>,
     declaration_id: DeclarationId,
 ) -> Result<(), DynError>
 where
-    Backend: nomos_sdp::backends::SdpBackend + Send + Sync + 'static,
     RuntimeServiceId: Send
         + Sync
         + Debug
         + Display
         + 'static
-        + overwatch::services::AsServiceId<SdpService<Backend, RuntimeServiceId>>,
+        + overwatch::services::AsServiceId<SdpService<RuntimeServiceId>>,
 {
     let relay = handle.relay().await?;
 

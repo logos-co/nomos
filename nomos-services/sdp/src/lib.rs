@@ -1,10 +1,8 @@
 pub mod adapters;
-pub mod backends;
 
-use std::{collections::BTreeSet, fmt::Display, marker::PhantomData, pin::Pin};
+use std::{collections::BTreeSet, fmt::Display, pin::Pin};
 
 use async_trait::async_trait;
-use backends::{SdpBackend, SdpBackendError};
 use futures::{Stream, StreamExt as _};
 use nomos_core::{
     block::BlockNumber,
@@ -87,15 +85,14 @@ pub enum SdpMessage {
     },
 }
 
-pub struct SdpService<Backend, RuntimeServiceId> {
-    backend: PhantomData<Backend>,
+pub struct SdpService<RuntimeServiceId> {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     finalized_update_tx: broadcast::Sender<BlockEvent>,
     current_declaration: Option<Declaration>,
     nonce: u64,
 }
 
-impl<Backend, RuntimeServiceId> ServiceData for SdpService<Backend, RuntimeServiceId> {
+impl<RuntimeServiceId> ServiceData for SdpService<RuntimeServiceId> {
     type Settings = SdpSettings;
     type State = NoState<Self::Settings>;
     type StateOperator = NoOperator<Self::State>;
@@ -103,10 +100,8 @@ impl<Backend, RuntimeServiceId> ServiceData for SdpService<Backend, RuntimeServi
 }
 
 #[async_trait]
-impl<Backend, RuntimeServiceId> ServiceCore<RuntimeServiceId>
-    for SdpService<Backend, RuntimeServiceId>
+impl<RuntimeServiceId> ServiceCore<RuntimeServiceId> for SdpService<RuntimeServiceId>
 where
-    Backend: SdpBackend + Send + Sync + 'static,
     RuntimeServiceId: AsServiceId<Self> + Clone + Display + Send + Sync + 'static,
 {
     fn init(
@@ -122,7 +117,6 @@ where
 
         Ok(Self {
             current_declaration: settings.declaration,
-            backend: PhantomData,
             service_resources_handle,
             finalized_update_tx,
             nonce: 0,
@@ -179,9 +173,8 @@ where
     }
 }
 
-impl<Backend, RuntimeServiceId> SdpService<Backend, RuntimeServiceId>
+impl<RuntimeServiceId> SdpService<RuntimeServiceId>
 where
-    Backend: SdpBackend + Send + Sync + 'static,
     RuntimeServiceId: AsServiceId<Self> + Clone + Display + Send + Sync + 'static,
 {
     async fn handle_post_declaration(

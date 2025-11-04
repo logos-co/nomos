@@ -1,4 +1,5 @@
 pub mod backend;
+pub mod mempool;
 pub mod network;
 pub mod storage;
 pub mod verifier;
@@ -14,7 +15,7 @@ use backend::{DaSamplingServiceBackend, SamplingState};
 use futures::{FutureExt as _, Stream, future::BoxFuture, stream::FuturesUnordered};
 use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
 use network::NetworkAdapter;
-use nomos_core::{da::BlobId, header::HeaderId, sdp::SessionNumber};
+use nomos_core::{da::BlobId, header::HeaderId, mantle::SignedMantleTx, sdp::SessionNumber};
 use nomos_da_network_core::protocols::sampling::errors::SamplingError;
 use nomos_da_network_service::{
     NetworkService,
@@ -38,22 +39,31 @@ use tokio_stream::StreamExt as _;
 use tracing::{error, instrument};
 use verifier::{VerifierBackend, kzgrs::KzgrsDaVerifier};
 
+use crate::mempool::DaMempoolAdapter;
+
 const HISTORICAL_SAMPLING_TIMEOUT: Duration = Duration::from_secs(30);
 
 struct PendingTasks<'a> {
     long_tasks: &'a mut FuturesUnordered<BoxFuture<'static, ()>>,
     sampling_continuations:
         &'a mut FuturesUnordered<BoxFuture<'static, (BlobId, Option<DaSharesCommitments>)>>,
+    delayed_sdp_sampling_triggers: &'a mut FuturesUnordered<BoxFuture<'static, BlobId>>,
 }
 
-pub type DaSamplingService<SamplingBackend, SamplingNetwork, SamplingStorage, RuntimeServiceId> =
-    GenericDaSamplingService<
-        SamplingBackend,
-        SamplingNetwork,
-        SamplingStorage,
-        KzgrsDaVerifier,
-        RuntimeServiceId,
-    >;
+pub type DaSamplingService<
+    SamplingBackend,
+    SamplingNetwork,
+    SamplingStorage,
+    MempoolAdapter,
+    RuntimeServiceId,
+> = GenericDaSamplingService<
+    SamplingBackend,
+    SamplingNetwork,
+    SamplingStorage,
+    KzgrsDaVerifier,
+    MempoolAdapter,
+    RuntimeServiceId,
+>;
 
 #[derive(Debug)]
 pub enum DaSamplingServiceMsg<BlobId> {
@@ -83,6 +93,7 @@ pub struct DaSamplingServiceSettings<BackendSettings, ShareVerifierSettings> {
     pub sampling_settings: BackendSettings,
     pub share_verifier_settings: ShareVerifierSettings,
     pub commitments_wait_duration: Duration,
+    pub sdp_blob_trigger_sampling_delay: Duration,
 }
 
 pub struct GenericDaSamplingService<
@@ -90,11 +101,13 @@ pub struct GenericDaSamplingService<
     SamplingNetwork,
     SamplingStorage,
     ShareVerifier,
+    MempoolAdapter,
     RuntimeServiceId,
 > where
     SamplingBackend: DaSamplingServiceBackend,
     SamplingNetwork: NetworkAdapter<RuntimeServiceId>,
     SamplingStorage: DaStorageAdapter<RuntimeServiceId>,
+    MempoolAdapter: DaMempoolAdapter,
     ShareVerifier: VerifierBackend,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
@@ -102,22 +115,32 @@ pub struct GenericDaSamplingService<
         SamplingBackend,
         SamplingNetwork,
         SamplingStorage,
+        MempoolAdapter,
         ShareVerifier,
     )>,
 }
 
-impl<SamplingBackend, SamplingNetwork, SamplingStorage, ShareVerifier, RuntimeServiceId>
+impl<
+    SamplingBackend,
+    SamplingNetwork,
+    SamplingStorage,
+    ShareVerifier,
+    MempoolAdapter,
+    RuntimeServiceId,
+>
     GenericDaSamplingService<
         SamplingBackend,
         SamplingNetwork,
         SamplingStorage,
         ShareVerifier,
+        MempoolAdapter,
         RuntimeServiceId,
     >
 where
     SamplingBackend: DaSamplingServiceBackend,
     SamplingNetwork: NetworkAdapter<RuntimeServiceId>,
     SamplingStorage: DaStorageAdapter<RuntimeServiceId>,
+    MempoolAdapter: DaMempoolAdapter,
     ShareVerifier: VerifierBackend,
 {
     #[must_use]
@@ -131,12 +154,20 @@ where
     }
 }
 
-impl<SamplingBackend, SamplingNetwork, SamplingStorage, ShareVerifier, RuntimeServiceId>
+impl<
+    SamplingBackend,
+    SamplingNetwork,
+    SamplingStorage,
+    ShareVerifier,
+    MempoolAdapter,
+    RuntimeServiceId,
+>
     GenericDaSamplingService<
         SamplingBackend,
         SamplingNetwork,
         SamplingStorage,
         ShareVerifier,
+        MempoolAdapter,
         RuntimeServiceId,
     >
 where
@@ -148,6 +179,7 @@ where
     SamplingBackend::Settings: Clone,
     SamplingNetwork: NetworkAdapter<RuntimeServiceId> + Send + Sync + 'static,
     SamplingStorage: DaStorageAdapter<RuntimeServiceId, Share = DaShare> + Send + Sync,
+    MempoolAdapter: DaMempoolAdapter<Tx = SignedMantleTx> + Send + Sync + 'static,
     ShareVerifier: VerifierBackend<DaShare = DaShare> + Send + Sync + Clone + 'static,
 {
     #[instrument(skip_all)]
@@ -347,6 +379,21 @@ where
         }
     }
 
+    fn handle_incoming_blob(
+        blob_id: BlobId,
+        sdp_blob_trigger_sampling_delay: Duration,
+        tasks: &PendingTasks<'_>,
+    ) {
+        // Trigger sampling after delay
+        let delayed_future = async move {
+            tokio::time::sleep(sdp_blob_trigger_sampling_delay).await;
+            blob_id
+        }
+        .boxed();
+
+        tasks.delayed_sdp_sampling_triggers.push(delayed_future);
+    }
+
     async fn request_commitments_from_network(
         network_adapter: &SamplingNetwork,
         wait_duration: Duration,
@@ -532,18 +579,27 @@ where
     }
 }
 
-impl<SamplingBackend, SamplingNetwork, SamplingStorage, ShareVerifier, RuntimeServiceId> ServiceData
+impl<
+    SamplingBackend,
+    SamplingNetwork,
+    SamplingStorage,
+    ShareVerifier,
+    MempoolAdapter,
+    RuntimeServiceId,
+> ServiceData
     for GenericDaSamplingService<
         SamplingBackend,
         SamplingNetwork,
         SamplingStorage,
         ShareVerifier,
+        MempoolAdapter,
         RuntimeServiceId,
     >
 where
     SamplingBackend: DaSamplingServiceBackend,
     SamplingNetwork: NetworkAdapter<RuntimeServiceId>,
     SamplingStorage: DaStorageAdapter<RuntimeServiceId>,
+    MempoolAdapter: DaMempoolAdapter,
     ShareVerifier: VerifierBackend,
 {
     type Settings = DaSamplingServiceSettings<SamplingBackend::Settings, ShareVerifier::Settings>;
@@ -553,13 +609,20 @@ where
 }
 
 #[async_trait::async_trait]
-impl<SamplingBackend, SamplingNetwork, SamplingStorage, ShareVerifier, RuntimeServiceId>
-    ServiceCore<RuntimeServiceId>
+impl<
+    SamplingBackend,
+    SamplingNetwork,
+    SamplingStorage,
+    ShareVerifier,
+    MempoolAdapter,
+    RuntimeServiceId,
+> ServiceCore<RuntimeServiceId>
     for GenericDaSamplingService<
         SamplingBackend,
         SamplingNetwork,
         SamplingStorage,
         ShareVerifier,
+        MempoolAdapter,
         RuntimeServiceId,
     >
 where
@@ -573,6 +636,7 @@ where
     SamplingNetwork::Settings: Send + Sync,
     SamplingNetwork::Membership: MembershipHandler + Clone + 'static,
     SamplingStorage: DaStorageAdapter<RuntimeServiceId, Share = DaShare> + Send + Sync,
+    MempoolAdapter: DaMempoolAdapter<Tx = SignedMantleTx> + Send + Sync + 'static,
     ShareVerifier: VerifierBackend<DaShare = DaShare> + Send + Sync + Clone + 'static,
     ShareVerifier::Settings: Clone + Send + Sync,
     RuntimeServiceId: AsServiceId<Self>
@@ -587,6 +651,7 @@ where
                 RuntimeServiceId,
             >,
         > + AsServiceId<StorageService<SamplingStorage::Backend, RuntimeServiceId>>
+        + AsServiceId<MempoolAdapter::MempoolService>
         + Debug
         + Display
         + Sync
@@ -600,6 +665,10 @@ where
         Ok(Self::new(service_resources_handle))
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "this function has a lot of cases to handle"
+    )]
     async fn run(mut self) -> Result<(), DynError> {
         let Self {
             mut service_resources_handle,
@@ -609,6 +678,7 @@ where
             sampling_settings,
             share_verifier_settings,
             commitments_wait_duration,
+            sdp_blob_trigger_sampling_delay,
         } = service_resources_handle
             .settings_handle
             .notifier()
@@ -629,6 +699,12 @@ where
             .await?;
         let storage_adapter = SamplingStorage::new(storage_relay).await;
 
+        let mempool_relay = service_resources_handle
+            .overwatch_handle
+            .relay::<MempoolAdapter::MempoolService>()
+            .await?;
+        let mempool_adapter = MempoolAdapter::new(mempool_relay);
+
         let mut sampler = SamplingBackend::new(sampling_settings);
         let share_verifier = ShareVerifier::new(share_verifier_settings);
         let mut next_prune_tick = sampler.prune_interval();
@@ -643,14 +719,25 @@ where
             &service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
             NetworkService<_, _, _, _,_, _, _>,
-            StorageService<_, _>
+            StorageService<_, _>,
+            MempoolAdapter::MempoolService
         )
         .await?;
 
+        let mut blob_stream = mempool_adapter.subscribe().await?;
+
         let mut long_tasks: FuturesUnordered<BoxFuture<'static, ()>> = FuturesUnordered::new();
+        let mut delayed_sdp_sampling_triggers: FuturesUnordered<BoxFuture<'static, BlobId>> =
+            FuturesUnordered::new();
         let mut sampling_continuations: FuturesUnordered<
             BoxFuture<'static, (BlobId, Option<DaSharesCommitments>)>,
         > = FuturesUnordered::new();
+
+        let pending_tasks = &mut PendingTasks {
+            long_tasks: &mut long_tasks,
+            sampling_continuations: &mut sampling_continuations,
+            delayed_sdp_sampling_triggers: &mut delayed_sdp_sampling_triggers,
+        };
 
         loop {
             tokio::select! {
@@ -662,10 +749,7 @@ where
                             &mut sampler,
                             commitments_wait_duration,
                             &share_verifier,
-                            &mut PendingTasks {
-                                long_tasks: &mut long_tasks,
-                                sampling_continuations: &mut sampling_continuations,
-                            }
+                            pending_tasks,
                         ).await;
                     }
                     Some(sampling_message) = sampling_message_stream.next() => {
@@ -683,7 +767,7 @@ where
                         ).await;
                     }
                     // Handle completed sampling continuations
-                    Some((blob_id, commitments)) = sampling_continuations.next() => {
+                    Some((blob_id, commitments)) = pending_tasks.sampling_continuations.next() => {
                         if let Some(commitments) = commitments {
                             info_with_id!(blob_id, "Got commitments for triggered sampling");
                             sampler.add_commitments(&blob_id, commitments);
@@ -697,8 +781,27 @@ where
                             sampler.handle_sampling_error(blob_id).await;
                         }
                     }
+
+                    Some(blob_id) = blob_stream.next() => {
+                        Self::handle_incoming_blob(
+                            blob_id,
+                            sdp_blob_trigger_sampling_delay,
+                            pending_tasks,
+                        );
+                    }
+                    Some(blob_id) = pending_tasks.delayed_sdp_sampling_triggers.next() => {
+                        Self::handle_service_message(
+                            DaSamplingServiceMsg::TriggerSampling { blob_id },
+                            &mut network_adapter,
+                            &storage_adapter,
+                            &mut sampler,
+                            commitments_wait_duration,
+                            &share_verifier,
+                            pending_tasks,
+                        ).await;
+                    }
                     // Process completed long tasks (they just run to completion)
-                    Some(()) = long_tasks.next() => {}
+                    Some(()) = pending_tasks.long_tasks.next() => {}
 
                     // cleanup not on time samples
                     _ = next_prune_tick.tick() => {

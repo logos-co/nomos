@@ -20,7 +20,7 @@ jobs:
         uses: actions-rs/toolchain@88dc2356392166efad76775c878094f4e83ff746  # Version 1.0.6
         with:
           # The same version must be used in the `.pre-commit-config.yaml` file
-          toolchain: nightly-2025-08-02
+          toolchain: nightly-2025-09-14
           profile: minimal
           components: rustfmt
           override: true
@@ -56,7 +56,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ ubuntu-latest, macos-latest ]
+        os:
+          # Using self-hosted runners because we were running out of memory on GitHub-hosted runners
+          - [self-hosted, Linux]
+          - [self-hosted, macOS]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository
