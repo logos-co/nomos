@@ -605,21 +605,15 @@ where
             )
             .route(
                 paths::SDP_POST_DECLARATION,
-                routing::post(
-                    post_declaration::<nomos_sdp::backends::mock::MockSdpBackend, RuntimeServiceId>,
-                ),
+                routing::post(post_declaration::<RuntimeServiceId>),
             )
             .route(
                 paths::SDP_POST_ACTIVITY,
-                routing::post(
-                    post_activity::<nomos_sdp::backends::mock::MockSdpBackend, RuntimeServiceId>,
-                ),
+                routing::post(post_activity::<RuntimeServiceId>),
             )
             .route(
                 paths::SDP_POST_WITHDRAWAL,
-                routing::post(
-                    post_withdrawal::<nomos_sdp::backends::mock::MockSdpBackend, RuntimeServiceId>,
-                ),
+                routing::post(post_withdrawal::<RuntimeServiceId>),
             )
             .with_state(handle.clone())
             .layer(TimeoutLayer::new(self.settings.timeout))
