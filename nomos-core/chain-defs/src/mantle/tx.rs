@@ -4,13 +4,13 @@ use bytes::Bytes;
 use groth16::{Fr, fr_from_bytes, fr_to_bytes, serde::serde_fr};
 use num_bigint::BigUint;
 use poseidon2::{Digest, ZkHash};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::{
-    codec::SerializeOp as _,
     crypto::ZkHasher,
     mantle::{
         AuthenticatedMantleTx, Transaction, TransactionHasher,
+        encoding::{decode_mantle_tx, encode_mantle_tx, encode_signed_mantle_tx},
         gas::{Gas, GasConstants, GasCost},
         ledger::Tx as LedgerTx,
         ops::{Op, OpProof},
@@ -68,12 +68,87 @@ impl TxHash {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
+struct MantleTxDeSerImpl {
+    pub ops: Vec<Op>,
+    pub ledger_tx: LedgerTx,
+    pub execution_gas_price: Gas,
+    pub storage_gas_price: Gas,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MantleTx {
     pub ops: Vec<Op>,
     pub ledger_tx: LedgerTx,
     pub execution_gas_price: Gas,
     pub storage_gas_price: Gas,
+}
+
+impl From<MantleTxDeSerImpl> for MantleTx {
+    fn from(
+        MantleTxDeSerImpl {
+            ops,
+            ledger_tx,
+            execution_gas_price,
+            storage_gas_price,
+        }: MantleTxDeSerImpl,
+    ) -> Self {
+        Self {
+            ops,
+            ledger_tx,
+            execution_gas_price,
+            storage_gas_price,
+        }
+    }
+}
+
+impl From<MantleTx> for MantleTxDeSerImpl {
+    fn from(
+        MantleTx {
+            ops,
+            ledger_tx,
+            execution_gas_price,
+            storage_gas_price,
+        }: MantleTx,
+    ) -> Self {
+        Self {
+            ops,
+            ledger_tx,
+            execution_gas_price,
+            storage_gas_price,
+        }
+    }
+}
+
+impl Serialize for MantleTx {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        if serializer.is_human_readable() {
+            let tx_deser: MantleTxDeSerImpl = self.clone().into();
+            tx_deser.serialize(serializer)
+        } else {
+            let bytes = encode_mantle_tx(self);
+            serializer.serialize_bytes(&bytes)
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for MantleTx {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        if deserializer.is_human_readable() {
+            <MantleTxDeSerImpl as Deserialize>::deserialize(deserializer).map(Into::into)
+        } else {
+            let bytes: Vec<u8> = <Vec<u8>>::deserialize(deserializer)?;
+            decode_mantle_tx(&bytes)
+                .map(|(_, tx)| tx)
+                .map_err(serde::de::Error::custom)
+        }
+    }
 }
 
 impl GasCost for MantleTx {
@@ -251,9 +326,8 @@ impl SignedMantleTx {
         Ok(())
     }
 
-    fn serialized_size(&self) -> u64 {
-        self.bytes_size()
-            .expect("Failed to calculate serialized size for signed mantle tx")
+    fn gas_storage_size(&self) -> u64 {
+        encode_signed_mantle_tx(self).len() as u64
     }
 }
 
@@ -290,7 +364,7 @@ impl GasCost for SignedMantleTx {
             .map(Op::execution_gas::<Constants>)
             .sum::<Gas>()
             + self.mantle_tx.ledger_tx.execution_gas::<Constants>();
-        let storage_gas = self.serialized_size();
+        let storage_gas = self.gas_storage_size();
         let da_gas_cost = self.mantle_tx.ops.iter().map(Op::da_gas_cost).sum::<Gas>();
 
         execution_gas * self.mantle_tx.execution_gas_price
@@ -302,7 +376,7 @@ impl GasCost for SignedMantleTx {
 impl<'de> Deserialize<'de> for SignedMantleTx {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
-        D: serde::Deserializer<'de>,
+        D: Deserializer<'de>,
     {
         #[derive(Deserialize)]
         struct SignedMantleTxHelper {

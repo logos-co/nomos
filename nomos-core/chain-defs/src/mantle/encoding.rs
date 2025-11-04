@@ -64,13 +64,13 @@ pub fn decode_mantle_tx(input: &[u8]) -> IResult<&[u8], MantleTx> {
 // Operation List Decoders
 // ==============================================================================
 
-fn decode_ops(input: &[u8]) -> IResult<&[u8], Vec<Op>> {
+pub fn decode_ops(input: &[u8]) -> IResult<&[u8], Vec<Op>> {
     // Ops = OpCount *Op
     let (input, op_count) = decode_byte(input)?;
     count(decode_op, op_count as usize).parse(input)
 }
 
-fn decode_op(input: &[u8]) -> IResult<&[u8], Op> {
+pub fn decode_op(input: &[u8]) -> IResult<&[u8], Op> {
     // Op = Opcode OpPayload
     let (input, opcode) = decode_byte(input)?;
 
@@ -497,6 +497,7 @@ fn encode_channel_inscribe(op: &InscriptionOp) -> Vec<u8> {
 fn encode_channel_blob(op: &BlobOp) -> Vec<u8> {
     let mut bytes = Vec::new();
     bytes.extend(encode_hash32(op.channel.as_ref()));
+    bytes.extend(encode_uint64(op.session));
     bytes.extend(encode_hash32(&op.blob));
     bytes.extend(encode_uint64(op.blob_size));
     bytes.extend(encode_uint64(op.da_storage_gas_price));
@@ -610,7 +611,8 @@ fn encode_ledger_tx(tx: &LedgerTx) -> Vec<u8> {
 }
 
 /// Encode operations
-fn encode_op(op: &Op) -> Vec<u8> {
+#[must_use]
+pub fn encode_op(op: &Op) -> Vec<u8> {
     let mut bytes = Vec::new();
     match op {
         Op::ChannelInscribe(op) => {
