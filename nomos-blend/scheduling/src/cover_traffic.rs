@@ -123,8 +123,10 @@ impl<Rng, RoundClock> SessionCoverTraffic<Rng, RoundClock> {
         self.unprocessed_data_messages
     }
 
-    /// Notify the scheduler that a new data message has been emitted, which
-    /// will affect the generation of the next scheduled cover message.
+    /// Notify the scheduler that a new data message has been queued and will be
+    /// released in the next round, which will result in one of the unscheduled
+    /// cover messages from now to the end of the session to be randomly
+    /// skipped.
     pub fn notify_new_data_message(&mut self) {
         self.unprocessed_data_messages = self
             .unprocessed_data_messages
