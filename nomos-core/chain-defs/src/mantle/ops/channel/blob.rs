@@ -36,6 +36,7 @@ impl BlobOp {
     pub fn payload_bytes(&self) -> Bytes {
         let mut buff = BytesMut::new();
         buff.extend_from_slice(self.channel.as_ref());
+        buff.extend_from_slice(self.session.to_le_bytes().as_ref());
         buff.extend_from_slice(self.blob.as_ref());
         buff.extend_from_slice(self.blob_size.to_le_bytes().as_ref());
         buff.extend_from_slice(self.da_storage_gas_price.to_le_bytes().as_ref());
