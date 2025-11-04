@@ -270,11 +270,12 @@ mod tests {
             .verify_proof_for_key(&proof_for_key_one, &key_one)
             .unwrap();
         // We check that the first key is the right child of the bottom sub-tree...
-        assert!(proof_for_key_one.first().unwrap().1);
+        assert!(proof_for_key_one.last().unwrap().1);
         // ...but the left of all sub-trees above that.
         assert!(
             !proof_for_key_one
                 .iter()
+                .rev()
                 .skip(1)
                 .any(|(_, selector)| *selector)
         );
@@ -304,10 +305,11 @@ mod tests {
         merkle_tree
             .verify_proof_for_key(&proof_for_key_one, &key_one)
             .unwrap();
-        assert!(proof_for_key_one.first().unwrap().1);
+        assert!(proof_for_key_one.last().unwrap().1);
         assert!(
             !proof_for_key_one
                 .iter()
+                .rev()
                 .skip(1)
                 .any(|(_, selector)| *selector)
         );
@@ -322,15 +324,16 @@ mod tests {
         merkle_tree
             .verify_proof_for_key(&proof_for_key_three, &key_three)
             .unwrap();
-        // First selector is `true` because it's the left child...
-        assert!(proof_for_key_one[0].1);
-        // Second selector is `false` because it's already in the right sub-tree at this
-        // level (first sub-tree are keys 1 and 2).
-        assert!(!proof_for_key_one[1].1);
+        // Last selector is `false` because it's the left child...
+        assert!(!proof_for_key_three.last().unwrap().1);
+        // Second-to-last selector is `true` because it's already in the right sub-tree
+        // at this level (first sub-tree are keys 1 and 2).
+        assert!(proof_for_key_three[proof_for_key_three.len() - 2].1);
         // It's in the left-most sub-tree going above.
         assert!(
-            !proof_for_key_one
+            !proof_for_key_three
                 .iter()
+                .rev()
                 .skip(2)
                 .any(|(_, selector)| *selector)
         );
