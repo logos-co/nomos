@@ -7,11 +7,10 @@ use poseidon2::{Digest, ZkHash};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::{
-    codec::SerializeOp as _,
     crypto::ZkHasher,
     mantle::{
         AuthenticatedMantleTx, Transaction, TransactionHasher,
-        encoding::{decode_mantle_tx, encode_mantle_tx},
+        encoding::{decode_mantle_tx, encode_mantle_tx, encode_signed_mantle_tx},
         gas::{Gas, GasConstants, GasCost},
         ledger::Tx as LedgerTx,
         ops::{Op, OpProof},
@@ -327,9 +326,8 @@ impl SignedMantleTx {
         Ok(())
     }
 
-    fn serialized_size(&self) -> u64 {
-        self.bytes_size()
-            .expect("Failed to calculate serialized size for signed mantle tx")
+    fn gas_storage_size(&self) -> u64 {
+        encode_signed_mantle_tx(self).len() as u64
     }
 }
 
@@ -366,7 +364,7 @@ impl GasCost for SignedMantleTx {
             .map(Op::execution_gas::<Constants>)
             .sum::<Gas>()
             + self.mantle_tx.ledger_tx.execution_gas::<Constants>();
-        let storage_gas = self.serialized_size();
+        let storage_gas = self.gas_storage_size();
         let da_gas_cost = self.mantle_tx.ops.iter().map(Op::da_gas_cost).sum::<Gas>();
 
         execution_gas * self.mantle_tx.execution_gas_price
