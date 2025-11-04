@@ -69,7 +69,8 @@ pub struct MembershipResponse {
     pub addressbook: AddressBookSnapshot<PeerId>,
 }
 
-pub enum MembershipState {
+#[derive(Debug)]
+pub enum SessionStatus {
     SufficientMembers,
     InsufficientMembers,
 }
@@ -434,8 +435,9 @@ where
                         &membership_storage,
                         update.provider_mappings,
                     ).await {
-                        Ok(_) => {
+                        Ok(membership_status) => {
                             let _ = subnet_refresh_sender.send(()).await;
+                            backend.update_session_status(membership_status);
                         }
                         Err(e) => {
                             tracing::error!("Error handling membership update for session {}: {e}", update.session_id);
@@ -447,9 +449,9 @@ where
                         .filter(|stats| stats.inbound > 0 || stats.outbound > 0)
                         .count();
                     if connected_subnetworks < subnet_threshold {
-                        backend.update_status(ConnectionStatus::InsufficientSubnetworkConnections);
+                        backend.update_connection_status(ConnectionStatus::InsufficientSubnetworkConnections);
                     } else {
-                        backend.update_status(ConnectionStatus::Ready);
+                        backend.update_connection_status(ConnectionStatus::Ready);
                     }
                 }
                 Some(opinion_event) = opinion_stream.next() => {
@@ -616,7 +618,7 @@ where
         update: HashMap<Membership::Id, Multiaddr>,
         storage: &MembershipStorage<Arc<StorageAdapter>, Membership, DaAddressbook>,
         provider_mappings: HashMap<Membership::Id, ProviderId>,
-    ) -> Result<MembershipState, DynError> {
+    ) -> Result<SessionStatus, DynError> {
         storage.update(session_id, update, provider_mappings).await
     }
 

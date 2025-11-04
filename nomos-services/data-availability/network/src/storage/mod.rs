@@ -17,7 +17,7 @@ use rand::SeedableRng as _;
 use subnetworks_assignations::{MembershipCreator, MembershipHandler, SubnetworkAssignations};
 
 use crate::{
-    MembershipState,
+    SessionStatus,
     addressbook::{AddressBookMut, AddressBookSnapshot},
     membership::{Assignations, handler::DaMembershipHandler},
 };
@@ -87,7 +87,7 @@ where
         session_id: SessionNumber,
         new_members: AddressBookSnapshot<Membership::Id>,
         provider_mappings: HashMap<Membership::Id, ProviderId>,
-    ) -> Result<MembershipState, DynError> {
+    ) -> Result<SessionStatus, DynError> {
         let mut hasher = Blake2b512::default();
         BlakeUpdate::update(&mut hasher, session_id.to_le_bytes().as_slice());
         let seed: [u8; 64] = hasher.finalize().into();
@@ -100,7 +100,11 @@ where
                     .membership_handler
                     .membership()
                     .init(session_id, SubnetworkAssignations::new());
-                (MembershipState::InsufficientMembers, updated_membership, SubnetworkAssignations::new())
+                (
+                    SessionStatus::InsufficientMembers,
+                    updated_membership,
+                    SubnetworkAssignations::new(),
+                )
             } else {
                 let mut rng = BlakeRng::from_seed(seed.into());
                 let updated_membership = self
@@ -108,7 +112,11 @@ where
                     .membership()
                     .update(session_id, update, &mut rng);
                 let assignations = updated_membership.subnetworks();
-                (MembershipState::SufficientMembers, updated_membership, assignations)
+                (
+                    SessionStatus::SufficientMembers,
+                    updated_membership,
+                    assignations,
+                )
             }
         };
 

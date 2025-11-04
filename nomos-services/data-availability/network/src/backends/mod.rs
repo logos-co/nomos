@@ -1,7 +1,7 @@
 pub mod libp2p;
 pub mod mock;
 
-use std::{collections::HashSet, pin::Pin};
+use std::{collections::HashSet, fmt::Debug, pin::Pin};
 
 use ::libp2p::PeerId;
 use futures::Stream;
@@ -18,7 +18,7 @@ use overwatch::{overwatch::handle::OverwatchHandle, services::state::ServiceStat
 use subnetworks_assignations::MembershipHandler;
 use tokio::sync::mpsc::UnboundedSender;
 
-use super::Debug;
+use crate::SessionStatus;
 
 pub enum ConnectionStatus {
     Ready,
@@ -29,6 +29,8 @@ pub enum ConnectionStatus {
 pub enum ProcessingError {
     #[error("Network backend doesn't have enough subnetwork peers connected")]
     InsufficientSubnetworkConnections,
+    #[error("Current session doesn't have enough members")]
+    InsufficientSessionMembers,
 }
 
 #[async_trait::async_trait]
@@ -53,7 +55,8 @@ pub trait NetworkBackend<RuntimeServiceId> {
     ) -> Self;
     fn shutdown(&mut self);
     async fn process(&self, msg: Self::Message);
-    fn update_status(&mut self, status: ConnectionStatus);
+    fn update_connection_status(&mut self, status: ConnectionStatus);
+    fn update_session_status(&mut self, status: SessionStatus);
     async fn subscribe(
         &mut self,
         event: Self::EventKind,

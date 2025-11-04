@@ -21,7 +21,7 @@ use tokio::sync::{
 use tokio_stream::wrappers::BroadcastStream;
 
 use crate::{
-    DaAddressbook,
+    DaAddressbook, SessionStatus,
     backends::{ConnectionStatus, NetworkBackend},
 };
 
@@ -125,7 +125,9 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for MockExecutorBackend 
         }
     }
 
-    fn update_status(&mut self, _: ConnectionStatus) {}
+    fn update_connection_status(&mut self, _: ConnectionStatus) {}
+
+    fn update_session_status(&mut self, _: SessionStatus) {}
 
     async fn subscribe(
         &mut self,
