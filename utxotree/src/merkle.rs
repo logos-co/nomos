@@ -32,8 +32,8 @@ fn empty_subtree_root<Hash: Digest>(height: usize) -> Fr {
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Node<Item> {
     Inner {
-        left: Arc<Node<Item>>,
-        right: Arc<Node<Item>>,
+        left: Arc<Self>,
+        right: Arc<Self>,
         #[cfg_attr(feature = "serde", serde(with = "serde_fr"))]
         value: Fr,
         right_subtree_size: usize,

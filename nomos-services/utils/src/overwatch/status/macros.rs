@@ -118,8 +118,6 @@ mod tests {
     };
     use overwatch_derive::derive_services;
 
-    use super::*;
-
     async fn notify_ready_and_wait<Service: ServiceData, RuntimeServiceId>(
         service_resources_handle: &OpaqueServiceResourcesHandle<Service, RuntimeServiceId>,
     ) where

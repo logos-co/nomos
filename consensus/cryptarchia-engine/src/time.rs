@@ -6,8 +6,6 @@ use std::{
 
 #[cfg(feature = "serde")]
 use nomos_utils::bounded_duration::{MinimalBoundedDuration, SECOND};
-#[cfg(feature = "serde")]
-use serde_with::serde_as;
 use time::OffsetDateTime;
 #[cfg(feature = "tokio")]
 use tokio::time::{Interval, MissedTickBehavior};

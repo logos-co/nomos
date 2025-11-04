@@ -19,7 +19,6 @@ use overwatch::{
     },
 };
 use serde::{Serialize, de::DeserializeOwned};
-use tracing::error;
 
 use crate::api::{StorageApiRequest, StorageOperation};
 
