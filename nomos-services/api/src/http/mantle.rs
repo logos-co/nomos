@@ -16,38 +16,23 @@ use tx_service::{
     tx::service::openapi::Status,
 };
 
-pub type MempoolService<SamplingNetworkAdapter, SamplingStorage, StorageAdapter, RuntimeServiceId> =
-    TxMempoolService<
-        MempoolNetworkAdapter<
-            SignedMantleTx,
-            <SignedMantleTx as Transaction>::Hash,
-            RuntimeServiceId,
-        >,
-        SamplingNetworkAdapter,
-        SamplingStorage,
-        Mempool<
-            HeaderId,
-            SignedMantleTx,
-            <SignedMantleTx as Transaction>::Hash,
-            StorageAdapter,
-            RuntimeServiceId,
-        >,
+pub type MempoolService<StorageAdapter, RuntimeServiceId> = TxMempoolService<
+    MempoolNetworkAdapter<SignedMantleTx, <SignedMantleTx as Transaction>::Hash, RuntimeServiceId>,
+    Mempool<
+        HeaderId,
+        SignedMantleTx,
+        <SignedMantleTx as Transaction>::Hash,
         StorageAdapter,
         RuntimeServiceId,
-    >;
-
-pub async fn mantle_mempool_metrics<
-    SamplingNetworkAdapter,
-    SamplingStorage,
+    >,
     StorageAdapter,
     RuntimeServiceId,
->(
+>;
+
+pub async fn mantle_mempool_metrics<StorageAdapter, RuntimeServiceId>(
     handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
 ) -> Result<MempoolMetrics, super::DynError>
 where
-    SamplingNetworkAdapter:
-        nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
-    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
     StorageAdapter: tx_service::storage::MempoolStorageAdapter<
             RuntimeServiceId,
             Key = <SignedMantleTx as Transaction>::Hash,
@@ -59,14 +44,7 @@ where
         + Sync
         + Send
         + Display
-        + AsServiceId<
-            MempoolService<
-                SamplingNetworkAdapter,
-                SamplingStorage,
-                StorageAdapter,
-                RuntimeServiceId,
-            >,
-        >,
+        + AsServiceId<MempoolService<StorageAdapter, RuntimeServiceId>>,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();
@@ -80,19 +58,11 @@ where
     receiver.await.map_err(|e| Box::new(e) as super::DynError)
 }
 
-pub async fn mantle_mempool_status<
-    SamplingNetworkAdapter,
-    SamplingStorage,
-    StorageAdapter,
-    RuntimeServiceId,
->(
+pub async fn mantle_mempool_status<StorageAdapter, RuntimeServiceId>(
     handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
     items: Vec<<SignedMantleTx as Transaction>::Hash>,
 ) -> Result<Vec<Status<HeaderId>>, super::DynError>
 where
-    SamplingNetworkAdapter:
-        nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync,
-    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync,
     StorageAdapter: tx_service::storage::MempoolStorageAdapter<
             RuntimeServiceId,
             Key = <SignedMantleTx as Transaction>::Hash,
@@ -104,14 +74,7 @@ where
         + Sync
         + Send
         + Display
-        + AsServiceId<
-            MempoolService<
-                SamplingNetworkAdapter,
-                SamplingStorage,
-                StorageAdapter,
-                RuntimeServiceId,
-            >,
-        >,
+        + AsServiceId<MempoolService<StorageAdapter, RuntimeServiceId>>,
 {
     let relay = handle.relay().await?;
     let (sender, receiver) = oneshot::channel();

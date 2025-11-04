@@ -39,7 +39,9 @@ use crate::{
         backend::AxumBackendSettings,
         testing::handlers::{da_get_membership, da_historic_sampling},
     },
-    generic_services::{self, DaMembershipAdapter, SdpService, SdpServiceAdapterGeneric},
+    generic_services::{
+        self, DaMembershipAdapter, SamplingMempoolAdapter, SdpService, SdpServiceAdapterGeneric,
+    },
 };
 pub struct TestAxumBackend {
     settings: AxumBackendSettings,
@@ -142,6 +144,7 @@ where
                             RuntimeServiceId,
                         >,
                         SamplingStorageAdapter<DaShare, DaStorageConverter>,
+                        SamplingMempoolAdapter<RuntimeServiceId>,
                         RuntimeServiceId,
                     >,
                 ),
