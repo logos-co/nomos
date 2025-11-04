@@ -15,14 +15,13 @@ pub type UtxoTree = utxotree::UtxoTree<NoteId, Utxo, ZkHasher>;
 use super::{Balance, Config, LedgerError};
 use crate::mantle::sdp::locked_notes::LockedNotes;
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct EpochState {
     // The epoch this snapshot is for
     pub epoch: Epoch,
     // value of the ledger nonce after 'epoch_period_nonce_buffer' slots from the beginning of the
     // epoch
-    #[cfg_attr(feature = "serde", serde(with = "groth16::serde::serde_fr"))]
+    #[serde(with = "groth16::serde::serde_fr")]
     pub nonce: Fr,
     // stake distribution snapshot taken at the beginning of the epoch
     // (in practice, this is equivalent to the utxos the are spendable at the beginning of the
@@ -72,13 +71,12 @@ impl EpochState {
 
 /// Tracks bedrock transactions and minimal the state needed for consensus to
 /// work.
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Clone, Eq, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Eq, PartialEq)]
 pub struct LedgerState {
     // All available Unspent Transtaction Outputs (UTXOs) at the current slot
     pub utxos: UtxoTree,
     // randomness contribution
-    #[cfg_attr(feature = "serde", serde(with = "groth16::serde::serde_fr"))]
+    #[serde(with = "groth16::serde::serde_fr")]
     pub nonce: Fr,
     pub slot: Slot,
     // rolling snapshot of the state for the next epoch, used for epoch transitions

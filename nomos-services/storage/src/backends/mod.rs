@@ -1,4 +1,3 @@
-#[cfg(feature = "rocksdb-backend")]
 pub mod rocksdb;
 
 use std::{error::Error, num::NonZeroUsize};

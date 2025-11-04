@@ -9,21 +9,15 @@ workspace = true
 
 [dependencies]
 async-trait = "0.1"
-blake2      = { default-features = false, optional = true, version = "0.10" }
+blake2      = { default-features = false, version = "0.10" }
 cipher      = { version = "0.4" }
 const-hex   = { default-features = false, version = "1" }
-humantime   = { optional = true, version = "2.1" }
+humantime   = { version = "2.1" }
 overwatch   = { workspace = true }
 rand        = { workspace = true }
-serde       = { default-features = false, features = ["derive"], optional = true, version = "1.0" }
-serde_with  = { optional = true, workspace = true }
-time        = { default-features = false, features = ["serde-human-readable"], optional = true, version = "0.3" }
-
-[features]
-rng   = ["dep:blake2"]
-serde = ["serde/alloc"]
-time  = ["dep:humantime", "dep:serde", "dep:serde_with", "dep:time"]
-types = []
+serde       = { default-features = false, features = ["alloc", "derive"], version = "1.0" }
+serde_with  = { workspace = true }
+time        = { default-features = false, features = ["serde-human-readable"], version = "0.3" }
 
 [dev-dependencies]
 nistrs      = "0.1.2"

@@ -9,8 +9,7 @@ use nomos_core::mantle::{
 
 use crate::Balance;
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct LeaderState {
     // current epoch
     epoch: Epoch,

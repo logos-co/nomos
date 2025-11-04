@@ -1,7 +1,6 @@
 use std::sync::OnceLock;
 
 use ark_ff::Field as _;
-#[cfg(feature = "serde")]
 use groth16::serde::serde_fr;
 use poseidon2::{Digest, Fr};
 use rpds::StackSync;
@@ -20,11 +19,10 @@ const EMPTY_VALUE: Fr = Fr::ZERO;
 /// (de)serialize one version of the tree, but if you dump multiple expect to
 /// find multiple copes of the same nodes in the deserialized output. If you
 /// need to preserve structural sharing, you should use a custom serialization.
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct MerkleMountainRange<T, Hash, const MAX_HEIGHT: u8 = 32> {
     roots: StackSync<Root>,
-    #[cfg_attr(feature = "serde", serde(skip))]
+    #[serde(skip)]
     _hash: std::marker::PhantomData<(T, Hash)>,
 }
 
@@ -36,10 +34,9 @@ impl<T, Hash, const MAX_HEIGHT: u8> PartialEq for MerkleMountainRange<T, Hash, M
 
 impl<T, Hash, const MAX_HEIGHT: u8> Eq for MerkleMountainRange<T, Hash, MAX_HEIGHT> {}
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 struct Root {
-    #[cfg_attr(feature = "serde", serde(with = "serde_fr"))]
+    #[serde(with = "serde_fr")]
     root: Fr,
     height: u8,
 }

@@ -4,7 +4,6 @@ use nomos_core::{
     mantle::{Note, NoteId},
     sdp::{MinStake, ServiceType},
 };
-#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
@@ -27,14 +26,12 @@ pub enum Error {
     NoteNotLocked(NoteId),
 }
 
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
 pub struct LockedNotes {
     locked_notes: rpds::HashTrieMapSync<NoteId, LockedNote>,
 }
 
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 struct LockedNote {
     note: Note,
     services: HashSet<ServiceType>,

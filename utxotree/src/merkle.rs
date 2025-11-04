@@ -4,7 +4,6 @@ use std::{
 };
 
 use ark_ff::Field;
-#[cfg(feature = "serde")]
 use groth16::serde::serde_fr;
 use poseidon2::{Digest, Fr};
 use rpds::RedBlackTreeSetSync;
@@ -28,13 +27,12 @@ fn empty_subtree_root<Hash: Digest>(height: usize) -> Fr {
     })[height]
 }
 
-#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(::serde::Serialize, ::serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 enum Node<Item> {
     Inner {
         left: Arc<Node<Item>>,
         right: Arc<Node<Item>>,
-        #[cfg_attr(feature = "serde", serde(with = "serde_fr"))]
+        #[serde(with = "serde_fr")]
         value: Fr,
         right_subtree_size: usize,
         left_subtree_size: usize,
@@ -323,7 +321,6 @@ where
 {
 }
 
-#[cfg(feature = "serde")]
 pub mod serde {
     use std::{marker::PhantomData, sync::Arc};
 

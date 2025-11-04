@@ -8,8 +8,7 @@ use crate::{
     backends::{TimeBackend, common::slot_timer},
 };
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct SystemTimeBackendSettings {
     pub slot_config: SlotConfig,
     pub epoch_config: EpochConfig,

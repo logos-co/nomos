@@ -12,10 +12,10 @@ async-trait      = "0.1"
 cryptarchia-sync = { workspace = true }
 futures          = { default-features = false, version = "0.3" }
 nomos-core       = { workspace = true }
-nomos-libp2p     = { optional = true, workspace = true }
+nomos-libp2p     = { workspace = true }
 overwatch        = { workspace = true }
-rand             = { features = ["std"], optional = true, workspace = true }
-rand_chacha      = { default-features = false, optional = true, version = "0.3" }
+rand             = { features = ["std"], workspace = true }
+rand_chacha      = { default-features = false, version = "0.3" }
 serde            = { default-features = false, features = ["derive"], version = "1.0" }
 tokio            = { default-features = false, features = ["macros", "sync"], version = "1" }
 tokio-stream     = { default-features = false, version = "0.1" }
@@ -30,6 +30,5 @@ tracing-subscriber = { default-features = false, features = ["env-filter", "fmt"
 
 [features]
 default = []
-libp2p  = ["cryptarchia-sync/libp2p", "dep:nomos-libp2p", "dep:rand", "dep:rand_chacha"]
-mock    = ["dep:rand", "dep:rand_chacha"]
+mock    = []
 openapi = ["dep:utoipa"]

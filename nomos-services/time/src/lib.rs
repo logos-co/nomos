@@ -52,8 +52,7 @@ impl Debug for TimeServiceMessage {
     }
 }
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct TimeServiceSettings<BackendSettings> {
     pub backend_settings: BackendSettings,
 }

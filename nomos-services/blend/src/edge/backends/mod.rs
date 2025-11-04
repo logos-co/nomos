@@ -1,4 +1,3 @@
-#[cfg(feature = "libp2p")]
 pub mod libp2p;
 
 use nomos_blend_scheduling::{EncapsulatedMessage, membership::Membership};

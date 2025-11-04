@@ -32,8 +32,7 @@ pub enum Error {
 }
 
 /// Tracks mantle ops
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Eq, PartialEq, Debug)]
 pub struct LedgerState {
     channels: channel::Channels,
     sdp: sdp::SdpLedger,

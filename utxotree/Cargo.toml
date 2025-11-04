@@ -10,7 +10,7 @@ groth16    = { workspace = true, features = ["deser"] }
 num-bigint = { version = "0.4", default-features = false }
 poseidon2  = { workspace = true }
 rpds       = { default-features = false, features = ["serde"], version = "1" }
-serde      = { default-features = false, features = ["alloc", "derive", "rc"], optional = true, version = "1.0" }
+serde      = { default-features = false, features = ["alloc", "derive", "rc"], version = "1.0" }
 thiserror  = "1.0"
 
 [dev-dependencies]
@@ -20,6 +20,3 @@ rand              = "0.9"
 
 [lints]
 workspace = true
-
-[features]
-serde = ["dep:serde"]

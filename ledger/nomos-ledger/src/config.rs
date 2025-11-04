@@ -2,8 +2,7 @@ use std::num::{NonZero, NonZeroU64};
 
 use cryptarchia_engine::{Epoch, Slot};
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Clone, Debug, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 pub struct Config {
     pub epoch_config: cryptarchia_engine::EpochConfig,
     pub consensus_config: cryptarchia_engine::Config,
