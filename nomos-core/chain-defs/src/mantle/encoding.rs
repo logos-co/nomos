@@ -497,6 +497,7 @@ fn encode_channel_inscribe(op: &InscriptionOp) -> Vec<u8> {
 fn encode_channel_blob(op: &BlobOp) -> Vec<u8> {
     let mut bytes = Vec::new();
     bytes.extend(encode_hash32(op.channel.as_ref()));
+    bytes.extend(encode_uint64(op.session));
     bytes.extend(encode_hash32(&op.blob));
     bytes.extend(encode_uint64(op.blob_size));
     bytes.extend(encode_uint64(op.da_storage_gas_price));
