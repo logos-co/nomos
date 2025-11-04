@@ -4,9 +4,6 @@ pub mod leader_claim;
 pub mod opcode;
 pub mod sdp;
 mod serde_;
-mod wire;
-
-use bincode::Options;
 use bytes::Bytes;
 use channel::{
     blob::{BlobOp, DA_COLUMNS, DA_ELEMENT_SIZE},
@@ -27,13 +24,9 @@ use super::{
     },
 };
 use crate::{
-    codec::SerializeOp,
     mantle::{
         encoding::{decode_op, encode_op},
-        ops::{
-            internal::{OpDe, OpSer},
-            wire::OpWireVisitor,
-        },
+        ops::internal::{OpDe, OpSer},
     },
     proofs::zksig,
     utils::ed25519_serde,
@@ -91,10 +84,9 @@ impl Serialize for Op {
 
 /// Delegates deserialization through the [`OpInternal`] representation.
 ///
-/// If the deserializer is non-human-readable, it assumes the input was encoded
-/// using [`wire`] and uses [`OpWireVisitor`] to deserialize it.
-/// Otherwise, it falls back to deserializing via [`OpInternal`]'s default
-/// behaviour.
+/// If the deserializer is non-human-readable it falls back into custom
+/// decoding. Otherwise, it falls back to deserializing via [`OpInternal`]'s
+/// default behaviour.
 ///
 /// # Notes
 /// - When using the `wire` format, the tuple must contain the exact number of
@@ -204,10 +196,7 @@ mod tests {
     use serde_json::json;
 
     use super::{Op, channel::blob::BlobOp};
-    use crate::{
-        codec::{DeserializeOp as _, SerializeOp as _},
-        mantle::encoding::encode_op,
-    };
+    use crate::codec::{DeserializeOp as _, SerializeOp as _};
 
     // nothing special, just some valid bytes
     static VK: LazyLock<ed25519_dalek::VerifyingKey> = LazyLock::new(|| {

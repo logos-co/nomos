@@ -611,6 +611,7 @@ fn encode_ledger_tx(tx: &LedgerTx) -> Vec<u8> {
 }
 
 /// Encode operations
+#[must_use]
 pub fn encode_op(op: &Op) -> Vec<u8> {
     let mut bytes = Vec::new();
     match op {
