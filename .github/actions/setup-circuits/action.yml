@@ -2,9 +2,16 @@ name: Setup Circuits
 
 description: Set up Circom Circuits, Rapidsnark prover and Rapidsnark verifier using the setup-nomos-circuits.sh script.
 
+inputs:
+  github-token:
+    description: GitHub token for downloading releases
+    required: true
+
 runs:
   using: "composite"
   steps:
     - name: Setup nomos-circuits
       shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
       run: "${{ github.workspace }}/scripts/setup-nomos-circuits.sh"

@@ -108,7 +108,14 @@ download_release() {
     print_info "Downloading nomos-circuits ${VERSION} for ${platform}..."
     print_info "URL: $url"
 
-    if ! curl -L -o "${temp_dir}/${artifact}" "$url"; then
+    # Build curl command with optional authentication
+    local curl_cmd="curl -L"
+    if [ -n "$GITHUB_TOKEN" ]; then
+        curl_cmd="$curl_cmd --header 'authorization: Bearer ${GITHUB_TOKEN}'"
+    fi
+    curl_cmd="$curl_cmd -o ${temp_dir}/${artifact} $url"
+
+    if ! eval "$curl_cmd"; then
         print_error "Failed to download release artifact"
         print_error "Please check that version ${VERSION} exists for platform ${platform}"
         print_error "Available releases: https://github.com/${REPO}/releases"
