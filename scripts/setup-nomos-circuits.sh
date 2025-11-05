@@ -1,11 +1,25 @@
 #!/bin/bash
+#
+# Setup script for nomos-circuits
+#
+# Usage: ./setup-nomos-circuits.sh [VERSION] [INSTALL_DIR]
+#
+# Arguments:
+#   VERSION      - Optional. Version to install (default: v0.2.0)
+#   INSTALL_DIR  - Optional. Installation directory (default: $HOME/.nomos-circuits)
+#
+# Examples:
+#   ./setup-nomos-circuits.sh                    # Install default version to default location
+#   ./setup-nomos-circuits.sh v0.3.0             # Install specific version to default location
+#   ./setup-nomos-circuits.sh v0.2.0 /opt/circuits  # Install to custom location
 
 set -e
 
-# Default version
+# Default values
 VERSION="${1:-v0.2.0}"
+DEFAULT_INSTALL_DIR="$HOME/.nomos-circuits"
+INSTALL_DIR="${2:-$DEFAULT_INSTALL_DIR}"
 REPO="logos-co/nomos-circuits"
-INSTALL_DIR="$HOME/.nomos-circuits"
 
 # Colors for output
 RED='\033[0;31m'
@@ -197,6 +211,7 @@ handle_macos_quarantine() {
 # Main installation process
 main() {
     print_info "Setting up nomos-circuits ${VERSION}"
+    print_info "Installation directory: $INSTALL_DIR"
     echo
 
     # Detect platform
@@ -221,17 +236,23 @@ main() {
     print_info "nomos-circuits ${VERSION} is now installed at: $INSTALL_DIR"
     print_info "The following circuits are available:"
 
-    for circuit in pol poq poc zksign; do
-        if [ -d "$INSTALL_DIR/$circuit" ]; then
-            echo "  • $circuit"
+    # Discover circuits by finding directories that contain a witness_generator
+    for dir in "$INSTALL_DIR"/*/; do
+        if [ -d "$dir" ]; then
+            local circuit_name=$(basename "$dir")
+            if [ -f "$dir/witness_generator" ]; then
+                echo "  • $circuit_name"
+            fi
         fi
     done
 
-    echo
-    print_info "You can now run nomos with the NOMOS_CIRCUITS environment variable:"
-    print_info "  export NOMOS_CIRCUITS=$INSTALL_DIR"
-    print_info "Or nomos will automatically use ~/.nomos-circuits/"
-    echo
+    # Only show export instructions if not using the default location
+    if [ "$INSTALL_DIR" != "$DEFAULT_INSTALL_DIR" ]; then
+        echo
+        print_info "Since you're using a custom installation directory, set the environment variable:"
+        print_info "  export NOMOS_CIRCUITS=$INSTALL_DIR"
+        echo
+    fi
 }
 
 # Run main

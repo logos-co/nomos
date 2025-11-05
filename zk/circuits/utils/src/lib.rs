@@ -35,7 +35,7 @@ pub fn nomos_circuits_dir() -> PathBuf {
         panic!(
             "Could not find nomos-circuits directory. Please either:\n\
              1. Set the {NOMOS_CIRCUITS_ENV_VAR} environment variable to point to your nomos-circuits directory, or\n\
-             2. Place the nomos-circuits release in your home directory as {}\n",
+             2. Place the nomos-circuits release at {}\n",
             path.display()
         )
     }
