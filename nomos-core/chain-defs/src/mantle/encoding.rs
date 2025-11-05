@@ -603,7 +603,8 @@ fn encode_outputs(outputs: &[Note]) -> Vec<u8> {
     bytes
 }
 
-fn encode_ledger_tx(tx: &LedgerTx) -> Vec<u8> {
+#[must_use]
+pub fn encode_ledger_tx(tx: &LedgerTx) -> Vec<u8> {
     let mut bytes = Vec::new();
     bytes.extend(encode_inputs(&tx.inputs));
     bytes.extend(encode_outputs(&tx.outputs));
