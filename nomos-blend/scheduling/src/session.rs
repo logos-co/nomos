@@ -173,10 +173,9 @@ mod tests {
         ));
         let elapsed = start_time.elapsed();
         assert!(
-            elapsed.abs_diff(session_duration.checked_sub(transition_period).unwrap())
-                <= time_tolerance,
+            elapsed.abs_diff(session_duration - transition_period) <= time_tolerance,
             "elapsed:{elapsed:?}, expected:{:?}",
-            session_duration.checked_sub(transition_period).unwrap()
+            session_duration - transition_period
         );
 
         // TransitionEnd should be emitted after transition_period.
