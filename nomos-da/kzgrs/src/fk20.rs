@@ -9,8 +9,8 @@ use num_traits::Zero as _;
 use crate::{Polynomial, Proof, ProvingKey};
 
 fn toeplitz1(global_parameters: &[G1Affine], polynomial_degree: usize) -> Vec<G1Projective> {
-    debug_assert_eq!(global_parameters.len(), polynomial_degree);
-    debug_assert!(polynomial_degree.is_power_of_two());
+    assert_eq!(global_parameters.len(), polynomial_degree);
+    assert!(polynomial_degree.is_power_of_two());
     let domain: GeneralEvaluationDomain<Fr> = GeneralEvaluationDomain::new(polynomial_degree * 2)
         .expect("Domain should be able to build");
     let vector_extended: Vec<G1Projective> = global_parameters
@@ -23,7 +23,7 @@ fn toeplitz1(global_parameters: &[G1Affine], polynomial_degree: usize) -> Vec<G1
 }
 
 fn toeplitz2(coefficients: &[Fr], extended_vector: &[G1Projective]) -> Vec<G1Projective> {
-    debug_assert!(coefficients.len().is_power_of_two());
+    assert!(coefficients.len().is_power_of_two());
     let domain: GeneralEvaluationDomain<Fr> =
         GeneralEvaluationDomain::new(coefficients.len()).expect("Domain should be able to build");
     let toeplitz_coefficients_fft = domain.fft(coefficients);
@@ -49,8 +49,8 @@ pub fn fk20_batch_generate_elements_proofs(
     toeplitz1_cache: Option<&Toeplitz1Cache>,
 ) -> Vec<Proof> {
     let polynomial_degree = polynomial.len();
-    debug_assert!(polynomial_degree <= proving_key.powers_of_g.len());
-    debug_assert!(polynomial_degree.is_power_of_two());
+    assert!(polynomial_degree <= proving_key.powers_of_g.len());
+    assert!(polynomial_degree.is_power_of_two());
     let domain: GeneralEvaluationDomain<Fr> =
         GeneralEvaluationDomain::new(polynomial_degree).expect("Domain should be able to build");
 
