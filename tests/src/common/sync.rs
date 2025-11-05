@@ -66,11 +66,13 @@ pub async fn wait_for_validators_mode(
 }
 
 fn print_validators_info(infos: &[CryptarchiaInfo]) {
-    println!(
-        "   Validators: {:?}",
-        infos
-            .iter()
-            .map(|info| format!("{:?}/{:?}", info.height, info.mode))
-            .collect::<Vec<_>>(),
-    );
+    println!("   Validators: {:?}", format_cryptarhica_info(infos));
+}
+
+#[must_use]
+pub fn format_cryptarhica_info(infos: &[CryptarchiaInfo]) -> Vec<String> {
+    infos
+        .iter()
+        .map(|info| format!("Height({})/{:?}/{:?}", info.height, info.slot, info.mode))
+        .collect()
 }

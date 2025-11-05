@@ -38,7 +38,7 @@ use tracing::instrument;
 
 use super::common::{CommitmentsEvent, VerificationEvent};
 use crate::{
-    DaAddressbook,
+    DaAddressbook, SessionStatus,
     backends::{
         ConnectionStatus, NetworkBackend, ProcessingError,
         libp2p::common::{
@@ -127,6 +127,7 @@ where
     balancer_command_sender: UnboundedSender<ConnectionBalancerCommand<BalancerStats>>,
     monitor_command_sender: UnboundedSender<ConnectionMonitorCommand<MonitorStats>>,
     connection_status: ConnectionStatus,
+    session_status: SessionStatus,
     local_peer_id: PeerId,
     local_provider_id: ProviderId,
     _membership: PhantomData<Membership>,
@@ -245,6 +246,7 @@ where
             local_peer_id,
             local_provider_id,
             connection_status: ConnectionStatus::InsufficientSubnetworkConnections,
+            session_status: SessionStatus::InsufficientMembers,
             task_abort_handle,
             verifier_replies_task_abort_handle,
             executor_replies_task_abort_handle,
@@ -292,8 +294,18 @@ where
                 da_share,
                 sender,
             } => {
+                if !matches!(self.session_status, SessionStatus::SufficientMembers) {
+                    if let Err(e) = sender.send(Err(ProcessingError::InsufficientSessionMembers)) {
+                        tracing::error!("Could not send error response for dispersal: {e:?}");
+                    }
+                    return;
+                }
                 if !matches!(self.connection_status, ConnectionStatus::Ready) {
-                    let _ = sender.send(Err(ProcessingError::InsufficientSubnetworkConnections));
+                    if let Err(e) =
+                        sender.send(Err(ProcessingError::InsufficientSubnetworkConnections))
+                    {
+                        tracing::error!("Could not send error response for dispersal: {e:?}");
+                    }
                     return;
                 }
                 info_with_id!(&da_share.blob_id(), "RequestShareDispersal");
@@ -310,6 +322,12 @@ where
                 tx,
                 sender,
             } => {
+                if !matches!(self.session_status, SessionStatus::SufficientMembers) {
+                    if let Err(e) = sender.send(Err(ProcessingError::InsufficientSessionMembers)) {
+                        tracing::error!("Could not send error response for dispersal: {e:?}");
+                    }
+                    return;
+                }
                 if !matches!(self.connection_status, ConnectionStatus::Ready) {
                     let _ = sender.send(Err(ProcessingError::InsufficientSubnetworkConnections));
                     return;
@@ -337,8 +355,12 @@ where
         }
     }
 
-    fn update_status(&mut self, status: ConnectionStatus) {
+    fn update_connection_status(&mut self, status: ConnectionStatus) {
         self.connection_status = status;
+    }
+
+    fn update_session_status(&mut self, status: SessionStatus) {
+        self.session_status = status;
     }
 
     async fn subscribe(

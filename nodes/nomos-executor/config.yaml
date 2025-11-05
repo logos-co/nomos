@@ -97,6 +97,7 @@ da_network:
     secs: 30
     nanos: 0
   subnet_threshold: 2048
+  min_session_members: 2
 da_dispersal:
   backend:
     encoder_settings:
