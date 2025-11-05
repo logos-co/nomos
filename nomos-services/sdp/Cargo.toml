@@ -14,7 +14,7 @@ futures       = { default-features = false, version = "0.3" }
 nomos-core    = { workspace = true }
 overwatch     = { workspace = true }
 serde         = { default-features = false, features = ["derive"], version = "1.0" }
-thiserror     = "1"
+thiserror     = { workspace = true }
 tokio         = { default-features = false, version = "1" }
 tokio-stream  = { default-features = false, version = "0.1" }
 tracing       = { workspace = true }
