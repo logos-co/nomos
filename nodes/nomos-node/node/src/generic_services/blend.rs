@@ -171,12 +171,15 @@ fn loop_until_valid_proof(
             continue;
         };
         if Some(expected_index) != local_node_index {
-            return BlendLayerProof {
-                ephemeral_signing_key: Ed25519PrivateKey::generate(),
-                proof_of_quota,
-                proof_of_selection,
-            };
+            println!(">>> Generated proof that would be addressed to another node.");
+        } else {
+            println!("<<< Generated proof that would be addressed to the very same sender.");
         }
+        return BlendLayerProof {
+            ephemeral_signing_key: Ed25519PrivateKey::generate(),
+            proof_of_quota,
+            proof_of_selection,
+        };
     }
 }
 

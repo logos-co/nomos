@@ -14,6 +14,10 @@ pub enum Error {
     ProofOfQuotaVerificationFailed(quota::Error),
     #[error("Deserialization failed")]
     DeserializationFailed,
+    #[error(
+        "Encapsulated private header failed to decapsulate because the recipient was not the intended one"
+    )]
+    NotIntendedRecipient,
     #[error("Invalid payload length")]
     InvalidPayloadLength,
     #[error("Signature verification failed")]

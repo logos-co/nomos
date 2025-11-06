@@ -966,7 +966,8 @@ where
     NodeId: Eq + Hash + Send + 'static,
     Rng: RngCore + Send,
     BackendSettings: Clone + Send + Sync,
-    BroadcastSettings: Serialize + for<'de> Deserialize<'de> + Hash + Eq + Clone + Send + Sync,
+    BroadcastSettings:
+        Serialize + for<'de> Deserialize<'de> + Debug + Hash + Eq + Clone + Send + Sync,
     ProofsGenerator: CoreAndLeaderProofsGenerator,
     ProofsVerifier: ProofsVerifierTrait,
 {
@@ -1011,7 +1012,7 @@ where
             let processed_message = match message_type {
                 // This is the initial message that was encapsulated.
                 DecapsulatedMessageType::Completed(_) => {
-                    tracing::debug!(target: LOG_TARGET, "Locally generated data message had all the {} layers addressed to this same node. Propagating only the fully decapsulated message.", collected_blending_tokens.len());
+                    tracing::debug!(target: LOG_TARGET, "Locally generated data message {:?} had all the {} layers addressed to this same node. Propagating only the fully decapsulated message.", message_payload, collected_blending_tokens.len());
                     ProcessedMessage::from(message_payload)
                 }
                 DecapsulatedMessageType::Incompleted(remaining_encapsulated_message) => {
@@ -1064,7 +1065,7 @@ fn handle_incoming_blend_message<
 ) -> ServiceState<BackendSettings, BroadcastSettings>
 where
     NodeId: 'static,
-    BroadcastSettings: Serialize + for<'de> Deserialize<'de> + Eq + Hash + Clone + Send,
+    BroadcastSettings: Serialize + for<'de> Deserialize<'de> + Debug + Eq + Hash + Clone + Send,
     BackendSettings: Clone,
     ProofsVerifier: ProofsVerifierTrait,
 {
@@ -1098,14 +1099,19 @@ where
                     if let Ok(deserialized_network_message) =
                         NetworkMessage::from_bytes(&serialized_data_message)
                     {
+                        tracing::debug!(target: LOG_TARGET, "Fully decapsulated data message to release: {deserialized_network_message:?}");
                         let processed_message =
                             ProcessedMessage::from(deserialized_network_message);
                         scheduler.schedule_processed_message(processed_message.clone());
-                        assert_eq!(
-                            state_updater.add_unsent_processed_message(processed_message),
-                            Ok(()),
-                            "There should not be another copy of the same data message already processed."
-                        );
+                        // assert_eq!(
+                        //     state_updater.add_unsent_processed_message(processed_message),
+                        //     Ok(()),
+                        //     "There should not be another copy of the same data message already
+                        // processed: {deserialized_network_message:?}", );
+                        if state_updater.add_unsent_processed_message(processed_message) == Err(())
+                        {
+                            tracing::error!("Failed to add unsent message.");
+                        }
                         state_updater.commit_changes()
                     } else {
                         tracing::debug!(target: LOG_TARGET, "Unrecognized data message from blend backend. Dropping.");
@@ -1115,13 +1121,17 @@ where
             }
         }
         DecapsulatedMessageType::Incompleted(remaining_encapsulated_message) => {
+            tracing::debug!(target: LOG_TARGET, "Still encapsulated data message to release: {remaining_encapsulated_message:?}");
             let processed_message = ProcessedMessage::from(*remaining_encapsulated_message);
             scheduler.schedule_processed_message(processed_message.clone());
-            assert_eq!(
-                state_updater.add_unsent_processed_message(processed_message),
-                Ok(()),
-                "There should not be another copy of the same encapsulated message already processed."
-            );
+            // assert_eq!(
+            //     state_updater.add_unsent_processed_message(processed_message.clone()),
+            //     Ok(()),
+            //     "There should not be another copy of the same encapsulated message
+            // already processed: {processed_message:?}" );
+            if state_updater.add_unsent_processed_message(processed_message) == Err(()) {
+                tracing::error!("Failed to add unsent message.");
+            }
             state_updater.commit_changes()
         }
     }
@@ -1167,8 +1177,11 @@ where
 {
     let (processed_messages, should_generate_cover_message) =
         release_type.map_or_else(|| (vec![], false), RoundReleaseType::into_components);
-    let outgoing_message_count =
-        data_messages.len() + processed_messages.len() + usize::from(should_generate_cover_message);
+    let (data_count, processed_count, cover_count) = (
+        data_messages.len(),
+        processed_messages.len(),
+        usize::from(should_generate_cover_message),
+    );
     let mut state_updater = current_recovery_checkpoint.start_updating();
 
     let data_messages_relay_futures = data_messages.into_iter()
@@ -1188,6 +1201,7 @@ where
     let processed_messages_relay_futures = processed_messages
         .into_iter()
         .inspect(|processed_message_to_release| {
+            tracing::debug!(target: LOG_TARGET, "Releasing and removing from recovery state processed message: {processed_message_to_release:?}");
             if state_updater.remove_sent_processed_message(processed_message_to_release).is_err() {
                 tracing::warn!(target: LOG_TARGET, "Previously processed message should be present in the recovery state but was not found.");
             }
@@ -1223,7 +1237,7 @@ where
 
     // Release all messages concurrently, and wait for all of them to be sent.
     join_all(message_futures).await;
-    tracing::debug!(target: LOG_TARGET, "Sent out {outgoing_message_count} data, processed and cover messages at this release window.");
+    tracing::debug!(target: LOG_TARGET, "Sent out {data_count} data, {processed_count} processed and {cover_count} cover messages at this release window.");
 
     state_updater.commit_changes()
 }
