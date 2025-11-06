@@ -1027,9 +1027,9 @@ where
             // and we schedule for its release at the next release round.
             scheduler.schedule_processed_message(processed_message.clone());
             assert_eq!(
-                state_updater.add_unsent_processed_message(processed_message),
+                state_updater.add_unsent_processed_message(processed_message.clone()),
                 Ok(()),
-                "There should not be another copy of the same processed message already processed."
+                "There should not be another copy of the same processed message already processed. Processed message: {processed_message:?}."
             );
         }
     }
@@ -1079,9 +1079,7 @@ where
 
     let (collected_blending_tokens, message_type) =
         multi_layer_decapsulation_output.into_components();
-    if collected_blending_tokens.len() > 1 {
-        tracing::trace!(target: LOG_TARGET, "Batch-decapsulated {} layers from the received message.", collected_blending_tokens.len());
-    }
+    tracing::trace!(target: LOG_TARGET, "Batch-decapsulated {} layers from the received message.", collected_blending_tokens.len());
 
     for collected_blending_token in collected_blending_tokens {
         blending_token_collector.insert(collected_blending_token);
@@ -1101,17 +1099,13 @@ where
                     {
                         tracing::debug!(target: LOG_TARGET, "Fully decapsulated data message to release: {deserialized_network_message:?}");
                         let processed_message =
-                            ProcessedMessage::from(deserialized_network_message);
+                            ProcessedMessage::from(deserialized_network_message.clone());
                         scheduler.schedule_processed_message(processed_message.clone());
-                        // assert_eq!(
-                        //     state_updater.add_unsent_processed_message(processed_message),
-                        //     Ok(()),
-                        //     "There should not be another copy of the same data message already
-                        // processed: {deserialized_network_message:?}", );
-                        if state_updater.add_unsent_processed_message(processed_message) == Err(())
-                        {
-                            tracing::error!("Failed to add unsent message.");
-                        }
+                        assert_eq!(
+                            state_updater.add_unsent_processed_message(processed_message),
+                            Ok(()),
+                            "There should not be another copy of the same data message already processed: {deserialized_network_message:?}",
+                        );
                         state_updater.commit_changes()
                     } else {
                         tracing::debug!(target: LOG_TARGET, "Unrecognized data message from blend backend. Dropping.");
@@ -1122,16 +1116,13 @@ where
         }
         DecapsulatedMessageType::Incompleted(remaining_encapsulated_message) => {
             tracing::debug!(target: LOG_TARGET, "Still encapsulated data message to release: {remaining_encapsulated_message:?}");
-            let processed_message = ProcessedMessage::from(*remaining_encapsulated_message);
+            let processed_message = ProcessedMessage::from(*remaining_encapsulated_message.clone());
             scheduler.schedule_processed_message(processed_message.clone());
-            // assert_eq!(
-            //     state_updater.add_unsent_processed_message(processed_message.clone()),
-            //     Ok(()),
-            //     "There should not be another copy of the same encapsulated message
-            // already processed: {processed_message:?}" );
-            if state_updater.add_unsent_processed_message(processed_message) == Err(()) {
-                tracing::error!("Failed to add unsent message.");
-            }
+            assert_eq!(
+                state_updater.add_unsent_processed_message(processed_message),
+                Ok(()),
+                "There should not be another copy of the same encapsulated message already processed: {remaining_encapsulated_message:?}"
+            );
             state_updater.commit_changes()
         }
     }
