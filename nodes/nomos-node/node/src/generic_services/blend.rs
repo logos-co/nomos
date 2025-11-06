@@ -79,25 +79,12 @@ impl ProofsVerifier for BlendProofsVerifier {
     }
 }
 
-pub struct BlendProofsGenerator {
-    membership_size: usize,
-    local_node_index: Option<usize>,
-}
+pub struct BlendProofsGenerator;
 
 #[async_trait]
 impl CoreAndLeaderProofsGenerator for BlendProofsGenerator {
-    fn new(
-        ProofsGeneratorSettings {
-            local_node_index,
-            membership_size,
-            ..
-        }: ProofsGeneratorSettings,
-        _private_inputs: ProofOfCoreQuotaInputs,
-    ) -> Self {
-        Self {
-            membership_size,
-            local_node_index,
-        }
+    fn new(_settings: ProofsGeneratorSettings, _private_inputs: ProofOfCoreQuotaInputs) -> Self {
+        Self
     }
 
     fn rotate_epoch(&mut self, _new_epoch_public: LeaderInputs) {}
@@ -105,34 +92,21 @@ impl CoreAndLeaderProofsGenerator for BlendProofsGenerator {
     fn set_epoch_private(&mut self, _new_epoch_private: ProofOfLeadershipQuotaInputs) {}
 
     async fn get_next_core_proof(&mut self) -> Option<BlendLayerProof> {
-        Some(loop_until_valid_proof(
-            self.membership_size,
-            self.local_node_index,
-        ))
+        Some(loop_until_valid_proof())
     }
 
     async fn get_next_leader_proof(&mut self) -> Option<BlendLayerProof> {
-        Some(loop_until_valid_proof(
-            self.membership_size,
-            self.local_node_index,
-        ))
+        Some(loop_until_valid_proof())
     }
 }
 
 #[async_trait]
 impl LeaderProofsGenerator for BlendProofsGenerator {
     fn new(
-        ProofsGeneratorSettings {
-            local_node_index,
-            membership_size,
-            ..
-        }: ProofsGeneratorSettings,
+        _settings: ProofsGeneratorSettings,
         _private_inputs: ProofOfLeadershipQuotaInputs,
     ) -> Self {
-        Self {
-            membership_size,
-            local_node_index,
-        }
+        Self
     }
 
     fn rotate_epoch(
@@ -143,14 +117,11 @@ impl LeaderProofsGenerator for BlendProofsGenerator {
     }
 
     async fn get_next_proof(&mut self) -> BlendLayerProof {
-        loop_until_valid_proof(self.membership_size, self.local_node_index)
+        loop_until_valid_proof()
     }
 }
 
-fn loop_until_valid_proof(
-    membership_size: usize,
-    local_node_index: Option<usize>,
-) -> BlendLayerProof {
+fn loop_until_valid_proof() -> BlendLayerProof {
     // For tests, we avoid generating proofs that are addressed to the local node
     // itself, since in most tests there are only two nodes and those payload would
     // fail to be propagated.
@@ -167,14 +138,6 @@ fn loop_until_valid_proof(
         ) else {
             continue;
         };
-        let Ok(expected_index) = proof_of_selection.expected_index(membership_size) else {
-            continue;
-        };
-        if Some(expected_index) != local_node_index {
-            println!(">>> Generated proof that would be addressed to another node.");
-        } else {
-            println!("<<< Generated proof that would be addressed to the very same sender.");
-        }
         return BlendLayerProof {
             ephemeral_signing_key: Ed25519PrivateKey::generate(),
             proof_of_quota,

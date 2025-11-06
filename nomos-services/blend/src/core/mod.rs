@@ -706,7 +706,7 @@ async fn run_event_loop<
                 current_recovery_checkpoint = handle_incoming_blend_message(incoming_message, &mut message_scheduler, &crypto_processor, &mut blending_token_collector, current_recovery_checkpoint);
             }
             Some(round_info) = message_scheduler.next() => {
-                current_recovery_checkpoint = handle_release_round(round_info, &mut crypto_processor, &mut rng, &backend, &network_adapter, current_recovery_checkpoint).await;
+                current_recovery_checkpoint = handle_release_round(round_info, &mut crypto_processor, &mut rng, &backend, &network_adapter, &mut blending_token_collector, current_recovery_checkpoint).await;
             }
             Some(clock_tick) = remaining_clock_stream.next() => {
                 current_public_info = handle_clock_event(clock_tick, blend_config, &mut epoch_handler, &mut crypto_processor, &mut backend, current_public_info).await;
@@ -756,7 +756,7 @@ async fn run_event_loop<
                 current_recovery_checkpoint = handle_incoming_blend_message(incoming_message, &mut message_scheduler, &crypto_processor, &mut blending_token_collector, current_recovery_checkpoint);
             }
             Some(round_info) = message_scheduler.next() => {
-                current_recovery_checkpoint = handle_release_round(round_info, &mut crypto_processor, &mut rng, &backend, &network_adapter, current_recovery_checkpoint).await;
+                current_recovery_checkpoint = handle_release_round(round_info, &mut crypto_processor, &mut rng, &backend, &network_adapter, &mut blending_token_collector, current_recovery_checkpoint).await;
             }
             Some(clock_tick) = remaining_clock_stream.next() => {
                 current_public_info = handle_clock_event(clock_tick, blend_config, &mut epoch_handler, &mut crypto_processor, &mut backend, current_public_info).await;
@@ -999,9 +999,9 @@ where
         Err(_) => {
             scheduler.queue_data_message(wrapped_message.clone());
             assert_eq!(
-                state_updater.add_unsent_data_message(wrapped_message),
+                state_updater.add_unsent_data_message(wrapped_message.clone()),
                 Ok(()),
-                "There should not be another copy of the same encapsulated data message already processed."
+                "There should not be another copy of the same encapsulated data message already processed. Message: {wrapped_message:?}."
             );
         }
         // It happened that the outermost `N` layers were addressed to this very same node, so we
@@ -1097,7 +1097,7 @@ where
                     if let Ok(deserialized_network_message) =
                         NetworkMessage::from_bytes(&serialized_data_message)
                     {
-                        tracing::debug!(target: LOG_TARGET, "Fully decapsulated data message to release: {deserialized_network_message:?}");
+                        tracing::debug!(target: LOG_TARGET, "Fully decapsulated processed data message to release: {deserialized_network_message:?}");
                         let processed_message =
                             ProcessedMessage::from(deserialized_network_message.clone());
                         scheduler.schedule_processed_message(processed_message.clone());
@@ -1157,6 +1157,7 @@ async fn handle_release_round<
     rng: &mut Rng,
     backend: &Backend,
     network_adapter: &NetAdapter,
+    blending_token_collector: &mut BlendingTokenCollector,
     current_recovery_checkpoint: ServiceState<Backend::Settings, NetAdapter::BroadcastSettings>,
 ) -> ServiceState<Backend::Settings, NetAdapter::BroadcastSettings>
 where
@@ -1164,6 +1165,7 @@ where
     Rng: RngCore + Send,
     Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId> + Sync,
     ProofsGenerator: CoreAndLeaderProofsGenerator,
+    ProofsVerifier: ProofsVerifierTrait,
     NetAdapter: NetworkAdapter<RuntimeServiceId, BroadcastSettings: Eq + Hash> + Sync,
 {
     let (processed_messages, should_generate_cover_message) =
@@ -1178,6 +1180,7 @@ where
     let data_messages_relay_futures = data_messages.into_iter()
         // While we iterate and map the messages to the sending futures, we update the recovery state to remove each message.
         .inspect(|data_message_to_blend| {
+            tracing::debug!(target: LOG_TARGET, "Releasing and removing from recovery state sent data message: {data_message_to_blend:?}");
             if state_updater.remove_sent_data_message(data_message_to_blend).is_err() {
                 tracing::warn!(target: LOG_TARGET, "Recovered data message should be present in the recovery state but was not found.");
             }
@@ -1217,13 +1220,42 @@ where
         .collect::<Vec<_>>();
 
     if should_generate_cover_message {
-        let cover_message = cryptographic_processor
+        let encapsulated_cover_message = cryptographic_processor
             .encapsulate_cover_payload(&random_sized_bytes::<{ size_of::<u32>() }>())
             .await
             .expect("Should not fail to generate new cover message");
-        state_updater.consume_core_quota(1);
-        message_futures.push(Box::new(backend.publish(cover_message)));
+        let self_decapsulation_output = cryptographic_processor.decapsulate_message_recursive(
+            IncomingEncapsulatedMessageWithValidatedPublicHeader::from_message_unchecked(
+                encapsulated_cover_message.clone(),
+            ),
+        );
+        match self_decapsulation_output {
+            Err(_) => {
+                // First layer not addressed to ourselves. Publish as regular cover message.
+                state_updater.consume_core_quota(1);
+                message_futures.push(Box::new(backend.publish(encapsulated_cover_message)));
+            }
+            Ok(multi_layer_decapsulation_output) => {
+                let (collected_blending_tokens, message_type) =
+                    multi_layer_decapsulation_output.into_components();
+
+                for blending_token in collected_blending_tokens {
+                    blending_token_collector.insert(blending_token);
+                }
+
+                match message_type {
+                    // This is the initial message that was encapsulated, since we fully
+                    // decapsulated a cover message, we don't do anything.
+                    DecapsulatedMessageType::Completed(_) => {}
+                    DecapsulatedMessageType::Incompleted(remaining_encapsulated_message) => {
+                        message_futures
+                            .push(Box::new(backend.publish(*remaining_encapsulated_message)));
+                    }
+                }
+            }
+        }
     }
+
     message_futures.shuffle(rng);
 
     // Release all messages concurrently, and wait for all of them to be sent.

@@ -480,7 +480,7 @@ impl EncapsulatedBlendingHeader {
     /// If there is no encapsulation left, and if the bytes are valid,
     /// the deserialization will succeed.
     fn try_deserialize(&self) -> Result<BlendingHeader, Error> {
-        BlendingHeader::from_bytes(&self.0).map_err(|_| Error::NotIntendedRecipient)
+        BlendingHeader::from_bytes(&self.0).map_err(|_| Error::PrivateHeaderDeserializationFailed)
     }
 
     /// Add a layer of encapsulation.
@@ -519,7 +519,7 @@ impl EncapsulatedPayload {
     /// If there is no encapsulation left, and if the bytes are valid,
     /// the deserialization will succeed.
     fn try_deserialize(&self) -> Result<Payload, Error> {
-        Payload::from_bytes(&self.0).map_err(|_| Error::DeserializationFailed)
+        Payload::from_bytes(&self.0).map_err(|_| Error::PayloadDeserializationFailed)
     }
 
     /// Add a layer of encapsulation.

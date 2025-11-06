@@ -12,12 +12,12 @@ pub enum Error {
     ProofOfSelectionVerificationFailed(selection::Error),
     #[error("Proof of quota verification failed")]
     ProofOfQuotaVerificationFailed(quota::Error),
-    #[error("Deserialization failed")]
-    DeserializationFailed,
-    #[error(
-        "Encapsulated private header failed to decapsulate because the recipient was not the intended one"
-    )]
-    NotIntendedRecipient,
+    #[error("Encapsulated message deserialization failed")]
+    MessageDeserializationFailed,
+    #[error("Payload deserialization failed")]
+    PayloadDeserializationFailed,
+    #[error("Private header deserialization failed")]
+    PrivateHeaderDeserializationFailed,
     #[error("Invalid payload length")]
     InvalidPayloadLength,
     #[error("Signature verification failed")]

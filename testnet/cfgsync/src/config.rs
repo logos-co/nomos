@@ -70,9 +70,7 @@ pub fn create_node_configs(
     tracing_settings: &TracingSettings,
     hosts: Vec<Host>,
 ) -> HashMap<Host, GeneralConfig> {
-    let mut ids: Vec<_> = (0..consensus_params.n_participants)
-        .map(|i| [i as u8; 32])
-        .collect();
+    let mut ids = vec![[0; 32]; consensus_params.n_participants];
     let mut ports = vec![];
     for id in &mut ids {
         thread_rng().fill(id);
