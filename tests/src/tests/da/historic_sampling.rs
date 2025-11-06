@@ -1,5 +1,7 @@
+use std::collections::HashMap;
+
 use futures::StreamExt as _;
-use nomos_core::da::BlobId;
+use nomos_core::{da::BlobId, sdp::SessionNumber};
 use tests::{
     common::da::{disseminate_with_metadata, wait_for_blob_onchain},
     nodes::executor::Executor,
@@ -51,10 +53,13 @@ async fn disseminate_blobs_in_session_zero(executor: &Executor) -> Vec<BlobId> {
 async fn test_sampling_scenarios(executor: &Executor, blob_ids: &[BlobId]) {
     let block_id = [0u8; 32];
 
-    // Test 1: Valid blobs
+    // Test 1: Valid blobs - all from session 0
     let valid_future = async {
+        let blob_ids_map: HashMap<BlobId, SessionNumber> =
+            blob_ids.iter().map(|&blob_id| (blob_id, 0)).collect();
+
         let result = executor
-            .da_historic_sampling(0, block_id.into(), blob_ids.to_vec())
+            .da_historic_sampling(block_id.into(), blob_ids_map)
             .await
             .expect("HTTP request should succeed");
         assert!(
@@ -63,14 +68,17 @@ async fn test_sampling_scenarios(executor: &Executor, blob_ids: &[BlobId]) {
         );
     };
 
-    // Test 2: Mixed valid/invalid blobs
+    // Test 2: Mixed valid/invalid blobs - all from session 0
     let invalid_future = async {
         let block_id = [1u8; 32];
         let mut mixed_blob_ids = blob_ids.to_vec();
         mixed_blob_ids[0] = [99u8; 32];
 
+        let blob_ids_map: HashMap<BlobId, SessionNumber> =
+            mixed_blob_ids.iter().map(|&blob_id| (blob_id, 0)).collect();
+
         let result = executor
-            .da_historic_sampling(0, block_id.into(), mixed_blob_ids)
+            .da_historic_sampling(block_id.into(), blob_ids_map)
             .await
             .expect("HTTP request should succeed");
         assert!(

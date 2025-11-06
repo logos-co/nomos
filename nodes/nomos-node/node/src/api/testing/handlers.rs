@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     fmt::{Debug, Display},
     hash::Hash,
 };
@@ -66,10 +67,12 @@ where
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct HistoricSamplingRequest<BlobId> {
-    pub session_id: SessionNumber,
+pub struct HistoricSamplingRequest<BlobId>
+where
+    BlobId: Eq + Hash,
+{
     pub block_id: HeaderId,
-    pub blob_ids: Vec<BlobId>,
+    pub blob_ids: HashMap<BlobId, SessionNumber>,
 }
 
 pub async fn da_historic_sampling<
@@ -107,10 +110,5 @@ where
         SamplingStorage,
         SamplingMempoolAdapter,
         RuntimeServiceId,
-    >(
-        handle,
-        request.session_id,
-        request.block_id,
-        request.blob_ids
-    ))
+    >(handle, request.block_id, request.blob_ids))
 }

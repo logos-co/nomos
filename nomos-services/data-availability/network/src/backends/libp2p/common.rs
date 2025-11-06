@@ -12,7 +12,7 @@ use kzgrs_backend::common::{
     ShareIndex,
     share::{DaLightShare, DaShare, DaSharesCommitments},
 };
-use nomos_core::{da::BlobId, header::HeaderId, mantle::SignedMantleTx, sdp::SessionNumber};
+use nomos_core::{da::BlobId, header::HeaderId, mantle::SignedMantleTx};
 use nomos_da_messages::common::Share;
 use nomos_da_network_core::{
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
@@ -554,17 +554,13 @@ pub(crate) async fn handle_sample_request(
 
 pub(crate) async fn handle_historic_sample_request<Membership>(
     historic_sample_request_channel: &UnboundedSender<SampleArgs<Membership>>,
-    blob_ids: HashSet<BlobId>,
-    session_id: SessionNumber,
     block_id: HeaderId,
-    membership: Membership,
+    blob_ids: HashMap<Membership, HashSet<BlobId>>,
 ) {
-    if let Err(SendError((blob_id, block_id, _))) =
-        historic_sample_request_channel.send((blob_ids, block_id, membership))
+    if let Err(SendError((block_id, _))) =
+        historic_sample_request_channel.send((block_id, blob_ids))
     {
-        error!(
-            "Error requesting historic sample for blob_id: {blob_id:?}, session_id: {session_id:?}, block_id: {block_id:?}"
-        );
+        error!("Error requesting historic sample for block_id: {block_id:?}");
     }
 }
 
