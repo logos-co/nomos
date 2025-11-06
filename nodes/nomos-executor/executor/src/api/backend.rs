@@ -49,8 +49,8 @@ use nomos_node::{
         da_get_shares, da_get_storage_commitments, libp2p_info, mantle_metrics, mantle_status,
         monitor_stats, post_activity, post_declaration, post_withdrawal, unblock_peer,
     },
-    generic_services::SdpService,
 };
+use nomos_sdp::adapters::mempool::SdpMempoolAdapter;
 use nomos_storage::{StorageService, api::da};
 use overwatch::{DynError, overwatch::handle::OverwatchHandle, services::AsServiceId};
 use serde::{Serialize, de::DeserializeOwned};
@@ -99,6 +99,7 @@ pub struct AxumBackend<
     SdpAdapter,
     HttpStorageAdapter,
     MempoolStorageAdapter,
+    SdpMempool,
 > {
     settings: AxumBackendSettings,
     #[expect(clippy::allow_attributes_without_reason)]
@@ -127,6 +128,7 @@ pub struct AxumBackend<
         SdpAdapter,
         HttpStorageAdapter,
         MempoolStorageAdapter,
+        SdpMempool,
     )>,
 }
 
@@ -168,6 +170,7 @@ impl<
     SdpAdapter,
     StorageAdapter,
     MempoolStorageAdapter,
+    SdpMempool,
     RuntimeServiceId,
 > Backend<RuntimeServiceId>
     for AxumBackend<
@@ -194,6 +197,7 @@ impl<
         SdpAdapter,
         StorageAdapter,
         MempoolStorageAdapter,
+        SdpMempool,
     >
 where
     DaShare: Share + Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
@@ -290,6 +294,7 @@ where
     ApiAdapter: nomos_da_network_service::api::ApiAdapter + Send + Sync + 'static,
     SdpAdapter: SdpAdapterTrait<RuntimeServiceId> + Send + Sync + 'static,
     StorageAdapter: storage::StorageAdapter<RuntimeServiceId> + Send + Sync + 'static,
+    SdpMempool: SdpMempoolAdapter + Send + Sync + 'static,
     MempoolStorageAdapter: tx_service::storage::MempoolStorageAdapter<
             RuntimeServiceId,
             Key = <SignedMantleTx as Transaction>::Hash,
@@ -374,7 +379,7 @@ where
                 RuntimeServiceId,
             >,
         >
-        + AsServiceId<SdpService<RuntimeServiceId>>,
+        + AsServiceId<nomos_sdp::SdpService<SdpMempool, RuntimeServiceId>>,
 {
     type Error = std::io::Error;
     type Settings = AxumBackendSettings;
@@ -605,15 +610,15 @@ where
             )
             .route(
                 paths::SDP_POST_DECLARATION,
-                routing::post(post_declaration::<RuntimeServiceId>),
+                routing::post(post_declaration::<SdpMempool, RuntimeServiceId>),
             )
             .route(
                 paths::SDP_POST_ACTIVITY,
-                routing::post(post_activity::<RuntimeServiceId>),
+                routing::post(post_activity::<SdpMempool, RuntimeServiceId>),
             )
             .route(
                 paths::SDP_POST_WITHDRAWAL,
-                routing::post(post_withdrawal::<RuntimeServiceId>),
+                routing::post(post_withdrawal::<SdpMempool, RuntimeServiceId>),
             )
             .with_state(handle.clone())
             .layer(TimeoutLayer::new(self.settings.timeout))

@@ -37,6 +37,7 @@ use nomos_da_verifier::{backend::VerifierBackend, mempool::DaMempoolAdapter};
 use nomos_http_api_common::paths;
 use nomos_libp2p::PeerId;
 use nomos_network::backends::libp2p::Libp2p as Libp2pNetworkBackend;
+use nomos_sdp::adapters::mempool::SdpMempoolAdapter;
 use nomos_storage::{StorageService, api::da::DaConverter, backends::rocksdb::RocksBackend};
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -949,19 +950,21 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn post_declaration<RuntimeServiceId>(
+pub async fn post_declaration<MempoolAdapter, RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
     Json(declaration): Json<nomos_core::sdp::DeclarationMessage>,
 ) -> Response
 where
+    MempoolAdapter: SdpMempoolAdapter + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Send
         + Display
         + 'static
-        + AsServiceId<nomos_sdp::SdpService<RuntimeServiceId>>,
+        + AsServiceId<nomos_sdp::SdpService<MempoolAdapter, RuntimeServiceId>>,
 {
     make_request_and_return_response!(nomos_api::http::sdp::post_declaration_handler::<
+        MempoolAdapter,
         RuntimeServiceId,
     >(handle, declaration))
 }
@@ -974,19 +977,21 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn post_activity<RuntimeServiceId>(
+pub async fn post_activity<MempoolAdapter, RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
     Json(metadata): Json<nomos_core::sdp::ActivityMetadata>,
 ) -> Response
 where
+    MempoolAdapter: SdpMempoolAdapter + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Send
         + Display
         + 'static
-        + AsServiceId<nomos_sdp::SdpService<RuntimeServiceId>>,
+        + AsServiceId<nomos_sdp::SdpService<MempoolAdapter, RuntimeServiceId>>,
 {
     make_request_and_return_response!(nomos_api::http::sdp::post_activity_handler::<
+        MempoolAdapter,
         RuntimeServiceId,
     >(handle, metadata))
 }
@@ -999,19 +1004,21 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn post_withdrawal<RuntimeServiceId>(
+pub async fn post_withdrawal<MempoolAdapter, RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
     Json(declaration_id): Json<nomos_core::sdp::DeclarationId>,
 ) -> Response
 where
+    MempoolAdapter: SdpMempoolAdapter + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Send
         + Display
         + 'static
-        + AsServiceId<nomos_sdp::SdpService<RuntimeServiceId>>,
+        + AsServiceId<nomos_sdp::SdpService<MempoolAdapter, RuntimeServiceId>>,
 {
     make_request_and_return_response!(nomos_api::http::sdp::post_withdrawal_handler::<
+        MempoolAdapter,
         RuntimeServiceId,
     >(handle, declaration_id))
 }
