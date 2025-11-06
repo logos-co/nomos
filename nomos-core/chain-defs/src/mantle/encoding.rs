@@ -484,7 +484,8 @@ fn encode_zk_signature(sig: &DummyZkSignature) -> Vec<u8> {
 }
 
 /// Encode channel operations
-fn encode_channel_inscribe(op: &InscriptionOp) -> Vec<u8> {
+#[must_use]
+pub fn encode_channel_inscribe(op: &InscriptionOp) -> Vec<u8> {
     let mut bytes = Vec::new();
     bytes.extend(encode_hash32(op.channel_id.as_ref()));
     bytes.extend(encode_uint32(op.inscription.len() as u32));
@@ -494,7 +495,8 @@ fn encode_channel_inscribe(op: &InscriptionOp) -> Vec<u8> {
     bytes
 }
 
-fn encode_channel_blob(op: &BlobOp) -> Vec<u8> {
+#[must_use]
+pub fn encode_channel_blob(op: &BlobOp) -> Vec<u8> {
     let mut bytes = Vec::new();
     bytes.extend(encode_hash32(op.channel.as_ref()));
     bytes.extend(encode_uint64(op.session));
@@ -556,7 +558,8 @@ fn encode_sdp_withdraw(op: &SDPWithdrawOp) -> Vec<u8> {
     bytes
 }
 
-fn encode_sdp_active(op: &SDPActiveOp) -> Vec<u8> {
+#[must_use]
+pub fn encode_sdp_active(op: &SDPActiveOp) -> Vec<u8> {
     let mut bytes = Vec::new();
     bytes.extend(encode_hash32(&op.declaration_id.0));
     bytes.extend(encode_uint64(op.nonce));
