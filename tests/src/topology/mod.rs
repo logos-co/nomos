@@ -126,7 +126,7 @@ impl Topology {
         // * coin sk
         // * coin nonce
         // * libp2p node key
-        let mut ids = vec![[0; 32]; n_participants];
+        let mut ids: Vec<_> = (0..n_participants).map(|i| [i as u8; 32]).collect();
         let mut da_ports = vec![];
         let mut blend_ports = vec![];
         for id in &mut ids {

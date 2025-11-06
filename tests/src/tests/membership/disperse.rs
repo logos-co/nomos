@@ -34,7 +34,7 @@ async fn update_membership_and_disseminate() {
 }
 
 fn generate_test_ids_and_ports(n_participants: usize) -> (Vec<[u8; 32]>, Vec<u16>, Vec<u16>) {
-    let mut ids = vec![[0; 32]; n_participants];
+    let mut ids: Vec<_> = (0..n_participants).map(|i| [i as u8; 32]).collect();
     let mut da_ports = vec![];
     let mut blend_ports = vec![];
 
