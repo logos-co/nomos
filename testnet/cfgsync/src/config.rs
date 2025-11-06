@@ -1,5 +1,6 @@
 use std::{collections::HashMap, net::Ipv4Addr, str::FromStr as _};
 
+use key_management_system::backend::preload::PreloadKMSBackendSettings;
 use nomos_libp2p::{Multiaddr, multiaddr};
 use nomos_tracing_service::{LoggerLayer, MetricsLayer, TracingLayer, TracingSettings};
 use nomos_utils::net::get_available_udp_port;
@@ -148,6 +149,9 @@ pub fn create_node_configs(
                 api_config,
                 tracing_config,
                 time_config,
+                kms_config: PreloadKMSBackendSettings {
+                    keys: HashMap::new(),
+                },
             },
         );
     }

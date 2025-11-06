@@ -1,6 +1,9 @@
 pub mod configs;
 
-use std::{collections::HashSet, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    time::Duration,
+};
 
 use configs::{
     GeneralConfig,
@@ -10,15 +13,19 @@ use configs::{
     tracing::create_tracing_configs,
 };
 use futures::future::join_all;
+use groth16::fr_to_bytes;
+use key_management_system::{
+    backend::preload::PreloadKMSBackendSettings,
+    keys::{Ed25519Key, Key, ZkKey},
+};
 use nomos_core::{
-    mantle::{GenesisTx as _, keys::PublicKey},
+    mantle::GenesisTx as _,
     sdp::{Locator, ProviderId, ServiceType, SessionNumber},
 };
 use nomos_da_network_core::swarm::DAConnectionPolicySettings;
 use nomos_da_network_service::MembershipResponse;
 use nomos_network::backends::libp2p::Libp2pInfo;
 use nomos_utils::net::get_available_udp_port;
-use num_bigint::BigUint;
 use rand::{Rng as _, thread_rng};
 use tokio::time::{sleep, timeout};
 
@@ -144,14 +151,14 @@ impl Topology {
         let tracing_configs = create_tracing_configs(&ids);
         let time_config = default_time_config();
 
-        // Setup genesis TX with Blend and DA service declarations.
+        // Setup genesis TX with Blend and DA service declarationse
         let mut providers: Vec<_> = da_configs
             .iter()
             .enumerate()
             .map(|(i, da_conf)| ProviderInfo {
                 service_type: ServiceType::DataAvailability,
                 provider_id: ProviderId(da_conf.signer.verifying_key()),
-                zk_id: PublicKey::new(BigUint::from(0u8).into()),
+                zk_id: da_conf.secret_zk_key.to_public_key(),
                 locator: Locator(da_conf.listening_address.clone()),
                 note: consensus_configs[0].da_notes[i].clone(),
                 signer: da_conf.signer.clone(),
@@ -171,6 +178,7 @@ impl Topology {
                 }),
         );
 
+        // Update genesis TX to contain Blend and DA providers.
         let ledger_tx = consensus_configs[0]
             .genesis_tx
             .mantle_tx()
@@ -180,6 +188,37 @@ impl Topology {
         for c in &mut consensus_configs {
             c.genesis_tx = genesis_tx.clone();
         }
+
+        // Set Blend and DA keys in KMS of each node config.
+        let kms_configs: Vec<_> = da_configs
+            .iter()
+            .zip(blend_configs.iter())
+            .map(|(da_conf, blend_conf)| PreloadKMSBackendSettings {
+                keys: [
+                    (
+                        hex::encode(blend_conf.signer.verifying_key().as_bytes()),
+                        Key::Ed25519(Ed25519Key(blend_conf.signer.clone())),
+                    ),
+                    (
+                        hex::encode(fr_to_bytes(
+                            &blend_conf.secret_zk_key.to_public_key().into_inner(),
+                        )),
+                        Key::Zk(ZkKey(blend_conf.secret_zk_key.clone())),
+                    ),
+                    (
+                        hex::encode(da_conf.signer.verifying_key().as_bytes()),
+                        Key::Ed25519(Ed25519Key(da_conf.signer.clone())),
+                    ),
+                    (
+                        hex::encode(fr_to_bytes(
+                            &da_conf.secret_zk_key.to_public_key().into_inner(),
+                        )),
+                        Key::Zk(ZkKey(da_conf.secret_zk_key.clone())),
+                    ),
+                ]
+                .into(),
+            })
+            .collect();
 
         let mut node_configs = vec![];
 
@@ -193,6 +232,7 @@ impl Topology {
                 api_config: api_configs[i].clone(),
                 tracing_config: tracing_configs[i].clone(),
                 time_config: time_config.clone(),
+                kms_config: kms_configs[i].clone(),
             });
         }
 
@@ -224,6 +264,10 @@ impl Topology {
         let tracing_configs = create_tracing_configs(ids);
         let time_config = default_time_config();
 
+        let kms_config = PreloadKMSBackendSettings {
+            keys: HashMap::new(),
+        };
+
         let mut node_configs = vec![];
 
         for i in 0..n_participants {
@@ -236,6 +280,7 @@ impl Topology {
                 api_config: api_configs[i].clone(),
                 tracing_config: tracing_configs[i].clone(),
                 time_config: time_config.clone(),
+                kms_config: kms_config.clone(),
             });
         }
         let (validators, executors) =
