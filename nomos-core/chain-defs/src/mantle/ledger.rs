@@ -7,12 +7,12 @@ use groth16::{
 use num_bigint::BigUint;
 use poseidon2::Digest;
 use serde::{Deserialize, Serialize};
+use zksign::PublicKey;
 
 use crate::{
     crypto::ZkHasher,
     mantle::{
-        Transaction, TransactionHasher, encoding::encode_ledger_tx, gas::GasConstants,
-        keys::PublicKey, tx::TxHash,
+        Transaction, TransactionHasher, encoding::encode_ledger_tx, gas::GasConstants, tx::TxHash,
     },
 };
 

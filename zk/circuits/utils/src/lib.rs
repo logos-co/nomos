@@ -1,3 +1,5 @@
+pub mod dev_mode;
+
 use std::path::PathBuf;
 
 const NOMOS_CIRCUITS_ENV_VAR: &str = "NOMOS_CIRCUITS";

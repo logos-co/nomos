@@ -9,11 +9,9 @@ use nom::{
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use strum::EnumIter;
+use zksign::PublicKey;
 
-use crate::{
-    block::BlockNumber,
-    mantle::{NoteId, keys::PublicKey},
-};
+use crate::{block::BlockNumber, mantle::NoteId};
 
 pub type SessionNumber = u64;
 pub type StakeThreshold = u64;

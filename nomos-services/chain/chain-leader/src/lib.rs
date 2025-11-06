@@ -18,7 +18,7 @@ use nomos_core::{
     header::HeaderId,
     mantle::{
         AuthenticatedMantleTx, Op, Transaction, TxHash, TxSelect, gas::MainnetGasConstants,
-        keys::SecretKey, ops::leader_claim::VoucherCm,
+        ops::leader_claim::VoucherCm,
     },
     proofs::leader_proof::{Groth16LeaderProof, LeaderPrivate},
 };
@@ -43,6 +43,7 @@ use tx_service::{
     network::NetworkAdapter as MempoolNetworkAdapter,
     storage::MempoolStorageAdapter,
 };
+use zksign::SecretKey;
 
 use crate::{
     blend::BlendAdapter,

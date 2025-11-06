@@ -113,9 +113,9 @@ impl KMSBackend for PreloadKMSBackend {
 #[cfg(test)]
 mod tests {
     use bytes::{Bytes as RawBytes, Bytes};
-    use nomos_core::mantle::keys::SecretKey;
     use num_bigint::BigUint;
     use rand::rngs::OsRng;
+    use zksign::SecretKey;
 
     use super::*;
     use crate::keys::{Ed25519Key, Key, PayloadEncoding, ZkKey};
