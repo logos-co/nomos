@@ -5,11 +5,7 @@ name    = "circuits-utils"
 version = "0.1.0"
 
 [dependencies]
-
-[dev-dependencies]
-serial_test = "3"
-temp-env    = "0.3.6"
-tempfile    = { workspace = true }
+dirs = "6.0"
 
 [lints]
 workspace = true

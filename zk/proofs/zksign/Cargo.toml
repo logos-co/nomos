@@ -18,5 +18,8 @@ num-bigint = "0.4"
 poseidon2  = { workspace = true }
 rand       = "0.8"
 
+[build-dependencies]
+circuits-utils = { workspace = true }
+
 [lints]
 workspace = true

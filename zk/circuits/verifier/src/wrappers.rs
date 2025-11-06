@@ -4,17 +4,34 @@ use std::{
     sync::LazyLock,
 };
 
-use circuits_utils::find_file;
+use circuits_utils::nomos_circuits_dir;
 use tempfile::NamedTempFile;
 
 const BINARY_NAME: &str = "verifier";
-const BINARY_ENV_VAR: &str = "NOMOS_VERIFIER";
 
-static BINARY: LazyLock<PathBuf> = LazyLock::new(|| {
-    find_file(BINARY_NAME, BINARY_ENV_VAR).unwrap_or_else(|error_message| {
-        panic!("Could not find the required '{BINARY_NAME}' binary: {error_message}");
-    })
-});
+/// Path to the verifier binary in the `NOMOS_CIRCUITS` directory.
+///
+/// # Panics
+///
+/// Panics if the verifier binary is not found at the expected path.
+fn verifier_binary() -> PathBuf {
+    // Get the nomos-circuits directory
+    let circuits_dir = nomos_circuits_dir();
+
+    // Check for verifier binary at the root of nomos-circuits directory
+    let verifier_path = circuits_dir.join(BINARY_NAME);
+    if verifier_path.is_file() {
+        return verifier_path;
+    }
+
+    panic!(
+        "Could not find '{BINARY_NAME}' binary at expected path: {}\n\
+         Please ensure your nomos-circuits directory has the correct structure with the verifier binary at the root.",
+        verifier_path.display()
+    )
+}
+
+static BINARY: LazyLock<PathBuf> = LazyLock::new(verifier_binary);
 
 /// Runs the `verifier` command to check the validity of a proof for a given
 /// verification key and public inputs.
