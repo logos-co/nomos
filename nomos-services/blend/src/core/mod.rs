@@ -992,6 +992,8 @@ where
     // Before blending the data message, we try to peel off any outer layers that
     // are addressed to us. In this case, we collect the blending tokens and we
     // blend only the remaining layers.
+    // TODO: Remove this logic once we don't have tests that deploy less than 3
+    // Blend nodes, or when we start using a minimum network size of 3.
     let self_decapsulation_output = cryptographic_processor.decapsulate_message_recursive(
         IncomingEncapsulatedMessageWithValidatedPublicHeader::from_message_unchecked(
             wrapped_message.clone(),
@@ -1220,6 +1222,7 @@ where
         .collect::<Vec<_>>();
 
     if should_generate_cover_message
+        // TODO: Remove this logic once we don't have tests that deploy less than 3 Blend nodes, or when we start using a minimum network size of 3.
         && let Some(encapsulated_cover_message) = generate_and_try_to_decapsulate_cover_message(
             cryptographic_processor,
             blending_token_collector,
