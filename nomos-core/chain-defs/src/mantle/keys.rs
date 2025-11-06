@@ -40,6 +40,11 @@ impl SecretKey {
     }
 
     #[must_use]
+    pub fn into_inner(self) -> Fr {
+        self.0
+    }
+
+    #[must_use]
     pub fn to_public_key(&self) -> PublicKey {
         PublicKey(Poseidon2Bn254Hasher::digest(&[*NOMOS_KDF, self.0]))
     }
