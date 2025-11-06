@@ -222,7 +222,7 @@ impl SessionState {
 impl<R: Rewards> ServiceState<R> {
     fn try_apply_header(mut self, block_number: u64, config: &ServiceParameters) -> Self {
         // TODO: remove expired declarations based on retention_period
-        let current_session = block_number / config.session_duration;
+        let current_session = config.session_for_block(block_number);
         // shift all session!
         if current_session == self.active.session_n + 1 {
             // Update rewards with current session state and distribute rewards
@@ -235,6 +235,10 @@ impl<R: Rewards> ServiceState<R> {
                 session_n: self.forming.session_n + 1,
             };
         } else {
+            assert!(
+                current_session < self.active.session_n + 1,
+                "Nomos isn't ready for time travel yet"
+            );
             self.forming = self.forming.update(&self, block_number, config);
         }
 

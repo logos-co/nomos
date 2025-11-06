@@ -39,6 +39,13 @@ pub struct ServiceParameters {
     pub session_duration: BlockNumber,
 }
 
+impl ServiceParameters {
+    #[must_use]
+    pub const fn session_for_block(&self, block_number: BlockNumber) -> SessionNumber {
+        block_number / self.session_duration
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Locator(pub Multiaddr);

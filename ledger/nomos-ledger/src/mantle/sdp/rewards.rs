@@ -130,13 +130,10 @@ impl DaRewards {
             });
         }
 
-        // Validation is performed a little bit different from the spec even though the
-        // result is the same
         // * self opinion is not checked
         // * we only check opinions up to the number of validators, without checking the
         //   rest of the opinion bits are zero
 
-        // bits beyond n_validators should be zero but we ignore them
         Ok((0..n_validators)
             .map(|i| Self::get_opinion_bit(opinions, i))
             .collect())
@@ -144,9 +141,6 @@ impl DaRewards {
 
     /// Calculate expected byte length for opinion vector: ⌈log₂(Ns + 1) / 8⌉
     const fn calculate_opinion_vector_length(node_count: usize) -> usize {
-        if node_count == 0 {
-            return 0;
-        }
         let bits_needed = (node_count + 1).next_power_of_two().trailing_zeros() as usize;
         bits_needed.div_ceil(8)
     }
