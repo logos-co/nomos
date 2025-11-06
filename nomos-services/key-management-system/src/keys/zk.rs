@@ -21,16 +21,13 @@ impl SecuredKey for ZkKey {
         keys: &[&Self],
         payload: &Self::Payload,
     ) -> Result<Self::Signature, Self::Error> {
-        if keys.len() != 32 {
+        if keys.len() > 32 {
             return Err(KeyError::UnsupportedMultisignatureSize(32, keys.len()));
         }
-        let keys: [_; 32] = keys
-            .iter()
-            .map(|k| k.0.clone())
-            .collect::<Vec<_>>()
-            .try_into()
-            .expect("Error is checked first thing in the method");
-        Ok(SecretKey::multi_sign(&keys, payload))
+        Ok(SecretKey::multi_sign(
+            keys.iter().map(|key| key.0.clone()),
+            payload,
+        ))
     }
 
     fn as_public_key(&self) -> Self::PublicKey {

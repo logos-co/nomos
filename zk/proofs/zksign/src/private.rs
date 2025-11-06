@@ -3,6 +3,8 @@ use std::fmt::Display;
 use groth16::{Field as _, Fr, Groth16Input, Groth16InputDeser};
 use serde::Serialize;
 
+use crate::SecretKey;
+
 pub struct ZkSignPrivateKeysData([Fr; 32]);
 
 pub struct ZkSignPrivateKeysInputs(pub(crate) [Groth16Input; 32]);
@@ -10,6 +12,18 @@ pub struct ZkSignPrivateKeysInputs(pub(crate) [Groth16Input; 32]);
 #[derive(Serialize)]
 #[serde(transparent)]
 pub struct ZkSignPrivateKeysInputsJson([Groth16InputDeser; 32]);
+
+impl ZkSignPrivateKeysData {
+    pub fn new(sks: impl IntoIterator<Item = SecretKey>) -> Self {
+        let mut secret_keys = [Fr::ZERO; 32];
+        for (i, sk) in sks.into_iter().enumerate() {
+            assert!(i < 32, "ZkSign supports signing with at most 32 keys");
+            secret_keys[i] = sk.into_inner();
+        }
+
+        Self(secret_keys)
+    }
+}
 
 impl From<[Fr; 32]> for ZkSignPrivateKeysData {
     fn from(value: [Fr; 32]) -> Self {
