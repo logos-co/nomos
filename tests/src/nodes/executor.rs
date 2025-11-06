@@ -96,7 +96,9 @@ pub struct Executor {
 
 impl Drop for Executor {
     fn drop(&mut self) {
-        if let Err(e) = persist_tempdir(&mut self.tempdir, "nomos-executor") {
+        if std::thread::panicking()
+            && let Err(e) = persist_tempdir(&mut self.tempdir, "nomos-executor")
+        {
             println!("failed to persist tempdir: {e}");
         }
 

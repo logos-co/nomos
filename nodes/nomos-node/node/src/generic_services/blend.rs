@@ -122,11 +122,6 @@ impl LeaderProofsGenerator for BlendProofsGenerator {
 }
 
 fn loop_until_valid_proof() -> BlendLayerProof {
-    // For tests, we avoid generating proofs that are addressed to the local node
-    // itself, since in most tests there are only two nodes and those payload would
-    // fail to be propagated.
-    // This is not a precaution we need to consider in production, since there will
-    // be a minimum network size that is larger than 2.
     loop {
         let Ok(proof_of_quota) =
             ProofOfQuota::from_bytes(&random_sized_bytes::<{ size_of::<ProofOfQuota>() }>()[..])

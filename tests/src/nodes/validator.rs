@@ -91,7 +91,9 @@ pub struct Validator {
 
 impl Drop for Validator {
     fn drop(&mut self) {
-        if let Err(e) = persist_tempdir(&mut self.tempdir, "nomos-node") {
+        if std::thread::panicking()
+            && let Err(e) = persist_tempdir(&mut self.tempdir, "nomos-node")
+        {
             println!("failed to persist tempdir: {e}");
         }
 
@@ -310,7 +312,7 @@ impl Validator {
 
     pub async fn consensus_info(&self) -> CryptarchiaInfo {
         let res = self.get(CRYPTARCHIA_INFO).await;
-        // println!("{res:?}");
+        println!("{res:?}");
         res.unwrap().json().await.unwrap()
     }
 

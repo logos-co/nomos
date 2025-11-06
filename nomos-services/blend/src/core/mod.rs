@@ -989,51 +989,54 @@ where
 
     let mut state_updater = current_recovery_checkpoint.start_updating();
 
-    match cryptographic_processor.decapsulate_message_recursive(
+    // Before blending the data message, we try to peel off any outer layers that
+    // are addressed to us. In this case, we collect the blending tokens and we
+    // blend only the remaining layers.
+    let self_decapsulation_output = cryptographic_processor.decapsulate_message_recursive(
         IncomingEncapsulatedMessageWithValidatedPublicHeader::from_message_unchecked(
             wrapped_message.clone(),
         ),
-    ) {
-        // The outermost layer of the data message is not for us, hence treat this as a regular data
-        // message.
-        Err(_) => {
-            scheduler.queue_data_message(wrapped_message.clone());
-            assert_eq!(
-                state_updater.add_unsent_data_message(wrapped_message.clone()),
-                Ok(()),
-                "There should not be another copy of the same encapsulated data message already processed. Message: {wrapped_message:?}."
-            );
-        }
-        // It happened that the outermost `N` layers were addressed to this very same node, so we
-        // collect blending tokens and propagate only the remaining part.
-        Ok(multi_layer_decapsulation_output) => {
-            let (collected_blending_tokens, message_type) =
-                multi_layer_decapsulation_output.into_components();
-            let processed_message = match message_type {
-                // This is the initial message that was encapsulated.
-                DecapsulatedMessageType::Completed(_) => {
-                    tracing::debug!(target: LOG_TARGET, "Locally generated data message {:?} had all the {} layers addressed to this same node. Propagating only the fully decapsulated message.", message_payload, collected_blending_tokens.len());
-                    ProcessedMessage::from(message_payload)
-                }
-                DecapsulatedMessageType::Incompleted(remaining_encapsulated_message) => {
-                    tracing::debug!(target: LOG_TARGET, "Locally generated data message had the outermost {} layers addressed to this same node. Propagating only the remaining encapsulated layers.", collected_blending_tokens.len());
-                    ProcessedMessage::from(*remaining_encapsulated_message)
-                }
-            };
-            for blending_token in collected_blending_tokens {
-                blending_token_collector.insert(blending_token);
-            }
-            // We treat a partially or fully decapsulated message as a processed message,
-            // and we schedule for its release at the next release round.
-            scheduler.schedule_processed_message(processed_message.clone());
-            assert_eq!(
-                state_updater.add_unsent_processed_message(processed_message.clone()),
-                Ok(()),
-                "There should not be another copy of the same processed message already processed. Processed message: {processed_message:?}."
-            );
-        }
-    }
+    );
 
+    let Ok(multi_layer_decapsulation_output) = self_decapsulation_output else {
+        // The outermost layer of the data message is not for us, hence we treat this as
+        // a regular data message that should be released at the next round.
+        scheduler.queue_data_message(wrapped_message.clone());
+        assert_eq!(
+            state_updater.add_unsent_data_message(wrapped_message.clone()),
+            Ok(()),
+            "There should not be another copy of the same locally-generated encapsulated data message: {wrapped_message:?}."
+        );
+        return state_updater.commit_changes();
+    };
+
+    // It happened that the outermost `N` layers were addressed to this very same
+    // node, so we collect blending tokens for those layers and propagate only the
+    // remaining part.
+    let (collected_blending_tokens, remaining_message_type) =
+        multi_layer_decapsulation_output.into_components();
+    let processed_message = match remaining_message_type {
+        // If all the layers are peeled off locally, then we are left with the initial data message.
+        DecapsulatedMessageType::Completed(_) => {
+            tracing::debug!(target: LOG_TARGET, "Locally generated data message {message_payload:?} had all the {} layers addressed to this same node. Propagating only the fully decapsulated message.", collected_blending_tokens.len());
+            ProcessedMessage::from(message_payload)
+        }
+        DecapsulatedMessageType::Incompleted(remaining_encapsulated_message) => {
+            tracing::debug!(target: LOG_TARGET, "Locally generated data message had the outermost {} layers addressed to this same node. Propagating only the remaining encapsulated layers.", collected_blending_tokens.len());
+            ProcessedMessage::from(*remaining_encapsulated_message)
+        }
+    };
+    for blending_token in collected_blending_tokens {
+        blending_token_collector.insert(blending_token);
+    }
+    // We treat a partially or fully decapsulated message as a processed message,
+    // and we schedule for its release at the next release round.
+    scheduler.schedule_processed_message(processed_message.clone());
+    assert_eq!(
+        state_updater.add_unsent_processed_message(processed_message.clone()),
+        Ok(()),
+        "There should not be another copy of the same locally-generated processed message: {processed_message:?}."
+    );
     state_updater.commit_changes()
 }
 
@@ -1077,7 +1080,7 @@ where
 
     let mut state_updater = current_recovery_checkpoint.start_updating();
 
-    let (collected_blending_tokens, message_type) =
+    let (collected_blending_tokens, decapsulated_message_type) =
         multi_layer_decapsulation_output.into_components();
     tracing::trace!(target: LOG_TARGET, "Batch-decapsulated {} layers from the received message.", collected_blending_tokens.len());
 
@@ -1085,7 +1088,7 @@ where
         blending_token_collector.insert(collected_blending_token);
     }
 
-    match message_type {
+    match decapsulated_message_type {
         DecapsulatedMessageType::Completed(fully_decapsulated_message) => {
             match fully_decapsulated_message.into_components() {
                 (PayloadType::Cover, _) => {
@@ -1097,15 +1100,14 @@ where
                     if let Ok(deserialized_network_message) =
                         NetworkMessage::from_bytes(&serialized_data_message)
                     {
-                        tracing::debug!(target: LOG_TARGET, "Fully decapsulated processed data message to release: {deserialized_network_message:?}");
+                        tracing::debug!(target: LOG_TARGET, "Fully decapsulated and deserialized processed data message: {deserialized_network_message:?}");
                         let processed_message =
-                            ProcessedMessage::from(deserialized_network_message.clone());
+                            ProcessedMessage::from(deserialized_network_message);
                         scheduler.schedule_processed_message(processed_message.clone());
-                        assert_eq!(
-                            state_updater.add_unsent_processed_message(processed_message),
-                            Ok(()),
-                            "There should not be another copy of the same data message already processed: {deserialized_network_message:?}",
-                        );
+                        if state_updater.add_unsent_processed_message(processed_message) == Err(())
+                        {
+                            tracing::warn!(target: LOG_TARGET, "The same processed message was already added to the recovery state. Ignoring the new one...");
+                        }
                         state_updater.commit_changes()
                     } else {
                         tracing::debug!(target: LOG_TARGET, "Unrecognized data message from blend backend. Dropping.");
@@ -1115,13 +1117,13 @@ where
             }
         }
         DecapsulatedMessageType::Incompleted(remaining_encapsulated_message) => {
-            tracing::debug!(target: LOG_TARGET, "Still encapsulated data message to release: {remaining_encapsulated_message:?}");
+            tracing::debug!(target: LOG_TARGET, "Processed encapsulated data message: {remaining_encapsulated_message:?}");
             let processed_message = ProcessedMessage::from(*remaining_encapsulated_message.clone());
             scheduler.schedule_processed_message(processed_message.clone());
             assert_eq!(
                 state_updater.add_unsent_processed_message(processed_message),
                 Ok(()),
-                "There should not be another copy of the same encapsulated message already processed: {remaining_encapsulated_message:?}"
+                "There should not be another copy of the same processed encapsulated message: {remaining_encapsulated_message:?}"
             );
             state_updater.commit_changes()
         }
@@ -1180,7 +1182,6 @@ where
     let data_messages_relay_futures = data_messages.into_iter()
         // While we iterate and map the messages to the sending futures, we update the recovery state to remove each message.
         .inspect(|data_message_to_blend| {
-            tracing::debug!(target: LOG_TARGET, "Releasing and removing from recovery state sent data message: {data_message_to_blend:?}");
             if state_updater.remove_sent_data_message(data_message_to_blend).is_err() {
                 tracing::warn!(target: LOG_TARGET, "Recovered data message should be present in the recovery state but was not found.");
             }
@@ -1195,7 +1196,6 @@ where
     let processed_messages_relay_futures = processed_messages
         .into_iter()
         .inspect(|processed_message_to_release| {
-            tracing::debug!(target: LOG_TARGET, "Releasing and removing from recovery state processed message: {processed_message_to_release:?}");
             if state_updater.remove_sent_processed_message(processed_message_to_release).is_err() {
                 tracing::warn!(target: LOG_TARGET, "Previously processed message should be present in the recovery state but was not found.");
             }
@@ -1219,41 +1219,15 @@ where
         .chain(processed_messages_relay_futures)
         .collect::<Vec<_>>();
 
-    if should_generate_cover_message {
-        let encapsulated_cover_message = cryptographic_processor
-            .encapsulate_cover_payload(&random_sized_bytes::<{ size_of::<u32>() }>())
-            .await
-            .expect("Should not fail to generate new cover message");
-        let self_decapsulation_output = cryptographic_processor.decapsulate_message_recursive(
-            IncomingEncapsulatedMessageWithValidatedPublicHeader::from_message_unchecked(
-                encapsulated_cover_message.clone(),
-            ),
-        );
-        match self_decapsulation_output {
-            Err(_) => {
-                // First layer not addressed to ourselves. Publish as regular cover message.
-                state_updater.consume_core_quota(1);
-                message_futures.push(Box::new(backend.publish(encapsulated_cover_message)));
-            }
-            Ok(multi_layer_decapsulation_output) => {
-                let (collected_blending_tokens, message_type) =
-                    multi_layer_decapsulation_output.into_components();
-
-                for blending_token in collected_blending_tokens {
-                    blending_token_collector.insert(blending_token);
-                }
-
-                match message_type {
-                    // This is the initial message that was encapsulated, since we fully
-                    // decapsulated a cover message, we don't do anything.
-                    DecapsulatedMessageType::Completed(_) => {}
-                    DecapsulatedMessageType::Incompleted(remaining_encapsulated_message) => {
-                        message_futures
-                            .push(Box::new(backend.publish(*remaining_encapsulated_message)));
-                    }
-                }
-            }
-        }
+    if should_generate_cover_message
+        && let Some(encapsulated_cover_message) = generate_and_try_to_decapsulate_cover_message(
+            cryptographic_processor,
+            blending_token_collector,
+            &mut state_updater,
+        )
+        .await
+    {
+        message_futures.push(Box::new(backend.publish(encapsulated_cover_message)));
     }
 
     message_futures.shuffle(rng);
@@ -1263,6 +1237,66 @@ where
     tracing::debug!(target: LOG_TARGET, "Sent out {data_count} data, {processed_count} processed and {cover_count} cover messages at this release window.");
 
     state_updater.commit_changes()
+}
+
+/// Generate and encapsulate a cover message. Then, try to locally decapsulate
+/// the outermost `N` layers that have the local node as the intended recipient.
+///
+/// If all layers are removed, the blending tokens are collected and `None` is
+/// returned. Else, `Some` with all or the remaining encapsulation layers, with
+/// the collected blended tokens submitted to the token collector.
+async fn generate_and_try_to_decapsulate_cover_message<
+    NodeId,
+    BackendSettings,
+    BroadcastSettings,
+    ProofsGenerator,
+    ProofsVerifier,
+>(
+    cryptographic_processor: &mut CoreCryptographicProcessor<
+        NodeId,
+        ProofsGenerator,
+        ProofsVerifier,
+    >,
+    blending_token_collector: &mut BlendingTokenCollector,
+    state_updater: &mut state::StateUpdater<BackendSettings, BroadcastSettings>,
+) -> Option<EncapsulatedMessage>
+where
+    NodeId: Eq + Hash + 'static,
+    BackendSettings: Sync,
+    BroadcastSettings: Sync,
+    ProofsGenerator: CoreAndLeaderProofsGenerator,
+    ProofsVerifier: ProofsVerifierTrait,
+{
+    let encapsulated_cover_message = cryptographic_processor
+        .encapsulate_cover_payload(&random_sized_bytes::<{ size_of::<u32>() }>())
+        .await
+        .expect("Should not fail to generate new cover message");
+    let self_decapsulation_output = cryptographic_processor.decapsulate_message_recursive(
+        IncomingEncapsulatedMessageWithValidatedPublicHeader::from_message_unchecked(
+            encapsulated_cover_message.clone(),
+        ),
+    );
+    let Ok(multi_layer_decapsulation_output) = self_decapsulation_output else {
+        // First layer not addressed to ourselves. Publish as regular cover message,
+        // hence we consume a core quota.
+        state_updater.consume_core_quota(1);
+        return Some(encapsulated_cover_message);
+    };
+    let (collected_blending_tokens, message_type) =
+        multi_layer_decapsulation_output.into_components();
+
+    for blending_token in collected_blending_tokens {
+        blending_token_collector.insert(blending_token);
+    }
+
+    match message_type {
+        // This is the initial message that was encapsulated, since we fully
+        // decapsulated a cover message, we don't do anything.
+        DecapsulatedMessageType::Completed(_) => None,
+        DecapsulatedMessageType::Incompleted(remaining_encapsulated_message) => {
+            Some(*remaining_encapsulated_message)
+        }
+    }
 }
 
 /// Handle a clock event by calling into the epoch handler and process the
