@@ -140,79 +140,14 @@ download_release() {
 
 # Handle macOS code signing/quarantine issues
 handle_macos_quarantine() {
-    # Skip authorization in non-interactive environments (CI)
-    if [ ! -t 0 ]; then
-        print_info "Non-interactive environment detected, skipping macOS authorization process"
-        print_info "Binaries may need to be authorized manually if quarantined"
-        return
+    print_info "macOS detected: Removing quarantine attributes from executables..."
+
+    # Remove quarantine attribute from all executable files
+    if find "$INSTALL_DIR" -type f -perm +111 -exec xattr -d com.apple.quarantine {} \; 2>/dev/null; then
+        print_success "Quarantine attributes removed"
+    else
+        print_warning "Could not remove quarantine attributes (they may not exist)"
     fi
-
-    print_warning "macOS detected: Handling code signing requirements"
-    echo
-    print_info "The nomos-circuits binaries are not yet code-signed for macOS."
-    print_info "You will need to authorize each binary to run."
-    echo
-    print_info "This process has TWO steps for each binary:"
-    print_info "  1. First attempt will show a quarantine warning"
-    print_info "  2. Go to System Settings > Privacy & Security"
-    print_info "  3. Click 'Allow Anyway' for the blocked binary"
-    print_info "  4. Second attempt will show a final confirmation dialog"
-    print_info "  5. Click 'Open' to authorize the binary"
-    echo
-
-    read -p "Press Enter to begin the authorization process..."
-    echo
-
-    # Find all executables by name (prover, verifier, witness_generator)
-    local executables=$(find "$INSTALL_DIR" -type f \( -name "prover" -o -name "verifier" -o -name "witness_generator" \) | sort)
-    local current=0
-    local total=$(echo "$executables" | wc -l)
-
-    for binary in $executables; do
-        current=$((current + 1))
-        local binary_name=$(basename "$binary")
-        local circuit_name=$(basename $(dirname "$binary"))
-
-        if [ ! -f "$binary" ]; then
-            print_warning "Binary not found: $binary (skipping)"
-            continue
-        fi
-
-        echo
-        print_info "[$current/$total] Authorizing: $binary_name"
-        if [ "$circuit_name" != "." ] && [ "$circuit_name" != ".nomos-circuits" ]; then
-            print_info "         (from $circuit_name circuit)"
-        fi
-        echo
-
-        # First attempt - will trigger quarantine
-        print_info "STEP 1: First attempt (will be blocked)..."
-        "$binary" --help 2>/dev/null || true
-        sleep 1
-
-        echo
-        print_warning "ACTION REQUIRED:"
-        print_warning "  1. Open System Settings > Privacy & Security"
-        print_warning "  2. Look for a message about '$binary_name'"
-        print_warning "  3. Click 'Allow Anyway'"
-        echo
-        read -p "Press Enter after clicking 'Allow Anyway'..."
-
-        # Second attempt - will show final confirmation
-        print_info "STEP 2: Second attempt (click 'Open' in the dialog)..."
-        sleep 1
-        "$binary" --help >/dev/null 2>&1 || true
-
-        print_success "Authorization process complete for $binary_name"
-        sleep 1
-    done
-
-    echo
-    print_success "All binaries processed!"
-    print_info "If any binaries still don't work, you can authorize them manually by:"
-    print_info "  1. Try running the binary: <binary> --help"
-    print_info "  2. Go to System Settings > Privacy & Security"
-    print_info "  3. Click 'Allow Anyway' and try again"
 }
 
 # Main installation process
