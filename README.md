@@ -75,12 +75,9 @@ If you use a custom directory, you'll need to set the `NOMOS_CIRCUITS` environme
 export NOMOS_CIRCUITS=/opt/circuits
 ```
 
-### Temporary Code-Signing Hack for macOS Users
+### macOS Users
 
-Since we don't yet have code-signing implemented on macOS, the first time you run the script, you'll need to authorize the binaries:
-1. The script will guide you through the authorization process
-2. Go to System Settings > Privacy & Security
-3. Click "Allow Anyway" for each binary when prompted
+Since we don't yet have code-signing implemented on macOS, the setup script automatically removes quarantine attributes from downloaded binaries. This allows the binaries to run without manual authorization through System Settings.
 
 ### Verifying Installation
 
