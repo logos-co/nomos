@@ -1,0 +1,38 @@
+{{- if .Values.prometheus.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  labels:
+    {{- include "nomos-runner.prometheusLabels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "nomos-runner.prometheusLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "nomos-runner.prometheusLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: prometheus
+          image: {{ .Values.prometheus.image }}
+          imagePullPolicy: {{ .Values.prometheus.imagePullPolicy | default "IfNotPresent" }}
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.retention.time={{ .Values.prometheus.retention }}
+            - --web.enable-otlp-receiver
+            - --enable-feature=otlp-write-receiver
+          ports:
+            - containerPort: 9090
+              name: http
+          volumeMounts:
+            - name: prometheus-config
+              mountPath: /etc/prometheus
+      volumes:
+        - name: prometheus-config
+          configMap:
+            name: prometheus
+{{- end }}

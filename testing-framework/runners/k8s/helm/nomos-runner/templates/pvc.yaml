@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "nomos-runner.fullname" . }}-kzg
+  labels:
+    {{- include "nomos-runner.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadOnlyMany
+  storageClassName: manual
+  volumeName: {{ include "nomos-runner.fullname" . }}-kzg
+  resources:
+    requests:
+      storage: {{ .Values.kzg.storageSize }}
