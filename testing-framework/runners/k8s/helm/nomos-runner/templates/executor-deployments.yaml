@@ -1,0 +1,63 @@
+{{- $root := . -}}
+{{- $nodes := default (list) .Values.executors.nodes }}
+{{- range $i, $node := $nodes }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "nomos-runner.fullname" $root }}-executor-{{ $i }}
+  labels:
+    {{- include "nomos-runner.executorLabels" (dict "root" $root "index" $i) | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "nomos-runner.executorLabels" (dict "root" $root "index" $i) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "nomos-runner.executorLabels" (dict "root" $root "index" $i) | nindent 8 }}
+    spec:
+      containers:
+        - name: executor
+          image: {{ $root.Values.image }}
+          imagePullPolicy: {{ $root.Values.imagePullPolicy }}
+          command: ["/etc/nomos/scripts/run_nomos_executor.sh"]
+          ports:
+            - name: http
+              containerPort: {{ default 18080 $node.apiPort }}
+            - name: testing-http
+              containerPort: {{ default 18081 $node.testingHttpPort }}
+          env:
+            - name: CFG_SERVER_ADDR
+              value: http://{{ include "nomos-runner.fullname" $root }}-cfgsync:{{ $root.Values.cfgsync.port }}
+            {{- range $key, $value := $node.env }}
+            - name: {{ $key }}
+              value: "{{ $value }}"
+            {{- end }}
+          volumeMounts:
+            - name: assets
+              mountPath: /etc/nomos
+              readOnly: true
+            - name: kzg-params
+              mountPath: /kzgrs_test_params
+              readOnly: true
+      volumes:
+        - name: assets
+          configMap:
+            name: {{ include "nomos-runner.fullname" $root }}-assets
+            defaultMode: 0755
+            items:
+              - key: cfgsync.yaml
+                path: cfgsync.yaml
+              - key: run_cfgsync.sh
+                path: scripts/run_cfgsync.sh
+              - key: run_nomos_executor.sh
+                path: scripts/run_nomos_executor.sh
+              - key: run_nomos_node.sh
+                path: scripts/run_nomos_node.sh
+        - name: kzg-params
+          persistentVolumeClaim:
+            claimName: {{ include "nomos-runner.fullname" $root }}-kzg
+            readOnly: true
+{{- end }}
