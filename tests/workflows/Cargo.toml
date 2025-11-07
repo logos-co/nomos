@@ -10,6 +10,7 @@ ed25519-dalek                  = { version = "2.2.0", features = ["rand_core", "
 nomos-core                     = { workspace = true }
 rand                           = { workspace = true }
 testing-framework-core         = { workspace = true }
+testing-framework-runner-k8s   = { workspace = true }
 testing-framework-runner-local = { workspace = true }
 thiserror                      = { workspace = true }
 tokio                          = { workspace = true, features = ["macros", "net", "rt-multi-thread", "time"] }
