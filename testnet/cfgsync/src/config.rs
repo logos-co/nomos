@@ -1,20 +1,29 @@
 use std::{collections::HashMap, net::Ipv4Addr, str::FromStr as _};
 
-use key_management_system::backend::preload::PreloadKMSBackendSettings;
+use nomos_core::{
+    mantle::GenesisTx as _,
+    sdp::{Locator, ProviderId, ServiceType},
+};
 use nomos_libp2p::{Multiaddr, multiaddr};
 use nomos_tracing_service::{LoggerLayer, MetricsLayer, TracingLayer, TracingSettings};
 use nomos_utils::net::get_available_udp_port;
 use rand::{Rng as _, thread_rng};
-use tests::topology::configs::{
-    GeneralConfig,
-    api::GeneralApiConfig,
-    blend::create_blend_configs,
-    bootstrap::{SHORT_PROLONGED_BOOTSTRAP_PERIOD, create_bootstrap_configs},
-    consensus::{ConsensusParams, create_consensus_configs},
-    da::{DaParams, create_da_configs},
-    network::{NetworkParams, create_network_configs},
-    time::default_time_config,
-    tracing::GeneralTracingConfig,
+use tests::topology::{
+    configs::{
+        GeneralConfig,
+        api::GeneralApiConfig,
+        blend::{GeneralBlendConfig, create_blend_configs},
+        bootstrap::{SHORT_PROLONGED_BOOTSTRAP_PERIOD, create_bootstrap_configs},
+        consensus::{
+            ConsensusParams, GeneralConsensusConfig, ProviderInfo, create_consensus_configs,
+            create_genesis_tx_with_declarations,
+        },
+        da::{DaParams, GeneralDaConfig, create_da_configs},
+        network::{NetworkParams, create_network_configs},
+        time::default_time_config,
+        tracing::GeneralTracingConfig,
+    },
+    create_kms_configs,
 };
 
 const DEFAULT_LIBP2P_NETWORK_PORT: u16 = 3000;
@@ -78,7 +87,7 @@ pub fn create_node_configs(
         ports.push(get_available_udp_port().unwrap());
     }
 
-    let consensus_configs = create_consensus_configs(&ids, consensus_params);
+    let mut consensus_configs = create_consensus_configs(&ids, consensus_params);
     let bootstrap_configs = create_bootstrap_configs(&ids, SHORT_PROLONGED_BOOTSTRAP_PERIOD);
     let da_configs = create_da_configs(&ids, da_params, &ports);
     let network_configs = create_network_configs(&ids, &NetworkParams::default());
@@ -100,6 +109,22 @@ pub fn create_node_configs(
 
     // Rebuild DA address lists.
     let host_network_init_peers = update_network_init_peers(&hosts);
+
+    let providers = create_providers(&hosts, &consensus_configs, &blend_configs, &da_configs);
+
+    // Update genesis TX to contain Blend and DA providers.
+    let ledger_tx = consensus_configs[0]
+        .genesis_tx
+        .mantle_tx()
+        .ledger_tx
+        .clone();
+    let genesis_tx = create_genesis_tx_with_declarations(ledger_tx, providers);
+    for c in &mut consensus_configs {
+        c.genesis_tx = genesis_tx.clone();
+    }
+
+    // Set Blend and DA keys in KMS of each node config.
+    let kms_configs = create_kms_configs(&blend_configs, &da_configs);
 
     for (i, host) in hosts.into_iter().enumerate() {
         let consensus_config = consensus_configs[i].clone();
@@ -149,14 +174,56 @@ pub fn create_node_configs(
                 api_config,
                 tracing_config,
                 time_config,
-                kms_config: PreloadKMSBackendSettings {
-                    keys: HashMap::new(),
-                },
+                kms_config: kms_configs[i].clone(),
             },
         );
     }
 
     configured_hosts
+}
+
+fn create_providers(
+    hosts: &[Host],
+    consensus_configs: &[GeneralConsensusConfig],
+    blend_configs: &[GeneralBlendConfig],
+    da_configs: &[GeneralDaConfig],
+) -> Vec<ProviderInfo> {
+    let mut providers: Vec<_> = da_configs
+        .iter()
+        .enumerate()
+        .map(|(i, da_conf)| ProviderInfo {
+            service_type: ServiceType::DataAvailability,
+            provider_id: ProviderId(da_conf.signer.verifying_key()),
+            zk_id: da_conf.secret_zk_key.to_public_key(),
+            locator: Locator(
+                Multiaddr::from_str(&format!(
+                    "/ip4/{}/udp/{}/quic-v1",
+                    hosts[i].ip, hosts[i].da_network_port
+                ))
+                .unwrap(),
+            ),
+            note: consensus_configs[0].da_notes[i].clone(),
+            signer: da_conf.signer.clone(),
+        })
+        .collect();
+    providers.extend(blend_configs.iter().enumerate().map(|(i, blend_conf)| {
+        ProviderInfo {
+            service_type: ServiceType::BlendNetwork,
+            provider_id: ProviderId(blend_conf.signer.verifying_key()),
+            zk_id: blend_conf.secret_zk_key.to_public_key(),
+            locator: Locator(
+                Multiaddr::from_str(&format!(
+                    "/ip4/{}/udp/{}/quic-v1",
+                    hosts[i].ip, hosts[i].blend_port
+                ))
+                .unwrap(),
+            ),
+            note: consensus_configs[0].blend_notes[i].clone(),
+            signer: blend_conf.signer.clone(),
+        }
+    }));
+
+    providers
 }
 
 fn update_network_init_peers(hosts: &[Host]) -> Vec<Multiaddr> {

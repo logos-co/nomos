@@ -37,9 +37,10 @@ use crate::{
     },
     topology::configs::{
         api::create_api_configs,
-        blend::create_blend_configs,
+        blend::{GeneralBlendConfig, create_blend_configs},
         bootstrap::{SHORT_PROLONGED_BOOTSTRAP_PERIOD, create_bootstrap_configs},
         consensus::{ConsensusParams, create_consensus_configs},
+        da::GeneralDaConfig,
         time::default_time_config,
     },
 };
@@ -190,35 +191,7 @@ impl Topology {
         }
 
         // Set Blend and DA keys in KMS of each node config.
-        let kms_configs: Vec<_> = da_configs
-            .iter()
-            .zip(blend_configs.iter())
-            .map(|(da_conf, blend_conf)| PreloadKMSBackendSettings {
-                keys: [
-                    (
-                        hex::encode(blend_conf.signer.verifying_key().as_bytes()),
-                        Key::Ed25519(Ed25519Key(blend_conf.signer.clone())),
-                    ),
-                    (
-                        hex::encode(fr_to_bytes(
-                            &blend_conf.secret_zk_key.to_public_key().into_inner(),
-                        )),
-                        Key::Zk(ZkKey(blend_conf.secret_zk_key.clone())),
-                    ),
-                    (
-                        hex::encode(da_conf.signer.verifying_key().as_bytes()),
-                        Key::Ed25519(Ed25519Key(da_conf.signer.clone())),
-                    ),
-                    (
-                        hex::encode(fr_to_bytes(
-                            &da_conf.secret_zk_key.to_public_key().into_inner(),
-                        )),
-                        Key::Zk(ZkKey(da_conf.secret_zk_key.clone())),
-                    ),
-                ]
-                .into(),
-            })
-            .collect();
+        let kms_configs = create_kms_configs(&blend_configs, &da_configs);
 
         let mut node_configs = vec![];
 
@@ -634,4 +607,40 @@ fn find_expected_peer_counts(
     }
 
     expected.into_iter().map(|set| set.len()).collect()
+}
+
+#[must_use]
+pub fn create_kms_configs(
+    blend_configs: &[GeneralBlendConfig],
+    da_configs: &[GeneralDaConfig],
+) -> Vec<PreloadKMSBackendSettings> {
+    da_configs
+        .iter()
+        .zip(blend_configs.iter())
+        .map(|(da_conf, blend_conf)| PreloadKMSBackendSettings {
+            keys: [
+                (
+                    hex::encode(blend_conf.signer.verifying_key().as_bytes()),
+                    Key::Ed25519(Ed25519Key(blend_conf.signer.clone())),
+                ),
+                (
+                    hex::encode(fr_to_bytes(
+                        &blend_conf.secret_zk_key.to_public_key().into_inner(),
+                    )),
+                    Key::Zk(ZkKey(blend_conf.secret_zk_key.clone())),
+                ),
+                (
+                    hex::encode(da_conf.signer.verifying_key().as_bytes()),
+                    Key::Ed25519(Ed25519Key(da_conf.signer.clone())),
+                ),
+                (
+                    hex::encode(fr_to_bytes(
+                        &da_conf.secret_zk_key.to_public_key().into_inner(),
+                    )),
+                    Key::Zk(ZkKey(da_conf.secret_zk_key.clone())),
+                ),
+            ]
+            .into(),
+        })
+        .collect()
 }
