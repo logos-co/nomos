@@ -328,7 +328,7 @@ mod cfgsync_tests {
                 filter: FilterLayer::None,
                 metrics: MetricsLayer::None,
                 console: ConsoleLayer::None,
-                level: Level::DEBUG,
+                level: Level::TRACE,
             },
             hosts,
         );

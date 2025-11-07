@@ -51,7 +51,7 @@ impl CoreAndLeaderProofsGenerator for BlendProofsGenerator {
     }
 
     async fn get_next_leader_proof(&mut self) -> Option<BlendLayerProof> {
-        tracing::trace!(target: LOG_TARGET, "Mock PoL PoQ proof requested.");
+        tracing::debug!(target: LOG_TARGET, "Mock PoL PoQ proof requested.");
         Some(random_proof())
     }
 }
@@ -92,6 +92,7 @@ fn random_proof() -> BlendLayerProof {
         ) else {
             continue;
         };
+        tracing::trace!(target: LOG_TARGET, "Generated random mocked PoL PoQ proof with key nullifier {:?}", proof_of_quota.key_nullifier());
         return BlendLayerProof {
             ephemeral_signing_key: Ed25519PrivateKey::generate(),
             proof_of_quota,
@@ -127,15 +128,17 @@ impl ProofsVerifier for BlendProofsVerifier {
         proof: ProofOfQuota,
         signing_key: &Ed25519PublicKey,
     ) -> Result<ZkHash, Self::Error> {
+        tracing::debug!(target: LOG_TARGET, "Verifying proof with key nullifier: {:?}", proof.key_nullifier());
         if proof.key_nullifier() == DUMMY_POQ_ZK_NULLIFIER {
             tracing::debug!(target: LOG_TARGET, "Mocked PoL PoQ proof received (automatically successfully verified).");
-            Ok(ZkHash::ZERO)
+            Ok(DUMMY_POQ_ZK_NULLIFIER)
         } else {
             tracing::debug!(target: LOG_TARGET, "Core PoQ proof received.");
+            let key_nullifier = proof.key_nullifier();
             let res = self.0.verify_proof_of_quota(proof, signing_key).inspect_err(|e| {
-                tracing::debug!(target: LOG_TARGET, "Core PoQ proof verification failed with error {e:?}");
+                tracing::debug!(target: LOG_TARGET, "Core PoQ proof with key nullifier {key_nullifier:?} verification failed with error {e:?}");
             })?;
-            tracing::debug!(target: LOG_TARGET, "Core PoQ proof verified.");
+            tracing::debug!(target: LOG_TARGET, "Core PoQ proof with key nullifier {key_nullifier:?} verified.");
             Ok(res)
         }
     }
