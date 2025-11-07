@@ -48,6 +48,7 @@ members = [
   "nomos-utils",
   "testing-framework/configs",
   "testing-framework/core",
+  "testing-framework/runners/k8s",
   "testing-framework/runners/local",
   "testnet/cfgsync",
   "tests",
@@ -124,9 +125,9 @@ poseidon2                      = { default-features = false, path = "./zk/poseid
 services-utils                 = { default-features = false, path = "./nomos-services/utils" }
 subnetworks-assignations       = { default-features = false, path = "./nomos-da/network/subnetworks-assignations" }
 testing-framework-core         = { default-features = false, path = "./testing-framework/core" }
+testing-framework-runner-k8s   = { default-features = false, path = "./testing-framework/runners/k8s" }
 testing-framework-runner-local = { default-features = false, path = "./testing-framework/runners/local" }
 tests                          = { default-features = false, path = "./tests" }
-tests-workflows                = { default-features = false, path = "./tests/workflows" }
 tx-service                     = { default-features = false, path = "./nomos-services/tx-service" }
 utxotree                       = { default-features = false, path = "./utxotree" }
 wallet                         = { default-features = false, path = "./wallet" }
@@ -135,6 +136,7 @@ zeroize                        = { default-features = false, features = ["zeroiz
 zksign                         = { default-features = false, path = "./zk/proofs/zksign" }
 
 # External
+async-trait       = { default-features = false, version = "0.1" }
 blake2            = { default-features = false, version = "0.10" }
 bytes             = { default-features = false, version = "1.3" }
 cached            = { default-features = false, version = "0.55.1" }
