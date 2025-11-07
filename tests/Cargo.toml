@@ -1,14 +1,9 @@
 [package]
-categories  = { workspace = true }
-description = { workspace = true }
-edition     = { workspace = true }
-keywords    = { workspace = true }
-license     = { workspace = true }
-name        = "tests"
-publish     = false
-readme      = { workspace = true }
-repository  = { workspace = true }
-version     = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+name    = "tests"
+publish = false
+version = "0.1.0"
 
 [lints]
 workspace = true
@@ -25,18 +20,16 @@ executor-http-client     = { workspace = true }
 futures                  = { default-features = false, version = "0.3" }
 futures-util             = { default-features = false, version = "0.3.31" }
 kzgrs-backend            = { workspace = true }
-nomos-api                = { workspace = true }
-nomos-blend-message      = { workspace = true }
-nomos-blend-service      = { features = ["libp2p"], workspace = true }
 nomos-core               = { workspace = true }
 nomos-libp2p             = { workspace = true }
 nomos-utils              = { workspace = true }
-nomos-wallet             = { workspace = true }
-num-bigint               = { default-features = false, version = "0.4" }
 rand                     = { workspace = true }
 reqwest                  = { workspace = true, features = ["json"] }
+<<<<<<< HEAD
 serde_json               = "1.0"
 serde_yaml               = "0.9"
+=======
+>>>>>>> a380819af (prepare framework structre)
 serial_test              = "3.1.1"
 subnetworks-assignations = { workspace = true }
 testing-framework-core   = { workspace = true, default-features = false }
@@ -77,7 +70,3 @@ path = "src/tests/membership/disperse.rs"
 [[test]]
 name = "test_da_historic_sampling"
 path = "src/tests/da/historic_sampling.rs"
-
-[[test]]
-name = "test_mantle_sdp_ops"
-path = "src/tests/mantle/sdp_ops.rs"
