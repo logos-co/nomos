@@ -1,4 +1,6 @@
-pub mod configs;
+pub mod configs {
+    pub use integration_configs::topology::configs::*;
+}
 
 use std::{
     collections::{HashMap, HashSet},
@@ -7,31 +9,31 @@ use std::{
 
 use configs::{
     GeneralConfig,
-    consensus::{GeneralConsensusConfig, ProviderInfo, create_genesis_tx_with_declarations},
+    consensus::{ProviderInfo, create_genesis_tx_with_declarations},
     da::{DaParams, create_da_configs},
     network::{NetworkParams, create_network_configs},
     tracing::create_tracing_configs,
 };
 use futures::future::join_all;
+use groth16::fr_to_bytes;
 use key_management_system::{
     backend::preload::PreloadKMSBackendSettings,
-    keys::{Ed25519Key, ZkKey},
+    keys::{Ed25519Key, Key, ZkKey},
 };
 use nomos_core::{
-    mantle::{GenesisTx as _, Note, NoteId},
-    sdp::{Locator, ServiceType, SessionNumber},
+    mantle::GenesisTx as _,
+    sdp::{Locator, ProviderId, ServiceType, SessionNumber},
 };
 use nomos_da_network_core::swarm::DAConnectionPolicySettings;
 use nomos_da_network_service::MembershipResponse;
 use nomos_network::backends::libp2p::Libp2pInfo;
 use nomos_utils::net::get_available_udp_port;
 use rand::{Rng as _, thread_rng};
+use thiserror::Error;
 use tokio::time::{sleep, timeout};
-use zksign::SecretKey;
 
 use crate::{
     adjust_timeout,
-    common::kms::key_id_for_preload_backend,
     nodes::{
         executor::{Executor, create_executor_config},
         validator::{Validator, create_validator_config},
@@ -52,7 +54,6 @@ pub struct TopologyConfig {
     pub consensus_params: ConsensusParams,
     pub da_params: DaParams,
     pub network_params: NetworkParams,
-    pub extra_genesis_notes: Vec<GenesisNoteSpec>,
 }
 
 impl TopologyConfig {
@@ -64,7 +65,6 @@ impl TopologyConfig {
             consensus_params: ConsensusParams::default_for_participants(2),
             da_params: DaParams::default(),
             network_params: NetworkParams::default(),
-            extra_genesis_notes: Vec::new(),
         }
     }
 
@@ -90,7 +90,6 @@ impl TopologyConfig {
                 ..Default::default()
             },
             network_params: NetworkParams::default(),
-            extra_genesis_notes: Vec::new(),
         }
     }
 
@@ -120,33 +119,13 @@ impl TopologyConfig {
                 ..Default::default()
             },
             network_params: NetworkParams::default(),
-            extra_genesis_notes: Vec::new(),
         }
     }
-
-    #[must_use]
-    pub fn with_extra_genesis_note(mut self, note_spec: GenesisNoteSpec) -> Self {
-        self.extra_genesis_notes.push(note_spec);
-        self
-    }
-}
-
-#[derive(Clone)]
-pub struct GenesisNoteSpec {
-    pub note: Note,
-    pub note_sk: SecretKey,
-}
-
-#[derive(Clone)]
-pub struct InjectedGenesisNote {
-    pub note_id: NoteId,
 }
 
 pub struct Topology {
     validators: Vec<Validator>,
     executors: Vec<Executor>,
-    general_configs: Vec<GeneralConfig>,
-    injected_genesis_notes: Vec<InjectedGenesisNote>,
 }
 
 impl Topology {
@@ -176,55 +155,40 @@ impl Topology {
         let tracing_configs = create_tracing_configs(&ids);
         let time_config = default_time_config();
 
-        // Setup genesis TX with Blend and DA service declarations.
-        let base_ledger_tx = consensus_configs[0]
-            .genesis_tx
-            .mantle_tx()
-            .ledger_tx
-            .clone();
-        let mut ledger_tx = base_ledger_tx.clone();
-        let base_outputs = ledger_tx.outputs.len();
-        for note_spec in &config.extra_genesis_notes {
-            ledger_tx.outputs.push(note_spec.note);
-        }
+        // Setup genesis TX with Blend and DA service declarationse
         let mut providers: Vec<_> = da_configs
             .iter()
             .enumerate()
             .map(|(i, da_conf)| ProviderInfo {
                 service_type: ServiceType::DataAvailability,
-                provider_sk: da_conf.signer.clone(),
-                zk_sk: da_conf.secret_zk_key.clone(),
+                provider_id: ProviderId(da_conf.signer.verifying_key()),
+                zk_id: da_conf.secret_zk_key.to_public_key(),
                 locator: Locator(da_conf.listening_address.clone()),
                 note: consensus_configs[0].da_notes[i].clone(),
+                signer: da_conf.signer.clone(),
             })
             .collect();
-        providers.extend(blend_configs.iter().enumerate().map(
-            |(i, (blend_conf, zk_secret_key))| ProviderInfo {
-                service_type: ServiceType::BlendNetwork,
-                provider_sk: blend_conf.common.non_ephemeral_signing_key.clone().into(),
-                zk_sk: zk_secret_key.clone(),
-                locator: Locator(blend_conf.core.backend.listening_address.clone()),
-                note: consensus_configs[0].blend_notes[i].clone(),
-            },
-        ));
+        providers.extend(
+            blend_configs
+                .iter()
+                .enumerate()
+                .map(|(i, blend_conf)| ProviderInfo {
+                    service_type: ServiceType::BlendNetwork,
+                    provider_id: ProviderId(blend_conf.signer.verifying_key()),
+                    zk_id: blend_conf.secret_zk_key.to_public_key(),
+                    locator: Locator(blend_conf.backend_core.listening_address.clone()),
+                    note: consensus_configs[0].blend_notes[i].clone(),
+                    signer: blend_conf.signer.clone(),
+                }),
+        );
 
         // Update genesis TX to contain Blend and DA providers.
+        let ledger_tx = consensus_configs[0]
+            .genesis_tx
+            .mantle_tx()
+            .ledger_tx
+            .clone();
         let genesis_tx = create_genesis_tx_with_declarations(ledger_tx, providers);
-        let updated_ledger_tx = genesis_tx.mantle_tx().ledger_tx.clone();
-        let injected_utxos: Vec<_> = updated_ledger_tx
-            .utxos()
-            .skip(base_outputs)
-            .collect::<Vec<_>>();
-
-        for c in &mut consensus_configs {
-            c.utxos.extend(injected_utxos.iter().copied());
-        }
-
-        let injected_infos = injected_utxos
-            .iter()
-            .map(|utxo| InjectedGenesisNote { note_id: utxo.id() })
-            .collect::<Vec<_>>();
-
         for c in &mut consensus_configs {
             c.genesis_tx = genesis_tx.clone();
         }
@@ -248,8 +212,6 @@ impl Topology {
             });
         }
 
-        let general_configs = node_configs.clone();
-
         let (validators, executors) =
             Self::spawn_validators_executors(node_configs, config.n_validators, config.n_executors)
                 .await;
@@ -257,8 +219,6 @@ impl Topology {
         Self {
             validators,
             executors,
-            general_configs,
-            injected_genesis_notes: injected_infos,
         }
     }
 
@@ -299,7 +259,6 @@ impl Topology {
                 kms_config: kms_config.clone(),
             });
         }
-        let general_configs = node_configs.clone();
         let (validators, executors) =
             Self::spawn_validators_executors(node_configs, config.n_validators, config.n_executors)
                 .await;
@@ -307,8 +266,6 @@ impl Topology {
         Self {
             validators,
             executors,
-            general_configs,
-            injected_genesis_notes: Vec::new(),
         }
     }
 
@@ -342,29 +299,10 @@ impl Topology {
         &self.executors
     }
 
-    #[must_use]
-    pub fn general_config(&self, index: usize) -> Option<&GeneralConfig> {
-        self.general_configs.get(index)
-    }
-
-    #[must_use]
-    pub fn validator_consensus_config(
-        &self,
-        validator_index: usize,
-    ) -> Option<&GeneralConsensusConfig> {
-        self.general_config(validator_index)
-            .map(|config| &config.consensus_config)
-    }
-
-    #[must_use]
-    pub fn injected_genesis_notes(&self) -> &[InjectedGenesisNote] {
-        &self.injected_genesis_notes
-    }
-
-    pub async fn wait_network_ready(&self) {
+    pub async fn wait_network_ready(&self) -> Result<(), ReadinessError> {
         let listen_ports = self.node_listen_ports();
         if listen_ports.len() <= 1 {
-            return;
+            return Ok(());
         }
 
         let initial_peer_ports = self.node_initial_peer_ports();
@@ -377,31 +315,41 @@ impl Topology {
             labels: &labels,
         };
 
-        check.wait().await;
+        check.wait().await?;
+        Ok(())
     }
 
-    pub async fn wait_membership_ready(&self) {
+    pub async fn wait_membership_ready(&self) -> Result<(), ReadinessError> {
         self.wait_membership_ready_for_session(SessionNumber::from(0u64))
-            .await;
+            .await
     }
 
-    pub async fn wait_membership_ready_for_session(&self, session: SessionNumber) {
-        self.wait_membership_assignations(session, true).await;
+    pub async fn wait_membership_ready_for_session(
+        &self,
+        session: SessionNumber,
+    ) -> Result<(), ReadinessError> {
+        self.wait_membership_assignations(session, true).await
     }
 
-    pub async fn wait_membership_empty_for_session(&self, session: SessionNumber) {
-        self.wait_membership_assignations(session, false).await;
+    pub async fn wait_membership_empty_for_session(
+        &self,
+        session: SessionNumber,
+    ) -> Result<(), ReadinessError> {
+        self.wait_membership_assignations(session, false).await
     }
 
-    async fn wait_membership_assignations(&self, session: SessionNumber, expect_non_empty: bool) {
+    async fn wait_membership_assignations(
+        &self,
+        session: SessionNumber,
+        expect_non_empty: bool,
+    ) -> Result<(), ReadinessError> {
         let total_nodes = self.validators.len() + self.executors.len();
 
         if total_nodes == 0 {
-            return;
+            return Ok(());
         }
 
         let labels = self.node_labels();
-
         let check = MembershipReadiness {
             topology: self,
             session,
@@ -409,7 +357,8 @@ impl Topology {
             expect_non_empty,
         };
 
-        check.wait().await;
+        check.wait().await?;
+        Ok(())
     }
 
     fn node_listen_ports(&self) -> Vec<u16> {
@@ -467,6 +416,13 @@ impl Topology {
             .collect()
     }
 }
+
+#[derive(Debug, Error)]
+pub enum ReadinessError {
+    #[error("{message}")]
+    Timeout { message: String },
+}
+
 #[async_trait::async_trait]
 trait ReadinessCheck<'a> {
     type Data: Send;
@@ -481,7 +437,7 @@ trait ReadinessCheck<'a> {
         Duration::from_millis(200)
     }
 
-    async fn wait(&'a self) {
+    async fn wait(&'a self) -> Result<(), ReadinessError> {
         let timeout_duration = adjust_timeout(Duration::from_secs(60));
         let poll_interval = self.poll_interval();
         let mut data = self.collect().await;
@@ -501,8 +457,10 @@ trait ReadinessCheck<'a> {
 
         if wait_result.is_err() {
             let message = self.timeout_message(data);
-            panic!("{message}");
+            return Err(ReadinessError::Timeout { message });
         }
+
+        Ok(())
     }
 }
 
@@ -682,36 +640,30 @@ pub fn create_kms_configs(
     da_configs
         .iter()
         .zip(blend_configs.iter())
-        .map(
-            |(da_conf, (blend_conf, zk_secret_key))| PreloadKMSBackendSettings {
-                keys: [
-                    (
-                        key_id_for_preload_backend(
-                            &Ed25519Key::new(
-                                blend_conf.common.non_ephemeral_signing_key.clone().into(),
-                            )
-                            .into(),
-                        ),
-                        Ed25519Key::new(blend_conf.common.non_ephemeral_signing_key.clone().into())
-                            .into(),
-                    ),
-                    (
-                        blend_conf.core.zk.secret_key_kms_id.clone(),
-                        ZkKey::new(zk_secret_key.clone()).into(),
-                    ),
-                    (
-                        key_id_for_preload_backend(&Ed25519Key::new(da_conf.signer.clone()).into()),
-                        Ed25519Key::new(da_conf.signer.clone()).into(),
-                    ),
-                    (
-                        key_id_for_preload_backend(
-                            &ZkKey::new(da_conf.secret_zk_key.clone()).into(),
-                        ),
-                        ZkKey::new(da_conf.secret_zk_key.clone()).into(),
-                    ),
-                ]
-                .into(),
-            },
-        )
+        .map(|(da_conf, blend_conf)| PreloadKMSBackendSettings {
+            keys: [
+                (
+                    hex::encode(blend_conf.signer.verifying_key().as_bytes()),
+                    Key::Ed25519(Ed25519Key(blend_conf.signer.clone())),
+                ),
+                (
+                    hex::encode(fr_to_bytes(
+                        &blend_conf.secret_zk_key.to_public_key().into_inner(),
+                    )),
+                    Key::Zk(ZkKey(blend_conf.secret_zk_key.clone())),
+                ),
+                (
+                    hex::encode(da_conf.signer.verifying_key().as_bytes()),
+                    Key::Ed25519(Ed25519Key(da_conf.signer.clone())),
+                ),
+                (
+                    hex::encode(fr_to_bytes(
+                        &da_conf.secret_zk_key.to_public_key().into_inner(),
+                    )),
+                    Key::Zk(ZkKey(da_conf.secret_zk_key.clone())),
+                ),
+            ]
+            .into(),
+        })
         .collect()
 }
