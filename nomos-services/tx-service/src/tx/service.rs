@@ -13,6 +13,7 @@ use std::{
 };
 
 use futures::StreamExt as _;
+use nomos_core::mantle::Transaction;
 use nomos_network::{NetworkService, message::BackendNetworkMsg};
 use nomos_storage::StorageService;
 use overwatch::{
@@ -29,8 +30,8 @@ use services_utils::{
 use tokio::sync::{broadcast, oneshot};
 
 use crate::{
-    MempoolMetrics, MempoolMsg, backend,
-    backend::{MemPool as MemPoolTrait, RecoverableMempool},
+    MempoolMetrics, MempoolMsg, TransactionsByHashesResponse, backend,
+    backend::{MemPool as MemPoolTrait, MempoolError, RecoverableMempool},
     network::NetworkAdapter as NetworkAdapterTrait,
     storage::MempoolStorageAdapter,
     tx::{settings::TxMempoolSettings, state::TxMempoolState},
@@ -157,7 +158,7 @@ where
     Pool: MemPoolTrait<Storage = StorageAdapter> + RecoverableMempool + Send + Sync,
     StorageAdapter: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
     <Pool as RecoverableMempool>::RecoveryState: Debug + Send + Sync,
-    Pool::Item: Clone + Send + 'static,
+    Pool::Item: Transaction<Hash = Pool::Key> + Clone + Send + 'static,
     Pool::Settings: Clone + Sync + Send,
     NetworkAdapter:
         NetworkAdapterTrait<RuntimeServiceId, Payload = Pool::Item, Key = Pool::Key> + Send + Sync,
@@ -263,7 +264,7 @@ impl<Pool, NetworkAdapter, RecoveryBackend, StorageAdapter, RuntimeServiceId>
 where
     Pool: MemPoolTrait<Storage = StorageAdapter> + RecoverableMempool + Send + Sync,
     StorageAdapter: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
-    Pool::Item: Clone + Send + 'static,
+    Pool::Item: Transaction<Hash = Pool::Key> + Clone + Send + 'static,
     Pool::Settings: Clone,
     NetworkAdapter: NetworkAdapterTrait<RuntimeServiceId, Payload = Pool::Item> + Send + Sync,
     NetworkAdapter::Settings: Clone + Send + 'static,
@@ -329,6 +330,7 @@ where
                     network_relay,
                     state_updater,
                     settings,
+                    tx_broadcast,
                 )
                 .await;
             }
@@ -342,7 +344,11 @@ where
                 hashes,
                 reply_channel,
             } => {
-                Self::handle_get_transactions_message(pool, hashes, reply_channel).await;
+                let result = Self::partition_transactions_by_availability(pool, hashes).await;
+
+                if let Err(_e) = reply_channel.send(result) {
+                    tracing::debug!("Failed to send transactions reply");
+                }
             }
             MempoolMsg::MarkInBlock { ids, block } => {
                 pool.mark_in_block(&ids, block);
@@ -368,14 +374,19 @@ where
         }
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "This helper needs both networking and storage handles; splitting it would obscure the call site."
+    )]
     async fn handle_add_message(
         pool: &mut Pool,
         key: Pool::Key,
         item: Pool::Item,
-        reply_channel: oneshot::Sender<Result<(), backend::MempoolError>>,
+        reply_channel: oneshot::Sender<Result<(), MempoolError>>,
         network_relay: OutboundRelay<BackendNetworkMsg<NetworkAdapter::Backend, RuntimeServiceId>>,
         state_updater: MempoolStateUpdater<Pool, NetworkAdapter, RuntimeServiceId>,
         settings: NetworkAdapter::Settings,
+        tx_broadcast: &broadcast::Sender<Pool::Item>,
     ) where
         Pool::Settings: Send + Sync,
         NetworkAdapter::Settings: Send + Sync,
@@ -391,11 +402,10 @@ where
                     network_relay,
                     item_for_broadcast,
                     reply_channel,
+                    tx_broadcast,
                 );
             }
-            Err(e) => {
-                Self::handle_add_error(e, reply_channel);
-            }
+            Err(e) => Self::handle_add_error(e, reply_channel),
         }
     }
 
@@ -440,19 +450,37 @@ where
         }
     }
 
-    async fn handle_get_transactions_message(
+    async fn partition_transactions_by_availability(
         pool: &Pool,
-        hashes: BTreeSet<Pool::Key>,
-        reply_channel: oneshot::Sender<Pin<Box<dyn futures::Stream<Item = Pool::Item> + Send>>>,
-    ) {
-        let transactions = pool
-            .get_items_by_keys(hashes)
-            .await
-            .unwrap_or_else(|_| Box::pin(futures::stream::iter(Vec::new())));
+        hashes: Vec<Pool::Key>,
+    ) -> Result<TransactionsByHashesResponse<Pool::Item, Pool::Key>, MempoolError> {
+        let keys_set: BTreeSet<Pool::Key> = hashes.into_iter().collect();
 
-        if let Err(_e) = reply_channel.send(transactions) {
-            tracing::debug!("Failed to send transactions reply");
+        let items_stream = pool
+            .get_items_by_keys(keys_set.iter().cloned())
+            .await
+            .map_err(|e| {
+                MempoolError::StorageError(format!("Failed to get items by keys: {e:?}"))
+            })?;
+
+        let found_transactions: Vec<Pool::Item> = items_stream.collect().await;
+
+        if found_transactions.len() == keys_set.len() {
+            return Ok(TransactionsByHashesResponse::new(
+                found_transactions,
+                BTreeSet::new(),
+            ));
         }
+
+        let found_hashes: BTreeSet<Pool::Key> =
+            found_transactions.iter().map(Transaction::hash).collect();
+
+        let not_found_hashes: BTreeSet<Pool::Key> = &keys_set - &found_hashes;
+
+        Ok(TransactionsByHashesResponse::new(
+            found_transactions,
+            not_found_hashes,
+        ))
     }
 
     fn handle_add_success(
@@ -461,14 +489,18 @@ where
         settings: NetworkAdapter::Settings,
         network_relay: OutboundRelay<BackendNetworkMsg<NetworkAdapter::Backend, RuntimeServiceId>>,
         item_for_broadcast: Pool::Item,
-        reply_channel: oneshot::Sender<Result<(), backend::MempoolError>>,
+        reply_channel: oneshot::Sender<Result<(), MempoolError>>,
+        tx_broadcast: &broadcast::Sender<Pool::Item>,
     ) {
         state_updater.update(Some(<Pool as RecoverableMempool>::save(pool).into()));
 
+        let broadcast_clone = item_for_broadcast.clone();
         tokio::spawn(async move {
             let adapter = NetworkAdapter::new(settings, network_relay).await;
             adapter.send(item_for_broadcast).await;
         });
+
+        let _ = tx_broadcast.send(broadcast_clone);
 
         if let Err(e) = reply_channel.send(Ok(())) {
             tracing::debug!("Failed to send add reply: {:?}", e);
@@ -476,8 +508,8 @@ where
     }
 
     fn handle_add_error(
-        error: backend::MempoolError,
-        reply_channel: oneshot::Sender<Result<(), backend::MempoolError>>,
+        error: MempoolError,
+        reply_channel: oneshot::Sender<Result<(), MempoolError>>,
     ) {
         tracing::debug!("Could not add item to the pool: {}", error);
         if let Err(e) = reply_channel.send(Err(error)) {

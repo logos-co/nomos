@@ -58,6 +58,12 @@ impl From<TxHash> for Bytes {
     }
 }
 
+impl From<TxHash> for [u8; 32] {
+    fn from(tx_hash: TxHash) -> Self {
+        fr_to_bytes(&tx_hash.0)
+    }
+}
+
 impl TxHash {
     /// For testing purposes
     #[cfg(test)]
