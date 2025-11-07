@@ -1,4 +1,6 @@
-pub mod configs;
+pub mod configs {
+    pub use integration_configs::topology::configs::*;
+}
 
 use std::{
     collections::{HashMap, HashSet},
@@ -27,6 +29,7 @@ use nomos_da_network_service::MembershipResponse;
 use nomos_network::backends::libp2p::Libp2pInfo;
 use nomos_utils::net::get_available_udp_port;
 use rand::{Rng as _, thread_rng};
+use thiserror::Error;
 use tokio::time::{sleep, timeout};
 
 use crate::{
@@ -296,10 +299,10 @@ impl Topology {
         &self.executors
     }
 
-    pub async fn wait_network_ready(&self) {
+    pub async fn wait_network_ready(&self) -> Result<(), ReadinessError> {
         let listen_ports = self.node_listen_ports();
         if listen_ports.len() <= 1 {
-            return;
+            return Ok(());
         }
 
         let initial_peer_ports = self.node_initial_peer_ports();
@@ -312,31 +315,41 @@ impl Topology {
             labels: &labels,
         };
 
-        check.wait().await;
+        check.wait().await?;
+        Ok(())
     }
 
-    pub async fn wait_membership_ready(&self) {
+    pub async fn wait_membership_ready(&self) -> Result<(), ReadinessError> {
         self.wait_membership_ready_for_session(SessionNumber::from(0u64))
-            .await;
+            .await
     }
 
-    pub async fn wait_membership_ready_for_session(&self, session: SessionNumber) {
-        self.wait_membership_assignations(session, true).await;
+    pub async fn wait_membership_ready_for_session(
+        &self,
+        session: SessionNumber,
+    ) -> Result<(), ReadinessError> {
+        self.wait_membership_assignations(session, true).await
     }
 
-    pub async fn wait_membership_empty_for_session(&self, session: SessionNumber) {
-        self.wait_membership_assignations(session, false).await;
+    pub async fn wait_membership_empty_for_session(
+        &self,
+        session: SessionNumber,
+    ) -> Result<(), ReadinessError> {
+        self.wait_membership_assignations(session, false).await
     }
 
-    async fn wait_membership_assignations(&self, session: SessionNumber, expect_non_empty: bool) {
+    async fn wait_membership_assignations(
+        &self,
+        session: SessionNumber,
+        expect_non_empty: bool,
+    ) -> Result<(), ReadinessError> {
         let total_nodes = self.validators.len() + self.executors.len();
 
         if total_nodes == 0 {
-            return;
+            return Ok(());
         }
 
         let labels = self.node_labels();
-
         let check = MembershipReadiness {
             topology: self,
             session,
@@ -344,7 +357,8 @@ impl Topology {
             expect_non_empty,
         };
 
-        check.wait().await;
+        check.wait().await?;
+        Ok(())
     }
 
     fn node_listen_ports(&self) -> Vec<u16> {
@@ -402,6 +416,13 @@ impl Topology {
             .collect()
     }
 }
+
+#[derive(Debug, Error)]
+pub enum ReadinessError {
+    #[error("{message}")]
+    Timeout { message: String },
+}
+
 #[async_trait::async_trait]
 trait ReadinessCheck<'a> {
     type Data: Send;
@@ -416,7 +437,7 @@ trait ReadinessCheck<'a> {
         Duration::from_millis(200)
     }
 
-    async fn wait(&'a self) {
+    async fn wait(&'a self) -> Result<(), ReadinessError> {
         let timeout_duration = adjust_timeout(Duration::from_secs(60));
         let poll_interval = self.poll_interval();
         let mut data = self.collect().await;
@@ -436,8 +457,10 @@ trait ReadinessCheck<'a> {
 
         if wait_result.is_err() {
             let message = self.timeout_message(data);
-            panic!("{message}");
+            return Err(ReadinessError::Timeout { message });
         }
+
+        Ok(())
     }
 }
 

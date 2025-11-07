@@ -23,10 +23,11 @@ use tests::{
 async fn test_get_share_data() {
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
 
-    topology.wait_network_ready().await;
+    topology.wait_network_ready().await.expect("network ready");
     topology
         .wait_membership_ready_for_session(SessionNumber::from(0u64))
-        .await;
+        .await
+        .expect("membership ready");
 
     let executor = &topology.executors()[0];
     let (channel_id, parent_msg_id) = setup_test_channel(executor).await;
@@ -58,10 +59,14 @@ async fn test_get_commitments_from_peers() {
     let interconnected_topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let executor = &interconnected_topology.executors()[0];
 
-    interconnected_topology.wait_network_ready().await;
+    interconnected_topology
+        .wait_network_ready()
+        .await
+        .expect("network ready");
     interconnected_topology
         .wait_membership_ready_for_session(SessionNumber::from(0u64))
-        .await;
+        .await
+        .expect("membership ready");
 
     // Create independent node that only knows about membership of
     // `interconnected_topology` nodes. This validator will not receive any data
@@ -103,7 +108,10 @@ async fn test_block_peer() {
     let blacklisted_peers = executor.blacklisted_peers().await;
     assert!(blacklisted_peers.is_empty());
 
-    topology.wait_membership_ready().await;
+    topology
+        .wait_membership_ready()
+        .await
+        .expect("membership ready");
     let existing_peer_id = *executor
         .da_get_membership(0u64)
         .await
@@ -154,10 +162,11 @@ async fn test_block_peer() {
 #[serial]
 async fn test_get_shares() {
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
-    topology.wait_network_ready().await;
+    topology.wait_network_ready().await.expect("network ready");
     topology
         .wait_membership_ready_for_session(SessionNumber::from(0u64))
-        .await;
+        .await
+        .expect("membership ready");
 
     let executor = &topology.executors()[0];
     let (channel_id, parent_msg_id) = setup_test_channel(executor).await;
