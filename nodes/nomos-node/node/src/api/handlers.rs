@@ -24,6 +24,7 @@ use nomos_core::{
     da::{BlobId, DaVerifier as CoreDaVerifier, blob::Share},
     header::HeaderId,
     mantle::{SignedMantleTx, Transaction},
+    sdp::SessionNumber,
 };
 use nomos_da_messages::http::da::{
     DASharesCommitmentsRequest, DaSamplingRequest, GetSharesRequest,
@@ -600,6 +601,12 @@ where
     make_request_and_return_response!(HttpStorageAdapter::get_block::<SignedMantleTx>(relay, id))
 }
 
+#[derive(Deserialize)]
+pub struct GetCommitmentsRequest<DaBlobId> {
+    pub blob_id: DaBlobId,
+    pub session: SessionNumber,
+}
+
 #[utoipa::path(
     get,
     path = paths::DA_GET_SHARES_COMMITMENTS,
@@ -617,7 +624,7 @@ pub async fn da_get_commitments<
     RuntimeServiceId,
 >(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
-    Json(blob_id): Json<DaBlobId>,
+    Json(req): Json<GetCommitmentsRequest<DaBlobId>>,
 ) -> Response
 where
     DaBlobId: Serialize + for<'de> Deserialize<'de> + Send + 'static,
@@ -644,7 +651,7 @@ where
         SamplingMempoolAdapter,
         SamplingStorage,
         RuntimeServiceId,
-    >(&handle, blob_id))
+    >(&handle, req.blob_id, req.session))
 }
 
 #[utoipa::path(

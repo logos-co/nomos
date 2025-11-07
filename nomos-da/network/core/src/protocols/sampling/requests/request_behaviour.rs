@@ -70,13 +70,13 @@ where
     /// Peers that were selected for
     sampling_peers: HashMap<SubnetworkId, PeerId>,
     /// Pending samples for shares sender
-    shares_request_sender: UnboundedSender<BlobId>,
+    shares_request_sender: UnboundedSender<(BlobId, SessionNumber)>,
     /// Pending samples for shares stream
-    shares_request_stream: BoxStream<'static, BlobId>,
+    shares_request_stream: BoxStream<'static, (BlobId, SessionNumber)>,
     /// Pending samples for commitments sender
-    commitments_request_sender: UnboundedSender<BlobId>,
+    commitments_request_sender: UnboundedSender<(BlobId, SessionNumber)>,
     /// Pending samples for commitments stream
-    commitments_request_stream: BoxStream<'static, BlobId>,
+    commitments_request_stream: BoxStream<'static, (BlobId, SessionNumber)>,
     /// Commitments that are waiting for response and the attemt count
     commitments_requests: HashMap<BlobId, AttemptNumber>,
     /// Subnets sampling config that is used when picking new subnetwork peers.
@@ -167,12 +167,12 @@ where
     }
 
     /// Get a hook to the sender channel of the share events
-    pub fn shares_request_channel(&self) -> UnboundedSender<BlobId> {
+    pub fn shares_request_channel(&self) -> UnboundedSender<(BlobId, SessionNumber)> {
         self.shares_request_sender.clone()
     }
 
     /// Get a hook to the sender channel of the commitments events
-    pub fn commitments_request_channel(&self) -> UnboundedSender<BlobId> {
+    pub fn commitments_request_channel(&self) -> UnboundedSender<(BlobId, SessionNumber)> {
         self.commitments_request_sender.clone()
     }
 
@@ -543,8 +543,48 @@ where
             }
 
             // No opinion needed - no peer to evaluate
-            SamplingError::NoSubnetworkPeers { .. } => {}
+            SamplingError::NoSubnetworkPeers { .. } | SamplingError::MismatchSession { .. } => {}
         }
+    }
+
+    fn poll_share_requests(
+        &mut self,
+        cx: &mut Context<'_>,
+    ) -> Option<Poll<ToSwarm<<Self as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self>>>> {
+        if let Poll::Ready(Some((blob_id, session))) =
+            self.shares_request_stream.poll_next_unpin(cx)
+        {
+            if session != self.current_session {
+                cx.waker().wake_by_ref();
+                return Some(Poll::Ready(ToSwarm::GenerateEvent(
+                    SamplingEvent::SamplingError {
+                        error: SamplingError::MismatchSession { blob_id, session },
+                    },
+                )));
+            }
+            self.sample_share(blob_id);
+        }
+        None
+    }
+
+    fn poll_commitments_requests(
+        &mut self,
+        cx: &mut Context<'_>,
+    ) -> Option<Poll<ToSwarm<<Self as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self>>>> {
+        if let Poll::Ready(Some((blob_id, session))) =
+            self.commitments_request_stream.poll_next_unpin(cx)
+        {
+            if session != self.current_session {
+                cx.waker().wake_by_ref();
+                return Some(Poll::Ready(ToSwarm::GenerateEvent(
+                    SamplingEvent::SamplingError {
+                        error: SamplingError::MismatchSession { blob_id, session },
+                    },
+                )));
+            }
+            self.sample_commitments(blob_id);
+        }
+        None
     }
 }
 
@@ -640,13 +680,13 @@ where
         }
 
         // poll pending outgoing samples for shares
-        if let Poll::Ready(Some(blob_id)) = self.shares_request_stream.poll_next_unpin(cx) {
-            self.sample_share(blob_id);
+        if let Some(result) = self.poll_share_requests(cx) {
+            return result;
         }
 
         // poll pending outgoing samples for commitments
-        if let Poll::Ready(Some(blob_id)) = self.commitments_request_stream.poll_next_unpin(cx) {
-            self.sample_commitments(blob_id);
+        if let Some(result) = self.poll_commitments_requests(cx) {
+            return result;
         }
 
         if let Some((subnetwork_id, blob_id)) = self.to_retry.pop_front() {
