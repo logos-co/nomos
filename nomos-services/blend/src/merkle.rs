@@ -124,6 +124,7 @@ impl MerkleTree {
     ///
     /// Being a fixed-height tree, the Merkle root is computed padding the
     /// missing leaves with the hashes of the empty sub-trees for each level.
+    #[must_use]
     pub fn root(&self) -> ZkHash {
         fr_from_bytes_unchecked(
             self.inner_tree
@@ -142,6 +143,7 @@ impl MerkleTree {
     /// and `true` otherwise.
     ///
     /// The resulting path has the same length as the fixed height of the tree.
+    #[must_use]
     pub fn get_proof_for_key(&self, key: &PublicKey) -> Option<CorePathAndSelectors> {
         let key_index = self.sorted_key_indices.get(key).copied()?;
 

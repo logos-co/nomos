@@ -140,6 +140,7 @@ fn spawn_core_proof_generation_task(
     private_inputs: ProofOfCoreQuotaInputs,
     starting_key_index: u64,
 ) -> JoinHandle<()> {
+    #[expect(clippy::cognitive_complexity, reason = "")]
     spawn_blocking(move || {
         let proofs_to_generate = public_inputs
             .core
@@ -159,6 +160,10 @@ fn spawn_core_proof_generation_task(
                 PrivateInputs::new_proof_of_core_quota_inputs(key_index, private_inputs.clone()),
             ) else {
                 tracing::error!(target: LOG_TARGET, "Core PoQ generation failed for the provided public and private inputs.");
+                if sender_channel.is_closed() {
+                    tracing::debug!(target: LOG_TARGET, "Proof receiver side of the channel was closed. Aborting...");
+                    break;
+                }
                 continue;
             };
             let proof_of_selection = ProofOfSelection::new(secret_selection_randomness);
