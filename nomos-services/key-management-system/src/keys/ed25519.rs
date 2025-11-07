@@ -1,12 +1,32 @@
 use bytes::Bytes;
 use ed25519_dalek::{Signature, VerifyingKey, ed25519::signature::Signer as _};
-use serde::{Deserialize, Serialize};
+use nomos_utils::serde::{deserialize_bytes_array, serialize_bytes_array};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use zeroize::ZeroizeOnDrop;
 
 use crate::keys::{errors::KeyError, secured_key::SecuredKey};
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Clone, Debug, ZeroizeOnDrop)]
+#[derive(PartialEq, Eq, Clone, Debug, ZeroizeOnDrop)]
 pub struct Ed25519Key(pub ed25519_dalek::SigningKey);
+
+impl Serialize for Ed25519Key {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serialize_bytes_array(self.0.to_bytes(), serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Ed25519Key {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let bytes = deserialize_bytes_array(deserializer)?;
+        Ok(Self(ed25519_dalek::SigningKey::from_bytes(&bytes)))
+    }
+}
 
 impl SecuredKey for Ed25519Key {
     type Payload = Bytes;

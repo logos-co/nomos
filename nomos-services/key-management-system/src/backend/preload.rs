@@ -113,10 +113,12 @@ impl KMSBackend for PreloadKMSBackend {
 #[cfg(test)]
 mod tests {
     use bytes::{Bytes as RawBytes, Bytes};
+    use nomos_core::mantle::keys::SecretKey;
+    use num_bigint::BigUint;
     use rand::rngs::OsRng;
 
     use super::*;
-    use crate::keys::{Ed25519Key, PayloadEncoding};
+    use crate::keys::{Ed25519Key, Key, PayloadEncoding, ZkKey};
 
     type BackendKey<'a, Backend> = dyn SecuredKey<
             Payload = <<Backend as KMSBackend>::Key as SecuredKey>::Payload,
@@ -132,7 +134,7 @@ mod tests {
     async fn preload_backend() {
         // Initialize a backend with a pre-generated key in the setting
         let key_id = "blend/1".to_owned();
-        let key = keys::Key::Ed25519(Ed25519Key(ed25519_dalek::SigningKey::generate(&mut OsRng)));
+        let key = Key::Ed25519(Ed25519Key(ed25519_dalek::SigningKey::generate(&mut OsRng)));
         let mut backend = PreloadKMSBackend::new(PreloadKMSBackendSettings {
             keys: HashMap::from_iter([(key_id.clone(), key.clone())]),
         });
@@ -166,7 +168,7 @@ mod tests {
         });
 
         let key_id = "blend/not_registered".to_owned();
-        let key = keys::Key::Ed25519(Ed25519Key(ed25519_dalek::SigningKey::generate(&mut OsRng)));
+        let key = Key::Ed25519(Ed25519Key(ed25519_dalek::SigningKey::generate(&mut OsRng)));
 
         // Fetching public key fails
         assert_eq!(
@@ -193,5 +195,32 @@ mod tests {
 
         // Registering the key works
         assert_eq!(backend.register(key_id.clone(), key), Ok(key_id));
+    }
+
+    #[test]
+    fn serde_keys_from_yaml() {
+        let preloaded_keys = PreloadKMSBackendSettings {
+            keys: [
+                (
+                    "test1".into(),
+                    Key::Ed25519(Ed25519Key(ed25519_dalek::SigningKey::generate(&mut OsRng))),
+                ),
+                (
+                    "test2".into(),
+                    Key::Zk(ZkKey(SecretKey::from(BigUint::from_bytes_le(&[1u8; 32])))),
+                ),
+            ]
+            .into(),
+        };
+
+        let mut serialized_ouput = Vec::new();
+        serde_yaml::to_writer(&mut serialized_ouput, &preloaded_keys).unwrap();
+
+        let deserialized_keys: PreloadKMSBackendSettings =
+            serde_yaml::from_slice(&serialized_ouput).unwrap();
+
+        assert_eq!(preloaded_keys.keys.len(), deserialized_keys.keys.len());
+        let original_key = preloaded_keys.keys.keys().next().unwrap();
+        assert!(deserialized_keys.keys.contains_key(original_key));
     }
 }
