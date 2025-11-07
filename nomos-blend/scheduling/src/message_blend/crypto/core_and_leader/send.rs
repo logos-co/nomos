@@ -172,7 +172,7 @@ where
             // Map retrieved indices to the nodes' public keys.
             .enumerate()
             .inspect(|(layer, (_, node_index))| {
-                tracing::debug!("Encapsulating layer {layer:?} of message type {payload_type:?} for node at index {node_index:?}. Local node index: {:?}", self.membership.local_index());
+                tracing::debug!("Encapsulating layer {layer:?} of message type {payload_type:?} for node at index {node_index:?}. Local node index: {:?}", self.membership.local_index()); 
             })
             .map(|(_, (proof, node_index))| {
                 (

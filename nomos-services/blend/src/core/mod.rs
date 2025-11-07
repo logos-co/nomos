@@ -1003,6 +1003,7 @@ where
     let Ok(multi_layer_decapsulation_output) = self_decapsulation_output else {
         // The outermost layer of the data message is not for us, hence we treat this as
         // a regular data message that should be released at the next round.
+        tracing::debug!(target: LOG_TARGET, "Locally generated data message does not have its outermost layer addressed to us. Sending it out as a data message...");
         scheduler.queue_data_message(wrapped_message.clone());
         assert_eq!(
             state_updater.add_unsent_data_message(wrapped_message.clone()),
