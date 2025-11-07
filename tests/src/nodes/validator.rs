@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     net::SocketAddr,
     num::{NonZeroU64, NonZeroUsize},
     path::PathBuf,
