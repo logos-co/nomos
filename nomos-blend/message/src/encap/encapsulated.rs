@@ -130,11 +130,6 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
         *self.public_header.signing_pubkey()
     }
 
-    #[must_use]
-    pub const fn public_header(&self) -> &PublicHeader {
-        &self.public_header
-    }
-
     #[cfg(any(test, feature = "unsafe-test-functions"))]
     #[must_use]
     pub const fn public_header_mut(&mut self) -> &mut PublicHeader {
@@ -216,12 +211,7 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPart<ENCAPSULATION_COUNT> {
                 proof_of_selection,
             } => {
                 let payload = self.payload.decapsulate(key);
-                verify_reconstructed_public_header(
-                    &public_header,
-                    &private_header,
-                    &payload,
-                    verifier,
-                )?;
+                verify_reconstructed_public_header(&public_header, &private_header, &payload)?;
                 Ok(PartDecapsulationOutput::Incompleted {
                     encapsulated_part: Self {
                         private_header,
@@ -237,12 +227,7 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPart<ENCAPSULATION_COUNT> {
                 proof_of_selection,
             } => {
                 let payload = self.payload.decapsulate(key);
-                verify_reconstructed_public_header(
-                    &public_header,
-                    &private_header,
-                    &payload,
-                    verifier,
-                )?;
+                verify_reconstructed_public_header(&public_header, &private_header, &payload)?;
                 Ok(PartDecapsulationOutput::Completed {
                     payload: payload.try_deserialize()?,
                     proof_of_selection,
@@ -259,15 +244,11 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPart<ENCAPSULATION_COUNT> {
 
 /// Verify the public header reconstructed when decapsulating the private
 /// header.
-fn verify_reconstructed_public_header<Verifier, const ENCAPSULATION_COUNT: usize>(
+fn verify_reconstructed_public_header<const ENCAPSULATION_COUNT: usize>(
     public_header: &PublicHeader,
     private_header: &EncapsulatedPrivateHeader<ENCAPSULATION_COUNT>,
     payload: &EncapsulatedPayload,
-    verifier: &Verifier,
-) -> Result<(), Error>
-where
-    Verifier: ProofsVerifier,
-{
+) -> Result<(), Error> {
     // Verify the signature in the reconstructed public header
     public_header.verify_signature(&signing_body(private_header, payload))?;
     Ok(())

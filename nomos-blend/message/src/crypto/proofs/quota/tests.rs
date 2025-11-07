@@ -42,6 +42,8 @@ fn valid_proof_of_core_quota() {
     );
 }
 
+// We test that our assumption that two PoQs with the exact same public and
+// private inputs but different ephemeral key still produce the same nullifier.
 #[test]
 fn same_key_nullifier_for_different_public_keys() {
     let key_1: Ed25519PublicKey = [200; _].try_into().unwrap();

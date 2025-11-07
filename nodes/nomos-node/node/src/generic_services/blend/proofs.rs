@@ -29,40 +29,44 @@ const DUMMY_POQ_ZK_NULLIFIER: ZkHash = ZkHash::ZERO;
 // by the Blend service.
 /// `PoQ` generator that runs the actual generation logic for core `PoQ` proofs,
 /// while it always returns mocked proofs for leadership variants.
-pub struct BlendProofsGenerator(Option<RealCoreProofsGenerator>);
+pub struct CoreProofsGenerator(RealCoreProofsGenerator);
 
 #[async_trait]
-impl CoreAndLeaderProofsGenerator for BlendProofsGenerator {
+impl CoreAndLeaderProofsGenerator for CoreProofsGenerator {
     fn new(settings: ProofsGeneratorSettings, private_inputs: ProofOfCoreQuotaInputs) -> Self {
-        Self(Some(RealCoreProofsGenerator::new(settings, private_inputs)))
+        Self(RealCoreProofsGenerator::new(settings, private_inputs))
     }
 
     fn rotate_epoch(&mut self, new_epoch_public: LeaderInputs) {
-        self.0.as_mut().unwrap().rotate_epoch(new_epoch_public);
+        self.0.rotate_epoch(new_epoch_public);
     }
 
     fn set_epoch_private(&mut self, _new_epoch_private: ProofOfLeadershipQuotaInputs) {
-        tracing::trace!(target: LOG_TARGET, "Proof generator still generates mocked leadership PoQ proofs, so epoch private info won't have any effects.");
+        tracing::trace!(target: LOG_TARGET, "Core proof generator still generates mocked leadership PoQ proofs, so epoch private info won't have any effects.");
     }
 
     async fn get_next_core_proof(&mut self) -> Option<BlendLayerProof> {
-        tracing::debug!(target: LOG_TARGET, "Actual core PoQ proof requested.");
-        self.0.as_mut().unwrap().get_next_proof().await
+        tracing::debug!(target: LOG_TARGET, "Core PoQ proof requested.");
+        self.0.get_next_proof().await
     }
 
     async fn get_next_leader_proof(&mut self) -> Option<BlendLayerProof> {
-        tracing::debug!(target: LOG_TARGET, "Mock PoL PoQ proof requested.");
+        tracing::debug!(target: LOG_TARGET, "Leadership PoQ proof requested. A mock one will be returned for now.");
         Some(random_proof())
     }
 }
 
+// TODO: Add actual PoL proofs once the required inputs are successfully fetched
+// by the Blend service.
+pub struct EdgeProofsGenerator;
+
 #[async_trait]
-impl LeaderProofsGenerator for BlendProofsGenerator {
+impl LeaderProofsGenerator for EdgeProofsGenerator {
     fn new(
         _settings: ProofsGeneratorSettings,
         _private_inputs: ProofOfLeadershipQuotaInputs,
     ) -> Self {
-        Self(None)
+        Self
     }
 
     fn rotate_epoch(
@@ -77,6 +81,8 @@ impl LeaderProofsGenerator for BlendProofsGenerator {
     }
 }
 
+// Randomly generates PoQ and PoSel from bytes until a valid combination of both
+// is generated.
 fn random_proof() -> BlendLayerProof {
     loop {
         let proof_random_bytes = random_sized_bytes::<{ size_of::<PoQProof>() }>();
@@ -92,7 +98,6 @@ fn random_proof() -> BlendLayerProof {
         ) else {
             continue;
         };
-        tracing::trace!(target: LOG_TARGET, "Generated random mocked PoL PoQ proof with key nullifier {:?}", proof_of_quota.key_nullifier());
         return BlendLayerProof {
             ephemeral_signing_key: Ed25519PrivateKey::generate(),
             proof_of_quota,
@@ -101,10 +106,10 @@ fn random_proof() -> BlendLayerProof {
     }
 }
 
-// TODO: Add actual PoL verifier once the verification inputs are successfully
-// fetched by the Blend service.
 /// `PoQ` verifier that runs the actual verification logic for core `PoQ`
 /// proofs, while it always returns `Ok` for leadership proofs.
+// TODO: Add actual PoL verifier once the verification inputs are successfully
+// fetched by the Blend service.
 #[derive(Clone)]
 pub struct BlendProofsVerifier(RealProofsVerifier);
 
@@ -123,39 +128,43 @@ impl ProofsVerifier for BlendProofsVerifier {
         self.0.complete_epoch_transition();
     }
 
+    #[expect(clippy::cognitive_complexity, reason = "Tracing macros.")]
     fn verify_proof_of_quota(
         &self,
         proof: ProofOfQuota,
         signing_key: &Ed25519PublicKey,
     ) -> Result<ZkHash, Self::Error> {
-        tracing::debug!(target: LOG_TARGET, "Verifying proof with key nullifier: {:?}", proof.key_nullifier());
+        let key_nullifier = proof.key_nullifier();
+        tracing::debug!(target: LOG_TARGET, "Verifying PoQ with key nullifier: {key_nullifier:?}");
         if proof.key_nullifier() == DUMMY_POQ_ZK_NULLIFIER {
-            tracing::debug!(target: LOG_TARGET, "Mocked PoL PoQ proof received (automatically successfully verified).");
+            tracing::debug!(target: LOG_TARGET, "Mocked PoL PoQ proof received (automatically verified successfully).");
             Ok(DUMMY_POQ_ZK_NULLIFIER)
         } else {
             tracing::debug!(target: LOG_TARGET, "Core PoQ proof received.");
-            let key_nullifier = proof.key_nullifier();
-            let res = self.0.verify_proof_of_quota(proof, signing_key).inspect_err(|e| {
+            let verification_result = self.0.verify_proof_of_quota(proof, signing_key).inspect_err(|e| {
                 tracing::debug!(target: LOG_TARGET, "Core PoQ proof with key nullifier {key_nullifier:?} verification failed with error {e:?}");
             })?;
-            tracing::debug!(target: LOG_TARGET, "Core PoQ proof with key nullifier {key_nullifier:?} verified.");
-            Ok(res)
+            tracing::debug!(target: LOG_TARGET, "Core PoQ proof with key nullifier {key_nullifier:?} verified successfully.");
+            Ok(verification_result)
         }
     }
 
+    #[expect(clippy::cognitive_complexity, reason = "Tracing macros.")]
     fn verify_proof_of_selection(
         &self,
         proof: ProofOfSelection,
         inputs: &VerifyInputs,
     ) -> Result<(), Self::Error> {
+        let key_nullifier = inputs.key_nullifier;
+        tracing::debug!(target: LOG_TARGET, "Verifying PoSel for key nullifier: {key_nullifier:?}");
         if inputs.key_nullifier == DUMMY_POQ_ZK_NULLIFIER {
-            tracing::debug!(target: LOG_TARGET, "Mocked PoL PoSel proof received (automatically successfully verified).");
+            tracing::debug!(target: LOG_TARGET, "Mocked PoL PoSel proof received (automatically verified successfully).");
         } else {
             tracing::debug!(target: LOG_TARGET, "Core PoSel proof received.");
             self.0.verify_proof_of_selection(proof, inputs).inspect_err(|e| {
-                tracing::debug!(target: LOG_TARGET, "Core PoSel proof verification failed with error {e:?}");
+                tracing::debug!(target: LOG_TARGET, "Core PoSel proof for key nullifier {key_nullifier:?} verification failed with error {e:?}");
             })?;
-            tracing::debug!(target: LOG_TARGET, "Core PoSel proof verified.");
+            tracing::debug!(target: LOG_TARGET, "Core PoSel proof for key nullifier {key_nullifier:?} verified successfully.");
         }
         Ok(())
     }
@@ -185,7 +194,7 @@ mod core_to_core_tests {
     use nomos_blend_service::{ProofsVerifier as _, merkle::MerkleTree};
     use nomos_core::{crypto::ZkHash, mantle::keys::SecretKey};
 
-    use crate::generic_services::blend::{BlendProofsGenerator, BlendProofsVerifier};
+    use crate::generic_services::blend::{BlendProofsVerifier, CoreProofsGenerator};
 
     struct PoQInputs<const INPUTS: usize> {
         public_inputs: PoQVerificationInputsMinusSigningKey,
@@ -243,7 +252,7 @@ mod core_to_core_tests {
             public_inputs,
             secret_inputs,
         } = generate_inputs::<MEMBERSHIP_SIZE>(1);
-        let mut first_generator = BlendProofsGenerator::new(
+        let mut first_generator = CoreProofsGenerator::new(
             ProofsGeneratorSettings {
                 local_node_index: Some(0),
                 membership_size: MEMBERSHIP_SIZE,
@@ -251,7 +260,7 @@ mod core_to_core_tests {
             },
             secret_inputs[0].clone(),
         );
-        let mut second_generator = BlendProofsGenerator::new(
+        let mut second_generator = CoreProofsGenerator::new(
             ProofsGeneratorSettings {
                 local_node_index: Some(1),
                 membership_size: MEMBERSHIP_SIZE,
@@ -356,7 +365,7 @@ mod core_to_core_tests {
             public_inputs,
             secret_inputs,
         } = generate_inputs::<MEMBERSHIP_SIZE>(1);
-        let mut generator = BlendProofsGenerator::new(
+        let mut generator = CoreProofsGenerator::new(
             ProofsGeneratorSettings {
                 local_node_index: Some(0),
                 membership_size: MEMBERSHIP_SIZE,
@@ -392,7 +401,7 @@ mod core_to_core_tests {
             public_inputs,
             secret_inputs,
         } = generate_inputs::<MEMBERSHIP_SIZE>(1);
-        let mut generator = BlendProofsGenerator::new(
+        let mut generator = CoreProofsGenerator::new(
             ProofsGeneratorSettings {
                 local_node_index: Some(0),
                 membership_size: MEMBERSHIP_SIZE,
@@ -441,7 +450,7 @@ mod core_to_core_tests {
             public_inputs,
             secret_inputs,
         } = generate_inputs::<MEMBERSHIP_SIZE>(1);
-        let mut generator = BlendProofsGenerator::new(
+        let mut generator = CoreProofsGenerator::new(
             ProofsGeneratorSettings {
                 local_node_index: Some(0),
                 membership_size: MEMBERSHIP_SIZE,

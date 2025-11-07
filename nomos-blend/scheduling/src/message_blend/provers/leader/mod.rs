@@ -86,7 +86,7 @@ impl LeaderProofsGenerator for RealLeaderProofsGenerator {
             .next()
             .await
             .expect("Underlying proof generation stream should always yield items.");
-        tracing::debug!(target: LOG_TARGET, "Generated leader Blend layer proof addressed to node at index {:?}", proof.proof_of_selection.expected_index(self.settings.membership_size));
+        tracing::trace!(target: LOG_TARGET, "Generated leadership Blend layer proof with key nullifier {:?} addressed to node at index {:?}", proof.proof_of_quota.key_nullifier(), proof.proof_of_selection.expected_index(self.settings.membership_size));
         proof
     }
 }
@@ -106,16 +106,14 @@ fn create_leadership_proof_stream(
 ) -> impl Stream<Item = BlendLayerProof> {
     let message_quota = public_inputs.leader.message_quota;
 
-    stream::repeat(())
-        .enumerate()
-        .map(|(index, ())| index)
+    stream::iter(0u64..)
         .map(move |current_index| {
-            let encapsulation_layer = (current_index as u64) % message_quota;
+            let encapsulation_layer = current_index % message_quota;
             let private_inputs = private_inputs.clone();
 
             spawn_blocking(move || {
                 let ephemeral_signing_key = Ed25519PrivateKey::generate();
-                ProofOfQuota::new(
+                let (proof_of_quota, secret_selection_randomness) = ProofOfQuota::new(
                     &PublicInputs {
                         signing_key: ephemeral_signing_key.public_key(),
                         core: public_inputs.core,
@@ -127,14 +125,12 @@ fn create_leadership_proof_stream(
                         private_inputs,
                     ),
                 )
-                .ok()
-                .map(|(proof_of_quota, secret_selection_randomness)| {
-                    let proof_of_selection = ProofOfSelection::new(secret_selection_randomness);
-                    BlendLayerProof {
-                        proof_of_quota,
-                        proof_of_selection,
-                        ephemeral_signing_key,
-                    }
+                .ok()?;
+                let proof_of_selection = ProofOfSelection::new(secret_selection_randomness);
+                Some(BlendLayerProof {
+                    proof_of_quota,
+                    proof_of_selection,
+                    ephemeral_signing_key,
                 })
             })
         })

@@ -27,7 +27,7 @@ use tokio_stream::wrappers::WatchStream;
 
 use crate::generic_services::{
     CryptarchiaLeaderService, CryptarchiaService, WalletService,
-    blend::proofs::{BlendProofsGenerator, BlendProofsVerifier},
+    blend::proofs::{BlendProofsVerifier, CoreProofsGenerator, EdgeProofsGenerator},
 };
 
 mod proofs;
@@ -40,7 +40,7 @@ pub type BlendCoreService<SamplingAdapter, RuntimeServiceId> =
         PeerId,
         nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
         BlendMembershipAdapter<RuntimeServiceId>,
-        BlendProofsGenerator,
+        CoreProofsGenerator,
         BlendProofsVerifier,
         NtpTimeBackend,
         CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
@@ -52,7 +52,7 @@ pub type BlendEdgeService<SamplingAdapter, RuntimeServiceId> = nomos_blend_servi
         PeerId,
         <nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<RuntimeServiceId>>::BroadcastSettings,
         BlendMembershipAdapter<RuntimeServiceId>,
-        BlendProofsGenerator,
+        EdgeProofsGenerator,
         NtpTimeBackend,
         CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
         PolInfoProvider<SamplingAdapter>,

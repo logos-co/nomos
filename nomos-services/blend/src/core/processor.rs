@@ -138,15 +138,6 @@ where
         &self,
         message: IncomingEncapsulatedMessageWithValidatedPublicHeader,
     ) -> Result<MultiLayerDecapsulationOutput, InnerError> {
-        let original_kn = message
-            .clone()
-            .into_inner()
-            .public_header()
-            .proof_of_quota()
-            .key_nullifier();
-        tracing::trace!(
-            "Decapsulating recursively message with outermost key nullifier: {original_kn:?}"
-        );
         let mut decapsulation_output = self.0.decapsulate_message(message)?;
 
         let mut collected_blending_tokens = Vec::new();
@@ -155,9 +146,6 @@ where
             match &decapsulation_output {
                 // We reached the end. Collect token and stop.
                 DecapsulationOutput::Completed { blending_token, .. } => {
-                    tracing::trace!(
-                        "Message with initial key nullifier {original_kn:?} recursively fully decapsulated."
-                    );
                     collected_blending_tokens.push(blending_token.clone());
                     break;
                 }
@@ -168,14 +156,6 @@ where
                     blending_token,
                 } => {
                     collected_blending_tokens.push(blending_token.clone());
-                    tracing::trace!(
-                        "Decapsulating next layer of message with remaining outermost key nullifier: {:?}",
-                        remaining_encapsulated_message
-                            .clone()
-                            .public_header()
-                            .proof_of_quota()
-                            .key_nullifier()
-                    );
                     let Ok(nested_layer_decapsulation_output) = self
                         .0
                         .decapsulate_message(IncomingEncapsulatedMessageWithValidatedPublicHeader::from_message_unchecked(remaining_encapsulated_message.clone()))

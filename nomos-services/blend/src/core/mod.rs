@@ -938,7 +938,10 @@ fn compute_and_submit_activity_proof_for_previous_session(
 /// encapsulate its payload is performed. If encapsulation is successful, the
 /// message is queued with the Blend scheduler and blended during the next
 /// round.
-#[expect(clippy::cognitive_complexity, reason = "")]
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "TODO: Address this at some point."
+)]
 async fn handle_local_data_message<
     NodeId,
     Rng,
@@ -1076,7 +1079,6 @@ where
     BackendSettings: Clone,
     ProofsVerifier: ProofsVerifierTrait,
 {
-    tracing::trace!(target: LOG_TARGET, "Received decapsulated message with validated key nullifier {:?}", validated_encapsulated_message.clone().into_inner().public_header().proof_of_quota().key_nullifier());
     let Ok(multi_layer_decapsulation_output) = cryptographic_processor.decapsulate_message_recursive(validated_encapsulated_message).inspect_err(|e| {
         tracing::debug!(target: LOG_TARGET, "Failed to decapsulate received message with error {e:?}");
     }) else {
@@ -1187,7 +1189,6 @@ where
     let data_messages_relay_futures = data_messages.into_iter()
         // While we iterate and map the messages to the sending futures, we update the recovery state to remove each message.
         .inspect(|data_message_to_blend| {
-            tracing::trace!(target: LOG_TARGET, "Blending data message with outermost key nullifier {:?}", data_message_to_blend.public_header().proof_of_quota().key_nullifier());
             if state_updater.remove_sent_data_message(data_message_to_blend).is_err() {
                 tracing::warn!(target: LOG_TARGET, "Recovered data message should be present in the recovery state but was not found.");
             }
@@ -1214,7 +1215,6 @@ where
                         message,
                     }) => Box::new(network_adapter.broadcast(message, broadcast_settings)),
                     ProcessedMessage::Encapsulated(encapsulated_message) => {
-                        tracing::trace!(target: LOG_TARGET, "Blending processed encapsulated message with outermost key nullifier {:?}", encapsulated_message.public_header().proof_of_quota().key_nullifier());
                         Box::new(backend.publish(*encapsulated_message))
                     }
                 }
@@ -1287,31 +1287,25 @@ where
     let Ok(multi_layer_decapsulation_output) = self_decapsulation_output else {
         // First layer not addressed to ourselves. Publish as regular cover message,
         // hence we consume a core quota.
-        tracing::debug!(target: LOG_TARGET, "Locally generated cover message does not have its outermost layer addressed to us. Sending out cover message with key nullifier {:?}", encapsulated_cover_message.public_header().proof_of_quota().key_nullifier());
+        tracing::debug!(target: LOG_TARGET, "Locally generated cover message does not have its outermost layer addressed to us. Sending it out fully encapsulated...");
         state_updater.consume_core_quota(1);
         return Some(encapsulated_cover_message);
     };
     let (collected_blending_tokens, message_type) =
         multi_layer_decapsulation_output.into_components();
 
-    let cover_message_to_emit = match message_type {
-        // This is the initial message that was encapsulated, since we fully
-        // decapsulated a cover message, we don't do anything.
-        DecapsulatedMessageType::Completed(_) => {
-            tracing::debug!(target: LOG_TARGET, "Locally generated cover message had all the {} layers addressed to this same node. Skipping propagation.", collected_blending_tokens.len());
-            None
-        }
-        DecapsulatedMessageType::Incompleted(remaining_encapsulated_message) => {
-            tracing::debug!(target: LOG_TARGET, "Locally generated cover message had the outermost {} layers addressed to this same node. Propagating only the remaining encapsulated layers with outermost key nullifier {:?}.", collected_blending_tokens.len(), remaining_encapsulated_message.public_header().proof_of_quota().key_nullifier());
-            Some(*remaining_encapsulated_message)
-        }
-    };
-
     for blending_token in collected_blending_tokens {
         blending_token_collector.insert(blending_token);
     }
 
-    cover_message_to_emit
+    match message_type {
+        // This is the initial message that was encapsulated, since we fully
+        // decapsulated a cover message, we don't do anything.
+        DecapsulatedMessageType::Completed(_) => None,
+        DecapsulatedMessageType::Incompleted(remaining_encapsulated_message) => {
+            Some(*remaining_encapsulated_message)
+        }
+    }
 }
 
 /// Handle a clock event by calling into the epoch handler and process the
