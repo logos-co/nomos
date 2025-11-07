@@ -87,11 +87,6 @@ impl<RoundClock, Rng, ProcessedMessage>
         self.unreleased_messages.push(message);
         debug!(target: LOG_TARGET, "New message scheduled. Pending message count: {}", self.unreleased_messages.len());
     }
-
-    /// Get a reference to the stored rng.
-    pub const fn rng(&self) -> &Rng {
-        &self.rng
-    }
 }
 
 fn calculate_next_release_round<Rng>(

@@ -7,7 +7,11 @@ use core::{
     time::Duration,
 };
 
-use futures::{Stream, StreamExt as _, stream::empty};
+use fork_stream::StreamExt as _;
+use futures::{Stream, StreamExt as _};
+use rand::RngCore;
+use tokio::time::interval;
+use tokio_stream::wrappers::IntervalStream;
 use tracing::{info, trace};
 
 use crate::{
@@ -15,23 +19,36 @@ use crate::{
     message_scheduler::{
         round_info::{RoundClock, RoundInfo, RoundReleaseType},
         session_info::SessionInfo,
-        utils::setup_new_session,
     },
     release_delayer::SessionProcessedMessageDelayer,
 };
 
 pub mod round_info;
 pub mod session_info;
-mod utils;
 
 #[cfg(test)]
 mod tests;
 
 const LOG_TARGET: &str = "blend::scheduling";
 
-/// The initialized version of [`UninitializedMessageScheduler`] that is created
-/// after the session stream yields its first result.
-pub struct MessageScheduler<SessionClock, Rng, ProcessedMessage, DataMessage> {
+/// Trait for scheduling processed or data messages to be released in future
+/// rounds.
+pub trait MessageScheduler<Rng, ProcessedMessage, DataMessage>:
+    ProcessedMessageScheduler<ProcessedMessage>
+{
+    fn new(session_info: SessionInfo, rng: Rng, settings: Settings) -> Self;
+    fn queue_data_message(&mut self, message: DataMessage);
+}
+
+/// Trait for scheduling processed messages to be released in future rounds.
+pub trait ProcessedMessageScheduler<ProcessedMessage> {
+    /// Add a new processed message to the release delayer component queue, for
+    /// release during the next release window.
+    fn schedule_processed_message(&mut self, message: ProcessedMessage);
+}
+
+/// Message scheduler that is valid only for a specific session.
+pub struct SessionMessageScheduler<Rng, ProcessedMessage, DataMessage> {
     /// The module responsible for randomly generated cover messages, given the
     /// allowed session quota and accounting for data messages generated within
     /// the session.
@@ -43,112 +60,88 @@ pub struct MessageScheduler<SessionClock, Rng, ProcessedMessage, DataMessage> {
     data_messages: Vec<DataMessage>,
     /// The multi-consumer stream forked on each sub-stream.
     round_clock: RoundClock,
-    /// The input stream that ticks upon a session change.
-    session_clock: SessionClock,
-    /// The settings to initialize all the required sub-streams.
-    settings: Settings,
 }
 
-impl<SessionClock, Rng, ProcessedMessage, DataMessage>
-    MessageScheduler<SessionClock, Rng, ProcessedMessage, DataMessage>
+impl<Rng, ProcessedMessage, DataMessage> MessageScheduler<Rng, ProcessedMessage, DataMessage>
+    for SessionMessageScheduler<Rng, ProcessedMessage, DataMessage>
 where
-    Rng: rand::Rng + Clone,
+    Rng: RngCore + Clone + Unpin,
+    ProcessedMessage: Debug + Unpin,
+    DataMessage: Debug + Unpin,
 {
-    pub fn new(
-        session_clock: SessionClock,
-        initial_session_info: SessionInfo,
-        rng: Rng,
-        settings: Settings,
-    ) -> Self {
-        // To avoid duplication for the `setup_new_session` logic, we need to create
-        // "dummy" containers that are soon replaced in the `setup_new_session`
-        // function, which expects a `&mut` reference to those fields. The same function
-        // is then called upon each new session tick.
-        let mut initial_cover_traffic = SessionCoverTraffic::<Rng, RoundClock>::new(
+    fn new(session_info: SessionInfo, rng: Rng, settings: Settings) -> Self {
+        let round_clock = Box::new(
+            IntervalStream::new(interval(settings.round_duration))
+                .enumerate()
+                .map(|(round, _)| (round as u128).into()),
+        )
+        .fork();
+
+        let cover_traffic = SessionCoverTraffic::new(
             crate::cover_traffic::Settings {
                 additional_safety_intervals: settings.additional_safety_intervals,
                 expected_intervals_per_session: settings.expected_intervals_per_session,
                 rounds_per_interval: settings.rounds_per_interval,
-                starting_quota: initial_session_info.core_quota,
+                starting_quota: session_info.core_quota,
             },
             rng.clone(),
-            Box::new(empty()) as RoundClock,
+            Box::new(round_clock.clone()) as RoundClock,
         );
-        let mut initial_release_delayer =
-            SessionProcessedMessageDelayer::<_, _, ProcessedMessage>::new(
-                crate::release_delayer::Settings {
-                    maximum_release_delay_in_rounds: settings.maximum_release_delay_in_rounds,
-                },
-                rng.clone(),
-                Box::new(empty()) as RoundClock,
-            );
-        let mut initial_round_clock = Box::new(empty()) as RoundClock;
-        let mut initial_data_messages = Vec::new();
-
-        setup_new_session(
-            &mut initial_cover_traffic,
-            &mut initial_release_delayer,
-            &mut initial_round_clock,
-            &mut initial_data_messages,
-            settings,
+        let release_delayer = SessionProcessedMessageDelayer::new(
+            crate::release_delayer::Settings {
+                maximum_release_delay_in_rounds: settings.maximum_release_delay_in_rounds,
+            },
             rng,
-            initial_session_info,
+            Box::new(round_clock.clone()) as RoundClock,
         );
 
         Self {
-            cover_traffic: initial_cover_traffic,
-            release_delayer: initial_release_delayer,
-            data_messages: initial_data_messages,
-            round_clock: initial_round_clock,
-            session_clock,
-            settings,
+            cover_traffic,
+            release_delayer,
+            data_messages: Vec::new(),
+            round_clock: Box::new(round_clock) as RoundClock,
         }
     }
-}
 
-impl<SessionClock, Rng, ProcessedMessage, DataMessage>
-    MessageScheduler<SessionClock, Rng, ProcessedMessage, DataMessage>
-{
     /// Notify the cover message submodule that a new data message has been
     /// generated in this session, which will reduce the number of cover
     /// messages generated going forward.
-    pub fn queue_data_message(&mut self, message: DataMessage) {
+    fn queue_data_message(&mut self, message: DataMessage) {
         self.data_messages.push(message);
         self.cover_traffic.notify_new_data_message();
     }
+}
 
+impl<Rng, ProcessedMessage, DataMessage>
+    SessionMessageScheduler<Rng, ProcessedMessage, DataMessage>
+{
     #[cfg(test)]
     pub fn with_test_values(
         cover_traffic: SessionCoverTraffic<Rng, RoundClock>,
         release_delayer: SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage>,
         round_clock: RoundClock,
-        session_clock: SessionClock,
         data_messages: Vec<DataMessage>,
     ) -> Self {
         Self {
             cover_traffic,
             release_delayer,
-            round_clock,
-            session_clock,
-            // These are not needed when all fields are provided as arguments.
-            settings: Settings::default(),
             data_messages,
+            round_clock,
         }
     }
 }
 
-impl<SessionClock, Rng, ProcessedMessage, DataMessage> ProcessedMessageScheduler<ProcessedMessage>
-    for MessageScheduler<SessionClock, Rng, ProcessedMessage, DataMessage>
+impl<Rng, ProcessedMessage, DataMessage> ProcessedMessageScheduler<ProcessedMessage>
+    for SessionMessageScheduler<Rng, ProcessedMessage, DataMessage>
 {
     fn schedule_processed_message(&mut self, message: ProcessedMessage) {
         self.release_delayer.schedule_message(message);
     }
 }
 
-impl<SessionClock, Rng, ProcessedMessage, DataMessage> Stream
-    for MessageScheduler<SessionClock, Rng, ProcessedMessage, DataMessage>
+impl<Rng, ProcessedMessage, DataMessage> Stream
+    for SessionMessageScheduler<Rng, ProcessedMessage, DataMessage>
 where
-    SessionClock: Stream<Item = SessionInfo> + Unpin,
     Rng: rand::Rng + Clone + Unpin,
     ProcessedMessage: Debug + Unpin,
     DataMessage: Debug + Unpin,
@@ -160,27 +153,8 @@ where
             cover_traffic,
             release_delayer,
             round_clock,
-            settings,
-            session_clock,
             data_messages,
         } = &mut *self;
-        // We update session info on new sessions.
-        let rng = release_delayer.rng().clone();
-        match session_clock.poll_next_unpin(cx) {
-            Poll::Ready(Some(new_session_info)) => {
-                setup_new_session(
-                    cover_traffic,
-                    release_delayer,
-                    round_clock,
-                    data_messages,
-                    *settings,
-                    rng,
-                    new_session_info,
-                );
-            }
-            Poll::Ready(None) => return Poll::Ready(None),
-            Poll::Pending => {}
-        }
 
         // We do not return anything if a new round has not elapsed.
         let new_round = match round_clock.poll_next_unpin(cx) {
@@ -262,11 +236,40 @@ impl Default for Settings {
     }
 }
 
-/// Trait for scheduling processed messages to be released in future rounds.
-// TODO: Currently this is useful only for testing, but in the future it will
-// be used to define another type of MessageScheduler only for old sessions.
-pub trait ProcessedMessageScheduler<ProcessedMessage> {
-    /// Add a new processed message to the release delayer component queue, for
-    /// release during the next release window.
-    fn schedule_processed_message(&mut self, message: ProcessedMessage);
+/// Message scheduler that is only for an old session during session transition.
+///
+/// Unlike [`SessionMessageScheduler`], this supports only scheduling processed
+/// messages. Data messages cannot be scheduled, and it does not generate cover
+/// messages.
+pub struct OldSessionMessageScheduler<Rng, ProcessedMessage>(
+    SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage>,
+);
+
+impl<Rng, ProcessedMessage, DataMessage>
+    From<SessionMessageScheduler<Rng, ProcessedMessage, DataMessage>>
+    for OldSessionMessageScheduler<Rng, ProcessedMessage>
+{
+    fn from(scheduler: SessionMessageScheduler<Rng, ProcessedMessage, DataMessage>) -> Self {
+        Self(scheduler.release_delayer)
+    }
+}
+
+impl<Rng, ProcessedMessage> ProcessedMessageScheduler<ProcessedMessage>
+    for OldSessionMessageScheduler<Rng, ProcessedMessage>
+{
+    fn schedule_processed_message(&mut self, message: ProcessedMessage) {
+        self.0.schedule_message(message);
+    }
+}
+
+impl<Rng, ProcessedMessage> Stream for OldSessionMessageScheduler<Rng, ProcessedMessage>
+where
+    Rng: rand::Rng + Unpin,
+    ProcessedMessage: Unpin,
+{
+    type Item = Vec<ProcessedMessage>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.0.poll_next_unpin(cx)
+    }
 }
