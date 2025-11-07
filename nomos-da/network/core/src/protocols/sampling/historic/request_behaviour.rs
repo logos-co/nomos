@@ -547,9 +547,7 @@ where
                 peer_id,
                 session_id,
             }),
-            SamplingError::NoSubnetworkPeers { .. } | SamplingError::MismatchSession { .. } => {
-                None
-            }
+            SamplingError::NoSubnetworkPeers { .. } | SamplingError::MismatchSession { .. } => None,
         }
     }
 
