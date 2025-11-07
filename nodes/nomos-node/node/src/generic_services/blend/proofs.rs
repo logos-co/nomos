@@ -25,64 +25,6 @@ use poq::PoQProof;
 const LOG_TARGET: &str = "node::blend::proofs";
 const DUMMY_POQ_ZK_NULLIFIER: ZkHash = ZkHash::ZERO;
 
-// TODO: Add actual PoL verifier once the verification inputs are successfully
-// fetched by the Blend service.
-/// `PoQ` verifier that runs the actual verification logic for core `PoQ`
-/// proofs, while it always returns `Ok` for leadership proofs.
-#[derive(Clone)]
-pub struct BlendProofsVerifier(RealProofsVerifier);
-
-impl ProofsVerifier for BlendProofsVerifier {
-    type Error = InnerVerifierError;
-
-    fn new(public_inputs: PoQVerificationInputsMinusSigningKey) -> Self {
-        Self(RealProofsVerifier::new(public_inputs))
-    }
-
-    fn start_epoch_transition(&mut self, new_pol_inputs: LeaderInputs) {
-        self.0.start_epoch_transition(new_pol_inputs);
-    }
-
-    fn complete_epoch_transition(&mut self) {
-        self.0.complete_epoch_transition();
-    }
-
-    fn verify_proof_of_quota(
-        &self,
-        proof: ProofOfQuota,
-        signing_key: &Ed25519PublicKey,
-    ) -> Result<ZkHash, Self::Error> {
-        if proof.key_nullifier() == DUMMY_POQ_ZK_NULLIFIER {
-            tracing::debug!(target: LOG_TARGET, "Mocked PoL PoQ proof received.");
-            Ok(ZkHash::ZERO)
-        } else {
-            tracing::debug!(target: LOG_TARGET, "Core PoQ proof received.");
-            let res = self.0.verify_proof_of_quota(proof, signing_key).inspect_err(|e| {
-                tracing::debug!(target: LOG_TARGET, "Core PoQ proof verification failed with error {e:?}");
-            })?;
-            tracing::debug!(target: LOG_TARGET, "Core PoQ proof verified.");
-            Ok(res)
-        }
-    }
-
-    fn verify_proof_of_selection(
-        &self,
-        proof: ProofOfSelection,
-        inputs: &VerifyInputs,
-    ) -> Result<(), Self::Error> {
-        if inputs.key_nullifier == DUMMY_POQ_ZK_NULLIFIER {
-            tracing::debug!(target: LOG_TARGET, "Mocked PoL PoSel proof received.");
-        } else {
-            tracing::debug!(target: LOG_TARGET, "Core PoSel proof received.");
-            self.0.verify_proof_of_selection(proof, inputs).inspect_err(|e| {
-                tracing::debug!(target: LOG_TARGET, "Core PoSel proof verification failed with error {e:?}");
-            })?;
-            tracing::debug!(target: LOG_TARGET, "Core PoSel proof verified.");
-        }
-        Ok(())
-    }
-}
-
 // TODO: Add actual PoL proofs once the required inputs are successfully fetched
 // by the Blend service.
 /// `PoQ` generator that runs the actual generation logic for core `PoQ` proofs,
@@ -155,6 +97,64 @@ fn random_proof() -> BlendLayerProof {
             proof_of_quota,
             proof_of_selection,
         };
+    }
+}
+
+// TODO: Add actual PoL verifier once the verification inputs are successfully
+// fetched by the Blend service.
+/// `PoQ` verifier that runs the actual verification logic for core `PoQ`
+/// proofs, while it always returns `Ok` for leadership proofs.
+#[derive(Clone)]
+pub struct BlendProofsVerifier(RealProofsVerifier);
+
+impl ProofsVerifier for BlendProofsVerifier {
+    type Error = InnerVerifierError;
+
+    fn new(public_inputs: PoQVerificationInputsMinusSigningKey) -> Self {
+        Self(RealProofsVerifier::new(public_inputs))
+    }
+
+    fn start_epoch_transition(&mut self, new_pol_inputs: LeaderInputs) {
+        self.0.start_epoch_transition(new_pol_inputs);
+    }
+
+    fn complete_epoch_transition(&mut self) {
+        self.0.complete_epoch_transition();
+    }
+
+    fn verify_proof_of_quota(
+        &self,
+        proof: ProofOfQuota,
+        signing_key: &Ed25519PublicKey,
+    ) -> Result<ZkHash, Self::Error> {
+        if proof.key_nullifier() == DUMMY_POQ_ZK_NULLIFIER {
+            tracing::debug!(target: LOG_TARGET, "Mocked PoL PoQ proof received (automatically successfully verified).");
+            Ok(ZkHash::ZERO)
+        } else {
+            tracing::debug!(target: LOG_TARGET, "Core PoQ proof received.");
+            let res = self.0.verify_proof_of_quota(proof, signing_key).inspect_err(|e| {
+                tracing::debug!(target: LOG_TARGET, "Core PoQ proof verification failed with error {e:?}");
+            })?;
+            tracing::debug!(target: LOG_TARGET, "Core PoQ proof verified.");
+            Ok(res)
+        }
+    }
+
+    fn verify_proof_of_selection(
+        &self,
+        proof: ProofOfSelection,
+        inputs: &VerifyInputs,
+    ) -> Result<(), Self::Error> {
+        if inputs.key_nullifier == DUMMY_POQ_ZK_NULLIFIER {
+            tracing::debug!(target: LOG_TARGET, "Mocked PoL PoSel proof received (automatically successfully verified).");
+        } else {
+            tracing::debug!(target: LOG_TARGET, "Core PoSel proof received.");
+            self.0.verify_proof_of_selection(proof, inputs).inspect_err(|e| {
+                tracing::debug!(target: LOG_TARGET, "Core PoSel proof verification failed with error {e:?}");
+            })?;
+            tracing::debug!(target: LOG_TARGET, "Core PoSel proof verified.");
+        }
+        Ok(())
     }
 }
 
