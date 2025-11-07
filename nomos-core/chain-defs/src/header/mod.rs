@@ -99,11 +99,6 @@ impl Header {
     }
 
     #[must_use]
-    pub const fn block_root(&self) -> ContentId {
-        self.block_root
-    }
-
-    #[must_use]
     pub const fn parent_block(&self) -> HeaderId {
         self.parent_block
     }
