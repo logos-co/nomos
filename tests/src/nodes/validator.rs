@@ -242,15 +242,10 @@ impl Validator {
 
     pub async fn da_historic_sampling(
         &self,
-        session_id: SessionNumber,
         block_id: HeaderId,
-        blob_ids: Vec<BlobId>,
+        blob_ids: HashMap<BlobId, SessionNumber>,
     ) -> Result<bool, reqwest::Error> {
-        let request = HistoricSamplingRequest {
-            session_id,
-            block_id,
-            blob_ids,
-        };
+        let request = HistoricSamplingRequest { block_id, blob_ids };
 
         let response = CLIENT
             .post(format!(
