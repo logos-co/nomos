@@ -1,15 +1,11 @@
+mod api_client;
 pub mod executor;
 pub mod validator;
 
-use std::sync::LazyLock;
-
-use reqwest::Client;
+pub use api_client::ApiClient;
 use tempfile::TempDir;
 
-const DA_GET_TESTING_ENDPOINT_ERROR: &str = "Failed to connect to testing endpoint. The binary was likely built without the 'testing' feature. Try: cargo build --workspace --all-features";
-
-const LOGS_PREFIX: &str = "__logs";
-static CLIENT: LazyLock<Client> = LazyLock::new(Client::new);
+pub(crate) const LOGS_PREFIX: &str = "__logs";
 
 fn create_tempdir() -> std::io::Result<TempDir> {
     // It's easier to use the current location instead of OS-default tempfile
