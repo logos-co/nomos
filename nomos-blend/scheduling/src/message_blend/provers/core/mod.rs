@@ -82,7 +82,9 @@ impl CoreProofsGenerator for RealCoreProofsGenerator {
 
     async fn get_next_proof(&mut self) -> Option<BlendLayerProof> {
         self.remaining_quota = self.remaining_quota.checked_sub(1)?;
-        self.proof_stream.next().await
+        let proof = self.proof_stream.next().await?;
+        tracing::debug!(target: LOG_TARGET, "Generated core Blend layer proof addressed to node at index {:?}", proof.proof_of_selection.expected_index(self.settings.membership_size));
+        Some(proof)
     }
 }
 

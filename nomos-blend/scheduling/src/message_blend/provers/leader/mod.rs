@@ -81,10 +81,13 @@ impl LeaderProofsGenerator for RealLeaderProofsGenerator {
     }
 
     async fn get_next_proof(&mut self) -> BlendLayerProof {
-        self.proof_stream
+        let proof = self
+            .proof_stream
             .next()
             .await
-            .expect("Underlying proof generation stream should always yield items.")
+            .expect("Underlying proof generation stream should always yield items.");
+        tracing::debug!(target: LOG_TARGET, "Generated leader Blend layer proof addressed to node at index {:?}", proof.proof_of_selection.expected_index(self.settings.membership_size));
+        proof
     }
 }
 
