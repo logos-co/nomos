@@ -1,0 +1,46 @@
+[package]
+edition.workspace = true
+license.workspace = true
+name              = "integration-configs"
+version           = "0.1.0"
+
+[dependencies]
+blst                     = "0.3.11"
+chain-leader             = { workspace = true }
+chain-service            = { workspace = true }
+cryptarchia-engine       = { workspace = true, features = ["serde"] }
+cryptarchia-sync         = { workspace = true }
+ed25519-dalek            = { version = "2.2.0", features = ["rand_core", "serde"] }
+groth16                  = { workspace = true }
+hex                      = { version = "0.4.3", default-features = false }
+key-management-system    = { workspace = true }
+nomos-api                = { workspace = true }
+nomos-blend-message      = { workspace = true }
+nomos-blend-scheduling   = { workspace = true }
+nomos-blend-service      = { workspace = true, features = ["libp2p"] }
+nomos-core               = { workspace = true }
+nomos-da-dispersal       = { workspace = true }
+nomos-da-network-core    = { workspace = true }
+nomos-da-network-service = { workspace = true }
+nomos-da-sampling        = { workspace = true }
+nomos-da-verifier        = { workspace = true }
+nomos-executor           = { workspace = true, default-features = false, features = ["testing", "tracing"] }
+nomos-ledger             = { workspace = true, features = ["serde"] }
+nomos-libp2p             = { workspace = true }
+nomos-network            = { workspace = true }
+nomos-node               = { workspace = true, default-features = false, features = ["testing"] }
+nomos-sdp                = { workspace = true }
+nomos-time               = { workspace = true }
+nomos-tracing            = { workspace = true }
+nomos-tracing-service    = { workspace = true }
+nomos-utils              = { workspace = true }
+nomos-wallet             = { workspace = true }
+num-bigint               = { version = "0.4", default-features = false }
+rand                     = { workspace = true }
+subnetworks-assignations = { workspace = true }
+time                     = { version = "0.3", default-features = true }
+tracing                  = { workspace = true }
+zksign                   = { workspace = true }
+
+[lints]
+workspace = true
