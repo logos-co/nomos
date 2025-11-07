@@ -40,7 +40,6 @@ use nomos_storage::{StorageService, api::da::DaConverter, backends::rocksdb::Roc
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use subnetworks_assignations::MembershipHandler;
-use tokio_stream::StreamExt as _;
 use tx_service::{
     TxMempoolService, backend::Mempool,
     network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
@@ -55,6 +54,7 @@ use {
     nomos_libp2p::libp2p::bytes::Bytes,
     nomos_storage::api::chain::StorageChainApi,
     overwatch::services::ServiceData,
+    tokio_stream::StreamExt as _,
 };
 
 use crate::api::{backend::DaStorageBackend, responses};
@@ -937,7 +937,6 @@ where
     >(&handle, tx, Transaction::hash))
 }
 
-#[cfg(feature = "block-explorer")]
 #[utoipa::path(
     post,
     path = paths::SDP_POST_DECLARATION,
@@ -1019,6 +1018,7 @@ where
     >(handle, declaration_id))
 }
 
+#[cfg(feature = "block-explorer")]
 #[utoipa::path(
     get,
     path = paths::BLOCKS,
