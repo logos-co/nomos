@@ -13,6 +13,7 @@ nomos-node                       = { workspace = true }
 rand                             = { workspace = true }
 serial_test                      = "2"
 testing-framework-core           = { workspace = true }
+testing-framework-runner-compose = { workspace = true }
 testing-framework-runner-local   = { workspace = true }
 thiserror                        = { workspace = true }
 tokio                            = { workspace = true, features = ["macros", "net", "rt-multi-thread", "time"] }

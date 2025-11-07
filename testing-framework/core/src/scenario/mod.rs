@@ -1,5 +1,6 @@
 //! Scenario orchestration primitives shared by integration tests and runners.
 
+pub mod cfgsync;
 mod definition;
 mod expectation;
 pub mod http_probe;
