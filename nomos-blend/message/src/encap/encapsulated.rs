@@ -50,6 +50,8 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
                 // a random signing key, and proof of quota.
                 EncapsulatedPart::initialize(inputs, payload_type, payload_body)?,
                 Ed25519PrivateKey::generate(),
+                // TODO: Change this to an actual proof, else the last layer will fail to be
+                // verified.
                 ProofOfQuota::from_bytes_unchecked(random_sized_bytes()),
             ),
             |(part, signing_key, proof_of_quota), (i, input)| {
@@ -211,7 +213,12 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPart<ENCAPSULATION_COUNT> {
                 proof_of_selection,
             } => {
                 let payload = self.payload.decapsulate(key);
-                verify_reconstructed_public_header(&public_header, &private_header, &payload)?;
+                verify_reconstructed_public_header(
+                    &public_header,
+                    &private_header,
+                    &payload,
+                    verifier,
+                )?;
                 Ok(PartDecapsulationOutput::Incompleted {
                     encapsulated_part: Self {
                         private_header,
@@ -227,7 +234,12 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPart<ENCAPSULATION_COUNT> {
                 proof_of_selection,
             } => {
                 let payload = self.payload.decapsulate(key);
-                verify_reconstructed_public_header(&public_header, &private_header, &payload)?;
+                verify_reconstructed_public_header(
+                    &public_header,
+                    &private_header,
+                    &payload,
+                    verifier,
+                )?;
                 Ok(PartDecapsulationOutput::Completed {
                     payload: payload.try_deserialize()?,
                     proof_of_selection,
@@ -244,13 +256,19 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPart<ENCAPSULATION_COUNT> {
 
 /// Verify the public header reconstructed when decapsulating the private
 /// header.
-fn verify_reconstructed_public_header<const ENCAPSULATION_COUNT: usize>(
+fn verify_reconstructed_public_header<Verifier, const ENCAPSULATION_COUNT: usize>(
     public_header: &PublicHeader,
     private_header: &EncapsulatedPrivateHeader<ENCAPSULATION_COUNT>,
     payload: &EncapsulatedPayload,
-) -> Result<(), Error> {
+    verifier: &Verifier,
+) -> Result<(), Error>
+where
+    Verifier: ProofsVerifier,
+{
     // Verify the signature in the reconstructed public header
     public_header.verify_signature(&signing_body(private_header, payload))?;
+    // Verify the proof of quota in the reconstructed public header
+    public_header.verify_proof_of_quota(verifier)?;
     Ok(())
 }
 
