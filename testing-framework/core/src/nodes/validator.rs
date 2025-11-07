@@ -129,6 +129,11 @@ impl Validator {
         self.api.base_url().clone()
     }
 
+    #[must_use]
+    pub fn testing_url(&self) -> Option<Url> {
+        self.api.testing_url()
+    }
+
     async fn wait_online(&self) {
         loop {
             if self.api.consensus_info().await.is_ok() {

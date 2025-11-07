@@ -20,6 +20,7 @@ use nomos_network::backends::libp2p::Libp2pInfo;
 use nomos_node::api::testing::handlers::HistoricSamplingRequest;
 use nomos_tracing::logging::local::FileConfig;
 use nomos_tracing_service::LoggerLayer;
+use reqwest::Url;
 use tempfile::NamedTempFile;
 
 use super::{ApiClient, create_tempdir, persist_tempdir};
@@ -120,6 +121,16 @@ impl Executor {
     #[must_use]
     pub const fn config(&self) -> &Config {
         &self.config
+    }
+
+    #[must_use]
+    pub fn url(&self) -> Url {
+        self.api.base_url().clone()
+    }
+
+    #[must_use]
+    pub fn testing_url(&self) -> Option<Url> {
+        self.api.testing_url()
     }
 
     pub async fn balancer_stats(&self) -> BalancerStats {

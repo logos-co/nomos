@@ -103,6 +103,9 @@ pub fn create_node_configs(
         .iter()
         .map(|_| GeneralApiConfig {
             address: format!("0.0.0.0:{DEFAULT_API_PORT}").parse().unwrap(),
+            testing_http_address: format!("0.0.0.0:{}", DEFAULT_API_PORT + 1000)
+                .parse()
+                .unwrap(),
         })
         .collect::<Vec<_>>();
     let mut configured_hosts = HashMap::new();

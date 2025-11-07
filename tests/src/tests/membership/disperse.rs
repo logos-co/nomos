@@ -20,17 +20,15 @@ async fn update_membership_and_disseminate() {
     let topology =
         Topology::spawn_with_empty_membership(topology_config, &ids, &da_ports, &blend_ports).await;
 
-    topology.wait_network_ready().await.expect("network ready");
+    topology.wait_network_ready().await;
     topology
         .wait_membership_empty_for_session(SessionNumber::from(0u64))
-        .await
-        .expect("membership empty");
+        .await;
 
     // TODO: Create a new membership with DA nodes.
     topology
         .wait_membership_ready_for_session(SessionNumber::from(1u64))
-        .await
-        .expect("membership ready");
+        .await;
 
     perform_dissemination_tests(&topology.executors()[0]).await;
 }

@@ -1,4 +1,5 @@
 pub mod nodes;
+pub mod scenario;
 pub mod topology;
 
 use std::{env, ops::Mul as _, sync::LazyLock, time::Duration};
