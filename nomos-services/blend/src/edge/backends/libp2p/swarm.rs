@@ -6,6 +6,8 @@ use std::{
 };
 
 use futures::{AsyncWriteExt as _, StreamExt as _};
+#[cfg(test)]
+use libp2p::identity::Keypair;
 use libp2p::{
     Multiaddr, PeerId, StreamProtocol, Swarm, SwarmBuilder,
     swarm::{ConnectionId, dial_opts::PeerCondition},
@@ -117,6 +119,7 @@ where
 
     #[cfg(test)]
     pub fn new_test(
+        identity: &Keypair,
         membership: Membership<PeerId>,
         command_receiver: mpsc::Receiver<Command>,
         max_dial_attempts_per_connection: NonZeroU64,
@@ -126,8 +129,12 @@ where
     ) -> Self {
         use crate::test_utils::memory_test_swarm;
 
-        let inner_swarm =
-            memory_test_swarm(Duration::from_secs(1), |_| libp2p_stream::Behaviour::new());
+        let inner_swarm = memory_test_swarm(
+            identity,
+            membership.clone(),
+            Duration::from_secs(1),
+            |_, _| libp2p_stream::Behaviour::new(),
+        );
 
         Self {
             command_receiver,

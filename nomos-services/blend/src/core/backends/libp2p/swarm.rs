@@ -8,6 +8,8 @@ use std::{
 };
 
 use futures::StreamExt as _;
+#[cfg(test)]
+use libp2p::identity;
 use libp2p::{
     Multiaddr, PeerId, Swarm, SwarmBuilder,
     swarm::{ConnectionId, dial_opts::PeerCondition},
@@ -531,7 +533,9 @@ where
         + 'static,
 {
     #[cfg(test)]
+    #[expect(clippy::too_many_arguments, reason = "necessary for testing")]
     pub fn new_test<BehaviourConstructor>(
+        identity: &identity::Keypair,
         behaviour_constructor: BehaviourConstructor,
         swarm_messages_receiver: mpsc::Receiver<BlendSwarmMessage>,
         incoming_message_sender: broadcast::Sender<
@@ -544,19 +548,26 @@ where
     ) -> Self
     where
         BehaviourConstructor: FnOnce(
-            libp2p::identity::Keypair,
+            PeerId,
+            Membership<PeerId>,
         )
             -> BlendBehaviour<ProofsVerifier, ObservationWindowProvider>,
     {
         use crate::test_utils::memory_test_swarm;
 
+        let membership = current_public_info.session.membership.clone();
         Self {
             incoming_message_sender,
             public_info: current_public_info,
             max_dial_attempts_per_connection,
             ongoing_dials: HashMap::new(),
             rng,
-            swarm: memory_test_swarm(Duration::from_secs(1), behaviour_constructor),
+            swarm: memory_test_swarm(
+                identity,
+                membership,
+                Duration::from_secs(1),
+                behaviour_constructor,
+            ),
             swarm_messages_receiver,
             minimum_network_size,
         }

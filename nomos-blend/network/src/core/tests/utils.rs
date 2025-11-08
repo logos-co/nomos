@@ -4,10 +4,11 @@ use core::{
     iter::repeat_with,
     ops::{Deref, DerefMut},
 };
+use std::time::Duration;
 
 use libp2p::{
-    PeerId, StreamProtocol, Swarm,
-    identity::{Keypair, ed25519::PublicKey},
+    PeerId, StreamProtocol, Swarm, Transport as _, core::transport::MemoryTransport,
+    identity::Keypair, plaintext, swarm, tcp, yamux,
 };
 use libp2p_swarm_test::SwarmExt as _;
 use nomos_blend_message::{
@@ -26,7 +27,7 @@ use nomos_blend_message::{
 };
 use nomos_blend_scheduling::{EncapsulatedMessage, message_blend::crypto::EncapsulationInputs};
 use nomos_core::crypto::ZkHash;
-use nomos_libp2p::NetworkBehaviour;
+use nomos_libp2p::{NetworkBehaviour, upgrade::Version};
 
 pub const PROTOCOL_NAME: StreamProtocol = StreamProtocol::new("/blend/core-behaviour/test");
 
@@ -38,11 +39,35 @@ impl<Behaviour> TestSwarm<Behaviour>
 where
     Behaviour: NetworkBehaviour<ToSwarm: Debug> + Send,
 {
-    pub fn new<BehaviourConstructor>(behaviour_fn: BehaviourConstructor) -> Self
+    /// Creates [`TestSwarm`] with an ephemeral [`Keypair`] generated randomly.
+    pub fn new_ephemeral<BehaviourConstructor>(behaviour_fn: BehaviourConstructor) -> Self
     where
         BehaviourConstructor: FnOnce(Keypair) -> Behaviour,
     {
         Self(Swarm::new_ephemeral_tokio(behaviour_fn))
+    }
+
+    /// Creates [`TestSwarm`] with a specific [`Keypair`].
+    pub fn new<BehaviourConstructor>(identity: &Keypair, behaviour_fn: BehaviourConstructor) -> Self
+    where
+        BehaviourConstructor: FnOnce(PeerId) -> Behaviour,
+    {
+        let peer_id = PeerId::from(identity.public());
+        // Use TCP and Yamus to be compatible with [`Swarm::new_ephemeral_tokio`].
+        let transport = MemoryTransport::default()
+            .or_transport(tcp::tokio::Transport::default())
+            .upgrade(Version::V1)
+            .authenticate(plaintext::Config::new(identity))
+            .multiplex(yamux::Config::default())
+            .timeout(Duration::from_secs(20))
+            .boxed();
+
+        Self(Swarm::new(
+            transport,
+            behaviour_fn(peer_id),
+            peer_id,
+            swarm::Config::with_tokio_executor(),
+        ))
     }
 }
 
@@ -104,20 +129,6 @@ fn generate_valid_inputs() -> EncapsulationInputs {
             .into_boxed_slice(),
     )
     .unwrap()
-}
-
-/// Our test swarm generates random ed25519 identities. Hence, using `0`
-/// guarantees us that this value will always be smaller than the random
-/// identities.
-pub fn smallest_peer_id() -> PeerId {
-    PeerId::from_public_key(&PublicKey::try_from_bytes(&[0u8; 32]).unwrap().into())
-}
-
-/// Our test swarm generates random ed25519 identities. Hence, using `255`
-/// guarantees us that this value will always be larger than the random
-/// identities.
-pub fn largest_peer_id() -> PeerId {
-    PeerId::from_public_key(&PublicKey::try_from_bytes(&[255u8; 32]).unwrap().into())
 }
 
 impl Deref for TestEncapsulatedMessage {
