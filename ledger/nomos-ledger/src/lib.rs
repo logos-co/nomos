@@ -297,11 +297,12 @@ mod tests {
     use nomos_core::{
         mantle::{
             GasCost as _, MantleTx, Note, SignedMantleTx, Transaction as _,
-            gas::MainnetGasConstants, keys::PublicKey, ledger::Tx as LedgerTx,
+            gas::MainnetGasConstants, ledger::Tx as LedgerTx,
         },
         proofs::zksig::DummyZkSignature,
     };
     use num_bigint::BigUint;
+    use zksign::PublicKey;
 
     use super::*;
 

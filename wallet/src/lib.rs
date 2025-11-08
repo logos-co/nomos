@@ -11,11 +11,12 @@ use nomos_core::{
     block::Block,
     header::HeaderId,
     mantle::{
-        AuthenticatedMantleTx, GasConstants, NoteId, Utxo, Value, keys::PublicKey,
-        ledger::Tx as LedgerTx, tx_builder::MantleTxBuilder,
+        AuthenticatedMantleTx, GasConstants, NoteId, Utxo, Value, ledger::Tx as LedgerTx,
+        tx_builder::MantleTxBuilder,
     },
 };
 use nomos_ledger::LedgerState;
+use zksign::PublicKey;
 
 pub struct WalletBlock {
     pub id: HeaderId,

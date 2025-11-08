@@ -20,7 +20,6 @@ use nomos_core::{
     mantle::{
         AuthenticatedMantleTx, SignedMantleTx, Transaction as _, TxHash, Utxo, Value,
         gas::MainnetGasConstants,
-        keys::PublicKey,
         ops::{Op, OpProof, channel::ChannelId},
         tx_builder::MantleTxBuilder,
     },
@@ -40,6 +39,7 @@ use services_utils::wait_until_services_are_ready;
 use tokio::sync::oneshot;
 use tracing::{debug, error, info, trace};
 use wallet::{Wallet, WalletBlock, WalletError};
+use zksign::PublicKey;
 
 #[derive(Debug, thiserror::Error)]
 pub enum WalletServiceError {
