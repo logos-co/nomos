@@ -13,7 +13,10 @@ use std::{
 
 use backend::{DaSamplingServiceBackend, SamplingState};
 use futures::{FutureExt as _, Stream, future::BoxFuture, stream::FuturesUnordered};
-use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
+use kzgrs_backend::common::{
+    ShareIndex,
+    share::{DaLightShare, DaShare, DaSharesCommitments},
+};
 use network::NetworkAdapter;
 use nomos_core::{da::BlobId, header::HeaderId, mantle::SignedMantleTx, sdp::SessionNumber};
 use nomos_da_network_core::protocols::sampling::errors::SamplingError;
@@ -34,7 +37,7 @@ use serde::{Deserialize, Serialize};
 use services_utils::wait_until_services_are_ready;
 use storage::DaStorageAdapter;
 use subnetworks_assignations::MembershipHandler;
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 use tokio_stream::StreamExt as _;
 use tracing::{error, instrument};
 use verifier::{VerifierBackend, kzgrs::KzgrsDaVerifier};
@@ -297,92 +300,151 @@ where
         storage_adapter: &SamplingStorage,
         verifier: &ShareVerifier,
         network_adapter: &SamplingNetwork,
-        tasks: &mut PendingTasks<'_>,
-    ) {
+    ) -> Option<(
+        BoxFuture<'static, ()>,
+        BoxFuture<'static, HistoricFallbackResult>,
+    )> {
         match event {
             SamplingEvent::SamplingSuccess {
                 blob_id,
                 light_share,
             } => {
-                info_with_id!(blob_id, "SamplingSuccess");
-                let Some(commitments) = sampler.get_commitments(&blob_id) else {
-                    error_with_id!(blob_id, "Error getting commitments for blob");
-                    sampler.handle_sampling_error(blob_id).await;
-                    return;
-                };
-                if verifier.verify(&commitments, &light_share).is_ok() {
-                    sampler
-                        .handle_sampling_success(blob_id, light_share.share_idx)
-                        .await;
-                } else {
-                    error_with_id!(blob_id, "SamplingError");
-                    sampler.handle_sampling_error(blob_id).await;
-                }
-                return;
+                Self::handle_success(sampler, verifier, blob_id, light_share).await;
+                None
             }
             SamplingEvent::SamplingError { error } => {
-                if let Some(blob_id) = error.blob_id() {
-                    error_with_id!(blob_id, "SamplingError");
-                    if let SamplingError::BlobNotFound { .. } = error {
-                        sampler.handle_sampling_error(*blob_id).await;
-                        return;
-                    }
-
-                    if let SamplingError::MismatchSession { blob_id, session } = error {
-                        tracing::warn!(
-                            "Session mismatch for {blob_id:?}, falling back to historic sampling"
-                        );
-
-                        let (tx, rx) = oneshot::channel();
-
-                        if let Some(future) = Self::request_historic_sampling_fallback(
-                            network_adapter,
-                            verifier,
-                            HeaderId::from(blob_id),
-                            blob_id,
-                            session,
-                            tx,
-                            HISTORICAL_SAMPLING_TIMEOUT,
-                        )
-                        .await
-                        {
-                            tasks.long_tasks.push(future);
-
-                            let continuation = async move {
-                                let result = rx.await.unwrap_or(None);
-                                (blob_id, result)
-                            }
-                            .boxed();
-
-                            tasks.historic_fallback_continuations.push(continuation);
-                        } else {
-                            sampler.handle_sampling_error(blob_id).await;
-                        }
-                        return;
-                    }
-                }
-                error!("Error while sampling: {error}");
+                Self::handle_error(error, sampler, network_adapter, verifier).await
             }
             SamplingEvent::SamplingRequest {
                 blob_id,
                 share_idx,
                 response_sender,
             } => {
-                info_with_id!(blob_id, "SamplingRequest");
-                let maybe_share = storage_adapter
-                    .get_light_share(blob_id, share_idx.to_le_bytes())
-                    .await
-                    .map_err(|error| {
-                        error!("Failed to get share from storage adapter: {error}");
-                        None::<SamplingBackend::Share>
-                    })
-                    .ok()
-                    .flatten();
-
-                if response_sender.send(maybe_share).await.is_err() {
-                    error!("Error sending sampling response");
-                }
+                Self::handle_request(storage_adapter, blob_id, share_idx, response_sender).await;
+                None
             }
+        }
+    }
+
+    async fn handle_success(
+        sampler: &mut SamplingBackend,
+        verifier: &ShareVerifier,
+        blob_id: BlobId,
+        light_share: Box<DaLightShare>,
+    ) {
+        info_with_id!(blob_id, "SamplingSuccess");
+
+        let Some(commitments) = sampler.get_commitments(&blob_id) else {
+            error_with_id!(blob_id, "Error getting commitments for blob");
+            sampler.handle_sampling_error(blob_id).await;
+            return;
+        };
+
+        if verifier.verify(&commitments, &light_share).is_err() {
+            error_with_id!(blob_id, "SamplingError");
+            sampler.handle_sampling_error(blob_id).await;
+            return;
+        }
+
+        sampler
+            .handle_sampling_success(blob_id, light_share.share_idx)
+            .await;
+    }
+
+    async fn handle_error(
+        error: SamplingError,
+        sampler: &mut SamplingBackend,
+        network_adapter: &SamplingNetwork,
+        verifier: &ShareVerifier,
+    ) -> Option<(
+        BoxFuture<'static, ()>,
+        BoxFuture<'static, HistoricFallbackResult>,
+    )> {
+        let Some(blob_id) = error.blob_id() else {
+            error!("Error while sampling: {error}");
+            return None;
+        };
+
+        error_with_id!(blob_id, "SamplingError");
+
+        match error {
+            SamplingError::BlobNotFound { .. } => {
+                sampler.handle_sampling_error(*blob_id).await;
+            }
+            SamplingError::MismatchSession { blob_id, session } => {
+                return Self::handle_session_mismatch(
+                    blob_id,
+                    session,
+                    sampler,
+                    network_adapter,
+                    verifier,
+                )
+                .await;
+            }
+            _ => {
+                error!("Error while sampling: {error}");
+            }
+        }
+
+        None
+    }
+
+    async fn handle_session_mismatch(
+        blob_id: BlobId,
+        session: SessionNumber,
+        sampler: &mut SamplingBackend,
+        network_adapter: &SamplingNetwork,
+        verifier: &ShareVerifier,
+    ) -> Option<(
+        BoxFuture<'static, ()>,
+        BoxFuture<'static, HistoricFallbackResult>,
+    )> {
+        tracing::warn!("Session mismatch for {blob_id:?}, falling back to historic sampling");
+
+        let (tx, rx) = oneshot::channel();
+
+        let Some(future) = Self::request_historic_sampling_fallback(
+            network_adapter,
+            verifier,
+            HeaderId::from(blob_id),
+            blob_id,
+            session,
+            tx,
+            HISTORICAL_SAMPLING_TIMEOUT,
+        )
+        .await
+        else {
+            sampler.handle_sampling_error(blob_id).await;
+            return None;
+        };
+
+        let continuation = async move {
+            let result = rx.await.unwrap_or(None);
+            (blob_id, result)
+        }
+        .boxed();
+
+        Some((future, continuation))
+    }
+
+    async fn handle_request(
+        storage_adapter: &SamplingStorage,
+        blob_id: BlobId,
+        share_idx: ShareIndex,
+        response_sender: mpsc::Sender<Option<DaLightShare>>,
+    ) {
+        info_with_id!(blob_id, "SamplingRequest");
+        let maybe_share = storage_adapter
+            .get_light_share(blob_id, share_idx.to_le_bytes())
+            .await
+            .map_err(|error| {
+                error!("Failed to get share from storage adapter: {error}");
+            })
+            .ok()
+            .flatten();
+
+        if response_sender.send(maybe_share).await.is_err() {
+            error!("Error sending sampling response");
         }
     }
 
@@ -880,15 +942,17 @@ where
                         ).await;
                     }
                     Some(sampling_message) = sampling_message_stream.next() => {
-                        Self::handle_sampling_message(
-                            sampling_message,
-                            &mut sampler,
-                            &storage_adapter,
-                            &share_verifier,
-                            &network_adapter,
-                            pending_tasks,
-                        ).await;
-                    }
+                            if let Some((future, continuation)) = Self::handle_sampling_message(
+                                sampling_message,
+                                &mut sampler,
+                                &storage_adapter,
+                                &share_verifier,
+                                &network_adapter,
+                            ).await {
+                                pending_tasks.long_tasks.push(future);
+                                pending_tasks.historic_fallback_continuations.push(continuation);
+                            }
+                        }
                     Some(commitments_message) = commitments_message_stream.next() => {
                         Self::handle_commitments_message(
                             &storage_adapter,
