@@ -607,7 +607,6 @@ where
         .unwrap_or(None)
     }
 
-    // Then reuse in both places:
     async fn request_historic_sampling_fallback(
         network_adapter: &SamplingNetwork,
         verifier: &ShareVerifier,
