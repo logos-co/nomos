@@ -565,7 +565,7 @@ where
         .await
     }
 
-    async fn wait_for_historic_response_data(
+    async fn wait_and_verify_historic_response(
         mut stream: impl Stream<Item = HistoricSamplingEvent> + Send + Unpin,
         timeout: Duration,
         target_block_id: HeaderId,
@@ -638,7 +638,7 @@ where
         let verifier = verifier.clone();
         Some(
             async move {
-                let result = Self::wait_for_historic_response_data(
+                let result = Self::wait_and_verify_historic_response(
                     historic_stream,
                     timeout,
                     block_id,
@@ -690,7 +690,7 @@ where
         let verifier = verifier.clone();
         Some(
             async move {
-                let result = Self::wait_for_historic_response_data(
+                let result = Self::wait_and_verify_historic_response(
                     historic_stream,
                     timeout,
                     block_id,
