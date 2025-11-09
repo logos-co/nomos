@@ -565,54 +565,49 @@ where
         .await
     }
 
-    async fn request_and_wait_historic_sampling(
-        network_adapter: &SamplingNetwork,
-        verifier: &ShareVerifier,
-        block_id: HeaderId,
-        blob_ids: HashMap<BlobId, SessionNumber>,
-        reply_channel: oneshot::Sender<bool>,
+    async fn wait_for_historic_response_data(
+        mut stream: impl Stream<Item = HistoricSamplingEvent> + Send + Unpin,
         timeout: Duration,
-    ) -> Option<BoxFuture<'static, ()>> {
-        let blobs: HashSet<BlobId> = blob_ids.keys().copied().collect();
-        let Ok(historic_stream) = network_adapter.listen_to_historic_sampling_messages().await
-        else {
-            if let Err(e) = reply_channel.send(false) {
-                tracing::error!("Failed to send historic sampling response: {}", e);
-            }
-            return None;
-        };
-
-        if network_adapter
-            .request_historic_sampling(block_id, blob_ids)
-            .await
-            .is_err()
-        {
-            if let Err(e) = reply_channel.send(false) {
-                tracing::error!("Failed to send historic sampling response: {}", e);
-            }
-            return None;
-        }
-
-        let verifier = verifier.clone();
-        Some(
-            async move {
-                let result = Self::wait_for_historic_response(
-                    historic_stream,
-                    timeout,
-                    block_id,
-                    blobs,
-                    verifier,
-                )
-                .await;
-
-                if let Err(e) = reply_channel.send(result) {
-                    tracing::error!("Failed to send historic sampling result: {}", e);
+        target_block_id: HeaderId,
+        expected_blob_ids: HashSet<BlobId>,
+        verifier: ShareVerifier,
+    ) -> Option<(
+        HashMap<BlobId, Vec<DaLightShare>>,
+        HashMap<BlobId, DaSharesCommitments>,
+    )> {
+        tokio::time::timeout(timeout, async move {
+            while let Some(event) = stream.next().await {
+                match event {
+                    HistoricSamplingEvent::HistoricSamplingSuccess {
+                        block_id,
+                        shares,
+                        commitments,
+                    } if block_id == target_block_id => {
+                        if Self::verify_historic_sampling(
+                            &expected_blob_ids,
+                            &shares,
+                            &commitments,
+                            &verifier,
+                        ) {
+                            return Some((shares, commitments));
+                        }
+                        return None;
+                    }
+                    HistoricSamplingEvent::HistoricSamplingError { block_id, .. }
+                        if block_id == target_block_id =>
+                    {
+                        return None;
+                    }
+                    _ => (),
                 }
             }
-            .boxed(),
-        )
+            None
+        })
+        .await
+        .unwrap_or(None)
     }
 
+    // Then reuse in both places:
     async fn request_historic_sampling_fallback(
         network_adapter: &SamplingNetwork,
         verifier: &ShareVerifier,
@@ -644,43 +639,20 @@ where
         let verifier = verifier.clone();
         Some(
             async move {
-                let result = tokio::time::timeout(timeout, async move {
-                    let mut stream = historic_stream;
-                    while let Some(ref event) = stream.next().await {
-                        if let HistoricSamplingEvent::HistoricSamplingSuccess {
-                            block_id: response_block_id,
-                            shares,
-                            commitments,
-                        } = event
-                            && *response_block_id == block_id
-                        {
-                            if Self::verify_historic_sampling(
-                                &blobs,
-                                shares,
-                                commitments,
-                                &verifier,
-                            ) && let (Some(blob_shares), Some(blob_commitments)) =
-                                (shares.get(&blob_id), commitments.get(&blob_id))
-                            {
-                                return Some((blob_shares.clone(), blob_commitments.clone()));
-                            }
-
-                            return None;
-                        }
-
-                        if let HistoricSamplingEvent::HistoricSamplingError {
-                            block_id: error_block_id,
-                            ..
-                        } = event
-                            && *error_block_id == block_id
-                        {
-                            return None;
-                        }
-                    }
-                    None
-                })
+                let result = Self::wait_for_historic_response_data(
+                    historic_stream,
+                    timeout,
+                    block_id,
+                    blobs,
+                    verifier,
+                )
                 .await
-                .unwrap_or(None);
+                .and_then(|(shares, commitments)| {
+                    // Extract single blob data
+                    let blob_shares = shares.get(&blob_id)?.clone();
+                    let blob_commitments = commitments.get(&blob_id)?.clone();
+                    Some((blob_shares, blob_commitments))
+                });
 
                 let _ = result_sender.send(result);
             }
@@ -688,41 +660,53 @@ where
         )
     }
 
-    #[inline]
-    async fn wait_for_historic_response(
-        mut stream: impl Stream<Item = HistoricSamplingEvent> + Send + Unpin,
+    async fn request_and_wait_historic_sampling(
+        network_adapter: &SamplingNetwork,
+        verifier: &ShareVerifier,
+        block_id: HeaderId,
+        blob_ids: HashMap<BlobId, SessionNumber>,
+        reply_channel: oneshot::Sender<bool>,
         timeout: Duration,
-        target_block_id: HeaderId,
-        expected_blob_ids: HashSet<BlobId>,
-        verifier: ShareVerifier,
-    ) -> bool {
-        tokio::time::timeout(timeout, async move {
-            while let Some(event) = stream.next().await {
-                match event {
-                    HistoricSamplingEvent::HistoricSamplingSuccess {
-                        block_id,
-                        shares,
-                        commitments,
-                    } if block_id == target_block_id => {
-                        return Self::verify_historic_sampling(
-                            &expected_blob_ids,
-                            &shares,
-                            &commitments,
-                            &verifier,
-                        );
-                    }
-                    HistoricSamplingEvent::HistoricSamplingError { block_id, .. }
-                        if block_id == target_block_id =>
-                    {
-                        return false;
-                    }
-                    _ => (),
+    ) -> Option<BoxFuture<'static, ()>> {
+        let blobs: HashSet<BlobId> = blob_ids.keys().copied().collect();
+        let Ok(historic_stream) = network_adapter.listen_to_historic_sampling_messages().await
+        else {
+            if let Err(e) = reply_channel.send(false) {
+                tracing::error!("Failed to send historic sampling response: {}", e);
+            }
+            return None;
+        };
+
+        if network_adapter
+            .request_historic_sampling(block_id, blob_ids)
+            .await
+            .is_err()
+        {
+            if let Err(e) = reply_channel.send(false) {
+                tracing::error!("Failed to send historic sampling response: {}", e);
+            }
+            return None;
+        }
+
+        let verifier = verifier.clone();
+        Some(
+            async move {
+                let result = Self::wait_for_historic_response_data(
+                    historic_stream,
+                    timeout,
+                    block_id,
+                    blobs,
+                    verifier,
+                )
+                .await
+                .is_some();
+
+                if let Err(e) = reply_channel.send(result) {
+                    tracing::error!("Failed to send historic sampling result: {}", e);
                 }
             }
-            false
-        })
-        .await
-        .unwrap_or(false)
+            .boxed(),
+        )
     }
 
     #[inline]
