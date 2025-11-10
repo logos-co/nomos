@@ -66,10 +66,12 @@ where
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct HistoricSamplingRequest<BlobId> {
-    pub session_id: SessionNumber,
+pub struct HistoricSamplingRequest<BlobId>
+where
+    BlobId: Eq + Hash,
+{
     pub block_id: HeaderId,
-    pub blob_ids: Vec<BlobId>,
+    pub blob_ids: Vec<(BlobId, SessionNumber)>,
 }
 
 pub async fn da_historic_sampling<
@@ -109,8 +111,7 @@ where
         RuntimeServiceId,
     >(
         handle,
-        request.session_id,
         request.block_id,
-        request.blob_ids
+        request.blob_ids.into_iter().collect()
     ))
 }

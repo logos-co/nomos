@@ -1,6 +1,7 @@
 #[cfg(feature = "deser")]
 pub mod deserialize;
 use ark_ec::pairing::Pairing;
+use ark_serialize::CanonicalSerialize as _;
 #[cfg(feature = "deser")]
 pub use deserialize::VerificationKeyJsonDeser;
 
@@ -66,6 +67,18 @@ impl TryFrom<VerificationKeyJsonDeser> for VerificationKey<ark_bn254::Bn254> {
 }
 pub struct PreparedVerificationKey<E: Pairing> {
     vk: ark_groth16::PreparedVerifyingKey<E>,
+}
+
+impl<E: Pairing> PreparedVerificationKey<E> {
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+
+        self.vk
+            .serialize_compressed(&mut bytes)
+            .expect("vk failed to serialize");
+
+        bytes
+    }
 }
 
 impl<E: Pairing> From<VerificationKey<E>> for ark_groth16::VerifyingKey<E> {

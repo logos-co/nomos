@@ -1,7 +1,11 @@
+use circuits_utils::dev_mode::DevModeProof;
 use groth16::{Fr, Groth16Input, Groth16InputDeser};
 use serde::Serialize;
 
-use crate::private::{ZkSignPrivateKeysData, ZkSignPrivateKeysInputs, ZkSignPrivateKeysInputsJson};
+use crate::{
+    ZkSignVerifierInputs,
+    private::{ZkSignPrivateKeysData, ZkSignPrivateKeysInputs, ZkSignPrivateKeysInputsJson},
+};
 
 pub struct ZkSignWitnessInputs {
     pub msg: Groth16Input,
@@ -15,6 +19,16 @@ impl ZkSignWitnessInputs {
             msg: msg.into(),
             private_keys: private.into(),
         }
+    }
+}
+
+impl DevModeProof for ZkSignWitnessInputs {
+    fn vk(&self) -> &groth16::Groth16PreparedVerificationKey {
+        crate::verification_key::ZKSIGN_VK.as_ref()
+    }
+
+    fn public_inputs(&self) -> Vec<Groth16Input> {
+        ZkSignVerifierInputs::from_witness(self).public_inputs()
     }
 }
 

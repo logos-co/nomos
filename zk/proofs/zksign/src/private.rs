@@ -5,7 +5,7 @@ use serde::Serialize;
 
 pub struct ZkSignPrivateKeysData([Fr; 32]);
 
-pub struct ZkSignPrivateKeysInputs([Groth16Input; 32]);
+pub struct ZkSignPrivateKeysInputs(pub(crate) [Groth16Input; 32]);
 
 #[derive(Serialize)]
 #[serde(transparent)]

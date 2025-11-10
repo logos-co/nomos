@@ -1,15 +1,15 @@
 pub mod libp2p;
 pub mod mock;
 
-use std::{collections::HashSet, fmt::Debug, pin::Pin};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Debug,
+    pin::Pin,
+};
 
 use ::libp2p::PeerId;
 use futures::Stream;
-use nomos_core::{
-    da::BlobId,
-    header::HeaderId,
-    sdp::{ProviderId, SessionNumber},
-};
+use nomos_core::{da::BlobId, header::HeaderId, sdp::ProviderId};
 use nomos_da_network_core::{
     addressbook::AddressBookHandler, protocols::sampling::opinions::OpinionEvent,
     swarm::BalancerStats,
@@ -63,10 +63,8 @@ pub trait NetworkBackend<RuntimeServiceId> {
     ) -> Pin<Box<dyn Stream<Item = Self::NetworkEvent> + Send>>;
     async fn start_historic_sampling(
         &self,
-        session_id: SessionNumber,
         block_id: HeaderId,
-        blob_ids: HashSet<BlobId>,
-        membership: Self::HistoricMembership,
+        blob_ids: HashMap<Self::HistoricMembership, HashSet<BlobId>>,
     );
 
     fn local_peer_id(&self) -> (PeerId, ProviderId);

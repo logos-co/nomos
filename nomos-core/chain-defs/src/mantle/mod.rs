@@ -6,7 +6,6 @@ use thiserror::Error;
 pub mod encoding;
 pub mod gas;
 pub mod genesis_tx;
-pub mod keys;
 pub mod ledger;
 #[cfg(feature = "mock")]
 pub mod mock;

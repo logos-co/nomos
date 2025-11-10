@@ -2,13 +2,11 @@ use std::convert::Infallible;
 
 use ed25519_dalek::{Signer as _, SigningKey};
 use nomos_core::{
-    mantle::{
-        NoteId, Op, OpProof, SignedMantleTx, Transaction as _, keys::PublicKey,
-        tx_builder::MantleTxBuilder,
-    },
+    mantle::{NoteId, Op, OpProof, SignedMantleTx, Transaction as _, tx_builder::MantleTxBuilder},
     proofs::zksig::{DummyZkSignature, ZkSignaturePublic},
     sdp::{ActiveMessage, DeclarationMessage, WithdrawMessage},
 };
+use zksign::PublicKey;
 
 use crate::adapters::wallet::SdpWalletAdapter;
 

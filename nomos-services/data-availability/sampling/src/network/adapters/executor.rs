@@ -1,4 +1,4 @@
-use std::{collections::HashSet, fmt::Debug, pin::Pin};
+use std::{collections::HashMap, fmt::Debug, pin::Pin};
 
 use futures::{Stream, StreamExt as _};
 use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};

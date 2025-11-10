@@ -615,8 +615,9 @@ mod tests {
 
     use ed25519_dalek::{Signer as _, SigningKey};
     use groth16::Fr;
-    use nomos_core::{mantle::keys::PublicKey, proofs::zksig::DummyZkSignature};
+    use nomos_core::proofs::zksig::DummyZkSignature;
     use num_bigint::BigUint;
+    use zksign::PublicKey;
 
     use super::*;
     use crate::cryptarchia::tests::utxo;

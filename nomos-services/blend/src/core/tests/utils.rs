@@ -10,7 +10,6 @@ use nomos_blend_scheduling::{
         IncomingEncapsulatedMessageWithValidatedPublicHeader, SessionCryptographicProcessorSettings,
     },
 };
-use nomos_core::mantle::keys::SecretKey;
 use nomos_network::{NetworkService, backends::NetworkBackend};
 use overwatch::{
     overwatch::{OverwatchHandle, commands::OverwatchCommand},
@@ -22,6 +21,7 @@ use tokio::sync::{
     mpsc, watch,
 };
 use tokio_stream::wrappers::{BroadcastStream, ReceiverStream};
+use zksign::SecretKey;
 
 use crate::{
     core::{

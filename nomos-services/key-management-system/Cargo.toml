@@ -14,19 +14,18 @@ ed25519-dalek                = { default-features = false, features = ["serde", 
 groth16                      = { workspace = true }
 key-management-system-macros = { workspace = true }
 log                          = "0.4.22"
-nomos-core                   = { workspace = true }
-nomos-utils                  = { workspace = true, features = ["types"] }
+nomos-utils                  = { features = ["serde", "types"], workspace = true }
 overwatch                    = { workspace = true }
 serde                        = { default-features = false, features = ["derive"], version = "1" }
 thiserror                    = { default-features = false, version = "2" }
 tokio                        = { default-features = false, version = "1" }
 tracing                      = { default-features = false, version = "0.1" }
 zeroize                      = { workspace = true }
+zksign                       = { workspace = true }
 
 [dev-dependencies]
 ed25519-dalek = { default-features = false, features = ["rand_core"], version = "2" }
+num-bigint    = { default-features = false, version = "0.4" }
 rand          = { features = ["getrandom"], workspace = true }
 serde         = { default-features = false, features = ["std"], version = "1" }
-
-[package.metadata.cargo-machete]
-ignored = ["nomos-utils"] # generated code from key-management-system-macros uses nomos-utils
+serde_yaml    = "0.9"

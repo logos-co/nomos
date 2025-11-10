@@ -1,4 +1,9 @@
-use std::{collections::HashSet, fmt::Debug, marker::PhantomData, pin::Pin};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Debug,
+    marker::PhantomData,
+    pin::Pin,
+};
 
 use futures::{
     Stream, StreamExt as _,
@@ -7,12 +12,7 @@ use futures::{
 use kzgrs_backend::common::share::DaShare;
 use libp2p::PeerId;
 use log::error;
-use nomos_core::{
-    da::BlobId,
-    header::HeaderId,
-    mantle::SignedMantleTx,
-    sdp::{ProviderId, SessionNumber},
-};
+use nomos_core::{da::BlobId, header::HeaderId, mantle::SignedMantleTx, sdp::ProviderId};
 use nomos_da_network_core::{
     SubnetworkId,
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
@@ -398,19 +398,11 @@ where
 
     async fn start_historic_sampling(
         &self,
-        session_id: SessionNumber,
         block_id: HeaderId,
-        blob_ids: HashSet<BlobId>,
-        membership: Self::HistoricMembership,
+        blob_ids: HashMap<Self::HistoricMembership, HashSet<BlobId>>,
     ) {
-        handle_historic_sample_request(
-            &self.historic_sample_request_channel,
-            blob_ids,
-            session_id,
-            block_id,
-            membership,
-        )
-        .await;
+        handle_historic_sample_request(&self.historic_sample_request_channel, block_id, blob_ids)
+            .await;
     }
 
     fn local_peer_id(&self) -> (PeerId, ProviderId) {

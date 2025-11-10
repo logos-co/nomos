@@ -1,12 +1,13 @@
 use nomos_core::{
     header::HeaderId,
-    mantle::{Utxo, Value, keys::PublicKey, tx_builder::MantleTxBuilder},
+    mantle::{Utxo, Value, tx_builder::MantleTxBuilder},
 };
 use overwatch::{
     DynError,
     services::{AsServiceId, ServiceData, relay::OutboundRelay},
 };
 use tokio::sync::oneshot;
+use zksign::PublicKey;
 
 use crate::{WalletMsg, WalletServiceSettings};
 

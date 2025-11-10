@@ -146,11 +146,11 @@ impl<'de> Deserialize<'de> for GenesisTx {
 mod tests {
     use ed25519_dalek::VerifyingKey;
     use num_bigint::BigUint;
+    use zksign::PublicKey;
 
     use super::*;
     use crate::{
         mantle::{
-            keys::PublicKey,
             ledger::{Note, Tx as LedgerTx, Utxo, Value},
             ops::channel::blob::BlobOp,
         },

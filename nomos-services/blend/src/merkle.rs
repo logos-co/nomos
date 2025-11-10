@@ -2,13 +2,11 @@ use core::fmt::{self, Debug, Formatter};
 use std::collections::HashMap;
 
 use groth16::{fr_from_bytes_unchecked, fr_to_bytes};
-use nomos_core::{
-    crypto::{ZkHash, ZkHasher},
-    mantle::keys::PublicKey,
-};
+use nomos_core::crypto::{ZkHash, ZkHasher};
 use poq::{CORE_MERKLE_TREE_HEIGHT, CorePathAndSelectors};
 use rs_merkle_tree::{Node, stores::MemoryStore, tree::MerkleProof};
 use thiserror::Error;
+use zksign::PublicKey;
 
 const TOTAL_MERKLE_LEAVES: usize = 1 << CORE_MERKLE_TREE_HEIGHT;
 
@@ -225,11 +223,9 @@ mod tests {
             },
         },
     };
-    use nomos_core::{
-        crypto::ZkHash,
-        mantle::keys::{PublicKey, SecretKey},
-    };
+    use nomos_core::crypto::ZkHash;
     use num_bigint::BigUint;
+    use zksign::{PublicKey, SecretKey};
 
     use crate::merkle::{Error, MerkleTree, TOTAL_MERKLE_LEAVES};
 

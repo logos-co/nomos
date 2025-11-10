@@ -12,6 +12,11 @@ pub mod time;
 use blend::GeneralBlendConfig;
 use consensus::{GeneralConsensusConfig, ProviderInfo, create_genesis_tx_with_declarations};
 use da::GeneralDaConfig;
+use groth16::fr_to_bytes;
+use key_management_system::{
+    backend::preload::PreloadKMSBackendSettings,
+    keys::{Ed25519Key, Key, ZkKey},
+};
 use network::GeneralNetworkConfig;
 use nomos_core::{
     mantle::GenesisTx as _,
@@ -40,6 +45,7 @@ pub struct GeneralConfig {
     pub blend_config: GeneralBlendConfig,
     pub tracing_config: GeneralTracingConfig,
     pub time_config: GeneralTimeConfig,
+    pub kms_config: PreloadKMSBackendSettings,
 }
 
 #[must_use]
@@ -111,6 +117,26 @@ pub fn create_general_configs_with_blend_core_subset(
         c.genesis_tx = genesis_tx.clone();
     }
 
+    // Set Blend and DA keys in KMS of each node config.
+    let kms_configs: Vec<_> = blend_configs
+        .iter()
+        .map(|blend_conf| PreloadKMSBackendSettings {
+            keys: [
+                (
+                    hex::encode(blend_conf.signer.verifying_key().as_bytes()),
+                    Key::Ed25519(Ed25519Key(blend_conf.signer.clone())),
+                ),
+                (
+                    hex::encode(fr_to_bytes(
+                        &blend_conf.secret_zk_key.to_public_key().into_inner(),
+                    )),
+                    Key::Zk(ZkKey(blend_conf.secret_zk_key.clone())),
+                ),
+            ]
+            .into(),
+        })
+        .collect();
+
     let mut general_configs = vec![];
 
     for i in 0..n_nodes {
@@ -123,6 +149,7 @@ pub fn create_general_configs_with_blend_core_subset(
             blend_config: blend_configs[i].clone(),
             tracing_config: tracing_configs[i].clone(),
             time_config: time_config.clone(),
+            kms_config: kms_configs[i].clone(),
         });
     }
 

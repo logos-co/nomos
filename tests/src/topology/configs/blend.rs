@@ -7,13 +7,13 @@ use nomos_blend_service::{
     core::backends::libp2p::Libp2pBlendBackendSettings as Libp2pCoreBlendBackendSettings,
     edge::backends::libp2p::Libp2pBlendBackendSettings as Libp2pEdgeBlendBackendSettings,
 };
-use nomos_core::mantle::keys::SecretKey;
 use nomos_libp2p::{
     Multiaddr,
     ed25519::{self},
     protocol_name::StreamProtocol,
 };
 use num_bigint::BigUint;
+use zksign::SecretKey;
 
 #[derive(Clone)]
 pub struct GeneralBlendConfig {

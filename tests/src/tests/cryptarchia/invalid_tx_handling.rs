@@ -3,8 +3,8 @@ use std::{collections::HashSet, time::Duration};
 use common_http_client::CommonHttpClient;
 use nomos_core::{
     mantle::{
-        MantleTx, Note, SignedMantleTx, Transaction as _, TxHash, keys::PublicKey,
-        ledger::Tx as LedgerTx, ops::channel::ChannelId,
+        MantleTx, Note, SignedMantleTx, Transaction as _, TxHash, ledger::Tx as LedgerTx,
+        ops::channel::ChannelId,
     },
     proofs::zksig::{DummyZkSignature, ZkSignaturePublic},
 };
@@ -17,6 +17,7 @@ use tests::{
     topology::{Topology, TopologyConfig},
 };
 use tokio::time::timeout;
+use zksign::PublicKey;
 
 const PROCESS_TIMEOUT: Duration = Duration::from_secs(60);
 

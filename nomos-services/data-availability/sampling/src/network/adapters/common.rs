@@ -68,13 +68,11 @@ macro_rules! adapter_for {
 
             async fn request_historic_sampling(
                 &self,
-                session_id: SessionNumber,
                 block_id: HeaderId,
-                blob_ids: HashSet<BlobId>,
+                blob_ids: HashMap<BlobId, SessionNumber>,
             ) -> Result<(), DynError> {
                 self.network_relay
                     .send(DaNetworkMsg::RequestHistoricSampling{
-                        session_id,
                         block_id,
                         blob_ids,
                     })

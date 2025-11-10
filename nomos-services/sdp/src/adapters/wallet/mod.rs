@@ -1,9 +1,10 @@
 pub mod mock;
 
 use nomos_core::{
-    mantle::{NoteId, SignedMantleTx, keys::PublicKey, tx_builder::MantleTxBuilder},
+    mantle::{NoteId, SignedMantleTx, tx_builder::MantleTxBuilder},
     sdp::{ActiveMessage, DeclarationMessage, WithdrawMessage},
 };
+use zksign::PublicKey;
 
 #[async_trait::async_trait]
 pub trait SdpWalletAdapter {

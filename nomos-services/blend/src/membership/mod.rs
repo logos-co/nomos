@@ -6,9 +6,10 @@ use std::pin::Pin;
 use futures::Stream;
 use nomos_blend_message::crypto::keys::Ed25519PublicKey;
 use nomos_blend_scheduling::membership::Membership;
-use nomos_core::{crypto::ZkHash, mantle::keys::PublicKey};
+use nomos_core::crypto::ZkHash;
 use overwatch::services::{ServiceData, relay::OutboundRelay};
 use poq::CorePathAndSelectors;
+use zksign::PublicKey;
 
 #[derive(Clone, Debug)]
 pub struct MembershipInfo<NodeId> {

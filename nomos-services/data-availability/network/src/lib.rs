@@ -93,9 +93,8 @@ where
         sender: oneshot::Sender<Option<Commitments>>,
     },
     RequestHistoricSampling {
-        session_id: SessionNumber,
         block_id: HeaderId,
-        blob_ids: HashSet<BlobId>,
+        blob_ids: HashMap<BlobId, SessionNumber>,
     },
 }
 
@@ -122,14 +121,10 @@ where
                     "DaNetworkMsg::GetCommitments{{ blob_id: {blob_id:?} }}"
                 )
             }
-            Self::RequestHistoricSampling {
-                session_id,
-                blob_ids,
-                block_id,
-            } => {
+            Self::RequestHistoricSampling { blob_ids, block_id } => {
                 write!(
                     fmt,
-                    "DaNetworkMsg::RequestHistoricSample{{ session_id: {session_id}, blob_ids: {blob_ids:?}, block_id: {block_id} }}"
+                    "DaNetworkMsg::RequestHistoricSample{{blob_ids: {blob_ids:?}, block_id: {block_id} }}"
                 )
             }
         }
@@ -596,15 +591,10 @@ where
                     tracing::error!("Failed to request commitments: {e}");
                 }
             }
-            DaNetworkMsg::RequestHistoricSampling {
-                session_id,
-                blob_ids,
-                block_id,
-            } => {
+            DaNetworkMsg::RequestHistoricSampling { blob_ids, block_id } => {
                 Self::handle_historic_sample_request(
                     backend,
                     membership_storage,
-                    session_id,
                     block_id,
                     blob_ids,
                 )
@@ -625,25 +615,48 @@ where
     async fn handle_historic_sample_request(
         backend: &Backend,
         membership_storage: &MembershipStorage<Arc<StorageAdapter>, Membership, AddressBook>,
-        session_id: SessionNumber,
         block_id: HeaderId,
-        blob_ids: HashSet<[u8; 32]>,
+        blob_ids: HashMap<BlobId, SessionNumber>,
     ) {
-        let membership = membership_storage
-            .get_historic_membership(session_id)
-            .await
-            .unwrap_or_else(|e| {
-                tracing::error!("Failed to get historic membership for session {session_id}: {e}");
-                None
-            });
+        let session_ids: HashSet<SessionNumber> = blob_ids.values().copied().collect();
 
-        if let Some(membership) = membership {
-            let membership = SharedMembershipHandler::new(membership);
-            let send = backend.start_historic_sampling(session_id, block_id, blob_ids, membership);
-            send.await;
-        } else {
-            tracing::error!("No membership found for session {session_id}");
+        let mut session_to_membership = HashMap::new();
+
+        for session_id in session_ids {
+            let membership = membership_storage
+                .get_historic_membership(session_id)
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::error!(
+                        "Failed to get historic membership for session {session_id}: {e}"
+                    );
+                    None
+                });
+
+            if let Some(membership) = membership {
+                let membership = SharedMembershipHandler::new(membership);
+                session_to_membership.insert(session_id, membership);
+            } else {
+                tracing::error!("No membership found for session {session_id}");
+            }
         }
+
+        // Group blobs by membership
+        let mut blobs_by_membership: HashMap<SharedMembershipHandler<Membership>, HashSet<BlobId>> =
+            HashMap::new();
+
+        for (blob_id, session_id) in blob_ids {
+            if let Some(membership) = session_to_membership.get(&session_id) {
+                blobs_by_membership
+                    .entry(membership.clone())
+                    .or_default()
+                    .insert(blob_id);
+            }
+        }
+
+        backend
+            .start_historic_sampling(block_id, blobs_by_membership)
+            .await;
     }
 
     async fn handle_opinion_session_change(

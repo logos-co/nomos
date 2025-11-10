@@ -8,7 +8,9 @@ use nomos_da_network_core::swarm::{
 };
 use nomos_libp2p::{Multiaddr, PeerId, ed25519};
 use nomos_node::NomosDaMembership;
+use num_bigint::BigUint;
 use subnetworks_assignations::MembershipHandler as _;
+use zksign::SecretKey;
 
 use crate::secret_key_to_peer_id;
 
@@ -100,6 +102,7 @@ pub struct GeneralDaConfig {
     pub subnets_refresh_interval: Duration,
     pub retry_shares_limit: usize,
     pub retry_commitments_limit: usize,
+    pub secret_zk_key: SecretKey,
 }
 
 #[must_use]
@@ -141,10 +144,17 @@ pub fn create_da_configs(
             let signer = SigningKey::from_bytes(id);
             let subnetwork_ids = membership.membership(&peer_id);
 
+            // We need unique ZK secret keys, so we just derive them deterministically from
+            // the generated Ed25519 public keys, which are guaranteed to be unique because
+            // they are in turned derived from node ID.
+            let secret_zk_key =
+                SecretKey::from(BigUint::from_bytes_le(signer.verifying_key().as_bytes()));
+
             GeneralDaConfig {
                 node_key,
                 signer,
                 peer_id,
+                secret_zk_key,
                 membership: membership.clone(),
                 listening_address: listening_addresses[i].clone(),
                 blob_storage_directory,

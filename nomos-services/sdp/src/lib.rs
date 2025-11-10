@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use futures::{Stream, StreamExt as _};
 use nomos_core::{
     block::BlockNumber,
-    mantle::{NoteId, SignedMantleTx, keys::PublicKey, tx_builder::MantleTxBuilder},
+    mantle::{NoteId, SignedMantleTx, tx_builder::MantleTxBuilder},
     sdp::{
         ActiveMessage, ActivityMetadata, DeclarationId, DeclarationMessage, Locator, ProviderId,
         ServiceType, WithdrawMessage,
@@ -26,6 +26,7 @@ use overwatch::{
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
+use zksign::PublicKey;
 
 use crate::adapters::{
     mempool::SdpMempoolAdapter,
