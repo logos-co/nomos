@@ -43,10 +43,11 @@ fn rs_decode(bencher: Bencher, size: usize) {
         .bench_values(|buff| {
             black_box(move || {
                 let domain = GeneralEvaluationDomain::<Fr>::new(size).unwrap();
+                let expanded_domain = GeneralEvaluationDomain::<Fr>::new(size * 2).unwrap();
                 let missing_data: Vec<_> = std::iter::repeat_n(None, size)
                     .chain(buff.evals[size..].iter().copied().map(Some))
                     .collect();
-                decode_unchecked(size, &missing_data, domain)
+                decode_unchecked(size, &missing_data, domain, expanded_domain)
             })
         });
 }

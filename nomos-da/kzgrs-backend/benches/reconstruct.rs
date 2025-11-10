@@ -51,8 +51,9 @@ fn reconstruct<const SIZE: usize>(bencher: Bencher, column_size: usize) {
                         .collect::<Vec<Option<Fr>>>()
                 });
                 let domain = GeneralEvaluationDomain::<Fr>::new(SIZE).unwrap();
+                let expanded_domain = GeneralEvaluationDomain::<Fr>::new(SIZE * 2).unwrap();
                 let data: Vec<u8> = rows
-                    .map(|row| decode_unchecked(SIZE, &row, domain))
+                    .map(|row| decode_unchecked(SIZE, &row, domain, expanded_domain))
                     .flat_map(|evals| points_to_bytes::<31>(&evals.evals))
                     .collect();
                 assert_eq!(data, encoded.data);
