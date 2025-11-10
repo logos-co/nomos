@@ -3,7 +3,6 @@ use std::{
 };
 
 use ed25519_dalek::SigningKey;
-use nomos_core::mantle::keys::SecretKey;
 use nomos_da_network_core::swarm::{
     DAConnectionMonitorSettings, DAConnectionPolicySettings, ReplicationConfig,
 };
@@ -11,6 +10,7 @@ use nomos_libp2p::{Multiaddr, PeerId, ed25519};
 use nomos_node::NomosDaMembership;
 use num_bigint::BigUint;
 use subnetworks_assignations::MembershipHandler as _;
+use zksign::SecretKey;
 
 use crate::secret_key_to_peer_id;
 

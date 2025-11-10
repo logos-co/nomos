@@ -1,6 +1,6 @@
-use nomos_core::mantle::keys::{PublicKey, SecretKey, Signature};
 use serde::{Deserialize, Serialize};
 use zeroize::ZeroizeOnDrop;
+use zksign::{PublicKey, SecretKey, Signature};
 
 use crate::keys::{errors::KeyError, secured_key::SecuredKey};
 

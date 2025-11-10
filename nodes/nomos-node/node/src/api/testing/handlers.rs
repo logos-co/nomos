@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     fmt::{Debug, Display},
     hash::Hash,
 };
@@ -72,7 +71,7 @@ where
     BlobId: Eq + Hash,
 {
     pub block_id: HeaderId,
-    pub blob_ids: HashMap<BlobId, SessionNumber>,
+    pub blob_ids: Vec<(BlobId, SessionNumber)>,
 }
 
 pub async fn da_historic_sampling<
@@ -110,5 +109,9 @@ where
         SamplingStorage,
         SamplingMempoolAdapter,
         RuntimeServiceId,
-    >(handle, request.block_id, request.blob_ids))
+    >(
+        handle,
+        request.block_id,
+        request.blob_ids.into_iter().collect()
+    ))
 }

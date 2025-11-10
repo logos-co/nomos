@@ -1,15 +1,12 @@
 use cryptarchia_engine::{Epoch, Slot};
 use nomos_core::{
-    mantle::{
-        Utxo,
-        keys::{PublicKey, SecretKey},
-        ops::leader_claim::VoucherCm,
-    },
+    mantle::{Utxo, ops::leader_claim::VoucherCm},
     proofs::leader_proof::{Groth16LeaderProof, LeaderPrivate, LeaderPublic},
 };
 use nomos_ledger::{EpochState, UtxoTree};
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch::Sender;
+use zksign::{PublicKey, SecretKey};
 
 #[derive(Clone)]
 pub struct Leader {

@@ -7,7 +7,6 @@ use nomos_core::{
     mantle::{
         MantleTx, Note, OpProof, Utxo,
         genesis_tx::GenesisTx,
-        keys::{PublicKey, SecretKey},
         ledger::Tx as LedgerTx,
         ops::{
             Op,
@@ -19,6 +18,7 @@ use nomos_core::{
 };
 use nomos_node::{SignedMantleTx, Transaction as _};
 use num_bigint::BigUint;
+use zksign::{PublicKey, SecretKey};
 
 #[derive(Clone)]
 pub struct ConsensusParams {

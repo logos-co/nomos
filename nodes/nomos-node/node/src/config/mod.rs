@@ -373,9 +373,7 @@ pub fn update_cryptarchia_leader_consensus(
         return Ok(());
     };
 
-    let sk = nomos_core::mantle::keys::SecretKey::from(BigUint::from_bytes_le(
-        &<[u8; 16]>::from_hex(secret_key)?,
-    ));
+    let sk = zksign::SecretKey::from(BigUint::from_bytes_le(&<[u8; 16]>::from_hex(secret_key)?));
     let pk = sk.to_public_key();
 
     leader.leader_config.sk = sk;

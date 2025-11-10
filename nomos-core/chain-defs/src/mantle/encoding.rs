@@ -8,11 +8,11 @@ use nom::{
     multi::count,
     number::complete::{le_u32, le_u64, u8 as decode_u8},
 };
+use zksign::PublicKey;
 
 use crate::{
     mantle::{
         MantleTx, Note, NoteId, SignedMantleTx, TxHash,
-        keys::PublicKey,
         ledger::Tx as LedgerTx,
         ops::{
             Op, OpProof,
@@ -1471,8 +1471,7 @@ mod tests {
     #[test]
     fn test_predict_signed_mantle_tx_size_with_ledger_inputs_outputs() {
         use num_bigint::BigUint;
-
-        use crate::mantle::keys::PublicKey;
+        use zksign::PublicKey;
 
         let pk1 = PublicKey::from(BigUint::from(100u64));
         let pk2 = PublicKey::from(BigUint::from(200u64));
@@ -1506,8 +1505,7 @@ mod tests {
     fn test_predict_signed_mantle_tx_size_complex_scenario() {
         use ed25519_dalek::SigningKey;
         use num_bigint::BigUint;
-
-        use crate::mantle::keys::PublicKey;
+        use zksign::PublicKey;
 
         let mut signing_key1 = SigningKey::from_bytes(&[1; 32]);
         let signing_key2 = SigningKey::from_bytes(&[2; 32]);
