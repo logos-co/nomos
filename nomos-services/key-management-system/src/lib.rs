@@ -180,33 +180,18 @@ where
                     }
                     return;
                 }
-                let key_public_key = match backend.public_key(&key_id) {
-                    Err(e) => {
-                        if reply_channel.send(Err(e)).is_err() {
-                            error!("Could not send backend public key retrieval error to caller.");
-                        }
-                        return;
-                    }
-                    Ok(key_public_key) => key_public_key,
-                };
-                if reply_channel.send(Ok((key_id, key_public_key))).is_err() {
-                    error!("Could not reply key_id for register request");
+
+                let pk_bytes_result = backend.public_key(&key_id).map(|pk| (key_id.clone(), pk));
+                if reply_channel.send(pk_bytes_result).is_err() {
+                    error!("Could not reply to the public key request channel");
                 }
             }
             KMSMessage::PublicKey {
                 key_id,
                 reply_channel,
             } => {
-                let pk_bytes = match backend.public_key(&key_id) {
-                    Err(e) => {
-                        if reply_channel.send(Err(e)).is_err() {
-                            error!("Could not send backend public key retrieval error to caller.");
-                        }
-                        return;
-                    }
-                    Ok(pk_bytes) => pk_bytes,
-                };
-                if reply_channel.send(Ok(pk_bytes)).is_err() {
+                let pk_bytes_result = backend.public_key(&key_id);
+                if reply_channel.send(pk_bytes_result).is_err() {
                     error!("Could not reply to the public key request channel");
                 }
             }
@@ -221,17 +206,7 @@ where
                         backend.sign_multiple(keys.as_slice(), payload)
                     }
                 };
-                let signature = match signature_result {
-                    Err(e) => {
-                        if reply_channel.send(Err(e)).is_err() {
-                            error!("Could not send signature error to caller.");
-                        }
-                        return;
-                    }
-                    Ok(signature) => signature,
-                };
-
-                if let Err(_signature) = reply_channel.send(Ok(signature)) {
+                if reply_channel.send(signature_result).is_err() {
                     error!("Could not reply to the public key request channel");
                 }
             }
