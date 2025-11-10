@@ -17,16 +17,16 @@ use nomos_core::{
         ServiceType, SessionNumber,
     },
 };
-use rewards::{NoopRewards, Rewards};
+use rewards::{DaRewards, Error as RewardsError, NoopRewards, Rewards};
 
 use crate::UtxoTree;
 
-type Declarations = rpds::HashTrieMapSync<DeclarationId, Declaration>;
+type Declarations = rpds::RedBlackTreeMapSync<DeclarationId, Declaration>;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Service {
-    DataAvailability(ServiceState<NoopRewards>),
+    DataAvailability(ServiceState<DaRewards>),
     BlendNetwork(ServiceState<NoopRewards>),
 }
 
@@ -42,23 +42,10 @@ impl Service {
         }
     }
 
-    const fn state_mut(&mut self) -> &mut ServiceState<NoopRewards> {
-        match self {
-            Self::DataAvailability(state) | Self::BlendNetwork(state) => state,
-        }
-    }
-
-    const fn state(&self) -> &ServiceState<NoopRewards> {
-        match self {
-            Self::DataAvailability(state) | Self::BlendNetwork(state) => state,
-        }
-    }
-
     fn declare(&mut self, id: DeclarationId, declaration: Declaration) -> Result<(), Error> {
         match self {
-            Self::DataAvailability(state) | Self::BlendNetwork(state) => {
-                state.declare(id, declaration)
-            }
+            Self::DataAvailability(state) => state.declare(id, declaration),
+            Self::BlendNetwork(state) => state.declare(id, declaration),
         }
     }
 
@@ -71,7 +58,10 @@ impl Service {
         tx_hash: TxHash,
     ) -> Result<(), Error> {
         match self {
-            Self::DataAvailability(state) | Self::BlendNetwork(state) => {
+            Self::DataAvailability(state) => {
+                state.active(active, block_number, locked_notes, sig, tx_hash)
+            }
+            Self::BlendNetwork(state) => {
                 state.active(active, block_number, locked_notes, sig, tx_hash)
             }
         }
@@ -87,7 +77,10 @@ impl Service {
         config: &ServiceParameters,
     ) -> Result<(), Error> {
         match self {
-            Self::DataAvailability(state) | Self::BlendNetwork(state) => {
+            Self::DataAvailability(state) => {
+                state.withdraw(withdraw, block_number, locked_notes, sig, tx_hash, config)
+            }
+            Self::BlendNetwork(state) => {
                 state.withdraw(withdraw, block_number, locked_notes, sig, tx_hash, config)
             }
         }
@@ -95,29 +88,31 @@ impl Service {
 
     fn contains(&self, declaration_id: &DeclarationId) -> bool {
         match self {
-            Self::DataAvailability(state) | Self::BlendNetwork(state) => {
-                state.contains(declaration_id)
-            }
+            Self::DataAvailability(state) => state.contains(declaration_id),
+            Self::BlendNetwork(state) => state.contains(declaration_id),
         }
     }
 
     const fn active_session(&self) -> &SessionState {
         match self {
-            Self::DataAvailability(state) | Self::BlendNetwork(state) => &state.active,
+            Self::DataAvailability(state) => &state.active,
+            Self::BlendNetwork(state) => &state.active,
         }
     }
 
     #[cfg(test)]
     const fn forming_session(&self) -> &SessionState {
         match self {
-            Self::DataAvailability(state) | Self::BlendNetwork(state) => &state.forming,
+            Self::DataAvailability(state) => &state.forming,
+            Self::BlendNetwork(state) => &state.forming,
         }
     }
 
     #[cfg(test)]
     const fn declarations(&self) -> &Declarations {
         match self {
-            Self::DataAvailability(state) | Self::BlendNetwork(state) => &state.declarations,
+            Self::DataAvailability(state) => &state.declarations,
+            Self::BlendNetwork(state) => &state.declarations,
         }
     }
 }
@@ -166,6 +161,8 @@ pub enum Error {
     NoteNotFound(NoteId),
     #[error("Invalid proof")]
     InvalidProof,
+    #[error("Error while computing rewards: {0:?}")]
+    RewardsError(#[from] RewardsError),
 }
 
 // State at the beginning of this session
@@ -185,10 +182,6 @@ struct ServiceState<R: Rewards> {
     // snapshot of `declarations` at the start of block ((b // config.session_duration) - 1) *
     // config.session_duration
     active: SessionState,
-    // the past session, used for rewards
-    // snapshot of `declarations` at the start of block ((b // config.session_duration) - 2) *
-    // config.session_duration
-    past_session: SessionState,
     // new forming session, overlaps with `declarations` until the next session boundary
     // snapshot of `declarations` at the start of block (b // config.session_duration) *
     // config.session_duration
@@ -212,32 +205,42 @@ impl SessionState {
         }
         self.clone()
     }
+
+    /// Get provider ID by index using the stable iteration order of the map.
+    ///
+    /// The `RedBlackTrieMapSync` provides a stable iteration order based on its
+    /// internal structure.
+    #[must_use]
+    pub fn get_provider_by_index(&self, index: usize) -> Option<ProviderId> {
+        self.declarations
+            .values()
+            .nth(index)
+            .map(|decl| decl.provider_id)
+    }
 }
 
 impl<R: Rewards> ServiceState<R> {
     fn try_apply_header(mut self, block_number: u64, config: &ServiceParameters) -> Self {
-        let current_session = block_number / config.session_duration;
+        // TODO: remove expired declarations based on retention_period
+        let current_session = config.session_for_block(block_number);
         // shift all session!
         if current_session == self.active.session_n + 1 {
-            self.past_session = self.active.clone();
+            // Update rewards with current session state and distribute rewards
+            let (new_rewards, _reward_amounts) = self.rewards.update_session(&self.active, config);
+            self.rewards = new_rewards;
+            // TODO: Process rewards distribution (e.g., mint reward notes)
             self.active = self.forming.clone();
             self.forming = SessionState {
                 declarations: self.declarations.clone(),
                 session_n: self.forming.session_n + 1,
             };
         } else {
+            assert!(
+                current_session < self.active.session_n + 1,
+                "Nomos isn't ready for time travel yet"
+            );
             self.forming = self.forming.update(&self, block_number, config);
         }
-
-        // Update rewards with current session state and distribute rewards
-        let _rewards = self.rewards.update_session(
-            &self.active,
-            &self.past_session,
-            &self.forming,
-            block_number,
-            config,
-        );
-        // TODO: Process rewards distribution (e.g., mint reward notes)
 
         self
     }
@@ -282,8 +285,9 @@ impl<R: Rewards> ServiceState<R> {
         // TODO: check service specific logic
 
         // Update rewards with active message metadata
-        self.rewards
-            .update_active(active.declaration_id, &active.metadata, block_number);
+        self.rewards =
+            self.rewards
+                .update_active(declaration.provider_id, &active.metadata, block_number)?;
 
         Ok(())
     }
@@ -370,45 +374,60 @@ impl SdpLedger {
         let blend = sdp
             .services
             .get_mut(&ServiceType::BlendNetwork)
-            .expect("SDP initialized with Blend in this method")
-            .state_mut();
+            .expect("SDP initialized with Blend in this method");
 
-        blend.active.declarations = blend.declarations.clone();
-        blend.forming.declarations = blend.declarations.clone();
+        if let Service::BlendNetwork(state) = blend {
+            state.active.declarations = state.declarations.clone();
+            state.forming.declarations = state.declarations.clone();
+        }
 
         let da = sdp
             .services
             .get_mut(&ServiceType::DataAvailability)
-            .expect("SDP initialized with DA in this method")
-            .state_mut();
+            .expect("SDP initialized with DA in this method");
 
-        da.active.declarations = da.declarations.clone();
-        da.forming.declarations = da.declarations.clone();
+        if let Service::DataAvailability(state) = da {
+            state.active.declarations = state.declarations.clone();
+            state.forming.declarations = state.declarations.clone();
+        }
 
         Ok(sdp)
     }
 
     #[must_use]
     pub fn with_service(mut self, service_type: ServiceType) -> Self {
-        let service_state = ServiceState {
-            declarations: rpds::HashTrieMapSync::new_sync(),
-            active: SessionState {
-                declarations: rpds::HashTrieMapSync::new_sync(),
-                session_n: 0,
-            },
-            past_session: SessionState {
-                declarations: rpds::HashTrieMapSync::new_sync(),
-                session_n: 0,
-            },
-            forming: SessionState {
-                declarations: rpds::HashTrieMapSync::new_sync(),
-                session_n: 1,
-            },
-            rewards: NoopRewards,
-        };
         let service = match service_type {
-            ServiceType::DataAvailability => Service::DataAvailability(service_state),
-            ServiceType::BlendNetwork => Service::BlendNetwork(service_state),
+            ServiceType::DataAvailability => {
+                let service_state = ServiceState {
+                    declarations: rpds::RedBlackTreeMapSync::new_sync(),
+                    active: SessionState {
+                        declarations: rpds::RedBlackTreeMapSync::new_sync(),
+                        session_n: 0,
+                    },
+
+                    forming: SessionState {
+                        declarations: rpds::RedBlackTreeMapSync::new_sync(),
+                        session_n: 1,
+                    },
+                    rewards: DaRewards::default(),
+                };
+                Service::DataAvailability(service_state)
+            }
+            ServiceType::BlendNetwork => {
+                let service_state = ServiceState {
+                    declarations: rpds::RedBlackTreeMapSync::new_sync(),
+                    active: SessionState {
+                        declarations: rpds::RedBlackTreeMapSync::new_sync(),
+                        session_n: 0,
+                    },
+                    forming: SessionState {
+                        declarations: rpds::RedBlackTreeMapSync::new_sync(),
+                        session_n: 1,
+                    },
+                    rewards: NoopRewards,
+                };
+                Service::BlendNetwork(service_state)
+            }
         };
         self.services = self.services.insert(service_type, service);
         self
@@ -562,9 +581,13 @@ impl SdpLedger {
 
     #[must_use]
     pub fn get_declaration(&self, declaration_id: &DeclarationId) -> Option<&Declaration> {
-        self.services
-            .iter()
-            .find_map(|(_, state)| state.state().declarations.get(declaration_id))
+        self.services.iter().find_map(|(_, service)| {
+            let declarations = match service {
+                Service::DataAvailability(state) => &state.declarations,
+                Service::BlendNetwork(state) => &state.declarations,
+            };
+            declarations.get(declaration_id)
+        })
     }
 
     fn get_service<'a>(
@@ -601,10 +624,7 @@ impl SdpLedger {
     }
 
     #[cfg(test)]
-    fn get_declarations(
-        &self,
-        service_type: ServiceType,
-    ) -> Option<&rpds::HashTrieMapSync<DeclarationId, Declaration>> {
+    fn get_declarations(&self, service_type: ServiceType) -> Option<&Declarations> {
         self.services.get(&service_type).map(Service::declarations)
     }
 }
