@@ -50,14 +50,11 @@ async fn test_handle_incoming_blend_message() {
     let num_blend_layers = 2;
     let membership = membership(&[id], id);
     let public_info = new_public_info(session, membership.clone());
-    let mut processor = new_crypto_processor(
-        &SessionCryptographicProcessorSettings {
-            non_ephemeral_signing_key: key(id).0,
-            num_blend_layers,
-        },
-        &public_info,
-        new_poq_core_quota_inputs(),
-    );
+    let settings = SessionCryptographicProcessorSettings {
+        non_ephemeral_signing_key: key(id).0,
+        num_blend_layers,
+    };
+    let mut processor = new_crypto_processor(&settings, &public_info, new_poq_core_quota_inputs());
     let msg = processor
         .encapsulate_data_payload(&[])
         .await
@@ -78,23 +75,19 @@ async fn test_handle_incoming_blend_message() {
     );
     assert_eq!(scheduler.num_scheduled_messages(), 1);
 
-    // Check that decapsulation fails with a new (dummy) processor,
-    // but succeeds with the old one.
-    let dummy_processor = new_crypto_processor(
-        &SessionCryptographicProcessorSettings {
-            // Use a dummy private key to simulate decapsulation failure.
-            // In real environment, we will use the real prover/verifier
-            // that work only with the correct session number.
-            non_ephemeral_signing_key: key([255; 32]).0,
-            num_blend_layers,
-        },
+    // Creates a new processor with the new session number.
+    let new_processor = new_crypto_processor(
+        &settings,
         &new_public_info(session + 1, membership.clone()),
         new_poq_core_quota_inputs(),
     );
+
+    // Check that decapsulation fails with the new processor
+    // but succeeds with the old one.
     handle_incoming_blend_message(
         msg.clone(),
         &mut scheduler,
-        &dummy_processor,
+        &new_processor,
         Some(&processor),
         &mut token_collector,
         ServiceState::with_session(session, state_updater.clone()),
@@ -105,8 +98,8 @@ async fn test_handle_incoming_blend_message() {
     handle_incoming_blend_message(
         msg,
         &mut scheduler,
-        &dummy_processor,
-        Some(&dummy_processor),
+        &new_processor,
+        Some(&new_processor),
         &mut token_collector,
         ServiceState::with_session(session, state_updater),
     );
@@ -177,13 +170,10 @@ async fn test_handle_session_event() {
         panic!("expected Transitioning output");
     };
     assert_eq!(
-        new_crypto_processor.verifier().public_inputs().session,
+        new_crypto_processor.verifier().session_number(),
         session + 1
     );
-    assert_eq!(
-        old_crypto_processor.verifier().public_inputs().session,
-        session
-    );
+    assert_eq!(old_crypto_processor.verifier().session_number(), session);
     assert_eq!(new_public_info.session.session_number, session + 1);
 
     // Handle a TransitionExpired event, expecting TransitionCompleted output.
@@ -206,7 +196,7 @@ async fn test_handle_session_event() {
         panic!("expected TransitionCompleted output");
     };
     assert_eq!(
-        current_crypto_processor.verifier().public_inputs().session,
+        current_crypto_processor.verifier().session_number(),
         session + 1
     );
     assert_eq!(current_public_info.session.session_number, session + 1);
@@ -244,7 +234,7 @@ async fn test_handle_session_event() {
         panic!("expected Retiring output");
     };
     assert_eq!(
-        old_crypto_processor.verifier().public_inputs().session,
+        old_crypto_processor.verifier().session_number(),
         session + 1
     );
     assert_eq!(old_public_info.session.session_number, session + 1);

@@ -1,4 +1,4 @@
-use std::{convert::Infallible, num::NonZeroU64, pin::Pin, sync::Arc, time::Duration};
+use std::{num::NonZeroU64, pin::Pin, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use futures::Stream;
@@ -29,7 +29,7 @@ use nomos_blend_scheduling::{
     },
     message_scheduler::ProcessedMessageScheduler,
 };
-use nomos_core::{crypto::ZkHash, mantle::keys::SecretKey};
+use nomos_core::{crypto::ZkHash, mantle::keys::SecretKey, sdp::SessionNumber};
 use nomos_network::{NetworkService, backends::NetworkBackend};
 use nomos_utils::math::NonNegativeF64;
 use overwatch::{
@@ -361,13 +361,13 @@ impl<ProcessedMessage> MockProcessedMessageScheduler<ProcessedMessage> {
 }
 
 #[derive(Debug, Clone)]
-pub struct MockProofsVerifier(PoQVerificationInputsMinusSigningKey);
+pub struct MockProofsVerifier(SessionNumber);
 
 impl ProofsVerifier for MockProofsVerifier {
-    type Error = Infallible;
+    type Error = ();
 
     fn new(public_inputs: PoQVerificationInputsMinusSigningKey) -> Self {
-        Self(public_inputs)
+        Self(public_inputs.session)
     }
 
     fn start_epoch_transition(&mut self, _new_pol_inputs: LeaderInputs) {}
@@ -376,25 +376,49 @@ impl ProofsVerifier for MockProofsVerifier {
 
     fn verify_proof_of_quota(
         &self,
-        _proof: ProofOfQuota,
+        proof: ProofOfQuota,
         _signing_key: &Ed25519PublicKey,
     ) -> Result<ZkHash, Self::Error> {
-        use groth16::Field as _;
-
-        Ok(ZkHash::ZERO)
+        let (expected_proof, _) = session_based_dummy_proofs(self.0);
+        if proof == expected_proof {
+            Ok(ZkHash::ZERO)
+        } else {
+            Err(())
+        }
     }
 
     fn verify_proof_of_selection(
         &self,
-        _proof: ProofOfSelection,
+        proof: ProofOfSelection,
         _inputs: &VerifyInputs,
     ) -> Result<(), Self::Error> {
-        Ok(())
+        let (_, expected_proof) = session_based_dummy_proofs(self.0);
+        if proof == expected_proof {
+            Ok(())
+        } else {
+            Err(())
+        }
     }
 }
 
+fn session_based_dummy_proofs(session: SessionNumber) -> (ProofOfQuota, ProofOfSelection) {
+    let session_bytes = session.to_le_bytes();
+    (
+        ProofOfQuota::from_bytes_unchecked({
+            let mut bytes = [0u8; _];
+            bytes[..session_bytes.len()].copy_from_slice(&session_bytes);
+            bytes
+        }),
+        ProofOfSelection::from_bytes_unchecked({
+            let mut bytes = [0u8; _];
+            bytes[..session_bytes.len()].copy_from_slice(&session_bytes);
+            bytes
+        }),
+    )
+}
+
 impl MockProofsVerifier {
-    pub fn public_inputs(&self) -> &PoQVerificationInputsMinusSigningKey {
-        &self.0
+    pub fn session_number(&self) -> SessionNumber {
+        self.0
     }
 }
