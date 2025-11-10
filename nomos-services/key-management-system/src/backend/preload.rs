@@ -41,14 +41,13 @@ impl KMSBackend for PreloadKMSBackend {
         }
     }
 
-    // Key's after initialization will be held in memory but not persisted across
-    // restarts
+    // Keys created after initialization will be held in memory but not persisted
+    // across restarts
     fn register(&mut self, key_id: &Self::KeyId, key: Self::Key) -> Result<(), Self::Error> {
-        let key_id = key_id.to_owned();
-        if self.keys.contains_key(&key_id) {
-            return Err(PreloadBackendError::AlreadRegisteredKeyId(key_id));
+        if self.keys.contains_key(key_id) {
+            return Err(PreloadBackendError::AlreadRegisteredKeyId(key_id.clone()));
         }
-        self.keys.insert(key_id, key);
+        self.keys.insert(key_id.clone(), key);
 
         Ok(())
     }
