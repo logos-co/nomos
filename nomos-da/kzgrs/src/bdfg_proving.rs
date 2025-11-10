@@ -189,8 +189,7 @@ pub fn generate_combined_proof(
 /// * `column_proof` - A reference to the proof corresponding to the column.
 /// * `domain` - The evaluation domain of the data matrix (defining the
 ///   dimensions).
-/// * `global_parameters` - A reference to the global KZG parameters used for
-///   the verification process.
+/// * `verification_key` - KZG parameters used for proof verification.
 ///
 /// # Returns
 ///
