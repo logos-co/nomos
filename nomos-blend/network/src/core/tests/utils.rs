@@ -5,6 +5,7 @@ use core::{
     ops::{Deref, DerefMut},
 };
 
+use groth16::Field as _;
 use libp2p::{
     PeerId, StreamProtocol, Swarm,
     identity::{Keypair, ed25519::PublicKey},
@@ -24,8 +25,11 @@ use nomos_blend_message::{
     encap::ProofsVerifier,
     input::EncapsulationInput,
 };
-use nomos_blend_scheduling::{EncapsulatedMessage, message_blend::crypto::EncapsulationInputs};
-use nomos_core::crypto::ZkHash;
+use nomos_blend_scheduling::{
+    EncapsulatedMessage,
+    message_blend::{crypto::EncapsulationInputs, provers::BlendLayerProof},
+};
+use nomos_core::{crypto::ZkHash, sdp::SessionNumber};
 use nomos_libp2p::NetworkBehaviour;
 
 pub const PROTOCOL_NAME: StreamProtocol = StreamProtocol::new("/blend/core-behaviour/test");
@@ -71,7 +75,8 @@ pub struct TestEncapsulatedMessage(EncapsulatedMessage);
 impl TestEncapsulatedMessage {
     pub fn new(payload: &[u8]) -> Self {
         Self(
-            EncapsulatedMessage::new(&generate_valid_inputs(), PayloadType::Data, payload).unwrap(),
+            EncapsulatedMessage::new(&generate_valid_inputs(0), PayloadType::Data, payload)
+                .unwrap(),
         )
     }
 
@@ -87,17 +92,32 @@ impl TestEncapsulatedMessage {
     }
 }
 
-fn generate_valid_inputs() -> EncapsulationInputs {
+pub struct TestEncapsulatedMessageWithSession(EncapsulatedMessage);
+
+impl TestEncapsulatedMessageWithSession {
+    pub fn new(session: SessionNumber, payload: &[u8]) -> Self {
+        Self(
+            EncapsulatedMessage::new(&generate_valid_inputs(session), PayloadType::Data, payload)
+                .unwrap(),
+        )
+    }
+
+    pub fn into_inner(self) -> EncapsulatedMessage {
+        self.0
+    }
+}
+
+fn generate_valid_inputs(session: SessionNumber) -> EncapsulationInputs {
     EncapsulationInputs::new(
         repeat_with(Ed25519PrivateKey::generate)
             .take(3)
             .map(|recipient_signing_key| {
-                let recipient_signing_pubkey = recipient_signing_key.public_key();
+                let proofs = session_based_mock_blend_proof(session);
                 EncapsulationInput::new(
                     Ed25519PrivateKey::generate(),
-                    &recipient_signing_pubkey,
-                    ProofOfQuota::from_bytes_unchecked([0; _]),
-                    ProofOfSelection::from_bytes_unchecked([0; _]),
+                    &recipient_signing_key.public_key(),
+                    proofs.proof_of_quota,
+                    proofs.proof_of_selection,
                 )
             })
             .collect::<Vec<_>>()
@@ -131,6 +151,63 @@ impl Deref for TestEncapsulatedMessage {
 impl DerefMut for TestEncapsulatedMessage {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+
+pub struct SessionBasedMockProofsVerifier(pub SessionNumber);
+
+impl ProofsVerifier for SessionBasedMockProofsVerifier {
+    type Error = ();
+
+    fn new(public_inputs: PoQVerificationInputsMinusSigningKey) -> Self {
+        Self(public_inputs.session)
+    }
+
+    fn start_epoch_transition(&mut self, _new_pol_inputs: LeaderInputs) {}
+
+    fn complete_epoch_transition(&mut self) {}
+
+    fn verify_proof_of_quota(
+        &self,
+        proof: ProofOfQuota,
+        _: &Ed25519PublicKey,
+    ) -> Result<ZkHash, Self::Error> {
+        let expected_proofs = session_based_mock_blend_proof(self.0);
+        if proof == expected_proofs.proof_of_quota {
+            Ok(ZkHash::ZERO)
+        } else {
+            Err(())
+        }
+    }
+
+    fn verify_proof_of_selection(
+        &self,
+        proof: ProofOfSelection,
+        _: &VerifyInputs,
+    ) -> Result<(), Self::Error> {
+        let expected_proofs = session_based_mock_blend_proof(self.0);
+        if proof == expected_proofs.proof_of_selection {
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
+}
+
+fn session_based_mock_blend_proof(session: SessionNumber) -> BlendLayerProof {
+    let session_bytes = session.to_le_bytes();
+    BlendLayerProof {
+        proof_of_quota: ProofOfQuota::from_bytes_unchecked({
+            let mut bytes = [0u8; _];
+            bytes[..session_bytes.len()].copy_from_slice(&session_bytes);
+            bytes
+        }),
+        proof_of_selection: ProofOfSelection::from_bytes_unchecked({
+            let mut bytes = [0u8; _];
+            bytes[..session_bytes.len()].copy_from_slice(&session_bytes);
+            bytes
+        }),
+        ephemeral_signing_key: Ed25519PrivateKey::generate(),
     }
 }
 

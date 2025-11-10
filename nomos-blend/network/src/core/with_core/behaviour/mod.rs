@@ -295,9 +295,10 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
         except: (PeerId, ConnectionId),
     ) -> Result<(), Error> {
         if let Some(old_session) = &mut self.old_session
-            && old_session.forward_validated_message(message, &except)?
+            && old_session.is_negotiated(&except)
         {
-            return Ok(());
+            return old_session
+                .forward_validated_message_and_maybe_exclude(message, Some(except.0));
         }
         self.forward_validated_message_and_maybe_exclude(message, Some(except.0))
     }
@@ -677,11 +678,11 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
     ) -> Option<NegotiatedPeerState> {
         let peer_details = self.negotiated_peers.get_mut(&peer_id)?;
         // We double check we are dealing with the expected connection.
-        debug_assert!(
-            peer_details.connection_id == connection_id,
-            "Stored connection ID and provided connection ID do not match for the provided peer ID."
-        );
-
+        // This could be false if `connection_id` is from the old session.
+        if peer_details.connection_id != connection_id {
+            tracing::debug!(target: LOG_TARGET, "Provided connection ID {connection_id:?} does not match the stored connection ID {:?} for peer {peer_id:?}. Ignoring state update.", peer_details.connection_id);
+            return Some(state);
+        }
         Some(mem::replace(&mut peer_details.negotiated_state, state))
     }
 
@@ -777,37 +778,41 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
 where
     ProofsVerifier: encap::ProofsVerifier,
 {
-    /// Publish an already-encapsulated message to all connected peers.
+    /// Publish an already-encapsulated message to all connected peers
+    /// in the current or old session.
     ///
     /// Before the message is propagated, its public header is validated to make
     /// sure the receiving peer won't mark us as malicious.
+    /// If the message is successfully validated with the old session verifier,
+    /// it is published using the old session.
+    /// Otherwise, it is validated with the current session verifier, and
+    /// if valid, published using the current session.
     pub fn validate_and_publish_message(
         &mut self,
         message: EncapsulatedMessage,
     ) -> Result<(), Error> {
-        let validated_message = self
-            .validate_encapsulated_message_public_header(message)
-            .map_err(|_| Error::InvalidMessage)?;
-        self.forward_validated_message_and_maybe_exclude(&validated_message.into(), None)?;
-        Ok(())
+        if let Some(old_session) = &mut self.old_session
+            && old_session
+                .validate_and_publish_message(message.clone())
+                .is_ok()
+        {
+            return Ok(());
+        }
+
+        let validated_message =
+            self.validate_encapsulated_message_public_header_with_current_session(message)?;
+        self.forward_validated_message_and_maybe_exclude(&validated_message.into(), None)
     }
 
     // Try to validate an encapsulated public header with the current session
-    // verifier, and on fail if tries with with previous one, if the session
-    // transition period is not over yet.
-    fn validate_encapsulated_message_public_header(
+    // verifier.
+    fn validate_encapsulated_message_public_header_with_current_session(
         &self,
         message: EncapsulatedMessage,
     ) -> Result<IncomingEncapsulatedMessageWithValidatedPublicHeader, Error> {
         message
-            .clone()
             .verify_public_header(&self.poq_verifier)
-            .or_else(|_| {
-                let Some(old_session) = &self.old_session else {
-                    return Err(Error::InvalidMessage);
-                };
-                old_session.verify_encapsulated_message_public_header(message)
-            })
+            .map_err(|_| Error::InvalidMessage)
     }
 
     fn handle_received_serialized_encapsulated_message(
@@ -856,8 +861,10 @@ where
             return;
         };
         // Verify the message public header, or else mark the peer as malicious: https://www.notion.so/nomos-tech/Blend-Protocol-Version-1-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81859cebf5e3d2a5cd8f.
-        let Ok(validated_message) =
-            self.validate_encapsulated_message_public_header(deserialized_encapsulated_message)
+        let Ok(validated_message) = self
+            .validate_encapsulated_message_public_header_with_current_session(
+                deserialized_encapsulated_message,
+            )
         else {
             tracing::debug!(target: LOG_TARGET, "Neighbor sent us a message with an invalid public header. Marking it as spammy.");
             self.close_spammy_connection(

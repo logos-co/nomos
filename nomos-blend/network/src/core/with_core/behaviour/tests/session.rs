@@ -6,7 +6,7 @@ use test_log::test;
 use tokio::select;
 
 use crate::core::{
-    tests::utils::{AlwaysTrueVerifier, TestEncapsulatedMessage, TestSwarm},
+    tests::utils::{SessionBasedMockProofsVerifier, TestEncapsulatedMessageWithSession, TestSwarm},
     with_core::{
         behaviour::{
             Event,
@@ -18,8 +18,19 @@ use crate::core::{
 
 #[test(tokio::test)]
 async fn publish_message() {
-    let mut dialer = TestSwarm::new(|id| BehaviourBuilder::default().with_identity(id).build());
-    let mut listener = TestSwarm::new(|id| BehaviourBuilder::default().with_identity(id).build());
+    let mut session = 0;
+    let mut dialer = TestSwarm::new(|id| {
+        BehaviourBuilder::<SessionBasedMockProofsVerifier>::new()
+            .with_identity(id)
+            .with_session(session)
+            .build()
+    });
+    let mut listener = TestSwarm::new(|id| {
+        BehaviourBuilder::<SessionBasedMockProofsVerifier>::new()
+            .with_identity(id)
+            .with_session(session)
+            .build()
+    });
 
     listener.listen().with_memory_addr_external().await;
     dialer
@@ -27,17 +38,20 @@ async fn publish_message() {
         .await;
 
     // Start a new session before sending any message through the connection.
+    session += 1;
     let memberships = build_memberships(&[&dialer, &listener]);
-    dialer
-        .behaviour_mut()
-        .start_new_session(memberships[0].clone(), AlwaysTrueVerifier);
-    listener
-        .behaviour_mut()
-        .start_new_session(memberships[1].clone(), AlwaysTrueVerifier);
+    dialer.behaviour_mut().start_new_session(
+        memberships[0].clone(),
+        SessionBasedMockProofsVerifier(session),
+    );
+    listener.behaviour_mut().start_new_session(
+        memberships[1].clone(),
+        SessionBasedMockProofsVerifier(session),
+    );
 
     // Send a message but expect [`Error::NoPeers`]
     // because we haven't establish connections for the new session.
-    let test_message = TestEncapsulatedMessage::new(b"msg");
+    let test_message = TestEncapsulatedMessageWithSession::new(session, b"msg").into_inner();
     let result = dialer
         .behaviour_mut()
         .validate_and_publish_message(test_message.clone());
@@ -68,15 +82,32 @@ async fn publish_message() {
 
 #[test(tokio::test)]
 async fn forward_message() {
-    let mut sender = TestSwarm::new(|id| BehaviourBuilder::default().with_identity(id).build());
-    let mut forwarder = TestSwarm::new(|id| {
-        BehaviourBuilder::default()
+    let old_session = 0;
+    let mut sender = TestSwarm::new(|id| {
+        BehaviourBuilder::<SessionBasedMockProofsVerifier>::new()
             .with_identity(id)
-            .with_peering_degree(2..=2)
+            .with_session(old_session)
             .build()
     });
-    let mut receiver1 = TestSwarm::new(|id| BehaviourBuilder::default().with_identity(id).build());
-    let mut receiver2 = TestSwarm::new(|id| BehaviourBuilder::default().with_identity(id).build());
+    let mut forwarder = TestSwarm::new(|id| {
+        BehaviourBuilder::<SessionBasedMockProofsVerifier>::new()
+            .with_identity(id)
+            .with_peering_degree(2..=2)
+            .with_session(old_session)
+            .build()
+    });
+    let mut receiver1 = TestSwarm::new(|id| {
+        BehaviourBuilder::<SessionBasedMockProofsVerifier>::new()
+            .with_identity(id)
+            .with_session(old_session)
+            .build()
+    });
+    let mut receiver2 = TestSwarm::new(|id| {
+        BehaviourBuilder::<SessionBasedMockProofsVerifier>::new()
+            .with_identity(id)
+            .with_session(old_session)
+            .build()
+    });
 
     forwarder.listen().with_memory_addr_external().await;
     receiver1.listen().with_memory_addr_external().await;
@@ -96,24 +127,26 @@ async fn forward_message() {
     // Then, the topology looks like:
     // - Old session: sender -> forwarder -> receiver1
     // - New session:           forwarder -> receiver2
+    let new_session = old_session + 1;
     let memberships = build_memberships(&[&sender, &forwarder, &receiver1, &receiver2]);
-    forwarder
-        .behaviour_mut()
-        .start_new_session(memberships[1].clone(), AlwaysTrueVerifier);
-    receiver1
-        .behaviour_mut()
-        .start_new_session(memberships[2].clone(), AlwaysTrueVerifier);
-    receiver2
-        .behaviour_mut()
-        .start_new_session(memberships[3].clone(), AlwaysTrueVerifier);
+    forwarder.behaviour_mut().start_new_session(
+        memberships[1].clone(),
+        SessionBasedMockProofsVerifier(new_session),
+    );
+    receiver1.behaviour_mut().start_new_session(
+        memberships[2].clone(),
+        SessionBasedMockProofsVerifier(new_session),
+    );
+    receiver2.behaviour_mut().start_new_session(
+        memberships[3].clone(),
+        SessionBasedMockProofsVerifier(new_session),
+    );
     forwarder
         .connect_and_wait_for_outbound_upgrade(&mut receiver2)
         .await;
 
-    // The sender publishes a message to the forwarder.
-    // Publishing messages always uses the current session.
-    // It should work because the sender doesn't know about the new session yet.
-    let test_message = TestEncapsulatedMessage::new(b"msg");
+    // The sender publishes a message built with the old session to the forwarder.
+    let test_message = TestEncapsulatedMessageWithSession::new(old_session, b"msg").into_inner();
     sender
         .behaviour_mut()
         .validate_and_publish_message(test_message.clone())
@@ -144,15 +177,17 @@ async fn forward_message() {
 
     // Now we start the new session for the sender as well.
     // Also, connect the sender to the forwarder for the new session.
-    sender
-        .behaviour_mut()
-        .start_new_session(memberships[0].clone(), AlwaysTrueVerifier);
+    sender.behaviour_mut().start_new_session(
+        memberships[0].clone(),
+        SessionBasedMockProofsVerifier(new_session),
+    );
     sender
         .connect_and_wait_for_outbound_upgrade(&mut forwarder)
         .await;
 
-    // The sender publishes the same message to the forwarder.
-    // It should work because the exchanged message IDs were cleared.
+    // The sender publishes a new message built with the new session to the
+    // forwarder.
+    let test_message = TestEncapsulatedMessageWithSession::new(new_session, b"msg").into_inner();
     sender
         .behaviour_mut()
         .validate_and_publish_message(test_message.clone())
@@ -183,8 +218,19 @@ async fn forward_message() {
 
 #[test(tokio::test)]
 async fn finish_session_transition() {
-    let mut dialer = TestSwarm::new(|id| BehaviourBuilder::default().with_identity(id).build());
-    let mut listener = TestSwarm::new(|id| BehaviourBuilder::default().with_identity(id).build());
+    let mut session = 0;
+    let mut dialer = TestSwarm::new(|id| {
+        BehaviourBuilder::<SessionBasedMockProofsVerifier>::new()
+            .with_identity(id)
+            .with_session(session)
+            .build()
+    });
+    let mut listener = TestSwarm::new(|id| {
+        BehaviourBuilder::<SessionBasedMockProofsVerifier>::new()
+            .with_identity(id)
+            .with_session(session)
+            .build()
+    });
 
     listener.listen().with_memory_addr_external().await;
     dialer
@@ -192,13 +238,16 @@ async fn finish_session_transition() {
         .await;
 
     // Start a new session.
+    session += 1;
     let memberships = build_memberships(&[&dialer, &listener]);
-    dialer
-        .behaviour_mut()
-        .start_new_session(memberships[0].clone(), AlwaysTrueVerifier);
-    listener
-        .behaviour_mut()
-        .start_new_session(memberships[1].clone(), AlwaysTrueVerifier);
+    dialer.behaviour_mut().start_new_session(
+        memberships[0].clone(),
+        SessionBasedMockProofsVerifier(session),
+    );
+    listener.behaviour_mut().start_new_session(
+        memberships[1].clone(),
+        SessionBasedMockProofsVerifier(session),
+    );
 
     // Finish the transition period
     dialer.behaviour_mut().finish_session_transition();

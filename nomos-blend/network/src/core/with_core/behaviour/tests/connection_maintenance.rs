@@ -7,7 +7,7 @@ use test_log::test;
 use tokio::{select, time::sleep};
 
 use crate::core::{
-    tests::utils::{TestEncapsulatedMessage, TestSwarm},
+    tests::utils::{AlwaysTrueVerifier, TestEncapsulatedMessage, TestSwarm},
     with_core::behaviour::{
         Event, NegotiatedPeerState, SpamReason,
         tests::utils::{BehaviourBuilder, IntervalProviderBuilder, SwarmExt as _},
@@ -16,10 +16,13 @@ use crate::core::{
 
 #[test(tokio::test)]
 async fn detect_spammy_peer() {
-    let mut dialing_swarm =
-        TestSwarm::new(|id| BehaviourBuilder::default().with_identity(id).build());
+    let mut dialing_swarm = TestSwarm::new(|id| {
+        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+            .with_identity(id)
+            .build()
+    });
     let mut listening_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::default()
+        BehaviourBuilder::<AlwaysTrueVerifier>::new()
             .with_identity(id)
             .with_provider(IntervalProviderBuilder::default().with_range(1..=1).build())
             .build()
@@ -71,10 +74,13 @@ async fn detect_spammy_peer() {
 
 #[test(tokio::test)]
 async fn detect_unhealthy_peer() {
-    let mut dialing_swarm =
-        TestSwarm::new(|id| BehaviourBuilder::default().with_identity(id).build());
+    let mut dialing_swarm = TestSwarm::new(|id| {
+        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+            .with_identity(id)
+            .build()
+    });
     let mut listening_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::default()
+        BehaviourBuilder::<AlwaysTrueVerifier>::new()
             .with_identity(id)
             .with_provider(IntervalProviderBuilder::default().with_range(1..=1).build())
             .build()
@@ -129,10 +135,13 @@ async fn detect_unhealthy_peer() {
 
 #[test(tokio::test)]
 async fn restore_healthy_peer() {
-    let mut dialing_swarm =
-        TestSwarm::new(|id| BehaviourBuilder::default().with_identity(id).build());
+    let mut dialing_swarm = TestSwarm::new(|id| {
+        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+            .with_identity(id)
+            .build()
+    });
     let mut listening_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::default()
+        BehaviourBuilder::<AlwaysTrueVerifier>::new()
             .with_identity(id)
             .with_provider(IntervalProviderBuilder::default().with_range(1..=1).build())
             .build()

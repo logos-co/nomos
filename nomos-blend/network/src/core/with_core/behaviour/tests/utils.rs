@@ -1,18 +1,29 @@
 use core::{fmt::Debug, num::NonZeroUsize, ops::RangeInclusive, time::Duration};
-use std::collections::{HashMap, VecDeque};
+use std::{
+    collections::{HashMap, VecDeque},
+    marker::PhantomData,
+};
 
 use async_trait::async_trait;
 use futures::{Stream, StreamExt as _, select};
+use groth16::Field as _;
 use libp2p::{Multiaddr, PeerId, Swarm, identity::Keypair};
 use libp2p_swarm_test::SwarmExt as _;
-use nomos_blend_message::encap;
+use nomos_blend_message::{
+    crypto::proofs::{
+        PoQVerificationInputsMinusSigningKey,
+        quota::inputs::prove::public::{CoreInputs, LeaderInputs},
+    },
+    encap,
+};
 use nomos_blend_scheduling::membership::{Membership, Node};
+use nomos_core::sdp::SessionNumber;
 use nomos_libp2p::{NetworkBehaviour, SwarmEvent};
 use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
 
 use crate::core::{
-    tests::utils::{AlwaysTrueVerifier, PROTOCOL_NAME, TestSwarm},
+    tests::utils::{PROTOCOL_NAME, TestSwarm},
     with_core::behaviour::{Behaviour, Event, IntervalStreamProvider},
 };
 
@@ -45,16 +56,29 @@ impl IntervalProviderBuilder {
     }
 }
 
-#[derive(Default)]
-pub struct BehaviourBuilder {
+pub struct BehaviourBuilder<ProofsVerifier> {
     provider: Option<IntervalProvider>,
     local_peer_id: Option<PeerId>,
     peering_degree: Option<RangeInclusive<usize>>,
     identity: Option<Keypair>,
     minimum_network_size: Option<NonZeroUsize>,
+    session: Option<SessionNumber>,
+    _marker: PhantomData<ProofsVerifier>,
 }
 
-impl BehaviourBuilder {
+impl<ProofsVerifier> BehaviourBuilder<ProofsVerifier> {
+    pub fn new() -> Self {
+        Self {
+            provider: None,
+            local_peer_id: None,
+            peering_degree: None,
+            identity: None,
+            minimum_network_size: None,
+            session: None,
+            _marker: PhantomData,
+        }
+    }
+
     pub fn with_provider(mut self, provider: IntervalProvider) -> Self {
         self.provider = Some(provider);
         self
@@ -88,7 +112,20 @@ impl BehaviourBuilder {
         self
     }
 
-    pub fn build(self) -> Behaviour<AlwaysTrueVerifier, IntervalProvider> {
+    pub fn with_session(mut self, session: SessionNumber) -> Self {
+        assert!(self.session.is_none(), "session already set.");
+        self.session = Some(session);
+        self
+    }
+}
+
+impl<ProofsVerifier> BehaviourBuilder<ProofsVerifier>
+where
+    ProofsVerifier: encap::ProofsVerifier,
+{
+    pub fn build(self) -> Behaviour<ProofsVerifier, IntervalProvider> {
+        use nomos_core::crypto::ZkHash;
+
         let local_peer_id = match (self.local_peer_id, self.identity) {
             (None, None) => PeerId::random(),
             (Some(peer_id), None) => peer_id,
@@ -112,7 +149,19 @@ impl BehaviourBuilder {
                 .minimum_network_size
                 .unwrap_or_else(|| 1usize.try_into().unwrap()),
             old_session: None,
-            poq_verifier: AlwaysTrueVerifier,
+            poq_verifier: ProofsVerifier::new(PoQVerificationInputsMinusSigningKey {
+                session: self.session.unwrap_or_default(),
+                core: CoreInputs {
+                    zk_root: ZkHash::ZERO,
+                    quota: 0,
+                },
+                leader: LeaderInputs {
+                    pol_ledger_aged: ZkHash::ZERO,
+                    pol_epoch_nonce: ZkHash::ZERO,
+                    message_quota: 0,
+                    total_stake: 0,
+                },
+            }),
         }
     }
 }
