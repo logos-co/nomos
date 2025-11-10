@@ -36,6 +36,13 @@ pub struct ServiceParameters {
     pub session_duration: BlockNumber,
 }
 
+impl ServiceParameters {
+    #[must_use]
+    pub const fn session_for_block(&self, block_number: BlockNumber) -> SessionNumber {
+        block_number / self.session_duration
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Locator(pub Multiaddr);
@@ -150,7 +157,7 @@ impl Ord for ProviderId {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct DeclarationId(pub [u8; 32]);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
