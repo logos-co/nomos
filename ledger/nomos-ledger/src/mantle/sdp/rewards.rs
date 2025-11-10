@@ -296,11 +296,9 @@ pub enum Error {
 
 #[cfg(test)]
 mod tests {
-    use nomos_core::{
-        mantle::keys::PublicKey,
-        sdp::{DaActivityProof, Declaration, DeclarationId},
-    };
+    use nomos_core::sdp::{DaActivityProof, Declaration, DeclarationId};
     use num_bigint::BigUint;
+    use zksign::PublicKey;
 
     use super::*;
 
