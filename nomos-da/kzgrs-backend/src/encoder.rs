@@ -349,7 +349,6 @@ pub mod test {
                 assert_eq!(c1, c2);
             }
         }
-        let extended_domain = GeneralEvaluationDomain::new(DOMAIN_SIZE * 2).unwrap();
         let extended_matrix = DaEncoder::evals_to_chunk_matrix(&extended_rows);
         for (r1, r2, evals) in izip!(matrix.iter(), extended_matrix.iter(), extended_rows) {
             assert_eq!(r1.len(), r2.len().div(2));
@@ -357,7 +356,8 @@ pub mod test {
                 assert_eq!(c1, c2);
             }
             let points: Vec<_> = evals.evals.iter().copied().map(Some).collect();
-            let poly_2 = decode_unchecked(r1.len(), &points, domain, extended_domain);
+            // using same domain here as size is the same
+            let poly_2 = decode_unchecked(r1.len(), &points, domain, domain);
             let (poly_1, _) = bytes_to_polynomial_unchecked::<BYTES_PER_FIELD_ELEMENT>(
                 r1.as_bytes().as_ref(),
                 domain,

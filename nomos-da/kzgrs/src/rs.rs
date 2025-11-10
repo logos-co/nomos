@@ -28,27 +28,27 @@ pub fn encode(
 pub fn decode_unchecked(
     original_chunks_len: usize,
     points: &[Option<Fr>],
+    coefficients_domain: GeneralEvaluationDomain<Fr>,
     encode_domain: GeneralEvaluationDomain<Fr>,
-    coeff_domain: GeneralEvaluationDomain<Fr>,
 ) -> Evaluations<Fr> {
     // 1) pick the available points from the ENCODE domain
-    let (mut points, mut roots_of_unity): (Vec<Fr>, Vec<Fr>) = points
+    let (points, roots_of_unity): (Vec<Fr>, Vec<Fr>) = points
         .iter()
         .enumerate()
         .filter_map(|(i, e)| e.map(|e| (e, encode_domain.element(i))))
         .unzip();
 
-    // 2) truncate enough points
-    points.truncate(original_chunks_len);
-    roots_of_unity.truncate(original_chunks_len);
-
-    // 3) interpolate polynomial
+    // 2) interpolate polynomial
     let coeffs = lagrange_interpolate(&points, &roots_of_unity);
 
-    // 4) NOW evaluate on the **original** domain, not the encode domain
-    let evals_on_original = coeff_domain.fft(&coeffs);
+    // 3) NOW evaluate on the **original** domain, not the encode domain
+    let evals_on_original = coefficients_domain
+        .fft(&coeffs)
+        .into_iter()
+        .take(original_chunks_len)
+        .collect();
 
-    Evaluations::from_vec_and_domain(evals_on_original, coeff_domain)
+    Evaluations::from_vec_and_domain(evals_on_original, coefficients_domain)
 }
 
 /// Interpolate a set of points using lagrange interpolation and roots of unity
@@ -112,22 +112,17 @@ mod test {
     static ENCODE_DOMAIN: LazyLock<GeneralEvaluationDomain<Fr>> =
         LazyLock::new(|| GeneralEvaluationDomain::new(ENCODE_DOMAIN_SIZE).unwrap());
 
-    static COEFF_DOMAIN: LazyLock<GeneralEvaluationDomain<Fr>> = LazyLock::new(|| {
-        // we want “half” of the encode domain size
-        let half = ENCODE_DOMAIN_SIZE / 2;
-        GeneralEvaluationDomain::new(half).unwrap()
-    });
-
     #[test]
     fn test_encode_decode() {
-        let mut bytes: [u8; 496] = [0; 496];
+        let mut bytes: [u8; 310] = [0; 310];
         let mut rng = thread_rng();
         bytes.try_fill(&mut rng).unwrap();
+        let coeff_domain = GeneralEvaluationDomain::new(10usize.next_power_of_two()).unwrap();
 
-        let (_evals, poly) = bytes_to_polynomial::<31>(&bytes, *COEFF_DOMAIN).unwrap();
+        let (_evals, poly) = bytes_to_polynomial::<31>(&bytes, coeff_domain).unwrap();
         let encoded = encode(&poly, *ENCODE_DOMAIN);
         let mut encoded: Vec<Option<Fr>> = encoded.evals.into_iter().map(Some).collect();
-        let decoded = decode_unchecked(16, &encoded, *ENCODE_DOMAIN, *COEFF_DOMAIN);
+        let decoded = decode_unchecked(10, &encoded, coeff_domain, *ENCODE_DOMAIN);
         let decoded_bytes = points_to_bytes::<31>(&decoded.evals);
         assert_eq!(decoded_bytes, bytes);
 
@@ -136,7 +131,7 @@ mod test {
             encoded[i] = None;
         }
 
-        let decoded_missing = decode_unchecked(16, &encoded, *ENCODE_DOMAIN, *COEFF_DOMAIN);
+        let decoded_missing = decode_unchecked(10, &encoded, coeff_domain, *ENCODE_DOMAIN);
         let decoded_bytes = points_to_bytes::<31>(&decoded_missing.evals);
         assert_eq!(decoded_bytes, bytes);
     }
