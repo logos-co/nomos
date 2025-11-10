@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     net::SocketAddr,
     num::{NonZeroU64, NonZeroUsize},
     path::PathBuf,
@@ -322,7 +322,7 @@ impl Executor {
     pub async fn da_historic_sampling(
         &self,
         block_id: HeaderId,
-        blob_ids: HashMap<BlobId, SessionNumber>,
+        blob_ids: Vec<(BlobId, SessionNumber)>,
     ) -> Result<bool, reqwest::Error> {
         let request = HistoricSamplingRequest { block_id, blob_ids };
 
