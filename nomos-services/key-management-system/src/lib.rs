@@ -172,10 +172,10 @@ where
                 key_type,
                 reply_channel,
             } => {
-                let Ok(key_id) = backend.register(key_id, key_type) else {
+                let Ok(()) = backend.register(&key_id, key_type) else {
                     panic!("A key could not be registered");
                 };
-                let Ok(key_public_key) = backend.public_key(key_id.clone()) else {
+                let Ok(key_public_key) = backend.public_key(&key_id) else {
                     panic!("Requested public key for nonexistent KeyId");
                 };
                 if let Err(_key_descriptor) = reply_channel.send((key_id, key_public_key)) {
@@ -186,7 +186,7 @@ where
                 key_id,
                 reply_channel,
             } => {
-                let Ok(pk_bytes) = backend.public_key(key_id) else {
+                let Ok(pk_bytes) = backend.public_key(&key_id) else {
                     panic!("Requested public key for nonexistent KeyId");
                 };
                 if let Err(_pk_bytes) = reply_channel.send(pk_bytes) {
@@ -199,8 +199,10 @@ where
                 reply_channel,
             } => {
                 let signature = match signing_strategy {
-                    KMSSigningStrategy::Single(key) => backend.sign(key, payload),
-                    KMSSigningStrategy::Multi(keys) => backend.sign_multiple(keys, payload),
+                    KMSSigningStrategy::Single(key) => backend.sign(&key, payload),
+                    KMSSigningStrategy::Multi(keys) => {
+                        backend.sign_multiple(keys.as_slice(), payload)
+                    }
                 }
                 .expect("Could not sign.");
 
@@ -210,7 +212,7 @@ where
             }
             KMSMessage::Execute { key_id, operator } => {
                 backend
-                    .execute(key_id, operator)
+                    .execute(&key_id, operator)
                     .await
                     .expect("Could not execute operator");
             }
