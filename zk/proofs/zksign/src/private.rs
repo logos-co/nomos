@@ -1,5 +1,3 @@
-use std::fmt::Display;
-
 use groth16::{Field as _, Fr, Groth16Input, Groth16InputDeser};
 use serde::Serialize;
 
@@ -13,41 +11,24 @@ pub struct ZkSignPrivateKeysInputs(pub(crate) [Groth16Input; 32]);
 #[serde(transparent)]
 pub struct ZkSignPrivateKeysInputsJson([Groth16InputDeser; 32]);
 
-impl ZkSignPrivateKeysData {
-    pub fn new(sks: impl IntoIterator<Item = SecretKey>) -> Self {
-        let mut secret_keys = [Fr::ZERO; 32];
-        for (i, sk) in sks.into_iter().enumerate() {
-            assert!(i < 32, "ZkSign supports signing with at most 32 keys");
-            secret_keys[i] = sk.into_inner();
-        }
-
-        Self(secret_keys)
-    }
-}
-
 impl From<[Fr; 32]> for ZkSignPrivateKeysData {
     fn from(value: [Fr; 32]) -> Self {
         Self(value)
     }
 }
 
-#[derive(Debug, thiserror::Error)]
-pub struct PrivateKeysTryFromError(usize);
+impl TryFrom<&[SecretKey]> for ZkSignPrivateKeysData {
+    type Error = crate::ZkSignError;
 
-impl Display for PrivateKeysTryFromError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Size should be 32, got {}", self.0)
-    }
-}
-impl TryFrom<&[Fr]> for ZkSignPrivateKeysData {
-    type Error = PrivateKeysTryFromError;
-    fn try_from(value: &[Fr]) -> Result<Self, Self::Error> {
+    fn try_from(value: &[SecretKey]) -> Result<Self, Self::Error> {
         let len = value.len();
         if len > 32 {
-            return Err(PrivateKeysTryFromError(len));
+            return Err(crate::ZkSignError::TooManyKeys(len));
         }
         let mut buff: [Fr; 32] = [Fr::ZERO; 32];
-        buff.copy_from_slice(&value[..len]);
+        for (i, sk) in value.iter().enumerate() {
+            buff[i] = sk.clone().into_inner();
+        }
         Ok(Self(buff))
     }
 }

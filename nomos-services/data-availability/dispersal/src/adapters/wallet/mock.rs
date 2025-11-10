@@ -64,7 +64,7 @@ impl DaWalletAdapter for MockWalletAdapter {
         Ok(SignedMantleTx::new(
             mantle_tx,
             vec![OpProof::Ed25519Sig(signature)],
-            zksign::SecretKey::multi_sign([], tx_hash.as_ref()),
+            zksign::SecretKey::multi_sign(&[], tx_hash.as_ref()).unwrap(),
         )
         .expect("Transaction with valid signature should be valid"))
     }

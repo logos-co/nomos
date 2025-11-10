@@ -13,7 +13,7 @@ use groth16::fr_to_bytes;
 use key_management_system::{
     api::{KmsServiceApi, KmsServiceData},
     backend::preload::PreloadKMSBackend,
-    keys::{Ed25519Key, secured_key::SecuredKey},
+    keys::{Ed25519Key, PayloadEncoding, SignatureEncoding, secured_key::SecuredKey},
 };
 use nomos_core::{
     block::Block,
@@ -484,14 +484,13 @@ where
         // Use hex-encoded public key as key_id for now
         let key_id = hex::encode(pk.as_bytes());
 
-        let payload =
-            key_management_system::keys::PayloadEncoding::Ed25519(tx_hash.as_signing_bytes());
+        let payload = PayloadEncoding::Ed25519(tx_hash.as_signing_bytes());
         let signature = kms
             .sign(key_id, payload)
             .await
             .map_err(WalletServiceError::KmsApi)?;
 
-        let key_management_system::keys::SignatureEncoding::Ed25519(ed25519_sig) = signature else {
+        let SignatureEncoding::Ed25519(ed25519_sig) = signature else {
             return Err(WalletServiceError::KmsApi(
                 "Expected Ed25519 signature".into(),
             ));
@@ -511,14 +510,13 @@ where
             .map(|pk| hex::encode(fr_to_bytes(&pk.into_inner())))
             .collect();
 
-        let payload =
-            key_management_system::keys::PayloadEncoding::Ed25519(tx_hash.as_signing_bytes());
+        let payload = PayloadEncoding::Ed25519(tx_hash.as_signing_bytes());
         let signature = kms
             .sign_multiple(key_ids, payload)
             .await
             .map_err(WalletServiceError::KmsApi)?;
 
-        let key_management_system::keys::SignatureEncoding::Zk(zk_sig) = signature else {
+        let SignatureEncoding::Zk(zk_sig) = signature else {
             return Err(WalletServiceError::KmsApi(
                 "Expected ZkSig signature".into(),
             ));

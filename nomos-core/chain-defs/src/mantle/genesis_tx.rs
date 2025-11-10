@@ -210,7 +210,7 @@ mod tests {
         SignedMantleTx {
             mantle_tx: mantle_tx.clone(),
             ops_proofs,
-            ledger_tx_proof: zksign::SecretKey::multi_sign([], mantle_tx.hash().as_ref()),
+            ledger_tx_proof: zksign::SecretKey::multi_sign(&[], mantle_tx.hash().as_ref()).unwrap(),
         }
     }
 

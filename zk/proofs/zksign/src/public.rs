@@ -9,11 +9,14 @@ pub struct ZkSignVerifierInputs {
 }
 
 impl ZkSignVerifierInputs {
-    #[must_use]
-    pub fn new_variable_pks(
+    pub fn try_from_pks(
         msg: Groth16Input,
-        pks: impl IntoIterator<Item = Groth16Input>,
-    ) -> Self {
+        pks: &[crate::PublicKey],
+    ) -> Result<Self, crate::ZkSignError> {
+        if pks.len() > 32 {
+            return Err(crate::ZkSignError::TooManyKeys(pks.len()));
+        }
+
         // pks are padded with the pk corresponding to the zero SecretKey.
         let zero_pk = Groth16Input::from(
             crate::SecretKey::from(Fr::ZERO)
@@ -22,12 +25,12 @@ impl ZkSignVerifierInputs {
         );
         let mut public_keys = [zero_pk; 32];
 
-        for (i, pk) in pks.into_iter().enumerate() {
+        for (i, pk) in pks.iter().enumerate() {
             assert!(i < 32, "ZkSign supports signing with at most 32 keys");
-            public_keys[i] = pk;
+            public_keys[i] = Groth16Input::from(pk.into_inner());
         }
 
-        Self { public_keys, msg }
+        Ok(Self { public_keys, msg })
     }
 
     #[must_use]

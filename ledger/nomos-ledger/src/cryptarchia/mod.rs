@@ -214,7 +214,7 @@ impl LedgerState {
             pks.push(utxo.note.pk);
         }
 
-        if !zksign::PublicKey::verify_multi(pks, &tx.hash().0, tx.ledger_tx_proof()) {
+        if !zksign::PublicKey::verify_multi(&pks, &tx.hash().0, tx.ledger_tx_proof()) {
             return Err(LedgerError::InvalidProof);
         }
 
@@ -761,7 +761,7 @@ pub mod tests {
         };
         SignedMantleTx {
             ops_proofs: vec![],
-            ledger_tx_proof: zksign::SecretKey::multi_sign(sks, &mantle_tx.hash().into()),
+            ledger_tx_proof: zksign::SecretKey::multi_sign(&sks, &mantle_tx.hash().into()).unwrap(),
             mantle_tx,
         }
     }

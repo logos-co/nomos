@@ -47,18 +47,16 @@ impl SecretKey {
         PublicKey(Poseidon2Bn254Hasher::digest(&[*NOMOS_KDF, self.0]))
     }
 
-    #[must_use]
-    pub fn sign(&self, data: &Fr) -> Signature {
-        Self::multi_sign([self.clone()], data)
+    pub fn sign(&self, data: &Fr) -> Result<Signature, crate::ZkSignError> {
+        Self::multi_sign(std::slice::from_ref(self), data)
     }
 
-    #[must_use]
-    pub fn multi_sign(keys: impl IntoIterator<Item = Self>, data: &Fr) -> Signature {
-        let sk_inputs = ZkSignPrivateKeysData::new(keys);
+    pub fn multi_sign(keys: &[Self], data: &Fr) -> Result<Signature, crate::ZkSignError> {
+        let sk_inputs = ZkSignPrivateKeysData::try_from(keys)?;
         let inputs = ZkSignWitnessInputs::from_witness_data_and_message_hash(sk_inputs, *data);
 
         let (signature, _) = prove(&inputs).expect("Signature should succeed");
-        Signature(signature)
+        Ok(Signature(signature))
     }
 }
 
@@ -91,19 +89,18 @@ impl PublicKey {
     pub fn verify(&self, data: &Fr, signature: &Signature) -> bool {
         let mut pks = [const { Self::zero() }; 32];
         pks[0] = *self;
-        Self::verify_multi(pks, data, signature)
+        Self::verify_multi(&pks, data, signature)
     }
 
     #[must_use]
-    pub fn verify_multi(
-        pks: impl IntoIterator<Item = Self>,
-        data: &Fr,
-        signature: &Signature,
-    ) -> bool {
-        let inputs = ZkSignVerifierInputs::new_variable_pks(
-            (*data).into(),
-            pks.into_iter().map(|pk| pk.into_inner().into()),
-        );
+    pub fn verify_multi(pks: &[Self], data: &Fr, signature: &Signature) -> bool {
+        let inputs = match ZkSignVerifierInputs::try_from_pks((*data).into(), pks) {
+            Ok(inputs) => inputs,
+            Err(e) => {
+                error!("Error building verifier inputs: {e:?}");
+                return false;
+            }
+        };
 
         crate::verify(signature.as_proof(), &inputs).unwrap_or_else(|e| {
             error!("Error verifying signature: {e:?}");

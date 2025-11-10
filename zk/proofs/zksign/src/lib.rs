@@ -13,7 +13,7 @@ use groth16::{
 };
 pub use inputs::ZkSignWitnessInputs;
 pub use keys::{PublicKey, SecretKey, Signature};
-pub use private::{PrivateKeysTryFromError, ZkSignPrivateKeysData};
+pub use private::ZkSignPrivateKeysData;
 pub use public::ZkSignVerifierInputs;
 
 use crate::{
@@ -22,6 +22,12 @@ use crate::{
 };
 
 pub type ZkSignProof = CompressedGroth16Proof;
+
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+pub enum ZkSignError {
+    #[error("ZkSign supports up to 32 keys: got {0}")]
+    TooManyKeys(usize),
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProveError {

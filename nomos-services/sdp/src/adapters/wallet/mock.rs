@@ -31,7 +31,7 @@ impl SdpWalletAdapter for MockWalletAdapter {
         let tx_hash = mantle_tx.hash();
 
         let ed25519_sig = signing_key.sign(&tx_hash.as_signing_bytes());
-        let zk_sig = zk_key.sign(tx_hash.as_ref());
+        let zk_sig = zk_key.sign(tx_hash.as_ref()).unwrap();
 
         Ok(SignedMantleTx::new(
             mantle_tx,
@@ -39,7 +39,7 @@ impl SdpWalletAdapter for MockWalletAdapter {
                 zk_sig,
                 ed25519_sig,
             }],
-            zksign::SecretKey::multi_sign([], tx_hash.as_ref()),
+            zksign::SecretKey::multi_sign(&[], tx_hash.as_ref()).unwrap(),
         )
         .expect("Transaction with valid signature should be valid"))
     }
@@ -63,12 +63,13 @@ impl SdpWalletAdapter for MockWalletAdapter {
 
         // From spec: ZkSignature_verify(txhash, signature, [locked_note.pk,
         // declare_info.zk_id])
-        let zk_signature = zksign::SecretKey::multi_sign([locked_note_sk, zk_sk], tx_hash.as_ref());
+        let zk_signature =
+            zksign::SecretKey::multi_sign(&[locked_note_sk, zk_sk], tx_hash.as_ref()).unwrap();
 
         Ok(SignedMantleTx::new(
             mantle_tx,
             vec![OpProof::ZkSig(zk_signature)],
-            zksign::SecretKey::multi_sign([], tx_hash.as_ref()),
+            zksign::SecretKey::multi_sign(&[], tx_hash.as_ref()).unwrap(),
         )
         .expect("Transaction with valid signature should be valid"))
     }
@@ -87,12 +88,12 @@ impl SdpWalletAdapter for MockWalletAdapter {
         let mantle_tx = tx_builder.push_op(active_op).build();
         let tx_hash = mantle_tx.hash();
 
-        let zk_signature = zk_sk.sign(tx_hash.as_ref());
+        let zk_signature = zk_sk.sign(tx_hash.as_ref()).unwrap();
 
         Ok(SignedMantleTx::new(
             mantle_tx,
             vec![OpProof::ZkSig(zk_signature)],
-            zksign::SecretKey::multi_sign([], tx_hash.as_ref()),
+            zksign::SecretKey::multi_sign(&[], tx_hash.as_ref()).unwrap(),
         )
         .expect("Transaction with valid signature should be valid"))
     }

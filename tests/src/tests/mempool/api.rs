@@ -28,7 +28,7 @@ async fn test_post_mantle_tx() {
 
     let signed_tx = SignedMantleTx {
         ops_proofs: Vec::new(),
-        ledger_tx_proof: zksign::SecretKey::multi_sign([], mantle_tx.hash().as_ref()),
+        ledger_tx_proof: zksign::SecretKey::multi_sign(&[], mantle_tx.hash().as_ref()).unwrap(),
         mantle_tx,
     };
 

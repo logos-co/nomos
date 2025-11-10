@@ -308,7 +308,7 @@ mod tests {
     fn create_tx(
         inputs: Vec<NoteId>,
         outputs: Vec<Note>,
-        sks: Vec<zksign::SecretKey>,
+        sks: &[zksign::SecretKey],
     ) -> SignedMantleTx {
         let ledger_tx = LedgerTx::new(inputs, outputs);
         let mantle_tx = MantleTx {
@@ -319,7 +319,7 @@ mod tests {
         };
         SignedMantleTx {
             ops_proofs: vec![],
-            ledger_tx_proof: zksign::SecretKey::multi_sign(sks, &mantle_tx.hash().0),
+            ledger_tx_proof: zksign::SecretKey::multi_sign(sks, mantle_tx.hash().as_ref()).unwrap(),
             mantle_tx,
         }
     }
@@ -346,10 +346,14 @@ mod tests {
         let mut output_note = Note::new(1, PublicKey::new(BigUint::from(1u8).into()));
         let sk = zksign::SecretKey::from(BigUint::from(0u8));
         // determine fees
-        let tx = create_tx(vec![utxo.id()], vec![output_note], vec![sk.clone()]);
+        let tx = create_tx(
+            vec![utxo.id()],
+            vec![output_note],
+            std::slice::from_ref(&sk),
+        );
         let fees = tx.gas_cost::<MainnetGasConstants>();
         output_note.value = utxo.note.value - fees;
-        let tx = create_tx(vec![utxo.id()], vec![output_note], vec![sk]);
+        let tx = create_tx(vec![utxo.id()], vec![output_note], &[sk]);
 
         // Create a dummy proof (using same structure as in cryptarchia tests)
 

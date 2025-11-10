@@ -371,7 +371,7 @@ mod test {
                 let unique_signed_tx = SignedMantleTx::new(
                     unique_mantle_tx,
                     vec![OpProof::Ed25519Sig(signature)],
-                    zksign::SecretKey::multi_sign([], tx_hash.as_ref()),
+                    zksign::SecretKey::multi_sign(&[], tx_hash.as_ref()).unwrap(),
                 )
                 .expect("Transaction with valid proofs should be valid");
 

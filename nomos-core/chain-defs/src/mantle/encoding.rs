@@ -1138,7 +1138,8 @@ mod tests {
             execution_gas_price: 100,
             storage_gas_price: 50,
         };
-        let ledger_tx_proof = zksign::SecretKey::multi_sign([], mantle_tx.hash().as_ref());
+        let ledger_tx_proof =
+            zksign::SecretKey::multi_sign(&[], mantle_tx.hash().as_ref()).unwrap();
         let original_tx = SignedMantleTx::new(mantle_tx, vec![], ledger_tx_proof).unwrap();
 
         // Encode
@@ -1170,7 +1171,7 @@ mod tests {
         let signed_tx = SignedMantleTx::new(
             mantle_tx,
             vec![],
-            zksign::SecretKey::multi_sign([], &txhash.0),
+            zksign::SecretKey::multi_sign(&[], &txhash.0).unwrap(),
         )
         .unwrap();
         let encoded = encode_signed_mantle_tx(&signed_tx);
@@ -1207,7 +1208,7 @@ mod tests {
         let signed_tx = SignedMantleTx::new(
             mantle_tx,
             vec![OpProof::Ed25519Sig(op_sig)],
-            zksign::SecretKey::multi_sign([], &txhash.0),
+            zksign::SecretKey::multi_sign(&[], &txhash.0).unwrap(),
         )
         .unwrap();
         let encoded = encode_signed_mantle_tx(&signed_tx);
@@ -1247,7 +1248,7 @@ mod tests {
         let signed_tx = SignedMantleTx::new(
             mantle_tx,
             vec![OpProof::Ed25519Sig(blob_sig)],
-            zksign::SecretKey::multi_sign([], &txhash.0),
+            zksign::SecretKey::multi_sign(&[], &txhash.0).unwrap(),
         )
         .unwrap();
         let encoded = encode_signed_mantle_tx(&signed_tx);
@@ -1289,7 +1290,7 @@ mod tests {
         let signed_tx = SignedMantleTx::new(
             mantle_tx,
             vec![OpProof::Ed25519Sig(dummy_ed25519_sig)],
-            zksign::SecretKey::multi_sign([], &txhash.0),
+            zksign::SecretKey::multi_sign(&[], &txhash.0).unwrap(),
         )
         .unwrap();
         let encoded = encode_signed_mantle_tx(&signed_tx);
@@ -1340,10 +1341,10 @@ mod tests {
         let signed_tx = SignedMantleTx::new(
             mantle_tx,
             vec![OpProof::ZkAndEd25519Sigs {
-                zk_sig: zksign::SecretKey::multi_sign([locked_note_sk, zk_sk], &txhash.0),
+                zk_sig: zksign::SecretKey::multi_sign(&[locked_note_sk, zk_sk], &txhash.0).unwrap(),
                 ed25519_sig: Signature::from_bytes(&[0u8; 64]),
             }],
-            zksign::SecretKey::multi_sign([], &txhash.0),
+            zksign::SecretKey::multi_sign(&[], &txhash.0).unwrap(),
         )
         .unwrap();
         let encoded = encode_signed_mantle_tx(&signed_tx);
@@ -1377,11 +1378,10 @@ mod tests {
         // Create a signed tx and encode it to get actual size
         let signed_tx = SignedMantleTx::new(
             mantle_tx,
-            vec![OpProof::ZkSig(zksign::SecretKey::multi_sign(
-                [zksign::SecretKey::zero()],
-                &txhash.0,
-            ))],
-            zksign::SecretKey::multi_sign([], &txhash.0),
+            vec![OpProof::ZkSig(
+                zksign::SecretKey::multi_sign(&[zksign::SecretKey::zero()], &txhash.0).unwrap(),
+            )],
+            zksign::SecretKey::multi_sign(&[], &txhash.0).unwrap(),
         )
         .unwrap();
         let encoded = encode_signed_mantle_tx(&signed_tx);
@@ -1418,11 +1418,10 @@ mod tests {
         let txhash = mantle_tx.hash();
         let signed_tx = SignedMantleTx::new(
             mantle_tx,
-            vec![OpProof::ZkSig(zksign::SecretKey::multi_sign(
-                [zksign::SecretKey::zero()],
-                &txhash.0,
-            ))],
-            zksign::SecretKey::multi_sign([], &txhash.0),
+            vec![OpProof::ZkSig(
+                zksign::SecretKey::multi_sign(&[zksign::SecretKey::zero()], &txhash.0).unwrap(),
+            )],
+            zksign::SecretKey::multi_sign(&[], &txhash.0).unwrap(),
         )
         .unwrap();
 
@@ -1489,9 +1488,9 @@ mod tests {
             vec![
                 OpProof::Ed25519Sig(op_sig),
                 OpProof::Ed25519Sig(op_sig),
-                OpProof::ZkSig(zksign::SecretKey::zero().sign(&txhash.0)),
+                OpProof::ZkSig(zksign::SecretKey::zero().sign(&txhash.0).unwrap()),
             ],
-            zksign::SecretKey::multi_sign([], &txhash.0),
+            zksign::SecretKey::multi_sign(&[], &txhash.0).unwrap(),
         )
         .unwrap();
         let encoded = encode_signed_mantle_tx(&signed_tx);
@@ -1528,7 +1527,7 @@ mod tests {
         let signed_tx = SignedMantleTx::new(
             mantle_tx,
             vec![],
-            zksign::SecretKey::multi_sign([], &Fr::ZERO),
+            zksign::SecretKey::multi_sign(&[], &Fr::ZERO).unwrap(),
         )
         .unwrap();
         let encoded = encode_signed_mantle_tx(&signed_tx);
@@ -1596,11 +1595,12 @@ mod tests {
                 OpProof::Ed25519Sig(op_ed25519_sig),
                 OpProof::Ed25519Sig(op_ed25519_sig),
                 OpProof::ZkAndEd25519Sigs {
-                    zk_sig: zksign::SecretKey::multi_sign([locked_note_sk, zk_sk], &txhash.0),
+                    zk_sig: zksign::SecretKey::multi_sign(&[locked_note_sk, zk_sk], &txhash.0)
+                        .unwrap(),
                     ed25519_sig: op_ed25519_sig,
                 },
             ],
-            zksign::SecretKey::multi_sign([zksign::SecretKey::zero()], &txhash.0),
+            zksign::SecretKey::multi_sign(&[zksign::SecretKey::zero()], &txhash.0).unwrap(),
         )
         .unwrap();
         let encoded = encode_signed_mantle_tx(&signed_tx);

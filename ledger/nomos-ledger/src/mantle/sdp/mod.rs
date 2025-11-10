@@ -274,7 +274,7 @@ impl<R: Rewards> ServiceState<R> {
                 declaration.locked_note_id,
             )))?;
 
-        if !zksign::PublicKey::verify_multi([note.pk, declaration.zk_id], &tx_hash.0, sig) {
+        if !zksign::PublicKey::verify_multi(&[note.pk, declaration.zk_id], &tx_hash.0, sig) {
             return Err(Error::InvalidSignature);
         }
 
@@ -310,7 +310,7 @@ impl<R: Rewards> ServiceState<R> {
 
         let note = locked_notes.unlock(declaration.service_type, &declaration.locked_note_id)?;
 
-        if !zksign::PublicKey::verify_multi([note.pk, declaration.zk_id], &tx_hash.0, sig) {
+        if !zksign::PublicKey::verify_multi(&[note.pk, declaration.zk_id], &tx_hash.0, sig) {
             return Err(Error::InvalidSignature);
         }
         self.declarations = self.declarations.remove(&withdraw.declaration_id);
@@ -457,7 +457,7 @@ impl SdpLedger {
         tx_hash: TxHash,
         config: &Config,
     ) -> Result<Self, Error> {
-        if !zksign::PublicKey::verify_multi([note.pk, op.zk_id], &tx_hash.0, zk_sig) {
+        if !zksign::PublicKey::verify_multi(&[note.pk, op.zk_id], &tx_hash.0, zk_sig) {
             return Err(Error::InvalidSignature);
         }
         op.provider_id
@@ -679,7 +679,7 @@ mod tests {
         let (note_sk, utxo) = utxo_with_sk();
         let note = utxo.note;
         let tx_hash = TxHash(Fr::from(0u8));
-        let zk_sig = zksign::SecretKey::multi_sign([note_sk, zk_sk.clone()], &tx_hash.0);
+        let zk_sig = zksign::SecretKey::multi_sign(&[note_sk, zk_sk.clone()], &tx_hash.0).unwrap();
 
         let signing_key = create_signing_key();
         let ed25519_sig = signing_key.sign(tx_hash.as_signing_bytes().as_ref());
@@ -695,7 +695,7 @@ mod tests {
         config: &Config,
     ) -> Result<SdpLedger, Error> {
         let tx_hash = TxHash(Fr::from(1u8));
-        let zk_sig = zksign::SecretKey::multi_sign([note_sk, zk_key], &tx_hash.0);
+        let zk_sig = zksign::SecretKey::multi_sign(&[note_sk, zk_key], &tx_hash.0).unwrap();
 
         sdp_ledger.apply_withdrawn_msg(op, &zk_sig, tx_hash, config)
     }

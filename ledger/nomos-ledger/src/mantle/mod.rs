@@ -251,7 +251,7 @@ mod tests {
             .map(|(key, _)| OpProof::Ed25519Sig(key.sign(tx_hash.as_signing_bytes().as_ref())))
             .collect();
 
-        let ledger_tx_proof = zksign::SecretKey::multi_sign([], &tx_hash.0);
+        let ledger_tx_proof = zksign::SecretKey::multi_sign(&[], &tx_hash.0).unwrap();
 
         SignedMantleTx::new(mantle_tx, ops_proofs, ledger_tx_proof)
             .expect("Test transaction should have valid signatures")

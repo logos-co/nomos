@@ -145,7 +145,7 @@ fn create_invalid_transaction_with_id(id: usize) -> SignedMantleTx {
 
     SignedMantleTx {
         ops_proofs: Vec::new(),
-        ledger_tx_proof: zksign::SecretKey::multi_sign([], mantle_tx.hash().as_ref()),
+        ledger_tx_proof: zksign::SecretKey::multi_sign(&[], mantle_tx.hash().as_ref()).unwrap(),
         mantle_tx,
     }
 }

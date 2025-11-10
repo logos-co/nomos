@@ -303,7 +303,8 @@ pub fn create_genesis_tx_with_declarations(
 
     for mut provider in providers {
         let zk_sig =
-            SecretKey::multi_sign([provider.note.sk, provider.zk_sk], mantle_tx_hash.as_ref());
+            SecretKey::multi_sign(&[provider.note.sk, provider.zk_sk], mantle_tx_hash.as_ref())
+                .unwrap();
         let ed25519_sig = provider
             .provider_sk
             .sign(mantle_tx_hash.as_signing_bytes().as_ref());
