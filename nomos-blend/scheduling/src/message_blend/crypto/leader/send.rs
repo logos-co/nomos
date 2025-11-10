@@ -134,14 +134,11 @@ where
 mod test {
     use groth16::Field as _;
     use libp2p::{Multiaddr, PeerId};
-    use nomos_blend_message::crypto::{
-        keys::Ed25519PrivateKey,
-        proofs::{
-            PoQVerificationInputsMinusSigningKey,
-            quota::inputs::prove::{
-                private::ProofOfLeadershipQuotaInputs,
-                public::{CoreInputs, LeaderInputs},
-            },
+    use nomos_blend_message::crypto::proofs::{
+        PoQVerificationInputsMinusSigningKey,
+        quota::inputs::prove::{
+            private::ProofOfLeadershipQuotaInputs,
+            public::{CoreInputs, LeaderInputs},
         },
     };
     use nomos_core::crypto::ZkHash;
@@ -159,7 +156,6 @@ mod test {
         let mut processor =
             SessionCryptographicProcessor::<_, TestEpochChangeLeaderProofsGenerator>::new(
                 &SessionCryptographicProcessorSettings {
-                    non_ephemeral_signing_key: Ed25519PrivateKey::generate(),
                     num_blend_layers: 1,
                 },
                 Membership::new_without_local(&[Node {

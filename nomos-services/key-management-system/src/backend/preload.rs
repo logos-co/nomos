@@ -6,18 +6,20 @@ use serde::{Deserialize, Serialize};
 
 use crate::{KMSOperatorBackend, SecuredKey, backend::KMSBackend, keys};
 
+pub type KeyId = String;
+
 #[derive(thiserror::Error, Debug, PartialEq, Eq)]
 pub enum PreloadBackendError {
     #[error(transparent)]
     KeyError(#[from] keys::errors::KeyError),
     #[error("KeyId ({0:?}) is not registered")]
-    NotRegisteredKeyId(String),
+    NotRegisteredKeyId(KeyId),
     #[error("KeyId {0} is already registered")]
-    AlreadRegisteredKeyId(String),
+    AlreadRegisteredKeyId(KeyId),
 }
 
 pub struct PreloadKMSBackend {
-    keys: HashMap<String, keys::Key>,
+    keys: HashMap<KeyId, keys::Key>,
 }
 
 /// This setting contains all [`Key`]s to be loaded into the
@@ -25,12 +27,12 @@ pub struct PreloadKMSBackend {
 /// populate the settings from bytes.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct PreloadKMSBackendSettings {
-    pub keys: HashMap<String, keys::Key>,
+    pub keys: HashMap<KeyId, keys::Key>,
 }
 
 #[async_trait::async_trait]
 impl KMSBackend for PreloadKMSBackend {
-    type KeyId = String;
+    type KeyId = KeyId;
     type Key = keys::Key;
     type Settings = PreloadKMSBackendSettings;
     type Error = PreloadBackendError;

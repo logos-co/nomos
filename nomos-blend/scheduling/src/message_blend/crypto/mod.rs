@@ -1,7 +1,5 @@
-use derivative::Derivative;
 use nomos_blend_message::{
     Error,
-    crypto::keys::Ed25519PrivateKey,
     encap::{
         decapsulated::DecapsulationOutput as InternalDecapsulationOutput,
         encapsulated::EncapsulatedMessage as InternalEncapsulatedMessage,
@@ -34,14 +32,7 @@ pub type IncomingEncapsulatedMessageWithValidatedPublicHeader =
 pub type OutgoingEncapsulatedMessageWithValidatedPublicHeader =
     InternalOutgoingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>;
 
-#[derive(Clone, Derivative, serde::Serialize, serde::Deserialize)]
-#[derivative(Debug)]
 pub struct SessionCryptographicProcessorSettings {
-    /// The non-ephemeral signing key (NSK) corresponding to the public key
-    /// registered in the membership (SDP).
-    #[serde(with = "crate::serde::ed25519_privkey_hex")]
-    #[derivative(Debug = "ignore")]
-    pub non_ephemeral_signing_key: Ed25519PrivateKey,
     /// `ß_c`: expected number of blending operations for each locally generated
     /// message.
     pub num_blend_layers: u64,

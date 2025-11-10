@@ -65,10 +65,8 @@ where
         membership: Membership<NodeId>,
         public_info: PoQVerificationInputsMinusSigningKey,
         private_core_info: ProofOfCoreQuotaInputs,
+        non_ephemeral_encryption_key: X25519PrivateKey,
     ) -> Self {
-        // Derive the non-ephemeral encryption key
-        // from the non-ephemeral signing key.
-        let non_ephemeral_encryption_key = settings.non_ephemeral_signing_key.derive_x25519();
         let generator_settings = ProofsGeneratorSettings {
             local_node_index: membership.local_index(),
             membership_size: membership.size(),
@@ -207,14 +205,11 @@ where
 mod test {
     use groth16::Field as _;
     use multiaddr::{Multiaddr, PeerId};
-    use nomos_blend_message::crypto::{
-        keys::Ed25519PrivateKey,
-        proofs::{
-            PoQVerificationInputsMinusSigningKey,
-            quota::inputs::prove::{
-                private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs},
-                public::{CoreInputs, LeaderInputs},
-            },
+    use nomos_blend_message::crypto::proofs::{
+        PoQVerificationInputsMinusSigningKey,
+        quota::inputs::prove::{
+            private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs},
+            public::{CoreInputs, LeaderInputs},
         },
     };
     use nomos_core::crypto::ZkHash;
@@ -233,7 +228,6 @@ mod test {
         let mut processor =
             SessionCryptographicProcessor::<_, TestEpochChangeCoreAndLeaderProofsGenerator>::new(
                 &SessionCryptographicProcessorSettings {
-                    non_ephemeral_signing_key: Ed25519PrivateKey::generate(),
                     num_blend_layers: 1,
                 },
                 Membership::new_without_local(&[Node {
@@ -258,6 +252,7 @@ mod test {
                     core_path_and_selectors: [(ZkHash::ZERO, false); _],
                     core_sk: ZkHash::ZERO,
                 },
+                [0; 32].into(),
             );
 
         let new_leader_inputs = LeaderInputs {
@@ -280,7 +275,6 @@ mod test {
         let mut processor =
             SessionCryptographicProcessor::<_, TestEpochChangeCoreAndLeaderProofsGenerator>::new(
                 &SessionCryptographicProcessorSettings {
-                    non_ephemeral_signing_key: Ed25519PrivateKey::generate(),
                     num_blend_layers: 1,
                 },
                 Membership::new_without_local(&[Node {
@@ -305,6 +299,7 @@ mod test {
                     core_path_and_selectors: [(ZkHash::ZERO, false); _],
                     core_sk: ZkHash::ZERO,
                 },
+                [0; 32].into(),
             );
 
         let new_private_inputs = ProofOfLeadershipQuotaInputs {

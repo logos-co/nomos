@@ -2,9 +2,12 @@ use core::ops::{Deref, DerefMut};
 
 use nomos_blend_message::{
     Error,
-    crypto::proofs::{
-        PoQVerificationInputsMinusSigningKey,
-        quota::inputs::prove::{private::ProofOfCoreQuotaInputs, public::LeaderInputs},
+    crypto::{
+        keys::X25519PrivateKey,
+        proofs::{
+            PoQVerificationInputsMinusSigningKey,
+            quota::inputs::prove::{private::ProofOfCoreQuotaInputs, public::LeaderInputs},
+        },
     },
     encap::{
         ProofsVerifier as ProofsVerifierTrait,
@@ -48,6 +51,7 @@ where
         membership: Membership<NodeId>,
         public_info: PoQVerificationInputsMinusSigningKey,
         private_core_info: ProofOfCoreQuotaInputs,
+        non_ephemeral_encryption_key: X25519PrivateKey,
     ) -> Self {
         Self {
             sender_processor: SenderSessionCryptographicProcessor::new(
@@ -55,6 +59,7 @@ where
                 membership,
                 public_info,
                 private_core_info,
+                non_ephemeral_encryption_key,
             ),
             proofs_verifier: ProofsVerifier::new(public_info),
         }
@@ -139,14 +144,11 @@ impl<NodeId, ProofsGenerator, ProofsVerifier> DerefMut
 mod test {
     use groth16::Field as _;
     use multiaddr::{Multiaddr, PeerId};
-    use nomos_blend_message::crypto::{
-        keys::Ed25519PrivateKey,
-        proofs::{
-            PoQVerificationInputsMinusSigningKey,
-            quota::inputs::prove::{
-                private::ProofOfCoreQuotaInputs,
-                public::{CoreInputs, LeaderInputs},
-            },
+    use nomos_blend_message::crypto::proofs::{
+        PoQVerificationInputsMinusSigningKey,
+        quota::inputs::prove::{
+            private::ProofOfCoreQuotaInputs,
+            public::{CoreInputs, LeaderInputs},
         },
     };
     use nomos_core::crypto::ZkHash;
@@ -170,7 +172,6 @@ mod test {
             TestEpochChangeProofsVerifier,
         >::new(
             &SessionCryptographicProcessorSettings {
-                non_ephemeral_signing_key: Ed25519PrivateKey::generate(),
                 num_blend_layers: 1,
             },
             Membership::new_without_local(&[Node {
@@ -195,6 +196,7 @@ mod test {
                 core_path_and_selectors: [(ZkHash::ZERO, false); _],
                 core_sk: ZkHash::ZERO,
             },
+            [0; 32].into(),
         );
 
         let new_leader_inputs = LeaderInputs {
