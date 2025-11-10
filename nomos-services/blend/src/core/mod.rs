@@ -353,7 +353,6 @@ where
         // Run the main event loop while the node is a core node across multiple
         // sessions. When the node becomes a non-core node in a new session, the
         // components for the last session transition period are returned.
-        //
         let (
             old_session_crypto_processor,
             old_session_public_info,
