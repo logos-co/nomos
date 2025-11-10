@@ -9,7 +9,10 @@ use async_trait::async_trait;
 use backends::BlendBackend;
 use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 use fork_stream::StreamExt as _;
-use futures::{Stream, StreamExt as _, future::join_all};
+use futures::{
+    FutureExt as _, Stream, StreamExt as _,
+    future::{BoxFuture, join_all},
+};
 use network::NetworkAdapter;
 use nomos_blend_message::{
     PayloadType,
@@ -61,7 +64,7 @@ use crate::{
         processor::{CoreCryptographicProcessor, Error},
         scheduler::SchedulerWrapper,
         settings::BlendConfig,
-        state::{RecoveryServiceState, ServiceState},
+        state::{RecoveryServiceState, ServiceState, StateUpdater as ServiceStateUpdater},
     },
     epoch_info::{
         ChainApi, EpochEvent, EpochHandler, LeaderInputsMinusQuota, PolEpochInfo,
@@ -1304,31 +1307,17 @@ where
             // Each data message that is sent is one less cover message that should be generated, hence we consume one core quota per data message here.
             state_updater.consume_core_quota(1);
         }).map(
-            |data_message_to_blend| -> Box<dyn Future<Output = ()> + Send + Unpin> {
-                Box::new(backend.publish(data_message_to_blend))
+            |data_message_to_blend| -> BoxFuture<'_, ()> {
+                backend.publish(data_message_to_blend).boxed()
             },
         ).collect::<Vec<_>>();
 
-    let processed_messages_relay_futures = processed_messages
-        .into_iter()
-        .inspect(|processed_message_to_release| {
-            if state_updater.remove_sent_processed_message(processed_message_to_release).is_err() {
-                tracing::warn!(target: LOG_TARGET, "Previously processed message should be present in the recovery state but was not found.");
-            }
-        })
-        .map(
-            |processed_message_to_release| -> Box<dyn Future<Output = ()> + Send + Unpin> {
-                match processed_message_to_release {
-                    ProcessedMessage::Network(NetworkMessage {
-                        broadcast_settings,
-                        message,
-                    }) => Box::new(network_adapter.broadcast(message, broadcast_settings)),
-                    ProcessedMessage::Encapsulated(encapsulated_message) => {
-                        Box::new(backend.publish(*encapsulated_message))
-                    }
-                }
-            },
-        ).collect::<Vec<_>>();
+    let processed_messages_relay_futures = build_futures_to_release_processed_messages(
+        processed_messages,
+        backend,
+        network_adapter,
+        &mut state_updater,
+    );
 
     let mut message_futures = data_messages_relay_futures
         .into_iter()
@@ -1341,7 +1330,7 @@ where
             .await
             .expect("Should not fail to generate new cover message");
         state_updater.consume_core_quota(1);
-        message_futures.push(Box::new(backend.publish(cover_message)));
+        message_futures.push(backend.publish(cover_message).boxed());
     }
     message_futures.shuffle(rng);
 
@@ -1360,7 +1349,7 @@ async fn handle_release_round_for_old_session<
     ProofsVerifier,
     RuntimeServiceId,
 >(
-    process_messages_to_release: Vec<ProcessedMessage<NetAdapter::BroadcastSettings>>,
+    processed_messages_to_release: Vec<ProcessedMessage<NetAdapter::BroadcastSettings>>,
     rng: &mut Rng,
     backend: &Backend,
     network_adapter: &NetAdapter,
@@ -1373,28 +1362,12 @@ where
     NetAdapter: NetworkAdapter<RuntimeServiceId, BroadcastSettings: Eq + Hash> + Sync,
 {
     let mut state_updater = current_recovery_checkpoint.start_updating();
-
-    let mut futures = process_messages_to_release
-        .into_iter()
-        .inspect(|processed_message_to_release| {
-            if state_updater.remove_sent_processed_message(processed_message_to_release).is_err() {
-                tracing::warn!(target: LOG_TARGET, "Previously processed message should be present in the recovery state but was not found.");
-            }
-        })
-        .map(
-            |processed_message_to_release| -> Box<dyn Future<Output = ()> + Send + Unpin> {
-                match processed_message_to_release {
-                    ProcessedMessage::Network(NetworkMessage {
-                        broadcast_settings,
-                        message,
-                    }) => Box::new(network_adapter.broadcast(message, broadcast_settings)),
-                    ProcessedMessage::Encapsulated(encapsulated_message) => {
-                        Box::new(backend.publish(*encapsulated_message))
-                    }
-                }
-            },
-        ).collect::<Vec<_>>();
-
+    let mut futures = build_futures_to_release_processed_messages(
+        processed_messages_to_release,
+        backend,
+        network_adapter,
+        &mut state_updater,
+    );
     futures.shuffle(rng);
 
     // Release all messages concurrently, and wait for all of them to be sent.
@@ -1403,6 +1376,49 @@ where
     tracing::debug!(target: LOG_TARGET, "Sent out {num_futures} processed messages at this release window for the old session");
 
     state_updater.commit_changes()
+}
+
+fn build_futures_to_release_processed_messages<
+    'fut,
+    NodeId,
+    Backend,
+    NetAdapter,
+    ProofsVerifier,
+    RuntimeServiceId,
+>(
+    processed_messages_to_release: Vec<ProcessedMessage<NetAdapter::BroadcastSettings>>,
+    backend: &'fut Backend,
+    network_adapter: &'fut NetAdapter,
+    state_updater: &mut ServiceStateUpdater<
+        <Backend as BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId>>::Settings,
+        NetAdapter::BroadcastSettings,
+    >,
+) -> Vec<BoxFuture<'fut, ()>>
+where
+    NodeId: Eq + Hash + 'static,
+    Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId> + Sync,
+    NetAdapter: NetworkAdapter<RuntimeServiceId, BroadcastSettings: Eq + Hash> + Sync,
+{
+    processed_messages_to_release
+        .into_iter()
+        .inspect(|processed_message_to_release| {
+            if state_updater.remove_sent_processed_message(processed_message_to_release).is_err() {
+                tracing::warn!(target: LOG_TARGET, "Previously processed message should be present in the recovery state but was not found.");
+            }
+        })
+        .map(
+            |processed_message_to_release| -> BoxFuture<'fut, ()> {
+                match processed_message_to_release {
+                    ProcessedMessage::Network(NetworkMessage {
+                        broadcast_settings,
+                        message,
+                    }) => network_adapter.broadcast(message, broadcast_settings).boxed(),
+                    ProcessedMessage::Encapsulated(encapsulated_message) => {
+                        backend.publish(*encapsulated_message).boxed()
+                    }
+                }
+            },
+        ).collect()
 }
 
 /// Handle a clock event by calling into the epoch handler and process the
