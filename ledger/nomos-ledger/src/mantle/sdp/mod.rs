@@ -108,7 +108,6 @@ impl Service {
         }
     }
 
-    #[cfg(test)]
     const fn declarations(&self) -> &Declarations {
         match self {
             Self::DataAvailability(state) => &state.declarations,
@@ -585,8 +584,7 @@ impl SdpLedger {
             .iter()
             .flat_map(|(_, service_state)| {
                 service_state
-                    .state()
-                    .declarations
+                    .declarations()
                     .iter()
                     .map(|(id, declaration)| (*id, declaration.clone()))
             })
