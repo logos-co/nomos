@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use futures::StreamExt as _;
 use nomos_core::{da::BlobId, sdp::SessionNumber};
 use tests::{
@@ -55,7 +53,7 @@ async fn test_sampling_scenarios(executor: &Executor, blob_ids: &[BlobId]) {
 
     // Test 1: Valid blobs - all from session 0
     let valid_future = async {
-        let blob_ids_map: HashMap<BlobId, SessionNumber> =
+        let blob_ids_map: Vec<(BlobId, SessionNumber)> =
             blob_ids.iter().map(|&blob_id| (blob_id, 0)).collect();
 
         let result = executor
@@ -74,7 +72,7 @@ async fn test_sampling_scenarios(executor: &Executor, blob_ids: &[BlobId]) {
         let mut mixed_blob_ids = blob_ids.to_vec();
         mixed_blob_ids[0] = [99u8; 32];
 
-        let blob_ids_map: HashMap<BlobId, SessionNumber> =
+        let blob_ids_map: Vec<(BlobId, SessionNumber)> =
             mixed_blob_ids.iter().map(|&blob_id| (blob_id, 0)).collect();
 
         let result = executor
