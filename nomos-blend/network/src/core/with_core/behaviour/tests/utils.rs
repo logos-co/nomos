@@ -1,8 +1,5 @@
 use core::{fmt::Debug, num::NonZeroUsize, ops::RangeInclusive, time::Duration};
-use std::{
-    collections::{HashMap, VecDeque},
-    marker::PhantomData,
-};
+use std::collections::{HashMap, VecDeque};
 
 use async_trait::async_trait;
 use futures::{Stream, StreamExt as _, select};
@@ -56,29 +53,17 @@ impl IntervalProviderBuilder {
     }
 }
 
-pub struct BehaviourBuilder<ProofsVerifier> {
+#[derive(Default)]
+pub struct BehaviourBuilder {
     provider: Option<IntervalProvider>,
     local_peer_id: Option<PeerId>,
     peering_degree: Option<RangeInclusive<usize>>,
     identity: Option<Keypair>,
     minimum_network_size: Option<NonZeroUsize>,
     session: Option<SessionNumber>,
-    _marker: PhantomData<ProofsVerifier>,
 }
 
-impl<ProofsVerifier> BehaviourBuilder<ProofsVerifier> {
-    pub fn new() -> Self {
-        Self {
-            provider: None,
-            local_peer_id: None,
-            peering_degree: None,
-            identity: None,
-            minimum_network_size: None,
-            session: None,
-            _marker: PhantomData,
-        }
-    }
-
+impl BehaviourBuilder {
     pub fn with_provider(mut self, provider: IntervalProvider) -> Self {
         self.provider = Some(provider);
         self
@@ -117,13 +102,11 @@ impl<ProofsVerifier> BehaviourBuilder<ProofsVerifier> {
         self.session = Some(session);
         self
     }
-}
 
-impl<ProofsVerifier> BehaviourBuilder<ProofsVerifier>
-where
-    ProofsVerifier: encap::ProofsVerifier,
-{
-    pub fn build(self) -> Behaviour<ProofsVerifier, IntervalProvider> {
+    pub fn build<ProofsVerifier>(self) -> Behaviour<ProofsVerifier, IntervalProvider>
+    where
+        ProofsVerifier: encap::ProofsVerifier,
+    {
         use nomos_core::crypto::ZkHash;
 
         let local_peer_id = match (self.local_peer_id, self.identity) {

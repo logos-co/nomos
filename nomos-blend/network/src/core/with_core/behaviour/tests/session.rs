@@ -20,16 +20,16 @@ use crate::core::{
 async fn publish_message() {
     let mut session = 0;
     let mut dialer = TestSwarm::new(|id| {
-        BehaviourBuilder::<SessionBasedMockProofsVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
             .with_session(session)
-            .build()
+            .build::<SessionBasedMockProofsVerifier>()
     });
     let mut listener = TestSwarm::new(|id| {
-        BehaviourBuilder::<SessionBasedMockProofsVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
             .with_session(session)
-            .build()
+            .build::<SessionBasedMockProofsVerifier>()
     });
 
     listener.listen().with_memory_addr_external().await;
@@ -84,29 +84,29 @@ async fn publish_message() {
 async fn forward_message() {
     let old_session = 0;
     let mut sender = TestSwarm::new(|id| {
-        BehaviourBuilder::<SessionBasedMockProofsVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
             .with_session(old_session)
-            .build()
+            .build::<SessionBasedMockProofsVerifier>()
     });
     let mut forwarder = TestSwarm::new(|id| {
-        BehaviourBuilder::<SessionBasedMockProofsVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
             .with_peering_degree(2..=2)
             .with_session(old_session)
-            .build()
+            .build::<SessionBasedMockProofsVerifier>()
     });
     let mut receiver1 = TestSwarm::new(|id| {
-        BehaviourBuilder::<SessionBasedMockProofsVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
             .with_session(old_session)
-            .build()
+            .build::<SessionBasedMockProofsVerifier>()
     });
     let mut receiver2 = TestSwarm::new(|id| {
-        BehaviourBuilder::<SessionBasedMockProofsVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
             .with_session(old_session)
-            .build()
+            .build::<SessionBasedMockProofsVerifier>()
     });
 
     forwarder.listen().with_memory_addr_external().await;
@@ -220,16 +220,16 @@ async fn forward_message() {
 async fn finish_session_transition() {
     let mut session = 0;
     let mut dialer = TestSwarm::new(|id| {
-        BehaviourBuilder::<SessionBasedMockProofsVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
             .with_session(session)
-            .build()
+            .build::<SessionBasedMockProofsVerifier>()
     });
     let mut listener = TestSwarm::new(|id| {
-        BehaviourBuilder::<SessionBasedMockProofsVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
             .with_session(session)
-            .build()
+            .build::<SessionBasedMockProofsVerifier>()
     });
 
     listener.listen().with_memory_addr_external().await;

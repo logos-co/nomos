@@ -21,9 +21,9 @@ use crate::core::{
 #[test(tokio::test)]
 async fn dialing_peer_not_supporting_blend_protocol() {
     let mut blend_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
     let mut dummy_swarm = TestSwarm::new(|_| dummy::Behaviour);
 
@@ -57,9 +57,9 @@ async fn dialing_peer_not_supporting_blend_protocol() {
 #[test(tokio::test)]
 async fn listening_peer_not_supporting_blend_protocol() {
     let mut blend_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
     let mut dummy_swarm = TestSwarm::new(|_| dummy::Behaviour);
 
@@ -93,16 +93,16 @@ async fn listening_peer_not_supporting_blend_protocol() {
 #[test(tokio::test)]
 async fn incoming_connection_network_too_small() {
     let mut dialing_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
     let mut listening_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             // Minimum network size of 2 with one-node (local) membership.
             .with_minimum_network_size(2)
             .with_identity(id)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
 
     listening_swarm.listen().with_memory_addr_external().await;
@@ -125,16 +125,16 @@ async fn incoming_connection_network_too_small() {
 #[test(tokio::test)]
 async fn outgoing_connection_network_too_small() {
     let mut listening_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
     let mut dialing_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             // Minimum network size of 2 with one-node (local) membership.
             .with_minimum_network_size(2)
             .with_identity(id)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
 
     listening_swarm.listen().with_memory_addr_external().await;
@@ -157,19 +157,19 @@ async fn outgoing_connection_network_too_small() {
 #[test(tokio::test)]
 async fn incoming_attempt_with_max_negotiated_peering_degree() {
     let mut listening_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
     let mut dialer_swarm_1 = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
     let mut dialer_swarm_2 = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
 
     listening_swarm.listen().with_memory_addr_external().await;
@@ -200,19 +200,19 @@ async fn incoming_attempt_with_max_negotiated_peering_degree() {
 #[test(tokio::test)]
 async fn concurrent_incoming_connections() {
     let mut listening_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
     let mut dialer_swarm_1 = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
     let mut dialer_swarm_2 = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
 
     let (listening_address, _) = listening_swarm.listen().await;
@@ -278,14 +278,14 @@ async fn concurrent_incoming_connections() {
 #[test(tokio::test)]
 async fn incoming_attempt_with_duplicate_connection() {
     let mut listening_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
     let mut dialer_swarm_1 = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
 
     listening_swarm.listen().with_memory_addr_external().await;
@@ -327,19 +327,19 @@ async fn incoming_attempt_with_duplicate_connection() {
 #[test(tokio::test)]
 async fn outgoing_attempt_with_max_negotiated_peering_degree() {
     let mut dialing_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
     let mut listening_swarm_1 = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
     let mut listening_swarm_2 = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
 
     listening_swarm_1.listen().with_memory_addr_external().await;
@@ -371,19 +371,19 @@ async fn outgoing_attempt_with_max_negotiated_peering_degree() {
 #[test(tokio::test)]
 async fn concurrent_outgoing_connections() {
     let mut dialing_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
     let mut listening_swarm_1 = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
     let mut listening_swarm_2 = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
 
     let (listening_address_1, _) = listening_swarm_1.listen().await;
@@ -451,14 +451,14 @@ async fn concurrent_outgoing_connections() {
 #[test(tokio::test)]
 async fn outgoing_attempt_with_duplicate_connection() {
     let mut dialer_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
     let mut listening_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
 
     listening_swarm.listen().with_memory_addr_external().await;
@@ -500,14 +500,14 @@ async fn outgoing_attempt_with_duplicate_connection() {
 #[test(tokio::test)]
 async fn concurrent_same_direction_connections_between_peers() {
     let mut listening_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
     let mut dialer_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
 
     let (listening_address, _) = listening_swarm.listen().await;
@@ -567,14 +567,14 @@ async fn concurrent_same_direction_connections_between_peers() {
 #[test(tokio::test)]
 async fn concurrent_reverse_connections_between_peers() {
     let mut swarm_1 = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
     let mut swarm_2 = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
     let is_swarm_1_id_smaller = swarm_1.local_peer_id() <= swarm_2.local_peer_id();
 
@@ -697,16 +697,16 @@ async fn concurrent_reverse_connections_between_peers() {
 #[test(tokio::test)]
 async fn replace_existing_with_new_connection() {
     let mut smaller_swarm = TestSwarm::new(|_| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_local_peer_id(smallest_peer_id())
             .with_peering_degree(1..=2)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
     let mut larger_swarm = TestSwarm::new(|_| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_local_peer_id(largest_peer_id())
             .with_peering_degree(1..=2)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
 
     smaller_swarm.listen().with_memory_addr_external().await;
@@ -798,16 +798,16 @@ async fn replace_existing_with_new_connection() {
 #[test(tokio::test)]
 async fn discard_new_for_existing_connection() {
     let mut smaller_swarm = TestSwarm::new(|_| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_local_peer_id(smallest_peer_id())
             .with_peering_degree(1..=2)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
     let mut larger_swarm = TestSwarm::new(|_| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_local_peer_id(largest_peer_id())
             .with_peering_degree(1..=2)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
 
     smaller_swarm.listen().with_memory_addr_external().await;

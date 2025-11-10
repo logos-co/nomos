@@ -21,14 +21,14 @@ use crate::core::{
 #[test(tokio::test)]
 async fn message_sending_and_reception() {
     let mut dialing_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
     let mut listening_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
 
     listening_swarm.listen().with_memory_addr_external().await;
@@ -70,9 +70,9 @@ async fn message_sending_and_reception() {
 #[test(tokio::test)]
 async fn invalid_public_header_message_publish() {
     let mut dialing_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
 
     let invalid_signature_message = TestEncapsulatedMessage::new_with_invalid_signature(b"data");
@@ -87,14 +87,14 @@ async fn invalid_public_header_message_publish() {
 #[test(tokio::test)]
 async fn undeserializable_message_received() {
     let mut dialing_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
     let mut listening_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
 
     listening_swarm.listen().with_memory_addr_external().await;
@@ -136,14 +136,14 @@ async fn undeserializable_message_received() {
 #[test(tokio::test)]
 async fn duplicate_message_received() {
     let mut dialing_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
     let mut listening_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
 
     listening_swarm.listen().with_memory_addr_external().await;
@@ -195,14 +195,14 @@ async fn duplicate_message_received() {
 #[test(tokio::test)]
 async fn invalid_public_header_message_received() {
     let mut dialing_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
     let mut listening_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
 
     listening_swarm.listen().with_memory_addr_external().await;

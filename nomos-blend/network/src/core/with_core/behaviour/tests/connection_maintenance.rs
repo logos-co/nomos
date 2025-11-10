@@ -17,15 +17,15 @@ use crate::core::{
 #[test(tokio::test)]
 async fn detect_spammy_peer() {
     let mut dialing_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
     let mut listening_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
             .with_provider(IntervalProviderBuilder::default().with_range(1..=1).build())
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
 
     listening_swarm.listen().with_memory_addr_external().await;
@@ -75,15 +75,15 @@ async fn detect_spammy_peer() {
 #[test(tokio::test)]
 async fn detect_unhealthy_peer() {
     let mut dialing_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
     let mut listening_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
             .with_provider(IntervalProviderBuilder::default().with_range(1..=1).build())
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
 
     listening_swarm.listen().with_memory_addr_external().await;
@@ -136,15 +136,15 @@ async fn detect_unhealthy_peer() {
 #[test(tokio::test)]
 async fn restore_healthy_peer() {
     let mut dialing_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
     let mut listening_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::<AlwaysTrueVerifier>::new()
+        BehaviourBuilder::default()
             .with_identity(id)
             .with_provider(IntervalProviderBuilder::default().with_range(1..=1).build())
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
 
     listening_swarm.listen().with_memory_addr_external().await;
