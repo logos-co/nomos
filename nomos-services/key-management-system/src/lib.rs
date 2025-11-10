@@ -62,16 +62,18 @@ where
     Register {
         key_id: Backend::KeyId,
         key_type: Backend::Key,
-        reply_channel: oneshot::Sender<KeyDescriptor<Backend>>,
+        reply_channel: oneshot::Sender<Result<KeyDescriptor<Backend>, Backend::Error>>,
     },
     PublicKey {
         key_id: Backend::KeyId,
-        reply_channel: oneshot::Sender<<Backend::Key as SecuredKey>::PublicKey>,
+        reply_channel:
+            oneshot::Sender<Result<<Backend::Key as SecuredKey>::PublicKey, Backend::Error>>,
     },
     Sign {
         signing_strategy: KMSSigningStrategy<Backend::KeyId>,
         payload: <Backend::Key as SecuredKey>::Payload,
-        reply_channel: oneshot::Sender<<Backend::Key as SecuredKey>::Signature>,
+        reply_channel:
+            oneshot::Sender<Result<<Backend::Key as SecuredKey>::Signature, Backend::Error>>,
     },
     Execute {
         key_id: Backend::KeyId,
@@ -172,13 +174,22 @@ where
                 key_type,
                 reply_channel,
             } => {
-                let Ok(()) = backend.register(&key_id, key_type) else {
-                    panic!("A key could not be registered");
+                if let Err(e) = backend.register(&key_id, key_type) {
+                    if reply_channel.send(Err(e)).is_err() {
+                        error!("Could not send backend key registration error to caller.");
+                    }
+                    return;
+                }
+                let key_public_key = match backend.public_key(&key_id) {
+                    Err(e) => {
+                        if reply_channel.send(Err(e)).is_err() {
+                            error!("Could not send backend public key retrieval error to caller.");
+                        }
+                        return;
+                    }
+                    Ok(key_public_key) => key_public_key,
                 };
-                let Ok(key_public_key) = backend.public_key(&key_id) else {
-                    panic!("Requested public key for nonexistent KeyId");
-                };
-                if let Err(_key_descriptor) = reply_channel.send((key_id, key_public_key)) {
+                if reply_channel.send(Ok((key_id, key_public_key))).is_err() {
                     error!("Could not reply key_id for register request");
                 }
             }
@@ -186,10 +197,16 @@ where
                 key_id,
                 reply_channel,
             } => {
-                let Ok(pk_bytes) = backend.public_key(&key_id) else {
-                    panic!("Requested public key for nonexistent KeyId");
+                let pk_bytes = match backend.public_key(&key_id) {
+                    Err(e) => {
+                        if reply_channel.send(Err(e)).is_err() {
+                            error!("Could not send backend public key retrieval error to caller.");
+                        }
+                        return;
+                    }
+                    Ok(pk_bytes) => pk_bytes,
                 };
-                if let Err(_pk_bytes) = reply_channel.send(pk_bytes) {
+                if reply_channel.send(Ok(pk_bytes)).is_err() {
                     error!("Could not reply to the public key request channel");
                 }
             }
@@ -198,23 +215,30 @@ where
                 payload,
                 reply_channel,
             } => {
-                let signature = match signing_strategy {
+                let signature_result = match signing_strategy {
                     KMSSigningStrategy::Single(key) => backend.sign(&key, payload),
                     KMSSigningStrategy::Multi(keys) => {
                         backend.sign_multiple(keys.as_slice(), payload)
                     }
-                }
-                .expect("Could not sign.");
+                };
+                let signature = match signature_result {
+                    Err(e) => {
+                        if reply_channel.send(Err(e)).is_err() {
+                            error!("Could not send signature error to caller.");
+                        }
+                        return;
+                    }
+                    Ok(signature) => signature,
+                };
 
-                if let Err(_signature) = reply_channel.send(signature) {
+                if let Err(_signature) = reply_channel.send(Ok(signature)) {
                     error!("Could not reply to the public key request channel");
                 }
             }
             KMSMessage::Execute { key_id, operator } => {
-                backend
-                    .execute(&key_id, operator)
-                    .await
-                    .expect("Could not execute operator");
+                let _ = backend.execute(&key_id, operator).await.inspect_err(|e| {
+                    error!("Failed to execute operator with key ID {key_id:?}. Error: {e:?}");
+                });
             }
         }
     }
