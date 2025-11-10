@@ -601,7 +601,7 @@ where
     make_request_and_return_response!(HttpStorageAdapter::get_block::<SignedMantleTx>(relay, id))
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct GetCommitmentsRequest<DaBlobId> {
     pub blob_id: DaBlobId,
     pub session: SessionNumber,

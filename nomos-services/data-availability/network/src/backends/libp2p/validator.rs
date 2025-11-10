@@ -53,7 +53,7 @@ pub enum DaNetworkMessage<BalancerStats, MonitorStats>
 where
     BalancerStats: Debug + Serialize,
 {
-    /// Kickstart a network sapling
+    /// Kickstart a network sampling
     RequestSample {
         blob_id: BlobId,
         session: SessionNumber,
