@@ -10,7 +10,10 @@ use crate::core::{
     with_core::{
         behaviour::{
             Event,
-            tests::utils::{BehaviourBuilder, SwarmExt as _, build_memberships},
+            tests::utils::{
+                BehaviourBuilder, SwarmExt as _, build_memberships,
+                default_poq_verification_inputs_for_session,
+            },
         },
         error::Error,
     },
@@ -22,13 +25,13 @@ async fn publish_message() {
     let mut dialer = TestSwarm::new(|id| {
         BehaviourBuilder::default()
             .with_identity(id)
-            .with_session(session)
+            .with_poq_verification_inputs(default_poq_verification_inputs_for_session(session))
             .build::<SessionBasedMockProofsVerifier>()
     });
     let mut listener = TestSwarm::new(|id| {
         BehaviourBuilder::default()
             .with_identity(id)
-            .with_session(session)
+            .with_poq_verification_inputs(default_poq_verification_inputs_for_session(session))
             .build::<SessionBasedMockProofsVerifier>()
     });
 
@@ -86,26 +89,26 @@ async fn forward_message() {
     let mut sender = TestSwarm::new(|id| {
         BehaviourBuilder::default()
             .with_identity(id)
-            .with_session(old_session)
+            .with_poq_verification_inputs(default_poq_verification_inputs_for_session(old_session))
             .build::<SessionBasedMockProofsVerifier>()
     });
     let mut forwarder = TestSwarm::new(|id| {
         BehaviourBuilder::default()
             .with_identity(id)
             .with_peering_degree(2..=2)
-            .with_session(old_session)
+            .with_poq_verification_inputs(default_poq_verification_inputs_for_session(old_session))
             .build::<SessionBasedMockProofsVerifier>()
     });
     let mut receiver1 = TestSwarm::new(|id| {
         BehaviourBuilder::default()
             .with_identity(id)
-            .with_session(old_session)
+            .with_poq_verification_inputs(default_poq_verification_inputs_for_session(old_session))
             .build::<SessionBasedMockProofsVerifier>()
     });
     let mut receiver2 = TestSwarm::new(|id| {
         BehaviourBuilder::default()
             .with_identity(id)
-            .with_session(old_session)
+            .with_poq_verification_inputs(default_poq_verification_inputs_for_session(old_session))
             .build::<SessionBasedMockProofsVerifier>()
     });
 
@@ -222,13 +225,13 @@ async fn finish_session_transition() {
     let mut dialer = TestSwarm::new(|id| {
         BehaviourBuilder::default()
             .with_identity(id)
-            .with_session(session)
+            .with_poq_verification_inputs(default_poq_verification_inputs_for_session(session))
             .build::<SessionBasedMockProofsVerifier>()
     });
     let mut listener = TestSwarm::new(|id| {
         BehaviourBuilder::default()
             .with_identity(id)
-            .with_session(session)
+            .with_poq_verification_inputs(default_poq_verification_inputs_for_session(session))
             .build::<SessionBasedMockProofsVerifier>()
     });
 

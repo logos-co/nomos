@@ -14,7 +14,7 @@ use nomos_blend_message::{
     encap,
 };
 use nomos_blend_scheduling::membership::{Membership, Node};
-use nomos_core::sdp::SessionNumber;
+use nomos_core::{crypto::ZkHash, sdp::SessionNumber};
 use nomos_libp2p::{NetworkBehaviour, SwarmEvent};
 use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
@@ -60,7 +60,7 @@ pub struct BehaviourBuilder {
     peering_degree: Option<RangeInclusive<usize>>,
     identity: Option<Keypair>,
     minimum_network_size: Option<NonZeroUsize>,
-    session: Option<SessionNumber>,
+    poq_verification_inputs: Option<PoQVerificationInputsMinusSigningKey>,
 }
 
 impl BehaviourBuilder {
@@ -97,9 +97,15 @@ impl BehaviourBuilder {
         self
     }
 
-    pub fn with_session(mut self, session: SessionNumber) -> Self {
-        assert!(self.session.is_none(), "session already set.");
-        self.session = Some(session);
+    pub fn with_poq_verification_inputs(
+        mut self,
+        poq_verification_inputs: PoQVerificationInputsMinusSigningKey,
+    ) -> Self {
+        assert!(
+            self.poq_verification_inputs.is_none(),
+            "poq_verification_inputs already set."
+        );
+        self.poq_verification_inputs = Some(poq_verification_inputs);
         self
     }
 
@@ -107,8 +113,6 @@ impl BehaviourBuilder {
     where
         ProofsVerifier: encap::ProofsVerifier,
     {
-        use nomos_core::crypto::ZkHash;
-
         let local_peer_id = match (self.local_peer_id, self.identity) {
             (None, None) => PeerId::random(),
             (Some(peer_id), None) => peer_id,
@@ -132,20 +136,29 @@ impl BehaviourBuilder {
                 .minimum_network_size
                 .unwrap_or_else(|| 1usize.try_into().unwrap()),
             old_session: None,
-            poq_verifier: ProofsVerifier::new(PoQVerificationInputsMinusSigningKey {
-                session: self.session.unwrap_or_default(),
-                core: CoreInputs {
-                    zk_root: ZkHash::ZERO,
-                    quota: 0,
-                },
-                leader: LeaderInputs {
-                    pol_ledger_aged: ZkHash::ZERO,
-                    pol_epoch_nonce: ZkHash::ZERO,
-                    message_quota: 0,
-                    total_stake: 0,
-                },
-            }),
+            poq_verifier: ProofsVerifier::new(
+                self.poq_verification_inputs
+                    .unwrap_or_else(|| default_poq_verification_inputs_for_session(0)),
+            ),
         }
+    }
+}
+
+pub fn default_poq_verification_inputs_for_session(
+    session: SessionNumber,
+) -> PoQVerificationInputsMinusSigningKey {
+    PoQVerificationInputsMinusSigningKey {
+        session,
+        core: CoreInputs {
+            zk_root: ZkHash::ZERO,
+            quota: 0,
+        },
+        leader: LeaderInputs {
+            pol_ledger_aged: ZkHash::ZERO,
+            pol_epoch_nonce: ZkHash::ZERO,
+            message_quota: 0,
+            total_stake: 0,
+        },
     }
 }
 
