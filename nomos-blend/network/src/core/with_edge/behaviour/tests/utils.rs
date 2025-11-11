@@ -13,7 +13,6 @@ use crate::core::{
     with_edge::behaviour::Behaviour,
 };
 
-#[derive(Default)]
 pub struct BehaviourBuilder {
     core_peer_ids: Vec<PeerId>,
     max_incoming_connections: Option<usize>,
