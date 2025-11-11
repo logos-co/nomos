@@ -5,7 +5,10 @@ use ed25519_dalek::SigningKey;
 use executor_http_client::ExecutorHttpClient;
 use nomos_core::mantle::{
     Transaction as _,
-    ops::channel::{ChannelId, Ed25519PublicKey, MsgId},
+    ops::{
+        Op,
+        channel::{ChannelId, Ed25519PublicKey, MsgId},
+    },
 };
 use serial_test::serial;
 use tests::{
@@ -84,10 +87,19 @@ async fn channel_ops_flow() {
     .await
     .expect("Channel should exist after inscription");
 
-    assert_ne!(
-        state.tip,
-        MsgId::root(),
-        "Channel tip should not be root after inscription"
+    let inscribe_msg_id = signed_inscribe_tx
+        .mantle_tx
+        .ops
+        .first()
+        .and_then(|op| match op {
+            Op::ChannelInscribe(inscribe) => Some(inscribe.id()),
+            _ => None,
+        })
+        .expect("Inscribe transaction should contain a channel inscribe op");
+
+    assert_eq!(
+        state.tip, inscribe_msg_id,
+        "Channel tip should match the inscribed message id"
     );
 
     let new_signing_key = SigningKey::from_bytes(&[0u8; 32]);
@@ -127,10 +139,9 @@ async fn channel_ops_flow() {
         "Channel keys should be updated to the new key"
     );
 
-    assert_ne!(
-        channel_state.tip,
-        MsgId::root(),
-        "Channel tip should not be root before publishing blob"
+    assert_eq!(
+        channel_state.tip, inscribe_msg_id,
+        "Channel tip should still match the inscription before publishing blob"
     );
 
     let blob_payload = [1u8; 31];
@@ -150,7 +161,7 @@ async fn channel_ops_flow() {
         .await
         .expect("Failed to publish blob");
 
-    wait_for_blob_onchain(executor, channel_id, blob_id).await;
+    let blob_msg_id = wait_for_blob_onchain(executor, channel_id, blob_id).await;
 
     let final_channel_state = wait_for_channel_tip_change(
         validator_url.as_str(),
@@ -164,5 +175,9 @@ async fn channel_ops_flow() {
     assert_ne!(
         final_channel_state.tip, channel_state.tip,
         "Channel tip should advance after blob dispersal"
+    );
+    assert_eq!(
+        final_channel_state.tip, blob_msg_id,
+        "Channel tip should match the blob message id that was just dispersed"
     );
 }

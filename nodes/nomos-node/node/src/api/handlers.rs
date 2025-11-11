@@ -1,4 +1,3 @@
-use nomos_core::mantle::ops::channel::ChannelId;
 use std::{
     error::Error,
     fmt::{Debug, Display},
@@ -22,7 +21,7 @@ use nomos_api::http::{
 use nomos_core::{
     da::{BlobId, DaVerifier as CoreDaVerifier, blob::Share},
     header::HeaderId,
-    mantle::{SignedMantleTx, Transaction},
+    mantle::{SignedMantleTx, Transaction, ops::channel::ChannelId},
     sdp::SessionNumber,
 };
 use nomos_da_messages::http::da::{

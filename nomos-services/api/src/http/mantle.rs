@@ -20,9 +20,9 @@ use tx_service::{
 #[cfg(feature = "block-explorer")]
 use {
     bytes::Bytes,
+    chain_service::Slot,
     chain_service::storage::StorageAdapter as _,
     chain_service::storage::adapters::StorageAdapter,
-    chain_service::Slot,
     futures::future::join_all,
     nomos_core::{block::Block, mantle::TxHash},
     nomos_storage::{
