@@ -8,10 +8,8 @@ use ark_poly::{
 };
 use num_traits::Zero as _;
 
-/// Extend a polynomial over some factor `polynomial.len()*factor` and return
+/// Extend a polynomial with the provided domain (size) and return
 /// the original points plus the extra ones.
-///
-/// `factor` need to be `>1`
 #[must_use]
 pub fn encode(
     polynomial: &DensePolynomial<Fr>,
@@ -27,25 +25,30 @@ pub fn encode(
 /// `domain` need to be the same domain of the original `evaluations` and
 /// `polynomial` used for encoding.
 #[must_use]
-pub fn decode(
+pub fn decode_unchecked(
     original_chunks_len: usize,
     points: &[Option<Fr>],
-    domain: GeneralEvaluationDomain<Fr>,
+    coefficients_domain: GeneralEvaluationDomain<Fr>,
+    encode_domain: GeneralEvaluationDomain<Fr>,
 ) -> Evaluations<Fr> {
+    // 1) pick the available points from the ENCODE domain
     let (points, roots_of_unity): (Vec<Fr>, Vec<Fr>) = points
         .iter()
         .enumerate()
-        .filter_map(|(i, e)| e.map(|e| (e, domain.element(i))))
+        .filter_map(|(i, e)| e.map(|e| (e, encode_domain.element(i))))
         .unzip();
+
+    // 2) interpolate polynomial
     let coeffs = lagrange_interpolate(&points, &roots_of_unity);
-    Evaluations::from_vec_and_domain(
-        domain
-            .fft(&coeffs)
-            .into_iter()
-            .take(original_chunks_len)
-            .collect(),
-        domain,
-    )
+
+    // 3) NOW evaluate on the **original** domain, not the encode domain
+    let evals_on_original = coefficients_domain
+        .fft(&coeffs)
+        .into_iter()
+        .take(original_chunks_len)
+        .collect();
+
+    Evaluations::from_vec_and_domain(evals_on_original, coefficients_domain)
 }
 
 /// Interpolate a set of points using lagrange interpolation and roots of unity
@@ -101,35 +104,35 @@ mod test {
 
     use crate::{
         common::bytes_to_polynomial,
-        rs::{decode, encode, points_to_bytes},
+        rs::{decode_unchecked, encode, points_to_bytes},
     };
 
-    const COEFFICIENTS_SIZE: usize = 32;
-    static DOMAIN: LazyLock<GeneralEvaluationDomain<Fr>> =
-        LazyLock::new(|| GeneralEvaluationDomain::new(COEFFICIENTS_SIZE).unwrap());
+    const ENCODE_DOMAIN_SIZE: usize = 32;
+
+    static ENCODE_DOMAIN: LazyLock<GeneralEvaluationDomain<Fr>> =
+        LazyLock::new(|| GeneralEvaluationDomain::new(ENCODE_DOMAIN_SIZE).unwrap());
 
     #[test]
     fn test_encode_decode() {
         let mut bytes: [u8; 310] = [0; 310];
         let mut rng = thread_rng();
         bytes.try_fill(&mut rng).unwrap();
+        let coeff_domain = GeneralEvaluationDomain::new(10usize.next_power_of_two()).unwrap();
 
-        let (_evals, poly) = bytes_to_polynomial::<31>(&bytes, *DOMAIN).unwrap();
-
-        let encoded = encode(&poly, *DOMAIN);
+        let (_evals, poly) = bytes_to_polynomial::<31>(&bytes, coeff_domain).unwrap();
+        let encoded = encode(&poly, *ENCODE_DOMAIN);
         let mut encoded: Vec<Option<Fr>> = encoded.evals.into_iter().map(Some).collect();
-
-        let decoded = decode(10, &encoded, *DOMAIN);
+        let decoded = decode_unchecked(10, &encoded, coeff_domain, *ENCODE_DOMAIN);
         let decoded_bytes = points_to_bytes::<31>(&decoded.evals);
         assert_eq!(decoded_bytes, bytes);
 
         // check with missing pieces
-
         for i in (1..encoded.len()).step_by(2) {
             encoded[i] = None;
         }
 
-        let decoded_bytes = points_to_bytes::<31>(&decoded.evals);
+        let decoded_missing = decode_unchecked(10, &encoded, coeff_domain, *ENCODE_DOMAIN);
+        let decoded_bytes = points_to_bytes::<31>(&decoded_missing.evals);
         assert_eq!(decoded_bytes, bytes);
     }
 }
