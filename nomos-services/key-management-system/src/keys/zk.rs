@@ -1,11 +1,11 @@
-use nomos_core::mantle::keys::{PublicKey, SecretKey, Signature};
 use serde::{Deserialize, Serialize};
 use zeroize::ZeroizeOnDrop;
+use zksign::{PublicKey, SecretKey, Signature};
 
 use crate::keys::{errors::KeyError, secured_key::SecuredKey};
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Clone, Debug, ZeroizeOnDrop)]
-pub struct ZkKey(pub(crate) SecretKey);
+pub struct ZkKey(pub SecretKey);
 
 impl SecuredKey for ZkKey {
     type Payload = groth16::Fr;

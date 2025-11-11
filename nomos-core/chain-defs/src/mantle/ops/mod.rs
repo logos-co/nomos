@@ -4,13 +4,11 @@ pub mod leader_claim;
 pub mod opcode;
 pub mod sdp;
 mod serde_;
-use bytes::Bytes;
 use channel::{
     blob::{BlobOp, DA_COLUMNS, DA_ELEMENT_SIZE},
     inscribe::InscriptionOp,
     set_keys::SetKeysOp,
 };
-use groth16::{Fr, fr_from_bytes};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::{
@@ -132,30 +130,6 @@ impl Op {
             Self::SDPActive(_) => SDP_ACTIVE,
             Self::LeaderClaim(_) => LEADER_CLAIM,
         }
-    }
-
-    #[must_use]
-    pub fn payload_bytes(&self) -> Bytes {
-        match self {
-            Self::ChannelInscribe(channel_inscribre) => channel_inscribre.payload_bytes(),
-            Self::ChannelBlob(channel_blob) => channel_blob.payload_bytes(),
-            Self::ChannelSetKeys(channel_keys) => channel_keys.payload_bytes(),
-            Self::SDPDeclare(sdp_declare) => sdp_declare.payload_bytes(),
-            Self::SDPWithdraw(sdp_withdraw) => sdp_withdraw.payload_bytes(),
-            Self::SDPActive(sdp_active) => sdp_active.payload_bytes(),
-            Self::LeaderClaim(leader_claim) => leader_claim.payload_bytes(),
-        }
-    }
-
-    #[must_use]
-    pub fn as_signing_fr(&self) -> Vec<Fr> {
-        let mut buff = Vec::new();
-        buff.push(fr_from_bytes(&[self.opcode()]).expect("single byte fits in Fr"));
-
-        for chunk in self.payload_bytes().chunks(31) {
-            buff.push(fr_from_bytes(chunk).expect("31 bytes fit in Fr"));
-        }
-        buff
     }
 
     #[must_use]

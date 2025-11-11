@@ -81,9 +81,8 @@ pub enum DaSamplingServiceMsg<BlobId> {
         blobs_id: Vec<BlobId>,
     },
     RequestHistoricSampling {
-        session_id: SessionNumber,
         block_id: HeaderId,
-        blob_ids: HashSet<BlobId>,
+        blob_ids: HashMap<BlobId, SessionNumber>,
         reply_channel: oneshot::Sender<bool>,
     },
 }
@@ -262,7 +261,6 @@ where
                 sampler.mark_completed(&blobs_id).await;
             }
             DaSamplingServiceMsg::RequestHistoricSampling {
-                session_id,
                 block_id,
                 blob_ids,
                 reply_channel,
@@ -270,7 +268,6 @@ where
                 if let Some(future) = Self::request_and_wait_historic_sampling(
                     network_adapter,
                     share_verifier,
-                    session_id,
                     block_id,
                     blob_ids,
                     reply_channel,
@@ -458,12 +455,12 @@ where
     async fn request_and_wait_historic_sampling(
         network_adapter: &SamplingNetwork,
         verifier: &ShareVerifier,
-        session_id: SessionNumber,
         block_id: HeaderId,
-        blob_ids: HashSet<BlobId>,
+        blob_ids: HashMap<BlobId, SessionNumber>,
         reply_channel: oneshot::Sender<bool>,
         timeout: Duration,
     ) -> Option<BoxFuture<'static, ()>> {
+        let blobs: HashSet<BlobId> = blob_ids.keys().copied().collect();
         let Ok(historic_stream) = network_adapter.listen_to_historic_sampling_messages().await
         else {
             if let Err(e) = reply_channel.send(false) {
@@ -473,7 +470,7 @@ where
         };
 
         if network_adapter
-            .request_historic_sampling(session_id, block_id, blob_ids.clone())
+            .request_historic_sampling(block_id, blob_ids)
             .await
             .is_err()
         {
@@ -490,7 +487,7 @@ where
                     historic_stream,
                     timeout,
                     block_id,
-                    blob_ids,
+                    blobs,
                     verifier,
                 )
                 .await;

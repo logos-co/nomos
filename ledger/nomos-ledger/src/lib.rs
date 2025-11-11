@@ -163,7 +163,7 @@ impl LedgerState {
     /// Apply header-related changed to the ledger state. These include
     /// leadership and in general any changes that not related to
     /// transactions that should be applied before that.
-    fn try_apply_header<LeaderProof, Id>(
+    pub fn try_apply_header<LeaderProof, Id>(
         self,
         slot: Slot,
         proof: &LeaderProof,
@@ -190,7 +190,7 @@ impl LedgerState {
     }
 
     /// Apply the contents of an update to the ledger state.
-    fn try_apply_contents<Id, Constants: GasConstants>(
+    pub fn try_apply_contents<Id, Constants: GasConstants>(
         mut self,
         config: &Config,
         txs: impl Iterator<Item = impl AuthenticatedMantleTx>,
@@ -297,11 +297,12 @@ mod tests {
     use nomos_core::{
         mantle::{
             GasCost as _, MantleTx, Note, SignedMantleTx, Transaction as _,
-            gas::MainnetGasConstants, keys::PublicKey, ledger::Tx as LedgerTx,
+            gas::MainnetGasConstants, ledger::Tx as LedgerTx,
         },
         proofs::zksig::DummyZkSignature,
     };
     use num_bigint::BigUint;
+    use zksign::PublicKey;
 
     use super::*;
 

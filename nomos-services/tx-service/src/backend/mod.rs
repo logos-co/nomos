@@ -1,6 +1,6 @@
 pub mod pool;
 
-use std::{collections::BTreeSet, pin::Pin};
+use std::pin::Pin;
 
 use futures::Stream;
 pub use pool::{Mempool, PoolRecoveryState};
@@ -20,7 +20,7 @@ pub enum MempoolError {
 pub trait MemPool {
     type Settings: Send;
     type Item: Send;
-    type Key: Send + Sync;
+    type Key: Send + Sync + Clone + Ord;
     type BlockId: Send;
     type Storage: Send;
 
@@ -47,10 +47,12 @@ pub trait MemPool {
     ) -> Result<Pin<Box<dyn Stream<Item = Self::Item> + Send>>, MempoolError>;
 
     /// Get multiple items by their keys from the mempool via storage lookup
-    async fn get_items_by_keys(
+    async fn get_items_by_keys<I>(
         &self,
-        keys: BTreeSet<Self::Key>,
-    ) -> Result<Pin<Box<dyn Stream<Item = Self::Item> + Send>>, MempoolError>;
+        keys: I,
+    ) -> Result<Pin<Box<dyn Stream<Item = Self::Item> + Send>>, MempoolError>
+    where
+        I: IntoIterator<Item = Self::Key> + Send;
 
     /// Record that a set of items were included in a block
     fn mark_in_block(&mut self, items: &[Self::Key], block: Self::BlockId);

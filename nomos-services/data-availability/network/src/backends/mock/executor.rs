@@ -1,4 +1,7 @@
-use std::{collections::HashSet, pin::Pin};
+use std::{
+    collections::{HashMap, HashSet},
+    pin::Pin,
+};
 
 use futures::{Stream, StreamExt as _};
 use kzgrs_backend::common::{build_blob_id, share::DaShare};
@@ -143,10 +146,8 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for MockExecutorBackend 
 
     async fn start_historic_sampling(
         &self,
-        _session_number: SessionNumber,
         _block_id: HeaderId,
-        _blob_ids: HashSet<BlobId>,
-        _membership: Self::HistoricMembership,
+        _blob_ids: HashMap<Self::HistoricMembership, HashSet<BlobId>>,
     ) {
         todo!()
     }

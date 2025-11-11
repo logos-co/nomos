@@ -56,5 +56,5 @@ pub fn serialize_encapsulated_message(message: &EncapsulatedMessage) -> Vec<u8> 
 }
 
 pub fn deserialize_encapsulated_message(message: &[u8]) -> Result<EncapsulatedMessage, Error> {
-    EncapsulatedMessage::from_bytes(message).map_err(|_| Error::DeserializationFailed)
+    EncapsulatedMessage::from_bytes(message).map_err(|_| Error::MessageDeserializationFailed)
 }

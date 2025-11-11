@@ -1,7 +1,10 @@
 use std::sync::LazyLock;
 
 use bytes::Bytes;
-use groth16::{Fr, fr_from_bytes, fr_to_bytes, serde::serde_fr};
+use groth16::{
+    Fr, GROTH16_SAFE_BYTES_SIZE, fr_from_bytes, fr_from_bytes_unchecked, fr_to_bytes,
+    serde::serde_fr,
+};
 use num_bigint::BigUint;
 use poseidon2::{Digest, ZkHash};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -52,6 +55,12 @@ impl AsRef<ZkHash> for TxHash {
 impl From<TxHash> for Bytes {
     fn from(tx_hash: TxHash) -> Self {
         Self::copy_from_slice(&fr_to_bytes(&tx_hash.0))
+    }
+}
+
+impl From<TxHash> for [u8; 32] {
+    fn from(tx_hash: TxHash) -> Self {
+        fr_to_bytes(&tx_hash.0)
     }
 }
 
@@ -179,9 +188,6 @@ static NOMOS_MANTLE_TXHASH_V1_FR: LazyLock<Fr> = LazyLock::new(|| {
     fr_from_bytes(b"NOMOS_MANTLE_TXHASH_V1").expect("Constant should be valid Fr")
 });
 
-static END_OPS_FR: LazyLock<Fr> =
-    LazyLock::new(|| fr_from_bytes(b"END_OPS").expect("Constant should be valid Fr"));
-
 impl Transaction for MantleTx {
     const HASHER: TransactionHasher<Self> =
         |tx| <ZkHasher as Digest>::digest(&tx.as_signing_frs()).into();
@@ -190,14 +196,15 @@ impl Transaction for MantleTx {
     fn as_signing_frs(&self) -> Vec<Fr> {
         // constant and structure as defined in the Mantle specification:
         // https://www.notion.so/Mantle-Specification-21c261aa09df810c8820fab1d78b53d9
-
-        let mut output: Vec<Fr> = vec![*NOMOS_MANTLE_TXHASH_V1_FR];
-        output.extend(self.ops.iter().flat_map(Op::as_signing_fr));
-        output.push(*END_OPS_FR);
-        output.push(BigUint::from(self.storage_gas_price).into());
-        output.push(BigUint::from(self.execution_gas_price).into());
-        output.extend(self.ledger_tx.as_signing_frs());
-        output
+        let encoded_bytes = encode_mantle_tx(self);
+        let frs = encoded_bytes
+            .as_slice()
+            .chunks(GROTH16_SAFE_BYTES_SIZE)
+            // safety: Any 31 bytes fits into a groth16 Fr, there is no need to check for ranges
+            .map(fr_from_bytes_unchecked);
+        std::iter::once(*NOMOS_MANTLE_TXHASH_V1_FR)
+            .chain(frs)
+            .collect()
     }
 }
 

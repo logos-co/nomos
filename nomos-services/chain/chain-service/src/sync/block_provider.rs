@@ -559,7 +559,6 @@ mod tests {
     use groth16::Fr;
     use nomos_core::{
         codec::DeserializeOp as _,
-        header::Header,
         mantle::{Note, SignedMantleTx, ledger::Utxo},
         proofs::leader_proof::{LeaderPrivate, LeaderPublic},
         utils::merkle::MerkleNode,
@@ -752,7 +751,9 @@ mod tests {
 
             for i in 0..count {
                 let slot = Slot::from(slot_offset + i as u64);
-                let block = self.build_block_with_parent(prev_header, slot);
+                let block = self
+                    .build_block_with_parent(prev_header, slot)
+                    .expect("Failed to build block with parent");
                 let header_id = block.header().id();
 
                 blocks.push((block, header_id, prev_header, slot));
@@ -815,11 +816,17 @@ mod tests {
             &self,
             prev_header: HeaderId,
             slot: Slot,
-        ) -> Block<SignedMantleTx> {
-            Block::new(
-                Header::new(prev_header, [0; 32].into(), slot, self.proof.clone()),
+        ) -> Option<Block<SignedMantleTx>> {
+            let dummy_signing_key = ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]);
+            Block::create(
+                prev_header,
+                slot,
+                self.proof.clone(),
                 vec![],
+                None,
+                &dummy_signing_key,
             )
+            .ok()
         }
 
         async fn add_block(
@@ -963,7 +970,7 @@ mod tests {
                 &latest_path,
                 Fr::from(6), // slot secret
                 0,           // starting slot
-                &ed25519_dalek::VerifyingKey::from_bytes(&[0; 32]).unwrap(),
+                &ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]).verifying_key(),
             );
 
             nomos_core::proofs::leader_proof::Groth16LeaderProof::prove(

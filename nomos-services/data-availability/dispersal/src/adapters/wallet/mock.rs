@@ -50,7 +50,7 @@ impl DaWalletAdapter for MockWalletAdapter {
             session,
             blob: blob_id,
             blob_size: blob_size as u64,
-            da_storage_gas_price: 3000,
+            da_storage_gas_price: 0,
             parent: parent_msg_id,
             signer,
         };

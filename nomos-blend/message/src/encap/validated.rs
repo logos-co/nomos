@@ -34,6 +34,18 @@ impl<const ENCAPSULATION_COUNT: usize>
     pub(super) const fn from_message(
         encapsulated_message: EncapsulatedMessage<ENCAPSULATION_COUNT>,
     ) -> Self {
+        Self::from_message_unchecked(encapsulated_message)
+    }
+
+    /// Creates an instance of [`EncapsulatedMessage`] assuming its public
+    /// header has been verified.
+    ///
+    /// This function should only be called from context where it's guaranteed
+    /// the message has a valid public header.
+    #[must_use]
+    pub const fn from_message_unchecked(
+        encapsulated_message: EncapsulatedMessage<ENCAPSULATION_COUNT>,
+    ) -> Self {
         Self(encapsulated_message)
     }
 
