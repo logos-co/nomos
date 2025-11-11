@@ -57,6 +57,11 @@ use tx_service::{
 };
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
+#[cfg(feature = "block-explorer")]
+use {
+    super::handlers::{blocks, blocks_stream},
+    chain_service::CryptarchiaConsensus,
+};
 
 use super::handlers::{
     add_share, add_tx, balancer_stats, blacklisted_peers, block, block_peer, cryptarchia_headers,
@@ -561,7 +566,26 @@ where
             .route(
                 paths::SDP_POST_WITHDRAWAL,
                 routing::post(post_withdrawal::<SdpMempool, RuntimeServiceId>),
+            );
+
+        #[cfg(feature = "block-explorer")]
+        let app = app
+            .route(
+                paths::BLOCKS,
+                routing::get(blocks::<DaStorageBackend, RuntimeServiceId>),
             )
+            .route(
+                paths::BLOCKS_STREAM,
+                routing::get(
+                    blocks_stream::<
+                        DaStorageBackend,
+                        CryptarchiaConsensus<_, _, _, _, _, _, _, _, _, _>,
+                        RuntimeServiceId,
+                    >,
+                ),
+            );
+
+        let app = app
             .with_state(handle.clone())
             .layer(TimeoutLayer::new(self.settings.timeout))
             .layer(RequestBodyLimitLayer::new(self.settings.max_body_size))
