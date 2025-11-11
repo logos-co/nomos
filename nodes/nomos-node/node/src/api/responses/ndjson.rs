@@ -6,7 +6,6 @@ use futures::{Stream, StreamExt as _};
 use http::StatusCode;
 use nomos_api::http::DynError;
 use serde::Serialize;
-// TODO: from stream result<T> to T
 
 pub fn from_stream<T>(stream: impl Stream<Item = T> + Send + 'static) -> Response
 where
