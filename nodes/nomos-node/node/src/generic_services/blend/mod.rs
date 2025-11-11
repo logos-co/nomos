@@ -1,5 +1,4 @@
 use core::{
-    convert::Infallible,
     fmt::{Debug, Display},
     future::ready,
     marker::PhantomData,
@@ -10,28 +9,12 @@ use async_trait::async_trait;
 use broadcast_service::BlockBroadcastService;
 use chain_leader::LeaderMsg;
 use futures::{Stream, StreamExt as _};
-use nomos_blend_message::crypto::{
-    keys::{Ed25519PrivateKey, Ed25519PublicKey},
-    proofs::{
-        PoQVerificationInputsMinusSigningKey,
-        quota::{
-            ProofOfQuota,
-            inputs::prove::{private::ProofOfCoreQuotaInputs, public::LeaderInputs},
-        },
-        selection::{ProofOfSelection, inputs::VerifyInputs},
-    },
-    random_sized_bytes,
-};
-use nomos_blend_scheduling::message_blend::provers::{
-    BlendLayerProof, ProofsGeneratorSettings, core_and_leader::CoreAndLeaderProofsGenerator,
-    leader::LeaderProofsGenerator,
-};
 use nomos_blend_service::{
-    ProofOfLeadershipQuotaInputs, ProofsVerifier,
+    ProofOfLeadershipQuotaInputs,
     epoch_info::{PolEpochInfo, PolInfoProvider as PolInfoProviderTrait},
     membership::service::Adapter,
 };
-use nomos_core::{codec::DeserializeOp as _, crypto::ZkHash};
+use nomos_core::crypto::ZkHash;
 use nomos_da_sampling::network::NetworkAdapter;
 use nomos_libp2p::PeerId;
 use nomos_time::backends::NtpTimeBackend;
@@ -42,104 +25,12 @@ use services_utils::wait_until_services_are_ready;
 use tokio::sync::oneshot::channel;
 use tokio_stream::wrappers::WatchStream;
 
-use crate::generic_services::{CryptarchiaLeaderService, CryptarchiaService, WalletService};
+use crate::generic_services::{
+    CryptarchiaLeaderService, CryptarchiaService, WalletService,
+    blend::proofs::{BlendProofsVerifier, CoreProofsGenerator, EdgeProofsGenerator},
+};
 
-// TODO: Replace this with the actual verifier once the verification inputs are
-// successfully fetched by the Blend service.
-#[derive(Clone)]
-pub struct BlendProofsVerifier;
-
-impl ProofsVerifier for BlendProofsVerifier {
-    type Error = Infallible;
-
-    fn new(_public_inputs: PoQVerificationInputsMinusSigningKey) -> Self {
-        Self
-    }
-
-    fn start_epoch_transition(&mut self, _new_pol_inputs: LeaderInputs) {}
-
-    fn complete_epoch_transition(&mut self) {}
-
-    fn verify_proof_of_quota(
-        &self,
-        _proof: ProofOfQuota,
-        _signing_key: &Ed25519PublicKey,
-    ) -> Result<ZkHash, Self::Error> {
-        use groth16::Field as _;
-
-        Ok(ZkHash::ZERO)
-    }
-
-    fn verify_proof_of_selection(
-        &self,
-        _proof: ProofOfSelection,
-        _inputs: &VerifyInputs,
-    ) -> Result<(), Self::Error> {
-        Ok(())
-    }
-}
-
-pub struct BlendProofsGenerator;
-
-#[async_trait]
-impl CoreAndLeaderProofsGenerator for BlendProofsGenerator {
-    fn new(_settings: ProofsGeneratorSettings, _private_inputs: ProofOfCoreQuotaInputs) -> Self {
-        Self
-    }
-
-    fn rotate_epoch(&mut self, _new_epoch_public: LeaderInputs) {}
-
-    fn set_epoch_private(&mut self, _new_epoch_private: ProofOfLeadershipQuotaInputs) {}
-
-    async fn get_next_core_proof(&mut self) -> Option<BlendLayerProof> {
-        Some(loop_until_valid_proof())
-    }
-
-    async fn get_next_leader_proof(&mut self) -> Option<BlendLayerProof> {
-        Some(loop_until_valid_proof())
-    }
-}
-
-#[async_trait]
-impl LeaderProofsGenerator for BlendProofsGenerator {
-    fn new(
-        _settings: ProofsGeneratorSettings,
-        _private_inputs: ProofOfLeadershipQuotaInputs,
-    ) -> Self {
-        Self
-    }
-
-    fn rotate_epoch(
-        &mut self,
-        _new_epoch_public: LeaderInputs,
-        _new_private_inputs: ProofOfLeadershipQuotaInputs,
-    ) {
-    }
-
-    async fn get_next_proof(&mut self) -> BlendLayerProof {
-        loop_until_valid_proof()
-    }
-}
-
-fn loop_until_valid_proof() -> BlendLayerProof {
-    loop {
-        let Ok(proof_of_quota) =
-            ProofOfQuota::from_bytes(&random_sized_bytes::<{ size_of::<ProofOfQuota>() }>()[..])
-        else {
-            continue;
-        };
-        let Ok(proof_of_selection) = ProofOfSelection::from_bytes(
-            &random_sized_bytes::<{ size_of::<ProofOfSelection>() }>()[..],
-        ) else {
-            continue;
-        };
-        return BlendLayerProof {
-            ephemeral_signing_key: Ed25519PrivateKey::generate(),
-            proof_of_quota,
-            proof_of_selection,
-        };
-    }
-}
+mod proofs;
 
 pub type BlendMembershipAdapter<RuntimeServiceId> =
     Adapter<BlockBroadcastService<RuntimeServiceId>, PeerId>;
@@ -149,7 +40,7 @@ pub type BlendCoreService<SamplingAdapter, RuntimeServiceId> =
         PeerId,
         nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
         BlendMembershipAdapter<RuntimeServiceId>,
-        BlendProofsGenerator,
+        CoreProofsGenerator,
         BlendProofsVerifier,
         NtpTimeBackend,
         CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
@@ -161,7 +52,7 @@ pub type BlendEdgeService<SamplingAdapter, RuntimeServiceId> = nomos_blend_servi
         PeerId,
         <nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId> as nomos_blend_service::core::network::NetworkAdapter<RuntimeServiceId>>::BroadcastSettings,
         BlendMembershipAdapter<RuntimeServiceId>,
-        BlendProofsGenerator,
+        EdgeProofsGenerator,
         NtpTimeBackend,
         CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
         PolInfoProvider<SamplingAdapter>,
