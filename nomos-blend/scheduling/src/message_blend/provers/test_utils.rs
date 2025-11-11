@@ -3,14 +3,18 @@ use nomos_blend_message::crypto::{
     proofs::{
         PoQVerificationInputsMinusSigningKey,
         quota::{
+            self, ProofOfQuota,
             fixtures::{valid_proof_of_core_quota_inputs, valid_proof_of_leadership_quota_inputs},
             inputs::prove::{
-                PublicInputs as PoQPublicInputs,
+                PrivateInputs, PublicInputs as PoQPublicInputs,
                 private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs},
             },
         },
     },
 };
+use nomos_core::crypto::ZkHash;
+
+use crate::message_blend::ProofOfQuotaGenerator;
 
 pub const fn poq_public_inputs_from_session_public_inputs_and_signing_key(
     (
@@ -75,4 +79,26 @@ pub fn valid_proof_of_leader_inputs(
         },
         private_inputs,
     )
+}
+
+#[derive(Clone)]
+pub struct TestPoQGenerator(ProofOfCoreQuotaInputs);
+
+impl TestPoQGenerator {
+    pub fn new(private_inputs: ProofOfCoreQuotaInputs) -> Self {
+        Self(private_inputs)
+    }
+}
+
+impl ProofOfQuotaGenerator for TestPoQGenerator {
+    fn generate_poq(
+        &self,
+        public_inputs: &PoQPublicInputs,
+        key_index: u64,
+    ) -> Result<(ProofOfQuota, ZkHash), quota::Error> {
+        ProofOfQuota::new(
+            public_inputs,
+            PrivateInputs::new_proof_of_core_quota_inputs(key_index, self.0.clone()),
+        )
+    }
 }

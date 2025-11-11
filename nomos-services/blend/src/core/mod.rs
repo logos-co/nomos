@@ -418,6 +418,7 @@ async fn initialize<
     clock_stream: impl Stream<Item = SlotTick> + Send + Sync + Unpin + 'static,
     epoch_handler: &mut EpochHandler<ChainService, RuntimeServiceId>,
     overwatch_handle: OverwatchHandle<RuntimeServiceId>,
+    kms_api: &KmsServiceApi<KMSService<PreloadKMSBackend, RuntimeServiceId>, RuntimeServiceId>,
     mut last_saved_state: Option<ServiceState<Backend::Settings, NetAdapter::BroadcastSettings>>,
     state_updater: StateUpdater<
         Option<RecoveryServiceState<Backend::Settings, NetAdapter::BroadcastSettings>>,

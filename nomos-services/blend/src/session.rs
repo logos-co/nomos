@@ -9,7 +9,7 @@ pub struct CoreSessionInfo<NodeId> {
     // The session info available to all nodes.
     pub public: CoreSessionPublicInfo<NodeId>,
     /// The private info known only to the local node.
-    pub private: ProofOfCoreQuotaInputs,
+    pub private: CoreSessionPrivateInfo,
 }
 
 #[derive(Clone)]

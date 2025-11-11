@@ -7,10 +7,9 @@ use nomos_blend_message::{
         proofs::{
             PoQVerificationInputsMinusSigningKey,
             quota::{
-                ProofOfQuota,
+                self, ProofOfQuota,
                 inputs::prove::{
-                    private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs},
-                    public::LeaderInputs,
+                    PublicInputs, private::ProofOfLeadershipQuotaInputs, public::LeaderInputs,
                 },
             },
             selection::{ProofOfSelection, inputs::VerifyInputs},
@@ -20,9 +19,12 @@ use nomos_blend_message::{
 };
 use nomos_core::crypto::ZkHash;
 
-use crate::message_blend::provers::{
-    BlendLayerProof, ProofsGeneratorSettings, core_and_leader::CoreAndLeaderProofsGenerator,
-    leader::LeaderProofsGenerator,
+use crate::message_blend::{
+    ProofOfQuotaGenerator,
+    provers::{
+        BlendLayerProof, ProofsGeneratorSettings, core_and_leader::CoreAndLeaderProofsGenerator,
+        leader::LeaderProofsGenerator,
+    },
 };
 
 pub struct TestEpochChangeLeaderProofsGenerator(
@@ -57,14 +59,30 @@ impl LeaderProofsGenerator for TestEpochChangeLeaderProofsGenerator {
     }
 }
 
+pub struct MockPoQGenerator;
+
+impl ProofOfQuotaGenerator for MockPoQGenerator {
+    fn generate_poq(
+        &self,
+        _public_inputs: &PublicInputs,
+        _key_index: u64,
+    ) -> Result<(ProofOfQuota, ZkHash), quota::Error> {
+        use groth16::Field as _;
+
+        Ok((ProofOfQuota::from_bytes_unchecked([0; _]), ZkHash::ZERO))
+    }
+}
+
 pub struct TestEpochChangeCoreAndLeaderProofsGenerator(
     pub ProofsGeneratorSettings,
     pub Option<ProofOfLeadershipQuotaInputs>,
 );
 
 #[async_trait]
-impl CoreAndLeaderProofsGenerator for TestEpochChangeCoreAndLeaderProofsGenerator {
-    fn new(settings: ProofsGeneratorSettings, _private_inputs: ProofOfCoreQuotaInputs) -> Self {
+impl<PoQGenerator> CoreAndLeaderProofsGenerator<PoQGenerator>
+    for TestEpochChangeCoreAndLeaderProofsGenerator
+{
+    fn new(settings: ProofsGeneratorSettings, _proof_of_quota_generator: PoQGenerator) -> Self {
         Self(settings, None)
     }
 
