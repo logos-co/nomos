@@ -8,8 +8,6 @@ use std::{
 };
 
 use futures::StreamExt as _;
-#[cfg(test)]
-use libp2p::identity;
 use libp2p::{
     Multiaddr, PeerId, Swarm, SwarmBuilder,
     swarm::{ConnectionId, dial_opts::PeerCondition},
@@ -535,7 +533,7 @@ where
     #[cfg(test)]
     #[expect(clippy::too_many_arguments, reason = "necessary for testing")]
     pub fn new_test<BehaviourConstructor>(
-        identity: &identity::Keypair,
+        identity: &libp2p::identity::Keypair,
         behaviour_constructor: BehaviourConstructor,
         swarm_messages_receiver: mpsc::Receiver<BlendSwarmMessage>,
         incoming_message_sender: broadcast::Sender<
