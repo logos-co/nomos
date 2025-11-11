@@ -119,9 +119,8 @@ where
             minimum_network_size,
         }: SwarmParams<Rng>,
     ) -> Self {
-        let keypair = config.backend.keypair();
         let listening_address = config.backend.listening_address.clone();
-        let mut swarm = SwarmBuilder::with_existing_identity(keypair)
+        let mut swarm = SwarmBuilder::with_existing_identity(config.keypair())
             .with_tokio()
             .with_quic()
             .with_behaviour(|_| {
