@@ -10,6 +10,7 @@ use std::error::Error;
 
 use groth16::{
     CompressedGroth16Proof, Groth16Input, Groth16InputDeser, Groth16Proof, Groth16ProofJsonDeser,
+    groth16_batch_verify,
 };
 pub use inputs::ZkSignWitnessInputs;
 pub use keys::{PublicKey, SecretKey, Signature};
@@ -129,6 +130,28 @@ pub fn verify(
     }
 }
 
+pub fn batch_verify(
+    proofs: &[ZkSignProof],
+    public_inputs: &[ZkSignVerifierInputs],
+) -> Result<bool, VerifyError> {
+    let inputs: Vec<Vec<_>> = public_inputs
+        .iter()
+        .map(|pi| pi.as_inputs().to_vec())
+        .collect();
+
+    let expanded_proofs: Vec<Groth16Proof> = proofs
+        .iter()
+        .map(|p| Groth16Proof::try_from(p).map_err(|_| VerifyError::Expansion))
+        .collect::<Result<Vec<_>, _>>()?; // short-circuits on first failure
+
+    groth16_batch_verify(
+        verification_key::ZKSIGN_VK.as_ref(),
+        &expanded_proofs,
+        &inputs,
+    )
+    .map_err(|e| VerifyError::ProofVerify(Box::new(e)))
+}
+
 #[cfg(test)]
 mod tests {
     use groth16::Fr;
@@ -151,5 +174,8 @@ mod tests {
         let input = ZkSignWitnessInputs::from_witness_data_and_message_hash(sks, msg_hash);
         let (proof, verifier_inputs) = prove(&input).unwrap();
         assert!(verify(&proof, &verifier_inputs).unwrap());
+        assert!(
+            batch_verify(&[proof, proof], &[verifier_inputs.clone(), verifier_inputs]).unwrap()
+        );
     }
 }

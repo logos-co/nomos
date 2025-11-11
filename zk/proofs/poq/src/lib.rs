@@ -16,6 +16,7 @@ pub use chain_inputs::{PoQChainInputs, PoQChainInputsData, PoQInputsFromDataErro
 pub use common_inputs::{PoQCommonInputs, PoQCommonInputsData};
 use groth16::{
     CompressedGroth16Proof, Groth16Input, Groth16InputDeser, Groth16Proof, Groth16ProofJsonDeser,
+    groth16_batch_verify,
 };
 pub use inputs::{PoQVerifierInput, PoQVerifierInputData, PoQWitnessInputs};
 use thiserror::Error;
@@ -107,6 +108,25 @@ pub fn verify(proof: &PoQProof, public_inputs: PoQVerifierInput) -> Result<bool,
     let inputs = public_inputs.to_inputs();
     let expanded_proof = Groth16Proof::try_from(proof).map_err(|_| VerifyError::Expansion)?;
     groth16::groth16_verify(verification_key::POQ_VK.as_ref(), &expanded_proof, &inputs)
+        .map_err(|e| VerifyError::ProofVerify(Box::new(e)))
+}
+
+pub fn batch_verify(
+    proofs: &[PoQProof],
+    public_inputs: &[PoQVerifierInput],
+) -> Result<bool, VerifyError> {
+    let inputs: Vec<Vec<_>> = public_inputs
+        .iter()
+        .cloned()
+        .map(|pi| pi.to_inputs().to_vec())
+        .collect();
+
+    let expanded_proofs: Vec<Groth16Proof> = proofs
+        .iter()
+        .map(|p| Groth16Proof::try_from(p).map_err(|_| VerifyError::Expansion))
+        .collect::<Result<Vec<_>, _>>()?; // short-circuits on first failure
+
+    groth16_batch_verify(verification_key::POQ_VK.as_ref(), &expanded_proofs, &inputs)
         .map_err(|e| VerifyError::ProofVerify(Box::new(e)))
 }
 
@@ -262,7 +282,9 @@ mod tests {
             session: chain_data.session,
             total_stake: chain_data.total_stake,
         };
-        assert!(verify(&proof, recomputed_verify_inputs.into()).unwrap());
+        let inputs: PoQVerifierInput = recomputed_verify_inputs.into();
+        assert!(verify(&proof, inputs.clone()).unwrap());
+        assert!(batch_verify(&[proof, proof], &[inputs.clone(), inputs]).unwrap());
     }
 
     #[expect(clippy::too_many_lines, reason = "For the sake of the test let it be")]
@@ -494,6 +516,8 @@ mod tests {
             session: chain_data.session,
             total_stake: chain_data.total_stake,
         };
-        assert!(verify(&proof, recomputed_verify_inputs.into()).unwrap());
+        let inputs: PoQVerifierInput = recomputed_verify_inputs.into();
+        assert!(verify(&proof, inputs.clone()).unwrap());
+        assert!(batch_verify(&[proof, proof], &[inputs.clone(), inputs]).unwrap());
     }
 }
