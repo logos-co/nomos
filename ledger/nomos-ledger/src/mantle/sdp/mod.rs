@@ -211,19 +211,26 @@ impl SessionState {
 }
 
 impl<R: Rewards> ServiceState<R> {
-    fn try_apply_header(
-        mut self,
-        block_number: u64,
-        config: &ServiceParameters,
-        _service_type: ServiceType,
-    ) -> (Self, Vec<Utxo>) {
-        // TODO: remove expired declarations based on retention_period
+    fn try_apply_header(mut self, block_number: u64, config: &ServiceParameters) -> (Self, Vec<Utxo>) {
         let current_session = config.session_for_block(block_number);
         let reward_utxos;
 
         // shift all session!
         if current_session == self.active.session_n + 1 {
-            // Calculate new rewards for the ending session (to be distributed at N+2)
+            // Remove expired declarations based on retention_period
+            // This essentially duplicates the declaration set so it's only triggered at
+            // session boundaries
+            self.declarations = self
+                .declarations
+                .iter()
+                .filter(|(_id, declaration)| {
+                    declaration.active + config.retention_period * config.session_duration
+                        >= block_number
+                })
+                .map(|(id, declaration)| (*id, declaration.clone()))
+                .collect();
+
+            // Update rewards with current session state and distribute rewards
             (self.rewards, reward_utxos) = self.rewards.update_session(&self.active, config);
             self.active = self.forming.clone();
             self.forming = SessionState {
@@ -686,6 +693,38 @@ mod tests {
 
     fn create_signing_key() -> SigningKey {
         SigningKey::from_bytes(&[0; 32])
+    }
+
+    fn gc_test_config() -> Config {
+        let mut params = HashMap::new();
+        params.insert(
+            ServiceType::BlendNetwork,
+            ServiceParameters {
+                inactivity_period: 20,
+                lock_period: 5,
+                retention_period: 10,
+                timestamp: 0,
+                session_duration: 5,
+            },
+        );
+        params.insert(
+            ServiceType::DataAvailability,
+            ServiceParameters {
+                inactivity_period: 10,
+                lock_period: 5,
+                retention_period: 4,
+                timestamp: 0,
+                session_duration: 5,
+            },
+        );
+
+        Config {
+            service_params: Arc::new(params),
+            min_stake: MinStake {
+                threshold: 1,
+                timestamp: 0,
+            },
+        }
     }
 
     fn apply_declare_with_dummies(
@@ -1214,5 +1253,192 @@ mod tests {
         assert_eq!(active_session.session_n, 3);
         assert!(active_session.declarations.contains_key(&declaration_id_1));
         assert!(active_session.declarations.contains_key(&declaration_id_2));
+    }
+
+    #[test]
+    fn test_garbage_collection_basic_and_session_boundary() {
+        // Tests: basic removal, session boundary requirement, exact boundary condition
+        // BN config: retention_period=10, session_duration=5 → effective retention = 50
+        // blocks
+        let config = gc_test_config();
+        let service = ServiceType::BlendNetwork;
+        let signing_key = create_signing_key();
+
+        let mut sdp_ledger = SdpLedger::new().with_service(service);
+
+        // Create a declaration at block 0
+        let declare_op = &SDPDeclareOp {
+            service_type: service,
+            locked_note_id: utxo().id(),
+            zk_id: PublicKey::new(BigUint::from(0u8).into()),
+            provider_id: ProviderId(signing_key.verifying_key()),
+            locators: Vec::new(),
+        };
+        let declaration_id = declare_op.id();
+
+        sdp_ledger = apply_declare_with_dummies(sdp_ledger, declare_op, &config).unwrap();
+
+        // Move to block 49 (before expiry at 50)
+        for _ in 1..50 {
+            sdp_ledger = sdp_ledger.try_apply_header(&config).unwrap();
+        }
+        let declarations = sdp_ledger.get_declarations(service).unwrap();
+        assert!(declarations.contains_key(&declaration_id));
+
+        // Move to block 50 (exactly at expiry boundary, but not a session boundary)
+        sdp_ledger = sdp_ledger.try_apply_header(&config).unwrap();
+        assert_eq!(sdp_ledger.block_number, 50);
+
+        // Declaration should still be present (session boundary requirement + exact
+        // boundary >=)
+        let declarations = sdp_ledger.get_declarations(service).unwrap();
+        assert!(declarations.contains_key(&declaration_id));
+
+        // Move to block 55 (first session boundary after expiry)
+        for _ in 51..56 {
+            sdp_ledger = sdp_ledger.try_apply_header(&config).unwrap();
+        }
+        assert_eq!(sdp_ledger.block_number, 55);
+
+        // Now declaration should be removed (GC at session boundary)
+        let declarations = sdp_ledger.get_declarations(service).unwrap();
+        assert!(!declarations.contains_key(&declaration_id));
+    }
+
+    #[test]
+    fn test_garbage_collection_different_services() {
+        // Tests: multiple services with different retention periods
+        // DA config: retention_period=4, session_duration=5 → effective retention = 20
+        // blocks BN config: retention_period=10, session_duration=5 → effective
+        // retention = 50 blocks
+        let config = gc_test_config();
+        let service_da = ServiceType::DataAvailability;
+        let service_bn = ServiceType::BlendNetwork;
+        let signing_key = create_signing_key();
+
+        let mut sdp_ledger = SdpLedger::new()
+            .with_service(service_da)
+            .with_service(service_bn);
+
+        // Create declarations for both services at block 0
+        let declare_op_da = &SDPDeclareOp {
+            service_type: service_da,
+            locked_note_id: utxo().id(),
+            zk_id: PublicKey::new(BigUint::from(1u8).into()),
+            provider_id: ProviderId(signing_key.verifying_key()),
+            locators: Vec::new(),
+        };
+        let declaration_id_da = declare_op_da.id();
+
+        let declare_op_bn = &SDPDeclareOp {
+            service_type: service_bn,
+            locked_note_id: utxo().id(),
+            zk_id: PublicKey::new(BigUint::from(2u8).into()),
+            provider_id: ProviderId(signing_key.verifying_key()),
+            locators: Vec::new(),
+        };
+        let declaration_id_bn = declare_op_bn.id();
+
+        sdp_ledger = apply_declare_with_dummies(sdp_ledger, declare_op_da, &config).unwrap();
+        sdp_ledger = apply_declare_with_dummies(sdp_ledger, declare_op_bn, &config).unwrap();
+
+        // Move to block 25 (past DA's 20-block retention, at session boundary)
+        for _ in 1..26 {
+            sdp_ledger = sdp_ledger.try_apply_header(&config).unwrap();
+        }
+
+        // DA declaration should be removed (expired at 20, GC at session boundary 25)
+        // BN should still be present
+        let declarations_da = sdp_ledger.get_declarations(service_da).unwrap();
+        assert!(!declarations_da.contains_key(&declaration_id_da));
+
+        let declarations_bn = sdp_ledger.get_declarations(service_bn).unwrap();
+        assert!(declarations_bn.contains_key(&declaration_id_bn));
+
+        // Move to block 55 (past BN's 50-block retention, at session boundary)
+        for _ in 26..56 {
+            sdp_ledger = sdp_ledger.try_apply_header(&config).unwrap();
+        }
+
+        // Now BN declaration should also be removed
+        let declarations_bn = sdp_ledger.get_declarations(service_bn).unwrap();
+        assert!(!declarations_bn.contains_key(&declaration_id_bn));
+    }
+
+    #[test]
+    fn test_garbage_collection_with_active_updates() {
+        // Tests: active messages extend retention, GC before session snapshots
+        // BN config: retention_period=10, session_duration=5 → effective retention = 50
+        // blocks
+        let config = gc_test_config();
+        let service = ServiceType::BlendNetwork;
+        let signing_key = create_signing_key();
+        let utxo = utxo();
+
+        let mut sdp_ledger = SdpLedger::new().with_service(service);
+
+        // Create a declaration at block 0
+        let declare_op = &SDPDeclareOp {
+            service_type: service,
+            locked_note_id: utxo.id(),
+            zk_id: PublicKey::new(BigUint::from(0u8).into()),
+            provider_id: ProviderId(signing_key.verifying_key()),
+            locators: Vec::new(),
+        };
+        let declaration_id = declare_op.id();
+
+        sdp_ledger = apply_declare_with_dummies(sdp_ledger, declare_op, &config).unwrap();
+
+        // Move to block 10
+        for _ in 1..10 {
+            sdp_ledger = sdp_ledger.try_apply_header(&config).unwrap();
+        }
+
+        // Send active message to update the declaration's active field to block 10
+        let active_op = SDPActiveOp {
+            declaration_id,
+            nonce: 1,
+            metadata: nomos_core::sdp::ActivityMetadata::DataAvailability(
+                nomos_core::sdp::DaActivityProof {
+                    current_session: 0,
+                    previous_session_opinions: vec![],
+                    current_session_opinions: vec![],
+                },
+            ),
+        };
+
+        let tx_hash = TxHash(Fr::from(2u8));
+        let zk_sig = create_dummy_zk_sig(
+            utxo.note.pk.into(),
+            declare_op.zk_id.into_inner(),
+            tx_hash.0,
+        );
+
+        sdp_ledger = sdp_ledger
+            .apply_active_msg(&active_op, &zk_sig, tx_hash, &config)
+            .unwrap();
+
+        // Move to block 55 (past original expiry of 50, but before new expiry of 60)
+        for _ in 10..55 {
+            sdp_ledger = sdp_ledger.try_apply_header(&config).unwrap();
+        }
+
+        // Declaration should still be present (retention extended to block 60)
+        let declarations = sdp_ledger.get_declarations(service).unwrap();
+        assert!(declarations.contains_key(&declaration_id));
+
+        // Move to block 65 (past new expiry of 60, at session boundary)
+        for _ in 55..66 {
+            sdp_ledger = sdp_ledger.try_apply_header(&config).unwrap();
+        }
+
+        // Declaration should be removed from main declarations
+        let declarations = sdp_ledger.get_declarations(service).unwrap();
+        assert!(!declarations.contains_key(&declaration_id));
+
+        // Verify forming session doesn't contain the expired declaration
+        // (GC happens before forming snapshot is taken)
+        let forming = sdp_ledger.get_forming_session(service).unwrap();
+        assert!(!forming.declarations.contains_key(&declaration_id));
     }
 }
