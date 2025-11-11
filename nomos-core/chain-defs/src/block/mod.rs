@@ -177,6 +177,11 @@ impl<Tx> Block<Tx> {
     }
 
     #[must_use]
+    pub const fn transactions_vec(&self) -> &Vec<Tx> {
+        &self.transactions
+    }
+
+    #[must_use]
     pub fn into_transactions(self) -> Vec<Tx> {
         self.transactions
     }
