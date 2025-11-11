@@ -192,7 +192,8 @@ mod core_to_core_tests {
         core_and_leader::CoreAndLeaderProofsGenerator as _,
     };
     use nomos_blend_service::{ProofsVerifier as _, merkle::MerkleTree};
-    use nomos_core::{crypto::ZkHash, mantle::keys::SecretKey};
+    use nomos_core::crypto::ZkHash;
+    use zksign::SecretKey;
 
     use crate::generic_services::blend::{BlendProofsVerifier, CoreProofsGenerator};
 
