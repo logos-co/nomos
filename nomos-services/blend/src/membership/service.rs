@@ -88,12 +88,20 @@ where
                         )
                     },
                 )
+                // Sort nodes by their ZK public key, since the returned `HashMap` from the chain
+                // broadcast service is non-deterministic across different machines.
+                // Since we need to sort Zk public keys anyway to generate the Merkle tree, we
+                // piggy-back on that instead of sorting by a different key.
+                .map(move |(mut nodes, session_number)| {
+                    nodes.sort_by_key(|ZkNode { zk_key, .. }| *zk_key);
+                    (nodes, session_number)
+                })
                 .map(move |(nodes, session_number)| {
                     let (membership_nodes, zk_public_keys): (Vec<_>, Vec<_>) = nodes
                         .into_iter()
                         .map(|ZkNode { node, zk_key }| (node, zk_key))
                         .unzip();
-                    let zk_tree = MerkleTree::new(zk_public_keys).expect(
+                    let zk_tree = MerkleTree::new_from_ordered(zk_public_keys).expect(
                         "Should not fail to build merkle tree of core nodes' zk public keys.",
                     );
                     let core_and_path_selectors = maybe_zk_public_key.map(|zk_public_key| {

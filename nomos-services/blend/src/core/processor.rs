@@ -211,13 +211,13 @@ mod tests {
             proofs::{
                 PoQVerificationInputsMinusSigningKey,
                 quota::{
-                    self, ProofOfQuota,
+                    ProofOfQuota,
                     inputs::prove::{
                         private::ProofOfCoreQuotaInputs,
                         public::{CoreInputs, LeaderInputs},
                     },
                 },
-                selection::ProofOfSelection,
+                selection::{self, ProofOfSelection},
             },
         },
         encap::validated::IncomingEncapsulatedMessageWithValidatedPublicHeader,
@@ -341,8 +341,8 @@ mod tests {
                     mock_message
                 )
             ),
-            Err(InnerError::ProofOfQuotaVerificationFailed(
-                quota::Error::InvalidProof
+            Err(InnerError::ProofOfSelectionVerificationFailed(
+                selection::Error::Verification
             ))
         ));
     }

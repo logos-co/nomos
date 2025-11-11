@@ -1,13 +1,16 @@
 use const_hex::FromHex as _;
 use groth16::fr_from_bytes_unchecked;
 
-use crate::crypto::proofs::{
-    quota::{
-        DOMAIN_SEPARATION_TAG_FR, ProofOfQuota,
-        fixtures::{valid_proof_of_core_quota_inputs, valid_proof_of_leadership_quota_inputs},
-        inputs::prove::PrivateInputs,
+use crate::crypto::{
+    keys::Ed25519PublicKey,
+    proofs::{
+        quota::{
+            DOMAIN_SEPARATION_TAG_FR, ProofOfQuota,
+            fixtures::{valid_proof_of_core_quota_inputs, valid_proof_of_leadership_quota_inputs},
+            inputs::prove::PrivateInputs,
+        },
+        selection::derive_key_nullifier_from_secret_selection_randomness,
     },
-    selection::derive_key_nullifier_from_secret_selection_randomness,
 };
 
 #[test]
@@ -37,6 +40,32 @@ fn valid_proof_of_core_quota() {
         derive_key_nullifier_from_secret_selection_randomness(secret_selection_randomness),
         key_nullifier
     );
+}
+
+// We test that our assumption that two PoQs with the exact same public and
+// private inputs but different ephemeral key still produce the same nullifier.
+#[test]
+fn same_key_nullifier_for_different_public_keys() {
+    let key_1: Ed25519PublicKey = [200; _].try_into().unwrap();
+    let key_2: Ed25519PublicKey = [250; _].try_into().unwrap();
+
+    let (public_inputs_key_1, private_inputs_key_1) = valid_proof_of_core_quota_inputs(key_1, 1);
+    let (public_inputs_key_2, private_inputs_key_2) = valid_proof_of_core_quota_inputs(key_2, 1);
+
+    let (proof_key_1, _) = ProofOfQuota::new(
+        &public_inputs_key_1,
+        PrivateInputs::new_proof_of_core_quota_inputs(0, private_inputs_key_1),
+    )
+    .unwrap();
+    let key_1_nullifier = proof_key_1.verify(&public_inputs_key_1).unwrap();
+    let (proof_key_2, _) = ProofOfQuota::new(
+        &public_inputs_key_2,
+        PrivateInputs::new_proof_of_core_quota_inputs(0, private_inputs_key_2),
+    )
+    .unwrap();
+    let key_2_nullifier = proof_key_2.verify(&public_inputs_key_2).unwrap();
+
+    assert_eq!(key_1_nullifier, key_2_nullifier);
 }
 
 #[test]

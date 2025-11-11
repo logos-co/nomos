@@ -79,8 +79,11 @@ impl ProofsVerifier for MockProofsVerifier {
 
 thread_local! {
     /// Static value used by the `StaticFetchVerifier` below to count after how many
-    /// `Ok`s it should return `Err`s when verifying `PoQ` proofs.
-    static REMAINING_VALID_POQ_PROOFS: Cell<u64> = const { Cell::new(0) };
+    /// `Ok`s it should return `Err`s when verifying encapsulated message layers.
+    ///
+    /// This value refers to proof of selections, since when decapsulating a message, we already assume the `PoQ`
+    /// in the public header was correct, so we use `PoSel` to control the number of `Ok`s before failing at the given level.
+    static REMAINING_VALID_LAYERS: Cell<u64> = const { Cell::new(0) };
 }
 
 #[derive(Debug, Clone)]
@@ -88,7 +91,7 @@ pub struct StaticFetchVerifier;
 
 impl StaticFetchVerifier {
     pub fn set_remaining_valid_poq_proofs(remaining_valid_proofs: u64) {
-        REMAINING_VALID_POQ_PROOFS.with(|val| val.set(remaining_valid_proofs));
+        REMAINING_VALID_LAYERS.with(|val| val.set(remaining_valid_proofs));
     }
 }
 
@@ -110,15 +113,7 @@ impl ProofsVerifier for StaticFetchVerifier {
     ) -> Result<ZkHash, Self::Error> {
         use groth16::Field as _;
 
-        REMAINING_VALID_POQ_PROOFS.with(|val| {
-            let remaining = val.get();
-            if remaining > 0 {
-                val.set(remaining - 1);
-                Ok(ZkHash::ZERO)
-            } else {
-                Err(())
-            }
-        })
+        Ok(ZkHash::ZERO)
     }
 
     fn verify_proof_of_selection(
@@ -126,7 +121,15 @@ impl ProofsVerifier for StaticFetchVerifier {
         _proof: ProofOfSelection,
         _inputs: &VerifyInputs,
     ) -> Result<(), Self::Error> {
-        Ok(())
+        REMAINING_VALID_LAYERS.with(|val| {
+            let remaining = val.get();
+            if remaining > 0 {
+                val.set(remaining - 1);
+                Ok(())
+            } else {
+                Err(())
+            }
+        })
     }
 }
 

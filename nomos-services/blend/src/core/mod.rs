@@ -938,6 +938,10 @@ fn compute_and_submit_activity_proof_for_previous_session(
 /// encapsulate its payload is performed. If encapsulation is successful, the
 /// message is queued with the Blend scheduler and blended during the next
 /// round.
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "TODO: Address this at some point."
+)]
 async fn handle_local_data_message<
     NodeId,
     Rng,
@@ -1003,6 +1007,7 @@ where
     let Ok(multi_layer_decapsulation_output) = self_decapsulation_output else {
         // The outermost layer of the data message is not for us, hence we treat this as
         // a regular data message that should be released at the next round.
+        tracing::debug!(target: LOG_TARGET, "Locally generated data message does not have its outermost layer addressed to us. Sending it out as a data message...");
         scheduler.queue_data_message(wrapped_message.clone());
         assert_eq!(
             state_updater.add_unsent_data_message(wrapped_message.clone()),
@@ -1282,6 +1287,7 @@ where
     let Ok(multi_layer_decapsulation_output) = self_decapsulation_output else {
         // First layer not addressed to ourselves. Publish as regular cover message,
         // hence we consume a core quota.
+        tracing::debug!(target: LOG_TARGET, "Locally generated cover message does not have its outermost layer addressed to us. Sending it out fully encapsulated...");
         state_updater.consume_core_quota(1);
         return Some(encapsulated_cover_message);
     };

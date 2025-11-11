@@ -73,11 +73,20 @@ impl Debug for MerkleTree {
 impl MerkleTree {
     /// Create a new merkle tree with the provided keys.
     ///
-    /// Keys are sorted by their numeric value, as described in the [`PoQ` specification](https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#215261aa09df81ec850ad7965bf6e76b).
+    /// Keys are internally sorted by their numeric value, as described in the [`PoQ` specification](https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#215261aa09df81ec850ad7965bf6e76b).
+    pub fn new(mut keys: Vec<PublicKey>) -> Result<Self, Error> {
+        // Sort the input keys by their decimal representation, relying on `Fr`'s
+        // implementation of `PartialOrd`.
+        keys.sort();
+        Self::new_from_ordered(keys)
+    }
+
+    /// Create a new merkle tree with the provided, already-sorted keys, as described in the [`PoQ` specification](https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#215261aa09df81ec850ad7965bf6e76b).
+    ///
     /// If the input vector is empty or if it is larger than the maximum number
     /// of leaves supported by this fixed-height Merkle tree, it returns an
     /// error.
-    pub fn new(mut keys: Vec<PublicKey>) -> Result<Self, Error> {
+    pub fn new_from_ordered(keys: Vec<PublicKey>) -> Result<Self, Error> {
         if keys.is_empty() {
             return Err(Error::EmptyKeySet);
         }
@@ -85,9 +94,6 @@ impl MerkleTree {
             return Err(Error::TooManyKeys);
         }
 
-        // Sort the input keys by their decimal representation, relying on `Fr`'s
-        // implementation of `PartialOrd`.
-        keys.sort();
         let sorted_key_indices = keys
             .iter()
             .enumerate()
@@ -124,6 +130,7 @@ impl MerkleTree {
     ///
     /// Being a fixed-height tree, the Merkle root is computed padding the
     /// missing leaves with the hashes of the empty sub-trees for each level.
+    #[must_use]
     pub fn root(&self) -> ZkHash {
         fr_from_bytes_unchecked(
             self.inner_tree
@@ -142,6 +149,7 @@ impl MerkleTree {
     /// and `true` otherwise.
     ///
     /// The resulting path has the same length as the fixed height of the tree.
+    #[must_use]
     pub fn get_proof_for_key(&self, key: &PublicKey) -> Option<CorePathAndSelectors> {
         let key_index = self.sorted_key_indices.get(key).copied()?;
 

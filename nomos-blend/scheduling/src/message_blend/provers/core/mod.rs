@@ -1,6 +1,7 @@
-use core::mem::swap;
+use core::pin::Pin;
 
 use async_trait::async_trait;
+use futures::stream::{self, Stream, StreamExt as _};
 use nomos_blend_message::crypto::{
     keys::Ed25519PrivateKey,
     proofs::{
@@ -14,10 +15,7 @@ use nomos_blend_message::crypto::{
         selection::ProofOfSelection,
     },
 };
-use tokio::{
-    sync::mpsc::{Receiver, Sender, channel},
-    task::{JoinHandle, spawn_blocking},
-};
+use tokio::task::spawn_blocking;
 
 use crate::message_blend::provers::{BlendLayerProof, ProofsGeneratorSettings};
 
@@ -25,6 +23,7 @@ use crate::message_blend::provers::{BlendLayerProof, ProofsGeneratorSettings};
 mod tests;
 
 const LOG_TARGET: &str = "blend::scheduling::proofs::core";
+const PROOFS_GENERATOR_BUFFER_SIZE: usize = 10;
 
 /// Proof generator for core `PoQ` variants.
 #[async_trait]
@@ -42,27 +41,24 @@ pub trait CoreProofsGenerator: Sized {
 
 pub struct RealCoreProofsGenerator {
     remaining_quota: u64,
-    proofs_receiver: Receiver<BlendLayerProof>,
     pub(super) settings: ProofsGeneratorSettings,
     pub(super) private_inputs: ProofOfCoreQuotaInputs,
-    proof_generation_task_handle: Option<JoinHandle<()>>,
+    proof_stream: Pin<Box<dyn Stream<Item = BlendLayerProof> + Send + Sync>>,
 }
 
 #[async_trait]
 impl CoreProofsGenerator for RealCoreProofsGenerator {
     fn new(settings: ProofsGeneratorSettings, private_inputs: ProofOfCoreQuotaInputs) -> Self {
-        let mut self_instance = Self {
-            private_inputs,
-            // Will be replaced by the `spawn_new_proof_generation_task` below.
-            proofs_receiver: channel(1).1,
+        Self {
+            private_inputs: private_inputs.clone(),
+            proof_stream: Box::pin(create_proof_stream(
+                settings.public_inputs,
+                private_inputs,
+                0,
+            )),
             remaining_quota: settings.public_inputs.core.quota,
             settings,
-            proof_generation_task_handle: None,
-        };
-
-        self_instance.spawn_new_proof_generation_task(0);
-
-        self_instance
+        }
     }
 
     fn rotate_epoch(&mut self, new_epoch_public: LeaderInputs) {
@@ -81,98 +77,71 @@ impl CoreProofsGenerator for RealCoreProofsGenerator {
             .expect("Remaining quota should never be larger than total quota.");
 
         // Compute new proofs with the updated settings.
-        self.spawn_new_proof_generation_task(next_key_index);
+        self.generate_new_proofs_stream(next_key_index);
     }
 
     async fn get_next_proof(&mut self) -> Option<BlendLayerProof> {
         self.remaining_quota = self.remaining_quota.checked_sub(1)?;
-        self.proofs_receiver.recv().await
+        let proof = self.proof_stream.next().await?;
+        tracing::trace!(target: LOG_TARGET, "Generated core Blend layer proof with key nullifier {:?} addressed to node at index {:?}", proof.proof_of_quota.key_nullifier(), proof.proof_of_selection.expected_index(self.settings.membership_size));
+        Some(proof)
     }
 }
 
 impl RealCoreProofsGenerator {
-    fn terminate_proof_generation_task(&mut self) -> Option<JoinHandle<()>> {
-        // Drop the previous channel so we don't get any of the old proofs anymore. This
-        // will instruct the spawned task to abort as well.
-        swap(&mut self.proofs_receiver, &mut channel(1).1);
-        self.proof_generation_task_handle.take()
-    }
-
     // This will kill the previous running task, if any, since we swap the receiver
     // channel, hence the old task will fail to send new proofs and will abort on
     // its own.
-    fn spawn_new_proof_generation_task(&mut self, starting_key_index: u64) {
+    fn generate_new_proofs_stream(&mut self, starting_key_index: u64) {
         if self.remaining_quota == 0 {
             return;
         }
 
-        let (proofs_sender, proofs_receiver) = channel(self.remaining_quota as usize);
-        self.proof_generation_task_handle = Some(spawn_core_proof_generation_task(
-            proofs_sender,
+        self.proof_stream = Box::pin(create_proof_stream(
             self.settings.public_inputs,
             self.private_inputs.clone(),
             starting_key_index,
         ));
-
-        self.proofs_receiver = proofs_receiver;
-    }
-
-    #[cfg(test)]
-    pub(super) fn rotate_epoch_and_return_old_task(
-        &mut self,
-        new_epoch_public: LeaderInputs,
-    ) -> Option<JoinHandle<()>> {
-        let old_handle = self.terminate_proof_generation_task();
-        self.rotate_epoch(new_epoch_public);
-        old_handle
     }
 }
 
-impl Drop for RealCoreProofsGenerator {
-    fn drop(&mut self) {
-        self.terminate_proof_generation_task();
-    }
-}
-
-fn spawn_core_proof_generation_task(
-    sender_channel: Sender<BlendLayerProof>,
+fn create_proof_stream(
     public_inputs: PoQVerificationInputsMinusSigningKey,
     private_inputs: ProofOfCoreQuotaInputs,
     starting_key_index: u64,
-) -> JoinHandle<()> {
-    spawn_blocking(move || {
-        let proofs_to_generate = public_inputs
-            .core
-            .quota
-            .checked_sub(starting_key_index)
-            .expect("Starting key index should never be larger than core quota.");
-        tracing::trace!(target: LOG_TARGET, "Generating {proofs_to_generate} core quota proofs starting from index: {starting_key_index}.");
-        for key_index in starting_key_index..public_inputs.core.quota {
-            let ephemeral_signing_key = Ed25519PrivateKey::generate();
-            let Ok((proof_of_quota, secret_selection_randomness)) = ProofOfQuota::new(
-                &PublicInputs {
-                    signing_key: ephemeral_signing_key.public_key(),
-                    core: public_inputs.core,
-                    leader: public_inputs.leader,
-                    session: public_inputs.session,
-                },
-                PrivateInputs::new_proof_of_core_quota_inputs(key_index, private_inputs.clone()),
-            ) else {
-                tracing::error!(target: LOG_TARGET, "Core PoQ generation failed for the provided public and private inputs.");
-                continue;
-            };
-            let proof_of_selection = ProofOfSelection::new(secret_selection_randomness);
-            if sender_channel
-                .blocking_send(BlendLayerProof {
+) -> impl Stream<Item = BlendLayerProof> {
+    let proofs_to_generate = public_inputs
+        .core
+        .quota
+        .checked_sub(starting_key_index)
+        .expect("Starting key index should never be larger than core quota.");
+    tracing::trace!(target: LOG_TARGET, "Generating {proofs_to_generate} core quota proofs starting from index: {starting_key_index}.");
+
+    let quota = public_inputs.core.quota;
+    stream::iter(starting_key_index..quota)
+        .map(move |key_index| {
+            let private_inputs = private_inputs.clone();
+
+            spawn_blocking(move || {
+                let ephemeral_signing_key = Ed25519PrivateKey::generate();
+                let (proof_of_quota, secret_selection_randomness) = ProofOfQuota::new(
+                    &PublicInputs {
+                        signing_key: ephemeral_signing_key.public_key(),
+                        core: public_inputs.core,
+                        leader: public_inputs.leader,
+                        session: public_inputs.session,
+                    },
+                    PrivateInputs::new_proof_of_core_quota_inputs(key_index, private_inputs),
+                )
+                .ok()?;
+                let proof_of_selection = ProofOfSelection::new(secret_selection_randomness);
+                Some(BlendLayerProof {
                     proof_of_quota,
                     proof_of_selection,
                     ephemeral_signing_key,
                 })
-                .is_err()
-            {
-                tracing::debug!(target: LOG_TARGET, "Failed to send proof to consumer due to channel being dropped. Aborting...");
-                return;
-            }
-        }
-    })
+            })
+        })
+        .buffered(PROOFS_GENERATOR_BUFFER_SIZE)
+        .filter_map(|result| async { result.ok().flatten() })
 }

@@ -20,7 +20,7 @@ mod serde;
 #[cfg(test)]
 mod tests;
 
-#[cfg(feature = "unsafe-test-functions")]
+#[cfg(any(test, feature = "unsafe-test-functions"))]
 pub mod fixtures;
 
 const KEY_NULLIFIER_SIZE: usize = size_of::<ZkHash>();

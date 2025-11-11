@@ -3,8 +3,6 @@ use nomos_blend_message::crypto::proofs::quota::inputs::prove::{
     private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs},
     public::LeaderInputs,
 };
-#[cfg(test)]
-use tokio::task::JoinHandle;
 
 use crate::message_blend::provers::{
     BlendLayerProof, ProofsGeneratorSettings,
@@ -57,37 +55,6 @@ impl RealCoreAndLeaderProofsGenerator {
         self.core_proofs_generator.settings = new_settings;
         if let Some(leader_proofs_generator) = &mut self.leader_proofs_generator {
             leader_proofs_generator.settings = new_settings;
-        }
-    }
-
-    #[cfg(test)]
-    pub fn rotate_epoch_and_return_old_core_task(
-        &mut self,
-        new_epoch_public: LeaderInputs,
-    ) -> Option<JoinHandle<()>> {
-        let old_handle = self
-            .core_proofs_generator
-            .rotate_epoch_and_return_old_task(new_epoch_public);
-        self.leader_proofs_generator = None;
-        old_handle
-    }
-
-    #[cfg(test)]
-    pub fn set_epoch_private_and_return_old_leader_task(
-        &mut self,
-        new_epoch_private: ProofOfLeadershipQuotaInputs,
-    ) -> Option<JoinHandle<()>> {
-        if let Some(leader_proofs_generator) = &mut self.leader_proofs_generator {
-            leader_proofs_generator.rotate_epoch_and_return_old_task(
-                self.core_proofs_generator.settings.public_inputs.leader,
-                new_epoch_private,
-            )
-        } else {
-            self.leader_proofs_generator = Some(RealLeaderProofsGenerator::new(
-                self.core_proofs_generator.settings,
-                new_epoch_private,
-            ));
-            None
         }
     }
 }

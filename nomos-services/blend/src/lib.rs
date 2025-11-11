@@ -43,12 +43,12 @@ pub mod core;
 pub mod edge;
 pub mod epoch_info;
 pub mod membership;
+pub mod merkle;
 pub mod message;
 pub mod session;
 pub mod settings;
 
 mod instance;
-mod merkle;
 mod modes;
 mod service_components;
 pub use self::service_components::ServiceComponents;
@@ -102,10 +102,8 @@ where
     EdgeService: ServiceData<Message = CoreService::Message>
         // We tie the core and edge proofs generator to be the same type, to avoid mistakes in the
         // node configuration where the two services use different verification logic
-        + EdgeServiceComponents<
-            BackendSettings: Clone + Send + Sync,
-            ProofsGenerator = CoreService::ProofsGenerator,
-        > + Send
+        + EdgeServiceComponents<BackendSettings: Clone + Send + Sync>
+        + Send
         + 'static,
     EdgeService::MembershipAdapter:
         membership::Adapter<NodeId = CoreService::NodeId, Error: Send + Sync + 'static> + Send,

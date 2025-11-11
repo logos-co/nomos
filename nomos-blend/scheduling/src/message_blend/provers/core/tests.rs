@@ -86,13 +86,6 @@ async fn epoch_rotation() {
             .unwrap();
     }
 
-    let old_proof_generation_task_handle = core_proofs_generator
-        .rotate_epoch_and_return_old_task(public_inputs.leader)
-        .unwrap();
-
-    // Old task should abort.
-    old_proof_generation_task_handle.await.unwrap();
-
     // Generate and verify last proof.
     let proof = core_proofs_generator.get_next_proof().await.unwrap();
     let key_nullifier = proof
