@@ -21,7 +21,6 @@ use tokio::sync::{
     mpsc, watch,
 };
 use tokio_stream::wrappers::{BroadcastStream, ReceiverStream};
-use zksign::SecretKey;
 
 use crate::{
     core::{
@@ -79,7 +78,7 @@ pub fn settings<BackendSettings>(
         },
         time: timing_settings,
         zk: ZkSettings {
-            sk: SecretKey::zero(),
+            sk_kms_id: "test-key".to_owned(),
         },
         minimum_network_size,
         recovery_path: recovery_file.path().to_path_buf(),

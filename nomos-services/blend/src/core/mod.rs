@@ -13,6 +13,9 @@ use futures::{
     Stream, StreamExt as _,
     future::{join_all, ready},
 };
+use key_management_system::{
+    KMSService, api::KmsServiceApi, backend::preload::PreloadKMSBackend, keys::PublicKeyEncoding,
+};
 use network::NetworkAdapter;
 use nomos_blend_message::{
     PayloadType,
@@ -57,6 +60,7 @@ use services_utils::{
 };
 use tokio::sync::oneshot;
 use tracing::info;
+use zksign::SecretKey;
 
 use crate::{
     core::{
@@ -204,6 +208,7 @@ where
         + AsServiceId<<MembershipAdapter as membership::Adapter>::Service>
         + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>
         + AsServiceId<ChainService>
+        + AsServiceId<KMSService<PreloadKMSBackend, RuntimeServiceId>>
         + AsServiceId<Self>
         + Clone
         + Debug
@@ -251,7 +256,8 @@ where
             Some(Duration::from_secs(60)),
             NetworkService<_, _>,
             TimeService<_, _>,
-            <MembershipAdapter as membership::Adapter>::Service
+            <MembershipAdapter as membership::Adapter>::Service,
+            KMSService<_, _>
         )
         .await?;
 
@@ -278,13 +284,33 @@ where
         }
         .await;
 
+        let kms_api = async {
+            let kms_outbound_relay = overwatch_handle
+                .relay::<KMSService<PreloadKMSBackend, RuntimeServiceId>>()
+                .await
+                .expect("Relay with KMS service should be available.");
+
+            KmsServiceApi::<KMSService<PreloadKMSBackend, RuntimeServiceId>, RuntimeServiceId>::new(
+                kms_outbound_relay,
+            )
+        }
+        .await;
+
+        let PublicKeyEncoding::Zk(zk_public_key) = kms_api
+            .public_key(blend_config.zk.sk_kms_id.clone())
+            .await
+            .expect("ZK public key for provided ID should be stored in KMS.")
+        else {
+            panic!("Key with specified ID is not a ZK key.");
+        };
+
         let membership_stream = MembershipAdapter::new(
             overwatch_handle
                 .relay::<<MembershipAdapter as membership::Adapter>::Service>()
                 .await
                 .expect("Failed to get relay channel with membership service."),
             blend_config.crypto.non_ephemeral_signing_key.public_key(),
-            Some(blend_config.zk.public_key()),
+            Some(zk_public_key),
         )
         .subscribe()
         .await
@@ -424,7 +450,7 @@ where
     // Initialize membership stream for session and core-related public PoQ inputs.
     let session_stream = async {
         let config = blend_config.clone();
-        let zk_secret_key = config.zk.sk.clone();
+        let zk_secret_key = SecretKey::zero();
         membership_stream.map(
             move |MembershipInfo {
                       membership,
