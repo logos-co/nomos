@@ -184,10 +184,16 @@ pub enum Event {
     /// An outbound connection request was successfully negotiated with the
     /// remote peer.
     OutboundConnectionUpgradeSucceeded(PeerId),
+    /// An inbound connection was successfully negotiated.
+    InboundConnectionUpgradeSucceeded(PeerId),
     /// An outbound connection request failed to be upgraded, meaning the peer
     /// is a remote core but something failed when negotiating Blend protocol
     /// support.
     OutboundConnectionUpgradeFailed(PeerId),
+    /// An inbound connection failed to be upgraded, meaning the peer is a
+    /// remote core but something failed when negotiating Blend protocol
+    /// support.
+    InboundConnectionUpgradeFailed(PeerId),
 }
 
 impl<ProofsVerifier, ObservationWindowClockProvider>
@@ -536,13 +542,14 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
                 connection_id,
             },
         );
-        // If the new negotiated connection is outgoing, notify the Swarm about it.
-        if peer_role == Endpoint::Listener {
-            self.events.push_back(ToSwarm::GenerateEvent(
-                Event::OutboundConnectionUpgradeSucceeded(peer_id),
-            ));
-            self.try_wake();
-        }
+        // Notify the Swarm about the successful negotiation.
+        self.events
+            .push_back(ToSwarm::GenerateEvent(if peer_role == Endpoint::Listener {
+                Event::OutboundConnectionUpgradeSucceeded(peer_id)
+            } else {
+                Event::InboundConnectionUpgradeSucceeded(peer_id)
+            }));
+        self.try_wake();
     }
 
     /// Handle a newly upgraded connection for a peer that this peer is already
@@ -629,13 +636,14 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
             // not notified.
             update_connection_id_and_direction(existing_connection_details, new_connection_id);
             // After the old connection details have been updated with the new
-            // ones, notify the Swarm that the new connection has been upgraded,
-            // if the new connection is an outgoing one.
-            if existing_connection_details.role == Endpoint::Listener {
-                self.events.push_back(ToSwarm::GenerateEvent(
-                    Event::OutboundConnectionUpgradeSucceeded(peer_id),
-                ));
-            }
+            // ones, notify the Swarm that the new connection has been upgraded.
+            self.events.push_back(ToSwarm::GenerateEvent(
+                if existing_connection_details.role == Endpoint::Listener {
+                    Event::OutboundConnectionUpgradeSucceeded(peer_id)
+                } else {
+                    Event::InboundConnectionUpgradeSucceeded(peer_id)
+                },
+            ));
             // Notify the current connection handler to drop the substreams.
             self.close_connection(existing_connection);
         } else {
@@ -1056,7 +1064,7 @@ where
                 return;
             }
 
-            // We notify the swarm of any outbound connection that failed to be upgraded.
+            // We notify the swarm of any connection that failed to be upgraded.
             if let Some(remote_peer_role) = self
                 .connections_waiting_upgrade
                 .remove(&(peer_id, connection_id))
@@ -1065,13 +1073,15 @@ where
                     local_endpoint.to_endpoint().reverse() == remote_peer_role,
                     "Remote peer endpoint provided by event and the one stored do not match."
                 );
-                // If the closed connection was an outbound one, notify the swarm about it.
-                if remote_peer_role == Endpoint::Listener {
-                    self.events.push_back(ToSwarm::GenerateEvent(
-                        Event::OutboundConnectionUpgradeFailed(peer_id),
-                    ));
-                    self.try_wake();
-                }
+                // Notify the swarm about the negotiation failure.
+                self.events.push_back(ToSwarm::GenerateEvent(
+                    if remote_peer_role == Endpoint::Listener {
+                        Event::OutboundConnectionUpgradeFailed(peer_id)
+                    } else {
+                        Event::InboundConnectionUpgradeFailed(peer_id)
+                    },
+                ));
+                self.try_wake();
                 return;
             }
 

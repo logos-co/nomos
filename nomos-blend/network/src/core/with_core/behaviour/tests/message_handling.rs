@@ -33,7 +33,7 @@ async fn message_sending_and_reception() {
 
     listening_swarm.listen().with_memory_addr_external().await;
     dialing_swarm
-        .connect_and_wait_for_outbound_upgrade(&mut listening_swarm)
+        .connect_and_wait_for_upgrade(&mut listening_swarm)
         .await;
 
     // Send one message, which is within the range of expected messages.
@@ -99,7 +99,7 @@ async fn undeserializable_message_received() {
 
     listening_swarm.listen().with_memory_addr_external().await;
     dialing_swarm
-        .connect_and_wait_for_outbound_upgrade(&mut listening_swarm)
+        .connect_and_wait_for_upgrade(&mut listening_swarm)
         .await;
 
     dialing_swarm
@@ -148,7 +148,7 @@ async fn duplicate_message_received() {
 
     listening_swarm.listen().with_memory_addr_external().await;
     dialing_swarm
-        .connect_and_wait_for_outbound_upgrade(&mut listening_swarm)
+        .connect_and_wait_for_upgrade(&mut listening_swarm)
         .await;
 
     let test_message = TestEncapsulatedMessage::new(b"msg");
@@ -207,7 +207,7 @@ async fn invalid_public_header_message_received() {
 
     listening_swarm.listen().with_memory_addr_external().await;
     dialing_swarm
-        .connect_and_wait_for_outbound_upgrade(&mut listening_swarm)
+        .connect_and_wait_for_upgrade(&mut listening_swarm)
         .await;
 
     let invalid_public_header_message = TestEncapsulatedMessage::new_with_invalid_signature(b"");

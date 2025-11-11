@@ -1,4 +1,4 @@
-use core::{fmt::Debug, num::NonZeroUsize, ops::RangeInclusive, time::Duration};
+use core::{num::NonZeroUsize, ops::RangeInclusive, time::Duration};
 use std::collections::{HashMap, VecDeque};
 
 use async_trait::async_trait;
@@ -7,9 +7,12 @@ use groth16::Field as _;
 use libp2p::{Multiaddr, PeerId, Swarm, identity::Keypair};
 use libp2p_swarm_test::SwarmExt as _;
 use nomos_blend_message::{
-    crypto::proofs::{
-        PoQVerificationInputsMinusSigningKey,
-        quota::inputs::prove::public::{CoreInputs, LeaderInputs},
+    crypto::{
+        keys::Ed25519PrivateKey,
+        proofs::{
+            PoQVerificationInputsMinusSigningKey,
+            quota::inputs::prove::public::{CoreInputs, LeaderInputs},
+        },
     },
     encap,
 };
@@ -164,9 +167,11 @@ pub fn default_poq_verification_inputs_for_session(
 
 #[async_trait]
 pub trait SwarmExt: libp2p_swarm_test::SwarmExt {
-    async fn connect_and_wait_for_outbound_upgrade<T>(&mut self, other: &mut Swarm<T>)
-    where
-        T: NetworkBehaviour<ToSwarm: Debug> + Send;
+    async fn connect_and_wait_for_upgrade<ListenerBehaviour>(
+        &mut self,
+        other: &mut Swarm<ListenerBehaviour>,
+    ) where
+        ListenerBehaviour: NetworkBehaviour<ToSwarm = Event> + Send;
 }
 
 #[async_trait]
@@ -174,19 +179,34 @@ impl<ProofsVerifier> SwarmExt for Swarm<Behaviour<ProofsVerifier, IntervalProvid
 where
     ProofsVerifier: encap::ProofsVerifier + Send + 'static,
 {
-    async fn connect_and_wait_for_outbound_upgrade<T>(&mut self, other: &mut Swarm<T>)
-    where
-        T: NetworkBehaviour<ToSwarm: Debug> + Send,
+    async fn connect_and_wait_for_upgrade<ListenerBehaviour>(
+        &mut self,
+        listener: &mut Swarm<ListenerBehaviour>,
+    ) where
+        ListenerBehaviour: NetworkBehaviour<ToSwarm = Event> + Send,
     {
-        self.connect(other).await;
-        select! {
-            swarm_event = self.select_next_some() => {
-                if let SwarmEvent::Behaviour(Event::OutboundConnectionUpgradeSucceeded(peer_id)) = swarm_event && peer_id == *other.local_peer_id() {
-                    return;
+        self.connect(listener).await;
+        let mut inbound_conn_upgraded = false;
+        let mut outbound_conn_upgraded = false;
+        loop {
+            select! {
+                swarm_event = self.select_next_some() => {
+                    if let SwarmEvent::Behaviour(Event::OutboundConnectionUpgradeSucceeded(peer_id)) = swarm_event && peer_id == *listener.local_peer_id() {
+                        outbound_conn_upgraded = true;
+                        if inbound_conn_upgraded {
+                            return;
+                        }
+                    }
+                }
+                swarm_event = listener.select_next_some() => {
+                    if let SwarmEvent::Behaviour(Event::InboundConnectionUpgradeSucceeded(peer_id)) = swarm_event && peer_id == *self.local_peer_id() {
+                        inbound_conn_upgraded = true;
+                        if outbound_conn_upgraded {
+                            return;
+                        }
+                    }
                 }
             }
-            // Drive other swarm to keep polling
-            _ = other.select_next_some() => {}
         }
     }
 }
@@ -199,7 +219,7 @@ pub fn build_memberships<Behaviour: NetworkBehaviour>(
         .map(|swarm| Node {
             id: *swarm.local_peer_id(),
             address: Multiaddr::empty(),
-            public_key: [0; _].try_into().unwrap(),
+            public_key: Ed25519PrivateKey::generate().public_key(),
         })
         .collect::<Vec<_>>();
     nodes

@@ -36,9 +36,7 @@ async fn publish_message() {
     });
 
     listener.listen().with_memory_addr_external().await;
-    dialer
-        .connect_and_wait_for_outbound_upgrade(&mut listener)
-        .await;
+    dialer.connect_and_wait_for_upgrade(&mut listener).await;
 
     // Start a new session before sending any message through the connection.
     session += 1;
@@ -61,9 +59,7 @@ async fn publish_message() {
     assert_eq!(result, Err(Error::NoPeers));
 
     // Establish a connection for the new session.
-    dialer
-        .connect_and_wait_for_outbound_upgrade(&mut listener)
-        .await;
+    dialer.connect_and_wait_for_upgrade(&mut listener).await;
 
     // Now we can send the message successfully.
     dialer
@@ -117,12 +113,8 @@ async fn forward_message() {
     receiver2.listen().with_memory_addr_external().await;
 
     // Connect 3 nodes: sender -> forwarder -> receiver1
-    sender
-        .connect_and_wait_for_outbound_upgrade(&mut forwarder)
-        .await;
-    forwarder
-        .connect_and_wait_for_outbound_upgrade(&mut receiver1)
-        .await;
+    sender.connect_and_wait_for_upgrade(&mut forwarder).await;
+    forwarder.connect_and_wait_for_upgrade(&mut receiver1).await;
 
     // Before sending any message, start a new session
     // only for the forwarder, receiver1, and receiver2.
@@ -144,9 +136,7 @@ async fn forward_message() {
         memberships[3].clone(),
         SessionBasedMockProofsVerifier(new_session),
     );
-    forwarder
-        .connect_and_wait_for_outbound_upgrade(&mut receiver2)
-        .await;
+    forwarder.connect_and_wait_for_upgrade(&mut receiver2).await;
 
     // The sender publishes a message built with the old session to the forwarder.
     let test_message = TestEncapsulatedMessageWithSession::new(old_session, b"msg").into_inner();
@@ -184,9 +174,7 @@ async fn forward_message() {
         memberships[0].clone(),
         SessionBasedMockProofsVerifier(new_session),
     );
-    sender
-        .connect_and_wait_for_outbound_upgrade(&mut forwarder)
-        .await;
+    sender.connect_and_wait_for_upgrade(&mut forwarder).await;
 
     // The sender publishes a new message built with the new session to the
     // forwarder.
@@ -236,9 +224,7 @@ async fn finish_session_transition() {
     });
 
     listener.listen().with_memory_addr_external().await;
-    dialer
-        .connect_and_wait_for_outbound_upgrade(&mut listener)
-        .await;
+    dialer.connect_and_wait_for_upgrade(&mut listener).await;
 
     // Start a new session.
     session += 1;

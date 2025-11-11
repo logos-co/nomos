@@ -175,7 +175,7 @@ async fn incoming_attempt_with_max_negotiated_peering_degree() {
     listening_swarm.listen().with_memory_addr_external().await;
 
     dialer_swarm_1
-        .connect_and_wait_for_outbound_upgrade(&mut listening_swarm)
+        .connect_and_wait_for_upgrade(&mut listening_swarm)
         .await;
 
     // We can call `connect` since a new connection will be established, but
@@ -291,7 +291,7 @@ async fn incoming_attempt_with_duplicate_connection() {
     listening_swarm.listen().with_memory_addr_external().await;
 
     dialer_swarm_1
-        .connect_and_wait_for_outbound_upgrade(&mut listening_swarm)
+        .connect_and_wait_for_upgrade(&mut listening_swarm)
         .await;
     // This call will result in a closed connection.
     dialer_swarm_1.connect(&mut listening_swarm).await;
@@ -346,7 +346,7 @@ async fn outgoing_attempt_with_max_negotiated_peering_degree() {
     listening_swarm_2.listen().with_memory_addr_external().await;
 
     dialing_swarm
-        .connect_and_wait_for_outbound_upgrade(&mut listening_swarm_1)
+        .connect_and_wait_for_upgrade(&mut listening_swarm_1)
         .await;
 
     // We can call `connect` since a new connection will be established, but
@@ -464,7 +464,7 @@ async fn outgoing_attempt_with_duplicate_connection() {
     listening_swarm.listen().with_memory_addr_external().await;
 
     dialer_swarm
-        .connect_and_wait_for_outbound_upgrade(&mut listening_swarm)
+        .connect_and_wait_for_upgrade(&mut listening_swarm)
         .await;
     // This call will result in a closed connection.
     dialer_swarm.connect(&mut listening_swarm).await;
@@ -713,7 +713,7 @@ async fn replace_existing_with_new_connection() {
     larger_swarm.listen().with_memory_addr_external().await;
 
     smaller_swarm
-        .connect_and_wait_for_outbound_upgrade(&mut larger_swarm)
+        .connect_and_wait_for_upgrade(&mut larger_swarm)
         .await;
 
     larger_swarm.connect(&mut smaller_swarm).await;
@@ -725,6 +725,7 @@ async fn replace_existing_with_new_connection() {
     let mut smaller_swarm_connection_dropped = false;
     let mut larger_swarm_connection_dropped = false;
     let mut larger_swarm_connection_upgrade_notified = false;
+    let mut smaller_swarm_connection_upgrade_notified = false;
     loop {
         select! {
             () = sleep(Duration::from_secs(12)) => {
@@ -741,6 +742,11 @@ async fn replace_existing_with_new_connection() {
                     }
                     SwarmEvent::Behaviour(Event::PeerDisconnected(_, _)) => {
                         panic!("No `PeerDisconnected` event should be generated when an outgoing connection is replaced with an incoming one.");
+                    }
+                    SwarmEvent::Behaviour(Event::InboundConnectionUpgradeSucceeded(peer_id)) => {
+                        assert_eq!(peer_id, *larger_swarm.local_peer_id());
+                        assert!(!smaller_swarm_connection_upgrade_notified);
+                        smaller_swarm_connection_upgrade_notified = true;
                     }
                     _ => {}
                 }
@@ -814,7 +820,7 @@ async fn discard_new_for_existing_connection() {
     larger_swarm.listen().with_memory_addr_external().await;
 
     larger_swarm
-        .connect_and_wait_for_outbound_upgrade(&mut smaller_swarm)
+        .connect_and_wait_for_upgrade(&mut smaller_swarm)
         .await;
 
     smaller_swarm.connect(&mut larger_swarm).await;
@@ -856,6 +862,9 @@ async fn discard_new_for_existing_connection() {
                         assert!(endpoint.is_listener());
                         assert!(!larger_swarm_connection_dropped);
                         larger_swarm_connection_dropped = true;
+                    }
+                    SwarmEvent::Behaviour(Event::InboundConnectionUpgradeSucceeded(_)) => {
+                        panic!("No new `InboundConnectionUpgradeSucceeded` event should be generated when an incoming connection is ignored for an existing outgoing one.");
                     }
                     SwarmEvent::Behaviour(Event::PeerDisconnected(_, _)) => {
                         panic!("No `PeerDisconnected` event should be generated when an incoming connection is ignored for an existing outgoing one.");
