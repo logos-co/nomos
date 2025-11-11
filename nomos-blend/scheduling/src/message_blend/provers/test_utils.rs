@@ -82,15 +82,15 @@ pub fn valid_proof_of_leader_inputs(
 }
 
 #[derive(Clone)]
-pub struct TestPoQGenerator(ProofOfCoreQuotaInputs);
+pub struct PoQGeneratorFromPrivateCoreQuotaInputs(ProofOfCoreQuotaInputs);
 
-impl TestPoQGenerator {
+impl PoQGeneratorFromPrivateCoreQuotaInputs {
     pub fn new(private_inputs: ProofOfCoreQuotaInputs) -> Self {
         Self(private_inputs)
     }
 }
 
-impl ProofOfQuotaGenerator for TestPoQGenerator {
+impl ProofOfQuotaGenerator for PoQGeneratorFromPrivateCoreQuotaInputs {
     fn generate_poq(
         &self,
         public_inputs: &PoQPublicInputs,

@@ -5,8 +5,8 @@ use crate::message_blend::provers::{
     ProofsGeneratorSettings,
     core::{CoreProofsGenerator as _, RealCoreProofsGenerator},
     test_utils::{
-        TestPoQGenerator, poq_public_inputs_from_session_public_inputs_and_signing_key,
-        valid_proof_of_quota_inputs,
+        PoQGeneratorFromPrivateCoreQuotaInputs,
+        poq_public_inputs_from_session_public_inputs_and_signing_key, valid_proof_of_quota_inputs,
     },
 };
 
@@ -21,7 +21,7 @@ async fn proof_generation() {
             membership_size: 1,
             public_inputs,
         },
-        TestPoQGenerator::new(private_inputs.clone()),
+        PoQGeneratorFromPrivateCoreQuotaInputs::new(private_inputs.clone()),
     );
 
     for _ in 0..core_quota {
@@ -61,7 +61,7 @@ async fn epoch_rotation() {
             membership_size: 1,
             public_inputs,
         },
-        TestPoQGenerator::new(private_inputs.clone()),
+        PoQGeneratorFromPrivateCoreQuotaInputs::new(private_inputs.clone()),
     );
 
     // Request all but the last proof, before rotating epoch (with the same public
