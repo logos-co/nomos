@@ -26,7 +26,6 @@ use crate::{
         encoding::{decode_op, encode_op},
         ops::internal::{OpDe, OpSer},
     },
-    proofs::zksig,
     utils::ed25519_serde,
 };
 
@@ -56,9 +55,9 @@ pub enum Op {
 pub enum OpProof {
     NoProof,
     Ed25519Sig(#[serde(with = "ed25519_serde::sig_hex")] ed25519::Signature),
-    ZkSig(zksig::DummyZkSignature),
+    ZkSig(zksign::Signature),
     ZkAndEd25519Sigs {
-        zk_sig: zksig::DummyZkSignature,
+        zk_sig: zksign::Signature,
         #[serde(with = "ed25519_serde::sig_hex")]
         ed25519_sig: ed25519::Signature,
     },

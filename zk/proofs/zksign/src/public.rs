@@ -2,12 +2,37 @@ use circuits_utils::dev_mode::DevModeProof;
 use groth16::{Field as _, Fr, Groth16Input, Groth16InputDeser};
 use serde::Deserialize;
 
+#[derive(Debug)]
 pub struct ZkSignVerifierInputs {
     pub public_keys: [Groth16Input; 32],
     pub msg: Groth16Input,
 }
 
 impl ZkSignVerifierInputs {
+    pub fn try_from_pks(
+        msg: Groth16Input,
+        pks: &[crate::PublicKey],
+    ) -> Result<Self, crate::ZkSignError> {
+        if pks.len() > 32 {
+            return Err(crate::ZkSignError::TooManyKeys(pks.len()));
+        }
+
+        // pks are padded with the pk corresponding to the zero SecretKey.
+        let zero_pk = Groth16Input::from(
+            crate::SecretKey::from(Fr::ZERO)
+                .to_public_key()
+                .into_inner(),
+        );
+        let mut public_keys = [zero_pk; 32];
+
+        for (i, pk) in pks.iter().enumerate() {
+            assert!(i < 32, "ZkSign supports signing with at most 32 keys");
+            public_keys[i] = Groth16Input::from(pk.into_inner());
+        }
+
+        Ok(Self { public_keys, msg })
+    }
+
     #[must_use]
     pub fn new_from_msg_and_pks(msg: Fr, pks: &[Fr; 32]) -> Self {
         Self {
@@ -48,7 +73,7 @@ impl DevModeProof for ZkSignVerifierInputs {
     }
 
     fn public_inputs(&self) -> Vec<Groth16Input> {
-        std::iter::once(self.msg).chain(self.public_keys).collect()
+        self.as_inputs().map(Groth16Input::from).to_vec()
     }
 }
 

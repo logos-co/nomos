@@ -16,7 +16,6 @@ use nomos_core::{
             channel::{ChannelId, MsgId, inscribe::InscriptionOp},
         },
     },
-    proofs::zksig::{DummyZkSignature, ZkSignaturePublic},
 };
 use reqwest::Url;
 
@@ -129,10 +128,7 @@ pub fn create_inscription_transaction_with_id(id: ChannelId) -> SignedMantleTx {
     SignedMantleTx::new(
         mantle_tx,
         vec![OpProof::Ed25519Sig(signature)],
-        DummyZkSignature::prove(&ZkSignaturePublic {
-            msg_hash: tx_hash.into(),
-            pks: vec![],
-        }),
+        zksign::SecretKey::multi_sign(&[], tx_hash.as_ref()).unwrap(),
     )
     .unwrap()
 }

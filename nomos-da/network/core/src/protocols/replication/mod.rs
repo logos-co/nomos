@@ -22,16 +22,13 @@ mod test {
     };
     use libp2p_swarm_test::SwarmExt as _;
     use log::info;
-    use nomos_core::{
-        mantle::{
-            MantleTx, SignedMantleTx, Transaction as _,
-            ledger::Tx as LedgerTx,
-            ops::{
-                Op, OpProof,
-                channel::{ChannelId, MsgId, blob::BlobOp},
-            },
+    use nomos_core::mantle::{
+        MantleTx, SignedMantleTx, Transaction as _,
+        ledger::Tx as LedgerTx,
+        ops::{
+            Op, OpProof,
+            channel::{ChannelId, MsgId, blob::BlobOp},
         },
-        proofs::zksig::{DummyZkSignature, ZkSignaturePublic},
     };
     use nomos_da_messages::{
         common::Share,
@@ -374,10 +371,7 @@ mod test {
                 let unique_signed_tx = SignedMantleTx::new(
                     unique_mantle_tx,
                     vec![OpProof::Ed25519Sig(signature)],
-                    DummyZkSignature::prove(&ZkSignaturePublic {
-                        msg_hash: tx_hash.into(),
-                        pks: vec![],
-                    }),
+                    zksign::SecretKey::multi_sign(&[], tx_hash.as_ref()).unwrap(),
                 )
                 .expect("Transaction with valid proofs should be valid");
 

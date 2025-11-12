@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use tracing::error;
 use zeroize::ZeroizeOnDrop;
 
-use crate::{ZkSignProof, ZkSignVerifierInputs, ZkSignWitnessInputs, prove};
+use crate::{ZkSignPrivateKeysData, ZkSignProof, ZkSignVerifierInputs, ZkSignWitnessInputs, prove};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, ZeroizeOnDrop)]
 #[serde(transparent)]
@@ -47,25 +47,16 @@ impl SecretKey {
         PublicKey(Poseidon2Bn254Hasher::digest(&[*NOMOS_KDF, self.0]))
     }
 
-    #[must_use]
-    pub fn sign(&self, data: &Fr) -> Signature {
-        let mut keys = [const { Self::zero() }; 32];
-        keys[0] = self.clone();
-        Self::multi_sign(&keys, data)
+    pub fn sign(&self, data: &Fr) -> Result<Signature, crate::ZkSignError> {
+        Self::multi_sign(std::slice::from_ref(self), data)
     }
 
-    #[must_use]
-    pub fn multi_sign(keys: &[Self; 32], data: &Fr) -> Signature {
-        let keys: [_; 32] = keys
-            .iter()
-            .map(|k| k.0)
-            .collect::<Vec<_>>()
-            .try_into()
-            .expect("Size is correct from method signature");
-        let inputs = ZkSignWitnessInputs::from_witness_data_and_message_hash(keys.into(), *data);
+    pub fn multi_sign(keys: &[Self], data: &Fr) -> Result<Signature, crate::ZkSignError> {
+        let sk_inputs = ZkSignPrivateKeysData::try_from(keys)?;
+        let inputs = ZkSignWitnessInputs::from_witness_data_and_message_hash(sk_inputs, *data);
 
         let (signature, _) = prove(&inputs).expect("Signature should succeed");
-        Signature(signature)
+        Ok(Signature(signature))
     }
 }
 
@@ -102,14 +93,15 @@ impl PublicKey {
     }
 
     #[must_use]
-    pub fn verify_multi(pks: &[Self; 32], data: &Fr, signature: &Signature) -> bool {
-        let pks = pks
-            .iter()
-            .map(|pk| pk.0)
-            .collect::<Vec<_>>()
-            .try_into()
-            .expect("Size is correct from method signature");
-        let inputs = ZkSignVerifierInputs::new_from_msg_and_pks(*data, &pks);
+    pub fn verify_multi(pks: &[Self], data: &Fr, signature: &Signature) -> bool {
+        let inputs = match ZkSignVerifierInputs::try_from_pks((*data).into(), pks) {
+            Ok(inputs) => inputs,
+            Err(e) => {
+                error!("Error building verifier inputs: {e:?}");
+                return false;
+            }
+        };
+
         crate::verify(signature.as_proof(), &inputs).unwrap_or_else(|e| {
             error!("Error verifying signature: {e:?}");
             false
@@ -130,6 +122,11 @@ struct SignatureSerde {
 pub struct Signature(#[serde(with = "SignatureSerde")] ZkSignProof);
 
 impl Signature {
+    #[must_use]
+    pub const fn new(proof: ZkSignProof) -> Self {
+        Self(proof)
+    }
+
     #[must_use]
     pub const fn as_proof(&self) -> &ZkSignProof {
         &self.0

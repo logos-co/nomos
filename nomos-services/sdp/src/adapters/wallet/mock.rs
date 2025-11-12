@@ -3,7 +3,6 @@ use std::convert::Infallible;
 use ed25519_dalek::{Signer as _, SigningKey};
 use nomos_core::{
     mantle::{NoteId, Op, OpProof, SignedMantleTx, Transaction as _, tx_builder::MantleTxBuilder},
-    proofs::zksig::{DummyZkSignature, ZkSignaturePublic},
     sdp::{ActiveMessage, DeclarationMessage, WithdrawMessage},
 };
 use zksign::PublicKey;
@@ -25,17 +24,14 @@ impl SdpWalletAdapter for MockWalletAdapter {
     ) -> Result<SignedMantleTx, Self::Error> {
         // todo: this is for mock, we need signing key in production
         let signing_key = SigningKey::from_bytes(&[0u8; 32]);
+        let zk_key = zksign::SecretKey::zero();
 
-        let declare_op = Op::SDPDeclare(*declaration.clone());
+        let declare_op = Op::SDPDeclare(*declaration);
         let mantle_tx = tx_builder.push_op(declare_op).build();
         let tx_hash = mantle_tx.hash();
 
         let ed25519_sig = signing_key.sign(&tx_hash.as_signing_bytes());
-
-        let zk_sig = DummyZkSignature::prove(&ZkSignaturePublic {
-            msg_hash: tx_hash.into(),
-            pks: vec![declaration.zk_id.into_inner()],
-        });
+        let zk_sig = zk_key.sign(tx_hash.as_ref()).unwrap();
 
         Ok(SignedMantleTx::new(
             mantle_tx,
@@ -43,10 +39,7 @@ impl SdpWalletAdapter for MockWalletAdapter {
                 zk_sig,
                 ed25519_sig,
             }],
-            DummyZkSignature::prove(&ZkSignaturePublic {
-                msg_hash: tx_hash.into(),
-                pks: vec![],
-            }),
+            zksign::SecretKey::multi_sign(&[], tx_hash.as_ref()).unwrap(),
         )
         .expect("Transaction with valid signature should be valid"))
     }
@@ -56,8 +49,13 @@ impl SdpWalletAdapter for MockWalletAdapter {
         tx_builder: MantleTxBuilder,
         withdrawn_message: WithdrawMessage,
         zk_id: PublicKey,
-        locked_note_id: NoteId,
+        _locked_note_id: NoteId,
     ) -> Result<SignedMantleTx, Self::Error> {
+        // todo: this is for mock, we need signing key in production
+        let zk_sk = zksign::SecretKey::zero();
+        let locked_note_sk = zksign::SecretKey::zero();
+        assert_eq!(zk_sk.to_public_key(), zk_id);
+
         // Build the Op
         let withdraw_op = Op::SDPWithdraw(withdrawn_message);
         let mantle_tx = tx_builder.push_op(withdraw_op).build();
@@ -65,18 +63,13 @@ impl SdpWalletAdapter for MockWalletAdapter {
 
         // From spec: ZkSignature_verify(txhash, signature, [locked_note.pk,
         // declare_info.zk_id])
-        let zk_signature = DummyZkSignature::prove(&ZkSignaturePublic {
-            msg_hash: tx_hash.into(),
-            pks: vec![*locked_note_id.as_fr(), zk_id.into_inner()],
-        });
+        let zk_signature =
+            zksign::SecretKey::multi_sign(&[locked_note_sk, zk_sk], tx_hash.as_ref()).unwrap();
 
         Ok(SignedMantleTx::new(
             mantle_tx,
             vec![OpProof::ZkSig(zk_signature)],
-            DummyZkSignature::prove(&ZkSignaturePublic {
-                msg_hash: tx_hash.into(),
-                pks: vec![],
-            }),
+            zksign::SecretKey::multi_sign(&[], tx_hash.as_ref()).unwrap(),
         )
         .expect("Transaction with valid signature should be valid"))
     }
@@ -87,22 +80,20 @@ impl SdpWalletAdapter for MockWalletAdapter {
         active_message: ActiveMessage,
         zk_id: PublicKey,
     ) -> Result<SignedMantleTx, Self::Error> {
+        // todo: this is for mock, we need signing key in production
+        let zk_sk = zksign::SecretKey::zero();
+        assert_eq!(zk_sk.to_public_key(), zk_id);
+
         let active_op = Op::SDPActive(active_message);
         let mantle_tx = tx_builder.push_op(active_op).build();
         let tx_hash = mantle_tx.hash();
 
-        let zk_signature = DummyZkSignature::prove(&ZkSignaturePublic {
-            msg_hash: tx_hash.into(),
-            pks: vec![zk_id.into_inner()],
-        });
+        let zk_signature = zk_sk.sign(tx_hash.as_ref()).unwrap();
 
         Ok(SignedMantleTx::new(
             mantle_tx,
             vec![OpProof::ZkSig(zk_signature)],
-            DummyZkSignature::prove(&ZkSignaturePublic {
-                msg_hash: tx_hash.into(),
-                pks: vec![],
-            }),
+            zksign::SecretKey::multi_sign(&[], tx_hash.as_ref()).unwrap(),
         )
         .expect("Transaction with valid signature should be valid"))
     }

@@ -2,7 +2,7 @@ use std::{collections::HashMap, net::Ipv4Addr, str::FromStr as _};
 
 use nomos_core::{
     mantle::GenesisTx as _,
-    sdp::{Locator, ProviderId, ServiceType},
+    sdp::{Locator, ServiceType},
 };
 use nomos_libp2p::{Multiaddr, multiaddr};
 use nomos_tracing_service::{LoggerLayer, MetricsLayer, TracingLayer, TracingSettings};
@@ -197,8 +197,8 @@ fn create_providers(
         .enumerate()
         .map(|(i, da_conf)| ProviderInfo {
             service_type: ServiceType::DataAvailability,
-            provider_id: ProviderId(da_conf.signer.verifying_key()),
-            zk_id: da_conf.secret_zk_key.to_public_key(),
+            provider_sk: da_conf.signer.clone(),
+            zk_sk: da_conf.secret_zk_key.clone(),
             locator: Locator(
                 Multiaddr::from_str(&format!(
                     "/ip4/{}/udp/{}/quic-v1",
@@ -207,14 +207,13 @@ fn create_providers(
                 .unwrap(),
             ),
             note: consensus_configs[0].da_notes[i].clone(),
-            signer: da_conf.signer.clone(),
         })
         .collect();
     providers.extend(blend_configs.iter().enumerate().map(|(i, blend_conf)| {
         ProviderInfo {
             service_type: ServiceType::BlendNetwork,
-            provider_id: ProviderId(blend_conf.signer.verifying_key()),
-            zk_id: blend_conf.secret_zk_key.to_public_key(),
+            provider_sk: blend_conf.signer.clone(),
+            zk_sk: blend_conf.secret_zk_key.clone(),
             locator: Locator(
                 Multiaddr::from_str(&format!(
                     "/ip4/{}/udp/{}/quic-v1",
@@ -223,7 +222,6 @@ fn create_providers(
                 .unwrap(),
             ),
             note: consensus_configs[0].blend_notes[i].clone(),
-            signer: blend_conf.signer.clone(),
         }
     }));
 
