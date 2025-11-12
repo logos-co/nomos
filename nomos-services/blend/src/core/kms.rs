@@ -22,7 +22,7 @@ pub(super) trait PreloadKMSBackendKmsApiExt<RuntimeServiceId> {
         &self,
         key_id: KeyId,
         core_path_and_selectors: Box<CorePathAndSelectors>,
-    ) -> PreloadKMSBackendKmsPoQGenerator<RuntimeServiceId>;
+    ) -> PreloadKMSBackendPoQGenerator<RuntimeServiceId>;
 }
 
 pub(super) type PreloadKmsService<RuntimeServiceId> =
@@ -35,8 +35,8 @@ impl<RuntimeServiceId> PreloadKMSBackendKmsApiExt<RuntimeServiceId>
         &self,
         key_id: KeyId,
         core_path_and_selectors: Box<CorePathAndSelectors>,
-    ) -> PreloadKMSBackendKmsPoQGenerator<RuntimeServiceId> {
-        PreloadKMSBackendKmsPoQGenerator {
+    ) -> PreloadKMSBackendPoQGenerator<RuntimeServiceId> {
+        PreloadKMSBackendPoQGenerator {
             core_path_and_selectors: *core_path_and_selectors,
             kms_api: self.clone(),
             key_id,
@@ -45,13 +45,13 @@ impl<RuntimeServiceId> PreloadKMSBackendKmsApiExt<RuntimeServiceId>
 }
 
 #[derive(Clone)]
-pub struct PreloadKMSBackendKmsPoQGenerator<RuntimeServiceId> {
+pub struct PreloadKMSBackendPoQGenerator<RuntimeServiceId> {
     core_path_and_selectors: CorePathAndSelectors,
     kms_api: KmsServiceApi<PreloadKmsService<RuntimeServiceId>, RuntimeServiceId>,
     key_id: KeyId,
 }
 
-impl<RuntimeServiceId> ProofOfQuotaGenerator for PreloadKMSBackendKmsPoQGenerator<RuntimeServiceId>
+impl<RuntimeServiceId> ProofOfQuotaGenerator for PreloadKMSBackendPoQGenerator<RuntimeServiceId>
 where
     RuntimeServiceId:
         AsServiceId<PreloadKmsService<RuntimeServiceId>> + Debug + Display + Send + Sync,

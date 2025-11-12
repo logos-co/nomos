@@ -18,10 +18,7 @@ use nomos_blend_scheduling::message_blend::{
         leader::LeaderProofsGenerator,
     },
 };
-use nomos_blend_service::{
-    ProofOfLeadershipQuotaInputs, ProofsVerifier, RealProofsVerifier,
-    core::kms::PreloadKMSBackendKmsPoQGenerator,
-};
+use nomos_blend_service::{ProofOfLeadershipQuotaInputs, ProofsVerifier, RealProofsVerifier};
 use nomos_core::{codec::DeserializeOp as _, crypto::ZkHash};
 use poq::PoQProof;
 

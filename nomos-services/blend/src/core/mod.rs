@@ -64,9 +64,7 @@ use tracing::info;
 use crate::{
     core::{
         backends::{PublicInfo, SessionInfo},
-        kms::{
-            PreloadKMSBackendKmsApiExt as _, PreloadKMSBackendKmsPoQGenerator, PreloadKmsService,
-        },
+        kms::{PreloadKMSBackendKmsApiExt as _, PreloadKMSBackendPoQGenerator, PreloadKmsService},
         processor::{CoreCryptographicProcessor, DecapsulatedMessageType, Error},
         scheduler::SchedulerWrapper,
         settings::BlendConfig,
@@ -203,7 +201,7 @@ where
     MembershipAdapter: membership::Adapter<NodeId = NodeId, Error: Send + Sync + 'static> + Send,
     membership::ServiceMessage<MembershipAdapter>: Send + Sync + 'static,
     ProofsGenerator:
-        CoreAndLeaderProofsGenerator<PreloadKMSBackendKmsPoQGenerator<RuntimeServiceId>> + Send,
+        CoreAndLeaderProofsGenerator<PreloadKMSBackendPoQGenerator<RuntimeServiceId>> + Send,
     ProofsVerifier: ProofsVerifierTrait + Clone + Send,
     TimeBackend: nomos_time::backends::TimeBackend + Send,
     ChainService: CryptarchiaServiceData<Tx: Send + Sync>,
@@ -436,7 +434,7 @@ async fn initialize<
 ) -> (
     impl Stream<
         Item = SessionEvent<
-            CoreSessionInfo<NodeId, PreloadKMSBackendKmsPoQGenerator<RuntimeServiceId>>,
+            CoreSessionInfo<NodeId, PreloadKMSBackendPoQGenerator<RuntimeServiceId>>,
         >,
     > + Unpin
     + Send
@@ -445,7 +443,7 @@ async fn initialize<
     PublicInfo<NodeId>,
     CoreCryptographicProcessor<
         NodeId,
-        PreloadKMSBackendKmsPoQGenerator<RuntimeServiceId>,
+        PreloadKMSBackendPoQGenerator<RuntimeServiceId>,
         ProofsGenerator,
         ProofsVerifier,
     >,
@@ -465,8 +463,7 @@ where
     Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId> + Sync,
     NetAdapter: NetworkAdapter<RuntimeServiceId, BroadcastSettings: Eq + Hash>,
     ChainService: ChainApi<RuntimeServiceId> + Sync,
-    ProofsGenerator:
-        CoreAndLeaderProofsGenerator<PreloadKMSBackendKmsPoQGenerator<RuntimeServiceId>>,
+    ProofsGenerator: CoreAndLeaderProofsGenerator<PreloadKMSBackendPoQGenerator<RuntimeServiceId>>,
     ProofsVerifier: ProofsVerifierTrait,
     RuntimeServiceId: Clone + Send + Sync + 'static,
 {
@@ -561,7 +558,7 @@ where
 
     let crypto_processor = CoreCryptographicProcessor::<
         _,
-        PreloadKMSBackendKmsPoQGenerator<RuntimeServiceId>,
+        PreloadKMSBackendPoQGenerator<RuntimeServiceId>,
         ProofsGenerator,
         ProofsVerifier,
     >::try_new_with_core_condition_check(
@@ -713,7 +710,7 @@ async fn run_event_loop<
     mut secret_pol_info_stream: impl Stream<Item = PolEpochInfo> + Unpin,
     mut remaining_session_stream: impl Stream<
         Item = SessionEvent<
-            CoreSessionInfo<NodeId, PreloadKMSBackendKmsPoQGenerator<RuntimeServiceId>>,
+            CoreSessionInfo<NodeId, PreloadKMSBackendPoQGenerator<RuntimeServiceId>>,
         >,
     > + Unpin,
 
@@ -732,7 +729,7 @@ async fn run_event_loop<
 
     mut crypto_processor: CoreCryptographicProcessor<
         NodeId,
-        PreloadKMSBackendKmsPoQGenerator<RuntimeServiceId>,
+        PreloadKMSBackendPoQGenerator<RuntimeServiceId>,
         ProofsGenerator,
         ProofsVerifier,
     >,
@@ -756,8 +753,7 @@ async fn run_event_loop<
                                    + Unpin,
         > + Sync,
     ChainService: ChainApi<RuntimeServiceId> + Sync,
-    ProofsGenerator:
-        CoreAndLeaderProofsGenerator<PreloadKMSBackendKmsPoQGenerator<RuntimeServiceId>>,
+    ProofsGenerator: CoreAndLeaderProofsGenerator<PreloadKMSBackendPoQGenerator<RuntimeServiceId>>,
     ProofsVerifier: ProofsVerifierTrait,
     RuntimeServiceId: Sync,
 {
@@ -853,13 +849,11 @@ async fn handle_session_event<
     BroadcastSettings,
     RuntimeServiceId,
 >(
-    event: SessionEvent<
-        CoreSessionInfo<NodeId, PreloadKMSBackendKmsPoQGenerator<RuntimeServiceId>>,
-    >,
+    event: SessionEvent<CoreSessionInfo<NodeId, PreloadKMSBackendPoQGenerator<RuntimeServiceId>>>,
     settings: &BlendConfig<Backend::Settings>,
     current_cryptographic_processor: CoreCryptographicProcessor<
         NodeId,
-        PreloadKMSBackendKmsPoQGenerator<RuntimeServiceId>,
+        PreloadKMSBackendPoQGenerator<RuntimeServiceId>,
         ProofsGenerator,
         ProofsVerifier,
     >,
@@ -890,8 +884,7 @@ async fn handle_session_event<
 >
 where
     NodeId: Eq + Hash + Clone + Send,
-    ProofsGenerator:
-        CoreAndLeaderProofsGenerator<PreloadKMSBackendKmsPoQGenerator<RuntimeServiceId>>,
+    ProofsGenerator: CoreAndLeaderProofsGenerator<PreloadKMSBackendPoQGenerator<RuntimeServiceId>>,
     ProofsVerifier: ProofsVerifierTrait,
     BroadcastSettings: Send + Sync,
     Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId>,
@@ -989,7 +982,7 @@ struct HandleSessionEventOutput<
 > {
     crypto_processor: CoreCryptographicProcessor<
         NodeId,
-        PreloadKMSBackendKmsPoQGenerator<RuntimeServiceId>,
+        PreloadKMSBackendPoQGenerator<RuntimeServiceId>,
         ProofsGenerator,
         ProofsVerifier,
     >,
@@ -1033,7 +1026,7 @@ async fn handle_local_data_message<
     local_data_message: ServiceMessage<BroadcastSettings>,
     cryptographic_processor: &mut CoreCryptographicProcessor<
         NodeId,
-        PreloadKMSBackendKmsPoQGenerator<RuntimeServiceId>,
+        PreloadKMSBackendPoQGenerator<RuntimeServiceId>,
         ProofsGenerator,
         ProofsVerifier,
     >,
@@ -1052,8 +1045,7 @@ where
     BackendSettings: Clone + Send + Sync,
     BroadcastSettings:
         Serialize + for<'de> Deserialize<'de> + Debug + Hash + Eq + Clone + Send + Sync,
-    ProofsGenerator:
-        CoreAndLeaderProofsGenerator<PreloadKMSBackendKmsPoQGenerator<RuntimeServiceId>>,
+    ProofsGenerator: CoreAndLeaderProofsGenerator<PreloadKMSBackendPoQGenerator<RuntimeServiceId>>,
     ProofsVerifier: ProofsVerifierTrait,
 {
     let ServiceMessage::Blend(message_payload) = local_data_message;
@@ -1153,7 +1145,7 @@ fn handle_incoming_blend_message<
     >,
     cryptographic_processor: &CoreCryptographicProcessor<
         NodeId,
-        PreloadKMSBackendKmsPoQGenerator<RuntimeServiceId>,
+        PreloadKMSBackendPoQGenerator<RuntimeServiceId>,
         ProofsGenerator,
         ProofsVerifier,
     >,
@@ -1247,7 +1239,7 @@ async fn handle_release_round<
     }: RoundInfo<ProcessedMessage<NetAdapter::BroadcastSettings>, EncapsulatedMessage>,
     cryptographic_processor: &mut CoreCryptographicProcessor<
         NodeId,
-        PreloadKMSBackendKmsPoQGenerator<RuntimeServiceId>,
+        PreloadKMSBackendPoQGenerator<RuntimeServiceId>,
         ProofsGenerator,
         ProofsVerifier,
     >,
@@ -1261,8 +1253,7 @@ where
     NodeId: Eq + Hash + 'static,
     Rng: RngCore + Send,
     Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId> + Sync,
-    ProofsGenerator:
-        CoreAndLeaderProofsGenerator<PreloadKMSBackendKmsPoQGenerator<RuntimeServiceId>>,
+    ProofsGenerator: CoreAndLeaderProofsGenerator<PreloadKMSBackendPoQGenerator<RuntimeServiceId>>,
     ProofsVerifier: ProofsVerifierTrait,
     NetAdapter: NetworkAdapter<RuntimeServiceId, BroadcastSettings: Eq + Hash> + Sync,
 {
@@ -1352,7 +1343,7 @@ async fn generate_and_try_to_decapsulate_cover_message<
 >(
     cryptographic_processor: &mut CoreCryptographicProcessor<
         NodeId,
-        PreloadKMSBackendKmsPoQGenerator<RuntimeServiceId>,
+        PreloadKMSBackendPoQGenerator<RuntimeServiceId>,
         ProofsGenerator,
         ProofsVerifier,
     >,
@@ -1363,8 +1354,7 @@ where
     NodeId: Eq + Hash + 'static,
     BackendSettings: Sync,
     BroadcastSettings: Sync,
-    ProofsGenerator:
-        CoreAndLeaderProofsGenerator<PreloadKMSBackendKmsPoQGenerator<RuntimeServiceId>>,
+    ProofsGenerator: CoreAndLeaderProofsGenerator<PreloadKMSBackendPoQGenerator<RuntimeServiceId>>,
     ProofsVerifier: ProofsVerifierTrait,
 {
     let encapsulated_cover_message = cryptographic_processor
@@ -1421,7 +1411,7 @@ async fn handle_clock_event<
     epoch_handler: &mut EpochHandler<ChainService, RuntimeServiceId>,
     cryptographic_processor: &mut CoreCryptographicProcessor<
         NodeId,
-        PreloadKMSBackendKmsPoQGenerator<RuntimeServiceId>,
+        PreloadKMSBackendPoQGenerator<RuntimeServiceId>,
         ProofsGenerator,
         ProofsVerifier,
     >,
@@ -1429,8 +1419,7 @@ async fn handle_clock_event<
     current_public_info: PublicInfo<NodeId>,
 ) -> PublicInfo<NodeId>
 where
-    ProofsGenerator:
-        CoreAndLeaderProofsGenerator<PreloadKMSBackendKmsPoQGenerator<RuntimeServiceId>>,
+    ProofsGenerator: CoreAndLeaderProofsGenerator<PreloadKMSBackendPoQGenerator<RuntimeServiceId>>,
     ProofsVerifier: ProofsVerifierTrait,
     ChainService: ChainApi<RuntimeServiceId> + Sync,
     Backend: BlendBackend<NodeId, Rng, ProofsVerifier, RuntimeServiceId>,
@@ -1502,13 +1491,12 @@ fn handle_new_secret_epoch_info<NodeId, ProofsGenerator, ProofsVerifier, Runtime
     new_pol_info: ProofOfLeadershipQuotaInputs,
     cryptographic_processor: &mut CoreCryptographicProcessor<
         NodeId,
-        PreloadKMSBackendKmsPoQGenerator<RuntimeServiceId>,
+        PreloadKMSBackendPoQGenerator<RuntimeServiceId>,
         ProofsGenerator,
         ProofsVerifier,
     >,
 ) where
-    ProofsGenerator:
-        CoreAndLeaderProofsGenerator<PreloadKMSBackendKmsPoQGenerator<RuntimeServiceId>>,
+    ProofsGenerator: CoreAndLeaderProofsGenerator<PreloadKMSBackendPoQGenerator<RuntimeServiceId>>,
 {
     cryptographic_processor.set_epoch_private(new_pol_info);
 }
