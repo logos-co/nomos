@@ -64,6 +64,8 @@ pub fn create_general_configs_with_network(
 #[must_use]
 pub fn create_general_configs_with_blend_core_subset(
     n_nodes: usize,
+    // TODO: Instead of this, define a config struct for each node.
+    // That would be also useful for non-even token distributions: https://github.com/logos-co/nomos/issues/1888
     n_blend_core_nodes: usize,
     network_params: &NetworkParams,
 ) -> Vec<GeneralConfig> {
@@ -98,6 +100,7 @@ pub fn create_general_configs_with_blend_core_subset(
     let providers: Vec<_> = blend_configs
         .iter()
         .enumerate()
+        .take(n_blend_core_nodes)
         .map(|(i, blend_conf)| ProviderInfo {
             service_type: ServiceType::BlendNetwork,
             provider_sk: blend_conf.signer.clone(),
