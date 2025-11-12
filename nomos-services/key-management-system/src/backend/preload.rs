@@ -4,18 +4,18 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{KMSOperatorBackend, SecuredKey, backend::KMSBackend, keys};
+use crate::{SecuredKey, backend::KMSBackend, keys, message::KMSOperatorBackend};
 
 pub type KeyId = String;
 
-#[derive(thiserror::Error, Debug, PartialEq, Eq)]
+#[derive(thiserror::Error, Debug)]
 pub enum PreloadBackendError {
     #[error(transparent)]
     KeyError(#[from] keys::errors::KeyError),
     #[error("KeyId ({0:?}) is not registered")]
     NotRegisteredKeyId(KeyId),
     #[error("KeyId {0} is already registered")]
-    AlreadRegisteredKeyId(KeyId),
+    AlreadyRegisteredKeyId(KeyId),
 }
 
 pub struct PreloadKMSBackend {
@@ -47,7 +47,7 @@ impl KMSBackend for PreloadKMSBackend {
     // across restarts
     fn register(&mut self, key_id: &Self::KeyId, key: Self::Key) -> Result<(), Self::Error> {
         if self.keys.contains_key(key_id) {
-            return Err(PreloadBackendError::AlreadRegisteredKeyId(key_id.clone()));
+            return Err(PreloadBackendError::AlreadyRegisteredKeyId(key_id.clone()));
         }
         self.keys.insert(key_id.clone(), key);
 
@@ -97,7 +97,7 @@ impl KMSBackend for PreloadKMSBackend {
     async fn execute(
         &mut self,
         key_id: &Self::KeyId,
-        mut operator: KMSOperatorBackend<Self>,
+        operator: KMSOperatorBackend<Self>,
     ) -> Result<(), Self::Error> {
         let key = self
             .keys
@@ -132,16 +132,18 @@ mod tests {
     async fn preload_backend() {
         // Initialize a backend with a pre-generated key in the setting
         let key_id = "blend/1".to_owned();
-        let key = Key::Ed25519(Ed25519Key(ed25519_dalek::SigningKey::generate(&mut OsRng)));
+        let key = Key::Ed25519(Ed25519Key::new(ed25519_dalek::SigningKey::generate(
+            &mut OsRng,
+        )));
         let mut backend = PreloadKMSBackend::new(PreloadKMSBackendSettings {
             keys: HashMap::from_iter([(key_id.clone(), key.clone())]),
         });
 
         // Check if the key was preloaded successfully with the same key type.
-        assert_eq!(
+        assert!(matches!(
             backend.register(&key_id, key.clone()).unwrap_err(),
-            PreloadBackendError::AlreadRegisteredKeyId(key_id.clone())
-        );
+            PreloadBackendError::AlreadyRegisteredKeyId(id) if id == key_id.clone()
+        ));
 
         let public_key = key.as_public_key();
         let backend_public_key = backend.public_key(&key_id).unwrap();
@@ -166,33 +168,35 @@ mod tests {
         });
 
         let key_id = "blend/not_registered".to_owned();
-        let key = Key::Ed25519(Ed25519Key(ed25519_dalek::SigningKey::generate(&mut OsRng)));
+        let key = Key::Ed25519(Ed25519Key::new(ed25519_dalek::SigningKey::generate(
+            &mut OsRng,
+        )));
 
         // Fetching public key fails
-        assert_eq!(
+        assert!(matches!(
             backend.public_key(&key_id).unwrap_err(),
-            PreloadBackendError::NotRegisteredKeyId(key_id.clone())
-        );
+            PreloadBackendError::NotRegisteredKeyId(id) if id == key_id.clone()
+        ));
 
         // Signing with a key id fails
         let data = RawBytes::from("data");
         let encoded_data = PayloadEncoding::Ed25519(data);
-        assert_eq!(
+        assert!(matches!(
             backend.sign(&key_id, encoded_data).unwrap_err(),
-            PreloadBackendError::NotRegisteredKeyId(key_id.clone())
-        );
+            PreloadBackendError::NotRegisteredKeyId(id) if id == key_id.clone()
+        ));
 
         // Excuting with a key id fails
-        assert_eq!(
+        assert!(matches!(
             backend
                 .execute(&key_id, noop_operator::<PreloadKMSBackend>())
                 .await
                 .unwrap_err(),
-            PreloadBackendError::NotRegisteredKeyId(key_id.clone()),
-        );
+            PreloadBackendError::NotRegisteredKeyId(id) if id == key_id.clone()
+        ));
 
         // Registering the key works
-        assert_eq!(backend.register(&key_id, key), Ok(()));
+        assert!(matches!(backend.register(&key_id, key), Ok(())));
     }
 
     #[test]
@@ -201,11 +205,15 @@ mod tests {
             keys: [
                 (
                     "test1".into(),
-                    Key::Ed25519(Ed25519Key(ed25519_dalek::SigningKey::generate(&mut OsRng))),
+                    Key::Ed25519(Ed25519Key::new(ed25519_dalek::SigningKey::generate(
+                        &mut OsRng,
+                    ))),
                 ),
                 (
                     "test2".into(),
-                    Key::Zk(ZkKey(SecretKey::from(BigUint::from_bytes_le(&[1u8; 32])))),
+                    Key::Zk(ZkKey::new(SecretKey::from(BigUint::from_bytes_le(
+                        &[1u8; 32],
+                    )))),
                 ),
             ]
             .into(),

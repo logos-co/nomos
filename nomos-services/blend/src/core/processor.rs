@@ -211,10 +211,7 @@ mod tests {
                 PoQVerificationInputsMinusSigningKey,
                 quota::{
                     ProofOfQuota,
-                    inputs::prove::{
-                        private::ProofOfCoreQuotaInputs,
-                        public::{CoreInputs, LeaderInputs},
-                    },
+                    inputs::prove::public::{CoreInputs, LeaderInputs},
                 },
                 selection::{self, ProofOfSelection},
             },
@@ -251,15 +248,6 @@ mod tests {
                 message_quota: 1,
                 total_stake: 1,
             },
-        }
-    }
-
-    fn mock_core_poq_inputs() -> ProofOfCoreQuotaInputs {
-        use groth16::Field as _;
-
-        ProofOfCoreQuotaInputs {
-            core_sk: ZkHash::ZERO,
-            core_path_and_selectors: [(ZkHash::ZERO, false); _],
         }
     }
 

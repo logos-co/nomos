@@ -4,37 +4,48 @@ use nomos_blend_message::crypto::{
     keys::{Ed25519PrivateKey, Ed25519PublicKey},
     proofs::{
         Error as InnerVerifierError, PoQVerificationInputsMinusSigningKey,
-        quota::{
-            ProofOfQuota,
-            inputs::prove::{private::ProofOfCoreQuotaInputs, public::LeaderInputs},
-        },
+        quota::{ProofOfQuota, inputs::prove::public::LeaderInputs},
         selection::{ProofOfSelection, inputs::VerifyInputs},
     },
     random_sized_bytes,
 };
-use nomos_blend_scheduling::message_blend::provers::{
-    BlendLayerProof, ProofsGeneratorSettings,
-    core::{CoreProofsGenerator as _, RealCoreProofsGenerator},
-    core_and_leader::CoreAndLeaderProofsGenerator,
-    leader::LeaderProofsGenerator,
+use nomos_blend_scheduling::message_blend::{
+    ProofOfQuotaGenerator,
+    provers::{
+        BlendLayerProof, ProofsGeneratorSettings,
+        core::{CoreProofsGenerator as _, RealCoreProofsGenerator},
+        core_and_leader::CoreAndLeaderProofsGenerator,
+        leader::LeaderProofsGenerator,
+    },
 };
-use nomos_blend_service::{ProofOfLeadershipQuotaInputs, ProofsVerifier, RealProofsVerifier};
+use nomos_blend_service::{
+    ProofOfLeadershipQuotaInputs, ProofsVerifier, RealProofsVerifier,
+    core::kms::PreloadKMSBackendKmsPoQGenerator,
+};
 use nomos_core::{codec::DeserializeOp as _, crypto::ZkHash};
 use poq::PoQProof;
 
 const LOG_TARGET: &str = "node::blend::proofs";
 const DUMMY_POQ_ZK_NULLIFIER: ZkHash = ZkHash::ZERO;
 
+type PoQGenerator<RuntimeServiceId> = PreloadKMSBackendKmsPoQGenerator<RuntimeServiceId>;
+
 // TODO: Add actual PoL proofs once the required inputs are successfully fetched
 // by the Blend service.
 /// `PoQ` generator that runs the actual generation logic for core `PoQ` proofs,
 /// while it always returns mocked proofs for leadership variants.
-pub struct CoreProofsGenerator(RealCoreProofsGenerator);
+pub struct CoreProofsGenerator<PoQGenerator>(RealCoreProofsGenerator<PoQGenerator>);
 
 #[async_trait]
-impl CoreAndLeaderProofsGenerator for CoreProofsGenerator {
-    fn new(settings: ProofsGeneratorSettings, private_inputs: ProofOfCoreQuotaInputs) -> Self {
-        Self(RealCoreProofsGenerator::new(settings, private_inputs))
+impl<PoQGenerator> CoreAndLeaderProofsGenerator<PoQGenerator> for CoreProofsGenerator<PoQGenerator>
+where
+    PoQGenerator: ProofOfQuotaGenerator + Clone + Send + 'static,
+{
+    fn new(settings: ProofsGeneratorSettings, proof_of_quota_generator: PoQGenerator) -> Self {
+        Self(RealCoreProofsGenerator::new(
+            settings,
+            proof_of_quota_generator,
+        ))
     }
 
     fn rotate_epoch(&mut self, new_epoch_public: LeaderInputs) {
@@ -172,14 +183,16 @@ impl ProofsVerifier for BlendProofsVerifier {
 
 #[cfg(test)]
 mod core_to_core_tests {
+    use async_trait::async_trait;
     use groth16::Field as _;
     use nomos_blend_message::crypto::{
         keys::Ed25519PrivateKey,
         proofs::{
             Error as VerifierError, PoQVerificationInputsMinusSigningKey,
             quota::{
-                self,
+                self, ProofOfQuota,
                 inputs::prove::{
+                    PrivateInputs, PublicInputs,
                     private::ProofOfCoreQuotaInputs,
                     public::{CoreInputs, LeaderInputs},
                 },
@@ -187,9 +200,12 @@ mod core_to_core_tests {
             selection::{self, inputs::VerifyInputs},
         },
     };
-    use nomos_blend_scheduling::message_blend::provers::{
-        BlendLayerProof, ProofsGeneratorSettings,
-        core_and_leader::CoreAndLeaderProofsGenerator as _,
+    use nomos_blend_scheduling::message_blend::{
+        ProofOfQuotaGenerator,
+        provers::{
+            BlendLayerProof, ProofsGeneratorSettings,
+            core_and_leader::CoreAndLeaderProofsGenerator as _,
+        },
     };
     use nomos_blend_service::{ProofsVerifier as _, merkle::MerkleTree};
     use nomos_core::crypto::ZkHash;
@@ -245,6 +261,29 @@ mod core_to_core_tests {
         }
     }
 
+    #[derive(Clone)]
+    struct PoQGeneratorWithPrivateInfo(ProofOfCoreQuotaInputs);
+
+    impl PoQGeneratorWithPrivateInfo {
+        fn new(private_info: ProofOfCoreQuotaInputs) -> Self {
+            Self(private_info)
+        }
+    }
+
+    #[async_trait]
+    impl ProofOfQuotaGenerator for PoQGeneratorWithPrivateInfo {
+        async fn generate_poq(
+            &self,
+            public_inputs: &PublicInputs,
+            key_index: u64,
+        ) -> Result<(ProofOfQuota, ZkHash), quota::Error> {
+            ProofOfQuota::new(
+                public_inputs,
+                PrivateInputs::new_proof_of_core_quota_inputs(key_index, self.0.clone()),
+            )
+        }
+    }
+
     #[test_log::test(tokio::test)]
     async fn correct_core_proof_generation_and_verification() {
         const MEMBERSHIP_SIZE: usize = 2;
@@ -259,7 +298,7 @@ mod core_to_core_tests {
                 membership_size: MEMBERSHIP_SIZE,
                 public_inputs,
             },
-            secret_inputs[0].clone(),
+            PoQGeneratorWithPrivateInfo::new(secret_inputs[0].clone()),
         );
         let mut second_generator = CoreProofsGenerator::new(
             ProofsGeneratorSettings {
@@ -267,7 +306,7 @@ mod core_to_core_tests {
                 membership_size: MEMBERSHIP_SIZE,
                 public_inputs,
             },
-            secret_inputs[1].clone(),
+            PoQGeneratorWithPrivateInfo::new(secret_inputs[1].clone()),
         );
         let verifier = BlendProofsVerifier::new(public_inputs);
 
@@ -376,7 +415,7 @@ mod core_to_core_tests {
                     ..public_inputs
                 },
             },
-            secret_inputs[0].clone(),
+            PoQGeneratorWithPrivateInfo::new(secret_inputs[0].clone()),
         );
         let verifier = BlendProofsVerifier::new(public_inputs);
 
@@ -408,7 +447,7 @@ mod core_to_core_tests {
                 membership_size: MEMBERSHIP_SIZE,
                 public_inputs,
             },
-            secret_inputs[0].clone(),
+            PoQGeneratorWithPrivateInfo::new(secret_inputs[0].clone()),
         );
         let verifier = BlendProofsVerifier::new(public_inputs);
 
@@ -457,7 +496,7 @@ mod core_to_core_tests {
                 membership_size: MEMBERSHIP_SIZE,
                 public_inputs,
             },
-            secret_inputs[0].clone(),
+            PoQGeneratorWithPrivateInfo::new(secret_inputs[0].clone()),
         );
         let verifier = BlendProofsVerifier::new(public_inputs);
 

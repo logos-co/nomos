@@ -7,8 +7,10 @@ use overwatch::{
 use tokio::sync::oneshot;
 
 use crate::{
-    KMSMessage, KMSOperatorKey, KMSService, KMSSigningStrategy, backend::KMSBackend,
+    KMSMessage, KMSService,
+    backend::KMSBackend,
     keys::secured_key::SecuredKey,
+    message::{KMSOperatorBackend, KMSSigningStrategy},
 };
 
 type KeyDescriptor<Backend> = (
@@ -153,10 +155,7 @@ where
     pub async fn execute(
         &self,
         key_id: <Kms::Backend as KMSBackend>::KeyId,
-        operator: KMSOperatorKey<
-            <Kms::Backend as KMSBackend>::Key,
-            <Kms::Backend as KMSBackend>::Error,
-        >,
+        operator: KMSOperatorBackend<Kms::Backend>,
     ) -> Result<(), DynError> {
         self.relay
             .send(KMSMessage::Execute { key_id, operator })

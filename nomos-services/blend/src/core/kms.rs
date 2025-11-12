@@ -1,16 +1,22 @@
-use core::fmt::{Debug, Display};
+use core::{
+    fmt::{Debug, Display},
+    pin::Pin,
+};
 
 use async_trait::async_trait;
+use futures::future::ready;
 use key_management_system::{
     KMSService,
     api::KmsServiceApi,
     backend::preload::{KeyId, PreloadKMSBackend},
+    keys::errors::KeyError,
 };
-use nomos_blend_message::crypto::proofs::quota::{self, ProofOfQuota, inputs::prove::{PrivateInputs, PublicInputs, private::ProofOfCoreQuotaInputs}};
+use nomos_blend_message::crypto::proofs::quota::{self, ProofOfQuota, inputs::prove::PublicInputs};
 use nomos_blend_scheduling::message_blend::ProofOfQuotaGenerator;
 use nomos_core::crypto::ZkHash;
 use overwatch::services::AsServiceId;
 use poq::CorePathAndSelectors;
+use tokio::sync::oneshot;
 
 pub(super) trait PreloadKMSBackendKmsApiExt<RuntimeServiceId> {
     fn poq_generator(
@@ -56,10 +62,37 @@ where
         public_inputs: &PublicInputs,
         key_index: u64,
     ) -> Result<(ProofOfQuota, ZkHash), quota::Error> {
+        let public_inputs = *public_inputs;
+        let core_path_and_selectors = self.core_path_and_selectors;
+        let (res_sender, res_receiver) = oneshot::channel();
         self.kms_api
-            .execute(self.key_id.clone(), Box::new(|core_sk| {}))))
+            .execute(
+                self.key_id.clone(),
+                Box::new(move |core_sk| {
+                    let poq_generation_result = core_sk.generate_core_poq(
+                        &public_inputs,
+                        key_index,
+                        core_path_and_selectors,
+                    );
+                    if res_sender.send(poq_generation_result).is_err() {
+                        tracing::error!(
+                            "Failed to send PoQ generated inside the KMS to the calling context."
+                        );
+                    }
+                    Box::pin(ready(Ok(())))
+                        as Pin<Box<dyn Future<Output = Result<(), _>> + Send + Sync>>
+                }),
+            )
             .await
-            .unwrap();
-        unimplemented!()
+            .expect("Execute API should run successfully.");
+        res_receiver
+            .await
+            .expect("Should not fail to get PoQ generation result from KMS.")
+            .map_err(|e| {
+                let KeyError::PoQGeneration(poq_err) = e else {
+                    panic!("PoQ generation from KMS should return a PoQ generation error.");
+                };
+                poq_err
+            })
     }
 }

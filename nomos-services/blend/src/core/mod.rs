@@ -83,12 +83,12 @@ use crate::{
 };
 
 pub mod backends;
+pub mod kms;
 pub mod network;
 pub mod settings;
 
 pub(super) mod service_components;
 
-mod kms;
 mod processor;
 mod scheduler;
 mod state;
@@ -409,6 +409,10 @@ where
 #[expect(
     clippy::cognitive_complexity,
     reason = "Need to initialize many components"
+)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Need to initialize many components."
 )]
 async fn initialize<
     NodeId,

@@ -40,13 +40,13 @@ pub struct RealCoreProofsGenerator<PoQGenerator> {
     remaining_quota: u64,
     pub(super) settings: ProofsGeneratorSettings,
     pub(super) proof_of_quota_generator: PoQGenerator,
-    proof_stream: Pin<Box<dyn Stream<Item = BlendLayerProof> + Send>>,
+    proof_stream: Pin<Box<dyn Stream<Item = BlendLayerProof> + Send + Sync>>,
 }
 
 #[async_trait]
 impl<PoQGenerator> CoreProofsGenerator<PoQGenerator> for RealCoreProofsGenerator<PoQGenerator>
 where
-    PoQGenerator: ProofOfQuotaGenerator + Clone + Send + 'static,
+    PoQGenerator: ProofOfQuotaGenerator + Clone + Send + Sync + 'static,
 {
     fn new(settings: ProofsGeneratorSettings, proof_of_quota_generator: PoQGenerator) -> Self {
         Self {
@@ -90,7 +90,7 @@ where
 
 impl<PoQGenerator> RealCoreProofsGenerator<PoQGenerator>
 where
-    PoQGenerator: ProofOfQuotaGenerator + Clone + Send + 'static,
+    PoQGenerator: ProofOfQuotaGenerator + Clone + Send + Sync + 'static,
 {
     // This will kill the previous running task, if any, since we swap the receiver
     // channel, hence the old task will fail to send new proofs and will abort on
