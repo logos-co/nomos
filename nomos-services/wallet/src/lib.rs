@@ -9,10 +9,11 @@ use chain_service::{
     api::{CryptarchiaServiceApi, CryptarchiaServiceData},
     storage::{StorageAdapter as _, adapters::storage::StorageAdapter},
 };
+use groth16::fr_to_bytes;
 use key_management_system::{
     api::{KmsServiceApi, KmsServiceData},
     backend::preload::PreloadKMSBackend,
-    keys::{Ed25519Key, secured_key::SecuredKey},
+    keys::{Ed25519Key, PayloadEncoding, SignatureEncoding, secured_key::SecuredKey},
 };
 use nomos_core::{
     block::Block,
@@ -23,7 +24,6 @@ use nomos_core::{
         ops::{Op, OpProof, channel::ChannelId},
         tx_builder::MantleTxBuilder,
     },
-    proofs::zksig::{DummyZkSignature, Fr, ZkSignaturePublic},
 };
 use nomos_ledger::LedgerState;
 use nomos_storage::{api::chain::StorageChainApi, backends::StorageBackend};
@@ -375,10 +375,10 @@ where
         kms: &KmsServiceApi<Kms, RuntimeServiceId>,
     ) -> Result<SignedMantleTx, WalletServiceError> {
         // Extract input public keys before building the transaction
-        let input_pks: Vec<Fr> = tx_builder
+        let input_pks: Vec<PublicKey> = tx_builder
             .ledger_inputs()
             .iter()
-            .map(|utxo| utxo.note.pk.into())
+            .map(|utxo| utxo.note.pk)
             .collect();
 
         let mantle_tx = tx_builder.build();
@@ -416,10 +416,8 @@ where
                             declare_op.locked_note_id,
                         ))?;
 
-                    let zk_sig = Self::sign_zksig(
-                        tx_hash,
-                        [locked_note.pk.into(), declare_op.zk_id.into_inner()],
-                    );
+                    let zk_sig =
+                        Self::sign_zksig(tx_hash, [locked_note.pk, declare_op.zk_id], kms).await?;
                     let ed25519_sig =
                         Self::sign_ed25519(tx_hash, declare_op.provider_id.0, kms).await?;
 
@@ -445,10 +443,8 @@ where
                             declaration.locked_note_id,
                         ))?;
 
-                    let zk_sig = Self::sign_zksig(
-                        tx_hash,
-                        [locked_note.pk.into(), declaration.zk_id.into_inner()],
-                    );
+                    let zk_sig =
+                        Self::sign_zksig(tx_hash, [locked_note.pk, declaration.zk_id], kms).await?;
 
                     OpProof::ZkSig(zk_sig)
                 }
@@ -461,7 +457,7 @@ where
                             active_op.declaration_id,
                         ))?;
 
-                    let zk_sig = Self::sign_zksig(tx_hash, [declaration.zk_id.into_inner()]);
+                    let zk_sig = Self::sign_zksig(tx_hash, [declaration.zk_id], kms).await?;
 
                     OpProof::ZkSig(zk_sig)
                 }
@@ -472,7 +468,7 @@ where
             ops_proofs.push(proof);
         }
 
-        let ledger_tx_proof = Self::sign_zksig(tx_hash, input_pks);
+        let ledger_tx_proof = Self::sign_zksig(tx_hash, input_pks, kms).await?;
 
         let signed_mantle_tx = SignedMantleTx::new(mantle_tx, ops_proofs, ledger_tx_proof)
             .expect("Failed to create signed transaction");
@@ -488,14 +484,13 @@ where
         // Use hex-encoded public key as key_id for now
         let key_id = hex::encode(pk.as_bytes());
 
-        let payload =
-            key_management_system::keys::PayloadEncoding::Ed25519(tx_hash.as_signing_bytes());
+        let payload = PayloadEncoding::Ed25519(tx_hash.as_signing_bytes());
         let signature = kms
             .sign(key_id, payload)
             .await
             .map_err(WalletServiceError::KmsApi)?;
 
-        let key_management_system::keys::SignatureEncoding::Ed25519(ed25519_sig) = signature else {
+        let SignatureEncoding::Ed25519(ed25519_sig) = signature else {
             return Err(WalletServiceError::KmsApi(
                 "Expected Ed25519 signature".into(),
             ));
@@ -504,11 +499,30 @@ where
         Ok(ed25519_sig)
     }
 
-    fn sign_zksig(tx_hash: TxHash, pks: impl IntoIterator<Item = Fr>) -> DummyZkSignature {
-        // TODO: Use real ZK signatures once SignedMantleTx is updated
-        let msg_hash = tx_hash.into();
-        let pks = Vec::from_iter(pks);
-        DummyZkSignature::prove(&ZkSignaturePublic { msg_hash, pks })
+    async fn sign_zksig(
+        tx_hash: TxHash,
+        pks: impl IntoIterator<Item = PublicKey>,
+        kms: &KmsServiceApi<Kms, RuntimeServiceId>,
+    ) -> Result<zksign::Signature, WalletServiceError> {
+        // Use hex-encoded public key as key_id for now
+        let key_ids: Vec<_> = pks
+            .into_iter()
+            .map(|pk| hex::encode(fr_to_bytes(&pk.into_inner())))
+            .collect();
+
+        let payload = PayloadEncoding::Ed25519(tx_hash.as_signing_bytes());
+        let signature = kms
+            .sign_multiple(key_ids, payload)
+            .await
+            .map_err(WalletServiceError::KmsApi)?;
+
+        let SignatureEncoding::Zk(zk_sig) = signature else {
+            return Err(WalletServiceError::KmsApi(
+                "Expected ZkSig signature".into(),
+            ));
+        };
+
+        Ok(zk_sig)
     }
 
     async fn get_leader_aged_notes(

@@ -10,7 +10,7 @@ use crate::{
     codec::SerializeOp as _,
     crypto::Hasher,
     mantle::{Transaction as _, TxHash, genesis_tx::GenesisTx},
-    proofs::leader_proof::{Groth16LeaderProof, LeaderProof},
+    proofs::leader_proof::{Groth16LeaderProof, LeaderProof as _},
     utils::{display_hex_bytes_newtype, serde_bytes_newtype},
 };
 
@@ -76,7 +76,7 @@ impl Header {
     }
 
     #[must_use]
-    pub fn leader_proof(&self) -> &impl LeaderProof {
+    pub const fn leader_proof(&self) -> &Groth16LeaderProof {
         &self.proof_of_leadership
     }
 
@@ -96,6 +96,11 @@ impl Header {
     ) -> Result<ed25519_dalek::Signature, crate::block::Error> {
         let header_bytes = self.to_bytes()?;
         Ok(signing_key.sign(&header_bytes))
+    }
+
+    #[must_use]
+    pub const fn parent_block(&self) -> HeaderId {
+        self.parent_block
     }
 
     #[must_use]

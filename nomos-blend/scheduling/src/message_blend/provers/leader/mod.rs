@@ -1,6 +1,7 @@
-use core::mem::swap;
+use core::pin::Pin;
 
 use async_trait::async_trait;
+use futures::{Stream, StreamExt as _, stream};
 use nomos_blend_message::crypto::{
     keys::Ed25519PrivateKey,
     proofs::{
@@ -15,10 +16,7 @@ use nomos_blend_message::crypto::{
         selection::ProofOfSelection,
     },
 };
-use tokio::{
-    sync::mpsc::{Receiver, Sender, channel},
-    task::{JoinHandle, spawn_blocking},
-};
+use tokio::task::spawn_blocking;
 
 use crate::message_blend::provers::{BlendLayerProof, ProofsGeneratorSettings};
 
@@ -26,6 +24,7 @@ use crate::message_blend::provers::{BlendLayerProof, ProofsGeneratorSettings};
 mod tests;
 
 const LOG_TARGET: &str = "blend::scheduling::proofs::leader";
+const PROOFS_GENERATOR_BUFFER_SIZE: usize = 10;
 
 /// A `PoQ` generator that deals only with leadership proofs, suitable for edge
 /// nodes.
@@ -47,9 +46,8 @@ pub trait LeaderProofsGenerator: Sized {
 }
 
 pub struct RealLeaderProofsGenerator {
-    proofs_receiver: Receiver<BlendLayerProof>,
     pub(super) settings: ProofsGeneratorSettings,
-    proof_generation_task_handle: Option<JoinHandle<()>>,
+    proof_stream: Pin<Box<dyn Stream<Item = BlendLayerProof> + Send + Sync>>,
 }
 
 #[async_trait]
@@ -58,16 +56,13 @@ impl LeaderProofsGenerator for RealLeaderProofsGenerator {
         settings: ProofsGeneratorSettings,
         private_inputs: ProofOfLeadershipQuotaInputs,
     ) -> Self {
-        let mut self_instance = Self {
-            // Will be replaced by the `spawn_new_proof_generation_task` below.
-            proofs_receiver: channel(1).1,
+        Self {
+            proof_stream: Box::pin(create_leadership_proof_stream(
+                settings.public_inputs,
+                private_inputs,
+            )),
             settings,
-            proof_generation_task_handle: None,
-        };
-
-        self_instance.spawn_new_proof_generation_task(private_inputs);
-
-        self_instance
+        }
     }
 
     fn rotate_epoch(
@@ -82,69 +77,43 @@ impl LeaderProofsGenerator for RealLeaderProofsGenerator {
         self.settings.public_inputs.leader = new_epoch_public;
 
         // Compute new proofs with the updated settings.
-        self.spawn_new_proof_generation_task(new_private);
+        self.generate_new_proofs_stream(new_private);
     }
 
     async fn get_next_proof(&mut self) -> BlendLayerProof {
-        self.proofs_receiver
-            .recv()
+        let proof = self
+            .proof_stream
+            .next()
             .await
-            .expect("Leadership proof should always be generated.")
+            .expect("Underlying proof generation stream should always yield items.");
+        tracing::trace!(target: LOG_TARGET, "Generated leadership Blend layer proof with key nullifier {:?} addressed to node at index {:?}", proof.proof_of_quota.key_nullifier(), proof.proof_of_selection.expected_index(self.settings.membership_size));
+        proof
     }
 }
 
 impl RealLeaderProofsGenerator {
-    pub(super) fn terminate_proof_generation_task(&mut self) -> Option<JoinHandle<()>> {
-        // Drop the previous channel so we don't get any of the old proofs anymore. This
-        // will instruct the spawned task to abort as well.
-        swap(&mut self.proofs_receiver, &mut channel(1).1);
-        self.proof_generation_task_handle.take()
-    }
-
-    fn spawn_new_proof_generation_task(&mut self, private_inputs: ProofOfLeadershipQuotaInputs) {
-        // We create a channel that can hold proofs for 2 block proposals. As soon as
-        // one set of proofs is generated, a new one is pre-computed.
-        let (proofs_sender, proofs_receiver) =
-            channel((self.settings.public_inputs.leader.message_quota * 2) as usize);
-        self.proof_generation_task_handle = Some(spawn_leader_proof_generation_task(
-            proofs_sender,
+    fn generate_new_proofs_stream(&mut self, private_inputs: ProofOfLeadershipQuotaInputs) {
+        self.proof_stream = Box::pin(create_leadership_proof_stream(
             self.settings.public_inputs,
             private_inputs,
         ));
-
-        self.proofs_receiver = proofs_receiver;
-    }
-
-    #[cfg(test)]
-    pub(super) fn rotate_epoch_and_return_old_task(
-        &mut self,
-        new_epoch_public: LeaderInputs,
-        new_private: ProofOfLeadershipQuotaInputs,
-    ) -> Option<JoinHandle<()>> {
-        let old_handle = self.terminate_proof_generation_task();
-        self.rotate_epoch(new_epoch_public, new_private);
-        old_handle
     }
 }
 
-impl Drop for RealLeaderProofsGenerator {
-    fn drop(&mut self) {
-        self.terminate_proof_generation_task();
-    }
-}
-
-fn spawn_leader_proof_generation_task(
-    sender_channel: Sender<BlendLayerProof>,
+fn create_leadership_proof_stream(
     public_inputs: PoQVerificationInputsMinusSigningKey,
     private_inputs: ProofOfLeadershipQuotaInputs,
-) -> JoinHandle<()> {
-    spawn_blocking(move || {
-        // This task never stops (unless explicitly killed), since we don't know how
-        // many proofs are actually needed by a block proposer within an epoch.
-        loop {
-            for encapsulation_layer in 0..public_inputs.leader.message_quota {
+) -> impl Stream<Item = BlendLayerProof> {
+    let message_quota = public_inputs.leader.message_quota;
+
+    stream::iter(0u64..)
+        .map(move |current_index| {
+            let encapsulation_layer = current_index % message_quota;
+            let private_inputs = private_inputs.clone();
+
+            spawn_blocking(move || {
                 let ephemeral_signing_key = Ed25519PrivateKey::generate();
-                let Ok((proof_of_quota, secret_selection_randomness)) = ProofOfQuota::new(
+                let (proof_of_quota, secret_selection_randomness) = ProofOfQuota::new(
                     &PublicInputs {
                         signing_key: ephemeral_signing_key.public_key(),
                         core: public_inputs.core,
@@ -153,28 +122,18 @@ fn spawn_leader_proof_generation_task(
                     },
                     PrivateInputs::new_proof_of_leadership_quota_inputs(
                         encapsulation_layer,
-                        private_inputs.clone(),
+                        private_inputs,
                     ),
-                ) else {
-                    tracing::error!(target: LOG_TARGET, "Leadership PoQ generation failed for the provided public and private inputs.");
-                    continue;
-                };
+                )
+                .ok()?;
                 let proof_of_selection = ProofOfSelection::new(secret_selection_randomness);
-                // `blocking_send` will actually stop when the channel is full. Next time a
-                // message is to be blended, `N` proofs will be retrieved from the channel,
-                // opening the way for more to be generated and pushed.
-                if sender_channel
-                    .blocking_send(BlendLayerProof {
-                        proof_of_quota,
-                        proof_of_selection,
-                        ephemeral_signing_key,
-                    })
-                    .is_err()
-                {
-                    tracing::debug!(target: LOG_TARGET, "Failed to send proof to consumer due to channel being dropped. Aborting...");
-                    return;
-                }
-            }
-        }
-    })
+                Some(BlendLayerProof {
+                    proof_of_quota,
+                    proof_of_selection,
+                    ephemeral_signing_key,
+                })
+            })
+        })
+        .buffered(PROOFS_GENERATOR_BUFFER_SIZE)
+        .filter_map(|result| async move { result.ok().flatten() })
 }
