@@ -5,9 +5,7 @@ name    = "circuits-utils"
 version = "0.1.0"
 
 [dependencies]
-blake2  = { default-features = false, version = "0.10" }
-dirs    = "6.0"
-groth16 = { features = ["deser"], workspace = true }
+dirs = "6.0"
 
 [lints]
 workspace = true
