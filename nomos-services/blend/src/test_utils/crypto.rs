@@ -8,10 +8,7 @@ use nomos_blend_message::{
             PoQVerificationInputsMinusSigningKey,
             quota::{
                 ProofOfQuota,
-                inputs::prove::{
-                    private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs},
-                    public::LeaderInputs,
-                },
+                inputs::prove::{private::ProofOfLeadershipQuotaInputs, public::LeaderInputs},
             },
             selection::{ProofOfSelection, inputs::VerifyInputs},
         },
@@ -26,8 +23,8 @@ use nomos_core::crypto::ZkHash;
 pub struct MockCoreAndLeaderProofsGenerator;
 
 #[async_trait]
-impl CoreAndLeaderProofsGenerator for MockCoreAndLeaderProofsGenerator {
-    fn new(_settings: ProofsGeneratorSettings, _private_inputs: ProofOfCoreQuotaInputs) -> Self {
+impl<PoQGenerator> CoreAndLeaderProofsGenerator<PoQGenerator> for MockCoreAndLeaderProofsGenerator {
+    fn new(_settings: ProofsGeneratorSettings, _proof_of_quota_generator: PoQGenerator) -> Self {
         Self
     }
 

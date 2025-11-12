@@ -35,6 +35,18 @@ where
     _id: std::marker::PhantomData<RuntimeServiceId>,
 }
 
+impl<Kms, RuntimeServiceId> Clone for KmsServiceApi<Kms, RuntimeServiceId>
+where
+    Kms: KmsServiceData,
+{
+    fn clone(&self) -> Self {
+        Self {
+            relay: self.relay.clone(),
+            _id: std::marker::PhantomData,
+        }
+    }
+}
+
 type KmsBackendKey<Kms> = <<Kms as KmsServiceData>::Backend as KMSBackend>::Key;
 
 impl<Kms, RuntimeServiceId> KmsServiceApi<Kms, RuntimeServiceId>
