@@ -38,6 +38,7 @@ members = [
   "nomos-services/chain/broadcast-service",
   "nomos-services/chain/chain-common",
   "nomos-services/chain/chain-leader",
+  "nomos-services/chain/chain-network",
   "nomos-services/chain/chain-service",
   "nomos-services/data-availability/dispersal",
   "nomos-services/data-availability/network",
@@ -80,6 +81,7 @@ bundler                      = { default-features = false, path = "./nomos-bundl
 cfgsync                      = { default-features = false, path = "./testnet/cfgsync" }
 chain-common                 = { default-features = false, path = "./nomos-services/chain/chain-common" }
 chain-leader                 = { default-features = false, path = "./nomos-services/chain/chain-leader" }
+chain-network                = { default-features = false, path = "./nomos-services/chain/chain-network" }
 chain-service                = { default-features = false, path = "./nomos-services/chain/chain-service" }
 circuits-prover              = { default-features = false, path = "./zk/circuits/prover" }
 circuits-utils               = { default-features = false, path = "./zk/circuits/utils" }
