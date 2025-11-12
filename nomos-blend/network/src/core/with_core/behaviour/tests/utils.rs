@@ -6,9 +6,12 @@ use std::{
 
 use async_trait::async_trait;
 use futures::{Stream, StreamExt as _, select};
-use libp2p::{Multiaddr, PeerId, Swarm, identity::Keypair};
+use libp2p::{
+    Multiaddr, PeerId, Swarm,
+    identity::{Keypair, PublicKey, ed25519},
+};
 use libp2p_swarm_test::SwarmExt as _;
-use nomos_blend_message::{crypto::keys::Ed25519PrivateKey, encap};
+use nomos_blend_message::encap;
 use nomos_blend_scheduling::membership::{Membership, Node};
 use nomos_libp2p::{NetworkBehaviour, SwarmEvent};
 use tokio::time::interval;
@@ -53,17 +56,25 @@ impl IntervalProviderBuilder {
 pub fn new_nodes_with_empty_address(
     count: usize,
 ) -> (impl Iterator<Item = Keypair>, Vec<Node<PeerId>>) {
-    let mut identities: Vec<Keypair> = repeat_with(Keypair::generate_ed25519).take(count).collect();
-    identities.sort_by_key(|id| PeerId::from(id.public()));
+    let mut identities: Vec<ed25519::Keypair> = repeat_with(ed25519::Keypair::generate)
+        .take(count)
+        .collect();
+    identities.sort_by_key(|id| PeerId::from(PublicKey::from(id.public())));
+
     let nodes = identities
         .iter()
         .map(|identity| Node {
-            id: identity.public().into(),
+            id: PublicKey::from(identity.public()).into(),
             address: Multiaddr::empty(),
-            public_key: Ed25519PrivateKey::generate().public_key(),
+            public_key: identity
+                .public()
+                .to_bytes()
+                .try_into()
+                .expect("must be a valid ed25519 public key"),
         })
         .collect::<Vec<_>>();
-    (identities.into_iter(), nodes)
+
+    (identities.into_iter().map(Keypair::from), nodes)
 }
 
 pub struct BehaviourBuilder {
