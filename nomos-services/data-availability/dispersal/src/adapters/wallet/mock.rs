@@ -2,12 +2,9 @@ use std::convert::Infallible;
 
 use ed25519::signature::Signer as _;
 use ed25519_dalek::SigningKey;
-use nomos_core::{
-    mantle::{
-        Op, OpProof, SignedMantleTx, Transaction as _, ops::channel::blob::BlobOp,
-        tx_builder::MantleTxBuilder,
-    },
-    proofs::zksig::{DummyZkSignature, ZkSignaturePublic},
+use nomos_core::mantle::{
+    Op, OpProof, SignedMantleTx, Transaction as _, ops::channel::blob::BlobOp,
+    tx_builder::MantleTxBuilder,
 };
 
 use super::{BlobOpArgs, DaWalletAdapter};
@@ -67,10 +64,7 @@ impl DaWalletAdapter for MockWalletAdapter {
         Ok(SignedMantleTx::new(
             mantle_tx,
             vec![OpProof::Ed25519Sig(signature)],
-            DummyZkSignature::prove(&ZkSignaturePublic {
-                msg_hash: tx_hash.into(),
-                pks: vec![],
-            }),
+            zksign::SecretKey::multi_sign(&[], tx_hash.as_ref()).unwrap(),
         )
         .expect("Transaction with valid signature should be valid"))
     }

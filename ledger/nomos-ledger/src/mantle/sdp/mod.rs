@@ -11,7 +11,6 @@ use nomos_core::{
         Note, NoteId, OpProof, TxHash,
         ops::sdp::{SDPActiveOp, SDPDeclareOp, SDPWithdrawOp},
     },
-    proofs::zksig::{ZkSignatureProof, ZkSignaturePublic},
     sdp::{
         Declaration, DeclarationId, MinStake, Nonce, ProviderId, ProviderInfo, ServiceParameters,
         ServiceType, SessionNumber,
@@ -54,7 +53,7 @@ impl Service {
         active: &SDPActiveOp,
         block_number: BlockNumber,
         locked_notes: &LockedNotes,
-        sig: &impl ZkSignatureProof,
+        sig: &zksign::Signature,
         tx_hash: TxHash,
     ) -> Result<(), Error> {
         match self {
@@ -72,7 +71,7 @@ impl Service {
         withdraw: &SDPWithdrawOp,
         block_number: BlockNumber,
         locked_notes: &mut LockedNotes,
-        sig: &impl ZkSignatureProof,
+        sig: &zksign::Signature,
         tx_hash: TxHash,
         config: &ServiceParameters,
     ) -> Result<(), Error> {
@@ -258,7 +257,7 @@ impl<R: Rewards> ServiceState<R> {
         active: &SDPActiveOp,
         block_number: BlockNumber,
         locked_notes: &LockedNotes,
-        sig: &impl ZkSignatureProof,
+        sig: &zksign::Signature,
         tx_hash: TxHash,
     ) -> Result<(), Error> {
         let Some(declaration) = self.declarations.get_mut(&active.declaration_id) else {
@@ -275,10 +274,7 @@ impl<R: Rewards> ServiceState<R> {
                 declaration.locked_note_id,
             )))?;
 
-        if !sig.verify(&ZkSignaturePublic {
-            pks: vec![note.pk.into(), declaration.zk_id.into_inner()],
-            msg_hash: tx_hash.0,
-        }) {
+        if !zksign::PublicKey::verify_multi(&[note.pk, declaration.zk_id], &tx_hash.0, sig) {
             return Err(Error::InvalidSignature);
         }
 
@@ -297,7 +293,7 @@ impl<R: Rewards> ServiceState<R> {
         withdraw: &SDPWithdrawOp,
         block_number: BlockNumber,
         locked_notes: &mut LockedNotes,
-        sig: &impl ZkSignatureProof,
+        sig: &zksign::Signature,
         tx_hash: TxHash,
         config: &ServiceParameters,
     ) -> Result<(), Error> {
@@ -314,10 +310,7 @@ impl<R: Rewards> ServiceState<R> {
 
         let note = locked_notes.unlock(declaration.service_type, &declaration.locked_note_id)?;
 
-        if !sig.verify(&ZkSignaturePublic {
-            pks: vec![note.pk.into(), declaration.zk_id.into_inner()],
-            msg_hash: tx_hash.0,
-        }) {
+        if !zksign::PublicKey::verify_multi(&[note.pk, declaration.zk_id], &tx_hash.0, sig) {
             return Err(Error::InvalidSignature);
         }
         self.declarations = self.declarations.remove(&withdraw.declaration_id);
@@ -459,15 +452,12 @@ impl SdpLedger {
         mut self,
         op: &SDPDeclareOp,
         note: Note,
-        zk_sig: &impl ZkSignatureProof,
+        zk_sig: &zksign::Signature,
         ed25519_sig: &Ed25519Sig,
         tx_hash: TxHash,
         config: &Config,
     ) -> Result<Self, Error> {
-        if !zk_sig.verify(&ZkSignaturePublic {
-            pks: vec![note.pk.into(), op.zk_id.into_inner()],
-            msg_hash: tx_hash.0,
-        }) {
+        if !zksign::PublicKey::verify_multi(&[note.pk, op.zk_id], &tx_hash.0, zk_sig) {
             return Err(Error::InvalidSignature);
         }
         op.provider_id
@@ -495,7 +485,7 @@ impl SdpLedger {
     pub fn apply_active_msg(
         mut self,
         op: &SDPActiveOp,
-        zksig: &impl ZkSignatureProof,
+        zksig: &zksign::Signature,
         tx_hash: TxHash,
         config: &Config,
     ) -> Result<Self, Error> {
@@ -514,7 +504,7 @@ impl SdpLedger {
     pub fn apply_withdrawn_msg(
         mut self,
         op: &SDPWithdrawOp,
-        zksig: &impl ZkSignatureProof,
+        zksig: &zksign::Signature,
         tx_hash: TxHash,
         config: &Config,
     ) -> Result<Self, Error> {
@@ -635,12 +625,10 @@ mod tests {
 
     use ed25519_dalek::{Signer as _, SigningKey};
     use groth16::Fr;
-    use nomos_core::proofs::zksig::DummyZkSignature;
     use num_bigint::BigUint;
-    use zksign::PublicKey;
 
     use super::*;
-    use crate::cryptarchia::tests::utxo;
+    use crate::cryptarchia::tests::{utxo, utxo_with_sk};
 
     fn setup() -> Config {
         let mut params = HashMap::new();
@@ -674,11 +662,8 @@ mod tests {
         }
     }
 
-    fn create_dummy_zk_sig(note_pk: Fr, zk_id: Fr, tx_hash: Fr) -> DummyZkSignature {
-        DummyZkSignature::prove(&ZkSignaturePublic {
-            pks: vec![note_pk, zk_id],
-            msg_hash: tx_hash,
-        })
+    fn create_zk_key(sk: u64) -> zksign::SecretKey {
+        zksign::SecretKey::from(BigUint::from(sk))
     }
 
     fn create_signing_key() -> SigningKey {
@@ -688,12 +673,14 @@ mod tests {
     fn apply_declare_with_dummies(
         sdp_ledger: SdpLedger,
         op: &SDPDeclareOp,
+        zk_sk: &zksign::SecretKey,
         config: &Config,
     ) -> Result<SdpLedger, Error> {
-        let utxo = utxo();
+        let (note_sk, utxo) = utxo_with_sk();
         let note = utxo.note;
         let tx_hash = TxHash(Fr::from(0u8));
-        let zk_sig = create_dummy_zk_sig(note.pk.into(), op.zk_id.into_inner(), tx_hash.0);
+        let zk_sig = zksign::SecretKey::multi_sign(&[note_sk, zk_sk.clone()], &tx_hash.0).unwrap();
+
         let signing_key = create_signing_key();
         let ed25519_sig = signing_key.sign(tx_hash.as_signing_bytes().as_ref());
 
@@ -703,12 +690,12 @@ mod tests {
     fn apply_withdraw_with_dummies(
         sdp_ledger: SdpLedger,
         op: &SDPWithdrawOp,
-        note_pk: Fr,
-        zk_id: Fr,
+        note_sk: zksign::SecretKey,
+        zk_key: zksign::SecretKey,
         config: &Config,
     ) -> Result<SdpLedger, Error> {
         let tx_hash = TxHash(Fr::from(1u8));
-        let zk_sig = create_dummy_zk_sig(note_pk, zk_id, tx_hash.0);
+        let zk_sig = zksign::SecretKey::multi_sign(&[note_sk, zk_key], &tx_hash.0).unwrap();
 
         sdp_ledger.apply_withdrawn_msg(op, &zk_sig, tx_hash, config)
     }
@@ -720,11 +707,12 @@ mod tests {
         let utxo = utxo();
         let note_id = utxo.id();
         let signing_key = create_signing_key();
+        let zk_key = create_zk_key(0);
 
         let op = &SDPDeclareOp {
             service_type: service_a,
             locked_note_id: note_id,
-            zk_id: PublicKey::new(BigUint::from(0u8).into()),
+            zk_id: zk_key.to_public_key(),
             provider_id: ProviderId(signing_key.verifying_key()),
             locators: Vec::new(),
         };
@@ -734,7 +722,7 @@ mod tests {
         let sdp_ledger = SdpLedger::new().with_service(service_a);
 
         // Apply declare at block 0
-        let sdp_ledger = apply_declare_with_dummies(sdp_ledger, op, &config).unwrap();
+        let sdp_ledger = apply_declare_with_dummies(sdp_ledger, op, &zk_key, &config).unwrap();
 
         // Declaration is in service_state.declarations but not in sessions yet
         let declarations = sdp_ledger.get_declarations(service_a).unwrap();
@@ -757,14 +745,15 @@ mod tests {
     fn test_withdraw_provider() {
         let config = setup();
         let service_a = ServiceType::BlendNetwork;
-        let utxo = utxo();
+        let (utxo_sk, utxo) = utxo_with_sk();
         let note_id = utxo.id();
         let signing_key = create_signing_key();
+        let zk_key = create_zk_key(1);
 
         let declare_op = &SDPDeclareOp {
             service_type: service_a,
             locked_note_id: note_id,
-            zk_id: PublicKey::new(BigUint::from(0u8).into()),
+            zk_id: zk_key.to_public_key(),
             provider_id: ProviderId(signing_key.verifying_key()),
             locators: Vec::new(),
         };
@@ -773,7 +762,8 @@ mod tests {
         // Initialize ledger with service config and declare
         let sdp_ledger = SdpLedger::new().with_service(service_a);
 
-        let sdp_ledger = apply_declare_with_dummies(sdp_ledger, declare_op, &config).unwrap();
+        let sdp_ledger =
+            apply_declare_with_dummies(sdp_ledger, declare_op, &zk_key, &config).unwrap();
 
         // Verify declaration is present
         let declarations = sdp_ledger.get_declarations(service_a).unwrap();
@@ -791,14 +781,8 @@ mod tests {
             nonce: 1,
             locked_note_id: note_id,
         };
-        let sdp_ledger = apply_withdraw_with_dummies(
-            sdp_ledger,
-            withdraw_op,
-            utxo.note.pk.into(),
-            declare_op.zk_id.into_inner(),
-            &config,
-        )
-        .unwrap();
+        let sdp_ledger =
+            apply_withdraw_with_dummies(sdp_ledger, withdraw_op, utxo_sk, zk_key, &config).unwrap();
 
         // Verify declaration is removed
         let declarations = sdp_ledger.get_declarations(service_a).unwrap();
@@ -813,11 +797,12 @@ mod tests {
         let utxo = utxo();
         let note_id = utxo.id();
         let signing_key = create_signing_key();
+        let zk_key = create_zk_key(0);
 
         let op = &SDPDeclareOp {
             service_type: service_a,
             locked_note_id: note_id,
-            zk_id: PublicKey::new(BigUint::from(0u8).into()),
+            zk_id: zk_key.to_public_key(),
             provider_id: ProviderId(signing_key.verifying_key()),
             locators: Vec::new(),
         };
@@ -827,7 +812,7 @@ mod tests {
         let sdp_ledger = SdpLedger::new().with_service(service_a);
 
         // Declare at block 0
-        let sdp_ledger = apply_declare_with_dummies(sdp_ledger, op, &config).unwrap();
+        let sdp_ledger = apply_declare_with_dummies(sdp_ledger, op, &zk_key, &config).unwrap();
 
         // Apply headers to reach block 10 (session boundary for session_duration=10)
         let mut sdp_ledger = sdp_ledger;
@@ -918,6 +903,7 @@ mod tests {
         let config = setup();
         let service_a = ServiceType::BlendNetwork;
         let signing_key = create_signing_key();
+        let zk_key = create_zk_key(0);
 
         // Initialize ledger
         let mut sdp_ledger = SdpLedger::new().with_service(service_a);
@@ -930,13 +916,13 @@ mod tests {
         let declare_op = &SDPDeclareOp {
             service_type: service_a,
             locked_note_id: utxo().id(),
-            zk_id: PublicKey::new(BigUint::from(0u8).into()),
+            zk_id: zk_key.to_public_key(),
             provider_id: ProviderId(signing_key.verifying_key()),
             locators: Vec::new(),
         };
         let declaration_id = declare_op.id();
 
-        sdp_ledger = apply_declare_with_dummies(sdp_ledger, declare_op, &config).unwrap();
+        sdp_ledger = apply_declare_with_dummies(sdp_ledger, declare_op, &zk_key, &config).unwrap();
 
         // Move to block 9 (last block of session 0)
         for _ in 6..10 {
@@ -985,6 +971,7 @@ mod tests {
         let config = setup();
         let service_a = ServiceType::BlendNetwork;
         let signing_key = create_signing_key();
+        let zk_key_1 = create_zk_key(1);
 
         let mut sdp_ledger = SdpLedger::new().with_service(service_a);
 
@@ -992,13 +979,14 @@ mod tests {
         let declare_op_1 = &SDPDeclareOp {
             service_type: service_a,
             locked_note_id: utxo().id(),
-            zk_id: PublicKey::new(BigUint::from(1u8).into()),
+            zk_id: zk_key_1.to_public_key(),
             provider_id: ProviderId(signing_key.verifying_key()),
             locators: Vec::new(),
         };
         let declaration_id_1 = declare_op_1.id();
 
-        sdp_ledger = apply_declare_with_dummies(sdp_ledger, declare_op_1, &config).unwrap();
+        sdp_ledger =
+            apply_declare_with_dummies(sdp_ledger, declare_op_1, &zk_key_1, &config).unwrap();
 
         // Move to block 9 (last block before session boundary)
         for _ in 1..10 {
@@ -1012,16 +1000,18 @@ mod tests {
         sdp_ledger = sdp_ledger.try_apply_header(&config).unwrap();
         assert_eq!(sdp_ledger.block_number, 10);
 
+        let zk_key_2 = create_zk_key(2);
         let declare_op_2 = &SDPDeclareOp {
             service_type: service_a,
             locked_note_id: utxo().id(),
-            zk_id: PublicKey::new(BigUint::from(2u8).into()),
+            zk_id: zk_key_2.to_public_key(),
             provider_id: ProviderId(signing_key.verifying_key()),
             locators: Vec::new(),
         };
         let declaration_id_2 = declare_op_2.id();
 
-        sdp_ledger = apply_declare_with_dummies(sdp_ledger, declare_op_2, &config).unwrap();
+        sdp_ledger =
+            apply_declare_with_dummies(sdp_ledger, declare_op_2, &zk_key_2, &config).unwrap();
 
         // Jump to session 2 (block 20)
         for _ in 11..20 {
@@ -1061,6 +1051,7 @@ mod tests {
         let config = setup();
         let service_a = ServiceType::BlendNetwork;
         let signing_key = create_signing_key();
+        let zk_key = create_zk_key(0);
 
         let mut sdp_ledger = SdpLedger::new().with_service(service_a);
 
@@ -1072,13 +1063,13 @@ mod tests {
         let declare_op = &SDPDeclareOp {
             service_type: service_a,
             locked_note_id: utxo().id(),
-            zk_id: PublicKey::new(BigUint::from(0u8).into()),
+            zk_id: zk_key.to_public_key(),
             provider_id: ProviderId(signing_key.verifying_key()),
             locators: Vec::new(),
         };
         let declaration_id = declare_op.id();
 
-        sdp_ledger = apply_declare_with_dummies(sdp_ledger, declare_op, &config).unwrap();
+        sdp_ledger = apply_declare_with_dummies(sdp_ledger, declare_op, &zk_key, &config).unwrap();
 
         // Jump directly from block 3 to block 25 (skipping session 1 entirely)
         for _ in 4..25 {
@@ -1108,6 +1099,7 @@ mod tests {
         let config = setup();
         let service_a = ServiceType::BlendNetwork;
         let signing_key = create_signing_key();
+        let zk_key_1 = create_zk_key(1);
 
         let mut sdp_ledger = SdpLedger::new().with_service(service_a);
 
@@ -1129,13 +1121,14 @@ mod tests {
         let declare_op_1 = &SDPDeclareOp {
             service_type: service_a,
             locked_note_id: utxo().id(),
-            zk_id: PublicKey::new(BigUint::from(1u8).into()),
+            zk_id: zk_key_1.to_public_key(),
             provider_id: ProviderId(signing_key.verifying_key()),
             locators: Vec::new(),
         };
         let declaration_id_1 = declare_op_1.id();
 
-        sdp_ledger = apply_declare_with_dummies(sdp_ledger, declare_op_1, &config).unwrap();
+        sdp_ledger =
+            apply_declare_with_dummies(sdp_ledger, declare_op_1, &zk_key_1, &config).unwrap();
 
         // Cross to block 10 (session boundary - start of session 1)
         // At this point, the snapshot for forming session 2 is taken
@@ -1152,16 +1145,18 @@ mod tests {
         assert!(forming_session.declarations.contains_key(&declaration_id_1));
 
         // Create second declaration at block 10 (first block of session 1)
+        let zk_key_2 = create_zk_key(2);
         let declare_op_2 = &SDPDeclareOp {
             service_type: service_a,
             locked_note_id: utxo().id(),
-            zk_id: PublicKey::new(BigUint::from(2u8).into()),
+            zk_id: zk_key_2.to_public_key(),
             provider_id: ProviderId(signing_key.verifying_key()),
             locators: Vec::new(),
         };
         let declaration_id_2 = declare_op_2.id();
 
-        sdp_ledger = apply_declare_with_dummies(sdp_ledger, declare_op_2, &config).unwrap();
+        sdp_ledger =
+            apply_declare_with_dummies(sdp_ledger, declare_op_2, &zk_key_2, &config).unwrap();
 
         // Forming session 2 still only has declaration_1 (snapshot was already taken at
         // block 10)

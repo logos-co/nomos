@@ -154,7 +154,6 @@ mod tests {
             ledger::{Note, Tx as LedgerTx, Utxo, Value},
             ops::channel::blob::BlobOp,
         },
-        proofs::zksig::DummyZkSignature,
         sdp::{ProviderId, ServiceType},
     };
 
@@ -209,9 +208,9 @@ mod tests {
             storage_gas_price: 0,
         };
         SignedMantleTx {
-            mantle_tx,
+            mantle_tx: mantle_tx.clone(),
             ops_proofs,
-            ledger_tx_proof: DummyZkSignature::from_bytes([0u8; 128]),
+            ledger_tx_proof: zksign::SecretKey::multi_sign(&[], mantle_tx.hash().as_ref()).unwrap(),
         }
     }
 
