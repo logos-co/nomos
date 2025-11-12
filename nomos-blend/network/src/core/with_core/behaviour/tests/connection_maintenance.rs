@@ -30,7 +30,7 @@ async fn detect_spammy_peer() {
 
     listening_swarm.listen().with_memory_addr_external().await;
     dialing_swarm
-        .connect_and_wait_for_outbound_upgrade(&mut listening_swarm)
+        .connect_and_wait_for_upgrade(&mut listening_swarm)
         .await;
 
     // We let the first observation clock tick.
@@ -88,7 +88,7 @@ async fn detect_unhealthy_peer() {
 
     listening_swarm.listen().with_memory_addr_external().await;
     dialing_swarm
-        .connect_and_wait_for_outbound_upgrade(&mut listening_swarm)
+        .connect_and_wait_for_upgrade(&mut listening_swarm)
         .await;
 
     // Do not send any message from dialing to listening swarm.
@@ -149,7 +149,7 @@ async fn restore_healthy_peer() {
 
     listening_swarm.listen().with_memory_addr_external().await;
     dialing_swarm
-        .connect_and_wait_for_outbound_upgrade(&mut listening_swarm)
+        .connect_and_wait_for_upgrade(&mut listening_swarm)
         .await;
 
     // Let the connection turn unhealthy.
