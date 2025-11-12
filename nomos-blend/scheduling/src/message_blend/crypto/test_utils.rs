@@ -61,8 +61,9 @@ impl LeaderProofsGenerator for TestEpochChangeLeaderProofsGenerator {
 
 pub struct MockPoQGenerator;
 
+#[async_trait]
 impl ProofOfQuotaGenerator for MockPoQGenerator {
-    fn generate_poq(
+    async fn generate_poq(
         &self,
         _public_inputs: &PublicInputs,
         _key_index: u64,

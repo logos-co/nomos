@@ -10,7 +10,6 @@ use nomos_blend_message::crypto::{
         selection::ProofOfSelection,
     },
 };
-use tokio::task::spawn_blocking;
 
 use crate::message_blend::{
     ProofOfQuotaGenerator,
@@ -41,13 +40,13 @@ pub struct RealCoreProofsGenerator<PoQGenerator> {
     remaining_quota: u64,
     pub(super) settings: ProofsGeneratorSettings,
     pub(super) proof_of_quota_generator: PoQGenerator,
-    proof_stream: Pin<Box<dyn Stream<Item = BlendLayerProof> + Send + Sync>>,
+    proof_stream: Pin<Box<dyn Stream<Item = BlendLayerProof> + Send>>,
 }
 
 #[async_trait]
 impl<PoQGenerator> CoreProofsGenerator<PoQGenerator> for RealCoreProofsGenerator<PoQGenerator>
 where
-    PoQGenerator: ProofOfQuotaGenerator + Clone + Send + Sync + 'static,
+    PoQGenerator: ProofOfQuotaGenerator + Clone + Send + 'static,
 {
     fn new(settings: ProofsGeneratorSettings, proof_of_quota_generator: PoQGenerator) -> Self {
         Self {
@@ -91,7 +90,7 @@ where
 
 impl<PoQGenerator> RealCoreProofsGenerator<PoQGenerator>
 where
-    PoQGenerator: ProofOfQuotaGenerator + Clone + Send + Sync + 'static,
+    PoQGenerator: ProofOfQuotaGenerator + Clone + Send + 'static,
 {
     // This will kill the previous running task, if any, since we swap the receiver
     // channel, hence the old task will fail to send new proofs and will abort on
@@ -115,7 +114,7 @@ fn create_proof_stream<Generator>(
     starting_key_index: u64,
 ) -> impl Stream<Item = BlendLayerProof>
 where
-    Generator: ProofOfQuotaGenerator + Clone + Send + Sync + 'static,
+    Generator: ProofOfQuotaGenerator + Clone + Send + 'static,
 {
     let proofs_to_generate = public_inputs
         .core
@@ -127,10 +126,10 @@ where
     let quota = public_inputs.core.quota;
     stream::iter(starting_key_index..quota)
         .map(move |key_index| {
+            let ephemeral_signing_key = Ed25519PrivateKey::generate();
             let proof_of_quota_generator = proof_of_quota_generator.clone();
 
-            spawn_blocking(move || {
-                let ephemeral_signing_key = Ed25519PrivateKey::generate();
+            async move {
                 let (proof_of_quota, secret_selection_randomness) = proof_of_quota_generator
                     .generate_poq(
                         &PublicInputs {
@@ -141,6 +140,7 @@ where
                         },
                         key_index,
                     )
+                    .await
                     .ok()?;
                 let proof_of_selection = ProofOfSelection::new(secret_selection_randomness);
                 Some(BlendLayerProof {
@@ -148,8 +148,8 @@ where
                     proof_of_selection,
                     ephemeral_signing_key,
                 })
-            })
+            }
         })
         .buffered(PROOFS_GENERATOR_BUFFER_SIZE)
-        .filter_map(|result| async { result.ok().flatten() })
+        .filter_map(|result| async { result })
 }

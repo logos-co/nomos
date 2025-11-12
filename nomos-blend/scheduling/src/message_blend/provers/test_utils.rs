@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use nomos_blend_message::crypto::{
     keys::Ed25519PublicKey,
     proofs::{
@@ -90,8 +91,9 @@ impl PoQGeneratorFromPrivateCoreQuotaInputs {
     }
 }
 
+#[async_trait]
 impl ProofOfQuotaGenerator for PoQGeneratorFromPrivateCoreQuotaInputs {
-    fn generate_poq(
+    async fn generate_poq(
         &self,
         public_inputs: &PoQPublicInputs,
         key_index: u64,
