@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use futures::{Stream, StreamExt as _, select};
 use libp2p::{
     Multiaddr, PeerId, Swarm,
-    identity::{Keypair, PublicKey, ed25519},
+    identity::{PublicKey, ed25519},
 };
 use libp2p_swarm_test::SwarmExt as _;
 use nomos_blend_message::encap;
@@ -55,7 +55,7 @@ impl IntervalProviderBuilder {
 /// addresses.
 pub fn new_nodes_with_empty_address(
     count: usize,
-) -> (impl Iterator<Item = Keypair>, Vec<Node<PeerId>>) {
+) -> (impl Iterator<Item = ed25519::Keypair>, Vec<Node<PeerId>>) {
     let mut identities: Vec<ed25519::Keypair> = repeat_with(ed25519::Keypair::generate)
         .take(count)
         .collect();
@@ -74,11 +74,11 @@ pub fn new_nodes_with_empty_address(
         })
         .collect::<Vec<_>>();
 
-    (identities.into_iter().map(Keypair::from), nodes)
+    (identities.into_iter(), nodes)
 }
 
 pub struct BehaviourBuilder {
-    local_peer_id: PeerId,
+    local_public_key: ed25519::PublicKey,
     membership: Option<Membership<PeerId>>,
     provider: Option<IntervalProvider>,
     peering_degree: Option<RangeInclusive<usize>>,
@@ -86,9 +86,9 @@ pub struct BehaviourBuilder {
 }
 
 impl BehaviourBuilder {
-    pub fn new(local_peer_id: PeerId) -> Self {
+    pub fn new(identity: &ed25519::Keypair) -> Self {
         Self {
-            local_peer_id,
+            local_public_key: identity.public(),
             membership: None,
             provider: None,
             peering_degree: None,
@@ -97,15 +97,14 @@ impl BehaviourBuilder {
     }
 
     pub fn with_membership(mut self, nodes: &[Node<PeerId>]) -> Self {
-        let membership = nodes
-            .iter()
-            .find(|node| node.id == self.local_peer_id)
-            .map(|node| node.public_key)
-            .map_or_else(
-                || Membership::new_without_local(nodes),
-                |local_public_key| Membership::new(nodes, &local_public_key),
-            );
-        self.membership = Some(membership);
+        self.membership = Some(Membership::new(
+            nodes,
+            &self
+                .local_public_key
+                .to_bytes()
+                .try_into()
+                .expect("must be a valid ed25519 public key"),
+        ));
         self
     }
 
@@ -138,7 +137,7 @@ impl BehaviourBuilder {
                 .membership
                 .unwrap_or_else(|| Membership::new_without_local(&[])),
             peering_degree: self.peering_degree.unwrap_or(1..=1),
-            local_peer_id: self.local_peer_id,
+            local_peer_id: PublicKey::from(self.local_public_key).into(),
             protocol_name: PROTOCOL_NAME,
             minimum_network_size: self
                 .minimum_network_size

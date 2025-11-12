@@ -66,8 +66,7 @@ async fn message_sending_and_reception() {
 
 #[test(tokio::test)]
 async fn invalid_public_header_message_publish() {
-    let mut dialing_swarm =
-        TestSwarm::new_ephemeral(|id| BehaviourBuilder::new(id.public().into()).build());
+    let mut dialing_swarm = TestSwarm::new_ephemeral(|id| BehaviourBuilder::new(id).build());
 
     let invalid_signature_message = TestEncapsulatedMessage::new_with_invalid_signature(b"data");
     assert_eq!(
