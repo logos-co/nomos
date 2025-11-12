@@ -16,6 +16,7 @@ use chain_service::{
 use common_http_client::CommonHttpClient;
 use cryptarchia_engine::time::SlotConfig;
 use futures::Stream;
+use groth16::fr_to_bytes;
 use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
 use nomos_blend_scheduling::message_blend::crypto::SessionCryptographicProcessorSettings;
 use nomos_blend_service::{
@@ -442,7 +443,13 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                     },
                 },
                 zk: ZkSettings {
-                    sk: config.blend_config.secret_zk_key,
+                    sk_kms_id: hex::encode(fr_to_bytes(
+                        &config
+                            .blend_config
+                            .secret_zk_key
+                            .to_public_key()
+                            .into_inner(),
+                    )),
                 },
             },
             edge: nomos_blend_service::settings::EdgeSettings {

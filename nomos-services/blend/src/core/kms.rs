@@ -17,6 +17,8 @@ use overwatch::services::AsServiceId;
 use poq::CorePathAndSelectors;
 use tokio::sync::oneshot;
 
+const LOG_TARGET: &str = "blend::service::core::kms-poq-generator";
+
 pub(super) trait PreloadKMSBackendKmsApiExt<RuntimeServiceId> {
     fn poq_generator(
         &self,
@@ -36,6 +38,7 @@ impl<RuntimeServiceId> PreloadKMSBackendKmsApiExt<RuntimeServiceId>
         key_id: KeyId,
         core_path_and_selectors: Box<CorePathAndSelectors>,
     ) -> PreloadKMSBackendPoQGenerator<RuntimeServiceId> {
+        tracing::debug!(target: LOG_TARGET, "Creating KMS-based PoQ generator with key ID {key_id:?} and core path and selectors {core_path_and_selectors:?}");
         PreloadKMSBackendPoQGenerator {
             core_path_and_selectors: *core_path_and_selectors,
             kms_api: self.clone(),
@@ -61,6 +64,7 @@ where
         public_inputs: &PublicInputs,
         key_index: u64,
     ) -> impl Future<Output = Result<(ProofOfQuota, ZkHash), quota::Error>> + Send + Sync {
+        tracing::debug!(target: LOG_TARGET, "Generating KMS-based PoQ with public_inputs {public_inputs:?} and key_index {key_index:?}.");
         let public_inputs = *public_inputs;
         let core_path_and_selectors = self.core_path_and_selectors;
         let kms_api = self.kms_api.clone();
@@ -78,10 +82,9 @@ where
                         key_index,
                         core_path_and_selectors,
                     );
+                    tracing::debug!(target: LOG_TARGET, "KMS-based PoQ generation result: {poq_generation_result:?}.");
                     if res_sender.send(poq_generation_result).is_err() {
-                        tracing::error!(
-                            "Failed to send PoQ generated inside the KMS to the calling context."
-                        );
+                        tracing::error!(target: LOG_TARGET,  "Failed to send PoQ generated inside the KMS to the calling context.");
                     }
                     Box::pin(ready(Ok(())))
                         as Pin<Box<dyn Future<Output = Result<(), _>> + Send + Sync>>
@@ -90,15 +93,18 @@ where
             .await
             .expect("Execute API should run successfully.");
 
-            res_receiver
+            let poq = res_receiver
                 .await
                 .expect("Should not fail to get PoQ generation result from KMS.")
                 .map_err(|e| {
                     let KeyError::PoQGeneration(poq_err) = e else {
                         panic!("PoQ generation from KMS should return a PoQ generation error.");
                     };
+                    tracing::error!(target: LOG_TARGET, "KMS-based PoQ generation failed with error {poq_err:?}.");
                     poq_err
-                })
+                })?;
+            tracing::debug!(target: LOG_TARGET, "KMS-based PoQ generation succeeded.");
+            Ok(poq)
         }
     }
 }

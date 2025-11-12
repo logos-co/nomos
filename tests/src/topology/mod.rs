@@ -619,23 +619,23 @@ pub fn create_kms_configs(
             keys: [
                 (
                     hex::encode(blend_conf.signer.verifying_key().as_bytes()),
-                    Key::Ed25519(Ed25519Key(blend_conf.signer.clone())),
+                    Key::Ed25519(Ed25519Key::new(blend_conf.signer.clone())),
                 ),
                 (
                     hex::encode(fr_to_bytes(
                         &blend_conf.secret_zk_key.to_public_key().into_inner(),
                     )),
-                    Key::Zk(ZkKey(blend_conf.secret_zk_key.clone())),
+                    Key::Zk(ZkKey::new(blend_conf.secret_zk_key.clone())),
                 ),
                 (
                     hex::encode(da_conf.signer.verifying_key().as_bytes()),
-                    Key::Ed25519(Ed25519Key(da_conf.signer.clone())),
+                    Key::Ed25519(Ed25519Key::new(da_conf.signer.clone())),
                 ),
                 (
                     hex::encode(fr_to_bytes(
                         &da_conf.secret_zk_key.to_public_key().into_inner(),
                     )),
-                    Key::Zk(ZkKey(da_conf.secret_zk_key.clone())),
+                    Key::Zk(ZkKey::new(da_conf.secret_zk_key.clone())),
                 ),
             ]
             .into(),
