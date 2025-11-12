@@ -1,4 +1,3 @@
-use circuits_utils::dev_mode::DevModeProof;
 use groth16::{Field as _, Fr, Groth16Input, Groth16InputDeser};
 use serde::Deserialize;
 
@@ -46,34 +45,11 @@ impl ZkSignVerifierInputs {
         }
     }
 
-    pub(crate) fn from_witness(witness: &crate::ZkSignWitnessInputs) -> Self {
-        Self {
-            msg: witness.msg,
-            public_keys: witness.private_keys.0.map(|input| {
-                Groth16Input::from(
-                    crate::SecretKey::from(input.into_inner())
-                        .to_public_key()
-                        .into_inner(),
-                )
-            }),
-        }
-    }
-
     pub fn as_inputs(&self) -> [Fr; 33] {
         let mut buff = [Fr::ZERO; 33];
         buff[..32].copy_from_slice(self.public_keys.map(Groth16Input::into_inner).as_ref());
         buff[32] = self.msg.into_inner();
         buff
-    }
-}
-
-impl DevModeProof for ZkSignVerifierInputs {
-    fn vk(&self) -> &groth16::Groth16PreparedVerificationKey {
-        crate::verification_key::ZKSIGN_VK.as_ref()
-    }
-
-    fn public_inputs(&self) -> Vec<Groth16Input> {
-        self.as_inputs().map(Groth16Input::from).to_vec()
     }
 }
 
