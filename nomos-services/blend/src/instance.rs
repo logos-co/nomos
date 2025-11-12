@@ -178,7 +178,7 @@ where
         match self {
             Self::Core(mode) => Ok(Self::Core(mode)),
             mode => {
-                mode.shutdown().await;
+                mode.wait_until_stopped_or_kill().await;
                 Ok(Self::Core(Self::new_core_mode(overwatch_handle).await?))
             }
         }
@@ -199,11 +199,11 @@ where
             }),
             Self::Edge(mode) => Ok(Self::Edge(mode)),
             Self::EdgeAfterCore { mode, prev } => {
-                prev.shutdown().await;
+                prev.wait_until_stopped_or_kill().await;
                 Ok(Self::Edge(mode))
             }
             mode => {
-                mode.shutdown().await;
+                mode.wait_until_stopped_or_kill().await;
                 Ok(Self::Edge(Self::new_edge_mode(overwatch_handle).await?))
             }
         }
@@ -225,11 +225,11 @@ where
             }),
             Self::Broadcast(mode) => Ok(Self::Broadcast(mode)),
             Self::BroadcastAfterCore { mode, prev } => {
-                prev.shutdown().await;
+                prev.wait_until_stopped_or_kill().await;
                 Ok(Self::Broadcast(mode))
             }
             mode => {
-                mode.shutdown().await;
+                mode.wait_until_stopped_or_kill().await;
                 Ok(Self::Broadcast(
                     Self::new_broadcast_mode(overwatch_handle).await?,
                 ))
@@ -238,38 +238,39 @@ where
     }
 
     /// Handles the expiration of the transition period,
-    /// by shutting down the previous Core mode if exists.
-    // TODO: Before shutting down the previous Core mode, notify it to submit
-    // activity proof in case it terminates before detecting the end of the
-    // transition period.
+    ///
+    /// If the instance is transitioning from Core to other modes,
+    /// the previous Core mode must be stopped by itself after completing the
+    /// transition. If not, it is forcefully killed.
     async fn handle_transition_period_expired(self) -> Self {
         match self {
             Self::EdgeAfterCore { mode, prev } => {
-                prev.shutdown().await;
+                prev.wait_until_stopped_or_kill().await;
                 Self::Edge(mode)
             }
             Self::BroadcastAfterCore { mode, prev } => {
-                prev.shutdown().await;
+                prev.wait_until_stopped_or_kill().await;
                 Self::Broadcast(mode)
             }
             _ => self,
         }
     }
 
-    /// Shuts down the instance by shutting down underlying modes.
-    async fn shutdown(self) {
+    /// Wait until the underlying mode is stopped itself.
+    /// If it does not stop in time specified by each mode, forcefully kill it.
+    async fn wait_until_stopped_or_kill(self) {
         match self {
-            Self::Core(mode) => mode.shutdown().await,
-            Self::Edge(mode) => mode.shutdown().await,
+            Self::Core(mode) => mode.wait_until_stopped_or_kill().await,
+            Self::Edge(mode) => mode.wait_until_stopped_or_kill().await,
             Self::EdgeAfterCore { mode, prev } => {
-                mode.shutdown().await;
-                prev.shutdown().await;
+                mode.wait_until_stopped_or_kill().await;
+                prev.wait_until_stopped_or_kill().await;
             }
             Self::Broadcast(_) => {
                 // No-op
             }
             Self::BroadcastAfterCore { prev, .. } => {
-                prev.shutdown().await;
+                prev.wait_until_stopped_or_kill().await;
             }
         }
     }
@@ -332,17 +333,17 @@ mod tests {
             // Check if the Core instance is created successfully.
             let instance = TestInstance::new(Mode::Core, handle).await.unwrap();
             assert!(matches!(instance, Instance::Core(_)));
-            instance.shutdown().await;
+            instance.wait_until_stopped_or_kill().await;
 
             // Check if the Edge instance is created successfully.
             let instance = TestInstance::new(Mode::Edge, handle).await.unwrap();
             assert!(matches!(instance, Instance::Edge(_)));
-            instance.shutdown().await;
+            instance.wait_until_stopped_or_kill().await;
 
             // Check if the Broadcast instance is created successfully.
             let instance = TestInstance::new(Mode::Broadcast, handle).await.unwrap();
             assert!(matches!(instance, Instance::Broadcast(_)));
-            instance.shutdown().await;
+            instance.wait_until_stopped_or_kill().await;
         });
     }
 
@@ -362,13 +363,13 @@ mod tests {
             let instance = TestInstance::new(Mode::Core, handle).await.unwrap();
             let instance = instance.transition(Mode::Core, handle).await.unwrap();
             assert!(matches!(instance, Instance::Core(_)));
-            instance.shutdown().await;
+            instance.wait_until_stopped_or_kill().await;
 
             // Edge -> Core
             let instance = TestInstance::new(Mode::Edge, handle).await.unwrap();
             let instance = instance.transition(Mode::Core, handle).await.unwrap();
             assert!(matches!(instance, Instance::Core(_)));
-            instance.shutdown().await;
+            instance.wait_until_stopped_or_kill().await;
 
             // EdgeAfterCore -> Core
             let instance = TestInstance::new(Mode::Core, handle).await.unwrap();
@@ -376,13 +377,13 @@ mod tests {
             assert!(matches!(instance, Instance::EdgeAfterCore { .. }));
             let instance = instance.transition(Mode::Core, handle).await.unwrap();
             assert!(matches!(instance, Instance::Core(_)));
-            instance.shutdown().await;
+            instance.wait_until_stopped_or_kill().await;
 
             // Broadcast -> Core
             let instance = TestInstance::new(Mode::Broadcast, handle).await.unwrap();
             let instance = instance.transition(Mode::Core, handle).await.unwrap();
             assert!(matches!(instance, Instance::Core(_)));
-            instance.shutdown().await;
+            instance.wait_until_stopped_or_kill().await;
 
             // BroadcastAfterCore -> Core
             let instance = TestInstance::new(Mode::Core, handle).await.unwrap();
@@ -390,7 +391,7 @@ mod tests {
             assert!(matches!(instance, Instance::BroadcastAfterCore { .. }));
             let instance = instance.transition(Mode::Core, handle).await.unwrap();
             assert!(matches!(instance, Instance::Core(_)));
-            instance.shutdown().await;
+            instance.wait_until_stopped_or_kill().await;
         });
     }
 
@@ -410,13 +411,13 @@ mod tests {
             let instance = TestInstance::new(Mode::Core, handle).await.unwrap();
             let instance = instance.transition(Mode::Edge, handle).await.unwrap();
             assert!(matches!(instance, Instance::EdgeAfterCore { .. }));
-            instance.shutdown().await;
+            instance.wait_until_stopped_or_kill().await;
 
             // Edge -> Edge
             let instance = TestInstance::new(Mode::Edge, handle).await.unwrap();
             let instance = instance.transition(Mode::Edge, handle).await.unwrap();
             assert!(matches!(instance, Instance::Edge(_)));
-            instance.shutdown().await;
+            instance.wait_until_stopped_or_kill().await;
 
             // EdgeAfterCore -> Edge
             let instance = TestInstance::new(Mode::Core, handle).await.unwrap();
@@ -424,13 +425,13 @@ mod tests {
             assert!(matches!(instance, Instance::EdgeAfterCore { .. }));
             let instance = instance.transition(Mode::Edge, handle).await.unwrap();
             assert!(matches!(instance, Instance::Edge(_)));
-            instance.shutdown().await;
+            instance.wait_until_stopped_or_kill().await;
 
             // Broadcast -> Edge
             let instance = TestInstance::new(Mode::Broadcast, handle).await.unwrap();
             let instance = instance.transition(Mode::Edge, handle).await.unwrap();
             assert!(matches!(instance, Instance::Edge(_)));
-            instance.shutdown().await;
+            instance.wait_until_stopped_or_kill().await;
 
             // BroadcastAfterCore -> Edge
             let instance = TestInstance::new(Mode::Core, handle).await.unwrap();
@@ -438,7 +439,7 @@ mod tests {
             assert!(matches!(instance, Instance::BroadcastAfterCore { .. }));
             let instance = instance.transition(Mode::Edge, handle).await.unwrap();
             assert!(matches!(instance, Instance::Edge(_)));
-            instance.shutdown().await;
+            instance.wait_until_stopped_or_kill().await;
         });
     }
 
@@ -458,13 +459,13 @@ mod tests {
             let instance = TestInstance::new(Mode::Core, handle).await.unwrap();
             let instance = instance.transition(Mode::Broadcast, handle).await.unwrap();
             assert!(matches!(instance, Instance::BroadcastAfterCore { .. }));
-            instance.shutdown().await;
+            instance.wait_until_stopped_or_kill().await;
 
             // Edge -> Broadcast
             let instance = TestInstance::new(Mode::Edge, handle).await.unwrap();
             let instance = instance.transition(Mode::Broadcast, handle).await.unwrap();
             assert!(matches!(instance, Instance::Broadcast(_)));
-            instance.shutdown().await;
+            instance.wait_until_stopped_or_kill().await;
 
             // EdgeAfterCore -> Broadcast
             let instance = TestInstance::new(Mode::Core, handle).await.unwrap();
@@ -472,13 +473,13 @@ mod tests {
             assert!(matches!(instance, Instance::EdgeAfterCore { .. }));
             let instance = instance.transition(Mode::Broadcast, handle).await.unwrap();
             assert!(matches!(instance, Instance::Broadcast(_)));
-            instance.shutdown().await;
+            instance.wait_until_stopped_or_kill().await;
 
             // Broadcast -> Broadcast
             let instance = TestInstance::new(Mode::Broadcast, handle).await.unwrap();
             let instance = instance.transition(Mode::Broadcast, handle).await.unwrap();
             assert!(matches!(instance, Instance::Broadcast(_)));
-            instance.shutdown().await;
+            instance.wait_until_stopped_or_kill().await;
 
             // BroadcastAfterCore -> Broadcast
             let instance = TestInstance::new(Mode::Core, handle).await.unwrap();
@@ -486,7 +487,7 @@ mod tests {
             assert!(matches!(instance, Instance::BroadcastAfterCore { .. }));
             let instance = instance.transition(Mode::Broadcast, handle).await.unwrap();
             assert!(matches!(instance, Instance::Broadcast(_)));
-            instance.shutdown().await;
+            instance.wait_until_stopped_or_kill().await;
         });
     }
 
