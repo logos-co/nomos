@@ -114,7 +114,7 @@ fn create_proof_stream<Generator>(
     starting_key_index: u64,
 ) -> impl Stream<Item = BlendLayerProof>
 where
-    Generator: ProofOfQuotaGenerator + Clone + Send + 'static,
+    Generator: ProofOfQuotaGenerator + Clone + Send + Sync + 'static,
 {
     let proofs_to_generate = public_inputs
         .core

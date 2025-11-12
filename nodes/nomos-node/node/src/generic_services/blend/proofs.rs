@@ -28,8 +28,6 @@ use poq::PoQProof;
 const LOG_TARGET: &str = "node::blend::proofs";
 const DUMMY_POQ_ZK_NULLIFIER: ZkHash = ZkHash::ZERO;
 
-type PoQGenerator<RuntimeServiceId> = PreloadKMSBackendKmsPoQGenerator<RuntimeServiceId>;
-
 // TODO: Add actual PoL proofs once the required inputs are successfully fetched
 // by the Blend service.
 /// `PoQ` generator that runs the actual generation logic for core `PoQ` proofs,
@@ -39,7 +37,7 @@ pub struct CoreProofsGenerator<PoQGenerator>(RealCoreProofsGenerator<PoQGenerato
 #[async_trait]
 impl<PoQGenerator> CoreAndLeaderProofsGenerator<PoQGenerator> for CoreProofsGenerator<PoQGenerator>
 where
-    PoQGenerator: ProofOfQuotaGenerator + Clone + Send + 'static,
+    PoQGenerator: ProofOfQuotaGenerator + Clone + Send + Sync + 'static,
 {
     fn new(settings: ProofsGeneratorSettings, proof_of_quota_generator: PoQGenerator) -> Self {
         Self(RealCoreProofsGenerator::new(
@@ -183,7 +181,7 @@ impl ProofsVerifier for BlendProofsVerifier {
 
 #[cfg(test)]
 mod core_to_core_tests {
-    use async_trait::async_trait;
+    use futures::future::ready;
     use groth16::Field as _;
     use nomos_blend_message::crypto::{
         keys::Ed25519PrivateKey,
@@ -270,17 +268,17 @@ mod core_to_core_tests {
         }
     }
 
-    #[async_trait]
     impl ProofOfQuotaGenerator for PoQGeneratorWithPrivateInfo {
-        async fn generate_poq(
+        fn generate_poq(
             &self,
             public_inputs: &PublicInputs,
             key_index: u64,
-        ) -> Result<(ProofOfQuota, ZkHash), quota::Error> {
-            ProofOfQuota::new(
+        ) -> impl Future<Output = Result<(ProofOfQuota, ZkHash), quota::Error>> + Send + Sync
+        {
+            ready(ProofOfQuota::new(
                 public_inputs,
                 PrivateInputs::new_proof_of_core_quota_inputs(key_index, self.0.clone()),
-            )
+            ))
         }
     }
 

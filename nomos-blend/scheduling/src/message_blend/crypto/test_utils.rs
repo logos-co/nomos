@@ -1,6 +1,7 @@
 use core::convert::Infallible;
 
 use async_trait::async_trait;
+use futures::future::ready;
 use nomos_blend_message::{
     crypto::{
         keys::Ed25519PublicKey,
@@ -61,16 +62,18 @@ impl LeaderProofsGenerator for TestEpochChangeLeaderProofsGenerator {
 
 pub struct MockPoQGenerator;
 
-#[async_trait]
 impl ProofOfQuotaGenerator for MockPoQGenerator {
-    async fn generate_poq(
+    fn generate_poq(
         &self,
         _public_inputs: &PublicInputs,
         _key_index: u64,
-    ) -> Result<(ProofOfQuota, ZkHash), quota::Error> {
+    ) -> impl Future<Output = Result<(ProofOfQuota, ZkHash), quota::Error>> + Send + Sync {
         use groth16::Field as _;
 
-        Ok((ProofOfQuota::from_bytes_unchecked([0; _]), ZkHash::ZERO))
+        ready(Ok((
+            ProofOfQuota::from_bytes_unchecked([0; _]),
+            ZkHash::ZERO,
+        )))
     }
 }
 

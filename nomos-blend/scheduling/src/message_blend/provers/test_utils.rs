@@ -1,4 +1,4 @@
-use async_trait::async_trait;
+use futures::future::ready;
 use nomos_blend_message::crypto::{
     keys::Ed25519PublicKey,
     proofs::{
@@ -91,16 +91,15 @@ impl PoQGeneratorFromPrivateCoreQuotaInputs {
     }
 }
 
-#[async_trait]
 impl ProofOfQuotaGenerator for PoQGeneratorFromPrivateCoreQuotaInputs {
-    async fn generate_poq(
+    fn generate_poq(
         &self,
         public_inputs: &PoQPublicInputs,
         key_index: u64,
-    ) -> Result<(ProofOfQuota, ZkHash), quota::Error> {
-        ProofOfQuota::new(
+    ) -> impl Future<Output = Result<(ProofOfQuota, ZkHash), quota::Error>> + Send + Sync {
+        ready(ProofOfQuota::new(
             public_inputs,
             PrivateInputs::new_proof_of_core_quota_inputs(key_index, self.0.clone()),
-        )
+        ))
     }
 }
