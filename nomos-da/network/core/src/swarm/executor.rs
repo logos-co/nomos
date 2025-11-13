@@ -12,7 +12,7 @@ use libp2p::{
     swarm::{DialError, SwarmEvent},
 };
 use log::debug;
-use nomos_core::{da::BlobId, mantle::SignedMantleTx};
+use nomos_core::{da::BlobId, mantle::SignedMantleTx, sdp::SessionNumber};
 use nomos_da_messages::replication::ReplicationRequest;
 use subnetworks_assignations::MembershipHandler;
 use tokio::{
@@ -210,7 +210,7 @@ where
         self.swarm.listen_on(address)
     }
 
-    pub fn shares_request_channel(&mut self) -> UnboundedSender<BlobId> {
+    pub fn shares_request_channel(&mut self) -> UnboundedSender<(BlobId, SessionNumber)> {
         self.swarm
             .behaviour()
             .sampling_behaviour()
@@ -226,7 +226,7 @@ where
             .historical_request_channel()
     }
 
-    pub fn commitments_request_channel(&mut self) -> UnboundedSender<BlobId> {
+    pub fn commitments_request_channel(&mut self) -> UnboundedSender<(BlobId, SessionNumber)> {
         self.swarm
             .behaviour()
             .sampling_behaviour()

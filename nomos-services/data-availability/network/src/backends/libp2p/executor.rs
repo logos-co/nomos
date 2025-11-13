@@ -12,7 +12,12 @@ use futures::{
 use kzgrs_backend::common::share::DaShare;
 use libp2p::PeerId;
 use log::error;
-use nomos_core::{da::BlobId, header::HeaderId, mantle::SignedMantleTx, sdp::ProviderId};
+use nomos_core::{
+    da::BlobId,
+    header::HeaderId,
+    mantle::SignedMantleTx,
+    sdp::{ProviderId, SessionNumber},
+};
 use nomos_da_network_core::{
     SubnetworkId,
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
@@ -56,9 +61,11 @@ pub enum ExecutorDaNetworkMessage<BalancerStats, MonitorStats> {
     /// Kickstart a network sapling
     RequestSample {
         blob_id: BlobId,
+        session: SessionNumber,
     },
     RequestCommitments {
         blob_id: BlobId,
+        session: SessionNumber,
     },
     RequestShareDispersal {
         subnetwork_id: SubnetworkId,
@@ -113,10 +120,10 @@ where
     task_abort_handle: AbortHandle,
     verifier_replies_task_abort_handle: AbortHandle,
     executor_replies_task_abort_handle: AbortHandle,
-    shares_request_channel: UnboundedSender<BlobId>,
+    shares_request_channel: UnboundedSender<(BlobId, SessionNumber)>,
     historic_sample_request_channel:
         UnboundedSender<SampleArgs<SharedMembershipHandler<Membership>>>,
-    commitments_request_channel: UnboundedSender<BlobId>,
+    commitments_request_channel: UnboundedSender<(BlobId, SessionNumber)>,
     sampling_broadcast_receiver: broadcast::Receiver<SamplingEvent>,
     commitments_broadcast_receiver: broadcast::Receiver<CommitmentsEvent>,
     verifying_broadcast_receiver: broadcast::Receiver<VerificationEvent>,
@@ -281,13 +288,13 @@ where
     #[instrument(skip_all)]
     async fn process(&self, msg: Self::Message) {
         match msg {
-            ExecutorDaNetworkMessage::RequestSample { blob_id } => {
+            ExecutorDaNetworkMessage::RequestSample { blob_id, session } => {
                 info_with_id!(&blob_id, "RequestSample");
-                handle_sample_request(&self.shares_request_channel, blob_id).await;
+                handle_sample_request(&self.shares_request_channel, blob_id, session).await;
             }
-            ExecutorDaNetworkMessage::RequestCommitments { blob_id } => {
+            ExecutorDaNetworkMessage::RequestCommitments { blob_id, session } => {
                 info_with_id!(&blob_id, "RequestSample");
-                handle_sample_request(&self.commitments_request_channel, blob_id).await;
+                handle_sample_request(&self.commitments_request_channel, blob_id, session).await;
             }
             ExecutorDaNetworkMessage::RequestShareDispersal {
                 subnetwork_id,

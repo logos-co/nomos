@@ -145,6 +145,7 @@ pub async fn get_commitments<
 >(
     handle: &OverwatchHandle<RuntimeServiceId>,
     blob_id: SamplingBackend::BlobId,
+    session: SessionNumber,
 ) -> Result<Option<DaSharesCommitments>, DynError>
 where
     SamplingBackend: DaSamplingServiceBackend,
@@ -170,6 +171,7 @@ where
     relay
         .send(DaSamplingServiceMsg::GetCommitments {
             blob_id,
+            session,
             response_sender: sender,
         })
         .await

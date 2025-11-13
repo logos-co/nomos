@@ -3,7 +3,7 @@ pub mod sampling;
 use std::pin::Pin;
 
 use futures::Stream;
-use nomos_core::da::BlobId;
+use nomos_core::{da::BlobId, sdp::SessionNumber};
 use overwatch::{
     DynError,
     services::{ServiceData, relay::OutboundRelay},
@@ -20,6 +20,11 @@ pub enum MempoolAdapterError {
     Other(DynError),
 }
 
+pub struct Blob {
+    pub blob_id: BlobId,
+    pub session: SessionNumber,
+}
+
 #[async_trait::async_trait]
 pub trait DaMempoolAdapter {
     type MempoolService: ServiceData;
@@ -29,5 +34,5 @@ pub trait DaMempoolAdapter {
 
     async fn subscribe(
         &self,
-    ) -> Result<Pin<Box<dyn Stream<Item = BlobId> + Send>>, MempoolAdapterError>;
+    ) -> Result<Pin<Box<dyn Stream<Item = Blob> + Send>>, MempoolAdapterError>;
 }

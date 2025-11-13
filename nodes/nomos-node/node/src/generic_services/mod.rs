@@ -154,6 +154,7 @@ pub type SdpMempoolAdapterGeneric<RuntimeServiceId> = SdpMempoolNetworkAdapter<
 
 pub type SdpService<RuntimeServiceId> =
     nomos_sdp::SdpService<SdpMempoolAdapterGeneric<RuntimeServiceId>, RuntimeServiceId>;
+
 pub type SdpServiceAdapterGeneric<RuntimeServiceId> =
     SdpServiceAdapter<SdpMempoolAdapterGeneric<RuntimeServiceId>, RuntimeServiceId>;
 

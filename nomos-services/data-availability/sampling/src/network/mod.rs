@@ -43,7 +43,11 @@ pub trait NetworkAdapter<RuntimeServiceId> {
         >,
     ) -> Self;
 
-    async fn start_sampling(&mut self, blob_id: BlobId) -> Result<(), DynError>;
+    async fn start_sampling(
+        &mut self,
+        blob_id: BlobId,
+        session: SessionNumber,
+    ) -> Result<(), DynError>;
 
     async fn request_historic_sampling(
         &self,
@@ -55,7 +59,11 @@ pub trait NetworkAdapter<RuntimeServiceId> {
         &self,
     ) -> Result<Pin<Box<dyn Stream<Item = SamplingEvent> + Send>>, DynError>;
 
-    async fn request_commitments(&self, blob_id: BlobId) -> Result<(), DynError>;
+    async fn request_commitments(
+        &self,
+        blob_id: BlobId,
+        session: SessionNumber,
+    ) -> Result<(), DynError>;
 
     async fn listen_to_commitments_messages(
         &self,

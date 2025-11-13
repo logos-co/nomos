@@ -12,7 +12,7 @@ use kzgrs_backend::common::{
     ShareIndex,
     share::{DaLightShare, DaShare, DaSharesCommitments},
 };
-use nomos_core::{da::BlobId, header::HeaderId, mantle::SignedMantleTx};
+use nomos_core::{da::BlobId, header::HeaderId, mantle::SignedMantleTx, sdp::SessionNumber};
 use nomos_da_messages::common::Share;
 use nomos_da_network_core::{
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
@@ -544,10 +544,11 @@ async fn handle_incoming_commitments_request(
 }
 
 pub(crate) async fn handle_sample_request(
-    sampling_request_channel: &UnboundedSender<BlobId>,
+    sampling_request_channel: &UnboundedSender<(BlobId, SessionNumber)>,
     blob_id: BlobId,
+    session: SessionNumber,
 ) {
-    if let Err(SendError(blob_id)) = sampling_request_channel.send(blob_id) {
+    if let Err(SendError(blob_id)) = sampling_request_channel.send((blob_id, session)) {
         error!("Error requesting samples for blob_id: {blob_id:?}");
     }
 }

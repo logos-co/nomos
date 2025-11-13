@@ -2,7 +2,6 @@ use std::{fmt::Debug, marker::PhantomData, pin::Pin};
 
 use futures::{Stream, StreamExt as _};
 use nomos_core::{
-    da::BlobId,
     header::HeaderId,
     mantle::{Op, SignedMantleTx, TxHash},
 };
@@ -17,6 +16,7 @@ use tx_service::{
 };
 
 use super::{DaMempoolAdapter, MempoolAdapterError};
+use crate::mempool::Blob;
 
 type MempoolRelay<Item, Key> = OutboundRelay<MempoolMsg<HeaderId, Item, Item, Key>>;
 
@@ -59,7 +59,7 @@ where
 
     async fn subscribe(
         &self,
-    ) -> Result<Pin<Box<dyn Stream<Item = BlobId> + Send>>, MempoolAdapterError> {
+    ) -> Result<Pin<Box<dyn Stream<Item = Blob> + Send>>, MempoolAdapterError> {
         let (reply_channel, receiver) = oneshot::channel();
         self.mempool_relay
             .send(MempoolMsg::Subscribe { reply_channel })
@@ -76,7 +76,10 @@ where
             .flat_map(|tx: Self::Tx| {
                 let blob_ids_iter = tx.mantle_tx.ops.into_iter().filter_map(|op| {
                     if let Op::ChannelBlob(blob_op) = op {
-                        Some(blob_op.blob)
+                        Some(Blob {
+                            blob_id: blob_op.blob,
+                            session: blob_op.session,
+                        })
                     } else {
                         None
                     }

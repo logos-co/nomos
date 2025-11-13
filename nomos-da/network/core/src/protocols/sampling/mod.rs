@@ -280,11 +280,11 @@ where
         }
     }
 
-    pub fn shares_request_channel(&self) -> UnboundedSender<BlobId> {
+    pub fn shares_request_channel(&self) -> UnboundedSender<(BlobId, SessionNumber)> {
         self.requests.shares_request_channel()
     }
 
-    pub fn commitments_request_channel(&self) -> UnboundedSender<BlobId> {
+    pub fn commitments_request_channel(&self) -> UnboundedSender<(BlobId, SessionNumber)> {
         self.requests.commitments_request_channel()
     }
 
@@ -449,8 +449,8 @@ mod test {
         });
         time::sleep(Duration::from_secs(2)).await;
         for i in 0..MSG_COUNT {
-            request_sender_1.send([i as u8; 32]).unwrap();
-            request_sender_2.send([i as u8; 32]).unwrap();
+            request_sender_1.send(([i as u8; 32], 0)).unwrap();
+            request_sender_2.send(([i as u8; 32], 0)).unwrap();
         }
 
         let res1 = t1.await.unwrap();
