@@ -8,7 +8,7 @@ use nom::{
     multi::count,
     number::complete::{le_u32, le_u64, u8 as decode_u8},
 };
-use zksign::PublicKey;
+use zksign::{PublicKey, Signature};
 
 use crate::{
     mantle::{
@@ -344,10 +344,9 @@ fn decode_op_proof<'a>(input: &'a [u8], op: &Op) -> IResult<&'a [u8], OpProof> {
 // Cryptographic Primitive Decoders
 // ==============================================================================
 
-fn decode_zk_signature(input: &[u8]) -> IResult<&[u8], DummyZkSignature> {
+fn decode_zk_signature(input: &[u8]) -> IResult<&[u8], Signature> {
     // ZkSignature = Groth16
-    // TODO: for now, signatures are dummy sigs
-    map(decode_dummy_zk_signature, DummyZkSignature::from).parse(input)
+    map(decode_groth16, Signature::new).parse(input)
 }
 
 const GROTH16_BYTES: usize = 128;
@@ -358,10 +357,6 @@ fn decode_groth16(input: &[u8]) -> IResult<&[u8], CompressedGroth16Proof> {
         |proof: [u8; GROTH16_BYTES]| CompressedGroth16Proof::from_bytes(&proof),
     )
     .parse(input)
-}
-
-fn decode_dummy_zk_signature(input: &[u8]) -> IResult<&[u8], DummyZkSignature> {
-    map(decode_array::<GROTH16_BYTES>, DummyZkSignature::from_bytes).parse(input)
 }
 
 fn decode_zk_public_key(input: &[u8]) -> IResult<&[u8], PublicKey> {
@@ -438,7 +433,6 @@ fn decode_byte(input: &[u8]) -> IResult<&[u8], u8> {
 use groth16::fr_to_bytes;
 
 use super::ops::opcode;
-use crate::proofs::zksig::DummyZkSignature;
 
 /// Encode primitives
 fn encode_uint64(value: u64) -> Vec<u8> {
@@ -470,17 +464,10 @@ fn encode_ed25519_public_key(key: &Ed25519PublicKey) -> Vec<u8> {
     key.to_bytes().to_vec()
 }
 
-fn encode_zk_signature(sig: &DummyZkSignature) -> Vec<u8> {
+fn encode_zk_signature(sig: &Signature) -> Vec<u8> {
     // ZkSignature wraps ZkSignProof which is CompressedGroth16Proof
     // CompressedProof is 128 bytes: pi_a (32) + pi_b (64) + pi_c (32)
-    // let proof = sig.as_proof();
-    // let mut bytes = Vec::with_capacity(128);
-    // bytes.extend_from_slice(proof.pi_a.as_slice());
-    // bytes.extend_from_slice(proof.pi_b.as_slice());
-    // bytes.extend_from_slice(proof.pi_c.as_slice());
-    // bytes
-
-    sig.as_bytes().to_vec() // -> Fake implementation for dummy, will change to proof at some point
+    sig.as_proof().to_bytes().to_vec()
 }
 
 /// Encode channel operations
@@ -756,14 +743,7 @@ mod tests {
     use num_bigint::BigUint;
 
     use super::*;
-    use crate::{mantle::Transaction as _, proofs::zksig::ZkSignaturePublic, sdp::DaActivityProof};
-
-    fn dummy_zk_signature() -> DummyZkSignature {
-        DummyZkSignature::prove(&ZkSignaturePublic {
-            msg_hash: Fr::ZERO,
-            pks: [Fr::ZERO; 1].to_vec(),
-        })
-    }
+    use crate::{mantle::Transaction as _, sdp::DaActivityProof};
 
     fn dbg_test_vector(actual: &str, expected: &str) {
         println!("{:32} {:32}", "actual", "expected");
@@ -789,6 +769,18 @@ mod tests {
                 }
             );
         }
+    }
+
+    fn zksig(sig_hex: &str) -> zksign::Signature {
+        // zksign signatures are non-deterministic meaning we can't simply regenerate
+        // the proofs in tests on each run.
+        // This utility allows us to hardcode the sig in tests as hex.
+        assert_eq!(sig_hex.len(), 256); // each byte takes two chars in hex;
+
+        let mut sig_bytes = [0u8; 128];
+        hex::decode_to_slice(sig_hex, &mut sig_bytes).unwrap();
+
+        zksign::Signature::new(CompressedGroth16Proof::from_bytes(&sig_bytes))
     }
 
     #[test]
@@ -820,18 +812,24 @@ mod tests {
 
     #[test]
     fn test_decode_signed_mantle_tx_empty() {
-        let signed_tx = SignedMantleTx {
-            mantle_tx: MantleTx {
-                ops: vec![],
-                ledger_tx: LedgerTx {
-                    inputs: vec![],
-                    outputs: vec![],
-                },
-                execution_gas_price: 100,
-                storage_gas_price: 50,
+        let mantle_tx = MantleTx {
+            ops: vec![],
+            ledger_tx: LedgerTx {
+                inputs: vec![],
+                outputs: vec![],
             },
+            execution_gas_price: 100,
+            storage_gas_price: 50,
+        };
+
+        let ledger_tx_proof = zksig(
+            // hex::encode(&zksign::SecretKey::multi_sign([], &txhash.0))
+            "fcdf9c12b2871b271f64f39722ce0f5ff1809d5f61e11233387d9b04af2c1da2bb61b193d57333661e4c6151c6c35b999ee1ab6fb957658511f19887256ef71cc13cda86473ef9c4af10b2c31eb714b50177d68ca185c37779b3de83c78e5bb048e2d8da6ae97eb1d51514e0df379ff72f14175121c1b07f3affe85206a1d992",
+        );
+        let signed_tx = SignedMantleTx {
+            mantle_tx,
             ops_proofs: vec![],
-            ledger_tx_proof: DummyZkSignature::from_bytes([0u8; 128]),
+            ledger_tx_proof,
         };
 
         #[expect(
@@ -844,10 +842,10 @@ mod tests {
             + "00"                                                               // LedgerOutputCount=0u8
             + "6400000000000000"                                                 // ExecutionGasPrice
             + "3200000000000000"                                                 // StorageGasPrice
-            + "0000000000000000000000000000000000000000000000000000000000000000" // ZkSignature (128Byte)
-            + "0000000000000000000000000000000000000000000000000000000000000000"
-            + "0000000000000000000000000000000000000000000000000000000000000000"
-            + "0000000000000000000000000000000000000000000000000000000000000000";
+            + "fcdf9c12b2871b271f64f39722ce0f5ff1809d5f61e11233387d9b04af2c1da2" // ZkSignature (128Byte)
+            + "bb61b193d57333661e4c6151c6c35b999ee1ab6fb957658511f19887256ef71c"
+            + "c13cda86473ef9c4af10b2c31eb714b50177d68ca185c37779b3de83c78e5bb0"
+            + "48e2d8da6ae97eb1d51514e0df379ff72f14175121c1b07f3affe85206a1d992";
 
         // ENCODING
         let encoded = hex::encode(encode_signed_mantle_tx(&signed_tx));
@@ -881,13 +879,14 @@ mod tests {
             storage_gas_price: 50,
         };
 
-        let sig = signing_key.sign(&mantle_tx.hash().as_signing_bytes());
-        let signed_tx = SignedMantleTx::new(
-            mantle_tx,
-            vec![OpProof::Ed25519Sig(sig)],
-            dummy_zk_signature(),
-        )
-        .unwrap();
+        let txhash = mantle_tx.hash();
+        let inscribe_sig = OpProof::Ed25519Sig(signing_key.sign(&txhash.as_signing_bytes()));
+        let ledger_tx_proof = zksig(
+            // zksign::SecretKey::multi_sign([], txhash.as_ref())
+            "f8bdd66cbbbae6cba142f2c15ccc8b0c3cb10566e7ca89978ef987515f922c95ef2c897d66d12352fcbf7657da8cec24a3e8a6b9338278b0e7be953be416ce2510b53711585e78e1e4d402f7348f72adc134608a520e8b7ec5dad75b287f14a51836b52db2760aba14e4a3cc820f5393a97595a06403d8aac284bf4e8cf85d99",
+        );
+        let signed_tx =
+            SignedMantleTx::new(mantle_tx, vec![inscribe_sig], ledger_tx_proof).unwrap();
 
         #[expect(
             clippy::string_add,
@@ -907,10 +906,10 @@ mod tests {
             + "3200000000000000"                                                 // StorageGasPrice
             + "78911d4c283759b2aca32eb186c314fc966c13b08f14cffbd50c53e5d61b5ac5" // Signature (64Byte)
             + "8f511d1c6b0b56682c7849def1bab6838427b9a3c751affd6bbe449f5926050f"
-            + "8715b7b58c747a49e371ba0b02b7de8f35da26ff2c8a60b80715d02720212662" // ZkSignature (128Byte)
-            + "83af3eedb537683dd74cb1708601a80c9970376f1226d16afc242765eccd592a"
-            + "0000000000000000000000000000000000000000000000000000000000000000"
-            + "0000000000000000000000000000000000000000000000000000000000000000";
+            + "f8bdd66cbbbae6cba142f2c15ccc8b0c3cb10566e7ca89978ef987515f922c95" // ZkSignature (128Byte)
+            + "ef2c897d66d12352fcbf7657da8cec24a3e8a6b9338278b0e7be953be416ce25"
+            + "10b53711585e78e1e4d402f7348f72adc134608a520e8b7ec5dad75b287f14a5"
+            + "1836b52db2760aba14e4a3cc820f5393a97595a06403d8aac284bf4e8cf85d99";
 
         // ENCODING
         let encoded = hex::encode(encode_signed_mantle_tx(&signed_tx));
@@ -946,13 +945,13 @@ mod tests {
             storage_gas_price: 50,
         };
 
-        let sig = signing_key.sign(&mantle_tx.hash().as_signing_bytes());
-        let signed_tx = SignedMantleTx::new(
-            mantle_tx,
-            vec![OpProof::Ed25519Sig(sig)],
-            dummy_zk_signature(),
-        )
-        .unwrap();
+        let txhash = mantle_tx.hash();
+        let blob_sig = OpProof::Ed25519Sig(signing_key.sign(&txhash.as_signing_bytes()));
+        let ledger_tx_proof = zksig(
+            // zksign::SecretKey::multi_sign([], &txhash.0)
+            "e05fa8a516f4b3bdc2aa85938c47702ef2dddbdf480217c6e262eece511758299321cff6aa14d050ef653c83ab20f939d3c05227f4be58973ee6c7618ba79c09c80e560c8354a4b87d3041407472b32708fdf9119094323f0d6ecd5d2ebea297c6b2b3eb2728c0c7fb30123d0087eb1bae8e29f6cf31371c0fa46de474a50292",
+        );
+        let signed_tx = SignedMantleTx::new(mantle_tx, vec![blob_sig], ledger_tx_proof).unwrap();
 
         #[expect(
             clippy::string_add,
@@ -974,10 +973,10 @@ mod tests {
             + "3200000000000000"                                                 // StorageGasPrice
             + "26fa66800c50d65de3808c9e715f3ca2833c212d5bc31613365024689a62c029" // Ed25519Signature (64Byte)
             + "93baddd11647c11467c9bcc72335457bc28492c916a84c991b30a28eef73fc08"
-            + "8715b7b58c747a49e371ba0b02b7de8f35da26ff2c8a60b80715d02720212662" // ZkSignature (128Byte)
-            + "83af3eedb537683dd74cb1708601a80c9970376f1226d16afc242765eccd592a"
-            + "0000000000000000000000000000000000000000000000000000000000000000"
-            + "0000000000000000000000000000000000000000000000000000000000000000";
+            + "e05fa8a516f4b3bdc2aa85938c47702ef2dddbdf480217c6e262eece51175829" // ZkSignature (128Byte)
+            + "9321cff6aa14d050ef653c83ab20f939d3c05227f4be58973ee6c7618ba79c09"
+            + "c80e560c8354a4b87d3041407472b32708fdf9119094323f0d6ecd5d2ebea297"
+            + "c6b2b3eb2728c0c7fb30123d0087eb1bae8e29f6cf31371c0fa46de474a50292";
 
         // ENCODING
         let encoded = hex::encode(encode_signed_mantle_tx(&signed_tx));
@@ -1022,13 +1021,18 @@ mod tests {
             storage_gas_price: 50,
         };
 
-        let sig = signing_key.sign(&mantle_tx.hash().as_signing_bytes());
-
-        let signed_tx = SignedMantleTx {
+        let txhash = mantle_tx.hash();
+        let sig = signing_key.sign(&txhash.as_signing_bytes());
+        let ledger_tx_proof = zksig(
+            // zksign::SecretKey::multi_sign([], &txhash.0)
+            "bf5fac329532b4c08784494945535887808607fca0b3b354e6303e03e58d4a966d1fc5818d2955a3b20d5cb38d93a9afa752035052b956b2617e61c495f0ce2ebb33fd9c546dfd507aeceb360bde13c882cf475a814a9c799b0d7a2519541212f3208080e89b8d8401e4b09fdb433f9186b6565bca27c42f89454ffee743c203",
+        );
+        let signed_tx = SignedMantleTx::new(
             mantle_tx,
-            ops_proofs: vec![OpProof::Ed25519Sig(sig), OpProof::Ed25519Sig(sig)],
-            ledger_tx_proof: DummyZkSignature::from_bytes([0u8; 128]),
-        };
+            vec![OpProof::Ed25519Sig(sig), OpProof::Ed25519Sig(sig)],
+            ledger_tx_proof,
+        )
+        .unwrap();
 
         #[expect(
             clippy::string_add,
@@ -1058,10 +1062,10 @@ mod tests {
             + "25be0d1b772e3d0ca094be0678f2996947319b2e20542d67a37315c3e1cf2506" // -- for Op1
             + "d6b4691bdf69ed56fe63b2599d338e9861ed9566ca2c870b6db19207961004c2" // Ed25519Signature (64Byte)
             + "25be0d1b772e3d0ca094be0678f2996947319b2e20542d67a37315c3e1cf2506" // -- for Op2
-            + "0000000000000000000000000000000000000000000000000000000000000000" // ZkSignature (128Byte)
-            + "0000000000000000000000000000000000000000000000000000000000000000" // -- for ledger tx
-            + "0000000000000000000000000000000000000000000000000000000000000000"
-            + "0000000000000000000000000000000000000000000000000000000000000000";
+            + "bf5fac329532b4c08784494945535887808607fca0b3b354e6303e03e58d4a96" // ZkSignature (128Byte)
+            + "6d1fc5818d2955a3b20d5cb38d93a9afa752035052b956b2617e61c495f0ce2e" // -- for ledger tx
+            + "bb33fd9c546dfd507aeceb360bde13c882cf475a814a9c799b0d7a2519541212"
+            + "f3208080e89b8d8401e4b09fdb433f9186b6565bca27c42f89454ffee743c203";
 
         // ENCODING
         let encoded = hex::encode(encode_signed_mantle_tx(&signed_tx));
@@ -1134,9 +1138,8 @@ mod tests {
             execution_gas_price: 100,
             storage_gas_price: 50,
         };
-
-        let ledger_tx_proof = dummy_zk_signature();
-
+        let ledger_tx_proof =
+            zksign::SecretKey::multi_sign(&[], mantle_tx.hash().as_ref()).unwrap();
         let original_tx = SignedMantleTx::new(mantle_tx, vec![], ledger_tx_proof).unwrap();
 
         // Encode
@@ -1164,7 +1167,13 @@ mod tests {
         let predicted_size = predict_signed_mantle_tx_size(&mantle_tx);
 
         // Create a signed tx and encode it to get actual size
-        let signed_tx = SignedMantleTx::new(mantle_tx, vec![], dummy_zk_signature()).unwrap();
+        let txhash = mantle_tx.hash();
+        let signed_tx = SignedMantleTx::new(
+            mantle_tx,
+            vec![],
+            zksign::SecretKey::multi_sign(&[], &txhash.0).unwrap(),
+        )
+        .unwrap();
         let encoded = encode_signed_mantle_tx(&signed_tx);
         let actual_size = encoded.len();
 
@@ -1194,11 +1203,12 @@ mod tests {
         let predicted_size = predict_signed_mantle_tx_size(&mantle_tx);
 
         // Create a signed tx and encode it to get actual size
-        let op_sig = signing_key.sign(&mantle_tx.hash().as_signing_bytes());
+        let txhash = mantle_tx.hash();
+        let op_sig = signing_key.sign(&txhash.as_signing_bytes());
         let signed_tx = SignedMantleTx::new(
             mantle_tx,
             vec![OpProof::Ed25519Sig(op_sig)],
-            dummy_zk_signature(),
+            zksign::SecretKey::multi_sign(&[], &txhash.0).unwrap(),
         )
         .unwrap();
         let encoded = encode_signed_mantle_tx(&signed_tx);
@@ -1232,12 +1242,13 @@ mod tests {
         // Predict size
         let predicted_size = predict_signed_mantle_tx_size(&mantle_tx);
 
+        let txhash = mantle_tx.hash();
         // Create a signed tx and encode it to get actual size
-        let blob_sig = signing_key.sign(&mantle_tx.hash().as_signing_bytes());
+        let blob_sig = signing_key.sign(&txhash.as_signing_bytes());
         let signed_tx = SignedMantleTx::new(
             mantle_tx,
             vec![OpProof::Ed25519Sig(blob_sig)],
-            dummy_zk_signature(),
+            zksign::SecretKey::multi_sign(&[], &txhash.0).unwrap(),
         )
         .unwrap();
         let encoded = encode_signed_mantle_tx(&signed_tx);
@@ -1275,10 +1286,11 @@ mod tests {
 
         // Create a signed tx and encode it to get actual size
         let dummy_ed25519_sig = Signature::from_bytes(&[0; 64]);
+        let txhash = mantle_tx.hash();
         let signed_tx = SignedMantleTx::new(
             mantle_tx,
             vec![OpProof::Ed25519Sig(dummy_ed25519_sig)],
-            dummy_zk_signature(),
+            zksign::SecretKey::multi_sign(&[], &txhash.0).unwrap(),
         )
         .unwrap();
         let encoded = encode_signed_mantle_tx(&signed_tx);
@@ -1293,15 +1305,25 @@ mod tests {
         use num_bigint::BigUint;
 
         let signing_key = SigningKey::from_bytes(&[1; 32]);
+        let zk_sk = zksign::SecretKey::zero();
         let locator1: multiaddr::Multiaddr = "/ip4/127.0.0.1/tcp/8080".parse().unwrap();
         let locator2: multiaddr::Multiaddr = "/ip6/::1/tcp/9090".parse().unwrap();
 
+        let locked_note_sk = zksign::SecretKey::from(BigUint::from(1u64));
+        let locked_note = crate::mantle::Utxo {
+            tx_hash: TxHash::from(BigUint::from(42u64)),
+            output_index: 12,
+            note: Note {
+                value: 500,
+                pk: locked_note_sk.to_public_key(),
+            },
+        };
         let sdp_declare_op = SDPDeclareOp {
             service_type: ServiceType::BlendNetwork,
             locators: vec![Locator::new(locator1), Locator::new(locator2)],
             provider_id: ProviderId(signing_key.verifying_key()),
-            zk_id: PublicKey::new(BigUint::from(42u64).into()),
-            locked_note_id: NoteId(BigUint::from(123u64).into()),
+            zk_id: zk_sk.to_public_key(),
+            locked_note_id: locked_note.id(),
         };
 
         let mantle_tx = MantleTx {
@@ -1315,13 +1337,14 @@ mod tests {
         let predicted_size = predict_signed_mantle_tx_size(&mantle_tx);
 
         // Create a signed tx and encode it to get actual size
+        let txhash = mantle_tx.hash();
         let signed_tx = SignedMantleTx::new(
             mantle_tx,
             vec![OpProof::ZkAndEd25519Sigs {
-                zk_sig: dummy_zk_signature(),
+                zk_sig: zksign::SecretKey::multi_sign(&[locked_note_sk, zk_sk], &txhash.0).unwrap(),
                 ed25519_sig: Signature::from_bytes(&[0u8; 64]),
             }],
-            dummy_zk_signature(),
+            zksign::SecretKey::multi_sign(&[], &txhash.0).unwrap(),
         )
         .unwrap();
         let encoded = encode_signed_mantle_tx(&signed_tx);
@@ -1347,14 +1370,18 @@ mod tests {
             storage_gas_price: 50,
         };
 
+        let txhash = mantle_tx.hash();
+
         // Predict size
         let predicted_size = predict_signed_mantle_tx_size(&mantle_tx);
 
         // Create a signed tx and encode it to get actual size
         let signed_tx = SignedMantleTx::new(
             mantle_tx,
-            vec![OpProof::ZkSig(dummy_zk_signature())],
-            dummy_zk_signature(),
+            vec![OpProof::ZkSig(
+                zksign::SecretKey::multi_sign(&[zksign::SecretKey::zero()], &txhash.0).unwrap(),
+            )],
+            zksign::SecretKey::multi_sign(&[], &txhash.0).unwrap(),
         )
         .unwrap();
         let encoded = encode_signed_mantle_tx(&signed_tx);
@@ -1388,10 +1415,13 @@ mod tests {
 
         let predicted_size = predict_signed_mantle_tx_size(&mantle_tx);
 
+        let txhash = mantle_tx.hash();
         let signed_tx = SignedMantleTx::new(
             mantle_tx,
-            vec![OpProof::ZkSig(dummy_zk_signature())],
-            dummy_zk_signature(),
+            vec![OpProof::ZkSig(
+                zksign::SecretKey::multi_sign(&[zksign::SecretKey::zero()], &txhash.0).unwrap(),
+            )],
+            zksign::SecretKey::multi_sign(&[], &txhash.0).unwrap(),
         )
         .unwrap();
 
@@ -1450,16 +1480,17 @@ mod tests {
         // Predict size
         let predicted_size = predict_signed_mantle_tx_size(&mantle_tx);
 
-        let op_sig = signing_key.sign(&mantle_tx.hash().as_signing_bytes());
+        let txhash = mantle_tx.hash();
+        let op_sig = signing_key.sign(&txhash.as_signing_bytes());
         // Create a signed tx and encode it to get actual size
         let signed_tx = SignedMantleTx::new(
             mantle_tx,
             vec![
                 OpProof::Ed25519Sig(op_sig),
                 OpProof::Ed25519Sig(op_sig),
-                OpProof::ZkSig(dummy_zk_signature()),
+                OpProof::ZkSig(zksign::SecretKey::zero().sign(&txhash.0).unwrap()),
             ],
-            dummy_zk_signature(),
+            zksign::SecretKey::multi_sign(&[], &txhash.0).unwrap(),
         )
         .unwrap();
         let encoded = encode_signed_mantle_tx(&signed_tx);
@@ -1471,7 +1502,6 @@ mod tests {
     #[test]
     fn test_predict_signed_mantle_tx_size_with_ledger_inputs_outputs() {
         use num_bigint::BigUint;
-        use zksign::PublicKey;
 
         let pk1 = PublicKey::from(BigUint::from(100u64));
         let pk2 = PublicKey::from(BigUint::from(200u64));
@@ -1494,7 +1524,12 @@ mod tests {
         let predicted_size = predict_signed_mantle_tx_size(&mantle_tx);
 
         // Create a signed tx and encode it to get actual size
-        let signed_tx = SignedMantleTx::new(mantle_tx, vec![], dummy_zk_signature()).unwrap();
+        let signed_tx = SignedMantleTx::new(
+            mantle_tx,
+            vec![],
+            zksign::SecretKey::multi_sign(&[], &Fr::ZERO).unwrap(),
+        )
+        .unwrap();
         let encoded = encode_signed_mantle_tx(&signed_tx);
         let actual_size = encoded.len();
 
@@ -1505,7 +1540,6 @@ mod tests {
     fn test_predict_signed_mantle_tx_size_complex_scenario() {
         use ed25519_dalek::SigningKey;
         use num_bigint::BigUint;
-        use zksign::PublicKey;
 
         let mut signing_key1 = SigningKey::from_bytes(&[1; 32]);
         let signing_key2 = SigningKey::from_bytes(&[2; 32]);
@@ -1522,18 +1556,21 @@ mod tests {
             keys: vec![signing_key1.verifying_key(), signing_key2.verifying_key()],
         };
 
+        let locked_note_sk = zksign::SecretKey::from(BigUint::from(1u64));
+        let ledger_tx = LedgerTx {
+            inputs: vec![NoteId(BigUint::from(777u64).into())],
+            outputs: vec![Note::new(5000, locked_note_sk.to_public_key())],
+        };
+
         let locator: multiaddr::Multiaddr = "/dns4/example.com/tcp/443".parse().unwrap();
+        let zk_sk = zksign::SecretKey::zero();
         let sdp_declare_op = SDPDeclareOp {
             service_type: ServiceType::DataAvailability,
             locators: vec![Locator::new(locator)],
             provider_id: ProviderId(signing_key1.verifying_key()),
-            zk_id: PublicKey::new(BigUint::from(999u64).into()),
-            locked_note_id: NoteId(BigUint::from(888u64).into()),
+            zk_id: zk_sk.to_public_key(),
+            locked_note_id: ledger_tx.utxo_by_index(0).unwrap().id(),
         };
-
-        let pk = PublicKey::from(BigUint::from(500u64));
-        let note = Note::new(5000, pk);
-        let note_id = NoteId(BigUint::from(777u64).into());
 
         let mantle_tx = MantleTx {
             ops: vec![
@@ -1541,7 +1578,7 @@ mod tests {
                 Op::ChannelSetKeys(set_keys_op),
                 Op::SDPDeclare(sdp_declare_op),
             ],
-            ledger_tx: LedgerTx::new(vec![note_id], vec![note]),
+            ledger_tx,
             execution_gas_price: 150,
             storage_gas_price: 75,
         };
@@ -1550,18 +1587,20 @@ mod tests {
         let predicted_size = predict_signed_mantle_tx_size(&mantle_tx);
 
         // Create a signed tx and encode it to get actual size
-        let op_ed25519_sig = signing_key1.sign(&mantle_tx.hash().as_signing_bytes());
+        let txhash = mantle_tx.hash();
+        let op_ed25519_sig = signing_key1.sign(&txhash.as_signing_bytes());
         let signed_tx = SignedMantleTx::new(
             mantle_tx,
             vec![
                 OpProof::Ed25519Sig(op_ed25519_sig),
                 OpProof::Ed25519Sig(op_ed25519_sig),
                 OpProof::ZkAndEd25519Sigs {
-                    zk_sig: dummy_zk_signature(),
+                    zk_sig: zksign::SecretKey::multi_sign(&[locked_note_sk, zk_sk], &txhash.0)
+                        .unwrap(),
                     ed25519_sig: op_ed25519_sig,
                 },
             ],
-            dummy_zk_signature(),
+            zksign::SecretKey::multi_sign(&[zksign::SecretKey::zero()], &txhash.0).unwrap(),
         )
         .unwrap();
         let encoded = encode_signed_mantle_tx(&signed_tx);

@@ -6,6 +6,8 @@ use std::{
 };
 
 use futures::{AsyncWriteExt as _, StreamExt as _};
+#[cfg(test)]
+use libp2p::identity::Keypair;
 use libp2p::{
     Multiaddr, PeerId, StreamProtocol, Swarm, SwarmBuilder,
     swarm::{ConnectionId, dial_opts::PeerCondition},
@@ -23,7 +25,7 @@ use tokio::sync::mpsc;
 use tracing::{debug, error, trace, warn};
 
 use super::settings::Libp2pBlendBackendSettings;
-use crate::edge::backends::libp2p::LOG_TARGET;
+use crate::edge::{backends::libp2p::LOG_TARGET, settings::BlendConfig};
 
 #[derive(Debug)]
 pub struct DialAttempt {
@@ -75,7 +77,7 @@ where
     Rng: RngCore + 'static,
 {
     pub(super) fn new(
-        settings: &Libp2pBlendBackendSettings,
+        settings: &BlendConfig<Libp2pBlendBackendSettings>,
         membership: Membership<PeerId>,
         rng: Rng,
         command_receiver: mpsc::Receiver<Command>,
@@ -95,7 +97,8 @@ where
             .build();
         let stream_control = swarm.behaviour().new_control();
 
-        let replication_factor: NonZeroUsize = settings.replication_factor.try_into().unwrap();
+        let replication_factor: NonZeroUsize =
+            settings.backend.replication_factor.try_into().unwrap();
         let membership_size = membership.size();
 
         if membership_size < replication_factor.get() {
@@ -109,7 +112,9 @@ where
             membership,
             rng,
             pending_dials: HashMap::new(),
-            max_dial_attempts_per_connection: settings.max_dial_attempts_per_peer_per_message,
+            max_dial_attempts_per_connection: settings
+                .backend
+                .max_dial_attempts_per_peer_per_message,
             protocol_name,
             replication_factor,
         }
@@ -117,6 +122,7 @@ where
 
     #[cfg(test)]
     pub fn new_test(
+        identity: &Keypair,
         membership: Membership<PeerId>,
         command_receiver: mpsc::Receiver<Command>,
         max_dial_attempts_per_connection: NonZeroU64,
@@ -126,8 +132,12 @@ where
     ) -> Self {
         use crate::test_utils::memory_test_swarm;
 
-        let inner_swarm =
-            memory_test_swarm(Duration::from_secs(1), |_| libp2p_stream::Behaviour::new());
+        let inner_swarm = memory_test_swarm(
+            identity,
+            membership.clone(),
+            Duration::from_secs(1),
+            |_, _| libp2p_stream::Behaviour::new(),
+        );
 
         Self {
             command_receiver,

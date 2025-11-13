@@ -20,7 +20,7 @@ use key_management_system::{
 use network::GeneralNetworkConfig;
 use nomos_core::{
     mantle::GenesisTx as _,
-    sdp::{Locator, ProviderId, ServiceType},
+    sdp::{Locator, ServiceType},
 };
 use nomos_utils::net::get_available_udp_port;
 use rand::{Rng as _, thread_rng};
@@ -64,6 +64,8 @@ pub fn create_general_configs_with_network(
 #[must_use]
 pub fn create_general_configs_with_blend_core_subset(
     n_nodes: usize,
+    // TODO: Instead of this, define a config struct for each node.
+    // That would be also useful for non-even token distributions: https://github.com/logos-co/nomos/issues/1888
     n_blend_core_nodes: usize,
     network_params: &NetworkParams,
 ) -> Vec<GeneralConfig> {
@@ -98,13 +100,13 @@ pub fn create_general_configs_with_blend_core_subset(
     let providers: Vec<_> = blend_configs
         .iter()
         .enumerate()
+        .take(n_blend_core_nodes)
         .map(|(i, blend_conf)| ProviderInfo {
             service_type: ServiceType::BlendNetwork,
-            provider_id: ProviderId(blend_conf.signer.verifying_key()),
-            zk_id: blend_conf.secret_zk_key.to_public_key(),
+            provider_sk: blend_conf.signer.clone(),
+            zk_sk: blend_conf.secret_zk_key.clone(),
             locator: Locator(blend_conf.backend_core.listening_address.clone()),
             note: consensus_configs[0].blend_notes[i].clone(),
-            signer: blend_conf.signer.clone(),
         })
         .collect();
     let ledger_tx = consensus_configs[0]

@@ -5,7 +5,7 @@ use std::{
 
 use overwatch::{
     overwatch::OverwatchHandle,
-    services::{AsServiceId, ServiceData, relay::OutboundRelay},
+    services::{AsServiceId, ServiceData, relay::OutboundRelay, status::ServiceStatus},
 };
 use services_utils::wait_until_services_are_ready;
 use tracing::{debug, error, info};
@@ -49,14 +49,14 @@ where
         .await
         {
             debug!(target: LOG_TARGET, "Service took too long to start. Shutting it down again...");
-            stop_service(&overwatch_handle).await;
+            kill_service(&overwatch_handle).await;
             return Err(e.into());
         }
 
         let relay = match overwatch_handle.relay::<Service>().await {
             Ok(relay) => relay,
             Err(e) => {
-                stop_service(&overwatch_handle).await;
+                kill_service(&overwatch_handle).await;
                 return Err(e.into());
             }
         };
@@ -71,23 +71,39 @@ where
         self.relay.send(message).await.map_err(|(e, _)| e.into())
     }
 
-    pub async fn shutdown(self) {
-        stop_service(&self.overwatch_handle).await;
+    /// Wait until the service is stopped itself within the given timeout.
+    /// If it does not stop in time, forcefully kill it.
+    ///
+    /// Returns `true` if the service stopped itself, `false` if it was killed.
+    pub async fn wait_until_stopped_or_kill(self, timeout: Duration) -> bool {
+        if self.wait_until_stopped(timeout).await.is_ok() {
+            return true;
+        }
+        kill_service(&self.overwatch_handle).await;
+        false
+    }
+
+    async fn wait_until_stopped(&self, timeout: Duration) -> Result<(), ServiceStatus> {
+        let mut watcher = self.overwatch_handle.status_watcher().await;
+        watcher
+            .wait_for(ServiceStatus::Stopped, Some(timeout))
+            .await
+            .map(|_| ())
     }
 }
 
-async fn stop_service<Service, RuntimeServiceId>(
+async fn kill_service<Service, RuntimeServiceId>(
     overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
 ) where
     RuntimeServiceId: AsServiceId<Service> + Debug + Display + Sync,
 {
     info!(
         target = LOG_TARGET,
-        "Stopping service {}",
+        "Killing service {}",
         <RuntimeServiceId as AsServiceId<Service>>::SERVICE_ID
     );
     if let Err(e) = overwatch_handle.stop_service::<Service>().await {
-        error!(target = LOG_TARGET, "Failed to stop service: {e:}");
+        error!(target = LOG_TARGET, "Failed to kill service: {e:}");
     }
 }
 
@@ -108,8 +124,9 @@ mod tests {
     use super::*;
 
     #[test_log::test(test)]
-    fn ondemand_service_mode() {
-        let app = OverwatchRunner::<Services>::run(settings(), None).unwrap();
+    fn wait_until_stopped() {
+        let max_pong_count = 1;
+        let app = OverwatchRunner::<Services>::run(settings(max_pong_count), None).unwrap();
         app.runtime().handle().block_on(async {
             let mode =
                 OnDemandServiceMode::<PongService, RuntimeServiceId>::new(app.handle().clone())
@@ -124,15 +141,51 @@ mod tests {
             let reply = reply_receiver.await.unwrap();
             assert_eq!(reply, 100);
 
-            // Register a drop notifier to check if the service is dropped on shutdown.
-            let (drop_sender, drop_receiver) = oneshot::channel();
-            mode.handle_inbound_message(PongServiceMessage::RegisterDropNotifier(drop_sender))
+            // Now that the service ponged `max_pong_count` times, it should stop itself.
+            assert!(
+                mode.wait_until_stopped_or_kill(Duration::from_secs(1))
+                    .await
+            );
+
+            // Check if it can be started again.
+            let mode =
+                OnDemandServiceMode::<PongService, RuntimeServiceId>::new(app.handle().clone())
+                    .await
+                    .unwrap();
+            let (reply_sender, reply_receiver) = oneshot::channel();
+            mode.handle_inbound_message(PongServiceMessage::Ping(100, reply_sender))
                 .await
                 .unwrap();
-            // Shutdown the mode.
-            mode.shutdown().await;
-            // Check if the service has been dropped.
-            drop_receiver.await.unwrap();
+            let reply = reply_receiver.await.unwrap();
+            assert_eq!(reply, 100);
+        });
+    }
+
+    #[test_log::test(test)]
+    fn kill_after_stop_timeout() {
+        let max_pong_count = 2;
+        let app = OverwatchRunner::<Services>::run(settings(max_pong_count), None).unwrap();
+        app.runtime().handle().block_on(async {
+            let mode =
+                OnDemandServiceMode::<PongService, RuntimeServiceId>::new(app.handle().clone())
+                    .await
+                    .unwrap();
+
+            // Check if the mode has started by sending a Ping message.
+            let (reply_sender, reply_receiver) = oneshot::channel();
+            mode.handle_inbound_message(PongServiceMessage::Ping(100, reply_sender))
+                .await
+                .unwrap();
+            let reply = reply_receiver.await.unwrap();
+            assert_eq!(reply, 100);
+
+            // The service shouldn't stop itself since it didn't receive `max_pong_count`
+            // pings yet. Expect that it is forcefully killed after the timeout.
+            assert!(
+                !mode
+                    .wait_until_stopped_or_kill(Duration::from_secs(1))
+                    .await
+            );
 
             // Check if it can be started again.
             let mode =
@@ -155,19 +208,10 @@ mod tests {
 
     struct PongService {
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-        drop_notifier: Option<oneshot::Sender<()>>,
-    }
-
-    impl Drop for PongService {
-        fn drop(&mut self) {
-            if let Some(drop_notifier) = self.drop_notifier.take() {
-                drop_notifier.send(()).unwrap();
-            }
-        }
     }
 
     impl ServiceData for PongService {
-        type Settings = ();
+        type Settings = usize;
         type State = NoState<Self::Settings>;
         type StateOperator = NoOperator<Self::State>;
         type Message = PongServiceMessage;
@@ -175,7 +219,6 @@ mod tests {
 
     enum PongServiceMessage {
         Ping(usize, oneshot::Sender<usize>),
-        RegisterDropNotifier(oneshot::Sender<()>),
     }
 
     #[async_trait::async_trait]
@@ -186,7 +229,6 @@ mod tests {
         ) -> Result<Self, DynError> {
             Ok(Self {
                 service_resources_handle,
-                drop_notifier: None,
             })
         }
 
@@ -196,26 +238,25 @@ mod tests {
                     OpaqueServiceResourcesHandle::<Self, RuntimeServiceId> {
                         ref mut inbound_relay,
                         ref status_updater,
+                        ref settings_handle,
                         ..
                     },
                 ..
             } = self;
 
+            let max_pong_count = settings_handle.notifier().get_updated_settings();
+
             let service_id = <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID;
             status_updater.notify_ready();
             info!("Service {service_id} is ready.",);
 
-            while let Some(message) = inbound_relay.next().await {
-                match message {
-                    PongServiceMessage::Ping(message, reply_sender) => {
-                        debug!("Service {service_id} received message: {message}");
-                        if reply_sender.send(message).is_err() {
-                            error!("Failed to send response");
-                        }
-                    }
-                    PongServiceMessage::RegisterDropNotifier(sender) => {
-                        self.drop_notifier = Some(sender);
-                        debug!("Service {service_id} registered drop notifier");
+            for _ in 0..max_pong_count {
+                if let Some(PongServiceMessage::Ping(message, reply_sender)) =
+                    inbound_relay.next().await
+                {
+                    debug!("Service {service_id} received message: {message}");
+                    if reply_sender.send(message).is_err() {
+                        error!("Failed to send response");
                     }
                 }
             }
@@ -224,7 +265,9 @@ mod tests {
         }
     }
 
-    fn settings() -> ServicesServiceSettings {
-        ServicesServiceSettings { pong: () }
+    fn settings(max_pong_count: usize) -> ServicesServiceSettings {
+        ServicesServiceSettings {
+            pong: max_pong_count,
+        }
     }
 }

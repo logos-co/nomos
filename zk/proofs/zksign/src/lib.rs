@@ -13,7 +13,7 @@ use groth16::{
 };
 pub use inputs::ZkSignWitnessInputs;
 pub use keys::{PublicKey, SecretKey, Signature};
-pub use private::{PrivateKeysTryFromError, ZkSignPrivateKeysData};
+pub use private::ZkSignPrivateKeysData;
 pub use public::ZkSignVerifierInputs;
 
 use crate::{
@@ -22,6 +22,12 @@ use crate::{
 };
 
 pub type ZkSignProof = CompressedGroth16Proof;
+
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+pub enum ZkSignError {
+    #[error("ZkSign supports up to 32 keys: got {0}")]
+    TooManyKeys(usize),
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProveError {
@@ -59,28 +65,20 @@ pub enum ProveError {
 pub fn prove(
     inputs: &ZkSignWitnessInputs,
 ) -> Result<(ZkSignProof, ZkSignVerifierInputs), ProveError> {
-    if circuits_utils::dev_mode::zk_dev_mode_enabled() {
-        let proof = circuits_utils::dev_mode::prove_dev_mode(inputs);
-        Ok((proof, ZkSignVerifierInputs::from_witness(inputs)))
-    } else {
-        let witness = witness::generate_witness(inputs).map_err(ProveError::Io)?;
-        let (proof, verifier_inputs) = circuits_prover::prover_from_contents(
-            ZKSIGN_PROVING_KEY_PATH.as_path(),
-            witness.as_ref(),
-        )
-        .map_err(ProveError::Io)?;
-        let proof: Groth16ProofJsonDeser =
-            serde_json::from_slice(&proof).map_err(ProveError::Json)?;
-        let verifier_inputs: ZkSignVerifierInputsJson =
-            serde_json::from_slice(&verifier_inputs).map_err(ProveError::Json)?;
-        let proof: Groth16Proof = proof.try_into().map_err(ProveError::Groth16JsonProof)?;
-        Ok((
-            CompressedGroth16Proof::try_from(&proof).unwrap(),
-            verifier_inputs
-                .try_into()
-                .map_err(ProveError::VerifierInputsJson)?,
-        ))
-    }
+    let witness = witness::generate_witness(inputs).map_err(ProveError::Io)?;
+    let (proof, verifier_inputs) =
+        circuits_prover::prover_from_contents(ZKSIGN_PROVING_KEY_PATH.as_path(), witness.as_ref())
+            .map_err(ProveError::Io)?;
+    let proof: Groth16ProofJsonDeser = serde_json::from_slice(&proof).map_err(ProveError::Json)?;
+    let verifier_inputs: ZkSignVerifierInputsJson =
+        serde_json::from_slice(&verifier_inputs).map_err(ProveError::Json)?;
+    let proof: Groth16Proof = proof.try_into().map_err(ProveError::Groth16JsonProof)?;
+    Ok((
+        CompressedGroth16Proof::try_from(&proof).unwrap(),
+        verifier_inputs
+            .try_into()
+            .map_err(ProveError::VerifierInputsJson)?,
+    ))
 }
 
 #[derive(Debug)]
@@ -113,20 +111,13 @@ pub fn verify(
     proof: &ZkSignProof,
     public_inputs: &ZkSignVerifierInputs,
 ) -> Result<bool, VerifyError> {
-    if circuits_utils::dev_mode::zk_dev_mode_enabled() {
-        Ok(circuits_utils::dev_mode::verify_dev_mode(
-            proof,
-            public_inputs,
-        ))
-    } else {
-        let expanded_proof = Groth16Proof::try_from(proof).map_err(|_| VerifyError::Expansion)?;
-        groth16::groth16_verify(
-            verification_key::ZKSIGN_VK.as_ref(),
-            &expanded_proof,
-            &public_inputs.as_inputs(),
-        )
-        .map_err(|e| VerifyError::ProofVerify(Box::new(e)))
-    }
+    let expanded_proof = Groth16Proof::try_from(proof).map_err(|_| VerifyError::Expansion)?;
+    groth16::groth16_verify(
+        verification_key::ZKSIGN_VK.as_ref(),
+        &expanded_proof,
+        &public_inputs.as_inputs(),
+    )
+    .map_err(|e| VerifyError::ProofVerify(Box::new(e)))
 }
 
 #[cfg(test)]

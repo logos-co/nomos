@@ -5,8 +5,8 @@ use core::{
 };
 
 use libp2p::{
-    PeerId, StreamProtocol, Swarm, Transport as _, core::transport::MemoryTransport, identity,
-    plaintext, swarm, tcp, yamux,
+    PeerId, StreamProtocol, Swarm, Transport as _, core::transport::MemoryTransport,
+    identity::Keypair, plaintext, swarm, tcp, yamux,
 };
 use nomos_blend_message::{
     PayloadType,
@@ -16,7 +16,9 @@ use nomos_blend_message::{
     },
     input::EncapsulationInput,
 };
-use nomos_blend_scheduling::{EncapsulatedMessage, message_blend::crypto::EncapsulationInputs};
+use nomos_blend_scheduling::{
+    EncapsulatedMessage, membership::Membership, message_blend::crypto::EncapsulationInputs,
+};
 use nomos_libp2p::{NetworkBehaviour, upgrade::Version};
 
 pub const PROTOCOL_NAME: StreamProtocol = StreamProtocol::new("/blend/swarm/test");
@@ -73,27 +75,28 @@ fn generate_valid_inputs() -> EncapsulationInputs {
 /// idle connections and instantiates the behaviour as returned by the provided
 /// constructor.
 pub fn memory_test_swarm<BehaviourConstructor, Behaviour>(
+    identity: &Keypair,
+    membership: Membership<PeerId>,
     idle_connection_timeout: Duration,
     behaviour_constructor: BehaviourConstructor,
 ) -> Swarm<Behaviour>
 where
-    BehaviourConstructor: FnOnce(identity::Keypair) -> Behaviour,
+    BehaviourConstructor: FnOnce(PeerId, Membership<PeerId>) -> Behaviour,
     Behaviour: NetworkBehaviour,
 {
-    let identity = identity::Keypair::generate_ed25519();
     let peer_id = PeerId::from(identity.public());
 
     let transport = MemoryTransport::default()
         .or_transport(tcp::tokio::Transport::default())
         .upgrade(Version::V1)
-        .authenticate(plaintext::Config::new(&identity))
+        .authenticate(plaintext::Config::new(identity))
         .multiplex(yamux::Config::default())
         .timeout(Duration::from_secs(1))
         .boxed();
 
     Swarm::new(
         transport,
-        behaviour_constructor(identity),
+        behaviour_constructor(peer_id, membership),
         peer_id,
         swarm::Config::with_tokio_executor().with_idle_connection_timeout(idle_connection_timeout),
     )

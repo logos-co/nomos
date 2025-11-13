@@ -165,7 +165,7 @@ where
     type Settings = NodeIdSender;
 
     fn new<Rng>(
-        settings: Self::Settings,
+        settings: BlendConfig<Self::Settings>,
         _: OverwatchHandle<RuntimeServiceId>,
         membership: Membership<NodeId>,
         _: Rng,
@@ -175,7 +175,7 @@ where
     {
         Self {
             membership,
-            sender: settings,
+            sender: settings.backend,
         }
     }
 

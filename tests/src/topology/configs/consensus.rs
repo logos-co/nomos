@@ -3,6 +3,7 @@ use std::{num::NonZero, sync::Arc};
 use chain_leader::LeaderConfig;
 use cryptarchia_engine::EpochConfig;
 use ed25519_dalek::ed25519::signature::SignerMut as _;
+use groth16::CompressedGroth16Proof;
 use nomos_core::{
     mantle::{
         MantleTx, Note, OpProof, Utxo,
@@ -13,7 +14,6 @@ use nomos_core::{
             channel::{ChannelId, Ed25519PublicKey, MsgId, inscribe::InscriptionOp},
         },
     },
-    proofs::zksig::{DummyZkSignature, ZkSignaturePublic},
     sdp::{DeclarationMessage, Locator, ProviderId, ServiceParameters, ServiceType},
 };
 use nomos_node::{SignedMantleTx, Transaction as _};
@@ -46,11 +46,22 @@ impl ConsensusParams {
 #[derive(Clone)]
 pub struct ProviderInfo {
     pub service_type: ServiceType,
-    pub provider_id: ProviderId,
-    pub zk_id: PublicKey,
+    pub provider_sk: ed25519_dalek::SigningKey,
+    pub zk_sk: SecretKey,
     pub locator: Locator,
     pub note: ServiceNote,
-    pub signer: ed25519_dalek::SigningKey,
+}
+
+impl ProviderInfo {
+    #[must_use]
+    pub fn provider_id(&self) -> ProviderId {
+        ProviderId(self.provider_sk.verifying_key())
+    }
+
+    #[must_use]
+    pub fn zk_id(&self) -> PublicKey {
+        self.zk_sk.to_public_key()
+    }
 }
 
 /// General consensus configuration for a chosen participant, that later could
@@ -96,7 +107,7 @@ fn create_genesis_tx(utxos: &[Utxo]) -> GenesisTx {
     let signed_mantle_tx = SignedMantleTx {
         mantle_tx,
         ops_proofs: vec![OpProof::NoProof],
-        ledger_tx_proof: DummyZkSignature::from_bytes([0u8; 128]),
+        ledger_tx_proof: zksign::Signature::new(CompressedGroth16Proof::from_bytes(&[0u8; 128])),
     };
 
     // Wrap in GenesisTx
@@ -273,8 +284,8 @@ pub fn create_genesis_tx_with_declarations(
         let declaration = DeclarationMessage {
             service_type: provider.service_type,
             locators: vec![provider.locator.clone()],
-            provider_id: ProviderId(provider.signer.verifying_key()),
-            zk_id: provider.zk_id,
+            provider_id: provider.provider_id(),
+            zk_id: provider.zk_id(),
             locked_note_id: utxo.id(),
         };
         ops.push(Op::SDPDeclare(declaration));
@@ -291,12 +302,11 @@ pub fn create_genesis_tx_with_declarations(
     let mut ops_proofs = vec![OpProof::NoProof];
 
     for mut provider in providers {
-        let zk_sig = DummyZkSignature::prove(&ZkSignaturePublic {
-            pks: vec![provider.note.pk.into(), provider.zk_id.into_inner()],
-            msg_hash: mantle_tx_hash.0,
-        });
+        let zk_sig =
+            SecretKey::multi_sign(&[provider.note.sk, provider.zk_sk], mantle_tx_hash.as_ref())
+                .unwrap();
         let ed25519_sig = provider
-            .signer
+            .provider_sk
             .sign(mantle_tx_hash.as_signing_bytes().as_ref());
 
         ops_proofs.push(OpProof::ZkAndEd25519Sigs {
@@ -308,7 +318,7 @@ pub fn create_genesis_tx_with_declarations(
     let signed_mantle_tx = SignedMantleTx {
         mantle_tx,
         ops_proofs,
-        ledger_tx_proof: DummyZkSignature::from_bytes([0u8; 128]),
+        ledger_tx_proof: zksign::Signature::new(CompressedGroth16Proof::from_bytes(&[0u8; 128])),
     };
 
     GenesisTx::from_tx(signed_mantle_tx).expect("Invalid genesis transaction")

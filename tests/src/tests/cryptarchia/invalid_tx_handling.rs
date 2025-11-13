@@ -1,12 +1,9 @@
 use std::{collections::HashSet, time::Duration};
 
 use common_http_client::CommonHttpClient;
-use nomos_core::{
-    mantle::{
-        MantleTx, Note, SignedMantleTx, Transaction as _, TxHash, ledger::Tx as LedgerTx,
-        ops::channel::ChannelId,
-    },
-    proofs::zksig::{DummyZkSignature, ZkSignaturePublic},
+use nomos_core::mantle::{
+    MantleTx, Note, SignedMantleTx, Transaction as _, TxHash, ledger::Tx as LedgerTx,
+    ops::channel::ChannelId,
 };
 use num_bigint::BigUint;
 use reqwest::Url;
@@ -148,10 +145,7 @@ fn create_invalid_transaction_with_id(id: usize) -> SignedMantleTx {
 
     SignedMantleTx {
         ops_proofs: Vec::new(),
-        ledger_tx_proof: DummyZkSignature::prove(&ZkSignaturePublic {
-            msg_hash: mantle_tx.hash().into(),
-            pks: vec![],
-        }),
+        ledger_tx_proof: zksign::SecretKey::multi_sign(&[], mantle_tx.hash().as_ref()).unwrap(),
         mantle_tx,
     }
 }

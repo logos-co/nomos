@@ -209,16 +209,13 @@ impl LedgerState {
 #[cfg(test)]
 mod tests {
     use ed25519_dalek::{Signer as _, SigningKey, VerifyingKey};
-    use nomos_core::{
-        mantle::{
-            MantleTx, SignedMantleTx, Transaction as _,
-            gas::MainnetGasConstants,
-            ledger::Tx as LedgerTx,
-            ops::channel::{
-                ChannelId, MsgId, blob::BlobOp, inscribe::InscriptionOp, set_keys::SetKeysOp,
-            },
+    use nomos_core::mantle::{
+        MantleTx, SignedMantleTx, Transaction as _,
+        gas::MainnetGasConstants,
+        ledger::Tx as LedgerTx,
+        ops::channel::{
+            ChannelId, MsgId, blob::BlobOp, inscribe::InscriptionOp, set_keys::SetKeysOp,
         },
-        proofs::zksig::{self, DummyZkSignature},
     };
 
     use super::*;
@@ -254,10 +251,7 @@ mod tests {
             .map(|(key, _)| OpProof::Ed25519Sig(key.sign(tx_hash.as_signing_bytes().as_ref())))
             .collect();
 
-        let ledger_tx_proof = DummyZkSignature::prove(&zksig::ZkSignaturePublic {
-            pks: vec![],
-            msg_hash: tx_hash.into(),
-        });
+        let ledger_tx_proof = zksign::SecretKey::multi_sign(&[], &tx_hash.0).unwrap();
 
         SignedMantleTx::new(mantle_tx, ops_proofs, ledger_tx_proof)
             .expect("Test transaction should have valid signatures")
