@@ -87,8 +87,8 @@ where
 impl<NodeId, ProofsGenerator, ProofsVerifier>
     SessionCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
 {
-    pub fn take_verifier(self) -> ProofsVerifier {
-        self.proofs_verifier
+    pub const fn verifier(&self) -> &ProofsVerifier {
+        &self.proofs_verifier
     }
 }
 

@@ -117,12 +117,6 @@ impl<SessionClock, Rng, ProcessedMessage, DataMessage>
         self.cover_traffic.notify_new_data_message();
     }
 
-    /// Add a new processed message to the release delayer component queue, for
-    /// release during the next release window.
-    pub fn schedule_processed_message(&mut self, message: ProcessedMessage) {
-        self.release_delayer.schedule_message(message);
-    }
-
     #[cfg(test)]
     pub fn with_test_values(
         cover_traffic: SessionCoverTraffic<Rng, RoundClock>,
@@ -140,6 +134,14 @@ impl<SessionClock, Rng, ProcessedMessage, DataMessage>
             settings: Settings::default(),
             data_messages,
         }
+    }
+}
+
+impl<SessionClock, Rng, ProcessedMessage, DataMessage> ProcessedMessageScheduler<ProcessedMessage>
+    for MessageScheduler<SessionClock, Rng, ProcessedMessage, DataMessage>
+{
+    fn schedule_processed_message(&mut self, message: ProcessedMessage) {
+        self.release_delayer.schedule_message(message);
     }
 }
 
@@ -258,4 +260,13 @@ impl Default for Settings {
             rounds_per_interval: NonZeroU64::try_from(1).unwrap(),
         }
     }
+}
+
+/// Trait for scheduling processed messages to be released in future rounds.
+// TODO: Currently this is useful only for testing, but in the future it will
+// be used to define another type of MessageScheduler only for old sessions.
+pub trait ProcessedMessageScheduler<ProcessedMessage> {
+    /// Add a new processed message to the release delayer component queue, for
+    /// release during the next release window.
+    fn schedule_processed_message(&mut self, message: ProcessedMessage);
 }

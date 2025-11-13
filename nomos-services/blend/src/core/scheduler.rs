@@ -2,7 +2,7 @@ use core::ops::{Deref, DerefMut};
 
 use nomos_blend_scheduling::{
     MessageScheduler,
-    message_scheduler::{Settings, session_info::SessionInfo},
+    message_scheduler::{ProcessedMessageScheduler, Settings, session_info::SessionInfo},
 };
 
 /// A wrapper around a [`MessageScheduler`] that allows creation with a set of
@@ -54,5 +54,13 @@ impl<SessionClock, Rng, ProcessedMessage, DataMessage> DerefMut
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.scheduler
+    }
+}
+
+impl<SessionClock, Rng, ProcessedMessage, DataMessage> ProcessedMessageScheduler<ProcessedMessage>
+    for SchedulerWrapper<SessionClock, Rng, ProcessedMessage, DataMessage>
+{
+    fn schedule_processed_message(&mut self, message: ProcessedMessage) {
+        self.scheduler.schedule_processed_message(message);
     }
 }
