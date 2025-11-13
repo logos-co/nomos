@@ -116,8 +116,7 @@ pub struct Behaviour<ProofsVerifier, ObservationWindowClockProvider> {
     /// the peer being flagged as malicious, and the connection dropped.
     exchanged_message_identifiers: HashMap<PeerId, HashSet<MessageIdentifier>>,
     observation_window_clock_provider: ObservationWindowClockProvider,
-    // TODO: Make this a non-Option by refactoring tests
-    current_membership: Option<Membership<PeerId>>,
+    current_membership: Membership<PeerId>,
     /// The [minimum, maximum] peering degree of this node.
     peering_degree: RangeInclusive<usize>,
     local_peer_id: PeerId,
@@ -197,7 +196,7 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
     pub fn new(
         config: &Config,
         observation_window_clock_provider: ObservationWindowClockProvider,
-        current_membership: Option<Membership<PeerId>>,
+        current_membership: Membership<PeerId>,
         local_peer_id: PeerId,
         protocol_name: StreamProtocol,
         poq_verifier: ProofsVerifier,
@@ -206,12 +205,7 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
             negotiated_peers: HashMap::with_capacity(*config.peering_degree.end()),
             events: VecDeque::new(),
             waker: None,
-            exchanged_message_identifiers: HashMap::with_capacity(
-                current_membership
-                    .as_ref()
-                    .map(Membership::size)
-                    .unwrap_or_default(),
-            ),
+            exchanged_message_identifiers: HashMap::with_capacity(current_membership.size()),
             observation_window_clock_provider,
             current_membership,
             peering_degree: config.peering_degree.clone(),
@@ -230,7 +224,7 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
         new_verifier: ProofsVerifier,
     ) {
         self.connections_waiting_upgrade.clear();
-        self.current_membership = Some(new_membership);
+        self.current_membership = new_membership;
 
         self.stop_old_session();
 
@@ -454,8 +448,7 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
     }
 
     fn is_network_large_enough(&self) -> bool {
-        self.current_membership.as_ref().map_or(1, Membership::size)
-            >= self.minimum_network_size.get()
+        self.current_membership.size() >= self.minimum_network_size.get()
     }
 
     /// Handle a new negotiated connection.
@@ -939,26 +932,10 @@ where
             return Ok(Either::Right(DummyConnectionHandler));
         }
 
-        // If no membership is provided (for tests), then we assume all peers are core
-        // nodes.
-        let Some(membership) = &self.current_membership else {
-            if !self.is_network_large_enough() {
-                tracing::debug!(target: LOG_TARGET, "Denying inbound connection {connection_id:?} with core peer {peer_id:?} because membership size is too small.");
-                return Ok(Either::Right(DummyConnectionHandler));
-            }
-            tracing::debug!(target: LOG_TARGET, "Upgrading inbound connection {connection_id:?} with core peer {peer_id:?}.");
-            self.connections_waiting_upgrade
-                .insert((peer_id, connection_id), Endpoint::Dialer);
-            return Ok(Either::Left(ConnectionHandler::new(
-                ConnectionMonitor::new(self.observation_window_clock_provider.interval_stream()),
-                self.protocol_name.clone(),
-            )));
-        };
-
         Ok(if !self.is_network_large_enough() {
             tracing::debug!(target: LOG_TARGET, "Denying inbound connection {connection_id:?} with peer {peer_id:?} because membership size is too small.");
             Either::Right(DummyConnectionHandler)
-        } else if membership.contains(&peer_id) {
+        } else if self.current_membership.contains(&peer_id) {
             tracing::debug!(target: LOG_TARGET, "Upgrading inbound connection {connection_id:?} with core peer {peer_id:?}.");
             self.connections_waiting_upgrade
                 .insert((peer_id, connection_id), Endpoint::Dialer);
@@ -1000,26 +977,10 @@ where
             return Ok(Either::Right(DummyConnectionHandler));
         }
 
-        // If no membership is provided (for tests), then we assume all peers are core
-        // nodes.
-        let Some(membership) = &self.current_membership else {
-            if !self.is_network_large_enough() {
-                tracing::debug!(target: LOG_TARGET, "Denying outbound connection {connection_id:?} with core peer {peer_id:?} because membership size is too small.");
-                return Ok(Either::Right(DummyConnectionHandler));
-            }
-            tracing::debug!(target: LOG_TARGET, "Upgrading outbound connection {connection_id:?} with core peer {peer_id:?}.");
-            self.connections_waiting_upgrade
-                .insert((peer_id, connection_id), Endpoint::Listener);
-            return Ok(Either::Left(ConnectionHandler::new(
-                ConnectionMonitor::new(self.observation_window_clock_provider.interval_stream()),
-                self.protocol_name.clone(),
-            )));
-        };
-
         Ok(if !self.is_network_large_enough() {
             tracing::debug!(target: LOG_TARGET, "Denying outbound connection {connection_id:?} with peer {peer_id:?} because membership size is too small.");
             Either::Right(DummyConnectionHandler)
-        } else if membership.contains(&peer_id) {
+        } else if self.current_membership.contains(&peer_id) {
             tracing::debug!(target: LOG_TARGET, "Upgrading outbound connection {connection_id:?} with core peer {peer_id:?}.");
             self.connections_waiting_upgrade
                 .insert((peer_id, connection_id), Endpoint::Listener);

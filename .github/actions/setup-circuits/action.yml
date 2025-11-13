@@ -1,63 +1,17 @@
 name: Setup Circuits
 
-description: Set up Circom Circuits, Rapidsnark prover and Rapidsnark verifier.
+description: Set up Circom Circuits, Rapidsnark prover and Rapidsnark verifier using the setup-nomos-circuits.sh script.
 
 inputs:
   github-token:
     description: GitHub token for downloading releases
     required: true
-  download-directory:
-    description: Directory to download the circuits to
-    required: false
-    default: 'bin/circuits'
-  version:
-    description: Version of the circuits to download. Expected to be in the format of 'vX.Y.Z'. Use '*' to get the latest version.
-    required: false
-    default: '*'
 
 runs:
   using: "composite"
   steps:
-    - name: Normalise OS
-      id: normalise-os
-      shell: bash
-      run: |
-        echo "os=$(echo "$RUNNER_OS" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
-        
-        # Decide whether to use the latest version or not.
-        # If the version is '*', then use the latest version.
-        if [[ "${{ inputs.version }}" == "*" ]]; then
-          echo "latest=true" >> "$GITHUB_OUTPUT"
-        else
-          echo "latest=false" >> "$GITHUB_OUTPUT"
-        fi
-
-    - name: Download Circuits
-      id: download-circuits
-      uses: robinraju/release-downloader@v1
-      with:
-        repository: "logos-co/nomos-circuits"
-        latest: ${{ steps.normalise-os.outputs.latest }}
-        tag: "${{ inputs.version }}"
-        fileName: '*-${{ steps.normalise-os.outputs.os }}-*.tar.gz'
-        token: ${{ inputs.github-token }}
-        out-file-path: ${{ inputs.download-directory }}
-
-    - name: Setup Circuits' Env Vars
+    - name: Setup nomos-circuits
       shell: bash
       env:
-        DOWNLOADED_FILES: ${{ steps.download-circuits.outputs.downloaded_files }}
-      run: bash "${{ github.action_path }}/add-circuits-env.sh" "${{ inputs.download-directory }}"
-
-    - name: Setup .zkeys paths
-      shell: bash
-      env:
-        POC_PROVING_KEY_PATH: ${{ github.workspace }}/zk/proofs/poc/src/proving_key/proof_of_claim.zkey
-        POL_PROVING_KEY_PATH: ${{ github.workspace }}/zk/proofs/pol/src/proving_key/pol.zkey
-        POQ_PROVING_KEY_PATH: ${{ github.workspace }}/zk/proofs/poq/src/proving_key/poq.zkey
-        ZKSIGN_PROVING_KEY_PATH: ${{ github.workspace }}/zk/proofs/zksign/src/proving_key/zksign.zkey
-      run: |
-        echo "NOMOS_POC_PROVING_KEY_PATH=$POC_PROVING_KEY_PATH" >> "$GITHUB_ENV"
-        echo "NOMOS_POL_PROVING_KEY_PATH=$POL_PROVING_KEY_PATH" >> "$GITHUB_ENV"
-        echo "NOMOS_ZKSIGN_PROVING_KEY_PATH=$ZKSIGN_PROVING_KEY_PATH" >> "$GITHUB_ENV"
-        echo "NOMOS_POQ_PROVING_KEY_PATH=$POQ_PROVING_KEY_PATH" >> "$GITHUB_ENV"
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: "${{ github.workspace }}/scripts/setup-nomos-circuits.sh"

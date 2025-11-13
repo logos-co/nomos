@@ -11,7 +11,7 @@ use crate::{
 };
 
 /// A blending token consisting of a proof of quota and a proof of selection.
-#[derive(Clone, PartialEq, Eq, Hash, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 pub struct BlendingToken {
     proof_of_quota: ProofOfQuota,
     proof_of_selection: ProofOfSelection,

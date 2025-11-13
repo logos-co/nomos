@@ -6,7 +6,7 @@ mod tests {
     #[cfg(target_arch = "x86_64")]
     use ed25519_dalek::{Signature, Signer as _, SigningKey};
     #[cfg(target_arch = "x86_64")]
-    use rand_core::{OsRng, TryRngCore as _};
+    use rand::rngs::OsRng;
 
     #[cfg(target_arch = "x86_64")]
     #[expect(
@@ -17,7 +17,7 @@ mod tests {
     fn bench_verify_cycles() {
         let iters = 1000u64;
 
-        let mut csprng = OsRng.unwrap_err();
+        let mut csprng = OsRng;
         let signing_key: SigningKey = SigningKey::generate(&mut csprng);
         let message: &[u8] = b"Nomos will rule the world someday.";
         let signature: Signature = signing_key.sign(message);

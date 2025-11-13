@@ -4,16 +4,14 @@ use broadcast_service::{BlockBroadcastMsg, SessionSubscription, SessionUpdate};
 use futures::StreamExt as _;
 use nomos_blend_message::crypto::keys::Ed25519PublicKey;
 use nomos_blend_scheduling::membership::{Membership, Node};
-use nomos_core::{
-    mantle::keys::PublicKey,
-    sdp::{ProviderId, ProviderInfo},
-};
+use nomos_core::sdp::{ProviderId, ProviderInfo};
 use overwatch::{
     DynError,
     services::{ServiceData, relay::OutboundRelay},
 };
 use tokio::sync::oneshot;
 use tracing::warn;
+use zksign::PublicKey;
 
 use crate::{
     membership::{MembershipInfo, MembershipStream, ServiceMessage, ZkInfo, node_id},
@@ -90,12 +88,20 @@ where
                         )
                     },
                 )
+                // Sort nodes by their ZK public key, since the returned `HashMap` from the chain
+                // broadcast service is non-deterministic across different machines.
+                // Since we need to sort Zk public keys anyway to generate the Merkle tree, we
+                // piggy-back on that instead of sorting by a different key.
+                .map(move |(mut nodes, session_number)| {
+                    nodes.sort_by_key(|ZkNode { zk_key, .. }| *zk_key);
+                    (nodes, session_number)
+                })
                 .map(move |(nodes, session_number)| {
                     let (membership_nodes, zk_public_keys): (Vec<_>, Vec<_>) = nodes
                         .into_iter()
                         .map(|ZkNode { node, zk_key }| (node, zk_key))
                         .unzip();
-                    let zk_tree = MerkleTree::new(zk_public_keys).expect(
+                    let zk_tree = MerkleTree::new_from_ordered(zk_public_keys).expect(
                         "Should not fail to build merkle tree of core nodes' zk public keys.",
                     );
                     let core_and_path_selectors = maybe_zk_public_key.map(|zk_public_key| {

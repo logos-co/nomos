@@ -257,6 +257,7 @@ mod service {
     }
 }
 
+pub use self::state_updater::StateUpdater;
 mod state_updater {
     use core::hash::Hash;
 

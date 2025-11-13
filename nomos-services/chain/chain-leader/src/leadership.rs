@@ -1,15 +1,12 @@
 use cryptarchia_engine::{Epoch, Slot};
 use nomos_core::{
-    mantle::{
-        Utxo,
-        keys::{PublicKey, SecretKey},
-        ops::leader_claim::VoucherCm,
-    },
+    mantle::{Utxo, ops::leader_claim::VoucherCm},
     proofs::leader_proof::{Groth16LeaderProof, LeaderPrivate, LeaderPublic},
 };
 use nomos_ledger::{EpochState, UtxoTree};
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch::Sender;
+use zksign::{PublicKey, SecretKey};
 
 #[derive(Clone)]
 pub struct Leader {
@@ -131,7 +128,8 @@ impl Leader {
             .epoch_config
             .starting_slot(&epoch_state.epoch, self.config.base_period_length())
             .into();
-        let leader_pk = ed25519_dalek::VerifyingKey::from_bytes(&[0; 32]).unwrap(); // TODO: get actual leader public key
+        let leader_signing_key = ed25519_dalek::SigningKey::from_bytes(&[0; 32]);
+        let leader_pk = leader_signing_key.verifying_key(); // TODO: get actual leader public key
 
         LeaderPrivate::new(
             public_inputs,

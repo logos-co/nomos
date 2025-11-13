@@ -1,4 +1,7 @@
-use std::fmt::{Debug, Display};
+use std::{
+    fmt::{Debug, Display},
+    time::Duration,
+};
 
 use overwatch::{
     overwatch::OverwatchHandle,
@@ -24,7 +27,9 @@ where
         self.0.handle_inbound_message(message).await
     }
 
-    pub async fn shutdown(self) {
-        self.0.shutdown().await;
+    pub async fn wait_until_stopped_or_kill(self) {
+        self.0
+            .wait_until_stopped_or_kill(Duration::from_secs(3))
+            .await;
     }
 }

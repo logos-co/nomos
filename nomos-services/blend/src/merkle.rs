@@ -2,13 +2,11 @@ use core::fmt::{self, Debug, Formatter};
 use std::collections::HashMap;
 
 use groth16::{fr_from_bytes_unchecked, fr_to_bytes};
-use nomos_core::{
-    crypto::{ZkHash, ZkHasher},
-    mantle::keys::PublicKey,
-};
+use nomos_core::crypto::{ZkHash, ZkHasher};
 use poq::{CORE_MERKLE_TREE_HEIGHT, CorePathAndSelectors};
 use rs_merkle_tree::{Node, stores::MemoryStore, tree::MerkleProof};
 use thiserror::Error;
+use zksign::PublicKey;
 
 const TOTAL_MERKLE_LEAVES: usize = 1 << CORE_MERKLE_TREE_HEIGHT;
 
@@ -75,11 +73,20 @@ impl Debug for MerkleTree {
 impl MerkleTree {
     /// Create a new merkle tree with the provided keys.
     ///
-    /// Keys are sorted by their numeric value, as described in the [`PoQ` specification](https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#215261aa09df81ec850ad7965bf6e76b).
+    /// Keys are internally sorted by their numeric value, as described in the [`PoQ` specification](https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#215261aa09df81ec850ad7965bf6e76b).
+    pub fn new(mut keys: Vec<PublicKey>) -> Result<Self, Error> {
+        // Sort the input keys by their decimal representation, relying on `Fr`'s
+        // implementation of `PartialOrd`.
+        keys.sort();
+        Self::new_from_ordered(keys)
+    }
+
+    /// Create a new merkle tree with the provided, already-sorted keys, as described in the [`PoQ` specification](https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#215261aa09df81ec850ad7965bf6e76b).
+    ///
     /// If the input vector is empty or if it is larger than the maximum number
     /// of leaves supported by this fixed-height Merkle tree, it returns an
     /// error.
-    pub fn new(mut keys: Vec<PublicKey>) -> Result<Self, Error> {
+    pub fn new_from_ordered(keys: Vec<PublicKey>) -> Result<Self, Error> {
         if keys.is_empty() {
             return Err(Error::EmptyKeySet);
         }
@@ -87,9 +94,6 @@ impl MerkleTree {
             return Err(Error::TooManyKeys);
         }
 
-        // Sort the input keys by their decimal representation, relying on `Fr`'s
-        // implementation of `PartialOrd`.
-        keys.sort();
         let sorted_key_indices = keys
             .iter()
             .enumerate()
@@ -126,6 +130,7 @@ impl MerkleTree {
     ///
     /// Being a fixed-height tree, the Merkle root is computed padding the
     /// missing leaves with the hashes of the empty sub-trees for each level.
+    #[must_use]
     pub fn root(&self) -> ZkHash {
         fr_from_bytes_unchecked(
             self.inner_tree
@@ -144,6 +149,7 @@ impl MerkleTree {
     /// and `true` otherwise.
     ///
     /// The resulting path has the same length as the fixed height of the tree.
+    #[must_use]
     pub fn get_proof_for_key(&self, key: &PublicKey) -> Option<CorePathAndSelectors> {
         let key_index = self.sorted_key_indices.get(key).copied()?;
 
@@ -197,10 +203,11 @@ fn compute_selectors(
     let mut result = [false; CORE_MERKLE_TREE_HEIGHT];
     let mut idx = *index;
 
-    // The selector at each level is determined by the bit at that position
-    // in the binary representation of the index
-    // Bit 0 (LSB) determines position at level 0, bit 1 at level 1, etc.
-    for result_entry in result.iter_mut().take(CORE_MERKLE_TREE_HEIGHT) {
+    // The selector at each level is determined by the corresponding bit of the leaf
+    // index. Iterating from the last element to the first (leaf → root):
+    // result[CORE_MERKLE_TREE_HEIGHT-1] (leaf level) = bit 0 (LSB) of index
+    // result[0] (root level) = MSB of index
+    for result_entry in result.iter_mut().take(CORE_MERKLE_TREE_HEIGHT).rev() {
         *result_entry = (idx & 1) == 1;
         idx >>= 1u8;
     }
@@ -213,8 +220,20 @@ mod tests {
     use core::iter::repeat_n;
 
     use groth16::{Field as _, fr_from_bytes_unchecked};
-    use nomos_core::{crypto::ZkHash, mantle::keys::PublicKey};
+    use nomos_blend_message::crypto::{
+        keys::Ed25519PublicKey,
+        proofs::quota::{
+            ProofOfQuota,
+            inputs::prove::{
+                PrivateInputs, PublicInputs,
+                private::ProofOfCoreQuotaInputs,
+                public::{CoreInputs, LeaderInputs},
+            },
+        },
+    };
+    use nomos_core::crypto::ZkHash;
     use num_bigint::BigUint;
+    use zksign::{PublicKey, SecretKey};
 
     use crate::merkle::{Error, MerkleTree, TOTAL_MERKLE_LEAVES};
 
@@ -255,11 +274,12 @@ mod tests {
             .verify_proof_for_key(&proof_for_key_one, &key_one)
             .unwrap();
         // We check that the first key is the right child of the bottom sub-tree...
-        assert!(proof_for_key_one.first().unwrap().1);
+        assert!(proof_for_key_one.last().unwrap().1);
         // ...but the left of all sub-trees above that.
         assert!(
             !proof_for_key_one
                 .iter()
+                .rev()
                 .skip(1)
                 .any(|(_, selector)| *selector)
         );
@@ -289,10 +309,11 @@ mod tests {
         merkle_tree
             .verify_proof_for_key(&proof_for_key_one, &key_one)
             .unwrap();
-        assert!(proof_for_key_one.first().unwrap().1);
+        assert!(proof_for_key_one.last().unwrap().1);
         assert!(
             !proof_for_key_one
                 .iter()
+                .rev()
                 .skip(1)
                 .any(|(_, selector)| *selector)
         );
@@ -307,15 +328,16 @@ mod tests {
         merkle_tree
             .verify_proof_for_key(&proof_for_key_three, &key_three)
             .unwrap();
-        // First selector is `true` because it's the left child...
-        assert!(proof_for_key_one[0].1);
-        // Second selector is `false` because it's already in the right sub-tree at this
-        // level (first sub-tree are keys 1 and 2).
-        assert!(!proof_for_key_one[1].1);
+        // Last selector is `false` because it's the left child...
+        assert!(!proof_for_key_three.last().unwrap().1);
+        // Second-to-last selector is `true` because it's already in the right sub-tree
+        // at this level (first sub-tree are keys 1 and 2).
+        assert!(proof_for_key_three[proof_for_key_three.len() - 2].1);
         // It's in the left-most sub-tree going above.
         assert!(
-            !proof_for_key_one
+            !proof_for_key_three
                 .iter()
+                .rev()
                 .skip(2)
                 .any(|(_, selector)| *selector)
         );
@@ -353,5 +375,140 @@ mod tests {
     fn duplicate_keys() {
         let key = PublicKey::new(ZkHash::ONE);
         assert_eq!(MerkleTree::new(vec![key, key]), Err(Error::DuplicateKey));
+    }
+
+    struct PoQInputs<const INPUTS: usize> {
+        public_inputs: PublicInputs,
+        secret_inputs: [ProofOfCoreQuotaInputs; INPUTS],
+    }
+
+    fn generate_inputs<const INPUTS: usize>() -> PoQInputs<INPUTS> {
+        let keys: [_; INPUTS] = (1..=INPUTS as u64)
+            .map(|i| {
+                let sk = SecretKey::new(ZkHash::from(i));
+                let pk = sk.to_public_key();
+                (sk, pk)
+            })
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+        let merkle_tree = MerkleTree::new(keys.clone().map(|(_, pk)| pk).to_vec()).unwrap();
+        let public_inputs = {
+            let core_inputs = CoreInputs {
+                quota: 1,
+                zk_root: merkle_tree.root(),
+            };
+            let leader_inputs = LeaderInputs {
+                message_quota: 1,
+                pol_epoch_nonce: ZkHash::ZERO,
+                pol_ledger_aged: ZkHash::ZERO,
+                total_stake: 1,
+            };
+            let session = 1;
+            let signing_key: Ed25519PublicKey = [10; 32].try_into().unwrap();
+            PublicInputs {
+                core: core_inputs,
+                leader: leader_inputs,
+                session,
+                signing_key,
+            }
+        };
+        let secret_inputs = keys.map(|(sk, pk)| {
+            let proof = merkle_tree.get_proof_for_key(&pk).unwrap();
+            ProofOfCoreQuotaInputs {
+                core_sk: sk.into_inner(),
+                core_path_and_selectors: proof,
+            }
+        });
+
+        PoQInputs {
+            public_inputs,
+            secret_inputs,
+        }
+    }
+
+    #[test]
+    fn poq_interaction_single_key() {
+        let PoQInputs {
+            public_inputs,
+            secret_inputs,
+        } = generate_inputs::<1>();
+
+        for secret_input in secret_inputs {
+            let (poq, _) = ProofOfQuota::new(
+                &public_inputs,
+                PrivateInputs::new_proof_of_core_quota_inputs(0, secret_input),
+            )
+            .unwrap();
+            poq.verify(&public_inputs).unwrap();
+        }
+    }
+
+    #[test]
+    fn poq_interaction_two_keys() {
+        let PoQInputs {
+            public_inputs,
+            secret_inputs,
+        } = generate_inputs::<2>();
+
+        for secret_input in secret_inputs {
+            let (poq, _) = ProofOfQuota::new(
+                &public_inputs,
+                PrivateInputs::new_proof_of_core_quota_inputs(0, secret_input),
+            )
+            .unwrap();
+            poq.verify(&public_inputs).unwrap();
+        }
+    }
+
+    #[test]
+    fn poq_interaction_three_keys() {
+        let PoQInputs {
+            public_inputs,
+            secret_inputs,
+        } = generate_inputs::<3>();
+
+        for secret_input in secret_inputs {
+            let (poq, _) = ProofOfQuota::new(
+                &public_inputs,
+                PrivateInputs::new_proof_of_core_quota_inputs(0, secret_input),
+            )
+            .unwrap();
+            poq.verify(&public_inputs).unwrap();
+        }
+    }
+
+    #[test]
+    fn poq_interaction_four_keys() {
+        let PoQInputs {
+            public_inputs,
+            secret_inputs,
+        } = generate_inputs::<3>();
+
+        for secret_input in secret_inputs {
+            let (poq, _) = ProofOfQuota::new(
+                &public_inputs,
+                PrivateInputs::new_proof_of_core_quota_inputs(0, secret_input),
+            )
+            .unwrap();
+            poq.verify(&public_inputs).unwrap();
+        }
+    }
+
+    #[test]
+    fn poq_interaction_one_hundred_keys() {
+        let PoQInputs {
+            public_inputs,
+            secret_inputs,
+        } = generate_inputs::<100>();
+
+        for secret_input in secret_inputs {
+            let (poq, _) = ProofOfQuota::new(
+                &public_inputs,
+                PrivateInputs::new_proof_of_core_quota_inputs(0, secret_input),
+            )
+            .unwrap();
+            poq.verify(&public_inputs).unwrap();
+        }
     }
 }

@@ -37,7 +37,7 @@ nomos-da-network-core    = { workspace = true }
 nomos-da-network-service = { workspace = true }
 nomos-da-sampling        = { features = ["libp2p", "rocksdb-backend"], workspace = true }
 nomos-da-verifier        = { features = ["libp2p"], workspace = true }
-nomos-http-api-common    = { workspace = true, features = ["profiling"] }
+nomos-http-api-common    = { features = ["profiling"], workspace = true }
 nomos-libp2p             = { workspace = true }
 nomos-network            = { workspace = true }
 nomos-sdp                = { workspace = true }
@@ -47,7 +47,7 @@ nomos-time               = { features = ["ntp", "serde"], workspace = true }
 nomos-tracing            = { workspace = true }
 nomos-tracing-service    = { workspace = true }
 nomos-wallet             = { workspace = true }
-num-bigint               = { version = "0.4", default-features = false }
+num-bigint               = { default-features = false, version = "0.4" }
 overwatch                = { workspace = true }
 pol                      = { workspace = true }
 poq                      = { workspace = true }
@@ -60,6 +60,7 @@ tokio                    = "1"
 tokio-stream             = { default-features = false, version = "0.1" }
 tracing                  = { workspace = true }
 tx-service               = { features = ["rocksdb-backend"], workspace = true }
+zksign                   = { workspace = true }
 
 # openapi related dependencies
 utoipa            = { workspace = true }
@@ -71,7 +72,11 @@ time       = { default-features = false, version = "0.3" }
 tower      = { default-features = false, features = ["limit"], version = "0.4" }
 tower-http = { default-features = false, features = ["cors", "limit", "timeout", "trace"], version = "0.5" }
 
+[dev-dependencies]
+test-log = { default-features = false, version = "0.2.18", features = ["trace"] }
+
 [features]
+block-explorer  = ["nomos-api/block-explorer"]
 default         = ["tracing"]
 instrumentation = []
 profiling       = ["nomos-http-api-common/profiling", "nomos-tracing-service/profiling"]

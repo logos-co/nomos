@@ -1,10 +1,11 @@
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
 use super::{ChannelId, Ed25519PublicKey, MsgId};
 use crate::{
     crypto::{Digest as _, Hasher},
+    mantle::encoding::encode_channel_inscribe,
     utils::ed25519_serde::Ed25519Hex,
 };
 
@@ -29,12 +30,7 @@ impl InscriptionOp {
     }
 
     #[must_use]
-    pub fn payload_bytes(&self) -> Bytes {
-        let mut buff = BytesMut::new();
-        buff.extend_from_slice(self.channel_id.as_ref());
-        buff.extend_from_slice(&self.inscription);
-        buff.extend_from_slice(self.parent.as_ref());
-        buff.extend_from_slice(self.signer.as_ref());
-        buff.freeze()
+    fn payload_bytes(&self) -> Bytes {
+        encode_channel_inscribe(self).into()
     }
 }

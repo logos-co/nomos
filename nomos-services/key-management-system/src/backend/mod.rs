@@ -11,29 +11,28 @@ pub trait KMSBackend {
 
     fn new(settings: Self::Settings) -> Self;
 
-    fn register(&mut self, key_id: Self::KeyId, key: Self::Key)
-    -> Result<Self::KeyId, Self::Error>;
+    fn register(&mut self, key_id: &Self::KeyId, key: Self::Key) -> Result<(), Self::Error>;
 
     fn public_key(
         &self,
-        key_id: Self::KeyId,
+        key_id: &Self::KeyId,
     ) -> Result<<Self::Key as SecuredKey>::PublicKey, Self::Error>;
 
     fn sign(
         &self,
-        key_id: Self::KeyId,
+        key_id: &Self::KeyId,
         payload: <Self::Key as SecuredKey>::Payload,
     ) -> Result<<Self::Key as SecuredKey>::Signature, Self::Error>;
 
     fn sign_multiple(
         &self,
-        key_ids: Vec<Self::KeyId>,
+        key_ids: &[Self::KeyId],
         payload: <Self::Key as SecuredKey>::Payload,
     ) -> Result<<Self::Key as SecuredKey>::Signature, Self::Error>;
 
     async fn execute(
         &mut self,
-        key_id: Self::KeyId,
+        key_id: &Self::KeyId,
         operator: KMSOperatorBackend<Self>,
     ) -> Result<(), Self::Error>;
 }

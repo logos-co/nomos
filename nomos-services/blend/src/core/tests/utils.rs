@@ -29,7 +29,7 @@ use nomos_blend_scheduling::{
     },
     message_scheduler::ProcessedMessageScheduler,
 };
-use nomos_core::{crypto::ZkHash, mantle::keys::SecretKey, sdp::SessionNumber};
+use nomos_core::{crypto::ZkHash, sdp::SessionNumber};
 use nomos_network::{NetworkService, backends::NetworkBackend};
 use nomos_utils::math::NonNegativeF64;
 use overwatch::{
@@ -43,6 +43,7 @@ use tokio::sync::{
     mpsc, watch,
 };
 use tokio_stream::wrappers::{BroadcastStream, ReceiverStream};
+use zksign::SecretKey;
 
 use crate::{
     core::{

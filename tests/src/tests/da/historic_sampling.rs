@@ -1,13 +1,12 @@
 use futures::StreamExt as _;
-use nomos_core::da::BlobId;
+use nomos_core::{da::BlobId, sdp::SessionNumber};
 use tests::{
-    common::da::{disseminate_with_metadata, wait_for_blob_onchain},
+    common::da::{disseminate_with_metadata, setup_test_channel, wait_for_blob_onchain},
     nodes::executor::Executor,
     topology::{Topology, TopologyConfig},
 };
 use tokio::time::Duration;
 
-#[ignore = "Reenable after transaction mempool is used"]
 #[tokio::test]
 async fn test_historical_sampling_across_sessions() {
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
@@ -29,18 +28,19 @@ async fn test_historical_sampling_across_sessions() {
 
 async fn disseminate_blobs_in_session_zero(executor: &Executor) -> Vec<BlobId> {
     let mut blob_ids = Vec::new();
+
+    let (test_channel_id, mut parent_msg_id) = setup_test_channel(executor).await;
+
     let data = [1u8; 31];
 
-    for i in 0..3 {
-        let blob_id = disseminate_with_metadata(executor, &data)
+    for _ in 0..3 {
+        let blob_id = disseminate_with_metadata(executor, test_channel_id, parent_msg_id, &data)
             .await
             .expect("Failed to disseminate blob");
 
         blob_ids.push(blob_id);
 
-        if i == 0 {
-            wait_for_blob_onchain(executor, blob_id).await;
-        }
+        parent_msg_id = wait_for_blob_onchain(executor, test_channel_id, blob_id).await;
 
         verify_share_replication(executor, blob_id).await;
     }
@@ -51,10 +51,13 @@ async fn disseminate_blobs_in_session_zero(executor: &Executor) -> Vec<BlobId> {
 async fn test_sampling_scenarios(executor: &Executor, blob_ids: &[BlobId]) {
     let block_id = [0u8; 32];
 
-    // Test 1: Valid blobs
+    // Test 1: Valid blobs - all from session 0
     let valid_future = async {
+        let blob_ids_map: Vec<(BlobId, SessionNumber)> =
+            blob_ids.iter().map(|&blob_id| (blob_id, 0)).collect();
+
         let result = executor
-            .da_historic_sampling(0, block_id.into(), blob_ids.to_vec())
+            .da_historic_sampling(block_id.into(), blob_ids_map)
             .await
             .expect("HTTP request should succeed");
         assert!(
@@ -63,14 +66,17 @@ async fn test_sampling_scenarios(executor: &Executor, blob_ids: &[BlobId]) {
         );
     };
 
-    // Test 2: Mixed valid/invalid blobs
+    // Test 2: Mixed valid/invalid blobs - all from session 0
     let invalid_future = async {
         let block_id = [1u8; 32];
         let mut mixed_blob_ids = blob_ids.to_vec();
         mixed_blob_ids[0] = [99u8; 32];
 
+        let blob_ids_map: Vec<(BlobId, SessionNumber)> =
+            mixed_blob_ids.iter().map(|&blob_id| (blob_id, 0)).collect();
+
         let result = executor
-            .da_historic_sampling(0, block_id.into(), mixed_blob_ids)
+            .da_historic_sampling(block_id.into(), blob_ids_map)
             .await
             .expect("HTTP request should succeed");
         assert!(
