@@ -23,6 +23,7 @@ impl ZkKey {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct LoggerOp;
 
 #[async_trait::async_trait]

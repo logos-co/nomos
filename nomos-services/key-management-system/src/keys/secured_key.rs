@@ -9,6 +9,7 @@ pub trait SecureKeyOperations {
     async fn execute(&self, key: &Self::Key) -> Result<(), Self::Error>;
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct NoKeyOperator<Key, Error> {
     _key: PhantomData<Key>,
     _error: PhantomData<Error>,
@@ -23,7 +24,7 @@ where
     type Key = Key;
     type Error = Error;
 
-    async fn execute(&self, key: &Self::Key) -> Result<(), Self::Error> {
+    async fn execute(&self, _key: &Self::Key) -> Result<(), Self::Error> {
         Ok(())
     }
 }
@@ -47,6 +48,6 @@ pub trait SecuredKey: ZeroizeOnDrop {
     fn as_public_key(&self) -> Self::PublicKey;
 
     async fn execute(&self, operator: Self::Operations) -> Result<(), Self::Error> {
-        operator.execute(&self).await
+        operator.execute(self).await
     }
 }
