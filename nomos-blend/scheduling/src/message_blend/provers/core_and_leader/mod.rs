@@ -75,7 +75,10 @@ where
         core_proof_of_quota_generator: CorePoQGenerator,
     ) -> Self {
         Self {
-            core_proofs_generator: RealCoreProofsGenerator::new(settings, proof_of_quota_generator),
+            core_proofs_generator: RealCoreProofsGenerator::new(
+                settings,
+                core_proof_of_quota_generator,
+            ),
             leader_proofs_generator: None,
         }
     }

@@ -88,8 +88,8 @@ where
 impl<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>
     SessionCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>
 {
-    pub fn take_verifier(self) -> ProofsVerifier {
-        self.proofs_verifier
+    pub const fn verifier(&self) -> &ProofsVerifier {
+        &self.proofs_verifier
     }
 }
 
