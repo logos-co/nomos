@@ -1,14 +1,13 @@
-use core::{slice::from_ref, time::Duration};
+use core::time::Duration;
 
 use libp2p::{Multiaddr, PeerId};
-use nomos_blend_scheduling::membership::Membership;
 use nomos_libp2p::{Protocol, SwarmEvent};
 use test_log::test;
 use tokio::{select, time::sleep};
 
 use crate::{
     core::backends::libp2p::{
-        core_swarm_test_utils::SwarmExt as _,
+        core_swarm_test_utils::{SwarmExt as _, new_nodes_with_empty_address, update_nodes},
         tests::utils::{BlendBehaviourBuilder, SwarmBuilder, TestSwarm},
     },
     test_utils::crypto::MockProofsVerifier,
@@ -16,11 +15,13 @@ use crate::{
 
 #[test(tokio::test)]
 async fn core_redial_same_peer() {
+    let (mut identities, peer_ids) = new_nodes_with_empty_address(1);
     let TestSwarm {
         swarm: mut dialing_swarm,
         ..
-    } = SwarmBuilder::default()
-        .build(|id| BlendBehaviourBuilder::new(&id, MockProofsVerifier).build());
+    } = SwarmBuilder::new(identities.next().unwrap(), &peer_ids).build(|id, membership| {
+        BlendBehaviourBuilder::new(id, MockProofsVerifier, membership).build()
+    });
 
     let random_peer_id = PeerId::random();
     let empty_multiaddr: Multiaddr = Protocol::Memory(0).into();
@@ -85,28 +86,25 @@ async fn core_redial_same_peer() {
 
 #[test(tokio::test)]
 async fn core_redial_different_peer_after_redial_limit() {
+    let (mut identities, mut nodes) = new_nodes_with_empty_address(2);
     let TestSwarm {
         swarm: mut listening_swarm,
         ..
-    } = SwarmBuilder::default()
-        .build(|id| BlendBehaviourBuilder::new(&id, MockProofsVerifier).build());
-    let (membership_entry, _) = listening_swarm
+    } = SwarmBuilder::new(identities.next().unwrap(), &nodes).build(|id, membership| {
+        BlendBehaviourBuilder::new(id, MockProofsVerifier, membership).build()
+    });
+    let (listening_node, _) = listening_swarm
         .listen_and_return_membership_entry(None)
         .await;
-    let membership = Membership::new_without_local(from_ref(&membership_entry));
-    let listening_peer_id = membership_entry.id;
+    update_nodes(&mut nodes, &listening_node.id, listening_node.address);
 
     // Build dialing swarm with the listening info of the listening swarm.
     let TestSwarm {
         swarm: mut dialing_swarm,
         ..
-    } = SwarmBuilder::default()
-        .with_membership(membership.clone())
-        .build(|id| {
-            BlendBehaviourBuilder::new(&id, MockProofsVerifier)
-                .with_membership(membership)
-                .build()
-        });
+    } = SwarmBuilder::new(identities.next().unwrap(), &nodes).build(|id, membership| {
+        BlendBehaviourBuilder::new(id, MockProofsVerifier, membership).build()
+    });
     let dialing_peer_id = *dialing_swarm.local_peer_id();
 
     // Dial a random peer on a random address, which should fail after the maximum
@@ -131,7 +129,7 @@ async fn core_redial_different_peer_after_redial_limit() {
             .blend
             .with_core()
             .negotiated_peers()
-            .contains_key(&listening_peer_id)
+            .contains_key(&listening_node.id)
     );
     assert_eq!(
         dialing_swarm

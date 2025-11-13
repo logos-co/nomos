@@ -1,9 +1,15 @@
 use core::{fmt::Debug, num::NonZeroUsize, ops::RangeInclusive, time::Duration};
-use std::collections::{HashMap, VecDeque};
+use std::{
+    collections::{HashMap, VecDeque},
+    iter::repeat_with,
+};
 
 use async_trait::async_trait;
 use futures::{Stream, StreamExt as _, select};
-use libp2p::{Multiaddr, PeerId, Swarm, identity::Keypair};
+use libp2p::{
+    Multiaddr, PeerId, Swarm,
+    identity::{PublicKey, ed25519},
+};
 use libp2p_swarm_test::SwarmExt as _;
 use nomos_blend_message::encap;
 use nomos_blend_scheduling::membership::{Membership, Node};
@@ -45,41 +51,70 @@ impl IntervalProviderBuilder {
     }
 }
 
-#[derive(Default)]
+/// Generates `count` nodes with randomly generated identities and empty
+/// addresses.
+pub fn new_nodes_with_empty_address(
+    count: usize,
+) -> (impl Iterator<Item = ed25519::Keypair>, Vec<Node<PeerId>>) {
+    let mut identities: Vec<ed25519::Keypair> = repeat_with(ed25519::Keypair::generate)
+        .take(count)
+        .collect();
+    identities.sort_by_key(|id| PeerId::from(PublicKey::from(id.public())));
+
+    let nodes = identities
+        .iter()
+        .map(|identity| Node {
+            id: PublicKey::from(identity.public()).into(),
+            address: Multiaddr::empty(),
+            public_key: identity
+                .public()
+                .to_bytes()
+                .try_into()
+                .expect("must be a valid ed25519 public key"),
+        })
+        .collect::<Vec<_>>();
+
+    (identities.into_iter(), nodes)
+}
+
 pub struct BehaviourBuilder {
+    local_public_key: ed25519::PublicKey,
+    membership: Option<Membership<PeerId>>,
     provider: Option<IntervalProvider>,
-    local_peer_id: Option<PeerId>,
     peering_degree: Option<RangeInclusive<usize>>,
-    identity: Option<Keypair>,
     minimum_network_size: Option<NonZeroUsize>,
 }
 
 impl BehaviourBuilder {
+    pub fn new(identity: &ed25519::Keypair) -> Self {
+        Self {
+            local_public_key: identity.public(),
+            membership: None,
+            provider: None,
+            peering_degree: None,
+            minimum_network_size: None,
+        }
+    }
+
+    pub fn with_membership(mut self, nodes: &[Node<PeerId>]) -> Self {
+        self.membership = Some(Membership::new(
+            nodes,
+            &self
+                .local_public_key
+                .to_bytes()
+                .try_into()
+                .expect("must be a valid ed25519 public key"),
+        ));
+        self
+    }
+
     pub fn with_provider(mut self, provider: IntervalProvider) -> Self {
         self.provider = Some(provider);
         self
     }
 
-    pub fn with_local_peer_id(mut self, local_peer_id: PeerId) -> Self {
-        assert!(
-            self.identity.is_none(),
-            "Cannot set local peer ID when identity keypair is also set."
-        );
-        self.local_peer_id = Some(local_peer_id);
-        self
-    }
-
     pub fn with_peering_degree(mut self, peering_degree: RangeInclusive<usize>) -> Self {
         self.peering_degree = Some(peering_degree);
-        self
-    }
-
-    pub fn with_identity(mut self, keypair: Keypair) -> Self {
-        assert!(
-            self.local_peer_id.is_none(),
-            "Cannot set identity when local peer ID is also set."
-        );
-        self.identity = Some(keypair);
         self
     }
 
@@ -89,12 +124,6 @@ impl BehaviourBuilder {
     }
 
     pub fn build(self) -> Behaviour<AlwaysTrueVerifier, IntervalProvider> {
-        let local_peer_id = match (self.local_peer_id, self.identity) {
-            (None, None) => PeerId::random(),
-            (Some(peer_id), None) => peer_id,
-            (None, Some(keypair)) => keypair.public().to_peer_id(),
-            (Some(_), Some(_)) => panic!("Cannot happen."),
-        };
         Behaviour {
             negotiated_peers: HashMap::new(),
             connections_waiting_upgrade: HashMap::new(),
@@ -104,9 +133,11 @@ impl BehaviourBuilder {
             observation_window_clock_provider: self
                 .provider
                 .unwrap_or_else(|| IntervalProviderBuilder::default().build()),
-            current_membership: None,
+            current_membership: self
+                .membership
+                .unwrap_or_else(|| Membership::new_without_local(&[])),
             peering_degree: self.peering_degree.unwrap_or(1..=1),
-            local_peer_id,
+            local_peer_id: PublicKey::from(self.local_public_key).into(),
             protocol_name: PROTOCOL_NAME,
             minimum_network_size: self
                 .minimum_network_size

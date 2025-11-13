@@ -10,7 +10,7 @@ use tokio::spawn;
 use crate::{
     core::backends::libp2p::core_swarm_test_utils::{
         BlendBehaviourBuilder, SwarmBuilder as CoreSwarmBuilder, SwarmExt as _,
-        TestSwarm as CoreTestSwarm,
+        TestSwarm as CoreTestSwarm, new_nodes_with_empty_address,
     },
     edge::backends::libp2p::tests::utils::{
         SwarmBuilder as EdgeSwarmBuilder, TestSwarm as EdgeTestSwarm,
@@ -116,17 +116,14 @@ async fn edge_redial_different_peer_after_redial_limit() {
     let random_peer_id = PeerId::random();
     let empty_multiaddr: Multiaddr = Protocol::Memory(0).into();
 
+    let (mut identities, peer_ids) = new_nodes_with_empty_address(1);
     let CoreTestSwarm {
         swarm: mut core_swarm,
         incoming_message_receiver: mut core_swarm_incoming_message_receiver,
         ..
-    } = CoreSwarmBuilder::default()
-        .with_empty_membership()
-        .build(|id| {
-            BlendBehaviourBuilder::new(&id, MockProofsVerifier)
-                .with_empty_membership()
-                .build()
-        });
+    } = CoreSwarmBuilder::new(identities.next().unwrap(), &peer_ids).build(|id, membership| {
+        BlendBehaviourBuilder::new(id, MockProofsVerifier, membership).build()
+    });
     let (core_swarm_membership_entry, _) =
         core_swarm.listen_and_return_membership_entry(None).await;
 

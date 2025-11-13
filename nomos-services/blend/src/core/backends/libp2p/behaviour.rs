@@ -48,7 +48,7 @@ where
                     },
                 },
                 observation_window_interval_provider,
-                Some(current_membership),
+                current_membership,
                 config.backend.peer_id(),
                 config.backend.protocol_name.clone().into_inner(),
                 poq_verifier,

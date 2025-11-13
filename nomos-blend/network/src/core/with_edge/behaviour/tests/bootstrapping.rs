@@ -16,12 +16,10 @@ use crate::core::{
 
 #[test(tokio::test)]
 async fn edge_peer_not_supporting_blend() {
-    let mut dummy_swarm = TestSwarm::new(|_| dummy::Behaviour);
-    let mut blend_swarm = TestSwarm::new(|_| {
-        BehaviourBuilder::default()
-            // Add random peer to membership so the dummy swarm is considered an edge node.
-            .with_core_peer_membership(PeerId::random())
-            .build()
+    let mut dummy_swarm = TestSwarm::new_ephemeral(|_| dummy::Behaviour);
+    let mut blend_swarm = TestSwarm::new_ephemeral(|_| {
+        // Add random peer to membership so the dummy swarm is considered an edge node.
+        BehaviourBuilder::new(PeerId::random()).build()
     });
 
     blend_swarm.listen().with_memory_addr_external().await;
@@ -53,11 +51,9 @@ async fn edge_peer_not_supporting_blend() {
 
 #[test(tokio::test)]
 async fn non_edge_peer() {
-    let mut other_core_swarm = TestSwarm::new(|_| StreamBehaviour::new());
-    let mut blend_swarm = TestSwarm::new(|_| {
-        BehaviourBuilder::default()
-            .with_core_peer_membership(*other_core_swarm.local_peer_id())
-            .build()
+    let mut other_core_swarm = TestSwarm::new_ephemeral(|_| StreamBehaviour::new());
+    let mut blend_swarm = TestSwarm::new_ephemeral(|_| {
+        BehaviourBuilder::new(*other_core_swarm.local_peer_id()).build()
     });
 
     blend_swarm.listen().with_memory_addr_external().await;
@@ -76,12 +72,11 @@ async fn non_edge_peer() {
 
 #[test(tokio::test)]
 async fn incoming_connection_with_maximum_peering_degree() {
-    let mut edge_swarm_1 = TestSwarm::new(|_| StreamBehaviour::new());
-    let mut edge_swarm_2 = TestSwarm::new(|_| StreamBehaviour::new());
-    let mut blend_swarm = TestSwarm::new(|_| {
-        BehaviourBuilder::default()
-            // Add random peer to membership so the two swarms are considered edge nodes.
-            .with_core_peer_membership(PeerId::random())
+    let mut edge_swarm_1 = TestSwarm::new_ephemeral(|_| StreamBehaviour::new());
+    let mut edge_swarm_2 = TestSwarm::new_ephemeral(|_| StreamBehaviour::new());
+    let mut blend_swarm = TestSwarm::new_ephemeral(|_| {
+        // Add random peer to membership so the two swarms are considered edge nodes.
+        BehaviourBuilder::new(PeerId::random())
             // We increase the timeout to send a message so that the swarm will close the rejected
             // connection before the behaviour closes the second connection due to inactivity.
             .with_timeout(Duration::from_secs(13))
@@ -135,11 +130,10 @@ async fn incoming_connection_with_maximum_peering_degree() {
 
 #[test(tokio::test)]
 async fn incoming_connection_network_too_small() {
-    let mut edge_swarm = TestSwarm::new(|_| StreamBehaviour::new());
-    let mut core_swarm = TestSwarm::new(|_| {
-        BehaviourBuilder::default()
-            // Add random peer to membership so the swarm is considered edge node.
-            .with_core_peer_membership(PeerId::random())
+    let mut edge_swarm = TestSwarm::new_ephemeral(|_| StreamBehaviour::new());
+    let mut core_swarm = TestSwarm::new_ephemeral(|_| {
+        // Add random peer to membership so the swarm is considered edge node.
+        BehaviourBuilder::new(PeerId::random())
             // One remote and one local node. So `3` is the minimum value that is larger than the
             // used membership.
             .with_minimum_network_size(3)
@@ -167,16 +161,15 @@ async fn incoming_connection_network_too_small() {
 
 #[test(tokio::test)]
 async fn concurrent_incoming_connection_and_maximum_peering_degree_reached() {
-    let mut listening_swarm = TestSwarm::new(|_| {
-        BehaviourBuilder::default()
+    let mut listening_swarm = TestSwarm::new_ephemeral(|_| {
+        BehaviourBuilder::new(PeerId::random())
             .with_max_incoming_connections(1)
             .with_timeout(Duration::from_secs(13))
-            .with_core_peer_membership(PeerId::random())
             .build()
     });
     let listening_swarm_peer_id = *listening_swarm.local_peer_id();
-    let mut dialer_swarm_1 = TestSwarm::new(|_| StreamBehaviour::new());
-    let mut dialer_swarm_2 = TestSwarm::new(|_| StreamBehaviour::new());
+    let mut dialer_swarm_1 = TestSwarm::new_ephemeral(|_| StreamBehaviour::new());
+    let mut dialer_swarm_2 = TestSwarm::new_ephemeral(|_| StreamBehaviour::new());
 
     let (listening_address, _) = listening_swarm.listen().await;
 
@@ -238,12 +231,9 @@ async fn concurrent_incoming_connection_and_maximum_peering_degree_reached() {
 
 #[test(tokio::test)]
 async fn outgoing_connection_to_edge_peer() {
-    let mut core_swarm = TestSwarm::new(|_| {
-        BehaviourBuilder::default()
-            .with_core_peer_membership(PeerId::random())
-            .build()
-    });
-    let mut edge_swarm = TestSwarm::new(|_| StreamBehaviour::new());
+    let mut core_swarm =
+        TestSwarm::new_ephemeral(|_| BehaviourBuilder::new(PeerId::random()).build());
+    let mut edge_swarm = TestSwarm::new_ephemeral(|_| StreamBehaviour::new());
 
     edge_swarm.listen().with_memory_addr_external().await;
     core_swarm.connect(&mut edge_swarm).await;
