@@ -1,7 +1,4 @@
-use core::{
-    fmt::{Debug, Display},
-    pin::Pin,
-};
+use core::fmt::{Debug, Display};
 
 use futures::future::ready;
 use key_management_system::{
@@ -19,25 +16,29 @@ use tokio::sync::oneshot;
 
 const LOG_TARGET: &str = "blend::service::core::kms-poq-generator";
 
-pub(super) trait PreloadKMSBackendKmsApiExt<RuntimeServiceId> {
+pub(super) trait PreloadKMSBackendKmsApiExt {
+    type PoQGenerator;
+
     fn poq_generator(
         &self,
         key_id: KeyId,
         core_path_and_selectors: Box<CorePathAndSelectors>,
-    ) -> PreloadKMSBackendPoQGenerator<RuntimeServiceId>;
+    ) -> Self::PoQGenerator;
 }
 
 pub(super) type PreloadKmsService<RuntimeServiceId> =
     KMSService<PreloadKMSBackend, RuntimeServiceId>;
 
-impl<RuntimeServiceId> PreloadKMSBackendKmsApiExt<RuntimeServiceId>
+impl<RuntimeServiceId> PreloadKMSBackendKmsApiExt
     for KmsServiceApi<PreloadKmsService<RuntimeServiceId>, RuntimeServiceId>
 {
+    type PoQGenerator = PreloadKMSBackendPoQGenerator<RuntimeServiceId>;
+
     fn poq_generator(
         &self,
         key_id: KeyId,
         core_path_and_selectors: Box<CorePathAndSelectors>,
-    ) -> PreloadKMSBackendPoQGenerator<RuntimeServiceId> {
+    ) -> Self::PoQGenerator {
         tracing::debug!(target: LOG_TARGET, "Creating KMS-based PoQ generator with key ID {key_id:?} and core path and selectors {core_path_and_selectors:?}");
         PreloadKMSBackendPoQGenerator {
             core_path_and_selectors: *core_path_and_selectors,
@@ -87,7 +88,6 @@ where
                         tracing::error!(target: LOG_TARGET,  "Failed to send PoQ generated inside the KMS to the calling context.");
                     }
                     Box::pin(ready(Ok(())))
-                        as Pin<Box<dyn Future<Output = Result<(), _>> + Send + Sync>>
                 }),
             )
             .await
@@ -98,7 +98,7 @@ where
                 .expect("Should not fail to get PoQ generation result from KMS.")
                 .map_err(|e| {
                     let KeyError::PoQGeneration(poq_err) = e else {
-                        panic!("PoQ generation from KMS should return a PoQ generation error.");
+                        panic!("PoQ generation from KMS should return a PoQ generation error, if any.");
                     };
                     tracing::error!(target: LOG_TARGET, "KMS-based PoQ generation failed with error {poq_err:?}.");
                     poq_err

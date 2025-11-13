@@ -13,9 +13,7 @@ use futures::{
     Stream, StreamExt as _,
     future::{join_all, ready},
 };
-use key_management_system::{
-    KMSService, api::KmsServiceApi, backend::preload::PreloadKMSBackend, keys::PublicKeyEncoding,
-};
+use key_management_system::{api::KmsServiceApi, keys::PublicKeyEncoding};
 use network::NetworkAdapter;
 use nomos_blend_message::{
     PayloadType,
@@ -213,7 +211,7 @@ where
         + AsServiceId<<MembershipAdapter as membership::Adapter>::Service>
         + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>
         + AsServiceId<ChainService>
-        + AsServiceId<KMSService<PreloadKMSBackend, RuntimeServiceId>>
+        + AsServiceId<PreloadKmsService<RuntimeServiceId>>
         + AsServiceId<Self>
         + Clone
         + Debug
@@ -262,7 +260,7 @@ where
             NetworkService<_, _>,
             TimeService<_, _>,
             <MembershipAdapter as membership::Adapter>::Service,
-            KMSService<_, _>
+            PreloadKmsService<_>
         )
         .await?;
 
@@ -315,7 +313,6 @@ where
                 .await
                 .expect("Failed to get relay channel with membership service."),
             blend_config.crypto.non_ephemeral_signing_key.public_key(),
-            // TODO: Remove it from here and put it into the PoQGenerator
             Some(zk_public_key),
         )
         .subscribe()
@@ -459,7 +456,7 @@ async fn initialize<
     clock_stream: impl Stream<Item = SlotTick> + Send + Sync + Unpin + 'static,
     epoch_handler: &mut EpochHandler<ChainService, RuntimeServiceId>,
     overwatch_handle: OverwatchHandle<RuntimeServiceId>,
-    kms_api: &KmsServiceApi<KMSService<PreloadKMSBackend, RuntimeServiceId>, RuntimeServiceId>,
+    kms_api: &KmsServiceApi<PreloadKmsService<RuntimeServiceId>, RuntimeServiceId>,
     mut last_saved_state: Option<ServiceState<Backend::Settings, NetAdapter::BroadcastSettings>>,
     state_updater: StateUpdater<
         Option<RecoveryServiceState<Backend::Settings, NetAdapter::BroadcastSettings>>,
