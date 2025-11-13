@@ -258,7 +258,7 @@ fn build_key_enum_impl_secured_key_method_as_public_key(
 fn build_key_enum_impl_secured_key_method_generate_core_poq(
     key_enum_variants: &Punctuated<Variant, Comma>,
 ) -> TokenStream {
-    let poq_arms_ok = key_enum_variants.iter().map(|variant| {
+    let poq_arms = key_enum_variants.iter().map(|variant| {
         let variant_ident = &variant.ident;
         let variant_attributes_cfg: Vec<Attribute> = get_cfg_attributes(&variant.attrs).collect();
 
@@ -271,7 +271,7 @@ fn build_key_enum_impl_secured_key_method_generate_core_poq(
     quote! {
         fn generate_core_poq(&self, public_inputs: &nomos_blend_message::crypto::proofs::quota::inputs::prove::PublicInputs, key_index: u64, core_path_and_selectors: poq::CorePathAndSelectors) -> Result<(nomos_blend_message::crypto::proofs::quota::ProofOfQuota, groth16::Fr), Self::Error> {
             match self {
-                #(#poq_arms_ok)*
+                #(#poq_arms)*
             }
         }
     }
