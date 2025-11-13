@@ -9,7 +9,7 @@ mod sync;
 
 use core::fmt::Debug;
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{HashMap, HashSet},
     fmt::Display,
     hash::Hash,
     path::PathBuf,
@@ -51,7 +51,6 @@ use overwatch::{
 };
 use relays::BroadcastRelay;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use serde_with::serde_as;
 use services_utils::{
     overwatch::{JsonFileBackend, RecoveryOperator, recovery::backends::FileBackendSettings},
     wait_until_services_are_ready,
@@ -59,7 +58,7 @@ use services_utils::{
 use strum::IntoEnumIterator as _;
 use thiserror::Error;
 use tokio::{
-    sync::{broadcast, mpsc, oneshot},
+    sync::mpsc,
     time::Instant,
 };
 use tracing::{Level, debug, error, info, instrument, span, warn};
@@ -88,8 +87,6 @@ pub use crate::{
 
 type SamplingRelay<BlobId> = OutboundRelay<DaSamplingServiceMsg<BlobId>>;
 
-// Limit the number of blocks returned by GetHeaders
-const HEADERS_LIMIT: usize = 512;
 const CRYPTARCHIA_ID: &str = "Cryptarchia";
 
 pub(crate) const LOG_TARGET: &str = "cryptarchia::service";
@@ -116,70 +113,6 @@ pub enum Error {
     ServiceSessionNotFound(ServiceType),
 }
 
-#[derive(Debug)]
-pub enum ChainNetworkMsg<Tx> {
-    Info {
-        tx: oneshot::Sender<CryptarchiaInfo>,
-    },
-    NewBlockSubscribe {
-        sender: oneshot::Sender<broadcast::Receiver<HeaderId>>,
-    },
-    LibSubscribe {
-        sender: oneshot::Sender<broadcast::Receiver<LibUpdate>>,
-    },
-    GetHeaders {
-        from: Option<HeaderId>,
-        to: Option<HeaderId>,
-        tx: oneshot::Sender<Vec<HeaderId>>,
-    },
-    GetLedgerState {
-        block_id: HeaderId,
-        tx: oneshot::Sender<Option<LedgerState>>,
-    },
-    GetEpochState {
-        slot: Slot,
-        tx: oneshot::Sender<Option<EpochState>>,
-    },
-    ProcessLeaderBlock {
-        block: Box<Block<Tx>>,
-        tx: oneshot::Sender<Result<(), String>>,
-    },
-}
-
-#[serde_as]
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct CryptarchiaInfo {
-    pub lib: HeaderId,
-    pub tip: HeaderId,
-    pub slot: Slot,
-    pub height: u64,
-    pub mode: cryptarchia_engine::State,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct LibUpdate {
-    pub new_lib: HeaderId,
-    pub pruned_blocks: PrunedBlocksInfo,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct PrunedBlocksInfo {
-    pub stale_blocks: Vec<HeaderId>,
-    pub immutable_blocks: BTreeMap<Slot, HeaderId>,
-}
-
-impl PrunedBlocksInfo {
-    /// Returns an iterator over all pruned blocks, both stale and immutable.
-    pub fn all(&self) -> impl Iterator<Item = HeaderId> + '_ {
-        self.stale_blocks
-            .iter()
-            .chain(self.immutable_blocks.values())
-            .copied()
-    }
-}
 
 #[derive(Clone)]
 struct Cryptarchia {
@@ -249,19 +182,6 @@ impl Cryptarchia {
         cryptarchia.prune_ledger_states(pruned_blocks.all());
 
         Ok((cryptarchia, pruned_blocks))
-    }
-
-    fn epoch_state_for_slot(&self, slot: Slot) -> Option<&EpochState> {
-        let tip = self.tip();
-        let state = self.ledger.state(&tip).expect("no state for tip");
-        let requested_epoch = self.ledger.config().epoch(slot);
-        if state.epoch_state().epoch() == requested_epoch {
-            Some(state.epoch_state())
-        } else if requested_epoch == state.next_epoch_state().epoch() {
-            Some(state.next_epoch_state())
-        } else {
-            None
-        }
     }
 
     /// Remove the ledger states associated with blocks that have been pruned by
@@ -412,8 +332,6 @@ pub struct ChainNetwork<
     TimeBackend::Settings: Clone + Send + Sync,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-    new_block_subscription_sender: broadcast::Sender<HeaderId>,
-    lib_subscription_sender: broadcast::Sender<LibUpdate>,
     state: <Self as ServiceData>::State,
 }
 
@@ -470,7 +388,7 @@ where
     type Settings = ChainNetworkSettings<NetAdapter::PeerId, NetAdapter::Settings>;
     type State = CryptarchiaConsensusState<NetAdapter::PeerId, NetAdapter::Settings>;
     type StateOperator = RecoveryOperator<JsonFileBackend<Self::State, Self::Settings>>;
-    type Message = ChainNetworkMsg<Mempool::Item>;
+    type Message = ();
 }
 
 #[async_trait::async_trait]
@@ -570,13 +488,8 @@ where
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
         initial_state: Self::State,
     ) -> Result<Self, DynError> {
-        let (new_block_subscription_sender, _) = broadcast::channel(16);
-        let (lib_subscription_sender, _) = broadcast::channel(16);
-
         Ok(Self {
             service_resources_handle,
-            new_block_subscription_sender,
-            lib_subscription_sender,
             state: initial_state,
         })
     }
@@ -670,8 +583,6 @@ where
             |cryptarchia, storage_blocks_to_remove, block| {
                 let relays = &relays;
                 let state_updater = &self.service_resources_handle.state_updater;
-                let new_block_subscription_sender = &self.new_block_subscription_sender;
-                let lib_subscription_sender = &self.lib_subscription_sender;
                 let historic_blob_validation = &historic_blob_validation;
                 async move {
                     Self::process_block_and_update_state(
@@ -680,8 +591,6 @@ where
                         Some(historic_blob_validation),
                         &storage_blocks_to_remove,
                         relays,
-                        new_block_subscription_sender,
-                        lib_subscription_sender,
                         state_updater,
                     )
                     .await
@@ -773,40 +682,6 @@ where
                         .await;
                     }
 
-                    Some(msg) = self.service_resources_handle.inbound_relay.next() => {
-                        // Handle ProcessBlock separately since it needs async and access to more state
-                        if let ChainNetworkMsg::ProcessLeaderBlock { block, tx } = msg {
-                            // TODO: move this into the process_message() function after making the process_message async.
-                            match Self::process_block_and_update_state::<RecentBlobStrategy>(
-                                    cryptarchia.clone(),
-                                    *block,
-                                    None, // No blob validation since the block was already built with valid blobs
-                                    &storage_blocks_to_remove,
-                                    &relays,
-                                    &self.new_block_subscription_sender,
-                                    &self.lib_subscription_sender,
-                                    &self.service_resources_handle.state_updater,
-                                ).await {
-                                Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
-                                    cryptarchia = new_cryptarchia;
-                                    storage_blocks_to_remove = new_storage_blocks_to_remove;
-                                    tx.send(Ok(())).unwrap_or_else(|_| {
-                                        error!("Could not send process block result through channel");
-                                    });
-                                }
-                                Err(e) => {
-                                    let error_msg = format!("Failed to process block: {e:?}");
-                                    error!(target: LOG_TARGET, "{}", error_msg);
-                                    tx.send(Err(error_msg)).unwrap_or_else(|_| {
-                                        error!("Could not send process block error through channel");
-                                    });
-                                }
-                            }
-                        } else {
-                            Self::process_message(&cryptarchia, &self.new_block_subscription_sender, &self.lib_subscription_sender, msg);
-                        }
-                    }
-
                     Some(event) = chainsync_events.next() => {
                         if cryptarchia.state().is_online() {
                            Self::handle_chainsync_event(&cryptarchia, &sync_blocks_provider, event).await;
@@ -831,8 +706,6 @@ where
                             Some(&historic_blob_validation),
                             &storage_blocks_to_remove,
                             &relays,
-                            &self.new_block_subscription_sender,
-                            &self.lib_subscription_sender,
                             &self.service_resources_handle.state_updater
                         ).await {
                             Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
@@ -951,93 +824,6 @@ where
         );
     }
 
-    fn process_message(
-        cryptarchia: &crate::Cryptarchia,
-        new_block_channel: &broadcast::Sender<HeaderId>,
-        lib_channel: &broadcast::Sender<LibUpdate>,
-        msg: ChainNetworkMsg<Mempool::Item>,
-    ) {
-        match msg {
-            ChainNetworkMsg::Info { tx } => {
-                let info = CryptarchiaInfo {
-                    lib: cryptarchia.lib(),
-                    tip: cryptarchia.tip(),
-                    slot: cryptarchia
-                        .ledger
-                        .state(&cryptarchia.tip())
-                        .expect("tip state not available")
-                        .slot(),
-                    height: cryptarchia
-                        .consensus
-                        .branches()
-                        .get(&cryptarchia.tip())
-                        .expect("tip branch not available")
-                        .length(),
-                    mode: *cryptarchia.consensus.state(),
-                };
-                tx.send(info).unwrap_or_else(|e| {
-                    error!("Could not send consensus info through channel: {:?}", e);
-                });
-            }
-            ChainNetworkMsg::NewBlockSubscribe { sender } => {
-                sender
-                    .send(new_block_channel.subscribe())
-                    .unwrap_or_else(|_| {
-                        error!("Could not subscribe to new block channel");
-                    });
-            }
-            ChainNetworkMsg::LibSubscribe { sender } => {
-                sender.send(lib_channel.subscribe()).unwrap_or_else(|_| {
-                    error!("Could not subscribe to LIB updates channel");
-                });
-            }
-            ChainNetworkMsg::GetHeaders { from, to, tx } => {
-                // default to tip block if not present
-                let from = from.unwrap_or_else(|| cryptarchia.tip());
-                // default to LIB block if not present
-                // TODO: for a full history, we should use genesis, but we don't want to
-                // keep it all in memory, headers past LIB should be fetched from storage
-                let to = to.unwrap_or_else(|| cryptarchia.lib());
-
-                let mut res = Vec::new();
-                let mut cur = from;
-
-                let branches = cryptarchia.consensus.branches();
-                while let Some(h) = branches.get(&cur) {
-                    res.push(h.id());
-                    // limit the response size
-                    if cur == to || cur == cryptarchia.lib() || res.len() >= HEADERS_LIMIT {
-                        break;
-                    }
-                    cur = h.parent();
-                }
-
-                tx.send(res)
-                    .unwrap_or_else(|_| error!("could not send blocks through channel"));
-            }
-            ChainNetworkMsg::GetLedgerState { block_id, tx } => {
-                let ledger_state = cryptarchia.ledger.state(&block_id).cloned();
-                tx.send(ledger_state).unwrap_or_else(|_| {
-                    error!("Could not send ledger state through channel");
-                });
-            }
-            ChainNetworkMsg::GetEpochState { slot, tx } => {
-                let epoch_state = cryptarchia.epoch_state_for_slot(slot).cloned();
-                tx.send(epoch_state).unwrap_or_else(|_| {
-                    error!("Could not send epoch state through channel");
-                });
-            }
-            ChainNetworkMsg::ProcessLeaderBlock { .. } => {
-                // ProcessLeaderBlock is handled separately in the run loop where we have async
-                // context This should never be reached since we filter it out
-                // before calling process_message
-                panic!(
-                    "ProcessLeaderBlock should be handled in the run loop, not in process_message"
-                );
-            }
-        }
-    }
-
     #[expect(
         clippy::too_many_arguments,
         reason = "This function does too much, need to deal with this at some point"
@@ -1057,8 +843,6 @@ where
             Storage,
             RuntimeServiceId,
         >,
-        new_block_subscription_sender: &broadcast::Sender<HeaderId>,
-        lib_subscription_sender: &broadcast::Sender<LibUpdate>,
         state_updater: &StateUpdater<
             Option<CryptarchiaConsensusState<NetAdapter::PeerId, NetAdapter::Settings>>,
         >,
@@ -1071,8 +855,6 @@ where
             block,
             blob_validation,
             relays,
-            new_block_subscription_sender,
-            lib_subscription_sender,
         )
         .await?;
 
@@ -1206,8 +988,6 @@ where
             Some(recent_blob_validation),
             &*storage_blocks_to_remove,
             relays,
-            &self.new_block_subscription_sender,
-            &self.lib_subscription_sender,
             &self.service_resources_handle.state_updater,
         )
         .await
@@ -1267,8 +1047,6 @@ where
             Storage,
             RuntimeServiceId,
         >,
-        new_block_subscription_sender: &broadcast::Sender<HeaderId>,
-        lib_broadcaster: &broadcast::Sender<LibUpdate>,
     ) -> Result<(crate::Cryptarchia, PrunedBlocks<HeaderId>), Error>
     where
         BlobStrategy: blob::Strategy + Sync,
@@ -1337,10 +1115,6 @@ where
             .await
             .map_err(|e| Error::Storage(format!("Failed to store immutable block ids: {e}")))?;
 
-        if let Err(e) = new_block_subscription_sender.send(header.id()) {
-            error!("Could not notify new block to services {e}");
-        }
-
         if prev_lib != new_lib {
             let height = cryptarchia
                 .consensus
@@ -1354,18 +1128,6 @@ where
             };
             if let Err(e) = broadcast_finalized_block(relays.broadcast_relay(), block_info).await {
                 error!("Could not notify block to services {e}");
-            }
-
-            let lib_update = LibUpdate {
-                new_lib: cryptarchia.lib(),
-                pruned_blocks: PrunedBlocksInfo {
-                    stale_blocks: pruned_blocks.stale_blocks().copied().collect(),
-                    immutable_blocks: pruned_blocks.immutable_blocks().clone(),
-                },
-            };
-
-            if let Err(e) = lib_broadcaster.send(lib_update) {
-                error!("Could not notify LIB update to services: {e}");
             }
 
             Self::broadcast_session_updates_for_block(
@@ -1495,9 +1257,6 @@ where
 
         // Stream the already applied state.
         let init_tip = cryptarchia.tip();
-        if let Err(e) = self.new_block_subscription_sender.send(init_tip) {
-            error!("Could not notify new block to services {e}");
-        }
         Self::broadcast_session_updates_for_block(&cryptarchia, &init_tip, relays, None).await;
 
         let mut pruned_blocks = PrunedBlocks::new();
@@ -1508,8 +1267,6 @@ where
                 // Skip blob validation since these blocks were already validated by this node
                 None,
                 relays,
-                &self.new_block_subscription_sender,
-                &self.lib_subscription_sender,
             )
             .await
             {
