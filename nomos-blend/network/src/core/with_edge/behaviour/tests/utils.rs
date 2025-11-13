@@ -13,7 +13,6 @@ use crate::core::{
     with_edge::behaviour::Behaviour,
 };
 
-#[derive(Default)]
 pub struct BehaviourBuilder {
     core_peer_ids: Vec<PeerId>,
     max_incoming_connections: Option<usize>,
@@ -22,9 +21,13 @@ pub struct BehaviourBuilder {
 }
 
 impl BehaviourBuilder {
-    pub fn with_core_peer_membership(mut self, core_peer_id: PeerId) -> Self {
-        self.core_peer_ids.push(core_peer_id);
-        self
+    pub fn new(core_peer_id: PeerId) -> Self {
+        Self {
+            core_peer_ids: vec![core_peer_id],
+            max_incoming_connections: None,
+            timeout: None,
+            minimum_network_size: None,
+        }
     }
 
     pub fn with_max_incoming_connections(mut self, max_incoming_connections: usize) -> Self {
@@ -43,21 +46,17 @@ impl BehaviourBuilder {
     }
 
     pub fn build(self) -> Behaviour<AlwaysTrueVerifier> {
-        let current_membership = if self.core_peer_ids.is_empty() {
-            None
-        } else {
-            Some(Membership::new_without_local(
-                self.core_peer_ids
-                    .into_iter()
-                    .map(|edge_peer_id| Node {
-                        address: Multiaddr::empty(),
-                        id: edge_peer_id,
-                        public_key: [0; _].try_into().unwrap(),
-                    })
-                    .collect::<Vec<_>>()
-                    .as_ref(),
-            ))
-        };
+        let current_membership = Membership::new_without_local(
+            self.core_peer_ids
+                .into_iter()
+                .map(|edge_peer_id| Node {
+                    address: Multiaddr::empty(),
+                    id: edge_peer_id,
+                    public_key: [0; _].try_into().unwrap(),
+                })
+                .collect::<Vec<_>>()
+                .as_ref(),
+        );
         Behaviour {
             events: VecDeque::new(),
             waker: None,

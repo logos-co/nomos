@@ -1,14 +1,19 @@
 use std::sync::LazyLock;
 
 use bytes::Bytes;
-use groth16::{Fr, fr_from_bytes, serde::serde_fr};
+use groth16::{
+    Fr, GROTH16_SAFE_BYTES_SIZE, fr_from_bytes, fr_from_bytes_unchecked, serde::serde_fr,
+};
 use num_bigint::BigUint;
 use poseidon2::Digest;
 use serde::{Deserialize, Serialize};
+use zksign::PublicKey;
 
 use crate::{
     crypto::ZkHasher,
-    mantle::{Transaction, TransactionHasher, gas::GasConstants, keys::PublicKey, tx::TxHash},
+    mantle::{
+        Transaction, TransactionHasher, encoding::encode_ledger_tx, gas::GasConstants, tx::TxHash,
+    },
 };
 
 pub type Value = u64;
@@ -113,9 +118,6 @@ static NOMOS_LEDGER_TXHASH_V1_FR: LazyLock<Fr> = LazyLock::new(|| {
     fr_from_bytes(b"NOMOS_LEDGER_TXHASH_V1").expect("Constant should be valid Fr")
 });
 
-static INOUT_SEP_FR: LazyLock<Fr> =
-    LazyLock::new(|| fr_from_bytes(b"INOUT_SEP").expect("Constant should be valid Fr"));
-
 impl Tx {
     #[must_use]
     pub const fn new(inputs: Vec<NoteId>, outputs: Vec<Note>) -> Self {
@@ -126,11 +128,14 @@ impl Tx {
     pub fn as_signing_frs(&self) -> Vec<Fr> {
         // constants and structure as defined in the Mantle spec:
         // https://www.notion.so/Mantle-Specification-21c261aa09df810c8820fab1d78b53d9
-        let mut output = vec![*NOMOS_LEDGER_TXHASH_V1_FR];
-        output.extend(self.inputs.iter().map(NoteId::as_fr));
-        output.push(*INOUT_SEP_FR);
-        output.extend(self.outputs.iter().flat_map(Note::as_fr_components));
-        output
+        let encoded_bytes = encode_ledger_tx(self);
+        let frs = encoded_bytes
+            .as_slice()
+            .chunks(GROTH16_SAFE_BYTES_SIZE)
+            .map(fr_from_bytes_unchecked);
+        std::iter::once(*NOMOS_LEDGER_TXHASH_V1_FR)
+            .chain(frs)
+            .collect()
     }
 
     #[must_use]

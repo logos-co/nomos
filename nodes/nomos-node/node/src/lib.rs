@@ -63,7 +63,8 @@ pub use crate::config::{Config, CryptarchiaLeaderArgs, HttpArgs, LogArgs, Networ
 use crate::{
     api::backend::AxumBackend,
     generic_services::{
-        DaMembershipAdapter, DaMembershipStorageGeneric, SdpService, SdpServiceAdapterGeneric,
+        DaMembershipAdapter, DaMembershipStorageGeneric, SdpMempoolAdapterGeneric, SdpService,
+        SdpServiceAdapterGeneric,
     },
 };
 
@@ -190,6 +191,7 @@ pub(crate) type ApiService = nomos_api::ApiService<
         SdpServiceAdapterGeneric<RuntimeServiceId>,
         ApiStorageAdapter<RuntimeServiceId>,
         RocksStorageAdapter<SignedMantleTx, TxHash>,
+        SdpMempoolAdapterGeneric<RuntimeServiceId>,
     >,
     RuntimeServiceId,
 >;

@@ -12,7 +12,7 @@ use crate::core::{
     with_core::{
         behaviour::{
             Event, NegotiatedPeerState, SpamReason,
-            tests::utils::{BehaviourBuilder, SwarmExt as _},
+            tests::utils::{BehaviourBuilder, SwarmExt as _, new_nodes_with_empty_address},
         },
         error::Error,
     },
@@ -20,14 +20,15 @@ use crate::core::{
 
 #[test(tokio::test)]
 async fn message_sending_and_reception() {
-    let mut dialing_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::default()
-            .with_identity(id)
+    let (mut identities, nodes) = new_nodes_with_empty_address(2);
+    let mut dialing_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
             .build::<AlwaysTrueVerifier>()
     });
-    let mut listening_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::default()
-            .with_identity(id)
+    let mut listening_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
             .build::<AlwaysTrueVerifier>()
     });
 
@@ -69,11 +70,8 @@ async fn message_sending_and_reception() {
 
 #[test(tokio::test)]
 async fn invalid_public_header_message_publish() {
-    let mut dialing_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::default()
-            .with_identity(id)
-            .build::<AlwaysTrueVerifier>()
-    });
+    let mut dialing_swarm =
+        TestSwarm::new_ephemeral(|id| BehaviourBuilder::new(id).build::<AlwaysTrueVerifier>());
 
     let invalid_signature_message = TestEncapsulatedMessage::new_with_invalid_signature(b"data");
     assert_eq!(
@@ -86,14 +84,15 @@ async fn invalid_public_header_message_publish() {
 
 #[test(tokio::test)]
 async fn undeserializable_message_received() {
-    let mut dialing_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::default()
-            .with_identity(id)
+    let (mut identities, nodes) = new_nodes_with_empty_address(2);
+    let mut dialing_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
             .build::<AlwaysTrueVerifier>()
     });
-    let mut listening_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::default()
-            .with_identity(id)
+    let mut listening_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
             .build::<AlwaysTrueVerifier>()
     });
 
@@ -135,14 +134,15 @@ async fn undeserializable_message_received() {
 
 #[test(tokio::test)]
 async fn duplicate_message_received() {
-    let mut dialing_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::default()
-            .with_identity(id)
+    let (mut identities, nodes) = new_nodes_with_empty_address(2);
+    let mut dialing_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
             .build::<AlwaysTrueVerifier>()
     });
-    let mut listening_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::default()
-            .with_identity(id)
+    let mut listening_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
             .build::<AlwaysTrueVerifier>()
     });
 
@@ -194,14 +194,15 @@ async fn duplicate_message_received() {
 
 #[test(tokio::test)]
 async fn invalid_public_header_message_received() {
-    let mut dialing_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::default()
-            .with_identity(id)
+    let (mut identities, nodes) = new_nodes_with_empty_address(2);
+    let mut dialing_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
             .build::<AlwaysTrueVerifier>()
     });
-    let mut listening_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::default()
-            .with_identity(id)
+    let mut listening_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
             .build::<AlwaysTrueVerifier>()
     });
 

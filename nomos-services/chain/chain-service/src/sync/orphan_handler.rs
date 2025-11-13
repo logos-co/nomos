@@ -459,6 +459,7 @@ mod tests {
         type Settings = ();
         type PeerId = ();
         type Block = TestBlock;
+        type Proposal = ();
 
         async fn new(
             _settings: Self::Settings,
@@ -469,7 +470,7 @@ mod tests {
             Self::new()
         }
 
-        async fn blocks_stream(&self) -> Result<BoxedStream<Self::Block>, DynError> {
+        async fn proposals_stream(&self) -> Result<BoxedStream<Self::Proposal>, DynError> {
             unimplemented!()
         }
 

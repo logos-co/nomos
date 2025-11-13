@@ -1,10 +1,10 @@
 use core::{fmt::Debug, hash::Hash};
 use std::fmt::Display;
 
-use nomos_core::header::HeaderId;
+use nomos_core::{header::HeaderId, mantle::Transaction};
 use nomos_network::backends::NetworkBackend;
 use overwatch::{DynError, services::AsServiceId};
-use serde::{Deserialize, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use tokio::sync::oneshot;
 use tx_service::{MempoolMsg, TxMempoolService, backend::Mempool, network::NetworkAdapter};
 
@@ -31,8 +31,8 @@ where
         + Clone
         + 'static,
     StorageAdapter::Error: Debug,
-    Item: Clone + Debug + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
-    Key: Clone + Debug + Ord + Hash + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
+    Item: Transaction + Clone + Debug + Send + Sync + Serialize + DeserializeOwned + 'static,
+    Key: Clone + Debug + Ord + Hash + Send + Sync + Serialize + DeserializeOwned + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Send

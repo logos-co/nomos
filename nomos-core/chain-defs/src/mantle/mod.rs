@@ -6,7 +6,6 @@ use thiserror::Error;
 pub mod encoding;
 pub mod gas;
 pub mod genesis_tx;
-pub mod keys;
 pub mod ledger;
 #[cfg(feature = "mock")]
 pub mod mock;
@@ -21,8 +20,6 @@ pub use ledger::{Note, NoteId, Utxo, Value};
 pub use ops::{Op, OpProof};
 use ops::{channel::inscribe::InscriptionOp, sdp::SDPDeclareOp};
 pub use tx::{MantleTx, SignedMantleTx, TxHash};
-
-use crate::proofs::zksig::ZkSignatureProof;
 
 pub const MAX_MANTLE_TXS: usize = 1024;
 
@@ -47,7 +44,7 @@ pub trait AuthenticatedMantleTx: Transaction<Hash = TxHash> + GasCost {
     fn mantle_tx(&self) -> &MantleTx;
 
     /// Returns the proof of the ledger transaction
-    fn ledger_tx_proof(&self) -> &impl ZkSignatureProof;
+    fn ledger_tx_proof(&self) -> &zksign::Signature;
 
     fn ops_with_proof(&self) -> impl Iterator<Item = (&Op, &OpProof)>;
 }
@@ -74,7 +71,7 @@ impl<T: AuthenticatedMantleTx> AuthenticatedMantleTx for &T {
         T::mantle_tx(self)
     }
 
-    fn ledger_tx_proof(&self) -> &impl ZkSignatureProof {
+    fn ledger_tx_proof(&self) -> &zksign::Signature {
         T::ledger_tx_proof(self)
     }
 

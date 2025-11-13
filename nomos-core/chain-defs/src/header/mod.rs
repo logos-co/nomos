@@ -1,14 +1,16 @@
 use blake2::Digest as _;
 use cryptarchia_engine::Slot;
+use ed25519_dalek::Signer as _;
 use groth16::fr_to_bytes;
 use serde::{Deserialize, Serialize};
 
 pub const BEDROCK_VERSION: u8 = 1;
 
 use crate::{
+    codec::SerializeOp as _,
     crypto::Hasher,
     mantle::{Transaction as _, TxHash, genesis_tx::GenesisTx},
-    proofs::leader_proof::{Groth16LeaderProof, LeaderProof},
+    proofs::leader_proof::{Groth16LeaderProof, LeaderProof as _},
     utils::{display_hex_bytes_newtype, serde_bytes_newtype},
 };
 
@@ -21,8 +23,22 @@ pub struct ContentId([u8; 32]);
 #[derive(Clone, Debug, Eq, PartialEq, Copy)]
 pub struct Nonce([u8; 32]);
 
+#[derive(Clone, Debug, Eq, PartialEq, Copy, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum Version {
+    Bedrock = BEDROCK_VERSION,
+}
+
+impl Version {
+    #[must_use]
+    pub const fn as_byte(self) -> u8 {
+        self as u8
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Header {
+    version: Version,
     parent_block: HeaderId,
     slot: Slot,
     block_root: ContentId,
@@ -31,13 +47,18 @@ pub struct Header {
 
 impl Header {
     #[must_use]
+    pub const fn version(&self) -> &Version {
+        &self.version
+    }
+
+    #[must_use]
     pub const fn parent(&self) -> HeaderId {
         self.parent_block
     }
 
     fn update_hasher(&self, h: &mut Hasher) {
         h.update(b"BLOCK_ID_V1");
-        h.update([BEDROCK_VERSION]);
+        h.update(self.version.as_byte().to_le_bytes());
         h.update(self.parent_block.0);
         h.update(self.slot.to_le_bytes());
         h.update(self.block_root.0);
@@ -55,13 +76,31 @@ impl Header {
     }
 
     #[must_use]
-    pub fn leader_proof(&self) -> &impl LeaderProof {
+    pub const fn leader_proof(&self) -> &Groth16LeaderProof {
         &self.proof_of_leadership
+    }
+
+    #[must_use]
+    pub const fn block_root(&self) -> &ContentId {
+        &self.block_root
     }
 
     #[must_use]
     pub const fn slot(&self) -> Slot {
         self.slot
+    }
+
+    pub fn sign(
+        &self,
+        signing_key: &ed25519_dalek::SigningKey,
+    ) -> Result<ed25519_dalek::Signature, crate::block::Error> {
+        let header_bytes = self.to_bytes()?;
+        Ok(signing_key.sign(&header_bytes))
+    }
+
+    #[must_use]
+    pub const fn parent_block(&self) -> HeaderId {
+        self.parent_block
     }
 
     #[must_use]
@@ -72,6 +111,7 @@ impl Header {
         proof_of_leadership: Groth16LeaderProof,
     ) -> Self {
         Self {
+            version: Version::Bedrock,
             parent_block,
             slot,
             block_root,

@@ -12,7 +12,7 @@ use crate::core::{
             Event,
             tests::utils::{
                 BehaviourBuilder, SwarmExt as _, build_memberships,
-                default_poq_verification_inputs_for_session,
+                default_poq_verification_inputs_for_session, new_nodes_with_empty_address,
             },
         },
         error::Error,
@@ -22,15 +22,16 @@ use crate::core::{
 #[test(tokio::test)]
 async fn publish_message() {
     let mut session = 0;
-    let mut dialer = TestSwarm::new(|id| {
-        BehaviourBuilder::default()
-            .with_identity(id)
+    let (mut identities, nodes) = new_nodes_with_empty_address(2);
+    let mut dialer = TestSwarm::new(&identities.next().unwrap(), |id| {
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
             .with_poq_verification_inputs(default_poq_verification_inputs_for_session(session))
             .build::<SessionBasedMockProofsVerifier>()
     });
-    let mut listener = TestSwarm::new(|id| {
-        BehaviourBuilder::default()
-            .with_identity(id)
+    let mut listener = TestSwarm::new(&identities.next().unwrap(), |id| {
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
             .with_poq_verification_inputs(default_poq_verification_inputs_for_session(session))
             .build::<SessionBasedMockProofsVerifier>()
     });
@@ -82,28 +83,29 @@ async fn publish_message() {
 #[test(tokio::test)]
 async fn forward_message() {
     let old_session = 0;
-    let mut sender = TestSwarm::new(|id| {
-        BehaviourBuilder::default()
-            .with_identity(id)
+    let (mut identities, nodes) = new_nodes_with_empty_address(4);
+    let mut sender = TestSwarm::new(&identities.next().unwrap(), |id| {
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
             .with_poq_verification_inputs(default_poq_verification_inputs_for_session(old_session))
             .build::<SessionBasedMockProofsVerifier>()
     });
-    let mut forwarder = TestSwarm::new(|id| {
-        BehaviourBuilder::default()
-            .with_identity(id)
+    let mut forwarder = TestSwarm::new(&identities.next().unwrap(), |id| {
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
             .with_peering_degree(2..=2)
             .with_poq_verification_inputs(default_poq_verification_inputs_for_session(old_session))
             .build::<SessionBasedMockProofsVerifier>()
     });
-    let mut receiver1 = TestSwarm::new(|id| {
-        BehaviourBuilder::default()
-            .with_identity(id)
+    let mut receiver1 = TestSwarm::new(&identities.next().unwrap(), |id| {
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
             .with_poq_verification_inputs(default_poq_verification_inputs_for_session(old_session))
             .build::<SessionBasedMockProofsVerifier>()
     });
-    let mut receiver2 = TestSwarm::new(|id| {
-        BehaviourBuilder::default()
-            .with_identity(id)
+    let mut receiver2 = TestSwarm::new(&identities.next().unwrap(), |id| {
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
             .with_poq_verification_inputs(default_poq_verification_inputs_for_session(old_session))
             .build::<SessionBasedMockProofsVerifier>()
     });
@@ -210,15 +212,16 @@ async fn forward_message() {
 #[test(tokio::test)]
 async fn finish_session_transition() {
     let mut session = 0;
-    let mut dialer = TestSwarm::new(|id| {
-        BehaviourBuilder::default()
-            .with_identity(id)
+    let (mut identities, nodes) = new_nodes_with_empty_address(2);
+    let mut dialer = TestSwarm::new(&identities.next().unwrap(), |id| {
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
             .with_poq_verification_inputs(default_poq_verification_inputs_for_session(session))
             .build::<SessionBasedMockProofsVerifier>()
     });
-    let mut listener = TestSwarm::new(|id| {
-        BehaviourBuilder::default()
-            .with_identity(id)
+    let mut listener = TestSwarm::new(&identities.next().unwrap(), |id| {
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
             .with_poq_verification_inputs(default_poq_verification_inputs_for_session(session))
             .build::<SessionBasedMockProofsVerifier>()
     });

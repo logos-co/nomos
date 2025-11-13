@@ -6,7 +6,10 @@ use kzgrs_backend::{common::share::DaShare, reconstruction::reconstruct_without_
 use serial_test::serial;
 use subnetworks_assignations::MembershipHandler as _;
 use tests::{
-    common::da::{disseminate_with_metadata, wait_for_blob_onchain, wait_for_shares_number},
+    common::da::{
+        disseminate_with_metadata, setup_test_channel, wait_for_blob_onchain,
+        wait_for_shares_number,
+    },
     nodes::executor::{Executor, create_executor_config},
     secret_key_to_peer_id,
     topology::{Topology, TopologyConfig, configs::create_general_configs},
@@ -18,15 +21,20 @@ use tests::{
 async fn disseminate_and_retrieve() {
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let executor = &topology.executors()[0];
+    let (channel_id, parent_msg_id) = setup_test_channel(executor).await;
     let validator = &topology.validators()[0];
+
+    tokio::time::sleep(Duration::from_secs(15)).await;
 
     let data = [1u8; 31];
     tokio::time::sleep(Duration::from_secs(15)).await;
 
-    let blob_id = disseminate_with_metadata(executor, &data).await.unwrap();
+    let blob_id = disseminate_with_metadata(executor, channel_id, parent_msg_id, &data)
+        .await
+        .unwrap();
     tokio::time::sleep(Duration::from_secs(20)).await;
 
-    wait_for_blob_onchain(executor, blob_id).await;
+    let _ = wait_for_blob_onchain(executor, channel_id, blob_id).await;
 
     let executor_shares = executor
         .get_shares(blob_id, [].into(), [].into(), true)
@@ -55,7 +63,8 @@ async fn disseminate_retrieve_reconstruct() {
 
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let executor = &topology.executors()[0];
-    let num_subnets = executor.config().da_network.backend.num_subnets as usize;
+    let (channel_id, mut parent_msg_id) = setup_test_channel(executor).await;
+    let num_samples = executor.config().da_sampling.sampling_settings.num_samples as usize;
     let data = [1u8; 31 * ITERATIONS];
 
     topology.wait_membership_ready().await;
@@ -64,9 +73,13 @@ async fn disseminate_retrieve_reconstruct() {
         let data_size = 31 * (i + 1);
         println!("disseminating {data_size} bytes, iteration {i}");
         let data = &data[..data_size]; // test increasing size data
-        let blob_id = disseminate_with_metadata(executor, data).await.unwrap();
+        let blob_id = disseminate_with_metadata(executor, channel_id, parent_msg_id, data)
+            .await
+            .unwrap();
 
-        wait_for_shares_number(executor, blob_id, num_subnets).await;
+        parent_msg_id = wait_for_blob_onchain(executor, channel_id, blob_id).await;
+
+        wait_for_shares_number(executor, blob_id, num_samples).await;
 
         let share_commitments = executor.get_commitments(blob_id).await.unwrap();
         let mut executor_shares = executor
@@ -102,7 +115,12 @@ async fn disseminate_from_non_membership() {
 
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let membership_executor = &topology.executors()[0];
-    let num_subnets = membership_executor.config().da_network.backend.num_subnets as usize;
+    let (channel_id, mut parent_msg_id) = setup_test_channel(membership_executor).await;
+    let num_samples = membership_executor
+        .config()
+        .da_sampling
+        .sampling_settings
+        .num_samples as usize;
 
     let StartingState::Genesis { genesis_tx } = membership_executor
         .config()
@@ -126,11 +144,13 @@ async fn disseminate_from_non_membership() {
         let data_size = 31 * (i + 1);
         println!("disseminating {data_size} bytes, iteration {i}");
         let data = &data[..data_size]; // test increasing size data
-        let blob_id = disseminate_with_metadata(&lone_executor, data)
+        let blob_id = disseminate_with_metadata(&lone_executor, channel_id, parent_msg_id, data)
             .await
             .unwrap();
 
-        wait_for_shares_number(membership_executor, blob_id, num_subnets).await;
+        parent_msg_id = wait_for_blob_onchain(membership_executor, channel_id, blob_id).await;
+
+        wait_for_shares_number(membership_executor, blob_id, num_samples).await;
 
         let share_commitments = membership_executor.get_commitments(blob_id).await.unwrap();
         let mut executor_shares = membership_executor
@@ -182,15 +202,20 @@ async fn four_subnets_disseminate_retrieve_reconstruct() {
         .expect("Validator subnet 1 not found");
 
     let executor = &topology.executors()[0];
+
+    let (test_channel_id, mut parent_msg_id) = setup_test_channel(executor).await;
+
     let data = [1u8; 31 * ITERATIONS];
 
     for i in 0..ITERATIONS {
         let data_size = 31 * (i + 1);
         println!("disseminating {data_size} bytes");
         let data = &data[..data_size]; // test increasing size data
-        let blob_id = disseminate_with_metadata(executor, data).await.unwrap();
+        let blob_id = disseminate_with_metadata(executor, test_channel_id, parent_msg_id, data)
+            .await
+            .unwrap();
 
-        wait_for_blob_onchain(executor, blob_id).await;
+        parent_msg_id = wait_for_blob_onchain(executor, test_channel_id, blob_id).await;
 
         let share_commitments = validator_subnet_1.get_commitments(blob_id).await.unwrap();
 
@@ -239,18 +264,18 @@ async fn disseminate_same_data() {
     let executor = &topology.executors()[0];
     let num_subnets = executor.config().da_network.backend.num_subnets as usize;
 
+    let (test_channel_id, mut parent_msg_id) = setup_test_channel(executor).await;
+
     let data = [1u8; 31];
 
     topology.wait_membership_ready().await;
 
-    let mut onchain = false;
     for _ in 0..ITERATIONS {
-        let blob_id = disseminate_with_metadata(executor, &data).await.unwrap();
+        let blob_id = disseminate_with_metadata(executor, test_channel_id, parent_msg_id, &data)
+            .await
+            .unwrap();
 
-        if !onchain {
-            wait_for_blob_onchain(executor, blob_id).await;
-            onchain = true;
-        }
+        parent_msg_id = wait_for_blob_onchain(executor, test_channel_id, blob_id).await;
 
         wait_for_shares_number(executor, blob_id, num_subnets).await;
         let executor_shares = executor
@@ -273,11 +298,14 @@ async fn local_testnet() {
     let topology = Topology::spawn(TopologyConfig::validators_and_executor(3, 2, 2)).await;
     let executor = &topology.executors()[0];
 
+    let (channel_id, mut parent_msg_id) = setup_test_channel(executor).await;
     let mut index = 0u64;
     loop {
-        let _ = disseminate_with_metadata(executor, &generate_data(index))
-            .await
-            .unwrap();
+        let blob_id =
+            disseminate_with_metadata(executor, channel_id, parent_msg_id, &generate_data(index))
+                .await
+                .unwrap();
+        parent_msg_id = wait_for_blob_onchain(executor, channel_id, blob_id).await;
 
         index += 1;
         tokio::time::sleep(Duration::from_secs(30)).await;
@@ -295,6 +323,7 @@ async fn split_2025_death_payload() {
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let executor = &topology.executors()[0];
 
+    let (channel_id, parent_msg_id) = setup_test_channel(executor).await;
     let data = vec![
         32, 0, 0, 0, 0, 0, 0, 0, 34, 88, 212, 64, 57, 70, 21, 63, 42, 117, 231, 187, 244, 0, 62,
         221, 185, 0, 148, 28, 70, 179, 1, 201, 225, 20, 77, 79, 243, 241, 218, 162, 32, 0, 0, 0, 0,
@@ -330,5 +359,8 @@ async fn split_2025_death_payload() {
         128, 84, 169, 217, 162, 189, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     ];
-    let _ = disseminate_with_metadata(executor, &data).await.unwrap();
+    let blob_id = disseminate_with_metadata(executor, channel_id, parent_msg_id, &data)
+        .await
+        .unwrap();
+    let _ = wait_for_blob_onchain(executor, channel_id, blob_id).await;
 }

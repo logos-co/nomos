@@ -1,7 +1,6 @@
 use std::hash::Hash;
 
 use blake2::{Blake2b, Digest as _};
-use bytes::{Bytes, BytesMut};
 use multiaddr::Multiaddr;
 use nom::{
     IResult, Parser as _,
@@ -10,11 +9,9 @@ use nom::{
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use strum::EnumIter;
+use zksign::PublicKey;
 
-use crate::{
-    block::BlockNumber,
-    mantle::{NoteId, keys::PublicKey},
-};
+use crate::{block::BlockNumber, mantle::NoteId};
 
 pub type SessionNumber = u64;
 pub type StakeThreshold = u64;
@@ -37,6 +34,13 @@ pub struct ServiceParameters {
     pub retention_period: u64,
     pub timestamp: BlockNumber,
     pub session_duration: BlockNumber,
+}
+
+impl ServiceParameters {
+    #[must_use]
+    pub const fn session_for_block(&self, block_number: BlockNumber) -> SessionNumber {
+        block_number / self.session_duration
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -153,7 +157,7 @@ impl Ord for ProviderId {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct DeclarationId(pub [u8; 32]);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
@@ -228,18 +232,6 @@ impl DeclarationMessage {
 
         DeclarationId(hasher.finalize().into())
     }
-
-    #[must_use]
-    pub fn payload_bytes(&self) -> Bytes {
-        let mut buff = BytesMut::new();
-        buff.extend_from_slice(self.service_type.as_ref().as_bytes());
-        for locator in &self.locators {
-            buff.extend_from_slice(locator.0.as_ref());
-        }
-        buff.extend_from_slice(self.provider_id.0.as_ref());
-        buff.extend(self.zk_id.as_fr().0.0.iter().flat_map(|n| n.to_le_bytes()));
-        buff.freeze()
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
@@ -249,33 +241,11 @@ pub struct WithdrawMessage {
     pub nonce: Nonce,
 }
 
-impl WithdrawMessage {
-    #[must_use]
-    pub fn payload_bytes(&self) -> Bytes {
-        let mut buff = BytesMut::new();
-        buff.extend_from_slice(self.declaration_id.0.as_ref());
-        buff.extend_from_slice(&self.locked_note_id.as_bytes());
-        buff.extend_from_slice(&(self.nonce.to_le_bytes()));
-        buff.freeze()
-    }
-}
-
 #[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct ActiveMessage {
     pub declaration_id: DeclarationId,
     pub nonce: Nonce,
     pub metadata: ActivityMetadata,
-}
-
-impl ActiveMessage {
-    #[must_use]
-    pub fn payload_bytes(&self) -> Bytes {
-        let mut buff = BytesMut::new();
-        buff.extend_from_slice(self.declaration_id.0.as_ref());
-        buff.extend_from_slice(&(self.nonce.to_le_bytes()));
-        buff.extend_from_slice(&self.metadata.to_metadata_bytes());
-        buff.freeze()
-    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -416,6 +386,7 @@ impl ActivityMetadata {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::mantle::encoding::encode_sdp_active;
 
     #[test]
     fn test_da_activity_proof_roundtrip_empty_opinions() {
@@ -620,7 +591,7 @@ mod tests {
             metadata,
         };
 
-        let bytes = message.payload_bytes();
+        let bytes = encode_sdp_active(&message);
 
         // Verify structure: declaration_id(32) + nonce(8) + metadata
         assert!(bytes.len() > 40); // At least 32 + 8 + some metadata

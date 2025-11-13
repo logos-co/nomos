@@ -1,4 +1,9 @@
-use std::{collections::HashSet, io, marker::PhantomData, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    io,
+    marker::PhantomData,
+    time::Duration,
+};
 
 use futures::{
     StreamExt as _,
@@ -48,7 +53,7 @@ use crate::{
     },
 };
 
-pub type SampleArgs<Membership> = (HashSet<BlobId>, HeaderId, Membership);
+pub type SampleArgs<Membership> = (HeaderId, HashMap<Membership, HashSet<BlobId>>);
 
 // Metrics
 const EVENT_SAMPLING: &str = "sampling";

@@ -15,10 +15,6 @@ impl DispersalStorageAdapter for MockDispersalStorageAdapter {
         }
     }
 
-    fn last_tx(&self, channel_id: &ChannelId) -> Option<SignedMantleTx> {
-        self.transactions.get(channel_id).cloned()
-    }
-
     fn store_tx(
         &mut self,
         channel_id: ChannelId,

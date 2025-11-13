@@ -3,7 +3,7 @@ use std::{collections::HashSet, hint::black_box};
 use ark_bls12_381::Fr;
 use ark_poly::{EvaluationDomain as _, GeneralEvaluationDomain};
 use divan::{Bencher, counter::BytesCount};
-use kzgrs::{common::field_element_from_bytes_le, decode, rs::points_to_bytes};
+use kzgrs::{common::field_element_from_bytes_le, decode_unchecked, rs::points_to_bytes};
 use kzgrs_backend::{
     encoder::{DaEncoder, DaEncoderParams},
     kzg_keys::PROVING_KEY,
@@ -52,7 +52,7 @@ fn reconstruct<const SIZE: usize>(bencher: Bencher, column_size: usize) {
                 });
                 let domain = GeneralEvaluationDomain::<Fr>::new(SIZE).unwrap();
                 let data: Vec<u8> = rows
-                    .map(|row| decode(SIZE, &row, domain))
+                    .map(|row| decode_unchecked(SIZE, &row, domain, domain))
                     .flat_map(|evals| points_to_bytes::<31>(&evals.evals))
                     .collect();
                 assert_eq!(data, encoded.data);
