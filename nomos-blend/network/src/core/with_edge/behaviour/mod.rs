@@ -57,8 +57,7 @@ pub struct Behaviour<ProofsVerifier> {
     events: VecDeque<ToSwarm<Event, Either<FromBehaviour, Infallible>>>,
     /// Waker that handles polling
     waker: Option<Waker>,
-    // TODO: Make this a non-Option by refactoring tests
-    current_membership: Option<Membership<PeerId>>,
+    current_membership: Membership<PeerId>,
     // Timeout to close connection with an edge node if a message is not received on time.
     connection_timeout: Duration,
     upgraded_edge_peers: HashSet<(PeerId, ConnectionId)>,
@@ -73,7 +72,7 @@ impl<ProofsVerifier> Behaviour<ProofsVerifier> {
     #[must_use]
     pub fn new(
         config: &Config,
-        current_membership: Option<Membership<PeerId>>,
+        current_membership: Membership<PeerId>,
         protocol_name: StreamProtocol,
         poq_verifier: ProofsVerifier,
     ) -> Self {
@@ -96,7 +95,7 @@ impl<ProofsVerifier> Behaviour<ProofsVerifier> {
         new_membership: Membership<PeerId>,
         new_verifier: ProofsVerifier,
     ) {
-        self.current_membership = Some(new_membership);
+        self.current_membership = new_membership;
         // Close all the connections without waiting for the transition period,
         // so that edge nodes can retry with the new membership.
         let peers = mem::take(&mut self.upgraded_edge_peers);
@@ -162,8 +161,7 @@ impl<ProofsVerifier> Behaviour<ProofsVerifier> {
     }
 
     fn is_network_large_enough(&self) -> bool {
-        self.current_membership.as_ref().map_or(1, Membership::size)
-            >= self.minimum_network_size.get()
+        self.current_membership.size() >= self.minimum_network_size.get()
     }
 }
 
@@ -253,13 +251,10 @@ where
             return Ok(Either::Right(DummyConnectionHandler));
         }
 
-        let Some(membership) = &self.current_membership else {
-            return Ok(Either::Right(DummyConnectionHandler));
-        };
         // Allow only inbound connections from edge nodes, if the Blend network is large
         // enough.
         Ok(
-            if membership.contains(&peer) || !self.is_network_large_enough() {
+            if self.current_membership.contains(&peer) || !self.is_network_large_enough() {
                 Either::Right(DummyConnectionHandler)
             } else {
                 Either::Left(ConnectionHandler::new(

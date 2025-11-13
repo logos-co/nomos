@@ -6,6 +6,7 @@ use tokio::{spawn, time::sleep};
 
 use crate::{
     core::backends::libp2p::{
+        core_swarm_test_utils::new_nodes_with_empty_address,
         swarm::BlendSwarmMessage,
         tests::utils::{BlendBehaviourBuilder, SwarmBuilder, TestSwarm},
     },
@@ -14,22 +15,26 @@ use crate::{
 
 #[test(tokio::test)]
 async fn core_message_propagation() {
+    let (mut identities, peer_ids) = new_nodes_with_empty_address(3);
     let TestSwarm {
         swarm: mut swarm_1,
         swarm_message_sender: swarm_1_message_sender,
         ..
-    } = SwarmBuilder::default()
-        .build(|id| BlendBehaviourBuilder::new(&id, MockProofsVerifier).build());
+    } = SwarmBuilder::new(identities.next().unwrap(), &peer_ids).build(|id, membership| {
+        BlendBehaviourBuilder::new(id, MockProofsVerifier, membership).build()
+    });
     let TestSwarm {
         swarm: mut swarm_2, ..
-    } = SwarmBuilder::default()
-        .build(|id| BlendBehaviourBuilder::new(&id, MockProofsVerifier).build());
+    } = SwarmBuilder::new(identities.next().unwrap(), &peer_ids).build(|id, membership| {
+        BlendBehaviourBuilder::new(id, MockProofsVerifier, membership).build()
+    });
     let TestSwarm {
         swarm: mut swarm_3,
         incoming_message_receiver: mut swarm_3_message_receiver,
         ..
-    } = SwarmBuilder::default()
-        .build(|id| BlendBehaviourBuilder::new(&id, MockProofsVerifier).build());
+    } = SwarmBuilder::new(identities.next().unwrap(), &peer_ids).build(|id, membership| {
+        BlendBehaviourBuilder::new(id, MockProofsVerifier, membership).build()
+    });
 
     let (swarm_2_address, _) = swarm_2.listen().await;
     let (swarm_3_address, _) = swarm_3.listen().await;

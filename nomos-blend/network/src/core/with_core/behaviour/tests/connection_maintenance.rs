@@ -10,17 +10,21 @@ use crate::core::{
     tests::utils::{TestEncapsulatedMessage, TestSwarm},
     with_core::behaviour::{
         Event, NegotiatedPeerState, SpamReason,
-        tests::utils::{BehaviourBuilder, IntervalProviderBuilder, SwarmExt as _},
+        tests::utils::{
+            BehaviourBuilder, IntervalProviderBuilder, SwarmExt as _, new_nodes_with_empty_address,
+        },
     },
 };
 
 #[test(tokio::test)]
 async fn detect_spammy_peer() {
-    let mut dialing_swarm =
-        TestSwarm::new(|id| BehaviourBuilder::default().with_identity(id).build());
-    let mut listening_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::default()
-            .with_identity(id)
+    let (mut identities, nodes) = new_nodes_with_empty_address(2);
+    let mut dialing_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
+        BehaviourBuilder::new(id).with_membership(&nodes).build()
+    });
+    let mut listening_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
             .with_provider(IntervalProviderBuilder::default().with_range(1..=1).build())
             .build()
     });
@@ -71,11 +75,13 @@ async fn detect_spammy_peer() {
 
 #[test(tokio::test)]
 async fn detect_unhealthy_peer() {
-    let mut dialing_swarm =
-        TestSwarm::new(|id| BehaviourBuilder::default().with_identity(id).build());
-    let mut listening_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::default()
-            .with_identity(id)
+    let (mut identities, nodes) = new_nodes_with_empty_address(2);
+    let mut dialing_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
+        BehaviourBuilder::new(id).with_membership(&nodes).build()
+    });
+    let mut listening_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
             .with_provider(IntervalProviderBuilder::default().with_range(1..=1).build())
             .build()
     });
@@ -129,11 +135,13 @@ async fn detect_unhealthy_peer() {
 
 #[test(tokio::test)]
 async fn restore_healthy_peer() {
-    let mut dialing_swarm =
-        TestSwarm::new(|id| BehaviourBuilder::default().with_identity(id).build());
-    let mut listening_swarm = TestSwarm::new(|id| {
-        BehaviourBuilder::default()
-            .with_identity(id)
+    let (mut identities, nodes) = new_nodes_with_empty_address(2);
+    let mut dialing_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
+        BehaviourBuilder::new(id).with_membership(&nodes).build()
+    });
+    let mut listening_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
             .with_provider(IntervalProviderBuilder::default().with_range(1..=1).build())
             .build()
     });

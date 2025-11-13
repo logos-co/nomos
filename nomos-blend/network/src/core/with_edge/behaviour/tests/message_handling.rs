@@ -21,12 +21,9 @@ use crate::{
 
 #[test(tokio::test)]
 async fn receive_valid_message() {
-    let mut core_swarm = TestSwarm::new(|_| {
-        BehaviourBuilder::default()
-            .with_core_peer_membership(PeerId::random())
-            .build()
-    });
-    let mut edge_swarm = TestSwarm::new(|_| StreamBehaviour::new());
+    let mut core_swarm =
+        TestSwarm::new_ephemeral(|_| BehaviourBuilder::new(PeerId::random()).build());
+    let mut edge_swarm = TestSwarm::new_ephemeral(|_| StreamBehaviour::new());
 
     core_swarm.listen().with_memory_addr_external().await;
     let stream = edge_swarm
@@ -52,13 +49,12 @@ async fn receive_valid_message() {
 
 #[test(tokio::test)]
 async fn message_timeout() {
-    let mut core_swarm = TestSwarm::new(|_| {
-        BehaviourBuilder::default()
-            .with_core_peer_membership(PeerId::random())
+    let mut core_swarm = TestSwarm::new_ephemeral(|_| {
+        BehaviourBuilder::new(PeerId::random())
             .with_timeout(Duration::from_secs(1))
             .build()
     });
-    let mut edge_swarm = TestSwarm::new(|_| StreamBehaviour::new());
+    let mut edge_swarm = TestSwarm::new_ephemeral(|_| StreamBehaviour::new());
 
     core_swarm.listen().with_memory_addr_external().await;
     let _stream = edge_swarm
@@ -84,12 +80,9 @@ async fn message_timeout() {
 
 #[test(tokio::test)]
 async fn receive_malformed_message() {
-    let mut core_swarm = TestSwarm::new(|_| {
-        BehaviourBuilder::default()
-            .with_core_peer_membership(PeerId::random())
-            .build()
-    });
-    let mut edge_swarm = TestSwarm::new(|_| StreamBehaviour::new());
+    let mut core_swarm =
+        TestSwarm::new_ephemeral(|_| BehaviourBuilder::new(PeerId::random()).build());
+    let mut edge_swarm = TestSwarm::new_ephemeral(|_| StreamBehaviour::new());
 
     core_swarm.listen().with_memory_addr_external().await;
     let stream = edge_swarm
