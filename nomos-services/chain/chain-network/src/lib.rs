@@ -77,7 +77,6 @@ use crate::{
     mempool::{MempoolAdapter as _, adapter::MempoolAdapter},
     relays::ChainNetworkRelays,
     states::CryptarchiaConsensusState,
-    storage::{StorageAdapter as _, adapters::StorageAdapter},
     sync::{block_provider::BlockProvider, orphan_handler::OrphanBlocksDownloader},
 };
 pub use crate::{
@@ -523,17 +522,9 @@ where
             .get_updated_settings();
 
         // TODO: check active slot coeff is exactly 1/30
-        let (cryptarchia, pruned_blocks) = self
+        let (cryptarchia, _pruned_blocks) = self
             .initialize_cryptarchia(&bootstrap_config, ledger_config.clone(), &relays)
             .await;
-        // These are blocks that have been pruned by the cryptarchia engine but have not
-        // yet been deleted from the storage layer.
-        let storage_blocks_to_remove = Self::delete_pruned_blocks_from_storage(
-            pruned_blocks.stale_blocks().copied(),
-            &self.state.storage_blocks_to_remove,
-            relays.storage_adapter(),
-        )
-        .await;
 
         let network_adapter =
             NetAdapter::new(network_adapter_settings, relays.network_relay().clone()).await;
@@ -562,6 +553,7 @@ where
         wait_until_services_are_ready!(
             &self.service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
+            Cryptarchia,
             BlockBroadcastService<_>,
             NetworkService<_, _>,
             TxMempoolService<_, _, _, _>,
@@ -578,9 +570,8 @@ where
         let initial_block_download = InitialBlockDownload::new(
             bootstrap_config.ibd,
             cryptarchia,
-            storage_blocks_to_remove,
             network_adapter,
-            |cryptarchia, storage_blocks_to_remove, block| {
+            |cryptarchia, block| {
                 let relays = &relays;
                 let state_updater = &self.service_resources_handle.state_updater;
                 let historic_blob_validation = &historic_blob_validation;
@@ -589,7 +580,6 @@ where
                         cryptarchia,
                         block,
                         Some(historic_blob_validation),
-                        &storage_blocks_to_remove,
                         relays,
                         state_updater,
                     )
@@ -602,13 +592,13 @@ where
             },
         );
 
-        let (mut cryptarchia, mut storage_blocks_to_remove) = match initial_block_download
+        let mut cryptarchia = match initial_block_download
             .run()
             .await
         {
-            Ok((cryptarchia, storage_blocks_to_remove)) => {
+            Ok(cryptarchia) => {
                 info!("Initial Block Download completed successfully.");
-                (cryptarchia, storage_blocks_to_remove)
+                cryptarchia
             }
             Err(e) => {
                 error!("Initial Block Download failed: {e:?}. Initiating graceful shutdown.");
@@ -656,14 +646,11 @@ where
                 tokio::select! {
                     () = &mut prolonged_bootstrap_timer, if cryptarchia.is_boostrapping() => {
                         info!("Prolonged Bootstrap Period has passed. Switching to Online.");
-                        (cryptarchia, storage_blocks_to_remove) = Self::switch_to_online(
+                        cryptarchia = Self::switch_to_online(
                             cryptarchia,
-                            &storage_blocks_to_remove,
-                            relays.storage_adapter(),
-                        ).await;
+                        );
                         Self::update_state(
                             &cryptarchia,
-                            storage_blocks_to_remove.clone(),
                             &self.service_resources_handle.state_updater,
                         );
 
@@ -674,7 +661,6 @@ where
                         self.handle_incoming_proposal(
                             proposal,
                             &mut cryptarchia,
-                            &mut storage_blocks_to_remove,
                             &recent_blob_validation,
                             orphan_downloader.as_mut().get_mut(),
                             &relays,
@@ -704,13 +690,11 @@ where
                             cryptarchia.clone(),
                             block.clone(),
                             Some(&historic_blob_validation),
-                            &storage_blocks_to_remove,
                             &relays,
                             &self.service_resources_handle.state_updater
                         ).await {
-                            Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
+                            Ok(new_cryptarchia) => {
                                 cryptarchia = new_cryptarchia;
-                                storage_blocks_to_remove = new_storage_blocks_to_remove;
 
                                 info!(counter.consensus_processed_blocks = 1);
                             }
@@ -725,7 +709,6 @@ where
                         // Periodically record the current timestamp and engine state
                         Self::update_state(
                             &cryptarchia,
-                            storage_blocks_to_remove.clone(),
                             &self.service_resources_handle.state_updater,
                         );
                     }
@@ -832,7 +815,6 @@ where
         cryptarchia: crate::Cryptarchia,
         block: Block<Mempool::Item>,
         blob_validation: Option<&blob::Validation<BlobStrategy>>,
-        storage_blocks_to_remove: &HashSet<HeaderId>,
         relays: &ChainNetworkRelays<
             Cryptarchia,
             Mempool,
@@ -846,11 +828,11 @@ where
         state_updater: &StateUpdater<
             Option<CryptarchiaConsensusState<NetAdapter::PeerId, NetAdapter::Settings>>,
         >,
-    ) -> Result<(crate::Cryptarchia, HashSet<HeaderId>), Error>
+    ) -> Result<crate::Cryptarchia, Error>
     where
         BlobStrategy: blob::Strategy + Sync,
     {
-        let (cryptarchia, pruned_blocks) = Self::process_block(
+        let (cryptarchia, _pruned_blocks) = Self::process_block(
             cryptarchia,
             block,
             blob_validation,
@@ -858,27 +840,18 @@ where
         )
         .await?;
 
-        let storage_blocks_to_remove = Self::delete_pruned_blocks_from_storage(
-            pruned_blocks.stale_blocks().copied(),
-            storage_blocks_to_remove,
-            relays.storage_adapter(),
-        )
-        .await;
-
         Self::update_state(
             &cryptarchia,
-            storage_blocks_to_remove.clone(),
             state_updater,
         );
 
-        Ok((cryptarchia, storage_blocks_to_remove))
+        Ok(cryptarchia)
     }
 
     async fn handle_incoming_proposal(
         &self,
         proposal: Proposal,
         cryptarchia: &mut crate::Cryptarchia,
-        storage_blocks_to_remove: &mut HashSet<HeaderId>,
         recent_blob_validation: &blob::Validation<RecentBlobStrategy>,
         orphan_downloader: &mut OrphanBlocksDownloader<NetAdapter, RuntimeServiceId>,
         relays: &ChainNetworkRelays<
@@ -921,7 +894,6 @@ where
         self.apply_reconstructed_block(
             block,
             cryptarchia,
-            storage_blocks_to_remove,
             recent_blob_validation,
             orphan_downloader,
             relays,
@@ -962,7 +934,6 @@ where
         &self,
         block: Block<Mempool::Item>,
         cryptarchia: &mut crate::Cryptarchia,
-        storage_blocks_to_remove: &mut HashSet<HeaderId>,
         recent_blob_validation: &blob::Validation<RecentBlobStrategy>,
         orphan_downloader: &mut OrphanBlocksDownloader<NetAdapter, RuntimeServiceId>,
         relays: &ChainNetworkRelays<
@@ -986,15 +957,13 @@ where
             cryptarchia.clone(),
             block,
             Some(recent_blob_validation),
-            &*storage_blocks_to_remove,
             relays,
             &self.service_resources_handle.state_updater,
         )
         .await
         {
-            Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
+            Ok(new_cryptarchia) => {
                 *cryptarchia = new_cryptarchia;
-                *storage_blocks_to_remove = new_storage_blocks_to_remove;
                 orphan_downloader.remove_orphan(&block_id);
                 info!(counter.consensus_processed_blocks = 1);
             }
@@ -1011,14 +980,13 @@ where
 
     fn update_state(
         cryptarchia: &crate::Cryptarchia,
-        storage_blocks_to_remove: HashSet<HeaderId>,
         state_updater: &StateUpdater<
             Option<CryptarchiaConsensusState<NetAdapter::PeerId, NetAdapter::Settings>>,
         >,
     ) {
         match <Self as ServiceData>::State::from_cryptarchia_and_unpruned_blocks(
             cryptarchia,
-            storage_blocks_to_remove,
+            HashSet::new(),
         ) {
             Ok(state) => {
                 state_updater.update(Some(state));
@@ -1102,19 +1070,6 @@ where
             mark_blob_in_block(relays.sampling_relay().clone(), blob_ids).await;
         }
 
-        relays
-            .storage_adapter()
-            .store_block(header.id(), block.clone())
-            .await
-            .map_err(|e| Error::Storage(format!("Failed to store block: {e}")))?;
-
-        let immutable_blocks = pruned_blocks.immutable_blocks().clone();
-        relays
-            .storage_adapter()
-            .store_immutable_block_ids(immutable_blocks)
-            .await
-            .map_err(|e| Error::Storage(format!("Failed to store immutable block ids: {e}")))?;
-
         if prev_lib != new_lib {
             let height = cryptarchia
                 .consensus
@@ -1157,54 +1112,6 @@ where
         );
     }
 
-    /// Retrieves the blocks in the range from `from` to `to` from the storage.
-    /// Both `from` and `to` are included in the range.
-    /// This is implemented here, and not as a method of `StorageAdapter`, to
-    /// simplify the panic and error message handling.
-    ///
-    /// # Panics
-    ///
-    /// Panics if any of the blocks in the range are not found in the storage.
-    ///
-    /// # Parameters
-    ///
-    /// * `from` - The header id of the first block in the range. Must be a
-    ///   valid header.
-    /// * `to` - The header id of the last block in the range. Must be a valid
-    ///   header.
-    ///
-    /// # Returns
-    ///
-    /// A vector of blocks in the range from `from` to `to`.
-    /// If no blocks are found, returns an empty vector.
-    /// If any of the [`HeaderId`]s are invalid, returns an error with the first
-    /// invalid header id.
-    async fn get_blocks_in_range(
-        from: HeaderId,
-        to: HeaderId,
-        storage_adapter: &StorageAdapter<Storage, Mempool::Item, RuntimeServiceId>,
-    ) -> Vec<Block<Mempool::Item>> {
-        // Due to the blocks traversal order, this yields `to..from` order
-        let blocks = futures::stream::unfold(to, |header_id| async move {
-            if header_id == from {
-                None
-            } else {
-                let block = storage_adapter
-                    .get_block(&header_id)
-                    .await
-                    .unwrap_or_else(|| {
-                        panic!("Could not retrieve block {to} from storage during recovery")
-                    });
-                let parent_header_id = block.header().parent();
-                Some((block, parent_header_id))
-            }
-        });
-
-        // To avoid confusion, the order is reversed so it fits the natural `from..to`
-        // order
-        blocks.collect::<Vec<_>>().await.into_iter().rev().collect()
-    }
-
     /// Initialize cryptarchia
     /// It initialize cryptarchia from the LIB (initially genesis) +
     /// (optionally) known blocks which were received before the service
@@ -1239,7 +1146,7 @@ where
             bootstrap_config,
             self.state.last_engine_state.as_ref(),
         );
-        let mut cryptarchia = crate::Cryptarchia::from_lib(
+        let cryptarchia = crate::Cryptarchia::from_lib(
             lib_id,
             self.state.lib_ledger_state.clone(),
             genesis_id,
@@ -1247,122 +1154,13 @@ where
             state,
         );
 
-        // We reapply blocks here instead of saving ledger states to correcly make use
-        // of structural sharing If forking is low, this might not be necessary
-        let blocks =
-            Self::get_blocks_in_range(lib_id, self.state.tip, relays.storage_adapter()).await;
-
-        // Skip LIB block since it's already applied
-        let blocks = blocks.into_iter().skip(1);
-
         // Stream the already applied state.
         let init_tip = cryptarchia.tip();
         Self::broadcast_session_updates_for_block(&cryptarchia, &init_tip, relays, None).await;
 
-        let mut pruned_blocks = PrunedBlocks::new();
-        for block in blocks {
-            match Self::process_block::<HistoricBlobStrategy>(
-                cryptarchia.clone(),
-                block,
-                // Skip blob validation since these blocks were already validated by this node
-                None,
-                relays,
-            )
-            .await
-            {
-                Ok((new_cryptarchia, new_pruned_blocks)) => {
-                    cryptarchia = new_cryptarchia;
-                    pruned_blocks.extend(&new_pruned_blocks);
-                }
-                Err(e) => {
-                    error!(target: LOG_TARGET, "Error processing block: {:?}", e);
-                }
-            }
-        }
+        let pruned_blocks = PrunedBlocks::new();
 
         (cryptarchia, pruned_blocks)
-    }
-
-    /// Remove the pruned blocks from the storage layer.
-    ///
-    /// Also, this removes the `additional_blocks` from the storage
-    /// layer. These blocks might belong to previous pruning operations and
-    /// that failed to be removed from the storage for some reason.
-    ///
-    /// This function returns any block that fails to be deleted from the
-    /// storage layer.
-    async fn delete_pruned_blocks_from_storage(
-        pruned_blocks: impl Iterator<Item = HeaderId> + Send,
-        additional_blocks: &HashSet<HeaderId>,
-        storage_adapter: &StorageAdapter<Storage, Mempool::Item, RuntimeServiceId>,
-    ) -> HashSet<HeaderId> {
-        match Self::delete_blocks_from_storage(
-            pruned_blocks.chain(additional_blocks.iter().copied()),
-            storage_adapter,
-        )
-        .await
-        {
-            // No blocks failed to be deleted.
-            Ok(()) => HashSet::new(),
-            // We retain the blocks that failed to be deleted.
-            Err(failed_blocks) => failed_blocks
-                .into_iter()
-                .map(|(block_id, _)| block_id)
-                .collect(),
-        }
-    }
-
-    /// Send a bulk blocks deletion request to the storage adapter.
-    ///
-    /// If no request fails, the method returns `Ok()`.
-    /// If any request fails, the header ID and the generated error for each
-    /// failing request are collected and returned as part of the `Err`
-    /// result.
-    async fn delete_blocks_from_storage<Headers>(
-        block_headers: Headers,
-        storage_adapter: &StorageAdapter<Storage, Mempool::Item, RuntimeServiceId>,
-    ) -> Result<(), Vec<(HeaderId, DynError)>>
-    where
-        Headers: Iterator<Item = HeaderId> + Send,
-    {
-        let blocks_to_delete = block_headers.collect::<Vec<_>>();
-        let block_deletion_outcomes = blocks_to_delete.iter().copied().zip(
-            storage_adapter
-                .remove_blocks(blocks_to_delete.iter().copied())
-                .await,
-        );
-
-        let errors: Vec<_> = block_deletion_outcomes
-            .filter_map(|(block_id, outcome)| match outcome {
-                Ok(Some(_)) => {
-                    tracing::debug!(
-                        target: LOG_TARGET,
-                        "Block {block_id:#?} successfully deleted from storage."
-                    );
-                    None
-                }
-                Ok(None) => {
-                    tracing::trace!(
-                        target: LOG_TARGET,
-                        "Block {block_id:#?} was not found in storage."
-                    );
-                    None
-                }
-                Err(e) => {
-                    tracing::error!(
-                        target: LOG_TARGET,
-                        "Error deleting block {block_id:#?} from storage: {e}."
-                    );
-                    Some((block_id, e))
-                }
-            })
-            .collect();
-
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(errors)
-        }
     }
 
     async fn handle_chainsync_event(
@@ -1431,27 +1229,11 @@ where
         }
     }
 
-    async fn switch_to_online(
+    fn switch_to_online(
         cryptarchia: crate::Cryptarchia,
-        storage_blocks_to_remove: &HashSet<HeaderId>,
-        storage_adapter: &StorageAdapter<Storage, Mempool::Item, RuntimeServiceId>,
-    ) -> (crate::Cryptarchia, HashSet<HeaderId>) {
-        let (cryptarchia, pruned_blocks) = cryptarchia.online();
-        if let Err(e) = storage_adapter
-            .store_immutable_block_ids(pruned_blocks.immutable_blocks().clone())
-            .await
-        {
-            error!("Could not store immutable block IDs: {e}");
-        }
-
-        let storage_blocks_to_remove = Self::delete_pruned_blocks_from_storage(
-            pruned_blocks.stale_blocks().copied(),
-            storage_blocks_to_remove,
-            storage_adapter,
-        )
-        .await;
-
-        (cryptarchia, storage_blocks_to_remove)
+    ) -> crate::Cryptarchia {
+        let (cryptarchia, _pruned_blocks) = cryptarchia.online();
+        cryptarchia
     }
 
     async fn broadcast_session_updates_for_block(

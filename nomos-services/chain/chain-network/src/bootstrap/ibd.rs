@@ -19,12 +19,11 @@ pub struct InitialBlockDownload<NetAdapter, ProcessBlockFn, ProcessBlockFut, Run
 where
     NetAdapter: NetworkAdapter<RuntimeServiceId>,
     NetAdapter::PeerId: Clone + Eq + Hash,
-    ProcessBlockFn: Fn(Cryptarchia, HashSet<HeaderId>, NetAdapter::Block) -> ProcessBlockFut,
-    ProcessBlockFut: Future<Output = Result<(Cryptarchia, HashSet<HeaderId>), Error>>,
+    ProcessBlockFn: Fn(Cryptarchia, NetAdapter::Block) -> ProcessBlockFut,
+    ProcessBlockFut: Future<Output = Result<Cryptarchia, Error>>,
 {
     config: IbdConfig<NetAdapter::PeerId>,
     cryptarchia: Cryptarchia,
-    storage_blocks_to_remove: HashSet<HeaderId>,
     network: NetAdapter,
     process_block: ProcessBlockFn,
     _phantom: PhantomData<RuntimeServiceId>,
@@ -35,20 +34,18 @@ impl<NetAdapter, ProcessBlockFn, ProcessBlockFut, RuntimeServiceId>
 where
     NetAdapter: NetworkAdapter<RuntimeServiceId>,
     NetAdapter::PeerId: Clone + Eq + Hash,
-    ProcessBlockFn: Fn(Cryptarchia, HashSet<HeaderId>, NetAdapter::Block) -> ProcessBlockFut,
-    ProcessBlockFut: Future<Output = Result<(Cryptarchia, HashSet<HeaderId>), Error>>,
+    ProcessBlockFn: Fn(Cryptarchia, NetAdapter::Block) -> ProcessBlockFut,
+    ProcessBlockFut: Future<Output = Result<Cryptarchia, Error>>,
 {
     pub const fn new(
         config: IbdConfig<NetAdapter::PeerId>,
         cryptarchia: Cryptarchia,
-        storage_blocks_to_remove: HashSet<HeaderId>,
         network: NetAdapter,
         process_block: ProcessBlockFn,
     ) -> Self {
         Self {
             config,
             cryptarchia,
-            storage_blocks_to_remove,
             network,
             process_block,
             _phantom: PhantomData,
@@ -63,8 +60,8 @@ where
     NetAdapter::PeerId: Copy + Clone + Eq + Hash + Debug + Send + Sync + Unpin,
     NetAdapter::Block: Debug + Unpin,
     ProcessBlockFn:
-        Fn(Cryptarchia, HashSet<HeaderId>, NetAdapter::Block) -> ProcessBlockFut + Send + Sync,
-    ProcessBlockFut: Future<Output = Result<(Cryptarchia, HashSet<HeaderId>), Error>> + Send,
+        Fn(Cryptarchia, NetAdapter::Block) -> ProcessBlockFut + Send + Sync,
+    ProcessBlockFut: Future<Output = Result<Cryptarchia, Error>> + Send,
     RuntimeServiceId: Sync,
 {
     /// Runs IBD with the configured peers.
@@ -77,9 +74,9 @@ where
     ///
     /// An error is returned if there is no peer available for IBD,
     /// or if all peers return an error.
-    pub async fn run(self) -> Result<(Cryptarchia, HashSet<HeaderId>), Error> {
+    pub async fn run(self) -> Result<Cryptarchia, Error> {
         if self.config.peers.is_empty() {
-            return Ok((self.cryptarchia, self.storage_blocks_to_remove));
+            return Ok(self.cryptarchia);
         }
 
         let downloads = self.initiate_downloads().await?;
@@ -187,7 +184,7 @@ where
     async fn proceed_downloads<'a>(
         mut self,
         mut downloads: Downloads<'a, NetAdapter::PeerId, NetAdapter::Block>,
-    ) -> Result<(Cryptarchia, HashSet<HeaderId>), Error>
+    ) -> Result<Cryptarchia, Error>
     where
         NetAdapter::PeerId: 'a,
         NetAdapter::Block: 'a,
@@ -202,7 +199,7 @@ where
             }
         }
 
-        Ok((self.cryptarchia, self.storage_blocks_to_remove))
+        Ok(self.cryptarchia)
     }
 
     /// Handles a [`DownloadsOutput`].
@@ -252,9 +249,8 @@ where
             block
         );
 
-        let (cryptarchia, storage_blocks_to_remove) = (self.process_block)(
+        let cryptarchia = (self.process_block)(
             self.cryptarchia.clone(),
-            self.storage_blocks_to_remove.clone(),
             block,
         )
         .await
@@ -266,7 +262,6 @@ where
         })?;
         downloads.add_download(download);
         self.cryptarchia = cryptarchia;
-        self.storage_blocks_to_remove = storage_blocks_to_remove;
         Ok(())
     }
 

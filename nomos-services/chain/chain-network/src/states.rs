@@ -15,10 +15,6 @@ pub struct CryptarchiaConsensusState<NodeId, NetworkAdapterSettings> {
     pub(crate) lib_ledger_state: LedgerState,
     pub(crate) lib_block_length: u64,
     pub(crate) genesis_id: HeaderId,
-    /// Set of blocks that have been pruned from the engine but have not yet
-    /// been deleted from the persistence layer because of some unexpected
-    /// error.
-    pub(crate) storage_blocks_to_remove: HashSet<HeaderId>,
     /// Last engine state and timestamp for offline grace period tracking
     pub(crate) last_engine_state: Option<LastEngineState>,
     // Only neededed for the service state trait
@@ -28,13 +24,9 @@ pub struct CryptarchiaConsensusState<NodeId, NetworkAdapterSettings> {
 impl<NodeId, NetworkAdapterSettings> CryptarchiaConsensusState<NodeId, NetworkAdapterSettings> {
     /// Re-create the [`CryptarchiaConsensusState`]
     /// given the cryptarchia engine and ledger state.
-    ///
-    /// Furthermore, it allows to specify blocks deleted from the cryptarchia
-    /// engine (hence not tracked anymore) but that should be deleted from the
-    /// persistence layer.
     pub(crate) fn from_cryptarchia_and_unpruned_blocks(
         cryptarchia: &Cryptarchia,
-        storage_blocks_to_remove: HashSet<HeaderId>,
+        _storage_blocks_to_remove: HashSet<HeaderId>,
     ) -> Result<Self, DynError> {
         let lib = cryptarchia.consensus.lib_branch();
         let Some(lib_ledger_state) = cryptarchia.ledger.state(&lib.id()).cloned() else {
@@ -50,7 +42,6 @@ impl<NodeId, NetworkAdapterSettings> CryptarchiaConsensusState<NodeId, NetworkAd
             genesis_id: cryptarchia.genesis_id,
             lib_ledger_state,
             lib_block_length,
-            storage_blocks_to_remove,
             last_engine_state: Some(LastEngineState {
                 timestamp: SystemTime::now(),
                 state: *cryptarchia.consensus.state(),
@@ -94,7 +85,6 @@ where
             lib_ledger_state,
             lib_block_length: 0,
             genesis_id,
-            storage_blocks_to_remove: HashSet::new(),
             last_engine_state: None,
             _markers: PhantomData,
         })
@@ -245,9 +235,5 @@ mod tests {
 
         assert_eq!(recovery_state.tip, cryptarchia_engine.tip());
         assert_eq!(recovery_state.lib, cryptarchia_engine.lib());
-        assert_eq!(
-            &recovery_state.storage_blocks_to_remove,
-            &pruned_stale_blocks
-        );
     }
 }
