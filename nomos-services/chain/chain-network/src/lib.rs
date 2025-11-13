@@ -1288,12 +1288,12 @@ where
             }
         };
 
-        let (cryptarchia, pruned_blocks) = cryptarchia.try_apply_block(&block)?;
-        let new_lib = cryptarchia.lib();
-
         if let Some(blob_validation) = blob_validation {
             blob_validation.validate(&block).await?;
         }
+
+        let (cryptarchia, pruned_blocks) = cryptarchia.try_apply_block(&block)?;
+        let new_lib = cryptarchia.lib();
 
         // remove included content from mempool
         relays
