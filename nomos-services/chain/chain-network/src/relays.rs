@@ -6,6 +6,7 @@ use std::{
 
 use broadcast_service::{BlockBroadcastMsg, BlockBroadcastService};
 use bytes::Bytes;
+use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 use nomos_core::{
     block::Block,
     da,
@@ -31,7 +32,7 @@ use tx_service::{
 };
 
 use crate::{
-    CryptarchiaConsensus, SamplingRelay,
+    ChainNetwork, SamplingRelay,
     mempool::adapter::MempoolAdapter,
     network,
     storage::{StorageAdapter as _, adapters::StorageAdapter},
@@ -44,7 +45,8 @@ pub type BroadcastRelay = OutboundRelay<BlockBroadcastMsg>;
 pub type StorageRelay<Storage> = OutboundRelay<StorageMsg<Storage>>;
 pub type TimeRelay = OutboundRelay<TimeServiceMessage>;
 
-pub struct CryptarchiaConsensusRelays<
+pub struct ChainNetworkRelays<
+    Cryptarchia,
     Mempool,
     MempoolNetAdapter,
     MempoolDaAdapter,
@@ -53,6 +55,7 @@ pub struct CryptarchiaConsensusRelays<
     Storage,
     RuntimeServiceId,
 > where
+    Cryptarchia: CryptarchiaServiceData<Tx: Send + Sync>,
     Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash> + Send + Sync,
     MempoolNetAdapter: tx_service::network::NetworkAdapter<RuntimeServiceId>,
     MempoolDaAdapter: DaMempoolAdapter,
@@ -61,6 +64,7 @@ pub struct CryptarchiaConsensusRelays<
     <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
     SamplingBackend: DaSamplingServiceBackend,
 {
+    cryptarchia: CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
     network_relay: NetworkRelay<NetworkAdapter::Backend, RuntimeServiceId>,
     broadcast_relay: BroadcastRelay,
     mempool_adapter: MempoolAdapter<Mempool::Item, Mempool::Item>,
@@ -72,6 +76,7 @@ pub struct CryptarchiaConsensusRelays<
 }
 
 impl<
+    Cryptarchia,
     Mempool,
     MempoolNetAdapter,
     MempoolDaAdapter,
@@ -80,7 +85,8 @@ impl<
     Storage,
     RuntimeServiceId,
 >
-    CryptarchiaConsensusRelays<
+    ChainNetworkRelays<
+        Cryptarchia,
         Mempool,
         MempoolNetAdapter,
         MempoolDaAdapter,
@@ -90,6 +96,7 @@ impl<
         RuntimeServiceId,
     >
 where
+    Cryptarchia: CryptarchiaServiceData<Tx: Send + Sync>,
     Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash> + Send + Sync,
     Mempool::RecoveryState: Serialize + DeserializeOwned,
     Mempool::Item: Debug
@@ -120,6 +127,7 @@ where
         TryFrom<Block<Mempool::Item>> + TryInto<Block<Mempool::Item>>,
 {
     pub async fn new(
+        cryptarchia: CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
         network_relay: NetworkRelay<NetworkAdapter::Backend, RuntimeServiceId>,
         broadcast_relay: BroadcastRelay,
         mempool_relay: OutboundRelay<MempoolMsg<HeaderId, Mempool::Item, Mempool::Item, TxHash>>,
@@ -131,6 +139,7 @@ where
             StorageAdapter::<Storage, Mempool::Item, RuntimeServiceId>::new(storage_relay).await;
         let mempool_adapter = MempoolAdapter::new(mempool_relay);
         Self {
+            cryptarchia,
             network_relay,
             broadcast_relay,
             mempool_adapter,
@@ -150,7 +159,8 @@ where
         TimeBackend,
     >(
         service_resources_handle: &OpaqueServiceResourcesHandle<
-            CryptarchiaConsensus<
+            ChainNetwork<
+                Cryptarchia,
                 NetworkAdapter,
                 Mempool,
                 MempoolNetAdapter,
@@ -179,6 +189,7 @@ where
             + Send
             + Display
             + 'static
+            + AsServiceId<Cryptarchia>
             + AsServiceId<NetworkService<NetworkAdapter::Backend, RuntimeServiceId>>
             + AsServiceId<BlockBroadcastService<RuntimeServiceId>>
             + AsServiceId<
@@ -196,6 +207,13 @@ where
             + AsServiceId<StorageService<Storage, RuntimeServiceId>>
             + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>,
     {
+        let cryptarchia = CryptarchiaServiceApi::<Cryptarchia, _>::new(
+            service_resources_handle
+                .overwatch_handle
+                .relay::<Cryptarchia>()
+                .await
+                .expect("Relay connection with Cryptarchia should succeed"),
+        );
         let network_relay = service_resources_handle
             .overwatch_handle
             .relay::<NetworkService<_, _>>()
@@ -236,6 +254,7 @@ where
             .expect("Relay connection with TimeService should succeed");
 
         Self::new(
+            cryptarchia,
             network_relay,
             broadcast_relay,
             mempool_relay,

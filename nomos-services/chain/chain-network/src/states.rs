@@ -6,7 +6,7 @@ use nomos_ledger::LedgerState;
 use overwatch::{DynError, services::state::ServiceState};
 use serde::{Deserialize, Serialize};
 
-use crate::{Cryptarchia, CryptarchiaSettings, Error, StartingState};
+use crate::{ChainNetworkSettings, Cryptarchia, Error, StartingState};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CryptarchiaConsensusState<NodeId, NetworkAdapterSettings> {
@@ -65,7 +65,7 @@ impl<NodeId, NetworkAdapterSettings> ServiceState
 where
     NodeId: Clone + Eq + Hash,
 {
-    type Settings = CryptarchiaSettings<NodeId, NetworkAdapterSettings>;
+    type Settings = ChainNetworkSettings<NodeId, NetworkAdapterSettings>;
     type Error = Error;
 
     fn from_settings(
