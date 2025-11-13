@@ -21,7 +21,6 @@ use bytes::Bytes;
 use chain_service::api::CryptarchiaServiceData;
 use cryptarchia_engine::PrunedBlocks;
 pub use cryptarchia_engine::{Epoch, Slot};
-use cryptarchia_sync::{GetTipResponse, ProviderResponse};
 use futures::{FutureExt as _, StreamExt as _};
 use network::NetworkAdapter;
 use nomos_core::{
@@ -42,7 +41,7 @@ use nomos_da_sampling::{
 };
 pub use nomos_ledger::EpochState;
 use nomos_ledger::LedgerState;
-use nomos_network::{NetworkService, message::ChainSyncEvent};
+use nomos_network::NetworkService;
 use nomos_storage::{StorageService, api::chain::StorageChainApi, backends::StorageBackend};
 use nomos_time::TimeService;
 use overwatch::{
@@ -57,10 +56,7 @@ use services_utils::{
 };
 use strum::IntoEnumIterator as _;
 use thiserror::Error;
-use tokio::{
-    sync::mpsc,
-    time::Instant,
-};
+use tokio::time::Instant;
 use tracing::{Level, debug, error, info, instrument, span, warn};
 use tracing_futures::Instrument as _;
 use tx_service::{
@@ -77,7 +73,7 @@ use crate::{
     mempool::{MempoolAdapter as _, adapter::MempoolAdapter},
     relays::ChainNetworkRelays,
     states::CryptarchiaConsensusState,
-    sync::{block_provider::BlockProvider, orphan_handler::OrphanBlocksDownloader},
+    sync::orphan_handler::OrphanBlocksDownloader,
 };
 pub use crate::{
     bootstrap::config::{BootstrapConfig, IbdConfig, OfflineGracePeriodConfig},
@@ -531,8 +527,6 @@ where
 
         let mut incoming_proposals = network_adapter.proposals_stream().await?;
         let mut chainsync_events = network_adapter.chainsync_events_stream().await?;
-        let sync_blocks_provider: BlockProvider<_, _> =
-            BlockProvider::new(relays.storage_adapter().storage_relay.clone());
 
         let mut orphan_downloader = Box::pin(OrphanBlocksDownloader::new(
             network_adapter.clone(),
@@ -669,10 +663,9 @@ where
                     }
 
                     Some(event) = chainsync_events.next() => {
-                        if cryptarchia.state().is_online() {
-                           Self::handle_chainsync_event(&cryptarchia, &sync_blocks_provider, event).await;
-                        } else {
-                            Self::reject_chain_sync_event(event).await;
+                        // Forward the chain sync event to chain-service for handling
+                        if let Err(e) = relays.cryptarchia().handle_chainsync_event(event).await {
+                            error!(target: LOG_TARGET, "Failed to forward chainsync event to chain-service: {e}");
                         }
                     }
 
@@ -1161,72 +1154,6 @@ where
         let pruned_blocks = PrunedBlocks::new();
 
         (cryptarchia, pruned_blocks)
-    }
-
-    async fn handle_chainsync_event(
-        cryptarchia: &crate::Cryptarchia,
-        sync_blocks_provider: &BlockProvider<Storage, Mempool::Item>,
-        event: ChainSyncEvent,
-    ) {
-        match event {
-            ChainSyncEvent::ProvideBlocksRequest {
-                target_block,
-                local_tip,
-                latest_immutable_block,
-                additional_blocks,
-                reply_sender,
-            } => {
-                let known_blocks = vec![local_tip, latest_immutable_block]
-                    .into_iter()
-                    .chain(additional_blocks.into_iter())
-                    .collect::<HashSet<_>>();
-
-                sync_blocks_provider
-                    .send_blocks(
-                        &cryptarchia.consensus,
-                        target_block,
-                        &known_blocks,
-                        reply_sender,
-                    )
-                    .await;
-            }
-            ChainSyncEvent::ProvideTipRequest { reply_sender } => {
-                let tip = cryptarchia.consensus.tip_branch();
-                let response = ProviderResponse::Available(GetTipResponse::Tip {
-                    tip: tip.id(),
-                    slot: tip.slot(),
-                    height: tip.length(),
-                });
-
-                info!("Sending tip response: {response:?}");
-                if let Err(e) = reply_sender.send(response).await {
-                    error!("Failed to send tip header: {e}");
-                }
-            }
-        }
-    }
-
-    async fn reject_chain_sync_event(event: ChainSyncEvent) {
-        debug!(target: LOG_TARGET, "Received chainsync event while in bootstrapping state. Ignoring it.");
-        match event {
-            ChainSyncEvent::ProvideBlocksRequest { reply_sender, .. } => {
-                Self::send_chain_sync_rejection(reply_sender).await;
-            }
-            ChainSyncEvent::ProvideTipRequest { reply_sender } => {
-                Self::send_chain_sync_rejection(reply_sender).await;
-            }
-        }
-    }
-
-    async fn send_chain_sync_rejection<ResponseType>(
-        sender: mpsc::Sender<ProviderResponse<ResponseType>>,
-    ) {
-        let response = ProviderResponse::Unavailable {
-            reason: "Node is not in online mode".to_owned(),
-        };
-        if let Err(e) = sender.send(response).await {
-            error!("Failed to send chain sync response: {e}");
-        }
     }
 
     fn switch_to_online(

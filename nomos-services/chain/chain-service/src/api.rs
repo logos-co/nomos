@@ -1,4 +1,5 @@
 use nomos_core::{block::Block, header::HeaderId};
+use nomos_network::message::ChainSyncEvent;
 use overwatch::{
     DynError,
     services::{ServiceData, relay::OutboundRelay},
@@ -153,5 +154,16 @@ where
             .map_err(|_| "Failed to send process block request")?;
 
         rx.await?.map_err(Into::into)
+    }
+
+    /// Forward a chain sync event to the chain service.
+    /// The response will be sent back via the reply_sender embedded in the event.
+    pub async fn handle_chainsync_event(&self, event: ChainSyncEvent) -> Result<(), DynError> {
+        self.relay
+            .send(ConsensusMsg::ChainSync(event))
+            .await
+            .map_err(|_| "Failed to send chain sync event")?;
+
+        Ok(())
     }
 }

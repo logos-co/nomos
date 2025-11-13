@@ -130,6 +130,9 @@ pub enum ConsensusMsg<Tx> {
         block: Box<Block<Tx>>,
         tx: oneshot::Sender<Result<(), String>>,
     },
+    /// Forward chain sync events from the network to chain-service.
+    /// Chain-service will handle these directly and respond via the embedded reply_sender.
+    ChainSync(ChainSyncEvent),
 }
 
 #[serde_as]
@@ -505,7 +508,6 @@ where
             NetAdapter::new(network_adapter_settings, relays.network_relay().clone()).await;
 
         let mut incoming_proposals = network_adapter.proposals_stream().await?;
-        let mut chainsync_events = network_adapter.chainsync_events_stream().await?;
         let sync_blocks_provider: BlockProvider<_, _> =
             BlockProvider::new(relays.storage_adapter().storage_relay.clone());
 
@@ -573,43 +575,45 @@ where
                     }
 
                     Some(msg) = self.service_resources_handle.inbound_relay.next() => {
-                        // Handle ApplyBlock separately since it needs async and access to more state
-                        if let ConsensusMsg::ApplyBlock { block, tx } = msg {
-                            // TODO: move this into the process_message() function after making the process_message async.
-                            match Self::process_block_and_update_state(
-                                    cryptarchia.clone(),
-                                    *block,
-                                    &storage_blocks_to_remove,
-                                    &relays,
-                                    &self.new_block_subscription_sender,
-                                    &self.lib_subscription_sender,
-                                    &self.service_resources_handle.state_updater,
-                                ).await {
-                                Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
-                                    cryptarchia = new_cryptarchia;
-                                    storage_blocks_to_remove = new_storage_blocks_to_remove;
-                                    tx.send(Ok(())).unwrap_or_else(|_| {
-                                        error!("Could not send process block result through channel");
-                                    });
-                                }
-                                Err(e) => {
-                                    let error_msg = format!("Failed to process block: {e:?}");
-                                    error!(target: LOG_TARGET, "{}", error_msg);
-                                    tx.send(Err(error_msg)).unwrap_or_else(|_| {
-                                        error!("Could not send process block error through channel");
-                                    });
+                        // Handle ApplyBlock and ChainSync separately since they need async context
+                        match msg {
+                            ConsensusMsg::ApplyBlock { block, tx } => {
+                                // TODO: move this into the process_message() function after making the process_message async.
+                                match Self::process_block_and_update_state(
+                                        cryptarchia.clone(),
+                                        *block,
+                                        &storage_blocks_to_remove,
+                                        &relays,
+                                        &self.new_block_subscription_sender,
+                                        &self.lib_subscription_sender,
+                                        &self.service_resources_handle.state_updater,
+                                    ).await {
+                                    Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
+                                        cryptarchia = new_cryptarchia;
+                                        storage_blocks_to_remove = new_storage_blocks_to_remove;
+                                        tx.send(Ok(())).unwrap_or_else(|_| {
+                                            error!("Could not send process block result through channel");
+                                        });
+                                    }
+                                    Err(e) => {
+                                        let error_msg = format!("Failed to process block: {e:?}");
+                                        error!(target: LOG_TARGET, "{}", error_msg);
+                                        tx.send(Err(error_msg)).unwrap_or_else(|_| {
+                                            error!("Could not send process block error through channel");
+                                        });
+                                    }
                                 }
                             }
-                        } else {
-                            Self::process_message(&cryptarchia, &self.new_block_subscription_sender, &self.lib_subscription_sender, msg);
-                        }
-                    }
-
-                    Some(event) = chainsync_events.next() => {
-                        if cryptarchia.state().is_online() {
-                           Self::handle_chainsync_event(&cryptarchia, &sync_blocks_provider, event).await;
-                        } else {
-                            Self::reject_chain_sync_event(event).await;
+                            ConsensusMsg::ChainSync(event) => {
+                                if cryptarchia.state().is_online() {
+                                    Self::handle_chainsync_event(&cryptarchia, &sync_blocks_provider, event).await;
+                                } else {
+                                    Self::reject_chain_sync_event(event).await;
+                                }
+                            }
+                            msg => {
+                                Self::process_message(&cryptarchia, &self.new_block_subscription_sender, &self.lib_subscription_sender, msg);
+                            }
                         }
                     }
 
@@ -808,6 +812,12 @@ where
                 // context This should never be reached since we filter it out
                 // before calling process_message
                 panic!("ApplyBlock should be handled in the run loop, not in process_message");
+            }
+            ConsensusMsg::ChainSync(_) => {
+                // ChainSync is handled separately in the run loop where we have async
+                // context. This should never be reached since we filter it out
+                // before calling process_message
+                panic!("ChainSync should be handled in the run loop, not in process_message");
             }
         }
     }

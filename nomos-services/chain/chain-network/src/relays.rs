@@ -265,6 +265,10 @@ where
         .await
     }
 
+    pub const fn cryptarchia(&self) -> &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId> {
+        &self.cryptarchia
+    }
+
     pub const fn network_relay(&self) -> &NetworkRelay<NetworkAdapter::Backend, RuntimeServiceId> {
         &self.network_relay
     }
