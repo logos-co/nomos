@@ -30,7 +30,6 @@ blend:
   core:
     backend:
       listening_address: /ip4/127.0.0.1/udp/3001/quic-v1
-      node_key: ea1e1dcc31612bd20987f017f0ca435cd2a59a4bd9fd6e14883b4803ae3b803d
       conn_monitor: null
       minimum_messages_coefficient: 3
       normalization_constant: 1.03
@@ -51,7 +50,6 @@ blend:
       secret_key: 32e4b52b78e0e8273f31e2ae0826d09b0348d4c66824af4f51ec4ef338082211
   edge:
     backend:
-      node_key: ea1e1dcc31612bd20987f017f0ca435cd2a59a4bd9fd6e14883b4803ae3b803d
       max_dial_attempts_per_peer_per_message: 1
       replication_factor: 1
       protocol_name: /nomos/blend/1.0.0
