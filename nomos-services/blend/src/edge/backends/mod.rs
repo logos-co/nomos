@@ -5,6 +5,8 @@ use nomos_blend_scheduling::{EncapsulatedMessage, membership::Membership};
 use overwatch::overwatch::handle::OverwatchHandle;
 use rand::RngCore;
 
+use crate::edge::settings::BlendConfig;
+
 /// A trait for blend backends that send messages to the blend network.
 #[async_trait::async_trait]
 pub trait BlendBackend<NodeId, RuntimeServiceId>
@@ -14,7 +16,7 @@ where
     type Settings: Clone + Send + Sync + 'static;
 
     fn new<Rng>(
-        settings: Self::Settings,
+        settings: BlendConfig<Self::Settings>,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
         membership: Membership<NodeId>,
         rng: Rng,

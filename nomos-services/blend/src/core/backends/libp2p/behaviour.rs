@@ -49,7 +49,7 @@ where
                 },
                 observation_window_interval_provider,
                 current_membership,
-                config.backend.peer_id(),
+                config.peer_id(),
                 config.backend.protocol_name.clone().into_inner(),
                 poq_verifier,
             ),

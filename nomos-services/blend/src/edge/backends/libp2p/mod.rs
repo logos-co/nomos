@@ -11,6 +11,7 @@ use swarm::BlendSwarm;
 use tokio::sync::mpsc;
 
 use super::BlendBackend;
+use crate::edge::settings::BlendConfig;
 
 const LOG_TARGET: &str = "blend::service::edge::backend::libp2p";
 
@@ -29,7 +30,7 @@ impl<RuntimeServiceId> BlendBackend<PeerId, RuntimeServiceId> for Libp2pBlendBac
     type Settings = Libp2pBlendBackendSettings;
 
     fn new<Rng>(
-        settings: Self::Settings,
+        settings: BlendConfig<Self::Settings>,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
         membership: Membership<PeerId>,
         rng: Rng,
@@ -43,7 +44,7 @@ impl<RuntimeServiceId> BlendBackend<PeerId, RuntimeServiceId> for Libp2pBlendBac
             membership,
             rng,
             swarm_command_receiver,
-            settings.protocol_name.clone().into_inner(),
+            settings.backend.protocol_name.clone().into_inner(),
         );
 
         let (swarm_task_abort_handle, swarm_task_abort_registration) = AbortHandle::new_pair();

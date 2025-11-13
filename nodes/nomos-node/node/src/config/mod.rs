@@ -162,11 +162,6 @@ pub struct NetworkArgs {
 pub struct BlendArgs {
     #[clap(long = "blend-addr", env = "BLEND_ADDR")]
     blend_addr: Option<Multiaddr>,
-
-    // TODO: Use either the raw bytes or the key type directly to delegate error handling to clap
-    #[clap(long = "blend-node-key", env = "BLEND_NODE_KEY")]
-    blend_node_key: Option<String>,
-
     #[clap(long = "blend-num-blend-layers", env = "BLEND_NUM_BLEND_LAYERS")]
     blend_num_blend_layers: Option<usize>,
     #[clap(long = "blend-service-group", action)]
@@ -323,18 +318,12 @@ pub fn update_network<RuntimeServiceId>(
 pub fn update_blend(blend: &mut BlendConfig, blend_args: BlendArgs) -> Result<()> {
     let BlendArgs {
         blend_addr,
-        blend_node_key,
         blend_num_blend_layers,
         ..
     } = blend_args;
 
     if let Some(addr) = blend_addr {
         blend.set_listening_address(addr);
-    }
-
-    if let Some(node_key) = blend_node_key {
-        let mut key_bytes = hex::decode(node_key)?;
-        blend.set_node_key(SecretKey::try_from_bytes(key_bytes.as_mut_slice())?);
     }
 
     if let Some(num_blend_layers) = blend_num_blend_layers {

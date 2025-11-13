@@ -7,11 +7,7 @@ use nomos_blend_service::{
     core::backends::libp2p::Libp2pBlendBackendSettings as Libp2pCoreBlendBackendSettings,
     edge::backends::libp2p::Libp2pBlendBackendSettings as Libp2pEdgeBlendBackendSettings,
 };
-use nomos_libp2p::{
-    Multiaddr,
-    ed25519::{self},
-    protocol_name::StreamProtocol,
-};
+use nomos_libp2p::{Multiaddr, protocol_name::StreamProtocol};
 use num_bigint::BigUint;
 use zksign::SecretKey;
 
@@ -29,9 +25,6 @@ pub fn create_blend_configs(ids: &[[u8; 32]], ports: &[u16]) -> Vec<GeneralBlend
     ids.iter()
         .zip(ports)
         .map(|(id, port)| {
-            let mut node_key_bytes = *id;
-            let node_key = ed25519::SecretKey::try_from_bytes(&mut node_key_bytes)
-                .expect("Failed to generate secret key from bytes");
             let signer = SigningKey::from_bytes(id);
 
             let private_key = Ed25519PrivateKey::from(*id);
@@ -46,7 +39,6 @@ pub fn create_blend_configs(ids: &[[u8; 32]], ports: &[u16]) -> Vec<GeneralBlend
                         "/ip4/127.0.0.1/udp/{port}/quic-v1",
                     ))
                     .unwrap(),
-                    node_key: node_key.clone(),
                     core_peering_degree: 1..=3,
                     minimum_messages_coefficient: NonZeroU64::try_from(1)
                         .expect("Minimum messages coefficient cannot be zero."),
@@ -61,7 +53,6 @@ pub fn create_blend_configs(ids: &[[u8; 32]], ports: &[u16]) -> Vec<GeneralBlend
                 },
                 backend_edge: Libp2pEdgeBlendBackendSettings {
                     max_dial_attempts_per_peer_per_message: 1.try_into().unwrap(),
-                    node_key,
                     protocol_name: StreamProtocol::new("/blend/integration-tests"),
                     replication_factor: 1.try_into().unwrap(),
                 },

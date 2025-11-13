@@ -25,7 +25,7 @@ use tokio::sync::mpsc;
 use tracing::{debug, error, trace, warn};
 
 use super::settings::Libp2pBlendBackendSettings;
-use crate::edge::backends::libp2p::LOG_TARGET;
+use crate::edge::{backends::libp2p::LOG_TARGET, settings::BlendConfig};
 
 #[derive(Debug)]
 pub struct DialAttempt {
@@ -77,7 +77,7 @@ where
     Rng: RngCore + 'static,
 {
     pub(super) fn new(
-        settings: &Libp2pBlendBackendSettings,
+        settings: &BlendConfig<Libp2pBlendBackendSettings>,
         membership: Membership<PeerId>,
         rng: Rng,
         command_receiver: mpsc::Receiver<Command>,
@@ -97,7 +97,8 @@ where
             .build();
         let stream_control = swarm.behaviour().new_control();
 
-        let replication_factor: NonZeroUsize = settings.replication_factor.try_into().unwrap();
+        let replication_factor: NonZeroUsize =
+            settings.backend.replication_factor.try_into().unwrap();
         let membership_size = membership.size();
 
         if membership_size < replication_factor.get() {
@@ -111,7 +112,9 @@ where
             membership,
             rng,
             pending_dials: HashMap::new(),
-            max_dial_attempts_per_connection: settings.max_dial_attempts_per_peer_per_message,
+            max_dial_attempts_per_connection: settings
+                .backend
+                .max_dial_attempts_per_peer_per_message,
             protocol_name,
             replication_factor,
         }
