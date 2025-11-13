@@ -31,7 +31,7 @@ use tx_service::{
 };
 
 use crate::{
-    CryptarchiaNetwork, SamplingRelay,
+    CryptarchiaConsensus, SamplingRelay,
     mempool::adapter::MempoolAdapter,
     network,
     storage::{StorageAdapter as _, adapters::StorageAdapter},
@@ -150,7 +150,7 @@ where
         TimeBackend,
     >(
         service_resources_handle: &OpaqueServiceResourcesHandle<
-            CryptarchiaNetwork<
+            CryptarchiaConsensus<
                 NetworkAdapter,
                 Mempool,
                 MempoolNetAdapter,

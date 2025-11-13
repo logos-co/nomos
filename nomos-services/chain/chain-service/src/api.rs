@@ -136,8 +136,8 @@ where
         Ok(rx.await?)
     }
 
-    /// Process a block through the chain service
-    pub async fn process_leader_block(
+    /// Apply a block through the chain service
+    pub async fn apply_block(
         &self,
         block: Block<Cryptarchia::Tx>,
     ) -> Result<(), DynError> {
@@ -145,7 +145,7 @@ where
 
         let boxed_block = Box::new(block);
         self.relay
-            .send(ConsensusMsg::ProcessLeaderBlock {
+            .send(ConsensusMsg::ApplyBlock {
                 block: boxed_block,
                 tx,
             })

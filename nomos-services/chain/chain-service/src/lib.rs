@@ -143,7 +143,7 @@ pub enum ConsensusMsg<Tx> {
         slot: Slot,
         tx: oneshot::Sender<Option<EpochState>>,
     },
-    ProcessLeaderBlock {
+    ApplyBlock {
         block: Box<Block<Tx>>,
         tx: oneshot::Sender<Result<(), String>>,
     },
@@ -767,8 +767,8 @@ where
                     }
 
                     Some(msg) = self.service_resources_handle.inbound_relay.next() => {
-                        // Handle ProcessBlock separately since it needs async and access to more state
-                        if let ConsensusMsg::ProcessLeaderBlock { block, tx } = msg {
+                        // Handle ApplyBlock separately since it needs async and access to more state
+                        if let ConsensusMsg::ApplyBlock { block, tx } = msg {
                             // TODO: move this into the process_message() function after making the process_message async.
                             match Self::process_block_and_update_state::<RecentBlobStrategy>(
                                     cryptarchia.clone(),
@@ -1029,12 +1029,12 @@ where
                     error!("Could not send epoch state through channel");
                 });
             }
-            ConsensusMsg::ProcessLeaderBlock { .. } => {
-                // ProcessLeaderBlock is handled separately in the run loop where we have async
+            ConsensusMsg::ApplyBlock { .. } => {
+                // ApplyBlock is handled separately in the run loop where we have async
                 // context This should never be reached since we filter it out
                 // before calling process_message
                 panic!(
-                    "ProcessLeaderBlock should be handled in the run loop, not in process_message"
+                    "ApplyBlock should be handled in the run loop, not in process_message"
                 );
             }
         }
