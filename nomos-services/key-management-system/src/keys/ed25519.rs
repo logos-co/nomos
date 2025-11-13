@@ -7,7 +7,10 @@ use poq::CorePathAndSelectors;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use zeroize::ZeroizeOnDrop;
 
-use crate::keys::{errors::KeyError, secured_key::SecuredKey};
+use crate::keys::{
+    errors::KeyError,
+    secured_key::{NoKeyOperator, SecuredKey},
+};
 
 #[derive(PartialEq, Eq, Clone, Debug, ZeroizeOnDrop)]
 pub struct Ed25519Key(ed25519_dalek::SigningKey);
@@ -38,11 +41,13 @@ impl<'de> Deserialize<'de> for Ed25519Key {
     }
 }
 
+#[async_trait::async_trait]
 impl SecuredKey for Ed25519Key {
     type Payload = Bytes;
     type Signature = Signature;
     type PublicKey = VerifyingKey;
     type Error = KeyError;
+    type Operations = NoKeyOperator<Self, Self::Error>;
 
     fn sign(&self, payload: &Self::Payload) -> Result<Self::Signature, Self::Error> {
         Ok(self.0.sign(payload.iter().as_slice()))

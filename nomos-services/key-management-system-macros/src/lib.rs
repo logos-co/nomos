@@ -138,6 +138,7 @@ fn build_key_enum_impl_secured_key(
             type Signature = SignatureEncoding;
             type PublicKey = PublicKeyEncoding;
             type Error = crate::keys::errors::KeyError;
+            type Operations = crate::keys::secured_key::NoKeyOperator<Self, Self::Error>;
 
             #key_enum_impl_secured_key_method_sign
             #key_enum_impl_secured_key_method_sign_multiple
