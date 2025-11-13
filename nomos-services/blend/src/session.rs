@@ -6,7 +6,7 @@ use nomos_blend_scheduling::membership::Membership;
 pub struct CoreSessionInfo<NodeId, CorePoQGenerator> {
     /// The session info available to all nodes.
     pub public: CoreSessionPublicInfo<NodeId>,
-    /// The 
+    /// The core `PoQ` generator component.
     pub core_poq_generator: CorePoQGenerator,
 }
 

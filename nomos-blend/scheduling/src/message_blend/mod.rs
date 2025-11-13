@@ -5,8 +5,9 @@ pub mod crypto;
 pub mod provers;
 
 /// A component responsible for statelessly generating core variant `PoQ`s.
-/// 
-/// The 
+///
+/// The trait provides the public context as well as the key index, while it
+/// assumes the private info is known to the generator.
 pub trait CoreProofOfQuotaGenerator {
     fn generate_poq(
         &self,
