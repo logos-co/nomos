@@ -1,6 +1,6 @@
 pub mod preload;
 
-use crate::{keys::secured_key::SecuredKey, message::KMSOperatorBackend};
+use crate::{keys::secured_key::SecuredKey};
 
 #[async_trait::async_trait]
 pub trait KMSBackend {
@@ -33,6 +33,6 @@ pub trait KMSBackend {
     async fn execute(
         &mut self,
         key_id: &Self::KeyId,
-        operator: KMSOperatorBackend<Self>,
+        operator: <Self::Key as SecuredKey>::Operations,
     ) -> Result<(), Self::Error>;
 }

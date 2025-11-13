@@ -97,14 +97,16 @@ impl KMSBackend for PreloadKMSBackend {
     async fn execute(
         &mut self,
         key_id: &Self::KeyId,
-        operator: KMSOperatorBackend<Self>,
+        operator: <Self::Key as SecuredKey>::Operations,
     ) -> Result<(), Self::Error> {
         let key = self
             .keys
             .get_mut(key_id)
             .ok_or_else(|| PreloadBackendError::NotRegisteredKeyId(key_id.to_owned()))?;
 
-        operator(key).await
+        key.execute(operator)
+            .await
+            .map_err(PreloadBackendError::KeyError)
     }
 }
 
