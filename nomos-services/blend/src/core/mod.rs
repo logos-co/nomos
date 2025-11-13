@@ -1176,23 +1176,21 @@ where
         ),
         Err(e) => {
             tracing::debug!(target: LOG_TARGET, "Failed to decapsulate received message with the current session crypto processor: {e:?}");
-            if let Some(old_crypto_processor) = old_session_cryptographic_processor {
-                match old_crypto_processor
-                    .decapsulate_message_recursive(validated_encapsulated_message)
-                {
-                    Ok(output) => schedule_decapsulated_incoming_message_and_collect_tokens(
-                        output,
-                        scheduler,
-                        blending_token_collector,
-                        current_recovery_checkpoint,
-                    ),
-                    Err(e) => {
-                        tracing::debug!(target: LOG_TARGET, "Failed to decapsulate received message with the old session crypto processor: {e:?}");
-                        current_recovery_checkpoint
-                    }
+            let Some(old_crypto_processor) = old_session_cryptographic_processor else {
+                return current_recovery_checkpoint;
+            };
+            match old_crypto_processor.decapsulate_message_recursive(validated_encapsulated_message)
+            {
+                Ok(output) => schedule_decapsulated_incoming_message_and_collect_tokens(
+                    output,
+                    scheduler,
+                    blending_token_collector,
+                    current_recovery_checkpoint,
+                ),
+                Err(e) => {
+                    tracing::debug!(target: LOG_TARGET, "Failed to decapsulate received message with the old session crypto processor: {e:?}");
+                    current_recovery_checkpoint
                 }
-            } else {
-                current_recovery_checkpoint
             }
         }
     }
