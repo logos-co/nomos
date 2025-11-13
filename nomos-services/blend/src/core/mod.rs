@@ -62,7 +62,9 @@ use tracing::info;
 use crate::{
     core::{
         backends::{PublicInfo, SessionInfo},
-        kms::{PreloadKMSBackendKmsApiExt as _, PreloadKMSBackendPoQGenerator, PreloadKmsService},
+        kms::{
+            KmsPoQAdapter as KmsAdapterTrait, PreloadKMSBackendCorePoQGenerator, PreloadKmsService,
+        },
         processor::{
             CoreCryptographicProcessor, DecapsulatedMessageType, Error,
             MultiLayerDecapsulationOutput,
@@ -202,7 +204,7 @@ where
     MembershipAdapter: membership::Adapter<NodeId = NodeId, Error: Send + Sync + 'static> + Send,
     membership::ServiceMessage<MembershipAdapter>: Send + Sync + 'static,
     ProofsGenerator:
-        CoreAndLeaderProofsGenerator<PreloadKMSBackendPoQGenerator<RuntimeServiceId>> + Send,
+        CoreAndLeaderProofsGenerator<PreloadKMSBackendCorePoQGenerator<RuntimeServiceId>> + Send,
     ProofsVerifier: ProofsVerifierTrait + Clone + Send,
     TimeBackend: nomos_time::backends::TimeBackend + Send,
     ChainService: CryptarchiaServiceData<Tx: Send + Sync>,
@@ -289,13 +291,11 @@ where
 
         let kms_api = async {
             let kms_outbound_relay = overwatch_handle
-                .relay::<PreloadKmsService<RuntimeServiceId>>()
+                .relay::<PreloadKmsService<_>>()
                 .await
                 .expect("Relay with KMS service should be available.");
 
-            KmsServiceApi::<PreloadKmsService<RuntimeServiceId>, RuntimeServiceId>::new(
-                kms_outbound_relay,
-            )
+            KmsServiceApi::new(kms_outbound_relay)
         }
         .await;
 
@@ -354,6 +354,7 @@ where
             CryptarchiaServiceApi<ChainService, RuntimeServiceId>,
             ProofsGenerator,
             ProofsVerifier,
+            KmsServiceApi<PreloadKmsService<RuntimeServiceId>, RuntimeServiceId>,
             RuntimeServiceId,
         >(
             blend_config.clone(),
@@ -361,7 +362,7 @@ where
             clock_stream,
             &mut epoch_handler,
             overwatch_handle.clone(),
-            &kms_api,
+            kms_api,
             last_saved_state,
             state_updater,
         )
@@ -449,6 +450,7 @@ async fn initialize<
     ChainService,
     ProofsGenerator,
     ProofsVerifier,
+    KmsAdapter,
     RuntimeServiceId,
 >(
     blend_config: BlendConfig<Backend::Settings>,
@@ -456,24 +458,21 @@ async fn initialize<
     clock_stream: impl Stream<Item = SlotTick> + Send + Sync + Unpin + 'static,
     epoch_handler: &mut EpochHandler<ChainService, RuntimeServiceId>,
     overwatch_handle: OverwatchHandle<RuntimeServiceId>,
-    kms_api: &KmsServiceApi<PreloadKmsService<RuntimeServiceId>, RuntimeServiceId>,
+    kms_adapter: KmsAdapter,
     mut last_saved_state: Option<ServiceState<Backend::Settings, NetAdapter::BroadcastSettings>>,
     state_updater: StateUpdater<
         Option<RecoveryServiceState<Backend::Settings, NetAdapter::BroadcastSettings>>,
     >,
 ) -> (
-    impl Stream<
-        Item = SessionEvent<
-            CoreSessionInfo<NodeId, PreloadKMSBackendPoQGenerator<RuntimeServiceId>>,
-        >,
-    > + Unpin
+    impl Stream<Item = SessionEvent<CoreSessionInfo<NodeId, KmsAdapter::CorePoQGenerator>>>
+    + Unpin
     + Send
     + 'static,
     impl Stream<Item = SlotTick> + Unpin + Send + Sync + 'static,
     PublicInfo<NodeId>,
     CoreCryptographicProcessor<
         NodeId,
-        PreloadKMSBackendPoQGenerator<RuntimeServiceId>,
+        KmsAdapter::CorePoQGenerator,
         ProofsGenerator,
         ProofsVerifier,
     >,
@@ -493,15 +492,19 @@ where
     Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId> + Sync,
     NetAdapter: NetworkAdapter<RuntimeServiceId, BroadcastSettings: Eq + Hash>,
     ChainService: ChainApi<RuntimeServiceId> + Sync,
-    ProofsGenerator: CoreAndLeaderProofsGenerator<PreloadKMSBackendPoQGenerator<RuntimeServiceId>>,
+    ProofsGenerator: CoreAndLeaderProofsGenerator<KmsAdapter::CorePoQGenerator>,
     ProofsVerifier: ProofsVerifierTrait,
+    // To avoid bubbling up generics everywhere in the configs (current Overwatch limitation), we
+    // know the final key ID type is a `String`, so we constraint the trait impl here instead.
+    KmsAdapter: KmsAdapterTrait<RuntimeServiceId, KeyId = String, CorePoQGenerator: Clone + Send + Sync>
+        + Send
+        + 'static,
     RuntimeServiceId: Clone + Send + Sync + 'static,
 {
     // Initialize membership stream for session and core-related public PoQ inputs.
     let session_stream = async {
         let config = blend_config.clone();
         let zk_sk_id = config.zk.sk_kms_id.clone();
-        let kms_api = kms_api.clone();
         membership_stream.map(
             move |MembershipInfo {
                       membership,
@@ -520,7 +523,7 @@ where
                     membership,
                     session: session_number,
                 },
-                core_poq_generator: kms_api.poq_generator(
+                core_poq_generator: kms_adapter.core_poq_generator(
                     zk_sk_id.clone(),
                     Box::new(
                         core_and_path_selectors
@@ -588,7 +591,7 @@ where
 
     let crypto_processor = CoreCryptographicProcessor::<
         _,
-        PreloadKMSBackendPoQGenerator<RuntimeServiceId>,
+        KmsAdapter::CorePoQGenerator,
         ProofsGenerator,
         ProofsVerifier,
     >::try_new_with_core_condition_check(
@@ -726,6 +729,7 @@ async fn run_event_loop<
     ChainService,
     ProofsGenerator,
     ProofsVerifier,
+    CorePoQGenerator,
     RuntimeServiceId,
 >(
     mut inbound_relay: impl Stream<Item = ServiceMessage<NetAdapter::BroadcastSettings>> + Unpin,
@@ -738,11 +742,7 @@ async fn run_event_loop<
     remaining_clock_stream: &mut (impl Stream<Item = SlotTick> + Send + Sync + Unpin + 'static),
     mut secret_pol_info_stream: impl Stream<Item = PolEpochInfo> + Unpin,
     remaining_session_stream: &mut (
-             impl Stream<
-        Item = SessionEvent<
-            CoreSessionInfo<NodeId, PreloadKMSBackendPoQGenerator<RuntimeServiceId>>,
-        >,
-    > + Unpin
+             impl Stream<Item = SessionEvent<CoreSessionInfo<NodeId, CorePoQGenerator>>> + Unpin
          ),
 
     blend_config: &BlendConfig<Backend::Settings>,
@@ -760,19 +760,14 @@ async fn run_event_loop<
 
     mut crypto_processor: CoreCryptographicProcessor<
         NodeId,
-        PreloadKMSBackendPoQGenerator<RuntimeServiceId>,
+        CorePoQGenerator,
         ProofsGenerator,
         ProofsVerifier,
     >,
     mut public_info: PublicInfo<NodeId>,
     mut recovery_checkpoint: ServiceState<Backend::Settings, NetAdapter::BroadcastSettings>,
 ) -> (
-    CoreCryptographicProcessor<
-        NodeId,
-        PreloadKMSBackendPoQGenerator<RuntimeServiceId>,
-        ProofsGenerator,
-        ProofsVerifier,
-    >,
+    CoreCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>,
     PublicInfo<NodeId>,
     ServiceState<Backend::Settings, NetAdapter::BroadcastSettings>,
 )
@@ -794,19 +789,14 @@ where
                                    + Unpin,
         > + Sync,
     ChainService: ChainApi<RuntimeServiceId> + Sync,
-    ProofsGenerator: CoreAndLeaderProofsGenerator<PreloadKMSBackendPoQGenerator<RuntimeServiceId>>,
+    ProofsGenerator: CoreAndLeaderProofsGenerator<CorePoQGenerator>,
     ProofsVerifier: ProofsVerifierTrait,
     RuntimeServiceId: Sync,
 {
     // An optional crypto processor to handle the old session during transition
     // period.
     let mut old_session_crypto_processor: Option<
-        CoreCryptographicProcessor<
-            NodeId,
-            PreloadKMSBackendPoQGenerator<RuntimeServiceId>,
-            ProofsGenerator,
-            ProofsVerifier,
-        >,
+        CoreCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>,
     > = None;
 
     loop {
@@ -866,6 +856,7 @@ async fn retire<
     ChainService,
     ProofsGenerator,
     ProofsVerifier,
+    CorePoQGenerator,
     RuntimeServiceId,
 >(
     mut blend_messages: impl Stream<Item = IncomingEncapsulatedMessageWithValidatedPublicHeader>
@@ -874,9 +865,7 @@ async fn retire<
     + 'static,
     mut remaining_clock_stream: impl Stream<Item = SlotTick> + Send + Sync + Unpin + 'static,
     mut remaining_session_stream: impl Stream<
-        Item = SessionEvent<
-            CoreSessionInfo<NodeId, PreloadKMSBackendPoQGenerator<RuntimeServiceId>>,
-        >,
+        Item = SessionEvent<CoreSessionInfo<NodeId, CorePoQGenerator>>,
     > + Unpin,
     blend_config: &BlendConfig<Backend::Settings>,
     mut backend: Backend,
@@ -892,7 +881,7 @@ async fn retire<
     mut blending_token_collector: BlendingTokenCollector,
     mut crypto_processor: CoreCryptographicProcessor<
         NodeId,
-        PreloadKMSBackendPoQGenerator<RuntimeServiceId>,
+        CorePoQGenerator,
         ProofsGenerator,
         ProofsVerifier,
     >,
@@ -916,7 +905,7 @@ async fn retire<
                                    + Unpin,
         > + Sync,
     ChainService: ChainApi<RuntimeServiceId> + Sync,
-    ProofsGenerator: CoreAndLeaderProofsGenerator<PreloadKMSBackendPoQGenerator<RuntimeServiceId>>,
+    ProofsGenerator: CoreAndLeaderProofsGenerator<CorePoQGenerator>,
     ProofsVerifier: ProofsVerifierTrait,
     RuntimeServiceId: Sync,
 {
@@ -954,13 +943,14 @@ async fn handle_session_event<
     ProofsVerifier,
     Backend,
     BroadcastSettings,
+    CorePoQGenerator,
     RuntimeServiceId,
 >(
-    event: SessionEvent<CoreSessionInfo<NodeId, PreloadKMSBackendPoQGenerator<RuntimeServiceId>>>,
+    event: SessionEvent<CoreSessionInfo<NodeId, CorePoQGenerator>>,
     settings: &BlendConfig<Backend::Settings>,
     current_cryptographic_processor: CoreCryptographicProcessor<
         NodeId,
-        PreloadKMSBackendPoQGenerator<RuntimeServiceId>,
+        CorePoQGenerator,
         ProofsGenerator,
         ProofsVerifier,
     >,
@@ -974,18 +964,18 @@ async fn handle_session_event<
     ProofsVerifier,
     Backend::Settings,
     BroadcastSettings,
-    RuntimeServiceId,
+    CorePoQGenerator,
 >
 where
     NodeId: Eq + Hash + Clone + Send,
-    ProofsGenerator: CoreAndLeaderProofsGenerator<PreloadKMSBackendPoQGenerator<RuntimeServiceId>>,
+    ProofsGenerator: CoreAndLeaderProofsGenerator<CorePoQGenerator>,
     ProofsVerifier: ProofsVerifierTrait,
     BroadcastSettings: Send + Sync,
     Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId>,
 {
     match event {
         SessionEvent::NewSession(CoreSessionInfo {
-            core_poq_generator: poq_generator,
+            core_poq_generator,
             public:
                 CoreSessionPublicInfo {
                     poq_core_public_inputs: new_core_public_inputs,
@@ -1018,7 +1008,7 @@ where
                 settings.minimum_network_size,
                 &settings.crypto,
                 new_public_info.clone().into(),
-                poq_generator,
+                core_poq_generator,
             ) {
                 Ok(new_processor) => new_processor,
                 Err(e @ (Error::LocalIsNotCoreNode | Error::NetworkIsTooSmall(_))) => {
@@ -1071,41 +1061,25 @@ enum HandleSessionEventOutput<
     ProofsVerifier,
     BackendSettings,
     BroadcastSettings,
-    RuntimeServiceId,
+    CorePoQGenerator,
 > {
     Transitioning {
-        new_crypto_processor: CoreCryptographicProcessor<
-            NodeId,
-            PreloadKMSBackendPoQGenerator<RuntimeServiceId>,
-            ProofsGenerator,
-            ProofsVerifier,
-        >,
-        old_crypto_processor: CoreCryptographicProcessor<
-            NodeId,
-            PreloadKMSBackendPoQGenerator<RuntimeServiceId>,
-            ProofsGenerator,
-            ProofsVerifier,
-        >,
+        new_crypto_processor:
+            CoreCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>,
+        old_crypto_processor:
+            CoreCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>,
         new_public_info: PublicInfo<NodeId>,
         new_recovery_checkpoint: ServiceState<BackendSettings, BroadcastSettings>,
     },
     TransitionCompleted {
-        current_crypto_processor: CoreCryptographicProcessor<
-            NodeId,
-            PreloadKMSBackendPoQGenerator<RuntimeServiceId>,
-            ProofsGenerator,
-            ProofsVerifier,
-        >,
+        current_crypto_processor:
+            CoreCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>,
         current_public_info: PublicInfo<NodeId>,
         current_recovery_checkpoint: ServiceState<BackendSettings, BroadcastSettings>,
     },
     Retiring {
-        old_crypto_processor: CoreCryptographicProcessor<
-            NodeId,
-            PreloadKMSBackendPoQGenerator<RuntimeServiceId>,
-            ProofsGenerator,
-            ProofsVerifier,
-        >,
+        old_crypto_processor:
+            CoreCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>,
         old_public_info: PublicInfo<NodeId>,
         old_recovery_checkpoint: ServiceState<BackendSettings, BroadcastSettings>,
     },
@@ -1142,12 +1116,12 @@ async fn handle_local_data_message<
     BroadcastSettings,
     ProofsGenerator,
     ProofsVerifier,
-    RuntimeServiceId,
+    CorePoQGenerator,
 >(
     local_data_message: ServiceMessage<BroadcastSettings>,
     cryptographic_processor: &mut CoreCryptographicProcessor<
         NodeId,
-        PreloadKMSBackendPoQGenerator<RuntimeServiceId>,
+        CorePoQGenerator,
         ProofsGenerator,
         ProofsVerifier,
     >,
@@ -1166,7 +1140,7 @@ where
     BackendSettings: Clone + Send + Sync,
     BroadcastSettings:
         Serialize + for<'de> Deserialize<'de> + Debug + Hash + Eq + Clone + Send + Sync,
-    ProofsGenerator: CoreAndLeaderProofsGenerator<PreloadKMSBackendPoQGenerator<RuntimeServiceId>>,
+    ProofsGenerator: CoreAndLeaderProofsGenerator<CorePoQGenerator>,
     ProofsVerifier: ProofsVerifierTrait,
 {
     let ServiceMessage::Blend(message_payload) = local_data_message;
@@ -1249,23 +1223,18 @@ fn handle_incoming_blend_message<
     BackendSettings,
     ProofsGenerator,
     ProofsVerifier,
-    RuntimeServiceId,
+    CorePoQGenerator,
 >(
     validated_encapsulated_message: IncomingEncapsulatedMessageWithValidatedPublicHeader,
     scheduler: &mut impl ProcessedMessageScheduler<ProcessedMessage<BroadcastSettings>>,
     cryptographic_processor: &CoreCryptographicProcessor<
         NodeId,
-        PreloadKMSBackendPoQGenerator<RuntimeServiceId>,
+        CorePoQGenerator,
         ProofsGenerator,
         ProofsVerifier,
     >,
     old_session_cryptographic_processor: Option<
-        &CoreCryptographicProcessor<
-            NodeId,
-            PreloadKMSBackendPoQGenerator<RuntimeServiceId>,
-            ProofsGenerator,
-            ProofsVerifier,
-        >,
+        &CoreCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>,
     >,
     blending_token_collector: &mut BlendingTokenCollector,
     current_recovery_checkpoint: ServiceState<BackendSettings, BroadcastSettings>,
@@ -1317,14 +1286,14 @@ fn handle_incoming_blend_message_from_old_session<
     BackendSettings,
     ProofsGenerator,
     ProofsVerifier,
-    RuntimeServiceId,
+    CorePoQGenerator,
 >(
     validated_encapsulated_message: IncomingEncapsulatedMessageWithValidatedPublicHeader,
     // TODO: Use a scheduler only for the old session (not generate new messages)
     scheduler: &mut impl ProcessedMessageScheduler<ProcessedMessage<BroadcastSettings>>,
     cryptographic_processor: &CoreCryptographicProcessor<
         NodeId,
-        PreloadKMSBackendPoQGenerator<RuntimeServiceId>,
+        CorePoQGenerator,
         ProofsGenerator,
         ProofsVerifier,
     >,
@@ -1434,6 +1403,7 @@ async fn handle_release_round<
     NetAdapter,
     ProofsGenerator,
     ProofsVerifier,
+    CorePoQGenerator,
     RuntimeServiceId,
 >(
     RoundInfo {
@@ -1442,7 +1412,7 @@ async fn handle_release_round<
     }: RoundInfo<ProcessedMessage<NetAdapter::BroadcastSettings>, EncapsulatedMessage>,
     cryptographic_processor: &mut CoreCryptographicProcessor<
         NodeId,
-        PreloadKMSBackendPoQGenerator<RuntimeServiceId>,
+        CorePoQGenerator,
         ProofsGenerator,
         ProofsVerifier,
     >,
@@ -1456,7 +1426,7 @@ where
     NodeId: Eq + Hash + 'static,
     Rng: RngCore + Send,
     Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId> + Sync,
-    ProofsGenerator: CoreAndLeaderProofsGenerator<PreloadKMSBackendPoQGenerator<RuntimeServiceId>>,
+    ProofsGenerator: CoreAndLeaderProofsGenerator<CorePoQGenerator>,
     ProofsVerifier: ProofsVerifierTrait,
     NetAdapter: NetworkAdapter<RuntimeServiceId, BroadcastSettings: Eq + Hash> + Sync,
 {
@@ -1542,11 +1512,11 @@ async fn generate_and_try_to_decapsulate_cover_message<
     BroadcastSettings,
     ProofsGenerator,
     ProofsVerifier,
-    RuntimeServiceId,
+    CorePoQGenerator,
 >(
     cryptographic_processor: &mut CoreCryptographicProcessor<
         NodeId,
-        PreloadKMSBackendPoQGenerator<RuntimeServiceId>,
+        CorePoQGenerator,
         ProofsGenerator,
         ProofsVerifier,
     >,
@@ -1557,7 +1527,7 @@ where
     NodeId: Eq + Hash + 'static,
     BackendSettings: Sync,
     BroadcastSettings: Sync,
-    ProofsGenerator: CoreAndLeaderProofsGenerator<PreloadKMSBackendPoQGenerator<RuntimeServiceId>>,
+    ProofsGenerator: CoreAndLeaderProofsGenerator<CorePoQGenerator>,
     ProofsVerifier: ProofsVerifierTrait,
 {
     let encapsulated_cover_message = cryptographic_processor
@@ -1607,6 +1577,7 @@ async fn handle_clock_event<
     ChainService,
     Backend,
     Rng,
+    CorePoQGenerator,
     RuntimeServiceId,
 >(
     slot_tick: SlotTick,
@@ -1614,7 +1585,7 @@ async fn handle_clock_event<
     epoch_handler: &mut EpochHandler<ChainService, RuntimeServiceId>,
     cryptographic_processor: &mut CoreCryptographicProcessor<
         NodeId,
-        PreloadKMSBackendPoQGenerator<RuntimeServiceId>,
+        CorePoQGenerator,
         ProofsGenerator,
         ProofsVerifier,
     >,
@@ -1622,7 +1593,7 @@ async fn handle_clock_event<
     current_public_info: PublicInfo<NodeId>,
 ) -> PublicInfo<NodeId>
 where
-    ProofsGenerator: CoreAndLeaderProofsGenerator<PreloadKMSBackendPoQGenerator<RuntimeServiceId>>,
+    ProofsGenerator: CoreAndLeaderProofsGenerator<CorePoQGenerator>,
     ProofsVerifier: ProofsVerifierTrait,
     ChainService: ChainApi<RuntimeServiceId> + Sync,
     Backend: BlendBackend<NodeId, Rng, ProofsVerifier, RuntimeServiceId>,
@@ -1690,16 +1661,16 @@ where
 
 /// Handle the availability of new secret `PoL` info by passing it to the
 /// underlying cryptographic processor.
-fn handle_new_secret_epoch_info<NodeId, ProofsGenerator, ProofsVerifier, RuntimeServiceId>(
+fn handle_new_secret_epoch_info<NodeId, ProofsGenerator, ProofsVerifier, CorePoQGenerator>(
     new_pol_info: ProofOfLeadershipQuotaInputs,
     cryptographic_processor: &mut CoreCryptographicProcessor<
         NodeId,
-        PreloadKMSBackendPoQGenerator<RuntimeServiceId>,
+        CorePoQGenerator,
         ProofsGenerator,
         ProofsVerifier,
     >,
 ) where
-    ProofsGenerator: CoreAndLeaderProofsGenerator<PreloadKMSBackendPoQGenerator<RuntimeServiceId>>,
+    ProofsGenerator: CoreAndLeaderProofsGenerator<CorePoQGenerator>,
 {
     cryptographic_processor.set_epoch_private(new_pol_info);
 }

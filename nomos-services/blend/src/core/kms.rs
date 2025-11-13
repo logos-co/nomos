@@ -1,5 +1,6 @@
 use core::fmt::{Debug, Display};
 
+use async_trait::async_trait;
 use futures::future::ready;
 use key_management_system::{
     KMSService,
@@ -16,31 +17,42 @@ use tokio::sync::oneshot;
 
 const LOG_TARGET: &str = "blend::service::core::kms-poq-generator";
 
-pub(super) trait PreloadKMSBackendKmsApiExt {
-    type PoQGenerator;
-
-    fn poq_generator(
-        &self,
-        key_id: KeyId,
-        core_path_and_selectors: Box<CorePathAndSelectors>,
-    ) -> Self::PoQGenerator;
-}
-
 pub(super) type PreloadKmsService<RuntimeServiceId> =
     KMSService<PreloadKMSBackend, RuntimeServiceId>;
 
-impl<RuntimeServiceId> PreloadKMSBackendKmsApiExt
-    for KmsServiceApi<PreloadKmsService<RuntimeServiceId>, RuntimeServiceId>
-{
-    type PoQGenerator = PreloadKMSBackendPoQGenerator<RuntimeServiceId>;
+#[async_trait]
+pub trait KmsPoQAdapter<RuntimeServiceId> {
+    type CorePoQGenerator;
+    type KeyId;
 
-    fn poq_generator(
+    fn core_poq_generator(
         &self,
-        key_id: KeyId,
+        key_id: Self::KeyId,
         core_path_and_selectors: Box<CorePathAndSelectors>,
-    ) -> Self::PoQGenerator {
+    ) -> Self::CorePoQGenerator;
+}
+
+pub type PreloadKmsServiceKeyId<RuntimeServiceId> = <KmsServiceApi<
+    PreloadKmsService<RuntimeServiceId>,
+    RuntimeServiceId,
+> as KmsPoQAdapter<RuntimeServiceId>>::KeyId;
+
+#[async_trait]
+impl<RuntimeServiceId> KmsPoQAdapter<RuntimeServiceId>
+    for KmsServiceApi<PreloadKmsService<RuntimeServiceId>, RuntimeServiceId>
+where
+    RuntimeServiceId: AsServiceId<PreloadKmsService<RuntimeServiceId>> + Debug + Sync + Display,
+{
+    type CorePoQGenerator = PreloadKMSBackendCorePoQGenerator<RuntimeServiceId>;
+    type KeyId = KeyId;
+
+    fn core_poq_generator(
+        &self,
+        key_id: Self::KeyId,
+        core_path_and_selectors: Box<CorePathAndSelectors>,
+    ) -> Self::CorePoQGenerator {
         tracing::debug!(target: LOG_TARGET, "Creating KMS-based PoQ generator with key ID {key_id:?} and core path and selectors {core_path_and_selectors:?}");
-        PreloadKMSBackendPoQGenerator {
+        PreloadKMSBackendCorePoQGenerator {
             core_path_and_selectors: *core_path_and_selectors,
             kms_api: self.clone(),
             key_id,
@@ -49,13 +61,14 @@ impl<RuntimeServiceId> PreloadKMSBackendKmsApiExt
 }
 
 #[derive(Clone)]
-pub struct PreloadKMSBackendPoQGenerator<RuntimeServiceId> {
+pub struct PreloadKMSBackendCorePoQGenerator<RuntimeServiceId> {
     core_path_and_selectors: CorePathAndSelectors,
     kms_api: KmsServiceApi<PreloadKmsService<RuntimeServiceId>, RuntimeServiceId>,
     key_id: KeyId,
 }
 
-impl<RuntimeServiceId> CoreProofOfQuotaGenerator for PreloadKMSBackendPoQGenerator<RuntimeServiceId>
+impl<RuntimeServiceId> CoreProofOfQuotaGenerator
+    for PreloadKMSBackendCorePoQGenerator<RuntimeServiceId>
 where
     RuntimeServiceId:
         AsServiceId<PreloadKmsService<RuntimeServiceId>> + Debug + Display + Send + Sync,
