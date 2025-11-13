@@ -40,8 +40,6 @@ pub type PreloadKmsServiceKeyId<RuntimeServiceId> = <KmsServiceApi<
 #[async_trait]
 impl<RuntimeServiceId> KmsPoQAdapter<RuntimeServiceId>
     for KmsServiceApi<PreloadKmsService<RuntimeServiceId>, RuntimeServiceId>
-where
-    RuntimeServiceId: AsServiceId<PreloadKmsService<RuntimeServiceId>> + Debug + Sync + Display,
 {
     type CorePoQGenerator = PreloadKMSBackendCorePoQGenerator<RuntimeServiceId>;
     type KeyId = KeyId;
