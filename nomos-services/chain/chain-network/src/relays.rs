@@ -5,10 +5,8 @@ use std::{
 };
 
 use broadcast_service::{BlockBroadcastMsg, BlockBroadcastService};
-use bytes::Bytes;
 use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 use nomos_core::{
-    block::Block,
     da,
     header::HeaderId,
     mantle::{AuthenticatedMantleTx, TxHash},
@@ -17,9 +15,6 @@ use nomos_da_sampling::{
     DaSamplingService, backend::DaSamplingServiceBackend, mempool::DaMempoolAdapter,
 };
 use nomos_network::{NetworkService, message::BackendNetworkMsg};
-use nomos_storage::{
-    StorageMsg, StorageService, api::chain::StorageChainApi, backends::StorageBackend,
-};
 use nomos_time::{TimeService, TimeServiceMessage, backends::TimeBackend as TimeBackendTrait};
 use overwatch::{
     OpaqueServiceResourcesHandle,
@@ -35,14 +30,11 @@ use crate::{
     ChainNetwork, SamplingRelay,
     mempool::adapter::MempoolAdapter,
     network,
-    storage::{StorageAdapter as _, adapters::StorageAdapter},
 };
 
 type NetworkRelay<NetworkBackend, RuntimeServiceId> =
     OutboundRelay<BackendNetworkMsg<NetworkBackend, RuntimeServiceId>>;
 pub type BroadcastRelay = OutboundRelay<BlockBroadcastMsg>;
-
-pub type StorageRelay<Storage> = OutboundRelay<StorageMsg<Storage>>;
 pub type TimeRelay = OutboundRelay<TimeServiceMessage>;
 
 pub struct ChainNetworkRelays<
@@ -52,7 +44,6 @@ pub struct ChainNetworkRelays<
     MempoolDaAdapter,
     NetworkAdapter,
     SamplingBackend,
-    Storage,
     RuntimeServiceId,
 > where
     Cryptarchia: CryptarchiaServiceData<Tx: Send + Sync>,
@@ -60,15 +51,12 @@ pub struct ChainNetworkRelays<
     MempoolNetAdapter: tx_service::network::NetworkAdapter<RuntimeServiceId>,
     MempoolDaAdapter: DaMempoolAdapter,
     NetworkAdapter: network::NetworkAdapter<RuntimeServiceId>,
-    Storage: StorageBackend + Send + Sync + 'static,
-    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
     SamplingBackend: DaSamplingServiceBackend,
 {
     cryptarchia: CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
     network_relay: NetworkRelay<NetworkAdapter::Backend, RuntimeServiceId>,
     broadcast_relay: BroadcastRelay,
     mempool_adapter: MempoolAdapter<Mempool::Item, Mempool::Item>,
-    storage_adapter: StorageAdapter<Storage, Mempool::Item, RuntimeServiceId>,
     sampling_relay: SamplingRelay<SamplingBackend::BlobId>,
     time_relay: TimeRelay,
     _mempool_adapter: PhantomData<MempoolNetAdapter>,
@@ -82,7 +70,6 @@ impl<
     MempoolDaAdapter,
     NetworkAdapter,
     SamplingBackend,
-    Storage,
     RuntimeServiceId,
 >
     ChainNetworkRelays<
@@ -92,7 +79,6 @@ impl<
         MempoolDaAdapter,
         NetworkAdapter,
         SamplingBackend,
-        Storage,
         RuntimeServiceId,
     >
 where
@@ -121,10 +107,6 @@ where
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
-    Storage: StorageBackend + Send + Sync + 'static,
-    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
-    <Storage as StorageChainApi>::Block:
-        TryFrom<Block<Mempool::Item>> + TryInto<Block<Mempool::Item>>,
 {
     pub async fn new(
         cryptarchia: CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
@@ -132,18 +114,14 @@ where
         broadcast_relay: BroadcastRelay,
         mempool_relay: OutboundRelay<MempoolMsg<HeaderId, Mempool::Item, Mempool::Item, TxHash>>,
         sampling_relay: SamplingRelay<SamplingBackend::BlobId>,
-        storage_relay: StorageRelay<Storage>,
         time_relay: TimeRelay,
     ) -> Self {
-        let storage_adapter =
-            StorageAdapter::<Storage, Mempool::Item, RuntimeServiceId>::new(storage_relay).await;
         let mempool_adapter = MempoolAdapter::new(mempool_relay);
         Self {
             cryptarchia,
             network_relay,
             broadcast_relay,
             mempool_adapter,
-            storage_adapter,
             sampling_relay,
             time_relay,
             _mempool_adapter: PhantomData,
@@ -165,7 +143,6 @@ where
                 Mempool,
                 MempoolNetAdapter,
                 MempoolDaAdapter,
-                Storage,
                 SamplingBackend,
                 SamplingNetworkAdapter,
                 SamplingStorage,
@@ -204,7 +181,6 @@ where
                     RuntimeServiceId,
                 >,
             >
-            + AsServiceId<StorageService<Storage, RuntimeServiceId>>
             + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>,
     {
         let cryptarchia = CryptarchiaServiceApi::<Cryptarchia, _>::new(
@@ -241,12 +217,6 @@ where
             .await
             .expect("Relay connection with SamplingService should succeed");
 
-        let storage_relay = service_resources_handle
-            .overwatch_handle
-            .relay::<StorageService<_, _>>()
-            .await
-            .expect("Relay connection with StorageService should succeed");
-
         let time_relay = service_resources_handle
             .overwatch_handle
             .relay::<TimeService<_, _>>()
@@ -259,7 +229,6 @@ where
             broadcast_relay,
             mempool_relay,
             sampling_relay,
-            storage_relay,
             time_relay,
         )
         .await
@@ -283,12 +252,6 @@ where
 
     pub const fn sampling_relay(&self) -> &SamplingRelay<SamplingBackend::BlobId> {
         &self.sampling_relay
-    }
-
-    pub const fn storage_adapter(
-        &self,
-    ) -> &StorageAdapter<Storage, Mempool::Item, RuntimeServiceId> {
-        &self.storage_adapter
     }
 
     pub const fn time_relay(&self) -> &TimeRelay {

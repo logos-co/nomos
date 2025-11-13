@@ -1,4 +1,4 @@
-use std::{collections::HashSet, hash::Hash, marker::PhantomData, time::SystemTime};
+use std::{hash::Hash, marker::PhantomData, time::SystemTime};
 
 use groth16::{Field as _, Fr};
 use nomos_core::header::{Header, HeaderId};
@@ -26,7 +26,6 @@ impl<NodeId, NetworkAdapterSettings> CryptarchiaConsensusState<NodeId, NetworkAd
     /// given the cryptarchia engine and ledger state.
     pub(crate) fn from_cryptarchia_and_unpruned_blocks(
         cryptarchia: &Cryptarchia,
-        _storage_blocks_to_remove: HashSet<HeaderId>,
     ) -> Result<Self, DynError> {
         let lib = cryptarchia.consensus.lib_branch();
         let Some(lib_ledger_state) = cryptarchia.ledger.state(&lib.id()).cloned() else {
@@ -218,10 +217,6 @@ mod tests {
         );
 
         // Build [`CryptarchiaConsensusState`] with the pruned blocks.
-        let pruned_stale_blocks = pruned_blocks
-            .stale_blocks()
-            .copied()
-            .collect::<HashSet<_>>();
         let recovery_state =
             CryptarchiaConsensusState::<(), ()>::from_cryptarchia_and_unpruned_blocks(
                 &Cryptarchia {
@@ -229,7 +224,6 @@ mod tests {
                     consensus: cryptarchia_engine.clone(),
                     genesis_id: genesis_header_id,
                 },
-                pruned_stale_blocks.clone(),
             )
             .unwrap();
 

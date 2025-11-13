@@ -4,12 +4,11 @@ mod mempool;
 pub mod network;
 mod relays;
 mod states;
-pub mod storage;
 mod sync;
 
 use core::fmt::Debug;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     fmt::Display,
     hash::Hash,
     path::PathBuf,
@@ -17,7 +16,6 @@ use std::{
 };
 
 use broadcast_service::{BlockBroadcastMsg, BlockBroadcastService, BlockInfo, SessionUpdate};
-use bytes::Bytes;
 use chain_service::api::CryptarchiaServiceData;
 use cryptarchia_engine::PrunedBlocks;
 pub use cryptarchia_engine::{Epoch, Slot};
@@ -42,7 +40,6 @@ use nomos_da_sampling::{
 pub use nomos_ledger::EpochState;
 use nomos_ledger::LedgerState;
 use nomos_network::NetworkService;
-use nomos_storage::{StorageService, api::chain::StorageChainApi, backends::StorageBackend};
 use nomos_time::TimeService;
 use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
@@ -96,8 +93,6 @@ pub enum Error {
     Serialisation(#[from] nomos_core::codec::Error),
     #[error("Invalid block: {0}")]
     InvalidBlock(String),
-    #[error("Storage error: {0}")]
-    Storage(String),
     #[error("Mempool error: {0}")]
     Mempool(String),
     #[error("Blob validation failed: {0}")]
@@ -294,7 +289,6 @@ pub struct ChainNetwork<
     Mempool,
     MempoolNetAdapter,
     MempoolDaAdapter,
-    Storage,
     SamplingBackend,
     SamplingNetworkAdapter,
     SamplingStorage,
@@ -316,8 +310,6 @@ pub struct ChainNetwork<
         MempoolNetworkAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>,
     MempoolDaAdapter: DaMempoolAdapter,
     MempoolNetAdapter::Settings: Send + Sync,
-    Storage: StorageBackend + Send + Sync + 'static,
-    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
@@ -336,7 +328,6 @@ impl<
     Mempool,
     MempoolNetAdapter,
     MempoolDaAdapter,
-    Storage,
     SamplingBackend,
     SamplingNetworkAdapter,
     SamplingStorage,
@@ -349,7 +340,6 @@ impl<
         Mempool,
         MempoolNetAdapter,
         MempoolDaAdapter,
-        Storage,
         SamplingBackend,
         SamplingNetworkAdapter,
         SamplingStorage,
@@ -370,8 +360,6 @@ where
         MempoolNetworkAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>,
     MempoolDaAdapter: DaMempoolAdapter,
     MempoolNetAdapter::Settings: Send + Sync,
-    Storage: StorageBackend + Send + Sync + 'static,
-    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
@@ -393,7 +381,6 @@ impl<
     Mempool,
     MempoolNetAdapter,
     MempoolDaAdapter,
-    Storage,
     SamplingBackend,
     SamplingNetworkAdapter,
     SamplingStorage,
@@ -406,7 +393,6 @@ impl<
         Mempool,
         MempoolNetAdapter,
         MempoolDaAdapter,
-        Storage,
         SamplingBackend,
         SamplingNetworkAdapter,
         SamplingStorage,
@@ -443,10 +429,6 @@ where
         + 'static,
     MempoolDaAdapter: DaMempoolAdapter + Send + Sync + 'static,
     MempoolNetAdapter::Settings: Send + Sync,
-    Storage: StorageBackend + Send + Sync + 'static,
-    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
-    <Storage as StorageChainApi>::Block:
-        TryFrom<Block<Mempool::Item>> + TryInto<Block<Mempool::Item>> + Into<Bytes>,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + Send + 'static,
@@ -476,7 +458,6 @@ where
                 RuntimeServiceId,
             >,
         >
-        + AsServiceId<StorageService<Storage, RuntimeServiceId>>
         + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>,
 {
     fn init(
@@ -498,7 +479,6 @@ where
             MempoolDaAdapter,
             NetAdapter,
             SamplingBackend,
-            Storage,
             RuntimeServiceId,
         > = ChainNetworkRelays::from_service_resources_handle::<_, _, _>(
             &self.service_resources_handle,
@@ -552,7 +532,6 @@ where
             NetworkService<_, _>,
             TxMempoolService<_, _, _, _>,
             DaSamplingService<_, _, _, _, _>,
-            StorageService<_, _>,
             TimeService<_, _>
         )
         .await?;
@@ -730,7 +709,6 @@ impl<
     Mempool,
     MempoolNetAdapter,
     MempoolDaAdapter,
-    Storage,
     SamplingBackend,
     SamplingNetworkAdapter,
     SamplingStorage,
@@ -743,7 +721,6 @@ impl<
         Mempool,
         MempoolNetAdapter,
         MempoolDaAdapter,
-        Storage,
         SamplingBackend,
         SamplingNetworkAdapter,
         SamplingStorage,
@@ -779,10 +756,6 @@ where
         + 'static,
     MempoolDaAdapter: DaMempoolAdapter + Send + Sync + 'static,
     MempoolNetAdapter::Settings: Send + Sync,
-    Storage: StorageBackend + Send + Sync + 'static,
-    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
-    <Storage as StorageChainApi>::Block:
-        TryFrom<Block<Mempool::Item>> + TryInto<Block<Mempool::Item>> + Into<Bytes>,
     SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId> + Send,
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
@@ -815,7 +788,6 @@ where
             MempoolDaAdapter,
             NetAdapter,
             SamplingBackend,
-            Storage,
             RuntimeServiceId,
         >,
         state_updater: &StateUpdater<
@@ -854,7 +826,6 @@ where
             MempoolDaAdapter,
             NetAdapter,
             SamplingBackend,
-            Storage,
             RuntimeServiceId,
         >,
     ) where
@@ -936,7 +907,6 @@ where
             MempoolDaAdapter,
             NetAdapter,
             SamplingBackend,
-            Storage,
             RuntimeServiceId,
         >,
     ) where
@@ -979,7 +949,6 @@ where
     ) {
         match <Self as ServiceData>::State::from_cryptarchia_and_unpruned_blocks(
             cryptarchia,
-            HashSet::new(),
         ) {
             Ok(state) => {
                 state_updater.update(Some(state));
@@ -1005,7 +974,6 @@ where
             MempoolDaAdapter,
             NetAdapter,
             SamplingBackend,
-            Storage,
             RuntimeServiceId,
         >,
     ) -> Result<(crate::Cryptarchia, PrunedBlocks<HeaderId>), Error>
@@ -1127,7 +1095,6 @@ where
             MempoolDaAdapter,
             NetAdapter,
             SamplingBackend,
-            Storage,
             RuntimeServiceId,
         >,
     ) -> (crate::Cryptarchia, PrunedBlocks<HeaderId>) {
@@ -1173,7 +1140,6 @@ where
             MempoolDaAdapter,
             NetAdapter,
             SamplingBackend,
-            Storage,
             RuntimeServiceId,
         >,
         previous_sessions: Option<&HashMap<ServiceType, u64>>,
@@ -1206,7 +1172,6 @@ where
             MempoolDaAdapter,
             NetAdapter,
             SamplingBackend,
-            Storage,
             RuntimeServiceId,
         >,
         previous_sessions: Option<&HashMap<ServiceType, u64>>,
