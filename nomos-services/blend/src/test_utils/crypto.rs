@@ -23,8 +23,13 @@ use nomos_core::crypto::ZkHash;
 pub struct MockCoreAndLeaderProofsGenerator;
 
 #[async_trait]
-impl<PoQGenerator> CoreAndLeaderProofsGenerator<PoQGenerator> for MockCoreAndLeaderProofsGenerator {
-    fn new(_settings: ProofsGeneratorSettings, _proof_of_quota_generator: PoQGenerator) -> Self {
+impl<CorePoQGenerator> CoreAndLeaderProofsGenerator<CorePoQGenerator>
+    for MockCoreAndLeaderProofsGenerator
+{
+    fn new(
+        _settings: ProofsGeneratorSettings,
+        _core_proof_of_quota_generator: CorePoQGenerator,
+    ) -> Self {
         Self
     }
 

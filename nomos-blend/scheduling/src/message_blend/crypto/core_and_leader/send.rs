@@ -29,17 +29,17 @@ use crate::{
 ///
 /// This processor is suitable for non-core nodes that want to generate noise
 /// (i.e., cover) traffic along with data payloads.
-pub struct SessionCryptographicProcessor<NodeId, PoQGenerator, ProofsGenerator> {
+pub struct SessionCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator> {
     num_blend_layers: u64,
     /// The non-ephemeral encryption key (NEK) for decapsulating messages.
     non_ephemeral_encryption_key: X25519PrivateKey,
     membership: Membership<NodeId>,
     proofs_generator: ProofsGenerator,
-    _phantom: PhantomData<PoQGenerator>,
+    _phantom: PhantomData<CorePoQGenerator>,
 }
 
-impl<NodeId, PoQGenerator, ProofsGenerator>
-    SessionCryptographicProcessor<NodeId, PoQGenerator, ProofsGenerator>
+impl<NodeId, CorePoQGenerator, ProofsGenerator>
+    SessionCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator>
 {
     pub(super) const fn non_ephemeral_encryption_key(&self) -> &X25519PrivateKey {
         &self.non_ephemeral_encryption_key
@@ -55,17 +55,17 @@ impl<NodeId, PoQGenerator, ProofsGenerator>
     }
 }
 
-impl<NodeId, PoQGenerator, ProofsGenerator>
-    SessionCryptographicProcessor<NodeId, PoQGenerator, ProofsGenerator>
+impl<NodeId, CorePoQGenerator, ProofsGenerator>
+    SessionCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator>
 where
-    ProofsGenerator: CoreAndLeaderProofsGenerator<PoQGenerator>,
+    ProofsGenerator: CoreAndLeaderProofsGenerator<CorePoQGenerator>,
 {
     #[must_use]
     pub fn new(
         settings: &SessionCryptographicProcessorSettings,
         membership: Membership<NodeId>,
         public_info: PoQVerificationInputsMinusSigningKey,
-        proof_of_quota_generator: PoQGenerator,
+        core_proof_of_quota_generator: CorePoQGenerator,
     ) -> Self {
         // Derive the non-ephemeral encryption key
         // from the non-ephemeral signing key.
@@ -79,7 +79,10 @@ where
             num_blend_layers: settings.num_blend_layers,
             non_ephemeral_encryption_key,
             membership,
-            proofs_generator: ProofsGenerator::new(generator_settings, proof_of_quota_generator),
+            proofs_generator: ProofsGenerator::new(
+                generator_settings,
+                core_proof_of_quota_generator,
+            ),
             _phantom: PhantomData,
         }
     }
@@ -93,11 +96,11 @@ where
     }
 }
 
-impl<NodeId, PoQGenerator, ProofsGenerator>
-    SessionCryptographicProcessor<NodeId, PoQGenerator, ProofsGenerator>
+impl<NodeId, CorePoQGenerator, ProofsGenerator>
+    SessionCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator>
 where
     NodeId: Eq + Hash + 'static,
-    ProofsGenerator: CoreAndLeaderProofsGenerator<PoQGenerator>,
+    ProofsGenerator: CoreAndLeaderProofsGenerator<CorePoQGenerator>,
 {
     pub async fn encapsulate_cover_payload(
         &mut self,
@@ -227,7 +230,7 @@ mod test {
         membership::{Membership, Node},
         message_blend::crypto::{
             SessionCryptographicProcessorSettings,
-            test_utils::{MockPoQGenerator, TestEpochChangeCoreAndLeaderProofsGenerator},
+            test_utils::{MockCorePoQGenerator, TestEpochChangeCoreAndLeaderProofsGenerator},
         },
     };
 
@@ -260,7 +263,7 @@ mod test {
                     total_stake: 1,
                 },
             },
-            MockPoQGenerator,
+            MockCorePoQGenerator,
         );
 
         let new_leader_inputs = LeaderInputs {
@@ -307,7 +310,7 @@ mod test {
                     total_stake: 1,
                 },
             },
-            MockPoQGenerator,
+            MockCorePoQGenerator,
         );
 
         let new_private_inputs = ProofOfLeadershipQuotaInputs {

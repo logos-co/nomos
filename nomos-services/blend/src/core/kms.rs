@@ -11,7 +11,7 @@ use key_management_system::{
     keys::errors::KeyError,
 };
 use nomos_blend_message::crypto::proofs::quota::{self, ProofOfQuota, inputs::prove::PublicInputs};
-use nomos_blend_scheduling::message_blend::ProofOfQuotaGenerator;
+use nomos_blend_scheduling::message_blend::CoreProofOfQuotaGenerator;
 use nomos_core::crypto::ZkHash;
 use overwatch::services::AsServiceId;
 use poq::CorePathAndSelectors;
@@ -54,7 +54,7 @@ pub struct PreloadKMSBackendPoQGenerator<RuntimeServiceId> {
     key_id: KeyId,
 }
 
-impl<RuntimeServiceId> ProofOfQuotaGenerator for PreloadKMSBackendPoQGenerator<RuntimeServiceId>
+impl<RuntimeServiceId> CoreProofOfQuotaGenerator for PreloadKMSBackendPoQGenerator<RuntimeServiceId>
 where
     RuntimeServiceId:
         AsServiceId<PreloadKmsService<RuntimeServiceId>> + Debug + Display + Send + Sync,

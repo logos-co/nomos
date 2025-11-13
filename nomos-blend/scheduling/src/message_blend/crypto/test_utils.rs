@@ -21,7 +21,7 @@ use nomos_blend_message::{
 use nomos_core::crypto::ZkHash;
 
 use crate::message_blend::{
-    ProofOfQuotaGenerator,
+    CoreProofOfQuotaGenerator,
     provers::{
         BlendLayerProof, ProofsGeneratorSettings, core_and_leader::CoreAndLeaderProofsGenerator,
         leader::LeaderProofsGenerator,
@@ -60,9 +60,9 @@ impl LeaderProofsGenerator for TestEpochChangeLeaderProofsGenerator {
     }
 }
 
-pub struct MockPoQGenerator;
+pub struct MockCorePoQGenerator;
 
-impl ProofOfQuotaGenerator for MockPoQGenerator {
+impl CoreProofOfQuotaGenerator for MockCorePoQGenerator {
     fn generate_poq(
         &self,
         _public_inputs: &PublicInputs,
@@ -83,10 +83,10 @@ pub struct TestEpochChangeCoreAndLeaderProofsGenerator(
 );
 
 #[async_trait]
-impl<PoQGenerator> CoreAndLeaderProofsGenerator<PoQGenerator>
+impl<CorePoQGenerator> CoreAndLeaderProofsGenerator<CorePoQGenerator>
     for TestEpochChangeCoreAndLeaderProofsGenerator
 {
-    fn new(settings: ProofsGeneratorSettings, _proof_of_quota_generator: PoQGenerator) -> Self {
+    fn new(settings: ProofsGeneratorSettings, _proof_of_quota_generator: CorePoQGenerator) -> Self {
         Self(settings, None)
     }
 

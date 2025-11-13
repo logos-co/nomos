@@ -15,7 +15,7 @@ use nomos_blend_message::crypto::{
 };
 use nomos_core::crypto::ZkHash;
 
-use crate::message_blend::ProofOfQuotaGenerator;
+use crate::message_blend::CoreProofOfQuotaGenerator;
 
 pub const fn poq_public_inputs_from_session_public_inputs_and_signing_key(
     (
@@ -91,7 +91,7 @@ impl PoQGeneratorFromPrivateCoreQuotaInputs {
     }
 }
 
-impl ProofOfQuotaGenerator for PoQGeneratorFromPrivateCoreQuotaInputs {
+impl CoreProofOfQuotaGenerator for PoQGeneratorFromPrivateCoreQuotaInputs {
     fn generate_poq(
         &self,
         public_inputs: &PoQPublicInputs,

@@ -4,7 +4,10 @@ use nomos_core::crypto::ZkHash;
 pub mod crypto;
 pub mod provers;
 
-pub trait ProofOfQuotaGenerator {
+/// A component responsible for statelessly generating core variant `PoQ`s.
+/// 
+/// The 
+pub trait CoreProofOfQuotaGenerator {
     fn generate_poq(
         &self,
         public_inputs: &PublicInputs,

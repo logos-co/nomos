@@ -10,7 +10,7 @@ use nomos_blend_message::crypto::{
     random_sized_bytes,
 };
 use nomos_blend_scheduling::message_blend::{
-    ProofOfQuotaGenerator,
+    CoreProofOfQuotaGenerator,
     provers::{
         BlendLayerProof, ProofsGeneratorSettings,
         core::{CoreProofsGenerator as _, RealCoreProofsGenerator},
@@ -29,17 +29,21 @@ const DUMMY_POQ_ZK_NULLIFIER: ZkHash = ZkHash::ZERO;
 // by the Blend service.
 /// `PoQ` generator that runs the actual generation logic for core `PoQ` proofs,
 /// while it always returns mocked proofs for leadership variants.
-pub struct CoreProofsGenerator<PoQGenerator>(RealCoreProofsGenerator<PoQGenerator>);
+pub struct CoreProofsGenerator<CorePoQGenerator>(RealCoreProofsGenerator<CorePoQGenerator>);
 
 #[async_trait]
-impl<PoQGenerator> CoreAndLeaderProofsGenerator<PoQGenerator> for CoreProofsGenerator<PoQGenerator>
+impl<CorePoQGenerator> CoreAndLeaderProofsGenerator<CorePoQGenerator>
+    for CoreProofsGenerator<CorePoQGenerator>
 where
-    PoQGenerator: ProofOfQuotaGenerator + Clone + Send + Sync + 'static,
+    CorePoQGenerator: CoreProofOfQuotaGenerator + Clone + Send + Sync + 'static,
 {
-    fn new(settings: ProofsGeneratorSettings, proof_of_quota_generator: PoQGenerator) -> Self {
+    fn new(
+        settings: ProofsGeneratorSettings,
+        core_proof_of_quota_generator: CorePoQGenerator,
+    ) -> Self {
         Self(RealCoreProofsGenerator::new(
             settings,
-            proof_of_quota_generator,
+            core_proof_of_quota_generator,
         ))
     }
 
@@ -196,7 +200,7 @@ mod core_to_core_tests {
         },
     };
     use nomos_blend_scheduling::message_blend::{
-        ProofOfQuotaGenerator,
+        CoreProofOfQuotaGenerator,
         provers::{
             BlendLayerProof, ProofsGeneratorSettings,
             core_and_leader::CoreAndLeaderProofsGenerator as _,
@@ -265,7 +269,7 @@ mod core_to_core_tests {
         }
     }
 
-    impl ProofOfQuotaGenerator for PoQGeneratorWithPrivateInfo {
+    impl CoreProofOfQuotaGenerator for PoQGeneratorWithPrivateInfo {
         fn generate_poq(
             &self,
             public_inputs: &PublicInputs,

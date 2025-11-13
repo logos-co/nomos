@@ -4,7 +4,7 @@ use nomos_blend_message::crypto::proofs::quota::inputs::prove::{
 };
 
 use crate::message_blend::{
-    ProofOfQuotaGenerator,
+    CoreProofOfQuotaGenerator,
     provers::{
         BlendLayerProof, ProofsGeneratorSettings,
         core::{CoreProofsGenerator as _, RealCoreProofsGenerator},
@@ -25,9 +25,12 @@ const LOG_TARGET: &str = "blend::scheduling::proofs::core-and-leader";
 /// providing new (public) epoch information, so as not to block cover message
 /// generation for those nodes with low stake.
 #[async_trait]
-pub trait CoreAndLeaderProofsGenerator<PoQGenerator>: Sized {
+pub trait CoreAndLeaderProofsGenerator<CorePoQGenerator>: Sized {
     /// Instantiate a new generator for the duration of a session.
-    fn new(settings: ProofsGeneratorSettings, proof_of_quota_generator: PoQGenerator) -> Self;
+    fn new(
+        settings: ProofsGeneratorSettings,
+        core_proof_of_quota_generator: CorePoQGenerator,
+    ) -> Self;
     /// Notify the proof generator that a new epoch has started mid-session.
     /// This will trigger core proof re-generation due to the change in the set
     /// of public inputs. Previously computed leader proofs are discarded and
@@ -46,12 +49,12 @@ pub trait CoreAndLeaderProofsGenerator<PoQGenerator>: Sized {
     async fn get_next_leader_proof(&mut self) -> Option<BlendLayerProof>;
 }
 
-pub struct RealCoreAndLeaderProofsGenerator<PoQGenerator> {
-    core_proofs_generator: RealCoreProofsGenerator<PoQGenerator>,
+pub struct RealCoreAndLeaderProofsGenerator<CorePoQGenerator> {
+    core_proofs_generator: RealCoreProofsGenerator<CorePoQGenerator>,
     leader_proofs_generator: Option<RealLeaderProofsGenerator>,
 }
 
-impl<PoQGenerator> RealCoreAndLeaderProofsGenerator<PoQGenerator> {
+impl<CorePoQGenerator> RealCoreAndLeaderProofsGenerator<CorePoQGenerator> {
     #[cfg(test)]
     pub const fn override_settings(&mut self, new_settings: ProofsGeneratorSettings) {
         self.core_proofs_generator.settings = new_settings;
@@ -62,12 +65,15 @@ impl<PoQGenerator> RealCoreAndLeaderProofsGenerator<PoQGenerator> {
 }
 
 #[async_trait]
-impl<PoQGenerator> CoreAndLeaderProofsGenerator<PoQGenerator>
-    for RealCoreAndLeaderProofsGenerator<PoQGenerator>
+impl<CorePoQGenerator> CoreAndLeaderProofsGenerator<CorePoQGenerator>
+    for RealCoreAndLeaderProofsGenerator<CorePoQGenerator>
 where
-    PoQGenerator: ProofOfQuotaGenerator + Clone + Send + Sync + 'static,
+    CorePoQGenerator: CoreProofOfQuotaGenerator + Clone + Send + Sync + 'static,
 {
-    fn new(settings: ProofsGeneratorSettings, proof_of_quota_generator: PoQGenerator) -> Self {
+    fn new(
+        settings: ProofsGeneratorSettings,
+        core_proof_of_quota_generator: CorePoQGenerator,
+    ) -> Self {
         Self {
             core_proofs_generator: RealCoreProofsGenerator::new(settings, proof_of_quota_generator),
             leader_proofs_generator: None,

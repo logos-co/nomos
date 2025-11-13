@@ -3,10 +3,11 @@ use nomos_blend_scheduling::membership::Membership;
 
 #[derive(Clone)]
 /// All info that Blend services need to be available on new sessions.
-pub struct CoreSessionInfo<NodeId, PoQGenerator> {
-    // The session info available to all nodes.
+pub struct CoreSessionInfo<NodeId, CorePoQGenerator> {
+    /// The session info available to all nodes.
     pub public: CoreSessionPublicInfo<NodeId>,
-    pub poq_generator: PoQGenerator,
+    /// The 
+    pub core_poq_generator: CorePoQGenerator,
 }
 
 #[derive(Clone)]

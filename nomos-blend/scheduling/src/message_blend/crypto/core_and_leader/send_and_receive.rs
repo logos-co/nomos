@@ -30,15 +30,17 @@ use crate::{
 /// Each instance is meant to be used during a single session.
 ///
 /// This processor is suitable for core nodes.
-pub struct SessionCryptographicProcessor<NodeId, PoQGenerator, ProofsGenerator, ProofsVerifier> {
-    sender_processor: SenderSessionCryptographicProcessor<NodeId, PoQGenerator, ProofsGenerator>,
+pub struct SessionCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>
+{
+    sender_processor:
+        SenderSessionCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator>,
     proofs_verifier: ProofsVerifier,
 }
 
-impl<NodeId, PoQGenerator, ProofsGenerator, ProofsVerifier>
-    SessionCryptographicProcessor<NodeId, PoQGenerator, ProofsGenerator, ProofsVerifier>
+impl<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>
+    SessionCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>
 where
-    ProofsGenerator: CoreAndLeaderProofsGenerator<PoQGenerator>,
+    ProofsGenerator: CoreAndLeaderProofsGenerator<CorePoQGenerator>,
     ProofsVerifier: ProofsVerifierTrait,
 {
     #[must_use]
@@ -46,24 +48,24 @@ where
         settings: &SessionCryptographicProcessorSettings,
         membership: Membership<NodeId>,
         public_info: PoQVerificationInputsMinusSigningKey,
-        proof_of_quota_generator: PoQGenerator,
+        core_proof_of_quota_generator: CorePoQGenerator,
     ) -> Self {
         Self {
             sender_processor: SenderSessionCryptographicProcessor::new(
                 settings,
                 membership,
                 public_info,
-                proof_of_quota_generator,
+                core_proof_of_quota_generator,
             ),
             proofs_verifier: ProofsVerifier::new(public_info),
         }
     }
 }
 
-impl<NodeId, PoQGenerator, ProofsGenerator, ProofsVerifier>
-    SessionCryptographicProcessor<NodeId, PoQGenerator, ProofsGenerator, ProofsVerifier>
+impl<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>
+    SessionCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>
 where
-    ProofsGenerator: CoreAndLeaderProofsGenerator<PoQGenerator>,
+    ProofsGenerator: CoreAndLeaderProofsGenerator<CorePoQGenerator>,
     ProofsVerifier: ProofsVerifierTrait,
 {
     pub fn rotate_epoch(&mut self, new_epoch_public: LeaderInputs) {
@@ -73,8 +75,8 @@ where
     }
 }
 
-impl<NodeId, PoQGenerator, ProofsGenerator, ProofsVerifier>
-    SessionCryptographicProcessor<NodeId, PoQGenerator, ProofsGenerator, ProofsVerifier>
+impl<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>
+    SessionCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>
 where
     ProofsVerifier: ProofsVerifierTrait,
 {
@@ -83,16 +85,16 @@ where
     }
 }
 
-impl<NodeId, PoQGenerator, ProofsGenerator, ProofsVerifier>
-    SessionCryptographicProcessor<NodeId, PoQGenerator, ProofsGenerator, ProofsVerifier>
+impl<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>
+    SessionCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>
 {
     pub fn take_verifier(self) -> ProofsVerifier {
         self.proofs_verifier
     }
 }
 
-impl<NodeId, PoQGenerator, ProofsGenerator, ProofsVerifier>
-    SessionCryptographicProcessor<NodeId, PoQGenerator, ProofsGenerator, ProofsVerifier>
+impl<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>
+    SessionCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>
 where
     ProofsVerifier: ProofsVerifierTrait,
 {
@@ -116,18 +118,18 @@ where
 
 // `Deref` and `DerefMut` so we can call the `encapsulate*` methods exposed by
 // the send-only processor.
-impl<NodeId, PoQGenerator, ProofsGenerator, ProofsVerifier> Deref
-    for SessionCryptographicProcessor<NodeId, PoQGenerator, ProofsGenerator, ProofsVerifier>
+impl<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier> Deref
+    for SessionCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>
 {
-    type Target = SenderSessionCryptographicProcessor<NodeId, PoQGenerator, ProofsGenerator>;
+    type Target = SenderSessionCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator>;
 
     fn deref(&self) -> &Self::Target {
         &self.sender_processor
     }
 }
 
-impl<NodeId, PoQGenerator, ProofsGenerator, ProofsVerifier> DerefMut
-    for SessionCryptographicProcessor<NodeId, PoQGenerator, ProofsGenerator, ProofsVerifier>
+impl<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier> DerefMut
+    for SessionCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.sender_processor
@@ -153,7 +155,7 @@ mod test {
         message_blend::crypto::{
             SessionCryptographicProcessorSettings,
             test_utils::{
-                MockPoQGenerator, TestEpochChangeCoreAndLeaderProofsGenerator,
+                MockCorePoQGenerator, TestEpochChangeCoreAndLeaderProofsGenerator,
                 TestEpochChangeProofsVerifier,
             },
         },
@@ -189,7 +191,7 @@ mod test {
                     total_stake: 1,
                 },
             },
-            MockPoQGenerator,
+            MockCorePoQGenerator,
         );
 
         let new_leader_inputs = LeaderInputs {

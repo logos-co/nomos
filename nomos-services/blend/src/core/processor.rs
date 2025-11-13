@@ -23,14 +23,14 @@ use nomos_blend_scheduling::{
     },
 };
 
-pub struct CoreCryptographicProcessor<NodeId, PoQGenerator, ProofsGenerator, ProofsVerifier>(
-    SessionCryptographicProcessor<NodeId, PoQGenerator, ProofsGenerator, ProofsVerifier>,
+pub struct CoreCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>(
+    SessionCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>,
 );
 
-impl<NodeId, PoQGenerator, ProofsGenerator, ProofsVerifier>
-    CoreCryptographicProcessor<NodeId, PoQGenerator, ProofsGenerator, ProofsVerifier>
+impl<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>
+    CoreCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>
 where
-    ProofsGenerator: CoreAndLeaderProofsGenerator<PoQGenerator>,
+    ProofsGenerator: CoreAndLeaderProofsGenerator<CorePoQGenerator>,
     ProofsVerifier: ProofsVerifierTrait,
 {
     pub fn try_new_with_core_condition_check(
@@ -38,7 +38,7 @@ where
         minimum_network_size: NonZeroU64,
         settings: &SessionCryptographicProcessorSettings,
         public_info: PoQVerificationInputsMinusSigningKey,
-        proof_of_quota_generator: PoQGenerator,
+        core_proof_of_quota_generator: CorePoQGenerator,
     ) -> Result<Self, Error>
     where
         NodeId: Eq + Hash,
@@ -52,7 +52,7 @@ where
                 membership,
                 settings,
                 public_info,
-                proof_of_quota_generator,
+                core_proof_of_quota_generator,
             ))
         }
     }
@@ -61,13 +61,13 @@ where
         membership: Membership<NodeId>,
         settings: &SessionCryptographicProcessorSettings,
         public_info: PoQVerificationInputsMinusSigningKey,
-        proof_of_quota_generator: PoQGenerator,
+        core_proof_of_quota_generator: CorePoQGenerator,
     ) -> Self {
         Self(SessionCryptographicProcessor::new(
             settings,
             membership,
             public_info,
-            proof_of_quota_generator,
+            core_proof_of_quota_generator,
         ))
     }
 }
@@ -113,8 +113,8 @@ impl From<DecapsulationOutput> for DecapsulatedMessageType {
     }
 }
 
-impl<NodeId, PoQGenerator, ProofsGenerator, ProofsVerifier>
-    CoreCryptographicProcessor<NodeId, PoQGenerator, ProofsGenerator, ProofsVerifier>
+impl<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>
+    CoreCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>
 where
     ProofsVerifier: ProofsVerifierTrait,
 {
@@ -172,19 +172,19 @@ where
     }
 }
 
-impl<NodeId, PoQGenerator, ProofsGenerator, ProofsVerifier> Deref
-    for CoreCryptographicProcessor<NodeId, PoQGenerator, ProofsGenerator, ProofsVerifier>
+impl<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier> Deref
+    for CoreCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>
 {
     type Target =
-        SessionCryptographicProcessor<NodeId, PoQGenerator, ProofsGenerator, ProofsVerifier>;
+        SessionCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl<NodeId, PoQGenerator, ProofsGenerator, ProofsVerifier> DerefMut
-    for CoreCryptographicProcessor<NodeId, PoQGenerator, ProofsGenerator, ProofsVerifier>
+impl<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier> DerefMut
+    for CoreCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0

@@ -12,7 +12,7 @@ use nomos_blend_message::crypto::{
 };
 
 use crate::message_blend::{
-    ProofOfQuotaGenerator,
+    CoreProofOfQuotaGenerator,
     provers::{BlendLayerProof, ProofsGeneratorSettings},
 };
 
@@ -46,7 +46,7 @@ pub struct RealCoreProofsGenerator<PoQGenerator> {
 #[async_trait]
 impl<PoQGenerator> CoreProofsGenerator<PoQGenerator> for RealCoreProofsGenerator<PoQGenerator>
 where
-    PoQGenerator: ProofOfQuotaGenerator + Clone + Send + Sync + 'static,
+    PoQGenerator: CoreProofOfQuotaGenerator + Clone + Send + Sync + 'static,
 {
     fn new(settings: ProofsGeneratorSettings, proof_of_quota_generator: PoQGenerator) -> Self {
         Self {
@@ -90,7 +90,7 @@ where
 
 impl<PoQGenerator> RealCoreProofsGenerator<PoQGenerator>
 where
-    PoQGenerator: ProofOfQuotaGenerator + Clone + Send + Sync + 'static,
+    PoQGenerator: CoreProofOfQuotaGenerator + Clone + Send + Sync + 'static,
 {
     // This will kill the previous running task, if any, since we swap the receiver
     // channel, hence the old task will fail to send new proofs and will abort on
@@ -114,7 +114,7 @@ fn create_proof_stream<Generator>(
     starting_key_index: u64,
 ) -> impl Stream<Item = BlendLayerProof>
 where
-    Generator: ProofOfQuotaGenerator + Clone + Send + Sync + 'static,
+    Generator: CoreProofOfQuotaGenerator + Clone + Send + Sync + 'static,
 {
     let proofs_to_generate = public_inputs
         .core

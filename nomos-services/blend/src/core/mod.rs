@@ -490,7 +490,7 @@ where
                     membership,
                     session: session_number,
                 },
-                poq_generator: kms_api.poq_generator(
+                core_poq_generator: kms_api.poq_generator(
                     zk_sk_id.clone(),
                     Box::new(
                         core_and_path_selectors
@@ -566,7 +566,7 @@ where
         blend_config.minimum_network_size,
         &blend_config.crypto,
         current_public_info.clone().into(),
-        current_membership_info.poq_generator,
+        current_membership_info.core_poq_generator,
     )
     .expect("The initial membership should satisfy the core node condition");
 
@@ -891,7 +891,7 @@ where
 {
     match event {
         SessionEvent::NewSession(CoreSessionInfo {
-            poq_generator,
+            core_poq_generator: poq_generator,
             public:
                 CoreSessionPublicInfo {
                     poq_core_public_inputs: new_core_public_inputs,
