@@ -56,10 +56,12 @@ macro_rules! adapter_for {
             async fn start_sampling(
                 &mut self,
                 blob_id: BlobId,
+                session: SessionNumber,
             ) -> Result<(), DynError> {
                 self.network_relay
                     .send(DaNetworkMsg::Process($DaNetworkMessage::RequestSample {
                         blob_id,
+                        session,
                     }))
                     .await
                     .expect("RequestSample message should have been sent");
@@ -162,10 +164,12 @@ macro_rules! adapter_for {
             async fn request_commitments(
                 &self,
                 blob_id: BlobId,
+                session: SessionNumber,
             ) -> Result<(), DynError> {
                 self.network_relay
                     .send(DaNetworkMsg::Process($DaNetworkMessage::RequestCommitments {
                         blob_id,
+                        session,
                     }))
                     .await
                     .expect("RequestCommitments message should have been sent");
