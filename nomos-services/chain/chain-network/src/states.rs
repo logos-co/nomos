@@ -155,7 +155,7 @@ mod tests {
             },
         };
 
-        let (cryptarchia_engine, pruned_blocks) = {
+        let (cryptarchia_engine, _pruned_blocks) = {
             // Boostrapping mode since we are pursposefully adding old forks to test the
             // recovery mechanism.
             let mut cryptarchia = cryptarchia_engine::Cryptarchia::<_>::from_lib(

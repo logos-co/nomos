@@ -366,10 +366,9 @@ mod tests {
 
     #[tokio::test]
     async fn no_peers_configured() {
-        let (cryptarchia, _) = InitialBlockDownload::new(
+        let cryptarchia = InitialBlockDownload::new(
             config(HashSet::new()),
             new_cryptarchia(),
-            HashSet::new(),
             MockNetworkAdapter::<()>::new(HashMap::new()),
             process_block,
         )
@@ -394,10 +393,9 @@ mod tests {
             2,
             false,
         );
-        let (cryptarchia, _) = InitialBlockDownload::new(
+        let cryptarchia = InitialBlockDownload::new(
             config([NodeId(0)].into()),
             new_cryptarchia(),
-            HashSet::new(),
             MockNetworkAdapter::<()>::new(HashMap::from([(NodeId(0), peer.clone())])),
             process_block,
         )
@@ -422,10 +420,9 @@ mod tests {
             2,
             false,
         );
-        let (cryptarchia, _) = InitialBlockDownload::new(
+        let cryptarchia = InitialBlockDownload::new(
             config([NodeId(0)].into()),
             new_cryptarchia(),
-            HashSet::new(),
             MockNetworkAdapter::<()>::new(HashMap::from([(NodeId(0), peer.clone())])),
             process_block,
         )
@@ -460,10 +457,9 @@ mod tests {
             2,
             false,
         );
-        let (cryptarchia, _) = InitialBlockDownload::new(
+        let cryptarchia = InitialBlockDownload::new(
             config([NodeId(0), NodeId(1)].into()),
             new_cryptarchia(),
-            HashSet::new(),
             MockNetworkAdapter::<()>::new(HashMap::from([
                 (NodeId(0), peer0.clone()),
                 (NodeId(1), peer1.clone()),
@@ -505,10 +501,9 @@ mod tests {
             2,
             false,
         );
-        let (cryptarchia, _) = InitialBlockDownload::new(
+        let cryptarchia = InitialBlockDownload::new(
             config([NodeId(0), NodeId(1)].into()),
             new_cryptarchia(),
-            HashSet::new(),
             MockNetworkAdapter::<()>::new(HashMap::from([
                 (NodeId(0), peer0.clone()),
                 (NodeId(1), peer1.clone()),
@@ -552,7 +547,6 @@ mod tests {
         let result = InitialBlockDownload::new(
             config([NodeId(0), NodeId(1)].into()),
             new_cryptarchia(),
-            HashSet::new(),
             MockNetworkAdapter::<()>::new(HashMap::from([
                 (NodeId(0), peer0.clone()),
                 (NodeId(1), peer1.clone()),
@@ -591,10 +585,9 @@ mod tests {
             2,
             false,
         );
-        let (cryptarchia, _) = InitialBlockDownload::new(
+        let cryptarchia = InitialBlockDownload::new(
             config([NodeId(0), NodeId(1)].into()),
             new_cryptarchia(),
-            HashSet::new(),
             MockNetworkAdapter::<()>::new(HashMap::from([
                 (NodeId(0), peer0.clone()),
                 (NodeId(1), peer1.clone()),
@@ -638,7 +631,6 @@ mod tests {
         let result = InitialBlockDownload::new(
             config([NodeId(0), NodeId(1)].into()),
             new_cryptarchia(),
-            HashSet::new(),
             MockNetworkAdapter::<()>::new(HashMap::from([
                 (NodeId(0), peer0.clone()),
                 (NodeId(1), peer1.clone()),
@@ -679,10 +671,9 @@ mod tests {
             2,
             false,
         );
-        let (cryptarchia, _) = InitialBlockDownload::new(
+        let cryptarchia = InitialBlockDownload::new(
             config([NodeId(0), NodeId(1)].into()),
             new_cryptarchia(),
-            HashSet::new(),
             MockNetworkAdapter::<()>::new(HashMap::from([
                 (NodeId(0), peer0.clone()),
                 (NodeId(1), peer1.clone()),
@@ -736,7 +727,6 @@ mod tests {
         let result = InitialBlockDownload::new(
             config([NodeId(0), NodeId(1)].into()),
             new_cryptarchia(),
-            HashSet::new(),
             MockNetworkAdapter::<()>::new(HashMap::from([
                 (NodeId(0), peer0.clone()),
                 (NodeId(1), peer1.clone()),
@@ -752,9 +742,8 @@ mod tests {
 
     async fn process_block(
         mut cryptarchia: Cryptarchia,
-        storage_blocks_to_remove: HashSet<HeaderId>,
         block: Block,
-    ) -> Result<(Cryptarchia, HashSet<HeaderId>), Error> {
+    ) -> Result<Cryptarchia, Error> {
         // Add the block only to the consensus, not to the ledger state
         // because the mocked block doesn't have a proof.
         // It's enough because the tests doesn't check the ledger state.
@@ -763,7 +752,7 @@ mod tests {
             .receive_block(block.id, block.parent, block.slot)
             .map_err(ChainError::from)?;
         cryptarchia.consensus = consensus;
-        Ok((cryptarchia, storage_blocks_to_remove))
+        Ok(cryptarchia)
     }
 
     fn contain(block: &Block, cryptarchia: &Cryptarchia) -> bool {
