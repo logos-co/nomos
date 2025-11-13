@@ -47,11 +47,13 @@ use crate::mempool::{Blob, DaMempoolAdapter};
 const HISTORICAL_SAMPLING_TIMEOUT: Duration = Duration::from_secs(30);
 
 type HistoricFallbackResult = (BlobId, Option<(Vec<DaLightShare>, DaSharesCommitments)>);
+type LongTask = BoxFuture<'static, ()>;
+type HistoricSamplingFallbackTask = BoxFuture<'static, HistoricFallbackResult>;
+type SamplingContinuationTask = BoxFuture<'static, (Blob, Option<DaSharesCommitments>)>;
 
 struct PendingTasks<'a> {
     long_tasks: &'a mut FuturesUnordered<BoxFuture<'static, ()>>,
-    sampling_continuations:
-        &'a mut FuturesUnordered<BoxFuture<'static, (Blob, Option<DaSharesCommitments>)>>,
+    sampling_continuations: &'a mut FuturesUnordered<SamplingContinuationTask>,
     delayed_sdp_sampling_triggers: &'a mut FuturesUnordered<BoxFuture<'static, Blob>>,
     historic_fallback_continuations:
         &'a mut FuturesUnordered<BoxFuture<'static, HistoricFallbackResult>>,
@@ -300,10 +302,7 @@ where
         storage_adapter: &SamplingStorage,
         verifier: &ShareVerifier,
         network_adapter: &SamplingNetwork,
-    ) -> Option<(
-        BoxFuture<'static, ()>,
-        BoxFuture<'static, HistoricFallbackResult>,
-    )> {
+    ) -> Option<(LongTask, HistoricSamplingFallbackTask)> {
         match event {
             SamplingEvent::SamplingSuccess {
                 blob_id,
@@ -356,10 +355,7 @@ where
         sampler: &mut SamplingBackend,
         network_adapter: &SamplingNetwork,
         verifier: &ShareVerifier,
-    ) -> Option<(
-        BoxFuture<'static, ()>,
-        BoxFuture<'static, HistoricFallbackResult>,
-    )> {
+    ) -> Option<(LongTask, HistoricSamplingFallbackTask)> {
         let Some(blob_id) = error.blob_id() else {
             error!("Error while sampling: {error}");
             return None;
@@ -395,11 +391,10 @@ where
         sampler: &mut SamplingBackend,
         network_adapter: &SamplingNetwork,
         verifier: &ShareVerifier,
-    ) -> Option<(
-        BoxFuture<'static, ()>,
-        BoxFuture<'static, HistoricFallbackResult>,
-    )> {
-        tracing::warn!("Session mismatch for {blob_id:?}, falling back to historic sampling");
+    ) -> Option<(LongTask, HistoricSamplingFallbackTask)> {
+        tracing::warn!(
+            "Session mismatch for {blob_id:?} and session {session:?}, falling back to historic sampling"
+        );
 
         let (tx, rx) = oneshot::channel();
 
@@ -503,7 +498,7 @@ where
         blob_id: BlobId,
         session: SessionNumber,
         result_sender: oneshot::Sender<Option<DaSharesCommitments>>,
-    ) -> Option<BoxFuture<'static, ()>> {
+    ) -> Option<LongTask> {
         let Ok(stream) = network_adapter.listen_to_commitments_messages().await else {
             tracing::error!("Error subscribing to commitments stream");
             let _ = result_sender.send(None);
@@ -549,7 +544,7 @@ where
         blob_id: BlobId,
         session: SessionNumber,
         result_sender: oneshot::Sender<Option<DaSharesCommitments>>,
-    ) -> Option<BoxFuture<'static, ()>> {
+    ) -> Option<LongTask> {
         if let Ok(Some(commitments)) = storage_adapter.get_commitments(blob_id).await {
             let _ = result_sender.send(Some(commitments));
             return None;
@@ -615,7 +610,7 @@ where
         session: SessionNumber,
         result_sender: oneshot::Sender<Option<(Vec<DaLightShare>, DaSharesCommitments)>>,
         timeout: Duration,
-    ) -> Option<BoxFuture<'static, ()>> {
+    ) -> Option<LongTask> {
         let mut blob_ids = HashMap::new();
         blob_ids.insert(blob_id, session);
         let blobs: HashSet<BlobId> = [blob_id].into();
@@ -626,12 +621,15 @@ where
             return None;
         };
 
-        if network_adapter
+        if let Err(error) = network_adapter
             .request_historic_sampling(block_id, blob_ids)
             .await
-            .is_err()
         {
             let _ = result_sender.send(None);
+            error_with_id!(
+                blob_id,
+                "Request historic sampling fallback failed: {error}"
+            );
             return None;
         }
 
@@ -666,7 +664,7 @@ where
         blob_ids: HashMap<BlobId, SessionNumber>,
         reply_channel: oneshot::Sender<bool>,
         timeout: Duration,
-    ) -> Option<BoxFuture<'static, ()>> {
+    ) -> Option<LongTask> {
         let blobs: HashSet<BlobId> = blob_ids.keys().copied().collect();
         let Ok(historic_stream) = network_adapter.listen_to_historic_sampling_messages().await
         else {
@@ -897,12 +895,10 @@ where
         let mut long_tasks: FuturesUnordered<BoxFuture<'static, ()>> = FuturesUnordered::new();
         let mut delayed_sdp_sampling_triggers: FuturesUnordered<BoxFuture<'static, Blob>> =
             FuturesUnordered::new();
-        let mut sampling_continuations: FuturesUnordered<
-            BoxFuture<'static, (Blob, Option<DaSharesCommitments>)>,
-        > = FuturesUnordered::new();
-        let mut historic_fallback_continuations: FuturesUnordered<
-            BoxFuture<'static, (BlobId, Option<(Vec<DaLightShare>, DaSharesCommitments)>)>,
-        > = FuturesUnordered::new();
+        let mut sampling_continuations: FuturesUnordered<SamplingContinuationTask> =
+            FuturesUnordered::new();
+        let mut historic_fallback_continuations: FuturesUnordered<HistoricSamplingFallbackTask> =
+            FuturesUnordered::new();
 
         let pending_tasks = &mut PendingTasks {
             long_tasks: &mut long_tasks,
