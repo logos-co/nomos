@@ -1,4 +1,4 @@
-use std::{hash::Hash, time::SystemTime};
+use std::time::SystemTime;
 
 use nomos_core::header::HeaderId;
 use tracing::warn;
@@ -7,15 +7,12 @@ use crate::{
     BootstrapConfig, OfflineGracePeriodConfig, bootstrap::LOG_TARGET, states::LastEngineState,
 };
 
-pub fn choose_engine_state<NodeId>(
+pub fn choose_engine_state(
     lib_id: HeaderId,
     genesis_id: HeaderId,
-    config: &BootstrapConfig<NodeId>,
+    config: &BootstrapConfig,
     last_engine_state: Option<&LastEngineState>,
-) -> cryptarchia_engine::State
-where
-    NodeId: Clone + Eq + Hash,
-{
+) -> cryptarchia_engine::State {
     if lib_id == genesis_id || config.force_bootstrap {
         return cryptarchia_engine::State::Bootstrapping;
     }
@@ -57,10 +54,9 @@ fn check_offline_grace_period(
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashSet, time::Duration};
+    use std::time::Duration;
 
     use super::*;
-    use crate::IbdConfig;
 
     #[test]
     fn with_genesis_lib() {
@@ -125,17 +121,13 @@ mod tests {
         assert_eq!(state, cryptarchia_engine::State::Bootstrapping);
     }
 
-    fn config(force_bootstrap: bool) -> BootstrapConfig<usize> {
+    fn config(force_bootstrap: bool) -> BootstrapConfig {
         BootstrapConfig {
             prolonged_bootstrap_period: Duration::ZERO,
             force_bootstrap,
             offline_grace_period: OfflineGracePeriodConfig {
                 grace_period: Duration::from_secs(20 * 60),
                 state_recording_interval: Duration::from_secs(60),
-            },
-            ibd: IbdConfig {
-                peers: HashSet::new(),
-                delay_before_new_download: Duration::from_millis(1),
             },
         }
     }

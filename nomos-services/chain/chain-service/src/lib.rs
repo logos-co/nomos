@@ -61,14 +61,11 @@ use tx_service::{
 };
 
 pub use crate::{
-    bootstrap::config::{BootstrapConfig, IbdConfig, OfflineGracePeriodConfig},
+    bootstrap::config::{BootstrapConfig, OfflineGracePeriodConfig},
     sync::config::{OrphanConfig, SyncConfig},
 };
 use crate::{
-    bootstrap::{
-        ibd::{self, InitialBlockDownload},
-        state::choose_engine_state,
-    },
+    bootstrap::state::choose_engine_state,
     mempool::{MempoolAdapter as _, adapter::MempoolAdapter},
     relays::CryptarchiaConsensusRelays,
     states::CryptarchiaConsensusState,
@@ -327,15 +324,12 @@ impl Cryptarchia {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct CryptarchiaSettings<NodeId, NetworkAdapterSettings>
-where
-    NodeId: Clone + Eq + Hash,
-{
+pub struct CryptarchiaSettings<NetworkAdapterSettings> {
     pub config: nomos_ledger::Config,
     pub starting_state: StartingState,
     pub network_adapter_settings: NetworkAdapterSettings,
     pub recovery_file: PathBuf,
-    pub bootstrap: BootstrapConfig<NodeId>,
+    pub bootstrap: BootstrapConfig,
     pub sync: SyncConfig,
 }
 
@@ -351,11 +345,7 @@ pub enum StartingState {
     },
 }
 
-impl<NodeId, NetworkAdapterSettings> FileBackendSettings
-    for CryptarchiaSettings<NodeId, NetworkAdapterSettings>
-where
-    NodeId: Clone + Eq + Hash,
-{
+impl<NetworkAdapterSettings> FileBackendSettings for CryptarchiaSettings<NetworkAdapterSettings> {
     fn recovery_file(&self) -> &PathBuf {
         &self.recovery_file
     }
@@ -403,8 +393,8 @@ where
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
 {
-    type Settings = CryptarchiaSettings<NetAdapter::PeerId, NetAdapter::Settings>;
-    type State = CryptarchiaConsensusState<NetAdapter::PeerId, NetAdapter::Settings>;
+    type Settings = CryptarchiaSettings<NetAdapter::Settings>;
+    type State = CryptarchiaConsensusState<NetAdapter::Settings>;
     type StateOperator = RecoveryOperator<JsonFileBackend<Self::State, Self::Settings>>;
     type Message = ConsensusMsg<Mempool::Item>;
 }
@@ -499,12 +489,12 @@ where
             .get_updated_settings();
 
         // TODO: check active slot coeff is exactly 1/30
-        let (cryptarchia, pruned_blocks) = self
+        let (mut cryptarchia, pruned_blocks) = self
             .initialize_cryptarchia(&bootstrap_config, ledger_config.clone(), &relays)
             .await;
         // These are blocks that have been pruned by the cryptarchia engine but have not
         // yet been deleted from the storage layer.
-        let storage_blocks_to_remove = Self::delete_pruned_blocks_from_storage(
+        let mut storage_blocks_to_remove = Self::delete_pruned_blocks_from_storage(
             pruned_blocks.stale_blocks().copied(),
             &self.state.storage_blocks_to_remove,
             relays.storage_adapter(),
@@ -533,70 +523,6 @@ where
             StorageService<_, _>
         )
         .await?;
-
-        // Run IBD (Initial Block Download).
-        // TODO: Currently, we're passing a closure that processes each block.
-        //       It needs to be replaced with a trait, which requires substantial
-        // refactoring.       https://github.com/logos-co/nomos/issues/1505
-        let initial_block_download = InitialBlockDownload::new(
-            bootstrap_config.ibd,
-            cryptarchia,
-            storage_blocks_to_remove,
-            network_adapter,
-            |cryptarchia, storage_blocks_to_remove, block| {
-                let relays = &relays;
-                let state_updater = &self.service_resources_handle.state_updater;
-                let new_block_subscription_sender = &self.new_block_subscription_sender;
-                let lib_subscription_sender = &self.lib_subscription_sender;
-                async move {
-                    Self::process_block_and_update_state(
-                        cryptarchia,
-                        block,
-                        &storage_blocks_to_remove,
-                        relays,
-                        new_block_subscription_sender,
-                        lib_subscription_sender,
-                        state_updater,
-                    )
-                    .await
-                    .map_err(|e| {
-                        error!("Error processing block during IBD: {:?}", e);
-                        ibd::Error::from(e)
-                    })
-                }
-            },
-        );
-
-        let (mut cryptarchia, mut storage_blocks_to_remove) = match initial_block_download
-            .run()
-            .await
-        {
-            Ok((cryptarchia, storage_blocks_to_remove)) => {
-                info!("Initial Block Download completed successfully.");
-                (cryptarchia, storage_blocks_to_remove)
-            }
-            Err(e) => {
-                error!("Initial Block Download failed: {e:?}. Initiating graceful shutdown.");
-
-                if let Err(shutdown_err) = self
-                    .service_resources_handle
-                    .overwatch_handle
-                    .shutdown()
-                    .await
-                {
-                    error!("Failed to shutdown overwatch: {shutdown_err:?}");
-                }
-
-                error!(
-                    "Initial Block Download did not complete successfully: {e}. Common causes: unresponsive initial peers, \
-                network issues, or incorrect peer addresses. Consider retrying with different bootstrap peers."
-                );
-
-                return Err(DynError::from(format!(
-                    "Initial Block Download failed: {e:?}"
-                )));
-            }
-        };
 
         // Start the timer for Prolonged Bootstrap Period.
         let mut prolonged_bootstrap_timer = Box::pin(tokio::time::sleep_until(
@@ -899,9 +825,7 @@ where
         >,
         new_block_subscription_sender: &broadcast::Sender<HeaderId>,
         lib_subscription_sender: &broadcast::Sender<LibUpdate>,
-        state_updater: &StateUpdater<
-            Option<CryptarchiaConsensusState<NetAdapter::PeerId, NetAdapter::Settings>>,
-        >,
+        state_updater: &StateUpdater<Option<CryptarchiaConsensusState<NetAdapter::Settings>>>,
     ) -> Result<(Cryptarchia, HashSet<HeaderId>), Error> {
         let (cryptarchia, pruned_blocks) = Self::process_block(
             cryptarchia,
@@ -1058,9 +982,7 @@ where
     fn update_state(
         cryptarchia: &Cryptarchia,
         storage_blocks_to_remove: HashSet<HeaderId>,
-        state_updater: &StateUpdater<
-            Option<CryptarchiaConsensusState<NetAdapter::PeerId, NetAdapter::Settings>>,
-        >,
+        state_updater: &StateUpdater<Option<CryptarchiaConsensusState<NetAdapter::Settings>>>,
     ) {
         match <Self as ServiceData>::State::from_cryptarchia_and_unpruned_blocks(
             cryptarchia,
@@ -1255,7 +1177,7 @@ where
     ///   the consensus.
     async fn initialize_cryptarchia(
         &self,
-        bootstrap_config: &BootstrapConfig<NetAdapter::PeerId>,
+        bootstrap_config: &BootstrapConfig,
         ledger_config: nomos_ledger::Config,
         relays: &CryptarchiaConsensusRelays<
             Mempool,
