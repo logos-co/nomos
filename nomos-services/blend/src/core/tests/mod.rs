@@ -18,11 +18,10 @@ use crate::{
         run_event_loop,
         state::ServiceState,
         tests::utils::{
-            MockProcessedMessageScheduler, MockProofsVerifier, NodeId, TestBlendBackend,
-            TestBlendBackendEvent, TestNetworkAdapter, dummy_overwatch_resources,
-            new_blending_token_collector, new_crypto_processor, new_membership,
-            new_poq_core_quota_inputs, new_public_info, new_stream, settings,
-            wait_for_blend_backend_event,
+            MockKmsAdapter, MockProcessedMessageScheduler, MockProofsVerifier, NodeId,
+            TestBlendBackend, TestBlendBackendEvent, TestNetworkAdapter, dummy_overwatch_resources,
+            new_blending_token_collector, new_crypto_processor, new_membership, new_public_info,
+            new_stream, settings, wait_for_blend_backend_event,
         },
     },
     epoch_info::EpochHandler,
@@ -55,7 +54,7 @@ async fn test_handle_incoming_blend_message() {
         non_ephemeral_signing_key: key(id).0,
         num_blend_layers,
     };
-    let mut processor = new_crypto_processor(&settings, &public_info, new_poq_core_quota_inputs());
+    let mut processor = new_crypto_processor(&settings, &public_info, ());
     let payload = NetworkMessage {
         message: vec![],
         broadcast_settings: (),
@@ -86,7 +85,7 @@ async fn test_handle_incoming_blend_message() {
     let new_processor = new_crypto_processor(
         &settings,
         &new_public_info(session + 1, membership.clone()),
-        new_poq_core_quota_inputs(),
+        (),
     );
 
     // Check that decapsulation fails with the new processor
@@ -128,14 +127,13 @@ async fn test_handle_session_event() {
         (),
     );
     let public_info = new_public_info(session, membership.clone());
-    let poq_core_quota_inputs = new_poq_core_quota_inputs();
     let crypto_processor = new_crypto_processor(
         &SessionCryptographicProcessorSettings {
             non_ephemeral_signing_key: local_private_key,
             num_blend_layers: 1,
         },
         &public_info,
-        poq_core_quota_inputs.clone(),
+        (),
     );
     let mut token_collector = new_blending_token_collector(
         &public_info,
@@ -150,14 +148,14 @@ async fn test_handle_session_event() {
     let mut backend_event_receiver = backend.subscribe_to_events();
 
     // Handle a NewSession event, expecting Transitioning output.
-    let output = handle_session_event::<_, _, _, _, _, RuntimeServiceId>(
+    let output = handle_session_event::<_, _, _, _, _, _, RuntimeServiceId>(
         SessionEvent::NewSession(CoreSessionInfo {
             public: CoreSessionPublicInfo {
                 membership: membership.clone(),
                 session: session + 1,
                 poq_core_public_inputs: public_info.session.core_public_inputs,
             },
-            private: poq_core_quota_inputs.clone(),
+            core_poq_generator: (),
         }),
         &settings,
         crypto_processor,
@@ -184,7 +182,7 @@ async fn test_handle_session_event() {
     assert_eq!(new_public_info.session.session_number, session + 1);
 
     // Handle a TransitionExpired event, expecting TransitionCompleted output.
-    let output = handle_session_event::<_, _, _, _, _, RuntimeServiceId>(
+    let output = handle_session_event::<_, _, _, _, _, _, RuntimeServiceId>(
         SessionEvent::TransitionPeriodExpired,
         &settings,
         new_crypto_processor,
@@ -215,14 +213,14 @@ async fn test_handle_session_event() {
 
     // Handle a NewSession event with a new too small membership,
     // expecting Retiring output.
-    let output = handle_session_event::<_, _, _, _, _, RuntimeServiceId>(
+    let output = handle_session_event::<_, _, _, _, _, _, RuntimeServiceId>(
         SessionEvent::NewSession(CoreSessionInfo {
             public: CoreSessionPublicInfo {
                 membership: new_membership(minimal_network_size - 1).0,
                 session: session + 2,
                 poq_core_public_inputs: current_public_info.session.core_public_inputs,
             },
-            private: poq_core_quota_inputs.clone(),
+            core_poq_generator: (),
         }),
         &settings,
         current_crypto_processor,
@@ -324,6 +322,7 @@ async fn complete_old_session_after_main_loop_done() {
         TestChainService,
         MockCoreAndLeaderProofsGenerator,
         MockProofsVerifier,
+        MockKmsAdapter,
         RuntimeServiceId,
     >(
         settings.clone(),
@@ -331,6 +330,7 @@ async fn complete_old_session_after_main_loop_done() {
         clock_stream,
         &mut epoch_handler,
         overwatch_handle.clone(),
+        MockKmsAdapter,
         None,
         state_updater,
     )

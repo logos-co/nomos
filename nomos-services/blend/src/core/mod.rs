@@ -62,9 +62,7 @@ use tracing::info;
 use crate::{
     core::{
         backends::{PublicInfo, SessionInfo},
-        kms::{
-            KmsPoQAdapter as KmsAdapterTrait, PreloadKMSBackendCorePoQGenerator, PreloadKmsService,
-        },
+        kms::{KmsPoQAdapter, PreloadKMSBackendCorePoQGenerator, PreloadKmsService},
         processor::{
             CoreCryptographicProcessor, DecapsulatedMessageType, Error,
             MultiLayerDecapsulationOutput,
@@ -93,8 +91,8 @@ pub(super) mod service_components;
 mod processor;
 mod scheduler;
 mod state;
-// #[cfg(test)]
-// mod tests;
+#[cfg(test)]
+mod tests;
 pub use state::RecoveryServiceState as CoreServiceState;
 
 const LOG_TARGET: &str = "blend::service::core";
@@ -496,7 +494,7 @@ where
     ProofsVerifier: ProofsVerifierTrait,
     // To avoid bubbling up generics everywhere in the configs (current Overwatch limitation), we
     // know the final key ID type is a `String`, so we constraint the trait impl here instead.
-    KmsAdapter: KmsAdapterTrait<RuntimeServiceId, KeyId = String, CorePoQGenerator: Clone + Send + Sync>
+    KmsAdapter: KmsPoQAdapter<RuntimeServiceId, KeyId = String, CorePoQGenerator: Clone + Send + Sync>
         + Send
         + 'static,
     RuntimeServiceId: Clone + Send + Sync + 'static,
