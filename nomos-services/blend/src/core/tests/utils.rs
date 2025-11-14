@@ -19,7 +19,7 @@ use nomos_blend_message::{
         },
     },
     encap::ProofsVerifier,
-    reward::{self, BlendingTokenCollector},
+    reward::{self, SessionBlendingTokenCollector, SessionRandomness},
 };
 use nomos_blend_scheduling::{
     EncapsulatedMessage,
@@ -328,21 +328,23 @@ pub fn new_poq_core_quota_inputs() -> ProofOfCoreQuotaInputs {
 pub fn new_blending_token_collector(
     public_info: &PublicInfo<NodeId>,
     message_frequency_per_round: NonNegativeF64,
-) -> BlendingTokenCollector {
-    BlendingTokenCollector::new(
-        &reward::SessionInfo::new(
-            public_info.session.session_number,
-            &public_info.epoch.pol_epoch_nonce,
-            public_info
-                .session
-                .membership
-                .size()
-                .try_into()
-                .expect("num_core_nodes must fit into u64"),
-            public_info.session.core_public_inputs.quota,
-            message_frequency_per_round,
-        )
-        .expect("session info must be created successfully"),
+) -> (SessionBlendingTokenCollector, SessionRandomness) {
+    let session_info = reward::SessionInfo::new(
+        public_info.session.session_number,
+        &public_info.epoch.pol_epoch_nonce,
+        public_info
+            .session
+            .membership
+            .size()
+            .try_into()
+            .expect("num_core_nodes must fit into u64"),
+        public_info.session.core_public_inputs.quota,
+        message_frequency_per_round,
+    )
+    .expect("session info must be created successfully");
+    (
+        SessionBlendingTokenCollector::new(&session_info),
+        session_info.session_randomness(),
     )
 }
 
