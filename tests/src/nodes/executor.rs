@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     net::SocketAddr,
     num::{NonZeroU64, NonZeroUsize},
     path::PathBuf,
@@ -16,7 +16,6 @@ use chain_service::{
 use common_http_client::CommonHttpClient;
 use cryptarchia_engine::time::SlotConfig;
 use futures::Stream;
-use key_management_system::backend::preload::PreloadKMSBackendSettings;
 use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
 use nomos_blend_scheduling::message_blend::crypto::SessionCryptographicProcessorSettings;
 use nomos_blend_service::{
@@ -62,7 +61,7 @@ use nomos_network::{
 };
 use nomos_node::{
     RocksBackendSettings,
-    api::testing::handlers::HistoricSamplingRequest,
+    api::{handlers::GetCommitmentsRequest, testing::handlers::HistoricSamplingRequest},
     config::{blend::BlendConfig, mempool::MempoolConfig},
 };
 use nomos_sdp::SdpSettings;
@@ -275,11 +274,17 @@ impl Executor {
             .await
     }
 
-    pub async fn get_commitments(&self, blob_id: BlobId) -> Option<DaSharesCommitments> {
+    pub async fn get_commitments(
+        &self,
+        blob_id: BlobId,
+        session: SessionNumber,
+    ) -> Option<DaSharesCommitments> {
+        let request = GetCommitmentsRequest { blob_id, session };
+
         CLIENT
             .post(format!("http://{}{}", self.addr, DA_GET_SHARES_COMMITMENTS))
             .header("Content-Type", "application/json")
-            .body(serde_json::to_string(&blob_id).unwrap())
+            .body(serde_json::to_string(&request).unwrap())
             .send()
             .await
             .unwrap()
@@ -322,15 +327,10 @@ impl Executor {
 
     pub async fn da_historic_sampling(
         &self,
-        session_id: SessionNumber,
         block_id: HeaderId,
-        blob_ids: Vec<BlobId>,
+        blob_ids: Vec<(BlobId, SessionNumber)>,
     ) -> Result<bool, reqwest::Error> {
-        let request = HistoricSamplingRequest {
-            session_id,
-            block_id,
-            blob_ids,
-        };
+        let request = HistoricSamplingRequest { block_id, blob_ids };
 
         let response = CLIENT
             .post(format!(
@@ -354,6 +354,21 @@ impl Executor {
         self.http_client
             .get_lib_stream(Url::from_str(&format!("http://{}", self.addr))?)
             .await
+    }
+
+    pub async fn add_tx(&self, tx: SignedMantleTx) -> Result<(), reqwest::Error> {
+        CLIENT
+            .post(format!(
+                "http://{}{}",
+                self.addr,
+                nomos_http_api_common::paths::MEMPOOL_ADD_TX
+            ))
+            .header("Content-Type", "application/json")
+            .body(serde_json::to_string(&tx).unwrap())
+            .send()
+            .await?
+            .error_for_status()?;
+        Ok(())
     }
 }
 
@@ -563,9 +578,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
         wallet: nomos_wallet::WalletServiceSettings {
             known_keys: HashSet::from_iter([config.consensus_config.leader_config.pk]),
         },
-        key_management: PreloadKMSBackendSettings {
-            keys: HashMap::new(),
-        },
+        key_management: config.kms_config,
 
         testing_http: nomos_api::ApiServiceSettings {
             backend_settings: AxumBackendSettings {

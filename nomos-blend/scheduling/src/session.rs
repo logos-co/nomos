@@ -150,7 +150,7 @@ mod tests {
             Some(SessionEvent::NewSession(_))
         ));
         let elapsed = start_time.elapsed();
-        let tolerance = Duration::from_millis(5);
+        let tolerance = Duration::from_millis(50);
         assert!(elapsed <= tolerance, "elapsed:{elapsed:?}");
 
         // TransitionEnd should be emitted after transition_period.

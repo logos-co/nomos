@@ -16,6 +16,7 @@ use nomos_da_sampling::{
 use nomos_da_verifier::{
     backend::kzgrs::KzgrsDaVerifier, mempool::kzgrs::KzgrsMempoolNetworkAdapter,
 };
+use nomos_sdp::adapters::mempool::sdp::SdpMempoolNetworkAdapter;
 use nomos_storage::backends::rocksdb::RocksBackend;
 use nomos_time::backends::NtpTimeBackend;
 use tx_service::{backend::pool::Mempool, storage::adapters::rocksdb::RocksStorageAdapter};
@@ -139,8 +140,23 @@ pub type CryptarchiaLeaderService<Cryptarchia, Wallet, SamplingAdapter, RuntimeS
 
 pub type DaMembershipAdapter<RuntimeServiceId> = MembershipServiceAdapter<RuntimeServiceId>;
 
-pub type SdpService<RuntimeServiceId> = nomos_sdp::SdpService<RuntimeServiceId>;
-pub type SdpServiceAdapterGeneric<RuntimeServiceId> = SdpServiceAdapter<RuntimeServiceId>;
+pub type SdpMempoolAdapterGeneric<RuntimeServiceId> = SdpMempoolNetworkAdapter<
+    tx_service::network::adapters::libp2p::Libp2pAdapter<SignedMantleTx, TxHash, RuntimeServiceId>,
+    Mempool<
+        HeaderId,
+        SignedMantleTx,
+        TxHash,
+        RocksStorageAdapter<SignedMantleTx, <SignedMantleTx as Transaction>::Hash>,
+        RuntimeServiceId,
+    >,
+    RuntimeServiceId,
+>;
+
+pub type SdpService<RuntimeServiceId> =
+    nomos_sdp::SdpService<SdpMempoolAdapterGeneric<RuntimeServiceId>, RuntimeServiceId>;
+
+pub type SdpServiceAdapterGeneric<RuntimeServiceId> =
+    SdpServiceAdapter<SdpMempoolAdapterGeneric<RuntimeServiceId>, RuntimeServiceId>;
 
 pub type DaMembershipStorageGeneric<RuntimeServiceId> =
     RocksAdapter<RocksBackend, RuntimeServiceId>;

@@ -3,7 +3,7 @@ use std::{pin::Pin, time::Duration};
 
 use futures::Stream;
 use kzgrs_backend::common::share::DaShare;
-use nomos_core::{da::BlobId, mantle::SignedMantleTx};
+use nomos_core::{da::BlobId, mantle::SignedMantleTx, sdp::SessionNumber};
 use nomos_da_network_core::SubnetworkId;
 use overwatch::{
     DynError,
@@ -38,6 +38,7 @@ pub trait DispersalNetworkAdapter {
     async fn get_blob_samples(
         &self,
         blob_id: BlobId,
+        session: SessionNumber,
         subnets: &[SubnetworkId],
         cooldown: Duration,
     ) -> Result<(), DynError>;

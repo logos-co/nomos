@@ -17,6 +17,12 @@ necessary for running and interacting with the Nomos blockchain. Key features in
 - [Nomos](#nomos)
   - [Table of Contents](#table-of-contents)
   - [Requirements](#requirements)
+  - [Setting Up Zero-Knowledge Circuits](#setting-up-zero-knowledge-circuits)
+    - [Quick Setup (Recommended)](#quick-setup-recommended)
+    - [Custom Installation](#custom-installation)
+    - [What Gets Installed](#what-gets-installed)
+    - [macOS Users](#macos-users)
+    - [Verifying Installation](#verifying-installation)
   - [Design Goals](#design-goals)
     - [Service Architecture](#service-architecture)
     - [Static Dispatching](#static-dispatching)
@@ -36,6 +42,51 @@ necessary for running and interacting with the Nomos blockchain. Key features in
 - **Rust**
     - We aim to maintain compatibility with the latest stable version of Rust.
     - [Installation Guide](https://www.rust-lang.org/tools/install)
+
+## Setting Up Zero-Knowledge Circuits
+
+Nomos uses zero-knowledge circuits for various cryptographic operations. To set up the required circuit binaries and keys:
+
+### Quick Setup (Recommended)
+
+Run the setup script to download and install the latest nomos-circuits release:
+
+```bash
+./scripts/setup-nomos-circuits.sh
+```
+
+This will install circuits to `~/.nomos-circuits/` by default.
+
+### Custom Installation
+
+You can specify a custom version or installation directory:
+
+```bash
+# Install a specific version
+./scripts/setup-nomos-circuits.sh v0.3.0
+
+# Install to a custom directory
+./scripts/setup-nomos-circuits.sh v0.2.0 /opt/circuits
+```
+
+If you use a custom directory, you'll need to set the `NOMOS_CIRCUITS` environment variable:
+
+```bash
+export NOMOS_CIRCUITS=/opt/circuits
+```
+
+### macOS Users
+
+Since we don't yet have code-signing implemented on macOS, the setup script automatically removes quarantine attributes from downloaded binaries. This allows the binaries to run without manual authorization through System Settings.
+
+### Verifying Installation
+
+After installation, verify the circuits are properly set up:
+
+```bash
+# Run tests that use the circuits
+cargo test -p circuits-prover -p circuits-verifier --lib
+```
 
 ## Design Goals
 
@@ -87,8 +138,12 @@ nomos/
 ├── nomos-services/     # Building blocks for the Node
 ├── nomos-tracing/      # Tracing, logging, and metrics
 ├── nomos-utils/        # Shared utility functions and helpers
+├── scripts/            # Utility scripts including circuit setup
 ├── testnet/            # Testnet configurations, monitoring, and deployment scripts
-└── tests/              # Integration and E2E test suites
+├── tests/              # Integration and E2E test suites
+└── zk/                 # Zero-knowledge proof infrastructure
+    ├── circuits/       # ZK circuit utilities (prover, verifier, witness generators)
+    └── proofs/         # Proof implementations (pol, poq, poc, zksign)
 ```
 
 ## Development Workflow

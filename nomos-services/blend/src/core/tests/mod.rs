@@ -4,7 +4,7 @@ use groth16::Field as _;
 use nomos_blend_scheduling::{
     message_blend::crypto::SessionCryptographicProcessorSettings, session::SessionEvent,
 };
-use nomos_core::crypto::ZkHash;
+use nomos_core::{codec::SerializeOp as _, crypto::ZkHash};
 use nomos_time::SlotTick;
 use nomos_utils::blake_rng::BlakeRng;
 use poq::CORE_MERKLE_TREE_HEIGHT;
@@ -27,7 +27,7 @@ use crate::{
     },
     epoch_info::EpochHandler,
     membership::{MembershipInfo, ZkInfo},
-    message::ProcessedMessage,
+    message::{NetworkMessage, ProcessedMessage},
     session::{CoreSessionInfo, CoreSessionPublicInfo},
     test_utils::{
         crypto::MockCoreAndLeaderProofsGenerator,
@@ -45,10 +45,10 @@ async fn test_handle_incoming_blend_message() {
     let (_, _, state_updater, _state_receiver) =
         dummy_overwatch_resources::<(), (), RuntimeServiceId>();
 
-    // Prepare a encapsulated message with 2 layers.
+    // Prepare a encapsulated message.
     let id = [0; 32];
     let mut session = 0;
-    let num_blend_layers = 2;
+    let num_blend_layers = 1;
     let membership = membership(&[id], id);
     let public_info = new_public_info(session, membership.clone());
     let settings = SessionCryptographicProcessorSettings {
@@ -56,8 +56,14 @@ async fn test_handle_incoming_blend_message() {
         num_blend_layers,
     };
     let mut processor = new_crypto_processor(&settings, &public_info, new_poq_core_quota_inputs());
+    let payload = NetworkMessage {
+        message: vec![],
+        broadcast_settings: (),
+    }
+    .to_bytes()
+    .expect("NetworkMessage serialization must succeed");
     let msg = processor
-        .encapsulate_data_payload(&[])
+        .encapsulate_data_payload(&payload)
         .await
         .expect("encapsulation must succeed")
         .verify_public_header(processor.verifier())
@@ -104,7 +110,7 @@ async fn test_handle_incoming_blend_message() {
     // Check that a new message built with the new processor is decapsulated
     // with the new processor and scheduled in the new scheduler.
     let msg = new_processor
-        .encapsulate_data_payload(&[])
+        .encapsulate_data_payload(&payload)
         .await
         .expect("encapsulation must succeed")
         .verify_public_header(new_processor.verifier())
@@ -130,7 +136,7 @@ async fn test_handle_incoming_blend_message() {
         new_poq_core_quota_inputs(),
     );
     let msg = future_processor
-        .encapsulate_data_payload(&[])
+        .encapsulate_data_payload(&payload)
         .await
         .expect("encapsulation must succeed")
         .verify_public_header(future_processor.verifier())

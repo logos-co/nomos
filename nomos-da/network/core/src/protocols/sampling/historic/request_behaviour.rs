@@ -187,46 +187,91 @@ where
         MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + Clone + Send + Sync + 'static,
     Addressbook: AddressBookHandler<Id = PeerId> + Send + Sync + 'static,
 {
-    /// Schedule sampling tasks for blobs using the provided historic membership
     fn sample_historic(&self, sample_args: SampleArgs<Membership>) {
-        let (blob_ids, block_id, membership) = sample_args;
+        let (block_id, blobs_by_membership) = sample_args;
         let control = self.control.clone();
-        let mut rng = rand::rng();
-        let subnets: Vec<SubnetworkId> = (0..membership.last_subnetwork_id())
-            .choose_multiple(&mut rng, self.subnets_config.num_of_subnets);
         let local_peer_id = self.local_peer_id;
-
         let connection_broadcast_sender = self.connection_broadcast_sender.clone();
+        let num_of_subnets = self.subnets_config.num_of_subnets;
 
         let request_future = async move {
-            let mut opinions = Vec::new();
-            let (commitments, opinion_event) = Self::sample_all_commitments(
-                &membership,
-                &subnets,
-                &local_peer_id,
-                &blob_ids,
-                &control,
-                connection_broadcast_sender.subscribe(),
-            )
-            .await
-            .map_err(|err| (block_id, err))?;
+            let mut membership_tasks = FuturesUnordered::new();
 
-            opinions.extend(opinion_event.opinions);
+            // Spawn a sampling task for each membership
+            for (membership, blob_ids) in blobs_by_membership {
+                // Pre-compute subnets before entering async block to avoid Send issues
+                let subnets: Vec<SubnetworkId> = {
+                    let mut rng = rand::rng();
+                    (0..membership.last_subnetwork_id()).choose_multiple(&mut rng, num_of_subnets)
+                };
 
-            let (shares, opinion_event) = Self::sample_all_shares(
-                &subnets,
-                &membership,
-                &local_peer_id,
-                &blob_ids,
-                &control,
-                &connection_broadcast_sender,
-            )
-            .await
-            .map_err(|err| (block_id, err))?;
+                let control = control.clone();
+                let connection_broadcast_sender = connection_broadcast_sender.clone();
 
-            opinions.extend(opinion_event.opinions);
+                let task = async move {
+                    let mut opinions = Vec::new();
 
-            Ok((block_id, shares, commitments, OpinionEvent { opinions }))
+                    let (commitments, opinion_event) = Self::sample_all_commitments(
+                        &membership,
+                        &subnets,
+                        &local_peer_id,
+                        &blob_ids,
+                        &control,
+                        connection_broadcast_sender.subscribe(),
+                    )
+                    .await?;
+
+                    opinions.extend(opinion_event.opinions);
+
+                    let (shares, opinion_event) = Self::sample_all_shares(
+                        &subnets,
+                        &membership,
+                        &local_peer_id,
+                        &blob_ids,
+                        &control,
+                        &connection_broadcast_sender,
+                    )
+                    .await?;
+
+                    opinions.extend(opinion_event.opinions);
+
+                    Ok::<_, HistoricSamplingError>((shares, commitments, opinions))
+                };
+
+                membership_tasks.push(task);
+            }
+
+            // Collect and merge all results
+            let mut all_shares: HashMap<BlobId, Vec<DaLightShare>> = HashMap::new();
+            let mut all_commitments: HashMap<BlobId, DaSharesCommitments> = HashMap::new();
+            let mut all_opinions = Vec::new();
+
+            while let Some(result) = membership_tasks.next().await {
+                match result {
+                    Ok((shares, commitments, opinions)) => {
+                        for (blob_id, share_vec) in shares {
+                            all_shares.entry(blob_id).or_default().extend(share_vec);
+                        }
+
+                        // should be one per blob
+                        all_commitments.extend(commitments);
+                        all_opinions.extend(opinions);
+                    }
+                    Err(err) => {
+                        // If any membership sampling fails, the whole block sampling fails
+                        return Err((block_id, err));
+                    }
+                }
+            }
+
+            Ok((
+                block_id,
+                all_shares,
+                all_commitments,
+                OpinionEvent {
+                    opinions: all_opinions,
+                },
+            ))
         }
         .boxed();
 
@@ -502,7 +547,7 @@ where
                 peer_id,
                 session_id,
             }),
-            SamplingError::NoSubnetworkPeers { .. } => None,
+            SamplingError::NoSubnetworkPeers { .. } | SamplingError::MismatchSession { .. } => None,
         }
     }
 

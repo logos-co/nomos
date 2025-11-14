@@ -1,10 +1,10 @@
 use std::{num::NonZeroU64, path::PathBuf};
 
 use nomos_blend_scheduling::message_blend::crypto::SessionCryptographicProcessorSettings;
-use nomos_core::mantle::keys::{PublicKey, SecretKey};
 use nomos_utils::math::NonNegativeF64;
 use serde::{Deserialize, Serialize};
 use services_utils::overwatch::recovery::backends::FileBackendSettings;
+use zksign::{PublicKey, SecretKey};
 
 use crate::settings::TimingSettings;
 

@@ -4,7 +4,7 @@ use nomos_utils::net::get_available_udp_port;
 use rand::{Rng as _, thread_rng};
 use serial_test::serial;
 use tests::{
-    common::da::{disseminate_with_metadata, wait_for_blob_onchain},
+    common::da::{disseminate_with_metadata, setup_test_channel, wait_for_blob_onchain},
     nodes::executor::Executor,
     topology::{Topology, TopologyConfig},
 };
@@ -49,17 +49,18 @@ fn generate_test_ids_and_ports(n_participants: usize) -> (Vec<[u8; 32]>, Vec<u16
 
 async fn perform_dissemination_tests(executor: &Executor) {
     const ITERATIONS: usize = 10;
+
+    let (test_channel_id, mut parent_msg_id) = setup_test_channel(executor).await;
+
     let data = [1u8; 31];
-    let mut onchain = false;
 
     for i in 0..ITERATIONS {
         println!("iteration {i}");
-        let blob_id = disseminate_with_metadata(executor, &data).await.unwrap();
+        let blob_id = disseminate_with_metadata(executor, test_channel_id, parent_msg_id, &data)
+            .await
+            .unwrap();
 
-        if !onchain {
-            wait_for_blob_onchain(executor, blob_id).await;
-            onchain = true;
-        }
+        parent_msg_id = wait_for_blob_onchain(executor, test_channel_id, blob_id).await;
 
         verify_share_replication(executor, blob_id).await;
     }

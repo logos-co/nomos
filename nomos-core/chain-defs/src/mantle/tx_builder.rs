@@ -1,6 +1,8 @@
 use std::cmp::Ordering;
 
-use super::{GasConstants, GasCost as _, MantleTx, Note, Op, Utxo, keys::PublicKey};
+use zksign::PublicKey;
+
+use super::{GasConstants, GasCost as _, MantleTx, Note, Op, Utxo};
 use crate::mantle::ledger::Tx as LedgerTx;
 
 #[derive(Debug, Clone)]

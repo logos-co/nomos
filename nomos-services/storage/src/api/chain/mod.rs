@@ -3,6 +3,7 @@ pub mod requests;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     error::Error,
+    fmt::Debug,
     num::NonZeroUsize,
     ops::RangeInclusive,
     pin::Pin,
@@ -15,7 +16,7 @@ use nomos_core::{header::HeaderId, mantle::TxHash};
 
 #[async_trait]
 pub trait StorageChainApi {
-    type Error: Error + Send + Sync + 'static;
+    type Error: Error + Send + Sync + Debug + 'static;
     type Block: Send + Sync;
     type Tx: Send + Sync;
 

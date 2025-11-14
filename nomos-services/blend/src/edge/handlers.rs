@@ -75,7 +75,7 @@ where
             private_info,
         );
         let backend = Backend::new(
-            settings.backend.clone(),
+            settings.clone(),
             overwatch_handle,
             membership,
             BlakeRng::from_entropy(),

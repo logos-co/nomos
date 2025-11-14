@@ -1,4 +1,9 @@
-use std::{collections::HashSet, io, marker::PhantomData, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    io,
+    marker::PhantomData,
+    time::Duration,
+};
 
 use futures::{
     StreamExt as _,
@@ -10,7 +15,7 @@ use libp2p::{
     identity::Keypair,
     swarm::{DialError, SwarmEvent},
 };
-use nomos_core::{da::BlobId, header::HeaderId};
+use nomos_core::{da::BlobId, header::HeaderId, sdp::SessionNumber};
 use nomos_da_messages::replication::ReplicationRequest;
 use subnetworks_assignations::MembershipHandler;
 use tokio::{
@@ -48,7 +53,7 @@ use crate::{
     },
 };
 
-pub type SampleArgs<Membership> = (HashSet<BlobId>, HeaderId, Membership);
+pub type SampleArgs<Membership> = (HeaderId, HashMap<Membership, HashSet<BlobId>>);
 
 // Metrics
 const EVENT_SAMPLING: &str = "sampling";
@@ -215,7 +220,7 @@ where
         self.swarm.listen_on(address)
     }
 
-    pub fn shares_request_channel(&mut self) -> UnboundedSender<BlobId> {
+    pub fn shares_request_channel(&mut self) -> UnboundedSender<(BlobId, SessionNumber)> {
         self.swarm
             .behaviour()
             .sampling_behaviour()
@@ -231,7 +236,7 @@ where
             .historical_request_channel()
     }
 
-    pub fn commitments_request_channel(&mut self) -> UnboundedSender<BlobId> {
+    pub fn commitments_request_channel(&mut self) -> UnboundedSender<(BlobId, SessionNumber)> {
         self.swarm
             .behaviour()
             .sampling_behaviour()

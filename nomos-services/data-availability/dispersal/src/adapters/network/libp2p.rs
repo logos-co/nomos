@@ -2,7 +2,7 @@ use std::{collections::HashSet, fmt::Debug, marker::PhantomData, pin::Pin, time:
 
 use futures::{Stream, StreamExt as _, stream::BoxStream};
 use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};
-use nomos_core::{da::BlobId, mantle::SignedMantleTx};
+use nomos_core::{da::BlobId, mantle::SignedMantleTx, sdp::SessionNumber};
 use nomos_da_network_core::{
     PeerId, SubnetworkId,
     protocols::{
@@ -82,10 +82,14 @@ where
     StorageAdapter: Sync,
     RuntimeServiceId: Sync,
 {
-    async fn start_sampling(&self, blob_id: BlobId) -> Result<(), DynError> {
+    async fn start_sampling(
+        &self,
+        blob_id: BlobId,
+        session: SessionNumber,
+    ) -> Result<(), DynError> {
         self.outbound_relay
             .send(DaNetworkMsg::Process(
-                ExecutorDaNetworkMessage::RequestSample { blob_id },
+                ExecutorDaNetworkMessage::RequestSample { blob_id, session },
             ))
             .await
             .expect("RequestSample message should have been sent");
@@ -214,6 +218,7 @@ where
     async fn get_blob_samples(
         &self,
         blob_id: BlobId,
+        session: SessionNumber,
         subnets: &[SubnetworkId],
         cooldown: Duration,
     ) -> Result<(), DynError> {
@@ -237,7 +242,7 @@ where
             .await
             .map_err(|(error, _)| error)?;
 
-        self.start_sampling(blob_id).await?;
+        self.start_sampling(blob_id, session).await?;
 
         let stream = stream_receiver.await.map_err(Box::new)?;
 
@@ -277,7 +282,7 @@ where
                 }
                 () = tokio::time::sleep(cooldown) => {
                     if !pending_subnets.is_empty() {
-                        self.start_sampling(blob_id).await?;
+                        self.start_sampling(blob_id, session).await?;
                     }
                 }
             }

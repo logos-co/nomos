@@ -1,4 +1,5 @@
 use core::{ops::RangeInclusive, time::Duration};
+use std::iter::repeat_with;
 
 use async_trait::async_trait;
 use futures::StreamExt as _;
@@ -52,29 +53,59 @@ where
         broadcast::Receiver<IncomingEncapsulatedMessageWithValidatedPublicHeader>,
 }
 
-#[derive(Default)]
+/// Generates `count` nodes with randomly generated identities and empty
+/// addresses.
+pub fn new_nodes_with_empty_address(
+    count: usize,
+) -> (impl Iterator<Item = Keypair>, Vec<Node<PeerId>>) {
+    let ids: Vec<Keypair> = repeat_with(Keypair::generate_ed25519).take(count).collect();
+    let nodes = ids
+        .iter()
+        .map(|identity| Node {
+            id: identity.public().into(),
+            address: Multiaddr::empty(),
+            public_key: Ed25519PrivateKey::generate().public_key(),
+        })
+        .collect::<Vec<_>>();
+    (ids.into_iter(), nodes)
+}
+
+/// Updates the address of the node with the given `peer_id`.
+pub fn update_nodes(nodes: &mut [Node<PeerId>], peer_id: &PeerId, addr: Multiaddr) {
+    for node in nodes.iter_mut() {
+        if &node.id == peer_id {
+            node.address = addr;
+            break;
+        }
+    }
+}
+
+pub fn build_membership(
+    nodes: &[Node<PeerId>],
+    local_peer_id: Option<PeerId>,
+) -> Membership<PeerId> {
+    nodes
+        .iter()
+        .find(|node| Some(node.id) == local_peer_id)
+        .map(|node| node.public_key)
+        .map_or_else(
+            || Membership::new_without_local(nodes),
+            |local_public_key| Membership::new(nodes, &local_public_key),
+        )
+}
+
 pub struct SwarmBuilder {
-    public_info: Option<PublicInfo<PeerId>>,
+    identity: Keypair,
+    public_info: PublicInfo<PeerId>,
 }
 
 impl SwarmBuilder {
-    pub fn with_membership(mut self, membership: Membership<PeerId>) -> Self {
-        assert!(self.public_info.is_none());
-        self.public_info = Some(membership.into());
-        self
-    }
-
-    pub fn with_empty_membership(mut self) -> Self {
-        assert!(self.public_info.is_none());
-        self.public_info = Some(
-            Membership::new_without_local(&[Node {
-                address: Multiaddr::empty(),
-                id: PeerId::random(),
-                public_key: Ed25519PrivateKey::generate().public_key(),
-            }])
-            .into(),
-        );
-        self
+    pub fn new(identity: Keypair, membership: &[Node<PeerId>]) -> Self {
+        let public_info = build_membership(membership, Some(identity.public().into())).into();
+        Self {
+            identity,
+            public_info,
+        }
     }
 
     pub fn build<BehaviourConstructor, ProofsVerifier>(
@@ -83,17 +114,21 @@ impl SwarmBuilder {
     ) -> TestSwarm<ProofsVerifier>
     where
         BehaviourConstructor:
-            FnOnce(Keypair) -> BlendBehaviour<ProofsVerifier, TestObservationWindowProvider>,
+            FnOnce(
+                PeerId,
+                Membership<PeerId>,
+            ) -> BlendBehaviour<ProofsVerifier, TestObservationWindowProvider>,
         ProofsVerifier: ProofsVerifierTrait,
     {
         let (swarm_message_sender, swarm_message_receiver) = mpsc::channel(100);
         let (incoming_message_sender, incoming_message_receiver) = broadcast::channel(100);
 
         let swarm = BlendSwarm::new_test(
+            &self.identity,
             behaviour_constructor,
             swarm_message_receiver,
             incoming_message_sender,
-            self.public_info.unwrap_or_default(),
+            self.public_info,
             BlakeRng::from_entropy(),
             3u64.try_into().unwrap(),
             1usize.try_into().unwrap(),
@@ -110,34 +145,22 @@ impl SwarmBuilder {
 pub struct BlendBehaviourBuilder<ProofsVerifier> {
     peer_id: PeerId,
     proofs_verifier: ProofsVerifier,
-    membership: Option<Membership<PeerId>>,
+    membership: Membership<PeerId>,
     observation_window: Option<(Duration, RangeInclusive<u64>)>,
 }
 
 impl<ProofsVerifier> BlendBehaviourBuilder<ProofsVerifier> {
-    pub fn new(identity: &Keypair, proofs_verifier: ProofsVerifier) -> Self {
+    pub fn new(
+        peer_id: PeerId,
+        proofs_verifier: ProofsVerifier,
+        membership: Membership<PeerId>,
+    ) -> Self {
         Self {
-            peer_id: identity.public().to_peer_id(),
+            peer_id,
             proofs_verifier,
-            membership: None,
+            membership,
             observation_window: None,
         }
-    }
-
-    pub fn with_membership(mut self, membership: Membership<PeerId>) -> Self {
-        assert!(self.membership.is_none());
-        self.membership = Some(membership);
-        self
-    }
-
-    pub fn with_empty_membership(mut self) -> Self {
-        assert!(self.membership.is_none());
-        self.membership = Some(Membership::new_without_local(&[Node {
-            address: Multiaddr::empty(),
-            id: PeerId::random(),
-            public_key: Ed25519PrivateKey::generate().public_key(),
-        }]));
-        self
     }
 
     pub fn with_observation_window(

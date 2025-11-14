@@ -1,12 +1,16 @@
 pub mod adapters;
 
-use std::{collections::BTreeSet, fmt::Display, pin::Pin};
+use std::{
+    collections::BTreeSet,
+    fmt::{Debug, Display},
+    pin::Pin,
+};
 
 use async_trait::async_trait;
 use futures::{Stream, StreamExt as _};
 use nomos_core::{
     block::BlockNumber,
-    mantle::{NoteId, keys::PublicKey, tx_builder::MantleTxBuilder},
+    mantle::{NoteId, SignedMantleTx, tx_builder::MantleTxBuilder},
     sdp::{
         ActiveMessage, ActivityMetadata, DeclarationId, DeclarationMessage, Locator, ProviderId,
         ServiceType, WithdrawMessage,
@@ -22,9 +26,10 @@ use overwatch::{
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
+use zksign::PublicKey;
 
 use crate::adapters::{
-    mempool::{SdpMempoolAdapter as _, mock::MockMempoolAdapter},
+    mempool::SdpMempoolAdapter,
     wallet::{SdpWalletAdapter as _, mock::MockWalletAdapter},
 };
 
@@ -85,14 +90,16 @@ pub enum SdpMessage {
     },
 }
 
-pub struct SdpService<RuntimeServiceId> {
+pub struct SdpService<MempoolAdapter, RuntimeServiceId> {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     finalized_update_tx: broadcast::Sender<BlockEvent>,
     current_declaration: Option<Declaration>,
     nonce: u64,
 }
 
-impl<RuntimeServiceId> ServiceData for SdpService<RuntimeServiceId> {
+impl<MempoolAdapter, RuntimeServiceId> ServiceData
+    for SdpService<MempoolAdapter, RuntimeServiceId>
+{
     type Settings = SdpSettings;
     type State = NoState<Self::Settings>;
     type StateOperator = NoOperator<Self::State>;
@@ -100,9 +107,18 @@ impl<RuntimeServiceId> ServiceData for SdpService<RuntimeServiceId> {
 }
 
 #[async_trait]
-impl<RuntimeServiceId> ServiceCore<RuntimeServiceId> for SdpService<RuntimeServiceId>
+impl<MempoolAdapter, RuntimeServiceId> ServiceCore<RuntimeServiceId>
+    for SdpService<MempoolAdapter, RuntimeServiceId>
 where
-    RuntimeServiceId: AsServiceId<Self> + Clone + Display + Send + Sync + 'static,
+    MempoolAdapter: SdpMempoolAdapter<Tx = SignedMantleTx> + Send + Sync + 'static,
+    RuntimeServiceId: Debug
+        + AsServiceId<Self>
+        + AsServiceId<MempoolAdapter::MempoolService>
+        + Clone
+        + Display
+        + Send
+        + Sync
+        + 'static,
 {
     fn init(
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
@@ -131,7 +147,12 @@ where
         );
 
         let wallet_adapter = MockWalletAdapter::new();
-        let mempool_adapter = MockMempoolAdapter::new();
+        let mempool_relay = self
+            .service_resources_handle
+            .overwatch_handle
+            .relay::<MempoolAdapter::MempoolService>()
+            .await?;
+        let mempool_adapter = MempoolAdapter::new(mempool_relay);
 
         while let Some(msg) = self.service_resources_handle.inbound_relay.recv().await {
             match msg {
@@ -173,15 +194,23 @@ where
     }
 }
 
-impl<RuntimeServiceId> SdpService<RuntimeServiceId>
+impl<MempoolAdapter, RuntimeServiceId> SdpService<MempoolAdapter, RuntimeServiceId>
 where
-    RuntimeServiceId: AsServiceId<Self> + Clone + Display + Send + Sync + 'static,
+    MempoolAdapter: SdpMempoolAdapter<Tx = SignedMantleTx> + Send + Sync + 'static,
+    RuntimeServiceId: Debug
+        + AsServiceId<Self>
+        + AsServiceId<MempoolAdapter::MempoolService>
+        + Clone
+        + Display
+        + Send
+        + Sync
+        + 'static,
 {
     async fn handle_post_declaration(
         &self,
         declaration: Box<DeclarationMessage>,
         wallet_adapter: &MockWalletAdapter,
-        mempool_adapter: &MockMempoolAdapter,
+        mempool_adapter: &MempoolAdapter,
         reply_channel: oneshot::Sender<Result<DeclarationId, DynError>>,
     ) {
         let tx_builder = MantleTxBuilder::new();
@@ -208,7 +237,7 @@ where
         &mut self,
         metadata: ActivityMetadata,
         wallet_adapter: &MockWalletAdapter,
-        mempool_adapter: &MockMempoolAdapter,
+        mempool_adapter: &MempoolAdapter,
     ) {
         // Check if we have a declaration_id
         let Some(ref declaration) = self.current_declaration else {
@@ -247,7 +276,7 @@ where
         &mut self,
         declaration_id: DeclarationId,
         wallet_adapter: &MockWalletAdapter,
-        mempool_adapter: &MockMempoolAdapter,
+        mempool_adapter: &MempoolAdapter,
     ) {
         if let Err(e) = self.validate_withdrawal(&declaration_id) {
             tracing::error!("{}", e);
