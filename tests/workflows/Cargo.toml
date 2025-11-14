@@ -1,0 +1,22 @@
+[package]
+edition.workspace = true
+license.workspace = true
+name              = "tests-workflows"
+version           = "0.1.0"
+
+[dependencies]
+async-trait                      = "0.1"
+ed25519-dalek                    = { version = "2.2.0", features = ["rand_core", "serde"] }
+executor-http-client             = { workspace = true }
+nomos-core                       = { workspace = true }
+nomos-node                       = { workspace = true }
+rand                             = { workspace = true }
+serial_test                      = "2"
+testing-framework-core           = { workspace = true }
+testing-framework-runner-local   = { workspace = true }
+thiserror                        = { workspace = true }
+tokio                            = { workspace = true, features = ["macros", "net", "rt-multi-thread", "time"] }
+tracing                          = { workspace = true }
+
+[lints]
+workspace = true

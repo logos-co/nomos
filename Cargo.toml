@@ -51,6 +51,7 @@ members = [
   "testing-framework/runners/local",
   "testnet/cfgsync",
   "tests",
+  "tests/workflows",
   "utxotree",
   "wallet",
   "zk/circuits/prover",
