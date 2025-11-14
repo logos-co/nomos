@@ -1,8 +1,10 @@
 mod utils;
 
 use groth16::Field as _;
+use nomos_blend_message::reward::SessionBlendingTokenCollector;
 use nomos_blend_scheduling::{
-    message_blend::crypto::SessionCryptographicProcessorSettings, session::SessionEvent,
+    SessionMessageScheduler, message_blend::crypto::SessionCryptographicProcessorSettings,
+    session::SessionEvent,
 };
 use nomos_core::{codec::SerializeOp as _, crypto::ZkHash};
 use nomos_time::SlotTick;
@@ -18,16 +20,16 @@ use crate::{
         run_event_loop,
         state::ServiceState,
         tests::utils::{
-            MockProcessedMessageScheduler, MockProofsVerifier, NodeId, TestBlendBackend,
-            TestBlendBackendEvent, TestNetworkAdapter, dummy_overwatch_resources,
-            new_blending_token_collector, new_crypto_processor, new_membership,
-            new_poq_core_quota_inputs, new_public_info, new_stream, settings,
+            MockProofsVerifier, NodeId, TestBlendBackend, TestBlendBackendEvent,
+            TestNetworkAdapter, dummy_overwatch_resources, new_crypto_processor, new_membership,
+            new_poq_core_quota_inputs, new_public_info, new_stream, reward_session_info,
+            scheduler_session_info, scheduler_settings, settings, timing_settings,
             wait_for_blend_backend_event,
         },
     },
     epoch_info::EpochHandler,
     membership::{MembershipInfo, ZkInfo},
-    message::{NetworkMessage, ProcessedMessage},
+    message::NetworkMessage,
     session::{CoreSessionInfo, CoreSessionPublicInfo},
     test_utils::{
         crypto::MockCoreAndLeaderProofsGenerator,
@@ -70,20 +72,25 @@ async fn test_handle_incoming_blend_message() {
         .expect("verification must succeed");
 
     // Check that the message is successfully decapsulated and scheduled.
-    let mut scheduler = MockProcessedMessageScheduler::default();
-    let (mut token_collector, _) =
-        new_blending_token_collector(&public_info, 1.0.try_into().unwrap());
+    let scheduler_settings = scheduler_settings(&timing_settings());
+    let mut scheduler = SessionMessageScheduler::new(
+        scheduler_session_info(&public_info),
+        BlakeRng::from_entropy(),
+        scheduler_settings,
+    );
+    let reward_session_info = reward_session_info(&public_info, 1.0.try_into().unwrap());
+    let mut token_collector = SessionBlendingTokenCollector::new(&reward_session_info);
     handle_incoming_blend_message(
         msg.clone(),
         &mut scheduler,
-        None::<&mut MockProcessedMessageScheduler<ProcessedMessage<()>>>,
+        None,
         &processor,
         None,
         &mut token_collector,
         None,
         ServiceState::with_session(session, state_updater.clone()),
     );
-    assert_eq!(scheduler.num_scheduled_messages(), 1);
+    assert_eq!(scheduler.release_delayer().unreleased_messages().len(), 1);
 
     // Creates a new processor/scheduler/token_collector with the new session
     // number.
@@ -91,10 +98,10 @@ async fn test_handle_incoming_blend_message() {
     let public_info = new_public_info(session, membership.clone());
     let mut new_processor =
         new_crypto_processor(&settings, &public_info, new_poq_core_quota_inputs());
-    let mut new_scheduler = MockProcessedMessageScheduler::default();
-    let (mut new_token_collector, new_session_randomness) =
-        new_blending_token_collector(&public_info, 1.0.try_into().unwrap());
-    let mut token_collector = token_collector.into_old_session(new_session_randomness);
+    let (mut new_scheduler, mut scheduler) =
+        scheduler.rotate_session(scheduler_session_info(&public_info), scheduler_settings);
+    let (mut new_token_collector, mut token_collector) =
+        token_collector.rotate_session(&reward_session_info);
 
     // Check that decapsulating the same message fails with the new processor
     // but succeeds with the old one. Also, it should be scheduled in the old
@@ -109,8 +116,11 @@ async fn test_handle_incoming_blend_message() {
         Some(&mut token_collector),
         ServiceState::with_session(session, state_updater.clone()),
     );
-    assert_eq!(new_scheduler.num_scheduled_messages(), 0);
-    assert_eq!(scheduler.num_scheduled_messages(), 2);
+    assert_eq!(
+        new_scheduler.release_delayer().unreleased_messages().len(),
+        0
+    );
+    assert_eq!(scheduler.release_delayer().unreleased_messages().len(), 2);
 
     // Check that a new message built with the new processor is decapsulated
     // with the new processor and scheduled in the new scheduler.
@@ -130,8 +140,11 @@ async fn test_handle_incoming_blend_message() {
         Some(&mut token_collector),
         ServiceState::with_session(session, state_updater.clone()),
     );
-    assert_eq!(new_scheduler.num_scheduled_messages(), 1);
-    assert_eq!(scheduler.num_scheduled_messages(), 2);
+    assert_eq!(
+        new_scheduler.release_delayer().unreleased_messages().len(),
+        1
+    );
+    assert_eq!(scheduler.release_delayer().unreleased_messages().len(), 2);
 
     // Check that a message built with a future session cannot be
     // decapsulated by either processor, and thus not scheduled.
@@ -158,11 +171,15 @@ async fn test_handle_incoming_blend_message() {
         ServiceState::with_session(session, state_updater),
     );
     // Nothing changed.
-    assert_eq!(new_scheduler.num_scheduled_messages(), 1);
-    assert_eq!(scheduler.num_scheduled_messages(), 2);
+    assert_eq!(
+        new_scheduler.release_delayer().unreleased_messages().len(),
+        1
+    );
+    assert_eq!(scheduler.release_delayer().unreleased_messages().len(), 2);
 }
 
 #[test_log::test(tokio::test)]
+#[cfg(test)]
 async fn test_handle_session_event() {
     let (overwatch_handle, _overwatch_cmd_receiver, state_updater, _state_receiver) =
         dummy_overwatch_resources::<(), (), RuntimeServiceId>();
@@ -186,11 +203,15 @@ async fn test_handle_session_event() {
         &public_info,
         poq_core_quota_inputs.clone(),
     );
-    let scheduler = MockProcessedMessageScheduler::default();
-    let (token_collector, _) = new_blending_token_collector(
+    let scheduler = SessionMessageScheduler::new(
+        scheduler_session_info(&public_info),
+        BlakeRng::from_entropy(),
+        scheduler_settings(&settings.time),
+    );
+    let token_collector = SessionBlendingTokenCollector::new(&reward_session_info(
         &public_info,
         settings.scheduler.cover.message_frequency_per_round,
-    );
+    ));
     let mut backend = <TestBlendBackend as BlendBackend<_, _, MockProofsVerifier, _>>::new(
         settings.clone(),
         overwatch_handle.clone(),
@@ -200,17 +221,7 @@ async fn test_handle_session_event() {
     let mut backend_event_receiver = backend.subscribe_to_events();
 
     // Handle a NewSession event, expecting Transitioning output.
-    let output = handle_session_event::<
-        _,
-        _,
-        _,
-        _,
-        MockProcessedMessageScheduler<ProcessedMessage<()>>,
-        MockProcessedMessageScheduler<ProcessedMessage<()>>,
-        _,
-        _,
-        RuntimeServiceId,
-    >(
+    let output = handle_session_event::<_, _, _, _, _, _, RuntimeServiceId>(
         SessionEvent::NewSession(CoreSessionInfo {
             public: CoreSessionPublicInfo {
                 membership: membership.clone(),
@@ -227,7 +238,6 @@ async fn test_handle_session_event() {
         token_collector,
         None,
         &mut backend,
-        BlakeRng::from_entropy(),
     )
     .await;
     let HandleSessionEventOutput::Transitioning {
@@ -248,22 +258,18 @@ async fn test_handle_session_event() {
         session + 1
     );
     assert_eq!(old_crypto_processor.verifier().session_number(), session);
-    assert_eq!(new_scheduler.num_scheduled_messages(), 0);
-    assert_eq!(old_scheduler.num_scheduled_messages(), 0);
+    assert_eq!(
+        new_scheduler.release_delayer().unreleased_messages().len(),
+        0
+    );
+    assert_eq!(
+        old_scheduler.release_delayer().unreleased_messages().len(),
+        0
+    );
     assert_eq!(new_public_info.session.session_number, session + 1);
 
     // Handle a TransitionExpired event, expecting TransitionCompleted output.
-    let output = handle_session_event::<
-        _,
-        _,
-        _,
-        _,
-        MockProcessedMessageScheduler<ProcessedMessage<()>>,
-        MockProcessedMessageScheduler<ProcessedMessage<()>>,
-        _,
-        _,
-        RuntimeServiceId,
-    >(
+    let output = handle_session_event::<_, _, _, _, _, _, RuntimeServiceId>(
         SessionEvent::TransitionPeriodExpired,
         &settings,
         new_crypto_processor,
@@ -273,7 +279,6 @@ async fn test_handle_session_event() {
         new_token_collector,
         Some(old_token_collector),
         &mut backend,
-        BlakeRng::from_entropy(),
     )
     .await;
     let HandleSessionEventOutput::TransitionCompleted {
@@ -299,17 +304,7 @@ async fn test_handle_session_event() {
 
     // Handle a NewSession event with a new too small membership,
     // expecting Retiring output.
-    let output = handle_session_event::<
-        _,
-        _,
-        _,
-        _,
-        MockProcessedMessageScheduler<ProcessedMessage<()>>,
-        MockProcessedMessageScheduler<ProcessedMessage<()>>,
-        _,
-        _,
-        RuntimeServiceId,
-    >(
+    let output = handle_session_event::<_, _, _, _, _, _, RuntimeServiceId>(
         SessionEvent::NewSession(CoreSessionInfo {
             public: CoreSessionPublicInfo {
                 membership: new_membership(minimal_network_size - 1).0,
@@ -326,7 +321,6 @@ async fn test_handle_session_event() {
         current_token_collector,
         None,
         &mut backend,
-        BlakeRng::from_entropy(),
     )
     .await;
     let HandleSessionEventOutput::Retiring {

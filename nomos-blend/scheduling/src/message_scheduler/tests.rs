@@ -12,7 +12,7 @@ use tokio_stream::iter;
 use crate::{
     cover_traffic::SessionCoverTraffic,
     message_scheduler::{
-        MessageScheduler as _, SessionMessageScheduler,
+        SessionMessageScheduler,
         round_info::{Round, RoundInfo, RoundReleaseType},
     },
     release_delayer::SessionProcessedMessageDelayer,

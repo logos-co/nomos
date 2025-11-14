@@ -36,7 +36,7 @@ use nomos_blend_scheduling::{
         provers::core_and_leader::CoreAndLeaderProofsGenerator,
     },
     message_scheduler::{
-        MessageScheduler, OldSessionMessageScheduler, ProcessedMessageScheduler,
+        OldSessionMessageScheduler, ProcessedMessageScheduler,
         round_info::{RoundInfo, RoundReleaseType},
         session_info::SessionInfo as SchedulerSessionInfo,
     },
@@ -742,7 +742,7 @@ where
                 handle_new_secret_epoch_info(pol_info.poq_private_inputs, &mut crypto_processor);
             }
             Some(session_event) = remaining_session_stream.next() => {
-                match handle_session_event(session_event, blend_config, crypto_processor, message_scheduler, public_info, recovery_checkpoint, blending_token_collector, old_session_blending_token_collector, backend, rng.clone()).await {
+                match handle_session_event(session_event, blend_config, crypto_processor, message_scheduler, public_info, recovery_checkpoint, blending_token_collector, old_session_blending_token_collector, backend).await {
                     HandleSessionEventOutput::Transitioning { new_crypto_processor, old_crypto_processor, new_token_collector, old_token_collector, new_scheduler, old_scheduler, new_public_info, new_recovery_checkpoint } => {
                         crypto_processor = new_crypto_processor;
                         old_session_crypto_processor = Some(old_crypto_processor);
@@ -867,8 +867,6 @@ async fn handle_session_event<
     ProofsGenerator,
     ProofsVerifier,
     Backend,
-    Scheduler,
-    OldScheduler,
     Rng,
     BroadcastSettings,
     RuntimeServiceId,
@@ -880,17 +878,19 @@ async fn handle_session_event<
         ProofsGenerator,
         ProofsVerifier,
     >,
-    current_scheduler: Scheduler,
+    current_scheduler: SessionMessageScheduler<
+        Rng,
+        ProcessedMessage<BroadcastSettings>,
+        EncapsulatedMessage,
+    >,
     current_public_info: PublicInfo<NodeId>,
     current_recovery_checkpoint: ServiceState<Backend::Settings, BroadcastSettings>,
     current_session_blending_token_collector: SessionBlendingTokenCollector,
     old_session_blending_token_collector: Option<OldSessionBlendingTokenCollector>,
     backend: &mut Backend,
-    rng: Rng,
 ) -> HandleSessionEventOutput<
     NodeId,
-    Scheduler,
-    OldScheduler,
+    Rng,
     ProofsGenerator,
     ProofsVerifier,
     Backend::Settings,
@@ -898,12 +898,10 @@ async fn handle_session_event<
 >
 where
     NodeId: Eq + Hash + Clone + Send,
-    Scheduler: MessageScheduler<Rng, ProcessedMessage<BroadcastSettings>, EncapsulatedMessage>
-        + Into<OldScheduler>,
     Rng: rand::Rng + Clone + Unpin,
     ProofsGenerator: CoreAndLeaderProofsGenerator,
     ProofsVerifier: ProofsVerifierTrait,
-    BroadcastSettings: Send + Sync,
+    BroadcastSettings: Debug + Send + Sync + Unpin,
     Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId>,
 {
     match event {
@@ -924,8 +922,8 @@ where
                 settings.scheduler.cover.message_frequency_per_round,
             )
             .expect("Reward session info must be created successfully. Panicking since the service cannot continue with this session");
-            let new_session_blending_token_collector =
-                SessionBlendingTokenCollector::new(&new_reward_session_info);
+            let (new_session_blending_token_collector, old_session_blending_token_collector) =
+                current_session_blending_token_collector.rotate_session(&new_reward_session_info);
 
             let new_session_info = SessionInfo {
                 membership: new_membership.clone(),
@@ -933,6 +931,11 @@ where
                 core_public_inputs: new_core_public_inputs,
             };
             backend.rotate_session(new_session_info.clone()).await;
+
+            let new_scheduler_session_info = SchedulerSessionInfo {
+                core_quota: settings.session_quota(new_session_info.membership.size()),
+                session_number: u128::from(new_session).into(),
+            };
 
             let new_public_info = PublicInfo {
                 session: new_session_info.clone(),
@@ -950,30 +953,28 @@ where
                     tracing::info!(target: LOG_TARGET, "New membership does not satisfy the core node condition: {e:?}");
                     return HandleSessionEventOutput::Retiring {
                         old_crypto_processor: current_cryptographic_processor,
-                        old_scheduler: current_scheduler.into(),
-                        old_token_collector: current_session_blending_token_collector
-                            .into_old_session(new_reward_session_info.session_randomness()),
+                        old_scheduler: current_scheduler
+                            .rotate_session(
+                                new_scheduler_session_info,
+                                settings.scheduler_settings(),
+                            )
+                            .1,
+                        old_token_collector: old_session_blending_token_collector,
                         old_public_info: current_public_info,
                         old_recovery_checkpoint: current_recovery_checkpoint,
                     };
                 }
             };
             let state_updater = current_recovery_checkpoint.into_components().4;
+            let (new_scheduler, old_scheduler) = current_scheduler
+                .rotate_session(new_scheduler_session_info, settings.scheduler_settings());
             HandleSessionEventOutput::Transitioning {
                 new_crypto_processor: new_processor,
                 old_crypto_processor: current_cryptographic_processor,
-                new_scheduler: Scheduler::new(
-                    SchedulerSessionInfo {
-                        core_quota: settings.session_quota(new_session_info.membership.size()),
-                        session_number: u128::from(new_session).into(),
-                    },
-                    rng,
-                    settings.scheduler_settings(),
-                ),
-                old_scheduler: current_scheduler.into(),
+                new_scheduler,
+                old_scheduler,
                 new_token_collector: new_session_blending_token_collector,
-                old_token_collector: current_session_blending_token_collector
-                    .into_old_session(new_reward_session_info.session_randomness()),
+                old_token_collector: old_session_blending_token_collector,
                 new_public_info,
                 // No need to store the new state, since if the node crashes before the first
                 // release round of the new session, we will ignore the old state as it belongs to
@@ -1015,10 +1016,13 @@ async fn handle_session_transition_expired<Backend, NodeId, Rng, ProofsVerifier,
     backend.complete_session_transition().await;
 }
 
+#[expect(
+    clippy::large_enum_variant,
+    reason = "TODO: refactor with state machine"
+)]
 enum HandleSessionEventOutput<
     NodeId,
-    Scheduler,
-    OldScheduler,
+    Rng,
     ProofsGenerator,
     ProofsVerifier,
     BackendSettings,
@@ -1027,8 +1031,9 @@ enum HandleSessionEventOutput<
     Transitioning {
         new_crypto_processor: CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
         old_crypto_processor: CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
-        new_scheduler: Scheduler,
-        old_scheduler: OldScheduler,
+        new_scheduler:
+            SessionMessageScheduler<Rng, ProcessedMessage<BroadcastSettings>, EncapsulatedMessage>,
+        old_scheduler: OldSessionMessageScheduler<Rng, ProcessedMessage<BroadcastSettings>>,
         new_token_collector: SessionBlendingTokenCollector,
         old_token_collector: OldSessionBlendingTokenCollector,
         new_public_info: PublicInfo<NodeId>,
@@ -1037,14 +1042,15 @@ enum HandleSessionEventOutput<
     TransitionCompleted {
         current_crypto_processor:
             CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
-        current_scheduler: Scheduler,
+        current_scheduler:
+            SessionMessageScheduler<Rng, ProcessedMessage<BroadcastSettings>, EncapsulatedMessage>,
         current_token_collector: SessionBlendingTokenCollector,
         current_public_info: PublicInfo<NodeId>,
         current_recovery_checkpoint: ServiceState<BackendSettings, BroadcastSettings>,
     },
     Retiring {
         old_crypto_processor: CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
-        old_scheduler: OldScheduler,
+        old_scheduler: OldSessionMessageScheduler<Rng, ProcessedMessage<BroadcastSettings>>,
         old_token_collector: OldSessionBlendingTokenCollector,
         old_public_info: PublicInfo<NodeId>,
         old_recovery_checkpoint: ServiceState<BackendSettings, BroadcastSettings>,
@@ -1169,15 +1175,20 @@ where
 #[expect(clippy::too_many_arguments, reason = "categorize args")]
 fn handle_incoming_blend_message<
     NodeId,
+    Rng,
     BroadcastSettings,
     BackendSettings,
     ProofsGenerator,
     ProofsVerifier,
 >(
     validated_encapsulated_message: IncomingEncapsulatedMessageWithValidatedPublicHeader,
-    scheduler: &mut impl ProcessedMessageScheduler<ProcessedMessage<BroadcastSettings>>,
+    scheduler: &mut SessionMessageScheduler<
+        Rng,
+        ProcessedMessage<BroadcastSettings>,
+        EncapsulatedMessage,
+    >,
     old_session_scheduler: Option<
-        &mut impl ProcessedMessageScheduler<ProcessedMessage<BroadcastSettings>>,
+        &mut OldSessionMessageScheduler<Rng, ProcessedMessage<BroadcastSettings>>,
     >,
     cryptographic_processor: &CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
     old_session_cryptographic_processor: Option<
@@ -1189,6 +1200,7 @@ fn handle_incoming_blend_message<
 ) -> ServiceState<BackendSettings, BroadcastSettings>
 where
     NodeId: 'static,
+    Rng: RngCore + Clone + Send + Unpin,
     BroadcastSettings: Serialize + for<'de> Deserialize<'de> + Debug + Eq + Hash + Clone + Send,
     BackendSettings: Clone,
     ProofsVerifier: ProofsVerifierTrait,
