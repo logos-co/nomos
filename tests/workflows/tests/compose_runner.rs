@@ -18,7 +18,6 @@ fn docker_available() -> bool {
 }
 
 #[tokio::test]
-#[ignore = "requires Docker daemon"]
 async fn compose_runner_tx_workload() {
     if !docker_available() {
         eprintln!("Skipping compose_runner_tx_workload: Docker is unavailable");
