@@ -1,4 +1,4 @@
-use std::{fmt, num::NonZeroU64, time::Duration};
+use std::{num::NonZeroU64, time::Duration};
 
 use async_trait::async_trait;
 use nomos_core::mantle::ops::channel::ChannelId;
@@ -6,6 +6,7 @@ use testing_framework_core::{
     scenario::{DynError, Expectation, RunContext, Workload as ScenarioWorkload},
     topology::GeneratedTopology,
 };
+use thiserror::Error;
 
 use super::expectation::TxInclusionExpectation;
 use crate::util::tx;
@@ -92,20 +93,14 @@ fn planned_blocks(ctx: &RunContext) -> u64 {
 }
 
 fn transmission_interval(run_duration: Duration, total_txs: u64) -> Duration {
-    assert!(
-        total_txs > 0,
-        "transaction plan validated during initialization"
-    );
-    assert!(
-        !run_duration.is_zero(),
-        "run duration validated during initialization"
-    );
+    if total_txs == 0 {
+        return Duration::ZERO;
+    }
 
     let secs = run_duration.as_secs_f64();
-    assert!(
-        secs.is_finite() && secs > 0.0,
-        "run duration validated during initialization"
-    );
+    if !secs.is_finite() || secs <= 0.0 {
+        return Duration::ZERO;
+    }
 
     Duration::from_secs_f64(secs / total_txs as f64)
 }
@@ -123,24 +118,13 @@ pub fn planned_channel_ids(total: usize) -> Vec<ChannelId> {
         .collect::<Vec<_>>()
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum TxPlanError {
+    #[error("tx workload total transactions exceed u64 capacity")]
     TotalOverflow,
+    #[error("tx workload total transactions exceed usize capacity")]
     CapacityOverflow,
 }
-
-impl fmt::Display for TxPlanError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::TotalOverflow => write!(f, "tx workload total transactions exceed u64 capacity"),
-            Self::CapacityOverflow => {
-                write!(f, "tx workload total transactions exceed usize capacity")
-            }
-        }
-    }
-}
-
-impl std::error::Error for TxPlanError {}
 
 pub fn planned_transaction_totals(
     txs_per_block: NonZeroU64,

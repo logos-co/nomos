@@ -45,6 +45,26 @@ impl NodeClients {
         &self.executors
     }
 
+    #[must_use]
+    pub fn random_validator(&self) -> Option<&ApiClient> {
+        if self.validators.is_empty() {
+            return None;
+        }
+        let mut rng = thread_rng();
+        let idx = rng.gen_range(0..self.validators.len());
+        self.validators.get(idx)
+    }
+
+    #[must_use]
+    pub fn random_executor(&self) -> Option<&ApiClient> {
+        if self.executors.is_empty() {
+            return None;
+        }
+        let mut rng = thread_rng();
+        let idx = rng.gen_range(0..self.executors.len());
+        self.executors.get(idx)
+    }
+
     pub fn all_clients(&self) -> impl Iterator<Item = &ApiClient> {
         self.validators.iter().chain(self.executors.iter())
     }
