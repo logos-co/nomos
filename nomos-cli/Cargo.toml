@@ -1,10 +1,14 @@
 [package]
+categories  = { workspace = true }
 default-run = "nomos-cli"
 description = "Cli app to interact with Nomos nodes and perform various tasks"
 edition     = { workspace = true }
+keywords    = { workspace = true }
 license     = { workspace = true }
 name        = "nomos-cli"
-version     = "0.1.0"
+readme      = { workspace = true }
+repository  = { workspace = true }
+version     = { workspace = true }
 
 [lints]
 workspace = true
