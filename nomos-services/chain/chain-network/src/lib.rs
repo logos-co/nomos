@@ -7,17 +7,10 @@ mod states;
 mod sync;
 
 use core::fmt::Debug;
-use std::{
-    collections::HashMap,
-    fmt::Display,
-    hash::Hash,
-    path::PathBuf,
-    time::Duration,
-};
+use std::{collections::HashMap, fmt::Display, hash::Hash, path::PathBuf, time::Duration};
 
 use broadcast_service::{BlockBroadcastMsg, BlockBroadcastService, BlockInfo, SessionUpdate};
 use chain_service::api::CryptarchiaServiceData;
-use cryptarchia_engine::PrunedBlocks;
 pub use cryptarchia_engine::{Epoch, Slot};
 use futures::{FutureExt as _, StreamExt as _};
 use network::NetworkAdapter;
@@ -103,7 +96,6 @@ pub enum Error {
     ServiceSessionNotFound(ServiceType),
 }
 
-
 #[derive(Clone)]
 struct Cryptarchia {
     ledger: nomos_ledger::Ledger<HeaderId>,
@@ -141,10 +133,7 @@ impl Cryptarchia {
 
     /// Create a new [`Cryptarchia`] with the updated state.
     #[must_use = "Returns a new instance with the updated state, without modifying the original."]
-    fn try_apply_block<Tx>(
-        &self,
-        block: &Block<Tx>,
-    ) -> Result<(Self, PrunedBlocks<HeaderId>), Error>
+    fn try_apply_block<Tx>(&self, block: &Block<Tx>) -> Result<Self, Error>
     where
         Tx: AuthenticatedMantleTx,
     {
@@ -171,7 +160,7 @@ impl Cryptarchia {
         // Prune the ledger states of all the pruned blocks.
         cryptarchia.prune_ledger_states(pruned_blocks.all());
 
-        Ok((cryptarchia, pruned_blocks))
+        Ok(cryptarchia)
     }
 
     /// Remove the ledger states associated with blocks that have been pruned by
@@ -195,16 +184,13 @@ impl Cryptarchia {
         tracing::debug!(target: LOG_TARGET, "Pruned {pruned_states_count} old forks and their ledger states.");
     }
 
-    fn online(self) -> (Self, PrunedBlocks<HeaderId>) {
-        let (consensus, pruned_blocks) = self.consensus.online();
-        (
-            Self {
-                ledger: self.ledger,
-                consensus,
-                genesis_id: self.genesis_id,
-            },
-            pruned_blocks,
-        )
+    fn online(self) -> Self {
+        let (consensus, _) = self.consensus.online();
+        Self {
+            ledger: self.ledger,
+            consensus,
+            genesis_id: self.genesis_id,
+        }
     }
 
     const fn is_boostrapping(&self) -> bool {
@@ -498,7 +484,7 @@ where
             .get_updated_settings();
 
         // TODO: check active slot coeff is exactly 1/30
-        let (cryptarchia, _pruned_blocks) = self
+        let cryptarchia = self
             .initialize_cryptarchia(&bootstrap_config, ledger_config.clone(), &relays)
             .await;
 
@@ -565,10 +551,7 @@ where
             },
         );
 
-        let mut cryptarchia = match initial_block_download
-            .run()
-            .await
-        {
+        let mut cryptarchia = match initial_block_download.run().await {
             Ok(cryptarchia) => {
                 info!("Initial Block Download completed successfully.");
                 cryptarchia
@@ -797,18 +780,9 @@ where
     where
         BlobStrategy: blob::Strategy + Sync,
     {
-        let (cryptarchia, _pruned_blocks) = Self::process_block(
-            cryptarchia,
-            block,
-            blob_validation,
-            relays,
-        )
-        .await?;
+        let cryptarchia = Self::process_block(cryptarchia, block, blob_validation, relays).await?;
 
-        Self::update_state(
-            &cryptarchia,
-            state_updater,
-        );
+        Self::update_state(&cryptarchia, state_updater);
 
         Ok(cryptarchia)
     }
@@ -947,9 +921,7 @@ where
             Option<CryptarchiaConsensusState<NetAdapter::PeerId, NetAdapter::Settings>>,
         >,
     ) {
-        match <Self as ServiceData>::State::from_cryptarchia_and_unpruned_blocks(
-            cryptarchia,
-        ) {
+        match <Self as ServiceData>::State::from_cryptarchia_and_unpruned_blocks(cryptarchia) {
             Ok(state) => {
                 state_updater.update(Some(state));
             }
@@ -976,7 +948,7 @@ where
             SamplingBackend,
             RuntimeServiceId,
         >,
-    ) -> Result<(crate::Cryptarchia, PrunedBlocks<HeaderId>), Error>
+    ) -> Result<crate::Cryptarchia, Error>
     where
         BlobStrategy: blob::Strategy + Sync,
     {
@@ -999,7 +971,7 @@ where
             blob_validation.validate(&block).await?;
         }
 
-        let (cryptarchia, pruned_blocks) = cryptarchia.try_apply_block(&block)?;
+        let cryptarchia = cryptarchia.try_apply_block(&block)?;
         let new_lib = cryptarchia.lib();
 
         // remove included content from mempool
@@ -1055,7 +1027,7 @@ where
             .await;
         }
 
-        Ok((cryptarchia, pruned_blocks))
+        Ok(cryptarchia)
     }
 
     fn log_received_block(block: &Block<Mempool::Item>) {
@@ -1097,7 +1069,7 @@ where
             SamplingBackend,
             RuntimeServiceId,
         >,
-    ) -> (crate::Cryptarchia, PrunedBlocks<HeaderId>) {
+    ) -> crate::Cryptarchia {
         let lib_id = self.state.lib;
         let genesis_id = self.state.genesis_id;
         let state = choose_engine_state(
@@ -1118,16 +1090,11 @@ where
         let init_tip = cryptarchia.tip();
         Self::broadcast_session_updates_for_block(&cryptarchia, &init_tip, relays, None).await;
 
-        let pruned_blocks = PrunedBlocks::new();
-
-        (cryptarchia, pruned_blocks)
+        cryptarchia
     }
 
-    fn switch_to_online(
-        cryptarchia: crate::Cryptarchia,
-    ) -> crate::Cryptarchia {
-        let (cryptarchia, _pruned_blocks) = cryptarchia.online();
-        cryptarchia
+    fn switch_to_online(cryptarchia: crate::Cryptarchia) -> crate::Cryptarchia {
+        cryptarchia.online()
     }
 
     async fn broadcast_session_updates_for_block(
