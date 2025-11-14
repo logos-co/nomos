@@ -50,12 +50,6 @@ where
         &self,
         hashes: Vec<TxHash>,
     ) -> Result<TransactionsByHashesResponse<Tx, TxHash>, overwatch::DynError> {
-        let requested = hashes.len();
-        tracing::info!(
-            target: "cryptarchia::service",
-            "Requesting {} transactions from mempool",
-            requested
-        );
         let (resp_tx, resp_rx) = oneshot::channel();
 
         self.mempool_relay
@@ -70,15 +64,6 @@ where
             .await
             .map_err(|e| format!("Could not receive response: {e}"))?;
 
-        let response = response.map_err(|e| format!("Mempool error: {e}"))?;
-        let missing = response.not_found().len();
-        let found = requested.saturating_sub(missing);
-        tracing::info!(
-            target: "cryptarchia::service",
-            "Mempool returned {} transactions, missing {}",
-            found,
-            missing
-        );
-        Ok(response)
+        Ok(response.map_err(|e| format!("Mempool error: {e}"))?)
     }
 }

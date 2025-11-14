@@ -37,7 +37,7 @@ use tokio::sync::{
     mpsc::{self, UnboundedSender, error::SendError},
     oneshot,
 };
-use tracing::{debug, error};
+use tracing::error;
 
 pub(crate) const BROADCAST_CHANNEL_SIZE: usize = 128;
 
@@ -469,10 +469,6 @@ async fn handle_incoming_share_request(
     blob_id: BlobId,
     share_idx: u16,
 ) {
-    debug!(
-        "handle_incoming_share_request: blob_id={:?} share_idx={}",
-        blob_id, share_idx
-    );
     let (sampling_response_sender, mut sampling_response_receiver) = mpsc::channel(1);
 
     if let Err(e) = sampling_broadcast_sender.send(SamplingEvent::SamplingRequest {
@@ -496,35 +492,18 @@ async fn handle_incoming_share_request(
                 subnetwork_id: share_idx,
             },
         };
-        if let BehaviourSampleRes::SamplingSuccess { subnetwork_id, .. } = &result {
-            debug!(
-                "handle_incoming_share_request: share_idx={} -> success subnetwork_id={}",
-                share_idx, subnetwork_id
-            );
-        } else if let BehaviourSampleRes::SampleNotFound { subnetwork_id, .. } = &result {
-            debug!(
-                "handle_incoming_share_request: share_idx={} -> not found (reply subnetwork_id={})",
-                share_idx, subnetwork_id
-            );
-        }
 
         if response_sender.send(result).is_err() {
             error!("Error sending sampling success response");
         }
-    } else {
-        debug!(
-            "handle_incoming_share_request: share_idx={} -> no response from sampler",
-            share_idx
-        );
-        if response_sender
-            .send(BehaviourSampleRes::SampleNotFound {
-                blob_id,
-                subnetwork_id: share_idx,
-            })
-            .is_err()
-        {
-            error!("Error sending sampling success response");
-        }
+    } else if response_sender
+        .send(BehaviourSampleRes::SampleNotFound {
+            blob_id,
+            subnetwork_id: share_idx,
+        })
+        .is_err()
+    {
+        error!("Error sending sampling success response");
     }
 }
 

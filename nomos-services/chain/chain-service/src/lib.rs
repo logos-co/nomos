@@ -32,7 +32,7 @@ use nomos_core::{
         AuthenticatedMantleTx, Transaction, TxHash,
         gas::MainnetGasConstants,
         genesis_tx::GenesisTx,
-        ops::{Op, channel::ChannelId, leader_claim::VoucherCm},
+        ops::{Op, leader_claim::VoucherCm},
     },
     sdp::{Declaration, DeclarationId, ProviderId, ProviderInfo, ServiceType},
 };
@@ -221,10 +221,6 @@ impl Cryptarchia {
 
     /// Create a new [`Cryptarchia`] with the updated state.
     #[must_use = "Returns a new instance with the updated state, without modifying the original."]
-    #[expect(
-        clippy::cognitive_complexity,
-        reason = "Ledger debug instrumentation will be refactored later"
-    )]
     fn try_apply_block<Tx>(
         &self,
         block: &Block<Tx>,
@@ -236,26 +232,6 @@ impl Cryptarchia {
         let id = header.id();
         let parent = header.parent();
         let slot = header.slot();
-        if let Some(parent_state) = self.ledger.state(&parent) {
-            let default_channel = ChannelId::from([1u8; 32]);
-            let parent_tip = parent_state
-                .mantle_ledger()
-                .channels()
-                .channel_state(&default_channel)
-                .map(|channel_state| channel_state.tip);
-            debug!(
-                target: LOG_TARGET,
-                ?parent,
-                ?parent_tip,
-                "Applying block on top of parent ledger state"
-            );
-        } else {
-            debug!(
-                target: LOG_TARGET,
-                ?parent,
-                "No ledger state cached for parent when applying block"
-            );
-        }
         // A block number of this block if it's applied to the chain.
         let ledger = self.ledger.try_update::<_, MainnetGasConstants>(
             id,
@@ -265,26 +241,6 @@ impl Cryptarchia {
             VoucherCm::default(), // TODO: add the new voucher commitment here
             block.transactions(),
         )?;
-        if let Some(current_state) = ledger.state(&id) {
-            let default_channel = ChannelId::from([1u8; 32]);
-            let new_tip = current_state
-                .mantle_ledger()
-                .channels()
-                .channel_state(&default_channel)
-                .map(|channel_state| channel_state.tip);
-            debug!(
-                target: LOG_TARGET,
-                ?id,
-                ?new_tip,
-                "Ledger state after applying block"
-            );
-        } else {
-            debug!(
-                target: LOG_TARGET,
-                ?id,
-                "Ledger state missing immediately after applying block"
-            );
-        }
         let (consensus, pruned_blocks) = self.consensus.receive_block(id, parent, slot)?;
 
         let mut cryptarchia = Self {
@@ -1051,26 +1007,6 @@ where
             }
             ConsensusMsg::GetLedgerState { block_id, tx } => {
                 let ledger_state = cryptarchia.ledger.state(&block_id).cloned();
-                if let Some(state) = ledger_state.as_ref() {
-                    let default_channel = ChannelId::from([1u8; 32]);
-                    let channel_tip = state
-                        .mantle_ledger()
-                        .channels()
-                        .channel_state(&default_channel)
-                        .map(|channel_state| channel_state.tip);
-                    debug!(
-                        target: LOG_TARGET,
-                        ?block_id,
-                        ?channel_tip,
-                        "Responding with ledger state snapshot"
-                    );
-                } else {
-                    debug!(
-                        target: LOG_TARGET,
-                        ?block_id,
-                        "Ledger state unavailable for requested block"
-                    );
-                }
                 tx.send(ledger_state).unwrap_or_else(|_| {
                     error!("Could not send ledger state through channel");
                 });
@@ -1178,12 +1114,6 @@ where
     {
         let block_id = proposal.header().id();
 
-        info!(
-            target: LOG_TARGET,
-            "Handling incoming proposal {:?}",
-            block_id
-        );
-
         if cryptarchia.has_block(&block_id) {
             info!(
                 target: LOG_TARGET,
@@ -1217,10 +1147,6 @@ where
         .await;
     }
 
-    #[expect(
-        clippy::cognitive_complexity,
-        reason = "Separating logging/error handling would require larger refactor"
-    )]
     fn handle_proposal_processing_error(
         err: Error,
         block_id: HeaderId,
@@ -1238,21 +1164,6 @@ where
                     target: LOG_TARGET,
                     "Received block with parent {:?} that is not in the ledger state. Ignoring block.",
                     parent
-                );
-            }
-            Error::BlobValidationFailed(blob::Error::InvalidBlobs) => {
-                warn!(
-                    target: LOG_TARGET,
-                    "Blob validation failed for block {:?}: sampler has not validated all blobs yet",
-                    block_id
-                );
-            }
-            Error::BlobValidationFailed(other) => {
-                error!(
-                    target: LOG_TARGET,
-                    "Blob validation failed for block {:?}: {:?}",
-                    block_id,
-                    other
                 );
             }
             other => {
@@ -1304,12 +1215,6 @@ where
                 *cryptarchia = new_cryptarchia;
                 *storage_blocks_to_remove = new_storage_blocks_to_remove;
                 orphan_downloader.remove_orphan(&block_id);
-                info!(
-                    target: LOG_TARGET,
-                    "Reconstructed block {:?} processed successfully (pending_storage_blocks={})",
-                    block_id,
-                    storage_blocks_to_remove.len()
-                );
                 info!(counter.consensus_processed_blocks = 1);
             }
             Err(err) => {
@@ -1929,13 +1834,6 @@ where
     Item: AuthenticatedMantleTx<Hash = TxHash> + Clone + Send + Sync + 'static,
 {
     let mempool_hashes: Vec<TxHash> = proposal.mempool_transactions().to_vec();
-    let proposal_id = proposal.header().id();
-    info!(
-        target: LOG_TARGET,
-        "Reconstructing proposal {:?}: requesting {} transactions from mempool",
-        proposal_id,
-        mempool_hashes.len()
-    );
     let mempool_response = mempool
         .get_transactions_by_hashes(mempool_hashes)
         .await
@@ -1943,24 +1841,12 @@ where
             Error::InvalidBlock(format!("Failed to get transactions from mempool: {e}"))
         })?;
 
-    let missing_hashes = mempool_response.not_found().clone();
     if !mempool_response.all_found() {
-        warn!(
-            target: LOG_TARGET,
-            "Proposal {:?} reconstruction missing {} transactions: {:?}",
-            proposal_id,
-            missing_hashes.len(),
-            missing_hashes
-        );
         return Err(Error::InvalidBlock(format!(
-            "Failed to reconstruct block: {missing_hashes:?} mempool transactions not found"
+            "Failed to reconstruct block: {:?} mempool transactions not found",
+            mempool_response.not_found()
         )));
     }
-    info!(
-        target: LOG_TARGET,
-        "Proposal {:?} reconstruction retrieved all transactions",
-        proposal_id
-    );
 
     // TODO: recover service reward
     let service_reward = None;
