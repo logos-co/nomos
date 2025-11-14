@@ -13,12 +13,13 @@ use futures::{
     FutureExt as _, Stream, StreamExt as _,
     future::{BoxFuture, join_all},
 };
+use key_management_system::{api::KmsServiceApi, keys::PublicKeyEncoding};
 use network::NetworkAdapter;
 use nomos_blend_message::{
     PayloadType,
     crypto::{
         proofs::quota::inputs::prove::{
-            private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs},
+            private::ProofOfLeadershipQuotaInputs,
             public::{CoreInputs, LeaderInputs},
         },
         random_sized_bytes,
@@ -64,6 +65,7 @@ use tracing::info;
 use crate::{
     core::{
         backends::{PublicInfo, SessionInfo},
+        kms::{KmsPoQAdapter, PreloadKMSBackendCorePoQGenerator, PreloadKmsService},
         processor::{
             CoreCryptographicProcessor, DecapsulatedMessageType, Error,
             MultiLayerDecapsulationOutput,
@@ -83,6 +85,7 @@ use crate::{
 };
 
 pub mod backends;
+pub mod kms;
 pub mod network;
 pub mod settings;
 
@@ -201,7 +204,8 @@ where
     Network: NetworkAdapter<RuntimeServiceId, BroadcastSettings: Eq + Hash + Unpin> + Send + Sync,
     MembershipAdapter: membership::Adapter<NodeId = NodeId, Error: Send + Sync + 'static> + Send,
     membership::ServiceMessage<MembershipAdapter>: Send + Sync + 'static,
-    ProofsGenerator: CoreAndLeaderProofsGenerator + Send,
+    ProofsGenerator:
+        CoreAndLeaderProofsGenerator<PreloadKMSBackendCorePoQGenerator<RuntimeServiceId>> + Send,
     ProofsVerifier: ProofsVerifierTrait + Clone + Send,
     TimeBackend: nomos_time::backends::TimeBackend + Send,
     ChainService: CryptarchiaServiceData<Tx: Send + Sync>,
@@ -210,6 +214,7 @@ where
         + AsServiceId<<MembershipAdapter as membership::Adapter>::Service>
         + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>
         + AsServiceId<ChainService>
+        + AsServiceId<PreloadKmsService<RuntimeServiceId>>
         + AsServiceId<Self>
         + Clone
         + Debug
@@ -257,7 +262,8 @@ where
             Some(Duration::from_secs(60)),
             NetworkService<_, _>,
             TimeService<_, _>,
-            <MembershipAdapter as membership::Adapter>::Service
+            <MembershipAdapter as membership::Adapter>::Service,
+            PreloadKmsService<_>
         )
         .await?;
 
@@ -284,13 +290,31 @@ where
         }
         .await;
 
+        let kms_api = async {
+            let kms_outbound_relay = overwatch_handle
+                .relay::<PreloadKmsService<_>>()
+                .await
+                .expect("Relay with KMS service should be available.");
+
+            KmsServiceApi::new(kms_outbound_relay)
+        }
+        .await;
+
+        let PublicKeyEncoding::Zk(zk_public_key) = kms_api
+            .public_key(blend_config.zk.secret_key_kms_id.clone())
+            .await
+            .expect("ZK public key for provided ID should be stored in KMS.")
+        else {
+            panic!("Key with specified ID is not a ZK key.");
+        };
+
         let membership_stream = MembershipAdapter::new(
             overwatch_handle
                 .relay::<<MembershipAdapter as membership::Adapter>::Service>()
                 .await
                 .expect("Failed to get relay channel with membership service."),
             blend_config.crypto.non_ephemeral_signing_key.public_key(),
-            Some(blend_config.zk.public_key()),
+            Some(zk_public_key),
         )
         .subscribe()
         .await
@@ -331,6 +355,7 @@ where
             CryptarchiaServiceApi<ChainService, RuntimeServiceId>,
             ProofsGenerator,
             ProofsVerifier,
+            KmsServiceApi<PreloadKmsService<RuntimeServiceId>, RuntimeServiceId>,
             RuntimeServiceId,
         >(
             blend_config.clone(),
@@ -338,6 +363,7 @@ where
             clock_stream,
             &mut epoch_handler,
             overwatch_handle.clone(),
+            kms_api,
             last_saved_state,
             state_updater,
         )
@@ -415,6 +441,10 @@ where
     clippy::cognitive_complexity,
     reason = "Need to initialize many components"
 )]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Need to initialize many components."
+)]
 async fn initialize<
     NodeId,
     Backend,
@@ -422,6 +452,7 @@ async fn initialize<
     ChainService,
     ProofsGenerator,
     ProofsVerifier,
+    KmsAdapter,
     RuntimeServiceId,
 >(
     blend_config: BlendConfig<Backend::Settings>,
@@ -429,15 +460,24 @@ async fn initialize<
     clock_stream: impl Stream<Item = SlotTick> + Send + Sync + Unpin + 'static,
     epoch_handler: &mut EpochHandler<ChainService, RuntimeServiceId>,
     overwatch_handle: OverwatchHandle<RuntimeServiceId>,
+    kms_adapter: KmsAdapter,
     mut last_saved_state: Option<ServiceState<Backend::Settings, NetAdapter::BroadcastSettings>>,
     state_updater: StateUpdater<
         Option<RecoveryServiceState<Backend::Settings, NetAdapter::BroadcastSettings>>,
     >,
 ) -> (
-    impl Stream<Item = SessionEvent<CoreSessionInfo<NodeId>>> + Unpin + Send + 'static,
+    impl Stream<Item = SessionEvent<CoreSessionInfo<NodeId, KmsAdapter::CorePoQGenerator>>>
+    + Unpin
+    + Send
+    + 'static,
     impl Stream<Item = SlotTick> + Unpin + Send + Sync + 'static,
     PublicInfo<NodeId>,
-    CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
+    CoreCryptographicProcessor<
+        NodeId,
+        KmsAdapter::CorePoQGenerator,
+        ProofsGenerator,
+        ProofsVerifier,
+    >,
     SessionBlendingTokenCollector,
     ServiceState<Backend::Settings, NetAdapter::BroadcastSettings>,
     SchedulerWrapper<
@@ -453,14 +493,19 @@ where
     Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId> + Sync,
     NetAdapter: NetworkAdapter<RuntimeServiceId, BroadcastSettings: Eq + Hash + Unpin>,
     ChainService: ChainApi<RuntimeServiceId> + Sync,
-    ProofsGenerator: CoreAndLeaderProofsGenerator,
+    ProofsGenerator: CoreAndLeaderProofsGenerator<KmsAdapter::CorePoQGenerator>,
     ProofsVerifier: ProofsVerifierTrait,
-    RuntimeServiceId: Sync,
+    // To avoid bubbling up generics everywhere in the configs (current Overwatch limitation), we
+    // know the final key ID type is a `String`, so we constraint the trait impl here instead.
+    KmsAdapter: KmsPoQAdapter<RuntimeServiceId, KeyId = String, CorePoQGenerator: Clone + Send + Sync>
+        + Send
+        + 'static,
+    RuntimeServiceId: Clone + Send + Sync + 'static,
 {
     // Initialize membership stream for session and core-related public PoQ inputs.
     let session_stream = async {
         let config = blend_config.clone();
-        let zk_secret_key = config.zk.sk.clone();
+        let zk_sk_id = config.zk.secret_key_kms_id.clone();
         membership_stream.map(
             move |MembershipInfo {
                       membership,
@@ -479,11 +524,13 @@ where
                     membership,
                     session: session_number,
                 },
-                private: ProofOfCoreQuotaInputs {
-                    core_sk: *zk_secret_key.as_fr(),
-                    core_path_and_selectors: core_and_path_selectors
-                        .expect("Core merkle path should be present for a core node."),
-                },
+                core_poq_generator: kms_adapter.core_poq_generator(
+                    zk_sk_id.clone(),
+                    Box::new(
+                        core_and_path_selectors
+                            .expect("Core merkle path should be present for a core node."),
+                    ),
+                ),
             },
         )
     }
@@ -543,15 +590,19 @@ where
         },
     };
 
-    let crypto_processor =
-        CoreCryptographicProcessor::<_, ProofsGenerator, ProofsVerifier>::try_new_with_core_condition_check(
-            current_membership_info.public.membership.clone(),
-            blend_config.minimum_network_size,
-            &blend_config.crypto,
-            current_public_info.clone().into(),
-            current_membership_info.private,
-        )
-        .expect("The initial membership should satisfy the core node condition");
+    let crypto_processor = CoreCryptographicProcessor::<
+        _,
+        KmsAdapter::CorePoQGenerator,
+        ProofsGenerator,
+        ProofsVerifier,
+    >::try_new_with_core_condition_check(
+        current_membership_info.public.membership.clone(),
+        blend_config.minimum_network_size,
+        &blend_config.crypto,
+        current_public_info.clone().into(),
+        current_membership_info.core_poq_generator,
+    )
+    .expect("The initial membership should satisfy the core node condition");
 
     let blending_token_collector = SessionBlendingTokenCollector::new(
             &reward::SessionInfo::new(
@@ -649,6 +700,7 @@ async fn run_event_loop<
     ChainService,
     ProofsGenerator,
     ProofsVerifier,
+    CorePoQGenerator,
     RuntimeServiceId,
 >(
     mut inbound_relay: impl Stream<Item = ServiceMessage<NetAdapter::BroadcastSettings>> + Unpin,
@@ -660,7 +712,9 @@ async fn run_event_loop<
          ),
     remaining_clock_stream: &mut (impl Stream<Item = SlotTick> + Send + Sync + Unpin + 'static),
     mut secret_pol_info_stream: impl Stream<Item = PolEpochInfo> + Unpin,
-    remaining_session_stream: &mut (impl Stream<Item = SessionEvent<CoreSessionInfo<NodeId>>> + Unpin),
+    remaining_session_stream: &mut (
+             impl Stream<Item = SessionEvent<CoreSessionInfo<NodeId, CorePoQGenerator>>> + Unpin
+         ),
 
     blend_config: &BlendConfig<Backend::Settings>,
     backend: &mut Backend,
@@ -674,11 +728,16 @@ async fn run_event_loop<
     rng: &mut Rng,
     mut blending_token_collector: SessionBlendingTokenCollector,
 
-    mut crypto_processor: CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
+    mut crypto_processor: CoreCryptographicProcessor<
+        NodeId,
+        CorePoQGenerator,
+        ProofsGenerator,
+        ProofsVerifier,
+    >,
     mut public_info: PublicInfo<NodeId>,
     mut recovery_checkpoint: ServiceState<Backend::Settings, NetAdapter::BroadcastSettings>,
 ) -> (
-    CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
+    CoreCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>,
     OldSessionMessageScheduler<Rng, ProcessedMessage<NetAdapter::BroadcastSettings>>,
     OldSessionBlendingTokenCollector,
     PublicInfo<NodeId>,
@@ -701,14 +760,14 @@ where
                                    + Unpin,
         > + Sync,
     ChainService: ChainApi<RuntimeServiceId> + Sync,
-    ProofsGenerator: CoreAndLeaderProofsGenerator,
+    ProofsGenerator: CoreAndLeaderProofsGenerator<CorePoQGenerator>,
     ProofsVerifier: ProofsVerifierTrait,
     RuntimeServiceId: Sync,
 {
     // An optional crypto processor to handle the old session during transition
     // period.
     let mut old_session_crypto_processor: Option<
-        CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
+        CoreCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>,
     > = None;
     let mut old_session_message_scheduler: Option<
         OldSessionMessageScheduler<Rng, ProcessedMessage<NetAdapter::BroadcastSettings>>,
@@ -790,6 +849,7 @@ async fn retire<
     ChainService,
     ProofsGenerator,
     ProofsVerifier,
+    CorePoQGenerator,
     RuntimeServiceId,
 >(
     mut blend_messages: impl Stream<Item = IncomingEncapsulatedMessageWithValidatedPublicHeader>
@@ -797,7 +857,9 @@ async fn retire<
     + Unpin
     + 'static,
     mut remaining_clock_stream: impl Stream<Item = SlotTick> + Send + Sync + Unpin + 'static,
-    mut remaining_session_stream: impl Stream<Item = SessionEvent<CoreSessionInfo<NodeId>>> + Unpin,
+    mut remaining_session_stream: impl Stream<
+        Item = SessionEvent<CoreSessionInfo<NodeId, CorePoQGenerator>>,
+    > + Unpin,
     blend_config: &BlendConfig<Backend::Settings>,
     mut backend: Backend,
     network_adapter: NetAdapter,
@@ -808,8 +870,12 @@ async fn retire<
     >,
     mut rng: Rng,
     mut blending_token_collector: OldSessionBlendingTokenCollector,
-
-    mut crypto_processor: CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
+    mut crypto_processor: CoreCryptographicProcessor<
+        NodeId,
+        CorePoQGenerator,
+        ProofsGenerator,
+        ProofsVerifier,
+    >,
     mut public_info: PublicInfo<NodeId>,
     mut recovery_checkpoint: ServiceState<Backend::Settings, NetAdapter::BroadcastSettings>,
 ) where
@@ -829,7 +895,7 @@ async fn retire<
                                    + Unpin,
         > + Sync,
     ChainService: ChainApi<RuntimeServiceId> + Sync,
-    ProofsGenerator: CoreAndLeaderProofsGenerator,
+    ProofsGenerator: CoreAndLeaderProofsGenerator<CorePoQGenerator>,
     ProofsVerifier: ProofsVerifierTrait,
     RuntimeServiceId: Sync,
 {
@@ -871,12 +937,14 @@ async fn handle_session_event<
     OldScheduler,
     Rng,
     BroadcastSettings,
+    CorePoQGenerator,
     RuntimeServiceId,
 >(
-    event: SessionEvent<CoreSessionInfo<NodeId>>,
+    event: SessionEvent<CoreSessionInfo<NodeId, CorePoQGenerator>>,
     settings: &BlendConfig<Backend::Settings>,
     current_cryptographic_processor: CoreCryptographicProcessor<
         NodeId,
+        CorePoQGenerator,
         ProofsGenerator,
         ProofsVerifier,
     >,
@@ -895,20 +963,21 @@ async fn handle_session_event<
     ProofsVerifier,
     Backend::Settings,
     BroadcastSettings,
+    CorePoQGenerator,
 >
 where
     NodeId: Eq + Hash + Clone + Send,
     Scheduler: MessageScheduler<Rng, ProcessedMessage<BroadcastSettings>, EncapsulatedMessage>
         + Into<OldScheduler>,
     Rng: rand::Rng + Clone + Unpin,
-    ProofsGenerator: CoreAndLeaderProofsGenerator,
+    ProofsGenerator: CoreAndLeaderProofsGenerator<CorePoQGenerator>,
     ProofsVerifier: ProofsVerifierTrait,
     BroadcastSettings: Send + Sync,
     Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId>,
 {
     match event {
         SessionEvent::NewSession(CoreSessionInfo {
-            private,
+            core_poq_generator,
             public:
                 CoreSessionPublicInfo {
                     poq_core_public_inputs: new_core_public_inputs,
@@ -943,7 +1012,7 @@ where
                 settings.minimum_network_size,
                 &settings.crypto,
                 new_public_info.clone().into(),
-                private,
+                core_poq_generator,
             ) {
                 Ok(new_processor) => new_processor,
                 Err(e @ (Error::LocalIsNotCoreNode | Error::NetworkIsTooSmall(_))) => {
@@ -1023,10 +1092,13 @@ enum HandleSessionEventOutput<
     ProofsVerifier,
     BackendSettings,
     BroadcastSettings,
+    CorePoQGenerator,
 > {
     Transitioning {
-        new_crypto_processor: CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
-        old_crypto_processor: CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
+        new_crypto_processor:
+            CoreCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>,
+        old_crypto_processor:
+            CoreCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>,
         new_scheduler: Scheduler,
         old_scheduler: OldScheduler,
         new_token_collector: SessionBlendingTokenCollector,
@@ -1036,14 +1108,15 @@ enum HandleSessionEventOutput<
     },
     TransitionCompleted {
         current_crypto_processor:
-            CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
+            CoreCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>,
         current_scheduler: Scheduler,
         current_token_collector: SessionBlendingTokenCollector,
         current_public_info: PublicInfo<NodeId>,
         current_recovery_checkpoint: ServiceState<BackendSettings, BroadcastSettings>,
     },
     Retiring {
-        old_crypto_processor: CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
+        old_crypto_processor:
+            CoreCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>,
         old_scheduler: OldScheduler,
         old_token_collector: OldSessionBlendingTokenCollector,
         old_public_info: PublicInfo<NodeId>,
@@ -1068,10 +1141,12 @@ async fn handle_local_data_message<
     BroadcastSettings,
     ProofsGenerator,
     ProofsVerifier,
+    CorePoQGenerator,
 >(
     local_data_message: ServiceMessage<BroadcastSettings>,
     cryptographic_processor: &mut CoreCryptographicProcessor<
         NodeId,
+        CorePoQGenerator,
         ProofsGenerator,
         ProofsVerifier,
     >,
@@ -1089,7 +1164,7 @@ where
     BackendSettings: Clone + Send + Sync,
     BroadcastSettings:
         Serialize + for<'de> Deserialize<'de> + Debug + Hash + Eq + Clone + Send + Sync + Unpin,
-    ProofsGenerator: CoreAndLeaderProofsGenerator,
+    ProofsGenerator: CoreAndLeaderProofsGenerator<CorePoQGenerator>,
     ProofsVerifier: ProofsVerifierTrait,
 {
     let ServiceMessage::Blend(message_payload) = local_data_message;
@@ -1173,15 +1248,21 @@ fn handle_incoming_blend_message<
     BackendSettings,
     ProofsGenerator,
     ProofsVerifier,
+    CorePoQGenerator,
 >(
     validated_encapsulated_message: IncomingEncapsulatedMessageWithValidatedPublicHeader,
     scheduler: &mut impl ProcessedMessageScheduler<ProcessedMessage<BroadcastSettings>>,
     old_session_scheduler: Option<
         &mut impl ProcessedMessageScheduler<ProcessedMessage<BroadcastSettings>>,
     >,
-    cryptographic_processor: &CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
+    cryptographic_processor: &CoreCryptographicProcessor<
+        NodeId,
+        CorePoQGenerator,
+        ProofsGenerator,
+        ProofsVerifier,
+    >,
     old_session_cryptographic_processor: Option<
-        &CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
+        &CoreCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>,
     >,
     blending_token_collector: &mut SessionBlendingTokenCollector,
     old_session_blending_token_collector: Option<&mut OldSessionBlendingTokenCollector>,
@@ -1244,10 +1325,16 @@ fn handle_incoming_blend_message_from_old_session<
     BackendSettings,
     ProofsGenerator,
     ProofsVerifier,
+    CorePoQGenerator,
 >(
     validated_encapsulated_message: IncomingEncapsulatedMessageWithValidatedPublicHeader,
     scheduler: &mut OldSessionMessageScheduler<Rng, ProcessedMessage<BroadcastSettings>>,
-    cryptographic_processor: &CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
+    cryptographic_processor: &CoreCryptographicProcessor<
+        NodeId,
+        CorePoQGenerator,
+        ProofsGenerator,
+        ProofsVerifier,
+    >,
     blending_token_collector: &mut OldSessionBlendingTokenCollector,
     current_recovery_checkpoint: ServiceState<BackendSettings, BroadcastSettings>,
 ) -> ServiceState<BackendSettings, BroadcastSettings>
@@ -1354,6 +1441,7 @@ async fn handle_release_round<
     NetAdapter,
     ProofsGenerator,
     ProofsVerifier,
+    CorePoQGenerator,
     RuntimeServiceId,
 >(
     RoundInfo {
@@ -1362,6 +1450,7 @@ async fn handle_release_round<
     }: RoundInfo<ProcessedMessage<NetAdapter::BroadcastSettings>, EncapsulatedMessage>,
     cryptographic_processor: &mut CoreCryptographicProcessor<
         NodeId,
+        CorePoQGenerator,
         ProofsGenerator,
         ProofsVerifier,
     >,
@@ -1375,7 +1464,7 @@ where
     NodeId: Eq + Hash + 'static,
     Rng: RngCore + Send,
     Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId> + Sync,
-    ProofsGenerator: CoreAndLeaderProofsGenerator,
+    ProofsGenerator: CoreAndLeaderProofsGenerator<CorePoQGenerator>,
     ProofsVerifier: ProofsVerifierTrait,
     NetAdapter: NetworkAdapter<RuntimeServiceId, BroadcastSettings: Eq + Hash> + Sync,
 {
@@ -1527,9 +1616,11 @@ async fn generate_and_try_to_decapsulate_cover_message<
     BroadcastSettings,
     ProofsGenerator,
     ProofsVerifier,
+    CorePoQGenerator,
 >(
     cryptographic_processor: &mut CoreCryptographicProcessor<
         NodeId,
+        CorePoQGenerator,
         ProofsGenerator,
         ProofsVerifier,
     >,
@@ -1540,7 +1631,7 @@ where
     NodeId: Eq + Hash + 'static,
     BackendSettings: Sync,
     BroadcastSettings: Sync,
-    ProofsGenerator: CoreAndLeaderProofsGenerator,
+    ProofsGenerator: CoreAndLeaderProofsGenerator<CorePoQGenerator>,
     ProofsVerifier: ProofsVerifierTrait,
 {
     let encapsulated_cover_message = cryptographic_processor
@@ -1590,6 +1681,7 @@ async fn handle_clock_event<
     ChainService,
     Backend,
     Rng,
+    CorePoQGenerator,
     RuntimeServiceId,
 >(
     slot_tick: SlotTick,
@@ -1597,6 +1689,7 @@ async fn handle_clock_event<
     epoch_handler: &mut EpochHandler<ChainService, RuntimeServiceId>,
     cryptographic_processor: &mut CoreCryptographicProcessor<
         NodeId,
+        CorePoQGenerator,
         ProofsGenerator,
         ProofsVerifier,
     >,
@@ -1604,7 +1697,7 @@ async fn handle_clock_event<
     current_public_info: PublicInfo<NodeId>,
 ) -> PublicInfo<NodeId>
 where
-    ProofsGenerator: CoreAndLeaderProofsGenerator,
+    ProofsGenerator: CoreAndLeaderProofsGenerator<CorePoQGenerator>,
     ProofsVerifier: ProofsVerifierTrait,
     ChainService: ChainApi<RuntimeServiceId> + Sync,
     Backend: BlendBackend<NodeId, Rng, ProofsVerifier, RuntimeServiceId>,
@@ -1672,15 +1765,16 @@ where
 
 /// Handle the availability of new secret `PoL` info by passing it to the
 /// underlying cryptographic processor.
-fn handle_new_secret_epoch_info<NodeId, ProofsGenerator, ProofsVerifier>(
+fn handle_new_secret_epoch_info<NodeId, ProofsGenerator, ProofsVerifier, CorePoQGenerator>(
     new_pol_info: ProofOfLeadershipQuotaInputs,
     cryptographic_processor: &mut CoreCryptographicProcessor<
         NodeId,
+        CorePoQGenerator,
         ProofsGenerator,
         ProofsVerifier,
     >,
 ) where
-    ProofsGenerator: CoreAndLeaderProofsGenerator,
+    ProofsGenerator: CoreAndLeaderProofsGenerator<CorePoQGenerator>,
 {
     cryptographic_processor.set_epoch_private(new_pol_info);
 }
