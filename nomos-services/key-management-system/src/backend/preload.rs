@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{SecuredKey, backend::KMSBackend, keys, message::KMSOperatorBackend};
+use crate::{SecuredKey, backend::KMSBackend, keys};
 
 pub type KeyId = String;
 
