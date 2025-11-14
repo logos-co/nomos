@@ -255,6 +255,12 @@ where
             nomos_blend_network::core::with_core::behaviour::Event::OutboundConnectionUpgradeSucceeded(peer_id) => {
                 assert!(self.ongoing_dials.remove(&peer_id).is_some(), "Peer ID for a successfully upgraded connection must be present in storage");
             }
+            nomos_blend_network::core::with_core::behaviour::Event::InboundConnectionUpgradeFailed(peer_id) => {
+                tracing::warn!(target: LOG_TARGET, "Inbound connection upgrade failed for {peer_id:?}");
+            }
+            nomos_blend_network::core::with_core::behaviour::Event::InboundConnectionUpgradeSucceeded(peer_id) => {
+                tracing::debug!(target: LOG_TARGET, "Inbound connection upgrade succeeded for {peer_id:?}");
+            }
         }
     }
 }

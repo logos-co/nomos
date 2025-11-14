@@ -22,15 +22,19 @@ use crate::core::{
 async fn message_sending_and_reception() {
     let (mut identities, nodes) = new_nodes_with_empty_address(2);
     let mut dialing_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
-        BehaviourBuilder::new(id).with_membership(&nodes).build()
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
+            .build::<AlwaysTrueVerifier>()
     });
     let mut listening_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
-        BehaviourBuilder::new(id).with_membership(&nodes).build()
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
+            .build::<AlwaysTrueVerifier>()
     });
 
     listening_swarm.listen().with_memory_addr_external().await;
     dialing_swarm
-        .connect_and_wait_for_outbound_upgrade(&mut listening_swarm)
+        .connect_and_wait_for_upgrade(&mut listening_swarm)
         .await;
 
     // Send one message, which is within the range of expected messages.
@@ -66,7 +70,8 @@ async fn message_sending_and_reception() {
 
 #[test(tokio::test)]
 async fn invalid_public_header_message_publish() {
-    let mut dialing_swarm = TestSwarm::new_ephemeral(|id| BehaviourBuilder::new(id).build());
+    let mut dialing_swarm =
+        TestSwarm::new_ephemeral(|id| BehaviourBuilder::new(id).build::<AlwaysTrueVerifier>());
 
     let invalid_signature_message = TestEncapsulatedMessage::new_with_invalid_signature(b"data");
     assert_eq!(
@@ -81,15 +86,19 @@ async fn invalid_public_header_message_publish() {
 async fn undeserializable_message_received() {
     let (mut identities, nodes) = new_nodes_with_empty_address(2);
     let mut dialing_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
-        BehaviourBuilder::new(id).with_membership(&nodes).build()
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
+            .build::<AlwaysTrueVerifier>()
     });
     let mut listening_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
-        BehaviourBuilder::new(id).with_membership(&nodes).build()
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
+            .build::<AlwaysTrueVerifier>()
     });
 
     listening_swarm.listen().with_memory_addr_external().await;
     dialing_swarm
-        .connect_and_wait_for_outbound_upgrade(&mut listening_swarm)
+        .connect_and_wait_for_upgrade(&mut listening_swarm)
         .await;
 
     dialing_swarm
@@ -127,15 +136,19 @@ async fn undeserializable_message_received() {
 async fn duplicate_message_received() {
     let (mut identities, nodes) = new_nodes_with_empty_address(2);
     let mut dialing_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
-        BehaviourBuilder::new(id).with_membership(&nodes).build()
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
+            .build::<AlwaysTrueVerifier>()
     });
     let mut listening_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
-        BehaviourBuilder::new(id).with_membership(&nodes).build()
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
+            .build::<AlwaysTrueVerifier>()
     });
 
     listening_swarm.listen().with_memory_addr_external().await;
     dialing_swarm
-        .connect_and_wait_for_outbound_upgrade(&mut listening_swarm)
+        .connect_and_wait_for_upgrade(&mut listening_swarm)
         .await;
 
     let test_message = TestEncapsulatedMessage::new(b"msg");
@@ -183,15 +196,19 @@ async fn duplicate_message_received() {
 async fn invalid_public_header_message_received() {
     let (mut identities, nodes) = new_nodes_with_empty_address(2);
     let mut dialing_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
-        BehaviourBuilder::new(id).with_membership(&nodes).build()
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
+            .build::<AlwaysTrueVerifier>()
     });
     let mut listening_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
-        BehaviourBuilder::new(id).with_membership(&nodes).build()
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
+            .build::<AlwaysTrueVerifier>()
     });
 
     listening_swarm.listen().with_memory_addr_external().await;
     dialing_swarm
-        .connect_and_wait_for_outbound_upgrade(&mut listening_swarm)
+        .connect_and_wait_for_upgrade(&mut listening_swarm)
         .await;
 
     let invalid_public_header_message = TestEncapsulatedMessage::new_with_invalid_signature(b"");
