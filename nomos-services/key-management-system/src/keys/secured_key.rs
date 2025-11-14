@@ -1,14 +1,78 @@
-use groth16::Fr;
-use nomos_blend_message::crypto::proofs::quota::{ProofOfQuota, inputs::prove::PublicInputs};
-use poq::CorePathAndSelectors;
+use std::{fmt::Debug, marker::PhantomData};
+
+use async_trait::async_trait;
 use zeroize::ZeroizeOnDrop;
 
+#[async_trait::async_trait]
+pub trait SecureKeyOperations {
+    type Key;
+    type Error;
+    async fn execute(&mut self, key: &Self::Key) -> Result<(), Self::Error>;
+}
+//
+// #[async_trait::async_trait]
+// impl<T> SecureKeyOperations for Box<T>
+// where
+//     T: SecureKeyOperations + Send + Sync + 'static,
+//     T::Key: Send + Sync + 'static,
+// {
+//     type Key = T::Key;
+//     type Error = T::Error;
+//
+//     async fn execute(self, key: &Self::Key) -> Result<(), Self::Error> {
+//         T::execute(*self, key).await
+//     }
+// }
+
+pub type BoxedSecureKeyOperations<
+    Key: SecuredKey + Debug + PartialEq + Eq + Clone + Send + Sync + 'static,
+> = Box<dyn SecureKeyOperations<Key = Key, Error = Key::Error> + Send + Sync>;
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct NoKeyOperator<Key, Error> {
+    _key: PhantomData<Key>,
+    _error: PhantomData<Error>,
+}
+
+#[async_trait::async_trait]
+impl<Key, Error> SecureKeyOperations for NoKeyOperator<Key, Error>
+where
+    Key: Send + Sync + 'static,
+    Error: Send + Sync + 'static,
+{
+    type Key = Key;
+    type Error = Error;
+
+    async fn execute(&mut self, _key: &Self::Key) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+impl<Key, Error> Default for NoKeyOperator<Key, Error> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<Key, Error> NoKeyOperator<Key, Error> {
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            _key: PhantomData,
+            _error: PhantomData,
+        }
+    }
+}
+
 /// A key that can be used within the Key Management Service.
+#[async_trait::async_trait]
 pub trait SecuredKey: ZeroizeOnDrop {
     type Payload;
     type Signature;
     type PublicKey;
     type Error;
+    // type Operations: SecureKeyOperations<Key = Self, Error = Self::Error> + Send
+    // + Sync + 'static;
 
     fn sign(&self, payload: &Self::Payload) -> Result<Self::Signature, Self::Error>;
     fn sign_multiple(
@@ -18,10 +82,11 @@ pub trait SecuredKey: ZeroizeOnDrop {
     where
         Self: Sized;
     fn as_public_key(&self) -> Self::PublicKey;
-    fn generate_core_poq(
-        &self,
-        public_inputs: &PublicInputs,
-        key_index: u64,
-        core_path_and_selectors: CorePathAndSelectors,
-    ) -> Result<(ProofOfQuota, Fr), Self::Error>;
+
+    async fn execute<Operation>(&self, mut operator: Operation) -> Result<(), Self::Error>
+    where
+        Operation: SecureKeyOperations<Key = Self, Error = Self::Error> + Send,
+    {
+        operator.execute(self).await
+    }
 }

@@ -6,14 +6,23 @@ use key_management_system::{
     KMSService,
     api::KmsServiceApi,
     backend::preload::{KeyId, PreloadKMSBackend},
-    keys::errors::KeyError,
+    keys::{
+        KeyOperators, ZkKey,
+        errors::KeyError,
+        secured_key::{SecureKeyOperations, SecuredKey},
+    },
 };
-use nomos_blend_message::crypto::proofs::quota::{self, ProofOfQuota, inputs::prove::PublicInputs};
+use libp2p::swarm::Executor;
+use nomos_blend_message::crypto::proofs::quota::{
+    self, ProofOfQuota,
+    inputs::prove::{PrivateInputs, PublicInputs, private::ProofOfCoreQuotaInputs},
+};
 use nomos_blend_scheduling::message_blend::CoreProofOfQuotaGenerator;
 use nomos_core::crypto::ZkHash;
 use overwatch::services::AsServiceId;
 use poq::CorePathAndSelectors;
 use tokio::{sync::oneshot, task::spawn_blocking};
+use tracing::error;
 
 const LOG_TARGET: &str = "blend::service::core::kms-poq-generator";
 
@@ -65,6 +74,57 @@ pub struct PreloadKMSBackendCorePoQGenerator<RuntimeServiceId> {
     key_id: KeyId,
 }
 
+pub struct PoQOperator {
+    core_path_and_selectors: CorePathAndSelectors,
+    public_inputs: PublicInputs,
+    key_index: u64,
+    response_channel: Option<oneshot::Sender<Result<(ProofOfQuota, ZkHash), quota::Error>>>,
+}
+
+impl PoQOperator {
+    pub fn new(
+        core_path_and_selectors: CorePathAndSelectors,
+        public_inputs: PublicInputs,
+        key_index: u64,
+        response_channel: oneshot::Sender<Result<(ProofOfQuota, ZkHash), quota::Error>>,
+    ) -> Self {
+        Self {
+            core_path_and_selectors,
+            public_inputs,
+            key_index,
+            response_channel: Some(response_channel),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl SecureKeyOperations for PoQOperator {
+    type Key = ZkKey;
+    type Error = <ZkKey as SecuredKey>::Error;
+
+    async fn execute(&mut self, key: &Self::Key) -> Result<(), Self::Error> {
+        let poq_result = ProofOfQuota::new(
+            &self.public_inputs,
+            PrivateInputs::new_proof_of_core_quota_inputs(
+                self.key_index,
+                ProofOfCoreQuotaInputs {
+                    core_path_and_selectors: self.core_path_and_selectors,
+                    core_sk: *key.as_fr(),
+                },
+            ),
+        );
+        if let Err(e) = self
+            .response_channel
+            .take()
+            .expect("Channel to be available")
+            .send(poq_result)
+        {
+            error!("Error building proof of quota: {e:?}");
+        }
+        Ok(())
+    }
+}
+
 impl<RuntimeServiceId> CoreProofOfQuotaGenerator
     for PreloadKMSBackendCorePoQGenerator<RuntimeServiceId>
 where
@@ -88,9 +148,9 @@ where
             generate_and_send_kms_poq(
                 kms_api,
                 key_id,
-                Box::new(*public_inputs),
+                *public_inputs,
                 key_index,
-                Box::new(core_path_and_selectors),
+                core_path_and_selectors,
                 res_sender,
             )
             .await;
@@ -107,51 +167,24 @@ where
 async fn generate_and_send_kms_poq<RuntimeServiceId>(
     kms_api: KmsServiceApi<PreloadKmsService<RuntimeServiceId>, RuntimeServiceId>,
     key_id: KeyId,
-    public_inputs: Box<PublicInputs>,
+    public_inputs: PublicInputs,
     key_index: u64,
-    core_path_and_selectors: Box<CorePathAndSelectors>,
+    core_path_and_selectors: CorePathAndSelectors,
     result_sender: oneshot::Sender<Result<(ProofOfQuota, ZkHash), quota::Error>>,
 ) where
     RuntimeServiceId:
         AsServiceId<PreloadKmsService<RuntimeServiceId>> + Debug + Display + Send + Sync + 'static,
 {
-    spawn_blocking(move || {
-        block_on(async move {
-            kms_api
-                .execute(
-                    key_id,
-                    Box::new(move |core_sk| {
-                        let poq_generation_result = core_sk
-                            .generate_core_poq(
-                                &public_inputs,
-                                key_index,
-                                *core_path_and_selectors,
-                            )
-                            .map_err(|err| {
-                                let KeyError::PoQGeneration(poq_err) = err else {
-                                    panic!(
-                                        "PoQ generation from KMS should return a PoQ generation error, if any."
-                                    );
-                                };
-                                poq_err
-                            });
-                        tracing::debug!(
-                            target: LOG_TARGET,
-                            "KMS-based PoQ generation result: {poq_generation_result:?}."
-                        );
-                        if result_sender.send(poq_generation_result).is_err() {
-                            tracing::error!(
-                                target: LOG_TARGET,
-                                "Failed to send PoQ generated inside the KMS to the calling context."
-                            );
-                        }
-                        Box::pin(ready(Ok(())))
-                    }),
-                )
-                .await
-                .expect("Execute API should run successfully.");
-        });
-    })
-    .await
-    .expect("Blocking worker should not panic.");
+    let _ = kms_api
+        .execute(
+            key_id,
+            KeyOperators::Zk(Box::new(PoQOperator::new(
+                core_path_and_selectors,
+                public_inputs,
+                key_index,
+                result_sender,
+            ))),
+        )
+        .await
+        .expect("Execute API should run successfully.");
 }
