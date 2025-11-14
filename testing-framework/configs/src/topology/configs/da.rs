@@ -1,6 +1,4 @@
-use std::{
-    collections::HashSet, env, path::PathBuf, str::FromStr as _, sync::LazyLock, time::Duration,
-};
+use std::{collections::HashSet, path::PathBuf, str::FromStr as _, sync::LazyLock, time::Duration};
 
 use ed25519_dalek::SigningKey;
 use nomos_da_network_core::swarm::{
@@ -15,9 +13,9 @@ use zksign::SecretKey;
 use crate::secret_key_to_peer_id;
 
 pub static GLOBAL_PARAMS_PATH: LazyLock<String> = LazyLock::new(|| {
-    let relative_path = "./kzgrs/kzgrs_test_params";
-    let current_dir = env::current_dir().expect("Failed to get current directory");
-    current_dir
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let relative_path = PathBuf::from("../../tests/kzgrs/kzgrs_test_params");
+    manifest_dir
         .join(relative_path)
         .canonicalize()
         .expect("Failed to resolve absolute path")

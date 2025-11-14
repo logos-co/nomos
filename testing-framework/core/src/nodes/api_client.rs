@@ -7,7 +7,8 @@ use nomos_da_network_core::swarm::{BalancerStats, MonitorStats};
 use nomos_da_network_service::MembershipResponse;
 use nomos_http_api_common::paths::{
     CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_BLACKLISTED_PEERS, DA_BLOCK_PEER, DA_GET_MEMBERSHIP,
-    DA_HISTORIC_SAMPLING, DA_MONITOR_STATS, DA_UNBLOCK_PEER, NETWORK_INFO, STORAGE_BLOCK,
+    DA_HISTORIC_SAMPLING, DA_MONITOR_STATS, DA_UNBLOCK_PEER, MEMPOOL_ADD_TX, NETWORK_INFO,
+    STORAGE_BLOCK,
 };
 use nomos_network::backends::libp2p::Libp2pInfo;
 use nomos_node::{HeaderId, api::testing::handlers::HistoricSamplingRequest};
@@ -33,14 +34,23 @@ impl ApiClient {
             Url::parse(&format!("http://{base_addr}")).expect("Valid base address for node");
         let testing_url = testing_addr
             .map(|addr| Url::parse(&format!("http://{addr}")).expect("Valid testing address"));
-        let client = Client::new();
+        Self::from_urls(base_url, testing_url)
+    }
 
+    #[must_use]
+    pub fn from_urls(base_url: Url, testing_url: Option<Url>) -> Self {
+        let client = Client::new();
         Self {
             base_url,
             testing_url,
             http_client: CommonHttpClient::new_with_client(client.clone(), None),
             client,
         }
+    }
+
+    #[must_use]
+    pub fn testing_url(&self) -> Option<Url> {
+        self.testing_url.clone()
     }
 
     pub fn get_builder(&self, path: &str) -> RequestBuilder {
@@ -207,6 +217,10 @@ impl ApiClient {
     ) -> reqwest::Result<bool> {
         self.post_testing_json_decode(DA_HISTORIC_SAMPLING, request)
             .await
+    }
+
+    pub async fn submit_transaction(&self, tx: &SignedMantleTx) -> reqwest::Result<()> {
+        self.post_json_unit(MEMPOOL_ADD_TX, tx).await
     }
 
     pub async fn get_headers_raw(&self, builder: RequestBuilder) -> reqwest::Result<Response> {

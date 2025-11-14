@@ -1,5 +1,6 @@
 use std::{
     collections::HashSet,
+    path::PathBuf,
     process::{Child, Command, Stdio},
     time::Duration,
 };
@@ -20,12 +21,19 @@ use nomos_network::backends::libp2p::Libp2pInfo;
 use nomos_node::api::testing::handlers::HistoricSamplingRequest;
 use nomos_tracing::logging::local::FileConfig;
 use nomos_tracing_service::LoggerLayer;
+use reqwest::Url;
 use tempfile::NamedTempFile;
 
 use super::{ApiClient, create_tempdir, persist_tempdir};
 use crate::{IS_DEBUG_TRACING, adjust_timeout, nodes::LOGS_PREFIX};
 
-const BIN_PATH: &str = "../target/debug/nomos-executor";
+const BIN_PATH: &str = "target/debug/nomos-executor";
+
+fn binary_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../")
+        .join(BIN_PATH)
+}
 
 pub struct Executor {
     tempdir: tempfile::TempDir,
@@ -74,7 +82,7 @@ impl Executor {
         let testing_addr = config.testing_http.backend_settings.address;
 
         serde_yaml::to_writer(&mut file, &config).unwrap();
-        let child = Command::new(std::env::current_dir().unwrap().join(BIN_PATH))
+        let child = Command::new(binary_path())
             .arg(&config_path)
             .current_dir(dir.path())
             .stdout(Stdio::inherit())
@@ -120,6 +128,16 @@ impl Executor {
     #[must_use]
     pub const fn config(&self) -> &Config {
         &self.config
+    }
+
+    #[must_use]
+    pub fn url(&self) -> Url {
+        self.api.base_url().clone()
+    }
+
+    #[must_use]
+    pub fn testing_url(&self) -> Option<Url> {
+        self.api.testing_url()
     }
 
     pub async fn balancer_stats(&self) -> BalancerStats {

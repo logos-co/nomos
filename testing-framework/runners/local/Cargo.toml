@@ -1,0 +1,13 @@
+[package]
+edition.workspace = true
+license.workspace = true
+name              = "testing-framework-runner-local"
+version           = "0.1.0"
+
+[lints]
+workspace = true
+
+[dependencies]
+async-trait            = "0.1"
+testing-framework-core = { path = "../../core" }
+thiserror              = { workspace = true }

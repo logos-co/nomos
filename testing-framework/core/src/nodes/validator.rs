@@ -1,5 +1,6 @@
 use std::{
     collections::HashSet,
+    path::PathBuf,
     process::{Child, Command, Stdio},
     time::Duration,
 };
@@ -25,7 +26,13 @@ use tx_service::MempoolMetrics;
 use super::{ApiClient, create_tempdir, persist_tempdir};
 use crate::{IS_DEBUG_TRACING, adjust_timeout, nodes::LOGS_PREFIX};
 
-const BIN_PATH: &str = "../target/debug/nomos-node";
+const BIN_PATH: &str = "target/debug/nomos-node";
+
+fn binary_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../")
+        .join(BIN_PATH)
+}
 
 pub enum Pool {
     Da,
@@ -102,7 +109,7 @@ impl Validator {
         let testing_addr = config.testing_http.backend_settings.address;
 
         serde_yaml::to_writer(&mut file, &config).unwrap();
-        let child = Command::new(std::env::current_dir().unwrap().join(BIN_PATH))
+        let child = Command::new(binary_path())
             .arg(&config_path)
             .current_dir(dir.path())
             .stdout(Stdio::inherit())
@@ -127,6 +134,11 @@ impl Validator {
     #[must_use]
     pub fn url(&self) -> Url {
         self.api.base_url().clone()
+    }
+
+    #[must_use]
+    pub fn testing_url(&self) -> Option<Url> {
+        self.api.testing_url()
     }
 
     async fn wait_online(&self) {

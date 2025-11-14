@@ -11,6 +11,7 @@ workspace = true
 default = []
 
 [dependencies]
+anyhow                   = "1"
 async-trait              = "0.1"
 broadcast-service        = { workspace = true }
 chain-service            = { workspace = true }
@@ -32,9 +33,10 @@ nomos-node               = { workspace = true, default-features = false, feature
 nomos-tracing            = { workspace = true }
 nomos-tracing-service    = { workspace = true }
 nomos-utils              = { workspace = true }
+prometheus-http-query    = "0.8"
 rand                     = { workspace = true }
 reqwest                  = { workspace = true, features = ["json"] }
-serde                    = { workspace = true }
+serde                    = { workspace = true, features = ["derive"] }
 serde_json               = { workspace = true }
 serde_yaml               = { workspace = true }
 tempfile                 = { workspace = true }

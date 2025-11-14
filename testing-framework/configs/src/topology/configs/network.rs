@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use nomos_libp2p::{Multiaddr, SwarmConfig, ed25519};
+use nomos_libp2p::{Multiaddr, NatSettings, SwarmConfig, ed25519};
 use nomos_utils::net::get_available_udp_port;
 
 use crate::node_address_from_port;
@@ -35,13 +35,17 @@ pub fn create_network_configs(
             let mut node_key_bytes = *id;
             let node_key = ed25519::SecretKey::try_from_bytes(&mut node_key_bytes)
                 .expect("Failed to generate secret key from bytes");
+            let port = get_available_udp_port().unwrap();
+            let external_address = node_address_from_port(port);
 
             SwarmConfig {
                 node_key,
-                port: get_available_udp_port().unwrap(),
+                host: std::net::Ipv4Addr::LOCALHOST,
+                port,
                 chain_sync_config: cryptarchia_sync::Config {
                     peer_response_timeout: Duration::from_secs(60),
                 },
+                nat_config: NatSettings::Static { external_address },
                 ..Default::default()
             }
         })
