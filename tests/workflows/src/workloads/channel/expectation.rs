@@ -1,51 +1,168 @@
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
+use std::{
+    collections::HashSet,
+    sync::{Arc, Mutex},
 };
 
 use async_trait::async_trait;
-use testing_framework_core::scenario::{DynError, Expectation, RunContext};
+use nomos_core::mantle::{
+    AuthenticatedMantleTx as _,
+    ops::{Op, channel::ChannelId},
+};
+use testing_framework_core::scenario::{BlockRecord, DynError, Expectation, RunContext};
+use thiserror::Error;
+use tokio::sync::broadcast;
 
-pub(super) struct ChannelWorkloadExpectation {
-    state: Arc<ChannelWorkloadState>,
+#[derive(Debug)]
+pub struct ChannelWorkloadExpectation {
+    planned_channels: Vec<ChannelId>,
+    capture_state: Option<CaptureState>,
 }
 
-#[derive(Default)]
-pub(super) struct ChannelWorkloadState {
-    completed: AtomicBool,
+#[derive(Debug)]
+struct CaptureState {
+    planned: Arc<HashSet<ChannelId>>,
+    inscriptions: Arc<Mutex<HashSet<ChannelId>>>,
+    blobs: Arc<Mutex<HashSet<ChannelId>>>,
 }
 
-impl ChannelWorkloadState {
-    pub fn reset(&self) {
-        self.completed.store(false, Ordering::SeqCst);
-    }
-
-    pub fn mark_success(&self) {
-        self.completed.store(true, Ordering::SeqCst);
-    }
-
-    fn is_completed(&self) -> bool {
-        self.completed.load(Ordering::SeqCst)
-    }
+#[derive(Debug, Error)]
+enum ChannelExpectationError {
+    #[error("channel workload expectation not started")]
+    NotCaptured,
+    #[error("missing inscriptions for {missing:?}")]
+    MissingInscriptions { missing: Vec<ChannelId> },
+    #[error("missing blobs for {missing:?}")]
+    MissingBlobs { missing: Vec<ChannelId> },
 }
 
 impl ChannelWorkloadExpectation {
-    pub const fn new(state: Arc<ChannelWorkloadState>) -> Self {
-        Self { state }
+    pub const fn new(planned_channels: Vec<ChannelId>) -> Self {
+        Self {
+            planned_channels,
+            capture_state: None,
+        }
     }
 }
 
 #[async_trait]
 impl Expectation for ChannelWorkloadExpectation {
     fn name(&self) -> &'static str {
-        "channel_workload_completed"
+        "channel_workload_inclusions"
+    }
+
+    async fn start_capture(&mut self, ctx: &RunContext) -> Result<(), DynError> {
+        if self.capture_state.is_some() {
+            return Ok(());
+        }
+
+        let planned = Arc::new(
+            self.planned_channels
+                .iter()
+                .copied()
+                .collect::<HashSet<_>>(),
+        );
+        let inscriptions = Arc::new(Mutex::new(HashSet::new()));
+        let blobs = Arc::new(Mutex::new(HashSet::new()));
+
+        let mut receiver = ctx.block_feed().subscribe();
+        let planned_for_task = Arc::clone(&planned);
+        let inscriptions_for_task = Arc::clone(&inscriptions);
+        let blobs_for_task = Arc::clone(&blobs);
+
+        tokio::spawn(async move {
+            loop {
+                match receiver.recv().await {
+                    Ok(record) => capture_block(
+                        record.as_ref(),
+                        &planned_for_task,
+                        &inscriptions_for_task,
+                        &blobs_for_task,
+                    ),
+                    Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        });
+
+        self.capture_state = Some(CaptureState {
+            planned,
+            inscriptions,
+            blobs,
+        });
+
+        Ok(())
     }
 
     async fn evaluate(&mut self, _ctx: &RunContext) -> Result<(), DynError> {
-        if self.state.is_completed() {
-            Ok(())
-        } else {
-            Err("channel workload did not complete channel flow".into())
+        let state = self
+            .capture_state
+            .as_ref()
+            .ok_or(ChannelExpectationError::NotCaptured)
+            .map_err(DynError::from)?;
+
+        let missing_inscriptions = {
+            let inscriptions = state
+                .inscriptions
+                .lock()
+                .expect("inscription lock poisoned");
+            missing_channels(&state.planned, &inscriptions)
+        };
+        if !missing_inscriptions.is_empty() {
+            return Err(ChannelExpectationError::MissingInscriptions {
+                missing: missing_inscriptions,
+            }
+            .into());
+        }
+
+        let missing_blobs = {
+            let blobs = state.blobs.lock().expect("blob lock poisoned");
+            missing_channels(&state.planned, &blobs)
+        };
+        if !missing_blobs.is_empty() {
+            return Err(ChannelExpectationError::MissingBlobs {
+                missing: missing_blobs,
+            }
+            .into());
+        }
+
+        Ok(())
+    }
+}
+
+fn capture_block(
+    block: &BlockRecord,
+    planned: &HashSet<ChannelId>,
+    inscriptions: &Arc<Mutex<HashSet<ChannelId>>>,
+    blobs: &Arc<Mutex<HashSet<ChannelId>>>,
+) {
+    let mut new_inscriptions = Vec::new();
+    let mut new_blobs = Vec::new();
+
+    for tx in block.block.transactions() {
+        for op in &tx.mantle_tx().ops {
+            match op {
+                Op::ChannelInscribe(inscribe) if planned.contains(&inscribe.channel_id) => {
+                    new_inscriptions.push(inscribe.channel_id);
+                }
+                Op::ChannelBlob(blob) if planned.contains(&blob.channel) => {
+                    new_blobs.push(blob.channel);
+                }
+                _ => {}
+            }
         }
     }
+
+    if !new_inscriptions.is_empty() {
+        let mut guard = inscriptions.lock().expect("inscription lock poisoned");
+        guard.extend(new_inscriptions);
+    }
+
+    if !new_blobs.is_empty() {
+        let mut guard = blobs.lock().expect("blob lock poisoned");
+        guard.extend(new_blobs);
+    }
+}
+
+fn missing_channels(planned: &HashSet<ChannelId>, observed: &HashSet<ChannelId>) -> Vec<ChannelId> {
+    planned.difference(observed).copied().collect()
 }

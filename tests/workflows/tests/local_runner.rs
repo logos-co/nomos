@@ -24,6 +24,7 @@ async fn local_runner_mixed_workloads() {
 
     let tx_workload = transaction::Workload::with_rate(MIXED_TXS_PER_BLOCK)
         .expect("non-zero tx rate must succeed");
+
     let mut plan = ScenarioBuilder::with_node_counts(VALIDATORS, EXECUTORS)
         .with_workload(tx_workload)
         .with_workload(channel::Workload::default())
