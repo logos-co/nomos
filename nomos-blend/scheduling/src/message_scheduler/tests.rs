@@ -4,7 +4,7 @@ use core::{
 };
 use std::collections::HashSet;
 
-use futures::{StreamExt as _, stream::pending, task::noop_waker_ref};
+use futures::{StreamExt as _, task::noop_waker_ref};
 use nomos_utils::blake_rng::BlakeRng;
 use rand::SeedableRng as _;
 use tokio_stream::iter;
@@ -12,9 +12,8 @@ use tokio_stream::iter;
 use crate::{
     cover_traffic::SessionCoverTraffic,
     message_scheduler::{
-        MessageScheduler,
+        MessageScheduler as _, SessionMessageScheduler,
         round_info::{Round, RoundInfo, RoundReleaseType},
-        session_info::SessionInfo,
     },
     release_delayer::SessionProcessedMessageDelayer,
 };
@@ -23,7 +22,7 @@ use crate::{
 async fn no_substream_ready_and_no_data_messages() {
     let rng = BlakeRng::from_entropy();
     let rounds = [Round::from(0)];
-    let mut scheduler = MessageScheduler::<_, _, (), ()>::with_test_values(
+    let mut scheduler = SessionMessageScheduler::<_, (), ()>::with_test_values(
         // Round `1` scheduled, tick will yield round `0`.
         SessionCoverTraffic::with_test_values(
             Box::new(iter(rounds)),
@@ -41,8 +40,6 @@ async fn no_substream_ready_and_no_data_messages() {
         ),
         // Round clock (same as above)
         Box::new(iter(rounds)),
-        // Session clock. Pending so we don't overwrite the test setup.
-        Box::new(pending()),
         vec![],
     );
     let mut cx = Context::from_waker(noop_waker_ref());
@@ -56,7 +53,7 @@ async fn no_substream_ready_and_no_data_messages() {
 async fn no_substream_ready_with_data_messages() {
     let rng = BlakeRng::from_entropy();
     let rounds = [Round::from(0)];
-    let mut scheduler = MessageScheduler::<_, _, (), u32>::with_test_values(
+    let mut scheduler = SessionMessageScheduler::<_, (), u32>::with_test_values(
         // Round `1` scheduled, tick will yield round `0`.
         SessionCoverTraffic::with_test_values(
             Box::new(iter(rounds)),
@@ -74,8 +71,6 @@ async fn no_substream_ready_with_data_messages() {
         ),
         // Round clock (same as above)
         Box::new(iter(rounds)),
-        // Session clock. Pending so we don't overwrite the test setup.
-        Box::new(pending()),
         vec![1, 2],
     );
     let mut cx = Context::from_waker(noop_waker_ref());
@@ -97,7 +92,7 @@ async fn no_substream_ready_with_data_messages() {
 async fn cover_traffic_substream_ready() {
     let rng = BlakeRng::from_entropy();
     let rounds = [Round::from(0)];
-    let mut scheduler = MessageScheduler::<_, _, (), u32>::with_test_values(
+    let mut scheduler = SessionMessageScheduler::<_, (), u32>::with_test_values(
         // Round `0` scheduled, tick will yield round `0`.
         SessionCoverTraffic::with_test_values(
             Box::new(iter(rounds)),
@@ -115,8 +110,6 @@ async fn cover_traffic_substream_ready() {
         ),
         // Round clock (same as above)
         Box::new(iter(rounds)),
-        // Session clock. Pending so we don't overwrite the test setup.
-        Box::new(pending()),
         vec![1],
     );
     let mut cx = Context::from_waker(noop_waker_ref());
@@ -135,7 +128,7 @@ async fn cover_traffic_substream_ready() {
 async fn release_delayer_substream_ready() {
     let rng = BlakeRng::from_entropy();
     let rounds = [Round::from(0)];
-    let mut scheduler = MessageScheduler::<_, _, u32, u32>::with_test_values(
+    let mut scheduler = SessionMessageScheduler::<_, u32, u32>::with_test_values(
         // Round `1` scheduled, tick will yield round `0`.
         SessionCoverTraffic::with_test_values(
             Box::new(iter(rounds)),
@@ -153,8 +146,6 @@ async fn release_delayer_substream_ready() {
         ),
         // Round clock (same as above)
         Box::new(iter(rounds)),
-        // Session clock. Pending so we don't overwrite the test setup.
-        Box::new(pending()),
         vec![2],
     );
     let mut cx = Context::from_waker(noop_waker_ref());
@@ -173,7 +164,7 @@ async fn release_delayer_substream_ready() {
 async fn both_substreams_ready() {
     let rng = BlakeRng::from_entropy();
     let rounds = [Round::from(0)];
-    let mut scheduler = MessageScheduler::<_, _, u32, ()>::with_test_values(
+    let mut scheduler = SessionMessageScheduler::<_, u32, ()>::with_test_values(
         // Round `0` scheduled, tick will yield round `0`.
         SessionCoverTraffic::with_test_values(
             Box::new(iter(rounds)),
@@ -191,8 +182,6 @@ async fn both_substreams_ready() {
         ),
         // Round clock (same as above)
         Box::new(iter(rounds)),
-        // Session clock. Pending so we don't overwrite the test setup.
-        Box::new(pending()),
         vec![],
     );
     let mut cx = Context::from_waker(noop_waker_ref());
@@ -217,7 +206,7 @@ async fn round_change() {
         Round::from(2),
         Round::from(3),
     ];
-    let mut scheduler = MessageScheduler::<_, _, (), u32>::with_test_values(
+    let mut scheduler = SessionMessageScheduler::<_, (), u32>::with_test_values(
         // Round `1` and `2` scheduled, tick will yield round `0` then round `1`, round `2`, then
         // round `3`.
         SessionCoverTraffic::with_test_values(
@@ -237,8 +226,6 @@ async fn round_change() {
         ),
         // Round clock (same as above)
         Box::new(iter(rounds)),
-        // Session clock. Pending so we don't overwrite the test setup.
-        Box::new(pending()),
         vec![],
     );
     let mut cx = Context::from_waker(noop_waker_ref());
@@ -278,46 +265,5 @@ async fn round_change() {
             release_type: Some(RoundReleaseType::OnlyProcessedMessages(vec![()]))
         }))
     );
-    assert!(scheduler.data_messages.is_empty());
-}
-
-#[tokio::test]
-async fn session_change() {
-    let rng = BlakeRng::from_entropy();
-    let rounds = [Round::from(0)];
-    let mut scheduler = MessageScheduler::with_test_values(
-        SessionCoverTraffic::with_test_values(
-            Box::new(iter(rounds)),
-            HashSet::from_iter([1u128.into()]),
-            rng.clone(),
-            // One data message to process.
-            1,
-        ),
-        SessionProcessedMessageDelayer::with_test_values(
-            NonZeroU64::try_from(1).unwrap(),
-            2u128.into(),
-            rng,
-            Box::new(iter(rounds)),
-            // One unreleased message.
-            vec![()],
-        ),
-        // Round clock (same as above)
-        Box::new(iter(rounds)),
-        // Session clock
-        Box::new(iter([SessionInfo {
-            core_quota: 1,
-            session_number: 0u128.into(),
-        }])),
-        vec![()],
-    );
-    assert_eq!(scheduler.cover_traffic.unprocessed_data_messages(), 1);
-    assert_eq!(scheduler.release_delayer.unreleased_messages().len(), 1);
-    let mut cx = Context::from_waker(noop_waker_ref());
-
-    // Poll after new session. All the sub-streams should be reset, and queued data
-    // messages deleted.
-    let _ = scheduler.poll_next_unpin(&mut cx);
-    assert_eq!(scheduler.cover_traffic.unprocessed_data_messages(), 0);
-    assert_eq!(scheduler.release_delayer.unreleased_messages().len(), 0);
     assert!(scheduler.data_messages.is_empty());
 }
