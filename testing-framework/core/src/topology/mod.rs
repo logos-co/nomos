@@ -104,15 +104,16 @@ impl TopologyConfig {
         assert!(participants > 0, "topology must include at least one node");
 
         let mut da_params = DaParams::default();
-        let dispersal_floor = 1 + usize::from(participants > 1);
-        let dispersal = participants.min(da_params.dispersal_factor.max(dispersal_floor));
-        da_params.dispersal_factor = dispersal;
-        da_params.subnetwork_size = da_params.subnetwork_size.max(dispersal).max(1);
-        da_params.num_subnets = da_params.subnetwork_size as u16;
-        let min_peers = dispersal.saturating_sub(1);
-        da_params.policy_settings.min_dispersal_peers = min_peers;
-        da_params.policy_settings.min_replication_peers = min_peers;
-        da_params.balancer_interval = Duration::from_secs(1);
+        if participants > 1 {
+            let dispersal = participants.min(da_params.dispersal_factor.max(2));
+            da_params.dispersal_factor = dispersal;
+            da_params.subnetwork_size = da_params.subnetwork_size.max(dispersal);
+            da_params.num_subnets = da_params.subnetwork_size as u16;
+            let min_peers = dispersal.saturating_sub(1).max(1);
+            da_params.policy_settings.min_dispersal_peers = min_peers;
+            da_params.policy_settings.min_replication_peers = min_peers;
+            da_params.balancer_interval = Duration::from_secs(1);
+        }
 
         Self {
             n_validators: validators,
