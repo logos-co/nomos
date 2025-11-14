@@ -1,4 +1,7 @@
-use std::collections::HashMap;
+use std::{
+    cmp::min,
+    collections::{HashMap, HashSet},
+};
 
 use nomos_core::{
     block::BlockNumber,
@@ -164,7 +167,6 @@ impl Rewards for DaRewards {
         _block_number: BlockNumber,
     ) -> Result<Self, Error> {
         // Extract DA activity proof from metadata
-        #[expect(irrefutable_let_patterns, reason = "enum will grow in the future")]
         let ActivityMetadata::DataAvailability(proof) = metadata else {
             return Err(Error::InvalidProofType);
         };
@@ -270,6 +272,97 @@ impl Rewards for DaRewards {
             recorded_messages: HashTrieSetSync::new_sync(), // Reset recorded messages
             current_session: last_active.clone(),
             prev_session: self.current_session.clone(),
+        };
+
+        (new_state, rewards)
+    }
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BlendRewards {
+    /// State of the session that is referenced by the submitted proofs.
+    session_state: SessionState,
+    /// Proofs submitted by providers in the session corresponding to `session_state`.
+    submitted_proofs: HashTrieMapSync<ProviderId, usize>,
+    /// Tracking the minimum Hamming distance among submitted proofs.
+    min_hamming_distance: usize,
+}
+
+impl Rewards for BlendRewards {
+    fn update_active(
+        &self,
+        provider_id: ProviderId,
+        metadata: &ActivityMetadata,
+        _block_number: BlockNumber,
+    ) -> Result<Self, Error> {
+        let ActivityMetadata::Blend(proof) = metadata else {
+            return Err(Error::InvalidProofType);
+        };
+
+        if self.submitted_proofs.contains_key(&provider_id) {
+            return Err(Error::DuplicateActiveMessage {
+                session: proof.session,
+                provider_id: Box::new(provider_id),
+            });
+        }
+
+        if proof.session != self.session_state.session_n {
+            return Err(Error::InvalidSession {
+                expected: self.session_state.session_n,
+                got: proof.session,
+            });
+        }
+
+        // TODO: Validate PoQ and PoSel
+
+        let hamming_distance = 0; // TODO: compute hamming distance
+
+        Ok(Self {
+            session_state: self.session_state.clone(),
+            submitted_proofs: self.submitted_proofs.insert(provider_id, hamming_distance),
+            min_hamming_distance: min(self.min_hamming_distance, hamming_distance),
+        })
+    }
+
+    fn update_session(
+        &self,
+        last_active: &SessionState,
+        _config: &ServiceParameters,
+    ) -> (Self, HashMap<ProviderId, RewardAmount>) {
+        // TODO: Calculate base rewards when session_income is added to config
+        // For now using placeholder value of 0
+        let session_income = 0;
+
+        let premium_providers = self
+            .submitted_proofs
+            .iter()
+            .filter_map(|(&id, &hamming_distance)| {
+                (hamming_distance == self.min_hamming_distance).then_some(id)
+            })
+            .collect::<HashSet<_>>();
+
+        let base_reward = if self.submitted_proofs.is_empty() {
+            0
+        } else {
+            session_income / (self.submitted_proofs.size() as u64 + premium_providers.len() as u64)
+        };
+
+        let mut rewards = HashMap::new();
+        for provider_id in self.submitted_proofs.keys() {
+            let reward = if premium_providers.contains(provider_id) {
+                base_reward * 2
+            } else {
+                base_reward
+            };
+            rewards.insert(*provider_id, reward);
+        }
+
+        // Create new rewards state with updated sessions
+        let new_state = Self {
+            session_state: last_active.clone(),
+            submitted_proofs: HashTrieMapSync::new_sync(), // Reset for new session
+            min_hamming_distance: usize::MAX,
         };
 
         (new_state, rewards)
