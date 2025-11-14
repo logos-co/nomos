@@ -26,7 +26,7 @@ nomos-ledger        = { features = ["serde"], workspace = true }
 nomos-time          = { workspace = true }
 nomos-wallet        = { workspace = true }
 overwatch           = { workspace = true }
-serde               = { default-features = false, version = "1" }
+serde               = { workspace = true }
 services-utils      = { workspace = true }
 thiserror           = "1.0"
 tokio               = { default-features = false, version = "1" }

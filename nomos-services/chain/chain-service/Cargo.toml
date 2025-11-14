@@ -32,7 +32,7 @@ nomos-utils        = { workspace = true }
 num-bigint         = { default-features = false, version = "0.4" }
 overwatch          = { workspace = true }
 rand               = { default-features = false, version = "0.8" }
-serde              = { default-features = false, version = "1" }
+serde              = { workspace = true }
 serde_with         = { workspace = true }
 services-utils     = { workspace = true }
 strum              = "0.27"

@@ -44,7 +44,7 @@ nomos-sdp                = { workspace = true }
 nomos-storage            = { workspace = true }
 nomos-time               = { workspace = true }
 overwatch                = { workspace = true }
-serde                    = { default-features = false, version = "1" }
+serde                    = { workspace = true }
 serde_yaml               = "0.9"
 services-utils           = { workspace = true }
 subnetworks-assignations = { workspace = true }

@@ -21,7 +21,9 @@ kzgrs-backend        = { workspace = true }
 nomos-core           = { workspace = true }
 nomos-tracing        = { workspace = true }
 reqwest              = { workspace = true }
+serde                = { workspace = true }
 serde_json           = { default-features = false, version = "1" }
 tokio                = { default-features = false, version = "1" }
 tracing              = { workspace = true }
 tracing-subscriber   = { default-features = false, version = "0.3" }
+zksign               = { workspace = true }
