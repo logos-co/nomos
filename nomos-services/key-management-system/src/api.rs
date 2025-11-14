@@ -7,8 +7,10 @@ use overwatch::{
 use tokio::sync::oneshot;
 
 use crate::{
-    KMSMessage, KMSOperatorKey, KMSService, KMSSigningStrategy, backend::KMSBackend,
+    KMSMessage, KMSService,
+    backend::KMSBackend,
     keys::secured_key::SecuredKey,
+    message::{KMSOperatorBackend, KMSSigningStrategy},
 };
 
 type KeyDescriptor<Backend> = (
@@ -33,6 +35,18 @@ where
 {
     relay: OutboundRelay<Kms::Message>,
     _id: std::marker::PhantomData<RuntimeServiceId>,
+}
+
+impl<Kms, RuntimeServiceId> Clone for KmsServiceApi<Kms, RuntimeServiceId>
+where
+    Kms: KmsServiceData,
+{
+    fn clone(&self) -> Self {
+        Self {
+            relay: self.relay.clone(),
+            _id: std::marker::PhantomData,
+        }
+    }
 }
 
 type KmsBackendKey<Kms> = <<Kms as KmsServiceData>::Backend as KMSBackend>::Key;
@@ -141,10 +155,7 @@ where
     pub async fn execute(
         &self,
         key_id: <Kms::Backend as KMSBackend>::KeyId,
-        operator: KMSOperatorKey<
-            <Kms::Backend as KMSBackend>::Key,
-            <Kms::Backend as KMSBackend>::Error,
-        >,
+        operator: KMSOperatorBackend<Kms::Backend>,
     ) -> Result<(), DynError> {
         self.relay
             .send(KMSMessage::Execute { key_id, operator })

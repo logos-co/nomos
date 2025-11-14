@@ -11,7 +11,7 @@ use nomos_blend_message::{
             quota::{
                 ProofOfQuota,
                 inputs::prove::{
-                    private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs},
+                    private::ProofOfLeadershipQuotaInputs,
                     public::{CoreInputs, LeaderInputs},
                 },
             },
@@ -45,18 +45,18 @@ use overwatch::{
     overwatch::{OverwatchHandle, commands::OverwatchCommand},
     services::{ServiceData, relay::OutboundRelay, state::StateUpdater},
 };
-use poq::CORE_MERKLE_TREE_HEIGHT;
+use poq::CorePathAndSelectors;
 use tempfile::NamedTempFile;
 use tokio::sync::{
     broadcast::{self},
     mpsc, watch,
 };
 use tokio_stream::wrappers::{BroadcastStream, ReceiverStream};
-use zksign::SecretKey;
 
 use crate::{
     core::{
         backends::{BlendBackend, EpochInfo, PublicInfo, SessionInfo},
+        kms::KmsPoQAdapter,
         network::NetworkAdapter,
         processor::CoreCryptographicProcessor,
         settings::{
@@ -117,7 +117,7 @@ pub fn settings<BackendSettings>(
             epoch_transition_period_in_slots: 1.try_into().unwrap(),
         },
         zk: ZkSettings {
-            sk: SecretKey::zero(),
+            secret_key_kms_id: "test-key".to_owned(),
         },
         minimum_network_size,
         recovery_path: recovery_file.path().to_path_buf(),
@@ -276,11 +276,16 @@ pub fn dummy_overwatch_resources<BackendSettings, BroadcastSettings, RuntimeServ
     (handle, cmd_receiver, state_updater, state_receiver)
 }
 
-pub fn new_crypto_processor(
+pub fn new_crypto_processor<CorePoQGenerator>(
     settings: &SessionCryptographicProcessorSettings,
     public_info: &PublicInfo<NodeId>,
-    poq_core_quota_inputs: ProofOfCoreQuotaInputs,
-) -> CoreCryptographicProcessor<NodeId, MockCoreAndLeaderProofsGenerator, MockProofsVerifier> {
+    core_poq_generator: CorePoQGenerator,
+) -> CoreCryptographicProcessor<
+    NodeId,
+    CorePoQGenerator,
+    MockCoreAndLeaderProofsGenerator,
+    MockProofsVerifier,
+> {
     let minimum_network_size = u64::try_from(public_info.session.membership.size())
         .expect("membership size must fit into u64")
         .try_into()
@@ -294,7 +299,7 @@ pub fn new_crypto_processor(
             core: public_info.session.core_public_inputs,
             leader: public_info.epoch,
         },
-        poq_core_quota_inputs,
+        core_poq_generator,
     )
     .expect("crypto processor must be created successfully")
 }
@@ -315,13 +320,6 @@ pub fn new_public_info(session: u64, membership: Membership<NodeId>) -> PublicIn
             message_quota: 10,
             total_stake: 10,
         },
-    }
-}
-
-pub fn new_poq_core_quota_inputs() -> ProofOfCoreQuotaInputs {
-    ProofOfCoreQuotaInputs {
-        core_sk: ZkHash::ZERO,
-        core_path_and_selectors: [(ZkHash::ZERO, false); CORE_MERKLE_TREE_HEIGHT],
     }
 }
 
@@ -389,8 +387,13 @@ impl<ProcessedMessage> MockProcessedMessageScheduler<ProcessedMessage> {
 pub struct MockCoreAndLeaderProofsGenerator(SessionNumber);
 
 #[async_trait]
-impl CoreAndLeaderProofsGenerator for MockCoreAndLeaderProofsGenerator {
-    fn new(settings: ProofsGeneratorSettings, _: ProofOfCoreQuotaInputs) -> Self {
+impl<CorePoQGenerator> CoreAndLeaderProofsGenerator<CorePoQGenerator>
+    for MockCoreAndLeaderProofsGenerator
+{
+    fn new(
+        settings: ProofsGeneratorSettings,
+        _core_proof_of_quota_generator: CorePoQGenerator,
+    ) -> Self {
         Self(settings.public_inputs.session)
     }
 
@@ -467,5 +470,20 @@ fn session_based_dummy_proofs(session: SessionNumber) -> BlendLayerProof {
 impl MockProofsVerifier {
     pub fn session_number(&self) -> SessionNumber {
         self.0
+    }
+}
+
+pub struct MockKmsAdapter;
+
+impl<RuntimeServiceId> KmsPoQAdapter<RuntimeServiceId> for MockKmsAdapter {
+    type CorePoQGenerator = ();
+    // Required by the Blend core service.
+    type KeyId = String;
+
+    fn core_poq_generator(
+        &self,
+        _key_id: Self::KeyId,
+        _core_path_and_selectors: Box<CorePathAndSelectors>,
+    ) -> Self::CorePoQGenerator {
     }
 }

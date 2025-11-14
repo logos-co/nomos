@@ -48,7 +48,7 @@ blend:
       message_frequency_per_round: 1.0
       maximum_release_delay_in_rounds: 3
     zk:
-      secret_key: 32e4b52b78e0e8273f31e2ae0826d09b0348d4c66824af4f51ec4ef338082211
+      secret_key_kms_id: 32e4b52b78e0e8273f31e2ae0826d09b0348d4c66824af4f51ec4ef338082211
   edge:
     backend:
       node_key: ea1e1dcc31612bd20987f017f0ca435cd2a59a4bd9fd6e14883b4803ae3b803d

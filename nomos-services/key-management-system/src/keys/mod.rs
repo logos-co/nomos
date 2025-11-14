@@ -19,3 +19,15 @@ pub enum Key {
     Ed25519(Ed25519Key),
     Zk(ZkKey),
 }
+
+impl From<Ed25519Key> for Key {
+    fn from(value: Ed25519Key) -> Self {
+        Self::Ed25519(value)
+    }
+}
+
+impl From<ZkKey> for Key {
+    fn from(value: ZkKey) -> Self {
+        Self::Zk(value)
+    }
+}

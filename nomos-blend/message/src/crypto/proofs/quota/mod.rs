@@ -41,7 +41,7 @@ pub struct ProofOfQuota {
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("Invalid input: {0}.")]
-    InvalidInput(#[from] Box<dyn core::error::Error>),
+    InvalidInput(#[from] Box<dyn core::error::Error + Send + Sync>),
     #[error("Proof generation failed: {0}.")]
     ProofGeneration(#[from] ProveError),
     #[error("Invalid proof")]

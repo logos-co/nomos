@@ -1,16 +1,16 @@
 use core::convert::Infallible;
 
 use async_trait::async_trait;
+use futures::future::ready;
 use nomos_blend_message::{
     crypto::{
         keys::Ed25519PublicKey,
         proofs::{
             PoQVerificationInputsMinusSigningKey,
             quota::{
-                ProofOfQuota,
+                self, ProofOfQuota,
                 inputs::prove::{
-                    private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs},
-                    public::LeaderInputs,
+                    PublicInputs, private::ProofOfLeadershipQuotaInputs, public::LeaderInputs,
                 },
             },
             selection::{ProofOfSelection, inputs::VerifyInputs},
@@ -20,9 +20,12 @@ use nomos_blend_message::{
 };
 use nomos_core::crypto::ZkHash;
 
-use crate::message_blend::provers::{
-    BlendLayerProof, ProofsGeneratorSettings, core_and_leader::CoreAndLeaderProofsGenerator,
-    leader::LeaderProofsGenerator,
+use crate::message_blend::{
+    CoreProofOfQuotaGenerator,
+    provers::{
+        BlendLayerProof, ProofsGeneratorSettings, core_and_leader::CoreAndLeaderProofsGenerator,
+        leader::LeaderProofsGenerator,
+    },
 };
 
 pub struct TestEpochChangeLeaderProofsGenerator(
@@ -57,14 +60,33 @@ impl LeaderProofsGenerator for TestEpochChangeLeaderProofsGenerator {
     }
 }
 
+pub struct MockCorePoQGenerator;
+
+impl CoreProofOfQuotaGenerator for MockCorePoQGenerator {
+    fn generate_poq(
+        &self,
+        _public_inputs: &PublicInputs,
+        _key_index: u64,
+    ) -> impl Future<Output = Result<(ProofOfQuota, ZkHash), quota::Error>> + Send + Sync {
+        use groth16::Field as _;
+
+        ready(Ok((
+            ProofOfQuota::from_bytes_unchecked([0; _]),
+            ZkHash::ZERO,
+        )))
+    }
+}
+
 pub struct TestEpochChangeCoreAndLeaderProofsGenerator(
     pub ProofsGeneratorSettings,
     pub Option<ProofOfLeadershipQuotaInputs>,
 );
 
 #[async_trait]
-impl CoreAndLeaderProofsGenerator for TestEpochChangeCoreAndLeaderProofsGenerator {
-    fn new(settings: ProofsGeneratorSettings, _private_inputs: ProofOfCoreQuotaInputs) -> Self {
+impl<CorePoQGenerator> CoreAndLeaderProofsGenerator<CorePoQGenerator>
+    for TestEpochChangeCoreAndLeaderProofsGenerator
+{
+    fn new(settings: ProofsGeneratorSettings, _proof_of_quota_generator: CorePoQGenerator) -> Self {
         Self(settings, None)
     }
 

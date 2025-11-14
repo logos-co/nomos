@@ -1,6 +1,6 @@
 pub mod preload;
 
-use crate::{KMSOperatorBackend, keys::secured_key::SecuredKey};
+use crate::{keys::secured_key::SecuredKey, message::KMSOperatorBackend};
 
 #[async_trait::async_trait]
 pub trait KMSBackend {

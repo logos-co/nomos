@@ -1,10 +1,11 @@
 use std::any::{type_name, type_name_of_val};
 
+use nomos_blend_message::crypto::proofs::quota;
 use thiserror::Error;
 
 use crate::keys::secured_key::SecuredKey;
 
-#[derive(Error, Debug, PartialEq, Eq)]
+#[derive(Error, Debug)]
 pub enum KeyError {
     #[error(transparent)]
     Encoding(EncodingError),
@@ -14,6 +15,8 @@ pub enum KeyError {
     UnsupportedMultisignatureSize(usize, usize),
     #[error(transparent)]
     ZkSignError(#[from] zksign::ZkSignError),
+    #[error(transparent)]
+    PoQGeneration(quota::Error),
 }
 
 impl From<EncodingError> for KeyError {
