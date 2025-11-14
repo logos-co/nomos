@@ -71,7 +71,7 @@ jobs:
           if [ "${{ env.ACT }}" = "true" ]; then
             export COMPOSE_RUNNER_PRESERVE=1
           fi
-          cargo test -p tests-workflows --all-features compose_runner_mixed_workloads -- --nocapture --ignored
+          cargo test -p tests-workflows --all-features compose_runner_mixed_workloads -- --ignored --nocapture
 
       - name: Collect compose logs
         if: failure()
