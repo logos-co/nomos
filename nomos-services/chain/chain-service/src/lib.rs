@@ -60,17 +60,14 @@ use tx_service::{
     network::NetworkAdapter as MempoolNetworkAdapter, storage::MempoolStorageAdapter,
 };
 
-pub use crate::{
-    bootstrap::config::{BootstrapConfig, OfflineGracePeriodConfig},
-    sync::config::{OrphanConfig, SyncConfig},
-};
+pub use crate::bootstrap::config::{BootstrapConfig, OfflineGracePeriodConfig};
 use crate::{
     bootstrap::state::choose_engine_state,
     mempool::{MempoolAdapter as _, adapter::MempoolAdapter},
     relays::CryptarchiaConsensusRelays,
     states::CryptarchiaConsensusState,
     storage::{StorageAdapter as _, adapters::StorageAdapter},
-    sync::{block_provider::BlockProvider, orphan_handler::OrphanBlocksDownloader},
+    sync::block_provider::BlockProvider,
 };
 
 // Limit the number of blocks returned by GetHeaders
@@ -333,7 +330,6 @@ pub struct CryptarchiaSettings<NetworkAdapterSettings> {
     pub network_adapter_settings: NetworkAdapterSettings,
     pub recovery_file: PathBuf,
     pub bootstrap: BootstrapConfig,
-    pub sync: SyncConfig,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -483,7 +479,6 @@ where
             config: ledger_config,
             network_adapter_settings,
             bootstrap: bootstrap_config,
-            sync: sync_config,
             ..
         } = self
             .service_resources_handle
@@ -510,11 +505,6 @@ where
         let mut incoming_proposals = network_adapter.proposals_stream().await?;
         let sync_blocks_provider: BlockProvider<_, _> =
             BlockProvider::new(relays.storage_adapter().storage_relay.clone());
-
-        let mut orphan_downloader = Box::pin(OrphanBlocksDownloader::new(
-            network_adapter.clone(),
-            sync_config.orphan.max_orphan_cache_size,
-        ));
 
         wait_until_services_are_ready!(
             &self.service_resources_handle.overwatch_handle,
@@ -568,7 +558,6 @@ where
                             proposal,
                             &mut cryptarchia,
                             &mut storage_blocks_to_remove,
-                            orphan_downloader.as_mut().get_mut(),
                             &relays,
                         )
                         .await;
@@ -613,38 +602,6 @@ where
                             }
                             msg => {
                                 Self::process_message(&cryptarchia, &self.new_block_subscription_sender, &self.lib_subscription_sender, msg);
-                            }
-                        }
-                    }
-
-                    Some(block) = orphan_downloader.next(), if orphan_downloader.should_poll() => {
-                        let header_id = block.header().id();
-                        info!("Processing block from orphan downloader: {header_id:?}");
-
-                        if cryptarchia.has_block(&block.header().id()) {
-                            continue;
-                        }
-
-                        Self::log_received_block(&block);
-
-                        match Self::process_block_and_update_state(
-                            cryptarchia.clone(),
-                            block.clone(),
-                            &storage_blocks_to_remove,
-                            &relays,
-                            &self.new_block_subscription_sender,
-                            &self.lib_subscription_sender,
-                            &self.service_resources_handle.state_updater
-                        ).await {
-                            Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
-                                cryptarchia = new_cryptarchia;
-                                storage_blocks_to_remove = new_storage_blocks_to_remove;
-
-                                info!(counter.consensus_processed_blocks = 1);
-                            }
-                            Err(e) => {
-                                error!(target: LOG_TARGET, "Error processing orphan downloader block: {e:?}");
-                                orphan_downloader.cancel_active_download();
                             }
                         }
                     }
@@ -867,7 +824,6 @@ where
         proposal: Proposal,
         cryptarchia: &mut Cryptarchia,
         storage_blocks_to_remove: &mut HashSet<HeaderId>,
-        orphan_downloader: &mut OrphanBlocksDownloader<NetAdapter, RuntimeServiceId>,
         relays: &CryptarchiaConsensusRelays<
             Mempool,
             MempoolNetAdapter,
@@ -902,43 +858,8 @@ where
             }
         };
 
-        self.apply_reconstructed_block(
-            block,
-            cryptarchia,
-            storage_blocks_to_remove,
-            orphan_downloader,
-            relays,
-        )
-        .await;
-    }
-
-    fn handle_proposal_processing_error(
-        err: Error,
-        block_id: HeaderId,
-        cryptarchia: &Cryptarchia,
-        orphan_downloader: &mut OrphanBlocksDownloader<NetAdapter, RuntimeServiceId>,
-    ) where
-        RuntimeServiceId: Send + Sync + 'static,
-    {
-        match err {
-            Error::Ledger(nomos_ledger::LedgerError::ParentNotFound(parent))
-            | Error::Consensus(cryptarchia_engine::Error::ParentMissing(parent)) => {
-                orphan_downloader.enqueue_orphan(block_id, cryptarchia.tip(), cryptarchia.lib());
-
-                error!(
-                    target: LOG_TARGET,
-                    "Received block with parent {:?} that is not in the ledger state. Ignoring block.",
-                    parent
-                );
-            }
-            other => {
-                error!(
-                    target: LOG_TARGET,
-                    "Error processing reconstructed block: {:?}",
-                    other
-                );
-            }
-        }
+        self.apply_reconstructed_block(block, cryptarchia, storage_blocks_to_remove, relays)
+            .await;
     }
 
     async fn apply_reconstructed_block(
@@ -946,7 +867,6 @@ where
         block: Block<Mempool::Item>,
         cryptarchia: &mut Cryptarchia,
         storage_blocks_to_remove: &mut HashSet<HeaderId>,
-        orphan_downloader: &mut OrphanBlocksDownloader<NetAdapter, RuntimeServiceId>,
         relays: &CryptarchiaConsensusRelays<
             Mempool,
             MempoolNetAdapter,
@@ -958,8 +878,6 @@ where
         RuntimeServiceId: Send + Sync + 'static,
     {
         Self::log_received_block(&block);
-
-        let block_id = block.header().id();
 
         match Self::process_block_and_update_state(
             cryptarchia.clone(),
@@ -975,16 +893,10 @@ where
             Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
                 *cryptarchia = new_cryptarchia;
                 *storage_blocks_to_remove = new_storage_blocks_to_remove;
-                orphan_downloader.remove_orphan(&block_id);
                 info!(counter.consensus_processed_blocks = 1);
             }
-            Err(err) => {
-                Self::handle_proposal_processing_error(
-                    err,
-                    block_id,
-                    cryptarchia,
-                    orphan_downloader,
-                );
+            Err(_err) => {
+                panic!("TODO: return error chain-network");
             }
         }
     }
