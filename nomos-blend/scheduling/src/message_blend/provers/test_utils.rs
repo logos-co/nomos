@@ -1,16 +1,21 @@
+use futures::future::ready;
 use nomos_blend_message::crypto::{
     keys::Ed25519PublicKey,
     proofs::{
         PoQVerificationInputsMinusSigningKey,
         quota::{
+            self, ProofOfQuota,
             fixtures::{valid_proof_of_core_quota_inputs, valid_proof_of_leadership_quota_inputs},
             inputs::prove::{
-                PublicInputs as PoQPublicInputs,
+                PrivateInputs, PublicInputs as PoQPublicInputs,
                 private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs},
             },
         },
     },
 };
+use nomos_core::crypto::ZkHash;
+
+use crate::message_blend::CoreProofOfQuotaGenerator;
 
 pub const fn poq_public_inputs_from_session_public_inputs_and_signing_key(
     (
@@ -75,4 +80,26 @@ pub fn valid_proof_of_leader_inputs(
         },
         private_inputs,
     )
+}
+
+#[derive(Clone)]
+pub struct CorePoQGeneratorFromPrivateCoreQuotaInputs(ProofOfCoreQuotaInputs);
+
+impl CorePoQGeneratorFromPrivateCoreQuotaInputs {
+    pub fn new(private_inputs: ProofOfCoreQuotaInputs) -> Self {
+        Self(private_inputs)
+    }
+}
+
+impl CoreProofOfQuotaGenerator for CorePoQGeneratorFromPrivateCoreQuotaInputs {
+    fn generate_poq(
+        &self,
+        public_inputs: &PoQPublicInputs,
+        key_index: u64,
+    ) -> impl Future<Output = Result<(ProofOfQuota, ZkHash), quota::Error>> + Send + Sync {
+        ready(ProofOfQuota::new(
+            public_inputs,
+            PrivateInputs::new_proof_of_core_quota_inputs(key_index, self.0.clone()),
+        ))
+    }
 }

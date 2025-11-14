@@ -6,9 +6,7 @@ use std::{
 
 use nomos_blend_message::{
     Error as InnerError,
-    crypto::proofs::{
-        PoQVerificationInputsMinusSigningKey, quota::inputs::prove::private::ProofOfCoreQuotaInputs,
-    },
+    crypto::proofs::PoQVerificationInputsMinusSigningKey,
     encap::{ProofsVerifier as ProofsVerifierTrait, decapsulated::DecapsulatedMessage},
     reward::BlendingToken,
 };
@@ -25,14 +23,14 @@ use nomos_blend_scheduling::{
     },
 };
 
-pub struct CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>(
-    SessionCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
+pub struct CoreCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>(
+    SessionCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>,
 );
 
-impl<NodeId, ProofsGenerator, ProofsVerifier>
-    CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
+impl<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>
+    CoreCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>
 where
-    ProofsGenerator: CoreAndLeaderProofsGenerator,
+    ProofsGenerator: CoreAndLeaderProofsGenerator<CorePoQGenerator>,
     ProofsVerifier: ProofsVerifierTrait,
 {
     pub fn try_new_with_core_condition_check(
@@ -40,7 +38,7 @@ where
         minimum_network_size: NonZeroU64,
         settings: &SessionCryptographicProcessorSettings,
         public_info: PoQVerificationInputsMinusSigningKey,
-        private_core_info: ProofOfCoreQuotaInputs,
+        core_proof_of_quota_generator: CorePoQGenerator,
     ) -> Result<Self, Error>
     where
         NodeId: Eq + Hash,
@@ -54,7 +52,7 @@ where
                 membership,
                 settings,
                 public_info,
-                private_core_info,
+                core_proof_of_quota_generator,
             ))
         }
     }
@@ -63,13 +61,13 @@ where
         membership: Membership<NodeId>,
         settings: &SessionCryptographicProcessorSettings,
         public_info: PoQVerificationInputsMinusSigningKey,
-        private_core_info: ProofOfCoreQuotaInputs,
+        core_proof_of_quota_generator: CorePoQGenerator,
     ) -> Self {
         Self(SessionCryptographicProcessor::new(
             settings,
             membership,
             public_info,
-            private_core_info,
+            core_proof_of_quota_generator,
         ))
     }
 }
@@ -115,8 +113,8 @@ impl From<DecapsulationOutput> for DecapsulatedMessageType {
     }
 }
 
-impl<NodeId, ProofsGenerator, ProofsVerifier>
-    CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
+impl<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>
+    CoreCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>
 where
     ProofsVerifier: ProofsVerifierTrait,
 {
@@ -174,18 +172,19 @@ where
     }
 }
 
-impl<NodeId, ProofsGenerator, ProofsVerifier> Deref
-    for CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
+impl<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier> Deref
+    for CoreCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>
 {
-    type Target = SessionCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>;
+    type Target =
+        SessionCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl<NodeId, ProofsGenerator, ProofsVerifier> DerefMut
-    for CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
+impl<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier> DerefMut
+    for CoreCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
@@ -212,10 +211,7 @@ mod tests {
                 PoQVerificationInputsMinusSigningKey,
                 quota::{
                     ProofOfQuota,
-                    inputs::prove::{
-                        private::ProofOfCoreQuotaInputs,
-                        public::{CoreInputs, LeaderInputs},
-                    },
+                    inputs::prove::public::{CoreInputs, LeaderInputs},
                 },
                 selection::{self, ProofOfSelection},
             },
@@ -255,25 +251,16 @@ mod tests {
         }
     }
 
-    fn mock_core_poq_inputs() -> ProofOfCoreQuotaInputs {
-        use groth16::Field as _;
-
-        ProofOfCoreQuotaInputs {
-            core_sk: ZkHash::ZERO,
-            core_path_and_selectors: [(ZkHash::ZERO, false); _],
-        }
-    }
-
     #[test]
     fn try_new_with_valid_membership() {
         let local_id = NodeId(1);
         let core_nodes = [NodeId(1)];
-        CoreCryptographicProcessor::<_, MockCoreAndLeaderProofsGenerator, MockProofsVerifier>::try_new_with_core_condition_check(
+        CoreCryptographicProcessor::<_, _, MockCoreAndLeaderProofsGenerator, MockProofsVerifier>::try_new_with_core_condition_check(
             membership(&core_nodes, local_id),
             NonZeroU64::new(1).unwrap(),
             &settings(local_id),
             mock_verification_inputs(),
-            mock_core_poq_inputs()
+            ()
         )
         .unwrap();
     }
@@ -284,6 +271,7 @@ mod tests {
         let core_nodes = [NodeId(1)];
         let result = CoreCryptographicProcessor::<
             _,
+            _,
             MockCoreAndLeaderProofsGenerator,
             MockProofsVerifier,
         >::try_new_with_core_condition_check(
@@ -291,7 +279,7 @@ mod tests {
             NonZeroU64::new(2).unwrap(),
             &settings(local_id),
             mock_verification_inputs(),
-            mock_core_poq_inputs(),
+            (),
         );
         assert!(matches!(result, Err(Error::NetworkIsTooSmall(1))));
     }
@@ -302,6 +290,7 @@ mod tests {
         let core_nodes = [NodeId(2)];
         let result = CoreCryptographicProcessor::<
             _,
+            _,
             MockCoreAndLeaderProofsGenerator,
             MockProofsVerifier,
         >::try_new_with_core_condition_check(
@@ -309,7 +298,7 @@ mod tests {
             NonZeroU64::new(1).unwrap(),
             &settings(local_id),
             mock_verification_inputs(),
-            mock_core_poq_inputs(),
+            (),
         );
         assert!(matches!(result, Err(Error::LocalIsNotCoreNode)));
     }
@@ -327,13 +316,14 @@ mod tests {
         };
         let processor = CoreCryptographicProcessor::<
             _,
+            _,
             MockCoreAndLeaderProofsGenerator,
             StaticFetchVerifier,
         >::new(
             membership,
             &settings(local_id),
             mock_verification_inputs(),
-            mock_core_poq_inputs(),
+            (),
         );
         assert!(matches!(
             processor.decapsulate_message_recursive(
@@ -360,13 +350,14 @@ mod tests {
         };
         let processor = CoreCryptographicProcessor::<
             _,
+            _,
             MockCoreAndLeaderProofsGenerator,
             StaticFetchVerifier,
         >::new(
             membership,
             &settings(local_id),
             mock_verification_inputs(),
-            mock_core_poq_inputs(),
+            (),
         );
         StaticFetchVerifier::set_remaining_valid_poq_proofs(1);
         let decapsulation_output = processor
@@ -397,13 +388,14 @@ mod tests {
         };
         let processor = CoreCryptographicProcessor::<
             _,
+            _,
             MockCoreAndLeaderProofsGenerator,
             StaticFetchVerifier,
         >::new(
             membership,
             &settings(local_id),
             mock_verification_inputs(),
-            mock_core_poq_inputs(),
+            (),
         );
         StaticFetchVerifier::set_remaining_valid_poq_proofs(2);
         let decapsulation_output = processor
@@ -434,13 +426,14 @@ mod tests {
         };
         let processor = CoreCryptographicProcessor::<
             _,
+            _,
             MockCoreAndLeaderProofsGenerator,
             StaticFetchVerifier,
         >::new(
             membership,
             &settings(local_id),
             mock_verification_inputs(),
-            mock_core_poq_inputs(),
+            (),
         );
         StaticFetchVerifier::set_remaining_valid_poq_proofs(3);
         let decapsulation_output = processor

@@ -6,18 +6,15 @@ use nomos_blend_message::crypto::{
     keys::Ed25519PrivateKey,
     proofs::{
         PoQVerificationInputsMinusSigningKey,
-        quota::{
-            ProofOfQuota,
-            inputs::prove::{
-                PrivateInputs, PublicInputs, private::ProofOfCoreQuotaInputs, public::LeaderInputs,
-            },
-        },
+        quota::inputs::prove::{PublicInputs, public::LeaderInputs},
         selection::ProofOfSelection,
     },
 };
-use tokio::task::spawn_blocking;
 
-use crate::message_blend::provers::{BlendLayerProof, ProofsGeneratorSettings};
+use crate::message_blend::{
+    CoreProofOfQuotaGenerator,
+    provers::{BlendLayerProof, ProofsGeneratorSettings},
+};
 
 #[cfg(test)]
 mod tests;
@@ -27,9 +24,9 @@ const PROOFS_GENERATOR_BUFFER_SIZE: usize = 10;
 
 /// Proof generator for core `PoQ` variants.
 #[async_trait]
-pub trait CoreProofsGenerator: Sized {
+pub trait CoreProofsGenerator<PoQGenerator>: Sized {
     /// Instantiate a new generator for the duration of a session.
-    fn new(settings: ProofsGeneratorSettings, private_inputs: ProofOfCoreQuotaInputs) -> Self;
+    fn new(settings: ProofsGeneratorSettings, proof_of_quota_generator: PoQGenerator) -> Self;
     /// Notify the proof generator that a new epoch has started mid-session.
     /// This will trigger proof re-generation due to the change in the set of
     /// public inputs.
@@ -39,23 +36,26 @@ pub trait CoreProofsGenerator: Sized {
     async fn get_next_proof(&mut self) -> Option<BlendLayerProof>;
 }
 
-pub struct RealCoreProofsGenerator {
+pub struct RealCoreProofsGenerator<PoQGenerator> {
     remaining_quota: u64,
     pub(super) settings: ProofsGeneratorSettings,
-    pub(super) private_inputs: ProofOfCoreQuotaInputs,
+    pub(super) proof_of_quota_generator: PoQGenerator,
     proof_stream: Pin<Box<dyn Stream<Item = BlendLayerProof> + Send + Sync>>,
 }
 
 #[async_trait]
-impl CoreProofsGenerator for RealCoreProofsGenerator {
-    fn new(settings: ProofsGeneratorSettings, private_inputs: ProofOfCoreQuotaInputs) -> Self {
+impl<PoQGenerator> CoreProofsGenerator<PoQGenerator> for RealCoreProofsGenerator<PoQGenerator>
+where
+    PoQGenerator: CoreProofOfQuotaGenerator + Clone + Send + Sync + 'static,
+{
+    fn new(settings: ProofsGeneratorSettings, proof_of_quota_generator: PoQGenerator) -> Self {
         Self {
-            private_inputs: private_inputs.clone(),
             proof_stream: Box::pin(create_proof_stream(
                 settings.public_inputs,
-                private_inputs,
+                proof_of_quota_generator.clone(),
                 0,
             )),
+            proof_of_quota_generator,
             remaining_quota: settings.public_inputs.core.quota,
             settings,
         }
@@ -88,7 +88,10 @@ impl CoreProofsGenerator for RealCoreProofsGenerator {
     }
 }
 
-impl RealCoreProofsGenerator {
+impl<PoQGenerator> RealCoreProofsGenerator<PoQGenerator>
+where
+    PoQGenerator: CoreProofOfQuotaGenerator + Clone + Send + Sync + 'static,
+{
     // This will kill the previous running task, if any, since we swap the receiver
     // channel, hence the old task will fail to send new proofs and will abort on
     // its own.
@@ -99,17 +102,20 @@ impl RealCoreProofsGenerator {
 
         self.proof_stream = Box::pin(create_proof_stream(
             self.settings.public_inputs,
-            self.private_inputs.clone(),
+            self.proof_of_quota_generator.clone(),
             starting_key_index,
         ));
     }
 }
 
-fn create_proof_stream(
+fn create_proof_stream<Generator>(
     public_inputs: PoQVerificationInputsMinusSigningKey,
-    private_inputs: ProofOfCoreQuotaInputs,
+    proof_of_quota_generator: Generator,
     starting_key_index: u64,
-) -> impl Stream<Item = BlendLayerProof> {
+) -> impl Stream<Item = BlendLayerProof>
+where
+    Generator: CoreProofOfQuotaGenerator + Clone + Send + Sync + 'static,
+{
     let proofs_to_generate = public_inputs
         .core
         .quota
@@ -120,28 +126,30 @@ fn create_proof_stream(
     let quota = public_inputs.core.quota;
     stream::iter(starting_key_index..quota)
         .map(move |key_index| {
-            let private_inputs = private_inputs.clone();
+            let ephemeral_signing_key = Ed25519PrivateKey::generate();
+            let proof_of_quota_generator = proof_of_quota_generator.clone();
 
-            spawn_blocking(move || {
-                let ephemeral_signing_key = Ed25519PrivateKey::generate();
-                let (proof_of_quota, secret_selection_randomness) = ProofOfQuota::new(
-                    &PublicInputs {
-                        signing_key: ephemeral_signing_key.public_key(),
-                        core: public_inputs.core,
-                        leader: public_inputs.leader,
-                        session: public_inputs.session,
-                    },
-                    PrivateInputs::new_proof_of_core_quota_inputs(key_index, private_inputs),
-                )
-                .ok()?;
+            async move {
+                let (proof_of_quota, secret_selection_randomness) = proof_of_quota_generator
+                    .generate_poq(
+                        &PublicInputs {
+                            signing_key: ephemeral_signing_key.public_key(),
+                            core: public_inputs.core,
+                            leader: public_inputs.leader,
+                            session: public_inputs.session,
+                        },
+                        key_index,
+                    )
+                    .await
+                    .ok()?;
                 let proof_of_selection = ProofOfSelection::new(secret_selection_randomness);
                 Some(BlendLayerProof {
                     proof_of_quota,
                     proof_of_selection,
                     ephemeral_signing_key,
                 })
-            })
+            }
         })
         .buffered(PROOFS_GENERATOR_BUFFER_SIZE)
-        .filter_map(|result| async { result.ok().flatten() })
+        .filter_map(|result| async { result })
 }

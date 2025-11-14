@@ -1,8 +1,13 @@
 [package]
-edition = { workspace = true }
-license = { workspace = true }
-name    = "key-management-system"
-version = "0.1.0"
+categories  = { workspace = true }
+description = { workspace = true }
+edition     = { workspace = true }
+keywords    = { workspace = true }
+license     = { workspace = true }
+name        = "key-management-system"
+readme      = { workspace = true }
+repository  = { workspace = true }
+version     = { workspace = true }
 
 [lints]
 workspace = true
@@ -14,8 +19,10 @@ ed25519-dalek                = { default-features = false, features = ["serde", 
 groth16                      = { workspace = true }
 key-management-system-macros = { workspace = true }
 log                          = "0.4.22"
+nomos-blend-message          = { workspace = true }
 nomos-utils                  = { features = ["serde", "types"], workspace = true }
 overwatch                    = { workspace = true }
+poq                          = { workspace = true }
 serde                        = { default-features = false, features = ["derive"], version = "1" }
 thiserror                    = { default-features = false, version = "2" }
 tokio                        = { default-features = false, version = "1" }

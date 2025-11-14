@@ -1,11 +1,4 @@
-pub mod api;
-pub mod backend;
-pub mod keys;
-
-use std::{
-    fmt::{Debug, Display},
-    pin::Pin,
-};
+use std::fmt::{Debug, Display};
 
 use log::error;
 use overwatch::{
@@ -15,71 +8,17 @@ use overwatch::{
         state::{NoOperator, NoState},
     },
 };
-use tokio::sync::oneshot;
 
-use crate::{backend::KMSBackend, keys::secured_key::SecuredKey};
+use crate::{
+    backend::KMSBackend,
+    keys::secured_key::SecuredKey,
+    message::{KMSMessage, KMSSigningStrategy},
+};
 
-// TODO: Use [`AsyncFnMut`](https://doc.rust-lang.org/stable/std/ops/trait.AsyncFnMut.html#tymethod.async_call_mut) once it is stabilized.
-pub type KMSOperator<Payload, Signature, PublicKey, KeyError, OperatorError> = Box<
-    dyn FnMut(
-            &dyn SecuredKey<
-                Payload = Payload,
-                Signature = Signature,
-                PublicKey = PublicKey,
-                Error = KeyError,
-            >,
-        ) -> Pin<Box<dyn Future<Output = Result<(), OperatorError>> + Send + Sync>>
-        + Send
-        + Sync,
->;
-
-pub type KMSOperatorKey<Key, OperatorError> = KMSOperator<
-    <Key as SecuredKey>::Payload,
-    <Key as SecuredKey>::Signature,
-    <Key as SecuredKey>::PublicKey,
-    <Key as SecuredKey>::Error,
-    OperatorError,
->;
-
-pub type KMSOperatorBackend<Backend> =
-    KMSOperatorKey<<Backend as KMSBackend>::Key, <Backend as KMSBackend>::Error>;
-
-type KeyDescriptor<Backend> = (
-    <Backend as KMSBackend>::KeyId,
-    <<Backend as KMSBackend>::Key as SecuredKey>::PublicKey,
-);
-
-#[derive(Debug)]
-pub enum KMSSigningStrategy<KeyId> {
-    Single(KeyId),
-    Multi(Vec<KeyId>),
-}
-
-pub enum KMSMessage<Backend>
-where
-    Backend: KMSBackend,
-{
-    Register {
-        key_id: Backend::KeyId,
-        key_type: Backend::Key,
-        reply_channel: oneshot::Sender<Result<KeyDescriptor<Backend>, Backend::Error>>,
-    },
-    PublicKey {
-        key_id: Backend::KeyId,
-        reply_channel:
-            oneshot::Sender<Result<<Backend::Key as SecuredKey>::PublicKey, Backend::Error>>,
-    },
-    Sign {
-        signing_strategy: KMSSigningStrategy<Backend::KeyId>,
-        payload: <Backend::Key as SecuredKey>::Payload,
-        reply_channel:
-            oneshot::Sender<Result<<Backend::Key as SecuredKey>::Signature, Backend::Error>>,
-    },
-    Execute {
-        key_id: Backend::KeyId,
-        operator: KMSOperatorKey<Backend::Key, <Backend as KMSBackend>::Error>,
-    },
-}
+pub mod api;
+pub mod backend;
+pub mod keys;
+pub mod message;
 
 pub struct KMSService<Backend, RuntimeServiceId>
 where

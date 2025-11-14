@@ -16,6 +16,7 @@ use chain_service::{
 use common_http_client::CommonHttpClient;
 use cryptarchia_engine::time::SlotConfig;
 use futures::Stream;
+use key_management_system::keys::ZkKey;
 use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
 use nomos_blend_scheduling::message_blend::crypto::SessionCryptographicProcessorSettings;
 use nomos_blend_service::{
@@ -72,7 +73,8 @@ use tx_service::MempoolMetrics;
 
 use super::{CLIENT, create_tempdir, persist_tempdir};
 use crate::{
-    IS_DEBUG_TRACING, adjust_timeout, nodes::LOGS_PREFIX, topology::configs::GeneralConfig,
+    IS_DEBUG_TRACING, adjust_timeout, common::kms::key_id_for_preload_backend, nodes::LOGS_PREFIX,
+    topology::configs::GeneralConfig,
 };
 
 const BIN_PATH: &str = "../target/debug/nomos-node";
@@ -451,7 +453,9 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                     },
                 },
                 zk: ZkSettings {
-                    sk: config.blend_config.secret_zk_key,
+                    secret_key_kms_id: key_id_for_preload_backend(
+                        &ZkKey::new(config.blend_config.secret_zk_key).into(),
+                    ),
                 },
             },
             edge: nomos_blend_service::settings::EdgeSettings {

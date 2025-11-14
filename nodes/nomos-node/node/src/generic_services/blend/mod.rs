@@ -11,6 +11,7 @@ use chain_leader::LeaderMsg;
 use futures::{Stream, StreamExt as _};
 use nomos_blend_service::{
     ProofOfLeadershipQuotaInputs,
+    core::kms::PreloadKMSBackendCorePoQGenerator,
     epoch_info::{PolEpochInfo, PolInfoProvider as PolInfoProviderTrait},
     membership::service::Adapter,
 };
@@ -40,7 +41,7 @@ pub type BlendCoreService<SamplingAdapter, RuntimeServiceId> =
         PeerId,
         nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
         BlendMembershipAdapter<RuntimeServiceId>,
-        CoreProofsGenerator,
+        CoreProofsGenerator<PreloadKMSBackendCorePoQGenerator<RuntimeServiceId>>,
         BlendProofsVerifier,
         NtpTimeBackend,
         CryptarchiaService<SamplingAdapter, RuntimeServiceId>,

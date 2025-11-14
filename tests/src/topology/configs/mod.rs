@@ -12,10 +12,9 @@ pub mod time;
 use blend::GeneralBlendConfig;
 use consensus::{GeneralConsensusConfig, ProviderInfo, create_genesis_tx_with_declarations};
 use da::GeneralDaConfig;
-use groth16::fr_to_bytes;
 use key_management_system::{
     backend::preload::PreloadKMSBackendSettings,
-    keys::{Ed25519Key, Key, ZkKey},
+    keys::{Ed25519Key, ZkKey},
 };
 use network::GeneralNetworkConfig;
 use nomos_core::{
@@ -26,13 +25,16 @@ use nomos_utils::net::get_available_udp_port;
 use rand::{Rng as _, thread_rng};
 use tracing::GeneralTracingConfig;
 
-use crate::topology::configs::{
-    api::GeneralApiConfig,
-    bootstrap::{GeneralBootstrapConfig, SHORT_PROLONGED_BOOTSTRAP_PERIOD},
-    consensus::ConsensusParams,
-    da::DaParams,
-    network::NetworkParams,
-    time::GeneralTimeConfig,
+use crate::{
+    common::kms::key_id_for_preload_backend,
+    topology::configs::{
+        api::GeneralApiConfig,
+        bootstrap::{GeneralBootstrapConfig, SHORT_PROLONGED_BOOTSTRAP_PERIOD},
+        consensus::ConsensusParams,
+        da::DaParams,
+        network::NetworkParams,
+        time::GeneralTimeConfig,
+    },
 };
 
 #[derive(Clone)]
@@ -125,14 +127,14 @@ pub fn create_general_configs_with_blend_core_subset(
         .map(|blend_conf| PreloadKMSBackendSettings {
             keys: [
                 (
-                    hex::encode(blend_conf.signer.verifying_key().as_bytes()),
-                    Key::Ed25519(Ed25519Key(blend_conf.signer.clone())),
+                    key_id_for_preload_backend(&Ed25519Key::new(blend_conf.signer.clone()).into()),
+                    Ed25519Key::new(blend_conf.signer.clone()).into(),
                 ),
                 (
-                    hex::encode(fr_to_bytes(
-                        &blend_conf.secret_zk_key.to_public_key().into_inner(),
-                    )),
-                    Key::Zk(ZkKey(blend_conf.secret_zk_key.clone())),
+                    key_id_for_preload_backend(
+                        &ZkKey::new(blend_conf.secret_zk_key.clone()).into(),
+                    ),
+                    ZkKey::new(blend_conf.secret_zk_key.clone()).into(),
                 ),
             ]
             .into(),

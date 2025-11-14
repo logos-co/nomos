@@ -1,10 +1,10 @@
 use std::{num::NonZeroU64, path::PathBuf};
 
+use key_management_system::backend::preload::KeyId;
 use nomos_blend_scheduling::message_blend::crypto::SessionCryptographicProcessorSettings;
 use nomos_utils::math::NonNegativeF64;
 use serde::{Deserialize, Serialize};
 use services_utils::overwatch::recovery::backends::FileBackendSettings;
-use zksign::{PublicKey, SecretKey};
 
 use crate::settings::TimingSettings;
 
@@ -101,13 +101,6 @@ pub struct MessageDelayerSettings {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ZkSettings {
-    #[serde(rename = "secret_key")]
-    pub sk: SecretKey,
-}
-
-impl ZkSettings {
-    #[must_use]
-    pub fn public_key(&self) -> PublicKey {
-        self.sk.to_public_key()
-    }
+    #[serde(rename = "secret_key_kms_id")]
+    pub secret_key_kms_id: KeyId,
 }
