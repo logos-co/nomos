@@ -36,6 +36,6 @@ where
     },
     Execute {
         key_id: Backend::KeyId,
-        operator: <Backend::Key as SecuredKey>::Operations,
+        operator: Backend::KeyOperations,
     },
 }

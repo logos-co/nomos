@@ -1,13 +1,32 @@
-use std::marker::PhantomData;
+use std::{fmt::Debug, marker::PhantomData};
 
+use async_trait::async_trait;
 use zeroize::ZeroizeOnDrop;
 
 #[async_trait::async_trait]
 pub trait SecureKeyOperations {
     type Key;
     type Error;
-    async fn execute(&self, key: &Self::Key) -> Result<(), Self::Error>;
+    async fn execute(&mut self, key: &Self::Key) -> Result<(), Self::Error>;
 }
+//
+// #[async_trait::async_trait]
+// impl<T> SecureKeyOperations for Box<T>
+// where
+//     T: SecureKeyOperations + Send + Sync + 'static,
+//     T::Key: Send + Sync + 'static,
+// {
+//     type Key = T::Key;
+//     type Error = T::Error;
+//
+//     async fn execute(self, key: &Self::Key) -> Result<(), Self::Error> {
+//         T::execute(*self, key).await
+//     }
+// }
+
+pub type BoxedSecureKeyOperations<
+    Key: SecuredKey + Debug + PartialEq + Eq + Clone + Send + Sync + 'static,
+> = Box<dyn SecureKeyOperations<Key = Key, Error = Key::Error> + Send + Sync>;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct NoKeyOperator<Key, Error> {
@@ -24,7 +43,7 @@ where
     type Key = Key;
     type Error = Error;
 
-    async fn execute(&self, _key: &Self::Key) -> Result<(), Self::Error> {
+    async fn execute(&mut self, _key: &Self::Key) -> Result<(), Self::Error> {
         Ok(())
     }
 }
@@ -52,7 +71,8 @@ pub trait SecuredKey: ZeroizeOnDrop {
     type Signature;
     type PublicKey;
     type Error;
-    type Operations: SecureKeyOperations<Key = Self, Error = Self::Error> + Send + Sync + 'static;
+    // type Operations: SecureKeyOperations<Key = Self, Error = Self::Error> + Send
+    // + Sync + 'static;
 
     fn sign(&self, payload: &Self::Payload) -> Result<Self::Signature, Self::Error>;
     fn sign_multiple(
@@ -63,7 +83,10 @@ pub trait SecuredKey: ZeroizeOnDrop {
         Self: Sized;
     fn as_public_key(&self) -> Self::PublicKey;
 
-    async fn execute(&self, operator: Self::Operations) -> Result<(), Self::Error> {
+    async fn execute<Operation>(&self, mut operator: Operation) -> Result<(), Self::Error>
+    where
+        Operation: SecureKeyOperations<Key = Self, Error = Self::Error> + Send,
+    {
         operator.execute(self).await
     }
 }

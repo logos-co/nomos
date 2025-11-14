@@ -34,6 +34,7 @@ pub struct PreloadKMSBackendSettings {
 impl KMSBackend for PreloadKMSBackend {
     type KeyId = KeyId;
     type Key = keys::Key;
+    type KeyOperations = keys::KeyOperators;
     type Settings = PreloadKMSBackendSettings;
     type Error = PreloadBackendError;
 
@@ -97,7 +98,7 @@ impl KMSBackend for PreloadKMSBackend {
     async fn execute(
         &mut self,
         key_id: &Self::KeyId,
-        operator: <Self::Key as SecuredKey>::Operations,
+        operator: Self::KeyOperations,
     ) -> Result<(), Self::Error> {
         let key = self
             .keys
@@ -150,7 +151,10 @@ mod tests {
 
         // Check if the execute function works as expected
         backend
-            .execute(&key_id, KeyOperators::Ed25519(NoKeyOperator::new()))
+            .execute(
+                &key_id,
+                KeyOperators::Ed25519(Box::new(NoKeyOperator::new())),
+            )
             .await
             .unwrap();
     }
@@ -183,7 +187,7 @@ mod tests {
         // Excuting with a key id fails
         assert!(matches!(
             backend
-                .execute(&key_id, KeyOperators::Ed25519(NoKeyOperator::new()))
+                .execute(&key_id, KeyOperators::Ed25519(Box::new(NoKeyOperator::new())))
                 .await
                 .unwrap_err(),
             PreloadBackendError::NotRegisteredKeyId(id) if id == key_id.clone()

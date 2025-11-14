@@ -75,30 +75,33 @@ fn build_operators_enum(
     base_enum_ident: &Ident,
     variants: &Punctuated<Variant, Comma>,
 ) -> TokenStream {
-    let operator_enum_ident = Ident::new(&format!("{base_enum_ident}Operators"), Span::call_site());
-    let operators_variants: Punctuated<Variant, Comma> = variants
-        .iter()
-        .map(|variant| {
-            build_enum_variant_for_associated_type(
-                &Ident::new("Operations", Span::call_site()),
-                variant,
-            )
-        })
-        .collect();
-    let operations_impl =
-        build_operations_impl_for_enum(&operator_enum_ident, base_enum_ident, &operators_variants);
-
-    let operators_variants: Vec<Variant> = operators_variants.into_iter().collect();
-
-    // let operator_variants = operators_variants.iter().map(|i| i);
-    quote! {
-        #[derive(Debug, PartialEq, Eq, Clone)]
-        pub enum #operator_enum_ident {
-            #(#operators_variants),*
-        }
-
-        #operations_impl
-    }
+    // let operator_enum_ident = Ident::new(&format!("{base_enum_ident}Operators"),
+    // Span::call_site());
+    //
+    // let operators_variants = variants
+    //     .iter()
+    //     .map(|variant| {
+    //         let variant_name = &variant.ident;
+    //         let variant_inner_type = &variant.fields;
+    //         println!("{variant_inner_type:?}");
+    //         quote! {
+    // #variant_name(crate::keys::secured_key::BoxedSecureKeyOperations<#
+    // variant_inner_type>) }     });
+    //
+    // let operations_impl =
+    //     build_operations_impl_for_enum(&operator_enum_ident, base_enum_ident,
+    // variants);
+    //
+    // // let operator_variants = operators_variants.iter().map(|i| i);
+    // quote! {
+    //     #[derive(Debug, PartialEq, Eq, Clone)]
+    //     pub enum #operator_enum_ident {
+    //         #(#operators_variants),*
+    //     }
+    //
+    //     #operations_impl
+    // }
+    quote! {}
 }
 
 fn build_operations_impl_for_enum(
@@ -198,7 +201,7 @@ fn build_key_enum_impl_secured_key(
             type Signature = SignatureEncoding;
             type PublicKey = PublicKeyEncoding;
             type Error = crate::keys::errors::KeyError;
-            type Operations = KeyOperators;
+            // type Operations = KeyOperators;
 
             #key_enum_impl_secured_key_method_sign
             #key_enum_impl_secured_key_method_sign_multiple

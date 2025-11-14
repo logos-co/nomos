@@ -3,10 +3,7 @@ use serde::{Deserialize, Serialize};
 use zeroize::ZeroizeOnDrop;
 use zksign::{PublicKey, SecretKey, Signature};
 
-use crate::keys::{
-    errors::KeyError,
-    secured_key::{NoKeyOperator, SecuredKey},
-};
+use crate::keys::{errors::KeyError, secured_key::SecuredKey};
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Clone, Debug, ZeroizeOnDrop)]
 pub struct ZkKey(SecretKey);
@@ -16,6 +13,11 @@ impl ZkKey {
     pub const fn new(secret_key: SecretKey) -> Self {
         Self(secret_key)
     }
+
+    #[must_use]
+    pub const fn as_fr(&self) -> &Fr {
+        self.0.as_fr()
+    }
 }
 
 #[async_trait::async_trait]
@@ -24,7 +26,7 @@ impl SecuredKey for ZkKey {
     type Signature = Signature;
     type PublicKey = PublicKey;
     type Error = KeyError;
-    type Operations = NoKeyOperator<Self, Self::Error>;
+    // type Operations = NoKeyOperator<Self, Self::Error>;
 
     fn sign(&self, payload: &Self::Payload) -> Result<Self::Signature, Self::Error> {
         Ok(self.0.sign(payload)?)
