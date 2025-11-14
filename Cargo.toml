@@ -48,6 +48,7 @@ members = [
   "nomos-utils",
   "testing-framework/configs",
   "testing-framework/core",
+  "testing-framework/runners/local",
   "testnet/cfgsync",
   "tests",
   "utxotree",
@@ -122,6 +123,7 @@ poseidon2                    = { default-features = false, path = "./zk/poseidon
 services-utils               = { default-features = false, path = "./nomos-services/utils" }
 subnetworks-assignations     = { default-features = false, path = "./nomos-da/network/subnetworks-assignations" }
 testing-framework-core       = { default-features = false, path = "./testing-framework/core" }
+testing-framework-runner-local = { default-features = false, path = "./testing-framework/runners/local" }
 tests                        = { default-features = false, path = "./tests" }
 tx-service                   = { default-features = false, path = "./nomos-services/tx-service" }
 utxotree                     = { default-features = false, path = "./utxotree" }
