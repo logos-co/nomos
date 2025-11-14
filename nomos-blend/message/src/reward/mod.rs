@@ -37,14 +37,16 @@ impl SessionBlendingTokenCollector {
     }
 
     #[must_use]
-    pub const fn into_old_session(
+    pub fn rotate_session(
         self,
-        next_session_randomness: SessionRandomness,
-    ) -> OldSessionBlendingTokenCollector {
-        OldSessionBlendingTokenCollector {
+        new_session_info: &SessionInfo,
+    ) -> (Self, OldSessionBlendingTokenCollector) {
+        let new_collector = Self::new(new_session_info);
+        let old_collector = OldSessionBlendingTokenCollector {
             collector: self,
-            next_session_randomness,
-        }
+            next_session_randomness: new_session_info.session_randomness(),
+        };
+        (new_collector, old_collector)
     }
 
     #[cfg(test)]
@@ -159,7 +161,7 @@ mod tests {
             1.0.try_into().unwrap(),
         )
         .unwrap();
-        let mut tokens = tokens.into_old_session(session_info.session_randomness);
+        let (_, mut tokens) = tokens.rotate_session(&session_info);
 
         // Insert one more tokens.
         // Now,`total_core_quota` tokens have been collected.
