@@ -6,12 +6,11 @@ mod relays;
 mod sync;
 
 use core::fmt::Debug;
-use std::{collections::HashMap, fmt::Display, hash::Hash, time::Duration};
+use std::{fmt::Display, hash::Hash, time::Duration};
 
-use broadcast_service::{BlockBroadcastMsg, BlockBroadcastService, BlockInfo, SessionUpdate};
 use chain_service::api::CryptarchiaServiceData;
 pub use cryptarchia_engine::{Epoch, Slot};
-use futures::{FutureExt as _, StreamExt as _};
+use futures::StreamExt as _;
 use network::NetworkAdapter;
 use nomos_core::{
     block::{Block, Proposal},
@@ -23,7 +22,7 @@ use nomos_core::{
         genesis_tx::GenesisTx,
         ops::{Op, leader_claim::VoucherCm},
     },
-    sdp::{ProviderId, ProviderInfo, ServiceType},
+    sdp::ServiceType,
 };
 use nomos_da_sampling::{
     DaSamplingService, DaSamplingServiceMsg, backend::DaSamplingServiceBackend,
@@ -41,13 +40,11 @@ use overwatch::{
         state::{NoOperator, NoState},
     },
 };
-use relays::BroadcastRelay;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use services_utils::wait_until_services_are_ready;
-use strum::IntoEnumIterator as _;
 use thiserror::Error;
 use tokio::time::Instant;
-use tracing::{Level, debug, error, info, instrument, span, warn};
+use tracing::{Level, debug, error, info, instrument, span};
 use tracing_futures::Instrument as _;
 use tx_service::{
     TxMempoolService, backend::RecoverableMempool,
@@ -56,10 +53,7 @@ use tx_service::{
 
 use crate::{
     blob::{HistoricBlobStrategy, RecentBlobStrategy},
-    bootstrap::{
-        ibd::{self, InitialBlockDownload},
-        state::choose_engine_state,
-    },
+    bootstrap::ibd::{self, InitialBlockDownload},
     mempool::{MempoolAdapter as _, adapter::MempoolAdapter},
     relays::ChainNetworkRelays,
     sync::orphan_handler::OrphanBlocksDownloader,
@@ -202,33 +196,6 @@ impl Cryptarchia {
 
     fn has_block(&self, block_id: &HeaderId) -> bool {
         self.consensus.branches().get(block_id).is_some()
-    }
-
-    fn active_session_providers(
-        &self,
-        block_id: &HeaderId,
-        service_type: ServiceType,
-    ) -> Result<HashMap<ProviderId, ProviderInfo>, Error> {
-        let ledger = self
-            .ledger
-            .state(block_id)
-            .ok_or(Error::HeaderIdNotFound(*block_id))?;
-
-        ledger
-            .active_session_providers(service_type, self.ledger.config())
-            .ok_or(Error::ServiceSessionNotFound(service_type))
-    }
-
-    fn active_sessions_numbers(
-        &self,
-        block_id: &HeaderId,
-    ) -> Result<HashMap<ServiceType, u64>, Error> {
-        let ledger = self
-            .ledger
-            .state(block_id)
-            .ok_or(Error::HeaderIdNotFound(*block_id))?;
-
-        Ok(ledger.active_sessions())
     }
 }
 
@@ -418,7 +385,6 @@ where
         + AsServiceId<Self>
         + AsServiceId<Cryptarchia>
         + AsServiceId<NetworkService<NetAdapter::Backend, RuntimeServiceId>>
-        + AsServiceId<BlockBroadcastService<RuntimeServiceId>>
         + AsServiceId<
             TxMempoolService<MempoolNetAdapter, Mempool, Mempool::Storage, RuntimeServiceId>,
         >
@@ -500,7 +466,6 @@ where
             &self.service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
             Cryptarchia,
-            BlockBroadcastService<_>,
             NetworkService<_, _>,
             TxMempoolService<_, _, _, _>,
             DaSamplingService<_, _, _, _, _>,
@@ -868,22 +833,12 @@ where
         // TODO: filter on time?
         let header = block.header();
         let id = header.id();
-        let prev_lib = cryptarchia.lib();
-
-        let previous_session_numbers = match cryptarchia.active_sessions_numbers(&prev_lib) {
-            Ok(session_numbers) => session_numbers,
-            Err(e) => {
-                warn!("Error getting previous session numbers: {e}");
-                ServiceType::iter().map(|s| (s, 0)).collect()
-            }
-        };
 
         if let Some(blob_validation) = blob_validation {
             blob_validation.validate(&block).await?;
         }
 
         let cryptarchia = cryptarchia.try_apply_block(&block)?;
-        let new_lib = cryptarchia.lib();
 
         // remove included content from mempool
         relays
@@ -912,30 +867,6 @@ where
 
         if !blob_ids.is_empty() {
             mark_blob_in_block(relays.sampling_relay().clone(), blob_ids).await;
-        }
-
-        if prev_lib != new_lib {
-            let height = cryptarchia
-                .consensus
-                .branches()
-                .get(&cryptarchia.lib())
-                .expect("LIB branch not available")
-                .length();
-            let block_info = BlockInfo {
-                height,
-                header_id: new_lib,
-            };
-            if let Err(e) = broadcast_finalized_block(relays.broadcast_relay(), block_info).await {
-                error!("Could not notify block to services {e}");
-            }
-
-            Self::broadcast_session_updates_for_block(
-                &cryptarchia,
-                &new_lib,
-                relays,
-                Some(&previous_session_numbers),
-            )
-            .await;
         }
 
         Ok(cryptarchia)
@@ -969,9 +900,9 @@ where
     ///   the consensus.
     async fn initialize_cryptarchia(
         &self,
-        bootstrap_config: &BootstrapConfig<NetAdapter::PeerId>,
-        ledger_config: nomos_ledger::Config,
-        relays: &ChainNetworkRelays<
+        _bootstrap_config: &BootstrapConfig<NetAdapter::PeerId>,
+        _ledger_config: nomos_ledger::Config,
+        _relays: &ChainNetworkRelays<
             Cryptarchia,
             Mempool,
             MempoolNetAdapter,
@@ -987,93 +918,6 @@ where
     fn switch_to_online(cryptarchia: crate::Cryptarchia) -> crate::Cryptarchia {
         cryptarchia.online()
     }
-
-    async fn broadcast_session_updates_for_block(
-        cryptarchia: &crate::Cryptarchia,
-        block_id: &HeaderId,
-        relays: &ChainNetworkRelays<
-            Cryptarchia,
-            Mempool,
-            MempoolNetAdapter,
-            MempoolDaAdapter,
-            NetAdapter,
-            SamplingBackend,
-            RuntimeServiceId,
-        >,
-        previous_sessions: Option<&HashMap<ServiceType, u64>>,
-    ) {
-        let Ok(new_sessions) = cryptarchia.active_sessions_numbers(block_id) else {
-            error!("Could not get active session numbers for block {block_id:?}");
-            return;
-        };
-
-        for (service, new_session_number) in &new_sessions {
-            Self::handle_service_update(
-                cryptarchia,
-                block_id,
-                relays,
-                previous_sessions,
-                service,
-                new_session_number,
-            )
-            .await;
-        }
-    }
-
-    async fn handle_service_update(
-        cryptarchia: &crate::Cryptarchia,
-        block_id: &HeaderId,
-        relays: &ChainNetworkRelays<
-            Cryptarchia,
-            Mempool,
-            MempoolNetAdapter,
-            MempoolDaAdapter,
-            NetAdapter,
-            SamplingBackend,
-            RuntimeServiceId,
-        >,
-        previous_sessions: Option<&HashMap<ServiceType, u64>>,
-        service: &ServiceType,
-        new_session_number: &u64,
-    ) {
-        // If `previous_sessions` is provided, check if the session number has changed.
-        // Otherwise, always broadcast (for initialization).
-        if previous_sessions.is_some_and(|prev| {
-            prev.get(service)
-                .copied()
-                .expect("previous session number is set")
-                == *new_session_number
-        }) {
-            return;
-        }
-
-        match cryptarchia.active_session_providers(block_id, *service) {
-            Ok(providers) => {
-                let update = SessionUpdate {
-                    session_number: *new_session_number,
-                    providers,
-                };
-
-                let broadcast_relay = relays.broadcast_relay();
-
-                let broadcast_future = match service {
-                    ServiceType::BlendNetwork => {
-                        broadcast_blend_session(broadcast_relay, update).boxed()
-                    }
-                    ServiceType::DataAvailability => {
-                        broadcast_da_session(broadcast_relay, update).boxed()
-                    }
-                };
-
-                if let Err(e) = broadcast_future.await {
-                    error!("Failed to broadcast session update for {service:?}: {e}");
-                }
-            }
-            Err(e) => {
-                error!("Could not get session providers for service {service:?}: {e}");
-            }
-        }
-    }
 }
 
 async fn mark_blob_in_block<BlobId: Debug + Send>(
@@ -1086,36 +930,6 @@ async fn mark_blob_in_block<BlobId: Debug + Send>(
     {
         error!("Error marking in block for blobs ids: {blobs_id:?}");
     }
-}
-
-async fn broadcast_finalized_block(
-    broadcast_relay: &BroadcastRelay,
-    block_info: BlockInfo,
-) -> Result<(), DynError> {
-    broadcast_relay
-        .send(BlockBroadcastMsg::BroadcastFinalizedBlock(block_info))
-        .await
-        .map_err(|(error, _)| Box::new(error) as DynError)
-}
-
-async fn broadcast_blend_session(
-    broadcast_relay: &BroadcastRelay,
-    session: SessionUpdate,
-) -> Result<(), DynError> {
-    broadcast_relay
-        .send(BlockBroadcastMsg::BroadcastBlendSession(session))
-        .await
-        .map_err(|(error, _)| Box::new(error) as DynError)
-}
-
-async fn broadcast_da_session(
-    broadcast_relay: &BroadcastRelay,
-    session: SessionUpdate,
-) -> Result<(), DynError> {
-    broadcast_relay
-        .send(BlockBroadcastMsg::BroadcastDASession(session))
-        .await
-        .map_err(|(error, _)| Box::new(error) as DynError)
 }
 
 /// Reconstruct a Block from a Proposal by looking up transactions from mempool

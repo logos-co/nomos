@@ -4,7 +4,6 @@ use std::{
     marker::PhantomData,
 };
 
-use broadcast_service::{BlockBroadcastMsg, BlockBroadcastService};
 use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 use nomos_core::{
     da,
@@ -30,7 +29,6 @@ use crate::{ChainNetwork, SamplingRelay, mempool::adapter::MempoolAdapter, netwo
 
 type NetworkRelay<NetworkBackend, RuntimeServiceId> =
     OutboundRelay<BackendNetworkMsg<NetworkBackend, RuntimeServiceId>>;
-pub type BroadcastRelay = OutboundRelay<BlockBroadcastMsg>;
 pub type TimeRelay = OutboundRelay<TimeServiceMessage>;
 
 pub struct ChainNetworkRelays<
@@ -51,7 +49,6 @@ pub struct ChainNetworkRelays<
 {
     cryptarchia: CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
     network_relay: NetworkRelay<NetworkAdapter::Backend, RuntimeServiceId>,
-    broadcast_relay: BroadcastRelay,
     mempool_adapter: MempoolAdapter<Mempool::Item, Mempool::Item>,
     sampling_relay: SamplingRelay<SamplingBackend::BlobId>,
     time_relay: TimeRelay,
@@ -107,7 +104,6 @@ where
     pub async fn new(
         cryptarchia: CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
         network_relay: NetworkRelay<NetworkAdapter::Backend, RuntimeServiceId>,
-        broadcast_relay: BroadcastRelay,
         mempool_relay: OutboundRelay<MempoolMsg<HeaderId, Mempool::Item, Mempool::Item, TxHash>>,
         sampling_relay: SamplingRelay<SamplingBackend::BlobId>,
         time_relay: TimeRelay,
@@ -116,7 +112,6 @@ where
         Self {
             cryptarchia,
             network_relay,
-            broadcast_relay,
             mempool_adapter,
             sampling_relay,
             time_relay,
@@ -164,7 +159,6 @@ where
             + 'static
             + AsServiceId<Cryptarchia>
             + AsServiceId<NetworkService<NetworkAdapter::Backend, RuntimeServiceId>>
-            + AsServiceId<BlockBroadcastService<RuntimeServiceId>>
             + AsServiceId<
                 TxMempoolService<MempoolNetAdapter, Mempool, Mempool::Storage, RuntimeServiceId>,
             >
@@ -192,15 +186,6 @@ where
             .await
             .expect("Relay connection with NetworkService should succeed");
 
-        let broadcast_relay = service_resources_handle
-            .overwatch_handle
-            .relay::<BlockBroadcastService<_>>()
-            .await
-            .expect(
-                "Relay connection with broadcast_service::BlockBroadcastService should
-        succeed",
-            );
-
         let mempool_relay = service_resources_handle
             .overwatch_handle
             .relay::<TxMempoolService<_, _, _, _>>()
@@ -222,7 +207,6 @@ where
         Self::new(
             cryptarchia,
             network_relay,
-            broadcast_relay,
             mempool_relay,
             sampling_relay,
             time_relay,
@@ -236,10 +220,6 @@ where
 
     pub const fn network_relay(&self) -> &NetworkRelay<NetworkAdapter::Backend, RuntimeServiceId> {
         &self.network_relay
-    }
-
-    pub const fn broadcast_relay(&self) -> &BroadcastRelay {
-        &self.broadcast_relay
     }
 
     pub const fn mempool_adapter(&self) -> &MempoolAdapter<Mempool::Item, Mempool::Item> {
