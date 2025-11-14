@@ -26,6 +26,7 @@ use nomos_da_sampling::{
     DaSamplingService, DaSamplingServiceMsg, backend::DaSamplingServiceBackend,
     mempool::DaMempoolAdapter,
 };
+use nomos_ledger::mantle::{self as ledger_mantle, channel::Error as ChannelError};
 use nomos_time::{SlotTick, TimeService, TimeServiceMessage};
 use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
@@ -559,6 +560,10 @@ where
     RuntimeServiceId: Sync + Send + 'static,
 {
     #[expect(clippy::allow_attributes_without_reason)]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Block assembly instrumentation adds logging but will be refactored later"
+    )]
     #[instrument(
         level = "debug",
         skip(tx_selector, relays, ledger_state, ledger_config)
@@ -585,6 +590,11 @@ where
 
         let (txs_stream, blobs) =
             futures::try_join!(txs, blobs_ids).map_err(Error::FetchBlockTransactions)?;
+        tracing::info!(
+            "leader_propose_block: fetched mempool view (pending tx stream) and {} sampled blobs",
+            blobs.len()
+        );
+        tracing::debug!("leader_propose_block: sampled blob ids {:?}", blobs);
 
         let filtered_stream = txs_stream.filter(move |tx| {
             let is_valid = tx.mantle_tx().ops.iter().all(|op| match op {
@@ -611,6 +621,22 @@ where
 
         while let Some(tx) = tx_stream.next().await {
             let tx_hash = tx.hash();
+            tracing::debug!("leader_propose_block evaluating tx {:?}", tx_hash);
+            for op in &tx.mantle_tx().ops {
+                if let Op::ChannelBlob(blob_op) = op {
+                    let tip = ledger_state
+                        .mantle_ledger()
+                        .channels()
+                        .channel_state(&blob_op.channel)
+                        .map(|state| state.tip);
+                    tracing::debug!(
+                        "leader_propose_block inspecting channel blob: channel={:?} parent={:?} current_tip={:?}",
+                        blob_op.channel,
+                        blob_op.parent,
+                        tip
+                    );
+                }
+            }
             match ledger_state
                 .clone()
                 .try_apply_contents::<HeaderId, MainnetGasConstants>(
@@ -620,14 +646,33 @@ where
                 Ok(new_state) => {
                     ledger_state = new_state;
                     valid_txs.push(tx);
+                    tracing::debug!(
+                        "leader_propose_block accepted tx {:?} (running total={})",
+                        tx_hash,
+                        valid_txs.len()
+                    );
                 }
                 Err(err) => {
-                    tracing::debug!(
-                        "failed to apply tx {:?} during block assembly: {:?}",
-                        tx_hash,
-                        err
+                    let is_parent_mismatch = matches!(
+                        err,
+                        nomos_ledger::LedgerError::Mantle(ledger_mantle::Error::Channel(
+                            ChannelError::InvalidParent { .. }
+                        ))
                     );
-                    invalid_tx_hashes.push(tx_hash);
+
+                    if is_parent_mismatch {
+                        tracing::debug!(
+                            "deferring tx {:?} due to channel parent mismatch; will retry in a later block",
+                            tx_hash
+                        );
+                    } else {
+                        tracing::debug!(
+                            "failed to apply tx {:?} during block assembly: {:?}",
+                            tx_hash,
+                            err
+                        );
+                        invalid_tx_hashes.push(tx_hash);
+                    }
                 }
             }
         }
@@ -656,6 +701,12 @@ where
             block.transactions().len(),
             invalid_tx_hashes.len()
         );
+        if block.transactions().len() == 0 {
+            info!(
+                "leader_propose_block produced empty block for slot {:?}",
+                slot
+            );
+        }
 
         Ok(block)
     }
@@ -674,7 +725,14 @@ where
         })
         .await
         .map_err(|(error, _)| Box::new(error) as DynError)?;
-    receiver.await.map_err(|error| Box::new(error) as DynError)
+    let blobs = receiver
+        .await
+        .map_err(|error| Box::new(error) as DynError)?;
+    tracing::debug!(
+        "leader_propose_block sampled blobs available: {}",
+        blobs.len()
+    );
+    Ok(blobs)
 }
 
 fn handle_inbound_message(
