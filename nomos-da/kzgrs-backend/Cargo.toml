@@ -22,7 +22,7 @@ kzgrs         = { workspace = true }
 nomos-core    = { workspace = true }
 rand          = { default-features = false, features = ["std"], workspace = true }
 rayon         = { optional = true, version = "1.10.0" }
-serde         = { default-features = false, version = "1.0" }
+serde         = { workspace = true }
 
 [dev-dependencies]
 ark-bls12-381 = { default-features = false, version = "0.4.0" }

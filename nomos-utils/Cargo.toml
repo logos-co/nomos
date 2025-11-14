@@ -20,7 +20,7 @@ const-hex   = { default-features = false, version = "1" }
 humantime   = { optional = true, version = "2.1" }
 overwatch   = { workspace = true }
 rand        = { workspace = true }
-serde       = { default-features = false, features = ["derive"], optional = true, version = "1.0" }
+serde       = { workspace = true, features = ["derive"], optional = true }
 serde_with  = { optional = true, workspace = true }
 time        = { default-features = false, features = ["serde-human-readable"], optional = true, version = "0.3" }
 

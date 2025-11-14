@@ -24,7 +24,7 @@ nomos-utils                  = { features = ["serde", "types"], workspace = true
 overwatch                    = { workspace = true }
 poq                          = { workspace = true }
 poseidon2                    = { workspace = true }
-serde                        = { default-features = false, features = ["derive"], version = "1" }
+serde                        = { workspace = true, features = ["derive"] }
 thiserror                    = { default-features = false, version = "2" }
 tokio                        = { default-features = false, version = "1", features = ["rt"] }
 tracing                      = { default-features = false, version = "0.1" }
@@ -35,5 +35,5 @@ zksign                       = { workspace = true }
 ed25519-dalek = { default-features = false, features = ["rand_core"], version = "2" }
 num-bigint    = { default-features = false, version = "0.4" }
 rand          = { features = ["getrandom"], workspace = true }
-serde         = { default-features = false, features = ["std"], version = "1" }
+serde         = { workspace = true, features = ["std"] }
 serde_yaml    = "0.9"

@@ -19,7 +19,7 @@ nomos-core            = { workspace = true }
 nomos-da-messages     = { workspace = true }
 nomos-http-api-common = { workspace = true }
 reqwest               = { features = ["json", "stream"], workspace = true }
-serde                 = { default-features = false, version = "1.0" }
+serde                 = { workspace = true }
 serde_json            = { default-features = false, version = "1.0.140" }
 thiserror             = "1.0"
 url                   = { default-features = false, version = "2.5.4" }

@@ -23,7 +23,7 @@ nomos-core    = { workspace = true }
 nomos-utils   = { features = ["rng"], workspace = true }
 num-bigint    = { default-features = false, version = "0.4" }
 poq           = { workspace = true }
-serde         = { default-features = false, version = "1" }
+serde         = { workspace = true }
 serde_with    = { default-features = false, features = ["alloc"], version = "3" }
 thiserror     = "1"
 tracing       = { workspace = true }
