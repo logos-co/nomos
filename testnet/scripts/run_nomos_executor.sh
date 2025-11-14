@@ -2,8 +2,10 @@
 
 set -e
 
+CFG_SERVER_ADDR="${CFG_SERVER_ADDR:-http://cfgsync:4400}"
+
 export CFG_FILE_PATH="/config.yaml" \
-       CFG_SERVER_ADDR="http://cfgsync:4400" \
+       CFG_SERVER_ADDR="${CFG_SERVER_ADDR}" \
        CFG_HOST_IP=$(hostname -i) \
        CFG_HOST_KIND="executor" \
        CFG_HOST_IDENTIFIER="executor-$(hostname -i)" \

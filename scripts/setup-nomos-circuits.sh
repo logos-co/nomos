@@ -165,7 +165,7 @@ main() {
     print_info "Installation directory: $INSTALL_DIR"
     echo
 
-    # Detect platform (allow override)
+    # Detect or override platform
     local platform
     platform=$(resolve_platform)
     if [ -n "${NOMOS_CIRCUITS_PLATFORM:-}" ]; then
