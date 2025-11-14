@@ -1,4 +1,4 @@
-use core::{fmt::Debug, num::NonZeroUsize, ops::RangeInclusive, time::Duration};
+use core::{num::NonZeroUsize, ops::RangeInclusive, time::Duration};
 use std::{
     collections::{HashMap, VecDeque},
     iter::repeat_with,
@@ -6,19 +6,30 @@ use std::{
 
 use async_trait::async_trait;
 use futures::{Stream, StreamExt as _, select};
+use groth16::Field as _;
 use libp2p::{
     Multiaddr, PeerId, Swarm,
     identity::{PublicKey, ed25519},
 };
 use libp2p_swarm_test::SwarmExt as _;
-use nomos_blend_message::encap;
+use nomos_blend_message::{
+    crypto::{
+        keys::Ed25519PrivateKey,
+        proofs::{
+            PoQVerificationInputsMinusSigningKey,
+            quota::inputs::prove::public::{CoreInputs, LeaderInputs},
+        },
+    },
+    encap,
+};
 use nomos_blend_scheduling::membership::{Membership, Node};
+use nomos_core::{crypto::ZkHash, sdp::SessionNumber};
 use nomos_libp2p::{NetworkBehaviour, SwarmEvent};
 use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
 
 use crate::core::{
-    tests::utils::{AlwaysTrueVerifier, PROTOCOL_NAME, TestSwarm},
+    tests::utils::{PROTOCOL_NAME, TestSwarm},
     with_core::behaviour::{Behaviour, Event, IntervalStreamProvider},
 };
 
@@ -83,6 +94,7 @@ pub struct BehaviourBuilder {
     provider: Option<IntervalProvider>,
     peering_degree: Option<RangeInclusive<usize>>,
     minimum_network_size: Option<NonZeroUsize>,
+    poq_verification_inputs: Option<PoQVerificationInputsMinusSigningKey>,
 }
 
 impl BehaviourBuilder {
@@ -93,6 +105,7 @@ impl BehaviourBuilder {
             provider: None,
             peering_degree: None,
             minimum_network_size: None,
+            poq_verification_inputs: None,
         }
     }
 
@@ -123,7 +136,22 @@ impl BehaviourBuilder {
         self
     }
 
-    pub fn build(self) -> Behaviour<AlwaysTrueVerifier, IntervalProvider> {
+    pub fn with_poq_verification_inputs(
+        mut self,
+        poq_verification_inputs: PoQVerificationInputsMinusSigningKey,
+    ) -> Self {
+        assert!(
+            self.poq_verification_inputs.is_none(),
+            "poq_verification_inputs already set."
+        );
+        self.poq_verification_inputs = Some(poq_verification_inputs);
+        self
+    }
+
+    pub fn build<ProofsVerifier>(self) -> Behaviour<ProofsVerifier, IntervalProvider>
+    where
+        ProofsVerifier: encap::ProofsVerifier,
+    {
         Behaviour {
             negotiated_peers: HashMap::new(),
             connections_waiting_upgrade: HashMap::new(),
@@ -143,16 +171,39 @@ impl BehaviourBuilder {
                 .minimum_network_size
                 .unwrap_or_else(|| 1usize.try_into().unwrap()),
             old_session: None,
-            poq_verifier: AlwaysTrueVerifier,
+            poq_verifier: ProofsVerifier::new(
+                self.poq_verification_inputs
+                    .unwrap_or_else(|| default_poq_verification_inputs_for_session(0)),
+            ),
         }
+    }
+}
+
+pub fn default_poq_verification_inputs_for_session(
+    session: SessionNumber,
+) -> PoQVerificationInputsMinusSigningKey {
+    PoQVerificationInputsMinusSigningKey {
+        session,
+        core: CoreInputs {
+            zk_root: ZkHash::ZERO,
+            quota: 0,
+        },
+        leader: LeaderInputs {
+            pol_ledger_aged: ZkHash::ZERO,
+            pol_epoch_nonce: ZkHash::ZERO,
+            message_quota: 0,
+            total_stake: 0,
+        },
     }
 }
 
 #[async_trait]
 pub trait SwarmExt: libp2p_swarm_test::SwarmExt {
-    async fn connect_and_wait_for_outbound_upgrade<T>(&mut self, other: &mut Swarm<T>)
-    where
-        T: NetworkBehaviour<ToSwarm: Debug> + Send;
+    async fn connect_and_wait_for_upgrade<ListenerBehaviour>(
+        &mut self,
+        other: &mut Swarm<ListenerBehaviour>,
+    ) where
+        ListenerBehaviour: NetworkBehaviour<ToSwarm = Event> + Send;
 }
 
 #[async_trait]
@@ -160,19 +211,34 @@ impl<ProofsVerifier> SwarmExt for Swarm<Behaviour<ProofsVerifier, IntervalProvid
 where
     ProofsVerifier: encap::ProofsVerifier + Send + 'static,
 {
-    async fn connect_and_wait_for_outbound_upgrade<T>(&mut self, other: &mut Swarm<T>)
-    where
-        T: NetworkBehaviour<ToSwarm: Debug> + Send,
+    async fn connect_and_wait_for_upgrade<ListenerBehaviour>(
+        &mut self,
+        listener: &mut Swarm<ListenerBehaviour>,
+    ) where
+        ListenerBehaviour: NetworkBehaviour<ToSwarm = Event> + Send,
     {
-        self.connect(other).await;
-        select! {
-            swarm_event = self.select_next_some() => {
-                if let SwarmEvent::Behaviour(Event::OutboundConnectionUpgradeSucceeded(peer_id)) = swarm_event && peer_id == *other.local_peer_id() {
-                    return;
+        self.connect(listener).await;
+        let mut inbound_conn_upgraded = false;
+        let mut outbound_conn_upgraded = false;
+        loop {
+            select! {
+                swarm_event = self.select_next_some() => {
+                    if let SwarmEvent::Behaviour(Event::OutboundConnectionUpgradeSucceeded(peer_id)) = swarm_event && peer_id == *listener.local_peer_id() {
+                        outbound_conn_upgraded = true;
+                        if inbound_conn_upgraded {
+                            return;
+                        }
+                    }
+                }
+                swarm_event = listener.select_next_some() => {
+                    if let SwarmEvent::Behaviour(Event::InboundConnectionUpgradeSucceeded(peer_id)) = swarm_event && peer_id == *self.local_peer_id() {
+                        inbound_conn_upgraded = true;
+                        if outbound_conn_upgraded {
+                            return;
+                        }
+                    }
                 }
             }
-            // Drive other swarm to keep polling
-            _ = other.select_next_some() => {}
         }
     }
 }
@@ -185,7 +251,7 @@ pub fn build_memberships<Behaviour: NetworkBehaviour>(
         .map(|swarm| Node {
             id: *swarm.local_peer_id(),
             address: Multiaddr::empty(),
-            public_key: [0; _].try_into().unwrap(),
+            public_key: Ed25519PrivateKey::generate().public_key(),
         })
         .collect::<Vec<_>>();
     nodes

@@ -62,7 +62,7 @@ use nomos_network::{
 };
 use nomos_node::{
     RocksBackendSettings,
-    api::testing::handlers::HistoricSamplingRequest,
+    api::{handlers::GetCommitmentsRequest, testing::handlers::HistoricSamplingRequest},
     config::{blend::BlendConfig, mempool::MempoolConfig},
 };
 use nomos_sdp::SdpSettings;
@@ -276,11 +276,17 @@ impl Executor {
             .await
     }
 
-    pub async fn get_commitments(&self, blob_id: BlobId) -> Option<DaSharesCommitments> {
+    pub async fn get_commitments(
+        &self,
+        blob_id: BlobId,
+        session: SessionNumber,
+    ) -> Option<DaSharesCommitments> {
+        let request = GetCommitmentsRequest { blob_id, session };
+
         CLIENT
             .post(format!("http://{}{}", self.addr, DA_GET_SHARES_COMMITMENTS))
             .header("Content-Type", "application/json")
-            .body(serde_json::to_string(&blob_id).unwrap())
+            .body(serde_json::to_string(&request).unwrap())
             .send()
             .await
             .unwrap()

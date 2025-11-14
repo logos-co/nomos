@@ -10,7 +10,11 @@ use futures::{
     future::{AbortHandle, Abortable},
 };
 use libp2p::PeerId;
-use nomos_core::{da::BlobId, header::HeaderId, sdp::ProviderId};
+use nomos_core::{
+    da::BlobId,
+    header::HeaderId,
+    sdp::{ProviderId, SessionNumber},
+};
 use nomos_da_network_core::{
     SubnetworkId,
     maintenance::{balancer::ConnectionBalancerCommand, monitor::ConnectionMonitorCommand},
@@ -49,12 +53,14 @@ pub enum DaNetworkMessage<BalancerStats, MonitorStats>
 where
     BalancerStats: Debug + Serialize,
 {
-    /// Kickstart a network sapling
+    /// Kickstart a network sampling
     RequestSample {
         blob_id: BlobId,
+        session: SessionNumber,
     },
     RequestCommitments {
         blob_id: BlobId,
+        session: SessionNumber,
     },
     MonitorRequest(ConnectionMonitorCommand<MonitorStats>),
     BalancerStats(oneshot::Sender<BalancerStats>),
@@ -89,8 +95,8 @@ pub struct DaNetworkValidatorBackend<Membership> {
     session_status: SessionStatus,
     task_abort_handle: AbortHandle,
     replies_task_abort_handle: AbortHandle,
-    shares_request_channel: UnboundedSender<BlobId>,
-    commitments_request_channel: UnboundedSender<BlobId>,
+    shares_request_channel: UnboundedSender<(BlobId, SessionNumber)>,
+    commitments_request_channel: UnboundedSender<(BlobId, SessionNumber)>,
     historic_sample_request_channel:
         UnboundedSender<SampleArgs<SharedMembershipHandler<Membership>>>,
     balancer_command_sender: UnboundedSender<ConnectionBalancerCommand<BalancerStats>>,
@@ -232,13 +238,13 @@ where
     #[instrument(skip_all)]
     async fn process(&self, msg: Self::Message) {
         match msg {
-            DaNetworkMessage::RequestSample { blob_id } => {
+            DaNetworkMessage::RequestSample { blob_id, session } => {
                 info_with_id!(&blob_id, "RequestSample");
-                handle_sample_request(&self.shares_request_channel, blob_id).await;
+                handle_sample_request(&self.shares_request_channel, blob_id, session).await;
             }
-            DaNetworkMessage::RequestCommitments { blob_id } => {
+            DaNetworkMessage::RequestCommitments { blob_id, session } => {
                 info_with_id!(&blob_id, "RequestSample");
-                handle_sample_request(&self.commitments_request_channel, blob_id).await;
+                handle_sample_request(&self.commitments_request_channel, blob_id, session).await;
             }
             DaNetworkMessage::MonitorRequest(command) => {
                 match command.peer_id() {

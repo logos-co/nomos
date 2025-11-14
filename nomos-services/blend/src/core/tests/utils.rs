@@ -10,21 +10,33 @@ use nomos_blend_message::{
             PoQVerificationInputsMinusSigningKey,
             quota::{
                 ProofOfQuota,
-                inputs::prove::public::{CoreInputs, LeaderInputs},
+                inputs::prove::{
+                    private::ProofOfLeadershipQuotaInputs,
+                    public::{CoreInputs, LeaderInputs},
+                },
             },
             selection::{ProofOfSelection, inputs::VerifyInputs},
         },
     },
     encap::ProofsVerifier,
-    reward::{self, BlendingTokenCollector},
+    reward::{self, SessionBlendingTokenCollector, SessionRandomness},
 };
 use nomos_blend_scheduling::{
     EncapsulatedMessage,
     membership::Membership,
-    message_blend::crypto::{
-        IncomingEncapsulatedMessageWithValidatedPublicHeader, SessionCryptographicProcessorSettings,
+    message_blend::{
+        crypto::{
+            IncomingEncapsulatedMessageWithValidatedPublicHeader,
+            SessionCryptographicProcessorSettings,
+        },
+        provers::{
+            BlendLayerProof, ProofsGeneratorSettings, core_and_leader::CoreAndLeaderProofsGenerator,
+        },
     },
-    message_scheduler::ProcessedMessageScheduler,
+    message_scheduler::{
+        self, MessageScheduler, ProcessedMessageScheduler,
+        session_info::SessionInfo as SchedulerSessionInfo,
+    },
 };
 use nomos_core::{crypto::ZkHash, sdp::SessionNumber};
 use nomos_network::{NetworkService, backends::NetworkBackend};
@@ -54,7 +66,7 @@ use crate::{
         state::RecoveryServiceState,
     },
     settings::TimingSettings,
-    test_utils::{self, crypto::MockCoreAndLeaderProofsGenerator},
+    test_utils,
 };
 
 pub type NodeId = [u8; 32];
@@ -314,26 +326,48 @@ pub fn new_public_info(session: u64, membership: Membership<NodeId>) -> PublicIn
 pub fn new_blending_token_collector(
     public_info: &PublicInfo<NodeId>,
     message_frequency_per_round: NonNegativeF64,
-) -> BlendingTokenCollector {
-    BlendingTokenCollector::new(
-        &reward::SessionInfo::new(
-            public_info.session.session_number,
-            &public_info.epoch.pol_epoch_nonce,
-            public_info
-                .session
-                .membership
-                .size()
-                .try_into()
-                .expect("num_core_nodes must fit into u64"),
-            public_info.session.core_public_inputs.quota,
-            message_frequency_per_round,
-        )
-        .expect("session info must be created successfully"),
+) -> (SessionBlendingTokenCollector, SessionRandomness) {
+    let session_info = reward::SessionInfo::new(
+        public_info.session.session_number,
+        &public_info.epoch.pol_epoch_nonce,
+        public_info
+            .session
+            .membership
+            .size()
+            .try_into()
+            .expect("num_core_nodes must fit into u64"),
+        public_info.session.core_public_inputs.quota,
+        message_frequency_per_round,
+    )
+    .expect("session info must be created successfully");
+    (
+        SessionBlendingTokenCollector::new(&session_info),
+        session_info.session_randomness(),
     )
 }
 
 pub struct MockProcessedMessageScheduler<ProcessedMessage> {
     messages: Vec<ProcessedMessage>,
+}
+
+impl<ProcessedMessage> Default for MockProcessedMessageScheduler<ProcessedMessage> {
+    fn default() -> Self {
+        Self {
+            messages: Vec::new(),
+        }
+    }
+}
+
+impl<Rng, ProcessedMessage> MessageScheduler<Rng, ProcessedMessage, EncapsulatedMessage>
+    for MockProcessedMessageScheduler<ProcessedMessage>
+{
+    fn new(_: SchedulerSessionInfo, _: Rng, _: message_scheduler::Settings) -> Self {
+        Self::default()
+    }
+
+    fn queue_data_message(&mut self, _: EncapsulatedMessage) {
+        unimplemented!()
+    }
 }
 
 impl<ProcessedMessage> ProcessedMessageScheduler<ProcessedMessage>
@@ -345,14 +379,33 @@ impl<ProcessedMessage> ProcessedMessageScheduler<ProcessedMessage>
 }
 
 impl<ProcessedMessage> MockProcessedMessageScheduler<ProcessedMessage> {
-    pub fn new() -> Self {
-        Self {
-            messages: Vec::new(),
-        }
-    }
-
     pub fn num_scheduled_messages(&self) -> usize {
         self.messages.len()
+    }
+}
+
+pub struct MockCoreAndLeaderProofsGenerator(SessionNumber);
+
+#[async_trait]
+impl<CorePoQGenerator> CoreAndLeaderProofsGenerator<CorePoQGenerator>
+    for MockCoreAndLeaderProofsGenerator
+{
+    fn new(
+        settings: ProofsGeneratorSettings,
+        _core_proof_of_quota_generator: CorePoQGenerator,
+    ) -> Self {
+        Self(settings.public_inputs.session)
+    }
+
+    fn rotate_epoch(&mut self, _: LeaderInputs) {}
+    fn set_epoch_private(&mut self, _: ProofOfLeadershipQuotaInputs) {}
+
+    async fn get_next_core_proof(&mut self) -> Option<BlendLayerProof> {
+        Some(session_based_dummy_proofs(self.0))
+    }
+
+    async fn get_next_leader_proof(&mut self) -> Option<BlendLayerProof> {
+        Some(session_based_dummy_proofs(self.0))
     }
 }
 
@@ -375,7 +428,7 @@ impl ProofsVerifier for MockProofsVerifier {
         proof: ProofOfQuota,
         _signing_key: &Ed25519PublicKey,
     ) -> Result<ZkHash, Self::Error> {
-        let (expected_proof, _) = session_based_dummy_proofs(self.0);
+        let expected_proof = session_based_dummy_proofs(self.0).proof_of_quota;
         if proof == expected_proof {
             Ok(ZkHash::ZERO)
         } else {
@@ -388,7 +441,7 @@ impl ProofsVerifier for MockProofsVerifier {
         proof: ProofOfSelection,
         _inputs: &VerifyInputs,
     ) -> Result<(), Self::Error> {
-        let (_, expected_proof) = session_based_dummy_proofs(self.0);
+        let expected_proof = session_based_dummy_proofs(self.0).proof_of_selection;
         if proof == expected_proof {
             Ok(())
         } else {
@@ -397,20 +450,21 @@ impl ProofsVerifier for MockProofsVerifier {
     }
 }
 
-fn session_based_dummy_proofs(session: SessionNumber) -> (ProofOfQuota, ProofOfSelection) {
+fn session_based_dummy_proofs(session: SessionNumber) -> BlendLayerProof {
     let session_bytes = session.to_le_bytes();
-    (
-        ProofOfQuota::from_bytes_unchecked({
+    BlendLayerProof {
+        proof_of_quota: ProofOfQuota::from_bytes_unchecked({
             let mut bytes = [0u8; _];
             bytes[..session_bytes.len()].copy_from_slice(&session_bytes);
             bytes
         }),
-        ProofOfSelection::from_bytes_unchecked({
+        proof_of_selection: ProofOfSelection::from_bytes_unchecked({
             let mut bytes = [0u8; _];
             bytes[..session_bytes.len()].copy_from_slice(&session_bytes);
             bytes
         }),
-    )
+        ephemeral_signing_key: Ed25519PrivateKey::generate(),
+    }
 }
 
 impl MockProofsVerifier {

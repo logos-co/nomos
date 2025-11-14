@@ -49,6 +49,11 @@ impl SessionInfo {
             activity_threshold,
         })
     }
+
+    #[must_use]
+    pub const fn session_randomness(&self) -> SessionRandomness {
+        self.session_randomness
+    }
 }
 
 /// Deterministic unbiased randomness for a session.
