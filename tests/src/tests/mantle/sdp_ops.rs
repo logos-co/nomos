@@ -1,13 +1,12 @@
 use std::{collections::HashSet, time::Duration};
 
-use chain_service::StartingState;
 use common_http_client::CommonHttpClient;
 use ed25519_dalek::SigningKey;
-use groth16::Fr;
 use nomos_core::{
-    mantle::{GenesisTx as _, Note, NoteId, Transaction as _},
+    mantle::{Note, NoteId, Transaction as _},
     sdp::{ActiveMessage, Declaration, Locator, ServiceType, SessionNumber, WithdrawMessage},
 };
+use num_bigint::BigUint;
 use serial_test::serial;
 use tests::{
     adjust_timeout,
@@ -16,10 +15,10 @@ use tests::{
         empty_da_activity_proof,
     },
     nodes::validator::Validator,
-    topology::{Topology, TopologyConfig},
+    topology::{GenesisNoteSpec, Topology, TopologyConfig},
 };
 use tokio::time::{sleep, timeout};
-use zksign::PublicKey;
+use zksign::SecretKey;
 
 /// High-level SDP flow covered by this E2E:
 /// - submit a `Declare` transaction backed by an unused genesis note and wait
@@ -31,11 +30,21 @@ use zksign::PublicKey;
 #[tokio::test]
 #[serial]
 async fn sdp_ops_e2e() {
-    let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
+    let note_sk = SecretKey::from(BigUint::from(42u64));
+    let spare_note = Note::new(1, note_sk.to_public_key());
+    let topology_config =
+        TopologyConfig::validator_and_executor().with_extra_genesis_note(GenesisNoteSpec {
+            note: spare_note,
+            note_sk: note_sk.clone(),
+        });
+    let topology = Topology::spawn(topology_config).await;
+
     topology.wait_network_ready().await;
+
     topology
         .wait_membership_ready_for_session(SessionNumber::from(0u64))
         .await;
+
     let validator = &topology.validators()[0];
 
     wait_for_height(validator, 1, adjust_timeout(Duration::from_secs(30)))
@@ -53,13 +62,20 @@ async fn sdp_ops_e2e() {
     let existing = validator.get_sdp_declarations().await;
     let locked: HashSet<_> = existing.iter().map(|decl| decl.locked_note_id).collect();
 
-    let (note, locked_note_id) = unused_genesis_note(validator.config(), &locked)
-        .expect("Topology should expose an unused genesis note");
-    let note_value = note.value;
-    let note_public_key = note.pk;
+    let injected_note = topology
+        .injected_genesis_notes()
+        .first()
+        .expect("Injected genesis note should exist");
 
-    let zk_id = PublicKey::new(Fr::from(2u64));
+    let locked_note_id = injected_note.note_id;
+    assert!(
+        !locked.contains(&locked_note_id),
+        "Injected note must be unused before submitting declare"
+    );
+
     let provider_signing_key = SigningKey::from_bytes(&[7u8; 32]);
+    let provider_zk_key = SecretKey::from(BigUint::from(7u64));
+    let zk_id = provider_zk_key.to_public_key();
     let locator = Locator(
         "/ip4/127.0.0.1/tcp/9100"
             .parse()
@@ -71,8 +87,9 @@ async fn sdp_ops_e2e() {
         ServiceType::DataAvailability,
         vec![locator],
         zk_id,
+        &provider_zk_key,
         locked_note_id,
-        Note::new(note_value, note_public_key),
+        &note_sk,
     );
     let declaration_id = declaration_msg.id();
     let declare_hash = declare_tx.hash();
@@ -116,11 +133,7 @@ async fn sdp_ops_e2e() {
         metadata: empty_da_activity_proof(),
     };
 
-    let active_tx = create_sdp_active_tx(
-        active_message,
-        zk_id,
-        Note::new(note_value, note_public_key),
-    );
+    let active_tx = create_sdp_active_tx(&active_message, &provider_zk_key, &note_sk);
 
     let active_hash = active_tx.hash();
 
@@ -160,11 +173,7 @@ async fn sdp_ops_e2e() {
         nonce: current_nonce + 1,
     };
 
-    let withdraw_tx = create_sdp_withdraw_tx(
-        withdraw_message,
-        zk_id,
-        Note::new(note_value, note_public_key),
-    );
+    let withdraw_tx = create_sdp_withdraw_tx(withdraw_message, &provider_zk_key, &note_sk);
     let withdraw_hash = withdraw_tx.hash();
 
     client
@@ -248,21 +257,4 @@ async fn wait_for_height(
     })
     .await
     .ok()
-}
-
-fn unused_genesis_note(
-    config: &nomos_node::Config,
-    locked: &HashSet<NoteId>,
-) -> Option<(Note, NoteId)> {
-    let genesis_tx = match &config.cryptarchia.starting_state {
-        StartingState::Genesis { genesis_tx } => genesis_tx,
-        StartingState::Lib { .. } => panic!("Topology test config should start from genesis"),
-    };
-
-    genesis_tx
-        .mantle_tx()
-        .ledger_tx
-        .utxos()
-        .find(|utxo| !locked.contains(&utxo.id()))
-        .map(|utxo| (utxo.note, utxo.id()))
 }

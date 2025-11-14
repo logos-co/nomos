@@ -2,6 +2,7 @@ use core::fmt::Debug;
 use std::fmt::Display;
 
 use broadcast_service::{BlockBroadcastMsg, BlockBroadcastService, BlockInfo};
+use chain_service::ConsensusMsg;
 use futures::{Stream, StreamExt as _};
 use nomos_core::{
     header::HeaderId,
@@ -19,9 +20,9 @@ use tx_service::{
 #[cfg(feature = "block-explorer")]
 use {
     bytes::Bytes,
+    chain_service::Slot,
     chain_service::storage::StorageAdapter as _,
     chain_service::storage::adapters::StorageAdapter,
-    chain_service::{ConsensusMsg, Slot},
     futures::future::join_all,
     nomos_core::{block::Block, mantle::TxHash},
     nomos_storage::{

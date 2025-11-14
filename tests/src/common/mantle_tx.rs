@@ -1,9 +1,8 @@
 use ed25519::Signature;
 use ed25519_dalek::{Signer as _, ed25519};
-use groth16::CompressedGroth16Proof;
 use nomos_core::{
     mantle::{
-        MantleTx, Note, NoteId, SignedMantleTx, Transaction as _,
+        MantleTx, NoteId, SignedMantleTx, Transaction as _,
         ledger::Tx as LedgerTx,
         ops::{
             Op, OpProof,
@@ -19,10 +18,14 @@ use nomos_core::{
         SessionNumber, WithdrawMessage,
     },
 };
-use zksign::PublicKey;
+use zksign::{PublicKey, SecretKey};
 
-fn empty_zk_signature() -> zksign::Signature {
-    zksign::Signature::new(CompressedGroth16Proof::from_bytes(&[0u8; 128]))
+fn empty_ledger_signature(tx_hash: &TxHash) -> zksign::Signature {
+    SecretKey::multi_sign(&[], tx_hash.as_ref()).expect("multi-sign with empty key set works")
+}
+
+fn prove_zk_signature(tx_hash: &TxHash, keys: &[SecretKey]) -> zksign::Signature {
+    SecretKey::multi_sign(keys, tx_hash.as_ref()).expect("zk signature generation should succeed")
 }
 
 #[must_use]
@@ -59,7 +62,7 @@ pub fn create_channel_inscribe_tx(
 
     SignedMantleTx {
         ops_proofs: vec![OpProof::Ed25519Sig(signature)],
-        ledger_tx_proof: empty_zk_signature(),
+        ledger_tx_proof: empty_ledger_signature(&tx_hash),
         mantle_tx: inscribe_tx,
     }
 }
@@ -101,7 +104,7 @@ pub fn create_channel_blob_tx(
 
     SignedMantleTx {
         ops_proofs: vec![OpProof::Ed25519Sig(signature)],
-        ledger_tx_proof: empty_zk_signature(),
+        ledger_tx_proof: empty_ledger_signature(&tx_hash),
         mantle_tx: blob_tx,
     }
 }
@@ -132,7 +135,7 @@ pub fn create_channel_set_keys_tx(
 
     SignedMantleTx {
         ops_proofs: vec![OpProof::Ed25519Sig(signature)],
-        ledger_tx_proof: empty_zk_signature(),
+        ledger_tx_proof: empty_ledger_signature(&tx_hash),
         mantle_tx: set_keys_tx,
     }
 }
@@ -143,8 +146,9 @@ pub fn create_sdp_declare_tx(
     service_type: ServiceType,
     locators: Vec<nomos_core::sdp::Locator>,
     zk_id: PublicKey,
+    zk_sk: &SecretKey,
     locked_note_id: NoteId,
-    note: Note,
+    note_sk: &SecretKey,
 ) -> (SignedMantleTx, DeclarationMessage) {
     let provider_pk_bytes = provider_signing_key.verifying_key().to_bytes();
     let provider_id = nomos_core::sdp::ProviderId::try_from(provider_pk_bytes)
@@ -172,14 +176,14 @@ pub fn create_sdp_declare_tx(
         .to_bytes();
     let ed25519_sig = Signature::from_bytes(&ed25519_signature_bytes);
 
-    let zk_sig = empty_zk_signature();
+    let zk_sig = prove_zk_signature(&tx_hash, &[note_sk.clone(), zk_sk.clone()]);
 
     let signed_tx = SignedMantleTx {
         ops_proofs: vec![OpProof::ZkAndEd25519Sigs {
             zk_sig,
             ed25519_sig,
         }],
-        ledger_tx_proof: empty_zk_signature(),
+        ledger_tx_proof: empty_ledger_signature(&tx_hash),
         mantle_tx,
     };
 
@@ -187,20 +191,24 @@ pub fn create_sdp_declare_tx(
 }
 
 #[must_use]
-pub fn create_sdp_active_tx(active: ActiveMessage, zk_id: PublicKey, note: Note) -> SignedMantleTx {
+pub fn create_sdp_active_tx(
+    active: &ActiveMessage,
+    zk_sk: &SecretKey,
+    note_sk: &SecretKey,
+) -> SignedMantleTx {
     let mantle_tx = MantleTx {
-        ops: vec![Op::SDPActive(active)],
+        ops: vec![Op::SDPActive(active.clone())],
         ledger_tx: LedgerTx::new(vec![], vec![]),
         execution_gas_price: 0,
         storage_gas_price: 0,
     };
 
     let tx_hash = mantle_tx.hash();
-    let zk_sig = empty_zk_signature();
+    let zk_sig = prove_zk_signature(&tx_hash, &[note_sk.clone(), zk_sk.clone()]);
 
     SignedMantleTx {
         ops_proofs: vec![OpProof::ZkSig(zk_sig)],
-        ledger_tx_proof: empty_zk_signature(),
+        ledger_tx_proof: empty_ledger_signature(&tx_hash),
         mantle_tx,
     }
 }
@@ -208,8 +216,8 @@ pub fn create_sdp_active_tx(active: ActiveMessage, zk_id: PublicKey, note: Note)
 #[must_use]
 pub fn create_sdp_withdraw_tx(
     withdraw: WithdrawMessage,
-    zk_id: PublicKey,
-    note: Note,
+    zk_sk: &SecretKey,
+    note_sk: &SecretKey,
 ) -> SignedMantleTx {
     let mantle_tx = MantleTx {
         ops: vec![Op::SDPWithdraw(withdraw)],
@@ -219,11 +227,11 @@ pub fn create_sdp_withdraw_tx(
     };
 
     let tx_hash = mantle_tx.hash();
-    let zk_sig = empty_zk_signature();
+    let zk_sig = prove_zk_signature(&tx_hash, &[note_sk.clone(), zk_sk.clone()]);
 
     SignedMantleTx {
         ops_proofs: vec![OpProof::ZkSig(zk_sig)],
-        ledger_tx_proof: empty_zk_signature(),
+        ledger_tx_proof: empty_ledger_signature(&tx_hash),
         mantle_tx,
     }
 }
