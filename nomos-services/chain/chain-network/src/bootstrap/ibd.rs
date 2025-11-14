@@ -59,8 +59,7 @@ where
     NetAdapter: NetworkAdapter<RuntimeServiceId> + Send + Sync,
     NetAdapter::PeerId: Copy + Clone + Eq + Hash + Debug + Send + Sync + Unpin,
     NetAdapter::Block: Debug + Unpin,
-    ProcessBlockFn:
-        Fn(Cryptarchia, NetAdapter::Block) -> ProcessBlockFut + Send + Sync,
+    ProcessBlockFn: Fn(Cryptarchia, NetAdapter::Block) -> ProcessBlockFut + Send + Sync,
     ProcessBlockFut: Future<Output = Result<Cryptarchia, Error>> + Send,
     RuntimeServiceId: Sync,
 {
@@ -249,17 +248,14 @@ where
             block
         );
 
-        let cryptarchia = (self.process_block)(
-            self.cryptarchia.clone(),
-            block,
-        )
-        .await
-        .inspect_err(|e| {
-            error!(
-                "Failed to process block from peer {:?}: {e:?}",
-                download.peer()
-            );
-        })?;
+        let cryptarchia = (self.process_block)(self.cryptarchia.clone(), block)
+            .await
+            .inspect_err(|e| {
+                error!(
+                    "Failed to process block from peer {:?}: {e:?}",
+                    download.peer()
+                );
+            })?;
         downloads.add_download(download);
         self.cryptarchia = cryptarchia;
         Ok(())

@@ -128,7 +128,8 @@ pub enum ConsensusMsg<Tx> {
         tx: oneshot::Sender<Result<(), String>>,
     },
     /// Forward chain sync events from the network to chain-service.
-    /// Chain-service will handle these directly and respond via the embedded reply_sender.
+    /// Chain-service will handle these directly and respond via the embedded
+    /// reply_sender.
     ChainSync(ChainSyncEvent),
 }
 

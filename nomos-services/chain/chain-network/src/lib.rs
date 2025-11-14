@@ -3,11 +3,10 @@ mod bootstrap;
 mod mempool;
 pub mod network;
 mod relays;
-mod states;
 mod sync;
 
 use core::fmt::Debug;
-use std::{collections::HashMap, fmt::Display, hash::Hash, path::PathBuf, time::Duration};
+use std::{collections::HashMap, fmt::Display, hash::Hash, time::Duration};
 
 use broadcast_service::{BlockBroadcastMsg, BlockBroadcastService, BlockInfo, SessionUpdate};
 use chain_service::api::CryptarchiaServiceData;
@@ -36,14 +35,15 @@ use nomos_network::NetworkService;
 use nomos_time::TimeService;
 use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
-    services::{AsServiceId, ServiceCore, ServiceData, relay::OutboundRelay, state::StateUpdater},
+    services::{
+        AsServiceId, ServiceCore, ServiceData,
+        relay::OutboundRelay,
+        state::{NoOperator, NoState},
+    },
 };
 use relays::BroadcastRelay;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use services_utils::{
-    overwatch::{JsonFileBackend, RecoveryOperator, recovery::backends::FileBackendSettings},
-    wait_until_services_are_ready,
-};
+use services_utils::wait_until_services_are_ready;
 use strum::IntoEnumIterator as _;
 use thiserror::Error;
 use tokio::time::Instant;
@@ -62,7 +62,6 @@ use crate::{
     },
     mempool::{MempoolAdapter as _, adapter::MempoolAdapter},
     relays::ChainNetworkRelays,
-    states::CryptarchiaConsensusState,
     sync::orphan_handler::OrphanBlocksDownloader,
 };
 pub use crate::{
@@ -241,7 +240,6 @@ where
     pub config: nomos_ledger::Config,
     pub starting_state: StartingState,
     pub network_adapter_settings: NetworkAdapterSettings,
-    pub recovery_file: PathBuf,
     pub bootstrap: BootstrapConfig<NodeId>,
     pub sync: SyncConfig,
 }
@@ -256,16 +254,6 @@ pub enum StartingState {
         lib_ledger_state: Box<LedgerState>,
         genesis_id: HeaderId,
     },
-}
-
-impl<NodeId, NetworkAdapterSettings> FileBackendSettings
-    for ChainNetworkSettings<NodeId, NetworkAdapterSettings>
-where
-    NodeId: Clone + Eq + Hash,
-{
-    fn recovery_file(&self) -> &PathBuf {
-        &self.recovery_file
-    }
 }
 
 #[expect(clippy::allow_attributes_without_reason)]
@@ -305,7 +293,6 @@ pub struct ChainNetwork<
     TimeBackend::Settings: Clone + Send + Sync,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-    state: <Self as ServiceData>::State,
 }
 
 impl<
@@ -355,8 +342,8 @@ where
     TimeBackend::Settings: Clone + Send + Sync,
 {
     type Settings = ChainNetworkSettings<NetAdapter::PeerId, NetAdapter::Settings>;
-    type State = CryptarchiaConsensusState<NetAdapter::PeerId, NetAdapter::Settings>;
-    type StateOperator = RecoveryOperator<JsonFileBackend<Self::State, Self::Settings>>;
+    type State = NoState<Self::Settings>;
+    type StateOperator = NoOperator<Self::State>;
     type Message = ();
 }
 
@@ -448,11 +435,10 @@ where
 {
     fn init(
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-        initial_state: Self::State,
+        _initial_state: Self::State,
     ) -> Result<Self, DynError> {
         Ok(Self {
             service_resources_handle,
-            state: initial_state,
         })
     }
 
@@ -532,21 +518,14 @@ where
             network_adapter,
             |cryptarchia, block| {
                 let relays = &relays;
-                let state_updater = &self.service_resources_handle.state_updater;
                 let historic_blob_validation = &historic_blob_validation;
                 async move {
-                    Self::process_block_and_update_state(
-                        cryptarchia,
-                        block,
-                        Some(historic_blob_validation),
-                        relays,
-                        state_updater,
-                    )
-                    .await
-                    .map_err(|e| {
-                        error!("Error processing block during IBD: {:?}", e);
-                        ibd::Error::from(e)
-                    })
+                    Self::process_block(cryptarchia, block, Some(historic_blob_validation), relays)
+                        .await
+                        .map_err(|e| {
+                            error!("Error processing block during IBD: {:?}", e);
+                            ibd::Error::from(e)
+                        })
                 }
             },
         );
@@ -584,13 +563,6 @@ where
             Instant::now() + bootstrap_config.prolonged_bootstrap_period,
         ));
 
-        // Start the timer for periodic state recording for offline grace period
-        let mut state_recording_timer = tokio::time::interval(
-            bootstrap_config
-                .offline_grace_period
-                .state_recording_interval,
-        );
-
         // Mark the service as ready if the chain is in the Online state.
         // If not, it will be marked as ready after Prolonged Bootstrap Period ends.
         if cryptarchia.state().is_online() {
@@ -604,10 +576,6 @@ where
                         info!("Prolonged Bootstrap Period has passed. Switching to Online.");
                         cryptarchia = Self::switch_to_online(
                             cryptarchia,
-                        );
-                        Self::update_state(
-                            &cryptarchia,
-                            &self.service_resources_handle.state_updater,
                         );
 
                         self.notify_service_ready();
@@ -641,12 +609,11 @@ where
 
                         Self::log_received_block(&block);
 
-                        match Self::process_block_and_update_state(
+                        match Self::process_block(
                             cryptarchia.clone(),
                             block.clone(),
                             Some(&historic_blob_validation),
                             &relays,
-                            &self.service_resources_handle.state_updater
                         ).await {
                             Ok(new_cryptarchia) => {
                                 cryptarchia = new_cryptarchia;
@@ -658,14 +625,6 @@ where
                                 orphan_downloader.cancel_active_download();
                             }
                         }
-                    }
-
-                    _ = state_recording_timer.tick() => {
-                        // Periodically record the current timestamp and engine state
-                        Self::update_state(
-                            &cryptarchia,
-                            &self.service_resources_handle.state_updater,
-                        );
                     }
                 }
             }
@@ -754,37 +713,6 @@ where
             "Service '{}' is ready.",
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
-    }
-
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "This function does too much, need to deal with this at some point"
-    )]
-    async fn process_block_and_update_state<BlobStrategy>(
-        cryptarchia: crate::Cryptarchia,
-        block: Block<Mempool::Item>,
-        blob_validation: Option<&blob::Validation<BlobStrategy>>,
-        relays: &ChainNetworkRelays<
-            Cryptarchia,
-            Mempool,
-            MempoolNetAdapter,
-            MempoolDaAdapter,
-            NetAdapter,
-            SamplingBackend,
-            RuntimeServiceId,
-        >,
-        state_updater: &StateUpdater<
-            Option<CryptarchiaConsensusState<NetAdapter::PeerId, NetAdapter::Settings>>,
-        >,
-    ) -> Result<crate::Cryptarchia, Error>
-    where
-        BlobStrategy: blob::Strategy + Sync,
-    {
-        let cryptarchia = Self::process_block(cryptarchia, block, blob_validation, relays).await?;
-
-        Self::update_state(&cryptarchia, state_updater);
-
-        Ok(cryptarchia)
     }
 
     async fn handle_incoming_proposal(
@@ -890,12 +818,11 @@ where
 
         let block_id = block.header().id();
 
-        match Self::process_block_and_update_state(
+        match Self::process_block(
             cryptarchia.clone(),
             block,
             Some(recent_blob_validation),
             relays,
-            &self.service_resources_handle.state_updater,
         )
         .await
         {
@@ -911,22 +838,6 @@ where
                     cryptarchia,
                     orphan_downloader,
                 );
-            }
-        }
-    }
-
-    fn update_state(
-        cryptarchia: &crate::Cryptarchia,
-        state_updater: &StateUpdater<
-            Option<CryptarchiaConsensusState<NetAdapter::PeerId, NetAdapter::Settings>>,
-        >,
-    ) {
-        match <Self as ServiceData>::State::from_cryptarchia_and_unpruned_blocks(cryptarchia) {
-            Ok(state) => {
-                state_updater.update(Some(state));
-            }
-            Err(e) => {
-                error!(target: LOG_TARGET, "Failed to update state: {}", e);
             }
         }
     }
@@ -1070,27 +981,7 @@ where
             RuntimeServiceId,
         >,
     ) -> crate::Cryptarchia {
-        let lib_id = self.state.lib;
-        let genesis_id = self.state.genesis_id;
-        let state = choose_engine_state(
-            lib_id,
-            genesis_id,
-            bootstrap_config,
-            self.state.last_engine_state.as_ref(),
-        );
-        let cryptarchia = crate::Cryptarchia::from_lib(
-            lib_id,
-            self.state.lib_ledger_state.clone(),
-            genesis_id,
-            ledger_config,
-            state,
-        );
-
-        // Stream the already applied state.
-        let init_tip = cryptarchia.tip();
-        Self::broadcast_session_updates_for_block(&cryptarchia, &init_tip, relays, None).await;
-
-        cryptarchia
+        unimplemented!("this will be removed");
     }
 
     fn switch_to_online(cryptarchia: crate::Cryptarchia) -> crate::Cryptarchia {

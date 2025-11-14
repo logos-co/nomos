@@ -138,10 +138,7 @@ where
     }
 
     /// Apply a block through the chain service
-    pub async fn apply_block(
-        &self,
-        block: Block<Cryptarchia::Tx>,
-    ) -> Result<(), DynError> {
+    pub async fn apply_block(&self, block: Block<Cryptarchia::Tx>) -> Result<(), DynError> {
         let (tx, rx) = oneshot::channel();
 
         let boxed_block = Box::new(block);
@@ -157,7 +154,8 @@ where
     }
 
     /// Forward a chain sync event to the chain service.
-    /// The response will be sent back via the reply_sender embedded in the event.
+    /// The response will be sent back via the reply_sender embedded in the
+    /// event.
     pub async fn handle_chainsync_event(&self, event: ChainSyncEvent) -> Result<(), DynError> {
         self.relay
             .send(ConsensusMsg::ChainSync(event))

@@ -1,11 +1,16 @@
 use std::{hash::Hash, time::SystemTime};
 
 use nomos_core::header::HeaderId;
+use serde::{Deserialize, Serialize};
 use tracing::warn;
 
-use crate::{
-    BootstrapConfig, OfflineGracePeriodConfig, bootstrap::LOG_TARGET, states::LastEngineState,
-};
+use crate::{BootstrapConfig, OfflineGracePeriodConfig, bootstrap::LOG_TARGET};
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct LastEngineState {
+    pub timestamp: SystemTime,
+    pub state: cryptarchia_engine::State,
+}
 
 pub fn choose_engine_state<NodeId>(
     lib_id: HeaderId,

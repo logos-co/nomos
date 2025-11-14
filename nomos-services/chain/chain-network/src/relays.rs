@@ -26,11 +26,7 @@ use tx_service::{
     network::NetworkAdapter as MempoolNetworkAdapter, storage::MempoolStorageAdapter,
 };
 
-use crate::{
-    ChainNetwork, SamplingRelay,
-    mempool::adapter::MempoolAdapter,
-    network,
-};
+use crate::{ChainNetwork, SamplingRelay, mempool::adapter::MempoolAdapter, network};
 
 type NetworkRelay<NetworkBackend, RuntimeServiceId> =
     OutboundRelay<BackendNetworkMsg<NetworkBackend, RuntimeServiceId>>;
