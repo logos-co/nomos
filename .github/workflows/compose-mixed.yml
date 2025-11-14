@@ -5,7 +5,9 @@ on:
 
 jobs:
   compose-mixed-workload:
-    runs-on: self-hosted
+    runs-on:
+      - self-hosted
+      - mac-docker
     env:
       TMPDIR: ${{ github.workspace }}/.tmp
       NOMOS_TESTNET_PLATFORM: linux/amd64
@@ -23,7 +25,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang llvm-dev libclang-dev pkg-config cmake
+          sudo apt-get install -y clang llvm-dev libclang-dev pkg-config cmake libssl-dev
 
       - name: Cache cargo registry
         uses: actions/cache@v4
