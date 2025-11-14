@@ -453,7 +453,7 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                     },
                 },
                 zk: ZkSettings {
-                    sk_kms_id: key_id_for_preload_backend(
+                    secret_key_kms_id: key_id_for_preload_backend(
                         &ZkKey::new(config.blend_config.secret_zk_key).into(),
                     ),
                 },

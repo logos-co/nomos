@@ -117,7 +117,7 @@ pub fn settings<BackendSettings>(
             epoch_transition_period_in_slots: 1.try_into().unwrap(),
         },
         zk: ZkSettings {
-            sk_kms_id: "test-key".to_owned(),
+            secret_key_kms_id: "test-key".to_owned(),
         },
         minimum_network_size,
         recovery_path: recovery_file.path().to_path_buf(),

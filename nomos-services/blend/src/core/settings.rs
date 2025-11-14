@@ -102,5 +102,5 @@ pub struct MessageDelayerSettings {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ZkSettings {
     #[serde(rename = "secret_key_kms_id")]
-    pub sk_kms_id: KeyId,
+    pub secret_key_kms_id: KeyId,
 }

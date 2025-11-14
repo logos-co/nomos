@@ -301,7 +301,7 @@ where
         .await;
 
         let PublicKeyEncoding::Zk(zk_public_key) = kms_api
-            .public_key(blend_config.zk.sk_kms_id.clone())
+            .public_key(blend_config.zk.secret_key_kms_id.clone())
             .await
             .expect("ZK public key for provided ID should be stored in KMS.")
         else {
@@ -505,7 +505,7 @@ where
     // Initialize membership stream for session and core-related public PoQ inputs.
     let session_stream = async {
         let config = blend_config.clone();
-        let zk_sk_id = config.zk.sk_kms_id.clone();
+        let zk_sk_id = config.zk.secret_key_kms_id.clone();
         membership_stream.map(
             move |MembershipInfo {
                       membership,
