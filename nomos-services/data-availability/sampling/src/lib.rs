@@ -36,7 +36,7 @@ use storage::DaStorageAdapter;
 use subnetworks_assignations::MembershipHandler;
 use tokio::sync::oneshot;
 use tokio_stream::StreamExt as _;
-use tracing::{debug, error, instrument};
+use tracing::{error, instrument};
 use verifier::{VerifierBackend, kzgrs::KzgrsDaVerifier};
 
 use crate::mempool::DaMempoolAdapter;
@@ -293,12 +293,7 @@ where
                 blob_id,
                 light_share,
             } => {
-                let share_idx = light_share.share_idx;
                 info_with_id!(blob_id, "SamplingSuccess");
-                debug!(
-                    ?blob_id,
-                    share_idx, "Sampler received SamplingSuccess event"
-                );
                 let Some(commitments) = sampler.get_commitments(&blob_id) else {
                     error_with_id!(blob_id, "Error getting commitments for blob");
                     sampler.handle_sampling_error(blob_id).await;
@@ -330,10 +325,6 @@ where
                 response_sender,
             } => {
                 info_with_id!(blob_id, "SamplingRequest");
-                debug!(
-                    ?blob_id,
-                    share_idx, "Sampler received SamplingRequest event"
-                );
                 let maybe_share = storage_adapter
                     .get_light_share(blob_id, share_idx.to_le_bytes())
                     .await

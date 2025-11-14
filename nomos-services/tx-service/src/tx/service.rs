@@ -305,10 +305,6 @@ where
         }
     }
 
-    #[expect(
-        clippy::cognitive_complexity,
-        reason = "Telemetry paths add branches; will be split in later refactor"
-    )]
     async fn handle_mempool_message(
         pool: &mut Pool,
         message: MempoolMsg<Pool::BlockId, Pool::Item, Pool::Item, Pool::Key>,
@@ -348,28 +344,7 @@ where
                 hashes,
                 reply_channel,
             } => {
-                let requested = hashes.len();
                 let result = Self::partition_transactions_by_availability(pool, hashes).await;
-                match &result {
-                    Ok(response) => {
-                        let missing = response.not_found().len();
-                        let found = requested.saturating_sub(missing);
-                        tracing::info!(
-                            "GetTransactionsByHashes handled (requested={}, found={}, missing={}, pending_items={})",
-                            requested,
-                            found,
-                            missing,
-                            pool.pending_item_count()
-                        );
-                    }
-                    Err(error) => {
-                        tracing::error!(
-                            "GetTransactionsByHashes failed (requested={}): {:?}",
-                            requested,
-                            error
-                        );
-                    }
-                }
 
                 if let Err(_e) = reply_channel.send(result) {
                     tracing::debug!("Failed to send transactions reply");
@@ -420,10 +395,6 @@ where
 
         match pool.add_item(key, item).await {
             Ok(_id) => {
-                tracing::info!(
-                    "tx_service add_item success pending_items={}",
-                    pool.pending_item_count()
-                );
                 Self::handle_add_success(
                     pool,
                     &state_updater,
@@ -434,14 +405,7 @@ where
                     tx_broadcast,
                 );
             }
-            Err(e) => {
-                tracing::warn!(
-                    "tx_service add_item failed: {:?} (pending_items={})",
-                    e,
-                    pool.pending_item_count()
-                );
-                Self::handle_add_error(e, reply_channel);
-            }
+            Err(e) => Self::handle_add_error(e, reply_channel),
         }
     }
 
@@ -458,10 +422,6 @@ where
             .await
             .unwrap_or_else(|_| Box::pin(futures::stream::iter(Vec::new())));
 
-        tracing::debug!(
-            "tx_service view processed (pending_items={})",
-            pool.pending_item_count()
-        );
         if let Err(_e) = reply_channel.send(Box::pin(items)) {
             tracing::debug!("Failed to send view reply");
         }
@@ -504,17 +464,8 @@ where
             })?;
 
         let found_transactions: Vec<Pool::Item> = items_stream.collect().await;
-        tracing::debug!(
-            "partition_transactions_by_availability fetched {} transactions out of {} requested",
-            found_transactions.len(),
-            keys_set.len()
-        );
 
         if found_transactions.len() == keys_set.len() {
-            tracing::info!(
-                "partition_transactions_by_availability returning all {} transactions",
-                found_transactions.len()
-            );
             return Ok(TransactionsByHashesResponse::new(
                 found_transactions,
                 BTreeSet::new(),
@@ -525,11 +476,6 @@ where
             found_transactions.iter().map(Transaction::hash).collect();
 
         let not_found_hashes: BTreeSet<Pool::Key> = &keys_set - &found_hashes;
-
-        tracing::warn!(
-            "partition_transactions_by_availability missing {} transactions",
-            not_found_hashes.len()
-        );
 
         Ok(TransactionsByHashesResponse::new(
             found_transactions,
