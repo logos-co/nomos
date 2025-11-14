@@ -38,7 +38,7 @@ where
     }
 }
 
-pub(crate) struct Ed25519Hex;
+pub struct Ed25519Hex;
 
 impl SerializeAs<VerifyingKey> for Ed25519Hex {
     fn serialize_as<S>(source: &VerifyingKey, serializer: S) -> Result<S::Ok, S::Error>
@@ -62,7 +62,7 @@ impl<'de> DeserializeAs<'de, VerifyingKey> for Ed25519Hex {
 
 /// Module for use with #[serde(with = "`sig_hex`")] on `ed25519::Signature`
 /// fields
-pub(crate) mod sig_hex {
+pub mod sig_hex {
     use super::{Deserializer, Serializer};
 
     pub fn serialize<S>(sig: &ed25519::Signature, serializer: S) -> Result<S::Ok, S::Error>

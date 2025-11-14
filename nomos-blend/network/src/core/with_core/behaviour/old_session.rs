@@ -49,6 +49,16 @@ where
             .map_err(|_| Error::InvalidMessage)
     }
 
+    /// Validates the public header of an encapsulated message, and
+    /// if valid, forwards it to all negotiated peers.
+    pub fn validate_and_publish_message(
+        &mut self,
+        message: EncapsulatedMessage,
+    ) -> Result<(), Error> {
+        let validated_message = self.verify_encapsulated_message_public_header(message)?;
+        self.forward_validated_message_and_maybe_exclude(&validated_message.into(), None)
+    }
+
     pub(super) fn start_new_epoch(&mut self, new_pol_inputs: LeaderInputs) {
         self.poq_verifier.start_epoch_transition(new_pol_inputs);
     }
@@ -92,7 +102,7 @@ impl<ProofsVerifier> OldSession<ProofsVerifier> {
 
     /// Checks if the connection is part of the old session.
     #[must_use]
-    fn is_negotiated(&self, (peer_id, connection_id): &(PeerId, ConnectionId)) -> bool {
+    pub fn is_negotiated(&self, (peer_id, connection_id): &(PeerId, ConnectionId)) -> bool {
         self.negotiated_peers
             .get(peer_id)
             .is_some_and(|&id| id == *connection_id)
@@ -102,27 +112,17 @@ impl<ProofsVerifier> OldSession<ProofsVerifier> {
     ///
     /// Public header validation checks are skipped, since the message is
     /// assumed to have been properly formed.
-    ///
-    /// # Returns
-    /// - [`Ok(false)`] if the [`except`] connection is not part of the session.
-    /// - [`Ok(true)`] if the message was forwarded to at least one peer.
-    /// - [`Err(Error::NoPeers)`] if there are no other connected peers except
-    ///   the [`except`] connection.
-    pub fn forward_validated_message(
+    pub fn forward_validated_message_and_maybe_exclude(
         &mut self,
         message: &OutgoingEncapsulatedMessageWithValidatedPublicHeader,
-        except: &(PeerId, ConnectionId),
-    ) -> Result<bool, Error> {
-        if !self.is_negotiated(except) {
-            return Ok(false);
-        }
-
+        except: Option<PeerId>,
+    ) -> Result<(), Error> {
         let message_id = message.id();
         let serialized_message = serialize_encapsulated_message(message.as_ref());
         let mut at_least_one_receiver = false;
         self.negotiated_peers
             .iter()
-            .filter(|(peer_id, _)| **peer_id != except.0)
+            .filter(|(peer_id, _)| Some(**peer_id) != except)
             .for_each(|(&peer_id, &connection_id)| {
                 if check_and_update_message_cache(
                     &mut self.exchanged_message_identifiers,
@@ -142,7 +142,7 @@ impl<ProofsVerifier> OldSession<ProofsVerifier> {
 
         if at_least_one_receiver {
             self.try_wake();
-            Ok(true)
+            Ok(())
         } else {
             Err(Error::NoPeers)
         }

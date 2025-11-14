@@ -1,9 +1,6 @@
 use std::{path::PathBuf, sync::LazyLock};
 
-const POL_PROVING_KEY_NAME: &str = "pol.zkey";
-const NOMOS_POL_PROVING_KEY_ENVAR: &str = "NOMOS_POL_PROVING_KEY_PATH";
+const CIRCUIT_NAME: &str = "pol";
 
-pub static POL_PROVING_KEY_PATH: LazyLock<PathBuf> = LazyLock::new(|| {
-    circuits_utils::find_file(POL_PROVING_KEY_NAME, NOMOS_POL_PROVING_KEY_ENVAR)
-        .unwrap_or_else(|_| panic!("{POL_PROVING_KEY_NAME} should not be missing"))
-});
+pub static POL_PROVING_KEY_PATH: LazyLock<PathBuf> =
+    LazyLock::new(|| circuits_utils::proving_key_path(CIRCUIT_NAME));

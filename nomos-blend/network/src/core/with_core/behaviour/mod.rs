@@ -116,8 +116,7 @@ pub struct Behaviour<ProofsVerifier, ObservationWindowClockProvider> {
     /// the peer being flagged as malicious, and the connection dropped.
     exchanged_message_identifiers: HashMap<PeerId, HashSet<MessageIdentifier>>,
     observation_window_clock_provider: ObservationWindowClockProvider,
-    // TODO: Make this a non-Option by refactoring tests
-    current_membership: Option<Membership<PeerId>>,
+    current_membership: Membership<PeerId>,
     /// The [minimum, maximum] peering degree of this node.
     peering_degree: RangeInclusive<usize>,
     local_peer_id: PeerId,
@@ -184,10 +183,16 @@ pub enum Event {
     /// An outbound connection request was successfully negotiated with the
     /// remote peer.
     OutboundConnectionUpgradeSucceeded(PeerId),
+    /// An inbound connection was successfully negotiated.
+    InboundConnectionUpgradeSucceeded(PeerId),
     /// An outbound connection request failed to be upgraded, meaning the peer
     /// is a remote core but something failed when negotiating Blend protocol
     /// support.
     OutboundConnectionUpgradeFailed(PeerId),
+    /// An inbound connection failed to be upgraded, meaning the peer is a
+    /// remote core but something failed when negotiating Blend protocol
+    /// support.
+    InboundConnectionUpgradeFailed(PeerId),
 }
 
 impl<ProofsVerifier, ObservationWindowClockProvider>
@@ -197,7 +202,7 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
     pub fn new(
         config: &Config,
         observation_window_clock_provider: ObservationWindowClockProvider,
-        current_membership: Option<Membership<PeerId>>,
+        current_membership: Membership<PeerId>,
         local_peer_id: PeerId,
         protocol_name: StreamProtocol,
         poq_verifier: ProofsVerifier,
@@ -206,12 +211,7 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
             negotiated_peers: HashMap::with_capacity(*config.peering_degree.end()),
             events: VecDeque::new(),
             waker: None,
-            exchanged_message_identifiers: HashMap::with_capacity(
-                current_membership
-                    .as_ref()
-                    .map(Membership::size)
-                    .unwrap_or_default(),
-            ),
+            exchanged_message_identifiers: HashMap::with_capacity(current_membership.size()),
             observation_window_clock_provider,
             current_membership,
             peering_degree: config.peering_degree.clone(),
@@ -230,7 +230,7 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
         new_verifier: ProofsVerifier,
     ) {
         self.connections_waiting_upgrade.clear();
-        self.current_membership = Some(new_membership);
+        self.current_membership = new_membership;
 
         self.stop_old_session();
 
@@ -295,9 +295,10 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
         except: (PeerId, ConnectionId),
     ) -> Result<(), Error> {
         if let Some(old_session) = &mut self.old_session
-            && old_session.forward_validated_message(message, &except)?
+            && old_session.is_negotiated(&except)
         {
-            return Ok(());
+            return old_session
+                .forward_validated_message_and_maybe_exclude(message, Some(except.0));
         }
         self.forward_validated_message_and_maybe_exclude(message, Some(except.0))
     }
@@ -454,8 +455,7 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
     }
 
     fn is_network_large_enough(&self) -> bool {
-        self.current_membership.as_ref().map_or(1, Membership::size)
-            >= self.minimum_network_size.get()
+        self.current_membership.size() >= self.minimum_network_size.get()
     }
 
     /// Handle a new negotiated connection.
@@ -535,13 +535,14 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
                 connection_id,
             },
         );
-        // If the new negotiated connection is outgoing, notify the Swarm about it.
-        if peer_role == Endpoint::Listener {
-            self.events.push_back(ToSwarm::GenerateEvent(
-                Event::OutboundConnectionUpgradeSucceeded(peer_id),
-            ));
-            self.try_wake();
-        }
+        // Notify the Swarm about the successful negotiation.
+        self.events
+            .push_back(ToSwarm::GenerateEvent(if peer_role == Endpoint::Listener {
+                Event::OutboundConnectionUpgradeSucceeded(peer_id)
+            } else {
+                Event::InboundConnectionUpgradeSucceeded(peer_id)
+            }));
+        self.try_wake();
     }
 
     /// Handle a newly upgraded connection for a peer that this peer is already
@@ -628,13 +629,14 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
             // not notified.
             update_connection_id_and_direction(existing_connection_details, new_connection_id);
             // After the old connection details have been updated with the new
-            // ones, notify the Swarm that the new connection has been upgraded,
-            // if the new connection is an outgoing one.
-            if existing_connection_details.role == Endpoint::Listener {
-                self.events.push_back(ToSwarm::GenerateEvent(
-                    Event::OutboundConnectionUpgradeSucceeded(peer_id),
-                ));
-            }
+            // ones, notify the Swarm that the new connection has been upgraded.
+            self.events.push_back(ToSwarm::GenerateEvent(
+                if existing_connection_details.role == Endpoint::Listener {
+                    Event::OutboundConnectionUpgradeSucceeded(peer_id)
+                } else {
+                    Event::InboundConnectionUpgradeSucceeded(peer_id)
+                },
+            ));
             // Notify the current connection handler to drop the substreams.
             self.close_connection(existing_connection);
         } else {
@@ -677,11 +679,11 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
     ) -> Option<NegotiatedPeerState> {
         let peer_details = self.negotiated_peers.get_mut(&peer_id)?;
         // We double check we are dealing with the expected connection.
-        debug_assert!(
-            peer_details.connection_id == connection_id,
-            "Stored connection ID and provided connection ID do not match for the provided peer ID."
-        );
-
+        // This could be false if `connection_id` is from the old session.
+        if peer_details.connection_id != connection_id {
+            tracing::debug!(target: LOG_TARGET, "Provided connection ID {connection_id:?} does not match the stored connection ID {:?} for peer {peer_id:?}. Ignoring state update.", peer_details.connection_id);
+            return Some(state);
+        }
         Some(mem::replace(&mut peer_details.negotiated_state, state))
     }
 
@@ -777,37 +779,41 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
 where
     ProofsVerifier: encap::ProofsVerifier,
 {
-    /// Publish an already-encapsulated message to all connected peers.
+    /// Publish an already-encapsulated message to all connected peers
+    /// in the current or old session.
     ///
     /// Before the message is propagated, its public header is validated to make
     /// sure the receiving peer won't mark us as malicious.
+    /// If the message is successfully validated with the old session verifier,
+    /// it is published using the old session.
+    /// Otherwise, it is validated with the current session verifier, and
+    /// if valid, published using the current session.
     pub fn validate_and_publish_message(
         &mut self,
         message: EncapsulatedMessage,
     ) -> Result<(), Error> {
-        let validated_message = self
-            .validate_encapsulated_message_public_header(message)
-            .map_err(|_| Error::InvalidMessage)?;
-        self.forward_validated_message_and_maybe_exclude(&validated_message.into(), None)?;
-        Ok(())
+        if let Some(old_session) = &mut self.old_session
+            && old_session
+                .validate_and_publish_message(message.clone())
+                .is_ok()
+        {
+            return Ok(());
+        }
+
+        let validated_message =
+            self.validate_encapsulated_message_public_header_with_current_session(message)?;
+        self.forward_validated_message_and_maybe_exclude(&validated_message.into(), None)
     }
 
     // Try to validate an encapsulated public header with the current session
-    // verifier, and on fail if tries with with previous one, if the session
-    // transition period is not over yet.
-    fn validate_encapsulated_message_public_header(
+    // verifier.
+    fn validate_encapsulated_message_public_header_with_current_session(
         &self,
         message: EncapsulatedMessage,
     ) -> Result<IncomingEncapsulatedMessageWithValidatedPublicHeader, Error> {
         message
-            .clone()
             .verify_public_header(&self.poq_verifier)
-            .or_else(|_| {
-                let Some(old_session) = &self.old_session else {
-                    return Err(Error::InvalidMessage);
-                };
-                old_session.verify_encapsulated_message_public_header(message)
-            })
+            .map_err(|_| Error::InvalidMessage)
     }
 
     fn handle_received_serialized_encapsulated_message(
@@ -856,8 +862,10 @@ where
             return;
         };
         // Verify the message public header, or else mark the peer as malicious: https://www.notion.so/nomos-tech/Blend-Protocol-Version-1-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81859cebf5e3d2a5cd8f.
-        let Ok(validated_message) =
-            self.validate_encapsulated_message_public_header(deserialized_encapsulated_message)
+        let Ok(validated_message) = self
+            .validate_encapsulated_message_public_header_with_current_session(
+                deserialized_encapsulated_message,
+            )
         else {
             tracing::debug!(target: LOG_TARGET, "Neighbor sent us a message with an invalid public header. Marking it as spammy.");
             self.close_spammy_connection(
@@ -939,26 +947,10 @@ where
             return Ok(Either::Right(DummyConnectionHandler));
         }
 
-        // If no membership is provided (for tests), then we assume all peers are core
-        // nodes.
-        let Some(membership) = &self.current_membership else {
-            if !self.is_network_large_enough() {
-                tracing::debug!(target: LOG_TARGET, "Denying inbound connection {connection_id:?} with core peer {peer_id:?} because membership size is too small.");
-                return Ok(Either::Right(DummyConnectionHandler));
-            }
-            tracing::debug!(target: LOG_TARGET, "Upgrading inbound connection {connection_id:?} with core peer {peer_id:?}.");
-            self.connections_waiting_upgrade
-                .insert((peer_id, connection_id), Endpoint::Dialer);
-            return Ok(Either::Left(ConnectionHandler::new(
-                ConnectionMonitor::new(self.observation_window_clock_provider.interval_stream()),
-                self.protocol_name.clone(),
-            )));
-        };
-
         Ok(if !self.is_network_large_enough() {
             tracing::debug!(target: LOG_TARGET, "Denying inbound connection {connection_id:?} with peer {peer_id:?} because membership size is too small.");
             Either::Right(DummyConnectionHandler)
-        } else if membership.contains(&peer_id) {
+        } else if self.current_membership.contains(&peer_id) {
             tracing::debug!(target: LOG_TARGET, "Upgrading inbound connection {connection_id:?} with core peer {peer_id:?}.");
             self.connections_waiting_upgrade
                 .insert((peer_id, connection_id), Endpoint::Dialer);
@@ -1000,26 +992,10 @@ where
             return Ok(Either::Right(DummyConnectionHandler));
         }
 
-        // If no membership is provided (for tests), then we assume all peers are core
-        // nodes.
-        let Some(membership) = &self.current_membership else {
-            if !self.is_network_large_enough() {
-                tracing::debug!(target: LOG_TARGET, "Denying outbound connection {connection_id:?} with core peer {peer_id:?} because membership size is too small.");
-                return Ok(Either::Right(DummyConnectionHandler));
-            }
-            tracing::debug!(target: LOG_TARGET, "Upgrading outbound connection {connection_id:?} with core peer {peer_id:?}.");
-            self.connections_waiting_upgrade
-                .insert((peer_id, connection_id), Endpoint::Listener);
-            return Ok(Either::Left(ConnectionHandler::new(
-                ConnectionMonitor::new(self.observation_window_clock_provider.interval_stream()),
-                self.protocol_name.clone(),
-            )));
-        };
-
         Ok(if !self.is_network_large_enough() {
             tracing::debug!(target: LOG_TARGET, "Denying outbound connection {connection_id:?} with peer {peer_id:?} because membership size is too small.");
             Either::Right(DummyConnectionHandler)
-        } else if membership.contains(&peer_id) {
+        } else if self.current_membership.contains(&peer_id) {
             tracing::debug!(target: LOG_TARGET, "Upgrading outbound connection {connection_id:?} with core peer {peer_id:?}.");
             self.connections_waiting_upgrade
                 .insert((peer_id, connection_id), Endpoint::Listener);
@@ -1049,7 +1025,7 @@ where
                 return;
             }
 
-            // We notify the swarm of any outbound connection that failed to be upgraded.
+            // We notify the swarm of any connection that failed to be upgraded.
             if let Some(remote_peer_role) = self
                 .connections_waiting_upgrade
                 .remove(&(peer_id, connection_id))
@@ -1058,13 +1034,15 @@ where
                     local_endpoint.to_endpoint().reverse() == remote_peer_role,
                     "Remote peer endpoint provided by event and the one stored do not match."
                 );
-                // If the closed connection was an outbound one, notify the swarm about it.
-                if remote_peer_role == Endpoint::Listener {
-                    self.events.push_back(ToSwarm::GenerateEvent(
-                        Event::OutboundConnectionUpgradeFailed(peer_id),
-                    ));
-                    self.try_wake();
-                }
+                // Notify the swarm about the negotiation failure.
+                self.events.push_back(ToSwarm::GenerateEvent(
+                    if remote_peer_role == Endpoint::Listener {
+                        Event::OutboundConnectionUpgradeFailed(peer_id)
+                    } else {
+                        Event::InboundConnectionUpgradeFailed(peer_id)
+                    },
+                ));
+                self.try_wake();
                 return;
             }
 

@@ -1,31 +1,345 @@
 mod utils;
 
-use std::time::Duration;
-
 use groth16::Field as _;
-use nomos_core::crypto::ZkHash;
+use nomos_blend_scheduling::{
+    message_blend::crypto::SessionCryptographicProcessorSettings, session::SessionEvent,
+};
+use nomos_core::{codec::SerializeOp as _, crypto::ZkHash};
 use nomos_time::SlotTick;
+use nomos_utils::blake_rng::BlakeRng;
 use poq::CORE_MERKLE_TREE_HEIGHT;
+use rand::SeedableRng as _;
 
 use crate::{
     core::{
-        initialize, post_initialize, run_event_loop,
+        HandleSessionEventOutput,
+        backends::BlendBackend,
+        handle_incoming_blend_message, handle_session_event, initialize, post_initialize, retire,
+        run_event_loop,
+        state::ServiceState,
         tests::utils::{
-            NodeId, TestBlendBackend, TestBlendBackendEvent, TestNetworkAdapter,
-            dummy_overwatch_resources, new_membership, new_stream, settings,
-            wait_for_blend_backend_event,
+            MockKmsAdapter, MockProcessedMessageScheduler, MockProofsVerifier, NodeId,
+            TestBlendBackend, TestBlendBackendEvent, TestNetworkAdapter, dummy_overwatch_resources,
+            new_blending_token_collector, new_crypto_processor, new_membership, new_public_info,
+            new_stream, settings, wait_for_blend_backend_event,
         },
     },
     epoch_info::EpochHandler,
     membership::{MembershipInfo, ZkInfo},
-    settings::TimingSettings,
+    message::{NetworkMessage, ProcessedMessage},
+    session::{CoreSessionInfo, CoreSessionPublicInfo},
     test_utils::{
-        crypto::{MockCoreAndLeaderProofsGenerator, MockProofsVerifier},
+        crypto::MockCoreAndLeaderProofsGenerator,
         epoch::{OncePolStreamProvider, TestChainService},
+        membership::{key, membership},
     },
 };
 
 type RuntimeServiceId = ();
+
+/// Check if incoming encapsulated messages are properly decapsulated and
+/// scheduled by [`handle_incoming_blend_message`].
+#[test_log::test(tokio::test)]
+async fn test_handle_incoming_blend_message() {
+    let (_, _, state_updater, _state_receiver) =
+        dummy_overwatch_resources::<(), (), RuntimeServiceId>();
+
+    // Prepare a encapsulated message.
+    let id = [0; 32];
+    let mut session = 0;
+    let num_blend_layers = 1;
+    let membership = membership(&[id], id);
+    let public_info = new_public_info(session, membership.clone());
+    let settings = SessionCryptographicProcessorSettings {
+        non_ephemeral_signing_key: key(id).0,
+        num_blend_layers,
+    };
+    let mut processor = new_crypto_processor(&settings, &public_info, ());
+    let payload = NetworkMessage {
+        message: vec![],
+        broadcast_settings: (),
+    }
+    .to_bytes()
+    .expect("NetworkMessage serialization must succeed");
+    let msg = processor
+        .encapsulate_data_payload(&payload)
+        .await
+        .expect("encapsulation must succeed")
+        .verify_public_header(processor.verifier())
+        .expect("verification must succeed");
+
+    // Check that the message is successfully decapsulated and scheduled.
+    let mut scheduler = MockProcessedMessageScheduler::default();
+    let (mut token_collector, _) =
+        new_blending_token_collector(&public_info, 1.0.try_into().unwrap());
+    handle_incoming_blend_message(
+        msg.clone(),
+        &mut scheduler,
+        None::<&mut MockProcessedMessageScheduler<ProcessedMessage<()>>>,
+        &processor,
+        None,
+        &mut token_collector,
+        None,
+        ServiceState::with_session(session, state_updater.clone()),
+    );
+    assert_eq!(scheduler.num_scheduled_messages(), 1);
+
+    // Creates a new processor/scheduler/token_collector with the new session
+    // number.
+    session += 1;
+    let public_info = new_public_info(session, membership.clone());
+    let mut new_processor = new_crypto_processor(&settings, &public_info, ());
+    let mut new_scheduler = MockProcessedMessageScheduler::default();
+    let (mut new_token_collector, new_session_randomness) =
+        new_blending_token_collector(&public_info, 1.0.try_into().unwrap());
+    let mut token_collector = token_collector.into_old_session(new_session_randomness);
+
+    // Check that decapsulating the same message fails with the new processor
+    // but succeeds with the old one. Also, it should be scheduled in the old
+    // scheduler.
+    handle_incoming_blend_message(
+        msg,
+        &mut new_scheduler,
+        Some(&mut scheduler),
+        &new_processor,
+        Some(&processor),
+        &mut new_token_collector,
+        Some(&mut token_collector),
+        ServiceState::with_session(session, state_updater.clone()),
+    );
+    assert_eq!(new_scheduler.num_scheduled_messages(), 0);
+    assert_eq!(scheduler.num_scheduled_messages(), 2);
+
+    // Check that a new message built with the new processor is decapsulated
+    // with the new processor and scheduled in the new scheduler.
+    let msg = new_processor
+        .encapsulate_data_payload(&payload)
+        .await
+        .expect("encapsulation must succeed")
+        .verify_public_header(new_processor.verifier())
+        .expect("verification must succeed");
+    handle_incoming_blend_message(
+        msg,
+        &mut new_scheduler,
+        Some(&mut scheduler),
+        &new_processor,
+        Some(&processor),
+        &mut new_token_collector,
+        Some(&mut token_collector),
+        ServiceState::with_session(session, state_updater.clone()),
+    );
+    assert_eq!(new_scheduler.num_scheduled_messages(), 1);
+    assert_eq!(scheduler.num_scheduled_messages(), 2);
+
+    // Check that a message built with a future session cannot be
+    // decapsulated by either processor, and thus not scheduled.
+    session += 1;
+    let mut future_processor =
+        new_crypto_processor(&settings, &new_public_info(session, membership), ());
+    let msg = future_processor
+        .encapsulate_data_payload(&payload)
+        .await
+        .expect("encapsulation must succeed")
+        .verify_public_header(future_processor.verifier())
+        .expect("verification must succeed");
+    handle_incoming_blend_message(
+        msg,
+        &mut new_scheduler,
+        Some(&mut scheduler),
+        &new_processor,
+        Some(&processor),
+        &mut new_token_collector,
+        Some(&mut token_collector),
+        ServiceState::with_session(session, state_updater),
+    );
+    // Nothing changed.
+    assert_eq!(new_scheduler.num_scheduled_messages(), 1);
+    assert_eq!(scheduler.num_scheduled_messages(), 2);
+}
+
+#[test_log::test(tokio::test)]
+async fn test_handle_session_event() {
+    let (overwatch_handle, _overwatch_cmd_receiver, state_updater, _state_receiver) =
+        dummy_overwatch_resources::<(), (), RuntimeServiceId>();
+
+    // Prepare components for session event handling.
+    let session = 0;
+    let minimal_network_size = 2;
+    let (membership, local_private_key) = new_membership(minimal_network_size);
+    let (settings, _recovery_file) = settings(
+        local_private_key.clone(),
+        u64::from(minimal_network_size).try_into().unwrap(),
+        (),
+    );
+    let public_info = new_public_info(session, membership.clone());
+    let crypto_processor = new_crypto_processor(
+        &SessionCryptographicProcessorSettings {
+            non_ephemeral_signing_key: local_private_key,
+            num_blend_layers: 1,
+        },
+        &public_info,
+        (),
+    );
+    let scheduler = MockProcessedMessageScheduler::default();
+    let (token_collector, _) = new_blending_token_collector(
+        &public_info,
+        settings.scheduler.cover.message_frequency_per_round,
+    );
+    let mut backend = <TestBlendBackend as BlendBackend<_, _, MockProofsVerifier, _>>::new(
+        settings.clone(),
+        overwatch_handle.clone(),
+        public_info.clone(),
+        BlakeRng::from_entropy(),
+    );
+    let mut backend_event_receiver = backend.subscribe_to_events();
+
+    // Handle a NewSession event, expecting Transitioning output.
+    let output = handle_session_event::<
+        _,
+        _,
+        _,
+        _,
+        MockProcessedMessageScheduler<ProcessedMessage<()>>,
+        MockProcessedMessageScheduler<ProcessedMessage<()>>,
+        _,
+        _,
+        _,
+        RuntimeServiceId,
+    >(
+        SessionEvent::NewSession(CoreSessionInfo {
+            public: CoreSessionPublicInfo {
+                membership: membership.clone(),
+                session: session + 1,
+                poq_core_public_inputs: public_info.session.core_public_inputs,
+            },
+            core_poq_generator: (),
+        }),
+        &settings,
+        crypto_processor,
+        scheduler,
+        public_info,
+        ServiceState::with_session(session, state_updater.clone()),
+        token_collector,
+        None,
+        &mut backend,
+        BlakeRng::from_entropy(),
+    )
+    .await;
+    let HandleSessionEventOutput::Transitioning {
+        new_crypto_processor,
+        old_crypto_processor,
+        new_scheduler,
+        old_scheduler,
+        new_token_collector,
+        old_token_collector,
+        new_public_info,
+        new_recovery_checkpoint,
+    } = output
+    else {
+        panic!("expected Transitioning output");
+    };
+    assert_eq!(
+        new_crypto_processor.verifier().session_number(),
+        session + 1
+    );
+    assert_eq!(old_crypto_processor.verifier().session_number(), session);
+    assert_eq!(new_scheduler.num_scheduled_messages(), 0);
+    assert_eq!(old_scheduler.num_scheduled_messages(), 0);
+    assert_eq!(new_public_info.session.session_number, session + 1);
+
+    // Handle a TransitionExpired event, expecting TransitionCompleted output.
+    let output = handle_session_event::<
+        _,
+        _,
+        _,
+        _,
+        MockProcessedMessageScheduler<ProcessedMessage<()>>,
+        MockProcessedMessageScheduler<ProcessedMessage<()>>,
+        _,
+        _,
+        _,
+        RuntimeServiceId,
+    >(
+        SessionEvent::TransitionPeriodExpired,
+        &settings,
+        new_crypto_processor,
+        new_scheduler,
+        new_public_info,
+        new_recovery_checkpoint,
+        new_token_collector,
+        Some(old_token_collector),
+        &mut backend,
+        BlakeRng::from_entropy(),
+    )
+    .await;
+    let HandleSessionEventOutput::TransitionCompleted {
+        current_crypto_processor,
+        current_scheduler,
+        current_token_collector,
+        current_public_info,
+        current_recovery_checkpoint,
+    } = output
+    else {
+        panic!("expected TransitionCompleted output");
+    };
+    assert_eq!(
+        current_crypto_processor.verifier().session_number(),
+        session + 1
+    );
+    assert_eq!(current_public_info.session.session_number, session + 1);
+    wait_for_blend_backend_event(
+        &mut backend_event_receiver,
+        TestBlendBackendEvent::SessionTransitionCompleted,
+    )
+    .await;
+
+    // Handle a NewSession event with a new too small membership,
+    // expecting Retiring output.
+    let output = handle_session_event::<
+        _,
+        _,
+        _,
+        _,
+        MockProcessedMessageScheduler<ProcessedMessage<()>>,
+        MockProcessedMessageScheduler<ProcessedMessage<()>>,
+        _,
+        _,
+        _,
+        RuntimeServiceId,
+    >(
+        SessionEvent::NewSession(CoreSessionInfo {
+            public: CoreSessionPublicInfo {
+                membership: new_membership(minimal_network_size - 1).0,
+                session: session + 2,
+                poq_core_public_inputs: current_public_info.session.core_public_inputs,
+            },
+            core_poq_generator: (),
+        }),
+        &settings,
+        current_crypto_processor,
+        current_scheduler,
+        current_public_info,
+        current_recovery_checkpoint,
+        current_token_collector,
+        None,
+        &mut backend,
+        BlakeRng::from_entropy(),
+    )
+    .await;
+    let HandleSessionEventOutput::Retiring {
+        old_crypto_processor,
+        old_public_info,
+        ..
+    } = output
+    else {
+        panic!("expected Retiring output");
+    };
+    assert_eq!(
+        old_crypto_processor.verifier().session_number(),
+        session + 1
+    );
+    assert_eq!(old_public_info.session.session_number, session + 1);
+}
 
 /// Check if the service keeps running after it receives a new session where
 /// it's still core. Also, check if it stops after the session transition period
@@ -41,19 +355,11 @@ async fn complete_old_session_after_main_loop_done() {
         local_private_key.clone(),
         u64::from(minimal_network_size).try_into().unwrap(),
         (),
-        TimingSettings {
-            rounds_per_session: 10.try_into().unwrap(),
-            rounds_per_interval: 5.try_into().unwrap(),
-            round_duration: Duration::from_secs(1),
-            rounds_per_observation_window: 5.try_into().unwrap(),
-            rounds_per_session_transition_period: 2.try_into().unwrap(),
-            epoch_transition_period_in_slots: 1.try_into().unwrap(),
-        },
     );
 
     // Prepare streams.
     let (inbound_relay, _inbound_message_sender) = new_stream();
-    let (blend_message_stream, _blend_message_sender) = new_stream();
+    let (mut blend_message_stream, _blend_message_sender) = new_stream();
     let (membership_stream, membership_sender) = new_stream();
     let (clock_stream, clock_sender) = new_stream();
 
@@ -96,15 +402,15 @@ async fn complete_old_session_after_main_loop_done() {
 
     // Initialize the service.
     let (
-        remaining_session_stream,
-        remaining_clock_stream,
+        mut remaining_session_stream,
+        mut remaining_clock_stream,
         current_public_info,
         crypto_processor,
         blending_token_collector,
         current_recovery_checkpoint,
         message_scheduler,
-        backend,
-        rng,
+        mut backend,
+        mut rng,
     ) = initialize::<
         NodeId,
         TestBlendBackend,
@@ -112,6 +418,7 @@ async fn complete_old_session_after_main_loop_done() {
         TestChainService,
         MockCoreAndLeaderProofsGenerator,
         MockProofsVerifier,
+        MockKmsAdapter,
         RuntimeServiceId,
     >(
         settings.clone(),
@@ -119,6 +426,7 @@ async fn complete_old_session_after_main_loop_done() {
         clock_stream,
         &mut epoch_handler,
         overwatch_handle.clone(),
+        MockKmsAdapter,
         None,
         state_updater,
     )
@@ -131,22 +439,45 @@ async fn complete_old_session_after_main_loop_done() {
         let secret_pol_info_stream =
             post_initialize::<OncePolStreamProvider, RuntimeServiceId>(&overwatch_handle).await;
 
-        run_event_loop(
+        let (
+            old_session_crypto_processor,
+            old_session_message_scheduler,
+            old_session_blending_token_collector,
+            old_session_public_info,
+            old_session_recovery_checkpoint,
+        ) = run_event_loop(
             inbound_relay,
+            &mut blend_message_stream,
+            &mut remaining_clock_stream,
+            secret_pol_info_stream,
+            &mut remaining_session_stream,
+            &settings_cloned,
+            &mut backend,
+            &TestNetworkAdapter,
+            &mut epoch_handler,
+            message_scheduler.into(),
+            &mut rng,
+            blending_token_collector,
+            crypto_processor,
+            current_public_info,
+            current_recovery_checkpoint,
+        )
+        .await;
+
+        retire(
             blend_message_stream,
             remaining_clock_stream,
-            secret_pol_info_stream,
             remaining_session_stream,
             &settings_cloned,
             backend,
             TestNetworkAdapter,
             epoch_handler,
-            message_scheduler,
+            old_session_message_scheduler,
             rng,
-            blending_token_collector,
-            crypto_processor,
-            current_public_info,
-            current_recovery_checkpoint,
+            old_session_blending_token_collector,
+            old_session_crypto_processor,
+            old_session_public_info,
+            old_session_recovery_checkpoint,
         )
         .await;
     });

@@ -163,7 +163,7 @@ impl LedgerState {
     /// Apply header-related changed to the ledger state. These include
     /// leadership and in general any changes that not related to
     /// transactions that should be applied before that.
-    fn try_apply_header<LeaderProof, Id>(
+    pub fn try_apply_header<LeaderProof, Id>(
         self,
         slot: Slot,
         proof: &LeaderProof,
@@ -190,7 +190,7 @@ impl LedgerState {
     }
 
     /// Apply the contents of an update to the ledger state.
-    fn try_apply_contents<Id, Constants: GasConstants>(
+    pub fn try_apply_contents<Id, Constants: GasConstants>(
         mut self,
         config: &Config,
         txs: impl Iterator<Item = impl AuthenticatedMantleTx>,
@@ -294,20 +294,22 @@ impl LedgerState {
 #[cfg(test)]
 mod tests {
     use cryptarchia::tests::{config, generate_proof, utxo};
-    use nomos_core::{
-        mantle::{
-            GasCost as _, MantleTx, Note, SignedMantleTx, Transaction as _,
-            gas::MainnetGasConstants, keys::PublicKey, ledger::Tx as LedgerTx,
-        },
-        proofs::zksig::DummyZkSignature,
+    use nomos_core::mantle::{
+        GasCost as _, MantleTx, Note, SignedMantleTx, Transaction as _, gas::MainnetGasConstants,
+        ledger::Tx as LedgerTx,
     };
     use num_bigint::BigUint;
+    use zksign::PublicKey;
 
     use super::*;
 
     type HeaderId = [u8; 32];
 
-    fn create_tx(inputs: Vec<NoteId>, outputs: Vec<Note>, pks: Vec<Fr>) -> SignedMantleTx {
+    fn create_tx(
+        inputs: Vec<NoteId>,
+        outputs: Vec<Note>,
+        sks: &[zksign::SecretKey],
+    ) -> SignedMantleTx {
         let ledger_tx = LedgerTx::new(inputs, outputs);
         let mantle_tx = MantleTx {
             ops: vec![],
@@ -317,12 +319,7 @@ mod tests {
         };
         SignedMantleTx {
             ops_proofs: vec![],
-            ledger_tx_proof: DummyZkSignature::prove(
-                &nomos_core::proofs::zksig::ZkSignaturePublic {
-                    pks,
-                    msg_hash: mantle_tx.hash().into(),
-                },
-            ),
+            ledger_tx_proof: zksign::SecretKey::multi_sign(sks, mantle_tx.hash().as_ref()).unwrap(),
             mantle_tx,
         }
     }
@@ -347,12 +344,16 @@ mod tests {
     fn test_ledger_try_update_with_transaction() {
         let (ledger, genesis_id, utxo) = create_test_ledger();
         let mut output_note = Note::new(1, PublicKey::new(BigUint::from(1u8).into()));
-        let pk = BigUint::from(0u8).into();
+        let sk = zksign::SecretKey::from(BigUint::from(0u8));
         // determine fees
-        let tx = create_tx(vec![utxo.id()], vec![output_note], vec![pk]);
+        let tx = create_tx(
+            vec![utxo.id()],
+            vec![output_note],
+            std::slice::from_ref(&sk),
+        );
         let fees = tx.gas_cost::<MainnetGasConstants>();
         output_note.value = utxo.note.value - fees;
-        let tx = create_tx(vec![utxo.id()], vec![output_note], vec![pk]);
+        let tx = create_tx(vec![utxo.id()], vec![output_note], &[sk]);
 
         // Create a dummy proof (using same structure as in cryptarchia tests)
 

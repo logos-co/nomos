@@ -1,7 +1,7 @@
 use futures::channel::oneshot::Canceled;
 use libp2p::PeerId;
 use libp2p_stream::OpenStreamError;
-use nomos_core::{codec, da::BlobId};
+use nomos_core::{codec, da::BlobId, sdp::SessionNumber};
 use nomos_da_messages::sampling;
 use thiserror::Error;
 
@@ -65,6 +65,11 @@ pub enum SamplingError {
         blob_id: BlobId,
         subnetwork_id: SubnetworkId,
     },
+    #[error("Mismatch session {session} for blob {blob_id:?}")]
+    MismatchSession {
+        session: SessionNumber,
+        blob_id: BlobId,
+    },
 }
 
 impl SamplingError {
@@ -81,7 +86,7 @@ impl SamplingError {
             | Self::InvalidBlobId { peer_id, .. }
             | Self::MismatchSubnetwork { peer_id, .. }
             | Self::BlobNotFound { peer_id, .. } => Some(peer_id),
-            Self::NoSubnetworkPeers { .. } => None,
+            Self::MismatchSession { .. } | Self::NoSubnetworkPeers { .. } => None,
         }
     }
 
@@ -180,6 +185,10 @@ impl Clone for SamplingError {
             } => Self::NoSubnetworkPeers {
                 blob_id: *blob_id,
                 subnetwork_id: *subnetwork_id,
+            },
+            Self::MismatchSession { session, blob_id } => Self::MismatchSession {
+                session: *session,
+                blob_id: *blob_id,
             },
         }
     }

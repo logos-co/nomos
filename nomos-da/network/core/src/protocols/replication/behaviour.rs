@@ -22,7 +22,7 @@ use libp2p::{
     },
 };
 use libp2p_stream::{Control, IncomingStreams, OpenStreamError};
-use log::{error, trace};
+use log::trace;
 use nomos_da_messages::{
     packing::{pack_to_writer, unpack_from_reader},
     replication::{ReplicationRequest, ReplicationResponseId},

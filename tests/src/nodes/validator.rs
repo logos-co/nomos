@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     net::SocketAddr,
     num::{NonZeroU64, NonZeroUsize},
     path::PathBuf,
@@ -16,7 +16,7 @@ use chain_service::{
 use common_http_client::CommonHttpClient;
 use cryptarchia_engine::time::SlotConfig;
 use futures::Stream;
-use key_management_system::backend::preload::PreloadKMSBackendSettings;
+use key_management_system::keys::ZkKey;
 use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
 use nomos_blend_scheduling::message_blend::crypto::SessionCryptographicProcessorSettings;
 use nomos_blend_service::{
@@ -51,7 +51,10 @@ use nomos_network::{
 };
 use nomos_node::{
     Config, HeaderId, RocksBackendSettings,
-    api::{backend::AxumBackendSettings, testing::handlers::HistoricSamplingRequest},
+    api::{
+        backend::AxumBackendSettings, handlers::GetCommitmentsRequest,
+        testing::handlers::HistoricSamplingRequest,
+    },
     config::{blend::BlendConfig, mempool::MempoolConfig},
 };
 use nomos_sdp::SdpSettings;
@@ -70,7 +73,8 @@ use tx_service::MempoolMetrics;
 
 use super::{CLIENT, create_tempdir, persist_tempdir};
 use crate::{
-    IS_DEBUG_TRACING, adjust_timeout, nodes::LOGS_PREFIX, topology::configs::GeneralConfig,
+    IS_DEBUG_TRACING, adjust_timeout, common::kms::key_id_for_preload_backend, nodes::LOGS_PREFIX,
+    topology::configs::GeneralConfig,
 };
 
 const BIN_PATH: &str = "../target/debug/nomos-node";
@@ -208,11 +212,17 @@ impl Validator {
             .unwrap()
     }
 
-    pub async fn get_commitments(&self, blob_id: BlobId) -> Option<DaSharesCommitments> {
+    pub async fn get_commitments(
+        &self,
+        blob_id: BlobId,
+        session: SessionNumber,
+    ) -> Option<DaSharesCommitments> {
+        let request = GetCommitmentsRequest { blob_id, session };
+
         CLIENT
             .post(format!("http://{}{}", self.addr, DA_GET_SHARES_COMMITMENTS))
             .header("Content-Type", "application/json")
-            .body(serde_json::to_string(&blob_id).unwrap())
+            .body(serde_json::to_string(&request).unwrap())
             .send()
             .await
             .unwrap()
@@ -242,15 +252,10 @@ impl Validator {
 
     pub async fn da_historic_sampling(
         &self,
-        session_id: SessionNumber,
         block_id: HeaderId,
-        blob_ids: Vec<BlobId>,
+        blob_ids: Vec<(BlobId, SessionNumber)>,
     ) -> Result<bool, reqwest::Error> {
-        let request = HistoricSamplingRequest {
-            session_id,
-            block_id,
-            blob_ids,
-        };
+        let request = HistoricSamplingRequest { block_id, blob_ids };
 
         let response = CLIENT
             .post(format!(
@@ -448,7 +453,9 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                     },
                 },
                 zk: ZkSettings {
-                    sk: config.blend_config.secret_zk_key,
+                    secret_key_kms_id: key_id_for_preload_backend(
+                        &ZkKey::new(config.blend_config.secret_zk_key).into(),
+                    ),
                 },
             },
             edge: nomos_blend_service::settings::EdgeSettings {
@@ -594,9 +601,7 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
         wallet: WalletServiceSettings {
             known_keys: HashSet::from_iter([config.consensus_config.leader_config.pk]),
         },
-        key_management: PreloadKMSBackendSettings {
-            keys: HashMap::new(),
-        },
+        key_management: config.kms_config,
         testing_http: nomos_api::ApiServiceSettings {
             backend_settings: AxumBackendSettings {
                 address: testing_http_address,

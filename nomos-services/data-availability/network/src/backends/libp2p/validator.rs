@@ -1,4 +1,9 @@
-use std::{collections::HashSet, fmt::Debug, marker::PhantomData, pin::Pin};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Debug,
+    marker::PhantomData,
+    pin::Pin,
+};
 
 use futures::{
     Stream, StreamExt as _,
@@ -48,12 +53,14 @@ pub enum DaNetworkMessage<BalancerStats, MonitorStats>
 where
     BalancerStats: Debug + Serialize,
 {
-    /// Kickstart a network sapling
+    /// Kickstart a network sampling
     RequestSample {
         blob_id: BlobId,
+        session: SessionNumber,
     },
     RequestCommitments {
         blob_id: BlobId,
+        session: SessionNumber,
     },
     MonitorRequest(ConnectionMonitorCommand<MonitorStats>),
     BalancerStats(oneshot::Sender<BalancerStats>),
@@ -88,8 +95,8 @@ pub struct DaNetworkValidatorBackend<Membership> {
     session_status: SessionStatus,
     task_abort_handle: AbortHandle,
     replies_task_abort_handle: AbortHandle,
-    shares_request_channel: UnboundedSender<BlobId>,
-    commitments_request_channel: UnboundedSender<BlobId>,
+    shares_request_channel: UnboundedSender<(BlobId, SessionNumber)>,
+    commitments_request_channel: UnboundedSender<(BlobId, SessionNumber)>,
     historic_sample_request_channel:
         UnboundedSender<SampleArgs<SharedMembershipHandler<Membership>>>,
     balancer_command_sender: UnboundedSender<ConnectionBalancerCommand<BalancerStats>>,
@@ -231,13 +238,13 @@ where
     #[instrument(skip_all)]
     async fn process(&self, msg: Self::Message) {
         match msg {
-            DaNetworkMessage::RequestSample { blob_id } => {
+            DaNetworkMessage::RequestSample { blob_id, session } => {
                 info_with_id!(&blob_id, "RequestSample");
-                handle_sample_request(&self.shares_request_channel, blob_id).await;
+                handle_sample_request(&self.shares_request_channel, blob_id, session).await;
             }
-            DaNetworkMessage::RequestCommitments { blob_id } => {
+            DaNetworkMessage::RequestCommitments { blob_id, session } => {
                 info_with_id!(&blob_id, "RequestSample");
-                handle_sample_request(&self.commitments_request_channel, blob_id).await;
+                handle_sample_request(&self.commitments_request_channel, blob_id, session).await;
             }
             DaNetworkMessage::MonitorRequest(command) => {
                 match command.peer_id() {
@@ -295,19 +302,11 @@ where
 
     async fn start_historic_sampling(
         &self,
-        session_id: SessionNumber,
         block_id: HeaderId,
-        blob_ids: HashSet<BlobId>,
-        membership: Self::HistoricMembership,
+        blob_ids: HashMap<Self::HistoricMembership, HashSet<BlobId>>,
     ) {
-        handle_historic_sample_request(
-            &self.historic_sample_request_channel,
-            blob_ids,
-            session_id,
-            block_id,
-            membership,
-        )
-        .await;
+        handle_historic_sample_request(&self.historic_sample_request_channel, block_id, blob_ids)
+            .await;
     }
 
     fn local_peer_id(&self) -> (PeerId, ProviderId) {

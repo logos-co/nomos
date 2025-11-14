@@ -22,5 +22,8 @@ witness-generator = { workspace = true }
 
 [dev-dependencies]
 
+[build-dependencies]
+circuits-utils = { workspace = true }
+
 [lints]
 workspace = true

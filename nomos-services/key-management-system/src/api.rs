@@ -7,8 +7,10 @@ use overwatch::{
 use tokio::sync::oneshot;
 
 use crate::{
-    KMSMessage, KMSOperatorKey, KMSService, KMSSigningStrategy, backend::KMSBackend,
+    KMSMessage, KMSService,
+    backend::KMSBackend,
     keys::secured_key::SecuredKey,
+    message::{KMSOperatorBackend, KMSSigningStrategy},
 };
 
 type KeyDescriptor<Backend> = (
@@ -22,10 +24,7 @@ pub trait KmsServiceData: ServiceData<Message = KMSMessage<Self::Backend>> {
 
 impl<B, RuntimeServiceId> KmsServiceData for KMSService<B, RuntimeServiceId>
 where
-    B: KMSBackend + 'static,
-    B::KeyId: Debug,
-    B::Key: Debug,
-    B::Settings: Clone,
+    B: KMSBackend<KeyId: Debug, Key: Debug, Settings: Clone> + 'static,
 {
     type Backend = B;
 }
@@ -38,14 +37,25 @@ where
     _id: std::marker::PhantomData<RuntimeServiceId>,
 }
 
+impl<Kms, RuntimeServiceId> Clone for KmsServiceApi<Kms, RuntimeServiceId>
+where
+    Kms: KmsServiceData,
+{
+    fn clone(&self) -> Self {
+        Self {
+            relay: self.relay.clone(),
+            _id: std::marker::PhantomData,
+        }
+    }
+}
+
+type KmsBackendKey<Kms> = <<Kms as KmsServiceData>::Backend as KMSBackend>::Key;
+
 impl<Kms, RuntimeServiceId> KmsServiceApi<Kms, RuntimeServiceId>
 where
     Kms: KmsServiceData,
-    <Kms::Backend as KMSBackend>::KeyId: Send,
-    <Kms::Backend as KMSBackend>::Key: Send,
-    <<Kms::Backend as KMSBackend>::Key as SecuredKey>::Payload: Send,
-    <<Kms::Backend as KMSBackend>::Key as SecuredKey>::PublicKey: Send,
-    <<Kms::Backend as KMSBackend>::Key as SecuredKey>::Signature: Send,
+    Kms::Backend: KMSBackend<KeyId: Send, Key: Send, Error: Send>,
+    KmsBackendKey<Kms>: SecuredKey<Payload: Send, PublicKey: Send, Signature: Send>,
     RuntimeServiceId: AsServiceId<Kms> + Debug + Display + Sync,
 {
     #[must_use]
@@ -72,7 +82,10 @@ where
             .await
             .map_err(|_| "Failed to send register request")?;
 
-        Ok(rx.await?)
+        Ok(rx
+            .await
+            .map_err(|_| "Failed to receive register response")?
+            .map_err(|_| "Failed to register key.")?)
     }
 
     pub async fn public_key(
@@ -89,7 +102,10 @@ where
             .await
             .map_err(|_| "Failed to send public_key request")?;
 
-        Ok(rx.await?)
+        Ok(rx
+            .await
+            .map_err(|_| "Failed to receive public key response")?
+            .map_err(|_| "Failed to get public key.")?)
     }
 
     pub async fn sign(
@@ -108,7 +124,10 @@ where
             .await
             .map_err(|_| "Failed to send sign request")?;
 
-        Ok(rx.await?)
+        Ok(rx
+            .await
+            .map_err(|_| "Failed to receive sign response")?
+            .map_err(|_| "Failed to get signature.")?)
     }
 
     pub async fn sign_multiple(
@@ -127,16 +146,16 @@ where
             .await
             .map_err(|_| "Failed to send sign_multiple request")?;
 
-        Ok(rx.await?)
+        Ok(rx
+            .await
+            .map_err(|_| "Failed to receive sign_multiple response")?
+            .map_err(|_| "Failed to get multiple signature.")?)
     }
 
     pub async fn execute(
         &self,
         key_id: <Kms::Backend as KMSBackend>::KeyId,
-        operator: KMSOperatorKey<
-            <Kms::Backend as KMSBackend>::Key,
-            <Kms::Backend as KMSBackend>::Error,
-        >,
+        operator: KMSOperatorBackend<Kms::Backend>,
     ) -> Result<(), DynError> {
         self.relay
             .send(KMSMessage::Execute { key_id, operator })

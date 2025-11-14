@@ -20,7 +20,7 @@ mod serde;
 #[cfg(test)]
 mod tests;
 
-#[cfg(feature = "unsafe-test-functions")]
+#[cfg(any(test, feature = "unsafe-test-functions"))]
 pub mod fixtures;
 
 const KEY_NULLIFIER_SIZE: usize = size_of::<ZkHash>();
@@ -41,7 +41,7 @@ pub struct ProofOfQuota {
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("Invalid input: {0}.")]
-    InvalidInput(#[from] Box<dyn core::error::Error>),
+    InvalidInput(#[from] Box<dyn core::error::Error + Send + Sync>),
     #[error("Proof generation failed: {0}.")]
     ProofGeneration(#[from] ProveError),
     #[error("Invalid proof")]

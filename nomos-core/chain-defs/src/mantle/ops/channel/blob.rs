@@ -1,4 +1,4 @@
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
@@ -7,7 +7,10 @@ pub(crate) const DA_ELEMENT_SIZE: u64 = 32;
 
 use super::{ChannelId, Ed25519PublicKey, MsgId};
 use crate::{
-    crypto::Digest as _, da::BlobId, mantle::gas::Gas, sdp::SessionNumber,
+    crypto::Digest as _,
+    da::BlobId,
+    mantle::{encoding::encode_channel_blob, gas::Gas},
+    sdp::SessionNumber,
     utils::ed25519_serde::Ed25519Hex,
 };
 
@@ -33,15 +36,7 @@ impl BlobOp {
     }
 
     #[must_use]
-    pub fn payload_bytes(&self) -> Bytes {
-        let mut buff = BytesMut::new();
-        buff.extend_from_slice(self.channel.as_ref());
-        buff.extend_from_slice(self.session.to_le_bytes().as_ref());
-        buff.extend_from_slice(self.blob.as_ref());
-        buff.extend_from_slice(self.blob_size.to_le_bytes().as_ref());
-        buff.extend_from_slice(self.da_storage_gas_price.to_le_bytes().as_ref());
-        buff.extend_from_slice(self.parent.as_ref());
-        buff.extend_from_slice(self.signer.as_ref());
-        buff.freeze()
+    fn payload_bytes(&self) -> Bytes {
+        encode_channel_blob(self).into()
     }
 }

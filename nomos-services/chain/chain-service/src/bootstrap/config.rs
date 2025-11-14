@@ -2,7 +2,6 @@ use std::{collections::HashSet, hash::Hash, time::Duration};
 
 use nomos_utils::bounded_duration::{MinimalBoundedDuration, SECOND};
 use serde::{Deserialize, Serialize};
-use serde_with::serde_as;
 
 #[serde_with::serde_as]
 #[derive(Debug, Clone, Deserialize, Serialize)]

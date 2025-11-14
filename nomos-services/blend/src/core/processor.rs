@@ -5,15 +5,17 @@ use std::{
 };
 
 use nomos_blend_message::{
-    crypto::proofs::{
-        PoQVerificationInputsMinusSigningKey, quota::inputs::prove::private::ProofOfCoreQuotaInputs,
-    },
-    encap::ProofsVerifier as ProofsVerifierTrait,
+    Error as InnerError,
+    crypto::proofs::PoQVerificationInputsMinusSigningKey,
+    encap::{ProofsVerifier as ProofsVerifierTrait, decapsulated::DecapsulatedMessage},
+    reward::BlendingToken,
 };
 use nomos_blend_scheduling::{
+    DecapsulationOutput, EncapsulatedMessage,
     membership::Membership,
     message_blend::{
         crypto::{
+            IncomingEncapsulatedMessageWithValidatedPublicHeader,
             SessionCryptographicProcessorSettings,
             core_and_leader::send_and_receive::SessionCryptographicProcessor,
         },
@@ -21,14 +23,14 @@ use nomos_blend_scheduling::{
     },
 };
 
-pub struct CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>(
-    SessionCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>,
+pub struct CoreCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>(
+    SessionCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>,
 );
 
-impl<NodeId, ProofsGenerator, ProofsVerifier>
-    CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
+impl<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>
+    CoreCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>
 where
-    ProofsGenerator: CoreAndLeaderProofsGenerator,
+    ProofsGenerator: CoreAndLeaderProofsGenerator<CorePoQGenerator>,
     ProofsVerifier: ProofsVerifierTrait,
 {
     pub fn try_new_with_core_condition_check(
@@ -36,7 +38,7 @@ where
         minimum_network_size: NonZeroU64,
         settings: &SessionCryptographicProcessorSettings,
         public_info: PoQVerificationInputsMinusSigningKey,
-        private_core_info: ProofOfCoreQuotaInputs,
+        core_proof_of_quota_generator: CorePoQGenerator,
     ) -> Result<Self, Error>
     where
         NodeId: Eq + Hash,
@@ -50,7 +52,7 @@ where
                 membership,
                 settings,
                 public_info,
-                private_core_info,
+                core_proof_of_quota_generator,
             ))
         }
     }
@@ -59,29 +61,130 @@ where
         membership: Membership<NodeId>,
         settings: &SessionCryptographicProcessorSettings,
         public_info: PoQVerificationInputsMinusSigningKey,
-        private_core_info: ProofOfCoreQuotaInputs,
+        core_proof_of_quota_generator: CorePoQGenerator,
     ) -> Self {
         Self(SessionCryptographicProcessor::new(
             settings,
             membership,
             public_info,
-            private_core_info,
+            core_proof_of_quota_generator,
         ))
     }
 }
 
-impl<NodeId, ProofsGenerator, ProofsVerifier> Deref
-    for CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
+/// The output of a multi-layer decapsulation operation.
+#[derive(Debug)]
+pub struct MultiLayerDecapsulationOutput {
+    /// The blending token collected on the way, one per decapsulated layer.
+    blending_tokens: Vec<BlendingToken>,
+    /// The final message type.
+    decapsulated_message: DecapsulatedMessageType,
+}
+
+impl MultiLayerDecapsulationOutput {
+    pub fn into_components(self) -> (Vec<BlendingToken>, DecapsulatedMessageType) {
+        (self.blending_tokens, self.decapsulated_message)
+    }
+}
+
+/// The final message type of a multi-layer decapsulation operation.
+#[derive(Debug)]
+pub enum DecapsulatedMessageType {
+    /// The remainder of the message still needs to be decapsulated by some
+    /// other node.
+    Incompleted(Box<EncapsulatedMessage>),
+    /// The message was fully decapsulated, as all the remaining encapsulations
+    /// were addressed to this node.
+    Completed(DecapsulatedMessage),
+}
+
+impl From<DecapsulationOutput> for DecapsulatedMessageType {
+    fn from(value: DecapsulationOutput) -> Self {
+        match value {
+            DecapsulationOutput::Completed {
+                fully_decapsulated_message,
+                ..
+            } => Self::Completed(fully_decapsulated_message),
+            DecapsulationOutput::Incompleted {
+                remaining_encapsulated_message,
+                ..
+            } => Self::Incompleted(Box::new(remaining_encapsulated_message)),
+        }
+    }
+}
+
+impl<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>
+    CoreCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>
+where
+    ProofsVerifier: ProofsVerifierTrait,
 {
-    type Target = SessionCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>;
+    /// Semantically similar to the underlying
+    /// [`SessionCryptographicProcessor::decapsulate_message`], but it does not
+    /// stop after decapsulating the outermost layer. It stops only when a layer
+    /// cannot be decapsulated or when the decapsulation is completed.
+    ///
+    /// If no layer (`Err`) or at most one layer (`Ok`) can be decapsulated,
+    /// this is semantically equivalent to
+    /// calling [`SessionCryptographicProcessor::decapsulate_message`].
+    ///
+    /// If more than a single layer can be decapsulated, then the decapsulation
+    /// happens recursively until the first layer that cannot be decapsulated is
+    /// found or when there is no more layers to decapsulate. In either case, it
+    /// returns the last processed layer, along with the list of blending tokens
+    /// collected along the way.
+    pub fn decapsulate_message_recursive(
+        &self,
+        message: IncomingEncapsulatedMessageWithValidatedPublicHeader,
+    ) -> Result<MultiLayerDecapsulationOutput, InnerError> {
+        let mut decapsulation_output = self.0.decapsulate_message(message)?;
+
+        let mut collected_blending_tokens = Vec::new();
+
+        loop {
+            match &decapsulation_output {
+                // We reached the end. Collect token and stop.
+                DecapsulationOutput::Completed { blending_token, .. } => {
+                    collected_blending_tokens.push(blending_token.clone());
+                    break;
+                }
+                // One or more layers to decapsulate. Collect token from current layer and attempt
+                // one more decapsulation.
+                DecapsulationOutput::Incompleted {
+                    remaining_encapsulated_message,
+                    blending_token,
+                } => {
+                    collected_blending_tokens.push(blending_token.clone());
+                    let Ok(nested_layer_decapsulation_output) = self
+                        .0
+                        .decapsulate_message(IncomingEncapsulatedMessageWithValidatedPublicHeader::from_message_unchecked(remaining_encapsulated_message.clone()))
+                    else {
+                        break;
+                    };
+                    decapsulation_output = nested_layer_decapsulation_output;
+                }
+            }
+        }
+
+        Ok(MultiLayerDecapsulationOutput {
+            blending_tokens: collected_blending_tokens,
+            decapsulated_message: decapsulation_output.into(),
+        })
+    }
+}
+
+impl<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier> Deref
+    for CoreCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>
+{
+    type Target =
+        SessionCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl<NodeId, ProofsGenerator, ProofsVerifier> DerefMut
-    for CoreCryptographicProcessor<NodeId, ProofsGenerator, ProofsVerifier>
+impl<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier> DerefMut
+    for CoreCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
@@ -98,15 +201,36 @@ pub enum Error {
 
 #[cfg(test)]
 mod tests {
-    use nomos_blend_message::crypto::proofs::quota::inputs::prove::public::{
-        CoreInputs, LeaderInputs,
+    use core::num::NonZeroU64;
+
+    use nomos_blend_message::{
+        Error as InnerError, PayloadType,
+        crypto::{
+            keys::{Ed25519PrivateKey, Ed25519PublicKey},
+            proofs::{
+                PoQVerificationInputsMinusSigningKey,
+                quota::{
+                    ProofOfQuota,
+                    inputs::prove::public::{CoreInputs, LeaderInputs},
+                },
+                selection::{self, ProofOfSelection},
+            },
+        },
+        encap::validated::IncomingEncapsulatedMessageWithValidatedPublicHeader,
+        input::EncapsulationInput,
+    };
+    use nomos_blend_scheduling::{
+        EncapsulatedMessage,
+        message_blend::crypto::{EncapsulationInputs, SessionCryptographicProcessorSettings},
     };
     use nomos_core::crypto::ZkHash;
 
-    use super::*;
-    use crate::test_utils::{
-        crypto::{MockCoreAndLeaderProofsGenerator, MockProofsVerifier},
-        membership::{key, membership},
+    use crate::{
+        core::processor::{CoreCryptographicProcessor, DecapsulatedMessageType, Error},
+        test_utils::{
+            crypto::{MockCoreAndLeaderProofsGenerator, MockProofsVerifier, StaticFetchVerifier},
+            membership::{key, membership},
+        },
     };
 
     fn mock_verification_inputs() -> PoQVerificationInputsMinusSigningKey {
@@ -127,25 +251,16 @@ mod tests {
         }
     }
 
-    fn mock_core_poq_inputs() -> ProofOfCoreQuotaInputs {
-        use groth16::Field as _;
-
-        ProofOfCoreQuotaInputs {
-            core_sk: ZkHash::ZERO,
-            core_path_and_selectors: [(ZkHash::ZERO, false); _],
-        }
-    }
-
     #[test]
     fn try_new_with_valid_membership() {
         let local_id = NodeId(1);
         let core_nodes = [NodeId(1)];
-        CoreCryptographicProcessor::<_, MockCoreAndLeaderProofsGenerator, MockProofsVerifier>::try_new_with_core_condition_check(
+        CoreCryptographicProcessor::<_, _, MockCoreAndLeaderProofsGenerator, MockProofsVerifier>::try_new_with_core_condition_check(
             membership(&core_nodes, local_id),
             NonZeroU64::new(1).unwrap(),
             &settings(local_id),
             mock_verification_inputs(),
-            mock_core_poq_inputs()
+            ()
         )
         .unwrap();
     }
@@ -156,6 +271,7 @@ mod tests {
         let core_nodes = [NodeId(1)];
         let result = CoreCryptographicProcessor::<
             _,
+            _,
             MockCoreAndLeaderProofsGenerator,
             MockProofsVerifier,
         >::try_new_with_core_condition_check(
@@ -163,7 +279,7 @@ mod tests {
             NonZeroU64::new(2).unwrap(),
             &settings(local_id),
             mock_verification_inputs(),
-            mock_core_poq_inputs(),
+            (),
         );
         assert!(matches!(result, Err(Error::NetworkIsTooSmall(1))));
     }
@@ -174,6 +290,7 @@ mod tests {
         let core_nodes = [NodeId(2)];
         let result = CoreCryptographicProcessor::<
             _,
+            _,
             MockCoreAndLeaderProofsGenerator,
             MockProofsVerifier,
         >::try_new_with_core_condition_check(
@@ -181,9 +298,175 @@ mod tests {
             NonZeroU64::new(1).unwrap(),
             &settings(local_id),
             mock_verification_inputs(),
-            mock_core_poq_inputs(),
+            (),
         );
         assert!(matches!(result, Err(Error::LocalIsNotCoreNode)));
+    }
+
+    #[test]
+    fn decapsulate_recursive_top_level_failure() {
+        let local_id = NodeId(1);
+        let membership = membership(&[local_id], local_id);
+        let mock_message = {
+            let node_key = &membership
+                .get_node_at(membership.local_index().unwrap())
+                .unwrap()
+                .public_key;
+            mock_message(node_key)
+        };
+        let processor = CoreCryptographicProcessor::<
+            _,
+            _,
+            MockCoreAndLeaderProofsGenerator,
+            StaticFetchVerifier,
+        >::new(
+            membership,
+            &settings(local_id),
+            mock_verification_inputs(),
+            (),
+        );
+        assert!(matches!(
+            processor.decapsulate_message_recursive(
+                IncomingEncapsulatedMessageWithValidatedPublicHeader::from_message_unchecked(
+                    mock_message
+                )
+            ),
+            Err(InnerError::ProofOfSelectionVerificationFailed(
+                selection::Error::Verification
+            ))
+        ));
+    }
+
+    #[test]
+    fn decapsulate_recursive_one_layer() {
+        let local_id = NodeId(1);
+        let membership = membership(&[local_id], local_id);
+        let mock_message = {
+            let node_key = &membership
+                .get_node_at(membership.local_index().unwrap())
+                .unwrap()
+                .public_key;
+            mock_message(node_key)
+        };
+        let processor = CoreCryptographicProcessor::<
+            _,
+            _,
+            MockCoreAndLeaderProofsGenerator,
+            StaticFetchVerifier,
+        >::new(
+            membership,
+            &settings(local_id),
+            mock_verification_inputs(),
+            (),
+        );
+        StaticFetchVerifier::set_remaining_valid_poq_proofs(1);
+        let decapsulation_output = processor
+            .decapsulate_message_recursive(
+                IncomingEncapsulatedMessageWithValidatedPublicHeader::from_message_unchecked(
+                    mock_message,
+                ),
+            )
+            .unwrap();
+        let (blending_tokens, remaining_message_type) = decapsulation_output.into_components();
+        assert_eq!(blending_tokens.len(), 1);
+        assert!(matches!(
+            remaining_message_type,
+            DecapsulatedMessageType::Incompleted(_)
+        ));
+    }
+
+    #[test]
+    fn decapsulate_recursive_two_layers() {
+        let local_id = NodeId(1);
+        let membership = membership(&[local_id], local_id);
+        let mock_message = {
+            let node_key = &membership
+                .get_node_at(membership.local_index().unwrap())
+                .unwrap()
+                .public_key;
+            mock_message(node_key)
+        };
+        let processor = CoreCryptographicProcessor::<
+            _,
+            _,
+            MockCoreAndLeaderProofsGenerator,
+            StaticFetchVerifier,
+        >::new(
+            membership,
+            &settings(local_id),
+            mock_verification_inputs(),
+            (),
+        );
+        StaticFetchVerifier::set_remaining_valid_poq_proofs(2);
+        let decapsulation_output = processor
+            .decapsulate_message_recursive(
+                IncomingEncapsulatedMessageWithValidatedPublicHeader::from_message_unchecked(
+                    mock_message,
+                ),
+            )
+            .unwrap();
+        let (blending_tokens, remaining_message_type) = decapsulation_output.into_components();
+        assert_eq!(blending_tokens.len(), 2);
+        assert!(matches!(
+            remaining_message_type,
+            DecapsulatedMessageType::Incompleted(_)
+        ));
+    }
+
+    #[test]
+    fn decapsulate_recursive_all_layers() {
+        let local_id = NodeId(1);
+        let membership = membership(&[local_id], local_id);
+        let mock_message = {
+            let node_key = &membership
+                .get_node_at(membership.local_index().unwrap())
+                .unwrap()
+                .public_key;
+            mock_message(node_key)
+        };
+        let processor = CoreCryptographicProcessor::<
+            _,
+            _,
+            MockCoreAndLeaderProofsGenerator,
+            StaticFetchVerifier,
+        >::new(
+            membership,
+            &settings(local_id),
+            mock_verification_inputs(),
+            (),
+        );
+        StaticFetchVerifier::set_remaining_valid_poq_proofs(3);
+        let decapsulation_output = processor
+            .decapsulate_message_recursive(
+                IncomingEncapsulatedMessageWithValidatedPublicHeader::from_message_unchecked(
+                    mock_message,
+                ),
+            )
+            .unwrap();
+        let (blending_tokens, remaining_message_type) = decapsulation_output.into_components();
+        assert_eq!(blending_tokens.len(), 3);
+        assert!(matches!(
+            remaining_message_type,
+            DecapsulatedMessageType::Completed(_)
+        ));
+    }
+
+    fn mock_message(recipient_signing_pubkey: &Ed25519PublicKey) -> EncapsulatedMessage {
+        let inputs = EncapsulationInputs::new(
+            std::iter::repeat_with(|| {
+                EncapsulationInput::new(
+                    Ed25519PrivateKey::generate(),
+                    recipient_signing_pubkey,
+                    ProofOfQuota::from_bytes_unchecked([0; _]),
+                    ProofOfSelection::from_bytes_unchecked([0; _]),
+                )
+            })
+            .take(3)
+            .collect::<Vec<_>>()
+            .into_boxed_slice(),
+        )
+        .unwrap();
+        EncapsulatedMessage::new(&inputs, PayloadType::Cover, b"").unwrap()
     }
 
     fn settings(local_id: NodeId) -> SessionCryptographicProcessorSettings {

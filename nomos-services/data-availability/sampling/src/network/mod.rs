@@ -1,6 +1,6 @@
 pub mod adapters;
 
-use std::{collections::HashSet, pin::Pin};
+use std::{collections::HashMap, pin::Pin};
 
 use futures::Stream;
 use nomos_core::{da::BlobId, header::HeaderId, sdp::SessionNumber};
@@ -43,20 +43,27 @@ pub trait NetworkAdapter<RuntimeServiceId> {
         >,
     ) -> Self;
 
-    async fn start_sampling(&mut self, blob_id: BlobId) -> Result<(), DynError>;
+    async fn start_sampling(
+        &mut self,
+        blob_id: BlobId,
+        session: SessionNumber,
+    ) -> Result<(), DynError>;
 
     async fn request_historic_sampling(
         &self,
-        session_id: SessionNumber,
         block_id: HeaderId,
-        blob_ids: HashSet<BlobId>,
+        blob_ids: HashMap<BlobId, SessionNumber>,
     ) -> Result<(), DynError>;
 
     async fn listen_to_sampling_messages(
         &self,
     ) -> Result<Pin<Box<dyn Stream<Item = SamplingEvent> + Send>>, DynError>;
 
-    async fn request_commitments(&self, blob_id: BlobId) -> Result<(), DynError>;
+    async fn request_commitments(
+        &self,
+        blob_id: BlobId,
+        session: SessionNumber,
+    ) -> Result<(), DynError>;
 
     async fn listen_to_commitments_messages(
         &self,

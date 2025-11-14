@@ -1,4 +1,9 @@
-use std::{collections::HashSet, fmt::Debug, sync::Arc};
+use std::{
+    collections::HashSet,
+    fmt::Debug,
+    hash::{Hash, Hasher},
+    sync::Arc,
+};
 
 use arc_swap::ArcSwap;
 use subnetworks_assignations::{MembershipHandler, SubnetworkAssignations};
@@ -113,5 +118,25 @@ where
 
     fn session_id(&self) -> nomos_core::sdp::SessionNumber {
         self.membership.session_id()
+    }
+}
+
+impl<Membership> PartialEq for SharedMembershipHandler<Membership>
+where
+    Membership: MembershipHandler,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.membership.session_id() == other.membership.session_id()
+    }
+}
+
+impl<Membership> Eq for SharedMembershipHandler<Membership> where Membership: MembershipHandler {}
+
+impl<Membership> Hash for SharedMembershipHandler<Membership>
+where
+    Membership: MembershipHandler,
+{
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.membership.session_id().hash(state);
     }
 }

@@ -1,6 +1,6 @@
 use core::num::NonZeroUsize;
 
-use libp2p::PeerId;
+use libp2p::{PeerId, identity::Keypair};
 use nomos_blend_scheduling::membership::Membership;
 use nomos_utils::blake_rng::BlakeRng;
 use rand::SeedableRng as _;
@@ -38,6 +38,7 @@ impl SwarmBuilder {
         let (command_sender, command_receiver) = mpsc::channel(100);
 
         let swarm = BlendSwarm::new_test(
+            &Keypair::generate_ed25519(),
             self.membership,
             command_receiver,
             3u64.try_into().unwrap(),

@@ -1,11 +1,4 @@
-pub mod api;
-pub mod backend;
-pub mod keys;
-
-use std::{
-    fmt::{Debug, Display},
-    pin::Pin,
-};
+use std::fmt::{Debug, Display};
 
 use log::error;
 use overwatch::{
@@ -15,69 +8,17 @@ use overwatch::{
         state::{NoOperator, NoState},
     },
 };
-use tokio::sync::oneshot;
 
-use crate::{backend::KMSBackend, keys::secured_key::SecuredKey};
+use crate::{
+    backend::KMSBackend,
+    keys::secured_key::SecuredKey,
+    message::{KMSMessage, KMSSigningStrategy},
+};
 
-// TODO: Use [`AsyncFnMut`](https://doc.rust-lang.org/stable/std/ops/trait.AsyncFnMut.html#tymethod.async_call_mut) once it is stabilized.
-pub type KMSOperator<Payload, Signature, PublicKey, KeyError, OperatorError> = Box<
-    dyn FnMut(
-            &dyn SecuredKey<
-                Payload = Payload,
-                Signature = Signature,
-                PublicKey = PublicKey,
-                Error = KeyError,
-            >,
-        ) -> Pin<Box<dyn Future<Output = Result<(), OperatorError>> + Send + Sync>>
-        + Send
-        + Sync,
->;
-
-pub type KMSOperatorKey<Key, OperatorError> = KMSOperator<
-    <Key as SecuredKey>::Payload,
-    <Key as SecuredKey>::Signature,
-    <Key as SecuredKey>::PublicKey,
-    <Key as SecuredKey>::Error,
-    OperatorError,
->;
-
-pub type KMSOperatorBackend<Backend> =
-    KMSOperatorKey<<Backend as KMSBackend>::Key, <Backend as KMSBackend>::Error>;
-
-type KeyDescriptor<Backend> = (
-    <Backend as KMSBackend>::KeyId,
-    <<Backend as KMSBackend>::Key as SecuredKey>::PublicKey,
-);
-
-#[derive(Debug)]
-pub enum KMSSigningStrategy<KeyId> {
-    Single(KeyId),
-    Multi(Vec<KeyId>),
-}
-
-pub enum KMSMessage<Backend>
-where
-    Backend: KMSBackend,
-{
-    Register {
-        key_id: Backend::KeyId,
-        key_type: Backend::Key,
-        reply_channel: oneshot::Sender<KeyDescriptor<Backend>>,
-    },
-    PublicKey {
-        key_id: Backend::KeyId,
-        reply_channel: oneshot::Sender<<Backend::Key as SecuredKey>::PublicKey>,
-    },
-    Sign {
-        signing_strategy: KMSSigningStrategy<Backend::KeyId>,
-        payload: <Backend::Key as SecuredKey>::Payload,
-        reply_channel: oneshot::Sender<<Backend::Key as SecuredKey>::Signature>,
-    },
-    Execute {
-        key_id: Backend::KeyId,
-        operator: KMSOperatorKey<Backend::Key, <Backend as KMSBackend>::Error>,
-    },
-}
+pub mod api;
+pub mod backend;
+pub mod keys;
+pub mod message;
 
 pub struct KMSService<Backend, RuntimeServiceId>
 where
@@ -172,24 +113,24 @@ where
                 key_type,
                 reply_channel,
             } => {
-                let Ok(key_id) = backend.register(key_id, key_type) else {
-                    panic!("A key could not be registered");
-                };
-                let Ok(key_public_key) = backend.public_key(key_id.clone()) else {
-                    panic!("Requested public key for nonexistent KeyId");
-                };
-                if let Err(_key_descriptor) = reply_channel.send((key_id, key_public_key)) {
-                    error!("Could not reply key_id for register request");
+                if let Err(e) = backend.register(&key_id, key_type) {
+                    if reply_channel.send(Err(e)).is_err() {
+                        error!("Could not send backend key registration error to caller.");
+                    }
+                    return;
+                }
+
+                let pk_bytes_result = backend.public_key(&key_id).map(|pk| (key_id.clone(), pk));
+                if reply_channel.send(pk_bytes_result).is_err() {
+                    error!("Could not reply to the public key request channel");
                 }
             }
             KMSMessage::PublicKey {
                 key_id,
                 reply_channel,
             } => {
-                let Ok(pk_bytes) = backend.public_key(key_id) else {
-                    panic!("Requested public key for nonexistent KeyId");
-                };
-                if let Err(_pk_bytes) = reply_channel.send(pk_bytes) {
+                let pk_bytes_result = backend.public_key(&key_id);
+                if reply_channel.send(pk_bytes_result).is_err() {
                     error!("Could not reply to the public key request channel");
                 }
             }
@@ -198,21 +139,20 @@ where
                 payload,
                 reply_channel,
             } => {
-                let signature = match signing_strategy {
-                    KMSSigningStrategy::Single(key) => backend.sign(key, payload),
-                    KMSSigningStrategy::Multi(keys) => backend.sign_multiple(keys, payload),
-                }
-                .expect("Could not sign.");
-
-                if let Err(_signature) = reply_channel.send(signature) {
+                let signature_result = match signing_strategy {
+                    KMSSigningStrategy::Single(key) => backend.sign(&key, payload),
+                    KMSSigningStrategy::Multi(keys) => {
+                        backend.sign_multiple(keys.as_slice(), payload)
+                    }
+                };
+                if reply_channel.send(signature_result).is_err() {
                     error!("Could not reply to the public key request channel");
                 }
             }
             KMSMessage::Execute { key_id, operator } => {
-                backend
-                    .execute(key_id, operator)
-                    .await
-                    .expect("Could not execute operator");
+                let _ = backend.execute(&key_id, operator).await.inspect_err(|e| {
+                    error!("Failed to execute operator with key ID {key_id:?}. Error: {e:?}");
+                });
             }
         }
     }

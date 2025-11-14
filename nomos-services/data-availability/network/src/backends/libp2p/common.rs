@@ -544,27 +544,24 @@ async fn handle_incoming_commitments_request(
 }
 
 pub(crate) async fn handle_sample_request(
-    sampling_request_channel: &UnboundedSender<BlobId>,
+    sampling_request_channel: &UnboundedSender<(BlobId, SessionNumber)>,
     blob_id: BlobId,
+    session: SessionNumber,
 ) {
-    if let Err(SendError(blob_id)) = sampling_request_channel.send(blob_id) {
+    if let Err(SendError(blob_id)) = sampling_request_channel.send((blob_id, session)) {
         error!("Error requesting samples for blob_id: {blob_id:?}");
     }
 }
 
 pub(crate) async fn handle_historic_sample_request<Membership>(
     historic_sample_request_channel: &UnboundedSender<SampleArgs<Membership>>,
-    blob_ids: HashSet<BlobId>,
-    session_id: SessionNumber,
     block_id: HeaderId,
-    membership: Membership,
+    blob_ids: HashMap<Membership, HashSet<BlobId>>,
 ) {
-    if let Err(SendError((blob_id, block_id, _))) =
-        historic_sample_request_channel.send((blob_ids, block_id, membership))
+    if let Err(SendError((block_id, _))) =
+        historic_sample_request_channel.send((block_id, blob_ids))
     {
-        error!(
-            "Error requesting historic sample for blob_id: {blob_id:?}, session_id: {session_id:?}, block_id: {block_id:?}"
-        );
+        error!("Error requesting historic sample for block_id: {block_id:?}");
     }
 }
 

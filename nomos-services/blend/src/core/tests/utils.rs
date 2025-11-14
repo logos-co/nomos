@@ -1,21 +1,51 @@
-use std::{num::NonZeroU64, pin::Pin, sync::Arc};
+use std::{num::NonZeroU64, pin::Pin, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use futures::Stream;
-use nomos_blend_message::crypto::keys::Ed25519PrivateKey;
+use groth16::Field as _;
+use nomos_blend_message::{
+    crypto::{
+        keys::{Ed25519PrivateKey, Ed25519PublicKey},
+        proofs::{
+            PoQVerificationInputsMinusSigningKey,
+            quota::{
+                ProofOfQuota,
+                inputs::prove::{
+                    private::ProofOfLeadershipQuotaInputs,
+                    public::{CoreInputs, LeaderInputs},
+                },
+            },
+            selection::{ProofOfSelection, inputs::VerifyInputs},
+        },
+    },
+    encap::ProofsVerifier,
+    reward::{self, SessionBlendingTokenCollector, SessionRandomness},
+};
 use nomos_blend_scheduling::{
     EncapsulatedMessage,
     membership::Membership,
-    message_blend::crypto::{
-        IncomingEncapsulatedMessageWithValidatedPublicHeader, SessionCryptographicProcessorSettings,
+    message_blend::{
+        crypto::{
+            IncomingEncapsulatedMessageWithValidatedPublicHeader,
+            SessionCryptographicProcessorSettings,
+        },
+        provers::{
+            BlendLayerProof, ProofsGeneratorSettings, core_and_leader::CoreAndLeaderProofsGenerator,
+        },
+    },
+    message_scheduler::{
+        self, MessageScheduler, ProcessedMessageScheduler,
+        session_info::SessionInfo as SchedulerSessionInfo,
     },
 };
-use nomos_core::mantle::keys::SecretKey;
+use nomos_core::{crypto::ZkHash, sdp::SessionNumber};
 use nomos_network::{NetworkService, backends::NetworkBackend};
+use nomos_utils::math::NonNegativeF64;
 use overwatch::{
     overwatch::{OverwatchHandle, commands::OverwatchCommand},
     services::{ServiceData, relay::OutboundRelay, state::StateUpdater},
 };
+use poq::CorePathAndSelectors;
 use tempfile::NamedTempFile;
 use tokio::sync::{
     broadcast::{self},
@@ -26,7 +56,9 @@ use tokio_stream::wrappers::{BroadcastStream, ReceiverStream};
 use crate::{
     core::{
         backends::{BlendBackend, EpochInfo, PublicInfo, SessionInfo},
+        kms::KmsPoQAdapter,
         network::NetworkAdapter,
+        processor::CoreCryptographicProcessor,
         settings::{
             BlendConfig, CoverTrafficSettings, MessageDelayerSettings, SchedulerSettings,
             ZkSettings,
@@ -59,7 +91,6 @@ pub fn settings<BackendSettings>(
     local_private_key: Ed25519PrivateKey,
     minimum_network_size: NonZeroU64,
     backend_settings: BackendSettings,
-    timing_settings: TimingSettings,
 ) -> (BlendConfig<BackendSettings>, NamedTempFile) {
     let recovery_file = NamedTempFile::new().unwrap();
     let settings = BlendConfig {
@@ -77,9 +108,16 @@ pub fn settings<BackendSettings>(
                 maximum_release_delay_in_rounds: 1.try_into().unwrap(),
             },
         },
-        time: timing_settings,
+        time: TimingSettings {
+            rounds_per_session: 10.try_into().unwrap(),
+            rounds_per_interval: 5.try_into().unwrap(),
+            round_duration: Duration::from_secs(1),
+            rounds_per_observation_window: 5.try_into().unwrap(),
+            rounds_per_session_transition_period: 2.try_into().unwrap(),
+            epoch_transition_period_in_slots: 1.try_into().unwrap(),
+        },
         zk: ZkSettings {
-            sk: SecretKey::zero(),
+            secret_key_kms_id: "test-key".to_owned(),
         },
         minimum_network_size,
         recovery_path: recovery_file.path().to_path_buf(),
@@ -236,4 +274,216 @@ pub fn dummy_overwatch_resources<BackendSettings, BroadcastSettings, RuntimeServ
     >::new(Arc::new(state_sender));
 
     (handle, cmd_receiver, state_updater, state_receiver)
+}
+
+pub fn new_crypto_processor<CorePoQGenerator>(
+    settings: &SessionCryptographicProcessorSettings,
+    public_info: &PublicInfo<NodeId>,
+    core_poq_generator: CorePoQGenerator,
+) -> CoreCryptographicProcessor<
+    NodeId,
+    CorePoQGenerator,
+    MockCoreAndLeaderProofsGenerator,
+    MockProofsVerifier,
+> {
+    let minimum_network_size = u64::try_from(public_info.session.membership.size())
+        .expect("membership size must fit into u64")
+        .try_into()
+        .expect("minimum_network_size must be non-zero");
+    CoreCryptographicProcessor::try_new_with_core_condition_check(
+        public_info.session.membership.clone(),
+        minimum_network_size,
+        settings,
+        PoQVerificationInputsMinusSigningKey {
+            session: public_info.session.session_number,
+            core: public_info.session.core_public_inputs,
+            leader: public_info.epoch,
+        },
+        core_poq_generator,
+    )
+    .expect("crypto processor must be created successfully")
+}
+
+pub fn new_public_info(session: u64, membership: Membership<NodeId>) -> PublicInfo<NodeId> {
+    PublicInfo {
+        session: SessionInfo {
+            session_number: session,
+            membership,
+            core_public_inputs: CoreInputs {
+                zk_root: ZkHash::ZERO,
+                quota: 10,
+            },
+        },
+        epoch: LeaderInputs {
+            pol_ledger_aged: ZkHash::ZERO,
+            pol_epoch_nonce: ZkHash::ZERO,
+            message_quota: 10,
+            total_stake: 10,
+        },
+    }
+}
+
+pub fn new_blending_token_collector(
+    public_info: &PublicInfo<NodeId>,
+    message_frequency_per_round: NonNegativeF64,
+) -> (SessionBlendingTokenCollector, SessionRandomness) {
+    let session_info = reward::SessionInfo::new(
+        public_info.session.session_number,
+        &public_info.epoch.pol_epoch_nonce,
+        public_info
+            .session
+            .membership
+            .size()
+            .try_into()
+            .expect("num_core_nodes must fit into u64"),
+        public_info.session.core_public_inputs.quota,
+        message_frequency_per_round,
+    )
+    .expect("session info must be created successfully");
+    (
+        SessionBlendingTokenCollector::new(&session_info),
+        session_info.session_randomness(),
+    )
+}
+
+pub struct MockProcessedMessageScheduler<ProcessedMessage> {
+    messages: Vec<ProcessedMessage>,
+}
+
+impl<ProcessedMessage> Default for MockProcessedMessageScheduler<ProcessedMessage> {
+    fn default() -> Self {
+        Self {
+            messages: Vec::new(),
+        }
+    }
+}
+
+impl<Rng, ProcessedMessage> MessageScheduler<Rng, ProcessedMessage, EncapsulatedMessage>
+    for MockProcessedMessageScheduler<ProcessedMessage>
+{
+    fn new(_: SchedulerSessionInfo, _: Rng, _: message_scheduler::Settings) -> Self {
+        Self::default()
+    }
+
+    fn queue_data_message(&mut self, _: EncapsulatedMessage) {
+        unimplemented!()
+    }
+}
+
+impl<ProcessedMessage> ProcessedMessageScheduler<ProcessedMessage>
+    for MockProcessedMessageScheduler<ProcessedMessage>
+{
+    fn schedule_processed_message(&mut self, message: ProcessedMessage) {
+        self.messages.push(message);
+    }
+}
+
+impl<ProcessedMessage> MockProcessedMessageScheduler<ProcessedMessage> {
+    pub fn num_scheduled_messages(&self) -> usize {
+        self.messages.len()
+    }
+}
+
+pub struct MockCoreAndLeaderProofsGenerator(SessionNumber);
+
+#[async_trait]
+impl<CorePoQGenerator> CoreAndLeaderProofsGenerator<CorePoQGenerator>
+    for MockCoreAndLeaderProofsGenerator
+{
+    fn new(
+        settings: ProofsGeneratorSettings,
+        _core_proof_of_quota_generator: CorePoQGenerator,
+    ) -> Self {
+        Self(settings.public_inputs.session)
+    }
+
+    fn rotate_epoch(&mut self, _: LeaderInputs) {}
+    fn set_epoch_private(&mut self, _: ProofOfLeadershipQuotaInputs) {}
+
+    async fn get_next_core_proof(&mut self) -> Option<BlendLayerProof> {
+        Some(session_based_dummy_proofs(self.0))
+    }
+
+    async fn get_next_leader_proof(&mut self) -> Option<BlendLayerProof> {
+        Some(session_based_dummy_proofs(self.0))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct MockProofsVerifier(SessionNumber);
+
+impl ProofsVerifier for MockProofsVerifier {
+    type Error = ();
+
+    fn new(public_inputs: PoQVerificationInputsMinusSigningKey) -> Self {
+        Self(public_inputs.session)
+    }
+
+    fn start_epoch_transition(&mut self, _new_pol_inputs: LeaderInputs) {}
+
+    fn complete_epoch_transition(&mut self) {}
+
+    fn verify_proof_of_quota(
+        &self,
+        proof: ProofOfQuota,
+        _signing_key: &Ed25519PublicKey,
+    ) -> Result<ZkHash, Self::Error> {
+        let expected_proof = session_based_dummy_proofs(self.0).proof_of_quota;
+        if proof == expected_proof {
+            Ok(ZkHash::ZERO)
+        } else {
+            Err(())
+        }
+    }
+
+    fn verify_proof_of_selection(
+        &self,
+        proof: ProofOfSelection,
+        _inputs: &VerifyInputs,
+    ) -> Result<(), Self::Error> {
+        let expected_proof = session_based_dummy_proofs(self.0).proof_of_selection;
+        if proof == expected_proof {
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
+}
+
+fn session_based_dummy_proofs(session: SessionNumber) -> BlendLayerProof {
+    let session_bytes = session.to_le_bytes();
+    BlendLayerProof {
+        proof_of_quota: ProofOfQuota::from_bytes_unchecked({
+            let mut bytes = [0u8; _];
+            bytes[..session_bytes.len()].copy_from_slice(&session_bytes);
+            bytes
+        }),
+        proof_of_selection: ProofOfSelection::from_bytes_unchecked({
+            let mut bytes = [0u8; _];
+            bytes[..session_bytes.len()].copy_from_slice(&session_bytes);
+            bytes
+        }),
+        ephemeral_signing_key: Ed25519PrivateKey::generate(),
+    }
+}
+
+impl MockProofsVerifier {
+    pub fn session_number(&self) -> SessionNumber {
+        self.0
+    }
+}
+
+pub struct MockKmsAdapter;
+
+impl<RuntimeServiceId> KmsPoQAdapter<RuntimeServiceId> for MockKmsAdapter {
+    type CorePoQGenerator = ();
+    // Required by the Blend core service.
+    type KeyId = String;
+
+    fn core_poq_generator(
+        &self,
+        _key_id: Self::KeyId,
+        _core_path_and_selectors: Box<CorePathAndSelectors>,
+    ) -> Self::CorePoQGenerator {
+    }
 }

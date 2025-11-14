@@ -15,6 +15,7 @@ workspace = true
 [dependencies]
 axum                  = { default-features = false, features = ["http1", "http2", "json", "tokio"], version = "0.7.5" }
 clap                  = { default-features = false, version = "4" }
+nomos-core            = { workspace = true }
 nomos-da-network-core = { workspace = true }
 nomos-executor        = { workspace = true }
 nomos-libp2p          = { workspace = true }

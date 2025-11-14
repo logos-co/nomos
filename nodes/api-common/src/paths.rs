@@ -21,6 +21,9 @@ pub const SDP_POST_DECLARATION: &str = "/sdp/declaration";
 pub const SDP_POST_ACTIVITY: &str = "/sdp/activity";
 pub const SDP_POST_WITHDRAWAL: &str = "/sdp/withdrawal";
 
+pub const BLOCKS: &str = "/cryptarchia/blocks";
+pub const BLOCKS_STREAM: &str = "/cryptarchia/blocks/stream";
+
 // testing paths
 pub const UPDATE_MEMBERSHIP: &str = "/test/membership/update";
 pub const DA_GET_MEMBERSHIP: &str = "/test/da/membership";

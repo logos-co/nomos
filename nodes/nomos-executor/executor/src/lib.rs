@@ -29,8 +29,8 @@ use nomos_node::Tracing;
 use nomos_node::{
     BlobInfo, DaNetworkApiAdapter, NetworkBackend, NomosDaMembership, RocksBackend, SystemSig,
     generic_services::{
-        DaMembershipAdapter, DaMembershipStorageGeneric, SamplingMempoolAdapter, SdpService,
-        SdpServiceAdapterGeneric, VerifierMempoolAdapter,
+        DaMembershipAdapter, DaMembershipStorageGeneric, SamplingMempoolAdapter,
+        SdpMempoolAdapterGeneric, SdpService, SdpServiceAdapterGeneric, VerifierMempoolAdapter,
     },
 };
 use nomos_time::backends::NtpTimeBackend;
@@ -184,6 +184,7 @@ pub(crate) type ApiService = nomos_api::ApiService<
         SdpServiceAdapterGeneric<RuntimeServiceId>,
         ApiStorageAdapter<RuntimeServiceId>,
         RocksStorageAdapter<SignedMantleTx, TxHash>,
+        SdpMempoolAdapterGeneric<RuntimeServiceId>,
     >,
     RuntimeServiceId,
 >;
