@@ -11,7 +11,7 @@ use test_log::test;
 use tokio::{select, time::sleep};
 
 use crate::core::{
-    tests::utils::TestSwarm,
+    tests::utils::{AlwaysTrueVerifier, TestSwarm},
     with_core::behaviour::{
         Event,
         tests::utils::{BehaviourBuilder, SwarmExt as _, new_nodes_with_empty_address},
@@ -20,7 +20,8 @@ use crate::core::{
 
 #[test(tokio::test)]
 async fn dialing_peer_not_supporting_blend_protocol() {
-    let mut blend_swarm = TestSwarm::new_ephemeral(|id| BehaviourBuilder::new(id).build());
+    let mut blend_swarm =
+        TestSwarm::new_ephemeral(|id| BehaviourBuilder::new(id).build::<AlwaysTrueVerifier>());
     let mut dummy_swarm = TestSwarm::new_ephemeral(|_| dummy::Behaviour);
 
     blend_swarm.listen().with_memory_addr_external().await;
@@ -52,7 +53,8 @@ async fn dialing_peer_not_supporting_blend_protocol() {
 
 #[test(tokio::test)]
 async fn listening_peer_not_supporting_blend_protocol() {
-    let mut blend_swarm = TestSwarm::new_ephemeral(|id| BehaviourBuilder::new(id).build());
+    let mut blend_swarm =
+        TestSwarm::new_ephemeral(|id| BehaviourBuilder::new(id).build::<AlwaysTrueVerifier>());
     let mut dummy_swarm = TestSwarm::new_ephemeral(|_| dummy::Behaviour);
 
     dummy_swarm.listen().with_memory_addr_external().await;
@@ -88,9 +90,10 @@ async fn incoming_connection_network_too_small() {
         BehaviourBuilder::new(id)
             // Minimum network size of 2 with one-node (local) membership.
             .with_minimum_network_size(2)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
-    let mut dialing_swarm = TestSwarm::new_ephemeral(|id| BehaviourBuilder::new(id).build());
+    let mut dialing_swarm =
+        TestSwarm::new_ephemeral(|id| BehaviourBuilder::new(id).build::<AlwaysTrueVerifier>());
 
     listening_swarm.listen().with_memory_addr_external().await;
     dialing_swarm.connect(&mut listening_swarm).await;
@@ -111,12 +114,13 @@ async fn incoming_connection_network_too_small() {
 
 #[test(tokio::test)]
 async fn outgoing_connection_network_too_small() {
-    let mut listening_swarm = TestSwarm::new_ephemeral(|id| BehaviourBuilder::new(id).build());
+    let mut listening_swarm =
+        TestSwarm::new_ephemeral(|id| BehaviourBuilder::new(id).build::<AlwaysTrueVerifier>());
     let mut dialing_swarm = TestSwarm::new_ephemeral(|id| {
         BehaviourBuilder::new(id)
             // Minimum network size of 2 with one-node (local) membership.
             .with_minimum_network_size(2)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
 
     listening_swarm.listen().with_memory_addr_external().await;
@@ -140,19 +144,25 @@ async fn outgoing_connection_network_too_small() {
 async fn incoming_attempt_with_max_negotiated_peering_degree() {
     let (mut identities, nodes) = new_nodes_with_empty_address(3);
     let mut listening_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
-        BehaviourBuilder::new(id).with_membership(&nodes).build()
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
+            .build::<AlwaysTrueVerifier>()
     });
     let mut dialer_swarm_1 = TestSwarm::new(&identities.next().unwrap(), |id| {
-        BehaviourBuilder::new(id).with_membership(&nodes).build()
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
+            .build::<AlwaysTrueVerifier>()
     });
     let mut dialer_swarm_2 = TestSwarm::new(&identities.next().unwrap(), |id| {
-        BehaviourBuilder::new(id).with_membership(&nodes).build()
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
+            .build::<AlwaysTrueVerifier>()
     });
 
     listening_swarm.listen().with_memory_addr_external().await;
 
     dialer_swarm_1
-        .connect_and_wait_for_outbound_upgrade(&mut listening_swarm)
+        .connect_and_wait_for_upgrade(&mut listening_swarm)
         .await;
 
     // We can call `connect` since a new connection will be established, but
@@ -178,13 +188,19 @@ async fn incoming_attempt_with_max_negotiated_peering_degree() {
 async fn concurrent_incoming_connections() {
     let (mut identities, nodes) = new_nodes_with_empty_address(3);
     let mut listening_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
-        BehaviourBuilder::new(id).with_membership(&nodes).build()
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
+            .build::<AlwaysTrueVerifier>()
     });
     let mut dialer_swarm_1 = TestSwarm::new(&identities.next().unwrap(), |id| {
-        BehaviourBuilder::new(id).with_membership(&nodes).build()
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
+            .build::<AlwaysTrueVerifier>()
     });
     let mut dialer_swarm_2 = TestSwarm::new(&identities.next().unwrap(), |id| {
-        BehaviourBuilder::new(id).with_membership(&nodes).build()
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
+            .build::<AlwaysTrueVerifier>()
     });
 
     let (listening_address, _) = listening_swarm.listen().await;
@@ -251,16 +267,20 @@ async fn concurrent_incoming_connections() {
 async fn incoming_attempt_with_duplicate_connection() {
     let (mut identities, nodes) = new_nodes_with_empty_address(2);
     let mut listening_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
-        BehaviourBuilder::new(id).with_membership(&nodes).build()
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
+            .build::<AlwaysTrueVerifier>()
     });
     let mut dialer_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
-        BehaviourBuilder::new(id).with_membership(&nodes).build()
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
+            .build::<AlwaysTrueVerifier>()
     });
 
     listening_swarm.listen().with_memory_addr_external().await;
 
     dialer_swarm
-        .connect_and_wait_for_outbound_upgrade(&mut listening_swarm)
+        .connect_and_wait_for_upgrade(&mut listening_swarm)
         .await;
     // This call will result in a closed connection.
     dialer_swarm.connect(&mut listening_swarm).await;
@@ -297,20 +317,26 @@ async fn incoming_attempt_with_duplicate_connection() {
 async fn outgoing_attempt_with_max_negotiated_peering_degree() {
     let (mut identities, nodes) = new_nodes_with_empty_address(3);
     let mut dialing_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
-        BehaviourBuilder::new(id).with_membership(&nodes).build()
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
+            .build::<AlwaysTrueVerifier>()
     });
     let mut listening_swarm_1 = TestSwarm::new(&identities.next().unwrap(), |id| {
-        BehaviourBuilder::new(id).with_membership(&nodes).build()
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
+            .build::<AlwaysTrueVerifier>()
     });
     let mut listening_swarm_2 = TestSwarm::new(&identities.next().unwrap(), |id| {
-        BehaviourBuilder::new(id).with_membership(&nodes).build()
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
+            .build::<AlwaysTrueVerifier>()
     });
 
     listening_swarm_1.listen().with_memory_addr_external().await;
     listening_swarm_2.listen().with_memory_addr_external().await;
 
     dialing_swarm
-        .connect_and_wait_for_outbound_upgrade(&mut listening_swarm_1)
+        .connect_and_wait_for_upgrade(&mut listening_swarm_1)
         .await;
 
     // We can call `connect` since a new connection will be established, but
@@ -336,13 +362,19 @@ async fn outgoing_attempt_with_max_negotiated_peering_degree() {
 async fn concurrent_outgoing_connections() {
     let (mut identities, nodes) = new_nodes_with_empty_address(3);
     let mut dialing_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
-        BehaviourBuilder::new(id).with_membership(&nodes).build()
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
+            .build::<AlwaysTrueVerifier>()
     });
     let mut listening_swarm_1 = TestSwarm::new(&identities.next().unwrap(), |id| {
-        BehaviourBuilder::new(id).with_membership(&nodes).build()
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
+            .build::<AlwaysTrueVerifier>()
     });
     let mut listening_swarm_2 = TestSwarm::new(&identities.next().unwrap(), |id| {
-        BehaviourBuilder::new(id).with_membership(&nodes).build()
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
+            .build::<AlwaysTrueVerifier>()
     });
 
     let (listening_address_1, _) = listening_swarm_1.listen().await;
@@ -411,16 +443,20 @@ async fn concurrent_outgoing_connections() {
 async fn outgoing_attempt_with_duplicate_connection() {
     let (mut identities, nodes) = new_nodes_with_empty_address(2);
     let mut dialer_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
-        BehaviourBuilder::new(id).with_membership(&nodes).build()
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
+            .build::<AlwaysTrueVerifier>()
     });
     let mut listening_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
-        BehaviourBuilder::new(id).with_membership(&nodes).build()
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
+            .build::<AlwaysTrueVerifier>()
     });
 
     listening_swarm.listen().with_memory_addr_external().await;
 
     dialer_swarm
-        .connect_and_wait_for_outbound_upgrade(&mut listening_swarm)
+        .connect_and_wait_for_upgrade(&mut listening_swarm)
         .await;
     // This call will result in a closed connection.
     dialer_swarm.connect(&mut listening_swarm).await;
@@ -457,10 +493,14 @@ async fn outgoing_attempt_with_duplicate_connection() {
 async fn concurrent_same_direction_connections_between_peers() {
     let (mut identities, nodes) = new_nodes_with_empty_address(2);
     let mut listening_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
-        BehaviourBuilder::new(id).with_membership(&nodes).build()
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
+            .build::<AlwaysTrueVerifier>()
     });
     let mut dialer_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
-        BehaviourBuilder::new(id).with_membership(&nodes).build()
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
+            .build::<AlwaysTrueVerifier>()
     });
 
     let (listening_address, _) = listening_swarm.listen().await;
@@ -521,10 +561,14 @@ async fn concurrent_same_direction_connections_between_peers() {
 async fn concurrent_reverse_connections_between_peers() {
     let (mut identities, nodes) = new_nodes_with_empty_address(2);
     let mut swarm_1 = TestSwarm::new(&identities.next().unwrap(), |id| {
-        BehaviourBuilder::new(id).with_membership(&nodes).build()
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
+            .build::<AlwaysTrueVerifier>()
     });
     let mut swarm_2 = TestSwarm::new(&identities.next().unwrap(), |id| {
-        BehaviourBuilder::new(id).with_membership(&nodes).build()
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
+            .build::<AlwaysTrueVerifier>()
     });
     let is_swarm_1_id_smaller = swarm_1.local_peer_id() <= swarm_2.local_peer_id();
 
@@ -651,20 +695,20 @@ async fn replace_existing_with_new_connection() {
         BehaviourBuilder::new(id)
             .with_membership(&nodes)
             .with_peering_degree(1..=2)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
     let mut larger_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
         BehaviourBuilder::new(id)
             .with_membership(&nodes)
             .with_peering_degree(1..=2)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
 
     smaller_swarm.listen().with_memory_addr_external().await;
     larger_swarm.listen().with_memory_addr_external().await;
 
     smaller_swarm
-        .connect_and_wait_for_outbound_upgrade(&mut larger_swarm)
+        .connect_and_wait_for_upgrade(&mut larger_swarm)
         .await;
 
     larger_swarm.connect(&mut smaller_swarm).await;
@@ -676,6 +720,7 @@ async fn replace_existing_with_new_connection() {
     let mut smaller_swarm_connection_dropped = false;
     let mut larger_swarm_connection_dropped = false;
     let mut larger_swarm_connection_upgrade_notified = false;
+    let mut smaller_swarm_connection_upgrade_notified = false;
     loop {
         select! {
             () = sleep(Duration::from_secs(12)) => {
@@ -692,6 +737,11 @@ async fn replace_existing_with_new_connection() {
                     }
                     SwarmEvent::Behaviour(Event::PeerDisconnected(_, _)) => {
                         panic!("No `PeerDisconnected` event should be generated when an outgoing connection is replaced with an incoming one.");
+                    }
+                    SwarmEvent::Behaviour(Event::InboundConnectionUpgradeSucceeded(peer_id)) => {
+                        assert_eq!(peer_id, *larger_swarm.local_peer_id());
+                        assert!(!smaller_swarm_connection_upgrade_notified);
+                        smaller_swarm_connection_upgrade_notified = true;
                     }
                     _ => {}
                 }
@@ -753,20 +803,20 @@ async fn discard_new_for_existing_connection() {
         BehaviourBuilder::new(id)
             .with_membership(&nodes)
             .with_peering_degree(1..=2)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
     let mut larger_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
         BehaviourBuilder::new(id)
             .with_membership(&nodes)
             .with_peering_degree(1..=2)
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
 
     smaller_swarm.listen().with_memory_addr_external().await;
     larger_swarm.listen().with_memory_addr_external().await;
 
     larger_swarm
-        .connect_and_wait_for_outbound_upgrade(&mut smaller_swarm)
+        .connect_and_wait_for_upgrade(&mut smaller_swarm)
         .await;
 
     smaller_swarm.connect(&mut larger_swarm).await;
@@ -808,6 +858,9 @@ async fn discard_new_for_existing_connection() {
                         assert!(endpoint.is_listener());
                         assert!(!larger_swarm_connection_dropped);
                         larger_swarm_connection_dropped = true;
+                    }
+                    SwarmEvent::Behaviour(Event::InboundConnectionUpgradeSucceeded(_)) => {
+                        panic!("No new `InboundConnectionUpgradeSucceeded` event should be generated when an incoming connection is ignored for an existing outgoing one.");
                     }
                     SwarmEvent::Behaviour(Event::PeerDisconnected(_, _)) => {
                         panic!("No `PeerDisconnected` event should be generated when an incoming connection is ignored for an existing outgoing one.");

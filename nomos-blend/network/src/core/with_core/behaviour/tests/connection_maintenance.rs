@@ -7,7 +7,7 @@ use test_log::test;
 use tokio::{select, time::sleep};
 
 use crate::core::{
-    tests::utils::{TestEncapsulatedMessage, TestSwarm},
+    tests::utils::{AlwaysTrueVerifier, TestEncapsulatedMessage, TestSwarm},
     with_core::behaviour::{
         Event, NegotiatedPeerState, SpamReason,
         tests::utils::{
@@ -20,18 +20,20 @@ use crate::core::{
 async fn detect_spammy_peer() {
     let (mut identities, nodes) = new_nodes_with_empty_address(2);
     let mut dialing_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
-        BehaviourBuilder::new(id).with_membership(&nodes).build()
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
+            .build::<AlwaysTrueVerifier>()
     });
     let mut listening_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
         BehaviourBuilder::new(id)
             .with_membership(&nodes)
             .with_provider(IntervalProviderBuilder::default().with_range(1..=1).build())
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
 
     listening_swarm.listen().with_memory_addr_external().await;
     dialing_swarm
-        .connect_and_wait_for_outbound_upgrade(&mut listening_swarm)
+        .connect_and_wait_for_upgrade(&mut listening_swarm)
         .await;
 
     // We let the first observation clock tick.
@@ -77,18 +79,20 @@ async fn detect_spammy_peer() {
 async fn detect_unhealthy_peer() {
     let (mut identities, nodes) = new_nodes_with_empty_address(2);
     let mut dialing_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
-        BehaviourBuilder::new(id).with_membership(&nodes).build()
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
+            .build::<AlwaysTrueVerifier>()
     });
     let mut listening_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
         BehaviourBuilder::new(id)
             .with_membership(&nodes)
             .with_provider(IntervalProviderBuilder::default().with_range(1..=1).build())
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
 
     listening_swarm.listen().with_memory_addr_external().await;
     dialing_swarm
-        .connect_and_wait_for_outbound_upgrade(&mut listening_swarm)
+        .connect_and_wait_for_upgrade(&mut listening_swarm)
         .await;
 
     // Do not send any message from dialing to listening swarm.
@@ -137,18 +141,20 @@ async fn detect_unhealthy_peer() {
 async fn restore_healthy_peer() {
     let (mut identities, nodes) = new_nodes_with_empty_address(2);
     let mut dialing_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
-        BehaviourBuilder::new(id).with_membership(&nodes).build()
+        BehaviourBuilder::new(id)
+            .with_membership(&nodes)
+            .build::<AlwaysTrueVerifier>()
     });
     let mut listening_swarm = TestSwarm::new(&identities.next().unwrap(), |id| {
         BehaviourBuilder::new(id)
             .with_membership(&nodes)
             .with_provider(IntervalProviderBuilder::default().with_range(1..=1).build())
-            .build()
+            .build::<AlwaysTrueVerifier>()
     });
 
     listening_swarm.listen().with_memory_addr_external().await;
     dialing_swarm
-        .connect_and_wait_for_outbound_upgrade(&mut listening_swarm)
+        .connect_and_wait_for_upgrade(&mut listening_swarm)
         .await;
 
     // Let the connection turn unhealthy.
