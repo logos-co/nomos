@@ -19,7 +19,7 @@ use nomos_blend_message::{
         },
     },
     encap::ProofsVerifier,
-    reward::{self, SessionBlendingTokenCollector, SessionRandomness},
+    reward,
 };
 use nomos_blend_scheduling::{
     EncapsulatedMessage,
@@ -33,10 +33,7 @@ use nomos_blend_scheduling::{
             BlendLayerProof, ProofsGeneratorSettings, core_and_leader::CoreAndLeaderProofsGenerator,
         },
     },
-    message_scheduler::{
-        self, MessageScheduler, ProcessedMessageScheduler,
-        session_info::SessionInfo as SchedulerSessionInfo,
-    },
+    message_scheduler::{self, session_info::SessionInfo as SchedulerSessionInfo},
 };
 use nomos_core::{crypto::ZkHash, sdp::SessionNumber};
 use nomos_network::{NetworkService, backends::NetworkBackend};
@@ -64,6 +61,7 @@ use crate::{
             ZkSettings,
         },
         state::RecoveryServiceState,
+        tests::RuntimeServiceId,
     },
     settings::TimingSettings,
     test_utils,
@@ -108,14 +106,7 @@ pub fn settings<BackendSettings>(
                 maximum_release_delay_in_rounds: 1.try_into().unwrap(),
             },
         },
-        time: TimingSettings {
-            rounds_per_session: 10.try_into().unwrap(),
-            rounds_per_interval: 5.try_into().unwrap(),
-            round_duration: Duration::from_secs(1),
-            rounds_per_observation_window: 5.try_into().unwrap(),
-            rounds_per_session_transition_period: 2.try_into().unwrap(),
-            epoch_transition_period_in_slots: 1.try_into().unwrap(),
-        },
+        time: timing_settings(),
         zk: ZkSettings {
             secret_key_kms_id: "test-key".to_owned(),
         },
@@ -123,6 +114,27 @@ pub fn settings<BackendSettings>(
         recovery_path: recovery_file.path().to_path_buf(),
     };
     (settings, recovery_file)
+}
+
+pub fn timing_settings() -> TimingSettings {
+    TimingSettings {
+        rounds_per_session: 10.try_into().unwrap(),
+        rounds_per_interval: 10.try_into().unwrap(),
+        round_duration: Duration::from_secs(1),
+        rounds_per_observation_window: 5.try_into().unwrap(),
+        rounds_per_session_transition_period: 2.try_into().unwrap(),
+        epoch_transition_period_in_slots: 1.try_into().unwrap(),
+    }
+}
+
+pub fn scheduler_settings(timing_settings: &TimingSettings) -> message_scheduler::Settings {
+    message_scheduler::Settings {
+        additional_safety_intervals: 0,
+        expected_intervals_per_session: NonZeroU64::try_from(1).unwrap(),
+        maximum_release_delay_in_rounds: NonZeroU64::try_from(1).unwrap(),
+        round_duration: timing_settings.round_duration,
+        rounds_per_interval: timing_settings.rounds_per_interval,
+    }
 }
 
 const CHANNEL_SIZE: usize = 10;
@@ -138,8 +150,8 @@ pub struct TestBlendBackend {
 }
 
 #[async_trait]
-impl<NodeId, Rng, ProofsVerifier, RuntimeServiceId>
-    BlendBackend<NodeId, Rng, ProofsVerifier, RuntimeServiceId> for TestBlendBackend
+impl<NodeId, Rng, ProofsVerifier> BlendBackend<NodeId, Rng, ProofsVerifier, RuntimeServiceId>
+    for TestBlendBackend
 where
     NodeId: Send + 'static,
 {
@@ -323,11 +335,18 @@ pub fn new_public_info(session: u64, membership: Membership<NodeId>) -> PublicIn
     }
 }
 
-pub fn new_blending_token_collector(
+pub fn scheduler_session_info(public_info: &PublicInfo<NodeId>) -> SchedulerSessionInfo {
+    SchedulerSessionInfo {
+        core_quota: public_info.session.core_public_inputs.quota,
+        session_number: u128::from(public_info.session.session_number).into(),
+    }
+}
+
+pub fn reward_session_info(
     public_info: &PublicInfo<NodeId>,
     message_frequency_per_round: NonNegativeF64,
-) -> (SessionBlendingTokenCollector, SessionRandomness) {
-    let session_info = reward::SessionInfo::new(
+) -> reward::SessionInfo {
+    reward::SessionInfo::new(
         public_info.session.session_number,
         &public_info.epoch.pol_epoch_nonce,
         public_info
@@ -339,49 +358,7 @@ pub fn new_blending_token_collector(
         public_info.session.core_public_inputs.quota,
         message_frequency_per_round,
     )
-    .expect("session info must be created successfully");
-    (
-        SessionBlendingTokenCollector::new(&session_info),
-        session_info.session_randomness(),
-    )
-}
-
-pub struct MockProcessedMessageScheduler<ProcessedMessage> {
-    messages: Vec<ProcessedMessage>,
-}
-
-impl<ProcessedMessage> Default for MockProcessedMessageScheduler<ProcessedMessage> {
-    fn default() -> Self {
-        Self {
-            messages: Vec::new(),
-        }
-    }
-}
-
-impl<Rng, ProcessedMessage> MessageScheduler<Rng, ProcessedMessage, EncapsulatedMessage>
-    for MockProcessedMessageScheduler<ProcessedMessage>
-{
-    fn new(_: SchedulerSessionInfo, _: Rng, _: message_scheduler::Settings) -> Self {
-        Self::default()
-    }
-
-    fn queue_data_message(&mut self, _: EncapsulatedMessage) {
-        unimplemented!()
-    }
-}
-
-impl<ProcessedMessage> ProcessedMessageScheduler<ProcessedMessage>
-    for MockProcessedMessageScheduler<ProcessedMessage>
-{
-    fn schedule_processed_message(&mut self, message: ProcessedMessage) {
-        self.messages.push(message);
-    }
-}
-
-impl<ProcessedMessage> MockProcessedMessageScheduler<ProcessedMessage> {
-    pub fn num_scheduled_messages(&self) -> usize {
-        self.messages.len()
-    }
+    .expect("session info must be created successfully")
 }
 
 pub struct MockCoreAndLeaderProofsGenerator(SessionNumber);
