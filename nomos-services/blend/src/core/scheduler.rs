@@ -1,25 +1,27 @@
-use core::ops::{Deref, DerefMut};
+use std::fmt::Debug;
 
 use nomos_blend_scheduling::{
-    MessageScheduler,
-    message_scheduler::{ProcessedMessageScheduler, Settings, session_info::SessionInfo},
+    SessionMessageScheduler,
+    message_scheduler::{
+        MessageScheduler as _, ProcessedMessageScheduler as _, Settings, session_info::SessionInfo,
+    },
 };
 
 /// A wrapper around a [`MessageScheduler`] that allows creation with a set of
 /// initial messages.
-pub struct SchedulerWrapper<SessionClock, Rng, ProcessedMessage, DataMessage> {
+pub struct SchedulerWrapper<Rng, ProcessedMessage, DataMessage> {
     /// The inner message scheduler.
-    scheduler: MessageScheduler<SessionClock, Rng, ProcessedMessage, DataMessage>,
+    scheduler: SessionMessageScheduler<Rng, ProcessedMessage, DataMessage>,
 }
 
-impl<SessionClock, Rng, ProcessedMessage, DataMessage>
-    SchedulerWrapper<SessionClock, Rng, ProcessedMessage, DataMessage>
+impl<Rng, ProcessedMessage, DataMessage> SchedulerWrapper<Rng, ProcessedMessage, DataMessage>
 where
-    Rng: rand::Rng + Clone,
+    Rng: rand::Rng + Clone + Unpin,
+    ProcessedMessage: Debug + Unpin,
+    DataMessage: Debug + Unpin,
 {
     pub fn new_with_initial_messages<ProcessedMessages, DataMessages>(
-        session_clock: SessionClock,
-        initial_session_info: SessionInfo,
+        session_info: SessionInfo,
         rng: Rng,
         settings: Settings,
         processed_messages: ProcessedMessages,
@@ -29,38 +31,17 @@ where
         ProcessedMessages: Iterator<Item = ProcessedMessage>,
         DataMessages: Iterator<Item = DataMessage>,
     {
-        let mut inner_scheduler =
-            MessageScheduler::new(session_clock, initial_session_info, rng, settings);
-        processed_messages.for_each(|m| inner_scheduler.schedule_processed_message(m));
-        data_messages.for_each(|m| inner_scheduler.queue_data_message(m));
-        Self {
-            scheduler: inner_scheduler,
-        }
+        let mut scheduler = SessionMessageScheduler::new(session_info, rng, settings);
+        processed_messages.for_each(|m| scheduler.schedule_processed_message(m));
+        data_messages.for_each(|m| scheduler.queue_data_message(m));
+        Self { scheduler }
     }
 }
 
-impl<SessionClock, Rng, ProcessedMessage, DataMessage> Deref
-    for SchedulerWrapper<SessionClock, Rng, ProcessedMessage, DataMessage>
+impl<Rng, ProcessedMessage, DataMessage> From<SchedulerWrapper<Rng, ProcessedMessage, DataMessage>>
+    for SessionMessageScheduler<Rng, ProcessedMessage, DataMessage>
 {
-    type Target = MessageScheduler<SessionClock, Rng, ProcessedMessage, DataMessage>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.scheduler
-    }
-}
-
-impl<SessionClock, Rng, ProcessedMessage, DataMessage> DerefMut
-    for SchedulerWrapper<SessionClock, Rng, ProcessedMessage, DataMessage>
-{
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.scheduler
-    }
-}
-
-impl<SessionClock, Rng, ProcessedMessage, DataMessage> ProcessedMessageScheduler<ProcessedMessage>
-    for SchedulerWrapper<SessionClock, Rng, ProcessedMessage, DataMessage>
-{
-    fn schedule_processed_message(&mut self, message: ProcessedMessage) {
-        self.scheduler.schedule_processed_message(message);
+    fn from(wrapper: SchedulerWrapper<Rng, ProcessedMessage, DataMessage>) -> Self {
+        wrapper.scheduler
     }
 }
