@@ -1,8 +1,13 @@
 [package]
-edition = { workspace = true }
-license = { workspace = true }
-name    = "nomos-ledger"
-version = "0.1.0"
+categories  = { workspace = true }
+description = { workspace = true }
+edition     = { workspace = true }
+keywords    = { workspace = true }
+license     = { workspace = true }
+name        = "nomos-ledger"
+readme      = { workspace = true }
+repository  = { workspace = true }
+version     = { workspace = true }
 
 [lints]
 workspace = true
@@ -14,7 +19,7 @@ groth16            = { workspace = true }
 mmr                = { features = ["serde"], workspace = true }
 nomos-core         = { workspace = true }
 nomos-utils        = { features = ["serde"], optional = true, workspace = true }
-num-bigint         = { version = "0.4", default-features = false }
+num-bigint         = { default-features = false, version = "0.4" }
 rand               = { workspace = true }
 rpds               = { default-features = false, version = "1.1.1" }
 serde              = { default-features = false, features = ["derive"], optional = true, version = "1.0" }

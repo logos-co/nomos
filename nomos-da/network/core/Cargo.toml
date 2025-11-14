@@ -1,8 +1,13 @@
 [package]
-edition = { workspace = true }
-license = { workspace = true }
-name    = "nomos-da-network-core"
-version = "0.1.0"
+categories  = { workspace = true }
+description = { workspace = true }
+edition     = { workspace = true }
+keywords    = { workspace = true }
+license     = { workspace = true }
+name        = "nomos-da-network-core"
+readme      = { workspace = true }
+repository  = { workspace = true }
+version     = { workspace = true }
 
 [lints]
 workspace = true
@@ -12,7 +17,7 @@ cached                   = { workspace = true }
 either                   = { default-features = false, version = "1.13.0" }
 fixed                    = { default-features = false, features = ["serde-str"], version = "1" }
 futures                  = { default-features = false, version = "0.3" }
-indexmap                 = { default-features = false, version = "2.2", features = ["std"] }
+indexmap                 = { default-features = false, features = ["std"], version = "2.2" }
 kzgrs-backend            = { workspace = true }
 libp2p                   = { features = ["macros", "quic", "tokio"], workspace = true }
 libp2p-stream            = "0.3.0-alpha"

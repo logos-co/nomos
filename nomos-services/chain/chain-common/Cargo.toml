@@ -1,9 +1,14 @@
 [package]
-edition = { workspace = true }
-license = { workspace = true }
-name    = "chain-common"
-version = "0.1.0"
+categories  = { workspace = true }
+description = { workspace = true }
+edition     = { workspace = true }
+keywords    = { workspace = true }
+license     = { workspace = true }
+name        = "chain-common"
+readme      = { workspace = true }
+repository  = { workspace = true }
+version     = { workspace = true }
 
 [dependencies]
-nomos-core = { path = "../../../nomos-core/chain-defs" }
-serde      = { version = "1.0", features = ["derive"] }
+nomos-core = { workspace = true }
+serde      = { features = ["derive"], version = "1.0" }

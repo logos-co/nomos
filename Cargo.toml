@@ -1,3 +1,13 @@
+[workspace.package]
+categories  = ["cryptography", "cryptography::cryptocurrencies", "security"]
+description = "Nomos blockchain workspace crates. For more information please visit https://nomos.tech/."
+edition     = "2024"
+keywords    = ["blockchain", "privacy"]
+license     = "MIT or Apache-2.0"
+readme      = "README.md"
+repository  = "https://github.com/logos-co/nomos"
+version     = "0.1.0"
+
 [workspace]
 # Make sure any excluded crates are still clipped in our CI. Also, make sure they use the same Clippy and rustc lints we specify in this file down below.
 members = [
@@ -160,6 +170,12 @@ utoipa-swagger-ui = { default-features = false, version = "7.0" }
 
 [workspace.lints.clippy]
 
+# Cargo and allowed cargo warnings (new lints will warn by default)
+cargo = { level = "warn", priority = -1 }
+
+# TODO: We should tackle this lint at some point, to reduce dependencies duplication, reduce compilation times and bring down our binary size.
+multiple_crate_versions = { level = "allow" }
+
 # Nursery and allowed nursery warnings (new lints will warn by default)
 nursery = { level = "warn", priority = -1 }
 
@@ -303,7 +319,3 @@ unit_bindings                          = { level = "allow" }
 unreachable_pub                        = { level = "allow" }
 unsafe_code                            = { level = "allow" }
 variant_size_differences               = { level = "allow" }
-
-[workspace.package]
-edition = "2024"
-license = "MIT or Apache-2.0"

@@ -1,4 +1,4 @@
-exclude = [".cargo/config.toml", "target/**"]
+exclude = ["target/**"]
 
 [formatting]
 align_entries         = true

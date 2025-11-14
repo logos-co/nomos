@@ -1,8 +1,13 @@
 [package]
-edition = { workspace = true }
-license = { workspace = true }
-name    = "nomos-tracing-service"
-version = "0.1.0"
+categories  = { workspace = true }
+description = { workspace = true }
+edition     = { workspace = true }
+keywords    = { workspace = true }
+license     = { workspace = true }
+name        = "nomos-tracing-service"
+readme      = { workspace = true }
+repository  = { workspace = true }
+version     = { workspace = true }
 
 [lints]
 workspace = true
@@ -19,4 +24,4 @@ tracing            = { workspace = true }
 tracing-appender   = "0.2"
 tracing-subscriber = { default-features = false, version = "0.3" }
 
-console-subscriber = { default-features = false, version = "0.4", optional = true }
+console-subscriber = { default-features = false, optional = true, version = "0.4" }

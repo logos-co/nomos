@@ -1,8 +1,13 @@
 [package]
-edition = { workspace = true }
-license = { workspace = true }
-name    = "nomos-da-verifier"
-version = "0.1.0"
+categories  = { workspace = true }
+description = { workspace = true }
+edition     = { workspace = true }
+keywords    = { workspace = true }
+license     = { workspace = true }
+name        = "nomos-da-verifier"
+readme      = { workspace = true }
+repository  = { workspace = true }
+version     = { workspace = true }
 
 [lints]
 workspace = true
@@ -17,7 +22,7 @@ nomos-da-network-core    = { workspace = true }
 nomos-da-network-service = { workspace = true }
 nomos-storage            = { workspace = true }
 nomos-tracing            = { workspace = true }
-nomos-utils              = { workspace = true, features = ["serde"] }
+nomos-utils              = { features = ["serde"], workspace = true }
 overwatch                = { workspace = true }
 serde                    = { default-features = false, version = "1.0" }
 serde_with               = { workspace = true }

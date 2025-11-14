@@ -1,8 +1,13 @@
 [package]
-edition = { workspace = true }
-license = { workspace = true }
-name    = "nomos-api"
-version = "0.1.0"
+categories  = { workspace = true }
+description = { workspace = true }
+edition     = { workspace = true }
+keywords    = { workspace = true }
+license     = { workspace = true }
+name        = "nomos-api"
+readme      = { workspace = true }
+repository  = { workspace = true }
+version     = { workspace = true }
 
 [lints]
 workspace = true
@@ -41,13 +46,13 @@ tracing                  = { default-features = false, version = "0.1" }
 tx-service               = { features = ["libp2p", "mock", "openapi"], workspace = true }
 
 # axum related dependencies
-axum = { default-features = false, optional = true, features = [
+axum = { default-features = false, features = [
   "http1",
   "http2",
   "json",
   "query",
   "tokio",
-], version = "0.7.5" }
+], optional = true, version = "0.7.5" }
 hyper = { default-features = false, optional = true, version = "1.0" }
 
 # openapi related dependencies

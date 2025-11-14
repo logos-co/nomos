@@ -1,9 +1,14 @@
 [package]
-authors = ["Daniel Sanchez Quiros <danielsq@status.im>"]
-edition = { workspace = true }
-license = { workspace = true }
-name    = "nomos-core"
-version = "0.1.0"
+authors     = ["Daniel Sanchez Quiros <danielsq@status.im>"]
+categories  = { workspace = true }
+description = { workspace = true }
+edition     = { workspace = true }
+keywords    = { workspace = true }
+license     = { workspace = true }
+name        = "nomos-core"
+readme      = { workspace = true }
+repository  = { workspace = true }
+version     = { workspace = true }
 
 [lints]
 workspace = true
