@@ -1,6 +1,6 @@
 use nomos_core::{
     header::HeaderId,
-    mantle::{Utxo, Value, tx_builder::MantleTxBuilder},
+    mantle::{Note, Utxo, Value, tx_builder::MantleTxBuilder},
 };
 use overwatch::{
     DynError,
@@ -86,6 +86,20 @@ where
             .map_err(|e| format!("Failed to send fund_and_sign_tx request: {e:?}"))?;
 
         Ok(rx.await??)
+    }
+
+    pub async fn transfer_funds(
+        &self,
+        tip: HeaderId,
+        change_pk: PublicKey,
+        funding_pks: Vec<PublicKey>,
+        recipient_pk: PublicKey,
+        amount: Value,
+    ) -> Result<nomos_core::mantle::SignedMantleTx, DynError> {
+        let mantle_tx_builder =
+            MantleTxBuilder::new().add_ledger_output(Note::new(amount, recipient_pk));
+        self.fund_and_sign_tx(tip, mantle_tx_builder, change_pk, funding_pks)
+            .await
     }
 
     pub async fn get_leader_aged_notes(&self, tip: HeaderId) -> Result<Vec<Utxo>, DynError> {
