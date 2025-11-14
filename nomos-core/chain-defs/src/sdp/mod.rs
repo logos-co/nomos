@@ -7,6 +7,8 @@ use nom::{
     bytes::complete::take,
     number::complete::{le_u32, u8 as nom_u8},
 };
+use poq::PoQProof;
+use poseidon2::ZkHash;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use strum::EnumIter;
 use zksign::PublicKey;
@@ -350,10 +352,88 @@ fn parse_length_prefixed_bytes(input: &[u8]) -> IResult<&[u8], Vec<u8>> {
     Ok((input, data.to_vec()))
 }
 
+fn parse_const_size_bytes<const N: usize>(input: &[u8]) -> IResult<&[u8], [u8; N]> {
+    let (input, data) = take(N).parse(input)?;
+    let data: [u8; N] = data
+        .try_into()
+        .map_err(|_| nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Fail)))?;
+    Ok((input, data))
+}
+
+// TODO: This is a duplicate code of what is defined in `nomos-blend-message` crate.
+const KEY_NULLIFIER_SIZE: usize = size_of::<ZkHash>();
+const PROOF_CIRCUIT_SIZE: usize = size_of::<PoQProof>();
+pub const PROOF_OF_QUOTA_SIZE: usize = KEY_NULLIFIER_SIZE.checked_add(PROOF_CIRCUIT_SIZE).unwrap();
+const SELECTION_RANDOMNESS_SIZE: usize = size_of::<ZkHash>();
+pub const PROOF_OF_SELECTION_SIZE: usize = SELECTION_RANDOMNESS_SIZE;
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct BlendActivityProof {
+    pub session: SessionNumber,
+    #[serde(with = "serde_big_array::BigArray")]
+    pub proof_of_quota: [u8; PROOF_OF_QUOTA_SIZE],
+    pub proof_of_selection: [u8; PROOF_OF_SELECTION_SIZE],
+}
+
+const BLEND_ACTIVE_METADATA_VERSION_BYTE: u8 = 0x01;
+
+impl BlendActivityProof {
+    #[must_use]
+    pub fn to_metadata_bytes(&self) -> Vec<u8> {
+        let total_size = 1 // version byte
+            + size_of::<SessionNumber>()
+            + self.proof_of_quota.len()
+            + self.proof_of_selection.len();
+
+        let mut bytes = Vec::with_capacity(total_size);
+        bytes.push(BLEND_ACTIVE_METADATA_VERSION_BYTE);
+        bytes.extend(&self.session.to_le_bytes());
+        bytes.extend(&self.proof_of_quota);
+        bytes.extend(&self.proof_of_selection);
+        bytes
+    }
+
+    /// Parse metadata bytes using nom combinators
+    pub fn from_metadata_bytes(bytes: &[u8]) -> Result<Self, Box<dyn std::error::Error>> {
+        Ok(parse_blend_activity_proof(bytes)
+            .map_err(|e| format!("Failed to parse metadata: {e}"))?
+            .1)
+    }
+}
+
+fn parse_blend_activity_proof(input: &[u8]) -> IResult<&[u8], BlendActivityProof> {
+    let (input, version) = nom_u8(input)?;
+    if version != BLEND_ACTIVE_METADATA_VERSION_BYTE {
+        return Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::Verify,
+        )));
+    }
+    let (input, session) = parse_session_number(input)?;
+    let (input, proof_of_quota) = parse_const_size_bytes::<PROOF_OF_QUOTA_SIZE>(input)?;
+    let (input, proof_of_selection) = parse_const_size_bytes::<PROOF_OF_SELECTION_SIZE>(input)?;
+
+    if !input.is_empty() {
+        return Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::Eof,
+        )));
+    }
+
+    Ok((
+        input,
+        BlendActivityProof {
+            session,
+            proof_of_quota,
+            proof_of_selection,
+        },
+    ))
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum ActivityMetadata {
     DataAvailability(DaActivityProof),
-    // Blend will add: Blend(BlendActivityProof),
+    Blend(BlendActivityProof),
 }
 
 impl ActivityMetadata {
@@ -361,7 +441,7 @@ impl ActivityMetadata {
     pub fn to_metadata_bytes(&self) -> Vec<u8> {
         match self {
             Self::DataAvailability(proof) => proof.to_metadata_bytes(),
-            // Future: ActivityMetadata::Blend(proof) => proof.to_metadata_bytes(),
+            Self::Blend(proof) => proof.to_metadata_bytes(),
         }
     }
 
@@ -553,7 +633,9 @@ mod tests {
 
         assert_eq!(metadata, decoded);
 
-        let ActivityMetadata::DataAvailability(decoded_proof) = decoded;
+        let ActivityMetadata::DataAvailability(decoded_proof) = decoded else {
+            panic!("Unexpected ActivityMetadata variant");
+        };
         assert_eq!(proof, decoded_proof);
     }
 
