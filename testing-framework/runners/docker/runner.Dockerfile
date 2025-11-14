@@ -30,7 +30,9 @@ RUN chmod +x scripts/setup-nomos-circuits.sh && \
 
 ENV NOMOS_CIRCUITS=/opt/circuits
 
-RUN cargo build --release --all-features
+# Use debug builds to keep the linker memory footprint low; we only need
+# binaries for integration testing, not optimized releases.
+RUN cargo build --all-features
 
 # ===========================
 # NODE IMAGE
@@ -52,11 +54,11 @@ RUN apt-get update && apt-get install -yq \
 
 COPY --from=builder /opt/circuits /opt/circuits
 
-COPY --from=builder /nomos/target/release/nomos-node /usr/bin/nomos-node
-COPY --from=builder /nomos/target/release/nomos-executor /usr/bin/nomos-executor
-COPY --from=builder /nomos/target/release/nomos-cli /usr/bin/nomos-cli
-COPY --from=builder /nomos/target/release/cfgsync-server /usr/bin/cfgsync-server
-COPY --from=builder /nomos/target/release/cfgsync-client /usr/bin/cfgsync-client
+COPY --from=builder /nomos/target/debug/nomos-node /usr/bin/nomos-node
+COPY --from=builder /nomos/target/debug/nomos-executor /usr/bin/nomos-executor
+COPY --from=builder /nomos/target/debug/nomos-cli /usr/bin/nomos-cli
+COPY --from=builder /nomos/target/debug/cfgsync-server /usr/bin/cfgsync-server
+COPY --from=builder /nomos/target/debug/cfgsync-client /usr/bin/cfgsync-client
 
 ENV NOMOS_CIRCUITS=/opt/circuits
 
