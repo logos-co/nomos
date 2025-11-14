@@ -84,6 +84,11 @@ impl DaSamplingServiceBackend for KzgrsSamplingBackend {
 
     async fn handle_sampling_success(&mut self, blob_id: Self::BlobId, column_idx: ShareIndex) {
         if let Some(ctx) = self.pending_sampling_blobs.get_mut(&blob_id) {
+            tracing::debug!(
+                "Sampler backend received SamplingSuccess for blob {} share_idx={}",
+                hex::encode(blob_id),
+                column_idx
+            );
             tracing::info!(
                 "subnet {} for blob id {} has been successfully sampled",
                 column_idx,
@@ -101,6 +106,12 @@ impl DaSamplingServiceBackend for KzgrsSamplingBackend {
                 // cleanup from pending samplings
                 self.pending_sampling_blobs.remove(&blob_id);
             }
+        } else {
+            tracing::debug!(
+                "Sampler backend ignored SamplingSuccess for blob {} share_idx={} (no pending context)",
+                hex::encode(blob_id),
+                column_idx
+            );
         }
     }
 
@@ -121,9 +132,17 @@ impl DaSamplingServiceBackend for KzgrsSamplingBackend {
 
     async fn init_sampling(&mut self, blob_id: Self::BlobId) -> SamplingState {
         if self.pending_sampling_blobs.contains_key(&blob_id) {
+            tracing::debug!(
+                "Sampler backend init_sampling called for blob {} but it's already tracking",
+                hex::encode(blob_id)
+            );
             return SamplingState::Tracking;
         }
         if self.validated_blobs.contains(&blob_id) {
+            tracing::debug!(
+                "Sampler backend init_sampling called for blob {} but it's already validated",
+                hex::encode(blob_id)
+            );
             return SamplingState::Terminated;
         }
 
@@ -132,6 +151,10 @@ impl DaSamplingServiceBackend for KzgrsSamplingBackend {
             started: Instant::now(),
             commitment: None,
         };
+        tracing::debug!(
+            "Sampler backend init_sampling registering new blob {}",
+            hex::encode(blob_id)
+        );
         self.pending_sampling_blobs.insert(blob_id, ctx);
         SamplingState::Init
     }

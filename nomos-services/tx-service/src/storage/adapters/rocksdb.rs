@@ -72,10 +72,15 @@ where
         keys: &BTreeSet<Self::Key>,
     ) -> Result<Pin<Box<dyn Stream<Item = Self::Item> + Send>>, Self::Error> {
         if keys.is_empty() {
+            tracing::debug!("tx-storage: requested 0 items");
             return Ok(Box::pin(futures::stream::empty()));
         }
 
         let tx_hashes: BTreeSet<TxHash> = keys.iter().cloned().map(Into::into).collect();
+        tracing::debug!(
+            "tx-storage: requesting {} transactions from storage",
+            tx_hashes.len()
+        );
 
         let (reply_channel, reply_rx) = tokio::sync::oneshot::channel();
         self.storage_relay

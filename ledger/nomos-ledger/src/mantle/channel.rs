@@ -10,6 +10,7 @@ use nomos_core::mantle::{
 };
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+use tracing::debug;
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
 pub enum Error {
@@ -71,7 +72,16 @@ impl Channels {
                 keys: vec![*signer].into(),
             });
 
+        debug!(
+            "Applying channel message: channel={:?} msg={:?} parent={:?} current_tip={:?}",
+            channel_id, msg, parent, channel.tip
+        );
+
         if *parent != channel.tip {
+            debug!(
+                "Channel parent mismatch detected: channel={:?} expected_tip={:?} provided_parent={:?}",
+                channel_id, channel.tip, parent
+            );
             return Err(Error::InvalidParent {
                 channel_id,
                 parent: (*parent).into(),
@@ -92,6 +102,10 @@ impl Channels {
                 tip: msg,
                 keys: Arc::clone(&channel.keys),
             },
+        );
+        debug!(
+            "Channel state updated: channel={:?} new_tip={:?}",
+            channel_id, msg
         );
         Ok(self)
     }
@@ -125,6 +139,7 @@ impl Channels {
             );
         }
 
+        debug!("Updated channel keys for {:?}", channel_id);
         Ok(self)
     }
 

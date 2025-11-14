@@ -18,6 +18,7 @@ use overwatch::{
 };
 use serde::{Serialize, de::DeserializeOwned};
 use tokio::sync::oneshot;
+use tracing::info;
 
 use crate::http::storage::StorageAdapter;
 
@@ -49,7 +50,7 @@ where
             .await
             .map_err(|(e, _)| Box::new(e) as crate::http::DynError)?;
 
-        index_rx
+        let result = index_rx
             .await
             .map(|indexes| {
                 indexes.map(|data| {
@@ -58,13 +59,19 @@ where
                         .collect::<HashSet<_>>()
                 })
             })
-            .map_err(|e| Box::new(e) as crate::http::DynError)?
-            .ok_or_else(|| {
-                Box::new(std::io::Error::new(
-                    ErrorKind::NotFound,
-                    "Blob index not found",
-                )) as crate::http::DynError
-            })
+            .map_err(|e| Box::new(e) as crate::http::DynError)?;
+        if let Some(ref set) = result {
+            info!(
+                "Storage adapter loaded {} share indices for blob",
+                set.len()
+            );
+        }
+        result.ok_or_else(|| {
+            Box::new(std::io::Error::new(
+                ErrorKind::NotFound,
+                "Blob index not found",
+            )) as crate::http::DynError
+        })
     }
 
     async fn load_and_process_share<Converter, DaShare>(
@@ -98,6 +105,7 @@ where
 
         let share = Converter::share_from_storage(share)
             .map_err(|e| Box::new(e) as crate::http::DynError)?;
+        info!("Loaded light share from storage for DA HTTP request");
 
         let mut json =
             serde_json::to_vec(&share).map_err(|e| Box::new(e) as crate::http::DynError)?;
