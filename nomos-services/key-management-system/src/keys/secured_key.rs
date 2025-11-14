@@ -29,6 +29,22 @@ where
     }
 }
 
+impl<Key, Error> Default for NoKeyOperator<Key, Error> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<Key, Error> NoKeyOperator<Key, Error> {
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            _key: PhantomData,
+            _error: PhantomData,
+        }
+    }
+}
+
 /// A key that can be used within the Key Management Service.
 #[async_trait::async_trait]
 pub trait SecuredKey: ZeroizeOnDrop {

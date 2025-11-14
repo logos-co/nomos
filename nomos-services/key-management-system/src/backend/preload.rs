@@ -118,17 +118,9 @@ mod tests {
     use zksign::SecretKey;
 
     use super::*;
-    use crate::keys::{Ed25519Key, Key, PayloadEncoding, ZkKey};
-
-    type BackendKey<'a, Backend> = dyn SecuredKey<
-            Payload = <<Backend as KMSBackend>::Key as SecuredKey>::Payload,
-            Signature = <<Backend as KMSBackend>::Key as SecuredKey>::Signature,
-            PublicKey = <<Backend as KMSBackend>::Key as SecuredKey>::PublicKey,
-            Error = <<Backend as KMSBackend>::Key as SecuredKey>::Error,
-        > + 'a;
-    fn noop_operator<Backend: KMSBackend>() -> KMSOperatorBackend<Backend> {
-        Box::new(move |_: &BackendKey<Backend>| Box::pin(async move { Ok(()) }))
-    }
+    use crate::keys::{
+        Ed25519Key, Key, KeyOperators, PayloadEncoding, ZkKey, secured_key::NoKeyOperator,
+    };
 
     #[tokio::test]
     async fn preload_backend() {
@@ -158,7 +150,7 @@ mod tests {
 
         // Check if the execute function works as expected
         backend
-            .execute(&key_id, noop_operator::<PreloadKMSBackend>())
+            .execute(&key_id, KeyOperators::Ed25519(NoKeyOperator::new()))
             .await
             .unwrap();
     }
@@ -191,7 +183,7 @@ mod tests {
         // Excuting with a key id fails
         assert!(matches!(
             backend
-                .execute(&key_id, noop_operator::<PreloadKMSBackend>())
+                .execute(&key_id, KeyOperators::Ed25519(NoKeyOperator::new()))
                 .await
                 .unwrap_err(),
             PreloadBackendError::NotRegisteredKeyId(id) if id == key_id.clone()
