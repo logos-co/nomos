@@ -5,7 +5,7 @@ use zksign::{PublicKey, SecretKey, Signature};
 
 use crate::keys::{
     errors::KeyError,
-    secured_key::{SecureKeyOperations, SecuredKey},
+    secured_key::{NoKeyOperator, SecuredKey},
 };
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Clone, Debug, ZeroizeOnDrop)]
@@ -18,26 +18,13 @@ impl ZkKey {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub struct LoggerOp;
-
-#[async_trait::async_trait]
-impl SecureKeyOperations for LoggerOp {
-    type Key = ZkKey;
-    type Error = KeyError;
-    async fn execute(&self, key: &Self::Key) -> Result<(), Self::Error> {
-        tracing::info!("Executing operator on key {:?}", key);
-        Ok(())
-    }
-}
-
 #[async_trait::async_trait]
 impl SecuredKey for ZkKey {
     type Payload = Fr;
     type Signature = Signature;
     type PublicKey = PublicKey;
     type Error = KeyError;
-    type Operations = LoggerOp;
+    type Operations = NoKeyOperator<Self, Self::Error>;
 
     fn sign(&self, payload: &Self::Payload) -> Result<Self::Signature, Self::Error> {
         Ok(self.0.sign(payload)?)
