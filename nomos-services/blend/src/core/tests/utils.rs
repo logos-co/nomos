@@ -61,6 +61,7 @@ use crate::{
             ZkSettings,
         },
         state::RecoveryServiceState,
+        tests::RuntimeServiceId,
     },
     settings::TimingSettings,
     test_utils,
@@ -149,8 +150,8 @@ pub struct TestBlendBackend {
 }
 
 #[async_trait]
-impl<NodeId, Rng, ProofsVerifier, RuntimeServiceId>
-    BlendBackend<NodeId, Rng, ProofsVerifier, RuntimeServiceId> for TestBlendBackend
+impl<NodeId, Rng, ProofsVerifier> BlendBackend<NodeId, Rng, ProofsVerifier, RuntimeServiceId>
+    for TestBlendBackend
 where
     NodeId: Send + 'static,
 {

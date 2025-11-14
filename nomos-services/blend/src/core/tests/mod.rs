@@ -221,7 +221,7 @@ async fn test_handle_session_event() {
     let mut backend_event_receiver = backend.subscribe_to_events();
 
     // Handle a NewSession event, expecting Transitioning output.
-    let output = handle_session_event::<_, _, _, _, _, _, RuntimeServiceId>(
+    let output = handle_session_event(
         SessionEvent::NewSession(CoreSessionInfo {
             public: CoreSessionPublicInfo {
                 membership: membership.clone(),
@@ -269,7 +269,7 @@ async fn test_handle_session_event() {
     assert_eq!(new_public_info.session.session_number, session + 1);
 
     // Handle a TransitionExpired event, expecting TransitionCompleted output.
-    let output = handle_session_event::<_, _, _, _, _, _, RuntimeServiceId>(
+    let output = handle_session_event(
         SessionEvent::TransitionPeriodExpired,
         &settings,
         new_crypto_processor,
@@ -304,7 +304,7 @@ async fn test_handle_session_event() {
 
     // Handle a NewSession event with a new too small membership,
     // expecting Retiring output.
-    let output = handle_session_event::<_, _, _, _, _, _, RuntimeServiceId>(
+    let output = handle_session_event(
         SessionEvent::NewSession(CoreSessionInfo {
             public: CoreSessionPublicInfo {
                 membership: new_membership(minimal_network_size - 1).0,
