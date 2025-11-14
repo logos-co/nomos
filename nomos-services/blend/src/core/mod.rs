@@ -749,6 +749,7 @@ where
                         crypto_processor = current_crypto_processor;
                         old_session_crypto_processor = None;
                         message_scheduler = current_scheduler;
+                        old_session_message_scheduler = None;
                         public_info = current_public_info;
                         recovery_checkpoint = current_recovery_checkpoint;
                     },
