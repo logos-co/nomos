@@ -108,6 +108,11 @@ where
 
         self.pending_items.insert(key);
         self.last_item_timestamp = timestamp;
+        tracing::info!(
+            "mempool_add_item pending_count={} last_timestamp={}",
+            self.pending_items.len(),
+            self.last_item_timestamp
+        );
 
         Ok(())
     }
@@ -128,6 +133,11 @@ where
         I: IntoIterator<Item = Self::Key> + Send,
     {
         let keys_set: BTreeSet<Self::Key> = keys.into_iter().collect();
+        tracing::debug!(
+            "mempool_get_items_by_keys requested={} pending_count={}",
+            keys_set.len(),
+            self.pending_items.len()
+        );
         self.storage_adapter
             .get_items(&keys_set)
             .await
@@ -149,6 +159,11 @@ where
                 .entry(block)
                 .or_default()
                 .extend(keys_in_block);
+            tracing::info!(
+                "mempool_mark_in_block remaining_pending={} keys_marked={}",
+                self.pending_items.len(),
+                self.in_block_items_by_id.len()
+            );
         }
     }
 
