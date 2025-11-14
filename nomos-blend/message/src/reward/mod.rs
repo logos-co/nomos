@@ -8,131 +8,109 @@ pub use activity::ActivityProof;
 use nomos_core::sdp::SessionNumber;
 pub use session::SessionInfo;
 pub use token::BlendingToken;
-use tracing::warn;
 
-use crate::reward::session::SessionRandomness;
+pub use crate::reward::session::SessionRandomness;
 
 const LOG_TARGET: &str = "blend::message::reward";
 
-/// Collects blending tokens for the current session, while retaining those from
-/// the previous session which are used to produce an activity proof.
-pub struct BlendingTokenCollector {
-    current_session_tokens: BlendingTokensForSession,
-    current_session_randomness: SessionRandomness,
-    previous_session_tokens: Option<BlendingTokensForSession>,
+pub trait BlendingTokenCollector {
+    fn collect(&mut self, token: BlendingToken);
 }
 
-impl BlendingTokenCollector {
-    #[must_use]
-    pub fn new(current_session_info: &SessionInfo) -> Self {
-        Self {
-            current_session_tokens: BlendingTokensForSession::new(
-                current_session_info.session_number,
-                current_session_info.token_count_byte_len,
-                current_session_info.activity_threshold,
-            ),
-            current_session_randomness: current_session_info.session_randomness,
-            previous_session_tokens: None,
-        }
-    }
-
-    /// Collects a blending token from the current session.
-    pub fn insert(&mut self, token: BlendingToken) {
-        self.current_session_tokens.insert(token);
-    }
-
-    /// Computes an activity proof for the previous session by consuming
-    /// blending tokens collected during that session.
-    ///
-    /// It returns `None` if there was no blending token collected during
-    /// the previous session, or if there is no blending token satisfying the
-    /// activity threshold.
-    pub fn compute_activity_proof_for_previous_session(&mut self) -> Option<ActivityProof> {
-        self.previous_session_tokens
-            .take()?
-            .compute_activity_proof(self.current_session_randomness)
-    }
-
-    /// Switches to the new session while retaining the current session tokens,
-    /// so that new tokens for the session can continue to be collected during
-    /// the session transition period.
-    ///
-    /// If there was a previous session that has not yet been consumed for
-    /// an activity proof, it is discarded because its activity proof is
-    /// no longer acceptable by the protocol.
-    pub fn rotate_session(&mut self, new_session_info: &SessionInfo) {
-        if self.previous_session_tokens.is_some() {
-            warn!(
-                target: LOG_TARGET,
-                "Rotating to a new session while previous session tokens are still unconsumed. Those tokens will be discarded."
-            );
-        }
-
-        self.previous_session_tokens = Some(std::mem::replace(
-            &mut self.current_session_tokens,
-            BlendingTokensForSession::new(
-                new_session_info.session_number,
-                new_session_info.token_count_byte_len,
-                new_session_info.activity_threshold,
-            ),
-        ));
-        self.current_session_randomness = new_session_info.session_randomness;
-    }
-}
-
-/// Holds blending tokens and session-specific parameters for a single session.
-struct BlendingTokensForSession {
+/// Holds blending tokens collected during a single session.
+pub struct SessionBlendingTokenCollector {
     session_number: SessionNumber,
-    token_count_bit_len: u64,
+    token_count_byte_len: u64,
     activity_threshold: u64,
     tokens: HashSet<BlendingToken>,
 }
 
-impl BlendingTokensForSession {
-    fn new(
-        session_number: SessionNumber,
-        token_count_bit_len: u64,
-        activity_threshold: u64,
-    ) -> Self {
+impl SessionBlendingTokenCollector {
+    #[must_use]
+    pub fn new(session_info: &SessionInfo) -> Self {
         Self {
-            session_number,
-            token_count_bit_len,
-            activity_threshold,
+            session_number: session_info.session_number,
+            token_count_byte_len: session_info.token_count_byte_len,
+            activity_threshold: session_info.activity_threshold,
             tokens: HashSet::new(),
         }
     }
 
-    fn insert(&mut self, token: BlendingToken) {
+    #[must_use]
+    pub const fn into_old_session(
+        self,
+        next_session_randomness: SessionRandomness,
+    ) -> OldSessionBlendingTokenCollector {
+        OldSessionBlendingTokenCollector {
+            collector: self,
+            next_session_randomness,
+        }
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    const fn tokens(&self) -> &HashSet<BlendingToken> {
+        &self.tokens
+    }
+}
+
+impl BlendingTokenCollector for SessionBlendingTokenCollector {
+    fn collect(&mut self, token: BlendingToken) {
         self.tokens.insert(token);
+    }
+}
+
+/// Holds blending tokens collected during the old session.
+pub struct OldSessionBlendingTokenCollector {
+    collector: SessionBlendingTokenCollector,
+    next_session_randomness: SessionRandomness,
+}
+
+impl OldSessionBlendingTokenCollector {
+    pub fn collect(&mut self, token: BlendingToken) {
+        self.collector.collect(token);
     }
 
     /// Computes an activity proof for this session by consuming tokens.
     ///
     /// It returns `None` if there was no blending token satisfying the
     /// activity threshold calculated.
-    fn compute_activity_proof(
-        self,
-        next_session_randomness: SessionRandomness,
-    ) -> Option<ActivityProof> {
+    #[must_use]
+    pub fn compute_activity_proof(self) -> Option<ActivityProof> {
         // Find the blending token with the smallest Hamming distance.
         let maybe_token = self
+            .collector
             .tokens
             .into_iter()
             .map(|token| {
-                let distance =
-                    token.hamming_distance(self.token_count_bit_len, next_session_randomness);
+                let distance = token.hamming_distance(
+                    self.collector.token_count_byte_len,
+                    self.next_session_randomness,
+                );
                 (token, distance)
             })
             .min_by_key(|(_, distance)| *distance);
 
         // Check if the smallest distance satisfies the activity threshold.
         if let Some((token, distance)) = maybe_token
-            && distance <= self.activity_threshold
+            && distance <= self.collector.activity_threshold
         {
-            Some(ActivityProof::new(self.session_number, token))
+            Some(ActivityProof::new(self.collector.session_number, token))
         } else {
             None
         }
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    const fn tokens(&self) -> &HashSet<BlendingToken> {
+        self.collector.tokens()
+    }
+}
+
+impl BlendingTokenCollector for OldSessionBlendingTokenCollector {
+    fn collect(&mut self, token: BlendingToken) {
+        self.collector.collect(token);
     }
 }
 
@@ -158,32 +136,21 @@ mod tests {
             1.0.try_into().unwrap(),
         )
         .unwrap();
-        let mut tokens = BlendingTokenCollector::new(&session_info);
-        assert!(tokens.current_session_tokens.tokens.is_empty());
-        assert_eq!(
-            tokens.current_session_randomness,
-            session_info.session_randomness
-        );
-        assert!(tokens.previous_session_tokens.is_none());
+        let mut tokens = SessionBlendingTokenCollector::new(&session_info);
+        assert!(tokens.tokens().is_empty());
 
-        // Insert tokens as many as the total core quota,
-        // so that one of them can be picked as an activity proof.
-        for i in 0..(core_quota.checked_mul(num_core_nodes).unwrap()) {
-            let i: u8 = i.try_into().unwrap();
-            let token = blending_token(i, i);
-            tokens.insert(token.clone());
-            assert!(tokens.current_session_tokens.tokens.contains(&token));
+        // Insert `total_core_quota-1` tokens.
+        let total_core_quota = core_quota.checked_mul(num_core_nodes).unwrap();
+        let mut i = 0;
+        for _ in 0..(total_core_quota.checked_sub(1).unwrap()) {
+            let proof: u8 = i.try_into().unwrap();
+            let token = blending_token(proof, proof);
+            tokens.collect(token.clone());
+            assert!(tokens.tokens().contains(&token));
+            i += 1;
         }
-        assert!(tokens.previous_session_tokens.is_none());
 
-        // Try to compute an activity proof, but None is returned.
-        assert!(
-            tokens
-                .compute_activity_proof_for_previous_session()
-                .is_none()
-        );
-
-        // Rotate to a new session.
+        // Prepare a new session info.
         let session_info = SessionInfo::new(
             2,
             &ZkHash::from(2),
@@ -192,34 +159,20 @@ mod tests {
             1.0.try_into().unwrap(),
         )
         .unwrap();
-        tokens.rotate_session(&session_info);
-        // Check if the sessions have been rotated correctly.
-        assert!(tokens.current_session_tokens.tokens.is_empty());
-        assert_eq!(
-            tokens.current_session_randomness,
-            session_info.session_randomness
-        );
-        assert!(tokens.previous_session_tokens.is_some());
+        let mut tokens = tokens.into_old_session(session_info.session_randomness);
 
-        // An activity proof should be generated.
-        let candidates = tokens
-            .previous_session_tokens
-            .as_ref()
-            .unwrap()
-            .tokens
-            .clone();
-        let proof = tokens
-            .compute_activity_proof_for_previous_session()
-            .unwrap();
+        // Insert one more tokens.
+        // Now,`total_core_quota` tokens have been collected.
+        // So, we can expect that always one of them can be picked as an activity proof.
+        let proof: u8 = i.try_into().unwrap();
+        let token = blending_token(proof, proof);
+        tokens.collect(token.clone());
+        assert!(tokens.tokens().contains(&token));
+
+        // Compute an activity proof
+        let candidates = tokens.tokens().clone();
+        let proof = tokens.compute_activity_proof().unwrap();
         assert!(candidates.contains(proof.token()));
-
-        // An activity proof should not be generated again,
-        // since the previous session tokens have been consumed.
-        assert!(
-            tokens
-                .compute_activity_proof_for_previous_session()
-                .is_none()
-        );
     }
 
     fn blending_token(proof_of_quota: u8, proof_of_selection: u8) -> BlendingToken {
