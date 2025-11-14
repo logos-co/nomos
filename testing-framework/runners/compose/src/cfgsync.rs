@@ -47,7 +47,7 @@ pub async fn start_cfgsync_server(
         .map_err(|err| anyhow::anyhow!("loading cfgsync config: {err}"))?;
     let repo: Arc<ConfigRepo> = config.into();
 
-    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, port))
+    let listener = TcpListener::bind((Ipv4Addr::UNSPECIFIED, port))
         .await
         .context("binding cfgsync listener")?;
 

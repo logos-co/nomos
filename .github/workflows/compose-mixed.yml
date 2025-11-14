@@ -64,9 +64,11 @@ jobs:
       - name: Run compose mixed workload test
         env:
           POL_PROOF_DEV_MODE: "true"
-          COMPOSE_RUNNER_PRESERVE: ${{ env.ACT }}
         run: |
           mkdir -p "$TMPDIR"
+          if [ "${{ env.ACT }}" = "true" ]; then
+            export COMPOSE_RUNNER_PRESERVE=1
+          fi
           cargo test -p tests-workflows --all-features compose_runner_mixed_workloads -- --nocapture --ignored
 
       - name: Collect compose logs
