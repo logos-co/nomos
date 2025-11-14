@@ -69,7 +69,12 @@ use super::handlers::{
     da_get_shares, da_get_storage_commitments, libp2p_info, mantle_metrics, mantle_status,
     monitor_stats, unblock_peer,
 };
-use crate::api::handlers::{post_activity, post_declaration, post_withdrawal};
+#[cfg(feature = "wallet")]
+use super::handlers::{get_wallet_balance, post_wallet_transfer};
+use crate::{
+    WalletService,
+    api::handlers::{post_activity, post_declaration, post_withdrawal},
+};
 
 pub(crate) type DaStorageBackend = RocksBackend;
 type DaStorageService<RuntimeServiceId> = StorageService<DaStorageBackend, RuntimeServiceId>;
@@ -297,7 +302,8 @@ where
                 RuntimeServiceId,
             >,
         >
-        + AsServiceId<nomos_sdp::SdpService<SdpMempool, RuntimeServiceId>>,
+        + AsServiceId<nomos_sdp::SdpService<SdpMempool, RuntimeServiceId>>
+        + AsServiceId<WalletService>,
 {
     type Error = std::io::Error;
     type Settings = AxumBackendSettings;
@@ -549,6 +555,17 @@ where
                         RuntimeServiceId,
                     >,
                 ),
+            );
+
+        #[cfg(feature = "wallet")]
+        let app = app
+            .route(
+                paths::WALLET_BALANCE,
+                routing::get(get_wallet_balance::<WalletService, _, _, _, _, _, _>),
+            )
+            .route(
+                paths::WALLET_TRANSFER,
+                routing::post(post_wallet_transfer::<WalletService, _, _, _, _, _, _, _>),
             );
 
         let app = app
