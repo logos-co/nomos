@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use super::metrics::Metrics;
+use super::{block_feed::BlockFeed, metrics::Metrics};
 use crate::{
     nodes::ApiClient,
     scenario::NodeClients,
@@ -13,6 +13,7 @@ pub struct RunContext {
     node_clients: NodeClients,
     metrics: RunMetrics,
     telemetry: Metrics,
+    block_feed: BlockFeed,
 }
 
 impl RunContext {
@@ -26,6 +27,7 @@ impl RunContext {
         node_clients: NodeClients,
         run_duration: Duration,
         telemetry: Metrics,
+        block_feed: BlockFeed,
     ) -> Self {
         let metrics = RunMetrics::new(&descriptors, run_duration);
 
@@ -35,6 +37,7 @@ impl RunContext {
             node_clients,
             metrics,
             telemetry,
+            block_feed,
         }
     }
 
@@ -56,6 +59,11 @@ impl RunContext {
     #[must_use]
     pub fn random_node_client(&self) -> Option<&ApiClient> {
         self.node_clients.any_client()
+    }
+
+    #[must_use]
+    pub fn block_feed(&self) -> BlockFeed {
+        self.block_feed.clone()
     }
 
     #[must_use]

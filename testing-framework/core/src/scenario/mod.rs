@@ -11,10 +11,12 @@ pub type DynError = Box<dyn std::error::Error + Send + Sync + 'static>;
 pub use definition::{Builder as ScenarioBuilder, Scenario};
 pub use expectation::Expectation;
 pub use runtime::{
-    CleanupGuard, Deployer, NodeClients, RunContext, RunHandle, Runner, ScenarioError,
+    BlockFeed, BlockFeedTask, BlockRecord, BlockStats, CleanupGuard, Deployer, NodeClients,
+    RunContext, RunHandle, Runner, ScenarioError,
     metrics::{
         CONSENSUS_PROCESSED_BLOCKS, CONSENSUS_TRANSACTIONS_TOTAL, Metrics, MetricsError,
         PrometheusEndpoint, PrometheusInstantSample,
     },
+    spawn_block_feed,
 };
 pub use workload::Workload;
