@@ -2,8 +2,7 @@ use std::marker::PhantomData;
 
 use nomos_core::{header::HeaderId, mantle::TxHash};
 use overwatch::services::relay::OutboundRelay;
-use tokio::sync::oneshot;
-use tx_service::{MempoolMsg, TransactionsByHashesResponse};
+use tx_service::MempoolMsg;
 
 use super::MempoolAdapter as MempoolAdapterTrait;
 
@@ -44,26 +43,5 @@ where
             .map_err(|(e, _)| format!("Could not mark transactions in block: {e}"))?;
 
         Ok(())
-    }
-
-    async fn get_transactions_by_hashes(
-        &self,
-        hashes: Vec<TxHash>,
-    ) -> Result<TransactionsByHashesResponse<Tx, TxHash>, overwatch::DynError> {
-        let (resp_tx, resp_rx) = oneshot::channel();
-
-        self.mempool_relay
-            .send(MempoolMsg::GetTransactionsByHashes {
-                hashes,
-                reply_channel: resp_tx,
-            })
-            .await
-            .map_err(|(e, _)| format!("Could not get transactions by hashes: {e}"))?;
-
-        let response = resp_rx
-            .await
-            .map_err(|e| format!("Could not receive response: {e}"))?;
-
-        Ok(response.map_err(|e| format!("Mempool error: {e}"))?)
     }
 }

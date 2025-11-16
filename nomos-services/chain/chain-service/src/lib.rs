@@ -1,7 +1,6 @@
 pub mod api;
 mod bootstrap;
 mod mempool;
-pub mod network;
 mod relays;
 mod states;
 pub mod storage;
@@ -11,7 +10,6 @@ use core::fmt::Debug;
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fmt::Display,
-    hash::Hash,
     path::PathBuf,
     time::Duration,
 };
@@ -22,9 +20,8 @@ use cryptarchia_engine::PrunedBlocks;
 pub use cryptarchia_engine::{Epoch, Slot};
 use cryptarchia_sync::{GetTipResponse, ProviderResponse};
 use futures::{FutureExt as _, StreamExt as _};
-use network::NetworkAdapter;
 use nomos_core::{
-    block::{Block, Proposal},
+    block::Block,
     header::HeaderId,
     mantle::{
         AuthenticatedMantleTx, Transaction, TxHash, gas::MainnetGasConstants,
@@ -34,7 +31,7 @@ use nomos_core::{
 };
 pub use nomos_ledger::EpochState;
 use nomos_ledger::LedgerState;
-use nomos_network::{NetworkService, message::ChainSyncEvent};
+use nomos_network::message::ChainSyncEvent;
 use nomos_storage::{StorageService, api::chain::StorageChainApi, backends::StorageBackend};
 use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
@@ -63,7 +60,7 @@ use tx_service::{
 pub use crate::bootstrap::config::{BootstrapConfig, OfflineGracePeriodConfig};
 use crate::{
     bootstrap::state::choose_engine_state,
-    mempool::{MempoolAdapter as _, adapter::MempoolAdapter},
+    mempool::MempoolAdapter as _,
     relays::CryptarchiaConsensusRelays,
     states::CryptarchiaConsensusState,
     storage::{StorageAdapter as _, adapters::StorageAdapter},
@@ -363,10 +360,9 @@ impl Cryptarchia {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct CryptarchiaSettings<NetworkAdapterSettings> {
+pub struct CryptarchiaSettings {
     pub config: nomos_ledger::Config,
     pub starting_state: StartingState,
-    pub network_adapter_settings: NetworkAdapterSettings,
     pub recovery_file: PathBuf,
     pub bootstrap: BootstrapConfig,
 }
@@ -383,19 +379,15 @@ pub enum StartingState {
     },
 }
 
-impl<NetworkAdapterSettings> FileBackendSettings for CryptarchiaSettings<NetworkAdapterSettings> {
+impl FileBackendSettings for CryptarchiaSettings {
     fn recovery_file(&self) -> &PathBuf {
         &self.recovery_file
     }
 }
 
 #[expect(clippy::allow_attributes_without_reason)]
-pub struct CryptarchiaConsensus<NetAdapter, Mempool, MempoolNetAdapter, Storage, RuntimeServiceId>
+pub struct CryptarchiaConsensus<Mempool, MempoolNetAdapter, Storage, RuntimeServiceId>
 where
-    NetAdapter: NetworkAdapter<RuntimeServiceId>,
-    NetAdapter::Backend: 'static,
-    NetAdapter::Settings: Send,
-    NetAdapter::PeerId: Clone + Eq + Hash,
     Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash>,
     Mempool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     Mempool::Settings: Clone,
@@ -414,12 +406,9 @@ where
     state: <Self as ServiceData>::State,
 }
 
-impl<NetAdapter, Mempool, MempoolNetAdapter, Storage, RuntimeServiceId> ServiceData
-    for CryptarchiaConsensus<NetAdapter, Mempool, MempoolNetAdapter, Storage, RuntimeServiceId>
+impl<Mempool, MempoolNetAdapter, Storage, RuntimeServiceId> ServiceData
+    for CryptarchiaConsensus<Mempool, MempoolNetAdapter, Storage, RuntimeServiceId>
 where
-    NetAdapter: NetworkAdapter<RuntimeServiceId>,
-    NetAdapter::Settings: Send,
-    NetAdapter::PeerId: Clone + Eq + Hash,
     Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash>,
     Mempool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     Mempool::Settings: Clone,
@@ -431,24 +420,16 @@ where
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
 {
-    type Settings = CryptarchiaSettings<NetAdapter::Settings>;
-    type State = CryptarchiaConsensusState<NetAdapter::Settings>;
+    type Settings = CryptarchiaSettings;
+    type State = CryptarchiaConsensusState;
     type StateOperator = RecoveryOperator<JsonFileBackend<Self::State, Self::Settings>>;
     type Message = ConsensusMsg<Mempool::Item>;
 }
 
 #[async_trait::async_trait]
-impl<NetAdapter, Mempool, MempoolNetAdapter, Storage, RuntimeServiceId>
-    ServiceCore<RuntimeServiceId>
-    for CryptarchiaConsensus<NetAdapter, Mempool, MempoolNetAdapter, Storage, RuntimeServiceId>
+impl<Mempool, MempoolNetAdapter, Storage, RuntimeServiceId> ServiceCore<RuntimeServiceId>
+    for CryptarchiaConsensus<Mempool, MempoolNetAdapter, Storage, RuntimeServiceId>
 where
-    NetAdapter: NetworkAdapter<RuntimeServiceId, Block = Block<Mempool::Item>, Proposal = Proposal>
-        + Clone
-        + Send
-        + Sync
-        + 'static,
-    NetAdapter::Settings: Send + Sync + 'static,
-    NetAdapter::PeerId: Clone + Eq + Hash + Copy + Debug + Send + Sync + Unpin + 'static,
     Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash> + Send + Sync + 'static,
     Mempool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     Mempool::Settings: Clone + Send + Sync + 'static,
@@ -479,7 +460,6 @@ where
         + Display
         + 'static
         + AsServiceId<Self>
-        + AsServiceId<NetworkService<NetAdapter::Backend, RuntimeServiceId>>
         + AsServiceId<BlockBroadcastService<RuntimeServiceId>>
         + AsServiceId<
             TxMempoolService<MempoolNetAdapter, Mempool, Mempool::Storage, RuntimeServiceId>,
@@ -506,7 +486,6 @@ where
         let relays: CryptarchiaConsensusRelays<
             Mempool,
             MempoolNetAdapter,
-            NetAdapter,
             Storage,
             RuntimeServiceId,
         > = CryptarchiaConsensusRelays::from_service_resources_handle(
@@ -516,7 +495,6 @@ where
 
         let CryptarchiaSettings {
             config: ledger_config,
-            network_adapter_settings,
             bootstrap: bootstrap_config,
             ..
         } = self
@@ -538,10 +516,6 @@ where
         )
         .await;
 
-        let network_adapter =
-            NetAdapter::new(network_adapter_settings, relays.network_relay().clone()).await;
-
-        let mut incoming_proposals = network_adapter.proposals_stream().await?;
         let sync_blocks_provider: BlockProvider<_, _> =
             BlockProvider::new(relays.storage_adapter().storage_relay.clone());
 
@@ -549,7 +523,6 @@ where
             &self.service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
             BlockBroadcastService<_>,
-            NetworkService<_, _>,
             TxMempoolService<_, _, _, _>,
             StorageService<_, _>
         )
@@ -590,16 +563,6 @@ where
                         );
 
                         self.notify_service_ready();
-                    }
-
-                    Some(proposal) = incoming_proposals.next() => {
-                        self.handle_incoming_proposal(
-                            proposal,
-                            &mut cryptarchia,
-                            &mut storage_blocks_to_remove,
-                            &relays,
-                        )
-                        .await;
                     }
 
                     Some(msg) = self.service_resources_handle.inbound_relay.next() => {
@@ -672,16 +635,9 @@ where
     }
 }
 
-impl<NetAdapter, Mempool, MempoolNetAdapter, Storage, RuntimeServiceId>
-    CryptarchiaConsensus<NetAdapter, Mempool, MempoolNetAdapter, Storage, RuntimeServiceId>
+impl<Mempool, MempoolNetAdapter, Storage, RuntimeServiceId>
+    CryptarchiaConsensus<Mempool, MempoolNetAdapter, Storage, RuntimeServiceId>
 where
-    NetAdapter: NetworkAdapter<RuntimeServiceId, Block = Block<Mempool::Item>, Proposal = Proposal>
-        + Clone
-        + Send
-        + Sync
-        + 'static,
-    NetAdapter::Settings: Send + Sync + 'static,
-    NetAdapter::PeerId: Clone + Eq + Hash + Copy + Debug + Send + Sync,
     Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash> + Send + Sync + 'static,
     Mempool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     Mempool::Settings: Clone + Send + Sync + 'static,
@@ -806,16 +762,10 @@ where
         cryptarchia: Cryptarchia,
         block: Block<Mempool::Item>,
         storage_blocks_to_remove: &HashSet<HeaderId>,
-        relays: &CryptarchiaConsensusRelays<
-            Mempool,
-            MempoolNetAdapter,
-            NetAdapter,
-            Storage,
-            RuntimeServiceId,
-        >,
+        relays: &CryptarchiaConsensusRelays<Mempool, MempoolNetAdapter, Storage, RuntimeServiceId>,
         new_block_subscription_sender: &broadcast::Sender<HeaderId>,
         lib_subscription_sender: &broadcast::Sender<LibUpdate>,
-        state_updater: &StateUpdater<Option<CryptarchiaConsensusState<NetAdapter::Settings>>>,
+        state_updater: &StateUpdater<Option<CryptarchiaConsensusState>>,
     ) -> Result<(Cryptarchia, HashSet<HeaderId>), Error> {
         let (cryptarchia, pruned_blocks) = Self::process_block(
             cryptarchia,
@@ -842,92 +792,10 @@ where
         Ok((cryptarchia, storage_blocks_to_remove))
     }
 
-    async fn handle_incoming_proposal(
-        &self,
-        proposal: Proposal,
-        cryptarchia: &mut Cryptarchia,
-        storage_blocks_to_remove: &mut HashSet<HeaderId>,
-        relays: &CryptarchiaConsensusRelays<
-            Mempool,
-            MempoolNetAdapter,
-            NetAdapter,
-            Storage,
-            RuntimeServiceId,
-        >,
-    ) where
-        RuntimeServiceId: Send + Sync + 'static,
-    {
-        let block_id = proposal.header().id();
-
-        if cryptarchia.has_block(&block_id) {
-            info!(
-                target: LOG_TARGET,
-                "Block {:?} already processed, ignoring",
-                block_id
-            );
-            return;
-        }
-
-        let block = match reconstruct_block_from_proposal(proposal, relays.mempool_adapter()).await
-        {
-            Ok(block) => block,
-            Err(e) => {
-                error!(
-                    target: LOG_TARGET,
-                    "Failed to reconstruct block from proposal: {:?}",
-                    e
-                );
-                return;
-            }
-        };
-
-        self.apply_reconstructed_block(block, cryptarchia, storage_blocks_to_remove, relays)
-            .await;
-    }
-
-    async fn apply_reconstructed_block(
-        &self,
-        block: Block<Mempool::Item>,
-        cryptarchia: &mut Cryptarchia,
-        storage_blocks_to_remove: &mut HashSet<HeaderId>,
-        relays: &CryptarchiaConsensusRelays<
-            Mempool,
-            MempoolNetAdapter,
-            NetAdapter,
-            Storage,
-            RuntimeServiceId,
-        >,
-    ) where
-        RuntimeServiceId: Send + Sync + 'static,
-    {
-        Self::log_received_block(&block);
-
-        match Self::process_block_and_update_state(
-            cryptarchia.clone(),
-            block,
-            &*storage_blocks_to_remove,
-            relays,
-            &self.new_block_subscription_sender,
-            &self.lib_subscription_sender,
-            &self.service_resources_handle.state_updater,
-        )
-        .await
-        {
-            Ok((new_cryptarchia, new_storage_blocks_to_remove)) => {
-                *cryptarchia = new_cryptarchia;
-                *storage_blocks_to_remove = new_storage_blocks_to_remove;
-                info!(counter.consensus_processed_blocks = 1);
-            }
-            Err(_err) => {
-                panic!("TODO: return error chain-network");
-            }
-        }
-    }
-
     fn update_state(
         cryptarchia: &Cryptarchia,
         storage_blocks_to_remove: HashSet<HeaderId>,
-        state_updater: &StateUpdater<Option<CryptarchiaConsensusState<NetAdapter::Settings>>>,
+        state_updater: &StateUpdater<Option<CryptarchiaConsensusState>>,
     ) {
         match <Self as ServiceData>::State::from_cryptarchia_and_unpruned_blocks(
             cryptarchia,
@@ -949,13 +817,7 @@ where
     async fn process_block(
         cryptarchia: Cryptarchia,
         block: Block<Mempool::Item>,
-        relays: &CryptarchiaConsensusRelays<
-            Mempool,
-            MempoolNetAdapter,
-            NetAdapter,
-            Storage,
-            RuntimeServiceId,
-        >,
+        relays: &CryptarchiaConsensusRelays<Mempool, MempoolNetAdapter, Storage, RuntimeServiceId>,
         new_block_subscription_sender: &broadcast::Sender<HeaderId>,
         lib_broadcaster: &broadcast::Sender<LibUpdate>,
     ) -> Result<(Cryptarchia, PrunedBlocks<HeaderId>), Error> {
@@ -1046,21 +908,6 @@ where
         Ok((cryptarchia, pruned_blocks))
     }
 
-    fn log_received_block(block: &Block<Mempool::Item>) {
-        let content_size = 0; // TODO: calculate the actual content size
-        let transactions = block.transactions().len();
-
-        info!(
-            counter.received_blocks = 1,
-            transactions = transactions,
-            bytes = content_size
-        );
-        info!(
-            histogram.received_blocks_data = content_size,
-            transactions = transactions,
-        );
-    }
-
     /// Retrieves the blocks in the range from `from` to `to` from the storage.
     /// Both `from` and `to` are included in the range.
     /// This is implemented here, and not as a method of `StorageAdapter`, to
@@ -1124,13 +971,7 @@ where
         &self,
         bootstrap_config: &BootstrapConfig,
         ledger_config: nomos_ledger::Config,
-        relays: &CryptarchiaConsensusRelays<
-            Mempool,
-            MempoolNetAdapter,
-            NetAdapter,
-            Storage,
-            RuntimeServiceId,
-        >,
+        relays: &CryptarchiaConsensusRelays<Mempool, MempoolNetAdapter, Storage, RuntimeServiceId>,
     ) -> (Cryptarchia, PrunedBlocks<HeaderId>) {
         let lib_id = self.state.lib;
         let genesis_id = self.state.genesis_id;
@@ -1361,13 +1202,7 @@ where
     async fn broadcast_session_updates_for_block(
         cryptarchia: &Cryptarchia,
         block_id: &HeaderId,
-        relays: &CryptarchiaConsensusRelays<
-            Mempool,
-            MempoolNetAdapter,
-            NetAdapter,
-            Storage,
-            RuntimeServiceId,
-        >,
+        relays: &CryptarchiaConsensusRelays<Mempool, MempoolNetAdapter, Storage, RuntimeServiceId>,
         previous_sessions: Option<&HashMap<ServiceType, u64>>,
     ) {
         let Ok(new_sessions) = cryptarchia.active_sessions_numbers(block_id) else {
@@ -1391,13 +1226,7 @@ where
     async fn handle_service_update(
         cryptarchia: &Cryptarchia,
         block_id: &HeaderId,
-        relays: &CryptarchiaConsensusRelays<
-            Mempool,
-            MempoolNetAdapter,
-            NetAdapter,
-            Storage,
-            RuntimeServiceId,
-        >,
+        relays: &CryptarchiaConsensusRelays<Mempool, MempoolNetAdapter, Storage, RuntimeServiceId>,
         previous_sessions: Option<&HashMap<ServiceType, u64>>,
         service: &ServiceType,
         new_session_number: &u64,
@@ -1470,47 +1299,4 @@ async fn broadcast_da_session(
         .send(BlockBroadcastMsg::BroadcastDASession(session))
         .await
         .map_err(|(error, _)| Box::new(error) as DynError)
-}
-
-/// Reconstruct a Block from a Proposal by looking up transactions from mempool
-async fn reconstruct_block_from_proposal<Payload, Item>(
-    proposal: Proposal,
-    mempool: &MempoolAdapter<Payload, Item>,
-) -> Result<Block<Item>, Error>
-where
-    Payload: Send + Sync,
-    Item: AuthenticatedMantleTx<Hash = TxHash> + Clone + Send + Sync + 'static,
-{
-    let mempool_hashes: Vec<TxHash> = proposal.mempool_transactions().to_vec();
-    let mempool_response = mempool
-        .get_transactions_by_hashes(mempool_hashes)
-        .await
-        .map_err(|e| {
-            Error::InvalidBlock(format!("Failed to get transactions from mempool: {e}"))
-        })?;
-
-    if !mempool_response.all_found() {
-        return Err(Error::InvalidBlock(format!(
-            "Failed to reconstruct block: {:?} mempool transactions not found",
-            mempool_response.not_found()
-        )));
-    }
-
-    // TODO: recover service reward
-    let service_reward = None;
-
-    let reconstructed_transactions = mempool_response.into_found();
-
-    let header = proposal.header().clone();
-    let signature = *proposal.signature();
-
-    let block = Block::reconstruct(
-        header,
-        reconstructed_transactions,
-        service_reward,
-        signature,
-    )
-    .map_err(|e| Error::InvalidBlock(format!("Invalid block: {e}")))?;
-
-    Ok(block)
 }

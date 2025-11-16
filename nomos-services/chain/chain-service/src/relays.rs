@@ -1,6 +1,5 @@
 use std::{
     fmt::{Debug, Display},
-    hash::Hash,
     marker::PhantomData,
 };
 
@@ -11,7 +10,6 @@ use nomos_core::{
     header::HeaderId,
     mantle::{AuthenticatedMantleTx, TxHash},
 };
-use nomos_network::{NetworkService, message::BackendNetworkMsg};
 use nomos_storage::{
     StorageMsg, StorageService, api::chain::StorageChainApi, backends::StorageBackend,
 };
@@ -28,44 +26,28 @@ use tx_service::{
 use crate::{
     CryptarchiaConsensus,
     mempool::adapter::MempoolAdapter,
-    network,
     storage::{StorageAdapter as _, adapters::StorageAdapter},
 };
 
-type NetworkRelay<NetworkBackend, RuntimeServiceId> =
-    OutboundRelay<BackendNetworkMsg<NetworkBackend, RuntimeServiceId>>;
 pub type BroadcastRelay = OutboundRelay<BlockBroadcastMsg>;
 
 pub type StorageRelay<Storage> = OutboundRelay<StorageMsg<Storage>>;
 
-pub struct CryptarchiaConsensusRelays<
-    Mempool,
-    MempoolNetAdapter,
-    NetworkAdapter,
-    Storage,
-    RuntimeServiceId,
-> where
+pub struct CryptarchiaConsensusRelays<Mempool, MempoolNetAdapter, Storage, RuntimeServiceId>
+where
     Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash> + Send + Sync,
     MempoolNetAdapter: tx_service::network::NetworkAdapter<RuntimeServiceId>,
-    NetworkAdapter: network::NetworkAdapter<RuntimeServiceId>,
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
 {
-    network_relay: NetworkRelay<NetworkAdapter::Backend, RuntimeServiceId>,
     broadcast_relay: BroadcastRelay,
     mempool_adapter: MempoolAdapter<Mempool::Item, Mempool::Item>,
     storage_adapter: StorageAdapter<Storage, Mempool::Item, RuntimeServiceId>,
     _mempool_adapter: PhantomData<MempoolNetAdapter>,
 }
 
-impl<Mempool, MempoolNetAdapter, NetworkAdapter, Storage, RuntimeServiceId>
-    CryptarchiaConsensusRelays<
-        Mempool,
-        MempoolNetAdapter,
-        NetworkAdapter,
-        Storage,
-        RuntimeServiceId,
-    >
+impl<Mempool, MempoolNetAdapter, Storage, RuntimeServiceId>
+    CryptarchiaConsensusRelays<Mempool, MempoolNetAdapter, Storage, RuntimeServiceId>
 where
     Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash> + Send + Sync,
     Mempool::RecoveryState: Serialize + DeserializeOwned,
@@ -84,16 +66,12 @@ where
         + Send
         + Sync,
     MempoolNetAdapter::Settings: Send + Sync,
-    NetworkAdapter: network::NetworkAdapter<RuntimeServiceId>,
-    NetworkAdapter::Settings: Send,
-    NetworkAdapter::PeerId: Clone + Eq + Hash + Send + Sync,
     Storage: StorageBackend + Send + Sync + 'static,
     <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
     <Storage as StorageChainApi>::Block:
         TryFrom<Block<Mempool::Item>> + TryInto<Block<Mempool::Item>>,
 {
     pub async fn new(
-        network_relay: NetworkRelay<NetworkAdapter::Backend, RuntimeServiceId>,
         broadcast_relay: BroadcastRelay,
         mempool_relay: OutboundRelay<MempoolMsg<HeaderId, Mempool::Item, Mempool::Item, TxHash>>,
         storage_relay: StorageRelay<Storage>,
@@ -102,7 +80,6 @@ where
             StorageAdapter::<Storage, Mempool::Item, RuntimeServiceId>::new(storage_relay).await;
         let mempool_adapter = MempoolAdapter::new(mempool_relay);
         Self {
-            network_relay,
             broadcast_relay,
             mempool_adapter,
             storage_adapter,
@@ -113,37 +90,23 @@ where
     #[expect(clippy::allow_attributes_without_reason)]
     pub async fn from_service_resources_handle(
         service_resources_handle: &OpaqueServiceResourcesHandle<
-            CryptarchiaConsensus<
-                NetworkAdapter,
-                Mempool,
-                MempoolNetAdapter,
-                Storage,
-                RuntimeServiceId,
-            >,
+            CryptarchiaConsensus<Mempool, MempoolNetAdapter, Storage, RuntimeServiceId>,
             RuntimeServiceId,
         >,
     ) -> Self
     where
         Mempool::Key: Send,
-        NetworkAdapter::Settings: Sync + Send,
         RuntimeServiceId: Debug
             + Sync
             + Send
             + Display
             + 'static
-            + AsServiceId<NetworkService<NetworkAdapter::Backend, RuntimeServiceId>>
             + AsServiceId<BlockBroadcastService<RuntimeServiceId>>
             + AsServiceId<
                 TxMempoolService<MempoolNetAdapter, Mempool, Mempool::Storage, RuntimeServiceId>,
             >
             + AsServiceId<StorageService<Storage, RuntimeServiceId>>,
     {
-        let network_relay = service_resources_handle
-            .overwatch_handle
-            .relay::<NetworkService<_, _>>()
-            .await
-            .expect("Relay connection with NetworkService should succeed");
-
         let broadcast_relay = service_resources_handle
             .overwatch_handle
             .relay::<BlockBroadcastService<_>>()
@@ -165,11 +128,7 @@ where
             .await
             .expect("Relay connection with StorageService should succeed");
 
-        Self::new(network_relay, broadcast_relay, mempool_relay, storage_relay).await
-    }
-
-    pub const fn network_relay(&self) -> &NetworkRelay<NetworkAdapter::Backend, RuntimeServiceId> {
-        &self.network_relay
+        Self::new(broadcast_relay, mempool_relay, storage_relay).await
     }
 
     pub const fn broadcast_relay(&self) -> &BroadcastRelay {
