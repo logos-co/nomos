@@ -1,6 +1,5 @@
 pub mod api;
 mod bootstrap;
-mod mempool;
 mod relays;
 mod states;
 pub mod storage;
@@ -52,15 +51,10 @@ use tokio::{
 };
 use tracing::{Level, debug, error, info, instrument, span, warn};
 use tracing_futures::Instrument as _;
-use tx_service::{
-    TxMempoolService, backend::RecoverableMempool,
-    network::NetworkAdapter as MempoolNetworkAdapter, storage::MempoolStorageAdapter,
-};
 
 pub use crate::bootstrap::config::{BootstrapConfig, OfflineGracePeriodConfig};
 use crate::{
     bootstrap::state::choose_engine_state,
-    mempool::MempoolAdapter as _,
     relays::CryptarchiaConsensusRelays,
     states::CryptarchiaConsensusState,
     storage::{StorageAdapter as _, adapters::StorageAdapter},
@@ -386,19 +380,11 @@ impl FileBackendSettings for CryptarchiaSettings {
 }
 
 #[expect(clippy::allow_attributes_without_reason)]
-pub struct CryptarchiaConsensus<Mempool, MempoolNetAdapter, Storage, RuntimeServiceId>
+pub struct CryptarchiaConsensus<Storage, RuntimeServiceId>
 where
-    Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash>,
-    Mempool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    Mempool::Settings: Clone,
-    Mempool::Storage: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
-    Mempool::Item: Clone + Eq + Debug + 'static,
-    Mempool::Item: AuthenticatedMantleTx,
-    MempoolNetAdapter:
-        MempoolNetworkAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>,
-    MempoolNetAdapter::Settings: Send + Sync,
     Storage: StorageBackend + Send + Sync + 'static,
-    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
+    <Storage as StorageChainApi>::Tx:
+        AuthenticatedMantleTx + Clone + Eq + Debug + From<Bytes> + AsRef<[u8]> + 'static,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     new_block_subscription_sender: broadcast::Sender<HeaderId>,
@@ -406,35 +392,24 @@ where
     state: <Self as ServiceData>::State,
 }
 
-impl<Mempool, MempoolNetAdapter, Storage, RuntimeServiceId> ServiceData
-    for CryptarchiaConsensus<Mempool, MempoolNetAdapter, Storage, RuntimeServiceId>
+impl<Storage, RuntimeServiceId> ServiceData for CryptarchiaConsensus<Storage, RuntimeServiceId>
 where
-    Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash>,
-    Mempool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    Mempool::Settings: Clone,
-    Mempool::Storage: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
-    Mempool::Item: AuthenticatedMantleTx + Clone + Eq + Debug,
-    MempoolNetAdapter:
-        MempoolNetworkAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>,
-    MempoolNetAdapter::Settings: Send + Sync,
     Storage: StorageBackend + Send + Sync + 'static,
-    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
+    <Storage as StorageChainApi>::Tx:
+        AuthenticatedMantleTx + Clone + Eq + Debug + From<Bytes> + AsRef<[u8]>,
 {
     type Settings = CryptarchiaSettings;
     type State = CryptarchiaConsensusState;
     type StateOperator = RecoveryOperator<JsonFileBackend<Self::State, Self::Settings>>;
-    type Message = ConsensusMsg<Mempool::Item>;
+    type Message = ConsensusMsg<<Storage as StorageChainApi>::Tx>;
 }
 
 #[async_trait::async_trait]
-impl<Mempool, MempoolNetAdapter, Storage, RuntimeServiceId> ServiceCore<RuntimeServiceId>
-    for CryptarchiaConsensus<Mempool, MempoolNetAdapter, Storage, RuntimeServiceId>
+impl<Storage, RuntimeServiceId> ServiceCore<RuntimeServiceId>
+    for CryptarchiaConsensus<Storage, RuntimeServiceId>
 where
-    Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash> + Send + Sync + 'static,
-    Mempool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    Mempool::Settings: Clone + Send + Sync + 'static,
-    Mempool::Storage: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
-    Mempool::Item: Transaction<Hash = Mempool::Key>
+    Storage: StorageBackend + Send + Sync + 'static,
+    <Storage as StorageChainApi>::Tx: Transaction<Hash = TxHash>
         + AuthenticatedMantleTx
         + Debug
         + Clone
@@ -444,16 +419,12 @@ where
         + Send
         + Sync
         + Unpin
+        + From<Bytes>
+        + AsRef<[u8]>
         + 'static,
-    MempoolNetAdapter: MempoolNetworkAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>
-        + Send
-        + Sync
-        + 'static,
-    MempoolNetAdapter::Settings: Send + Sync,
-    Storage: StorageBackend + Send + Sync + 'static,
-    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
-    <Storage as StorageChainApi>::Block:
-        TryFrom<Block<Mempool::Item>> + TryInto<Block<Mempool::Item>> + Into<Bytes>,
+    <Storage as StorageChainApi>::Block: TryFrom<Block<<Storage as StorageChainApi>::Tx>>
+        + TryInto<Block<<Storage as StorageChainApi>::Tx>>
+        + Into<Bytes>,
     RuntimeServiceId: Debug
         + Send
         + Sync
@@ -461,9 +432,6 @@ where
         + 'static
         + AsServiceId<Self>
         + AsServiceId<BlockBroadcastService<RuntimeServiceId>>
-        + AsServiceId<
-            TxMempoolService<MempoolNetAdapter, Mempool, Mempool::Storage, RuntimeServiceId>,
-        >
         + AsServiceId<StorageService<Storage, RuntimeServiceId>>,
 {
     fn init(
@@ -483,15 +451,11 @@ where
 
     #[expect(clippy::too_many_lines, reason = "TODO: Address this at some point.")]
     async fn run(mut self) -> Result<(), DynError> {
-        let relays: CryptarchiaConsensusRelays<
-            Mempool,
-            MempoolNetAdapter,
-            Storage,
-            RuntimeServiceId,
-        > = CryptarchiaConsensusRelays::from_service_resources_handle(
-            &self.service_resources_handle,
-        )
-        .await;
+        let relays: CryptarchiaConsensusRelays<Storage, RuntimeServiceId> =
+            CryptarchiaConsensusRelays::from_service_resources_handle(
+                &self.service_resources_handle,
+            )
+            .await;
 
         let CryptarchiaSettings {
             config: ledger_config,
@@ -523,7 +487,6 @@ where
             &self.service_resources_handle.overwatch_handle,
             Some(Duration::from_secs(60)),
             BlockBroadcastService<_>,
-            TxMempoolService<_, _, _, _>,
             StorageService<_, _>
         )
         .await?;
@@ -635,14 +598,10 @@ where
     }
 }
 
-impl<Mempool, MempoolNetAdapter, Storage, RuntimeServiceId>
-    CryptarchiaConsensus<Mempool, MempoolNetAdapter, Storage, RuntimeServiceId>
+impl<Storage, RuntimeServiceId> CryptarchiaConsensus<Storage, RuntimeServiceId>
 where
-    Mempool: RecoverableMempool<BlockId = HeaderId, Key = TxHash> + Send + Sync + 'static,
-    Mempool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
-    Mempool::Settings: Clone + Send + Sync + 'static,
-    Mempool::Storage: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
-    Mempool::Item: Transaction<Hash = Mempool::Key>
+    Storage: StorageBackend + Send + Sync + 'static,
+    <Storage as StorageChainApi>::Tx: Transaction<Hash = TxHash>
         + AuthenticatedMantleTx
         + Debug
         + Clone
@@ -651,16 +610,12 @@ where
         + DeserializeOwned
         + Send
         + Sync
+        + From<Bytes>
+        + AsRef<[u8]>
         + 'static,
-    MempoolNetAdapter: MempoolNetworkAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>
-        + Send
-        + Sync
-        + 'static,
-    MempoolNetAdapter::Settings: Send + Sync,
-    Storage: StorageBackend + Send + Sync + 'static,
-    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
-    <Storage as StorageChainApi>::Block:
-        TryFrom<Block<Mempool::Item>> + TryInto<Block<Mempool::Item>> + Into<Bytes>,
+    <Storage as StorageChainApi>::Block: TryFrom<Block<<Storage as StorageChainApi>::Tx>>
+        + TryInto<Block<<Storage as StorageChainApi>::Tx>>
+        + Into<Bytes>,
     RuntimeServiceId: Display + AsServiceId<Self>,
 {
     fn notify_service_ready(&self) {
@@ -675,7 +630,7 @@ where
         cryptarchia: &Cryptarchia,
         new_block_channel: &broadcast::Sender<HeaderId>,
         lib_channel: &broadcast::Sender<LibUpdate>,
-        msg: ConsensusMsg<Mempool::Item>,
+        msg: ConsensusMsg<<Storage as StorageChainApi>::Tx>,
     ) {
         match msg {
             ConsensusMsg::Info { tx } => {
@@ -760,9 +715,9 @@ where
 
     async fn process_block_and_update_state(
         cryptarchia: Cryptarchia,
-        block: Block<Mempool::Item>,
+        block: Block<<Storage as StorageChainApi>::Tx>,
         storage_blocks_to_remove: &HashSet<HeaderId>,
-        relays: &CryptarchiaConsensusRelays<Mempool, MempoolNetAdapter, Storage, RuntimeServiceId>,
+        relays: &CryptarchiaConsensusRelays<Storage, RuntimeServiceId>,
         new_block_subscription_sender: &broadcast::Sender<HeaderId>,
         lib_subscription_sender: &broadcast::Sender<LibUpdate>,
         state_updater: &StateUpdater<Option<CryptarchiaConsensusState>>,
@@ -816,8 +771,8 @@ where
     #[instrument(level = "debug", skip(cryptarchia, relays))]
     async fn process_block(
         cryptarchia: Cryptarchia,
-        block: Block<Mempool::Item>,
-        relays: &CryptarchiaConsensusRelays<Mempool, MempoolNetAdapter, Storage, RuntimeServiceId>,
+        block: Block<<Storage as StorageChainApi>::Tx>,
+        relays: &CryptarchiaConsensusRelays<Storage, RuntimeServiceId>,
         new_block_subscription_sender: &broadcast::Sender<HeaderId>,
         lib_broadcaster: &broadcast::Sender<LibUpdate>,
     ) -> Result<(Cryptarchia, PrunedBlocks<HeaderId>), Error> {
@@ -825,7 +780,6 @@ where
 
         // TODO: filter on time?
         let header = block.header();
-        let id = header.id();
         let prev_lib = cryptarchia.lib();
 
         let previous_session_numbers = match cryptarchia.active_sessions_numbers(&prev_lib) {
@@ -838,19 +792,6 @@ where
 
         let (cryptarchia, pruned_blocks) = cryptarchia.try_apply_block(&block)?;
         let new_lib = cryptarchia.lib();
-
-        // remove included content from mempool
-        relays
-            .mempool_adapter()
-            .mark_transactions_in_block(
-                &block
-                    .transactions()
-                    .map(Transaction::hash)
-                    .collect::<Vec<_>>(),
-                id,
-            )
-            .await
-            .unwrap_or_else(|e| error!("Could not mark transactions in block: {e}"));
 
         relays
             .storage_adapter()
@@ -933,8 +874,12 @@ where
     async fn get_blocks_in_range(
         from: HeaderId,
         to: HeaderId,
-        storage_adapter: &StorageAdapter<Storage, Mempool::Item, RuntimeServiceId>,
-    ) -> Vec<Block<Mempool::Item>> {
+        storage_adapter: &StorageAdapter<
+            Storage,
+            <Storage as StorageChainApi>::Tx,
+            RuntimeServiceId,
+        >,
+    ) -> Vec<Block<<Storage as StorageChainApi>::Tx>> {
         // Due to the blocks traversal order, this yields `to..from` order
         let blocks = futures::stream::unfold(to, |header_id| async move {
             if header_id == from {
@@ -971,7 +916,7 @@ where
         &self,
         bootstrap_config: &BootstrapConfig,
         ledger_config: nomos_ledger::Config,
-        relays: &CryptarchiaConsensusRelays<Mempool, MempoolNetAdapter, Storage, RuntimeServiceId>,
+        relays: &CryptarchiaConsensusRelays<Storage, RuntimeServiceId>,
     ) -> (Cryptarchia, PrunedBlocks<HeaderId>) {
         let lib_id = self.state.lib;
         let genesis_id = self.state.genesis_id;
@@ -1039,7 +984,11 @@ where
     async fn delete_pruned_blocks_from_storage(
         pruned_blocks: impl Iterator<Item = HeaderId> + Send,
         additional_blocks: &HashSet<HeaderId>,
-        storage_adapter: &StorageAdapter<Storage, Mempool::Item, RuntimeServiceId>,
+        storage_adapter: &StorageAdapter<
+            Storage,
+            <Storage as StorageChainApi>::Tx,
+            RuntimeServiceId,
+        >,
     ) -> HashSet<HeaderId> {
         match Self::delete_blocks_from_storage(
             pruned_blocks.chain(additional_blocks.iter().copied()),
@@ -1065,7 +1014,11 @@ where
     /// result.
     async fn delete_blocks_from_storage<Headers>(
         block_headers: Headers,
-        storage_adapter: &StorageAdapter<Storage, Mempool::Item, RuntimeServiceId>,
+        storage_adapter: &StorageAdapter<
+            Storage,
+            <Storage as StorageChainApi>::Tx,
+            RuntimeServiceId,
+        >,
     ) -> Result<(), Vec<(HeaderId, DynError)>>
     where
         Headers: Iterator<Item = HeaderId> + Send,
@@ -1112,7 +1065,7 @@ where
 
     async fn handle_chainsync_event(
         cryptarchia: &Cryptarchia,
-        sync_blocks_provider: &BlockProvider<Storage, Mempool::Item>,
+        sync_blocks_provider: &BlockProvider<Storage, <Storage as StorageChainApi>::Tx>,
         event: ChainSyncEvent,
     ) {
         match event {
@@ -1179,7 +1132,11 @@ where
     async fn switch_to_online(
         cryptarchia: Cryptarchia,
         storage_blocks_to_remove: &HashSet<HeaderId>,
-        storage_adapter: &StorageAdapter<Storage, Mempool::Item, RuntimeServiceId>,
+        storage_adapter: &StorageAdapter<
+            Storage,
+            <Storage as StorageChainApi>::Tx,
+            RuntimeServiceId,
+        >,
     ) -> (Cryptarchia, HashSet<HeaderId>) {
         let (cryptarchia, pruned_blocks) = cryptarchia.online();
         if let Err(e) = storage_adapter
@@ -1202,7 +1159,7 @@ where
     async fn broadcast_session_updates_for_block(
         cryptarchia: &Cryptarchia,
         block_id: &HeaderId,
-        relays: &CryptarchiaConsensusRelays<Mempool, MempoolNetAdapter, Storage, RuntimeServiceId>,
+        relays: &CryptarchiaConsensusRelays<Storage, RuntimeServiceId>,
         previous_sessions: Option<&HashMap<ServiceType, u64>>,
     ) {
         let Ok(new_sessions) = cryptarchia.active_sessions_numbers(block_id) else {
@@ -1226,7 +1183,7 @@ where
     async fn handle_service_update(
         cryptarchia: &Cryptarchia,
         block_id: &HeaderId,
-        relays: &CryptarchiaConsensusRelays<Mempool, MempoolNetAdapter, Storage, RuntimeServiceId>,
+        relays: &CryptarchiaConsensusRelays<Storage, RuntimeServiceId>,
         previous_sessions: Option<&HashMap<ServiceType, u64>>,
         service: &ServiceType,
         new_session_number: &u64,
