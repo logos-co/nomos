@@ -4,6 +4,7 @@ use overwatch::{
     DynError,
     services::{ServiceData, relay::OutboundRelay},
 };
+use thiserror::Error;
 use tokio::sync::{broadcast, oneshot};
 
 use crate::{ConsensusMsg, CryptarchiaInfo, LibUpdate};
@@ -20,13 +21,37 @@ where
     type Tx = Tx;
 }
 
-#[derive(Clone)]
+#[derive(Debug, Error)]
+pub enum ApiError {
+    #[error("Missing parent while applying block {parent}, {info:?}")]
+    ParentMissing {
+        parent: HeaderId,
+        info: CryptarchiaInfo,
+    },
+    #[error("Failed to establish connection to chain-service: {0}")]
+    CommsFailure(String),
+    #[error("Unexpected Error: {0}")]
+    Unexpected(String),
+}
+
 pub struct CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>
 where
     Cryptarchia: CryptarchiaServiceData,
 {
     relay: OutboundRelay<Cryptarchia::Message>,
     _id: std::marker::PhantomData<RuntimeServiceId>,
+}
+
+impl<Cryptarchia, RuntimeServiceId> Clone for CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>
+where
+    Cryptarchia: CryptarchiaServiceData,
+{
+    fn clone(&self) -> Self {
+        Self {
+            relay: self.relay.clone(),
+            _id: std::marker::PhantomData,
+        }
+    }
 }
 
 impl<Cryptarchia, RuntimeServiceId> CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>
@@ -44,15 +69,19 @@ where
 
     /// Get the current consensus info including LIB, tip, slot, height, and
     /// mode
-    pub async fn info(&self) -> Result<CryptarchiaInfo, DynError> {
+    pub async fn info(&self) -> Result<CryptarchiaInfo, ApiError> {
         let (tx, rx) = oneshot::channel();
 
         self.relay
             .send(ConsensusMsg::Info { tx })
             .await
-            .map_err(|_| "Failed to send info request")?;
+            .map_err(|(relay_error, _)| {
+                ApiError::CommsFailure(format!("{relay_error} while sending GetInfo"))
+            })?;
 
-        Ok(rx.await?)
+        rx.await.map_err(|relay_error| {
+            ApiError::CommsFailure(format!("{relay_error} while recving GetInfo"))
+        })
     }
 
     /// Subscribe to new blocks
@@ -111,15 +140,19 @@ where
     pub async fn get_ledger_state(
         &self,
         block_id: HeaderId,
-    ) -> Result<Option<nomos_ledger::LedgerState>, DynError> {
+    ) -> Result<Option<nomos_ledger::LedgerState>, ApiError> {
         let (tx, rx) = oneshot::channel();
 
         self.relay
             .send(ConsensusMsg::GetLedgerState { block_id, tx })
             .await
-            .map_err(|_| "Failed to send ledger state request")?;
+            .map_err(|(relay_error, _)| {
+                ApiError::CommsFailure(format!("{relay_error} while sending GetLedgerState"))
+            })?;
 
-        Ok(rx.await?)
+        rx.await.map_err(|relay_error| {
+            ApiError::CommsFailure(format!("{relay_error} while recving GetLedgerState"))
+        })
     }
 
     /// Get the epoch state for a given slot
@@ -138,7 +171,7 @@ where
     }
 
     /// Apply a block through the chain service
-    pub async fn apply_block(&self, block: Block<Cryptarchia::Tx>) -> Result<(), DynError> {
+    pub async fn apply_block(&self, block: Block<Cryptarchia::Tx>) -> Result<(), ApiError> {
         let (tx, rx) = oneshot::channel();
 
         let boxed_block = Box::new(block);
@@ -148,13 +181,24 @@ where
                 tx,
             })
             .await
-            .map_err(|_| "Failed to send process block request")?;
+            .map_err(|(relay_error, _)| {
+                ApiError::CommsFailure(format!("{relay_error} while sending ApplyBlock"))
+            })?;
 
-        rx.await?.map_err(Into::into)
+        rx.await
+            .map_err(|relay_error| {
+                ApiError::CommsFailure(format!("{relay_error} while recving ApplyBlock resp"))
+            })?
+            .map_err(|err| match err {
+                crate::Error::ParentMissing { parent, info } => {
+                    ApiError::ParentMissing { parent, info }
+                }
+                err => ApiError::Unexpected(format!("Failure while applying block: {err:?}")),
+            })
     }
 
     /// Forward a chain sync event to the chain service.
-    /// The response will be sent back via the reply_sender embedded in the
+    /// The response will be sent back via the `reply_sender` embedded in the
     /// event.
     pub async fn handle_chainsync_event(&self, event: ChainSyncEvent) -> Result<(), DynError> {
         self.relay

@@ -78,6 +78,11 @@ pub(crate) const LOG_TARGET: &str = "cryptarchia::service";
 
 #[derive(Debug, Error)]
 pub enum Error {
+    #[error("Missing parent while applying block {parent}, {info:?}")]
+    ParentMissing {
+        parent: HeaderId,
+        info: CryptarchiaInfo,
+    },
     #[error("Ledger error: {0}")]
     Ledger(#[from] nomos_ledger::LedgerError<HeaderId>),
     #[error("Consensus error: {0}")]
@@ -125,11 +130,11 @@ pub enum ConsensusMsg<Tx> {
     },
     ApplyBlock {
         block: Box<Block<Tx>>,
-        tx: oneshot::Sender<Result<(), String>>,
+        tx: oneshot::Sender<Result<(), Error>>,
     },
     /// Forward chain sync events from the network to chain-service.
     /// Chain-service will handle these directly and respond via the embedded
-    /// reply_sender.
+    /// `reply_sender`.
     ChainSync(ChainSyncEvent),
 }
 
@@ -169,14 +174,15 @@ impl PrunedBlocksInfo {
 }
 
 #[derive(Clone)]
-struct Cryptarchia {
-    ledger: nomos_ledger::Ledger<HeaderId>,
-    consensus: cryptarchia_engine::Cryptarchia<HeaderId>,
-    genesis_id: HeaderId,
+pub struct Cryptarchia {
+    pub ledger: nomos_ledger::Ledger<HeaderId>,
+    pub consensus: cryptarchia_engine::Cryptarchia<HeaderId>,
+    pub genesis_id: HeaderId,
 }
 
 impl Cryptarchia {
     /// Initialize a new [`Cryptarchia`] instance.
+    #[must_use]
     pub fn from_lib(
         lib_id: HeaderId,
         lib_ledger_state: LedgerState,
@@ -195,11 +201,33 @@ impl Cryptarchia {
         }
     }
 
-    const fn tip(&self) -> HeaderId {
+    #[must_use]
+    pub fn info(&self) -> CryptarchiaInfo {
+        CryptarchiaInfo {
+            lib: self.lib(),
+            tip: self.tip(),
+            slot: self
+                .ledger
+                .state(&self.tip())
+                .expect("tip state not available")
+                .slot(),
+            height: self
+                .consensus
+                .branches()
+                .get(&self.tip())
+                .expect("tip branch not available")
+                .length(),
+            mode: *self.consensus.state(),
+        }
+    }
+
+    #[must_use]
+    pub const fn tip(&self) -> HeaderId {
         self.consensus.tip()
     }
 
-    const fn lib(&self) -> HeaderId {
+    #[must_use]
+    pub const fn lib(&self) -> HeaderId {
         self.consensus.lib()
     }
 
@@ -225,7 +253,16 @@ impl Cryptarchia {
             VoucherCm::default(), // TODO: add the new voucher commitment here
             block.transactions(),
         )?;
-        let (consensus, pruned_blocks) = self.consensus.receive_block(id, parent, slot)?;
+        let (consensus, pruned_blocks) =
+            self.consensus
+                .receive_block(id, parent, slot)
+                .map_err(|err| match err {
+                    cryptarchia_engine::Error::ParentMissing(parent) => Error::ParentMissing {
+                        parent,
+                        info: self.info(),
+                    },
+                    err => Error::Consensus(err),
+                })?;
 
         let mut cryptarchia = Self {
             ledger,
@@ -292,7 +329,8 @@ impl Cryptarchia {
         self.consensus.state()
     }
 
-    fn has_block(&self, block_id: &HeaderId) -> bool {
+    #[must_use]
+    pub fn has_block(&self, block_id: &HeaderId) -> bool {
         self.consensus.branches().get(block_id).is_some()
     }
 
@@ -588,7 +626,7 @@ where
                                     Err(e) => {
                                         let error_msg = format!("Failed to process block: {e:?}");
                                         error!(target: LOG_TARGET, "{}", error_msg);
-                                        tx.send(Err(error_msg)).unwrap_or_else(|_| {
+                                        tx.send(Err(e)).unwrap_or_else(|_| {
                                             error!("Could not send process block error through channel");
                                         });
                                     }
@@ -685,23 +723,7 @@ where
     ) {
         match msg {
             ConsensusMsg::Info { tx } => {
-                let info = CryptarchiaInfo {
-                    lib: cryptarchia.lib(),
-                    tip: cryptarchia.tip(),
-                    slot: cryptarchia
-                        .ledger
-                        .state(&cryptarchia.tip())
-                        .expect("tip state not available")
-                        .slot(),
-                    height: cryptarchia
-                        .consensus
-                        .branches()
-                        .get(&cryptarchia.tip())
-                        .expect("tip branch not available")
-                        .length(),
-                    mode: *cryptarchia.consensus.state(),
-                };
-                tx.send(info).unwrap_or_else(|e| {
+                tx.send(cryptarchia.info()).unwrap_or_else(|e| {
                     error!("Could not send consensus info through channel: {:?}", e);
                 });
             }

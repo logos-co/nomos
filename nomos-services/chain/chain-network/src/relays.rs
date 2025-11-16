@@ -101,7 +101,7 @@ where
     SamplingBackend::Settings: Clone,
     SamplingBackend::Share: Debug + 'static,
 {
-    pub async fn new(
+    pub const fn new(
         cryptarchia: CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
         network_relay: NetworkRelay<NetworkAdapter::Backend, RuntimeServiceId>,
         mempool_relay: OutboundRelay<MempoolMsg<HeaderId, Mempool::Item, Mempool::Item, TxHash>>,
@@ -144,6 +144,7 @@ where
         >,
     ) -> Self
     where
+        Cryptarchia: CryptarchiaServiceData<Tx = Mempool::Item>,
         Mempool::Key: Send,
         NetworkAdapter::Settings: Sync + Send,
         SamplingNetworkAdapter:
@@ -211,7 +212,6 @@ where
             sampling_relay,
             time_relay,
         )
-        .await
     }
 
     pub const fn cryptarchia(&self) -> &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId> {

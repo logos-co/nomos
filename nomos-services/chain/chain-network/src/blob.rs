@@ -14,6 +14,7 @@ use tracing::debug;
 use crate::{LOG_TARGET, SamplingRelay, relays::TimeRelay};
 
 /// An instance for validating blobs in blocks.
+#[derive(Clone)]
 pub struct Validation<S: Strategy> {
     consensus_base_period_length: NonZero<u64>,
     sampling_relay: SamplingRelay<da::BlobId>,
@@ -128,6 +129,7 @@ impl Strategy for RecentBlobStrategy {
 /// Validation strategy for blobs in blocks retrieved manually (e.g. chain
 /// bootstrapping or orphan handling), under the assumption that the DA sampling
 /// service has not yet sampled and validated the blobs.
+#[derive(Clone)]
 pub struct HistoricBlobStrategy;
 
 #[async_trait::async_trait]

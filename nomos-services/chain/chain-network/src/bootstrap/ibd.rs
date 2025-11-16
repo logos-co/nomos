@@ -1,66 +1,128 @@
 use std::{collections::HashSet, fmt::Debug, hash::Hash, marker::PhantomData};
 
+use chain_service::{
+    CryptarchiaInfo,
+    api::{CryptarchiaServiceApi, CryptarchiaServiceData},
+};
 use cryptarchia_sync::GetTipResponse;
 use futures::StreamExt as _;
-use nomos_core::header::HeaderId;
+use nomos_core::{
+    block::Block,
+    da,
+    header::HeaderId,
+    mantle::{AuthenticatedMantleTx, TxHash},
+};
+use nomos_da_sampling::backend::DaSamplingServiceBackend;
 use overwatch::DynError;
 use tracing::{debug, error};
+use tx_service::backend::RecoverableMempool;
 
 use crate::{
-    Cryptarchia, Error as ChainError, IbdConfig,
+    Error as ChainError, IbdConfig, SamplingRelay, blob,
     bootstrap::download::{Delay, Download, Downloads, DownloadsOutput},
+    mempool::adapter::MempoolAdapter,
     network::NetworkAdapter,
 };
+
+pub trait IbdBlockProcessor<B> {
+    async fn info(&self) -> Result<CryptarchiaInfo, Error>;
+    async fn process_block(&mut self, block: B) -> Result<(), Error>;
+    async fn has_processed_block(&self, header: HeaderId) -> Result<bool, Error>;
+}
+
+pub struct ChainNetworkIbdBlockProcessor<Cryptarchia, Mempool, SamplingBackend, RuntimeServiceId>
+where
+    Cryptarchia: CryptarchiaServiceData,
+    Cryptarchia::Tx: AuthenticatedMantleTx + Debug + Clone + Send + Sync,
+    Mempool:
+        RecoverableMempool<BlockId = HeaderId, Key = TxHash, Item = Cryptarchia::Tx> + Send + Sync,
+    SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId>,
+    RuntimeServiceId: Send + Sync,
+{
+    pub historic_blob_validation: blob::Validation<blob::HistoricBlobStrategy>,
+    pub cryptarchia: CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
+    pub mempool_adapter: MempoolAdapter<Mempool::Item, Mempool::Item>,
+    pub sampling_relay: SamplingRelay<SamplingBackend::BlobId>,
+}
+
+impl<Cryptarchia, Mempool, SamplingBackend, RuntimeServiceId>
+    IbdBlockProcessor<Block<Cryptarchia::Tx>>
+    for ChainNetworkIbdBlockProcessor<Cryptarchia, Mempool, SamplingBackend, RuntimeServiceId>
+where
+    Cryptarchia: CryptarchiaServiceData,
+    Cryptarchia::Tx: AuthenticatedMantleTx + Debug + Clone + Send + Sync,
+    Mempool:
+        RecoverableMempool<BlockId = HeaderId, Key = TxHash, Item = Cryptarchia::Tx> + Send + Sync,
+    SamplingBackend: DaSamplingServiceBackend<BlobId = da::BlobId>,
+    RuntimeServiceId: Send + Sync,
+{
+    async fn info(&self) -> Result<CryptarchiaInfo, Error> {
+        Ok(self.cryptarchia.info().await?)
+    }
+
+    async fn process_block(&mut self, block: Block<Cryptarchia::Tx>) -> Result<(), Error> {
+        crate::process_block::<_, _, Mempool, SamplingBackend, _>(
+            block,
+            Some(&self.historic_blob_validation),
+            &self.cryptarchia,
+            &self.mempool_adapter,
+            &self.sampling_relay,
+        )
+        .await
+        .map_err(|e| {
+            error!("Error processing block during IBD: {:?}", e);
+            Error::from(e)
+        })
+    }
+
+    async fn has_processed_block(&self, block_id: HeaderId) -> Result<bool, Error> {
+        Ok(self.cryptarchia.get_ledger_state(block_id).await?.is_some())
+    }
+}
 
 // TODO: Replace ProcessBlock closures with a trait
 //       that implements block processing.
 //       https://github.com/logos-co/nomos/issues/1505
-pub struct InitialBlockDownload<NetAdapter, ProcessBlockFn, ProcessBlockFut, RuntimeServiceId>
+pub struct InitialBlockDownload<NetAdapter, BlockProcessor, RuntimeServiceId>
 where
     NetAdapter: NetworkAdapter<RuntimeServiceId>,
     NetAdapter::PeerId: Clone + Eq + Hash,
-    ProcessBlockFn: Fn(Cryptarchia, NetAdapter::Block) -> ProcessBlockFut,
-    ProcessBlockFut: Future<Output = Result<Cryptarchia, Error>>,
+    BlockProcessor: IbdBlockProcessor<NetAdapter::Block>,
 {
     config: IbdConfig<NetAdapter::PeerId>,
-    cryptarchia: Cryptarchia,
+    block_processor: BlockProcessor,
     network: NetAdapter,
-    process_block: ProcessBlockFn,
     _phantom: PhantomData<RuntimeServiceId>,
 }
 
-impl<NetAdapter, ProcessBlockFn, ProcessBlockFut, RuntimeServiceId>
-    InitialBlockDownload<NetAdapter, ProcessBlockFn, ProcessBlockFut, RuntimeServiceId>
+impl<NetAdapter, BlockProcessor, RuntimeServiceId>
+    InitialBlockDownload<NetAdapter, BlockProcessor, RuntimeServiceId>
 where
     NetAdapter: NetworkAdapter<RuntimeServiceId>,
     NetAdapter::PeerId: Clone + Eq + Hash,
-    ProcessBlockFn: Fn(Cryptarchia, NetAdapter::Block) -> ProcessBlockFut,
-    ProcessBlockFut: Future<Output = Result<Cryptarchia, Error>>,
+    BlockProcessor: IbdBlockProcessor<NetAdapter::Block>,
 {
     pub const fn new(
         config: IbdConfig<NetAdapter::PeerId>,
-        cryptarchia: Cryptarchia,
+        block_processor: BlockProcessor,
         network: NetAdapter,
-        process_block: ProcessBlockFn,
     ) -> Self {
         Self {
             config,
-            cryptarchia,
+            block_processor,
             network,
-            process_block,
             _phantom: PhantomData,
         }
     }
 }
 
-impl<NetAdapter, ProcessBlockFn, ProcessBlockFut, RuntimeServiceId>
-    InitialBlockDownload<NetAdapter, ProcessBlockFn, ProcessBlockFut, RuntimeServiceId>
+impl<NetAdapter, BlockProcessor, RuntimeServiceId>
+    InitialBlockDownload<NetAdapter, BlockProcessor, RuntimeServiceId>
 where
     NetAdapter: NetworkAdapter<RuntimeServiceId> + Send + Sync,
     NetAdapter::PeerId: Copy + Clone + Eq + Hash + Debug + Send + Sync + Unpin,
     NetAdapter::Block: Debug + Unpin,
-    ProcessBlockFn: Fn(Cryptarchia, NetAdapter::Block) -> ProcessBlockFut + Send + Sync,
-    ProcessBlockFut: Future<Output = Result<Cryptarchia, Error>> + Send,
+    BlockProcessor: IbdBlockProcessor<NetAdapter::Block> + Sync,
     RuntimeServiceId: Sync,
 {
     /// Runs IBD with the configured peers.
@@ -73,9 +135,9 @@ where
     ///
     /// An error is returned if there is no peer available for IBD,
     /// or if all peers return an error.
-    pub async fn run(self) -> Result<Cryptarchia, Error> {
+    pub async fn run(self) -> Result<BlockProcessor, Error> {
         if self.config.peers.is_empty() {
-            return Ok(self.cryptarchia);
+            return Ok(self.block_processor);
         }
 
         let downloads = self.initiate_downloads().await?;
@@ -145,9 +207,11 @@ where
             }
         };
 
-        if !self.should_download(&target, targets_in_progress) {
+        if !self.should_download(&target, targets_in_progress).await? {
             return Ok(None);
         }
+
+        let initial_cryptarchia_info = self.block_processor.info().await?;
 
         // Request a block stream.
         let stream = self
@@ -155,8 +219,8 @@ where
             .request_blocks_from_peer(
                 peer,
                 target,
-                self.cryptarchia.tip(),
-                self.cryptarchia.lib(),
+                initial_cryptarchia_info.tip,
+                initial_cryptarchia_info.lib,
                 latest_downloaded_block.map_or_else(HashSet::new, |id| HashSet::from([id])),
             )
             .await
@@ -165,9 +229,13 @@ where
         Ok(Some(Download::new(peer, target, stream)))
     }
 
-    fn should_download(&self, target: &HeaderId, targets_in_progress: &HashSet<HeaderId>) -> bool {
-        self.cryptarchia.consensus.branches().get(target).is_none()
-            && !targets_in_progress.contains(target)
+    async fn should_download(
+        &self,
+        target: &HeaderId,
+        targets_in_progress: &HashSet<HeaderId>,
+    ) -> Result<bool, Error> {
+        Ok(!self.block_processor.has_processed_block(*target).await?
+            && !targets_in_progress.contains(target))
     }
 
     /// Proceeds [`Downloads`] by reading/processing blocks.
@@ -183,7 +251,7 @@ where
     async fn proceed_downloads<'a>(
         mut self,
         mut downloads: Downloads<'a, NetAdapter::PeerId, NetAdapter::Block>,
-    ) -> Result<Cryptarchia, Error>
+    ) -> Result<BlockProcessor, Error>
     where
         NetAdapter::PeerId: 'a,
         NetAdapter::Block: 'a,
@@ -198,7 +266,7 @@ where
             }
         }
 
-        Ok(self.cryptarchia)
+        Ok(self.block_processor)
     }
 
     /// Handles a [`DownloadsOutput`].
@@ -248,7 +316,8 @@ where
             block
         );
 
-        let cryptarchia = (self.process_block)(self.cryptarchia.clone(), block)
+        self.block_processor
+            .process_block(block)
             .await
             .inspect_err(|e| {
                 error!(
@@ -257,7 +326,6 @@ where
                 );
             })?;
         downloads.add_download(download);
-        self.cryptarchia = cryptarchia;
         Ok(())
     }
 
@@ -332,6 +400,8 @@ where
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error(transparent)]
+    Cryptarchia(#[from] chain_service::api::ApiError),
     #[error("Block provider error: {0}")]
     BlockProvider(DynError),
     #[error("All peers failed")]
@@ -362,15 +432,16 @@ mod tests {
 
     #[tokio::test]
     async fn no_peers_configured() {
-        let cryptarchia = InitialBlockDownload::new(
+        let block_processor = InitialBlockDownload::new(
             config(HashSet::new()),
-            new_cryptarchia(),
+            MockBlockProcessor::new(),
             MockNetworkAdapter::<()>::new(HashMap::new()),
-            process_block,
         )
         .run()
         .await
         .unwrap();
+
+        let cryptarchia = block_processor.cryptarchia;
 
         // The Cryptarchia remains unchanged.
         assert_eq!(cryptarchia.lib(), [GENESIS_ID; 32].into());
@@ -389,18 +460,19 @@ mod tests {
             2,
             false,
         );
-        let cryptarchia = InitialBlockDownload::new(
+        let block_processor = InitialBlockDownload::new(
             config([NodeId(0)].into()),
-            new_cryptarchia(),
+            MockBlockProcessor::new(),
             MockNetworkAdapter::<()>::new(HashMap::from([(NodeId(0), peer.clone())])),
-            process_block,
         )
         .run()
         .await
         .unwrap();
 
+        let cryptarchia = block_processor.cryptarchia;
+
         // All blocks from the peer should be in the local chain.
-        assert!(peer.chain.iter().all(|b| contain(b, &cryptarchia)));
+        assert!(peer.chain.iter().all(|b| cryptarchia.has_block(&b.id)));
     }
 
     #[tokio::test]
@@ -416,18 +488,19 @@ mod tests {
             2,
             false,
         );
-        let cryptarchia = InitialBlockDownload::new(
+        let block_processor = InitialBlockDownload::new(
             config([NodeId(0)].into()),
-            new_cryptarchia(),
+            MockBlockProcessor::new(),
             MockNetworkAdapter::<()>::new(HashMap::from([(NodeId(0), peer.clone())])),
-            process_block,
         )
         .run()
         .await
         .unwrap();
 
+        let cryptarchia = block_processor.cryptarchia;
+
         // All blocks from the peer should be in the local chain.
-        assert!(peer.chain.iter().all(|b| contain(b, &cryptarchia)));
+        assert!(peer.chain.iter().all(|b| cryptarchia.has_block(&b.id)));
     }
 
     #[tokio::test]
@@ -453,22 +526,23 @@ mod tests {
             2,
             false,
         );
-        let cryptarchia = InitialBlockDownload::new(
+        let block_processor = InitialBlockDownload::new(
             config([NodeId(0), NodeId(1)].into()),
-            new_cryptarchia(),
+            MockBlockProcessor::new(),
             MockNetworkAdapter::<()>::new(HashMap::from([
                 (NodeId(0), peer0.clone()),
                 (NodeId(1), peer1.clone()),
             ])),
-            process_block,
         )
         .run()
         .await
         .unwrap();
 
+        let cryptarchia = block_processor.cryptarchia;
+
         // All blocks from both peers should be in the local chain.
-        assert!(peer0.chain.iter().all(|b| contain(b, &cryptarchia)));
-        assert!(peer1.chain.iter().all(|b| contain(b, &cryptarchia)));
+        assert!(peer0.chain.iter().all(|b| cryptarchia.has_block(&b.id)));
+        assert!(peer1.chain.iter().all(|b| cryptarchia.has_block(&b.id)));
     }
 
     /// If one peer returns an error while streaming blocks,
@@ -497,22 +571,23 @@ mod tests {
             2,
             false,
         );
-        let cryptarchia = InitialBlockDownload::new(
+        let block_processor = InitialBlockDownload::new(
             config([NodeId(0), NodeId(1)].into()),
-            new_cryptarchia(),
+            MockBlockProcessor::new(),
             MockNetworkAdapter::<()>::new(HashMap::from([
                 (NodeId(0), peer0.clone()),
                 (NodeId(1), peer1.clone()),
             ])),
-            process_block,
         )
         .run()
         .await
         .unwrap();
 
+        let cryptarchia = block_processor.cryptarchia;
+
         // All blocks from peer1 that doesn't return an error
         // should be added to the local chain.
-        assert!(peer1.chain.iter().all(|b| contain(b, &cryptarchia)));
+        assert!(peer1.chain.iter().all(|b| cryptarchia.has_block(&b.id)));
     }
 
     /// If all peers return an error while streaming blocks,
@@ -542,12 +617,11 @@ mod tests {
         );
         let result = InitialBlockDownload::new(
             config([NodeId(0), NodeId(1)].into()),
-            new_cryptarchia(),
+            MockBlockProcessor::new(),
             MockNetworkAdapter::<()>::new(HashMap::from([
                 (NodeId(0), peer0.clone()),
                 (NodeId(1), peer1.clone()),
             ])),
-            process_block,
         )
         .run()
         .await;
@@ -581,22 +655,22 @@ mod tests {
             2,
             false,
         );
-        let cryptarchia = InitialBlockDownload::new(
+        let block_processor = InitialBlockDownload::new(
             config([NodeId(0), NodeId(1)].into()),
-            new_cryptarchia(),
+            MockBlockProcessor::new(),
             MockNetworkAdapter::<()>::new(HashMap::from([
                 (NodeId(0), peer0.clone()),
                 (NodeId(1), peer1.clone()),
             ])),
-            process_block,
         )
         .run()
         .await
         .unwrap();
 
+        let cryptarchia = block_processor.cryptarchia;
         // All blocks from peer1 that doesn't return an error
         // should be added to the local chain.
-        assert!(peer1.chain.iter().all(|b| contain(b, &cryptarchia)));
+        assert!(peer1.chain.iter().all(|b| cryptarchia.has_block(&b.id)));
     }
 
     /// If all peers return an error while initiating download,
@@ -626,12 +700,11 @@ mod tests {
         );
         let result = InitialBlockDownload::new(
             config([NodeId(0), NodeId(1)].into()),
-            new_cryptarchia(),
+            MockBlockProcessor::new(),
             MockNetworkAdapter::<()>::new(HashMap::from([
                 (NodeId(0), peer0.clone()),
                 (NodeId(1), peer1.clone()),
             ])),
-            process_block,
         )
         .run()
         .await;
@@ -667,29 +740,38 @@ mod tests {
             2,
             false,
         );
-        let cryptarchia = InitialBlockDownload::new(
+        let block_processor = InitialBlockDownload::new(
             config([NodeId(0), NodeId(1)].into()),
-            new_cryptarchia(),
+            MockBlockProcessor::new(),
             MockNetworkAdapter::<()>::new(HashMap::from([
                 (NodeId(0), peer0.clone()),
                 (NodeId(1), peer1.clone()),
             ])),
-            process_block,
         )
         .run()
         .await
         .unwrap();
 
+        let cryptarchia = block_processor.cryptarchia;
+
         // All blocks from peer1 that provided valid blocks
         // should be added to the local chain.
-        assert!(peer1.chain.iter().all(|b| contain(b, &cryptarchia)));
+        assert!(peer1.chain.iter().all(|b| cryptarchia.has_block(&b.id)));
         // The local tip should be the same as peer1's tip.
         assert_eq!(cryptarchia.tip(), peer1.tip.unwrap().id);
 
         // Blocks from peer0 remain in the local chain only until
         // right before the failure.
-        assert!(peer0.chain[..2].iter().all(|b| contain(b, &cryptarchia)));
-        assert!(peer0.chain[2..].iter().all(|b| !contain(b, &cryptarchia)));
+        assert!(
+            peer0.chain[..2]
+                .iter()
+                .all(|b| cryptarchia.has_block(&b.id))
+        );
+        assert!(
+            peer0.chain[2..]
+                .iter()
+                .all(|b| !cryptarchia.has_block(&b.id))
+        );
     }
 
     /// If all peers provided invalid blocks,
@@ -722,12 +804,11 @@ mod tests {
         );
         let result = InitialBlockDownload::new(
             config([NodeId(0), NodeId(1)].into()),
-            new_cryptarchia(),
+            MockBlockProcessor::new(),
             MockNetworkAdapter::<()>::new(HashMap::from([
                 (NodeId(0), peer0.clone()),
                 (NodeId(1), peer1.clone()),
             ])),
-            process_block,
         )
         .run()
         .await;
@@ -736,23 +817,39 @@ mod tests {
         assert!(matches!(result, Err(Error::AllPeersFailed)));
     }
 
-    async fn process_block(
-        mut cryptarchia: Cryptarchia,
-        block: Block,
-    ) -> Result<Cryptarchia, Error> {
-        // Add the block only to the consensus, not to the ledger state
-        // because the mocked block doesn't have a proof.
-        // It's enough because the tests doesn't check the ledger state.
-        let (consensus, _) = cryptarchia
-            .consensus
-            .receive_block(block.id, block.parent, block.slot)
-            .map_err(ChainError::from)?;
-        cryptarchia.consensus = consensus;
-        Ok(cryptarchia)
+    struct MockBlockProcessor {
+        cryptarchia: chain_service::Cryptarchia,
     }
 
-    fn contain(block: &Block, cryptarchia: &Cryptarchia) -> bool {
-        cryptarchia.consensus.branches().get(&block.id).is_some()
+    impl MockBlockProcessor {
+        fn new() -> Self {
+            Self {
+                cryptarchia: new_cryptarchia(),
+            }
+        }
+    }
+
+    impl IbdBlockProcessor<Block> for MockBlockProcessor {
+        async fn info(&self) -> Result<CryptarchiaInfo, Error> {
+            Ok(self.cryptarchia.info())
+        }
+
+        async fn process_block(&mut self, block: Block) -> Result<(), Error> {
+            // Add the block only to the consensus, not to the ledger state
+            // because the mocked block doesn't have a proof.
+            // It's enough because the tests doesn't check the ledger state.
+            let (consensus, _) = self
+                .cryptarchia
+                .consensus
+                .receive_block(block.id, block.parent, block.slot)
+                .expect("block processing should not fail");
+            self.cryptarchia.consensus = consensus;
+            Ok(())
+        }
+
+        async fn has_processed_block(&self, header: HeaderId) -> Result<bool, Error> {
+            Ok(self.cryptarchia.has_block(&header))
+        }
     }
 
     #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -966,8 +1063,8 @@ mod tests {
         }
     }
 
-    fn new_cryptarchia() -> Cryptarchia {
-        Cryptarchia::from_lib(
+    fn new_cryptarchia() -> chain_service::Cryptarchia {
+        chain_service::Cryptarchia::from_lib(
             [GENESIS_ID; 32].into(),
             LedgerState::from_utxos(empty()),
             [GENESIS_ID; 32].into(),
