@@ -19,7 +19,7 @@ use nomos_api::http::{
     storage::StorageAdapter,
 };
 use nomos_core::{
-    da::{BlobId, DaVerifier as CoreDaVerifier, blob::Share},
+    da::{DaVerifier as CoreDaVerifier, blob::Share},
     header::HeaderId,
     mantle::{SignedMantleTx, Transaction},
     sdp::SessionNumber,
@@ -248,60 +248,14 @@ pub struct CryptarchiaInfoQuery {
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn cryptarchia_info<
-    SamplingBackend,
-    SamplingNetworkAdapter,
-    SamplingStorage,
-    StorageAdapter,
-    TimeBackend,
-    RuntimeServiceId,
->(
+pub async fn cryptarchia_info<RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
 ) -> Response
 where
-    SamplingBackend: DaSamplingServiceBackend<BlobId = BlobId> + Send,
-    SamplingBackend::Settings: Clone,
-    SamplingBackend::Share: Debug + 'static,
-    SamplingBackend::BlobId: Debug + 'static,
-    SamplingNetworkAdapter:
-        nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync + 'static,
-    SamplingStorage:
-        nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync + 'static,
-    StorageAdapter: tx_service::storage::MempoolStorageAdapter<
-            RuntimeServiceId,
-            Item = SignedMantleTx,
-            Key = <SignedMantleTx as Transaction>::Hash,
-        > + Send
-        + Sync
-        + Clone
-        + 'static,
-    StorageAdapter::Error: Debug,
-    TimeBackend: nomos_time::backends::TimeBackend,
-    TimeBackend::Settings: Clone + Send + Sync,
-    RuntimeServiceId: Debug
-        + Send
-        + Sync
-        + Display
-        + 'static
-        + AsServiceId<
-            Cryptarchia<
-                SamplingBackend,
-                SamplingNetworkAdapter,
-                SamplingStorage,
-                StorageAdapter,
-                TimeBackend,
-                RuntimeServiceId,
-            >,
-        >,
+    RuntimeServiceId:
+        Debug + Send + Sync + Display + 'static + AsServiceId<Cryptarchia<RuntimeServiceId>>,
 {
-    make_request_and_return_response!(consensus::cryptarchia_info::<
-        SamplingBackend,
-        SamplingNetworkAdapter,
-        SamplingStorage,
-        StorageAdapter,
-        TimeBackend,
-        RuntimeServiceId,
-    >(&handle))
+    make_request_and_return_response!(consensus::cryptarchia_info::<RuntimeServiceId>(&handle))
 }
 
 #[utoipa::path(
@@ -312,62 +266,18 @@ where
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn cryptarchia_headers<
-    SamplingBackend,
-    SamplingNetworkAdapter,
-    SamplingStorage,
-    StorageAdapter,
-    TimeBackend,
-    RuntimeServiceId,
->(
+pub async fn cryptarchia_headers<RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
     Query(query): Query<CryptarchiaInfoQuery>,
 ) -> Response
 where
-    SamplingBackend: DaSamplingServiceBackend<BlobId = BlobId> + Send,
-    SamplingBackend::Settings: Clone,
-    SamplingBackend::Share: Debug + 'static,
-    SamplingBackend::BlobId: Debug + 'static,
-    SamplingNetworkAdapter:
-        nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync + 'static,
-    SamplingStorage:
-        nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync + 'static,
-    StorageAdapter: tx_service::storage::MempoolStorageAdapter<
-            RuntimeServiceId,
-            Item = SignedMantleTx,
-            Key = <SignedMantleTx as Transaction>::Hash,
-        > + Send
-        + Sync
-        + Clone
-        + 'static,
-    StorageAdapter::Error: Debug,
-    TimeBackend: nomos_time::backends::TimeBackend,
-    TimeBackend::Settings: Clone + Send + Sync,
-    RuntimeServiceId: Debug
-        + Send
-        + Sync
-        + Display
-        + 'static
-        + AsServiceId<
-            Cryptarchia<
-                SamplingBackend,
-                SamplingNetworkAdapter,
-                SamplingStorage,
-                StorageAdapter,
-                TimeBackend,
-                RuntimeServiceId,
-            >,
-        >,
+    RuntimeServiceId:
+        Debug + Send + Sync + Display + 'static + AsServiceId<Cryptarchia<RuntimeServiceId>>,
 {
     let CryptarchiaInfoQuery { from, to } = query;
-    make_request_and_return_response!(consensus::cryptarchia_headers::<
-        SamplingBackend,
-        SamplingNetworkAdapter,
-        SamplingStorage,
-        StorageAdapter,
-        TimeBackend,
-        RuntimeServiceId,
-    >(&handle, from, to))
+    make_request_and_return_response!(consensus::cryptarchia_headers::<RuntimeServiceId>(
+        &handle, from, to
+    ))
 }
 
 #[utoipa::path(

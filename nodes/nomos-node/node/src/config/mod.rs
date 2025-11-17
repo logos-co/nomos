@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use tracing::Level;
 
 use crate::{
-    ApiService, CryptarchiaLeaderService, CryptarchiaService, DaNetworkService, DaSamplingService,
+    ApiService, ChainNetworkService, CryptarchiaLeaderService, CryptarchiaService, DaNetworkService, DaSamplingService,
     DaVerifierService, KeyManagementService, NetworkService, RuntimeServiceId, StorageService,
     TimeService,
     config::{deployment::Settings as DeploymentSettings, mempool::MempoolConfig},
@@ -210,6 +210,7 @@ pub struct Config {
     pub da_sampling: <DaSamplingService as ServiceData>::Settings,
     pub http: <ApiService as ServiceData>::Settings,
     pub cryptarchia: <CryptarchiaService as ServiceData>::Settings,
+    pub chain_network: <ChainNetworkService as ServiceData>::Settings,
     pub cryptarchia_leader: <CryptarchiaLeaderService as ServiceData>::Settings,
     pub time: <TimeService as ServiceData>::Settings,
     pub storage: <StorageService as ServiceData>::Settings,

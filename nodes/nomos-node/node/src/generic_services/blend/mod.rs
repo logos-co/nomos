@@ -44,7 +44,7 @@ pub type BlendCoreService<SamplingAdapter, RuntimeServiceId> =
         CoreProofsGenerator<PreloadKMSBackendCorePoQGenerator<RuntimeServiceId>>,
         BlendProofsVerifier,
         NtpTimeBackend,
-        CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
+        CryptarchiaService<RuntimeServiceId>,
         PolInfoProvider<SamplingAdapter>,
         RuntimeServiceId,
     >;
@@ -55,7 +55,7 @@ pub type BlendEdgeService<SamplingAdapter, RuntimeServiceId> = nomos_blend_servi
         BlendMembershipAdapter<RuntimeServiceId>,
         EdgeProofsGenerator,
         NtpTimeBackend,
-        CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
+        CryptarchiaService<RuntimeServiceId>,
         PolInfoProvider<SamplingAdapter>,
         RuntimeServiceId
     >;
@@ -76,11 +76,8 @@ where
     SamplingAdapter: NetworkAdapter<RuntimeServiceId> + 'static,
     RuntimeServiceId: AsServiceId<
             CryptarchiaLeaderService<
-                CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
-                WalletService<
-                    CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
-                    RuntimeServiceId,
-                >,
+                CryptarchiaService<RuntimeServiceId>,
+                WalletService<CryptarchiaService<RuntimeServiceId>, RuntimeServiceId>,
                 SamplingAdapter,
                 RuntimeServiceId,
             >,
@@ -101,11 +98,8 @@ where
             overwatch_handle,
             Some(Duration::from_secs(60)),
             CryptarchiaLeaderService<
-                CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
-                WalletService<
-                    CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
-                    RuntimeServiceId,
-                >,
+                CryptarchiaService<RuntimeServiceId>,
+                WalletService<CryptarchiaService<RuntimeServiceId>, RuntimeServiceId>,
                 SamplingAdapter,
                 RuntimeServiceId,
             >
@@ -114,11 +108,8 @@ where
         .ok()?;
         let cryptarchia_service_relay = overwatch_handle
             .relay::<CryptarchiaLeaderService<
-                CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
-                WalletService<
-                    CryptarchiaService<SamplingAdapter, RuntimeServiceId>,
-                    RuntimeServiceId,
-                >,
+                CryptarchiaService<RuntimeServiceId>,
+                WalletService<CryptarchiaService<RuntimeServiceId>, RuntimeServiceId>,
                 SamplingAdapter,
                 RuntimeServiceId,
             >>()

@@ -115,7 +115,10 @@ pub(crate) type DaNetworkAdapter = nomos_da_sampling::network::adapters::executo
 >;
 
 pub(crate) type CryptarchiaService =
-    nomos_node::generic_services::CryptarchiaService<DaNetworkAdapter, RuntimeServiceId>;
+    nomos_node::generic_services::CryptarchiaService<RuntimeServiceId>;
+
+pub(crate) type ChainNetworkService =
+    nomos_node::generic_services::ChainNetworkService<DaNetworkAdapter, RuntimeServiceId>;
 
 pub(crate) type WalletService =
     nomos_node::generic_services::WalletService<CryptarchiaService, RuntimeServiceId>;
@@ -212,6 +215,7 @@ pub struct NomosExecutor {
     sdp: SdpService<RuntimeServiceId>,
     mempool: MempoolService,
     cryptarchia: CryptarchiaService,
+    chain_network: ChainNetworkService,
     cryptarchia_leader: CryptarchiaLeaderService,
     block_broadcast: BlockBroadcastService,
     time: TimeService,

@@ -54,7 +54,7 @@ use crate::{
     sync::orphan_handler::OrphanBlocksDownloader,
 };
 pub use crate::{
-    bootstrap::config::{BootstrapConfig, IbdConfig, OfflineGracePeriodConfig},
+    bootstrap::config::{BootstrapConfig, IbdConfig},
     sync::config::{OrphanConfig, SyncConfig},
 };
 
@@ -88,7 +88,6 @@ where
     NodeId: Clone + Eq + Hash,
 {
     pub config: nomos_ledger::Config,
-    pub starting_state: StartingState,
     pub network_adapter_settings: NetworkAdapterSettings,
     pub bootstrap: BootstrapConfig<NodeId>,
     pub sync: SyncConfig,

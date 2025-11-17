@@ -1,9 +1,6 @@
 use nomos_core::{block::Block, header::HeaderId};
 use nomos_network::message::ChainSyncEvent;
-use overwatch::{
-    DynError,
-    services::{ServiceData, relay::OutboundRelay},
-};
+use overwatch::services::{ServiceData, relay::OutboundRelay};
 use thiserror::Error;
 use tokio::sync::{broadcast, oneshot};
 
@@ -85,27 +82,35 @@ where
     }
 
     /// Subscribe to new blocks
-    pub async fn subscribe_new_blocks(&self) -> Result<broadcast::Receiver<HeaderId>, DynError> {
+    pub async fn subscribe_new_blocks(&self) -> Result<broadcast::Receiver<HeaderId>, ApiError> {
         let (sender, receiver) = oneshot::channel();
 
         self.relay
             .send(ConsensusMsg::NewBlockSubscribe { sender })
             .await
-            .map_err(|_| "Failed to send block subscription request")?;
+            .map_err(|(relay_error, _)| {
+                ApiError::CommsFailure(format!("{relay_error} while sending NewBlockSubscribe"))
+            })?;
 
-        Ok(receiver.await?)
+        receiver.await.map_err(|relay_error| {
+            ApiError::CommsFailure(format!("{relay_error} while recving NewBlockSubscribe"))
+        })
     }
 
     /// Subscribe to LIB (Last Immutable Block) updates
-    pub async fn subscribe_lib_updates(&self) -> Result<broadcast::Receiver<LibUpdate>, DynError> {
+    pub async fn subscribe_lib_updates(&self) -> Result<broadcast::Receiver<LibUpdate>, ApiError> {
         let (sender, receiver) = oneshot::channel();
 
         self.relay
             .send(ConsensusMsg::LibSubscribe { sender })
             .await
-            .map_err(|_| "Failed to send LIB subscription request")?;
+            .map_err(|(relay_error, _)| {
+                ApiError::CommsFailure(format!("{relay_error} while sending LibSubscribe"))
+            })?;
 
-        Ok(receiver.await?)
+        receiver.await.map_err(|relay_error| {
+            ApiError::CommsFailure(format!("{relay_error} while recving LibSubscribe"))
+        })
     }
 
     /// Get headers in the range from `from` to `to`
@@ -115,24 +120,28 @@ where
         &self,
         from: Option<HeaderId>,
         to: Option<HeaderId>,
-    ) -> Result<Vec<HeaderId>, DynError> {
+    ) -> Result<Vec<HeaderId>, ApiError> {
         let (tx, rx) = oneshot::channel();
 
         self.relay
             .send(ConsensusMsg::GetHeaders { from, to, tx })
             .await
-            .map_err(|_| "Failed to send headers request")?;
+            .map_err(|(relay_error, _)| {
+                ApiError::CommsFailure(format!("{relay_error} while sending GetHeaders"))
+            })?;
 
-        Ok(rx.await?)
+        rx.await.map_err(|relay_error| {
+            ApiError::CommsFailure(format!("{relay_error} while recving GetHeaders"))
+        })
     }
 
     /// Get all headers from a specific block to LIB
-    pub async fn get_headers_to_lib(&self, from: HeaderId) -> Result<Vec<HeaderId>, DynError> {
+    pub async fn get_headers_to_lib(&self, from: HeaderId) -> Result<Vec<HeaderId>, ApiError> {
         self.get_headers(Some(from), None).await
     }
 
     /// Get all headers from tip to a specific block
-    pub async fn get_headers_from_tip(&self, to: HeaderId) -> Result<Vec<HeaderId>, DynError> {
+    pub async fn get_headers_from_tip(&self, to: HeaderId) -> Result<Vec<HeaderId>, ApiError> {
         self.get_headers(None, Some(to)).await
     }
 
@@ -159,15 +168,19 @@ where
     pub async fn get_epoch_state(
         &self,
         slot: cryptarchia_engine::Slot,
-    ) -> Result<Option<nomos_ledger::EpochState>, DynError> {
+    ) -> Result<Option<nomos_ledger::EpochState>, ApiError> {
         let (tx, rx) = oneshot::channel();
 
         self.relay
             .send(ConsensusMsg::GetEpochState { slot, tx })
             .await
-            .map_err(|_| "Failed to send epoch state request")?;
+            .map_err(|(relay_error, _)| {
+                ApiError::CommsFailure(format!("{relay_error} while sending GetEpochState"))
+            })?;
 
-        Ok(rx.await?)
+        rx.await.map_err(|relay_error| {
+            ApiError::CommsFailure(format!("{relay_error} while recving GetEpochState resp"))
+        })
     }
 
     /// Apply a block through the chain service
@@ -200,11 +213,13 @@ where
     /// Forward a chain sync event to the chain service.
     /// The response will be sent back via the `reply_sender` embedded in the
     /// event.
-    pub async fn handle_chainsync_event(&self, event: ChainSyncEvent) -> Result<(), DynError> {
+    pub async fn handle_chainsync_event(&self, event: ChainSyncEvent) -> Result<(), ApiError> {
         self.relay
             .send(ConsensusMsg::ChainSync(event))
             .await
-            .map_err(|_| "Failed to send chain sync event")?;
+            .map_err(|(relay_error, _)| {
+                ApiError::CommsFailure(format!("{relay_error} while sending ChainSync"))
+            })?;
 
         Ok(())
     }

@@ -10,9 +10,8 @@ use std::{
 
 use broadcast_service::BlockInfo;
 use chain_leader::LeaderSettings;
-use chain_service::{
-    CryptarchiaInfo, CryptarchiaSettings, OrphanConfig, StartingState, SyncConfig,
-};
+use chain_network::ChainNetworkSettings;
+use chain_service::{CryptarchiaInfo, CryptarchiaSettings, StartingState};
 use common_http_client::CommonHttpClient;
 use cryptarchia_engine::time::SlotConfig;
 use futures::Stream;
@@ -472,10 +471,6 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
             starting_state: StartingState::Genesis {
                 genesis_tx: config.consensus_config.genesis_tx,
             },
-            network_adapter_settings:
-                chain_service::network::adapters::libp2p::LibP2pAdapterSettings {
-                    topic: String::from(nomos_node::CONSENSUS_TOPIC),
-                },
             recovery_file: PathBuf::from("./recovery/cryptarchia.json"),
             bootstrap: chain_service::BootstrapConfig {
                 prolonged_bootstrap_period: config.bootstrapping_config.prolonged_bootstrap_period,
@@ -484,13 +479,22 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                     grace_period: Duration::from_secs(20 * 60),
                     state_recording_interval: Duration::from_secs(60),
                 },
-                ibd: chain_service::IbdConfig {
+            },
+        },
+        chain_network: ChainNetworkSettings {
+            config: config.consensus_config.ledger_config.clone(),
+            network_adapter_settings:
+                chain_network::network::adapters::libp2p::LibP2pAdapterSettings {
+                    topic: String::from(nomos_node::CONSENSUS_TOPIC),
+                },
+            bootstrap: chain_network::BootstrapConfig {
+                ibd: chain_network::IbdConfig {
                     peers: HashSet::new(),
                     delay_before_new_download: Duration::from_secs(10),
                 },
             },
-            sync: SyncConfig {
-                orphan: OrphanConfig {
+            sync: chain_network::SyncConfig {
+                orphan: chain_network::OrphanConfig {
                     max_orphan_cache_size: NonZeroUsize::new(5)
                         .expect("Max orphan cache size must be non-zero"),
                 },

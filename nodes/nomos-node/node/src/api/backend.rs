@@ -240,16 +240,7 @@ where
         + Display
         + Clone
         + 'static
-        + AsServiceId<
-            Cryptarchia<
-                SamplingBackend,
-                SamplingNetworkAdapter,
-                SamplingStorage,
-                MempoolStorageAdapter,
-                TimeBackend,
-                RuntimeServiceId,
-            >,
-        >
+        + AsServiceId<Cryptarchia<RuntimeServiceId>>
         + AsServiceId<BlockBroadcastService<RuntimeServiceId>>
         + AsServiceId<
             DaVerifier<
@@ -345,14 +336,7 @@ where
         wait_until_services_are_ready!(
             &overwatch_handle,
             Some(Duration::from_secs(60)),
-            Cryptarchia<
-                _,
-                _,
-                _,
-                _,
-                _,
-                _,
-            >,
+            Cryptarchia<_>,
             DaVerifier<_, _, _, _, _, _>,
             nomos_da_network_service::NetworkService<_, _, _, _, _, _, _>,
             nomos_network::NetworkService<_, _>,
@@ -391,29 +375,11 @@ where
             )
             .route(
                 paths::CRYPTARCHIA_INFO,
-                routing::get(
-                    cryptarchia_info::<
-                        SamplingBackend,
-                        SamplingNetworkAdapter,
-                        SamplingStorage,
-                        MempoolStorageAdapter,
-                        TimeBackend,
-                        RuntimeServiceId,
-                    >,
-                ),
+                routing::get(cryptarchia_info::<RuntimeServiceId>),
             )
             .route(
                 paths::CRYPTARCHIA_HEADERS,
-                routing::get(
-                    cryptarchia_headers::<
-                        SamplingBackend,
-                        SamplingNetworkAdapter,
-                        SamplingStorage,
-                        MempoolStorageAdapter,
-                        TimeBackend,
-                        RuntimeServiceId,
-                    >,
-                ),
+                routing::get(cryptarchia_headers::<RuntimeServiceId>),
             )
             .route(
                 paths::CRYPTARCHIA_LIB_STREAM,
@@ -579,7 +545,7 @@ where
                 routing::get(
                     blocks_stream::<
                         DaStorageBackend,
-                        CryptarchiaConsensus<_, _, _, _, _, _, _, _, _, _>,
+                        CryptarchiaConsensus<_, _, _>,
                         RuntimeServiceId,
                     >,
                 ),

@@ -2,7 +2,10 @@ use std::fmt::{Debug, Display};
 
 use broadcast_service::{BlockBroadcastMsg, BlockBroadcastService};
 use bytes::Bytes;
-use nomos_core::{block::Block, mantle::AuthenticatedMantleTx};
+use nomos_core::{
+    block::Block,
+    mantle::{AuthenticatedMantleTx, Transaction, TxHash},
+};
 use nomos_storage::{
     StorageMsg, StorageService, api::chain::StorageChainApi, backends::StorageBackend,
 };
@@ -21,38 +24,38 @@ pub type BroadcastRelay = OutboundRelay<BlockBroadcastMsg>;
 
 pub type StorageRelay<Storage> = OutboundRelay<StorageMsg<Storage>>;
 
-pub struct CryptarchiaConsensusRelays<Storage, RuntimeServiceId>
+pub struct CryptarchiaConsensusRelays<Tx, Storage, RuntimeServiceId>
 where
-    Storage: StorageChainApi + StorageBackend + Send + Sync + 'static,
+    Storage: StorageBackend + Send + Sync + 'static,
     <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
 {
     broadcast_relay: BroadcastRelay,
-    storage_adapter: StorageAdapter<Storage, <Storage as StorageChainApi>::Tx, RuntimeServiceId>,
+    storage_adapter: StorageAdapter<Storage, Tx, RuntimeServiceId>,
 }
 
-impl<Storage, RuntimeServiceId> CryptarchiaConsensusRelays<Storage, RuntimeServiceId>
+impl<Tx, Storage, RuntimeServiceId> CryptarchiaConsensusRelays<Tx, Storage, RuntimeServiceId>
 where
-    Storage: StorageBackend + Send + Sync + 'static,
-    <Storage as StorageChainApi>::Tx: AuthenticatedMantleTx
+    Tx: Transaction<Hash = TxHash>
+        + AuthenticatedMantleTx
+        + Debug
         + Clone
         + Eq
-        + Debug
-        + From<Bytes>
-        + AsRef<[u8]>
+        + Serialize
         + DeserializeOwned
-        + Serialize,
-    <Storage as StorageChainApi>::Block: TryFrom<Block<<Storage as StorageChainApi>::Tx>>
-        + TryInto<Block<<Storage as StorageChainApi>::Tx>>,
+        + Send
+        + Sync
+        + Unpin
+        + 'static,
+    Storage: StorageBackend + Send + Sync + 'static,
+    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
+    <Storage as StorageChainApi>::Block: TryFrom<Block<Tx>> + TryInto<Block<Tx>>,
 {
     pub async fn new(
         broadcast_relay: BroadcastRelay,
         storage_relay: StorageRelay<Storage>,
     ) -> Self {
         let storage_adapter =
-            StorageAdapter::<Storage, <Storage as StorageChainApi>::Tx, RuntimeServiceId>::new(
-                storage_relay,
-            )
-            .await;
+            StorageAdapter::<Storage, Tx, RuntimeServiceId>::new(storage_relay).await;
         Self {
             broadcast_relay,
             storage_adapter,
@@ -62,7 +65,7 @@ where
     #[expect(clippy::allow_attributes_without_reason)]
     pub async fn from_service_resources_handle(
         service_resources_handle: &OpaqueServiceResourcesHandle<
-            CryptarchiaConsensus<Storage, RuntimeServiceId>,
+            CryptarchiaConsensus<Tx, Storage, RuntimeServiceId>,
             RuntimeServiceId,
         >,
     ) -> Self
@@ -97,9 +100,7 @@ where
         &self.broadcast_relay
     }
 
-    pub const fn storage_adapter(
-        &self,
-    ) -> &StorageAdapter<Storage, <Storage as StorageChainApi>::Tx, RuntimeServiceId> {
+    pub const fn storage_adapter(&self) -> &StorageAdapter<Storage, Tx, RuntimeServiceId> {
         &self.storage_adapter
     }
 }

@@ -380,11 +380,11 @@ impl FileBackendSettings for CryptarchiaSettings {
 }
 
 #[expect(clippy::allow_attributes_without_reason)]
-pub struct CryptarchiaConsensus<Storage, RuntimeServiceId>
+pub struct CryptarchiaConsensus<Tx, Storage, RuntimeServiceId>
 where
+    Tx: AuthenticatedMantleTx + Clone + Eq + Debug,
     Storage: StorageBackend + Send + Sync + 'static,
-    <Storage as StorageChainApi>::Tx:
-        AuthenticatedMantleTx + Clone + Eq + Debug + From<Bytes> + AsRef<[u8]> + 'static,
+    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     new_block_subscription_sender: broadcast::Sender<HeaderId>,
@@ -392,24 +392,24 @@ where
     state: <Self as ServiceData>::State,
 }
 
-impl<Storage, RuntimeServiceId> ServiceData for CryptarchiaConsensus<Storage, RuntimeServiceId>
+impl<Tx, Storage, RuntimeServiceId> ServiceData
+    for CryptarchiaConsensus<Tx, Storage, RuntimeServiceId>
 where
+    Tx: AuthenticatedMantleTx + Clone + Eq + Debug,
     Storage: StorageBackend + Send + Sync + 'static,
-    <Storage as StorageChainApi>::Tx:
-        AuthenticatedMantleTx + Clone + Eq + Debug + From<Bytes> + AsRef<[u8]>,
+    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
 {
     type Settings = CryptarchiaSettings;
     type State = CryptarchiaConsensusState;
     type StateOperator = RecoveryOperator<JsonFileBackend<Self::State, Self::Settings>>;
-    type Message = ConsensusMsg<<Storage as StorageChainApi>::Tx>;
+    type Message = ConsensusMsg<Tx>;
 }
 
 #[async_trait::async_trait]
-impl<Storage, RuntimeServiceId> ServiceCore<RuntimeServiceId>
-    for CryptarchiaConsensus<Storage, RuntimeServiceId>
+impl<Tx, Storage, RuntimeServiceId> ServiceCore<RuntimeServiceId>
+    for CryptarchiaConsensus<Tx, Storage, RuntimeServiceId>
 where
-    Storage: StorageBackend + Send + Sync + 'static,
-    <Storage as StorageChainApi>::Tx: Transaction<Hash = TxHash>
+    Tx: Transaction<Hash = TxHash>
         + AuthenticatedMantleTx
         + Debug
         + Clone
@@ -419,12 +419,10 @@ where
         + Send
         + Sync
         + Unpin
-        + From<Bytes>
-        + AsRef<[u8]>
         + 'static,
-    <Storage as StorageChainApi>::Block: TryFrom<Block<<Storage as StorageChainApi>::Tx>>
-        + TryInto<Block<<Storage as StorageChainApi>::Tx>>
-        + Into<Bytes>,
+    Storage: StorageBackend + Send + Sync + 'static,
+    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
+    <Storage as StorageChainApi>::Block: TryFrom<Block<Tx>> + TryInto<Block<Tx>> + Into<Bytes>,
     RuntimeServiceId: Debug
         + Send
         + Sync
@@ -451,7 +449,7 @@ where
 
     #[expect(clippy::too_many_lines, reason = "TODO: Address this at some point.")]
     async fn run(mut self) -> Result<(), DynError> {
-        let relays: CryptarchiaConsensusRelays<Storage, RuntimeServiceId> =
+        let relays: CryptarchiaConsensusRelays<Tx, Storage, RuntimeServiceId> =
             CryptarchiaConsensusRelays::from_service_resources_handle(
                 &self.service_resources_handle,
             )
@@ -598,10 +596,9 @@ where
     }
 }
 
-impl<Storage, RuntimeServiceId> CryptarchiaConsensus<Storage, RuntimeServiceId>
+impl<Tx, Storage, RuntimeServiceId> CryptarchiaConsensus<Tx, Storage, RuntimeServiceId>
 where
-    Storage: StorageBackend + Send + Sync + 'static,
-    <Storage as StorageChainApi>::Tx: Transaction<Hash = TxHash>
+    Tx: Transaction<Hash = TxHash>
         + AuthenticatedMantleTx
         + Debug
         + Clone
@@ -610,12 +607,11 @@ where
         + DeserializeOwned
         + Send
         + Sync
-        + From<Bytes>
-        + AsRef<[u8]>
+        + Unpin
         + 'static,
-    <Storage as StorageChainApi>::Block: TryFrom<Block<<Storage as StorageChainApi>::Tx>>
-        + TryInto<Block<<Storage as StorageChainApi>::Tx>>
-        + Into<Bytes>,
+    Storage: StorageBackend + Send + Sync + 'static,
+    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
+    <Storage as StorageChainApi>::Block: TryFrom<Block<Tx>> + TryInto<Block<Tx>> + Into<Bytes>,
     RuntimeServiceId: Display + AsServiceId<Self>,
 {
     fn notify_service_ready(&self) {
@@ -630,7 +626,7 @@ where
         cryptarchia: &Cryptarchia,
         new_block_channel: &broadcast::Sender<HeaderId>,
         lib_channel: &broadcast::Sender<LibUpdate>,
-        msg: ConsensusMsg<<Storage as StorageChainApi>::Tx>,
+        msg: ConsensusMsg<Tx>,
     ) {
         match msg {
             ConsensusMsg::Info { tx } => {
@@ -715,9 +711,9 @@ where
 
     async fn process_block_and_update_state(
         cryptarchia: Cryptarchia,
-        block: Block<<Storage as StorageChainApi>::Tx>,
+        block: Block<Tx>,
         storage_blocks_to_remove: &HashSet<HeaderId>,
-        relays: &CryptarchiaConsensusRelays<Storage, RuntimeServiceId>,
+        relays: &CryptarchiaConsensusRelays<Tx, Storage, RuntimeServiceId>,
         new_block_subscription_sender: &broadcast::Sender<HeaderId>,
         lib_subscription_sender: &broadcast::Sender<LibUpdate>,
         state_updater: &StateUpdater<Option<CryptarchiaConsensusState>>,
@@ -771,8 +767,8 @@ where
     #[instrument(level = "debug", skip(cryptarchia, relays))]
     async fn process_block(
         cryptarchia: Cryptarchia,
-        block: Block<<Storage as StorageChainApi>::Tx>,
-        relays: &CryptarchiaConsensusRelays<Storage, RuntimeServiceId>,
+        block: Block<Tx>,
+        relays: &CryptarchiaConsensusRelays<Tx, Storage, RuntimeServiceId>,
         new_block_subscription_sender: &broadcast::Sender<HeaderId>,
         lib_broadcaster: &broadcast::Sender<LibUpdate>,
     ) -> Result<(Cryptarchia, PrunedBlocks<HeaderId>), Error> {
@@ -874,12 +870,8 @@ where
     async fn get_blocks_in_range(
         from: HeaderId,
         to: HeaderId,
-        storage_adapter: &StorageAdapter<
-            Storage,
-            <Storage as StorageChainApi>::Tx,
-            RuntimeServiceId,
-        >,
-    ) -> Vec<Block<<Storage as StorageChainApi>::Tx>> {
+        storage_adapter: &StorageAdapter<Storage, Tx, RuntimeServiceId>,
+    ) -> Vec<Block<Tx>> {
         // Due to the blocks traversal order, this yields `to..from` order
         let blocks = futures::stream::unfold(to, |header_id| async move {
             if header_id == from {
@@ -916,7 +908,7 @@ where
         &self,
         bootstrap_config: &BootstrapConfig,
         ledger_config: nomos_ledger::Config,
-        relays: &CryptarchiaConsensusRelays<Storage, RuntimeServiceId>,
+        relays: &CryptarchiaConsensusRelays<Tx, Storage, RuntimeServiceId>,
     ) -> (Cryptarchia, PrunedBlocks<HeaderId>) {
         let lib_id = self.state.lib;
         let genesis_id = self.state.genesis_id;
@@ -984,11 +976,7 @@ where
     async fn delete_pruned_blocks_from_storage(
         pruned_blocks: impl Iterator<Item = HeaderId> + Send,
         additional_blocks: &HashSet<HeaderId>,
-        storage_adapter: &StorageAdapter<
-            Storage,
-            <Storage as StorageChainApi>::Tx,
-            RuntimeServiceId,
-        >,
+        storage_adapter: &StorageAdapter<Storage, Tx, RuntimeServiceId>,
     ) -> HashSet<HeaderId> {
         match Self::delete_blocks_from_storage(
             pruned_blocks.chain(additional_blocks.iter().copied()),
@@ -1014,11 +1002,7 @@ where
     /// result.
     async fn delete_blocks_from_storage<Headers>(
         block_headers: Headers,
-        storage_adapter: &StorageAdapter<
-            Storage,
-            <Storage as StorageChainApi>::Tx,
-            RuntimeServiceId,
-        >,
+        storage_adapter: &StorageAdapter<Storage, Tx, RuntimeServiceId>,
     ) -> Result<(), Vec<(HeaderId, DynError)>>
     where
         Headers: Iterator<Item = HeaderId> + Send,
@@ -1065,7 +1049,7 @@ where
 
     async fn handle_chainsync_event(
         cryptarchia: &Cryptarchia,
-        sync_blocks_provider: &BlockProvider<Storage, <Storage as StorageChainApi>::Tx>,
+        sync_blocks_provider: &BlockProvider<Storage, Tx>,
         event: ChainSyncEvent,
     ) {
         match event {
@@ -1132,11 +1116,7 @@ where
     async fn switch_to_online(
         cryptarchia: Cryptarchia,
         storage_blocks_to_remove: &HashSet<HeaderId>,
-        storage_adapter: &StorageAdapter<
-            Storage,
-            <Storage as StorageChainApi>::Tx,
-            RuntimeServiceId,
-        >,
+        storage_adapter: &StorageAdapter<Storage, Tx, RuntimeServiceId>,
     ) -> (Cryptarchia, HashSet<HeaderId>) {
         let (cryptarchia, pruned_blocks) = cryptarchia.online();
         if let Err(e) = storage_adapter
@@ -1159,7 +1139,7 @@ where
     async fn broadcast_session_updates_for_block(
         cryptarchia: &Cryptarchia,
         block_id: &HeaderId,
-        relays: &CryptarchiaConsensusRelays<Storage, RuntimeServiceId>,
+        relays: &CryptarchiaConsensusRelays<Tx, Storage, RuntimeServiceId>,
         previous_sessions: Option<&HashMap<ServiceType, u64>>,
     ) {
         let Ok(new_sessions) = cryptarchia.active_sessions_numbers(block_id) else {
@@ -1183,7 +1163,7 @@ where
     async fn handle_service_update(
         cryptarchia: &Cryptarchia,
         block_id: &HeaderId,
-        relays: &CryptarchiaConsensusRelays<Storage, RuntimeServiceId>,
+        relays: &CryptarchiaConsensusRelays<Tx, Storage, RuntimeServiceId>,
         previous_sessions: Option<&HashMap<ServiceType, u64>>,
         service: &ServiceType,
         new_session_number: &u64,

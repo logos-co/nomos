@@ -143,8 +143,10 @@ pub(crate) type KeyManagementService = generic_services::KeyManagementService<Ru
 pub(crate) type WalletService =
     generic_services::WalletService<CryptarchiaService, RuntimeServiceId>;
 
-pub(crate) type CryptarchiaService =
-    generic_services::CryptarchiaService<DaNetworkAdapter, RuntimeServiceId>;
+pub(crate) type CryptarchiaService = generic_services::CryptarchiaService<RuntimeServiceId>;
+
+pub(crate) type ChainNetworkService =
+    generic_services::ChainNetworkService<DaNetworkAdapter, RuntimeServiceId>;
 
 pub(crate) type CryptarchiaLeaderService = generic_services::CryptarchiaLeaderService<
     CryptarchiaService,
@@ -218,6 +220,7 @@ pub struct Nomos {
     da_network: DaNetworkService,
     mempool: MempoolService,
     cryptarchia: CryptarchiaService,
+    chain_network: ChainNetworkService,
     cryptarchia_leader: CryptarchiaLeaderService,
     block_broadcast: BlockBroadcastService,
     sdp: SdpService<RuntimeServiceId>,
@@ -260,6 +263,7 @@ pub fn run_node_from_config(config: Config) -> Result<Overwatch<RuntimeServiceId
             da_sampling: config.da_sampling,
             da_verifier: config.da_verifier,
             cryptarchia: config.cryptarchia,
+            chain_network: config.chain_network,
             cryptarchia_leader: config.cryptarchia_leader,
             time: config.time,
             storage: config.storage,
