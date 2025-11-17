@@ -1,7 +1,7 @@
 use ark_bn254::Fr;
 use ark_ff::Field as _;
 
-use crate::{Digest, Poseidon2Bn254, ZkHash};
+use crate::{Digest, Poseidon2Bn254};
 
 #[derive(Debug)]
 pub struct Poseidon2Hasher {
