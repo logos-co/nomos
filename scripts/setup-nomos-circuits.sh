@@ -16,7 +16,7 @@
 set -e
 
 # Default values
-VERSION="${1:-v0.2.0}"
+VERSION="${1:-v0.4.0}"
 DEFAULT_INSTALL_DIR="$HOME/.nomos-circuits"
 INSTALL_DIR="${2:-$DEFAULT_INSTALL_DIR}"
 REPO="logos-co/nomos-circuits"
