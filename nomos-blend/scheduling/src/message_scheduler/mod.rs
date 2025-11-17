@@ -31,15 +31,6 @@ mod tests;
 
 const LOG_TARGET: &str = "blend::scheduling";
 
-/// Trait for scheduling processed or data messages to be released in future
-/// rounds.
-pub trait MessageScheduler<Rng, ProcessedMessage, DataMessage>:
-    ProcessedMessageScheduler<ProcessedMessage>
-{
-    fn new(session_info: SessionInfo, rng: Rng, settings: Settings) -> Self;
-    fn queue_data_message(&mut self, message: DataMessage);
-}
-
 /// Trait for scheduling processed messages to be released in future rounds.
 pub trait ProcessedMessageScheduler<ProcessedMessage> {
     /// Add a new processed message to the release delayer component queue, for
@@ -62,14 +53,13 @@ pub struct SessionMessageScheduler<Rng, ProcessedMessage, DataMessage> {
     round_clock: RoundClock,
 }
 
-impl<Rng, ProcessedMessage, DataMessage> MessageScheduler<Rng, ProcessedMessage, DataMessage>
-    for SessionMessageScheduler<Rng, ProcessedMessage, DataMessage>
+impl<Rng, ProcessedMessage, DataMessage> SessionMessageScheduler<Rng, ProcessedMessage, DataMessage>
 where
     Rng: RngCore + Clone + Unpin,
     ProcessedMessage: Debug + Unpin,
     DataMessage: Debug + Unpin,
 {
-    fn new(session_info: SessionInfo, rng: Rng, settings: Settings) -> Self {
+    pub fn new(session_info: SessionInfo, rng: Rng, settings: Settings) -> Self {
         let round_clock = Box::new(
             IntervalStream::new(interval(settings.round_duration))
                 .enumerate()
@@ -103,10 +93,25 @@ where
         }
     }
 
+    pub fn rotate_session(
+        self,
+        new_session_info: SessionInfo,
+        settings: Settings,
+    ) -> (Self, OldSessionMessageScheduler<Rng, ProcessedMessage>) {
+        (
+            Self::new(
+                new_session_info,
+                self.release_delayer.rng().clone(),
+                settings,
+            ),
+            OldSessionMessageScheduler(self.release_delayer),
+        )
+    }
+
     /// Notify the cover message submodule that a new data message has been
     /// generated in this session, which will reduce the number of cover
     /// messages generated going forward.
-    fn queue_data_message(&mut self, message: DataMessage) {
+    pub fn queue_data_message(&mut self, message: DataMessage) {
         self.data_messages.push(message);
         self.cover_traffic.notify_new_data_message();
     }
@@ -128,6 +133,13 @@ impl<Rng, ProcessedMessage, DataMessage>
             data_messages,
             round_clock,
         }
+    }
+
+    #[cfg(any(test, feature = "unsafe-test-functions"))]
+    pub fn release_delayer(
+        &self,
+    ) -> &SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage> {
+        &self.release_delayer
     }
 }
 
@@ -245,15 +257,6 @@ pub struct OldSessionMessageScheduler<Rng, ProcessedMessage>(
     SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage>,
 );
 
-impl<Rng, ProcessedMessage, DataMessage>
-    From<SessionMessageScheduler<Rng, ProcessedMessage, DataMessage>>
-    for OldSessionMessageScheduler<Rng, ProcessedMessage>
-{
-    fn from(scheduler: SessionMessageScheduler<Rng, ProcessedMessage, DataMessage>) -> Self {
-        Self(scheduler.release_delayer)
-    }
-}
-
 impl<Rng, ProcessedMessage> ProcessedMessageScheduler<ProcessedMessage>
     for OldSessionMessageScheduler<Rng, ProcessedMessage>
 {
@@ -271,5 +274,14 @@ where
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         self.0.poll_next_unpin(cx)
+    }
+}
+
+impl<Rng, ProcessedMessage> OldSessionMessageScheduler<Rng, ProcessedMessage> {
+    #[cfg(any(test, feature = "unsafe-test-functions"))]
+    pub fn release_delayer(
+        &self,
+    ) -> &SessionProcessedMessageDelayer<RoundClock, Rng, ProcessedMessage> {
+        &self.0
     }
 }

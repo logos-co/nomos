@@ -11,7 +11,7 @@ use nomos_blend_message::{
             quota::{
                 ProofOfQuota,
                 inputs::prove::{
-                    private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs},
+                    private::ProofOfLeadershipQuotaInputs,
                     public::{CoreInputs, LeaderInputs},
                 },
             },
@@ -19,7 +19,7 @@ use nomos_blend_message::{
         },
     },
     encap::ProofsVerifier,
-    reward::{self, BlendingTokenCollector},
+    reward,
 };
 use nomos_blend_scheduling::{
     EncapsulatedMessage,
@@ -33,30 +33,26 @@ use nomos_blend_scheduling::{
             BlendLayerProof, ProofsGeneratorSettings, core_and_leader::CoreAndLeaderProofsGenerator,
         },
     },
-    message_scheduler::{
-        self, MessageScheduler, ProcessedMessageScheduler,
-        session_info::SessionInfo as SchedulerSessionInfo,
-    },
+    message_scheduler::{self, session_info::SessionInfo as SchedulerSessionInfo},
 };
 use nomos_core::{crypto::ZkHash, sdp::SessionNumber};
 use nomos_network::{NetworkService, backends::NetworkBackend};
-use nomos_utils::math::NonNegativeF64;
 use overwatch::{
     overwatch::{OverwatchHandle, commands::OverwatchCommand},
     services::{ServiceData, relay::OutboundRelay, state::StateUpdater},
 };
-use poq::CORE_MERKLE_TREE_HEIGHT;
+use poq::CorePathAndSelectors;
 use tempfile::NamedTempFile;
 use tokio::sync::{
     broadcast::{self},
     mpsc, watch,
 };
 use tokio_stream::wrappers::{BroadcastStream, ReceiverStream};
-use zksign::SecretKey;
 
 use crate::{
     core::{
         backends::{BlendBackend, EpochInfo, PublicInfo, SessionInfo},
+        kms::KmsPoQAdapter,
         network::NetworkAdapter,
         processor::CoreCryptographicProcessor,
         settings::{
@@ -64,6 +60,7 @@ use crate::{
             ZkSettings,
         },
         state::RecoveryServiceState,
+        tests::RuntimeServiceId,
     },
     settings::TimingSettings,
     test_utils,
@@ -108,21 +105,35 @@ pub fn settings<BackendSettings>(
                 maximum_release_delay_in_rounds: 1.try_into().unwrap(),
             },
         },
-        time: TimingSettings {
-            rounds_per_session: 10.try_into().unwrap(),
-            rounds_per_interval: 5.try_into().unwrap(),
-            round_duration: Duration::from_secs(1),
-            rounds_per_observation_window: 5.try_into().unwrap(),
-            rounds_per_session_transition_period: 2.try_into().unwrap(),
-            epoch_transition_period_in_slots: 1.try_into().unwrap(),
-        },
+        time: timing_settings(),
         zk: ZkSettings {
-            sk: SecretKey::zero(),
+            secret_key_kms_id: "test-key".to_owned(),
         },
         minimum_network_size,
         recovery_path: recovery_file.path().to_path_buf(),
     };
     (settings, recovery_file)
+}
+
+pub fn timing_settings() -> TimingSettings {
+    TimingSettings {
+        rounds_per_session: 10.try_into().unwrap(),
+        rounds_per_interval: 10.try_into().unwrap(),
+        round_duration: Duration::from_secs(1),
+        rounds_per_observation_window: 5.try_into().unwrap(),
+        rounds_per_session_transition_period: 2.try_into().unwrap(),
+        epoch_transition_period_in_slots: 1.try_into().unwrap(),
+    }
+}
+
+pub fn scheduler_settings(timing_settings: &TimingSettings) -> message_scheduler::Settings {
+    message_scheduler::Settings {
+        additional_safety_intervals: 0,
+        expected_intervals_per_session: NonZeroU64::try_from(1).unwrap(),
+        maximum_release_delay_in_rounds: NonZeroU64::try_from(1).unwrap(),
+        round_duration: timing_settings.round_duration,
+        rounds_per_interval: timing_settings.rounds_per_interval,
+    }
 }
 
 const CHANNEL_SIZE: usize = 10;
@@ -138,8 +149,8 @@ pub struct TestBlendBackend {
 }
 
 #[async_trait]
-impl<NodeId, Rng, ProofsVerifier, RuntimeServiceId>
-    BlendBackend<NodeId, Rng, ProofsVerifier, RuntimeServiceId> for TestBlendBackend
+impl<NodeId, Rng, ProofsVerifier> BlendBackend<NodeId, Rng, ProofsVerifier, RuntimeServiceId>
+    for TestBlendBackend
 where
     NodeId: Send + 'static,
 {
@@ -276,11 +287,16 @@ pub fn dummy_overwatch_resources<BackendSettings, BroadcastSettings, RuntimeServ
     (handle, cmd_receiver, state_updater, state_receiver)
 }
 
-pub fn new_crypto_processor(
+pub fn new_crypto_processor<CorePoQGenerator>(
     settings: &SessionCryptographicProcessorSettings,
     public_info: &PublicInfo<NodeId>,
-    poq_core_quota_inputs: ProofOfCoreQuotaInputs,
-) -> CoreCryptographicProcessor<NodeId, MockCoreAndLeaderProofsGenerator, MockProofsVerifier> {
+    core_poq_generator: CorePoQGenerator,
+) -> CoreCryptographicProcessor<
+    NodeId,
+    CorePoQGenerator,
+    MockCoreAndLeaderProofsGenerator,
+    MockProofsVerifier,
+> {
     let minimum_network_size = u64::try_from(public_info.session.membership.size())
         .expect("membership size must fit into u64")
         .try_into()
@@ -294,7 +310,7 @@ pub fn new_crypto_processor(
             core: public_info.session.core_public_inputs,
             leader: public_info.epoch,
         },
-        poq_core_quota_inputs,
+        core_poq_generator,
     )
     .expect("crypto processor must be created successfully")
 }
@@ -318,77 +334,38 @@ pub fn new_public_info(session: u64, membership: Membership<NodeId>) -> PublicIn
     }
 }
 
-pub fn new_poq_core_quota_inputs() -> ProofOfCoreQuotaInputs {
-    ProofOfCoreQuotaInputs {
-        core_sk: ZkHash::ZERO,
-        core_path_and_selectors: [(ZkHash::ZERO, false); CORE_MERKLE_TREE_HEIGHT],
+pub fn scheduler_session_info(public_info: &PublicInfo<NodeId>) -> SchedulerSessionInfo {
+    SchedulerSessionInfo {
+        core_quota: public_info.session.core_public_inputs.quota,
+        session_number: u128::from(public_info.session.session_number).into(),
     }
 }
 
-pub fn new_blending_token_collector(
-    public_info: &PublicInfo<NodeId>,
-    message_frequency_per_round: NonNegativeF64,
-) -> BlendingTokenCollector {
-    BlendingTokenCollector::new(
-        &reward::SessionInfo::new(
-            public_info.session.session_number,
-            &public_info.epoch.pol_epoch_nonce,
-            public_info
-                .session
-                .membership
-                .size()
-                .try_into()
-                .expect("num_core_nodes must fit into u64"),
-            public_info.session.core_public_inputs.quota,
-            message_frequency_per_round,
-        )
-        .expect("session info must be created successfully"),
+pub fn reward_session_info(public_info: &PublicInfo<NodeId>) -> reward::SessionInfo {
+    reward::SessionInfo::new(
+        public_info.session.session_number,
+        &public_info.epoch.pol_epoch_nonce,
+        public_info
+            .session
+            .membership
+            .size()
+            .try_into()
+            .expect("num_core_nodes must fit into u64"),
+        public_info.session.core_public_inputs.quota,
     )
-}
-
-pub struct MockProcessedMessageScheduler<ProcessedMessage> {
-    messages: Vec<ProcessedMessage>,
-}
-
-impl<ProcessedMessage> Default for MockProcessedMessageScheduler<ProcessedMessage> {
-    fn default() -> Self {
-        Self {
-            messages: Vec::new(),
-        }
-    }
-}
-
-impl<Rng, ProcessedMessage> MessageScheduler<Rng, ProcessedMessage, EncapsulatedMessage>
-    for MockProcessedMessageScheduler<ProcessedMessage>
-{
-    fn new(_: SchedulerSessionInfo, _: Rng, _: message_scheduler::Settings) -> Self {
-        Self::default()
-    }
-
-    fn queue_data_message(&mut self, _: EncapsulatedMessage) {
-        unimplemented!()
-    }
-}
-
-impl<ProcessedMessage> ProcessedMessageScheduler<ProcessedMessage>
-    for MockProcessedMessageScheduler<ProcessedMessage>
-{
-    fn schedule_processed_message(&mut self, message: ProcessedMessage) {
-        self.messages.push(message);
-    }
-}
-
-impl<ProcessedMessage> MockProcessedMessageScheduler<ProcessedMessage> {
-    pub fn num_scheduled_messages(&self) -> usize {
-        self.messages.len()
-    }
+    .expect("session info must be created successfully")
 }
 
 pub struct MockCoreAndLeaderProofsGenerator(SessionNumber);
 
 #[async_trait]
-impl CoreAndLeaderProofsGenerator for MockCoreAndLeaderProofsGenerator {
-    fn new(settings: ProofsGeneratorSettings, _: ProofOfCoreQuotaInputs) -> Self {
+impl<CorePoQGenerator> CoreAndLeaderProofsGenerator<CorePoQGenerator>
+    for MockCoreAndLeaderProofsGenerator
+{
+    fn new(
+        settings: ProofsGeneratorSettings,
+        _core_proof_of_quota_generator: CorePoQGenerator,
+    ) -> Self {
         Self(settings.public_inputs.session)
     }
 
@@ -465,5 +442,20 @@ fn session_based_dummy_proofs(session: SessionNumber) -> BlendLayerProof {
 impl MockProofsVerifier {
     pub fn session_number(&self) -> SessionNumber {
         self.0
+    }
+}
+
+pub struct MockKmsAdapter;
+
+impl<RuntimeServiceId> KmsPoQAdapter<RuntimeServiceId> for MockKmsAdapter {
+    type CorePoQGenerator = ();
+    // Required by the Blend core service.
+    type KeyId = String;
+
+    fn core_poq_generator(
+        &self,
+        _key_id: Self::KeyId,
+        _core_path_and_selectors: Box<CorePathAndSelectors>,
+    ) -> Self::CorePoQGenerator {
     }
 }

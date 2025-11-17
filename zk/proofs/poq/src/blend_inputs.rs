@@ -6,8 +6,8 @@ pub type CorePathAndSelectors = [(Fr, bool); CORE_MERKLE_TREE_HEIGHT];
 
 #[derive(Clone)]
 pub struct PoQBlendInputs {
-    core_sk: Groth16Input,
-    core_path_and_selectors: [(Groth16Input, Groth16Input); CORE_MERKLE_TREE_HEIGHT],
+    pub core_sk: Groth16Input,
+    pub core_path_and_selectors: [(Groth16Input, Groth16Input); CORE_MERKLE_TREE_HEIGHT],
 }
 
 pub struct PoQBlendInputsData {

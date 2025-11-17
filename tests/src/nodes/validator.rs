@@ -16,13 +16,19 @@ use chain_service::{
 use common_http_client::CommonHttpClient;
 use cryptarchia_engine::time::SlotConfig;
 use futures::Stream;
+use key_management_system::keys::ZkKey;
 use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
 use nomos_blend_scheduling::message_blend::crypto::SessionCryptographicProcessorSettings;
 use nomos_blend_service::{
     core::settings::{CoverTrafficSettings, MessageDelayerSettings, SchedulerSettings, ZkSettings},
     settings::TimingSettings,
 };
-use nomos_core::{block::Block, da::BlobId, mantle::SignedMantleTx, sdp::SessionNumber};
+use nomos_core::{
+    block::Block,
+    da::BlobId,
+    mantle::{SignedMantleTx, Transaction as _, TxHash},
+    sdp::{Declaration, SessionNumber},
+};
 use nomos_da_network_core::{
     protocols::sampling::SubnetsConfig,
     swarm::{BalancerStats, DAConnectionPolicySettings, MonitorStats},
@@ -42,7 +48,8 @@ use nomos_da_verifier::{
 };
 use nomos_http_api_common::paths::{
     CRYPTARCHIA_HEADERS, CRYPTARCHIA_INFO, DA_BALANCER_STATS, DA_GET_MEMBERSHIP,
-    DA_GET_SHARES_COMMITMENTS, DA_HISTORIC_SAMPLING, DA_MONITOR_STATS, NETWORK_INFO, STORAGE_BLOCK,
+    DA_GET_SHARES_COMMITMENTS, DA_HISTORIC_SAMPLING, DA_MONITOR_STATS, MANTLE_SDP_DECLARATIONS,
+    NETWORK_INFO, STORAGE_BLOCK,
 };
 use nomos_network::{
     backends::libp2p::{Libp2pConfig, Libp2pInfo},
@@ -72,7 +79,8 @@ use tx_service::MempoolMetrics;
 
 use super::{CLIENT, create_tempdir, persist_tempdir};
 use crate::{
-    IS_DEBUG_TRACING, adjust_timeout, nodes::LOGS_PREFIX, topology::configs::GeneralConfig,
+    IS_DEBUG_TRACING, adjust_timeout, common::kms::key_id_for_preload_backend, nodes::LOGS_PREFIX,
+    topology::configs::GeneralConfig,
 };
 
 const BIN_PATH: &str = "../target/debug/nomos-node";
@@ -248,6 +256,20 @@ impl Validator {
         }
     }
 
+    pub async fn get_sdp_declarations(&self) -> Vec<Declaration> {
+        CLIENT
+            .get(format!(
+                "http://{}{}",
+                self.testing_http_addr, MANTLE_SDP_DECLARATIONS
+            ))
+            .send()
+            .await
+            .expect("Failed to fetch SDP declarations")
+            .json::<Vec<Declaration>>()
+            .await
+            .expect("Failed to deserialize SDP declarations response")
+    }
+
     pub async fn da_historic_sampling(
         &self,
         block_id: HeaderId,
@@ -395,6 +417,42 @@ impl Validator {
             .get_lib_stream(Url::from_str(&format!("http://{}", self.addr))?)
             .await
     }
+
+    /// Wait for a list of transactions to be included in blocks
+    pub async fn wait_for_transactions_inclusion(
+        &self,
+        tx_hashes: Vec<TxHash>,
+        timeout: Duration,
+    ) -> Vec<Option<HeaderId>> {
+        let mut results = vec![None; tx_hashes.len()];
+
+        let _ = tokio::time::timeout(timeout, async {
+            loop {
+                let headers = self.get_headers(None, None).await;
+
+                for header_id in headers.iter().take(10) {
+                    if let Some(block) = self.get_block(*header_id).await {
+                        for tx in block.transactions() {
+                            for (i, target_hash) in tx_hashes.iter().enumerate() {
+                                if tx.hash() == *target_hash && results[i].is_none() {
+                                    results[i] = Some(*header_id);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if results.iter().all(Option::is_some) {
+                    return;
+                }
+
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+        })
+        .await;
+
+        results
+    }
 }
 
 #[must_use]
@@ -451,7 +509,9 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                     },
                 },
                 zk: ZkSettings {
-                    sk: config.blend_config.secret_zk_key,
+                    secret_key_kms_id: key_id_for_preload_backend(
+                        &ZkKey::new(config.blend_config.secret_zk_key).into(),
+                    ),
                 },
             },
             edge: nomos_blend_service::settings::EdgeSettings {

@@ -128,6 +128,8 @@ fn build_key_enum_impl_secured_key(
         build_key_enum_impl_secured_key_method_sign_multiple(key_enum_variants);
     let key_enum_impl_secured_key_method_as_public_key =
         build_key_enum_impl_secured_key_method_as_public_key(key_enum_variants);
+    let key_enum_impl_secured_key_method_generate_core_poq =
+        build_key_enum_impl_secured_key_method_generate_core_poq(key_enum_variants);
 
     quote! {
         impl crate::keys::secured_key::SecuredKey for #ident
@@ -140,6 +142,7 @@ fn build_key_enum_impl_secured_key(
             #key_enum_impl_secured_key_method_sign
             #key_enum_impl_secured_key_method_sign_multiple
             #key_enum_impl_secured_key_method_as_public_key
+            #key_enum_impl_secured_key_method_generate_core_poq
         }
     }
 }
@@ -247,6 +250,28 @@ fn build_key_enum_impl_secured_key_method_as_public_key(
         fn as_public_key(&self) -> Self::PublicKey {
             match self {
                 #(#as_public_key_arms)*
+            }
+        }
+    }
+}
+
+fn build_key_enum_impl_secured_key_method_generate_core_poq(
+    key_enum_variants: &Punctuated<Variant, Comma>,
+) -> TokenStream {
+    let poq_arms = key_enum_variants.iter().map(|variant| {
+        let variant_ident = &variant.ident;
+        let variant_attributes_cfg: Vec<Attribute> = get_cfg_attributes(&variant.attrs).collect();
+
+        quote! {
+            #(#variant_attributes_cfg)*
+            Self::#variant_ident(key) => key.generate_core_poq(public_inputs, key_index, core_path_and_selectors),
+        }
+    });
+
+    quote! {
+        fn generate_core_poq(&self, public_inputs: &nomos_blend_message::crypto::proofs::quota::inputs::prove::PublicInputs, key_index: u64, core_path_and_selectors: poq::CorePathAndSelectors) -> Result<(nomos_blend_message::crypto::proofs::quota::ProofOfQuota, groth16::Fr), Self::Error> {
+            match self {
+                #(#poq_arms)*
             }
         }
     }

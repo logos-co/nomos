@@ -76,7 +76,7 @@ impl<RoundClock, Rng, ProcessedMessage>
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "unsafe-test-functions"))]
     pub fn unreleased_messages(&self) -> &[ProcessedMessage] {
         &self.unreleased_messages
     }
@@ -86,6 +86,11 @@ impl<RoundClock, Rng, ProcessedMessage>
     pub fn schedule_message(&mut self, message: ProcessedMessage) {
         self.unreleased_messages.push(message);
         debug!(target: LOG_TARGET, "New message scheduled. Pending message count: {}", self.unreleased_messages.len());
+    }
+
+    /// Get a reference to the stored rng.
+    pub const fn rng(&self) -> &Rng {
+        &self.rng
     }
 }
 

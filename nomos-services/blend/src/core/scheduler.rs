@@ -2,9 +2,7 @@ use std::fmt::Debug;
 
 use nomos_blend_scheduling::{
     SessionMessageScheduler,
-    message_scheduler::{
-        MessageScheduler as _, ProcessedMessageScheduler as _, Settings, session_info::SessionInfo,
-    },
+    message_scheduler::{ProcessedMessageScheduler as _, Settings, session_info::SessionInfo},
 };
 
 /// A wrapper around a [`MessageScheduler`] that allows creation with a set of
