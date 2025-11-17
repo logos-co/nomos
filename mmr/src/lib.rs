@@ -188,6 +188,7 @@ mod test {
     }
 
     #[test]
+    #[allow(clippy::clone_on_copy)]
     fn test_empty_roots() {
         let mut root = Fr::ZERO;
         for i in 0..32 {
