@@ -37,7 +37,6 @@ use nomos_blend_scheduling::{
 };
 use nomos_core::{crypto::ZkHash, sdp::SessionNumber};
 use nomos_network::{NetworkService, backends::NetworkBackend};
-use nomos_utils::math::NonNegativeF64;
 use overwatch::{
     overwatch::{OverwatchHandle, commands::OverwatchCommand},
     services::{ServiceData, relay::OutboundRelay, state::StateUpdater},
@@ -342,10 +341,7 @@ pub fn scheduler_session_info(public_info: &PublicInfo<NodeId>) -> SchedulerSess
     }
 }
 
-pub fn reward_session_info(
-    public_info: &PublicInfo<NodeId>,
-    message_frequency_per_round: NonNegativeF64,
-) -> reward::SessionInfo {
+pub fn reward_session_info(public_info: &PublicInfo<NodeId>) -> reward::SessionInfo {
     reward::SessionInfo::new(
         public_info.session.session_number,
         &public_info.epoch.pol_epoch_nonce,
@@ -356,7 +352,6 @@ pub fn reward_session_info(
             .try_into()
             .expect("num_core_nodes must fit into u64"),
         public_info.session.core_public_inputs.quota,
-        message_frequency_per_round,
     )
     .expect("session info must be created successfully")
 }
