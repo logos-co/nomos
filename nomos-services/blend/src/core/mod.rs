@@ -610,7 +610,6 @@ where
                 &pol_epoch_nonce,
                 current_membership_info.public.membership.size() as u64,
                 current_membership_info.public.poq_core_public_inputs.quota,
-                blend_config.scheduler.cover.message_frequency_per_round,
             )
             .expect("Reward session info must be created successfully. Panicking since the service cannot continue with this session")
         );
@@ -988,7 +987,6 @@ where
                 &current_public_info.epoch.pol_epoch_nonce,
                 new_membership.size() as u64,
                 new_core_public_inputs.quota,
-                settings.scheduler.cover.message_frequency_per_round,
             )
             .expect("Reward session info must be created successfully. Panicking since the service cannot continue with this session");
             let (new_session_blending_token_collector, old_session_blending_token_collector) =
