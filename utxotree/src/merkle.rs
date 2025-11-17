@@ -19,7 +19,7 @@ fn empty_subtree_root<Hash: Digest>(height: usize) -> Fr {
     PRECOMPUTED_EMPTY_ROOTS.get_or_init(|| {
         let mut hashes = [EMPTY_VALUE; 32];
         for i in 1..32 {
-            hashes[i] = Hash::compress(&[hashes[i-1],hashes[i-1]]);
+            hashes[i] = Hash::compress(&[hashes[i - 1], hashes[i - 1]]);
         }
         hashes
     })[height]
@@ -52,14 +52,14 @@ enum Node<Item> {
 fn hash<Item: AsRef<Fr>, Hash: Digest>(left: &Node<Item>, right: &Node<Item>) -> Fr {
     let mut input = [EMPTY_VALUE; 2];
     match left {
-        Node::Inner { value, .. } => { input[0] = *value },
+        Node::Inner { value, .. } => input[0] = *value,
         Node::Leaf { item } => {
             input[0] = *item.as_ref().map_or(&EMPTY_VALUE, AsRef::as_ref);
         }
         Node::Empty { .. } => panic!("Empty node in left subtree is not allowed"),
     }
     match right {
-        Node::Inner { value, .. } => { input[1] = *value },
+        Node::Inner { value, .. } => input[1] = *value,
         Node::Leaf { item } => {
             input[1] = *item.as_ref().map_or(&EMPTY_VALUE, AsRef::as_ref);
         }

@@ -282,8 +282,8 @@ mod test {
             mmr.roots.peek().unwrap().root,
             ZkHasher::compress(&[
                 ZkHasher::compress(&[leaf(b"hello"), leaf(b"world")]),
-                ZkHasher::compress(&[leaf(b"!"), leaf(b"!")])]
-            )
+                ZkHasher::compress(&[leaf(b"!"), leaf(b"!")])
+            ])
         );
     }
 }
