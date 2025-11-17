@@ -10,6 +10,7 @@ workspace = true
 [dependencies]
 async-trait              = "0.1"
 bytes                    = { workspace = true }
+either                   = { default-features = false, version = "1.15.0" }
 futures                  = { default-features = false, version = "0.3" }
 hex                      = { default-features = false, version = "0.4.3" }
 kzgrs-backend            = { workspace = true }
@@ -21,6 +22,7 @@ nomos-storage            = { workspace = true }
 nomos-tracing            = { workspace = true }
 overwatch                = { workspace = true }
 rand                     = { workspace = true }
+
 serde                    = { default-features = false, version = "1.0" }
 services-utils           = { workspace = true }
 subnetworks-assignations = { workspace = true }
