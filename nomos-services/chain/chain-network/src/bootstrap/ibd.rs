@@ -842,9 +842,11 @@ mod tests {
                 .cryptarchia
                 .consensus
                 .receive_block(block.id, block.parent, block.slot)
-                .map_err(|e| Error::BlockProcessing(
-                    ChainError::InvalidBlock(format!("Consensus error: {e:?}"))
-                ))?;
+                .map_err(|e| {
+                    Error::BlockProcessing(ChainError::InvalidBlock(format!(
+                        "Consensus error: {e:?}"
+                    )))
+                })?;
 
             self.cryptarchia.consensus = consensus;
             Ok(())
