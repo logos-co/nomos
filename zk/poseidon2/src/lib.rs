@@ -9,6 +9,8 @@ pub type ZkHash = Fr;
 pub trait Digest {
     fn digest(inputs: &[Fr]) -> ZkHash;
 
+    fn compress(inputs: &[Fr; 2]) -> ZkHash;
+
     fn new() -> Self;
     fn update(&mut self, input: &Fr);
     fn finalize(self) -> ZkHash;
