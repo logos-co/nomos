@@ -12,4 +12,10 @@ pub struct CommonSettings {
     pub time: TimingSettings,
     pub minimum_network_size: NonZeroU64,
     pub recovery_path_prefix: PathBuf,
+    // TODO: Should not be deserialized. So the whole struct should probably not be deserializable,
+    // and the deserialization should happen in the binary directly.
+    pub deployment: DeploymentSettings,
 }
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct DeploymentSettings;

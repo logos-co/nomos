@@ -8,7 +8,7 @@ use crate::{
 };
 
 mod common;
-pub use self::common::CommonSettings;
+pub use self::common::{CommonSettings, DeploymentSettings};
 mod core;
 pub use self::core::CoreSettings;
 mod edge;

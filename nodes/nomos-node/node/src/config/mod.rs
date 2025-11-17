@@ -26,6 +26,7 @@ use crate::{
 };
 
 pub mod blend;
+pub mod deployment;
 pub mod mempool;
 #[cfg(test)]
 mod tests;
@@ -204,6 +205,7 @@ pub struct Config {
     pub tracing: <Tracing<RuntimeServiceId> as ServiceData>::Settings,
     pub network: <NetworkService as ServiceData>::Settings,
     pub blend: BlendConfig,
+    pub deployment: DeploymentConfig,
     pub da_network: <DaNetworkService as ServiceData>::Settings,
     pub da_verifier: <DaVerifierService as ServiceData>::Settings,
     pub sdp: <SdpService<RuntimeServiceId> as ServiceData>::Settings,
