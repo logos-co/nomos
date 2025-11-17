@@ -310,7 +310,6 @@ where
             network_adapter_settings,
             bootstrap: bootstrap_config,
             sync: sync_config,
-            ..
         } = self
             .service_resources_handle
             .settings_handle
