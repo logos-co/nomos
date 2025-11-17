@@ -127,6 +127,62 @@ where
     >(&handle))
 }
 
+pub async fn get_sdp_declarations<
+    SamplingBackend,
+    SamplingNetworkAdapter,
+    SamplingStorage,
+    StorageAdapter,
+    TimeBackend,
+    RuntimeServiceId,
+>(
+    State(handle): State<OverwatchHandle<RuntimeServiceId>>,
+) -> Response
+where
+    SamplingBackend: DaSamplingServiceBackend<BlobId = BlobId> + Send,
+    SamplingBackend::Settings: Clone,
+    SamplingBackend::Share: Debug + 'static,
+    SamplingBackend::BlobId: Debug + 'static,
+    SamplingNetworkAdapter:
+        nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId> + Send + Sync + 'static,
+    SamplingStorage:
+        nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync + 'static,
+    StorageAdapter: tx_service::storage::MempoolStorageAdapter<
+            RuntimeServiceId,
+            Item = SignedMantleTx,
+            Key = <SignedMantleTx as Transaction>::Hash,
+        > + Send
+        + Sync
+        + Clone
+        + 'static,
+    StorageAdapter::Error: Debug,
+    TimeBackend: nomos_time::backends::TimeBackend,
+    TimeBackend::Settings: Clone + Send + Sync,
+    RuntimeServiceId: Debug
+        + Send
+        + Sync
+        + Display
+        + 'static
+        + AsServiceId<
+            Cryptarchia<
+                SamplingBackend,
+                SamplingNetworkAdapter,
+                SamplingStorage,
+                StorageAdapter,
+                TimeBackend,
+                RuntimeServiceId,
+            >,
+        >,
+{
+    make_request_and_return_response!(mantle::get_sdp_declarations::<
+        SamplingBackend,
+        SamplingNetworkAdapter,
+        SamplingStorage,
+        StorageAdapter,
+        TimeBackend,
+        RuntimeServiceId,
+    >(&handle))
+}
+
 #[utoipa::path(
     post,
     path = paths::MANTLE_STATUS,

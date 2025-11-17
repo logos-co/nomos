@@ -7,7 +7,7 @@ use std::{
 
 use configs::{
     GeneralConfig,
-    consensus::{ProviderInfo, create_genesis_tx_with_declarations},
+    consensus::{GeneralConsensusConfig, ProviderInfo, create_genesis_tx_with_declarations},
     da::{DaParams, create_da_configs},
     network::{NetworkParams, create_network_configs},
     tracing::create_tracing_configs,
@@ -18,7 +18,7 @@ use key_management_system::{
     keys::{Ed25519Key, ZkKey},
 };
 use nomos_core::{
-    mantle::GenesisTx as _,
+    mantle::{GenesisTx as _, Note, NoteId},
     sdp::{Locator, ServiceType, SessionNumber},
 };
 use nomos_da_network_core::swarm::DAConnectionPolicySettings;
@@ -27,6 +27,7 @@ use nomos_network::backends::libp2p::Libp2pInfo;
 use nomos_utils::net::get_available_udp_port;
 use rand::{Rng as _, thread_rng};
 use tokio::time::{sleep, timeout};
+use zksign::SecretKey;
 
 use crate::{
     adjust_timeout,
@@ -51,6 +52,7 @@ pub struct TopologyConfig {
     pub consensus_params: ConsensusParams,
     pub da_params: DaParams,
     pub network_params: NetworkParams,
+    pub extra_genesis_notes: Vec<GenesisNoteSpec>,
 }
 
 impl TopologyConfig {
@@ -62,6 +64,7 @@ impl TopologyConfig {
             consensus_params: ConsensusParams::default_for_participants(2),
             da_params: DaParams::default(),
             network_params: NetworkParams::default(),
+            extra_genesis_notes: Vec::new(),
         }
     }
 
@@ -87,6 +90,7 @@ impl TopologyConfig {
                 ..Default::default()
             },
             network_params: NetworkParams::default(),
+            extra_genesis_notes: Vec::new(),
         }
     }
 
@@ -116,13 +120,33 @@ impl TopologyConfig {
                 ..Default::default()
             },
             network_params: NetworkParams::default(),
+            extra_genesis_notes: Vec::new(),
         }
     }
+
+    #[must_use]
+    pub fn with_extra_genesis_note(mut self, note_spec: GenesisNoteSpec) -> Self {
+        self.extra_genesis_notes.push(note_spec);
+        self
+    }
+}
+
+#[derive(Clone)]
+pub struct GenesisNoteSpec {
+    pub note: Note,
+    pub note_sk: SecretKey,
+}
+
+#[derive(Clone)]
+pub struct InjectedGenesisNote {
+    pub note_id: NoteId,
 }
 
 pub struct Topology {
     validators: Vec<Validator>,
     executors: Vec<Executor>,
+    general_configs: Vec<GeneralConfig>,
+    injected_genesis_notes: Vec<InjectedGenesisNote>,
 }
 
 impl Topology {
@@ -152,7 +176,17 @@ impl Topology {
         let tracing_configs = create_tracing_configs(&ids);
         let time_config = default_time_config();
 
-        // Setup genesis TX with Blend and DA service declarationse
+        // Setup genesis TX with Blend and DA service declarations.
+        let base_ledger_tx = consensus_configs[0]
+            .genesis_tx
+            .mantle_tx()
+            .ledger_tx
+            .clone();
+        let mut ledger_tx = base_ledger_tx.clone();
+        let base_outputs = ledger_tx.outputs.len();
+        for note_spec in &config.extra_genesis_notes {
+            ledger_tx.outputs.push(note_spec.note);
+        }
         let mut providers: Vec<_> = da_configs
             .iter()
             .enumerate()
@@ -178,12 +212,22 @@ impl Topology {
         );
 
         // Update genesis TX to contain Blend and DA providers.
-        let ledger_tx = consensus_configs[0]
-            .genesis_tx
-            .mantle_tx()
-            .ledger_tx
-            .clone();
         let genesis_tx = create_genesis_tx_with_declarations(ledger_tx, providers);
+        let updated_ledger_tx = genesis_tx.mantle_tx().ledger_tx.clone();
+        let injected_utxos: Vec<_> = updated_ledger_tx
+            .utxos()
+            .skip(base_outputs)
+            .collect::<Vec<_>>();
+
+        for c in &mut consensus_configs {
+            c.utxos.extend(injected_utxos.iter().copied());
+        }
+
+        let injected_infos = injected_utxos
+            .iter()
+            .map(|utxo| InjectedGenesisNote { note_id: utxo.id() })
+            .collect::<Vec<_>>();
+
         for c in &mut consensus_configs {
             c.genesis_tx = genesis_tx.clone();
         }
@@ -207,6 +251,8 @@ impl Topology {
             });
         }
 
+        let general_configs = node_configs.clone();
+
         let (validators, executors) =
             Self::spawn_validators_executors(node_configs, config.n_validators, config.n_executors)
                 .await;
@@ -214,6 +260,8 @@ impl Topology {
         Self {
             validators,
             executors,
+            general_configs,
+            injected_genesis_notes: injected_infos,
         }
     }
 
@@ -254,6 +302,7 @@ impl Topology {
                 kms_config: kms_config.clone(),
             });
         }
+        let general_configs = node_configs.clone();
         let (validators, executors) =
             Self::spawn_validators_executors(node_configs, config.n_validators, config.n_executors)
                 .await;
@@ -261,6 +310,8 @@ impl Topology {
         Self {
             validators,
             executors,
+            general_configs,
+            injected_genesis_notes: Vec::new(),
         }
     }
 
@@ -292,6 +343,25 @@ impl Topology {
     #[must_use]
     pub fn executors(&self) -> &[Executor] {
         &self.executors
+    }
+
+    #[must_use]
+    pub fn general_config(&self, index: usize) -> Option<&GeneralConfig> {
+        self.general_configs.get(index)
+    }
+
+    #[must_use]
+    pub fn validator_consensus_config(
+        &self,
+        validator_index: usize,
+    ) -> Option<&GeneralConsensusConfig> {
+        self.general_config(validator_index)
+            .map(|config| &config.consensus_config)
+    }
+
+    #[must_use]
+    pub fn injected_genesis_notes(&self) -> &[InjectedGenesisNote] {
+        &self.injected_genesis_notes
     }
 
     pub async fn wait_network_ready(&self) {
