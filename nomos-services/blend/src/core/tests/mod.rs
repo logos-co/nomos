@@ -77,7 +77,7 @@ async fn test_handle_incoming_blend_message() {
         BlakeRng::from_entropy(),
         scheduler_settings,
     );
-    let reward_session_info = reward_session_info(&public_info, 1.0.try_into().unwrap());
+    let reward_session_info = reward_session_info(&public_info);
     let mut token_collector = SessionBlendingTokenCollector::new(&reward_session_info);
     handle_incoming_blend_message(
         msg.clone(),
@@ -202,10 +202,7 @@ async fn test_handle_session_event() {
         BlakeRng::from_entropy(),
         scheduler_settings(&settings.time),
     );
-    let token_collector = SessionBlendingTokenCollector::new(&reward_session_info(
-        &public_info,
-        settings.scheduler.cover.message_frequency_per_round,
-    ));
+    let token_collector = SessionBlendingTokenCollector::new(&reward_session_info(&public_info));
     let mut backend = <TestBlendBackend as BlendBackend<_, _, MockProofsVerifier, _>>::new(
         settings.clone(),
         overwatch_handle.clone(),
