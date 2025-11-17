@@ -74,3 +74,7 @@ path = "src/tests/membership/disperse.rs"
 [[test]]
 name = "test_da_historic_sampling"
 path = "src/tests/da/historic_sampling.rs"
+
+[[test]]
+name = "test_mantle_sdp_ops"
+path = "src/tests/mantle/sdp_ops.rs"

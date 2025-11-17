@@ -6,10 +6,11 @@ use axum::{
         HeaderValue,
         header::{CONTENT_TYPE, USER_AGENT},
     },
-    routing::post,
+    routing::{get, post},
 };
 use kzgrs_backend::common::share::DaShare;
 use nomos_api::Backend;
+use nomos_core::mantle::{SignedMantleTx, TxHash};
 use nomos_da_network_service::backends::libp2p::validator::DaNetworkValidatorBackend;
 use nomos_da_sampling::{
     backend::kzgrs::KzgrsSamplingBackend,
@@ -19,10 +20,11 @@ use nomos_da_sampling::{
     },
 };
 use nomos_http_api_common::{
-    paths::{DA_GET_MEMBERSHIP, DA_HISTORIC_SAMPLING},
+    paths::{DA_GET_MEMBERSHIP, DA_HISTORIC_SAMPLING, MANTLE_SDP_DECLARATIONS},
     utils::create_rate_limit_layer,
 };
 pub use nomos_network::backends::libp2p::Libp2p as NetworkBackend;
+use nomos_time::backends::NtpTimeBackend;
 use overwatch::{DynError, overwatch::handle::OverwatchHandle, services::AsServiceId};
 use tokio::net::TcpListener;
 use tower::limit::ConcurrencyLimitLayer;
@@ -32,12 +34,13 @@ use tower_http::{
     timeout::TimeoutLayer,
     trace::TraceLayer,
 };
+use tx_service::storage::adapters::rocksdb::RocksStorageAdapter;
 
 use crate::{
     DaMembershipStorage, DaNetworkApiAdapter, NomosDaMembership,
     api::{
         backend::AxumBackendSettings,
-        testing::handlers::{da_get_membership, da_historic_sampling},
+        testing::handlers::{da_get_membership, da_historic_sampling, get_sdp_declarations},
     },
     generic_services::{
         self, DaMembershipAdapter, SamplingMempoolAdapter, SdpService, SdpServiceAdapterGeneric,
@@ -69,6 +72,35 @@ type TestDaSamplingService<RuntimeServiceId> = generic_services::DaSamplingServi
     RuntimeServiceId,
 >;
 
+type TestCryptarchiaService<RuntimeServiceId> = generic_services::CryptarchiaService<
+    SamplingLibp2pAdapter<
+        NomosDaMembership,
+        DaMembershipAdapter<RuntimeServiceId>,
+        DaMembershipStorage,
+        DaNetworkApiAdapter,
+        SdpServiceAdapterGeneric<RuntimeServiceId>,
+        RuntimeServiceId,
+    >,
+    RuntimeServiceId,
+>;
+
+pub(super) type TestHttpCryptarchiaService<RuntimeServiceId> =
+    nomos_api::http::consensus::Cryptarchia<
+        KzgrsSamplingBackend,
+        SamplingLibp2pAdapter<
+            NomosDaMembership,
+            DaMembershipAdapter<RuntimeServiceId>,
+            DaMembershipStorage,
+            DaNetworkApiAdapter,
+            SdpServiceAdapterGeneric<RuntimeServiceId>,
+            RuntimeServiceId,
+        >,
+        SamplingStorageAdapter<DaShare, DaStorageConverter>,
+        RocksStorageAdapter<SignedMantleTx, TxHash>,
+        NtpTimeBackend,
+        RuntimeServiceId,
+    >;
+
 #[async_trait::async_trait]
 impl<RuntimeServiceId> Backend<RuntimeServiceId> for TestAxumBackend
 where
@@ -80,6 +112,8 @@ where
         + 'static
         + AsServiceId<TestDaNetworkService<RuntimeServiceId>>
         + AsServiceId<TestDaSamplingService<RuntimeServiceId>>
+        + AsServiceId<TestCryptarchiaService<RuntimeServiceId>>
+        + AsServiceId<TestHttpCryptarchiaService<RuntimeServiceId>>
         + AsServiceId<SdpService<RuntimeServiceId>>
         + AsServiceId<generic_services::TxMempoolService<RuntimeServiceId>>,
 {
@@ -149,6 +183,10 @@ where
                         RuntimeServiceId,
                     >,
                 ),
+            )
+            .route(
+                MANTLE_SDP_DECLARATIONS,
+                get(get_sdp_declarations::<RuntimeServiceId>),
             )
             .with_state(handle)
             .layer(TimeoutLayer::new(self.settings.timeout))

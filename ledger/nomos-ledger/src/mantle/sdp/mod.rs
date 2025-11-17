@@ -107,7 +107,6 @@ impl Service {
         }
     }
 
-    #[cfg(test)]
     const fn declarations(&self) -> &Declarations {
         match self {
             Self::DataAvailability(state) => &state.declarations,
@@ -566,6 +565,19 @@ impl SdpLedger {
         self.services
             .iter()
             .map(|(service_type, service)| (*service_type, service.active_session().session_n))
+            .collect()
+    }
+
+    #[must_use]
+    pub fn declarations(&self) -> Vec<(DeclarationId, Declaration)> {
+        self.services
+            .iter()
+            .flat_map(|(_, service_state)| {
+                service_state
+                    .declarations()
+                    .iter()
+                    .map(|(declaration_id, declaration)| (*declaration_id, declaration.clone()))
+            })
             .collect()
     }
 
