@@ -194,20 +194,17 @@ impl Cryptarchia {
 
     #[must_use]
     pub fn info(&self) -> CryptarchiaInfo {
+        let tip_branch = self
+            .consensus
+            .branches()
+            .get(&self.tip())
+            .expect("tip branch not available");
+
         CryptarchiaInfo {
             lib: self.lib(),
             tip: self.tip(),
-            slot: self
-                .ledger
-                .state(&self.tip())
-                .expect("tip state not available")
-                .slot(),
-            height: self
-                .consensus
-                .branches()
-                .get(&self.tip())
-                .expect("tip branch not available")
-                .length(),
+            slot: tip_branch.slot(),
+            height: tip_branch.length(),
             mode: *self.consensus.state(),
         }
     }
