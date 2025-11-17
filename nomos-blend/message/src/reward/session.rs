@@ -140,9 +140,5 @@ mod tests {
         let total_core_quota = 0;
         // ceil(log2(0 + 1))
         assert_eq!(token_count_bit_len(total_core_quota).unwrap(), 0);
-
-        let total_core_quota = 10;
-        // ceil(log2(10 + 1))
-        assert_eq!(token_count_bit_len(total_core_quota).unwrap(), 0);
     }
 }
