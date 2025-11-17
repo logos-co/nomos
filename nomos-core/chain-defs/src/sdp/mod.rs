@@ -360,7 +360,8 @@ fn parse_const_size_bytes<const N: usize>(input: &[u8]) -> IResult<&[u8], [u8; N
     Ok((input, data))
 }
 
-// TODO: This is a duplicate code of what is defined in `nomos-blend-message` crate.
+// TODO: This is a duplicate code of what is defined in `nomos-blend-message`
+// crate.
 const KEY_NULLIFIER_SIZE: usize = size_of::<ZkHash>();
 const PROOF_CIRCUIT_SIZE: usize = size_of::<PoQProof>();
 pub const PROOF_OF_QUOTA_SIZE: usize = KEY_NULLIFIER_SIZE.checked_add(PROOF_CIRCUIT_SIZE).unwrap();

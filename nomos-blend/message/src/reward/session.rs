@@ -3,6 +3,7 @@ use std::ops::{Add as _, Deref};
 use groth16::fr_to_bytes;
 use nomos_core::{crypto::ZkHash, sdp::SessionNumber};
 use nomos_utils::math::{F64Ge1, NonNegativeF64};
+use serde::{Deserialize, Serialize};
 
 use crate::{crypto::blake2b512, reward::activity::activity_threshold};
 
@@ -54,8 +55,8 @@ impl SessionInfo {
 }
 
 /// Deterministic unbiased randomness for a session.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct SessionRandomness([u8; 64]);
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionRandomness(#[serde(with = "serde_big_array::BigArray")] [u8; 64]);
 
 impl Deref for SessionRandomness {
     type Target = [u8];
@@ -77,7 +78,7 @@ impl SessionRandomness {
     /// Derive the session randomness from the given session number and epoch
     /// nonce.
     #[must_use]
-    fn new(session_number: SessionNumber, epoch_nonce: &ZkHash) -> Self {
+    pub fn new(session_number: SessionNumber, epoch_nonce: &ZkHash) -> Self {
         Self(blake2b512(&[
             &SESSION_RANDOMNESS_TAG,
             &fr_to_bytes(epoch_nonce),

@@ -176,9 +176,11 @@ impl LedgerState {
         let cryptarchia_ledger = self
             .cryptarchia_ledger
             .try_apply_header::<LeaderProof, Id>(slot, proof, config)?;
-        let mantle_ledger =
-            self.mantle_ledger
-                .try_apply_header(config.epoch(slot), voucher, config)?;
+        let mantle_ledger = self.mantle_ledger.try_apply_header(
+            cryptarchia_ledger.epoch_state(),
+            voucher,
+            config,
+        )?;
         Ok(Self {
             block_number: self
                 .block_number

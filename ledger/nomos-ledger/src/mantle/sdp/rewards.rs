@@ -3,6 +3,11 @@ use std::{
     collections::{HashMap, HashSet},
 };
 
+use groth16::Fr;
+use nomos_blend_message::{
+    crypto::proofs::{quota::ProofOfQuota, selection::ProofOfSelection},
+    reward::{BlendingToken, SessionRandomness},
+};
 use nomos_core::{
     block::BlockNumber,
     sdp::{ActivityMetadata, ProviderId, ServiceParameters, SessionNumber},
@@ -43,9 +48,15 @@ pub trait Rewards: Clone + PartialEq + Eq + Send + Sync + std::fmt::Debug {
     ///
     /// The internal calculation logic is opaque to the SDP ledger and
     /// determined by the service-specific implementation.
+    ///
+    /// # Arguments
+    /// * `last_active` - The state of the session that just ended.
+    /// * `next_active_session_epoch_nonce` - The nonce of the epoch state
+    ///   corresponding to the 1st block of the session `last_active + 1`.
     fn update_session(
         &self,
         last_active: &SessionState,
+        next_active_session_epoch_nonce: &Fr,
         config: &ServiceParameters,
     ) -> (Self, HashMap<ProviderId, RewardAmount>);
 }
@@ -71,6 +82,7 @@ impl Rewards for NoopRewards {
     fn update_session(
         &self,
         _last_active: &SessionState,
+        _next_active_session_epoch_nonce: &Fr,
         _config: &ServiceParameters,
     ) -> (Self, HashMap<ProviderId, RewardAmount>) {
         // No rewards to distribute
@@ -225,6 +237,7 @@ impl Rewards for DaRewards {
     fn update_session(
         &self,
         last_active: &SessionState,
+        _next_active_session_epoch_nonce: &Fr,
         _config: &ServiceParameters,
     ) -> (Self, HashMap<ProviderId, RewardAmount>) {
         // Calculate activity threshold: θ = Ns / ACTIVITY_THRESHOLD
@@ -282,11 +295,17 @@ impl Rewards for DaRewards {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BlendRewards {
     /// State of the session that is referenced by the submitted proofs.
+    /// This is `s-1` if `s` is the session at which this message was sent.
     session_state: SessionState,
-    /// Proofs submitted by providers in the session corresponding to `session_state`.
-    submitted_proofs: HashTrieMapSync<ProviderId, usize>,
+    /// Session randomness for the session `s`.
+    next_session_randomness: SessionRandomness,
+    /// Proofs submitted by providers in the session corresponding to
+    /// `session_state`.
+    submitted_proofs: HashTrieMapSync<ProviderId, u64>,
     /// Tracking the minimum Hamming distance among submitted proofs.
-    min_hamming_distance: usize,
+    min_hamming_distance: u64,
+    /// Settings that don't change per session.
+    expected_token_count_byte_len: u64,
 }
 
 impl Rewards for BlendRewards {
@@ -315,25 +334,35 @@ impl Rewards for BlendRewards {
         }
 
         // TODO: Validate PoQ and PoSel
-
-        let hamming_distance = 0; // TODO: compute hamming distance
+        let token = BlendingToken::new(
+            ProofOfQuota::from_bytes_unchecked(proof.proof_of_quota),
+            ProofOfSelection::from_bytes_unchecked(proof.proof_of_selection),
+        );
+        let hamming_distance = token.hamming_distance(
+            self.expected_token_count_byte_len,
+            self.next_session_randomness,
+        );
 
         Ok(Self {
             session_state: self.session_state.clone(),
+            next_session_randomness: self.next_session_randomness,
             submitted_proofs: self.submitted_proofs.insert(provider_id, hamming_distance),
             min_hamming_distance: min(self.min_hamming_distance, hamming_distance),
+            expected_token_count_byte_len: self.expected_token_count_byte_len,
         })
     }
 
     fn update_session(
         &self,
         last_active: &SessionState,
+        next_active_session_epoch_nonce: &Fr,
         _config: &ServiceParameters,
     ) -> (Self, HashMap<ProviderId, RewardAmount>) {
         // TODO: Calculate base rewards when session_income is added to config
         // For now using placeholder value of 0
         let session_income = 0;
 
+        // Identify premium providers with the minimum Hamming distance
         let premium_providers = self
             .submitted_proofs
             .iter()
@@ -342,12 +371,14 @@ impl Rewards for BlendRewards {
             })
             .collect::<HashSet<_>>();
 
+        // Calculate base reward
         let base_reward = if self.submitted_proofs.is_empty() {
             0
         } else {
             session_income / (self.submitted_proofs.size() as u64 + premium_providers.len() as u64)
         };
 
+        // Calculate reward for each provider
         let mut rewards = HashMap::new();
         for provider_id in self.submitted_proofs.keys() {
             let reward = if premium_providers.contains(provider_id) {
@@ -361,8 +392,13 @@ impl Rewards for BlendRewards {
         // Create new rewards state with updated sessions
         let new_state = Self {
             session_state: last_active.clone(),
-            submitted_proofs: HashTrieMapSync::new_sync(), // Reset for new session
-            min_hamming_distance: usize::MAX,
+            next_session_randomness: SessionRandomness::new(
+                last_active.session_n + 1,
+                next_active_session_epoch_nonce,
+            ),
+            submitted_proofs: HashTrieMapSync::new_sync(),
+            min_hamming_distance: u64::MAX,
+            expected_token_count_byte_len: self.expected_token_count_byte_len,
         };
 
         (new_state, rewards)
@@ -389,7 +425,11 @@ pub enum Error {
 
 #[cfg(test)]
 mod tests {
-    use nomos_core::sdp::{DaActivityProof, Declaration, DeclarationId};
+    use groth16::Field as _;
+    use nomos_core::{
+        crypto::ZkHash,
+        sdp::{DaActivityProof, Declaration, DeclarationId},
+    };
     use num_bigint::BigUint;
     use zksign::PublicKey;
 
@@ -404,7 +444,7 @@ mod tests {
             let declaration = Declaration {
                 service_type: nomos_core::sdp::ServiceType::DataAvailability,
                 provider_id: *provider_id,
-                locked_note_id: groth16::Fr::from(i as u64).into(),
+                locked_note_id: Fr::from(i as u64).into(),
                 locators: vec![],
                 zk_id: PublicKey::new(BigUint::from(i as u64).into()),
                 created: 0,
@@ -538,7 +578,8 @@ mod tests {
             session_duration: 10,
         };
 
-        let (_new_state, rewards) = rewards_tracker.update_session(&active_session, &config);
+        let (_new_state, rewards) =
+            rewards_tracker.update_session(&active_session, &ZkHash::ZERO, &config);
 
         // No activity proofs submitted, so no rewards
         assert_eq!(rewards.len(), 0);
@@ -608,7 +649,8 @@ mod tests {
             session_duration: 10,
         };
 
-        let (_new_state, rewards) = rewards_tracker.update_session(&active_session, &config);
+        let (_new_state, rewards) =
+            rewards_tracker.update_session(&active_session, &ZkHash::ZERO, &config);
 
         // Activity threshold = 4 / 2 = 2
         // NOTE: session_income is currently hardcoded to 0, so all rewards will be 0
@@ -669,7 +711,8 @@ mod tests {
             session_duration: 10,
         };
 
-        let (_new_state, rewards) = rewards_tracker.update_session(&current_session, &config);
+        let (_new_state, rewards) =
+            rewards_tracker.update_session(&current_session, &ZkHash::ZERO, &config);
 
         // NOTE: session_income is currently hardcoded to 0, so all rewards will be 0
         // When session_income is added to config, this test should verify:

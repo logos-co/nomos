@@ -29,7 +29,7 @@ impl BlendingToken {
     /// Computes the Hamming distance between this blending token and the next
     /// session randomness.
     #[must_use]
-    pub(crate) fn hamming_distance(
+    pub fn hamming_distance(
         &self,
         token_count_byte_len: u64,
         next_session_randomness: SessionRandomness,

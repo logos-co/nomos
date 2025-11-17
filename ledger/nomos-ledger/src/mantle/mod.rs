@@ -4,7 +4,6 @@ pub mod sdp;
 
 use std::collections::HashMap;
 
-use cryptarchia_engine::Epoch;
 use nomos_core::{
     block::BlockNumber,
     mantle::{
@@ -15,7 +14,7 @@ use nomos_core::{
 };
 use sdp::{Error as SdpLedgerError, locked_notes::LockedNotes};
 
-use crate::{Balance, Config, UtxoTree};
+use crate::{Balance, Config, EpochState, UtxoTree};
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
 pub enum Error {
@@ -127,12 +126,14 @@ impl LedgerState {
 
     pub fn try_apply_header(
         mut self,
-        epoch: Epoch,
+        epoch_state: &EpochState,
         voucher: VoucherCm,
         config: &Config,
     ) -> Result<Self, Error> {
-        self.leaders = self.leaders.try_apply_header(epoch, voucher)?;
-        self.sdp = self.sdp.try_apply_header(&config.sdp_config)?;
+        self.leaders = self.leaders.try_apply_header(epoch_state.epoch, voucher)?;
+        self.sdp = self
+            .sdp
+            .try_apply_header(&config.sdp_config, &epoch_state.nonce)?;
         Ok(self)
     }
 
