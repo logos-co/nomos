@@ -1,10 +1,15 @@
-use core::num::NonZeroU64;
+use core::{num::NonZeroU64, time::Duration};
 
-use nomos_blend_service::{core::settings::SchedulerSettings, settings::TimingSettings};
+use nomos_blend_service::{
+    core::settings::{CoverTrafficSettings, MessageDelayerSettings, SchedulerSettings},
+    settings::TimingSettings,
+};
 use nomos_libp2p::protocol_name::StreamProtocol;
 use nomos_utils::math::NonNegativeF64;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
+
+use crate::config::deployment::Settings as DeploymentSettings;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Settings {
@@ -29,7 +34,51 @@ pub struct CoreSettings {
     pub protocol_name: StreamProtocol,
 }
 
+fn mainnet_settings() -> Settings {
+    Settings {
+        core: CoreSettings {
+            minimum_messages_coefficient: 3.try_into().unwrap(),
+            normalization_constant: 1.03.try_into().unwrap(),
+            protocol_name: StreamProtocol::new("/nomos/blend/1.0.0"),
+            scheduler: SchedulerSettings {
+                cover: CoverTrafficSettings {
+                    intervals_for_safety_buffer: 100,
+                    message_frequency_per_round: 1.0.try_into().unwrap(),
+                },
+                delayer: MessageDelayerSettings {
+                    maximum_release_delay_in_rounds: 3.try_into().unwrap(),
+                },
+            },
+        },
+        edge: EdgeSettings {
+            protocol_name: StreamProtocol::new("/nomos/blend/1.0.0"),
+        },
+        minimum_network_size: 32.try_into().unwrap(),
+        num_blend_layers: 3,
+        timing: TimingSettings {
+            epoch_transition_period_in_slots: 2_600.try_into().unwrap(),
+            round_duration: Duration::from_secs(1),
+            rounds_per_interval: 30.try_into().unwrap(),
+            rounds_per_observation_window: 30.try_into().unwrap(),
+            // 21,600 blocks * 30s per block * 1s per round = 648,000 rounds
+            rounds_per_session: 648_000.try_into().unwrap(),
+            rounds_per_session_transition_period: 30.try_into().unwrap(),
+        },
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct EdgeSettings {
     pub protocol_name: StreamProtocol,
+}
+
+impl From<DeploymentSettings> for Settings {
+    fn from(value: DeploymentSettings) -> Self {
+        match value {
+            DeploymentSettings::Mainnet => mainnet_settings(),
+            DeploymentSettings::Custom(custom_deployment_settings) => {
+                custom_deployment_settings.blend
+            }
+        }
+    }
 }

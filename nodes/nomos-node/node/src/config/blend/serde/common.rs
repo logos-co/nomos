@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Derivative, Clone)]
 #[derivative(Debug)]
-pub struct Settings {
+pub struct Config {
     /// The non-ephemeral signing key (NSK) corresponding to the public key
     /// registered in the membership (SDP).
     #[serde(with = "nomos_blend_scheduling::serde::ed25519_privkey_hex")]

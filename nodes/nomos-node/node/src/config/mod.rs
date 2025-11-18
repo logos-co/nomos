@@ -165,8 +165,6 @@ pub struct NetworkArgs {
 pub struct BlendArgs {
     #[clap(long = "blend-addr", env = "BLEND_ADDR")]
     blend_addr: Option<Multiaddr>,
-    #[clap(long = "blend-num-blend-layers", env = "BLEND_NUM_BLEND_LAYERS")]
-    blend_num_blend_layers: Option<NonZeroU64>,
     #[clap(long = "blend-service-group", action)]
     start_blend_at_boot: bool,
 }
@@ -320,18 +318,10 @@ pub fn update_network<RuntimeServiceId>(
 }
 
 pub fn update_blend(blend: &mut BlendConfig, blend_args: BlendArgs) -> Result<()> {
-    let BlendArgs {
-        blend_addr,
-        blend_num_blend_layers,
-        ..
-    } = blend_args;
+    let BlendArgs { blend_addr, .. } = blend_args;
 
     if let Some(addr) = blend_addr {
         blend.set_listening_address(addr);
-    }
-
-    if let Some(num_blend_layers) = blend_num_blend_layers {
-        blend.set_blend_layers(num_blend_layers);
     }
 
     Ok(())
