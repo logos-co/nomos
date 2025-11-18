@@ -1,0 +1,17 @@
+[package]
+edition = { workspace = true }
+license = { workspace = true }
+name    = "wallet-http-client"
+version = "0.1.0"
+
+[lints]
+workspace = true
+
+[dependencies]
+common-http-client    = { workspace = true }
+hex                   = { workspace = true }
+nomos-core            = { workspace = true }
+nomos-http-api-common = { workspace = true, features = ["wallet"] }
+zksign                = { workspace = true }
+
+url = "2.5.7"
