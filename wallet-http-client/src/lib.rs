@@ -70,3 +70,44 @@ impl WalletHttpClient {
         self.client.post(url, &body).await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use nomos_core::codec::DeserializeOp as _;
+
+    use super::*;
+
+    fn get_ordered_hex_array() -> [u8; 32] {
+        std::array::from_fn(|i| (i % 16) as u8)
+    }
+
+    fn get_wallet_address() -> PublicKey {
+        PublicKey::from_bytes(get_ordered_hex_array().as_slice()).unwrap()
+    }
+
+    #[test]
+    fn get_balance_url() {
+        let base_url = Url::parse("http://localhost:8080").unwrap();
+        let wallet_address = get_wallet_address();
+
+        let url = WalletHttpClient::build_get_balance_url(&base_url, wallet_address, None).unwrap();
+        assert_eq!(
+            url.as_str(),
+            "http://localhost:8080/wallet/000102030405060708090a0b0c0d0e0f000102030405060708090a0b0c0d0e0f/balance"
+        );
+
+        let tip = {
+            let header_id = get_ordered_hex_array()
+                .into_iter()
+                .rev()
+                .collect::<Vec<u8>>();
+            HeaderId::from_bytes(header_id.as_slice()).unwrap()
+        };
+        let url =
+            WalletHttpClient::build_get_balance_url(&base_url, wallet_address, Some(tip)).unwrap();
+        assert_eq!(
+            url.as_str(),
+            "http://localhost:8080/wallet/000102030405060708090a0b0c0d0e0f000102030405060708090a0b0c0d0e0f/balance?tip=0f0e0d0c0b0a090807060504030201000f0e0d0c0b0a09080706050403020100"
+        );
+    }
+}
