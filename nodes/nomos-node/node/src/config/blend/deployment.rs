@@ -35,7 +35,7 @@ impl From<DeploymentSettings> for Settings {
 pub struct CommonSettings {
     /// `ß_c`: expected number of blending operations for each locally generated
     /// message.
-    pub num_blend_layers: u64,
+    pub num_blend_layers: NonZeroU64,
     pub timing: TimingSettings,
     pub minimum_network_size: NonZeroU64,
 }
@@ -63,7 +63,7 @@ fn mainnet_settings() -> Settings {
     Settings {
         common: CommonSettings {
             minimum_network_size: 32.try_into().unwrap(),
-            num_blend_layers: 3,
+            num_blend_layers: 3.try_into().unwrap(),
             timing: TimingSettings {
                 epoch_transition_period_in_slots: 2_600.try_into().unwrap(),
                 round_duration: Duration::from_secs(1),

@@ -1,6 +1,5 @@
 use std::{
     net::{IpAddr, SocketAddr, ToSocketAddrs as _},
-    num::NonZeroU64,
     path::{Path, PathBuf},
 };
 
