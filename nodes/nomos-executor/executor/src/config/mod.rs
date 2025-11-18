@@ -2,8 +2,8 @@ use color_eyre::eyre::Result;
 use nomos_node::{
     CryptarchiaLeaderArgs, HttpArgs, LogArgs, NetworkArgs,
     config::{
-        BlendArgs, blend::BlendConfig, mempool::MempoolConfig, update_blend,
-        update_cryptarchia_leader_consensus, update_network,
+        BlendArgs, blend::serde::Config as BlendConfig, deployment::Settings as DeploymentSettings,
+        mempool::MempoolConfig, update_blend, update_cryptarchia_leader_consensus, update_network,
     },
     generic_services::SdpService,
 };
@@ -22,6 +22,7 @@ pub struct Config {
     pub tracing: <nomos_node::Tracing<RuntimeServiceId> as ServiceData>::Settings,
     pub network: <NetworkService as ServiceData>::Settings,
     pub blend: BlendConfig,
+    pub deployment: DeploymentSettings,
     pub da_dispersal: <DaDispersalService as ServiceData>::Settings,
     pub da_network: <DaNetworkService as ServiceData>::Settings,
     pub sdp: <SdpService<RuntimeServiceId> as ServiceData>::Settings,
