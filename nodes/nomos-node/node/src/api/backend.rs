@@ -70,7 +70,7 @@ use super::handlers::{
     monitor_stats, unblock_peer,
 };
 #[cfg(feature = "wallet")]
-use super::handlers::{get_wallet_balance, post_wallet_transfer};
+use super::handlers::{get_wallet_balance, post_wallet_transactions_transfer_funds};
 use crate::{
     WalletService,
     api::handlers::{post_activity, post_declaration, post_withdrawal},
@@ -598,8 +598,10 @@ where
                 routing::get(get_wallet_balance::<WalletService, _, _, _, _, _, _>),
             )
             .route(
-                paths::WALLET_TRANSFER,
-                routing::post(post_wallet_transfer::<WalletService, _, _, _, _, _, _, _>),
+                paths::WALLET_TRANSACTIONS_TRANSFER_FUNDS,
+                routing::post(
+                    post_wallet_transactions_transfer_funds::<WalletService, _, _, _, _, _, _, _>,
+                ),
             );
 
         let app = app
