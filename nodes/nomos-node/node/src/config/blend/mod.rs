@@ -67,7 +67,7 @@ impl From<ServiceConfig>
                         .core
                         .minimum_messages_coefficient,
                     normalization_constant: config.deployment.core.normalization_constant,
-                    protocol_name: config.deployment.core.protocol_name,
+                    protocol_name: config.deployment.common.protocol_name.clone(),
                 },
                 scheduler: config.deployment.core.scheduler,
                 zk: config.user.core.zk,
@@ -79,7 +79,7 @@ impl From<ServiceConfig>
                         .edge
                         .backend
                         .max_dial_attempts_per_peer_per_message,
-                    protocol_name: config.deployment.edge.protocol_name,
+                    protocol_name: config.deployment.common.protocol_name,
                     replication_factor: config.user.edge.backend.replication_factor,
                 },
             },

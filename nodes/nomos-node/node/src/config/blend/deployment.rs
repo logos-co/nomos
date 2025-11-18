@@ -16,7 +16,6 @@ pub struct Settings {
     #[serde(flatten)]
     pub common: CommonSettings,
     pub core: CoreSettings,
-    pub edge: EdgeSettings,
 }
 
 impl From<DeploymentSettings> for Settings {
@@ -37,6 +36,7 @@ pub struct CommonSettings {
     pub num_blend_layers: NonZeroU64,
     pub timing: TimingSettings,
     pub minimum_network_size: NonZeroU64,
+    pub protocol_name: StreamProtocol,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -44,17 +44,9 @@ pub struct CoreSettings {
     pub scheduler: SchedulerSettings,
     pub minimum_messages_coefficient: NonZeroU64,
     pub normalization_constant: NonNegativeF64,
-    pub protocol_name: StreamProtocol,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct EdgeSettings {
-    pub protocol_name: StreamProtocol,
 }
 
 fn mainnet_settings() -> Settings {
-    const MAINNET_LIBP2P_PROTOCOL_NAME: StreamProtocol = StreamProtocol::new("/nomos/blend/1.0.0");
-
     Settings {
         common: CommonSettings {
             minimum_network_size: 32.try_into().unwrap(),
@@ -68,11 +60,11 @@ fn mainnet_settings() -> Settings {
                 rounds_per_session: 648_000.try_into().unwrap(),
                 rounds_per_session_transition_period: 30.try_into().unwrap(),
             },
+            protocol_name: StreamProtocol::new("/nomos/blend/1.0.0"),
         },
         core: CoreSettings {
             minimum_messages_coefficient: 3.try_into().unwrap(),
             normalization_constant: 1.03.try_into().unwrap(),
-            protocol_name: MAINNET_LIBP2P_PROTOCOL_NAME,
             scheduler: SchedulerSettings {
                 cover: CoverTrafficSettings {
                     intervals_for_safety_buffer: 100,
@@ -82,9 +74,6 @@ fn mainnet_settings() -> Settings {
                     maximum_release_delay_in_rounds: 3.try_into().unwrap(),
                 },
             },
-        },
-        edge: EdgeSettings {
-            protocol_name: MAINNET_LIBP2P_PROTOCOL_NAME,
         },
     }
 }

@@ -8,7 +8,7 @@ use nomos_libp2p::protocol_name::StreamProtocol;
 use nomos_node::config::{
     blend::deployment::{
         CommonSettings as BlendCommonSettings, CoreSettings as BlendCoreSettings,
-        EdgeSettings as BlendEdgeSettings, Settings as BlendDeploymentSettings,
+        Settings as BlendDeploymentSettings,
     },
     deployment::{CustomDeployment, Settings as DeploymentSettings},
 };
@@ -16,8 +16,6 @@ use nomos_utils::math::NonNegativeF64;
 
 #[must_use]
 pub fn default_e2e_deployment_settings() -> DeploymentSettings {
-    const BLEND_PROTOCOL_NAME: StreamProtocol = StreamProtocol::new("/blend/integration-tests");
-
     DeploymentSettings::Custom(CustomDeployment {
         blend: BlendDeploymentSettings {
             common: BlendCommonSettings {
@@ -39,6 +37,7 @@ pub fn default_e2e_deployment_settings() -> DeploymentSettings {
                     epoch_transition_period_in_slots: NonZeroU64::try_from(2_600)
                         .expect("Epoch transition period in slots cannot be zero."),
                 },
+                protocol_name: StreamProtocol::new("/blend/integration-tests"),
             },
             core: BlendCoreSettings {
                 minimum_messages_coefficient: NonZeroU64::try_from(1)
@@ -46,7 +45,6 @@ pub fn default_e2e_deployment_settings() -> DeploymentSettings {
                 normalization_constant: 1.03f64
                     .try_into()
                     .expect("Normalization constant cannot be negative."),
-                protocol_name: BLEND_PROTOCOL_NAME,
                 scheduler: SchedulerSettings {
                     cover: CoverTrafficSettings {
                         intervals_for_safety_buffer: 100,
@@ -58,9 +56,6 @@ pub fn default_e2e_deployment_settings() -> DeploymentSettings {
                             .expect("Maximum release delay between rounds cannot be zero."),
                     },
                 },
-            },
-            edge: BlendEdgeSettings {
-                protocol_name: BLEND_PROTOCOL_NAME,
             },
         },
     })
