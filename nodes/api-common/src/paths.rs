@@ -25,8 +25,10 @@ pub const SDP_POST_WITHDRAWAL: &str = "/sdp/withdrawal";
 pub const BLOCKS: &str = "/cryptarchia/blocks";
 pub const BLOCKS_STREAM: &str = "/cryptarchia/blocks/stream";
 
-pub const WALLET_BALANCE: &str = "/wallet/:public_key/balance";
-pub const WALLET_TRANSACTIONS_TRANSFER_FUNDS: &str = "/wallet/transactions/transfer-funds";
+pub mod wallet {
+    pub const BALANCE: &str = "/wallet/:public_key/balance";
+    pub const TRANSACTIONS_TRANSFER_FUNDS: &str = "/wallet/transactions/transfer-funds";
+}
 
 // testing paths
 pub const UPDATE_MEMBERSHIP: &str = "/test/membership/update";

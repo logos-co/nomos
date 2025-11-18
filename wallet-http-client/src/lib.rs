@@ -8,7 +8,7 @@ use nomos_http_api_common::{
             transfer_funds::{WalletTransferFundsRequestBody, WalletTransferFundsResponseBody},
         },
     },
-    paths::{WALLET_BALANCE, WALLET_TRANSACTIONS_TRANSFER_FUNDS},
+    paths,
 };
 use url::Url;
 use zksign::PublicKey;
@@ -36,7 +36,7 @@ impl WalletHttpClient {
             )));
         };
         let wallet_address = hex::encode(wallet_address.iter().as_slice());
-        let path = WALLET_BALANCE.replace(":public_key", wallet_address.as_str());
+        let path = paths::wallet::BALANCE.replace(":public_key", wallet_address.as_str());
         let mut url = base_url.join(path.as_str()).map_err(Error::Url)?;
         if let Some(tip) = tip {
             let Ok(tip) = tip.to_bytes() else {
@@ -67,7 +67,7 @@ impl WalletHttpClient {
         body: WalletTransferFundsRequestBody,
     ) -> Result<WalletTransferFundsResponseBody, Error> {
         let url = base_url
-            .join(WALLET_TRANSACTIONS_TRANSFER_FUNDS)
+            .join(paths::wallet::TRANSACTIONS_TRANSFER_FUNDS)
             .map_err(Error::Url)?;
         self.client.post(url, &body).await
     }
