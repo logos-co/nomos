@@ -1,3 +1,5 @@
+use std::num::NonZeroU64;
+
 use derivative::Derivative;
 use nomos_blend_message::{
     Error,
@@ -42,9 +44,8 @@ pub struct SessionCryptographicProcessorSettings {
     #[serde(with = "crate::serde::ed25519_privkey_hex")]
     #[derivative(Debug = "ignore")]
     pub non_ephemeral_signing_key: Ed25519PrivateKey,
-    /// `ß_c`: expected number of blending operations for each locally generated
-    /// message.
-    pub num_blend_layers: u64,
+    /// `ß_c`: number of blending operations for each locally generated message.
+    pub num_blend_layers: NonZeroU64,
 }
 
 #[must_use]

@@ -1,4 +1,5 @@
 use core::hash::Hash;
+use std::num::NonZeroU64;
 
 use nomos_blend_message::{
     Error, PayloadType,
@@ -27,7 +28,7 @@ use crate::{
 /// This processor is suitable for non-core nodes that do not need to generate
 /// any cover traffic and are hence only interested in blending data messages.
 pub struct SessionCryptographicProcessor<NodeId, ProofsGenerator> {
-    num_blend_layers: u64,
+    num_blend_layers: NonZeroU64,
     membership: Membership<NodeId>,
     proofs_generator: ProofsGenerator,
 }
@@ -74,9 +75,9 @@ where
         &mut self,
         payload: &[u8],
     ) -> Result<EncapsulatedMessage, Error> {
-        let mut proofs = Vec::with_capacity(self.num_blend_layers as usize);
+        let mut proofs = Vec::with_capacity(self.num_blend_layers.get() as usize);
 
-        for _ in 0..self.num_blend_layers {
+        for _ in 0..self.num_blend_layers.into() {
             proofs.push(self.proofs_generator.get_next_proof().await);
         }
 
@@ -132,6 +133,8 @@ where
 
 #[cfg(test)]
 mod test {
+    use std::num::NonZeroU64;
+
     use groth16::Field as _;
     use libp2p::{Multiaddr, PeerId};
     use nomos_blend_message::crypto::{
@@ -160,7 +163,7 @@ mod test {
             SessionCryptographicProcessor::<_, TestEpochChangeLeaderProofsGenerator>::new(
                 &SessionCryptographicProcessorSettings {
                     non_ephemeral_signing_key: Ed25519PrivateKey::generate(),
-                    num_blend_layers: 1,
+                    num_blend_layers: NonZeroU64::new(1).unwrap(),
                 },
                 Membership::new_without_local(&[Node {
                     address: Multiaddr::empty(),

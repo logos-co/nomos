@@ -69,7 +69,7 @@ where
         ),
     ) -> Self {
         Self {
-            blending_ops_per_message: config.crypto.num_blend_layers,
+            blending_ops_per_message: config.crypto.num_blend_layers.into(),
             maximal_delay_rounds: config.scheduler.delayer.maximum_release_delay_in_rounds,
             // TODO: Replace with a session stream: https://github.com/logos-co/nomos/issues/1533
             membership_size: NonZeroU64::try_from(membership.size() as u64)

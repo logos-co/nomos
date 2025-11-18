@@ -72,7 +72,9 @@ where
                 additional_safety_intervals: settings.additional_safety_intervals,
                 expected_intervals_per_session: settings.expected_intervals_per_session,
                 rounds_per_interval: settings.rounds_per_interval,
-                starting_quota: session_info.core_quota,
+                message_count: session_info
+                    .core_quota
+                    .div_ceil(settings.num_blend_layers.into()),
             },
             rng.clone(),
             Box::new(round_clock.clone()) as RoundClock,
@@ -233,6 +235,7 @@ pub struct Settings {
     pub maximum_release_delay_in_rounds: NonZeroU64,
     pub round_duration: Duration,
     pub rounds_per_interval: NonZeroU64,
+    pub num_blend_layers: NonZeroU64,
 }
 
 #[cfg(test)]
@@ -244,6 +247,7 @@ impl Default for Settings {
             maximum_release_delay_in_rounds: NonZeroU64::try_from(1).unwrap(),
             round_duration: Duration::from_secs(1),
             rounds_per_interval: NonZeroU64::try_from(1).unwrap(),
+            num_blend_layers: NonZeroU64::try_from(1).unwrap(),
         }
     }
 }

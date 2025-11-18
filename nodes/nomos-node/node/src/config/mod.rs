@@ -1,5 +1,6 @@
 use std::{
     net::{IpAddr, SocketAddr, ToSocketAddrs as _},
+    num::NonZeroU64,
     path::{Path, PathBuf},
 };
 
@@ -163,7 +164,7 @@ pub struct BlendArgs {
     #[clap(long = "blend-addr", env = "BLEND_ADDR")]
     blend_addr: Option<Multiaddr>,
     #[clap(long = "blend-num-blend-layers", env = "BLEND_NUM_BLEND_LAYERS")]
-    blend_num_blend_layers: Option<usize>,
+    blend_num_blend_layers: Option<NonZeroU64>,
     #[clap(long = "blend-service-group", action)]
     start_blend_at_boot: bool,
 }
@@ -327,7 +328,7 @@ pub fn update_blend(blend: &mut BlendConfig, blend_args: BlendArgs) -> Result<()
     }
 
     if let Some(num_blend_layers) = blend_num_blend_layers {
-        blend.set_blend_layers(num_blend_layers as u64);
+        blend.set_blend_layers(num_blend_layers);
     }
 
     Ok(())
