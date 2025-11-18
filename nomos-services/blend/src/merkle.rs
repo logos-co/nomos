@@ -31,7 +31,7 @@ struct InnerTreeZkHasher;
 impl rs_merkle_tree::hasher::Hasher for InnerTreeZkHasher {
     fn hash(&self, left: &Node, right: &Node) -> Node {
         let mut hasher = ZkHasher::new();
-        hasher.update(&[
+        hasher.compress(&[
             // We use `unchecked` because we control the inputs, and poseidon hasher is guaranteed
             // to always output valid `Fr` points.
             fr_from_bytes_unchecked(left.as_ref()),
