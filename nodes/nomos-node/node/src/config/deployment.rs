@@ -1,14 +1,14 @@
-use nomos_blend_service::settings::DeploymentSettings as BlendDeploymentSettings;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize, Debug, Clone, Serialize)]
-pub enum DeploymentConfig<BlendDeploymentConfig> {
+use crate::config::blend::deployment::Settings as BlendDeploymentSettings;
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum Settings {
     Mainnet,
-    Testnet,
-    Custom(CustomDeploymentConfig),
+    Custom(CustomDeployment),
 }
 
-#[derive(Deserialize, Debug, Clone, Serialize)]
-pub struct CustomDeploymentConfig {
-    pub blend: DeploymentSettings,
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct CustomDeployment {
+    pub blend: BlendDeploymentSettings,
 }

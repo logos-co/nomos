@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use blend::BlendConfig;
+use blend::serde::Config as BlendConfig;
 use clap::{Parser, ValueEnum, builder::OsStr};
 use color_eyre::eyre::{Result, eyre};
 use hex::FromHex as _;
@@ -21,13 +21,14 @@ use crate::{
     ApiService, CryptarchiaLeaderService, CryptarchiaService, DaNetworkService, DaSamplingService,
     DaVerifierService, KeyManagementService, NetworkService, RuntimeServiceId, StorageService,
     TimeService,
-    config::mempool::MempoolConfig,
+    config::{deployment::Settings as DeploymentSettings, mempool::MempoolConfig},
     generic_services::{SdpService, WalletService},
 };
 
 pub mod blend;
 pub mod deployment;
 pub mod mempool;
+
 #[cfg(test)]
 mod tests;
 
@@ -205,7 +206,7 @@ pub struct Config {
     pub tracing: <Tracing<RuntimeServiceId> as ServiceData>::Settings,
     pub network: <NetworkService as ServiceData>::Settings,
     pub blend: BlendConfig,
-    pub deployment: DeploymentConfig,
+    pub deployment: DeploymentSettings,
     pub da_network: <DaNetworkService as ServiceData>::Settings,
     pub da_verifier: <DaVerifierService as ServiceData>::Settings,
     pub sdp: <SdpService<RuntimeServiceId> as ServiceData>::Settings,

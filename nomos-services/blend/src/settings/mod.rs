@@ -8,7 +8,7 @@ use crate::{
 };
 
 mod common;
-pub use self::common::{CommonSettings, DeploymentSettings};
+pub use self::common::CommonSettings;
 mod core;
 pub use self::core::CoreSettings;
 mod edge;
@@ -20,7 +20,6 @@ pub(crate) const FIRST_STREAM_ITEM_READY_TIMEOUT: Duration = Duration::from_secs
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Settings<CoreBackendSettings, EdgeBackendSettings> {
-    #[serde(flatten)]
     pub common: CommonSettings,
     pub core: CoreSettings<CoreBackendSettings>,
     pub edge: EdgeSettings<EdgeBackendSettings>,
