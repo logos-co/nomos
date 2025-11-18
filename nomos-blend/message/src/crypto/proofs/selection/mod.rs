@@ -130,7 +130,7 @@ pub fn derive_key_nullifier_from_secret_selection_randomness(
         *KEY_NULLIFIER_DERIVATION_DOMAIN_SEPARATION_TAG_FR,
         secret_selection_randomness,
     ]
-    .hash()
+    .compress()
 }
 
 impl TryFrom<[u8; PROOF_OF_SELECTION_SIZE]> for ProofOfSelection {

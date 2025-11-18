@@ -193,7 +193,7 @@ mod test {
         let mut root = Fr::ZERO;
         for i in 0..32 {
             assert_eq!(root, empty_subtree_root::<ZkHasher>(i));
-            root = ZkHasher::compress(&[root.clone(), root]);
+            root = <ZkHasher as Digest>::compress(&[root.clone(), root]);
         }
     }
 
@@ -213,7 +213,7 @@ mod test {
         let mut nodes = elements.to_vec();
         for h in (1..=n.ilog2()).rev() {
             for i in 0..2usize.pow(h - 1) {
-                nodes[i] = ZkHasher::compress(&[nodes[i * 2], nodes[i * 2 + 1]]);
+                nodes[i] = <ZkHasher as Digest>::compress(&[nodes[i * 2], nodes[i * 2 + 1]]);
             }
         }
 
@@ -260,7 +260,7 @@ mod test {
         assert_eq!(mmr.roots.peek().unwrap().height, 2);
         assert_eq!(
             mmr.roots.peek().unwrap().root,
-            ZkHasher::compress(&[leaf(b"hello"), leaf(b"world")])
+            <ZkHasher as Digest>::compress(&[leaf(b"hello"), leaf(b"world")])
         );
 
         mmr = mmr.push(b"!".as_ref().into());
@@ -270,7 +270,7 @@ mod test {
         assert_eq!(top_root.height, 2);
         assert_eq!(
             top_root.root,
-            ZkHasher::compress(&[leaf(b"hello"), leaf(b"world")])
+            <ZkHasher as Digest>::compress(&[leaf(b"hello"), leaf(b"world")])
         );
         assert_eq!(mmr.roots.peek().unwrap().height, 1);
         assert_eq!(mmr.roots.peek().unwrap().root, leaf(b"!"));
@@ -281,9 +281,9 @@ mod test {
         assert_eq!(mmr.roots.peek().unwrap().height, 3);
         assert_eq!(
             mmr.roots.peek().unwrap().root,
-            ZkHasher::compress(&[
-                ZkHasher::compress(&[leaf(b"hello"), leaf(b"world")]),
-                ZkHasher::compress(&[leaf(b"!"), leaf(b"!")])
+            <ZkHasher as Digest>::compress(&[
+                <ZkHasher as Digest>::compress(&[leaf(b"hello"), leaf(b"world")]),
+                <ZkHasher as Digest>::compress(&[leaf(b"!"), leaf(b"!")])
             ])
         );
     }
