@@ -135,13 +135,18 @@ where
     }
 }
 
-impl<T> ZkCompressExt for T
-where
-    T: AsRef<[ZkHash; 2]>,
-{
+impl ZkCompressExt for [ZkHash; 2] {
     fn compress(&self) -> ZkHash {
         let mut hasher = ZkHasher::new();
-        hasher.compress(self.as_ref());
+        hasher.compress(self);
+        hasher.finalize()
+    }
+}
+
+impl ZkCompressExt for &[ZkHash; 2] {
+    fn compress(&self) -> ZkHash {
+        let mut hasher = ZkHasher::new();
+        hasher.compress(self);
         hasher.finalize()
     }
 }
