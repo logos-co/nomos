@@ -17,6 +17,8 @@ use serde::{Serialize, de::DeserializeOwned};
 pub enum Error {
     #[error("Internal server error: {0}")]
     Server(String),
+    #[error("Failed to execute request: {0}")]
+    Client(String),
     #[error(transparent)]
     Request(#[from] reqwest::Error),
     #[error(transparent)]
