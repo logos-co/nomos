@@ -19,6 +19,3 @@ nomos-core            = { workspace = true }
 nomos-http-api-common = { workspace = true, features = ["wallet"] }
 url                   = "2.5.7"
 zksign                = { workspace = true }
-
-[dev-dependencies]
-tokio = { workspace = true, features = ["macros"] }
