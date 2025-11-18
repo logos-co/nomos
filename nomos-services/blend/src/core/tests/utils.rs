@@ -94,7 +94,7 @@ pub fn settings<BackendSettings>(
         backend: backend_settings,
         crypto: SessionCryptographicProcessorSettings {
             non_ephemeral_signing_key: local_private_key,
-            num_blend_layers: 1,
+            num_blend_layers: NonZeroU64::try_from(1).unwrap(),
         },
         scheduler: SchedulerSettings {
             cover: CoverTrafficSettings {
@@ -128,7 +128,7 @@ pub fn timing_settings() -> TimingSettings {
 
 pub fn scheduler_settings(
     timing_settings: &TimingSettings,
-    num_blend_layers: u64,
+    num_blend_layers: NonZeroU64,
 ) -> message_scheduler::Settings {
     message_scheduler::Settings {
         additional_safety_intervals: 0,

@@ -1,5 +1,7 @@
 mod utils;
 
+use std::num::NonZeroU64;
+
 use groth16::Field as _;
 use nomos_blend_message::reward::SessionBlendingTokenCollector;
 use nomos_blend_scheduling::{
@@ -49,7 +51,7 @@ async fn test_handle_incoming_blend_message() {
     // Prepare a encapsulated message.
     let id = [0; 32];
     let mut session = 0;
-    let num_blend_layers = 1;
+    let num_blend_layers = NonZeroU64::try_from(1).unwrap();
     let membership = membership(&[id], id);
     let public_info = new_public_info(session, membership.clone());
     let settings = SessionCryptographicProcessorSettings {
@@ -192,7 +194,7 @@ async fn test_handle_session_event() {
     let crypto_processor = new_crypto_processor(
         &SessionCryptographicProcessorSettings {
             non_ephemeral_signing_key: local_private_key,
-            num_blend_layers: 1,
+            num_blend_layers: NonZeroU64::try_from(1).unwrap(),
         },
         &public_info,
         (),

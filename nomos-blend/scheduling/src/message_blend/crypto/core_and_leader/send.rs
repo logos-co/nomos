@@ -1,4 +1,5 @@
 use core::{hash::Hash, marker::PhantomData};
+use std::num::NonZeroU64;
 
 use nomos_blend_message::{
     Error, PayloadType,
@@ -30,7 +31,7 @@ use crate::{
 /// This processor is suitable for non-core nodes that want to generate noise
 /// (i.e., cover) traffic along with data payloads.
 pub struct SessionCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator> {
-    num_blend_layers: u64,
+    num_blend_layers: NonZeroU64,
     /// The non-ephemeral encryption key (NEK) for decapsulating messages.
     non_ephemeral_encryption_key: X25519PrivateKey,
     membership: Membership<NodeId>,
@@ -143,11 +144,11 @@ where
         payload_type: PayloadType,
         payload: &[u8],
     ) -> Result<EncapsulatedMessage, Error> {
-        let mut proofs = Vec::with_capacity(self.num_blend_layers as usize);
+        let mut proofs = Vec::with_capacity(self.num_blend_layers.get() as usize);
 
         match payload_type {
             PayloadType::Cover => {
-                for _ in 0..self.num_blend_layers {
+                for _ in 0..self.num_blend_layers.into() {
                     let Some(proof) = self.proofs_generator.get_next_core_proof().await else {
                         return Err(Error::NoMoreProofOfQuotas);
                     };
@@ -155,7 +156,7 @@ where
                 }
             }
             PayloadType::Data => {
-                for _ in 0..self.num_blend_layers {
+                for _ in 0..self.num_blend_layers.into() {
                     let Some(proof) = self.proofs_generator.get_next_leader_proof().await else {
                         return Err(Error::NoLeadershipInfoProvided);
                     };
@@ -211,6 +212,8 @@ where
 
 #[cfg(test)]
 mod test {
+    use std::num::NonZeroU64;
+
     use groth16::Field as _;
     use multiaddr::{Multiaddr, PeerId};
     use nomos_blend_message::crypto::{
@@ -243,7 +246,7 @@ mod test {
         >::new(
             &SessionCryptographicProcessorSettings {
                 non_ephemeral_signing_key: Ed25519PrivateKey::generate(),
-                num_blend_layers: 1,
+                num_blend_layers: NonZeroU64::new(1).unwrap(),
             },
             Membership::new_without_local(&[Node {
                 address: Multiaddr::empty(),
@@ -290,7 +293,7 @@ mod test {
         >::new(
             &SessionCryptographicProcessorSettings {
                 non_ephemeral_signing_key: Ed25519PrivateKey::generate(),
-                num_blend_layers: 1,
+                num_blend_layers: NonZeroU64::new(1).unwrap(),
             },
             Membership::new_without_local(&[Node {
                 address: Multiaddr::empty(),

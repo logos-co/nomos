@@ -86,7 +86,7 @@ impl CoverTrafficSettings {
         // `Q_c`: Messaging allowance that can be used by a core node during a single
         // session. We assume `R_c` to be `0` for now, hence `Q_c = ceil(C * (ß_c
         // + 0 * ß_c)) / N = ceil(C * ß_c) / N`.
-        ((expected_number_of_session_messages * crypto.num_blend_layers as f64)
+        ((expected_number_of_session_messages * crypto.num_blend_layers.get() as f64)
             / membership_size as f64)
             .ceil() as u64
     }
