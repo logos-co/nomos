@@ -19,10 +19,7 @@ fn empty_subtree_root<Hash: Digest>(height: usize) -> Fr {
     PRECOMPUTED_EMPTY_ROOTS.get_or_init(|| {
         let mut hashes = [EMPTY_VALUE; 32];
         for i in 1..32 {
-            let mut hasher = Hash::new();
-            hasher.update(&hashes[i - 1]);
-            hasher.update(&hashes[i - 1]);
-            hashes[i] = hasher.finalize();
+            hashes[i] = Hash::compress(&[hashes[i - 1], hashes[i - 1]]);
         }
         hashes
     })[height]
@@ -53,24 +50,24 @@ enum Node<Item> {
 }
 
 fn hash<Item: AsRef<Fr>, Hash: Digest>(left: &Node<Item>, right: &Node<Item>) -> Fr {
-    let mut hasher = Hash::new();
+    let mut input = [EMPTY_VALUE; 2];
     match left {
-        Node::Inner { value, .. } => hasher.update(value),
+        Node::Inner { value, .. } => input[0] = *value,
         Node::Leaf { item } => {
-            hasher.update(item.as_ref().map_or(&EMPTY_VALUE, AsRef::as_ref));
+            input[0] = *item.as_ref().map_or(&EMPTY_VALUE, AsRef::as_ref);
         }
         Node::Empty { .. } => panic!("Empty node in left subtree is not allowed"),
     }
     match right {
-        Node::Inner { value, .. } => hasher.update(value),
+        Node::Inner { value, .. } => input[1] = *value,
         Node::Leaf { item } => {
-            hasher.update(item.as_ref().map_or(&EMPTY_VALUE, AsRef::as_ref));
+            input[1] = *item.as_ref().map_or(&EMPTY_VALUE, AsRef::as_ref);
         }
         Node::Empty { height } => {
-            hasher.update(&empty_subtree_root::<Hash>(*height));
+            input[1] = empty_subtree_root::<Hash>(*height);
         }
     }
-    hasher.finalize()
+    Hash::compress(&input)
 }
 
 impl<Item> Node<Item> {

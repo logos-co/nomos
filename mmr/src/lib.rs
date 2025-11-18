@@ -81,7 +81,7 @@ where
             if last_root.height == root.height {
                 roots.pop_mut();
                 last_root = Root {
-                    root: hash::<Hash>(&root.root, &last_root.root),
+                    root: Hash::compress(&[root.root, last_root.root]),
                     height: last_root.height + 1,
                 };
                 // we want the frontier root to have a fixed height, so each individual root
@@ -109,16 +109,16 @@ where
         let mut height = 0;
         for last in &self.roots {
             while height < last.height - 1 {
-                root = hash::<Hash>(&root, &empty_subtree_root::<Hash>(height as usize));
+                root = Hash::compress(&[root, empty_subtree_root::<Hash>(height as usize)]);
                 height += 1;
             }
-            root = hash::<Hash>(&last.root, &root);
+            root = Hash::compress(&[last.root, root]);
             height += 1;
         }
         assert!(height <= MAX_HEIGHT);
         // ensure a fixed depth
         while height < MAX_HEIGHT {
-            root = hash::<Hash>(&root, &empty_subtree_root::<Hash>(height as usize));
+            root = Hash::compress(&[root, empty_subtree_root::<Hash>(height as usize)]);
             height += 1;
         }
 
@@ -141,20 +141,13 @@ where
     }
 }
 
-fn hash<Hash: Digest>(left: &Fr, right: &Fr) -> Fr {
-    let mut hasher = Hash::new();
-    hasher.update(left);
-    hasher.update(right);
-    hasher.finalize()
-}
-
 fn empty_subtree_root<Hash: Digest>(height: usize) -> Fr {
     static PRECOMPUTED_EMPTY_ROOTS: OnceLock<[Fr; 32]> = OnceLock::new();
     assert!(height < 32, "Height must be less than 32: {height}");
     PRECOMPUTED_EMPTY_ROOTS.get_or_init(|| {
         let mut hashes = [EMPTY_VALUE; 32];
         for i in 1..32 {
-            hashes[i] = hash::<Hash>(&hashes[i - 1], &hashes[i - 1]);
+            hashes[i] = Hash::compress(&[hashes[i - 1], hashes[i - 1]]);
         }
         hashes
     })[height]
@@ -195,11 +188,12 @@ mod test {
     }
 
     #[test]
+    #[expect(clippy::clone_on_copy, reason = "for the sake of the test")]
     fn test_empty_roots() {
         let mut root = Fr::ZERO;
         for i in 0..32 {
             assert_eq!(root, empty_subtree_root::<ZkHasher>(i));
-            root = hash::<ZkHasher>(&root, &root);
+            root = <ZkHasher as Digest>::compress(&[root.clone(), root]);
         }
     }
 
@@ -219,7 +213,7 @@ mod test {
         let mut nodes = elements.to_vec();
         for h in (1..=n.ilog2()).rev() {
             for i in 0..2usize.pow(h - 1) {
-                nodes[i] = hash::<ZkHasher>(&nodes[i * 2], &nodes[i * 2 + 1]);
+                nodes[i] = <ZkHasher as Digest>::compress(&[nodes[i * 2], nodes[i * 2 + 1]]);
             }
         }
 
@@ -266,7 +260,7 @@ mod test {
         assert_eq!(mmr.roots.peek().unwrap().height, 2);
         assert_eq!(
             mmr.roots.peek().unwrap().root,
-            hash::<ZkHasher>(&leaf(b"hello"), &leaf(b"world"))
+            <ZkHasher as Digest>::compress(&[leaf(b"hello"), leaf(b"world")])
         );
 
         mmr = mmr.push(b"!".as_ref().into());
@@ -276,7 +270,7 @@ mod test {
         assert_eq!(top_root.height, 2);
         assert_eq!(
             top_root.root,
-            hash::<ZkHasher>(&leaf(b"hello"), &leaf(b"world"))
+            <ZkHasher as Digest>::compress(&[leaf(b"hello"), leaf(b"world")])
         );
         assert_eq!(mmr.roots.peek().unwrap().height, 1);
         assert_eq!(mmr.roots.peek().unwrap().root, leaf(b"!"));
@@ -287,10 +281,10 @@ mod test {
         assert_eq!(mmr.roots.peek().unwrap().height, 3);
         assert_eq!(
             mmr.roots.peek().unwrap().root,
-            hash::<ZkHasher>(
-                &hash::<ZkHasher>(&leaf(b"hello"), &leaf(b"world")),
-                &hash::<ZkHasher>(&leaf(b"!"), &leaf(b"!"))
-            )
+            <ZkHasher as Digest>::compress(&[
+                <ZkHasher as Digest>::compress(&[leaf(b"hello"), leaf(b"world")]),
+                <ZkHasher as Digest>::compress(&[leaf(b"!"), leaf(b"!")])
+            ])
         );
     }
 }
