@@ -70,7 +70,7 @@ pub fn create_executor_config(config: GeneralConfig) -> ExecutorConfig {
             common: nomos_blend_service::settings::CommonSettings {
                 crypto: SessionCryptographicProcessorSettings {
                     non_ephemeral_signing_key: config.blend_config.private_key.clone(),
-                    num_blend_layers: 1,
+                    num_blend_layers: NonZeroU64::try_from(1).unwrap(),
                 },
                 minimum_network_size: 1
                     .try_into()

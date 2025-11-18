@@ -1,3 +1,5 @@
+use std::num::NonZeroU64;
+
 use nomos_libp2p::Multiaddr;
 use overwatch::services::ServiceData;
 use serde::{Deserialize, Serialize};
@@ -25,7 +27,7 @@ impl BlendConfig {
         self.0.core.backend.listening_address = listening_address;
     }
 
-    pub const fn set_blend_layers(&mut self, layers: u64) {
+    pub const fn set_blend_layers(&mut self, layers: NonZeroU64) {
         self.0.common.crypto.num_blend_layers = layers;
     }
 }
