@@ -26,7 +26,7 @@ pub const BLOCKS: &str = "/cryptarchia/blocks";
 pub const BLOCKS_STREAM: &str = "/cryptarchia/blocks/stream";
 
 pub const WALLET_BALANCE: &str = "/wallet/:public_key/balance";
-pub const WALLET_TRANSFER: &str = "/wallet/transfer";
+pub const WALLET_TRANSACTIONS_TRANSFER_FUNDS: &str = "/wallet/transactions/transfer-funds";
 
 // testing paths
 pub const UPDATE_MEMBERSHIP: &str = "/test/membership/update";

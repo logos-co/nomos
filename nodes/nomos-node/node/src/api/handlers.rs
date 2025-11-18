@@ -1113,13 +1113,13 @@ where
 #[cfg(feature = "wallet")]
 #[utoipa::path(
     post,
-    path = paths::WALLET_TRANSFER,
+    path = paths::WALLET_TRANSACTIONS_TRANSFER_FUNDS,
     responses(
         (status = 200, description = "Make transfer"),
         (status = 500, description = "Internal server error", body = String),
     )
 )]
-pub async fn post_wallet_transfer<
+pub async fn post_wallet_transactions_transfer_funds<
     WalletService,
     StorageBackend,
     SamplingBackend,
