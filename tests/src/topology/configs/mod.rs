@@ -1,13 +1,12 @@
 pub mod api;
 pub mod blend;
-
 pub mod bootstrap;
 pub mod consensus;
 pub mod da;
+pub mod deployment;
 pub mod network;
-pub mod tracing;
-
 pub mod time;
+pub mod tracing;
 
 use blend::GeneralBlendConfig;
 use consensus::{GeneralConsensusConfig, ProviderInfo, create_genesis_tx_with_declarations};
