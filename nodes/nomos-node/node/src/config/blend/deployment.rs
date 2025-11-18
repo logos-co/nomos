@@ -11,10 +11,28 @@ use serde_with::serde_as;
 
 use crate::config::deployment::Settings as DeploymentSettings;
 
+/// Deployment-specific Blend settings.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Settings {
+    #[serde(flatten)]
+    pub common: CommonSettings,
     pub core: CoreSettings,
     pub edge: EdgeSettings,
+}
+
+impl From<DeploymentSettings> for Settings {
+    fn from(value: DeploymentSettings) -> Self {
+        match value {
+            DeploymentSettings::Mainnet => mainnet_settings(),
+            DeploymentSettings::Custom(custom_deployment_settings) => {
+                custom_deployment_settings.blend
+            }
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct CommonSettings {
     /// `ß_c`: expected number of blending operations for each locally generated
     /// message.
     pub num_blend_layers: u64,
@@ -34,12 +52,32 @@ pub struct CoreSettings {
     pub protocol_name: StreamProtocol,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct EdgeSettings {
+    pub protocol_name: StreamProtocol,
+}
+
 fn mainnet_settings() -> Settings {
+    const MAINNET_LIBP2P_PROTOCOL_NAME: StreamProtocol = StreamProtocol::new("/nomos/blend/1.0.0");
+
     Settings {
+        common: CommonSettings {
+            minimum_network_size: 32.try_into().unwrap(),
+            num_blend_layers: 3,
+            timing: TimingSettings {
+                epoch_transition_period_in_slots: 2_600.try_into().unwrap(),
+                round_duration: Duration::from_secs(1),
+                rounds_per_interval: 30.try_into().unwrap(),
+                rounds_per_observation_window: 30.try_into().unwrap(),
+                // 21,600 blocks * 30s per block * 1s per round = 648,000 rounds
+                rounds_per_session: 648_000.try_into().unwrap(),
+                rounds_per_session_transition_period: 30.try_into().unwrap(),
+            },
+        },
         core: CoreSettings {
             minimum_messages_coefficient: 3.try_into().unwrap(),
             normalization_constant: 1.03.try_into().unwrap(),
-            protocol_name: StreamProtocol::new("/nomos/blend/1.0.0"),
+            protocol_name: MAINNET_LIBP2P_PROTOCOL_NAME,
             scheduler: SchedulerSettings {
                 cover: CoverTrafficSettings {
                     intervals_for_safety_buffer: 100,
@@ -51,34 +89,7 @@ fn mainnet_settings() -> Settings {
             },
         },
         edge: EdgeSettings {
-            protocol_name: StreamProtocol::new("/nomos/blend/1.0.0"),
+            protocol_name: MAINNET_LIBP2P_PROTOCOL_NAME,
         },
-        minimum_network_size: 32.try_into().unwrap(),
-        num_blend_layers: 3,
-        timing: TimingSettings {
-            epoch_transition_period_in_slots: 2_600.try_into().unwrap(),
-            round_duration: Duration::from_secs(1),
-            rounds_per_interval: 30.try_into().unwrap(),
-            rounds_per_observation_window: 30.try_into().unwrap(),
-            // 21,600 blocks * 30s per block * 1s per round = 648,000 rounds
-            rounds_per_session: 648_000.try_into().unwrap(),
-            rounds_per_session_transition_period: 30.try_into().unwrap(),
-        },
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct EdgeSettings {
-    pub protocol_name: StreamProtocol,
-}
-
-impl From<DeploymentSettings> for Settings {
-    fn from(value: DeploymentSettings) -> Self {
-        match value {
-            DeploymentSettings::Mainnet => mainnet_settings(),
-            DeploymentSettings::Custom(custom_deployment_settings) => {
-                custom_deployment_settings.blend
-            }
-        }
     }
 }

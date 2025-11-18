@@ -67,8 +67,11 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    let (blend_config, blend_core_config, blend_edge_config) =
-        BlendConfig::from_user_config_and_deployment(config.blend, config.deployment.into()).into();
+    let (blend_config, blend_core_config, blend_edge_config) = BlendConfig {
+        user: config.blend,
+        deployment: config.deployment.into(),
+    }
+    .into();
 
     let app = OverwatchRunner::<NomosExecutor>::run(
         NomosExecutorServiceSettings {

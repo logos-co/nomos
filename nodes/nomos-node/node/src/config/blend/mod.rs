@@ -22,18 +22,8 @@ pub mod serde;
 /// Deployment-specific settings can refer to either a well-known deployment
 /// (e.g., Nomos Mainnet), or to custom values.
 pub struct ServiceConfig {
-    user: Config,
-    deployment: DeploymentSettings,
-}
-
-impl ServiceConfig {
-    #[must_use]
-    pub const fn from_user_config_and_deployment(
-        user: Config,
-        deployment: DeploymentSettings,
-    ) -> Self {
-        Self { user, deployment }
-    }
+    pub user: Config,
+    pub deployment: DeploymentSettings,
 }
 
 impl From<ServiceConfig>
@@ -51,11 +41,11 @@ impl From<ServiceConfig>
             common: CommonSettings {
                 crypto: SessionCryptographicProcessorSettings {
                     non_ephemeral_signing_key: config.user.common.non_ephemeral_signing_key,
-                    num_blend_layers: config.deployment.num_blend_layers,
+                    num_blend_layers: config.deployment.common.num_blend_layers,
                 },
-                minimum_network_size: config.deployment.minimum_network_size,
+                minimum_network_size: config.deployment.common.minimum_network_size,
                 recovery_path_prefix: config.user.common.recovery_path_prefix,
-                time: config.deployment.timing,
+                time: config.deployment.common.timing,
             },
             core: CoreSettings {
                 backend: Libp2pCoreBlendBackendSettings {
