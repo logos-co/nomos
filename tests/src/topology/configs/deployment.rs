@@ -14,6 +14,7 @@ use nomos_node::config::{
 };
 use nomos_utils::math::NonNegativeF64;
 
+#[must_use]
 pub fn default_e2e_deployment_settings() -> DeploymentSettings {
     const BLEND_PROTOCOL_NAME: StreamProtocol = StreamProtocol::new("/blend/integration-tests");
 
