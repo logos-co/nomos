@@ -118,6 +118,9 @@ impl ProofsVerifier for RealProofsVerifier {
 
 trait ZkHashExt {
     fn hash(&self) -> ZkHash;
+}
+
+trait ZkCompressExt {
     fn compress(&self) -> ZkHash;
 }
 
@@ -130,11 +133,15 @@ where
         hasher.update(self.as_ref());
         hasher.finalize()
     }
+}
 
+impl<T> ZkCompressExt for T
+where
+    T: AsRef<[ZkHash; 2]>,
+{
     fn compress(&self) -> ZkHash {
-        assert_eq!(self.as_ref().len(), 2);
         let mut hasher = ZkHasher::new();
-        hasher.compress(self.as_ref().try_into().unwrap());
+        hasher.compress(self.as_ref());
         hasher.finalize()
     }
 }

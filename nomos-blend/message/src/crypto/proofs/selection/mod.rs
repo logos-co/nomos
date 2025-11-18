@@ -9,10 +9,9 @@ use thiserror::Error;
 
 use crate::crypto::{
     blake2b512,
-    proofs::{ZkHashExt as _, selection::inputs::VerifyInputs},
+    proofs::{ZkCompressExt as _, selection::inputs::VerifyInputs},
     pseudo_random_sized_bytes,
 };
-
 pub mod inputs;
 
 #[cfg(test)]
