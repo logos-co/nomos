@@ -71,7 +71,7 @@ async fn test_handle_incoming_blend_message() {
         .expect("verification must succeed");
 
     // Check that the message is successfully decapsulated and scheduled.
-    let scheduler_settings = scheduler_settings(&timing_settings());
+    let scheduler_settings = scheduler_settings(&timing_settings(), settings.num_blend_layers);
     let mut scheduler = SessionMessageScheduler::new(
         scheduler_session_info(&public_info),
         BlakeRng::from_entropy(),
@@ -200,7 +200,7 @@ async fn test_handle_session_event() {
     let scheduler = SessionMessageScheduler::new(
         scheduler_session_info(&public_info),
         BlakeRng::from_entropy(),
-        scheduler_settings(&settings.time),
+        scheduler_settings(&settings.time, settings.crypto.num_blend_layers),
     );
     let token_collector = SessionBlendingTokenCollector::new(&reward_session_info(&public_info));
     let mut backend = <TestBlendBackend as BlendBackend<_, _, MockProofsVerifier, _>>::new(
