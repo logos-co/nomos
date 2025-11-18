@@ -1026,176 +1026,178 @@ where
 }
 
 #[cfg(feature = "wallet")]
-#[derive(Deserialize)]
-pub struct TipQuery {
-    tip: Option<HeaderId>,
-}
+pub mod wallet {
+    use super::*;
 
-#[cfg(feature = "wallet")]
-#[utoipa::path(
+    #[derive(Deserialize)]
+    pub struct TipQuery {
+        tip: Option<HeaderId>,
+    }
+
+    #[utoipa::path(
     get,
-    path = paths::WALLET_BALANCE,
+    path = paths::wallet::BALANCE,
     responses(
         (status = 200, description = "Get wallet balance"),
         (status = 500, description = "Internal server error", body = String),
     )
-)]
-pub async fn get_wallet_balance<
-    WalletService,
-    SamplingBackend,
-    SamplingNetworkAdapter,
-    SamplingStorage,
-    MempoolStorageAdapter,
-    TimeBackend,
-    RuntimeServiceId,
->(
-    State(handle): State<OverwatchHandle<RuntimeServiceId>>,
-    Path(public_key): Path<PublicKey>,
-    Query(query): Query<TipQuery>,
-) -> Response
-where
-    WalletService: WalletServiceData + 'static,
-    SamplingBackend: DaSamplingServiceBackend<BlobId = BlobId> + Send,
-    SamplingBackend::Settings: Clone,
-    SamplingBackend::Share: Debug + 'static,
-    SamplingBackend::BlobId: Debug + 'static,
-    SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
-    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
-    MempoolStorageAdapter: tx_service::storage::MempoolStorageAdapter<
-            RuntimeServiceId,
-            Key = <SignedMantleTx as Transaction>::Hash,
-            Item = SignedMantleTx,
-        > + Clone
-        + 'static,
-    MempoolStorageAdapter::Error: Debug,
-    TimeBackend: nomos_time::backends::TimeBackend,
-    TimeBackend::Settings: Clone + Send + Sync,
-    RuntimeServiceId: Debug
-        + Send
-        + Sync
-        + Display
-        + 'static
-        + AsServiceId<WalletService>
-        + AsServiceId<Cryptarchia<RuntimeServiceId>>,
-{
-    let wallet_api = {
-        let wallet_relay = match get_relay_or_response::<WalletService, _>(&handle).await {
-            Ok(relay) => relay,
-            Err(error_response) => return error_response,
+    )]
+    pub async fn get_balance<
+        WalletService,
+        SamplingBackend,
+        SamplingNetworkAdapter,
+        SamplingStorage,
+        MempoolStorageAdapter,
+        TimeBackend,
+        RuntimeServiceId,
+    >(
+        State(handle): State<OverwatchHandle<RuntimeServiceId>>,
+        Path(public_key): Path<PublicKey>,
+        Query(query): Query<TipQuery>,
+    ) -> Response
+    where
+        WalletService: WalletServiceData + 'static,
+        SamplingBackend: DaSamplingServiceBackend<BlobId = BlobId> + Send,
+        SamplingBackend::Settings: Clone,
+        SamplingBackend::Share: Debug + 'static,
+        SamplingBackend::BlobId: Debug + 'static,
+        SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
+        SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
+        MempoolStorageAdapter: tx_service::storage::MempoolStorageAdapter<
+                RuntimeServiceId,
+                Key = <SignedMantleTx as Transaction>::Hash,
+                Item = SignedMantleTx,
+            > + Clone
+            + 'static,
+        MempoolStorageAdapter::Error: Debug,
+        TimeBackend: nomos_time::backends::TimeBackend,
+        TimeBackend::Settings: Clone + Send + Sync,
+        RuntimeServiceId: Debug
+            + Send
+            + Sync
+            + Display
+            + 'static
+            + AsServiceId<WalletService>
+            + AsServiceId<Cryptarchia<RuntimeServiceId>>,
+    {
+        let wallet_api = {
+            let wallet_relay = match get_relay_or_response::<WalletService, _>(&handle).await {
+                Ok(relay) => relay,
+                Err(error_response) => return error_response,
+            };
+            WalletApi::<WalletService, RuntimeServiceId>::new(wallet_relay)
         };
-        WalletApi::<WalletService, RuntimeServiceId>::new(wallet_relay)
-    };
-    let tip = {
-        if let Some(tip) = query.tip {
-            tip
-        } else if let Ok(info) = consensus::cryptarchia_info(&handle).await {
-            info.tip
-        } else {
-            error!(
-                "Failed to get cryptarchia info: It wasn't provided in the query and couldn't be retrieved from the consensus service."
-            );
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                String::from("Couldn't retrieve a valid tip"),
-            )
-                .into_response();
+        let tip = {
+            if let Some(tip) = query.tip {
+                tip
+            } else if let Ok(info) = consensus::cryptarchia_info(&handle).await {
+                info.tip
+            } else {
+                error!(
+                    "Failed to get cryptarchia info: It wasn't provided in the query and couldn't be retrieved from the consensus service."
+                );
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    String::from("Couldn't retrieve a valid tip"),
+                )
+                    .into_response();
+            }
+        };
+
+        let balance = wallet_api.get_balance(tip, public_key).await;
+        match balance {
+            Ok(Some(balance)) => WalletBalanceResponseBody { balance }.into_response(),
+            Ok(None) => (StatusCode::NOT_FOUND, "Wallet not found").into_response(),
+            Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
         }
-    };
-
-    let balance = wallet_api.get_balance(tip, public_key).await;
-    match balance {
-        Ok(Some(balance)) => WalletBalanceResponseBody { balance }.into_response(),
-        Ok(None) => (StatusCode::NOT_FOUND, "Wallet not found").into_response(),
-        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
     }
-}
 
-#[cfg(feature = "wallet")]
-#[utoipa::path(
+    #[utoipa::path(
     post,
-    path = paths::WALLET_TRANSACTIONS_TRANSFER_FUNDS,
+    path = paths::wallet::TRANSACTIONS_TRANSFER_FUNDS,
     responses(
         (status = 200, description = "Make transfer"),
         (status = 500, description = "Internal server error", body = String),
     )
-)]
-pub async fn post_wallet_transactions_transfer_funds<
-    WalletService,
-    StorageBackend,
-    SamplingBackend,
-    SamplingNetworkAdapter,
-    SamplingStorage,
-    MempoolStorageAdapter,
-    TimeBackend,
-    RuntimeServiceId,
->(
-    State(handle): State<OverwatchHandle<RuntimeServiceId>>,
-    Json(body): Json<WalletTransferFundsRequestBody>,
-) -> Response
-where
-    WalletService: WalletServiceData + 'static,
-    StorageBackend: nomos_storage::backends::StorageBackend + Send + Sync + 'static,
-    SamplingBackend: DaSamplingServiceBackend<BlobId = BlobId> + Send,
-    SamplingBackend::Settings: Clone,
-    SamplingBackend::Share: Debug + 'static,
-    SamplingBackend::BlobId: Debug + 'static,
-    SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
-    SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
-    MempoolStorageAdapter: tx_service::storage::MempoolStorageAdapter<
-            RuntimeServiceId,
-            Key = <SignedMantleTx as Transaction>::Hash,
-            Item = SignedMantleTx,
-        > + Clone
-        + 'static,
-    MempoolStorageAdapter::Error: Debug,
-    TimeBackend: nomos_time::backends::TimeBackend,
-    TimeBackend::Settings: Clone + Send + Sync,
-    RuntimeServiceId: Debug
-        + Send
-        + Sync
-        + Display
-        + 'static
-        + AsServiceId<WalletService>
-        + AsServiceId<StorageService<StorageBackend, RuntimeServiceId>>
-        + AsServiceId<Cryptarchia<RuntimeServiceId>>,
-{
-    let wallet_api = {
-        let wallet_relay = match get_relay_or_response::<WalletService, _>(&handle).await {
-            Ok(relay) => relay,
-            Err(error_response) => return error_response,
+    )]
+    pub async fn post_transactions_transfer_funds<
+        WalletService,
+        StorageBackend,
+        SamplingBackend,
+        SamplingNetworkAdapter,
+        SamplingStorage,
+        MempoolStorageAdapter,
+        TimeBackend,
+        RuntimeServiceId,
+    >(
+        State(handle): State<OverwatchHandle<RuntimeServiceId>>,
+        Json(body): Json<WalletTransferFundsRequestBody>,
+    ) -> Response
+    where
+        WalletService: WalletServiceData + 'static,
+        StorageBackend: nomos_storage::backends::StorageBackend + Send + Sync + 'static,
+        SamplingBackend: DaSamplingServiceBackend<BlobId = BlobId> + Send,
+        SamplingBackend::Settings: Clone,
+        SamplingBackend::Share: Debug + 'static,
+        SamplingBackend::BlobId: Debug + 'static,
+        SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
+        SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
+        MempoolStorageAdapter: tx_service::storage::MempoolStorageAdapter<
+                RuntimeServiceId,
+                Key = <SignedMantleTx as Transaction>::Hash,
+                Item = SignedMantleTx,
+            > + Clone
+            + 'static,
+        MempoolStorageAdapter::Error: Debug,
+        TimeBackend: nomos_time::backends::TimeBackend,
+        TimeBackend::Settings: Clone + Send + Sync,
+        RuntimeServiceId: Debug
+            + Send
+            + Sync
+            + Display
+            + 'static
+            + AsServiceId<WalletService>
+            + AsServiceId<StorageService<StorageBackend, RuntimeServiceId>>
+            + AsServiceId<Cryptarchia<RuntimeServiceId>>,
+    {
+        let wallet_api = {
+            let wallet_relay = match get_relay_or_response::<WalletService, _>(&handle).await {
+                Ok(relay) => relay,
+                Err(error_response) => return error_response,
+            };
+            WalletApi::<WalletService, RuntimeServiceId>::new(wallet_relay)
         };
-        WalletApi::<WalletService, RuntimeServiceId>::new(wallet_relay)
-    };
 
-    let tip = {
-        if let Some(tip) = body.tip {
-            tip
-        } else if let Ok(info) = consensus::cryptarchia_info(&handle).await {
-            info.tip
-        } else {
-            error!(
-                "Failed to get cryptarchia info: It wasn't provided in the query and couldn't be retrieved from the consensus service."
-            );
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                String::from("Couldn't retrieve a valid tip"),
+        let tip = {
+            if let Some(tip) = body.tip {
+                tip
+            } else if let Ok(info) = consensus::cryptarchia_info(&handle).await {
+                info.tip
+            } else {
+                error!(
+                    "Failed to get cryptarchia info: It wasn't provided in the query and couldn't be retrieved from the consensus service."
+                );
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    String::from("Couldn't retrieve a valid tip"),
+                )
+                    .into_response();
+            }
+        };
+
+        let transfer_funds = wallet_api
+            .transfer_funds(
+                tip,
+                body.change_public_key,
+                body.funding_public_keys,
+                body.recipient_public_key,
+                body.amount,
             )
-                .into_response();
+            .await;
+
+        match transfer_funds {
+            Ok(transaction) => WalletTransferFundsResponseBody::from(transaction).into_response(),
+            Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
         }
-    };
-
-    let transfer_funds = wallet_api
-        .transfer_funds(
-            tip,
-            body.change_public_key,
-            body.funding_public_keys,
-            body.recipient_public_key,
-            body.amount,
-        )
-        .await;
-
-    match transfer_funds {
-        Ok(transaction) => WalletTransferFundsResponseBody::from(transaction).into_response(),
-        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
     }
 }

@@ -63,14 +63,14 @@ use {
     chain_service::CryptarchiaConsensus,
 };
 
+#[cfg(feature = "wallet")]
+use super::handlers::wallet;
 use super::handlers::{
     add_share, add_tx, balancer_stats, blacklisted_peers, block, block_peer, cryptarchia_headers,
     cryptarchia_info, cryptarchia_lib_stream, da_get_commitments, da_get_light_share,
     da_get_shares, da_get_storage_commitments, libp2p_info, mantle_metrics, mantle_status,
     monitor_stats, unblock_peer,
 };
-#[cfg(feature = "wallet")]
-use super::handlers::{get_wallet_balance, post_wallet_transactions_transfer_funds};
 use crate::{
     WalletService,
     api::handlers::{post_activity, post_declaration, post_withdrawal},
@@ -560,9 +560,9 @@ where
         #[cfg(feature = "wallet")]
         let app = app
             .route(
-                paths::WALLET_BALANCE,
+                paths::wallet::BALANCE,
                 routing::get(
-                    get_wallet_balance::<
+                    wallet::get_balance::<
                         WalletService,
                         SamplingBackend,
                         SamplingNetworkAdapter,
@@ -574,9 +574,9 @@ where
                 ),
             )
             .route(
-                paths::WALLET_TRANSACTIONS_TRANSFER_FUNDS,
+                paths::wallet::TRANSACTIONS_TRANSFER_FUNDS,
                 routing::post(
-                    post_wallet_transactions_transfer_funds::<
+                    wallet::post_transactions_transfer_funds::<
                         WalletService,
                         DaStorageBackend,
                         SamplingBackend,
