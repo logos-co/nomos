@@ -143,6 +143,7 @@ tests                         = { default-features = false, path = "./tests" }
 tx-service                    = { default-features = false, path = "./nomos-services/tx-service" }
 utxotree                      = { default-features = false, path = "./utxotree" }
 wallet                        = { default-features = false, path = "./wallet" }
+wallet-http-client            = { default-features = false, path = "./wallet-http-client" }
 witness-generator             = { default-features = false, path = "zk/circuits/witness-generator" }
 zksign                        = { default-features = false, path = "./zk/proofs/zksign" }
 
