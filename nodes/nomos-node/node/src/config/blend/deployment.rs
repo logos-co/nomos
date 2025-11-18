@@ -7,7 +7,6 @@ use nomos_blend_service::{
 use nomos_libp2p::protocol_name::StreamProtocol;
 use nomos_utils::math::NonNegativeF64;
 use serde::{Deserialize, Serialize};
-use serde_with::serde_as;
 
 use crate::config::deployment::Settings as DeploymentSettings;
 
@@ -41,14 +40,10 @@ pub struct CommonSettings {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde_as]
 pub struct CoreSettings {
     pub scheduler: SchedulerSettings,
     pub minimum_messages_coefficient: NonZeroU64,
     pub normalization_constant: NonNegativeF64,
-    #[serde_as(
-        as = "nomos_utils::bounded_duration::MinimalBoundedDuration<1, nomos_utils::bounded_duration::SECOND>"
-    )]
     pub protocol_name: StreamProtocol,
 }
 

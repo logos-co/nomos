@@ -3,12 +3,10 @@ use core::num::NonZeroU64;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde_with::serde_as]
 pub struct Config {
     pub backend: BackendConfig,
 }
 
-#[serde_with::serde_as]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BackendConfig {
     pub max_dial_attempts_per_peer_per_message: NonZeroU64,
