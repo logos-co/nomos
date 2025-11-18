@@ -561,11 +561,32 @@ where
         let app = app
             .route(
                 paths::WALLET_BALANCE,
-                routing::get(get_wallet_balance::<WalletService, _, _, _, _, _, _>),
+                routing::get(
+                    get_wallet_balance::<
+                        WalletService,
+                        SamplingBackend,
+                        SamplingNetworkAdapter,
+                        SamplingStorage,
+                        MempoolStorageAdapter,
+                        TimeBackend,
+                        _,
+                    >,
+                ),
             )
             .route(
                 paths::WALLET_TRANSFER,
-                routing::post(post_wallet_transfer::<WalletService, _, _, _, _, _, _, _>),
+                routing::post(
+                    post_wallet_transfer::<
+                        WalletService,
+                        DaStorageBackend,
+                        SamplingBackend,
+                        SamplingNetworkAdapter,
+                        SamplingStorage,
+                        MempoolStorageAdapter,
+                        TimeBackend,
+                        _,
+                    >,
+                ),
             );
 
         let app = app

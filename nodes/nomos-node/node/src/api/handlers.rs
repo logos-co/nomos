@@ -9,7 +9,7 @@ use axum::{
     body::Body,
     extract::{Path, Query, State},
     http::StatusCode,
-    response::{IntoResponse, Response},
+    response::{IntoResponse as _, Response},
 };
 use broadcast_service::BlockBroadcastService;
 use nomos_api::http::{
@@ -19,9 +19,9 @@ use nomos_api::http::{
     storage::StorageAdapter,
 };
 use nomos_core::{
-    da::{DaVerifier as CoreDaVerifier, blob::Share},
+    da::{BlobId, DaVerifier as CoreDaVerifier, blob::Share},
     header::HeaderId,
-    mantle::{SignedMantleTx, Transaction, Value},
+    mantle::{SignedMantleTx, Transaction},
     sdp::SessionNumber,
 };
 use nomos_da_messages::http::da::{
@@ -33,7 +33,13 @@ use nomos_da_network_service::{
 };
 use nomos_da_sampling::{DaSamplingService, backend::DaSamplingServiceBackend};
 use nomos_da_verifier::{backend::VerifierBackend, mempool::DaMempoolAdapter};
-use nomos_http_api_common::paths;
+use nomos_http_api_common::{
+    bodies::wallet::{
+        balance::WalletBalanceResponseBody,
+        transfer_funds::{WalletTransferFundsRequestBody, WalletTransferFundsResponseBody},
+    },
+    paths,
+};
 use nomos_libp2p::PeerId;
 use nomos_network::backends::libp2p::Libp2p as Libp2pNetworkBackend;
 use nomos_sdp::adapters::mempool::SdpMempoolAdapter;
@@ -1026,19 +1032,6 @@ pub struct TipQuery {
 }
 
 #[cfg(feature = "wallet")]
-#[derive(Serialize)]
-struct BalanceResponseBody {
-    balance: Value,
-}
-
-#[cfg(feature = "wallet")]
-impl IntoResponse for BalanceResponseBody {
-    fn into_response(self) -> Response {
-        (StatusCode::OK, serde_json::to_string(&self).unwrap()).into_response()
-    }
-}
-
-#[cfg(feature = "wallet")]
 #[utoipa::path(
     get,
     path = paths::WALLET_BALANCE,
@@ -1052,7 +1045,7 @@ pub async fn get_wallet_balance<
     SamplingBackend,
     SamplingNetworkAdapter,
     SamplingStorage,
-    StorageAdapter,
+    MempoolStorageAdapter,
     TimeBackend,
     RuntimeServiceId,
 >(
@@ -1068,13 +1061,13 @@ where
     SamplingBackend::BlobId: Debug + 'static,
     SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
-    StorageAdapter: tx_service::storage::MempoolStorageAdapter<
+    MempoolStorageAdapter: tx_service::storage::MempoolStorageAdapter<
             RuntimeServiceId,
             Key = <SignedMantleTx as Transaction>::Hash,
             Item = SignedMantleTx,
         > + Clone
         + 'static,
-    StorageAdapter::Error: Debug,
+    MempoolStorageAdapter::Error: Debug,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
     RuntimeServiceId: Debug
@@ -1083,16 +1076,7 @@ where
         + Display
         + 'static
         + AsServiceId<WalletService>
-        + AsServiceId<
-            Cryptarchia<
-                SamplingBackend,
-                SamplingNetworkAdapter,
-                SamplingStorage,
-                StorageAdapter,
-                TimeBackend,
-                RuntimeServiceId,
-            >,
-        >,
+        + AsServiceId<Cryptarchia<RuntimeServiceId>>,
 {
     let wallet_api = {
         let wallet_relay = match get_relay_or_response::<WalletService, _>(&handle).await {
@@ -1120,41 +1104,9 @@ where
 
     let balance = wallet_api.get_balance(tip, public_key).await;
     match balance {
-        Ok(Some(balance)) => BalanceResponseBody { balance }.into_response(),
+        Ok(Some(balance)) => WalletBalanceResponseBody { balance }.into_response(),
         Ok(None) => (StatusCode::NOT_FOUND, "Wallet not found").into_response(),
         Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
-    }
-}
-
-#[cfg(feature = "wallet")]
-#[derive(Deserialize)]
-pub struct WalletTransferRequestBody {
-    tip: Option<HeaderId>,
-    change_public_key: PublicKey,
-    funding_public_keys: Vec<PublicKey>,
-    recipient_public_key: PublicKey,
-    amount: Value,
-}
-
-#[cfg(feature = "wallet")]
-#[derive(Serialize)]
-pub struct WalletTransferResponseBody {
-    hash: nomos_core::mantle::tx::TxHash,
-}
-
-#[cfg(feature = "wallet")]
-impl From<SignedMantleTx> for WalletTransferResponseBody {
-    fn from(value: SignedMantleTx) -> Self {
-        Self {
-            hash: value.mantle_tx.hash(),
-        }
-    }
-}
-
-#[cfg(feature = "wallet")]
-impl IntoResponse for WalletTransferResponseBody {
-    fn into_response(self) -> Response {
-        (StatusCode::CREATED, serde_json::to_string(&self).unwrap()).into_response()
     }
 }
 
@@ -1173,12 +1125,12 @@ pub async fn post_wallet_transfer<
     SamplingBackend,
     SamplingNetworkAdapter,
     SamplingStorage,
-    StorageAdapter,
+    MempoolStorageAdapter,
     TimeBackend,
     RuntimeServiceId,
 >(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
-    Json(body): Json<WalletTransferRequestBody>,
+    Json(body): Json<WalletTransferFundsRequestBody>,
 ) -> Response
 where
     WalletService: WalletServiceData + 'static,
@@ -1189,13 +1141,13 @@ where
     SamplingBackend::BlobId: Debug + 'static,
     SamplingNetworkAdapter: nomos_da_sampling::network::NetworkAdapter<RuntimeServiceId>,
     SamplingStorage: nomos_da_sampling::storage::DaStorageAdapter<RuntimeServiceId>,
-    StorageAdapter: tx_service::storage::MempoolStorageAdapter<
+    MempoolStorageAdapter: tx_service::storage::MempoolStorageAdapter<
             RuntimeServiceId,
             Key = <SignedMantleTx as Transaction>::Hash,
             Item = SignedMantleTx,
         > + Clone
         + 'static,
-    StorageAdapter::Error: Debug,
+    MempoolStorageAdapter::Error: Debug,
     TimeBackend: nomos_time::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
     RuntimeServiceId: Debug
@@ -1205,16 +1157,7 @@ where
         + 'static
         + AsServiceId<WalletService>
         + AsServiceId<StorageService<StorageBackend, RuntimeServiceId>>
-        + AsServiceId<
-            Cryptarchia<
-                SamplingBackend,
-                SamplingNetworkAdapter,
-                SamplingStorage,
-                StorageAdapter,
-                TimeBackend,
-                RuntimeServiceId,
-            >,
-        >,
+        + AsServiceId<Cryptarchia<RuntimeServiceId>>,
 {
     let wallet_api = {
         let wallet_relay = match get_relay_or_response::<WalletService, _>(&handle).await {
@@ -1252,7 +1195,7 @@ where
         .await;
 
     match transfer_funds {
-        Ok(transaction) => WalletTransferResponseBody::from(transaction).into_response(),
+        Ok(transaction) => WalletTransferFundsResponseBody::from(transaction).into_response(),
         Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
     }
 }
