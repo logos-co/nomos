@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::protocol_name::StreamProtocol;
 
-mod gossipsub;
+pub mod gossipsub;
 mod identify;
 mod kademlia;
 mod nat;

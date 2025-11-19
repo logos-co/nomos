@@ -3,12 +3,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use blend::serde::Config as BlendConfig;
 use clap::{Parser, ValueEnum, builder::OsStr};
 use color_eyre::eyre::{Result, eyre};
 use hex::FromHex as _;
 use nomos_libp2p::{Multiaddr, ed25519::SecretKey};
-use nomos_network::backends::libp2p::Libp2p as NetworkBackend;
 use nomos_tracing::logging::{gelf::GelfConfig, local::FileConfig};
 use nomos_tracing_service::{LoggerLayer, Tracing};
 use num_bigint::BigUint;
@@ -18,15 +16,19 @@ use tracing::Level;
 
 use crate::{
     ApiService, ChainNetworkService, CryptarchiaLeaderService, CryptarchiaService,
-    DaNetworkService, DaSamplingService, DaVerifierService, KeyManagementService, NetworkService,
-    RuntimeServiceId, StorageService, TimeService,
-    config::{deployment::Settings as DeploymentSettings, mempool::MempoolConfig},
+    DaNetworkService, DaSamplingService, DaVerifierService, KeyManagementService, RuntimeServiceId,
+    StorageService, TimeService,
+    config::{
+        blend::serde::Config as BlendConfig, deployment::Settings as DeploymentSettings,
+        mempool::MempoolConfig, network::serde::Config as NetworkConfig,
+    },
     generic_services::{SdpService, WalletService},
 };
 
 pub mod blend;
 pub mod deployment;
 pub mod mempool;
+pub mod network;
 
 #[cfg(test)]
 mod tests;
@@ -201,7 +203,7 @@ pub struct DaArgs {
 #[derive(Deserialize, Debug, Clone, Serialize)]
 pub struct Config {
     pub tracing: <Tracing<RuntimeServiceId> as ServiceData>::Settings,
-    pub network: <NetworkService as ServiceData>::Settings,
+    pub network: NetworkConfig,
     pub blend: BlendConfig,
     pub deployment: DeploymentSettings,
     pub da_network: <DaNetworkService as ServiceData>::Settings,
@@ -233,7 +235,7 @@ impl Config {
             ..
         } = args;
         update_tracing(&mut self.tracing, log_args)?;
-        update_network::<RuntimeServiceId>(&mut self.network, network_args)?;
+        update_network(&mut self.network, network_args)?;
         update_blend(&mut self.blend, blend_args)?;
         update_http(&mut self.http, http_args)?;
         update_cryptarchia_leader_consensus(&mut self.cryptarchia_leader, cryptarchia_leader_args)?;
@@ -284,10 +286,7 @@ pub fn update_tracing(
     Ok(())
 }
 
-pub fn update_network<RuntimeServiceId>(
-    network: &mut <nomos_network::NetworkService<NetworkBackend, RuntimeServiceId> as ServiceData>::Settings,
-    network_args: NetworkArgs,
-) -> Result<()> {
+pub fn update_network(network: &mut NetworkConfig, network_args: NetworkArgs) -> Result<()> {
     let NetworkArgs {
         host,
         port,
