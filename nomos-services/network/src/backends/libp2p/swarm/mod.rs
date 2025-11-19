@@ -284,7 +284,7 @@ const fn exp_backoff(retry: usize) -> Duration {
 mod tests {
     use std::{net::Ipv4Addr, sync::Once, time::Instant};
 
-    use nomos_libp2p::{Protocol, protocol_name::ProtocolName};
+    use nomos_libp2p::{Protocol, protocol_name::StreamProtocol};
     use nomos_utils::net::get_available_udp_port;
     use rand::rngs::OsRng;
     use tracing_subscriber::EnvFilter;
@@ -317,7 +317,9 @@ mod tests {
             } else {
                 nomos_libp2p::KademliaSettings::default()
             },
+            kad_protocol_name: StreamProtocol::new("kademlia/test"),
             identify_config: nomos_libp2p::IdentifySettings::default(),
+            identify_protocol_name: StreamProtocol::new("identify/test"),
             chain_sync_config: cryptarchia_sync::Config::default(),
             nat_config: nomos_libp2p::NatSettings::Traversal(nomos_libp2p::TraversalSettings {
                 autonat: nomos_libp2p::AutonatClientSettings {
@@ -326,7 +328,6 @@ mod tests {
                 },
                 ..Default::default()
             }),
-            protocol_name_env: ProtocolName::Unittest,
         }
     }
 
