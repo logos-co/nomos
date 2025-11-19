@@ -127,8 +127,9 @@ pub enum ConsensusMsg<Tx> {
     /// Chain-service will handle these directly and respond via the embedded
     /// `reply_sender`.
     ChainSync(ChainSyncEvent),
-    /// Notification from chain-network that Initial Block Download has completed.
-    /// Chain-service should start the prolonged bootstrap timer upon receiving this.
+    /// Notification from chain-network that Initial Block Download has
+    /// completed. Chain-service should start the prolonged bootstrap timer
+    /// upon receiving this.
     IbdCompleted,
 }
 
@@ -490,8 +491,8 @@ where
         .await?;
 
         // The prolonged bootstrap timer will be started when chain-network notifies us
-        // that IBD has completed. This ensures we don't transition to Online mode before
-        // the node has caught up with the network.
+        // that IBD has completed. This ensures we don't transition to Online mode
+        // before the node has caught up with the network.
         let mut prolonged_bootstrap_timer: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
 
         // Start the timer for periodic state recording for offline grace period

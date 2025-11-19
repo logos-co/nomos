@@ -17,9 +17,9 @@ use serde::{Deserialize, Serialize};
 use tracing::Level;
 
 use crate::{
-    ApiService, ChainNetworkService, CryptarchiaLeaderService, CryptarchiaService, DaNetworkService, DaSamplingService,
-    DaVerifierService, KeyManagementService, NetworkService, RuntimeServiceId, StorageService,
-    TimeService,
+    ApiService, ChainNetworkService, CryptarchiaLeaderService, CryptarchiaService,
+    DaNetworkService, DaSamplingService, DaVerifierService, KeyManagementService, NetworkService,
+    RuntimeServiceId, StorageService, TimeService,
     config::{deployment::Settings as DeploymentSettings, mempool::MempoolConfig},
     generic_services::{SdpService, WalletService},
 };
