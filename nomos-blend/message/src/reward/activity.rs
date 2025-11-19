@@ -24,8 +24,8 @@ impl ActivityProof {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) const fn token(&self) -> &BlendingToken {
+    #[must_use]
+    pub const fn token(&self) -> &BlendingToken {
         &self.token
     }
 }

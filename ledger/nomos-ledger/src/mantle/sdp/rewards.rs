@@ -1,10 +1,19 @@
-use std::collections::HashMap;
+use std::{
+    cmp::min,
+    collections::{HashMap, HashSet},
+    num::NonZeroU64,
+};
 
+use groth16::Fr;
+use nomos_blend_message::reward::{SessionRandomness, token_count_bit_len};
 use nomos_core::{
+    blend::core_quota,
     block::BlockNumber,
     sdp::{ActivityMetadata, ProviderId, ServiceParameters, SessionNumber},
 };
+use nomos_utils::math::NonNegativeF64;
 use rpds::{HashTrieMapSync, HashTrieSetSync};
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use super::SessionState;
@@ -18,7 +27,7 @@ const ACTIVITY_THRESHOLD: u64 = 2;
 /// The rewards object is updated with active messages and session transitions,
 /// and can calculate expected rewards for each provider based on the service's
 /// internal logic.
-pub trait Rewards: Clone + PartialEq + Eq + Send + Sync + std::fmt::Debug {
+pub trait Rewards: Clone + PartialEq + Send + Sync + std::fmt::Debug {
     /// Update rewards state when an active message is received.
     ///
     /// Called when a provider submits an active message with metadata
@@ -40,39 +49,17 @@ pub trait Rewards: Clone + PartialEq + Eq + Send + Sync + std::fmt::Debug {
     ///
     /// The internal calculation logic is opaque to the SDP ledger and
     /// determined by the service-specific implementation.
+    ///
+    /// # Arguments
+    /// * `last_active` - The state of the session that just ended.
+    /// * `next_active_session_epoch_nonce` - The nonce of the epoch state
+    ///   corresponding to the 1st block of the session `last_active + 1`.
     fn update_session(
         &self,
         last_active: &SessionState,
+        next_active_session_epoch_nonce: &Fr,
         config: &ServiceParameters,
     ) -> (Self, HashMap<ProviderId, RewardAmount>);
-}
-
-/// No-op rewards implementation that doesn't track or distribute any rewards.
-///
-/// This is used as a placeholder for services that don't implement rewards yet.
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct NoopRewards;
-
-impl Rewards for NoopRewards {
-    fn update_active(
-        &self,
-        _declaration_id: ProviderId,
-        _metadata: &ActivityMetadata,
-        _block_number: BlockNumber,
-    ) -> Result<Self, Error> {
-        // No-op: this implementation doesn't track rewards
-        Ok(self.clone())
-    }
-
-    fn update_session(
-        &self,
-        _last_active: &SessionState,
-        _config: &ServiceParameters,
-    ) -> (Self, HashMap<ProviderId, RewardAmount>) {
-        // No rewards to distribute
-        (self.clone(), HashMap::new())
-    }
 }
 
 /// Data Availability rewards implementation based on opinion-based peer
@@ -222,6 +209,7 @@ impl Rewards for DaRewards {
     fn update_session(
         &self,
         last_active: &SessionState,
+        _next_active_session_epoch_nonce: &Fr,
         _config: &ServiceParameters,
     ) -> (Self, HashMap<ProviderId, RewardAmount>) {
         // Calculate activity threshold: θ = Ns / ACTIVITY_THRESHOLD
@@ -275,8 +263,208 @@ impl Rewards for DaRewards {
     }
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone, Debug, PartialEq)]
+pub enum BlendRewards {
+    /// State before the first session update (0 -> 1).
+    /// No activity messages are accepted in this state, because activity cannot
+    /// exist before session 0.
+    Uninitialized(BlendRewardsParameters),
+    /// State after the first session update (0 -> 1).
+    /// This is updated every new session.
+    Initialized {
+        /// State of the session that is referenced by the submitted proofs.
+        /// This is `s-1` if `s` is the session at which this message was sent.
+        session_state: SessionState,
+        /// Session randomness for the session `s`.
+        next_session_randomness: SessionRandomness,
+        /// Proofs submitted by providers in the session corresponding to
+        /// `session_state`.
+        submitted_proofs: HashTrieMapSync<ProviderId, u64>,
+        /// Tracking the minimum Hamming distance among submitted proofs.
+        min_hamming_distance: u64,
+        /// Settings that don't change per session.
+        settings: BlendRewardsParameters,
+    },
+}
+
+impl BlendRewards {
+    /// Create a new uninitialized [`BlendRewards`] that doesn't accept activity
+    /// messages until the first session update.
+    #[must_use]
+    pub const fn new(settings: BlendRewardsParameters) -> Self {
+        Self::Uninitialized(settings)
+    }
+}
+
+impl Rewards for BlendRewards {
+    fn update_active(
+        &self,
+        provider_id: ProviderId,
+        metadata: &ActivityMetadata,
+        _block_number: BlockNumber,
+    ) -> Result<Self, Error> {
+        match self {
+            Self::Uninitialized(_) => {
+                // Reject all activity messages.
+                Err(Error::Uninitialized)
+            }
+            Self::Initialized {
+                session_state,
+                next_session_randomness,
+                submitted_proofs,
+                min_hamming_distance,
+                settings,
+            } => {
+                let ActivityMetadata::Blend(proof) = metadata else {
+                    return Err(Error::InvalidProofType);
+                };
+
+                if submitted_proofs.contains_key(&provider_id) {
+                    return Err(Error::DuplicateActiveMessage {
+                        session: proof.session,
+                        provider_id: Box::new(provider_id),
+                    });
+                }
+
+                if proof.session != session_state.session_n {
+                    return Err(Error::InvalidSession {
+                        expected: session_state.session_n,
+                        got: proof.session,
+                    });
+                }
+
+                let num_declarations = session_state.declarations.size() as u64;
+                if num_declarations < settings.minimum_network_size.get() {
+                    return Err(Error::MinimumNetworkSizeNotSatisfied {
+                        num_declarations,
+                        minimum_network_size: settings.minimum_network_size,
+                    });
+                }
+
+                let proof = nomos_blend_message::reward::ActivityProof::try_from(proof)
+                    .map_err(|_| Error::InvalidProofType)?;
+
+                // TODO: Validate PoQ and PoSel by holding all epoch infos that
+                // spanned across the `session_state.session_n` session.
+
+                let hamming_distance = proof.token().hamming_distance(
+                    settings.expected_token_count_byte_len(num_declarations),
+                    *next_session_randomness,
+                );
+
+                Ok(Self::Initialized {
+                    session_state: session_state.clone(),
+                    next_session_randomness: *next_session_randomness,
+                    submitted_proofs: submitted_proofs.insert(provider_id, hamming_distance),
+                    min_hamming_distance: min(*min_hamming_distance, hamming_distance),
+                    settings: settings.clone(),
+                })
+            }
+        }
+    }
+
+    fn update_session(
+        &self,
+        last_active: &SessionState,
+        next_active_session_epoch_nonce: &Fr,
+        _config: &ServiceParameters,
+    ) -> (Self, HashMap<ProviderId, RewardAmount>) {
+        match self {
+            Self::Uninitialized(settings) => (
+                Self::Initialized {
+                    session_state: last_active.clone(),
+                    next_session_randomness: SessionRandomness::new(
+                        last_active.session_n + 1,
+                        next_active_session_epoch_nonce,
+                    ),
+                    submitted_proofs: HashTrieMapSync::new_sync(),
+                    min_hamming_distance: u64::MAX,
+                    settings: settings.clone(),
+                },
+                HashMap::new(),
+            ),
+            Self::Initialized {
+                submitted_proofs,
+                min_hamming_distance,
+                settings,
+                ..
+            } => {
+                // TODO: Calculate base rewards when session_income is added to config
+                // For now using placeholder value of 0
+                let session_income = 0;
+
+                // Identify premium providers with the minimum Hamming distance
+                let premium_providers = submitted_proofs
+                    .iter()
+                    .filter_map(|(&id, &hamming_distance)| {
+                        (hamming_distance == *min_hamming_distance).then_some(id)
+                    })
+                    .collect::<HashSet<_>>();
+
+                // Calculate base reward
+                let base_reward = if submitted_proofs.is_empty() {
+                    0
+                } else {
+                    session_income
+                        / (submitted_proofs.size() as u64 + premium_providers.len() as u64)
+                };
+
+                // Calculate reward for each provider
+                let mut rewards = HashMap::new();
+                for provider_id in submitted_proofs.keys() {
+                    let reward = if premium_providers.contains(provider_id) {
+                        base_reward * 2
+                    } else {
+                        base_reward
+                    };
+                    rewards.insert(*provider_id, reward);
+                }
+
+                // Create new rewards state with updated sessions
+                let new_state = Self::Initialized {
+                    session_state: last_active.clone(),
+                    next_session_randomness: SessionRandomness::new(
+                        last_active.session_n + 1,
+                        next_active_session_epoch_nonce,
+                    ),
+                    submitted_proofs: HashTrieMapSync::new_sync(),
+                    min_hamming_distance: u64::MAX,
+                    settings: settings.clone(),
+                };
+
+                (new_state, rewards)
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BlendRewardsParameters {
+    pub rounds_per_session: NonZeroU64,
+    pub message_frequency_per_round: NonNegativeF64,
+    pub num_blend_layers: NonZeroU64,
+    pub minimum_network_size: NonZeroU64,
+}
+
+impl BlendRewardsParameters {
+    fn expected_token_count_byte_len(&self, num_core_nodes: u64) -> u64 {
+        let core_quota = core_quota(
+            self.rounds_per_session,
+            self.message_frequency_per_round,
+            self.num_blend_layers,
+            num_core_nodes as usize,
+        );
+        token_count_bit_len(core_quota, num_core_nodes)
+            .expect("expected token count bit length shouldn't overflow")
+            .div_ceil(8)
+    }
+}
+
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum Error {
+    #[error("Rewards state is not initialized yet with a real session")]
+    Uninitialized,
     #[error("Invalid session: expected {expected}, got {got}")]
     InvalidSession {
         expected: SessionNumber,
@@ -291,11 +479,24 @@ pub enum Error {
     },
     #[error("Invalid proof type")]
     InvalidProofType,
+    #[error("Invalid proof")]
+    InvalidProof,
+    #[error(
+        "The number of declarations ({num_declarations}) is less than the minimum network size ({minimum_network_size})"
+    )]
+    MinimumNetworkSizeNotSatisfied {
+        num_declarations: u64,
+        minimum_network_size: NonZeroU64,
+    },
 }
 
 #[cfg(test)]
 mod tests {
-    use nomos_core::sdp::{DaActivityProof, Declaration, DeclarationId};
+    use groth16::Field as _;
+    use nomos_core::{
+        crypto::ZkHash,
+        sdp::{BlendActivityProof, DaActivityProof, Declaration, DeclarationId, ServiceType},
+    };
     use num_bigint::BigUint;
     use zksign::PublicKey;
 
@@ -303,14 +504,15 @@ mod tests {
 
     fn create_test_session_state(
         provider_ids: &[ProviderId],
+        service_type: ServiceType,
         session_n: SessionNumber,
     ) -> SessionState {
         let mut declarations = rpds::RedBlackTreeMapSync::new_sync();
         for (i, provider_id) in provider_ids.iter().enumerate() {
             let declaration = Declaration {
-                service_type: nomos_core::sdp::ServiceType::DataAvailability,
+                service_type,
                 provider_id: *provider_id,
-                locked_note_id: groth16::Fr::from(i as u64).into(),
+                locked_note_id: Fr::from(i as u64).into(),
                 locators: vec![],
                 zk_id: PublicKey::new(BigUint::from(i as u64).into()),
                 created: 0,
@@ -332,6 +534,25 @@ mod tests {
         // Ensure the key is valid by using SigningKey
         let signing_key = SigningKey::from_bytes(&key_bytes);
         ProviderId(signing_key.verifying_key())
+    }
+
+    fn create_service_parameters() -> ServiceParameters {
+        ServiceParameters {
+            lock_period: 10,
+            inactivity_period: 20,
+            retention_period: 100,
+            timestamp: 0,
+            session_duration: 10,
+        }
+    }
+
+    fn create_blend_rewards_params(minimum_network_size: u64) -> BlendRewardsParameters {
+        BlendRewardsParameters {
+            rounds_per_session: NonZeroU64::new(10).unwrap(),
+            message_frequency_per_round: NonNegativeF64::try_from(1.0).unwrap(),
+            num_blend_layers: NonZeroU64::new(3).unwrap(),
+            minimum_network_size: minimum_network_size.try_into().unwrap(),
+        }
     }
 
     #[test]
@@ -395,7 +616,11 @@ mod tests {
         let provider2 = create_provider_id(2);
         let provider3 = create_provider_id(3);
 
-        let session = create_test_session_state(&[provider2, provider1, provider3], 0);
+        let session = create_test_session_state(
+            &[provider2, provider1, provider3],
+            ServiceType::DataAvailability,
+            0,
+        );
 
         // Test that we can get providers by index
         let p0 = session.get_provider_by_index(0);
@@ -417,12 +642,13 @@ mod tests {
     }
 
     #[test]
-    fn test_rewards_with_no_activity_proofs() {
+    fn test_da_rewards_with_no_activity_proofs() {
         let provider1 = create_provider_id(1);
         let provider2 = create_provider_id(2);
 
         // Create active session with providers
-        let active_session = create_test_session_state(&[provider1, provider2], 1);
+        let active_session =
+            create_test_session_state(&[provider1, provider2], ServiceType::DataAvailability, 1);
 
         // Initialize rewards tracker with the active session
         let rewards_tracker = DaRewards {
@@ -444,14 +670,15 @@ mod tests {
             session_duration: 10,
         };
 
-        let (_new_state, rewards) = rewards_tracker.update_session(&active_session, &config);
+        let (_new_state, rewards) =
+            rewards_tracker.update_session(&active_session, &ZkHash::ZERO, &config);
 
         // No activity proofs submitted, so no rewards
         assert_eq!(rewards.len(), 0);
     }
 
     #[test]
-    fn test_rewards_basic_calculation() {
+    fn test_da_rewards_basic_calculation() {
         // Create 4 providers
         let provider1 = create_provider_id(1);
         let provider2 = create_provider_id(2);
@@ -459,7 +686,8 @@ mod tests {
         let provider4 = create_provider_id(4);
 
         let providers = vec![provider1, provider2, provider3, provider4];
-        let active_session = create_test_session_state(&providers, 1);
+        let active_session =
+            create_test_session_state(&providers, ServiceType::DataAvailability, 1);
 
         // Initialize rewards tracker with the active session
         let mut rewards_tracker = DaRewards {
@@ -514,7 +742,8 @@ mod tests {
             session_duration: 10,
         };
 
-        let (_new_state, rewards) = rewards_tracker.update_session(&active_session, &config);
+        let (_new_state, rewards) =
+            rewards_tracker.update_session(&active_session, &ZkHash::ZERO, &config);
 
         // Activity threshold = 4 / 2 = 2
         // NOTE: session_income is currently hardcoded to 0, so all rewards will be 0
@@ -530,13 +759,15 @@ mod tests {
     }
 
     #[test]
-    fn test_rewards_with_previous_session() {
+    fn test_da_rewards_with_previous_session() {
         let provider1 = create_provider_id(1);
         let provider2 = create_provider_id(2);
 
         // Set up sessions: provider1 in both, provider2 only in current
-        let current_session = create_test_session_state(&[provider1, provider2], 1);
-        let prev_session = create_test_session_state(&[provider1], 0);
+        let current_session =
+            create_test_session_state(&[provider1, provider2], ServiceType::DataAvailability, 1);
+        let prev_session =
+            create_test_session_state(&[provider1], ServiceType::DataAvailability, 0);
 
         // Initialize rewards tracker with both sessions
         let mut rewards_tracker = DaRewards {
@@ -575,7 +806,8 @@ mod tests {
             session_duration: 10,
         };
 
-        let (_new_state, rewards) = rewards_tracker.update_session(&current_session, &config);
+        let (_new_state, rewards) =
+            rewards_tracker.update_session(&current_session, &ZkHash::ZERO, &config);
 
         // NOTE: session_income is currently hardcoded to 0, so all rewards will be 0
         // When session_income is added to config, this test should verify:
@@ -589,5 +821,278 @@ mod tests {
         assert!(rewards.contains_key(&provider2));
         assert_eq!(*rewards.get(&provider1).unwrap(), 0);
         assert_eq!(*rewards.get(&provider2).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_blend_no_reward_calculated_after_session_0() {
+        // Create a reward tracker
+        let rewards_tracker = BlendRewards::new(create_blend_rewards_params(1));
+
+        // Create session_1 with providers
+        let session_1 = create_test_session_state(
+            &[create_provider_id(1), create_provider_id(2)],
+            ServiceType::BlendNetwork,
+            1,
+        );
+
+        // Update session from 0 to 1
+        let (_, rewards) =
+            rewards_tracker.update_session(&session_1, &ZkHash::ZERO, &create_service_parameters());
+
+        // No rewards should be calculated after session 0
+        assert_eq!(rewards.len(), 0);
+    }
+
+    #[test]
+    fn test_blend_rewards_with_no_activity_proofs() {
+        // Create a reward tracker, and update session from 0 to 1.
+        let config = create_service_parameters();
+        let (rewards_tracker, _) = BlendRewards::new(BlendRewardsParameters {
+            rounds_per_session: NonZeroU64::new(10).unwrap(),
+            message_frequency_per_round: NonNegativeF64::try_from(1.0).unwrap(),
+            num_blend_layers: NonZeroU64::new(3).unwrap(),
+            minimum_network_size: NonZeroU64::new(1).unwrap(),
+        })
+        .update_session(
+            &create_test_session_state(
+                &[create_provider_id(1), create_provider_id(2)],
+                ServiceType::BlendNetwork,
+                1,
+            ),
+            &ZkHash::ZERO,
+            &config,
+        );
+
+        // Update session from 1 to 2 without any activity proofs submitted.
+        let (_, rewards) = rewards_tracker.update_session(
+            &create_test_session_state(
+                &[create_provider_id(1), create_provider_id(2)],
+                ServiceType::BlendNetwork,
+                2,
+            ),
+            &ZkHash::ZERO,
+            &config,
+        );
+        assert_eq!(rewards.len(), 0);
+    }
+
+    #[test]
+    fn test_blend_rewards_calculation() {
+        let provider1 = create_provider_id(1);
+        let provider2 = create_provider_id(2);
+        let provider3 = create_provider_id(3);
+        let provider4 = create_provider_id(4);
+
+        // Create a reward tracker, and update session from 0 to 1.
+        let config = create_service_parameters();
+        let (rewards_tracker, _) = BlendRewards::new(create_blend_rewards_params(1))
+            .update_session(
+                &create_test_session_state(
+                    &[provider1, provider2, provider3, provider4],
+                    ServiceType::BlendNetwork,
+                    1,
+                ),
+                &ZkHash::ZERO,
+                &config,
+            );
+
+        // provider1 submits an activity proof, which has the minimum
+        // Hamming distance among all proofs.
+        let rewards_tracker = rewards_tracker
+            .update_active(
+                provider1,
+                &ActivityMetadata::Blend(BlendActivityProof {
+                    session: 1,
+                    proof_of_quota: [1; _],
+                    proof_of_selection: [1; _],
+                }),
+                config.session_duration,
+            )
+            .unwrap();
+
+        // provider2 submits an activity proof.
+        let rewards_tracker = rewards_tracker
+            .update_active(
+                provider2,
+                &ActivityMetadata::Blend(BlendActivityProof {
+                    session: 1,
+                    proof_of_quota: [2; _],
+                    proof_of_selection: [2; _],
+                }),
+                config.session_duration,
+            )
+            .unwrap();
+
+        // provider3 submits an activity proof, which has the minimum
+        // Hamming distance among all proofs.
+        let rewards_tracker = rewards_tracker
+            .update_active(
+                provider3,
+                // Use the same proof as provider1 just for testing
+                &ActivityMetadata::Blend(BlendActivityProof {
+                    session: 1,
+                    proof_of_quota: [1; _],
+                    proof_of_selection: [1; _],
+                }),
+                config.session_duration,
+            )
+            .unwrap();
+
+        // provider4 doesn't submit an activity proof.
+
+        // Update session from 1 to 2.
+        let (_, rewards) = rewards_tracker.update_session(
+            &create_test_session_state(
+                &[provider1, provider2, provider3, provider4],
+                ServiceType::BlendNetwork,
+                2,
+            ),
+            &ZkHash::ZERO,
+            &config,
+        );
+        // TODO: session_income is currently hardcoded to 0, so all rewards will be 0
+        // When session_incom is implemented, this test should verify:
+        // - provider1 and provider3 get double rewards of provider2.
+        assert_eq!(rewards.len(), 3); // except provider4
+        assert_eq!(rewards.get(&provider1), Some(&0));
+        assert_eq!(rewards.get(&provider2), Some(&0));
+        assert_eq!(rewards.get(&provider3), Some(&0));
+        assert_eq!(rewards.get(&provider4), None);
+    }
+
+    #[test]
+    fn test_blend_duplicate_active_messages() {
+        let provider1 = create_provider_id(1);
+
+        // Create a reward tracker, and update session from 0 to 1.
+        let config = create_service_parameters();
+        let (rewards_tracker, _) = BlendRewards::new(create_blend_rewards_params(1))
+            .update_session(
+                &create_test_session_state(&[provider1], ServiceType::BlendNetwork, 1),
+                &ZkHash::ZERO,
+                &config,
+            );
+
+        // provider1 submits an activity proof.
+        let rewards_tracker = rewards_tracker
+            .update_active(
+                provider1,
+                &ActivityMetadata::Blend(BlendActivityProof {
+                    session: 1,
+                    proof_of_quota: [1; _],
+                    proof_of_selection: [1; _],
+                }),
+                config.session_duration,
+            )
+            .unwrap();
+
+        // provider1 submits another activity proof in the same session,
+        // which should error.
+        let err = rewards_tracker
+            .update_active(
+                provider1,
+                &ActivityMetadata::Blend(BlendActivityProof {
+                    session: 1,
+                    proof_of_quota: [2; _],
+                    proof_of_selection: [2; _],
+                }),
+                config.session_duration,
+            )
+            .unwrap_err();
+        assert_eq!(
+            err,
+            Error::DuplicateActiveMessage {
+                session: 1,
+                provider_id: Box::new(provider1)
+            }
+        );
+    }
+
+    #[test]
+    fn test_blend_invalid_session() {
+        let provider1 = create_provider_id(1);
+
+        // Create a reward tracker, and update session from 0 to 1.
+        let config = create_service_parameters();
+        let (rewards_tracker, _) = BlendRewards::new(create_blend_rewards_params(1))
+            .update_session(
+                &create_test_session_state(&[provider1], ServiceType::BlendNetwork, 1),
+                &ZkHash::ZERO,
+                &config,
+            );
+
+        // provider1 submits an activity proof with invalid session.
+        let err = rewards_tracker
+            .update_active(
+                provider1,
+                &ActivityMetadata::Blend(BlendActivityProof {
+                    session: 99,
+                    proof_of_quota: [1; _],
+                    proof_of_selection: [1; _],
+                }),
+                config.session_duration,
+            )
+            .unwrap_err();
+        assert_eq!(
+            err,
+            Error::InvalidSession {
+                expected: 1,
+                got: 99
+            }
+        );
+
+        // No reward should be calculated after session 1.
+        let (_, rewards) = rewards_tracker.update_session(
+            &create_test_session_state(&[provider1], ServiceType::BlendNetwork, 2),
+            &ZkHash::ZERO,
+            &config,
+        );
+        assert_eq!(rewards.len(), 0);
+    }
+
+    #[test]
+    fn test_blend_network_too_small() {
+        let provider1 = create_provider_id(1);
+
+        // Create a reward tracker, and update session from 0 to 1.
+        let config = create_service_parameters();
+        let (rewards_tracker, _) = BlendRewards::new(
+            // Set minimum network size to 2
+            create_blend_rewards_params(2),
+        )
+        .update_session(
+            &create_test_session_state(&[provider1], ServiceType::BlendNetwork, 1),
+            &ZkHash::ZERO,
+            &config,
+        );
+
+        // provider1 submits an activity proof, but it should be rejected
+        // since the network is too small.
+        let err = rewards_tracker
+            .update_active(
+                provider1,
+                &ActivityMetadata::Blend(BlendActivityProof {
+                    session: 1,
+                    proof_of_quota: [1; _],
+                    proof_of_selection: [1; _],
+                }),
+                config.session_duration,
+            )
+            .unwrap_err();
+        assert_eq!(
+            err,
+            Error::MinimumNetworkSizeNotSatisfied {
+                num_declarations: 1,
+                minimum_network_size: NonZeroU64::new(2).unwrap()
+            }
+        );
+
+        // No reward should be calculated after session 1.
+        let (_, rewards) = rewards_tracker.update_session(
+            &create_test_session_state(&[provider1], ServiceType::BlendNetwork, 2),
+            &ZkHash::ZERO,
+            &config,
+        );
+        assert_eq!(rewards.len(), 0);
     }
 }

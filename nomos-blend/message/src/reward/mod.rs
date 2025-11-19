@@ -9,7 +9,7 @@ use nomos_core::sdp::SessionNumber;
 pub use session::SessionInfo;
 pub use token::BlendingToken;
 
-pub use crate::reward::session::SessionRandomness;
+pub use crate::reward::session::{SessionRandomness, token_count_bit_len};
 
 const LOG_TARGET: &str = "blend::message::reward";
 

@@ -3,6 +3,7 @@ use std::ops::{Add as _, Deref};
 use groth16::fr_to_bytes;
 use nomos_core::{crypto::ZkHash, sdp::SessionNumber};
 use nomos_utils::math::{F64Ge1, NonNegativeF64};
+use serde::{Deserialize, Serialize};
 
 use crate::{crypto::blake2b512, reward::activity::activity_threshold};
 
@@ -21,10 +22,6 @@ impl SessionInfo {
         num_core_nodes: u64,
         core_quota: u64,
     ) -> Result<Self, Error> {
-        let total_core_quota = core_quota
-            .checked_mul(num_core_nodes)
-            .ok_or(Error::TotalCoreQuotaTooLarge(u64::MAX))?;
-
         let network_size_bit_len = F64Ge1::try_from(
             num_core_nodes
                 .checked_add(1)
@@ -34,7 +31,7 @@ impl SessionInfo {
         .log2()
         .ceil() as u64;
 
-        let token_count_bit_len = token_count_bit_len(total_core_quota)?;
+        let token_count_bit_len = token_count_bit_len(core_quota, num_core_nodes)?;
         let activity_threshold = activity_threshold(token_count_bit_len, network_size_bit_len);
 
         let session_randomness = SessionRandomness::new(session_number, pol_epoch_nonce);
@@ -54,8 +51,8 @@ impl SessionInfo {
 }
 
 /// Deterministic unbiased randomness for a session.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct SessionRandomness([u8; 64]);
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionRandomness(#[serde(with = "serde_big_array::BigArray")] [u8; 64]);
 
 impl Deref for SessionRandomness {
     type Target = [u8];
@@ -77,7 +74,7 @@ impl SessionRandomness {
     /// Derive the session randomness from the given session number and epoch
     /// nonce.
     #[must_use]
-    fn new(session_number: SessionNumber, epoch_nonce: &ZkHash) -> Self {
+    pub fn new(session_number: SessionNumber, epoch_nonce: &ZkHash) -> Self {
         Self(blake2b512(&[
             &SESSION_RANDOMNESS_TAG,
             &fr_to_bytes(epoch_nonce),
@@ -96,7 +93,10 @@ pub enum Error {
 
 /// The number of bits that can represent the maximum number of blending
 /// tokens generated during a single session.
-fn token_count_bit_len(total_core_quota: u64) -> Result<u64, Error> {
+pub fn token_count_bit_len(core_quota: u64, num_core_nodes: u64) -> Result<u64, Error> {
+    let total_core_quota = core_quota
+        .checked_mul(num_core_nodes)
+        .ok_or(Error::TotalCoreQuotaTooLarge(u64::MAX))?;
     let total_core_quota: NonNegativeF64 = total_core_quota
         .try_into()
         .map_err(|()| Error::TotalCoreQuotaTooLarge(total_core_quota))?;
@@ -133,12 +133,13 @@ mod tests {
 
     #[test]
     fn test_token_count_bit_len() {
-        let total_core_quota = 10;
+        let core_quota = 5;
+        let num_core_nodes = 2;
         // ceil(log2(10 + 1))
-        assert_eq!(token_count_bit_len(total_core_quota).unwrap(), 4);
+        assert_eq!(token_count_bit_len(core_quota, num_core_nodes).unwrap(), 4);
 
-        let total_core_quota = 0;
+        let core_quota = 0;
         // ceil(log2(0 + 1))
-        assert_eq!(token_count_bit_len(total_core_quota).unwrap(), 0);
+        assert_eq!(token_count_bit_len(core_quota, num_core_nodes).unwrap(), 0);
     }
 }
