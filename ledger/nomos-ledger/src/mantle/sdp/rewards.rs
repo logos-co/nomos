@@ -1,5 +1,5 @@
 use std::{
-    cmp::min,
+    cmp::Ordering,
     collections::{HashMap, HashSet},
     num::NonZeroU64,
 };
@@ -283,7 +283,7 @@ pub enum BlendRewards {
         /// `session_state`.
         submitted_proofs: HashTrieMapSync<ProviderId, u64>,
         /// Tracking the minimum Hamming distance among submitted proofs.
-        min_hamming_distance: u64,
+        min_hamming_distance: MinHammingDistance,
         /// Settings that don't change per session.
         settings: BlendRewardsParameters,
     },
@@ -361,7 +361,8 @@ impl Rewards for BlendRewards {
                     token_evaluation: *token_evaluation,
                     next_session_randomness: *next_session_randomness,
                     submitted_proofs: submitted_proofs.insert(provider_id, hamming_distance),
-                    min_hamming_distance: min(*min_hamming_distance, hamming_distance),
+                    min_hamming_distance: min_hamming_distance
+                        .update(hamming_distance, provider_id),
                     settings: settings.clone(),
                 })
             }
@@ -390,7 +391,7 @@ impl Rewards for BlendRewards {
                             next_active_session_epoch_nonce,
                         ),
                         submitted_proofs: HashTrieMapSync::new_sync(),
-                        min_hamming_distance: u64::MAX,
+                        min_hamming_distance: MinHammingDistance::new(),
                         settings: settings.clone(),
                     },
                     HashMap::new(),
@@ -407,12 +408,7 @@ impl Rewards for BlendRewards {
                 let session_income = 0;
 
                 // Identify premium providers with the minimum Hamming distance
-                let premium_providers = submitted_proofs
-                    .iter()
-                    .filter_map(|(&id, &hamming_distance)| {
-                        (hamming_distance == *min_hamming_distance).then_some(id)
-                    })
-                    .collect::<HashSet<_>>();
+                let premium_providers = &min_hamming_distance.providers;
 
                 // Calculate base reward
                 let base_reward = if submitted_proofs.is_empty() {
@@ -447,7 +443,7 @@ impl Rewards for BlendRewards {
                         next_active_session_epoch_nonce,
                     ),
                     submitted_proofs: HashTrieMapSync::new_sync(),
-                    min_hamming_distance: u64::MAX,
+                    min_hamming_distance: MinHammingDistance::new(),
                     settings: settings.clone(),
                 };
 
@@ -478,6 +474,40 @@ impl BlendRewardsParameters {
             num_core_nodes as usize,
         );
         BlendingTokenEvaluation::new(core_quota, num_core_nodes)
+    }
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MinHammingDistance {
+    distance: u64,
+    providers: HashSet<ProviderId>,
+}
+
+impl MinHammingDistance {
+    fn new() -> Self {
+        Self {
+            distance: u64::MAX,
+            providers: HashSet::new(),
+        }
+    }
+
+    fn update(&self, distance: u64, provider: ProviderId) -> Self {
+        match distance.cmp(&self.distance) {
+            Ordering::Less => Self {
+                distance,
+                providers: HashSet::from([provider]),
+            },
+            Ordering::Equal => {
+                let mut providers = self.providers.clone();
+                providers.insert(provider);
+                Self {
+                    distance,
+                    providers,
+                }
+            }
+            Ordering::Greater => self.clone(),
+        }
     }
 }
 
