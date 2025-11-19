@@ -9,20 +9,6 @@ pub trait SecureKeyOperations {
     type Error;
     async fn execute(&mut self, key: &Self::Key) -> Result<(), Self::Error>;
 }
-//
-// #[async_trait::async_trait]
-// impl<T> SecureKeyOperations for Box<T>
-// where
-//     T: SecureKeyOperations + Send + Sync + 'static,
-//     T::Key: Send + Sync + 'static,
-// {
-//     type Key = T::Key;
-//     type Error = T::Error;
-//
-//     async fn execute(self, key: &Self::Key) -> Result<(), Self::Error> {
-//         T::execute(*self, key).await
-//     }
-// }
 
 pub type BoxedSecureKeyOperations<
     Key: SecuredKey + Debug + PartialEq + Eq + Clone + Send + Sync + 'static,
@@ -71,8 +57,6 @@ pub trait SecuredKey: ZeroizeOnDrop {
     type Signature;
     type PublicKey;
     type Error;
-    // type Operations: SecureKeyOperations<Key = Self, Error = Self::Error> + Send
-    // + Sync + 'static;
 
     fn sign(&self, payload: &Self::Payload) -> Result<Self::Signature, Self::Error>;
     fn sign_multiple(
