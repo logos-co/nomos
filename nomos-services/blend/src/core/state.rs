@@ -1,7 +1,7 @@
 mod serde {
     use std::collections::HashSet;
 
-    use nomos_blend_scheduling::message_blend::crypto::EncapsulatedMessage;
+    use nomos_blend_message::encap::encapsulated::EncapsulatedMessage;
     use serde::{Deserialize, Serialize};
 
     use crate::{
@@ -72,7 +72,7 @@ mod service {
     };
     use std::collections::HashSet;
 
-    use nomos_blend_scheduling::message_blend::crypto::EncapsulatedMessage;
+    use nomos_blend_message::encap::encapsulated::EncapsulatedMessage;
 
     use crate::{
         core::state::{recovery_state::RecoveryServiceState, state_updater::StateUpdater},
@@ -261,7 +261,7 @@ pub use self::state_updater::StateUpdater;
 mod state_updater {
     use core::hash::Hash;
 
-    use nomos_blend_scheduling::EncapsulatedMessage;
+    use nomos_blend_message::encap::encapsulated::EncapsulatedMessage;
 
     use crate::{core::state::service::ServiceState, message::ProcessedMessage};
 

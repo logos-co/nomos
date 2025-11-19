@@ -7,15 +7,18 @@ use std::{
 use nomos_blend_message::{
     Error as InnerError,
     crypto::proofs::PoQVerificationInputsMinusSigningKey,
-    encap::{ProofsVerifier as ProofsVerifierTrait, decapsulated::DecapsulatedMessage},
+    encap::{
+        ProofsVerifier as ProofsVerifierTrait,
+        decapsulated::{DecapsulatedMessage, DecapsulationOutput},
+        encapsulated::EncapsulatedMessage,
+        validated::IncomingEncapsulatedMessageWithValidatedPublicHeader,
+    },
     reward::BlendingToken,
 };
 use nomos_blend_scheduling::{
-    DecapsulationOutput, EncapsulatedMessage,
     membership::Membership,
     message_blend::{
         crypto::{
-            IncomingEncapsulatedMessageWithValidatedPublicHeader,
             SessionCryptographicProcessorSettings,
             core_and_leader::send_and_receive::SessionCryptographicProcessor,
         },
@@ -216,13 +219,13 @@ mod tests {
                 selection::{self, ProofOfSelection},
             },
         },
-        encap::validated::IncomingEncapsulatedMessageWithValidatedPublicHeader,
+        encap::{
+            encapsulated::EncapsulatedMessage,
+            validated::IncomingEncapsulatedMessageWithValidatedPublicHeader,
+        },
         input::EncapsulationInput,
     };
-    use nomos_blend_scheduling::{
-        EncapsulatedMessage,
-        message_blend::crypto::{EncapsulationInputs, SessionCryptographicProcessorSettings},
-    };
+    use nomos_blend_scheduling::message_blend::crypto::SessionCryptographicProcessorSettings;
     use nomos_core::crypto::ZkHash;
 
     use crate::{
@@ -452,20 +455,16 @@ mod tests {
     }
 
     fn mock_message(recipient_signing_pubkey: &Ed25519PublicKey) -> EncapsulatedMessage {
-        let inputs = EncapsulationInputs::new(
-            std::iter::repeat_with(|| {
-                EncapsulationInput::new(
-                    Ed25519PrivateKey::generate(),
-                    recipient_signing_pubkey,
-                    ProofOfQuota::from_bytes_unchecked([0; _]),
-                    ProofOfSelection::from_bytes_unchecked([0; _]),
-                )
-            })
-            .take(3)
-            .collect::<Vec<_>>()
-            .into_boxed_slice(),
-        )
-        .unwrap();
+        let inputs = std::iter::repeat_with(|| {
+            EncapsulationInput::new(
+                Ed25519PrivateKey::generate(),
+                recipient_signing_pubkey,
+                ProofOfQuota::from_bytes_unchecked([0; _]),
+                ProofOfSelection::from_bytes_unchecked([0; _]),
+            )
+        })
+        .take(3)
+        .collect::<Vec<_>>();
         EncapsulatedMessage::new(&inputs, PayloadType::Cover, b"").unwrap()
     }
 
