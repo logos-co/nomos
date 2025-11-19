@@ -1,9 +1,22 @@
-use groth16::Fr;
-use nomos_blend_message::crypto::proofs::quota::{ProofOfQuota, inputs::prove::PublicInputs};
-use poq::CorePathAndSelectors;
+use std::fmt::Debug;
+
 use zeroize::ZeroizeOnDrop;
 
+#[async_trait::async_trait]
+pub trait SecureKeyOperator {
+    type Key;
+    type Error;
+    async fn execute(&mut self, key: &Self::Key) -> Result<(), Self::Error>;
+}
+
+pub trait DebugSecureKeyOperator: SecureKeyOperator + Debug {}
+impl<T: SecureKeyOperator + Debug> DebugSecureKeyOperator for T {}
+
+pub type BoxedSecureKeyOperator<Key> =
+    Box<dyn DebugSecureKeyOperator<Key = Key, Error = <Key as SecuredKey>::Error> + Send + Sync>;
+
 /// A key that can be used within the Key Management Service.
+#[async_trait::async_trait]
 pub trait SecuredKey: ZeroizeOnDrop {
     type Payload;
     type Signature;
@@ -18,10 +31,11 @@ pub trait SecuredKey: ZeroizeOnDrop {
     where
         Self: Sized;
     fn as_public_key(&self) -> Self::PublicKey;
-    fn generate_core_poq(
-        &self,
-        public_inputs: &PublicInputs,
-        key_index: u64,
-        core_path_and_selectors: CorePathAndSelectors,
-    ) -> Result<(ProofOfQuota, Fr), Self::Error>;
+
+    async fn execute<Operation>(&self, mut operator: Operation) -> Result<(), Self::Error>
+    where
+        Operation: SecureKeyOperator<Key = Self, Error = Self::Error> + Send + Debug,
+    {
+        operator.execute(self).await
+    }
 }

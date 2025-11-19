@@ -1,9 +1,6 @@
 use bytes::Bytes;
 use ed25519_dalek::{Signature, VerifyingKey, ed25519::signature::Signer as _};
-use groth16::Fr;
-use nomos_blend_message::crypto::proofs::quota::{ProofOfQuota, inputs::prove::PublicInputs};
 use nomos_utils::serde::{deserialize_bytes_array, serialize_bytes_array};
-use poq::CorePathAndSelectors;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use zeroize::ZeroizeOnDrop;
 
@@ -38,6 +35,7 @@ impl<'de> Deserialize<'de> for Ed25519Key {
     }
 }
 
+#[async_trait::async_trait]
 impl SecuredKey for Ed25519Key {
     type Payload = Bytes;
     type Signature = Signature;
@@ -57,14 +55,5 @@ impl SecuredKey for Ed25519Key {
 
     fn as_public_key(&self) -> VerifyingKey {
         self.0.verifying_key()
-    }
-
-    fn generate_core_poq(
-        &self,
-        _public_inputs: &PublicInputs,
-        _key_index: u64,
-        _core_path_and_selectors: CorePathAndSelectors,
-    ) -> Result<(ProofOfQuota, Fr), Self::Error> {
-        unimplemented!("Core PoQ generation is not implemented for Ed25519 keys.")
     }
 }

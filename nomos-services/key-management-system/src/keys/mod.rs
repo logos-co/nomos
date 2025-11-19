@@ -8,6 +8,7 @@ use key_management_system_macros::KmsEnumKey;
 use serde::{Deserialize, Serialize};
 use zeroize::ZeroizeOnDrop;
 
+use crate::keys::errors::KeyError;
 pub use crate::keys::{ed25519::Ed25519Key, zk::ZkKey};
 
 /// Entity that gathers all keys provided by the KMS crate.

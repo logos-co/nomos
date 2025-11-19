@@ -19,6 +19,7 @@ pub mod api;
 pub mod backend;
 pub mod keys;
 pub mod message;
+pub mod operators;
 
 pub struct KMSService<Backend, RuntimeServiceId>
 where
@@ -54,6 +55,7 @@ where
     <Backend::Key as SecuredKey>::Payload: Send,
     <Backend::Key as SecuredKey>::Signature: Send,
     <Backend::Key as SecuredKey>::PublicKey: Send,
+    Backend::KeyOperations: Send,
     Backend::Settings: Clone + Send + Sync,
     Backend::Error: Debug + Send,
     RuntimeServiceId: AsServiceId<Self> + Display + Send,
