@@ -143,12 +143,13 @@ pub fn create_node_configs(
 
         // Libp2p network config.
         let mut network_config = network_configs[i].clone();
-        network_config.swarm_config.host = Ipv4Addr::from_str("0.0.0.0").unwrap();
-        network_config.swarm_config.port = host.network_port;
+        network_config.backend.inner.host = Ipv4Addr::from_str("0.0.0.0").unwrap();
+        network_config.backend.inner.port = host.network_port;
         network_config
+            .backend
             .initial_peers
             .clone_from(&host_network_init_peers);
-        network_config.swarm_config.nat_config = nomos_libp2p::NatSettings::Static {
+        network_config.backend.inner.nat_config = nomos_libp2p::NatSettings::Static {
             external_address: Multiaddr::from_str(&format!(
                 "/ip4/{}/udp/{}/quic-v1",
                 host.ip, host.network_port
@@ -335,7 +336,7 @@ mod cfgsync_tests {
         );
 
         for (host, config) in &configs {
-            let network_port = config.network_config.swarm_config.port;
+            let network_port = config.network_config.backend.inner.port;
             let da_network_port = extract_port(&config.da_config.listening_address);
             let blend_port = extract_port(&config.blend_config.0.core.backend.listening_address);
 

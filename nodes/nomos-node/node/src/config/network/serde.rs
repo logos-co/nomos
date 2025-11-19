@@ -1,6 +1,6 @@
 use nomos_libp2p::{
     IdentifySettings, KademliaSettings, Multiaddr, NatSettings, cryptarchia_sync, ed25519,
-    gossipsub, protocol_name::StreamProtocol,
+    gossipsub,
 };
 use serde::{Deserialize, Serialize};
 
@@ -40,9 +40,6 @@ pub struct SwarmConfig {
         default = "nomos_libp2p::gossipsub::Config::default"
     )]
     pub gossipsub_config: gossipsub::Config,
-
-    pub kad_protocol_name: StreamProtocol,
-    pub identify_protocol_name: StreamProtocol,
 
     /// Kademlia config (required; Identify must be enabled too)
     #[serde(default)]

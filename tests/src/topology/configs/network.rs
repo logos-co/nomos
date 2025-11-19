@@ -1,6 +1,9 @@
 use std::time::Duration;
 
-use nomos_libp2p::{Multiaddr, SwarmConfig, ed25519};
+use nomos_libp2p::{
+    IdentifySettings, KademliaSettings, Multiaddr, NatSettings, ed25519, gossipsub,
+};
+use nomos_node::config::network::serde::{BackendSettings, Config, SwarmConfig};
 use nomos_utils::net::get_available_udp_port;
 
 use crate::node_address_from_port;
@@ -18,10 +21,19 @@ pub struct NetworkParams {
     pub libp2p_network_layout: Libp2pNetworkLayout,
 }
 
-#[derive(Clone)]
-pub struct GeneralNetworkConfig {
-    pub swarm_config: SwarmConfig,
-    pub initial_peers: Vec<Multiaddr>,
+pub type GeneralNetworkConfig = Config;
+
+fn default_swarm_config() -> SwarmConfig {
+    SwarmConfig {
+        host: std::net::Ipv4Addr::UNSPECIFIED,
+        port: 60000,
+        node_key: ed25519::SecretKey::generate(),
+        gossipsub_config: gossipsub::Config::default(),
+        kademlia_config: KademliaSettings::default(),
+        identify_config: IdentifySettings::default(),
+        chain_sync_config: cryptarchia_sync::Config::default(),
+        nat_config: NatSettings::default(),
+    }
 }
 
 #[must_use]
@@ -42,7 +54,7 @@ pub fn create_network_configs(
                 chain_sync_config: cryptarchia_sync::Config {
                     peer_response_timeout: Duration::from_secs(60),
                 },
-                ..Default::default()
+                ..default_swarm_config()
             }
         })
         .collect();
@@ -53,8 +65,10 @@ pub fn create_network_configs(
         .iter()
         .zip(all_initial_peers)
         .map(|(swarm_config, initial_peers)| GeneralNetworkConfig {
-            swarm_config: swarm_config.to_owned(),
-            initial_peers,
+            backend: BackendSettings {
+                initial_peers,
+                inner: swarm_config.to_owned(),
+            },
         })
         .collect()
 }
