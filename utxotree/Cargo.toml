@@ -15,7 +15,7 @@ groth16    = { features = ["deser"], workspace = true }
 num-bigint = { default-features = false, version = "0.4" }
 poseidon2  = { workspace = true }
 rpds       = { default-features = false, features = ["serde"], version = "1" }
-serde      = { default-features = false, features = ["alloc", "derive", "rc"], optional = true, version = "1.0" }
+serde      = { workspace = true, features = ["alloc", "derive", "rc"], optional = true }
 thiserror  = "1.0"
 
 [dev-dependencies]

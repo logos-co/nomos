@@ -22,7 +22,7 @@ multiaddr          = { default-features = false, version = "0.18" }
 nomos-core         = { workspace = true }
 overwatch          = { workspace = true }
 rocksdb            = { default-features = false, features = ["bindgen-runtime"], optional = true, version = "0.24" }
-serde              = { default-features = false, version = "1.0" }
+serde              = { workspace = true }
 thiserror          = "1.0"
 tokio              = { default-features = false, version = "1" }
 tracing            = { workspace = true }
