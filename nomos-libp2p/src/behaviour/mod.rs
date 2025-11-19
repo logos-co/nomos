@@ -6,13 +6,12 @@
 use std::error::Error;
 
 use cryptarchia_sync::ChainSyncError;
-use libp2p::{PeerId, autonat, identify, identity, kad, swarm::NetworkBehaviour};
+use libp2p::{PeerId, StreamProtocol, autonat, identify, identity, kad, swarm::NetworkBehaviour};
 use rand::RngCore;
 use thiserror::Error;
 
 use crate::{
     IdentifySettings, KademliaSettings, NatSettings, behaviour::gossipsub::compute_message_id,
-    protocol_name::StreamProtocol,
 };
 
 pub mod chainsync;

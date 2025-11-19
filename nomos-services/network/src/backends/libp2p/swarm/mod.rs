@@ -318,8 +318,8 @@ mod tests {
                 nomos_libp2p::KademliaSettings::default()
             },
             kad_protocol_name: StreamProtocol::new("kademlia/test"),
-            identify_config: nomos_libp2p::IdentifySettings::default(),
             identify_protocol_name: StreamProtocol::new("identify/test"),
+            identify_config: nomos_libp2p::IdentifySettings::default(),
             chain_sync_config: cryptarchia_sync::Config::default(),
             nat_config: nomos_libp2p::NatSettings::Traversal(nomos_libp2p::TraversalSettings {
                 autonat: nomos_libp2p::AutonatClientSettings {

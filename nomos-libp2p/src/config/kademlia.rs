@@ -1,9 +1,7 @@
 use std::{num::NonZeroUsize, time::Duration};
 
-use libp2p::kad;
+use libp2p::{StreamProtocol, kad};
 use serde::{Deserialize, Serialize};
-
-use crate::protocol_name::StreamProtocol;
 
 /// A serializable representation of Kademlia configuration options.
 /// When a value is None, the libp2p defaults are used.
@@ -77,7 +75,7 @@ pub enum CachingSettings {
 impl Settings {
     #[must_use]
     pub fn to_libp2p_config(&self, protocol_name: StreamProtocol) -> kad::Config {
-        let mut config = kad::Config::new(protocol_name.into_inner());
+        let mut config = kad::Config::new(protocol_name);
 
         if let Some(timeout) = self.query_timeout_secs {
             config.set_query_timeout(Duration::from_secs(timeout));

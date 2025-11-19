@@ -4,6 +4,9 @@ use nomos_libp2p::{
 };
 use serde::{Deserialize, Serialize};
 
+// Definition copied from the `nomos-network` service settings, assuming the
+// libp2p backend and removing the concrete protocol names, which will be
+// injected via the deployment configuration.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Config {
     pub backend: BackendSettings,
@@ -18,9 +21,6 @@ pub struct BackendSettings {
     pub initial_peers: Vec<Multiaddr>,
 }
 
-// Definition copied from the `nomos-network` service settings, assuming the
-// libp2p backend and removing the concrete protocol names, which will be
-// injected via the deployment configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SwarmConfig {
     /// Listening IPv4 address

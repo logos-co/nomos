@@ -1,9 +1,7 @@
 use std::time::Duration;
 
-use libp2p::{identify, identity};
+use libp2p::{StreamProtocol, identify, identity};
 use serde::{Deserialize, Serialize};
-
-use crate::protocol_name::StreamProtocol;
 
 /// A serializable representation of Identify configuration options.
 /// When a value is None, the libp2p defaults are used.
