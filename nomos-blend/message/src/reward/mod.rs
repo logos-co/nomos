@@ -118,13 +118,13 @@ impl BlendingTokenCollector for OldSessionBlendingTokenCollector {
 
 #[cfg(test)]
 mod tests {
-    use nomos_core::crypto::ZkHash;
+    use nomos_core::{
+        blend::{PROOF_OF_QUOTA_SIZE, PROOF_OF_SELECTION_SIZE},
+        crypto::ZkHash,
+    };
 
     use super::*;
-    use crate::crypto::proofs::{
-        quota::{PROOF_OF_QUOTA_SIZE, ProofOfQuota},
-        selection::{PROOF_OF_SELECTION_SIZE, ProofOfSelection},
-    };
+    use crate::crypto::proofs::{quota::ProofOfQuota, selection::ProofOfSelection};
 
     #[test_log::test(test)]
     fn test_blending_token_collector() {

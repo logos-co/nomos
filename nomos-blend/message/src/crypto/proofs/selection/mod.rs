@@ -3,7 +3,7 @@ use std::sync::LazyLock;
 
 use ::serde::{Deserialize, Serialize};
 use groth16::{fr_from_bytes, fr_from_bytes_unchecked, fr_to_bytes};
-use nomos_core::crypto::ZkHash;
+use nomos_core::{blend::PROOF_OF_SELECTION_SIZE, crypto::ZkHash};
 use num_bigint::BigUint;
 use thiserror::Error;
 
@@ -17,7 +17,6 @@ pub mod inputs;
 #[cfg(test)]
 mod tests;
 
-pub const PROOF_OF_SELECTION_SIZE: usize = size_of::<ProofOfSelection>();
 const DOMAIN_SEPARATION_TAG: [u8; 9] = *b"BlendNode";
 
 /// A Proof of Selection as described in the Blend v1 spec: <https://www.notion.so/nomos-tech/Blend-Protocol-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81d6bb3febd62b598138>.
@@ -132,13 +131,18 @@ pub fn derive_key_nullifier_from_secret_selection_randomness(
     .compress()
 }
 
-impl TryFrom<[u8; PROOF_OF_SELECTION_SIZE]> for ProofOfSelection {
-    type Error = Error;
+impl TryFrom<&[u8; PROOF_OF_SELECTION_SIZE]> for ProofOfSelection {
+    type Error = Box<dyn std::error::Error>;
 
-    fn try_from(value: [u8; PROOF_OF_SELECTION_SIZE]) -> Result<Self, Self::Error> {
+    fn try_from(value: &[u8; PROOF_OF_SELECTION_SIZE]) -> Result<Self, Self::Error> {
         Ok(Self {
-            selection_randomness: fr_from_bytes(&value)
-                .map_err(|e| Error::InvalidInput(Box::new(e)))?,
+            selection_randomness: fr_from_bytes(value).map_err(Box::new)?,
         })
+    }
+}
+
+impl From<&ProofOfSelection> for [u8; PROOF_OF_SELECTION_SIZE] {
+    fn from(proof: &ProofOfSelection) -> Self {
+        fr_to_bytes(&proof.selection_randomness)
     }
 }

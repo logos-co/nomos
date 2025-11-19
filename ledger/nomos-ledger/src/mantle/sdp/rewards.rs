@@ -164,7 +164,6 @@ impl Rewards for DaRewards {
         _block_number: BlockNumber,
     ) -> Result<Self, Error> {
         // Extract DA activity proof from metadata
-        #[expect(irrefutable_let_patterns, reason = "enum will grow in the future")]
         let ActivityMetadata::DataAvailability(proof) = metadata else {
             return Err(Error::InvalidProofType);
         };
