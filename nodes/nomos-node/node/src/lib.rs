@@ -62,6 +62,7 @@ pub use tx_service::{
 pub use crate::config::{Config, CryptarchiaLeaderArgs, HttpArgs, LogArgs, NetworkArgs};
 use crate::{
     api::backend::AxumBackend,
+    config::blend::ServiceConfig as BlendConfig,
     generic_services::{
         DaMembershipAdapter, DaMembershipStorageGeneric, SdpMempoolAdapterGeneric, SdpService,
         SdpServiceAdapterGeneric,
@@ -231,7 +232,11 @@ pub struct Nomos {
 }
 
 pub fn run_node_from_config(config: Config) -> Result<Overwatch<RuntimeServiceId>, DynError> {
-    let (blend_config, blend_core_config, blend_edge_config) = config.blend.into();
+    let (blend_config, blend_core_config, blend_edge_config) = BlendConfig {
+        user: config.blend,
+        deployment: config.deployment.into(),
+    }
+    .into();
 
     let app = OverwatchRunner::<Nomos>::run(
         NomosServiceSettings {

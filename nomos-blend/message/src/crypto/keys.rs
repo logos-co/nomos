@@ -47,6 +47,18 @@ impl From<[u8; KEY_SIZE]> for Ed25519PrivateKey {
     }
 }
 
+impl From<ed25519_dalek::SigningKey> for Ed25519PrivateKey {
+    fn from(value: ed25519_dalek::SigningKey) -> Self {
+        Self(value)
+    }
+}
+
+impl From<Ed25519PrivateKey> for ed25519_dalek::SigningKey {
+    fn from(value: Ed25519PrivateKey) -> Self {
+        Self::from_bytes(value.as_bytes())
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct Ed25519PublicKey(ed25519_dalek::VerifyingKey);
 

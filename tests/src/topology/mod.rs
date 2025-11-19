@@ -198,18 +198,15 @@ impl Topology {
                 note: consensus_configs[0].da_notes[i].clone(),
             })
             .collect();
-        providers.extend(
-            blend_configs
-                .iter()
-                .enumerate()
-                .map(|(i, blend_conf)| ProviderInfo {
-                    service_type: ServiceType::BlendNetwork,
-                    provider_sk: blend_conf.signer.clone(),
-                    zk_sk: blend_conf.secret_zk_key.clone(),
-                    locator: Locator(blend_conf.backend_core.listening_address.clone()),
-                    note: consensus_configs[0].blend_notes[i].clone(),
-                }),
-        );
+        providers.extend(blend_configs.iter().enumerate().map(
+            |(i, (blend_conf, zk_secret_key))| ProviderInfo {
+                service_type: ServiceType::BlendNetwork,
+                provider_sk: blend_conf.common.non_ephemeral_signing_key.clone().into(),
+                zk_sk: zk_secret_key.clone(),
+                locator: Locator(blend_conf.core.backend.listening_address.clone()),
+                note: consensus_configs[0].blend_notes[i].clone(),
+            },
+        ));
 
         // Update genesis TX to contain Blend and DA providers.
         let genesis_tx = create_genesis_tx_with_declarations(ledger_tx, providers);
@@ -685,28 +682,36 @@ pub fn create_kms_configs(
     da_configs
         .iter()
         .zip(blend_configs.iter())
-        .map(|(da_conf, blend_conf)| PreloadKMSBackendSettings {
-            keys: [
-                (
-                    key_id_for_preload_backend(&Ed25519Key::new(blend_conf.signer.clone()).into()),
-                    Ed25519Key::new(blend_conf.signer.clone()).into(),
-                ),
-                (
-                    key_id_for_preload_backend(
-                        &ZkKey::new(blend_conf.secret_zk_key.clone()).into(),
+        .map(
+            |(da_conf, (blend_conf, zk_secret_key))| PreloadKMSBackendSettings {
+                keys: [
+                    (
+                        key_id_for_preload_backend(
+                            &Ed25519Key::new(
+                                blend_conf.common.non_ephemeral_signing_key.clone().into(),
+                            )
+                            .into(),
+                        ),
+                        Ed25519Key::new(blend_conf.common.non_ephemeral_signing_key.clone().into())
+                            .into(),
                     ),
-                    ZkKey::new(blend_conf.secret_zk_key.clone()).into(),
-                ),
-                (
-                    key_id_for_preload_backend(&Ed25519Key::new(da_conf.signer.clone()).into()),
-                    Ed25519Key::new(da_conf.signer.clone()).into(),
-                ),
-                (
-                    key_id_for_preload_backend(&ZkKey::new(da_conf.secret_zk_key.clone()).into()),
-                    ZkKey::new(da_conf.secret_zk_key.clone()).into(),
-                ),
-            ]
-            .into(),
-        })
+                    (
+                        blend_conf.core.zk.secret_key_kms_id.clone(),
+                        ZkKey::new(zk_secret_key.clone()).into(),
+                    ),
+                    (
+                        key_id_for_preload_backend(&Ed25519Key::new(da_conf.signer.clone()).into()),
+                        Ed25519Key::new(da_conf.signer.clone()).into(),
+                    ),
+                    (
+                        key_id_for_preload_backend(
+                            &ZkKey::new(da_conf.secret_zk_key.clone()).into(),
+                        ),
+                        ZkKey::new(da_conf.secret_zk_key.clone()).into(),
+                    ),
+                ]
+                .into(),
+            },
+        )
         .collect()
 }
