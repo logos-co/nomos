@@ -1,6 +1,5 @@
 use std::{fmt::Debug, marker::PhantomData};
 
-use async_trait::async_trait;
 use zeroize::ZeroizeOnDrop;
 
 #[async_trait::async_trait]
@@ -13,9 +12,8 @@ pub trait SecureKeyOperator {
 pub trait DebugSecureKeyOperator: SecureKeyOperator + Debug {}
 impl<T: SecureKeyOperator + Debug> DebugSecureKeyOperator for T {}
 
-pub type BoxedSecureKeyOperator<
-    Key: SecuredKey + Debug + PartialEq + Eq + Clone + Send + Sync + 'static,
-> = Box<dyn DebugSecureKeyOperator<Key = Key, Error = Key::Error> + Send + Sync>;
+pub type BoxedSecureKeyOperator<Key> =
+    Box<dyn DebugSecureKeyOperator<Key = Key, Error = <Key as SecuredKey>::Error> + Send + Sync>;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct NoKeyOperator<Key, Error> {

@@ -1,29 +1,19 @@
 use core::fmt::{Debug, Display};
 
 use async_trait::async_trait;
-use futures::{executor::block_on, future::ready};
 use key_management_system::{
     KMSService,
     api::KmsServiceApi,
     backend::preload::{KeyId, PreloadKMSBackend},
-    keys::{
-        KeyOperators, ZkKey,
-        errors::KeyError,
-        secured_key::{SecureKeyOperator, SecuredKey},
-    },
+    keys::KeyOperators,
     operators::blend::poq::PoQOperator,
 };
-use libp2p::swarm::Executor;
-use nomos_blend_message::crypto::proofs::quota::{
-    self, ProofOfQuota,
-    inputs::prove::{PrivateInputs, PublicInputs, private::ProofOfCoreQuotaInputs},
-};
+use nomos_blend_message::crypto::proofs::quota::{self, ProofOfQuota, inputs::prove::PublicInputs};
 use nomos_blend_scheduling::message_blend::CoreProofOfQuotaGenerator;
 use nomos_core::crypto::ZkHash;
 use overwatch::services::AsServiceId;
 use poq::CorePathAndSelectors;
-use tokio::{sync::oneshot, task::spawn_blocking};
-use tracing::error;
+use tokio::sync::oneshot;
 
 const LOG_TARGET: &str = "blend::service::core::kms-poq-generator";
 
@@ -98,9 +88,9 @@ where
             generate_and_send_kms_poq(
                 kms_api,
                 key_id,
-                *public_inputs,
+                public_inputs,
                 key_index,
-                core_path_and_selectors,
+                &core_path_and_selectors,
                 res_sender,
             )
             .await;
@@ -117,9 +107,9 @@ where
 async fn generate_and_send_kms_poq<RuntimeServiceId>(
     kms_api: KmsServiceApi<PreloadKmsService<RuntimeServiceId>, RuntimeServiceId>,
     key_id: KeyId,
-    public_inputs: PublicInputs,
+    public_inputs: &PublicInputs,
     key_index: u64,
-    core_path_and_selectors: CorePathAndSelectors,
+    core_path_and_selectors: &CorePathAndSelectors,
     result_sender: oneshot::Sender<Result<(ProofOfQuota, ZkHash), quota::Error>>,
 ) where
     RuntimeServiceId:
@@ -129,8 +119,8 @@ async fn generate_and_send_kms_poq<RuntimeServiceId>(
         .execute(
             key_id,
             KeyOperators::Zk(Box::new(PoQOperator::new(
-                core_path_and_selectors,
-                public_inputs,
+                *core_path_and_selectors,
+                *public_inputs,
                 key_index,
                 result_sender,
             ))),

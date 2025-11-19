@@ -31,7 +31,8 @@ impl Debug for PoQOperator {
 }
 
 impl PoQOperator {
-    pub fn new(
+    #[must_use]
+    pub const fn new(
         core_path_and_selectors: CorePathAndSelectors,
         public_inputs: PublicInputs,
         key_index: u64,

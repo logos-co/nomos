@@ -4,8 +4,6 @@ pub mod secured_key;
 mod ed25519;
 mod zk;
 
-use std::pin::pin;
-
 use key_management_system_macros::KmsEnumKey;
 use serde::{Deserialize, Serialize};
 use zeroize::ZeroizeOnDrop;
@@ -39,8 +37,8 @@ impl SecureKeyOperator for KeyOperators {
 
     async fn execute(&mut self, key: &Self::Key) -> Result<(), Self::Error> {
         match (self, key) {
-            (KeyOperators::Ed25519(operator), Key::Ed25519(key)) => operator.execute(key).await,
-            (KeyOperators::Zk(operator), Key::Zk(key)) => operator.execute(key).await,
+            (Self::Ed25519(operator), Key::Ed25519(key)) => operator.execute(key).await,
+            (Self::Zk(operator), Key::Zk(key)) => operator.execute(key).await,
             (operator, key) => Err(KeyError::UnsupportedKeyOperator {
                 operator: format!("{operator:?}"),
                 key: format!("{key:?}"),
