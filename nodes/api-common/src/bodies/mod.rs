@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 
 pub mod dispersal;
-#[cfg(feature = "wallet")]
 pub mod wallet;
 
 /// A no-operation body for endpoints that do not require a request or response

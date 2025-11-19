@@ -63,13 +63,11 @@ use {
     chain_service::CryptarchiaConsensus,
 };
 
-#[cfg(feature = "wallet")]
-use super::handlers::wallet;
 use super::handlers::{
     add_share, add_tx, balancer_stats, blacklisted_peers, block, block_peer, cryptarchia_headers,
     cryptarchia_info, cryptarchia_lib_stream, da_get_commitments, da_get_light_share,
     da_get_shares, da_get_storage_commitments, libp2p_info, mantle_metrics, mantle_status,
-    monitor_stats, unblock_peer,
+    monitor_stats, unblock_peer, wallet,
 };
 use crate::{
     WalletService,
@@ -538,27 +536,7 @@ where
             .route(
                 paths::SDP_POST_WITHDRAWAL,
                 routing::post(post_withdrawal::<SdpMempool, RuntimeServiceId>),
-            );
-
-        #[cfg(feature = "block-explorer")]
-        let app = app
-            .route(
-                paths::BLOCKS,
-                routing::get(blocks::<DaStorageBackend, RuntimeServiceId>),
             )
-            .route(
-                paths::BLOCKS_STREAM,
-                routing::get(
-                    blocks_stream::<
-                        DaStorageBackend,
-                        CryptarchiaConsensus<_, _, _>,
-                        RuntimeServiceId,
-                    >,
-                ),
-            );
-
-        #[cfg(feature = "wallet")]
-        let app = app
             .route(
                 paths::wallet::BALANCE,
                 routing::get(
@@ -585,6 +563,23 @@ where
                         MempoolStorageAdapter,
                         TimeBackend,
                         _,
+                    >,
+                ),
+            );
+
+        #[cfg(feature = "block-explorer")]
+        let app = app
+            .route(
+                paths::BLOCKS,
+                routing::get(blocks::<DaStorageBackend, RuntimeServiceId>),
+            )
+            .route(
+                paths::BLOCKS_STREAM,
+                routing::get(
+                    blocks_stream::<
+                        DaStorageBackend,
+                        CryptarchiaConsensus<_, _, _>,
+                        RuntimeServiceId,
                     >,
                 ),
             );
