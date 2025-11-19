@@ -9,7 +9,7 @@ use nomos_blend_message::crypto::proofs::{
 };
 use poq::CorePathAndSelectors;
 use poseidon2::ZkHash;
-use tokio::sync::oneshot;
+use tokio::{sync::oneshot, task::spawn_blocking};
 use tracing::error;
 
 use crate::keys::{
@@ -53,16 +53,19 @@ impl SecureKeyOperator for PoQOperator {
     type Error = <ZkKey as SecuredKey>::Error;
 
     async fn execute(&mut self, key: &Self::Key) -> Result<(), Self::Error> {
-        let poq_result = ProofOfQuota::new(
-            &self.public_inputs,
-            PrivateInputs::new_proof_of_core_quota_inputs(
-                self.key_index,
-                ProofOfCoreQuotaInputs {
-                    core_path_and_selectors: self.core_path_and_selectors,
-                    core_sk: *key.as_fr(),
-                },
-            ),
+        let private_inputs = PrivateInputs::new_proof_of_core_quota_inputs(
+            self.key_index,
+            ProofOfCoreQuotaInputs {
+                core_path_and_selectors: self.core_path_and_selectors,
+                core_sk: *key.as_fr(),
+            },
         );
+        let public_inputs = self.public_inputs;
+        // spawn a blocking task as this computation is heavy atm because it needs of an
+        // external binary.
+        let poq_result = spawn_blocking(move || ProofOfQuota::new(&public_inputs, private_inputs))
+            .await
+            .map_err(Self::Error::FailedOperatorCall)?;
         if let Err(e) = self
             .response_channel
             .take()
