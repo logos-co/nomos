@@ -10,14 +10,14 @@ use nomos_blend_message::{
             quota::inputs::prove::{private::ProofOfLeadershipQuotaInputs, public::LeaderInputs},
         },
     },
+    encap::encapsulated::EncapsulatedMessage,
     input::EncapsulationInput,
 };
 
 use crate::{
-    EncapsulatedMessage,
     membership::Membership,
     message_blend::{
-        crypto::{EncapsulationInputs, SessionCryptographicProcessorSettings},
+        crypto::SessionCryptographicProcessorSettings,
         provers::{ProofsGeneratorSettings, core_and_leader::CoreAndLeaderProofsGenerator},
     },
     serialize_encapsulated_message,
@@ -191,20 +191,17 @@ where
                 )
             });
 
-        let inputs = EncapsulationInputs::new(
-            proofs_and_signing_keys
-                .into_iter()
-                .map(|(proof, receiver_non_ephemeral_signing_key)| {
-                    EncapsulationInput::new(
-                        proof.ephemeral_signing_key,
-                        &receiver_non_ephemeral_signing_key,
-                        proof.proof_of_quota,
-                        proof.proof_of_selection,
-                    )
-                })
-                .collect::<Vec<_>>()
-                .into_boxed_slice(),
-        )?;
+        let inputs = proofs_and_signing_keys
+            .into_iter()
+            .map(|(proof, receiver_non_ephemeral_signing_key)| {
+                EncapsulationInput::new(
+                    proof.ephemeral_signing_key,
+                    &receiver_non_ephemeral_signing_key,
+                    proof.proof_of_quota,
+                    proof.proof_of_selection,
+                )
+            })
+            .collect::<Vec<_>>();
 
         EncapsulatedMessage::new(&inputs, payload_type, payload)
     }

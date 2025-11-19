@@ -20,17 +20,21 @@ use libp2p::{
         dummy::ConnectionHandler as DummyConnectionHandler,
     },
 };
+#[cfg(any(test, feature = "unsafe-test-functions"))]
+use nomos_blend_message::encap::encapsulated::EncapsulatedMessage;
 use nomos_blend_message::{
-    MessageIdentifier, crypto::proofs::quota::inputs::prove::public::LeaderInputs, encap,
+    MessageIdentifier,
+    crypto::proofs::quota::inputs::prove::public::LeaderInputs,
+    encap::{
+        self,
+        validated::{
+            IncomingEncapsulatedMessageWithValidatedPublicHeader,
+            OutgoingEncapsulatedMessageWithValidatedPublicHeader,
+        },
+    },
 };
 use nomos_blend_scheduling::{
-    EncapsulatedMessage, deserialize_encapsulated_message,
-    membership::Membership,
-    message_blend::crypto::{
-        IncomingEncapsulatedMessageWithValidatedPublicHeader,
-        OutgoingEncapsulatedMessageWithValidatedPublicHeader,
-    },
-    serialize_encapsulated_message,
+    deserialize_encapsulated_message, membership::Membership, serialize_encapsulated_message,
 };
 
 use crate::core::with_core::{
