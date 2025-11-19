@@ -2,7 +2,7 @@ use core::{hash::Hash, marker::PhantomData};
 use std::num::NonZeroU64;
 
 use nomos_blend_message::{
-    Error, PayloadType,
+    Error, PaddedPayloadBody, PayloadType,
     crypto::{
         keys::X25519PrivateKey,
         proofs::{
@@ -144,6 +144,8 @@ where
         payload_type: PayloadType,
         payload: &[u8],
     ) -> Result<EncapsulatedMessage, Error> {
+        // We validate the payload early on so we don't generate proofs unnecessarily.
+        let validated_payload = PaddedPayloadBody::try_from(payload)?;
         let mut proofs = Vec::with_capacity(self.num_blend_layers.get() as usize);
 
         match payload_type {
@@ -203,7 +205,11 @@ where
             })
             .collect::<Vec<_>>();
 
-        EncapsulatedMessage::new(&inputs, payload_type, payload)
+        Ok(EncapsulatedMessage::new(
+            &inputs,
+            payload_type,
+            validated_payload,
+        ))
     }
 }
 

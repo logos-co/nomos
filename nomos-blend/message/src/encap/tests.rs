@@ -121,7 +121,8 @@ fn encapsulate_and_decapsulate() {
     let verifier = NeverFailingProofsVerifier;
 
     let (inputs, blend_node_enc_keys) = generate_inputs(2);
-    let msg = EncapsulatedMessage::new(&inputs, PayloadType::Data, PAYLOAD_BODY).unwrap();
+    let msg =
+        EncapsulatedMessage::new(&inputs, PayloadType::Data, PAYLOAD_BODY.try_into().unwrap());
 
     // NOTE: We expect that the decapsulations can be done
     // in the "reverse" order of blend_node_enc_keys.
@@ -181,17 +182,16 @@ fn encapsulate_and_decapsulate() {
 }
 
 #[test]
+#[should_panic(expected = "Payload too large")]
 fn payload_too_long() {
     let (inputs, _) = generate_inputs(1);
-    assert!(matches!(
-        EncapsulatedMessage::new(
-            &inputs,
-            PayloadType::Data,
-            &vec![0u8; MAX_PAYLOAD_BODY_SIZE + 1]
-        )
-        .err(),
-        Some(Error::PayloadTooLarge)
-    ));
+    let _ = EncapsulatedMessage::new(
+        &inputs,
+        PayloadType::Data,
+        vec![0u8; MAX_PAYLOAD_BODY_SIZE + 1]
+            .try_into()
+            .expect("Payload too large"),
+    );
 }
 
 #[test]
@@ -201,7 +201,8 @@ fn invalid_public_header_signature() {
 
     let msg_with_invalid_signature = {
         let (inputs, _) = generate_inputs(2);
-        let mut msg = EncapsulatedMessage::new(&inputs, PayloadType::Data, PAYLOAD_BODY).unwrap();
+        let mut msg =
+            EncapsulatedMessage::new(&inputs, PayloadType::Data, PAYLOAD_BODY.try_into().unwrap());
         *msg.public_header_mut().signature_mut() = Signature::from([100u8; SIGNATURE_SIZE]);
         msg
     };
@@ -222,7 +223,8 @@ fn invalid_public_header_proof_of_quota() {
     let verifier = AlwaysFailingProofOfQuotaVerifier;
 
     let (inputs, _) = generate_inputs(2);
-    let msg = EncapsulatedMessage::new(&inputs, PayloadType::Data, PAYLOAD_BODY).unwrap();
+    let msg =
+        EncapsulatedMessage::new(&inputs, PayloadType::Data, PAYLOAD_BODY.try_into().unwrap());
 
     let public_header_verification_result = msg.verify_public_header(&verifier);
     assert!(matches!(
@@ -241,7 +243,8 @@ fn invalid_blend_header_proof_of_selection() {
     let verifier = AlwaysFailingProofOfSelectionVerifier;
 
     let (inputs, blend_node_enc_keys) = generate_inputs(2);
-    let msg = EncapsulatedMessage::new(&inputs, PayloadType::Data, PAYLOAD_BODY).unwrap();
+    let msg =
+        EncapsulatedMessage::new(&inputs, PayloadType::Data, PAYLOAD_BODY.try_into().unwrap());
 
     let validated_message = msg.verify_public_header(&verifier).unwrap();
 

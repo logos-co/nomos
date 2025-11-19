@@ -19,7 +19,7 @@ use crate::{
         validated::IncomingEncapsulatedMessageWithValidatedPublicHeader,
     },
     input::EncapsulationInput,
-    message::{BlendingHeader, Payload, PublicHeader},
+    message::{BlendingHeader, Payload, PublicHeader, payload::PaddedPayloadBody},
 };
 
 pub type MessageIdentifier = Ed25519PublicKey;
@@ -36,17 +36,18 @@ pub struct EncapsulatedMessage {
 impl EncapsulatedMessage {
     /// Creates a new [`EncapsulatedMessage`] with the provided inputs and
     /// payload.
+    #[must_use]
     pub fn new(
         inputs: &[EncapsulationInput],
         payload_type: PayloadType,
-        payload_body: &[u8],
-    ) -> Result<Self, Error> {
+        payload_body: PaddedPayloadBody,
+    ) -> Self {
         // Create the encapsulated part.
         let (part, signing_key, proof_of_quota) = inputs.iter().enumerate().fold(
             (
                 // Start with an initialized encapsulated part,
                 // a random signing key, and proof of quota.
-                EncapsulatedPart::initialize(inputs, payload_type, payload_body)?,
+                EncapsulatedPart::initialize(inputs, payload_type, payload_body),
                 Ed25519PrivateKey::generate(),
                 ProofOfQuota::from_bytes_unchecked(random_sized_bytes()),
             ),
@@ -72,10 +73,10 @@ impl EncapsulatedMessage {
             part.sign(&signing_key),
         );
 
-        Ok(Self {
+        Self {
             public_header,
             encapsulated_part: part,
-        })
+        }
     }
 
     #[must_use]
@@ -150,12 +151,12 @@ impl EncapsulatedPart {
     fn initialize(
         inputs: &[EncapsulationInput],
         payload_type: PayloadType,
-        payload_body: &[u8],
-    ) -> Result<Self, Error> {
-        Ok(Self {
+        payload_body: PaddedPayloadBody,
+    ) -> Self {
+        Self {
             private_header: EncapsulatedPrivateHeader::initialize(inputs),
-            payload: EncapsulatedPayload::initialize(&Payload::new(payload_type, payload_body)?),
-        })
+            payload: EncapsulatedPayload::initialize(&Payload::new(payload_type, payload_body)),
+        }
     }
 
     /// Add a layer of encapsulation.

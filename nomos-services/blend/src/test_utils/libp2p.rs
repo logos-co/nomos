@@ -27,9 +27,11 @@ pub struct TestEncapsulatedMessage(EncapsulatedMessage);
 
 impl TestEncapsulatedMessage {
     pub fn new(payload: &[u8]) -> Self {
-        Self(
-            EncapsulatedMessage::new(&generate_valid_inputs(), PayloadType::Data, payload).unwrap(),
-        )
+        Self(EncapsulatedMessage::new(
+            &generate_valid_inputs(),
+            PayloadType::Data,
+            payload.try_into().unwrap(),
+        ))
     }
 
     pub fn into_inner(self) -> EncapsulatedMessage {
