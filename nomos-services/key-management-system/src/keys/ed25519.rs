@@ -41,7 +41,6 @@ impl SecuredKey for Ed25519Key {
     type Signature = Signature;
     type PublicKey = VerifyingKey;
     type Error = KeyError;
-    // type Operations = NoKeyOperator<Self, Self::Error>;
 
     fn sign(&self, payload: &Self::Payload) -> Result<Self::Signature, Self::Error> {
         Ok(self.0.sign(payload.iter().as_slice()))

@@ -26,7 +26,6 @@ impl SecuredKey for ZkKey {
     type Signature = Signature;
     type PublicKey = PublicKey;
     type Error = KeyError;
-    // type Operations = NoKeyOperator<Self, Self::Error>;
 
     fn sign(&self, payload: &Self::Payload) -> Result<Self::Signature, Self::Error> {
         Ok(self.0.sign(payload)?)
