@@ -1,6 +1,7 @@
 use std::{
     cmp::min,
     collections::{HashMap, HashSet},
+    num::NonZeroU64,
 };
 
 use groth16::Fr;
@@ -12,7 +13,9 @@ use nomos_core::{
     block::BlockNumber,
     sdp::{ActivityMetadata, ProviderId, ServiceParameters, SessionNumber},
 };
+use nomos_utils::math::NonNegativeF64;
 use rpds::{HashTrieMapSync, HashTrieSetSync};
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use super::SessionState;
@@ -26,7 +29,7 @@ const ACTIVITY_THRESHOLD: u64 = 2;
 /// The rewards object is updated with active messages and session transitions,
 /// and can calculate expected rewards for each provider based on the service's
 /// internal logic.
-pub trait Rewards: Clone + PartialEq + Eq + Send + Sync + std::fmt::Debug {
+pub trait Rewards: Clone + PartialEq + Send + Sync + std::fmt::Debug {
     /// Update rewards state when an active message is received.
     ///
     /// Called when a provider submits an active message with metadata
@@ -59,35 +62,6 @@ pub trait Rewards: Clone + PartialEq + Eq + Send + Sync + std::fmt::Debug {
         next_active_session_epoch_nonce: &Fr,
         config: &ServiceParameters,
     ) -> (Self, HashMap<ProviderId, RewardAmount>);
-}
-
-/// No-op rewards implementation that doesn't track or distribute any rewards.
-///
-/// This is used as a placeholder for services that don't implement rewards yet.
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct NoopRewards;
-
-impl Rewards for NoopRewards {
-    fn update_active(
-        &self,
-        _declaration_id: ProviderId,
-        _metadata: &ActivityMetadata,
-        _block_number: BlockNumber,
-    ) -> Result<Self, Error> {
-        // No-op: this implementation doesn't track rewards
-        Ok(self.clone())
-    }
-
-    fn update_session(
-        &self,
-        _last_active: &SessionState,
-        _next_active_session_epoch_nonce: &Fr,
-        _config: &ServiceParameters,
-    ) -> (Self, HashMap<ProviderId, RewardAmount>) {
-        // No rewards to distribute
-        (self.clone(), HashMap::new())
-    }
 }
 
 /// Data Availability rewards implementation based on opinion-based peer
@@ -292,20 +266,30 @@ impl Rewards for DaRewards {
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BlendRewards {
-    /// State of the session that is referenced by the submitted proofs.
-    /// This is `s-1` if `s` is the session at which this message was sent.
-    session_state: SessionState,
-    /// Session randomness for the session `s`.
-    next_session_randomness: SessionRandomness,
-    /// Proofs submitted by providers in the session corresponding to
-    /// `session_state`.
-    submitted_proofs: HashTrieMapSync<ProviderId, u64>,
-    /// Tracking the minimum Hamming distance among submitted proofs.
-    min_hamming_distance: u64,
-    /// Settings that don't change per session.
-    expected_token_count_byte_len: u64,
+#[derive(Clone, Debug, PartialEq)]
+pub enum BlendRewards {
+    Uninitialized(BlendRewardsParameters),
+    Initialized {
+        /// State of the session that is referenced by the submitted proofs.
+        /// This is `s-1` if `s` is the session at which this message was sent.
+        session_state: SessionState,
+        /// Session randomness for the session `s`.
+        next_session_randomness: SessionRandomness,
+        /// Proofs submitted by providers in the session corresponding to
+        /// `session_state`.
+        submitted_proofs: HashTrieMapSync<ProviderId, u64>,
+        /// Tracking the minimum Hamming distance among submitted proofs.
+        min_hamming_distance: u64,
+        /// Settings that don't change per session.
+        settings: BlendRewardsParameters,
+    },
+}
+
+impl BlendRewards {
+    #[must_use]
+    pub const fn new(settings: BlendRewardsParameters) -> Self {
+        Self::Uninitialized(settings)
+    }
 }
 
 impl Rewards for BlendRewards {
@@ -315,41 +299,60 @@ impl Rewards for BlendRewards {
         metadata: &ActivityMetadata,
         _block_number: BlockNumber,
     ) -> Result<Self, Error> {
-        let ActivityMetadata::Blend(proof) = metadata else {
-            return Err(Error::InvalidProofType);
-        };
+        match self {
+            Self::Uninitialized(_) => Err(Error::Uninitialized),
+            Self::Initialized {
+                session_state,
+                next_session_randomness,
+                submitted_proofs,
+                min_hamming_distance,
+                settings,
+            } => {
+                let ActivityMetadata::Blend(proof) = metadata else {
+                    return Err(Error::InvalidProofType);
+                };
 
-        if self.submitted_proofs.contains_key(&provider_id) {
-            return Err(Error::DuplicateActiveMessage {
-                session: proof.session,
-                provider_id: Box::new(provider_id),
-            });
+                if submitted_proofs.contains_key(&provider_id) {
+                    return Err(Error::DuplicateActiveMessage {
+                        session: proof.session,
+                        provider_id: Box::new(provider_id),
+                    });
+                }
+
+                if proof.session != session_state.session_n {
+                    return Err(Error::InvalidSession {
+                        expected: session_state.session_n,
+                        got: proof.session,
+                    });
+                }
+
+                let num_declarations = session_state.declarations.size() as u64;
+                if num_declarations < settings.minimum_network_size.get() {
+                    return Err(Error::MinimumNetworkSizeNotSatisfied {
+                        num_declarations,
+                        minimum_network_size: settings.minimum_network_size,
+                    });
+                }
+
+                // TODO: Validate PoQ and PoSel
+                let token = BlendingToken::new(
+                    ProofOfQuota::from_bytes_unchecked(proof.proof_of_quota),
+                    ProofOfSelection::from_bytes_unchecked(proof.proof_of_selection),
+                );
+                let hamming_distance = token.hamming_distance(
+                    settings.expected_token_count_byte_len(num_declarations),
+                    *next_session_randomness,
+                );
+
+                Ok(Self::Initialized {
+                    session_state: session_state.clone(),
+                    next_session_randomness: *next_session_randomness,
+                    submitted_proofs: submitted_proofs.insert(provider_id, hamming_distance),
+                    min_hamming_distance: min(*min_hamming_distance, hamming_distance),
+                    settings: settings.clone(),
+                })
+            }
         }
-
-        if proof.session != self.session_state.session_n {
-            return Err(Error::InvalidSession {
-                expected: self.session_state.session_n,
-                got: proof.session,
-            });
-        }
-
-        // TODO: Validate PoQ and PoSel
-        let token = BlendingToken::new(
-            ProofOfQuota::from_bytes_unchecked(proof.proof_of_quota),
-            ProofOfSelection::from_bytes_unchecked(proof.proof_of_selection),
-        );
-        let hamming_distance = token.hamming_distance(
-            self.expected_token_count_byte_len,
-            self.next_session_randomness,
-        );
-
-        Ok(Self {
-            session_state: self.session_state.clone(),
-            next_session_randomness: self.next_session_randomness,
-            submitted_proofs: self.submitted_proofs.insert(provider_id, hamming_distance),
-            min_hamming_distance: min(self.min_hamming_distance, hamming_distance),
-            expected_token_count_byte_len: self.expected_token_count_byte_len,
-        })
     }
 
     fn update_session(
@@ -358,55 +361,92 @@ impl Rewards for BlendRewards {
         next_active_session_epoch_nonce: &Fr,
         _config: &ServiceParameters,
     ) -> (Self, HashMap<ProviderId, RewardAmount>) {
-        // TODO: Calculate base rewards when session_income is added to config
-        // For now using placeholder value of 0
-        let session_income = 0;
-
-        // Identify premium providers with the minimum Hamming distance
-        let premium_providers = self
-            .submitted_proofs
-            .iter()
-            .filter_map(|(&id, &hamming_distance)| {
-                (hamming_distance == self.min_hamming_distance).then_some(id)
-            })
-            .collect::<HashSet<_>>();
-
-        // Calculate base reward
-        let base_reward = if self.submitted_proofs.is_empty() {
-            0
-        } else {
-            session_income / (self.submitted_proofs.size() as u64 + premium_providers.len() as u64)
-        };
-
-        // Calculate reward for each provider
-        let mut rewards = HashMap::new();
-        for provider_id in self.submitted_proofs.keys() {
-            let reward = if premium_providers.contains(provider_id) {
-                base_reward * 2
-            } else {
-                base_reward
-            };
-            rewards.insert(*provider_id, reward);
-        }
-
-        // Create new rewards state with updated sessions
-        let new_state = Self {
-            session_state: last_active.clone(),
-            next_session_randomness: SessionRandomness::new(
-                last_active.session_n + 1,
-                next_active_session_epoch_nonce,
+        match self {
+            Self::Uninitialized(settings) => (
+                Self::Initialized {
+                    session_state: last_active.clone(),
+                    next_session_randomness: SessionRandomness::new(
+                        last_active.session_n + 1,
+                        next_active_session_epoch_nonce,
+                    ),
+                    submitted_proofs: HashTrieMapSync::new_sync(),
+                    min_hamming_distance: u64::MAX,
+                    settings: settings.clone(),
+                },
+                HashMap::new(),
             ),
-            submitted_proofs: HashTrieMapSync::new_sync(),
-            min_hamming_distance: u64::MAX,
-            expected_token_count_byte_len: self.expected_token_count_byte_len,
-        };
+            Self::Initialized {
+                submitted_proofs,
+                min_hamming_distance,
+                settings,
+                ..
+            } => {
+                // TODO: Calculate base rewards when session_income is added to config
+                // For now using placeholder value of 0
+                let session_income = 0;
 
-        (new_state, rewards)
+                // Identify premium providers with the minimum Hamming distance
+                let premium_providers = submitted_proofs
+                    .iter()
+                    .filter_map(|(&id, &hamming_distance)| {
+                        (hamming_distance == *min_hamming_distance).then_some(id)
+                    })
+                    .collect::<HashSet<_>>();
+
+                // Calculate base reward
+                let base_reward = if submitted_proofs.is_empty() {
+                    0
+                } else {
+                    session_income
+                        / (submitted_proofs.size() as u64 + premium_providers.len() as u64)
+                };
+
+                // Calculate reward for each provider
+                let mut rewards = HashMap::new();
+                for provider_id in submitted_proofs.keys() {
+                    let reward = if premium_providers.contains(provider_id) {
+                        base_reward * 2
+                    } else {
+                        base_reward
+                    };
+                    rewards.insert(*provider_id, reward);
+                }
+
+                // Create new rewards state with updated sessions
+                let new_state = Self::Initialized {
+                    session_state: last_active.clone(),
+                    next_session_randomness: SessionRandomness::new(
+                        last_active.session_n + 1,
+                        next_active_session_epoch_nonce,
+                    ),
+                    submitted_proofs: HashTrieMapSync::new_sync(),
+                    min_hamming_distance: u64::MAX,
+                    settings: settings.clone(),
+                };
+
+                (new_state, rewards)
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BlendRewardsParameters {
+    pub rounds_per_session: NonZeroU64,
+    pub message_frequency_per_round: NonNegativeF64,
+    pub minimum_network_size: NonZeroU64,
+}
+
+impl BlendRewardsParameters {
+    fn expected_token_count_byte_len(&self, _membership_size: u64) -> u64 {
+        todo!()
     }
 }
 
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum Error {
+    #[error("Rewards state is not initialized yet with a real session")]
+    Uninitialized,
     #[error("Invalid session: expected {expected}, got {got}")]
     InvalidSession {
         expected: SessionNumber,
@@ -421,6 +461,13 @@ pub enum Error {
     },
     #[error("Invalid proof type")]
     InvalidProofType,
+    #[error(
+        "The number of declarations ({num_declarations}) is less than the minimum network size ({minimum_network_size})"
+    )]
+    MinimumNetworkSizeNotSatisfied {
+        num_declarations: u64,
+        minimum_network_size: NonZeroU64,
+    },
 }
 
 #[cfg(test)]

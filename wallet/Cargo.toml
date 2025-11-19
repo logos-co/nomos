@@ -21,5 +21,9 @@ thiserror    = { workspace = true }
 tracing      = { workspace = true }
 zksign       = { workspace = true }
 
+[dev-dependencies]
+cryptarchia-engine = { workspace = true }
+nomos-utils        = { workspace = true }
+
 [features]
 default = []

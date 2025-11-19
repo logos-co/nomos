@@ -32,27 +32,21 @@ pub enum Error {
 
 /// Tracks mantle ops
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct LedgerState {
     channels: channel::Channels,
     sdp: sdp::SdpLedger,
     leaders: leader::LeaderState,
 }
 
-impl Default for LedgerState {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl LedgerState {
     #[must_use]
-    pub fn new() -> Self {
+    pub fn new(config: &Config) -> Self {
         Self {
             channels: channel::Channels::new(),
             sdp: sdp::SdpLedger::new()
-                .with_service(ServiceType::BlendNetwork)
-                .with_service(ServiceType::DataAvailability),
+                .with_blend_service(config.sdp_config.service_rewards_params.blend.clone())
+                .with_da_service(),
             leaders: leader::LeaderState::new(),
         }
     }
@@ -267,7 +261,7 @@ mod tests {
     fn test_channel_blob_operation() {
         let cryptarchia_state = genesis_state(&[utxo()]);
         let test_config = config();
-        let ledger_state = LedgerState::new();
+        let ledger_state = LedgerState::new(&test_config);
         let (signing_key, verifying_key) = create_test_keys();
         let channel_id = ChannelId::from([1; 32]);
 
@@ -295,7 +289,7 @@ mod tests {
     fn test_channel_inscribe_operation() {
         let cryptarchia_state = genesis_state(&[utxo()]);
         let test_config = config();
-        let ledger_state = LedgerState::new();
+        let ledger_state = LedgerState::new(&test_config);
         let (signing_key, verifying_key) = create_test_keys();
         let channel_id = ChannelId::from([2; 32]);
 
@@ -323,7 +317,7 @@ mod tests {
     fn test_channel_set_keys_operation() {
         let cryptarchia_state = genesis_state(&[utxo()]);
         let test_config = config();
-        let ledger_state = LedgerState::new();
+        let ledger_state = LedgerState::new(&test_config);
         let (signing_key, verifying_key) = create_test_keys();
         let channel_id = ChannelId::from([3; 32]);
 
@@ -353,7 +347,7 @@ mod tests {
     fn test_invalid_parent_error() {
         let cryptarchia_state = genesis_state(&[utxo()]);
         let test_config = config();
-        let mut ledger_state = LedgerState::new();
+        let mut ledger_state = LedgerState::new(&test_config);
         let (signing_key, verifying_key) = create_test_keys();
         let channel_id = ChannelId::from([5; 32]);
 
@@ -432,7 +426,7 @@ mod tests {
     fn test_unauthorized_signer_error() {
         let cryptarchia_state = genesis_state(&[utxo()]);
         let test_config = config();
-        let mut ledger_state = LedgerState::new();
+        let mut ledger_state = LedgerState::new(&test_config);
         let (signing_key, verifying_key) = create_test_keys();
         let (unauthorized_signing_key, unauthorized_verifying_key) = create_test_keys_with_seed(3);
         let channel_id = ChannelId::from([6; 32]);
@@ -488,7 +482,7 @@ mod tests {
     fn test_empty_keys_error() {
         let cryptarchia_state = genesis_state(&[utxo()]);
         let test_config = config();
-        let ledger_state = LedgerState::new();
+        let ledger_state = LedgerState::new(&test_config);
         let (signing_key, _) = create_test_keys();
         let channel_id = ChannelId::from([7; 32]);
 
@@ -518,7 +512,7 @@ mod tests {
         // Create channel 2 by posting an inscription
         // Change the keys for channel 1
         // Post another blob in channel 1
-        let ledger_state = LedgerState::new();
+        let ledger_state = LedgerState::new(&test_config);
         let (sk1, vk1) = create_test_keys_with_seed(1);
         let (sk2, vk2) = create_test_keys_with_seed(2);
         let (_, vk3) = create_test_keys_with_seed(3);
