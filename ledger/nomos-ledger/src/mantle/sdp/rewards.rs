@@ -335,8 +335,8 @@ fn create_reward_tx_hash(session_n: SessionNumber, service_type: ServiceType) ->
     let session_fr = Fr::from(session_n);
     let service_type_fr = fr_from_bytes(service_type.as_ref().as_bytes())
         .expect("Valid service type fr representation");
-    <ZkHasher as ZkDigest>::update(&mut hasher, &session_fr);
     <ZkHasher as ZkDigest>::update(&mut hasher, &service_type_fr);
+    <ZkHasher as ZkDigest>::update(&mut hasher, &session_fr);
 
     TxHash(hasher.finalize())
 }
