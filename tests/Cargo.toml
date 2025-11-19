@@ -25,6 +25,9 @@ executor-http-client     = { workspace = true }
 futures                  = { default-features = false, version = "0.3" }
 futures-util             = { default-features = false, version = "0.3.31" }
 kzgrs-backend            = { workspace = true }
+nomos-api                = { workspace = true }
+nomos-blend-message      = { workspace = true }
+nomos-blend-service      = { features = ["libp2p"], workspace = true }
 nomos-core               = { workspace = true }
 nomos-libp2p             = { workspace = true }
 nomos-utils              = { workspace = true }

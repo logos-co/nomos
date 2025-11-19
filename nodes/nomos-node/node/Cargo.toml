@@ -26,6 +26,7 @@ chain-leader             = { workspace = true }
 chain-service            = { workspace = true }
 clap                     = { default-features = false, features = ["derive", "env", "std"], version = "4" }
 color-eyre               = { default-features = false, version = "0.6.0" }
+derivative               = { version = "2", default-features = false }
 futures                  = { default-features = false, version = "0.3" }
 groth16                  = { workspace = true }
 hex                      = { default-features = false, version = "0.4.3" }
@@ -51,6 +52,7 @@ nomos-system-sig         = { workspace = true }
 nomos-time               = { features = ["ntp", "serde"], workspace = true }
 nomos-tracing            = { workspace = true }
 nomos-tracing-service    = { workspace = true }
+nomos-utils              = { workspace = true, features = ["serde"] }
 nomos-wallet             = { workspace = true }
 num-bigint               = { default-features = false, version = "0.4" }
 overwatch                = { workspace = true }
@@ -58,6 +60,7 @@ pol                      = { workspace = true }
 poq                      = { workspace = true }
 serde                    = { default-features = false, version = "1" }
 serde_json               = { workspace = true }
+serde_with               = { default-features = false, version = "3.14.0" }
 serde_yaml               = { workspace = true }
 services-utils           = { workspace = true }
 subnetworks-assignations = { workspace = true }

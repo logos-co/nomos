@@ -12,47 +12,26 @@ network:
     node_key: ea1e1dcc31612bd20987f017f0ca435cd2a59a4bd9fd6e14883b4803ae3b803d
     initial_peers: [ ]
 blend:
-  crypto:
-    non_ephemeral_signing_key: 32e4b52b78e0e8273f31e2ae0826d09b0348d4c66824af4f51ec4ef338082211
-    num_blend_layers: 1
-  time:
-    # 21,600 blocks * 30s per block * 1s per round = 648,000 rounds
-    rounds_per_session: 648000
-    rounds_per_interval: 30
-    round_duration: [ 1, 0 ]
-    # Defined in the spec
-    rounds_per_observation_window: 30
-    rounds_per_session_transition_period: 30
-    # TODO: Change with a proper value
-    epoch_transition_period_in_slots: 2600
-  minimum_network_size: 1
+  non_ephemeral_signing_key: 32e4b52b78e0e8273f31e2ae0826d09b0348d4c66824af4f51ec4ef338082211
   recovery_path_prefix: ./recovery/blend
   core:
     backend:
       listening_address: /ip4/127.0.0.1/udp/3001/quic-v1
-      conn_monitor: null
-      minimum_messages_coefficient: 3
-      normalization_constant: 1.03
+      core_peering_degree:
+        start: 4
+        end: 8
       edge_node_connection_timeout:
         secs: 1
         nanos: 0
       max_edge_node_incoming_connections: 300
-      core_peering_degree:
-        start: 4
-        end: 8
       max_dial_attempts_per_peer: 3
-      protocol_name: /nomos/blend/1.0.0
-    scheduler:
-      intervals_for_safety_buffer: 100
-      message_frequency_per_round: 1.0
-      maximum_release_delay_in_rounds: 3
     zk:
       secret_key_kms_id: 32e4b52b78e0e8273f31e2ae0826d09b0348d4c66824af4f51ec4ef338082211
   edge:
     backend:
       max_dial_attempts_per_peer_per_message: 1
       replication_factor: 1
-      protocol_name: /nomos/blend/1.0.0
+deployment: mainnet
 da_network:
   backend:
     node_key: ea1e1dcc31612bd20987f017f0ca435cd2a59a4bd9fd6e14883b4803ae3b803d
