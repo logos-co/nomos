@@ -7,13 +7,15 @@ use nom::{
     bytes::complete::take,
     number::complete::{le_u32, u8 as nom_u8},
 };
-use poq::PoQProof;
-use poseidon2::ZkHash;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use strum::EnumIter;
 use zksign::PublicKey;
 
-use crate::{block::BlockNumber, mantle::NoteId};
+use crate::{
+    blend::{PROOF_OF_QUOTA_SIZE, PROOF_OF_SELECTION_SIZE},
+    block::BlockNumber,
+    mantle::NoteId,
+};
 
 pub type SessionNumber = u64;
 pub type StakeThreshold = u64;
@@ -359,14 +361,6 @@ fn parse_const_size_bytes<const N: usize>(input: &[u8]) -> IResult<&[u8], [u8; N
         .map_err(|_| nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Fail)))?;
     Ok((input, data))
 }
-
-// TODO: This is a duplicate code of what is defined in `nomos-blend-message`
-// crate.
-const KEY_NULLIFIER_SIZE: usize = size_of::<ZkHash>();
-const PROOF_CIRCUIT_SIZE: usize = size_of::<PoQProof>();
-pub const PROOF_OF_QUOTA_SIZE: usize = KEY_NULLIFIER_SIZE.checked_add(PROOF_CIRCUIT_SIZE).unwrap();
-const SELECTION_RANDOMNESS_SIZE: usize = size_of::<ZkHash>();
-pub const PROOF_OF_SELECTION_SIZE: usize = SELECTION_RANDOMNESS_SIZE;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct BlendActivityProof {

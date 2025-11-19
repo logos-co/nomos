@@ -72,8 +72,9 @@ fn hamming_distance(a: &[u8], b: &[u8]) -> u64 {
 
 #[cfg(test)]
 mod tests {
+    use nomos_core::blend::{PROOF_OF_QUOTA_SIZE, PROOF_OF_SELECTION_SIZE};
+
     use super::*;
-    use crate::crypto::proofs::{quota::PROOF_OF_QUOTA_SIZE, selection::PROOF_OF_SELECTION_SIZE};
 
     #[test]
     fn test_hamming_distance() {
