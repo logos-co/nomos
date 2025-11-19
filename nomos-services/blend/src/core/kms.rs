@@ -125,7 +125,7 @@ async fn generate_and_send_kms_poq<RuntimeServiceId>(
     RuntimeServiceId:
         AsServiceId<PreloadKmsService<RuntimeServiceId>> + Debug + Display + Send + Sync + 'static,
 {
-    let _ = kms_api
+    let () = kms_api
         .execute(
             key_id,
             KeyOperators::Zk(Box::new(PoQOperator::new(

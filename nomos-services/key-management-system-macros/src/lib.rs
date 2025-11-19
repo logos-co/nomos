@@ -28,7 +28,7 @@ pub fn derive_kms_enum_key(input: proc_macro::TokenStream) -> proc_macro::TokenS
     }
 
     let key_enum_variants = &key_enum.variants;
-    let encoding_enums = build_associated_types(key_enum_variants);
+    let encoding_enums = build_encoding_enums(key_enum_variants);
     let key_enum_impl_secured_key =
         build_key_enum_impl_secured_key(&input.ident, key_enum_variants);
     let operators_enum = build_operators_enum(&input.ident, key_enum_variants);
@@ -53,7 +53,7 @@ fn validate_variants(key_enum_variants: &Punctuated<Variant, Comma>) -> Option<E
     None
 }
 
-fn build_associated_types(key_enum_variants: &Punctuated<Variant, Comma>) -> TokenStream {
+fn build_encoding_enums(key_enum_variants: &Punctuated<Variant, Comma>) -> TokenStream {
     let payload_encoding_type_ident = &Ident::new("Payload", Span::call_site());
     let signature_encoding_type_ident = &Ident::new("Signature", Span::call_site());
     let public_key_encoding_type_ident = &Ident::new("PublicKey", Span::call_site());
