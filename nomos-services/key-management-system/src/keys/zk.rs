@@ -15,7 +15,7 @@ impl ZkKey {
     }
 
     #[must_use]
-    pub const fn as_fr(&self) -> &Fr {
+    pub(crate) const fn as_fr(&self) -> &Fr {
         self.0.as_fr()
     }
 }

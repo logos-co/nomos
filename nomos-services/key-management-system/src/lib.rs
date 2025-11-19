@@ -19,6 +19,7 @@ pub mod api;
 pub mod backend;
 pub mod keys;
 pub mod message;
+pub mod operators;
 
 pub struct KMSService<Backend, RuntimeServiceId>
 where
