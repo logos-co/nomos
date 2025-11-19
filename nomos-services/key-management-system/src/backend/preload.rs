@@ -113,6 +113,8 @@ impl KMSBackend for PreloadKMSBackend {
 
 #[cfg(test)]
 mod tests {
+    use std::marker::PhantomData;
+
     use bytes::{Bytes as RawBytes, Bytes};
     use num_bigint::BigUint;
     use rand::rngs::OsRng;
@@ -120,8 +122,44 @@ mod tests {
 
     use super::*;
     use crate::keys::{
-        Ed25519Key, Key, KeyOperators, PayloadEncoding, ZkKey, secured_key::NoKeyOperator,
+        Ed25519Key, Key, KeyOperators, PayloadEncoding, ZkKey, secured_key::SecureKeyOperator,
     };
+
+    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+    pub struct NoKeyOperator<Key, Error> {
+        _key: PhantomData<Key>,
+        _error: PhantomData<Error>,
+    }
+
+    #[async_trait::async_trait]
+    impl<Key, Error> SecureKeyOperator for NoKeyOperator<Key, Error>
+    where
+        Key: Send + Sync + 'static,
+        Error: Send + Sync + 'static,
+    {
+        type Key = Key;
+        type Error = Error;
+
+        async fn execute(&mut self, _key: &Self::Key) -> Result<(), Self::Error> {
+            Ok(())
+        }
+    }
+
+    impl<Key, Error> Default for NoKeyOperator<Key, Error> {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    impl<Key, Error> NoKeyOperator<Key, Error> {
+        #[must_use]
+        pub const fn new() -> Self {
+            Self {
+                _key: PhantomData,
+                _error: PhantomData,
+            }
+        }
+    }
 
     #[tokio::test]
     async fn preload_backend() {

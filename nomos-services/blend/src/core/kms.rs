@@ -6,7 +6,7 @@ use key_management_system::{
     api::KmsServiceApi,
     backend::preload::{KeyId, PreloadKMSBackend},
     keys::KeyOperators,
-    operators::proofs::poq::PoQOperator,
+    operators::blend::poq::PoQOperator,
 };
 use nomos_blend_message::crypto::proofs::quota::{self, ProofOfQuota, inputs::prove::PublicInputs};
 use nomos_blend_scheduling::message_blend::CoreProofOfQuotaGenerator;
