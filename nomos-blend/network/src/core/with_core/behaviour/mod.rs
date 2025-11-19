@@ -20,13 +20,12 @@ use libp2p::{
         dummy::ConnectionHandler as DummyConnectionHandler,
     },
 };
-#[cfg(any(test, feature = "unsafe-test-functions"))]
-use nomos_blend_message::encap::encapsulated::EncapsulatedMessage;
 use nomos_blend_message::{
     MessageIdentifier,
     crypto::proofs::quota::inputs::prove::public::LeaderInputs,
     encap::{
         self,
+        encapsulated::EncapsulatedMessage,
         validated::{
             IncomingEncapsulatedMessageWithValidatedPublicHeader,
             OutgoingEncapsulatedMessageWithValidatedPublicHeader,
