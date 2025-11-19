@@ -1,8 +1,4 @@
-use std::{
-    cmp::Ordering,
-    collections::{HashMap, HashSet},
-    num::NonZeroU64,
-};
+use std::{cmp::Ordering, collections::HashMap, iter::once, num::NonZeroU64};
 
 use groth16::Fr;
 use nomos_blend_message::reward::{BlendingTokenEvaluation, SessionRandomness};
@@ -415,7 +411,7 @@ impl Rewards for BlendRewards {
                     0
                 } else {
                     session_income
-                        / (submitted_proofs.size() as u64 + premium_providers.len() as u64)
+                        / (submitted_proofs.size() as u64 + premium_providers.size() as u64)
                 };
 
                 // Calculate reward for each provider
@@ -481,14 +477,14 @@ impl BlendRewardsParameters {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MinHammingDistance {
     distance: u64,
-    providers: HashSet<ProviderId>,
+    providers: HashTrieSetSync<ProviderId>,
 }
 
 impl MinHammingDistance {
     fn new() -> Self {
         Self {
             distance: u64::MAX,
-            providers: HashSet::new(),
+            providers: HashTrieSetSync::new_sync(),
         }
     }
 
@@ -496,16 +492,12 @@ impl MinHammingDistance {
         match distance.cmp(&self.distance) {
             Ordering::Less => Self {
                 distance,
-                providers: HashSet::from([provider]),
+                providers: once(provider).collect(),
             },
-            Ordering::Equal => {
-                let mut providers = self.providers.clone();
-                providers.insert(provider);
-                Self {
-                    distance,
-                    providers,
-                }
-            }
+            Ordering::Equal => Self {
+                distance,
+                providers: self.providers.insert(provider),
+            },
             Ordering::Greater => self.clone(),
         }
     }
