@@ -13,7 +13,6 @@ use nomos_core::{
 };
 use nomos_utils::math::NonNegativeF64;
 use rpds::{HashTrieMapSync, HashTrieSetSync};
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use super::SessionState;
@@ -439,7 +438,8 @@ impl Rewards for BlendRewards {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq)]
 pub struct BlendRewardsParameters {
     pub rounds_per_session: NonZeroU64,
     pub message_frequency_per_round: NonNegativeF64,
