@@ -363,6 +363,10 @@ where
         match initial_block_download.run().await {
             Ok(_) => {
                 info!("Initial Block Download completed successfully.");
+                // Notify chain-service that IBD is complete so it can start the prolonged bootstrap timer
+                if let Err(e) = relays.cryptarchia().notify_ibd_completed().await {
+                    error!("Failed to notify chain-service of IBD completion: {e:?}");
+                }
             }
             Err(e) => {
                 error!("Initial Block Download failed: {e:?}. Initiating graceful shutdown.");

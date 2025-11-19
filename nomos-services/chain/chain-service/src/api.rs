@@ -223,4 +223,17 @@ where
 
         Ok(())
     }
+
+    /// Notify chain-service that Initial Block Download has completed.
+    /// Chain-service will start the prolonged bootstrap timer upon receiving this.
+    pub async fn notify_ibd_completed(&self) -> Result<(), ApiError> {
+        self.relay
+            .send(ConsensusMsg::IbdCompleted)
+            .await
+            .map_err(|(relay_error, _)| {
+                ApiError::CommsFailure(format!("{relay_error} while sending IbdCompleted"))
+            })?;
+
+        Ok(())
+    }
 }

@@ -127,6 +127,9 @@ pub enum ConsensusMsg<Tx> {
     /// Chain-service will handle these directly and respond via the embedded
     /// `reply_sender`.
     ChainSync(ChainSyncEvent),
+    /// Notification from chain-network that Initial Block Download has completed.
+    /// Chain-service should start the prolonged bootstrap timer upon receiving this.
+    IbdCompleted,
 }
 
 #[serde_as]
@@ -486,10 +489,10 @@ where
         )
         .await?;
 
-        // Start the timer for Prolonged Bootstrap Period.
-        let mut prolonged_bootstrap_timer = Box::pin(tokio::time::sleep_until(
-            Instant::now() + bootstrap_config.prolonged_bootstrap_period,
-        ));
+        // The prolonged bootstrap timer will be started when chain-network notifies us
+        // that IBD has completed. This ensures we don't transition to Online mode before
+        // the node has caught up with the network.
+        let mut prolonged_bootstrap_timer: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
 
         // Start the timer for periodic state recording for offline grace period
         let mut state_recording_timer = tokio::time::interval(
@@ -498,16 +501,14 @@ where
                 .state_recording_interval,
         );
 
-        // Mark the service as ready if the chain is in the Online state.
-        // If not, it will be marked as ready after Prolonged Bootstrap Period ends.
-        if cryptarchia.state().is_online() {
-            self.notify_service_ready();
-        }
+        // Mark the service as ready. The service is operational and can handle requests
+        // even while in bootstrap mode waiting for IBD to complete.
+        self.notify_service_ready();
 
         let async_loop = async {
             loop {
                 tokio::select! {
-                    () = &mut prolonged_bootstrap_timer, if cryptarchia.is_boostrapping() => {
+                    () = async { prolonged_bootstrap_timer.as_mut().unwrap().as_mut().await }, if prolonged_bootstrap_timer.is_some() && cryptarchia.is_boostrapping() => {
                         info!("Prolonged Bootstrap Period has passed. Switching to Online.");
                         (cryptarchia, storage_blocks_to_remove) = Self::switch_to_online(
                             cryptarchia,
@@ -519,13 +520,18 @@ where
                             storage_blocks_to_remove.clone(),
                             &self.service_resources_handle.state_updater,
                         );
-
-                        self.notify_service_ready();
                     }
 
                     Some(msg) = self.service_resources_handle.inbound_relay.next() => {
-                        // Handle ApplyBlock and ChainSync separately since they need async context
+                        // Handle ApplyBlock, ChainSync, and IbdCompleted separately since they need async context
                         match msg {
+                            ConsensusMsg::IbdCompleted => {
+                                info!("Received IBD completion notification. Starting prolonged bootstrap timer.");
+                                // Start the prolonged bootstrap timer now that IBD is complete
+                                prolonged_bootstrap_timer = Some(Box::pin(tokio::time::sleep_until(
+                                    Instant::now() + bootstrap_config.prolonged_bootstrap_period,
+                                )));
+                            }
                             ConsensusMsg::ApplyBlock { block, tx } => {
                                 // TODO: move this into the process_message() function after making the process_message async.
                                 match Self::process_block_and_update_state(
@@ -702,6 +708,12 @@ where
                 // context. This should never be reached since we filter it out
                 // before calling process_message
                 panic!("ChainSync should be handled in the run loop, not in process_message");
+            }
+            ConsensusMsg::IbdCompleted => {
+                // IbdCompleted is handled separately in the run loop where we need to modify
+                // the prolonged_bootstrap_timer. This should never be reached since we filter
+                // it out before calling process_message
+                panic!("IbdCompleted should be handled in the run loop, not in process_message");
             }
         }
     }
