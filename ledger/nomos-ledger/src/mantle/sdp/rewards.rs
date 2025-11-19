@@ -5,7 +5,7 @@ use std::{
 };
 
 use groth16::Fr;
-use nomos_blend_message::reward::{SessionRandomness, token_count_bit_len};
+use nomos_blend_message::reward::{BlendingTokenEvaluation, SessionRandomness};
 use nomos_core::{
     blend::core_quota,
     block::BlockNumber,
@@ -275,6 +275,8 @@ pub enum BlendRewards {
         /// State of the session that is referenced by the submitted proofs.
         /// This is `s-1` if `s` is the session at which this message was sent.
         session_state: SessionState,
+        /// Parameters for evaluating activity proofs in the session
+        token_evaluation: BlendingTokenEvaluation,
         /// Session randomness for the session `s`.
         next_session_randomness: SessionRandomness,
         /// Proofs submitted by providers in the session corresponding to
@@ -310,6 +312,7 @@ impl Rewards for BlendRewards {
             }
             Self::Initialized {
                 session_state,
+                token_evaluation,
                 next_session_randomness,
                 submitted_proofs,
                 min_hamming_distance,
@@ -347,13 +350,15 @@ impl Rewards for BlendRewards {
                 // TODO: Validate PoQ and PoSel by holding all epoch infos that
                 // spanned across the `session_state.session_n` session.
 
-                let hamming_distance = proof.token().hamming_distance(
-                    settings.expected_token_count_byte_len(num_declarations),
-                    *next_session_randomness,
-                );
+                let Some(hamming_distance) =
+                    token_evaluation.evaluate(proof.token(), *next_session_randomness)
+                else {
+                    return Err(Error::InvalidProof);
+                };
 
                 Ok(Self::Initialized {
                     session_state: session_state.clone(),
+                    token_evaluation: *token_evaluation,
                     next_session_randomness: *next_session_randomness,
                     submitted_proofs: submitted_proofs.insert(provider_id, hamming_distance),
                     min_hamming_distance: min(*min_hamming_distance, hamming_distance),
@@ -370,19 +375,27 @@ impl Rewards for BlendRewards {
         _config: &ServiceParameters,
     ) -> (Self, HashMap<ProviderId, RewardAmount>) {
         match self {
-            Self::Uninitialized(settings) => (
-                Self::Initialized {
-                    session_state: last_active.clone(),
-                    next_session_randomness: SessionRandomness::new(
-                        last_active.session_n + 1,
-                        next_active_session_epoch_nonce,
-                    ),
-                    submitted_proofs: HashTrieMapSync::new_sync(),
-                    min_hamming_distance: u64::MAX,
-                    settings: settings.clone(),
-                },
-                HashMap::new(),
-            ),
+            Self::Uninitialized(settings) => {
+                // Prepare the proof evaluation parameters for the new session
+                let token_evaluation = settings.token_evaluation(
+                    last_active.declarations.size() as u64,
+                ).expect("evaluation parameters shouldn't overflow. panicking since we can't process the new session");
+
+                (
+                    Self::Initialized {
+                        session_state: last_active.clone(),
+                        token_evaluation,
+                        next_session_randomness: SessionRandomness::new(
+                            last_active.session_n + 1,
+                            next_active_session_epoch_nonce,
+                        ),
+                        submitted_proofs: HashTrieMapSync::new_sync(),
+                        min_hamming_distance: u64::MAX,
+                        settings: settings.clone(),
+                    },
+                    HashMap::new(),
+                )
+            }
             Self::Initialized {
                 submitted_proofs,
                 min_hamming_distance,
@@ -420,9 +433,15 @@ impl Rewards for BlendRewards {
                     rewards.insert(*provider_id, reward);
                 }
 
+                // Prepare the proof evaluation parameters for the new session
+                let token_evaluation = settings.token_evaluation(
+                    last_active.declarations.size() as u64,
+                ).expect("evaluation parameters shouldn't overflow. panicking since we can't process the new session");
+
                 // Create new rewards state with updated sessions
                 let new_state = Self::Initialized {
                     session_state: last_active.clone(),
+                    token_evaluation,
                     next_session_randomness: SessionRandomness::new(
                         last_active.session_n + 1,
                         next_active_session_epoch_nonce,
@@ -448,16 +467,17 @@ pub struct BlendRewardsParameters {
 }
 
 impl BlendRewardsParameters {
-    fn expected_token_count_byte_len(&self, num_core_nodes: u64) -> u64 {
+    fn token_evaluation(
+        &self,
+        num_core_nodes: u64,
+    ) -> Result<BlendingTokenEvaluation, nomos_blend_message::reward::Error> {
         let core_quota = core_quota(
             self.rounds_per_session,
             self.message_frequency_per_round,
             self.num_blend_layers,
             num_core_nodes as usize,
         );
-        token_count_bit_len(core_quota, num_core_nodes)
-            .expect("expected token count bit length shouldn't overflow")
-            .div_ceil(8)
+        BlendingTokenEvaluation::new(core_quota, num_core_nodes)
     }
 }
 
@@ -548,7 +568,7 @@ mod tests {
 
     fn create_blend_rewards_params(minimum_network_size: u64) -> BlendRewardsParameters {
         BlendRewardsParameters {
-            rounds_per_session: NonZeroU64::new(10).unwrap(),
+            rounds_per_session: NonZeroU64::new(100).unwrap(),
             message_frequency_per_round: NonNegativeF64::try_from(1.0).unwrap(),
             num_blend_layers: NonZeroU64::new(3).unwrap(),
             minimum_network_size: minimum_network_size.try_into().unwrap(),
@@ -1086,6 +1106,42 @@ mod tests {
                 minimum_network_size: NonZeroU64::new(2).unwrap()
             }
         );
+
+        // No reward should be calculated after session 1.
+        let (_, rewards) = rewards_tracker.update_session(
+            &create_test_session_state(&[provider1], ServiceType::BlendNetwork, 2),
+            &ZkHash::ZERO,
+            &config,
+        );
+        assert_eq!(rewards.len(), 0);
+    }
+
+    #[test]
+    fn test_blend_proof_distance_larger_than_activity_threshold() {
+        let provider1 = create_provider_id(1);
+
+        // Create a reward tracker, and update session from 0 to 1.
+        let config = create_service_parameters();
+        let (rewards_tracker, _) = BlendRewards::new(create_blend_rewards_params(1))
+            .update_session(
+                &create_test_session_state(&[provider1], ServiceType::BlendNetwork, 1),
+                &ZkHash::from(BigUint::from(9999u64)),
+                &config,
+            );
+
+        // provider1 submits an activity proof that is larger than activity threshold.
+        let err = rewards_tracker
+            .update_active(
+                provider1,
+                &ActivityMetadata::Blend(BlendActivityProof {
+                    session: 1,
+                    proof_of_quota: [2; _],
+                    proof_of_selection: [2; _],
+                }),
+                config.session_duration,
+            )
+            .unwrap_err();
+        assert_eq!(err, Error::InvalidProof);
 
         // No reward should be calculated after session 1.
         let (_, rewards) = rewards_tracker.update_session(

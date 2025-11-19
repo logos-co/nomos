@@ -5,14 +5,16 @@ use nomos_core::{crypto::ZkHash, sdp::SessionNumber};
 use nomos_utils::math::{F64Ge1, NonNegativeF64};
 use serde::{Deserialize, Serialize};
 
-use crate::{crypto::blake2b512, reward::activity::activity_threshold};
+use crate::{
+    crypto::blake2b512,
+    reward::{BlendingToken, activity},
+};
 
 /// Session-specific information to compute an activity proof.
 pub struct SessionInfo {
     pub(crate) session_number: SessionNumber,
     pub(crate) session_randomness: SessionRandomness,
-    pub(crate) token_count_byte_len: u64,
-    pub(crate) activity_threshold: u64,
+    pub(crate) token_evaluation: BlendingTokenEvaluation,
 }
 
 impl SessionInfo {
@@ -22,31 +24,54 @@ impl SessionInfo {
         num_core_nodes: u64,
         core_quota: u64,
     ) -> Result<Self, Error> {
-        let network_size_bit_len = F64Ge1::try_from(
-            num_core_nodes
-                .checked_add(1)
-                .ok_or(Error::NetworkSizeTooLarge(num_core_nodes))?,
-        )
-        .map_err(|()| Error::NetworkSizeTooLarge(num_core_nodes))?
-        .log2()
-        .ceil() as u64;
-
-        let token_count_bit_len = token_count_bit_len(core_quota, num_core_nodes)?;
-        let activity_threshold = activity_threshold(token_count_bit_len, network_size_bit_len);
-
         let session_randomness = SessionRandomness::new(session_number, pol_epoch_nonce);
+        let token_evaluation = BlendingTokenEvaluation::new(core_quota, num_core_nodes)?;
 
         Ok(Self {
             session_number,
             session_randomness,
-            token_count_byte_len: token_count_bit_len.div_ceil(8),
-            activity_threshold,
+            token_evaluation,
         })
     }
 
     #[must_use]
     pub const fn session_randomness(&self) -> SessionRandomness {
         self.session_randomness
+    }
+}
+
+/// Parameters to evaluate a blending token for a session.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BlendingTokenEvaluation {
+    token_count_byte_len: u64,
+    activity_threshold: u64,
+}
+
+impl BlendingTokenEvaluation {
+    pub fn new(core_quota: u64, num_core_nodes: u64) -> Result<Self, Error> {
+        let expected_token_count_bit_len = token_count_bit_len(core_quota, num_core_nodes)?;
+        let activity_threshold = activity_threshold(
+            expected_token_count_bit_len,
+            (num_core_nodes as f64).log2().ceil() as u64,
+        )?;
+
+        Ok(Self {
+            token_count_byte_len: expected_token_count_bit_len.div_ceil(8),
+            activity_threshold,
+        })
+    }
+
+    /// Calculate the Hamming distance of the given blending token to the next
+    /// session randomness, and return it only if it is not larger than the
+    /// activity threshold.
+    #[must_use]
+    pub fn evaluate(
+        &self,
+        token: &BlendingToken,
+        next_session_randomness: SessionRandomness,
+    ) -> Option<u64> {
+        let distance = token.hamming_distance(self.token_count_byte_len, next_session_randomness);
+        (distance <= self.activity_threshold).then_some(distance)
     }
 }
 
@@ -106,28 +131,44 @@ pub fn token_count_bit_len(core_quota: u64, num_core_nodes: u64) -> Result<u64, 
         .ceil() as u64)
 }
 
+pub fn activity_threshold(token_count_bit_len: u64, num_core_nodes: u64) -> Result<u64, Error> {
+    let network_size_bit_len = F64Ge1::try_from(
+        num_core_nodes
+            .checked_add(1)
+            .ok_or(Error::NetworkSizeTooLarge(num_core_nodes))?,
+    )
+    .map_err(|()| Error::NetworkSizeTooLarge(num_core_nodes))?
+    .log2()
+    .ceil() as u64;
+
+    Ok(activity::activity_threshold(
+        token_count_bit_len,
+        network_size_bit_len,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_activity_threshold() {
-        let network_size_bit_len = 7;
+        let network_size = 127;
         let token_count_bit_len = 10;
-        let threshold = activity_threshold(token_count_bit_len, network_size_bit_len);
-        // 10 - 7 - 1
+        let threshold = activity_threshold(token_count_bit_len, network_size).unwrap();
+        // 10 - log2(127+1) - 1
         assert_eq!(threshold, 2);
 
-        let network_size_bit_len = 0;
+        let network_size = 0;
         let token_count_bit_len = 10;
-        let threshold = activity_threshold(token_count_bit_len, network_size_bit_len);
-        // 10 - 0 - 1
+        let threshold = activity_threshold(token_count_bit_len, network_size).unwrap();
+        // 10 - log2(0+1) - 1
         assert_eq!(threshold, 9);
 
-        let network_size_bit_len = 7;
+        let network_size = 127;
         let token_count_bit_len = 0;
-        let threshold = activity_threshold(token_count_bit_len, network_size_bit_len);
-        // 0 - 7 - 1 (by saturated_sub)
+        let threshold = activity_threshold(token_count_bit_len, network_size).unwrap();
+        // 0 - log2(127+1) - 1 (by saturated_sub)
         assert_eq!(threshold, 0);
     }
 

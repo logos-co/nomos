@@ -9,7 +9,7 @@ use nomos_core::sdp::SessionNumber;
 pub use session::SessionInfo;
 pub use token::BlendingToken;
 
-pub use crate::reward::session::{SessionRandomness, token_count_bit_len};
+pub use crate::reward::session::{BlendingTokenEvaluation, Error, SessionRandomness};
 
 const LOG_TARGET: &str = "blend::message::reward";
 
@@ -20,8 +20,7 @@ pub trait BlendingTokenCollector {
 /// Holds blending tokens collected during a single session.
 pub struct SessionBlendingTokenCollector {
     session_number: SessionNumber,
-    token_count_byte_len: u64,
-    activity_threshold: u64,
+    token_evaluation: BlendingTokenEvaluation,
     tokens: HashSet<BlendingToken>,
 }
 
@@ -30,8 +29,7 @@ impl SessionBlendingTokenCollector {
     pub fn new(session_info: &SessionInfo) -> Self {
         Self {
             session_number: session_info.session_number,
-            token_count_byte_len: session_info.token_count_byte_len,
-            activity_threshold: session_info.activity_threshold,
+            token_evaluation: session_info.token_evaluation,
             tokens: HashSet::new(),
         }
     }
@@ -79,28 +77,19 @@ impl OldSessionBlendingTokenCollector {
     /// activity threshold calculated.
     #[must_use]
     pub fn compute_activity_proof(self) -> Option<ActivityProof> {
-        // Find the blending token with the smallest Hamming distance.
-        let maybe_token = self
-            .collector
+        // Find the blending token with the smallest Hamming distance,
+        // which is <= activity threshold.
+        self.collector
             .tokens
             .into_iter()
-            .map(|token| {
-                let distance = token.hamming_distance(
-                    self.collector.token_count_byte_len,
-                    self.next_session_randomness,
-                );
-                (token, distance)
+            .filter_map(|token| {
+                self.collector
+                    .token_evaluation
+                    .evaluate(&token, self.next_session_randomness)
+                    .map(|distance| (token, distance))
             })
-            .min_by_key(|(_, distance)| *distance);
-
-        // Check if the smallest distance satisfies the activity threshold.
-        if let Some((token, distance)) = maybe_token
-            && distance <= self.collector.activity_threshold
-        {
-            Some(ActivityProof::new(self.collector.session_number, token))
-        } else {
-            None
-        }
+            .min_by_key(|(_, distance)| *distance)
+            .map(|(token, _)| ActivityProof::new(self.collector.session_number, token))
     }
 
     #[cfg(test)]
@@ -114,6 +103,11 @@ impl BlendingTokenCollector for OldSessionBlendingTokenCollector {
     fn collect(&mut self, token: BlendingToken) {
         self.collector.collect(token);
     }
+}
+
+#[must_use]
+pub const fn evaluate_hamming_distance(distance: u64, activity_threshold: u64) -> bool {
+    distance <= activity_threshold
 }
 
 #[cfg(test)]
