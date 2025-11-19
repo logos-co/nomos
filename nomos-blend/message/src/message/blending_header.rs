@@ -6,7 +6,7 @@ use crate::crypto::{
         quota::{PROOF_OF_QUOTA_SIZE, ProofOfQuota},
         selection::{PROOF_OF_SELECTION_SIZE, ProofOfSelection},
     },
-    pseudo_random_sized_bytes, random_sized_bytes,
+    pseudo_random_sized_bytes,
     signatures::{SIGNATURE_SIZE, Signature},
 };
 
@@ -42,12 +42,6 @@ impl BlendingHeader {
             proof_of_selection: ProofOfSelection::from_bytes_unchecked(r4),
             is_last: false,
         }
-    }
-
-    /// Build a blending header with random data that is not reconstructable.
-    pub fn random() -> Self {
-        // A random key is used since no reconstruction is needed.
-        Self::pseudo_random(&random_sized_bytes::<KEY_SIZE>())
     }
 }
 

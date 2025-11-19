@@ -17,11 +17,9 @@ use crate::{
         ProofsVerifier, decapsulated::DecapsulationOutput, encapsulated::EncapsulatedMessage,
         validated::RequiredProofOfSelectionVerificationInputs,
     },
-    input::{EncapsulationInput, EncapsulationInputs},
+    input::EncapsulationInput,
     message::payload::MAX_PAYLOAD_BODY_SIZE,
 };
-
-const ENCAPSULATION_COUNT: usize = 3;
 
 struct NeverFailingProofsVerifier;
 
@@ -122,10 +120,8 @@ fn encapsulate_and_decapsulate() {
     const PAYLOAD_BODY: &[u8] = b"hello";
     let verifier = NeverFailingProofsVerifier;
 
-    let (inputs, blend_node_enc_keys) = generate_inputs(2).unwrap();
-    let msg =
-        EncapsulatedMessage::<ENCAPSULATION_COUNT>::new(&inputs, PayloadType::Data, PAYLOAD_BODY)
-            .unwrap();
+    let (inputs, blend_node_enc_keys) = generate_inputs(2);
+    let msg = EncapsulatedMessage::new(&inputs, PayloadType::Data, PAYLOAD_BODY).unwrap();
 
     // NOTE: We expect that the decapsulations can be done
     // in the "reverse" order of blend_node_enc_keys.
@@ -186,9 +182,9 @@ fn encapsulate_and_decapsulate() {
 
 #[test]
 fn payload_too_long() {
-    let (inputs, _) = generate_inputs(1).unwrap();
+    let (inputs, _) = generate_inputs(1);
     assert!(matches!(
-        EncapsulatedMessage::<ENCAPSULATION_COUNT>::new(
+        EncapsulatedMessage::new(
             &inputs,
             PayloadType::Data,
             &vec![0u8; MAX_PAYLOAD_BODY_SIZE + 1]
@@ -204,13 +200,8 @@ fn invalid_public_header_signature() {
     let verifier = NeverFailingProofsVerifier;
 
     let msg_with_invalid_signature = {
-        let (inputs, _) = generate_inputs(2).unwrap();
-        let mut msg = EncapsulatedMessage::<ENCAPSULATION_COUNT>::new(
-            &inputs,
-            PayloadType::Data,
-            PAYLOAD_BODY,
-        )
-        .unwrap();
+        let (inputs, _) = generate_inputs(2);
+        let mut msg = EncapsulatedMessage::new(&inputs, PayloadType::Data, PAYLOAD_BODY).unwrap();
         *msg.public_header_mut().signature_mut() = Signature::from([100u8; SIGNATURE_SIZE]);
         msg
     };
@@ -230,10 +221,8 @@ fn invalid_public_header_proof_of_quota() {
     const PAYLOAD_BODY: &[u8] = b"hello";
     let verifier = AlwaysFailingProofOfQuotaVerifier;
 
-    let (inputs, _) = generate_inputs(2).unwrap();
-    let msg =
-        EncapsulatedMessage::<ENCAPSULATION_COUNT>::new(&inputs, PayloadType::Data, PAYLOAD_BODY)
-            .unwrap();
+    let (inputs, _) = generate_inputs(2);
+    let msg = EncapsulatedMessage::new(&inputs, PayloadType::Data, PAYLOAD_BODY).unwrap();
 
     let public_header_verification_result = msg.verify_public_header(&verifier);
     assert!(matches!(
@@ -251,10 +240,8 @@ fn invalid_blend_header_proof_of_selection() {
     const PAYLOAD_BODY: &[u8] = b"hello";
     let verifier = AlwaysFailingProofOfSelectionVerifier;
 
-    let (inputs, blend_node_enc_keys) = generate_inputs(2).unwrap();
-    let msg =
-        EncapsulatedMessage::<ENCAPSULATION_COUNT>::new(&inputs, PayloadType::Data, PAYLOAD_BODY)
-            .unwrap();
+    let (inputs, blend_node_enc_keys) = generate_inputs(2);
+    let msg = EncapsulatedMessage::new(&inputs, PayloadType::Data, PAYLOAD_BODY).unwrap();
 
     let validated_message = msg.verify_public_header(&verifier).unwrap();
 
@@ -271,37 +258,26 @@ fn invalid_blend_header_proof_of_selection() {
     ));
 }
 
-fn generate_inputs(
-    cnt: usize,
-) -> Result<
-    (
-        EncapsulationInputs<ENCAPSULATION_COUNT>,
-        Vec<X25519PrivateKey>,
-    ),
-    Error,
-> {
+fn generate_inputs(cnt: usize) -> (Vec<EncapsulationInput>, Vec<X25519PrivateKey>) {
     let recipient_signing_keys = core::iter::repeat_with(Ed25519PrivateKey::generate)
         .take(cnt)
         .collect::<Vec<_>>();
-    let inputs = EncapsulationInputs::new(
-        recipient_signing_keys
-            .iter()
-            .map(|recipient_signing_key| {
-                EncapsulationInput::new(
-                    Ed25519PrivateKey::generate(),
-                    &recipient_signing_key.public_key(),
-                    ProofOfQuota::dummy(),
-                    ProofOfSelection::dummy(),
-                )
-            })
-            .collect::<Vec<_>>()
-            .into_boxed_slice(),
-    )?;
-    Ok((
+    let inputs = recipient_signing_keys
+        .iter()
+        .map(|recipient_signing_key| {
+            EncapsulationInput::new(
+                Ed25519PrivateKey::generate(),
+                &recipient_signing_key.public_key(),
+                ProofOfQuota::dummy(),
+                ProofOfSelection::dummy(),
+            )
+        })
+        .collect::<Vec<_>>();
+    (
         inputs,
         recipient_signing_keys
             .iter()
             .map(Ed25519PrivateKey::derive_x25519)
             .collect(),
-    ))
+    )
 }

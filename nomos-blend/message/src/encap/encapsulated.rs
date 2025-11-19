@@ -1,5 +1,3 @@
-use core::iter::repeat_n;
-
 use itertools::Itertools as _;
 use nomos_core::codec::{DeserializeOp as _, SerializeOp as _};
 use serde::{Deserialize, Serialize};
@@ -20,7 +18,7 @@ use crate::{
         decapsulated::{PartDecapsulationOutput, PrivateHeaderDecapsulationOutput},
         validated::IncomingEncapsulatedMessageWithValidatedPublicHeader,
     },
-    input::EncapsulationInputs,
+    input::EncapsulationInput,
     message::{BlendingHeader, Payload, PublicHeader},
 };
 
@@ -28,18 +26,18 @@ pub type MessageIdentifier = Ed25519PublicKey;
 
 /// An encapsulated message that is sent to the blend network.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-pub struct EncapsulatedMessage<const ENCAPSULATION_COUNT: usize> {
+pub struct EncapsulatedMessage {
     /// A public header that is not encapsulated.
     public_header: PublicHeader,
     /// Encapsulated parts
-    encapsulated_part: EncapsulatedPart<ENCAPSULATION_COUNT>,
+    encapsulated_part: EncapsulatedPart,
 }
 
-impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> {
+impl EncapsulatedMessage {
     /// Creates a new [`EncapsulatedMessage`] with the provided inputs and
     /// payload.
     pub fn new(
-        inputs: &EncapsulationInputs<ENCAPSULATION_COUNT>,
+        inputs: &[EncapsulationInput],
         payload_type: PayloadType,
         payload_body: &[u8],
     ) -> Result<Self, Error> {
@@ -83,7 +81,7 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
     #[must_use]
     pub const fn from_components(
         public_header: PublicHeader,
-        encapsulated_part: EncapsulatedPart<ENCAPSULATION_COUNT>,
+        encapsulated_part: EncapsulatedPart,
     ) -> Self {
         Self {
             public_header,
@@ -93,7 +91,7 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
 
     /// Consume the message to return its components.
     #[must_use]
-    pub fn into_components(self) -> (PublicHeader, EncapsulatedPart<ENCAPSULATION_COUNT>) {
+    pub fn into_components(self) -> (PublicHeader, EncapsulatedPart) {
         (self.public_header, self.encapsulated_part)
     }
 
@@ -101,7 +99,7 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
     pub fn verify_public_header<Verifier>(
         self,
         verifier: &Verifier,
-    ) -> Result<IncomingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>, Error>
+    ) -> Result<IncomingEncapsulatedMessageWithValidatedPublicHeader, Error>
     where
         Verifier: ProofsVerifier,
     {
@@ -141,16 +139,16 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
 // TODO: Consider having `InitializedPart`
 // that just finished the initialization step and doesn't have `decapsulate` method.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
-pub struct EncapsulatedPart<const ENCAPSULATION_COUNT: usize> {
-    private_header: EncapsulatedPrivateHeader<ENCAPSULATION_COUNT>,
+pub struct EncapsulatedPart {
+    private_header: EncapsulatedPrivateHeader,
     payload: EncapsulatedPayload,
 }
 
-impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPart<ENCAPSULATION_COUNT> {
+impl EncapsulatedPart {
     /// Initializes the encapsulated part as preparation for actual
     /// encapsulations.
     fn initialize(
-        inputs: &EncapsulationInputs<ENCAPSULATION_COUNT>,
+        inputs: &[EncapsulationInput],
         payload_type: PayloadType,
         payload_body: &[u8],
     ) -> Result<Self, Error> {
@@ -197,7 +195,7 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPart<ENCAPSULATION_COUNT> {
         key: &SharedKey,
         posel_verification_input: &VerifyInputs,
         verifier: &Verifier,
-    ) -> Result<PartDecapsulationOutput<ENCAPSULATION_COUNT>, Error>
+    ) -> Result<PartDecapsulationOutput, Error>
     where
         Verifier: ProofsVerifier,
     {
@@ -253,9 +251,9 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPart<ENCAPSULATION_COUNT> {
 /// Verification includes everything that is verified in
 /// [`verify_last_reconstructed_public_header`], plus the `PoQ` of the
 /// reconstructed header.
-fn verify_intermediate_reconstructed_public_header<Verifier, const ENCAPSULATION_COUNT: usize>(
+fn verify_intermediate_reconstructed_public_header<Verifier>(
     public_header: &PublicHeader,
-    private_header: &EncapsulatedPrivateHeader<ENCAPSULATION_COUNT>,
+    private_header: &EncapsulatedPrivateHeader,
     payload: &EncapsulatedPayload,
     verifier: &Verifier,
 ) -> Result<(), Error>
@@ -274,9 +272,9 @@ where
 /// Verification includes the signature over the private header and the
 /// decapsulated payload, using the verification key included in the outer
 /// public header.
-fn verify_last_reconstructed_public_header<const ENCAPSULATION_COUNT: usize>(
+fn verify_last_reconstructed_public_header(
     public_header: &PublicHeader,
-    private_header: &EncapsulatedPrivateHeader<ENCAPSULATION_COUNT>,
+    private_header: &EncapsulatedPrivateHeader,
     payload: &EncapsulatedPayload,
 ) -> Result<(), Error> {
     // Verify the signature in the reconstructed public header
@@ -285,8 +283,8 @@ fn verify_last_reconstructed_public_header<const ENCAPSULATION_COUNT: usize>(
 }
 
 /// Returns the body that should be signed.
-fn signing_body<const ENCAPSULATION_COUNT: usize>(
-    private_header: &EncapsulatedPrivateHeader<ENCAPSULATION_COUNT>,
+fn signing_body(
+    private_header: &EncapsulatedPrivateHeader,
     payload: &EncapsulatedPayload,
 ) -> Vec<u8> {
     private_header
@@ -300,13 +298,11 @@ fn signing_body<const ENCAPSULATION_COUNT: usize>(
 // TODO: Consider having `InitializedPrivateHeader`
 // that just finished the initialization step and doesn't have `decapsulate` method.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-pub(super) struct EncapsulatedPrivateHeader<const ENCAPSULATION_COUNT: usize>(
-    #[serde(with = "serde_big_array::BigArray")] [EncapsulatedBlendingHeader; ENCAPSULATION_COUNT],
-);
+pub(super) struct EncapsulatedPrivateHeader(Vec<EncapsulatedBlendingHeader>);
 
-impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPrivateHeader<ENCAPSULATION_COUNT> {
+impl EncapsulatedPrivateHeader {
     /// Initializes the private header as preparation for actual encapsulations.
-    fn initialize(inputs: &EncapsulationInputs<ENCAPSULATION_COUNT>) -> Self {
+    fn initialize(inputs: &[EncapsulationInput]) -> Self {
         // Randomize the private header in the reconstructable way,
         // so that the corresponding signatures can be verified later.
         // Plus, encapsulate the last `inputs.len()` blending headers.
@@ -317,34 +313,24 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPrivateHeader<ENCAPSULATION_C
         Self(
             inputs
                 .iter()
-                .map(|input| Some(input.ephemeral_encryption_key()))
-                .chain(repeat_n(None, inputs.num_empty_slots()))
+                .map(EncapsulationInput::ephemeral_encryption_key)
                 .rev()
                 .map(|rng_key| {
-                    rng_key.map_or_else(
-                        || EncapsulatedBlendingHeader::initialize(&BlendingHeader::random()),
-                        |rng_key| {
-                            let mut header = EncapsulatedBlendingHeader::initialize(
-                                &BlendingHeader::pseudo_random(rng_key.as_slice()),
-                            );
-                            // Encapsulate the blending header with the shared key of each input
-                            // until the shared key equal to the `rng_key` is encountered
-                            // (inclusive).
-                            inputs
-                                .iter()
-                                .take_while_inclusive(|&input| {
-                                    input.ephemeral_encryption_key() != rng_key
-                                })
-                                .for_each(|input| {
-                                    header.encapsulate(input.ephemeral_encryption_key());
-                                });
-                            header
-                        },
-                    )
+                    let mut header = EncapsulatedBlendingHeader::initialize(
+                        &BlendingHeader::pseudo_random(rng_key.as_slice()),
+                    );
+                    // Encapsulate the blending header with the shared key of each input
+                    // until the shared key equal to the `rng_key` is encountered
+                    // (inclusive).
+                    inputs
+                        .iter()
+                        .take_while_inclusive(|&input| input.ephemeral_encryption_key() != rng_key)
+                        .for_each(|input| {
+                            header.encapsulate(input.ephemeral_encryption_key());
+                        });
+                    header
                 })
-                .collect::<Vec<_>>()
-                .try_into()
-                .expect("Expected num of BlendingHeaders must be generated"),
+                .collect::<Vec<_>>(),
         )
     }
 
@@ -383,7 +369,7 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPrivateHeader<ENCAPSULATION_C
         key: &SharedKey,
         posel_verification_input: &VerifyInputs,
         verifier: &Verifier,
-    ) -> Result<PrivateHeaderDecapsulationOutput<ENCAPSULATION_COUNT>, Error>
+    ) -> Result<PrivateHeaderDecapsulationOutput, Error>
     where
         Verifier: ProofsVerifier,
     {
@@ -446,7 +432,7 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPrivateHeader<ENCAPSULATION_C
         self.0.rotate_left(1);
     }
 
-    const fn first(&self) -> &EncapsulatedBlendingHeader {
+    fn first(&self) -> &EncapsulatedBlendingHeader {
         self.0
             .first()
             .expect("private header always have ENCAPSULATION_COUNT blending headers")
