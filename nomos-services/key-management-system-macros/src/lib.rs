@@ -75,33 +75,30 @@ fn build_operators_enum(
     base_enum_ident: &Ident,
     variants: &Punctuated<Variant, Comma>,
 ) -> TokenStream {
-    // let operator_enum_ident = Ident::new(&format!("{base_enum_ident}Operators"),
-    // Span::call_site());
-    //
-    // let operators_variants = variants
-    //     .iter()
-    //     .map(|variant| {
-    //         let variant_name = &variant.ident;
-    //         let variant_inner_type = &variant.fields;
-    //         println!("{variant_inner_type:?}");
-    //         quote! {
-    // #variant_name(crate::keys::secured_key::BoxedSecureKeyOperations<#
-    // variant_inner_type>) }     });
-    //
-    // let operations_impl =
-    //     build_operations_impl_for_enum(&operator_enum_ident, base_enum_ident,
-    // variants);
-    //
-    // // let operator_variants = operators_variants.iter().map(|i| i);
-    // quote! {
-    //     #[derive(Debug, PartialEq, Eq, Clone)]
-    //     pub enum #operator_enum_ident {
-    //         #(#operators_variants),*
-    //     }
-    //
-    //     #operations_impl
-    // }
-    quote! {}
+    let operator_enum_ident = Ident::new(&format!("{base_enum_ident}Operators"), Span::call_site());
+    let operators_variants = variants.iter().map(|variant| {
+        let variant_name = &variant.ident;
+        let Fields::Unnamed(variant_inner_type) = &variant.fields else {
+            panic!("Only unnamed fields are supported for variants. Ex: `Foo(Bar)`");
+        };
+        let variant_ident = variant_inner_type.unnamed.first().unwrap();
+        quote! {
+        #variant_name(crate::keys::secured_key::BoxedSecureKeyOperator<#
+        variant_ident>) }
+    });
+
+    let operations_impl =
+        build_operations_impl_for_enum(&operator_enum_ident, base_enum_ident, variants);
+
+    // let operator_variants = operators_variants.iter().map(|i| i);
+    quote! {
+        #[derive(Debug)]
+        pub enum #operator_enum_ident {
+            #(#operators_variants),*
+        }
+
+        #operations_impl
+    }
 }
 
 fn build_operations_impl_for_enum(
@@ -119,13 +116,16 @@ fn build_operations_impl_for_enum(
 
     quote! {
         #[async_trait::async_trait]
-        impl crate::keys::secured_key::SecureKeyOperations for #enum_ident {
+        impl crate::keys::secured_key::SecureKeyOperator for #enum_ident {
             type Key = #keys_idents;
             type Error = crate::keys::errors::KeyError;
-            async fn execute(&self, key: &Self::Key) -> Result<(), Self::Error> {
+            async fn execute(&mut self, key: &Self::Key) -> Result<(), Self::Error> {
                 match (self, key) {
                     #(#variants,)*
-                    _ => Err(crate::keys::errors::KeyError::UnsupportedOperation(format!("Operation not supported for key type {:?}", key)).into()),
+                    (operator, key) => Err(KeyError::UnsupportedKeyOperator {
+                        operator: format!("{operator:?}"),
+                        key: format!("{key:?}"),
+                    }),
                 }
             }
         }
