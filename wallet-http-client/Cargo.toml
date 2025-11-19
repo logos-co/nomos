@@ -16,6 +16,6 @@ workspace = true
 common-http-client    = { workspace = true }
 hex                   = { workspace = true }
 nomos-core            = { workspace = true }
-nomos-http-api-common = { workspace = true, features = ["wallet"] }
+nomos-http-api-common = { workspace = true }
 url                   = "2.5.7"
 zksign                = { workspace = true }

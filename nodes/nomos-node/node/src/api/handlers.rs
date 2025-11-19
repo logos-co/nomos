@@ -1161,7 +1161,6 @@ where
     }
 }
 
-#[cfg(feature = "wallet")]
 pub mod wallet {
     use super::*;
 
