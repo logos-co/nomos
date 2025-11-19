@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use zeroize::ZeroizeOnDrop;
 
 #[async_trait::async_trait]
-pub trait SecureKeyOperations {
+pub trait SecureKeyOperator {
     type Key;
     type Error;
     async fn execute(&mut self, key: &Self::Key) -> Result<(), Self::Error>;
@@ -12,7 +12,7 @@ pub trait SecureKeyOperations {
 
 pub type BoxedSecureKeyOperations<
     Key: SecuredKey + Debug + PartialEq + Eq + Clone + Send + Sync + 'static,
-> = Box<dyn SecureKeyOperations<Key = Key, Error = Key::Error> + Send + Sync>;
+> = Box<dyn SecureKeyOperator<Key = Key, Error = Key::Error> + Send + Sync>;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct NoKeyOperator<Key, Error> {
@@ -21,7 +21,7 @@ pub struct NoKeyOperator<Key, Error> {
 }
 
 #[async_trait::async_trait]
-impl<Key, Error> SecureKeyOperations for NoKeyOperator<Key, Error>
+impl<Key, Error> SecureKeyOperator for NoKeyOperator<Key, Error>
 where
     Key: Send + Sync + 'static,
     Error: Send + Sync + 'static,
@@ -69,7 +69,7 @@ pub trait SecuredKey: ZeroizeOnDrop {
 
     async fn execute<Operation>(&self, mut operator: Operation) -> Result<(), Self::Error>
     where
-        Operation: SecureKeyOperations<Key = Self, Error = Self::Error> + Send,
+        Operation: SecureKeyOperator<Key = Self, Error = Self::Error> + Send,
     {
         operator.execute(self).await
     }

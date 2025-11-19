@@ -1,12 +1,12 @@
 pub mod preload;
 
-use crate::keys::secured_key::{SecureKeyOperations, SecuredKey};
+use crate::keys::secured_key::{SecureKeyOperator, SecuredKey};
 
 #[async_trait::async_trait]
 pub trait KMSBackend {
     type KeyId;
     type Key: SecuredKey;
-    type KeyOperations: SecureKeyOperations<Key = Self::Key, Error = <Self::Key as SecuredKey>::Error>;
+    type KeyOperations: SecureKeyOperator<Key = Self::Key, Error = <Self::Key as SecuredKey>::Error>;
     type Settings;
     type Error;
 

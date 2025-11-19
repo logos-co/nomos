@@ -13,7 +13,7 @@ use zeroize::ZeroizeOnDrop;
 pub use crate::keys::{ed25519::Ed25519Key, zk::ZkKey};
 use crate::keys::{
     errors::KeyError,
-    secured_key::{BoxedSecureKeyOperations, SecureKeyOperations},
+    secured_key::{BoxedSecureKeyOperations, SecureKeyOperator},
 };
 
 /// Entity that gathers all keys provided by the KMS crate.
@@ -32,7 +32,7 @@ pub enum KeyOperators {
 }
 
 #[async_trait::async_trait]
-impl SecureKeyOperations for KeyOperators {
+impl SecureKeyOperator for KeyOperators {
     type Key = Key;
     type Error = KeyError;
 

@@ -9,7 +9,7 @@ use key_management_system::{
     keys::{
         KeyOperators, ZkKey,
         errors::KeyError,
-        secured_key::{SecureKeyOperations, SecuredKey},
+        secured_key::{SecureKeyOperator, SecuredKey},
     },
     operators::blend::poq::PoQOperator,
 };

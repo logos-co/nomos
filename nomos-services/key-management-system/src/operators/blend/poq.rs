@@ -12,7 +12,7 @@ use tracing::error;
 
 use crate::keys::{
     ZkKey,
-    secured_key::{SecureKeyOperations, SecuredKey},
+    secured_key::{SecureKeyOperator, SecuredKey},
 };
 
 pub struct PoQOperator {
@@ -39,7 +39,7 @@ impl PoQOperator {
 }
 
 #[async_trait::async_trait]
-impl SecureKeyOperations for PoQOperator {
+impl SecureKeyOperator for PoQOperator {
     type Key = ZkKey;
     type Error = <ZkKey as SecuredKey>::Error;
 
