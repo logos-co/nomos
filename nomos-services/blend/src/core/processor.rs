@@ -111,7 +111,7 @@ impl From<DecapsulationOutput> for DecapsulatedMessageType {
             DecapsulationOutput::Incompleted {
                 remaining_encapsulated_message,
                 ..
-            } => Self::Incompleted(Box::new(remaining_encapsulated_message)),
+            } => Self::Incompleted(remaining_encapsulated_message),
         }
     }
 }
@@ -159,7 +159,7 @@ where
                     collected_blending_tokens.push(blending_token.clone());
                     let Ok(nested_layer_decapsulation_output) = self
                         .0
-                        .decapsulate_message(IncomingEncapsulatedMessageWithValidatedPublicHeader::from_message_unchecked(remaining_encapsulated_message.clone()))
+                        .decapsulate_message(IncomingEncapsulatedMessageWithValidatedPublicHeader::from_message_unchecked(*remaining_encapsulated_message.clone()))
                     else {
                         break;
                     };

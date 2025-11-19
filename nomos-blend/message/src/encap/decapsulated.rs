@@ -7,14 +7,10 @@ use crate::{
 };
 
 /// The output of [`EncapsulatedMessage::decapsulate`]
-#[expect(
-    clippy::large_enum_variant,
-    reason = "Size difference between variants is not too large (small ENCAPSULATION_COUNT)"
-)]
 #[derive(Clone)]
 pub enum DecapsulationOutput {
     Incompleted {
-        remaining_encapsulated_message: EncapsulatedMessage,
+        remaining_encapsulated_message: Box<EncapsulatedMessage>,
         blending_token: BlendingToken,
     },
     Completed {
@@ -24,14 +20,10 @@ pub enum DecapsulationOutput {
 }
 
 /// The output of [`EncapsulatedPart::decapsulate`]
-#[expect(
-    clippy::large_enum_variant,
-    reason = "Size difference between variants is not too large (small ENCAPSULATION_COUNT)"
-)]
 pub(super) enum PartDecapsulationOutput {
     Incompleted {
         encapsulated_part: EncapsulatedPart,
-        public_header: PublicHeader,
+        public_header: Box<PublicHeader>,
         proof_of_selection: ProofOfSelection,
     },
 

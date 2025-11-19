@@ -92,10 +92,10 @@ impl IncomingEncapsulatedMessageWithValidatedPublicHeader {
                 let blending_token =
                     BlendingToken::new(*public_header.proof_of_quota(), proof_of_selection);
                 Ok(DecapsulationOutput::Incompleted {
-                    remaining_encapsulated_message: EncapsulatedMessage::from_components(
-                        public_header,
+                    remaining_encapsulated_message: Box::new(EncapsulatedMessage::from_components(
+                        *public_header,
                         encapsulated_part,
-                    ),
+                    )),
                     blending_token,
                 })
             }

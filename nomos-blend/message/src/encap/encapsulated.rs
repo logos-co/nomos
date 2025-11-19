@@ -136,8 +136,8 @@ impl EncapsulatedMessage {
 }
 
 /// Part of the message that should be encapsulated.
-// TODO: Consider having `InitializedPart`
-// that just finished the initialization step and doesn't have `decapsulate` method.
+// TODO: Consider having `InitializedPart` that just finished the initialization step and doesn't
+// have `decapsulate` method.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct EncapsulatedPart {
     private_header: EncapsulatedPrivateHeader,
@@ -220,7 +220,7 @@ impl EncapsulatedPart {
                         private_header,
                         payload,
                     },
-                    public_header,
+                    public_header: Box::new(public_header),
                     proof_of_selection,
                 })
             }
@@ -330,7 +330,7 @@ impl EncapsulatedPrivateHeader {
                         });
                     header
                 })
-                .collect::<Vec<_>>(),
+                .collect(),
         )
     }
 
@@ -435,21 +435,21 @@ impl EncapsulatedPrivateHeader {
     fn first(&self) -> &EncapsulatedBlendingHeader {
         self.0
             .first()
-            .expect("private header always have ENCAPSULATION_COUNT blending headers")
+            .expect("Private header always has at least one blending header.")
     }
 
     fn replace_first(&mut self, header: EncapsulatedBlendingHeader) {
         *self
             .0
             .first_mut()
-            .expect("private header always have ENCAPSULATION_COUNT blending headers") = header;
+            .expect("Private header always has at least one blending header.") = header;
     }
 
     fn replace_last(&mut self, header: EncapsulatedBlendingHeader) {
         *self
             .0
             .last_mut()
-            .expect("private header always have ENCAPSULATION_COUNT blending headers") = header;
+            .expect("Private header always has at least one blending header.") = header;
     }
 
     fn iter_bytes(&self) -> impl Iterator<Item = u8> + '_ {
