@@ -10,9 +10,12 @@ pub trait SecureKeyOperator {
     async fn execute(&mut self, key: &Self::Key) -> Result<(), Self::Error>;
 }
 
-pub type BoxedSecureKeyOperations<
+pub trait DebugSecureKeyOperator: SecureKeyOperator + Debug {}
+impl<T: SecureKeyOperator + Debug> DebugSecureKeyOperator for T {}
+
+pub type BoxedSecureKeyOperator<
     Key: SecuredKey + Debug + PartialEq + Eq + Clone + Send + Sync + 'static,
-> = Box<dyn SecureKeyOperator<Key = Key, Error = Key::Error> + Send + Sync>;
+> = Box<dyn DebugSecureKeyOperator<Key = Key, Error = Key::Error> + Send + Sync>;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct NoKeyOperator<Key, Error> {
@@ -69,7 +72,7 @@ pub trait SecuredKey: ZeroizeOnDrop {
 
     async fn execute<Operation>(&self, mut operator: Operation) -> Result<(), Self::Error>
     where
-        Operation: SecureKeyOperator<Key = Self, Error = Self::Error> + Send,
+        Operation: SecureKeyOperator<Key = Self, Error = Self::Error> + Send + Debug,
     {
         operator.execute(self).await
     }

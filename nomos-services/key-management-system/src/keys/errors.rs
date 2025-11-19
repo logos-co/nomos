@@ -14,8 +14,8 @@ pub enum KeyError {
     UnsupportedMultisignatureSize(usize, usize),
     #[error(transparent)]
     ZkSignError(#[from] zksign::ZkSignError),
-    #[error("Unsupported operation for key type `{0}`")]
-    UnsupportedOperation(String),
+    #[error("Unsupported operator `{operator}` for key type `{key}`")]
+    UnsupportedKeyOperator { operator: String, key: String },
 }
 
 impl From<EncodingError> for KeyError {

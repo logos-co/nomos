@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use nomos_blend_message::crypto::proofs::{
     quota,
     quota::{
@@ -20,6 +22,12 @@ pub struct PoQOperator {
     public_inputs: PublicInputs,
     key_index: u64,
     response_channel: Option<oneshot::Sender<Result<(ProofOfQuota, ZkHash), quota::Error>>>,
+}
+
+impl Debug for PoQOperator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "PoQOperator")
+    }
 }
 
 impl PoQOperator {

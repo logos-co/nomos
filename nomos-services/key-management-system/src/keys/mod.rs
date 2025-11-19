@@ -13,7 +13,7 @@ use zeroize::ZeroizeOnDrop;
 pub use crate::keys::{ed25519::Ed25519Key, zk::ZkKey};
 use crate::keys::{
     errors::KeyError,
-    secured_key::{BoxedSecureKeyOperations, SecureKeyOperator},
+    secured_key::{BoxedSecureKeyOperator, SecureKeyOperator},
 };
 
 /// Entity that gathers all keys provided by the KMS crate.
@@ -26,9 +26,10 @@ pub enum Key {
     Zk(ZkKey),
 }
 
+#[derive(Debug)]
 pub enum KeyOperators {
-    Ed25519(BoxedSecureKeyOperations<Ed25519Key>),
-    Zk(BoxedSecureKeyOperations<ZkKey>),
+    Ed25519(BoxedSecureKeyOperator<Ed25519Key>),
+    Zk(BoxedSecureKeyOperator<ZkKey>),
 }
 
 #[async_trait::async_trait]
@@ -40,7 +41,10 @@ impl SecureKeyOperator for KeyOperators {
         match (self, key) {
             (KeyOperators::Ed25519(operator), Key::Ed25519(key)) => operator.execute(key).await,
             (KeyOperators::Zk(operator), Key::Zk(key)) => operator.execute(key).await,
-            (_operator, key) => Err(KeyError::UnsupportedOperation(format!("{key:?}"))),
+            (operator, key) => Err(KeyError::UnsupportedKeyOperator {
+                operator: format!("{operator:?}"),
+                key: format!("{key:?}"),
+            }),
         }
     }
 }
