@@ -8,7 +8,7 @@ use locked_notes::LockedNotes;
 use nomos_core::{
     block::BlockNumber,
     mantle::{
-        Note, NoteId, OpProof, TxHash,
+        Note, NoteId, OpProof, TxHash, Utxo,
         ops::sdp::{SDPActiveOp, SDPDeclareOp, SDPWithdrawOp},
     },
     sdp::{
@@ -17,6 +17,7 @@ use nomos_core::{
     },
 };
 use rewards::{DaRewards, Error as RewardsError, NoopRewards, Rewards};
+use zksign::PublicKey;
 
 use crate::UtxoTree;
 
@@ -30,13 +31,17 @@ enum Service {
 }
 
 impl Service {
-    fn try_apply_header(self, block_number: u64, config: &ServiceParameters) -> Self {
+    fn try_apply_header(self, block_number: u64, config: &ServiceParameters) -> (Self, Vec<Utxo>) {
         match self {
             Self::DataAvailability(state) => {
-                Self::DataAvailability(state.try_apply_header(block_number, config))
+                let (new_state, utxos) =
+                    state.try_apply_header(block_number, config, ServiceType::DataAvailability);
+                (Self::DataAvailability(new_state), utxos)
             }
             Self::BlendNetwork(state) => {
-                Self::BlendNetwork(state.try_apply_header(block_number, config))
+                let (new_state, utxos) =
+                    state.try_apply_header(block_number, config, ServiceType::BlendNetwork);
+                (Self::BlendNetwork(new_state), utxos)
             }
         }
     }
@@ -203,30 +208,23 @@ impl SessionState {
         }
         self.clone()
     }
-
-    /// Get provider ID by index using the stable iteration order of the map.
-    ///
-    /// The `RedBlackTrieMapSync` provides a stable iteration order based on its
-    /// internal structure.
-    #[must_use]
-    pub fn get_provider_by_index(&self, index: usize) -> Option<ProviderId> {
-        self.declarations
-            .values()
-            .nth(index)
-            .map(|decl| decl.provider_id)
-    }
 }
 
 impl<R: Rewards> ServiceState<R> {
-    fn try_apply_header(mut self, block_number: u64, config: &ServiceParameters) -> Self {
+    fn try_apply_header(
+        mut self,
+        block_number: u64,
+        config: &ServiceParameters,
+        _service_type: ServiceType,
+    ) -> (Self, Vec<Utxo>) {
         // TODO: remove expired declarations based on retention_period
         let current_session = config.session_for_block(block_number);
+        let reward_utxos;
+
         // shift all session!
         if current_session == self.active.session_n + 1 {
-            // Update rewards with current session state and distribute rewards
-            let (new_rewards, _reward_amounts) = self.rewards.update_session(&self.active, config);
-            self.rewards = new_rewards;
-            // TODO: Process rewards distribution (e.g., mint reward notes)
+            // Calculate new rewards for the ending session (to be distributed at N+2)
+            (self.rewards, reward_utxos) = self.rewards.update_session(&self.active, config);
             self.active = self.forming.clone();
             self.forming = SessionState {
                 declarations: self.declarations.clone(),
@@ -238,9 +236,10 @@ impl<R: Rewards> ServiceState<R> {
                 "Nomos isn't ready for time travel yet"
             );
             self.forming = self.forming.update(&self, block_number, config);
+            reward_utxos = Vec::new();
         }
 
-        self
+        (self, reward_utxos)
     }
 
     fn declare(&mut self, id: DeclarationId, declaration: Declaration) -> Result<(), Error> {
@@ -273,7 +272,7 @@ impl<R: Rewards> ServiceState<R> {
                 declaration.locked_note_id,
             )))?;
 
-        if !zksign::PublicKey::verify_multi(&[note.pk, declaration.zk_id], &tx_hash.0, sig) {
+        if !PublicKey::verify_multi(&[note.pk, declaration.zk_id], &tx_hash.0, sig) {
             return Err(Error::InvalidSignature);
         }
 
@@ -309,7 +308,7 @@ impl<R: Rewards> ServiceState<R> {
 
         let note = locked_notes.unlock(declaration.service_type, &declaration.locked_note_id)?;
 
-        if !zksign::PublicKey::verify_multi(&[note.pk, declaration.zk_id], &tx_hash.0, sig) {
+        if !PublicKey::verify_multi(&[note.pk, declaration.zk_id], &tx_hash.0, sig) {
             return Err(Error::InvalidSignature);
         }
         self.declarations = self.declarations.remove(&withdraw.declaration_id);
@@ -425,26 +424,33 @@ impl SdpLedger {
         self
     }
 
-    pub fn try_apply_header(&self, config: &Config) -> Result<Self, Error> {
+    pub fn try_apply_header(&self, config: &Config) -> Result<(Self, Vec<Utxo>), Error> {
         let block_number = self.block_number + 1; // overflow?
-        Ok(Self {
-            block_number,
-            services: self
-                .services
-                .iter()
-                .map(|(service, service_state)| {
-                    let config = config
-                        .service_params
-                        .get(service)
-                        .ok_or(Error::SessionParamsNotFound(*service))?;
-                    Ok::<_, Error>((
-                        *service,
-                        service_state.clone().try_apply_header(block_number, config),
-                    ))
-                })
-                .collect::<Result<_, _>>()?,
-            locked_notes: self.locked_notes.clone(),
-        })
+        let mut all_reward_utxos = Vec::new();
+
+        let services = self
+            .services
+            .iter()
+            .map(|(service, service_state)| {
+                let config = config
+                    .service_params
+                    .get(service)
+                    .ok_or(Error::SessionParamsNotFound(*service))?;
+                let (new_state, reward_utxos) =
+                    service_state.clone().try_apply_header(block_number, config);
+                all_reward_utxos.extend(reward_utxos.into_iter());
+                Ok::<_, Error>((*service, new_state))
+            })
+            .collect::<Result<_, _>>()?;
+
+        Ok((
+            Self {
+                block_number,
+                services,
+                locked_notes: self.locked_notes.clone(),
+            },
+            all_reward_utxos,
+        ))
     }
 
     pub fn apply_declare_msg(
@@ -456,7 +462,7 @@ impl SdpLedger {
         tx_hash: TxHash,
         config: &Config,
     ) -> Result<Self, Error> {
-        if !zksign::PublicKey::verify_multi(&[note.pk, op.zk_id], &tx_hash.0, zk_sig) {
+        if !PublicKey::verify_multi(&[note.pk, op.zk_id], &tx_hash.0, zk_sig) {
             return Err(Error::InvalidSignature);
         }
         op.provider_id
@@ -743,7 +749,7 @@ mod tests {
         // Apply headers to reach block 10 (session boundary)
         let mut sdp_ledger = sdp_ledger;
         for _ in 0..10 {
-            sdp_ledger = sdp_ledger.try_apply_header(&config).unwrap();
+            (sdp_ledger, _) = sdp_ledger.try_apply_header(&config).unwrap();
         }
 
         // At block 10, declaration enters forming session 2
@@ -784,7 +790,7 @@ mod tests {
         // Move forward enough blocks to satisfy lock_period
         let mut sdp_ledger = sdp_ledger;
         for _ in 0..11 {
-            sdp_ledger = sdp_ledger.try_apply_header(&config).unwrap();
+            (sdp_ledger, _) = sdp_ledger.try_apply_header(&config).unwrap();
         }
 
         // Withdraw the declaration
@@ -829,7 +835,7 @@ mod tests {
         // Apply headers to reach block 10 (session boundary for session_duration=10)
         let mut sdp_ledger = sdp_ledger;
         for _ in 0..10 {
-            sdp_ledger = sdp_ledger.try_apply_header(&config).unwrap();
+            (sdp_ledger, _) = sdp_ledger.try_apply_header(&config).unwrap();
         }
 
         // At block 10: active becomes session 1 (was empty forming), forming becomes
@@ -845,7 +851,7 @@ mod tests {
 
         // Continue to block 20 to see declaration become active
         for _ in 0..10 {
-            sdp_ledger = sdp_ledger.try_apply_header(&config).unwrap();
+            (sdp_ledger, _) = sdp_ledger.try_apply_header(&config).unwrap();
         }
 
         // At block 20: active becomes session 2 (with declaration)
@@ -865,7 +871,7 @@ mod tests {
         // Apply headers to reach block 9 (still in session 0, promotion happens at
         // block 10)
         for _ in 0..9 {
-            sdp_ledger = sdp_ledger.try_apply_header(&config).unwrap();
+            (sdp_ledger, _) = sdp_ledger.try_apply_header(&config).unwrap();
         }
 
         // Check active session is still session 0 with no declarations
@@ -894,7 +900,7 @@ mod tests {
         // At block 6, BlendNetwork hasn't promoted yet (6/10=0, active.session_n=0, so
         // 0!=0+1)
         for _ in 0..6 {
-            sdp_ledger = sdp_ledger.try_apply_header(&config).unwrap();
+            (sdp_ledger, _) = sdp_ledger.try_apply_header(&config).unwrap();
         }
 
         // Check DataAvailability is promoted to session 1
@@ -922,7 +928,7 @@ mod tests {
 
         // SESSION 0: Add a declaration at block 5
         for _ in 0..5 {
-            sdp_ledger = sdp_ledger.try_apply_header(&config).unwrap();
+            (sdp_ledger, _) = sdp_ledger.try_apply_header(&config).unwrap();
         }
 
         let declare_op = &SDPDeclareOp {
@@ -938,7 +944,7 @@ mod tests {
 
         // Move to block 9 (last block of session 0)
         for _ in 6..10 {
-            sdp_ledger = sdp_ledger.try_apply_header(&config).unwrap();
+            (sdp_ledger, _) = sdp_ledger.try_apply_header(&config).unwrap();
         }
         assert_eq!(sdp_ledger.block_number, 9);
 
@@ -952,7 +958,7 @@ mod tests {
         assert!(forming_session.declarations.is_empty());
 
         // SESSION 1: Cross session boundary to block 10
-        sdp_ledger = sdp_ledger.try_apply_header(&config).unwrap();
+        (sdp_ledger, _) = sdp_ledger.try_apply_header(&config).unwrap();
         assert_eq!(sdp_ledger.block_number, 10);
 
         // Active session 1 is empty (was the empty forming session 1)
@@ -967,9 +973,9 @@ mod tests {
 
         // SESSION 2: Cross to block 20
         for _ in 11..20 {
-            sdp_ledger = sdp_ledger.try_apply_header(&config).unwrap();
+            (sdp_ledger, _) = sdp_ledger.try_apply_header(&config).unwrap();
         }
-        sdp_ledger = sdp_ledger.try_apply_header(&config).unwrap();
+        (sdp_ledger, _) = sdp_ledger.try_apply_header(&config).unwrap();
         assert_eq!(sdp_ledger.block_number, 20);
 
         // Now the declaration is active in session 2
@@ -1002,14 +1008,14 @@ mod tests {
 
         // Move to block 9 (last block before session boundary)
         for _ in 1..10 {
-            sdp_ledger = sdp_ledger.try_apply_header(&config).unwrap();
+            (sdp_ledger, _) = sdp_ledger.try_apply_header(&config).unwrap();
         }
 
         // Save state at block 9
         let sdp_ledger_block_9 = sdp_ledger.clone();
 
         // Add another declaration at block 10 (after session boundary)
-        sdp_ledger = sdp_ledger.try_apply_header(&config).unwrap();
+        (sdp_ledger, _) = sdp_ledger.try_apply_header(&config).unwrap();
         assert_eq!(sdp_ledger.block_number, 10);
 
         let zk_key_2 = create_zk_key(2);
@@ -1027,9 +1033,9 @@ mod tests {
 
         // Jump to session 2 (block 20)
         for _ in 11..20 {
-            sdp_ledger = sdp_ledger.try_apply_header(&config).unwrap();
+            (sdp_ledger, _) = sdp_ledger.try_apply_header(&config).unwrap();
         }
-        sdp_ledger = sdp_ledger.try_apply_header(&config).unwrap();
+        (sdp_ledger, _) = sdp_ledger.try_apply_header(&config).unwrap();
 
         // Active session (session 2) should contain both declarations
         let active_session = sdp_ledger.get_active_session(service_a).unwrap();
@@ -1039,9 +1045,9 @@ mod tests {
         // Now test from the block 9 state - jumping directly to block 20
         let mut sdp_ledger_from_9 = sdp_ledger_block_9;
         for _ in 10..20 {
-            sdp_ledger_from_9 = sdp_ledger_from_9.try_apply_header(&config).unwrap();
+            (sdp_ledger_from_9, _) = sdp_ledger_from_9.try_apply_header(&config).unwrap();
         }
-        sdp_ledger_from_9 = sdp_ledger_from_9.try_apply_header(&config).unwrap();
+        (sdp_ledger_from_9, _) = sdp_ledger_from_9.try_apply_header(&config).unwrap();
 
         // Active session should only contain declaration_id_1
         // because declaration_id_2 was never added in this timeline
@@ -1069,7 +1075,7 @@ mod tests {
 
         // Add declaration at block 3
         for _ in 0..3 {
-            sdp_ledger = sdp_ledger.try_apply_header(&config).unwrap();
+            (sdp_ledger, _) = sdp_ledger.try_apply_header(&config).unwrap();
         }
 
         let declare_op = &SDPDeclareOp {
@@ -1085,9 +1091,9 @@ mod tests {
 
         // Jump directly from block 3 to block 25 (skipping session 1 entirely)
         for _ in 4..25 {
-            sdp_ledger = sdp_ledger.try_apply_header(&config).unwrap();
+            (sdp_ledger, _) = sdp_ledger.try_apply_header(&config).unwrap();
         }
-        sdp_ledger = sdp_ledger.try_apply_header(&config).unwrap();
+        (sdp_ledger, _) = sdp_ledger.try_apply_header(&config).unwrap();
         assert_eq!(sdp_ledger.block_number, 25);
 
         // Declaration snapshots should be taken from the last known state
@@ -1117,7 +1123,7 @@ mod tests {
 
         // Move to block 9 (last block of session 0)
         for _ in 0..9 {
-            sdp_ledger = sdp_ledger.try_apply_header(&config).unwrap();
+            (sdp_ledger, _) = sdp_ledger.try_apply_header(&config).unwrap();
         }
         assert_eq!(sdp_ledger.block_number, 9);
 
@@ -1144,7 +1150,7 @@ mod tests {
 
         // Cross to block 10 (session boundary - start of session 1)
         // At this point, the snapshot for forming session 2 is taken
-        sdp_ledger = sdp_ledger.try_apply_header(&config).unwrap();
+        (sdp_ledger, _) = sdp_ledger.try_apply_header(&config).unwrap();
         assert_eq!(sdp_ledger.block_number, 10);
 
         let active_session = sdp_ledger.get_active_session(service_a).unwrap();
@@ -1179,9 +1185,9 @@ mod tests {
 
         // Jump to block 20 (start of session 2)
         for _ in 11..20 {
-            sdp_ledger = sdp_ledger.try_apply_header(&config).unwrap();
+            (sdp_ledger, _) = sdp_ledger.try_apply_header(&config).unwrap();
         }
-        sdp_ledger = sdp_ledger.try_apply_header(&config).unwrap();
+        (sdp_ledger, _) = sdp_ledger.try_apply_header(&config).unwrap();
         assert_eq!(sdp_ledger.block_number, 20);
 
         // Active session 2 has declaration_1 (from block 9)
@@ -1198,9 +1204,9 @@ mod tests {
 
         // Jump to block 30 (start of session 3)
         for _ in 21..30 {
-            sdp_ledger = sdp_ledger.try_apply_header(&config).unwrap();
+            (sdp_ledger, _) = sdp_ledger.try_apply_header(&config).unwrap();
         }
-        sdp_ledger = sdp_ledger.try_apply_header(&config).unwrap();
+        (sdp_ledger, _) = sdp_ledger.try_apply_header(&config).unwrap();
         assert_eq!(sdp_ledger.block_number, 30);
 
         // Active session 3 now has both declarations
