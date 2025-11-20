@@ -252,13 +252,13 @@ impl<M: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static> Netw
                         {
                             *session
                         } else {
-                            debug!("Rejecting TX without BlobOp");
+                            tracing::debug!("Rejecting TX without BlobOp");
                             return Poll::Pending;
                         };
 
                         let current_session = self.membership.session_id();
                         if session != current_session {
-                            debug!(
+                            tracing::debug!(
                                 "Rejecting TX from session {session}, current session is {current_session}",
                             );
                             return Poll::Pending;
