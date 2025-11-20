@@ -3,10 +3,7 @@ use std::time::Duration;
 use serial_test::serial;
 use testing_framework_core::scenario::{Deployer as _, Runner, ScenarioBuilder};
 use testing_framework_runner_local::LocalDeployer;
-use tests_workflows::{
-    expectations::ConsensusLiveness,
-    workloads::{channel, transaction},
-};
+use tests_workflows::ScenarioBuilderExt as _;
 
 const RUN_DURATION: Duration = Duration::from_secs(60);
 const VALIDATORS: usize = 1;
@@ -22,13 +19,20 @@ async fn local_runner_mixed_workloads() {
         "running mixed workloads with {VALIDATORS} validators / {EXECUTORS} executors ({MIXED_TXS_PER_BLOCK} txs/block) for {RUN_DURATION:?}",
     );
 
-    let tx_workload = transaction::Workload::with_rate(MIXED_TXS_PER_BLOCK)
-        .expect("non-zero tx rate must succeed");
-
     let mut plan = ScenarioBuilder::with_node_counts(VALIDATORS, EXECUTORS)
-        .with_workload(tx_workload)
-        .with_workload(channel::Workload::default())
-        .with_expectation(ConsensusLiveness)
+        .topology()
+        .validators(VALIDATORS)
+        .executors(EXECUTORS)
+        .network_star()
+        .apply()
+        .transactions()
+        .rate(MIXED_TXS_PER_BLOCK)
+        .apply()
+        .da()
+        .rate(1)
+        .blob_rate(1)
+        .apply()
+        .expect_consensus_liveness()
         .with_run_duration(RUN_DURATION)
         .build();
 
