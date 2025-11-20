@@ -237,14 +237,23 @@ impl Cryptarchia {
         let parent = header.parent();
         let slot = header.slot();
         // A block number of this block if it's applied to the chain.
-        let ledger = self.ledger.try_update::<_, MainnetGasConstants>(
-            id,
-            parent,
-            slot,
-            header.leader_proof(),
-            VoucherCm::default(), // TODO: add the new voucher commitment here
-            block.transactions(),
-        )?;
+        let ledger = self
+            .ledger
+            .try_update::<_, MainnetGasConstants>(
+                id,
+                parent,
+                slot,
+                header.leader_proof(),
+                VoucherCm::default(), // TODO: add the new voucher commitment here
+                block.transactions(),
+            )
+            .map_err(|err| match err {
+                nomos_ledger::LedgerError::ParentNotFound(parent) => Error::ParentMissing {
+                    parent,
+                    info: self.info(),
+                },
+                err => Error::Ledger(err),
+            })?;
         let (consensus, pruned_blocks) =
             self.consensus
                 .receive_block(id, parent, slot)
