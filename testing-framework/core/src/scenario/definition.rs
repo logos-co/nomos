@@ -1,6 +1,6 @@
-use std::{sync::Arc, time::Duration};
+use std::{marker::PhantomData, sync::Arc, time::Duration};
 
-use super::{expectation::Expectation, workload::Workload};
+use super::{expectation::Expectation, runtime::context::RunMetrics, workload::Workload};
 use crate::topology::{GeneratedTopology, TopologyBuilder, TopologyConfig};
 
 /// Immutable scenario definition shared between the runner, workloads, and
@@ -54,14 +54,17 @@ impl Scenario {
 }
 
 /// Builder used by callers to describe the desired scenario.
-pub struct Builder {
+pub struct Builder<Caps = ()> {
     topology: TopologyBuilder,
     workloads: Vec<Arc<dyn Workload>>,
     expectations: Vec<Box<dyn Expectation>>,
     duration: Duration,
+    _caps: PhantomData<Caps>,
 }
 
-impl Builder {
+pub type ScenarioBuilder = Builder<()>;
+
+impl<Caps> Builder<Caps> {
     #[must_use]
     pub fn new(topology: TopologyBuilder) -> Self {
         Self {
@@ -69,6 +72,7 @@ impl Builder {
             workloads: Vec::new(),
             expectations: Vec::new(),
             duration: Duration::ZERO,
+            _caps: PhantomData,
         }
     }
 
@@ -105,17 +109,25 @@ impl Builder {
     }
 
     #[must_use]
+    pub fn map_topology(mut self, f: impl FnOnce(TopologyBuilder) -> TopologyBuilder) -> Self {
+        self.topology = f(self.topology);
+        self
+    }
+
+    #[must_use]
     pub fn build(self) -> Scenario {
         let Self {
             topology,
             mut workloads,
             mut expectations,
             duration,
+            ..
         } = self;
 
         let generated = topology.build();
         let duration = enforce_min_duration(&generated, duration);
-        initialize_components(&generated, duration, &mut workloads, &mut expectations);
+        let run_metrics = RunMetrics::from_topology(&generated, duration);
+        initialize_components(&generated, &run_metrics, &mut workloads, &mut expectations);
 
         Scenario::new(generated, workloads, expectations, duration)
     }
@@ -123,23 +135,23 @@ impl Builder {
 
 fn initialize_components(
     descriptors: &GeneratedTopology,
-    run_duration: Duration,
+    run_metrics: &RunMetrics,
     workloads: &mut [Arc<dyn Workload>],
     expectations: &mut [Box<dyn Expectation>],
 ) {
-    initialize_workloads(descriptors, run_duration, workloads);
-    initialize_expectations(descriptors, run_duration, expectations);
+    initialize_workloads(descriptors, run_metrics, workloads);
+    initialize_expectations(descriptors, run_metrics, expectations);
 }
 
 fn initialize_workloads(
     descriptors: &GeneratedTopology,
-    run_duration: Duration,
+    run_metrics: &RunMetrics,
     workloads: &mut [Arc<dyn Workload>],
 ) {
     for workload in workloads {
         let inner =
             Arc::get_mut(workload).expect("workload unexpectedly cloned before initialization");
-        if let Err(err) = inner.init(descriptors, run_duration) {
+        if let Err(err) = inner.init(descriptors, run_metrics) {
             panic!("workload '{}' failed to initialize: {err}", inner.name());
         }
     }
@@ -147,11 +159,11 @@ fn initialize_workloads(
 
 fn initialize_expectations(
     descriptors: &GeneratedTopology,
-    run_duration: Duration,
+    run_metrics: &RunMetrics,
     expectations: &mut [Box<dyn Expectation>],
 ) {
     for expectation in expectations {
-        if let Err(err) = expectation.init(descriptors, run_duration) {
+        if let Err(err) = expectation.init(descriptors, run_metrics) {
             panic!(
                 "expectation '{}' failed to initialize: {err}",
                 expectation.name()
@@ -165,9 +177,7 @@ fn enforce_min_duration(descriptors: &GeneratedTopology, requested: Duration) ->
     const FALLBACK_SECS: u64 = 10;
 
     let slot_duration = descriptors
-        .validators()
-        .first()
-        .map(|node| node.general.time_config.slot_duration)
+        .slot_duration()
         .filter(|duration| !duration.is_zero());
 
     let min_duration = slot_duration.map_or_else(

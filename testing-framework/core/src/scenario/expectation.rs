@@ -1,8 +1,6 @@
-use std::time::Duration;
-
 use async_trait::async_trait;
 
-use super::{DynError, RunContext};
+use super::{DynError, RunContext, runtime::context::RunMetrics};
 use crate::topology::GeneratedTopology;
 
 #[async_trait]
@@ -12,7 +10,7 @@ pub trait Expectation: Send + Sync {
     fn init(
         &mut self,
         _descriptors: &GeneratedTopology,
-        _run_duration: Duration,
+        _run_metrics: &RunMetrics,
     ) -> Result<(), DynError> {
         Ok(())
     }

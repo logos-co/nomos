@@ -131,6 +131,11 @@ pub struct RunMetrics {
 impl RunMetrics {
     #[must_use]
     pub fn new(descriptors: &GeneratedTopology, run_duration: Duration) -> Self {
+        Self::from_topology(descriptors, run_duration)
+    }
+
+    #[must_use]
+    pub fn from_topology(descriptors: &GeneratedTopology, run_duration: Duration) -> Self {
         let slot_duration = descriptors
             .validators()
             .first()

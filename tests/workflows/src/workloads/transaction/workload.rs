@@ -3,7 +3,7 @@ use std::{num::NonZeroU64, time::Duration};
 use async_trait::async_trait;
 use nomos_core::mantle::ops::channel::ChannelId;
 use testing_framework_core::{
-    scenario::{DynError, Expectation, RunContext, Workload as ScenarioWorkload},
+    scenario::{DynError, Expectation, RunContext, RunMetrics, Workload as ScenarioWorkload},
     topology::GeneratedTopology,
 };
 use thiserror::Error;
@@ -30,7 +30,7 @@ impl ScenarioWorkload for Workload {
     fn init(
         &mut self,
         descriptors: &GeneratedTopology,
-        _run_duration: Duration,
+        _run_metrics: &RunMetrics,
     ) -> Result<(), DynError> {
         let has_nodes = !descriptors.validators().is_empty() || !descriptors.executors().is_empty();
         if !has_nodes {
