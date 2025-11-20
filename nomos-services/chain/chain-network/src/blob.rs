@@ -135,15 +135,40 @@ pub struct HistoricBlobStrategy;
 #[async_trait::async_trait]
 impl Strategy for HistoricBlobStrategy {
     async fn validate<Tx>(
-        _block: &Block<Tx>,
-        _sampling_relay: &SamplingRelay<da::BlobId>,
+        block: &Block<Tx>,
+        sampling_relay: &SamplingRelay<da::BlobId>,
     ) -> Result<(), Error>
     where
         Tx: AuthenticatedMantleTx + Sync,
     {
         debug!(target = LOG_TARGET, "Validating historic blobs");
-        // TODO: trigger historic sampling and wait for completion: https://github.com/logos-co/nomos/issues/1838
-        Ok(())
+
+        let (sender, receiver) = oneshot::channel();
+        sampling_relay
+            .send(DaSamplingServiceMsg::RequestHistoricSampling {
+                block_id: block.header().id(),
+                blob_ids: block
+                    .transactions()
+                    .flat_map(|tx| tx.mantle_tx().ops.iter())
+                    .filter_map(|op| {
+                        if let Op::ChannelBlob(op) = op {
+                            Some((op.blob, op.session))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect(),
+                reply_channel: sender,
+            })
+            .await
+            .map_err(|(e, _)| e)?;
+
+        let sampling_succeeded = receiver.await?;
+        if sampling_succeeded {
+            Ok(())
+        } else {
+            Err(Error::InvalidBlobs)
+        }
     }
 }
 
