@@ -358,7 +358,7 @@ impl Rewards for BlendRewards {
                     next_session_randomness: *next_session_randomness,
                     submitted_proofs: submitted_proofs.insert(provider_id, hamming_distance),
                     min_hamming_distance: min_hamming_distance
-                        .update(hamming_distance, provider_id),
+                        .with_update(hamming_distance, provider_id),
                     settings: settings.clone(),
                 })
             }
@@ -488,7 +488,9 @@ impl MinHammingDistance {
         }
     }
 
-    fn update(&self, distance: u64, provider: ProviderId) -> Self {
+    /// Creates a new [`MinHammingDistance`] updated with the given distance and
+    /// provider.
+    fn with_update(&self, distance: u64, provider: ProviderId) -> Self {
         match distance.cmp(&self.distance) {
             Ordering::Less => Self {
                 distance,
