@@ -27,7 +27,7 @@ use crate::{
 pub type MessageIdentifier = Ed25519PublicKey;
 
 /// An encapsulated message that is sent to the blend network.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct EncapsulatedMessage<const ENCAPSULATION_COUNT: usize> {
     /// A public header that is not encapsulated.
     public_header: PublicHeader,
@@ -404,7 +404,7 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPrivateHeader<ENCAPSULATION_C
             signing_pubkey,
         } = self.first().try_deserialize()?;
         // Verify PoSel according to the Blend spec: <https://www.notion.so/nomos-tech/Blend-Protocol-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81dd8cbedc8af4649a6a>.
-        verifier
+        let verified_proof_of_selection = verifier
             .verify_proof_of_selection(proof_of_selection, posel_verification_input)
             .map_err(|_| {
                 Error::ProofOfSelectionVerificationFailed(selection::Error::Verification)
@@ -427,13 +427,13 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPrivateHeader<ENCAPSULATION_C
             Ok(PrivateHeaderDecapsulationOutput::Completed {
                 encapsulated_private_header: self,
                 public_header,
-                proof_of_selection,
+                proof_of_selection: verified_proof_of_selection,
             })
         } else {
             Ok(PrivateHeaderDecapsulationOutput::Incompleted {
                 encapsulated_private_header: self,
                 public_header,
-                proof_of_selection,
+                proof_of_selection: verified_proof_of_selection,
             })
         }
     }

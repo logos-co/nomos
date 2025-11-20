@@ -13,7 +13,7 @@ use crate::{
 const LATEST_BLEND_MESSAGE_VERSION: u8 = 1;
 
 // A public header that is revealed to all nodes.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PublicHeader {
     version: u8,
     signing_pubkey: Ed25519PublicKey,

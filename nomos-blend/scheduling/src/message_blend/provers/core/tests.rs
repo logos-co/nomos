@@ -26,7 +26,7 @@ async fn proof_generation() {
 
     for _ in 0..core_quota {
         let proof = core_proofs_generator.get_next_proof().await.unwrap();
-        let key_nullifier = proof
+        let verified_proof_of_quota = proof
             .proof_of_quota
             .verify(
                 &poq_public_inputs_from_session_public_inputs_and_signing_key((
@@ -40,7 +40,7 @@ async fn proof_generation() {
             .verify(&VerifyInputs {
                 // Membership of 1 -> only a single index can be included
                 expected_node_index: 0,
-                key_nullifier,
+                key_nullifier: verified_proof_of_quota.key_nullifier(),
                 total_membership_size: 1,
             })
             .unwrap();
@@ -68,7 +68,7 @@ async fn epoch_rotation() {
     // data because proofs use hard-coded fixtures).
     for _ in 0..(core_quota - 1) {
         let proof = core_proofs_generator.get_next_proof().await.unwrap();
-        let key_nullifier = proof
+        let verified_proof_of_quota = proof
             .proof_of_quota
             .verify(
                 &poq_public_inputs_from_session_public_inputs_and_signing_key((
@@ -81,7 +81,7 @@ async fn epoch_rotation() {
             .proof_of_selection
             .verify(&VerifyInputs {
                 expected_node_index: 0,
-                key_nullifier,
+                key_nullifier: verified_proof_of_quota.key_nullifier(),
                 total_membership_size: 1,
             })
             .unwrap();
@@ -89,7 +89,7 @@ async fn epoch_rotation() {
 
     // Generate and verify last proof.
     let proof = core_proofs_generator.get_next_proof().await.unwrap();
-    let key_nullifier = proof
+    let verified_proof_of_quota = proof
         .proof_of_quota
         .verify(
             &poq_public_inputs_from_session_public_inputs_and_signing_key((
@@ -102,7 +102,7 @@ async fn epoch_rotation() {
         .proof_of_selection
         .verify(&VerifyInputs {
             expected_node_index: 0,
-            key_nullifier,
+            key_nullifier: verified_proof_of_quota.key_nullifier(),
             total_membership_size: 1,
         })
         .unwrap();

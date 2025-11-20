@@ -8,13 +8,13 @@ use crate::{
         keys::Ed25519PublicKey,
         proofs::{
             quota::{
-                ProofOfQuota,
+                ProofOfQuota, VerifiedProofOfQuota,
                 inputs::prove::{
                     PublicInputs,
                     public::{CoreInputs, LeaderInputs},
                 },
             },
-            selection::{ProofOfSelection, inputs::VerifyInputs},
+            selection::{ProofOfSelection, VerifiedProofOfSelection, inputs::VerifyInputs},
         },
     },
     encap::ProofsVerifier,
@@ -76,7 +76,7 @@ impl ProofsVerifier for RealProofsVerifier {
         &self,
         proof: ProofOfQuota,
         signing_key: &Ed25519PublicKey,
-    ) -> Result<ZkHash, Self::Error> {
+    ) -> Result<VerifiedProofOfQuota, Self::Error> {
         let PoQVerificationInputsMinusSigningKey {
             core,
             leader,
@@ -111,7 +111,7 @@ impl ProofsVerifier for RealProofsVerifier {
         &self,
         proof: ProofOfSelection,
         inputs: &VerifyInputs,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<VerifiedProofOfSelection, Self::Error> {
         proof.verify(inputs).map_err(Error::ProofOfSelection)
     }
 }

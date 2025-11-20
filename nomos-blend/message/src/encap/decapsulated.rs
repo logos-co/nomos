@@ -1,6 +1,6 @@
 use crate::{
     PayloadType,
-    crypto::proofs::selection::ProofOfSelection,
+    crypto::proofs::selection::VerifiedProofOfSelection,
     encap::encapsulated::{EncapsulatedMessage, EncapsulatedPart, EncapsulatedPrivateHeader},
     message::{Payload, PublicHeader},
     reward::BlendingToken,
@@ -32,12 +32,12 @@ pub(super) enum PartDecapsulationOutput<const ENCAPSULATION_COUNT: usize> {
     Incompleted {
         encapsulated_part: EncapsulatedPart<ENCAPSULATION_COUNT>,
         public_header: PublicHeader,
-        proof_of_selection: ProofOfSelection,
+        proof_of_selection: VerifiedProofOfSelection,
     },
 
     Completed {
         payload: Payload,
-        proof_of_selection: ProofOfSelection,
+        proof_of_selection: VerifiedProofOfSelection,
     },
 }
 
@@ -76,11 +76,11 @@ pub(super) enum PrivateHeaderDecapsulationOutput<const ENCAPSULATION_COUNT: usiz
     Incompleted {
         encapsulated_private_header: EncapsulatedPrivateHeader<ENCAPSULATION_COUNT>,
         public_header: PublicHeader,
-        proof_of_selection: ProofOfSelection,
+        proof_of_selection: VerifiedProofOfSelection,
     },
     Completed {
         encapsulated_private_header: EncapsulatedPrivateHeader<ENCAPSULATION_COUNT>,
         public_header: PublicHeader,
-        proof_of_selection: ProofOfSelection,
+        proof_of_selection: VerifiedProofOfSelection,
     },
 }

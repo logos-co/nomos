@@ -1,15 +1,13 @@
 use core::convert::Infallible;
 
-use nomos_core::crypto::ZkHash;
-
 use crate::{
     Error, PayloadType,
     crypto::{
         keys::{Ed25519PrivateKey, Ed25519PublicKey, X25519PrivateKey},
         proofs::{
             PoQVerificationInputsMinusSigningKey,
-            quota::{ProofOfQuota, inputs::prove::public::LeaderInputs},
-            selection::{ProofOfSelection, inputs::VerifyInputs},
+            quota::{ProofOfQuota, VerifiedProofOfQuota, inputs::prove::public::LeaderInputs},
+            selection::{ProofOfSelection, VerifiedProofOfSelection, inputs::VerifyInputs},
         },
         signatures::{SIGNATURE_SIZE, Signature},
     },
@@ -38,20 +36,20 @@ impl ProofsVerifier for NeverFailingProofsVerifier {
 
     fn verify_proof_of_quota(
         &self,
-        _proof: ProofOfQuota,
+        proof: ProofOfQuota,
         _signing_key: &Ed25519PublicKey,
-    ) -> Result<ZkHash, Self::Error> {
-        use groth16::Field as _;
-
-        Ok(ZkHash::ZERO)
+    ) -> Result<VerifiedProofOfQuota, Self::Error> {
+        Ok(VerifiedProofOfQuota::from_proof_of_quota_unchecked(proof))
     }
 
     fn verify_proof_of_selection(
         &self,
-        _proof: ProofOfSelection,
+        proof: ProofOfSelection,
         _inputs: &VerifyInputs,
-    ) -> Result<(), Self::Error> {
-        Ok(())
+    ) -> Result<VerifiedProofOfSelection, Self::Error> {
+        Ok(VerifiedProofOfSelection::from_proof_of_selection_unchecked(
+            proof,
+        ))
     }
 }
 
@@ -72,16 +70,18 @@ impl ProofsVerifier for AlwaysFailingProofOfQuotaVerifier {
         &self,
         _proof: ProofOfQuota,
         _signing_key: &Ed25519PublicKey,
-    ) -> Result<ZkHash, Self::Error> {
+    ) -> Result<VerifiedProofOfQuota, Self::Error> {
         Err(())
     }
 
     fn verify_proof_of_selection(
         &self,
-        _proof: ProofOfSelection,
+        proof: ProofOfSelection,
         _inputs: &VerifyInputs,
-    ) -> Result<(), Self::Error> {
-        Ok(())
+    ) -> Result<VerifiedProofOfSelection, Self::Error> {
+        Ok(VerifiedProofOfSelection::from_proof_of_selection_unchecked(
+            proof,
+        ))
     }
 }
 
@@ -100,19 +100,17 @@ impl ProofsVerifier for AlwaysFailingProofOfSelectionVerifier {
 
     fn verify_proof_of_quota(
         &self,
-        _proof: ProofOfQuota,
+        proof: ProofOfQuota,
         _signing_key: &Ed25519PublicKey,
-    ) -> Result<ZkHash, Self::Error> {
-        use groth16::Field as _;
-
-        Ok(ZkHash::ZERO)
+    ) -> Result<VerifiedProofOfQuota, Self::Error> {
+        Ok(VerifiedProofOfQuota::from_proof_of_quota_unchecked(proof))
     }
 
     fn verify_proof_of_selection(
         &self,
         _proof: ProofOfSelection,
         _inputs: &VerifyInputs,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<VerifiedProofOfSelection, Self::Error> {
         Err(())
     }
 }

@@ -122,8 +122,8 @@ mod tests {
 
     use super::*;
     use crate::crypto::proofs::{
-        quota::{PROOF_OF_QUOTA_SIZE, ProofOfQuota},
-        selection::{PROOF_OF_SELECTION_SIZE, ProofOfSelection},
+        quota::{PROOF_OF_QUOTA_SIZE, ProofOfQuota, VerifiedProofOfQuota},
+        selection::{PROOF_OF_SELECTION_SIZE, ProofOfSelection, VerifiedProofOfSelection},
     };
 
     #[test_log::test(test)]
@@ -167,8 +167,14 @@ mod tests {
 
     fn blending_token(proof_of_quota: u8, proof_of_selection: u8) -> BlendingToken {
         BlendingToken::new(
-            ProofOfQuota::from_bytes_unchecked([proof_of_quota; PROOF_OF_QUOTA_SIZE]),
-            ProofOfSelection::from_bytes_unchecked([proof_of_selection; PROOF_OF_SELECTION_SIZE]),
+            VerifiedProofOfQuota::from_proof_of_quota_unchecked(
+                ProofOfQuota::from_bytes_unchecked([proof_of_quota; PROOF_OF_QUOTA_SIZE]),
+            ),
+            VerifiedProofOfSelection::from_proof_of_selection_unchecked(
+                ProofOfSelection::from_bytes_unchecked(
+                    [proof_of_selection; PROOF_OF_SELECTION_SIZE],
+                ),
+            ),
         )
     }
 }

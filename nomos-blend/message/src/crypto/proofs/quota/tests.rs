@@ -35,10 +35,10 @@ fn valid_proof_of_core_quota() {
     )
     .unwrap();
 
-    let key_nullifier = proof.verify(&public_inputs).unwrap();
+    let verified_proof_of_quota = proof.verify(&public_inputs).unwrap();
     assert_eq!(
         derive_key_nullifier_from_secret_selection_randomness(secret_selection_randomness),
-        key_nullifier
+        verified_proof_of_quota.key_nullifier()
     );
 }
 
@@ -57,15 +57,18 @@ fn same_key_nullifier_for_different_public_keys() {
         PrivateInputs::new_proof_of_core_quota_inputs(0, private_inputs_key_1),
     )
     .unwrap();
-    let key_1_nullifier = proof_key_1.verify(&public_inputs_key_1).unwrap();
+    let verified_proof_of_quota_1 = proof_key_1.verify(&public_inputs_key_1).unwrap();
     let (proof_key_2, _) = ProofOfQuota::new(
         &public_inputs_key_2,
         PrivateInputs::new_proof_of_core_quota_inputs(0, private_inputs_key_2),
     )
     .unwrap();
-    let key_2_nullifier = proof_key_2.verify(&public_inputs_key_2).unwrap();
+    let verified_proof_of_quota_2 = proof_key_2.verify(&public_inputs_key_2).unwrap();
 
-    assert_eq!(key_1_nullifier, key_2_nullifier);
+    assert_eq!(
+        verified_proof_of_quota_1.key_nullifier(),
+        verified_proof_of_quota_2.key_nullifier()
+    );
 }
 
 #[test]
@@ -79,9 +82,9 @@ fn valid_proof_of_leadership_quota() {
     )
     .unwrap();
 
-    let key_nullifier = proof.verify(&public_inputs).unwrap();
+    let verified_proof_of_quota = proof.verify(&public_inputs).unwrap();
     assert_eq!(
         derive_key_nullifier_from_secret_selection_randomness(secret_selection_randomness),
-        key_nullifier
+        verified_proof_of_quota.key_nullifier()
     );
 }

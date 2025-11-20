@@ -118,7 +118,7 @@ impl<ProofsVerifier> OldSession<ProofsVerifier> {
         except: Option<PeerId>,
     ) -> Result<(), Error> {
         let message_id = message.id();
-        let serialized_message = serialize_encapsulated_message(message.as_ref());
+        let serialized_message = serialize_encapsulated_message(&message.clone().into());
         let mut at_least_one_receiver = false;
         self.negotiated_peers
             .iter()

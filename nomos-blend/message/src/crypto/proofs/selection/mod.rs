@@ -21,12 +21,26 @@ pub const PROOF_OF_SELECTION_SIZE: usize = size_of::<ProofOfSelection>();
 const DOMAIN_SEPARATION_TAG: [u8; 9] = *b"BlendNode";
 
 /// A Proof of Selection as described in the Blend v1 spec: <https://www.notion.so/nomos-tech/Blend-Protocol-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81d6bb3febd62b598138>.
-// TODO: To avoid proofs being misused, remove the `Clone` and `Copy` derives,
-// so once a proof is verified it cannot be (mis)used anymore.
 #[derive(Clone, Debug, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct ProofOfSelection {
     #[serde(with = "groth16::serde::serde_fr")]
     selection_randomness: ZkHash,
+}
+
+#[derive(Clone, Debug, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct VerifiedProofOfSelection(ProofOfSelection);
+
+impl VerifiedProofOfSelection {
+    #[must_use]
+    pub const fn from_proof_of_selection_unchecked(proof: ProofOfSelection) -> Self {
+        Self(proof)
+    }
+}
+
+impl From<VerifiedProofOfSelection> for ProofOfSelection {
+    fn from(value: VerifiedProofOfSelection) -> Self {
+        value.0
+    }
 }
 
 #[derive(Debug, Error)]
@@ -85,7 +99,7 @@ impl ProofOfSelection {
             key_nullifier,
             total_membership_size,
         }: &VerifyInputs,
-    ) -> Result<(), Error> {
+    ) -> Result<VerifiedProofOfSelection, Error> {
         let final_index = self.expected_index(*total_membership_size as usize)?;
         if final_index != *expected_node_index as usize {
             return Err(Error::IndexMismatch {
@@ -104,7 +118,7 @@ impl ProofOfSelection {
             });
         }
 
-        Ok(())
+        Ok(VerifiedProofOfSelection(self))
     }
 
     #[cfg(test)]

@@ -6,20 +6,23 @@ use nomos_core::codec::SerializeOp as _;
 use serde::Serialize;
 
 use crate::{
-    crypto::proofs::{quota::ProofOfQuota, selection::ProofOfSelection},
+    crypto::proofs::{quota::VerifiedProofOfQuota, selection::VerifiedProofOfSelection},
     reward::session::SessionRandomness,
 };
 
 /// A blending token consisting of a proof of quota and a proof of selection.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 pub struct BlendingToken {
-    proof_of_quota: ProofOfQuota,
-    proof_of_selection: ProofOfSelection,
+    proof_of_quota: VerifiedProofOfQuota,
+    proof_of_selection: VerifiedProofOfSelection,
 }
 
 impl BlendingToken {
     #[must_use]
-    pub const fn new(proof_of_quota: ProofOfQuota, proof_of_selection: ProofOfSelection) -> Self {
+    pub const fn new(
+        proof_of_quota: VerifiedProofOfQuota,
+        proof_of_selection: VerifiedProofOfSelection,
+    ) -> Self {
         Self {
             proof_of_quota,
             proof_of_selection,
@@ -73,7 +76,10 @@ fn hamming_distance(a: &[u8], b: &[u8]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crypto::proofs::{quota::PROOF_OF_QUOTA_SIZE, selection::PROOF_OF_SELECTION_SIZE};
+    use crate::crypto::proofs::{
+        quota::{PROOF_OF_QUOTA_SIZE, ProofOfQuota},
+        selection::{PROOF_OF_SELECTION_SIZE, ProofOfSelection},
+    };
 
     #[test]
     fn test_hamming_distance() {
@@ -119,11 +125,13 @@ mod tests {
 
     fn blending_token(proof_of_quota: u8, proof_of_selection: u8) -> BlendingToken {
         BlendingToken {
-            proof_of_quota: ProofOfQuota::from_bytes_unchecked(
-                [proof_of_quota; PROOF_OF_QUOTA_SIZE],
+            proof_of_quota: VerifiedProofOfQuota::from_proof_of_quota_unchecked(
+                ProofOfQuota::from_bytes_unchecked([proof_of_quota; PROOF_OF_QUOTA_SIZE]),
             ),
-            proof_of_selection: ProofOfSelection::from_bytes_unchecked(
-                [proof_of_selection; PROOF_OF_SELECTION_SIZE],
+            proof_of_selection: VerifiedProofOfSelection::from_proof_of_selection_unchecked(
+                ProofOfSelection::from_bytes_unchecked(
+                    [proof_of_selection; PROOF_OF_SELECTION_SIZE],
+                ),
             ),
         }
     }
