@@ -78,6 +78,12 @@ impl ProofOfSelection {
     }
 }
 
+impl PartialEq<VerifiedProofOfSelection> for ProofOfSelection {
+    fn eq(&self, other: &VerifiedProofOfSelection) -> bool {
+        *self == other.0
+    }
+}
+
 #[derive(Clone, Debug, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct VerifiedProofOfSelection(ProofOfSelection);
 
@@ -123,6 +129,12 @@ impl From<VerifiedProofOfSelection> for ProofOfSelection {
 impl AsRef<ProofOfSelection> for VerifiedProofOfSelection {
     fn as_ref(&self) -> &ProofOfSelection {
         &self.0
+    }
+}
+
+impl PartialEq<ProofOfSelection> for VerifiedProofOfSelection {
+    fn eq(&self, other: &ProofOfSelection) -> bool {
+        self.0 == *other
     }
 }
 

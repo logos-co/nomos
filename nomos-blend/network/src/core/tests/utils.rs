@@ -227,12 +227,12 @@ impl ProofsVerifier for SessionBasedMockProofsVerifier {
 fn session_based_mock_blend_proof(session: SessionNumber) -> BlendLayerProof {
     let session_bytes = session.to_le_bytes();
     BlendLayerProof {
-        proof_of_quota: ProofOfQuota::from_bytes_unchecked({
+        proof_of_quota: VerifiedProofOfQuota::from_bytes_unchecked({
             let mut bytes = [0u8; _];
             bytes[..session_bytes.len()].copy_from_slice(&session_bytes);
             bytes
         }),
-        proof_of_selection: ProofOfSelection::from_bytes_unchecked({
+        proof_of_selection: VerifiedProofOfSelection::from_bytes_unchecked({
             let mut bytes = [0u8; _];
             bytes[..session_bytes.len()].copy_from_slice(&session_bytes);
             bytes

@@ -53,6 +53,12 @@ impl ProofOfQuota {
     }
 }
 
+impl PartialEq<VerifiedProofOfQuota> for ProofOfQuota {
+    fn eq(&self, other: &VerifiedProofOfQuota) -> bool {
+        *self == other.0
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct VerifiedProofOfQuota(ProofOfQuota);
 
@@ -129,6 +135,12 @@ impl From<VerifiedProofOfQuota> for ProofOfQuota {
 impl AsRef<ProofOfQuota> for VerifiedProofOfQuota {
     fn as_ref(&self) -> &ProofOfQuota {
         &self.0
+    }
+}
+
+impl PartialEq<ProofOfQuota> for VerifiedProofOfQuota {
+    fn eq(&self, other: &ProofOfQuota) -> bool {
+        self.0 == *other
     }
 }
 
