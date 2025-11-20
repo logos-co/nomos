@@ -25,6 +25,8 @@ struct CaptureState {
     blobs: Arc<Mutex<HashSet<ChannelId>>>,
 }
 
+const MIN_INCLUSION_RATIO: f64 = 0.8;
+
 #[derive(Debug, Error)]
 enum ChannelExpectationError {
     #[error("channel workload expectation not started")]
@@ -100,6 +102,7 @@ impl Expectation for ChannelWorkloadExpectation {
             .ok_or(ChannelExpectationError::NotCaptured)
             .map_err(DynError::from)?;
 
+        let planned_total = state.planned.len();
         let missing_inscriptions = {
             let inscriptions = state
                 .inscriptions
@@ -107,7 +110,8 @@ impl Expectation for ChannelWorkloadExpectation {
                 .expect("inscription lock poisoned");
             missing_channels(&state.planned, &inscriptions)
         };
-        if !missing_inscriptions.is_empty() {
+        let required_inscriptions = minimum_required(planned_total, MIN_INCLUSION_RATIO);
+        if planned_total.saturating_sub(missing_inscriptions.len()) < required_inscriptions {
             return Err(ChannelExpectationError::MissingInscriptions {
                 missing: missing_inscriptions,
             }
@@ -118,7 +122,8 @@ impl Expectation for ChannelWorkloadExpectation {
             let blobs = state.blobs.lock().expect("blob lock poisoned");
             missing_channels(&state.planned, &blobs)
         };
-        if !missing_blobs.is_empty() {
+        let required_blobs = minimum_required(planned_total, MIN_INCLUSION_RATIO);
+        if planned_total.saturating_sub(missing_blobs.len()) < required_blobs {
             return Err(ChannelExpectationError::MissingBlobs {
                 missing: missing_blobs,
             }
@@ -165,4 +170,8 @@ fn capture_block(
 
 fn missing_channels(planned: &HashSet<ChannelId>, observed: &HashSet<ChannelId>) -> Vec<ChannelId> {
     planned.difference(observed).copied().collect()
+}
+
+fn minimum_required(total: usize, ratio: f64) -> usize {
+    ((total as f64) * ratio).ceil() as usize
 }

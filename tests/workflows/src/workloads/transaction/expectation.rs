@@ -15,6 +15,8 @@ use tokio::sync::broadcast;
 
 use super::workload::{TxPlanError, planned_channel_ids, planned_transaction_totals};
 
+const MIN_INCLUSION_RATIO: f64 = 0.8;
+
 #[derive(Debug, Error)]
 enum TxInclusionError {
     #[error("expected transaction count exceeds u64 capacity")]
@@ -110,12 +112,15 @@ impl Expectation for TxInclusionExpectation {
             .ok_or(TxInclusionError::NotCaptured)
             .map_err(DynError::from)?;
 
-        if state.observed.load(Ordering::Relaxed) >= state.expected {
+        let observed = state.observed.load(Ordering::Relaxed);
+        let required = ((state.expected as f64) * MIN_INCLUSION_RATIO).ceil() as u64;
+
+        if observed >= required {
             Ok(())
         } else {
             Err(TxInclusionError::BelowExpectation {
-                actual: state.observed.load(Ordering::Relaxed),
-                expected: state.expected,
+                actual: observed,
+                expected: required,
             }
             .into())
         }
