@@ -68,15 +68,6 @@ detect_platform() {
     echo "${os}-${arch}"
 }
 
-resolve_platform() {
-    if [ -n "${NOMOS_CIRCUITS_PLATFORM:-}" ]; then
-        echo "${NOMOS_CIRCUITS_PLATFORM}"
-        return
-    fi
-
-    detect_platform
-}
-
 # Check if installation directory exists and get confirmation
 check_existing_installation() {
     if [ -d "$INSTALL_DIR" ]; then
@@ -165,14 +156,9 @@ main() {
     print_info "Installation directory: $INSTALL_DIR"
     echo
 
-    # Detect or override platform
-    local platform
-    platform=$(resolve_platform)
-    if [ -n "${NOMOS_CIRCUITS_PLATFORM:-}" ]; then
-        print_info "Using NOMOS_CIRCUITS_PLATFORM override: ${NOMOS_CIRCUITS_PLATFORM}"
-    else
-        print_info "Detected platform: $platform"
-    fi
+    # Detect platform
+    local platform=$(detect_platform)
+    print_info "Detected platform: $platform"
 
     # Check existing installation
     check_existing_installation
