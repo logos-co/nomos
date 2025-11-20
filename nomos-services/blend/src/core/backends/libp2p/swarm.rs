@@ -22,12 +22,8 @@ use nomos_blend_network::core::{
     with_edge::behaviour::Event as CoreToEdgeEvent,
 };
 use nomos_blend_scheduling::{
-    EncapsulatedMessage,
-    membership::Membership,
-    message_blend::crypto::{
-        IncomingEncapsulatedMessageWithValidatedPublicHeader,
-        OutgoingEncapsulatedMessageWithValidatedPublicHeader,
-    },
+    EncapsulatedMessage, membership::Membership,
+    message_blend::crypto::EncapsulatedMessageWithVerifiedPublicHeader,
 };
 use nomos_libp2p::{DialOpts, SwarmEvent};
 use rand::RngCore;
@@ -46,7 +42,7 @@ use crate::core::{
 
 #[derive(Debug)]
 pub enum BlendSwarmMessage {
-    Publish(Box<EncapsulatedMessage>),
+    Publish(Box<EncapsulatedMessageWithVerifiedPublicHeader>),
     StartNewSession(SessionInfo<PeerId>),
     CompleteSessionTransition,
     StartNewEpoch(LeaderInputs),
@@ -79,8 +75,7 @@ where
 {
     swarm: Swarm<BlendBehaviour<ProofsVerifier, ObservationWindowProvider>>,
     swarm_messages_receiver: mpsc::Receiver<BlendSwarmMessage>,
-    incoming_message_sender:
-        broadcast::Sender<IncomingEncapsulatedMessageWithValidatedPublicHeader>,
+    incoming_message_sender: broadcast::Sender<EncapsulatedMessageWithVerifiedPublicHeader>,
     public_info: PublicInfo<PeerId>,
     rng: Rng,
     max_dial_attempts_per_connection: NonZeroU64,
@@ -93,8 +88,7 @@ pub struct SwarmParams<'config, Rng> {
     pub current_public_info: PublicInfo<PeerId>,
     pub rng: Rng,
     pub swarm_message_receiver: mpsc::Receiver<BlendSwarmMessage>,
-    pub incoming_message_sender:
-        broadcast::Sender<IncomingEncapsulatedMessageWithValidatedPublicHeader>,
+    pub incoming_message_sender: broadcast::Sender<EncapsulatedMessageWithVerifiedPublicHeader>,
     pub minimum_network_size: NonZeroUsize,
 }
 
@@ -337,10 +331,7 @@ where
         self.ongoing_dials.remove(&peer_id)
     }
 
-    fn publish_validated_swarm_message(
-        &mut self,
-        msg: &OutgoingEncapsulatedMessageWithValidatedPublicHeader,
-    ) {
+    fn publish_swarm_message(&mut self, msg: &EncapsulatedMessageWithVerifiedPublicHeader) {
         if let Err(e) = self
             .swarm
             .behaviour_mut()
@@ -357,7 +348,7 @@ where
 
     fn forward_validated_swarm_message(
         &mut self,
-        msg: &OutgoingEncapsulatedMessageWithValidatedPublicHeader,
+        msg: &EncapsulatedMessageWithVerifiedPublicHeader,
         except: (PeerId, ConnectionId),
     ) {
         if let Err(e) = self
@@ -378,7 +369,7 @@ where
         clippy::cognitive_complexity,
         reason = "Tracing macros generate more code that triggers this warning."
     )]
-    fn report_message_to_service(&self, msg: IncomingEncapsulatedMessageWithValidatedPublicHeader) {
+    fn report_message_to_service(&self, msg: EncapsulatedMessageWithVerifiedPublicHeader) {
         tracing::debug!("Received message from a peer: {msg:?}");
 
         if let Err(e) = self.incoming_message_sender.send(msg) {
@@ -417,20 +408,20 @@ where
         match blend_event {
             nomos_blend_network::core::with_edge::behaviour::Event::Message(msg) => {
                 // Forward message received from edge node to all the core nodes.
-                self.publish_validated_swarm_message(&msg.clone().into());
+                self.publish_swarm_message(&msg.clone().into());
                 // Bubble up to service for decapsulation and delaying.
                 self.report_message_to_service(msg);
             }
         }
     }
 
-    fn handle_publish_swarm_message(&mut self, msg: EncapsulatedMessage) {
+    fn handle_publish_swarm_message(&mut self, msg: &EncapsulatedMessageWithVerifiedPublicHeader) {
         if let Err(e) = self
             .swarm
             .behaviour_mut()
             .blend
             .with_core_mut()
-            .validate_and_publish_message(msg)
+            .publish_validated_message(msg)
         {
             tracing::error!(target: LOG_TARGET, "Failed to publish message to blend network: {e:?}");
             tracing::info!(counter.failed_outbound_messages = 1);
@@ -450,7 +441,7 @@ where
     fn handle_swarm_message(&mut self, msg: BlendSwarmMessage) {
         match msg {
             BlendSwarmMessage::Publish(msg) => {
-                self.handle_publish_swarm_message(*msg);
+                self.handle_publish_swarm_message(&*msg);
             }
             BlendSwarmMessage::StartNewSession(new_session_info) => {
                 self.public_info.session = new_session_info;
@@ -541,9 +532,7 @@ where
         identity: &libp2p::identity::Keypair,
         behaviour_constructor: BehaviourConstructor,
         swarm_messages_receiver: mpsc::Receiver<BlendSwarmMessage>,
-        incoming_message_sender: broadcast::Sender<
-            IncomingEncapsulatedMessageWithValidatedPublicHeader,
-        >,
+        incoming_message_sender: broadcast::Sender<EncapsulatedMessageWithVerifiedPublicHeader>,
         current_public_info: PublicInfo<PeerId>,
         rng: Rng,
         max_dial_attempts_per_connection: NonZeroU64,

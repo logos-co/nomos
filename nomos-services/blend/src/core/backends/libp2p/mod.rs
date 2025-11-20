@@ -10,10 +10,7 @@ use nomos_blend_message::{
     crypto::proofs::quota::inputs::prove::public::LeaderInputs,
     encap::ProofsVerifier as ProofsVerifierTrait,
 };
-use nomos_blend_scheduling::{
-    EncapsulatedMessage,
-    message_blend::crypto::IncomingEncapsulatedMessageWithValidatedPublicHeader,
-};
+use nomos_blend_scheduling::message_blend::crypto::EncapsulatedMessageWithVerifiedPublicHeader;
 use overwatch::overwatch::handle::OverwatchHandle;
 use rand::RngCore;
 use tokio::sync::{broadcast, mpsc};
@@ -47,8 +44,7 @@ pub(crate) use self::tests::utils as core_swarm_test_utils;
 pub struct Libp2pBlendBackend {
     swarm_task_abort_handle: AbortHandle,
     swarm_message_sender: mpsc::Sender<BlendSwarmMessage>,
-    incoming_message_sender:
-        broadcast::Sender<IncomingEncapsulatedMessageWithValidatedPublicHeader>,
+    incoming_message_sender: broadcast::Sender<EncapsulatedMessageWithVerifiedPublicHeader>,
 }
 
 const CHANNEL_SIZE: usize = 64;
@@ -99,7 +95,7 @@ where
         drop(self);
     }
 
-    async fn publish(&self, msg: EncapsulatedMessage) {
+    async fn publish(&self, msg: EncapsulatedMessageWithVerifiedPublicHeader) {
         if let Err(e) = self
             .swarm_message_sender
             .send(BlendSwarmMessage::Publish(Box::new(msg)))
@@ -151,8 +147,7 @@ where
 
     fn listen_to_incoming_messages(
         &mut self,
-    ) -> Pin<Box<dyn Stream<Item = IncomingEncapsulatedMessageWithValidatedPublicHeader> + Send>>
-    {
+    ) -> Pin<Box<dyn Stream<Item = EncapsulatedMessageWithVerifiedPublicHeader> + Send>> {
         Box::pin(
             BroadcastStream::new(self.incoming_message_sender.subscribe())
                 .filter_map(|event| async { event.ok() }),

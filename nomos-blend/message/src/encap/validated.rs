@@ -26,7 +26,7 @@ pub struct RequiredProofOfSelectionVerificationInputs {
     pub total_membership_size: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct EncapsulatedMessageWithVerifiedPublicHeader<const ENCAPSULATION_COUNT: usize> {
     pub validated_public_header: VerifiedPublicHeader,
     pub encapsulated_part: EncapsulatedPart<ENCAPSULATION_COUNT>,
@@ -75,6 +75,14 @@ impl<const ENCAPSULATION_COUNT: usize>
             validated_public_header,
             encapsulated_part: part,
         })
+    }
+
+    pub fn from_message_unchecked(message: EncapsulatedMessage<ENCAPSULATION_COUNT>) -> Self {
+        let (public_header, encapsulated_part) = message.into_components();
+        Self::from_components(
+            VerifiedPublicHeader::from_header_unchecked(&public_header),
+            encapsulated_part,
+        )
     }
 
     #[must_use]

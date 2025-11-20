@@ -31,9 +31,9 @@ use nomos_blend_message::{
     },
 };
 use nomos_blend_scheduling::{
-    EncapsulatedMessage, SessionMessageScheduler,
+    SessionMessageScheduler,
     message_blend::{
-        crypto::IncomingEncapsulatedMessageWithValidatedPublicHeader,
+        crypto::EncapsulatedMessageWithVerifiedPublicHeader,
         provers::core_and_leader::CoreAndLeaderProofsGenerator,
     },
     message_scheduler::{
@@ -483,7 +483,7 @@ async fn initialize<
     SchedulerWrapper<
         BlakeRng,
         ProcessedMessage<NetAdapter::BroadcastSettings>,
-        EncapsulatedMessage,
+        EncapsulatedMessageWithVerifiedPublicHeader,
     >,
     Backend,
     BlakeRng,
@@ -704,10 +704,7 @@ async fn run_event_loop<
 >(
     mut inbound_relay: impl Stream<Item = ServiceMessage<NetAdapter::BroadcastSettings>> + Unpin,
     blend_messages: &mut (
-             impl Stream<Item = IncomingEncapsulatedMessageWithValidatedPublicHeader>
-             + Send
-             + Unpin
-             + 'static
+             impl Stream<Item = EncapsulatedMessageWithVerifiedPublicHeader> + Send + Unpin + 'static
          ),
     remaining_clock_stream: &mut (impl Stream<Item = SlotTick> + Send + Sync + Unpin + 'static),
     mut secret_pol_info_stream: impl Stream<Item = PolEpochInfo> + Unpin,
@@ -722,7 +719,7 @@ async fn run_event_loop<
     mut message_scheduler: SessionMessageScheduler<
         Rng,
         ProcessedMessage<NetAdapter::BroadcastSettings>,
-        EncapsulatedMessage,
+        EncapsulatedMessageWithVerifiedPublicHeader,
     >,
     rng: &mut Rng,
     mut blending_token_collector: SessionBlendingTokenCollector,
@@ -851,7 +848,7 @@ async fn retire<
     CorePoQGenerator,
     RuntimeServiceId,
 >(
-    mut blend_messages: impl Stream<Item = IncomingEncapsulatedMessageWithValidatedPublicHeader>
+    mut blend_messages: impl Stream<Item = EncapsulatedMessageWithVerifiedPublicHeader>
     + Send
     + Unpin
     + 'static,
@@ -948,7 +945,7 @@ async fn handle_session_event<
     current_scheduler: SessionMessageScheduler<
         Rng,
         ProcessedMessage<BroadcastSettings>,
-        EncapsulatedMessage,
+        EncapsulatedMessageWithVerifiedPublicHeader,
     >,
     current_public_info: PublicInfo<NodeId>,
     current_recovery_checkpoint: ServiceState<Backend::Settings, BroadcastSettings>,
@@ -1101,8 +1098,11 @@ enum HandleSessionEventOutput<
             CoreCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>,
         old_crypto_processor:
             CoreCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>,
-        new_scheduler:
-            SessionMessageScheduler<Rng, ProcessedMessage<BroadcastSettings>, EncapsulatedMessage>,
+        new_scheduler: SessionMessageScheduler<
+            Rng,
+            ProcessedMessage<BroadcastSettings>,
+            EncapsulatedMessageWithVerifiedPublicHeader,
+        >,
         old_scheduler: OldSessionMessageScheduler<Rng, ProcessedMessage<BroadcastSettings>>,
         new_token_collector: SessionBlendingTokenCollector,
         old_token_collector: OldSessionBlendingTokenCollector,
@@ -1112,8 +1112,11 @@ enum HandleSessionEventOutput<
     TransitionCompleted {
         current_crypto_processor:
             CoreCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>,
-        current_scheduler:
-            SessionMessageScheduler<Rng, ProcessedMessage<BroadcastSettings>, EncapsulatedMessage>,
+        current_scheduler: SessionMessageScheduler<
+            Rng,
+            ProcessedMessage<BroadcastSettings>,
+            EncapsulatedMessageWithVerifiedPublicHeader,
+        >,
         current_token_collector: SessionBlendingTokenCollector,
         current_public_info: PublicInfo<NodeId>,
         current_recovery_checkpoint: ServiceState<BackendSettings, BroadcastSettings>,
@@ -1157,7 +1160,7 @@ async fn handle_local_data_message<
     scheduler: &mut SessionMessageScheduler<
         Rng,
         ProcessedMessage<BroadcastSettings>,
-        EncapsulatedMessage,
+        EncapsulatedMessageWithVerifiedPublicHeader,
     >,
     blending_token_collector: &mut SessionBlendingTokenCollector,
     current_recovery_checkpoint: ServiceState<BackendSettings, BroadcastSettings>,
@@ -1194,11 +1197,8 @@ where
     // blend only the remaining layers.
     // TODO: Remove this logic once we don't have tests that deploy less than 3
     // Blend nodes, or when we start using a minimum network size of 3.
-    let self_decapsulation_output = cryptographic_processor.decapsulate_message_recursive(
-        IncomingEncapsulatedMessageWithValidatedPublicHeader::from_message_unchecked(
-            wrapped_message.clone(),
-        ),
-    );
+    let self_decapsulation_output =
+        cryptographic_processor.decapsulate_message_recursive(wrapped_message.clone());
 
     let Ok(multi_layer_decapsulation_output) = self_decapsulation_output else {
         // The outermost layer of the data message is not for us, hence we treat this as
@@ -1226,7 +1226,12 @@ where
         }
         DecapsulatedMessageType::Incompleted(remaining_encapsulated_message) => {
             tracing::debug!(target: LOG_TARGET, "Locally generated data message had the outermost {} layers addressed to this same node. Propagating only the remaining encapsulated layers.", collected_blending_tokens.len());
-            ProcessedMessage::from(*remaining_encapsulated_message)
+            // We generated the proofs, so it cannot be invalid.
+            ProcessedMessage::from(
+                EncapsulatedMessageWithVerifiedPublicHeader::from_message_unchecked(
+                    *remaining_encapsulated_message,
+                ),
+            )
         }
     };
     for blending_token in collected_blending_tokens {
@@ -1255,11 +1260,11 @@ fn handle_incoming_blend_message<
     ProofsVerifier,
     CorePoQGenerator,
 >(
-    validated_encapsulated_message: IncomingEncapsulatedMessageWithValidatedPublicHeader,
+    validated_encapsulated_message: EncapsulatedMessageWithVerifiedPublicHeader,
     scheduler: &mut SessionMessageScheduler<
         Rng,
         ProcessedMessage<BroadcastSettings>,
-        EncapsulatedMessage,
+        EncapsulatedMessageWithVerifiedPublicHeader,
     >,
     old_session_scheduler: Option<
         &mut OldSessionMessageScheduler<Rng, ProcessedMessage<BroadcastSettings>>,
@@ -1337,7 +1342,7 @@ fn handle_incoming_blend_message_from_old_session<
     ProofsVerifier,
     CorePoQGenerator,
 >(
-    validated_encapsulated_message: IncomingEncapsulatedMessageWithValidatedPublicHeader,
+    validated_encapsulated_message: EncapsulatedMessageWithVerifiedPublicHeader,
     scheduler: &mut OldSessionMessageScheduler<Rng, ProcessedMessage<BroadcastSettings>>,
     cryptographic_processor: &CoreCryptographicProcessor<
         NodeId,
@@ -1424,6 +1429,7 @@ where
         }
         DecapsulatedMessageType::Incompleted(remaining_encapsulated_message) => {
             tracing::debug!(target: LOG_TARGET, "Processed encapsulated data message: {remaining_encapsulated_message:?}");
+            // TODO: We need to discard a message if the public header is invalid.
             let processed_message = ProcessedMessage::from(*remaining_encapsulated_message.clone());
             scheduler.schedule_processed_message(processed_message.clone());
             assert_eq!(
@@ -1457,7 +1463,10 @@ async fn handle_release_round<
     RoundInfo {
         data_messages,
         release_type,
-    }: RoundInfo<ProcessedMessage<NetAdapter::BroadcastSettings>, EncapsulatedMessage>,
+    }: RoundInfo<
+        ProcessedMessage<NetAdapter::BroadcastSettings>,
+        EncapsulatedMessageWithVerifiedPublicHeader,
+    >,
     cryptographic_processor: &mut CoreCryptographicProcessor<
         NodeId,
         CorePoQGenerator,
@@ -1636,7 +1645,7 @@ async fn generate_and_try_to_decapsulate_cover_message<
     >,
     blending_token_collector: &mut SessionBlendingTokenCollector,
     state_updater: &mut state::StateUpdater<BackendSettings, BroadcastSettings>,
-) -> Option<EncapsulatedMessage>
+) -> Option<EncapsulatedMessageWithVerifiedPublicHeader>
 where
     NodeId: Eq + Hash + 'static,
     BackendSettings: Sync,
@@ -1648,11 +1657,8 @@ where
         .encapsulate_cover_payload(&random_sized_bytes::<{ size_of::<u32>() }>())
         .await
         .expect("Should not fail to generate new cover message");
-    let self_decapsulation_output = cryptographic_processor.decapsulate_message_recursive(
-        IncomingEncapsulatedMessageWithValidatedPublicHeader::from_message_unchecked(
-            encapsulated_cover_message.clone(),
-        ),
-    );
+    let self_decapsulation_output =
+        cryptographic_processor.decapsulate_message_recursive(encapsulated_cover_message.clone());
     let Ok(multi_layer_decapsulation_output) = self_decapsulation_output else {
         // First layer not addressed to ourselves. Publish as regular cover message,
         // hence we consume a core quota.
@@ -1672,7 +1678,12 @@ where
         // decapsulated a cover message, we don't do anything.
         DecapsulatedMessageType::Completed(_) => None,
         DecapsulatedMessageType::Incompleted(remaining_encapsulated_message) => {
-            Some(*remaining_encapsulated_message)
+            // We generated the proofs, so it cannot be invalid.
+            Some(
+                EncapsulatedMessageWithVerifiedPublicHeader::from_message_unchecked(
+                    *remaining_encapsulated_message,
+                ),
+            )
         }
     }
 }

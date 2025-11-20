@@ -18,7 +18,7 @@ use nomos_blend_network::core::{
 };
 use nomos_blend_scheduling::{
     membership::{Membership, Node},
-    message_blend::crypto::IncomingEncapsulatedMessageWithValidatedPublicHeader,
+    message_blend::crypto::EncapsulatedMessageWithVerifiedPublicHeader,
 };
 use nomos_libp2p::{Protocol, SwarmEvent};
 use nomos_utils::blake_rng::BlakeRng;
@@ -49,8 +49,7 @@ where
 {
     pub swarm: InnerSwarm<ProofsVerifier>,
     pub swarm_message_sender: mpsc::Sender<BlendSwarmMessage>,
-    pub incoming_message_receiver:
-        broadcast::Receiver<IncomingEncapsulatedMessageWithValidatedPublicHeader>,
+    pub incoming_message_receiver: broadcast::Receiver<EncapsulatedMessageWithVerifiedPublicHeader>,
 }
 
 /// Generates `count` nodes with randomly generated identities and empty

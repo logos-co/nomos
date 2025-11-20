@@ -53,7 +53,9 @@ async fn publish_message() {
     // Send a message but expect [`Error::NoPeers`]
     // because we haven't establish connections for the new session.
     let test_message = TestEncapsulatedMessageWithSession::new(session, b"msg");
-    let result = dialer.behaviour_mut().publish_message(&test_message);
+    let result = dialer
+        .behaviour_mut()
+        .publish_validated_message(&test_message);
     assert_eq!(result, Err(Error::NoPeers));
 
     // Establish a connection for the new session.
@@ -62,7 +64,7 @@ async fn publish_message() {
     // Now we can send the message successfully.
     dialer
         .behaviour_mut()
-        .publish_message(&test_message)
+        .publish_validated_message(&test_message)
         .unwrap();
     loop {
         select! {
@@ -141,7 +143,7 @@ async fn forward_message() {
     let test_message = TestEncapsulatedMessageWithSession::new(old_session, b"msg");
     sender
         .behaviour_mut()
-        .publish_message(&test_message)
+        .publish_validated_message(&test_message)
         .unwrap();
 
     // We expect that the message goes through the forwarder and receiver1
@@ -180,7 +182,7 @@ async fn forward_message() {
     let test_message = TestEncapsulatedMessageWithSession::new(new_session, b"msg");
     sender
         .behaviour_mut()
-        .publish_message(&test_message)
+        .publish_validated_message(&test_message)
         .unwrap();
 
     // We expect that the message goes through the forwarder and receiver2.

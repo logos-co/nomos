@@ -10,8 +10,7 @@ use nomos_blend_message::crypto::proofs::{
 };
 use nomos_blend_scheduling::{
     EncapsulatedMessage, membership::Membership,
-    message_blend::crypto::IncomingEncapsulatedMessageWithValidatedPublicHeader,
-    session::SessionEvent,
+    message_blend::crypto::EncapsulatedMessageWithVerifiedPublicHeader, session::SessionEvent,
 };
 use overwatch::overwatch::handle::OverwatchHandle;
 
@@ -129,7 +128,7 @@ pub trait BlendBackend<NodeId, Rng, ProofsVerifier, RuntimeServiceId> {
     ) -> Self;
     fn shutdown(self);
     /// Publish a message to the blend network.
-    async fn publish(&self, msg: EncapsulatedMessage);
+    async fn publish(&self, msg: EncapsulatedMessageWithVerifiedPublicHeader);
     /// Rotate session.
     async fn rotate_session(&mut self, new_session_info: SessionInfo<NodeId>);
     /// Complete the session transition.
@@ -141,5 +140,5 @@ pub trait BlendBackend<NodeId, Rng, ProofsVerifier, RuntimeServiceId> {
     /// Listen to messages received from the blend network.
     fn listen_to_incoming_messages(
         &mut self,
-    ) -> Pin<Box<dyn Stream<Item = IncomingEncapsulatedMessageWithValidatedPublicHeader> + Send>>;
+    ) -> Pin<Box<dyn Stream<Item = EncapsulatedMessageWithVerifiedPublicHeader> + Send>>;
 }

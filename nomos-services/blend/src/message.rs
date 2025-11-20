@@ -1,4 +1,4 @@
-use nomos_blend_scheduling::EncapsulatedMessage;
+use nomos_blend_scheduling::message_blend::crypto::EncapsulatedMessageWithVerifiedPublicHeader;
 use serde::{Deserialize, Serialize};
 
 /// A message that is handled by [`BlendService`].
@@ -23,7 +23,7 @@ pub struct NetworkMessage<BroadcastSettings> {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum ProcessedMessage<BroadcastSettings> {
     Network(NetworkMessage<BroadcastSettings>),
-    Encapsulated(Box<EncapsulatedMessage>),
+    Encapsulated(Box<EncapsulatedMessageWithVerifiedPublicHeader>),
 }
 
 impl<BroadcastSettings> From<NetworkMessage<BroadcastSettings>>
@@ -34,8 +34,10 @@ impl<BroadcastSettings> From<NetworkMessage<BroadcastSettings>>
     }
 }
 
-impl<BroadcastSettings> From<EncapsulatedMessage> for ProcessedMessage<BroadcastSettings> {
-    fn from(value: EncapsulatedMessage) -> Self {
+impl<BroadcastSettings> From<EncapsulatedMessageWithVerifiedPublicHeader>
+    for ProcessedMessage<BroadcastSettings>
+{
+    fn from(value: EncapsulatedMessageWithVerifiedPublicHeader) -> Self {
         Self::Encapsulated(Box::new(value))
     }
 }

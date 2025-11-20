@@ -60,5 +60,5 @@ async fn core_message_propagation() {
     // swarm it is connected to. Then swarm 2 forwards it to swarm 3, which is not
     // connected to swarm 1.
     let swarm_3_received_message = swarm_3_message_receiver.recv().await.unwrap();
-    assert_eq!(swarm_3_received_message.into_inner(), message.into_inner());
+    assert_eq!(swarm_3_received_message, message.into_inner());
 }

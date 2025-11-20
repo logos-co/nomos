@@ -85,7 +85,7 @@ impl PublicHeader {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct VerifiedPublicHeader {
     version: u8,
     proof_of_quota: VerifiedProofOfQuota,
@@ -119,6 +119,17 @@ impl VerifiedPublicHeader {
             proof_of_quota,
             signing_pubkey,
             signature,
+        }
+    }
+
+    pub fn from_header_unchecked(header: &PublicHeader) -> Self {
+        Self {
+            version: header.version,
+            signing_pubkey: header.signing_pubkey,
+            proof_of_quota: VerifiedProofOfQuota::from_proof_of_quota_unchecked(
+                header.proof_of_quota,
+            ),
+            signature: header.signature,
         }
     }
 

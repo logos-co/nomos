@@ -7,10 +7,10 @@ use nomos_blend_message::{
         proofs::{
             PoQVerificationInputsMinusSigningKey,
             quota::{
-                ProofOfQuota,
+                ProofOfQuota, VerifiedProofOfQuota,
                 inputs::prove::{private::ProofOfLeadershipQuotaInputs, public::LeaderInputs},
             },
-            selection::{ProofOfSelection, inputs::VerifyInputs},
+            selection::{ProofOfSelection, VerifiedProofOfSelection, inputs::VerifyInputs},
         },
     },
     encap::ProofsVerifier,
@@ -18,7 +18,6 @@ use nomos_blend_message::{
 use nomos_blend_scheduling::message_blend::provers::{
     BlendLayerProof, ProofsGeneratorSettings, core_and_leader::CoreAndLeaderProofsGenerator,
 };
-use nomos_core::crypto::ZkHash;
 
 pub struct MockCoreAndLeaderProofsGenerator;
 
@@ -62,20 +61,20 @@ impl ProofsVerifier for MockProofsVerifier {
 
     fn verify_proof_of_quota(
         &self,
-        _proof: ProofOfQuota,
+        proof: ProofOfQuota,
         _signing_key: &Ed25519PublicKey,
-    ) -> Result<ZkHash, Self::Error> {
-        use groth16::Field as _;
-
-        Ok(ZkHash::ZERO)
+    ) -> Result<VerifiedProofOfQuota, Self::Error> {
+        Ok(VerifiedProofOfQuota::from_proof_of_quota_unchecked(proof))
     }
 
     fn verify_proof_of_selection(
         &self,
-        _proof: ProofOfSelection,
+        proof: ProofOfSelection,
         _inputs: &VerifyInputs,
-    ) -> Result<(), Self::Error> {
-        Ok(())
+    ) -> Result<VerifiedProofOfSelection, Self::Error> {
+        Ok(VerifiedProofOfSelection::from_proof_of_selection_unchecked(
+            proof,
+        ))
     }
 }
 
@@ -110,24 +109,24 @@ impl ProofsVerifier for StaticFetchVerifier {
 
     fn verify_proof_of_quota(
         &self,
-        _proof: ProofOfQuota,
+        proof: ProofOfQuota,
         _signing_key: &Ed25519PublicKey,
-    ) -> Result<ZkHash, Self::Error> {
-        use groth16::Field as _;
-
-        Ok(ZkHash::ZERO)
+    ) -> Result<VerifiedProofOfQuota, Self::Error> {
+        Ok(VerifiedProofOfQuota::from_proof_of_quota_unchecked(proof))
     }
 
     fn verify_proof_of_selection(
         &self,
-        _proof: ProofOfSelection,
+        proof: ProofOfSelection,
         _inputs: &VerifyInputs,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<VerifiedProofOfSelection, Self::Error> {
         REMAINING_VALID_LAYERS.with(|val| {
             let remaining = val.get();
             if remaining > 0 {
                 val.set(remaining - 1);
-                Ok(())
+                Ok(VerifiedProofOfSelection::from_proof_of_selection_unchecked(
+                    proof,
+                ))
             } else {
                 Err(())
             }
@@ -137,8 +136,8 @@ impl ProofsVerifier for StaticFetchVerifier {
 
 pub fn mock_blend_proof() -> BlendLayerProof {
     BlendLayerProof {
-        proof_of_quota: ProofOfQuota::from_bytes_unchecked([0; _]),
-        proof_of_selection: ProofOfSelection::from_bytes_unchecked([0; _]),
+        proof_of_quota: VerifiedProofOfQuota::from_bytes_unchecked([0; _]),
+        proof_of_selection: VerifiedProofOfSelection::from_bytes_unchecked([0; _]),
         ephemeral_signing_key: Ed25519PrivateKey::generate(),
     }
 }

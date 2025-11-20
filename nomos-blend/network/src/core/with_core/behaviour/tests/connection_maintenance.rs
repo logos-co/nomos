@@ -42,11 +42,11 @@ async fn detect_spammy_peer() {
     // Send two messages when only one was expected.
     dialing_swarm
         .behaviour_mut()
-        .publish_message(&TestEncapsulatedMessage::new(b"msg1"))
+        .publish_validated_message(&TestEncapsulatedMessage::new(b"msg1"))
         .unwrap();
     dialing_swarm
         .behaviour_mut()
-        .publish_message(&TestEncapsulatedMessage::new(b"msg2"))
+        .publish_validated_message(&TestEncapsulatedMessage::new(b"msg2"))
         .unwrap();
 
     let mut events_to_match = 2u8;

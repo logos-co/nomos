@@ -261,22 +261,10 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
         }
     }
 
-    /// Publish an already-encapsulated message to all connected peers.
-    ///
-    /// Public header validation checks are skipped, since the message is
-    /// assumed to have been properly formed.
-    pub fn publish_validated_message(
-        &mut self,
-        message: &EncapsulatedMessageWithVerifiedPublicHeader,
-    ) -> Result<(), Error> {
-        self.forward_validated_message_and_maybe_exclude(message, None)?;
-        Ok(())
-    }
-
     /// Forwards a message to all healthy connections except the [`execpt`]
     /// connection.
     ///
-    /// If the [`execpt`] connection is part of the old session, the message is
+    /// If the [`except`] connection is part of the old session, the message is
     /// forwarded to the connections in the old session.
     /// Otherwise, it is forwarded to the connections in the current session.
     ///
@@ -776,17 +764,14 @@ where
     /// Publish an already-encapsulated message to all connected peers
     /// in the current or old session.
     ///
-    /// Before the message is propagated, its public header is validated to make
-    /// sure the receiving peer won't mark us as malicious.
     /// If the message is successfully validated with the old session verifier,
     /// it is published using the old session.
     /// Otherwise, it is validated with the current session verifier, and
     /// if valid, published using the current session.
-    pub fn publish_message(
+    pub fn publish_validated_message(
         &mut self,
         message: &EncapsulatedMessageWithVerifiedPublicHeader,
     ) -> Result<(), Error> {
-        // TODO: Check this.
         if let Some(old_session) = &mut self.old_session
             && old_session.publish_message(message).is_ok()
         {

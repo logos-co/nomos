@@ -9,25 +9,23 @@ use nomos_blend_message::{
         proofs::{
             PoQVerificationInputsMinusSigningKey,
             quota::{
-                ProofOfQuota,
+                ProofOfQuota, VerifiedProofOfQuota,
                 inputs::prove::{
                     private::ProofOfLeadershipQuotaInputs,
                     public::{CoreInputs, LeaderInputs},
                 },
             },
-            selection::{ProofOfSelection, inputs::VerifyInputs},
+            selection::{ProofOfSelection, VerifiedProofOfSelection, inputs::VerifyInputs},
         },
     },
     encap::ProofsVerifier,
     reward,
 };
 use nomos_blend_scheduling::{
-    EncapsulatedMessage,
     membership::Membership,
     message_blend::{
         crypto::{
-            IncomingEncapsulatedMessageWithValidatedPublicHeader,
-            SessionCryptographicProcessorSettings,
+            EncapsulatedMessageWithVerifiedPublicHeader, SessionCryptographicProcessorSettings,
         },
         provers::{
             BlendLayerProof, ProofsGeneratorSettings, core_and_leader::CoreAndLeaderProofsGenerator,
@@ -171,7 +169,7 @@ where
     }
 
     fn shutdown(self) {}
-    async fn publish(&self, _msg: EncapsulatedMessage) {}
+    async fn publish(&self, _msg: EncapsulatedMessageWithVerifiedPublicHeader) {}
     async fn rotate_session(&mut self, _new_session_info: SessionInfo<NodeId>) {}
 
     async fn complete_session_transition(&mut self) {
@@ -186,8 +184,7 @@ where
 
     fn listen_to_incoming_messages(
         &mut self,
-    ) -> Pin<Box<dyn Stream<Item = IncomingEncapsulatedMessageWithValidatedPublicHeader> + Send>>
-    {
+    ) -> Pin<Box<dyn Stream<Item = EncapsulatedMessageWithVerifiedPublicHeader> + Send>> {
         unimplemented!()
     }
 }
@@ -403,10 +400,10 @@ impl ProofsVerifier for MockProofsVerifier {
         &self,
         proof: ProofOfQuota,
         _signing_key: &Ed25519PublicKey,
-    ) -> Result<ZkHash, Self::Error> {
+    ) -> Result<VerifiedProofOfQuota, Self::Error> {
         let expected_proof = session_based_dummy_proofs(self.0).proof_of_quota;
         if proof == expected_proof {
-            Ok(ZkHash::ZERO)
+            Ok(expected_proof)
         } else {
             Err(())
         }
@@ -416,10 +413,10 @@ impl ProofsVerifier for MockProofsVerifier {
         &self,
         proof: ProofOfSelection,
         _inputs: &VerifyInputs,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<VerifiedProofOfSelection, Self::Error> {
         let expected_proof = session_based_dummy_proofs(self.0).proof_of_selection;
         if proof == expected_proof {
-            Ok(())
+            Ok(proof)
         } else {
             Err(())
         }

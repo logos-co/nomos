@@ -43,7 +43,7 @@ async fn message_sending_and_reception() {
     let test_message_id = test_message.id();
     dialing_swarm
         .behaviour_mut()
-        .publish_message(&test_message)
+        .publish_validated_message(&test_message)
         .unwrap();
 
     loop {
@@ -78,7 +78,7 @@ async fn invalid_public_header_message_publish() {
     assert_eq!(
         dialing_swarm
             .behaviour_mut()
-            .publish_message(&invalid_signature_message),
+            .publish_validated_message(&invalid_signature_message),
         Err(Error::InvalidMessage)
     );
 }
@@ -155,7 +155,7 @@ async fn duplicate_message_received() {
     let test_message = TestEncapsulatedMessage::new(b"msg");
     dialing_swarm
         .behaviour_mut()
-        .publish_message(&test_message)
+        .publish_validated_message(&test_message)
         .unwrap();
 
     // Wait enough time to not considered spammy by the listener.

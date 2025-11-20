@@ -12,34 +12,40 @@ use nomos_blend_message::{
     PayloadType,
     crypto::{
         keys::Ed25519PrivateKey,
-        proofs::{quota::ProofOfQuota, selection::ProofOfSelection},
+        proofs::{quota::VerifiedProofOfQuota, selection::VerifiedProofOfSelection},
     },
     input::EncapsulationInput,
 };
 use nomos_blend_scheduling::{
-    EncapsulatedMessage, membership::Membership, message_blend::crypto::EncapsulationInputs,
+    membership::Membership,
+    message_blend::crypto::{EncapsulatedMessageWithVerifiedPublicHeader, EncapsulationInputs},
 };
 use nomos_libp2p::{NetworkBehaviour, upgrade::Version};
 
 pub const PROTOCOL_NAME: StreamProtocol = StreamProtocol::new("/blend/swarm/test");
 
 #[derive(Debug)]
-pub struct TestEncapsulatedMessage(EncapsulatedMessage);
+pub struct TestEncapsulatedMessage(EncapsulatedMessageWithVerifiedPublicHeader);
 
 impl TestEncapsulatedMessage {
     pub fn new(payload: &[u8]) -> Self {
         Self(
-            EncapsulatedMessage::new(&generate_valid_inputs(), PayloadType::Data, payload).unwrap(),
+            EncapsulatedMessageWithVerifiedPublicHeader::new(
+                &generate_valid_inputs(),
+                PayloadType::Data,
+                payload,
+            )
+            .unwrap(),
         )
     }
 
-    pub fn into_inner(self) -> EncapsulatedMessage {
+    pub fn into_inner(self) -> EncapsulatedMessageWithVerifiedPublicHeader {
         self.0
     }
 }
 
 impl Deref for TestEncapsulatedMessage {
-    type Target = EncapsulatedMessage;
+    type Target = EncapsulatedMessageWithVerifiedPublicHeader;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -61,8 +67,8 @@ fn generate_valid_inputs() -> EncapsulationInputs {
                 EncapsulationInput::new(
                     Ed25519PrivateKey::generate(),
                     &recipient_signing_pubkey,
-                    ProofOfQuota::from_bytes_unchecked([0; _]),
-                    ProofOfSelection::from_bytes_unchecked([0; _]),
+                    VerifiedProofOfQuota::from_bytes_unchecked([0; _]),
+                    VerifiedProofOfSelection::from_bytes_unchecked([0; _]),
                 )
             })
             .collect::<Vec<_>>()
