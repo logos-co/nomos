@@ -12,7 +12,7 @@ use configs::{
     GeneralConfig,
     consensus::{ProviderInfo, create_genesis_tx_with_declarations},
     da::{DaParams, create_da_configs},
-    network::{NetworkParams, create_network_configs},
+    network::{Libp2pNetworkLayout, NetworkParams, create_network_configs},
     tracing::create_tracing_configs,
 };
 use futures::future::join_all;
@@ -231,6 +231,13 @@ impl GeneratedTopology {
         self.validators.iter().chain(self.executors.iter())
     }
 
+    #[must_use]
+    pub fn slot_duration(&self) -> Option<Duration> {
+        self.validators
+            .first()
+            .map(|node| node.general.time_config.slot_duration)
+    }
+
     pub async fn spawn_local(&self) -> Topology {
         let configs = self
             .nodes()
@@ -429,6 +436,31 @@ impl TopologyBuilder {
     #[must_use]
     pub fn with_blend_ports(mut self, ports: Vec<u16>) -> Self {
         self.blend_ports = Some(ports);
+        self
+    }
+
+    #[must_use]
+    pub const fn with_validator_count(mut self, validators: usize) -> Self {
+        self.config.n_validators = validators;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_executor_count(mut self, executors: usize) -> Self {
+        self.config.n_executors = executors;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_node_counts(mut self, validators: usize, executors: usize) -> Self {
+        self.config.n_validators = validators;
+        self.config.n_executors = executors;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_network_layout(mut self, layout: Libp2pNetworkLayout) -> Self {
+        self.config.network_params.libp2p_network_layout = layout;
         self
     }
 
