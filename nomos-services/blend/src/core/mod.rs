@@ -580,7 +580,7 @@ where
         epoch: LeaderInputs {
             pol_ledger_aged,
             pol_epoch_nonce,
-            message_quota: blend_config.crypto.num_blend_layers,
+            message_quota: blend_config.crypto.num_blend_layers.into(),
             total_stake,
         },
         session: SessionInfo {
@@ -1724,7 +1724,7 @@ where
             total_stake,
         }) => {
             let new_leader_inputs = LeaderInputs {
-                message_quota: settings.crypto.num_blend_layers,
+                message_quota: settings.crypto.num_blend_layers.into(),
                 pol_epoch_nonce,
                 pol_ledger_aged,
                 total_stake,
@@ -1751,7 +1751,7 @@ where
             total_stake,
         }) => {
             let new_leader_inputs = LeaderInputs {
-                message_quota: settings.crypto.num_blend_layers,
+                message_quota: settings.crypto.num_blend_layers.into(),
                 pol_epoch_nonce,
                 pol_ledger_aged,
                 total_stake,

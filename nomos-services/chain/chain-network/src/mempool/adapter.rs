@@ -7,6 +7,7 @@ use tx_service::{MempoolMsg, TransactionsByHashesResponse};
 
 use super::MempoolAdapter as MempoolAdapterTrait;
 
+#[derive(Clone)]
 pub struct MempoolAdapter<Payload, Tx> {
     mempool_relay: OutboundRelay<MempoolMsg<HeaderId, Payload, Tx, TxHash>>,
     _payload: PhantomData<Payload>,

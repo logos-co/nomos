@@ -1,9 +1,4 @@
 use groth16::Fr;
-use nomos_blend_message::crypto::proofs::quota::{
-    ProofOfQuota,
-    inputs::prove::{PrivateInputs, PublicInputs, private::ProofOfCoreQuotaInputs},
-};
-use poq::CorePathAndSelectors;
 use serde::{Deserialize, Serialize};
 use zeroize::ZeroizeOnDrop;
 use zksign::{PublicKey, SecretKey, Signature};
@@ -18,8 +13,14 @@ impl ZkKey {
     pub const fn new(secret_key: SecretKey) -> Self {
         Self(secret_key)
     }
+
+    #[must_use]
+    pub(crate) const fn as_fr(&self) -> &Fr {
+        self.0.as_fr()
+    }
 }
 
+#[async_trait::async_trait]
 impl SecuredKey for ZkKey {
     type Payload = Fr;
     type Signature = Signature;
@@ -42,24 +43,5 @@ impl SecuredKey for ZkKey {
 
     fn as_public_key(&self) -> Self::PublicKey {
         self.0.to_public_key()
-    }
-
-    fn generate_core_poq(
-        &self,
-        public_inputs: &PublicInputs,
-        key_index: u64,
-        core_path_and_selectors: CorePathAndSelectors,
-    ) -> Result<(ProofOfQuota, Fr), Self::Error> {
-        ProofOfQuota::new(
-            public_inputs,
-            PrivateInputs::new_proof_of_core_quota_inputs(
-                key_index,
-                ProofOfCoreQuotaInputs {
-                    core_path_and_selectors,
-                    core_sk: *self.0.as_fr(),
-                },
-            ),
-        )
-        .map_err(KeyError::PoQGeneration)
     }
 }

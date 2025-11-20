@@ -5,18 +5,18 @@
 # Usage: ./setup-nomos-circuits.sh [VERSION] [INSTALL_DIR]
 #
 # Arguments:
-#   VERSION      - Optional. Version to install (default: v0.2.0)
+#   VERSION      - Optional. Version to install (default: v0.3.1)
 #   INSTALL_DIR  - Optional. Installation directory (default: $HOME/.nomos-circuits)
 #
 # Examples:
 #   ./setup-nomos-circuits.sh                    # Install default version to default location
-#   ./setup-nomos-circuits.sh v0.3.0             # Install specific version to default location
+#   ./setup-nomos-circuits.sh v0.2.0             # Install specific version to default location
 #   ./setup-nomos-circuits.sh v0.2.0 /opt/circuits  # Install to custom location
 
 set -e
 
 # Default values
-VERSION="${1:-v0.2.0}"
+VERSION="${1:-v0.3.1}"
 DEFAULT_INSTALL_DIR="$HOME/.nomos-circuits"
 INSTALL_DIR="${2:-$DEFAULT_INSTALL_DIR}"
 REPO="logos-co/nomos-circuits"

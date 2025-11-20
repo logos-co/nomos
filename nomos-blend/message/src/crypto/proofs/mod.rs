@@ -120,6 +120,10 @@ trait ZkHashExt {
     fn hash(&self) -> ZkHash;
 }
 
+trait ZkCompressExt {
+    fn compress(&self) -> ZkHash;
+}
+
 impl<T> ZkHashExt for T
 where
     T: AsRef<[ZkHash]>,
@@ -127,6 +131,22 @@ where
     fn hash(&self) -> ZkHash {
         let mut hasher = ZkHasher::new();
         hasher.update(self.as_ref());
+        hasher.finalize()
+    }
+}
+
+impl ZkCompressExt for [ZkHash; 2] {
+    fn compress(&self) -> ZkHash {
+        let mut hasher = ZkHasher::new();
+        hasher.compress(self);
+        hasher.finalize()
+    }
+}
+
+impl ZkCompressExt for &[ZkHash; 2] {
+    fn compress(&self) -> ZkHash {
+        let mut hasher = ZkHasher::new();
+        hasher.compress(self);
         hasher.finalize()
     }
 }

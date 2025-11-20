@@ -46,7 +46,7 @@ where
             additional_safety_intervals,
             expected_intervals_per_session,
             rounds_per_interval,
-            starting_quota,
+            message_count,
         }: Settings,
         mut rng: Rng,
         round_clock: RoundClock,
@@ -61,7 +61,7 @@ where
         debug!(target: LOG_TARGET, "Creating new cover message scheduler with {total_rounds} total rounds.");
 
         let scheduled_message_rounds =
-            schedule_message_rounds(starting_quota as usize, total_rounds, &mut rng);
+            schedule_message_rounds(message_count, total_rounds, &mut rng);
         Self {
             round_clock,
             scheduled_message_rounds,
@@ -177,20 +177,20 @@ where
 /// Pre-compute the rounds that will contain a cover message, given the amount
 /// of messages to generate and the total number of rounds.
 fn schedule_message_rounds<Rng>(
-    mut total_message_count: usize,
+    mut total_message_count: u64,
     total_round_count: u64,
     rng: &mut Rng,
 ) -> HashSet<Round>
 where
     Rng: rand::Rng,
 {
-    let mut scheduled_message_rounds = HashSet::with_capacity(total_message_count);
+    let mut scheduled_message_rounds = HashSet::with_capacity(total_message_count as usize);
     trace!(target: LOG_TARGET, "Generating {total_message_count} cover message slots.");
     // We are running a loop that assumes the sample space is larger than the number
     // of items we need to generate. If this assumption is not enforced, we end up
     // in a infinite loop.
     assert!(
-        total_round_count >= total_message_count as u64,
+        total_round_count >= total_message_count,
         "Cannot generate more messages than the available sample space. Total rounds to sample from {total_round_count}. Total messages to generate {total_message_count}."
     );
 
@@ -217,7 +217,7 @@ pub struct Settings {
     pub rounds_per_interval: NonZeroU64,
     /// The maximum number of messages to generate in this session, before
     /// accounting for any generated data messages.
-    pub starting_quota: u64,
+    pub message_count: u64,
 }
 
 #[cfg(test)]

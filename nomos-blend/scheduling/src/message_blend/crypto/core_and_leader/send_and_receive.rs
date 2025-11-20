@@ -138,6 +138,8 @@ impl<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier> DerefMut
 
 #[cfg(test)]
 mod test {
+    use std::num::NonZeroU64;
+
     use groth16::Field as _;
     use multiaddr::{Multiaddr, PeerId};
     use nomos_blend_message::crypto::{
@@ -171,7 +173,7 @@ mod test {
         >::new(
             &SessionCryptographicProcessorSettings {
                 non_ephemeral_signing_key: Ed25519PrivateKey::generate(),
-                num_blend_layers: 1,
+                num_blend_layers: NonZeroU64::new(1).unwrap(),
             },
             Membership::new_without_local(&[Node {
                 address: Multiaddr::empty(),

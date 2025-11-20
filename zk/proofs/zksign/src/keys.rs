@@ -7,7 +7,7 @@ use generic_array::{
 };
 use groth16::{Fr, fr_from_bytes, serde::serde_fr};
 use num_bigint::BigUint;
-use poseidon2::{Digest as _, Poseidon2Bn254Hasher};
+use poseidon2::{Digest, Poseidon2Bn254Hasher};
 use serde::{Deserialize, Serialize};
 use tracing::error;
 use zeroize::ZeroizeOnDrop;
@@ -44,7 +44,9 @@ impl SecretKey {
 
     #[must_use]
     pub fn to_public_key(&self) -> PublicKey {
-        PublicKey(Poseidon2Bn254Hasher::digest(&[*NOMOS_KDF, self.0]))
+        PublicKey(<Poseidon2Bn254Hasher as Digest>::compress(&[
+            *NOMOS_KDF, self.0,
+        ]))
     }
 
     pub fn sign(&self, data: &Fr) -> Result<Signature, crate::ZkSignError> {

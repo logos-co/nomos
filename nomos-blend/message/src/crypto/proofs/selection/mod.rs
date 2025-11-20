@@ -9,10 +9,9 @@ use thiserror::Error;
 
 use crate::crypto::{
     blake2b512,
-    proofs::{ZkHashExt as _, selection::inputs::VerifyInputs},
+    proofs::{ZkCompressExt as _, selection::inputs::VerifyInputs},
     pseudo_random_sized_bytes,
 };
-
 pub mod inputs;
 
 #[cfg(test)]
@@ -130,7 +129,7 @@ pub fn derive_key_nullifier_from_secret_selection_randomness(
         *KEY_NULLIFIER_DERIVATION_DOMAIN_SEPARATION_TAG_FR,
         secret_selection_randomness,
     ]
-    .hash()
+    .compress()
 }
 
 impl TryFrom<[u8; PROOF_OF_SELECTION_SIZE]> for ProofOfSelection {

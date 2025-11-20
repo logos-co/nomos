@@ -334,7 +334,7 @@ where
         };
         (
             LeaderInputs {
-                message_quota: settings.crypto.num_blend_layers,
+                message_quota: settings.crypto.num_blend_layers.into(),
                 pol_epoch_nonce,
                 pol_ledger_aged,
                 total_stake,
@@ -537,7 +537,7 @@ where
             pol_ledger_aged,
             total_stake,
         }) => LeaderInputs {
-            message_quota: settings.crypto.num_blend_layers,
+            message_quota: settings.crypto.num_blend_layers.into(),
             pol_epoch_nonce,
             pol_ledger_aged,
             total_stake,

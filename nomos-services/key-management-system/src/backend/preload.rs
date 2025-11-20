@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{SecuredKey, backend::KMSBackend, keys, message::KMSOperatorBackend};
+use crate::{SecuredKey, backend::KMSBackend, keys};
 
 pub type KeyId = String;
 
@@ -34,6 +34,7 @@ pub struct PreloadKMSBackendSettings {
 impl KMSBackend for PreloadKMSBackend {
     type KeyId = KeyId;
     type Key = keys::Key;
+    type KeyOperations = keys::KeyOperators;
     type Settings = PreloadKMSBackendSettings;
     type Error = PreloadBackendError;
 
@@ -97,35 +98,67 @@ impl KMSBackend for PreloadKMSBackend {
     async fn execute(
         &mut self,
         key_id: &Self::KeyId,
-        operator: KMSOperatorBackend<Self>,
+        operator: Self::KeyOperations,
     ) -> Result<(), Self::Error> {
         let key = self
             .keys
             .get_mut(key_id)
             .ok_or_else(|| PreloadBackendError::NotRegisteredKeyId(key_id.to_owned()))?;
 
-        operator(key).await
+        key.execute(operator)
+            .await
+            .map_err(PreloadBackendError::KeyError)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::marker::PhantomData;
+
     use bytes::{Bytes as RawBytes, Bytes};
     use num_bigint::BigUint;
     use rand::rngs::OsRng;
     use zksign::SecretKey;
 
     use super::*;
-    use crate::keys::{Ed25519Key, Key, PayloadEncoding, ZkKey};
+    use crate::keys::{
+        Ed25519Key, Key, KeyOperators, PayloadEncoding, ZkKey, secured_key::SecureKeyOperator,
+    };
 
-    type BackendKey<'a, Backend> = dyn SecuredKey<
-            Payload = <<Backend as KMSBackend>::Key as SecuredKey>::Payload,
-            Signature = <<Backend as KMSBackend>::Key as SecuredKey>::Signature,
-            PublicKey = <<Backend as KMSBackend>::Key as SecuredKey>::PublicKey,
-            Error = <<Backend as KMSBackend>::Key as SecuredKey>::Error,
-        > + 'a;
-    fn noop_operator<Backend: KMSBackend>() -> KMSOperatorBackend<Backend> {
-        Box::new(move |_: &BackendKey<Backend>| Box::pin(async move { Ok(()) }))
+    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+    pub struct NoKeyOperator<Key, Error> {
+        _key: PhantomData<Key>,
+        _error: PhantomData<Error>,
+    }
+
+    #[async_trait::async_trait]
+    impl<Key, Error> SecureKeyOperator for NoKeyOperator<Key, Error>
+    where
+        Key: Send + Sync + 'static,
+        Error: Send + Sync + 'static,
+    {
+        type Key = Key;
+        type Error = Error;
+
+        async fn execute(&mut self, _key: &Self::Key) -> Result<(), Self::Error> {
+            Ok(())
+        }
+    }
+
+    impl<Key, Error> Default for NoKeyOperator<Key, Error> {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    impl<Key, Error> NoKeyOperator<Key, Error> {
+        #[must_use]
+        pub const fn new() -> Self {
+            Self {
+                _key: PhantomData,
+                _error: PhantomData,
+            }
+        }
     }
 
     #[tokio::test]
@@ -156,7 +189,10 @@ mod tests {
 
         // Check if the execute function works as expected
         backend
-            .execute(&key_id, noop_operator::<PreloadKMSBackend>())
+            .execute(
+                &key_id,
+                KeyOperators::Ed25519(Box::new(NoKeyOperator::new())),
+            )
             .await
             .unwrap();
     }
@@ -189,7 +225,7 @@ mod tests {
         // Excuting with a key id fails
         assert!(matches!(
             backend
-                .execute(&key_id, noop_operator::<PreloadKMSBackend>())
+                .execute(&key_id, KeyOperators::Ed25519(Box::new(NoKeyOperator::new())))
                 .await
                 .unwrap_err(),
             PreloadBackendError::NotRegisteredKeyId(id) if id == key_id.clone()

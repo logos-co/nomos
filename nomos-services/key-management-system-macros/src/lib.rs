@@ -31,9 +31,10 @@ pub fn derive_kms_enum_key(input: proc_macro::TokenStream) -> proc_macro::TokenS
     let encoding_enums = build_encoding_enums(key_enum_variants);
     let key_enum_impl_secured_key =
         build_key_enum_impl_secured_key(&input.ident, key_enum_variants);
-
+    let operators_enum = build_operators_enum(&input.ident, key_enum_variants);
     quote! {
         #encoding_enums
+        #operators_enum
         #key_enum_impl_secured_key
     }
     .into()
@@ -70,6 +71,67 @@ fn build_encoding_enums(key_enum_variants: &Punctuated<Variant, Comma>) -> Token
     }
 }
 
+fn build_operators_enum(
+    base_enum_ident: &Ident,
+    variants: &Punctuated<Variant, Comma>,
+) -> TokenStream {
+    let operator_enum_ident = Ident::new(&format!("{base_enum_ident}Operators"), Span::call_site());
+    let operators_variants = variants.iter().map(|variant| {
+        let variant_name = &variant.ident;
+        let Fields::Unnamed(variant_inner_type) = &variant.fields else {
+            panic!("Only unnamed fields are supported for variants. Ex: `Foo(Bar)`");
+        };
+        let variant_ident = variant_inner_type.unnamed.first().unwrap();
+        quote! {
+        #variant_name(crate::keys::secured_key::BoxedSecureKeyOperator<#
+        variant_ident>) }
+    });
+
+    let operations_impl =
+        build_operations_impl_for_enum(&operator_enum_ident, base_enum_ident, variants);
+
+    // let operator_variants = operators_variants.iter().map(|i| i);
+    quote! {
+        #[derive(Debug)]
+        pub enum #operator_enum_ident {
+            #(#operators_variants),*
+        }
+
+        #operations_impl
+    }
+}
+
+fn build_operations_impl_for_enum(
+    enum_ident: &Ident,
+    keys_idents: &Ident,
+    variants: &Punctuated<Variant, Comma>,
+) -> TokenStream {
+    let variants: Vec<TokenStream> = variants
+        .iter()
+        .map(|variant| {
+            let variant = &variant.ident;
+            quote! { (Self::#variant(inner), Self::Key::#variant(key)) => inner.execute(key).await }
+        })
+        .collect();
+
+    quote! {
+        #[async_trait::async_trait]
+        impl crate::keys::secured_key::SecureKeyOperator for #enum_ident {
+            type Key = #keys_idents;
+            type Error = crate::keys::errors::KeyError;
+            async fn execute(&mut self, key: &Self::Key) -> Result<(), Self::Error> {
+                match (self, key) {
+                    #(#variants,)*
+                    (operator, key) => Err(KeyError::UnsupportedKeyOperator {
+                        operator: format!("{operator:?}"),
+                        key: format!("{key:?}"),
+                    }),
+                }
+            }
+        }
+    }
+}
+
 fn build_encoding_enum(
     encoding_type: &Ident,
     key_enum_variants: &Punctuated<Variant, Comma>,
@@ -77,7 +139,7 @@ fn build_encoding_enum(
     let encoding_enum_ident = Ident::new(&format!("{encoding_type}Encoding"), Span::call_site());
     let encoding_enum_variants = key_enum_variants
         .iter()
-        .map(|variant| build_encoding_enum_variant(encoding_type, variant));
+        .map(|variant| build_enum_variant_for_associated_type(encoding_type, variant));
 
     quote! {
         #[derive(Debug, PartialEq, Eq, Clone)]
@@ -87,7 +149,10 @@ fn build_encoding_enum(
     }
 }
 
-fn build_encoding_enum_variant(encoding_type: &Ident, key_enum_variant: &Variant) -> Variant {
+fn build_enum_variant_for_associated_type(
+    associated_type: &Ident,
+    key_enum_variant: &Variant,
+) -> Variant {
     let variant_ident = key_enum_variant.ident.clone();
     let variant_attributes_cfg: Vec<Attribute> =
         get_cfg_attributes(&key_enum_variant.attrs).collect();
@@ -95,7 +160,7 @@ fn build_encoding_enum_variant(encoding_type: &Ident, key_enum_variant: &Variant
     let wrapped_key = get_wrapped_key_as_ref(key_enum_variant);
     let wrapped_key_type = &wrapped_key.ty;
     let wrapped_key_encoding_type: Type =
-        parse_quote!(<#wrapped_key_type as crate::keys::secured_key::SecuredKey>::#encoding_type);
+        parse_quote!(<#wrapped_key_type as crate::keys::secured_key::SecuredKey>::#associated_type);
 
     let wrapped_type_field = Field {
         attrs: vec![],
@@ -128,8 +193,6 @@ fn build_key_enum_impl_secured_key(
         build_key_enum_impl_secured_key_method_sign_multiple(key_enum_variants);
     let key_enum_impl_secured_key_method_as_public_key =
         build_key_enum_impl_secured_key_method_as_public_key(key_enum_variants);
-    let key_enum_impl_secured_key_method_generate_core_poq =
-        build_key_enum_impl_secured_key_method_generate_core_poq(key_enum_variants);
 
     quote! {
         impl crate::keys::secured_key::SecuredKey for #ident
@@ -138,11 +201,11 @@ fn build_key_enum_impl_secured_key(
             type Signature = SignatureEncoding;
             type PublicKey = PublicKeyEncoding;
             type Error = crate::keys::errors::KeyError;
+            // type Operations = KeyOperators;
 
             #key_enum_impl_secured_key_method_sign
             #key_enum_impl_secured_key_method_sign_multiple
             #key_enum_impl_secured_key_method_as_public_key
-            #key_enum_impl_secured_key_method_generate_core_poq
         }
     }
 }
@@ -250,28 +313,6 @@ fn build_key_enum_impl_secured_key_method_as_public_key(
         fn as_public_key(&self) -> Self::PublicKey {
             match self {
                 #(#as_public_key_arms)*
-            }
-        }
-    }
-}
-
-fn build_key_enum_impl_secured_key_method_generate_core_poq(
-    key_enum_variants: &Punctuated<Variant, Comma>,
-) -> TokenStream {
-    let poq_arms = key_enum_variants.iter().map(|variant| {
-        let variant_ident = &variant.ident;
-        let variant_attributes_cfg: Vec<Attribute> = get_cfg_attributes(&variant.attrs).collect();
-
-        quote! {
-            #(#variant_attributes_cfg)*
-            Self::#variant_ident(key) => key.generate_core_poq(public_inputs, key_index, core_path_and_selectors),
-        }
-    });
-
-    quote! {
-        fn generate_core_poq(&self, public_inputs: &nomos_blend_message::crypto::proofs::quota::inputs::prove::PublicInputs, key_index: u64, core_path_and_selectors: poq::CorePathAndSelectors) -> Result<(nomos_blend_message::crypto::proofs::quota::ProofOfQuota, groth16::Fr), Self::Error> {
-            match self {
-                #(#poq_arms)*
             }
         }
     }

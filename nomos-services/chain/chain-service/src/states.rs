@@ -1,4 +1,4 @@
-use std::{collections::HashSet, hash::Hash, marker::PhantomData, time::SystemTime};
+use std::{collections::HashSet, time::SystemTime};
 
 use groth16::{Field as _, Fr};
 use nomos_core::header::{Header, HeaderId};
@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::{Cryptarchia, CryptarchiaSettings, Error, StartingState};
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct CryptarchiaConsensusState<NodeId, NetworkAdapterSettings> {
+pub struct CryptarchiaConsensusState {
     pub(crate) tip: HeaderId,
     pub(crate) lib: HeaderId,
     pub(crate) lib_ledger_state: LedgerState,
@@ -21,11 +21,9 @@ pub struct CryptarchiaConsensusState<NodeId, NetworkAdapterSettings> {
     pub(crate) storage_blocks_to_remove: HashSet<HeaderId>,
     /// Last engine state and timestamp for offline grace period tracking
     pub(crate) last_engine_state: Option<LastEngineState>,
-    // Only neededed for the service state trait
-    _markers: PhantomData<(NodeId, NetworkAdapterSettings)>,
 }
 
-impl<NodeId, NetworkAdapterSettings> CryptarchiaConsensusState<NodeId, NetworkAdapterSettings> {
+impl CryptarchiaConsensusState {
     /// Re-create the [`CryptarchiaConsensusState`]
     /// given the cryptarchia engine and ledger state.
     ///
@@ -55,17 +53,12 @@ impl<NodeId, NetworkAdapterSettings> CryptarchiaConsensusState<NodeId, NetworkAd
                 timestamp: SystemTime::now(),
                 state: *cryptarchia.consensus.state(),
             }),
-            _markers: PhantomData,
         })
     }
 }
 
-impl<NodeId, NetworkAdapterSettings> ServiceState
-    for CryptarchiaConsensusState<NodeId, NetworkAdapterSettings>
-where
-    NodeId: Clone + Eq + Hash,
-{
-    type Settings = CryptarchiaSettings<NodeId, NetworkAdapterSettings>;
+impl ServiceState for CryptarchiaConsensusState {
+    type Settings = CryptarchiaSettings;
     type Error = Error;
 
     fn from_settings(
@@ -96,7 +89,6 @@ where
             genesis_id,
             storage_blocks_to_remove: HashSet::new(),
             last_engine_state: None,
-            _markers: PhantomData,
         })
     }
 }
@@ -232,16 +224,15 @@ mod tests {
             .stale_blocks()
             .copied()
             .collect::<HashSet<_>>();
-        let recovery_state =
-            CryptarchiaConsensusState::<(), ()>::from_cryptarchia_and_unpruned_blocks(
-                &Cryptarchia {
-                    ledger: ledger_state,
-                    consensus: cryptarchia_engine.clone(),
-                    genesis_id: genesis_header_id,
-                },
-                pruned_stale_blocks.clone(),
-            )
-            .unwrap();
+        let recovery_state = CryptarchiaConsensusState::from_cryptarchia_and_unpruned_blocks(
+            &Cryptarchia {
+                ledger: ledger_state,
+                consensus: cryptarchia_engine.clone(),
+                genesis_id: genesis_header_id,
+            },
+            pruned_stale_blocks.clone(),
+        )
+        .unwrap();
 
         assert_eq!(recovery_state.tip, cryptarchia_engine.tip());
         assert_eq!(recovery_state.lib, cryptarchia_engine.lib());

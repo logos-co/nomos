@@ -43,6 +43,15 @@ impl Poseidon2Hasher {
         self.update_one(&Fr::ONE);
     }
 
+    /// Only use `compress` before `finalize` for poseidon2 without SAFE padding
+    pub fn compress(&mut self, inputs: &[Fr; 2]) {
+        self.state[0] += inputs[0];
+        self.state[1] += inputs[1];
+        Poseidon2Bn254::permute_mut::<jf_poseidon2::constants::bn254::Poseidon2ParamsBn3, 3>(
+            &mut self.state,
+        );
+    }
+
     pub const fn finalize(self) -> Fr {
         self.state[0]
     }
@@ -52,6 +61,12 @@ impl Digest for Poseidon2Hasher {
     fn digest(inputs: &[Fr]) -> Fr {
         let mut hasher = Self::new();
         hasher.update(inputs);
+        hasher.finalize()
+    }
+
+    fn compress(inputs: &[Fr; 2]) -> Fr {
+        let mut hasher = Self::new();
+        hasher.compress(inputs);
         hasher.finalize()
     }
 

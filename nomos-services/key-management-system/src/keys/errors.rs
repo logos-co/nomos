@@ -1,7 +1,7 @@
 use std::any::{type_name, type_name_of_val};
 
-use nomos_blend_message::crypto::proofs::quota;
 use thiserror::Error;
+use tokio::task::JoinError;
 
 use crate::keys::secured_key::SecuredKey;
 
@@ -15,8 +15,10 @@ pub enum KeyError {
     UnsupportedMultisignatureSize(usize, usize),
     #[error(transparent)]
     ZkSignError(#[from] zksign::ZkSignError),
+    #[error("Unsupported operator `{operator}` for key type `{key}`")]
+    UnsupportedKeyOperator { operator: String, key: String },
     #[error(transparent)]
-    PoQGeneration(quota::Error),
+    FailedOperatorCall(JoinError),
 }
 
 impl From<EncodingError> for KeyError {
@@ -25,7 +27,7 @@ impl From<EncodingError> for KeyError {
     }
 }
 
-#[derive(Error, Debug, PartialEq, Eq)]
+#[derive(Error, Debug, PartialEq, Eq, Clone)]
 pub enum EncodingError {
     #[error("Required encoding: {0}")]
     Requires(String),
