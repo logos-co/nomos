@@ -19,19 +19,23 @@ async fn local_runner_mixed_workloads() {
         "running mixed workloads with {VALIDATORS} validators / {EXECUTORS} executors ({MIXED_TXS_PER_BLOCK} txs/block) for {RUN_DURATION:?}",
     );
 
-    let mut plan = ScenarioBuilder::with_node_counts(VALIDATORS, EXECUTORS)
+    let topology = ScenarioBuilder::with_node_counts(VALIDATORS, EXECUTORS)
         .topology()
         .validators(VALIDATORS)
         .executors(EXECUTORS)
         .network_star()
-        .apply()
+        .apply();
+
+    let workloads = topology
         .transactions()
         .rate(MIXED_TXS_PER_BLOCK)
         .apply()
         .da()
         .rate(1)
         .blob_rate(1)
-        .apply()
+        .apply();
+
+    let mut plan = workloads
         .expect_consensus_liveness()
         .with_run_duration(RUN_DURATION)
         .build();

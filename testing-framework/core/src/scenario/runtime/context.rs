@@ -80,6 +80,11 @@ impl RunContext {
     pub const fn expected_blocks(&self) -> u64 {
         self.metrics.expected_consensus_blocks()
     }
+
+    #[must_use]
+    pub const fn run_metrics(&self) -> RunMetrics {
+        self.metrics
+    }
 }
 
 /// Handle returned by the runner to control the lifecycle of the run.
@@ -137,9 +142,7 @@ impl RunMetrics {
     #[must_use]
     pub fn from_topology(descriptors: &GeneratedTopology, run_duration: Duration) -> Self {
         let slot_duration = descriptors
-            .validators()
-            .first()
-            .map(|node| node.general.time_config.slot_duration)
+            .slot_duration()
             .filter(|duration| !duration.is_zero());
 
         let active_slot_coeff = descriptors.config().consensus_params.active_slot_coeff;
