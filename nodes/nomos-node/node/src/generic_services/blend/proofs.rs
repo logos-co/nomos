@@ -189,7 +189,7 @@ mod core_to_core_tests {
         proofs::{
             Error as VerifierError, PoQVerificationInputsMinusSigningKey,
             quota::{
-                self, ProofOfQuota,
+                self, ProofOfQuota, VerifiedProofOfQuota,
                 inputs::prove::{
                     PrivateInputs, PublicInputs,
                     private::ProofOfCoreQuotaInputs,
@@ -274,9 +274,9 @@ mod core_to_core_tests {
             &self,
             public_inputs: &PublicInputs,
             key_index: u64,
-        ) -> impl Future<Output = Result<(ProofOfQuota, ZkHash), quota::Error>> + Send + Sync
+        ) -> impl Future<Output = Result<(VerifiedProofOfQuota, ZkHash), quota::Error>> + Send + Sync
         {
-            ready(ProofOfQuota::new(
+            ready(VerifiedProofOfQuota::new(
                 public_inputs,
                 PrivateInputs::new_proof_of_core_quota_inputs(key_index, self.0.clone()),
             ))

@@ -89,6 +89,12 @@ impl VerifiedProofOfSelection {
         })
     }
 
+    /// Returns the index the Proof of Selection refers to, for the provided
+    /// membership size.
+    pub fn expected_index(&self, membership_size: usize) -> Result<usize, Error> {
+        self.0.expected_index(membership_size)
+    }
+
     #[must_use]
     pub fn from_bytes_unchecked(bytes: [u8; PROOF_OF_SELECTION_SIZE]) -> Self {
         Self(ProofOfSelection {

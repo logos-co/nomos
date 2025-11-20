@@ -53,8 +53,8 @@ impl LeaderProofsGenerator for TestEpochChangeLeaderProofsGenerator {
 
     async fn get_next_proof(&mut self) -> BlendLayerProof {
         BlendLayerProof {
-            proof_of_quota: ProofOfQuota::from_bytes_unchecked([0; _]),
-            proof_of_selection: ProofOfSelection::from_bytes_unchecked([0; _]),
+            proof_of_quota: VerifiedProofOfQuota::from_bytes_unchecked([0; _]),
+            proof_of_selection: VerifiedProofOfSelection::from_bytes_unchecked([0; _]),
             ephemeral_signing_key: [0; _].into(),
         }
     }
@@ -67,11 +67,12 @@ impl CoreProofOfQuotaGenerator for MockCorePoQGenerator {
         &self,
         _public_inputs: &PublicInputs,
         _key_index: u64,
-    ) -> impl Future<Output = Result<(ProofOfQuota, ZkHash), quota::Error>> + Send + Sync {
+    ) -> impl Future<Output = Result<(VerifiedProofOfQuota, ZkHash), quota::Error>> + Send + Sync
+    {
         use groth16::Field as _;
 
         ready(Ok((
-            ProofOfQuota::from_bytes_unchecked([0; _]),
+            VerifiedProofOfQuota::from_bytes_unchecked([0; _]),
             ZkHash::ZERO,
         )))
     }

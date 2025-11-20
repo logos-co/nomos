@@ -1,6 +1,9 @@
 use core::time::Duration;
 
-use nomos_blend_message::crypto::proofs::selection::inputs::VerifyInputs;
+use nomos_blend_message::crypto::proofs::{
+    quota::ProofOfQuota,
+    selection::{ProofOfSelection, inputs::VerifyInputs},
+};
 use test_log::test;
 use tokio::time::timeout;
 
@@ -28,8 +31,7 @@ async fn proof_generation() {
 
     for _ in 0..leadership_quota {
         let proof = leader_proofs_generator.get_next_proof().await;
-        let verified_proof_of_quota = proof
-            .proof_of_quota
+        let verified_proof_of_quota = ProofOfQuota::from(proof.proof_of_quota)
             .verify(
                 &poq_public_inputs_from_session_public_inputs_and_signing_key((
                     public_inputs,
@@ -37,8 +39,7 @@ async fn proof_generation() {
                 )),
             )
             .unwrap();
-        proof
-            .proof_of_selection
+        ProofOfSelection::from(proof.proof_of_selection)
             .verify(&VerifyInputs {
                 // Membership of 1 -> only a single index can be included
                 expected_node_index: 0,
@@ -73,8 +74,7 @@ async fn epoch_rotation() {
     );
 
     let proof = leader_proofs_generator.get_next_proof().await;
-    let verified_proof_of_quota = proof
-        .proof_of_quota
+    let verified_proof_of_quota = ProofOfQuota::from(proof.proof_of_quota)
         .verify(
             &poq_public_inputs_from_session_public_inputs_and_signing_key((
                 public_inputs,
@@ -82,8 +82,7 @@ async fn epoch_rotation() {
             )),
         )
         .unwrap();
-    proof
-        .proof_of_selection
+    ProofOfSelection::from(proof.proof_of_selection)
         .verify(&VerifyInputs {
             expected_node_index: 0,
             key_nullifier: verified_proof_of_quota.key_nullifier(),
@@ -93,8 +92,7 @@ async fn epoch_rotation() {
 
     // Generate and verify new proof.
     let proof = leader_proofs_generator.get_next_proof().await;
-    let verified_proof_of_quota = proof
-        .proof_of_quota
+    let verified_proof_of_quota = ProofOfQuota::from(proof.proof_of_quota)
         .verify(
             &poq_public_inputs_from_session_public_inputs_and_signing_key((
                 public_inputs,
@@ -102,8 +100,7 @@ async fn epoch_rotation() {
             )),
         )
         .unwrap();
-    proof
-        .proof_of_selection
+    ProofOfSelection::from(proof.proof_of_selection)
         .verify(&VerifyInputs {
             expected_node_index: 0,
             key_nullifier: verified_proof_of_quota.key_nullifier(),
