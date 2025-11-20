@@ -1227,11 +1227,7 @@ where
         DecapsulatedMessageType::Incompleted(remaining_encapsulated_message) => {
             tracing::debug!(target: LOG_TARGET, "Locally generated data message had the outermost {} layers addressed to this same node. Propagating only the remaining encapsulated layers.", collected_blending_tokens.len());
             // We generated the proofs, so it cannot be invalid.
-            ProcessedMessage::from(
-                EncapsulatedMessageWithVerifiedPublicHeader::from_message_unchecked(
-                    *remaining_encapsulated_message,
-                ),
-            )
+            ProcessedMessage::from(*remaining_encapsulated_message)
         }
     };
     for blending_token in collected_blending_tokens {
@@ -1429,7 +1425,8 @@ where
         }
         DecapsulatedMessageType::Incompleted(remaining_encapsulated_message) => {
             tracing::debug!(target: LOG_TARGET, "Processed encapsulated data message: {remaining_encapsulated_message:?}");
-            // TODO: We need to discard a message if the public header is invalid.
+            // TODO: We need to discard a message if the public header is invalid. So change
+            // this after we get all the code compiling.
             let processed_message = ProcessedMessage::from(*remaining_encapsulated_message.clone());
             scheduler.schedule_processed_message(processed_message.clone());
             assert_eq!(
@@ -1506,7 +1503,7 @@ where
             state_updater.consume_core_quota(1);
         }).map(
             |data_message_to_blend| -> BoxFuture<'_, ()> {
-                backend.publish(data_message_to_blend).boxed()
+                backend.publish(data_message_to_blend.into()).boxed()
             },
         ).collect::<Vec<_>>();
 
@@ -1531,7 +1528,7 @@ where
         )
         .await
     {
-        message_futures.push(backend.publish(encapsulated_cover_message).boxed());
+        message_futures.push(backend.publish(encapsulated_cover_message.into()).boxed());
     }
 
     message_futures.shuffle(rng);

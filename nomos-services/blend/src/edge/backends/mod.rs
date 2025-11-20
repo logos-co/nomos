@@ -1,7 +1,9 @@
 #[cfg(feature = "libp2p")]
 pub mod libp2p;
 
-use nomos_blend_scheduling::{EncapsulatedMessage, membership::Membership};
+use nomos_blend_scheduling::{
+    membership::Membership, message_blend::crypto::EncapsulatedMessageWithVerifiedPublicHeader,
+};
 use overwatch::overwatch::handle::OverwatchHandle;
 use rand::RngCore;
 
@@ -25,5 +27,5 @@ where
         Rng: RngCore + Send + 'static;
     fn shutdown(self);
     /// Send a message to the blend network.
-    async fn send(&self, msg: EncapsulatedMessage);
+    async fn send(&self, msg: EncapsulatedMessageWithVerifiedPublicHeader);
 }

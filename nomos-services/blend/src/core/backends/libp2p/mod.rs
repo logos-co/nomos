@@ -10,7 +10,9 @@ use nomos_blend_message::{
     crypto::proofs::quota::inputs::prove::public::LeaderInputs,
     encap::ProofsVerifier as ProofsVerifierTrait,
 };
-use nomos_blend_scheduling::message_blend::crypto::EncapsulatedMessageWithVerifiedPublicHeader;
+use nomos_blend_scheduling::{
+    EncapsulatedMessage, message_blend::crypto::EncapsulatedMessageWithVerifiedPublicHeader,
+};
 use overwatch::overwatch::handle::OverwatchHandle;
 use rand::RngCore;
 use tokio::sync::{broadcast, mpsc};
@@ -95,7 +97,7 @@ where
         drop(self);
     }
 
-    async fn publish(&self, msg: EncapsulatedMessageWithVerifiedPublicHeader) {
+    async fn publish(&self, msg: EncapsulatedMessage) {
         if let Err(e) = self
             .swarm_message_sender
             .send(BlendSwarmMessage::Publish(Box::new(msg)))

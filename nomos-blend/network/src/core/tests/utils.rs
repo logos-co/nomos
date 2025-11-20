@@ -202,7 +202,7 @@ impl ProofsVerifier for SessionBasedMockProofsVerifier {
     ) -> Result<VerifiedProofOfQuota, Self::Error> {
         let expected_proofs = session_based_mock_blend_proof(self.0);
         if proof == expected_proofs.proof_of_quota {
-            Ok(VerifiedProofOfQuota::from_proof_of_quota_unchecked(proof))
+            Ok(expected_proofs.proof_of_quota)
         } else {
             Err(())
         }
@@ -215,9 +215,7 @@ impl ProofsVerifier for SessionBasedMockProofsVerifier {
     ) -> Result<VerifiedProofOfSelection, Self::Error> {
         let expected_proofs = session_based_mock_blend_proof(self.0);
         if proof == expected_proofs.proof_of_selection {
-            Ok(VerifiedProofOfSelection::from_proof_of_selection_unchecked(
-                proof,
-            ))
+            Ok(expected_proofs.proof_of_selection)
         } else {
             Err(())
         }

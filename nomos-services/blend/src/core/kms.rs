@@ -9,7 +9,7 @@ use key_management_system::{
     operators::blend::poq::PoQOperator,
 };
 use nomos_blend_message::crypto::proofs::quota::{
-    self, ProofOfQuota, VerifiedProofOfQuota, inputs::prove::PublicInputs,
+    self, VerifiedProofOfQuota, inputs::prove::PublicInputs,
 };
 use nomos_blend_scheduling::message_blend::CoreProofOfQuotaGenerator;
 use nomos_core::crypto::ZkHash;

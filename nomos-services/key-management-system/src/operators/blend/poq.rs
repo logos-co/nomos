@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 use nomos_blend_message::crypto::proofs::quota::{
-    self, ProofOfQuota, VerifiedProofOfQuota,
+    self, VerifiedProofOfQuota,
     inputs::prove::{PrivateInputs, PublicInputs, private::ProofOfCoreQuotaInputs},
 };
 use poq::CorePathAndSelectors;

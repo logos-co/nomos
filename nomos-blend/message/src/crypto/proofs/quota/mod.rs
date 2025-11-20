@@ -27,6 +27,16 @@ const KEY_NULLIFIER_SIZE: usize = size_of::<ZkHash>();
 const PROOF_CIRCUIT_SIZE: usize = size_of::<PoQProof>();
 pub const PROOF_OF_QUOTA_SIZE: usize = KEY_NULLIFIER_SIZE.checked_add(PROOF_CIRCUIT_SIZE).unwrap();
 
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("Invalid input: {0}.")]
+    InvalidInput(#[from] Box<dyn core::error::Error + Send + Sync>),
+    #[error("Proof generation failed: {0}.")]
+    ProofGeneration(#[from] ProveError),
+    #[error("Invalid proof")]
+    InvalidProof,
+}
+
 /// A Proof of Quota as described in the Blend v1 spec: <https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#26a261aa09df80f4b119f900fbb36f3f>.
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ProofOfQuota {
@@ -50,6 +60,11 @@ impl ProofOfQuota {
         } else {
             Err(Error::InvalidProof)
         }
+    }
+
+    #[must_use]
+    pub const fn key_nullifier(&self) -> ZkHash {
+        self.key_nullifier
     }
 }
 
@@ -95,6 +110,11 @@ impl VerifiedProofOfQuota {
     }
 
     #[must_use]
+    pub const fn into_inner(self) -> ProofOfQuota {
+        self.0
+    }
+
+    #[must_use]
     pub fn from_bytes_unchecked(bytes: [u8; PROOF_OF_QUOTA_SIZE]) -> Self {
         let (key_nullifier_bytes, proof_circuit_bytes) = bytes.split_at(KEY_NULLIFIER_SIZE);
         let key_nullifier = fr_from_bytes_unchecked(key_nullifier_bytes);
@@ -109,15 +129,15 @@ impl VerifiedProofOfQuota {
         })
     }
 
+    #[must_use]
+    pub const fn key_nullifier(&self) -> ZkHash {
+        self.0.key_nullifier
+    }
+
     #[cfg(test)]
     #[must_use]
     pub fn dummy() -> Self {
         Self::from_bytes_unchecked([0u8; _])
-    }
-
-    #[must_use]
-    pub const fn key_nullifier(&self) -> ZkHash {
-        self.0.key_nullifier
     }
 
     #[must_use]
@@ -142,16 +162,6 @@ impl PartialEq<ProofOfQuota> for VerifiedProofOfQuota {
     fn eq(&self, other: &ProofOfQuota) -> bool {
         self.0 == *other
     }
-}
-
-#[derive(Debug, Error)]
-pub enum Error {
-    #[error("Invalid input: {0}.")]
-    InvalidInput(#[from] Box<dyn core::error::Error + Send + Sync>),
-    #[error("Proof generation failed: {0}.")]
-    ProofGeneration(#[from] ProveError),
-    #[error("Invalid proof")]
-    InvalidProof,
 }
 
 const DOMAIN_SEPARATION_TAG: [u8; 23] = *b"SELECTION_RANDOMNESS_V1";

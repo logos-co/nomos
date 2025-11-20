@@ -35,6 +35,15 @@ pub struct EncapsulatedMessageWithVerifiedPublicHeader<const ENCAPSULATION_COUNT
 impl<const ENCAPSULATION_COUNT: usize>
     EncapsulatedMessageWithVerifiedPublicHeader<ENCAPSULATION_COUNT>
 {
+    #[must_use]
+    pub fn from_message_unchecked(message: EncapsulatedMessage<ENCAPSULATION_COUNT>) -> Self {
+        let (public_header, encapsulated_part) = message.into_components();
+        Self::from_components(
+            VerifiedPublicHeader::from_header_unchecked(&public_header),
+            encapsulated_part,
+        )
+    }
+
     pub fn new(
         inputs: &EncapsulationInputs<ENCAPSULATION_COUNT>,
         payload_type: PayloadType,
@@ -75,14 +84,6 @@ impl<const ENCAPSULATION_COUNT: usize>
             validated_public_header,
             encapsulated_part: part,
         })
-    }
-
-    pub fn from_message_unchecked(message: EncapsulatedMessage<ENCAPSULATION_COUNT>) -> Self {
-        let (public_header, encapsulated_part) = message.into_components();
-        Self::from_components(
-            VerifiedPublicHeader::from_header_unchecked(&public_header),
-            encapsulated_part,
-        )
     }
 
     #[must_use]

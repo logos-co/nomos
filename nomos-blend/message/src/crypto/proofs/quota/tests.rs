@@ -5,7 +5,7 @@ use crate::crypto::{
     keys::Ed25519PublicKey,
     proofs::{
         quota::{
-            DOMAIN_SEPARATION_TAG_FR, ProofOfQuota, VerifiedProofOfQuota,
+            DOMAIN_SEPARATION_TAG_FR, VerifiedProofOfQuota,
             fixtures::{valid_proof_of_core_quota_inputs, valid_proof_of_leadership_quota_inputs},
             inputs::prove::PrivateInputs,
         },
@@ -35,7 +35,7 @@ fn valid_proof_of_core_quota() {
     )
     .unwrap();
 
-    let verified_proof_of_quota = ProofOfQuota::from(proof).verify(&public_inputs).unwrap();
+    let verified_proof_of_quota = proof.into_inner().verify(&public_inputs).unwrap();
     assert_eq!(
         derive_key_nullifier_from_secret_selection_randomness(secret_selection_randomness),
         verified_proof_of_quota.key_nullifier()
@@ -57,7 +57,8 @@ fn same_key_nullifier_for_different_public_keys() {
         PrivateInputs::new_proof_of_core_quota_inputs(0, private_inputs_key_1),
     )
     .unwrap();
-    let verified_proof_of_quota_1 = ProofOfQuota::from(proof_key_1)
+    let verified_proof_of_quota_1 = proof_key_1
+        .into_inner()
         .verify(&public_inputs_key_1)
         .unwrap();
     let (proof_key_2, _) = VerifiedProofOfQuota::new(
@@ -65,7 +66,8 @@ fn same_key_nullifier_for_different_public_keys() {
         PrivateInputs::new_proof_of_core_quota_inputs(0, private_inputs_key_2),
     )
     .unwrap();
-    let verified_proof_of_quota_2 = ProofOfQuota::from(proof_key_2)
+    let verified_proof_of_quota_2 = proof_key_2
+        .into_inner()
         .verify(&public_inputs_key_2)
         .unwrap();
 
@@ -86,7 +88,7 @@ fn valid_proof_of_leadership_quota() {
     )
     .unwrap();
 
-    let verified_proof_of_quota = ProofOfQuota::from(proof).verify(&public_inputs).unwrap();
+    let verified_proof_of_quota = proof.into_inner().verify(&public_inputs).unwrap();
     assert_eq!(
         derive_key_nullifier_from_secret_selection_randomness(secret_selection_randomness),
         verified_proof_of_quota.key_nullifier()

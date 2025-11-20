@@ -26,7 +26,7 @@ use crate::{
 pub type MessageIdentifier = Ed25519PublicKey;
 
 /// An unverified encapsulated message that is sent across the blend network.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct EncapsulatedMessage<const ENCAPSULATION_COUNT: usize> {
     /// A public header that is not encapsulated.
     public_header: PublicHeader,
@@ -35,12 +35,6 @@ pub struct EncapsulatedMessage<const ENCAPSULATION_COUNT: usize> {
 }
 
 impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> {
-    /// Consume the message to return its components.
-    #[must_use]
-    pub fn into_components(self) -> (PublicHeader, EncapsulatedPart<ENCAPSULATION_COUNT>) {
-        (self.public_header, self.encapsulated_part)
-    }
-
     #[must_use]
     pub const fn from_components(
         public_header: PublicHeader,
@@ -50,6 +44,12 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
             public_header,
             encapsulated_part,
         }
+    }
+
+    /// Consume the message to return its components.
+    #[must_use]
+    pub fn into_components(self) -> (PublicHeader, EncapsulatedPart<ENCAPSULATION_COUNT>) {
+        (self.public_header, self.encapsulated_part)
     }
 
     /// Verify the message public header.
@@ -70,9 +70,11 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
         let verified_proof_of_quota = verifier
             .verify_proof_of_quota(proof_of_quota, &signing_key)
             .map_err(|_| Error::ProofOfQuotaVerificationFailed(quota::Error::InvalidProof))?;
+        let verified_public_header =
+            VerifiedPublicHeader::new(verified_proof_of_quota, signing_key, signature);
         Ok(
             EncapsulatedMessageWithVerifiedPublicHeader::from_components(
-                VerifiedPublicHeader::new(verified_proof_of_quota, signing_key, signature),
+                verified_public_header,
                 self.encapsulated_part,
             ),
         )
@@ -315,6 +317,9 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPrivateHeader<ENCAPSULATION_C
         self.shift_right();
 
         // Replace the first blending header with the new one.
+        // We don't distinguish between locally-generated (valid)
+        // `BlendingHeader`s and received (unverified) ones, so we use regular `PoQ` and
+        // `PoSel` instead of their verified counterparts.
         self.replace_first(EncapsulatedBlendingHeader::initialize(&BlendingHeader {
             signing_pubkey,
             proof_of_quota: *proof_of_quota.as_ref(),

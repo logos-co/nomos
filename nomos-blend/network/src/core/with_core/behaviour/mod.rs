@@ -261,6 +261,18 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
         }
     }
 
+    /// Publish an already-encapsulated message to all connected peers.
+    ///
+    /// Public header validation checks are skipped, since the message is
+    /// assumed to have been properly formed.
+    pub fn publish_validated_message(
+        &mut self,
+        message: &EncapsulatedMessageWithVerifiedPublicHeader,
+    ) -> Result<(), Error> {
+        self.forward_validated_message_and_maybe_exclude(message, None)?;
+        Ok(())
+    }
+
     /// Forwards a message to all healthy connections except the [`execpt`]
     /// connection.
     ///
@@ -306,6 +318,8 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
             .saturating_sub(self.negotiated_peers.len())
     }
 
+    /// Force send a message to a peer, as long as the peer is connected, no
+    /// matter the state the connection is in.
     #[cfg(any(test, feature = "unsafe-test-functions"))]
     pub fn force_send_message_to_peer(
         &mut self,
@@ -764,21 +778,27 @@ where
     /// Publish an already-encapsulated message to all connected peers
     /// in the current or old session.
     ///
+    /// Before the message is propagated, its public header is validated to
+    /// make sure the receiving peer won't mark us as malicious.
+    ///
     /// If the message is successfully validated with the old session verifier,
     /// it is published using the old session.
     /// Otherwise, it is validated with the current session verifier, and
     /// if valid, published using the current session.
-    pub fn publish_validated_message(
+    pub fn validate_and_publish_message(
         &mut self,
-        message: &EncapsulatedMessageWithVerifiedPublicHeader,
+        message: EncapsulatedMessage,
     ) -> Result<(), Error> {
         if let Some(old_session) = &mut self.old_session
-            && old_session.publish_message(message).is_ok()
+            && let Ok(old_session_validated_message) =
+                old_session.verify_encapsulated_message_public_header(message.clone())
         {
-            return Ok(());
+            return old_session.publish_message(&old_session_validated_message);
         }
 
-        self.forward_validated_message_and_maybe_exclude(message, None)
+        let validated_message =
+            self.validate_encapsulated_message_public_header_with_current_session(message)?;
+        self.forward_validated_message_and_maybe_exclude(&validated_message, None)
     }
 
     // Try to validate an encapsulated public header with the current session

@@ -20,6 +20,20 @@ mod tests;
 pub const PROOF_OF_SELECTION_SIZE: usize = size_of::<ProofOfSelection>();
 const DOMAIN_SEPARATION_TAG: [u8; 9] = *b"BlendNode";
 
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("Index mismatch. Expected {expected}, provided {provided}.")]
+    IndexMismatch { expected: u64, provided: u64 },
+    #[error("Overflow when verifying PoSel.")]
+    Overflow,
+    #[error("Key nullifier mismatch. Expected {expected}, provided {provided}.")]
+    KeyNullifierMismatch { expected: ZkHash, provided: ZkHash },
+    #[error("Invalid input: {0}.")]
+    InvalidInput(Box<dyn core::error::Error>),
+    #[error("Proof of Selection verification failed.")]
+    Verification,
+}
+
 /// A Proof of Selection as described in the Blend v1 spec: <https://www.notion.so/nomos-tech/Blend-Protocol-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81d6bb3febd62b598138>.
 #[derive(Clone, Debug, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct ProofOfSelection {
@@ -108,6 +122,11 @@ impl VerifiedProofOfSelection {
         })
     }
 
+    #[must_use]
+    pub const fn into_inner(self) -> ProofOfSelection {
+        self.0
+    }
+
     #[cfg(test)]
     #[must_use]
     pub fn dummy() -> Self {
@@ -136,20 +155,6 @@ impl PartialEq<ProofOfSelection> for VerifiedProofOfSelection {
     fn eq(&self, other: &ProofOfSelection) -> bool {
         self.0 == *other
     }
-}
-
-#[derive(Debug, Error)]
-pub enum Error {
-    #[error("Index mismatch. Expected {expected}, provided {provided}.")]
-    IndexMismatch { expected: u64, provided: u64 },
-    #[error("Overflow when verifying PoSel.")]
-    Overflow,
-    #[error("Key nullifier mismatch. Expected {expected}, provided {provided}.")]
-    KeyNullifierMismatch { expected: ZkHash, provided: ZkHash },
-    #[error("Invalid input: {0}.")]
-    InvalidInput(Box<dyn core::error::Error>),
-    #[error("Proof of Selection verification failed.")]
-    Verification,
 }
 
 const KEY_NULLIFIER_DERIVATION_DOMAIN_SEPARATION_TAG: [u8; 16] = *b"KEY_NULLIFIER_V1";

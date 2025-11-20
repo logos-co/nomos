@@ -13,7 +13,7 @@ use crate::{
 const LATEST_BLEND_MESSAGE_VERSION: u8 = 1;
 
 // A public header that is revealed to all nodes.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct PublicHeader {
     version: u8,
     signing_pubkey: Ed25519PublicKey,
@@ -122,14 +122,19 @@ impl VerifiedPublicHeader {
         }
     }
 
-    pub fn from_header_unchecked(header: &PublicHeader) -> Self {
+    pub const fn from_header_unchecked(
+        PublicHeader {
+            proof_of_quota,
+            signature,
+            signing_pubkey,
+            version,
+        }: &PublicHeader,
+    ) -> Self {
         Self {
-            version: header.version,
-            signing_pubkey: header.signing_pubkey,
-            proof_of_quota: VerifiedProofOfQuota::from_proof_of_quota_unchecked(
-                header.proof_of_quota,
-            ),
-            signature: header.signature,
+            version: *version,
+            signing_pubkey: *signing_pubkey,
+            proof_of_quota: VerifiedProofOfQuota::from_proof_of_quota_unchecked(*proof_of_quota),
+            signature: *signature,
         }
     }
 

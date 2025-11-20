@@ -22,6 +22,7 @@ use nomos_blend_message::{
     reward,
 };
 use nomos_blend_scheduling::{
+    EncapsulatedMessage,
     membership::Membership,
     message_blend::{
         crypto::{
@@ -169,7 +170,7 @@ where
     }
 
     fn shutdown(self) {}
-    async fn publish(&self, _msg: EncapsulatedMessageWithVerifiedPublicHeader) {}
+    async fn publish(&self, _msg: EncapsulatedMessage) {}
     async fn rotate_session(&mut self, _new_session_info: SessionInfo<NodeId>) {}
 
     async fn complete_session_transition(&mut self) {
@@ -416,7 +417,7 @@ impl ProofsVerifier for MockProofsVerifier {
     ) -> Result<VerifiedProofOfSelection, Self::Error> {
         let expected_proof = session_based_dummy_proofs(self.0).proof_of_selection;
         if proof == expected_proof {
-            Ok(proof)
+            Ok(expected_proof)
         } else {
             Err(())
         }
@@ -426,12 +427,12 @@ impl ProofsVerifier for MockProofsVerifier {
 fn session_based_dummy_proofs(session: SessionNumber) -> BlendLayerProof {
     let session_bytes = session.to_le_bytes();
     BlendLayerProof {
-        proof_of_quota: ProofOfQuota::from_bytes_unchecked({
+        proof_of_quota: VerifiedProofOfQuota::from_bytes_unchecked({
             let mut bytes = [0u8; _];
             bytes[..session_bytes.len()].copy_from_slice(&session_bytes);
             bytes
         }),
-        proof_of_selection: ProofOfSelection::from_bytes_unchecked({
+        proof_of_selection: VerifiedProofOfSelection::from_bytes_unchecked({
             let mut bytes = [0u8; _];
             bytes[..session_bytes.len()].copy_from_slice(&session_bytes);
             bytes

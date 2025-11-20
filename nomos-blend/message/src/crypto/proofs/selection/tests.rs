@@ -25,7 +25,7 @@ fn secret_selection_randomness_to_key_nullifier_dst_encoding() {
 
 #[test]
 fn success_on_valid_proof() {
-    let posel = ProofOfSelection::from(VerifiedProofOfSelection::new(ZkHash::ZERO));
+    let posel = VerifiedProofOfSelection::new(ZkHash::ZERO).into_inner();
     let expected_key_nullifier =
         derive_key_nullifier_from_secret_selection_randomness(ZkHash::ZERO);
     posel
@@ -39,7 +39,7 @@ fn success_on_valid_proof() {
 
 #[test]
 fn failure_on_invalid_nullifier() {
-    let posel = ProofOfSelection::from(VerifiedProofOfSelection::new(ZkHash::ZERO));
+    let posel = VerifiedProofOfSelection::new(ZkHash::ZERO).into_inner();
     let Err(Error::KeyNullifierMismatch { expected, provided }) = posel.verify(&VerifyInputs {
         expected_node_index: 0,
         total_membership_size: 1,
@@ -56,7 +56,7 @@ fn failure_on_invalid_nullifier() {
 
 #[test]
 fn failure_on_invalid_index() {
-    let posel = ProofOfSelection::from(VerifiedProofOfSelection::new(ZkHash::ZERO));
+    let posel = VerifiedProofOfSelection::new(ZkHash::ZERO).into_inner();
     let expected_index = posel.expected_index(2).unwrap();
     let Err(Error::IndexMismatch { expected, provided }) = posel.verify(&VerifyInputs {
         // We expect the opposite index.
@@ -71,8 +71,8 @@ fn failure_on_invalid_index() {
 }
 
 #[test]
-fn serde_from_verified_to_unverified() {
-    let proof = VerifiedProofOfSelection::from_bytes_unchecked([0; _]);
+fn serde_verified_and_unverified() {
+    let proof = VerifiedProofOfSelection::from_bytes_unchecked([100; _]);
 
     let serialized_proof = &proof.to_bytes().unwrap();
 
@@ -82,5 +82,5 @@ fn serde_from_verified_to_unverified() {
 
     let deserialized_proof_as_unverified =
         ProofOfSelection::from_bytes(&serialized_proof[..]).unwrap();
-    assert!(proof.as_ref() == &deserialized_proof_as_unverified);
+    assert!(proof == deserialized_proof_as_unverified);
 }

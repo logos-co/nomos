@@ -15,8 +15,8 @@ use libp2p::{
 use libp2p_stream::OpenStreamError;
 use nomos_blend_network::send_msg;
 use nomos_blend_scheduling::{
-    EncapsulatedMessage,
     membership::{Membership, Node},
+    message_blend::crypto::EncapsulatedMessageWithVerifiedPublicHeader,
     serialize_encapsulated_message,
 };
 use nomos_libp2p::{DialError, DialOpts, SwarmEvent};
@@ -34,7 +34,7 @@ pub struct DialAttempt {
     /// The latest (ongoing) attempt number.
     attempt_number: NonZeroU64,
     /// The message to send once the peer is successfully dialed.
-    message: EncapsulatedMessage,
+    message: EncapsulatedMessageWithVerifiedPublicHeader,
 }
 
 #[cfg(test)]
@@ -47,7 +47,7 @@ impl DialAttempt {
         self.attempt_number
     }
 
-    pub const fn message(&self) -> &EncapsulatedMessage {
+    pub const fn message(&self) -> &EncapsulatedMessageWithVerifiedPublicHeader {
         &self.message
     }
 }
@@ -69,7 +69,7 @@ where
 
 #[derive(Debug)]
 pub enum Command {
-    SendMessage(EncapsulatedMessage),
+    SendMessage(EncapsulatedMessageWithVerifiedPublicHeader),
 }
 
 impl<Rng> BlendSwarm<Rng>
@@ -165,7 +165,7 @@ where
         }
     }
 
-    fn handle_send_message_command(&mut self, msg: &EncapsulatedMessage) {
+    fn handle_send_message_command(&mut self, msg: &EncapsulatedMessageWithVerifiedPublicHeader) {
         self.dial_and_schedule_message_except(msg, None);
     }
 
@@ -175,7 +175,7 @@ where
     /// peer, if specified.
     fn dial_and_schedule_message_except(
         &mut self,
-        msg: &EncapsulatedMessage,
+        msg: &EncapsulatedMessageWithVerifiedPublicHeader,
         except: Option<PeerId>,
     ) {
         let peers = self.choose_peers_except(except);
@@ -303,7 +303,7 @@ where
     async fn handle_open_stream_success(
         &mut self,
         stream: libp2p::Stream,
-        message: &EncapsulatedMessage,
+        message: &EncapsulatedMessageWithVerifiedPublicHeader,
         (peer_id, connection_id): (PeerId, ConnectionId),
     ) {
         match send_msg(stream, serialize_encapsulated_message(message)).await {
@@ -374,12 +374,16 @@ where
     }
 
     #[cfg(test)]
-    pub fn send_message(&mut self, msg: &EncapsulatedMessage) {
+    pub fn send_message(&mut self, msg: &EncapsulatedMessageWithVerifiedPublicHeader) {
         self.dial_and_schedule_message_except(msg, None);
     }
 
     #[cfg(test)]
-    pub fn send_message_to_anyone_except(&mut self, peer_id: PeerId, msg: &EncapsulatedMessage) {
+    pub fn send_message_to_anyone_except(
+        &mut self,
+        peer_id: PeerId,
+        msg: &EncapsulatedMessageWithVerifiedPublicHeader,
+    ) {
         self.dial_and_schedule_message_except(msg, Some(peer_id));
     }
 }

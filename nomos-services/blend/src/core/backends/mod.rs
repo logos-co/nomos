@@ -128,7 +128,7 @@ pub trait BlendBackend<NodeId, Rng, ProofsVerifier, RuntimeServiceId> {
     ) -> Self;
     fn shutdown(self);
     /// Publish a message to the blend network.
-    async fn publish(&self, msg: EncapsulatedMessageWithVerifiedPublicHeader);
+    async fn publish(&self, msg: EncapsulatedMessage);
     /// Rotate session.
     async fn rotate_session(&mut self, new_session_info: SessionInfo<NodeId>);
     /// Complete the session transition.
