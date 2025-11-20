@@ -62,7 +62,7 @@ pub enum WalletServiceError {
     KmsApi(DynError),
 
     #[error("Cryptarchia API error: {0}")]
-    CryptarchiaApi(DynError),
+    CryptarchiaApi(#[from] chain_service::api::ApiError),
 
     #[error("Channel {0:?} is missing state in ledger")]
     MissingChannelState(ChannelId),
@@ -328,7 +328,7 @@ where
                         return;
                     }
                     Err(err) => {
-                        Self::send_err(resp_tx, WalletServiceError::CryptarchiaApi(err));
+                        Self::send_err(resp_tx, WalletServiceError::from(err));
                         return;
                     }
                 };

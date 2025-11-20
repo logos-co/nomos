@@ -23,6 +23,7 @@ workspace = true
 async-trait              = "0.1"
 broadcast-service        = { workspace = true }
 chain-leader             = { workspace = true }
+chain-network            = { workspace = true, features = ["libp2p"] }
 chain-service            = { workspace = true }
 clap                     = { default-features = false, features = ["derive", "env", "std"], version = "4" }
 color-eyre               = { default-features = false, version = "0.6.0" }

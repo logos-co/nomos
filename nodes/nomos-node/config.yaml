@@ -197,8 +197,6 @@ cryptarchia:
           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
         ]
-  network_adapter_settings:
-    topic: /cryptarchia/proto
   recovery_file: ./recovery/cryptarchia.json
   bootstrap:
     prolonged_bootstrap_period: [ 86400, 0 ]
@@ -206,6 +204,35 @@ cryptarchia:
     offline_grace_period:
       grace_period: [ 1200, 0 ]
       state_recording_interval: [ 60, 0 ]
+chain_network:
+  config:
+    epoch_config:
+      epoch_stake_distribution_stabilization: 3
+      epoch_period_nonce_buffer: 3
+      epoch_period_nonce_stabilization: 4
+    consensus_config:
+      security_param: 10
+      active_slot_coeff: 0.9
+    sdp_config:
+      service_params:
+        BN:
+          lock_period: 10
+          inactivity_period: 20
+          retention_period: 100
+          timestamp: 0
+          session_duration: 1000
+        DA:
+          lock_period: 10
+          inactivity_period: 20
+          retention_period: 100
+          timestamp: 0
+          session_duration: 1000
+      min_stake:
+        threshold: 1
+        timestamp: 0
+  network_adapter_settings:
+    topic: /cryptarchia/proto
+  bootstrap:
     ibd:
       peers: [ ]
   sync:

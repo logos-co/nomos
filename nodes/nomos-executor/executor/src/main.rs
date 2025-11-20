@@ -96,6 +96,7 @@ async fn main() -> Result<()> {
             da_sampling: config.da_sampling,
             da_verifier: config.da_verifier,
             cryptarchia: config.cryptarchia,
+            chain_network: config.chain_network,
             cryptarchia_leader: config.cryptarchia_leader,
             time: config.time,
             storage: config.storage,
