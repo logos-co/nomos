@@ -60,6 +60,7 @@ members = [
   "testing-framework/core",
   "testing-framework/runners/compose",
   "testing-framework/runners/local",
+  "testing-framework/workflows",
   "testnet/cfgsync",
   "tests",
   "tests/workflows",
@@ -135,18 +136,16 @@ poseidon2                    = { default-features = false, path = "./zk/poseidon
 services-utils               = { default-features = false, path = "./nomos-services/utils" }
 subnetworks-assignations     = { default-features = false, path = "./nomos-da/network/subnetworks-assignations" }
 testing-framework-core       = { default-features = false, path = "./testing-framework/core" }
-<<<<<<< HEAD
 testing-framework-runner-compose = { default-features = false, path = "./testing-framework/runners/compose" }
 testing-framework-runner-local = { default-features = false, path = "./testing-framework/runners/local" }
-=======
->>>>>>> a380819af (prepare framework structre)
-tests                        = { default-features = false, path = "./tests" }
-tx-service                   = { default-features = false, path = "./nomos-services/tx-service" }
-utxotree                     = { default-features = false, path = "./utxotree" }
-wallet                       = { default-features = false, path = "./wallet" }
-witness-generator            = { default-features = false, path = "zk/circuits/witness-generator" }
-zeroize                      = { default-features = false, features = ["zeroize_derive"], version = "1" }
-zksign                       = { default-features = false, path = "./zk/proofs/zksign" }
+testing-framework-workflows    = { default-features = false, path = "./testing-framework/workflows" }
+tests                          = { default-features = false, path = "./tests" }
+tx-service                     = { default-features = false, path = "./nomos-services/tx-service" }
+utxotree                       = { default-features = false, path = "./utxotree" }
+wallet                         = { default-features = false, path = "./wallet" }
+witness-generator              = { default-features = false, path = "zk/circuits/witness-generator" }
+zeroize                        = { default-features = false, features = ["zeroize_derive"], version = "1" }
+zksign                         = { default-features = false, path = "./zk/proofs/zksign" }
 
 # External
 async-trait       = { default-features = false, version = "0.1" }

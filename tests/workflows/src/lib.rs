@@ -2,10 +2,9 @@ use testing_framework_core::scenario::Metrics;
 
 pub mod builder;
 pub mod expectations;
-mod util;
-pub mod workloads;
 
 pub use builder::ScenarioBuilderExt;
+pub use testing_framework_workflows::{util, workloads};
 
 /// Metrics are currently disabled in this branch; return a stub handle.
 #[must_use]
