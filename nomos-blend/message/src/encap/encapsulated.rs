@@ -9,24 +9,23 @@ use crate::{
     crypto::{
         keys::{Ed25519PrivateKey, Ed25519PublicKey, SharedKey},
         proofs::{
-            quota::{self, ProofOfQuota},
-            selection::{self, ProofOfSelection, inputs::VerifyInputs},
+            quota::{self, VerifiedProofOfQuota},
+            selection::{self, VerifiedProofOfSelection, inputs::VerifyInputs},
         },
-        random_sized_bytes,
         signatures::Signature,
     },
     encap::{
         ProofsVerifier,
         decapsulated::{PartDecapsulationOutput, PrivateHeaderDecapsulationOutput},
-        validated::IncomingEncapsulatedMessageWithValidatedPublicHeader,
+        validated::EncapsulatedMessageWithVerifiedPublicHeader,
     },
     input::EncapsulationInputs,
-    message::{BlendingHeader, Payload, PublicHeader},
+    message::{BlendingHeader, Payload, PublicHeader, public_header::VerifiedPublicHeader},
 };
 
 pub type MessageIdentifier = Ed25519PublicKey;
 
-/// An encapsulated message that is sent to the blend network.
+/// An unverified encapsulated message that is sent across the blend network.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct EncapsulatedMessage<const ENCAPSULATION_COUNT: usize> {
     /// A public header that is not encapsulated.
@@ -36,48 +35,10 @@ pub struct EncapsulatedMessage<const ENCAPSULATION_COUNT: usize> {
 }
 
 impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> {
-    /// Creates a new [`EncapsulatedMessage`] with the provided inputs and
-    /// payload.
-    pub fn new(
-        inputs: &EncapsulationInputs<ENCAPSULATION_COUNT>,
-        payload_type: PayloadType,
-        payload_body: &[u8],
-    ) -> Result<Self, Error> {
-        // Create the encapsulated part.
-        let (part, signing_key, proof_of_quota) = inputs.iter().enumerate().fold(
-            (
-                // Start with an initialized encapsulated part,
-                // a random signing key, and proof of quota.
-                EncapsulatedPart::initialize(inputs, payload_type, payload_body)?,
-                Ed25519PrivateKey::generate(),
-                ProofOfQuota::from_bytes_unchecked(random_sized_bytes()),
-            ),
-            |(part, signing_key, proof_of_quota), (i, input)| {
-                (
-                    part.encapsulate(
-                        input.ephemeral_encryption_key(),
-                        &signing_key,
-                        &proof_of_quota,
-                        *input.proof_of_selection(),
-                        i == 0,
-                    ),
-                    input.ephemeral_signing_key().clone(),
-                    *input.proof_of_quota(),
-                )
-            },
-        );
-
-        // Construct the public header.
-        let public_header = PublicHeader::new(
-            signing_key.public_key(),
-            &proof_of_quota,
-            part.sign(&signing_key),
-        );
-
-        Ok(Self {
-            public_header,
-            encapsulated_part: part,
-        })
+    /// Consume the message to return its components.
+    #[must_use]
+    pub fn into_components(self) -> (PublicHeader, EncapsulatedPart<ENCAPSULATION_COUNT>) {
+        (self.public_header, self.encapsulated_part)
     }
 
     #[must_use]
@@ -91,17 +52,11 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
         }
     }
 
-    /// Consume the message to return its components.
-    #[must_use]
-    pub fn into_components(self) -> (PublicHeader, EncapsulatedPart<ENCAPSULATION_COUNT>) {
-        (self.public_header, self.encapsulated_part)
-    }
-
     /// Verify the message public header.
     pub fn verify_public_header<Verifier>(
         self,
         verifier: &Verifier,
-    ) -> Result<IncomingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>, Error>
+    ) -> Result<EncapsulatedMessageWithVerifiedPublicHeader<ENCAPSULATION_COUNT>, Error>
     where
         Verifier: ProofsVerifier,
     {
@@ -112,15 +67,13 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedMessage<ENCAPSULATION_COUNT> 
         ))?;
         let (_, signing_key, proof_of_quota, signature) = self.public_header.into_components();
         // Verify the Proof of Quota according to the Blend spec: <https://www.notion.so/nomos-tech/Blend-Protocol-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81b593ddce00cffd24a8>.
-        verifier
+        let verified_proof_of_quota = verifier
             .verify_proof_of_quota(proof_of_quota, &signing_key)
             .map_err(|_| Error::ProofOfQuotaVerificationFailed(quota::Error::InvalidProof))?;
         Ok(
-            IncomingEncapsulatedMessageWithValidatedPublicHeader::from_message(
-                Self::from_components(
-                    PublicHeader::new(signing_key, &proof_of_quota, signature),
-                    self.encapsulated_part,
-                ),
+            EncapsulatedMessageWithVerifiedPublicHeader::from_components(
+                VerifiedPublicHeader::new(verified_proof_of_quota, signing_key, signature),
+                self.encapsulated_part,
             ),
         )
     }
@@ -149,7 +102,7 @@ pub struct EncapsulatedPart<const ENCAPSULATION_COUNT: usize> {
 impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPart<ENCAPSULATION_COUNT> {
     /// Initializes the encapsulated part as preparation for actual
     /// encapsulations.
-    fn initialize(
+    pub(super) fn initialize(
         inputs: &EncapsulationInputs<ENCAPSULATION_COUNT>,
         payload_type: PayloadType,
         payload_body: &[u8],
@@ -161,12 +114,12 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPart<ENCAPSULATION_COUNT> {
     }
 
     /// Add a layer of encapsulation.
-    fn encapsulate(
+    pub(super) fn encapsulate(
         self,
         shared_key: &SharedKey,
         signing_key: &Ed25519PrivateKey,
-        proof_of_quota: &ProofOfQuota,
-        proof_of_selection: ProofOfSelection,
+        proof_of_quota: &VerifiedProofOfQuota,
+        proof_of_selection: VerifiedProofOfSelection,
         is_last: bool,
     ) -> Self {
         // Compute the signature of the current encapsulated part.
@@ -223,7 +176,7 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPart<ENCAPSULATION_COUNT> {
                         payload,
                     },
                     public_header,
-                    proof_of_selection,
+                    verified_proof_of_selection: proof_of_selection,
                 })
             }
             PrivateHeaderDecapsulationOutput::Completed {
@@ -235,14 +188,14 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPart<ENCAPSULATION_COUNT> {
                 verify_last_reconstructed_public_header(&public_header, &private_header, &payload)?;
                 Ok(PartDecapsulationOutput::Completed {
                     payload: payload.try_deserialize()?,
-                    proof_of_selection,
+                    verified_proof_of_selection: proof_of_selection,
                 })
             }
         }
     }
 
     /// Signs the encapsulated part using the provided key.
-    fn sign(&self, key: &Ed25519PrivateKey) -> Signature {
+    pub(super) fn sign(&self, key: &Ed25519PrivateKey) -> Signature {
         key.sign(&signing_body(&self.private_header, &self.payload))
     }
 }
@@ -353,9 +306,9 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPrivateHeader<ENCAPSULATION_C
         mut self,
         shared_key: &SharedKey,
         signing_pubkey: Ed25519PublicKey,
-        proof_of_quota: &ProofOfQuota,
+        proof_of_quota: &VerifiedProofOfQuota,
         signature: Signature,
-        proof_of_selection: ProofOfSelection,
+        proof_of_selection: VerifiedProofOfSelection,
         is_last: bool,
     ) -> Self {
         // Shift blending headers by one rightward.
@@ -364,9 +317,9 @@ impl<const ENCAPSULATION_COUNT: usize> EncapsulatedPrivateHeader<ENCAPSULATION_C
         // Replace the first blending header with the new one.
         self.replace_first(EncapsulatedBlendingHeader::initialize(&BlendingHeader {
             signing_pubkey,
-            proof_of_quota: *proof_of_quota,
+            proof_of_quota: *proof_of_quota.as_ref(),
             signature,
-            proof_of_selection,
+            proof_of_selection: *proof_of_selection.as_ref(),
             is_last,
         }));
 

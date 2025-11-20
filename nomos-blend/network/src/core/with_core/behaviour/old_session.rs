@@ -14,10 +14,7 @@ use nomos_blend_message::{
 };
 use nomos_blend_scheduling::{
     EncapsulatedMessage, deserialize_encapsulated_message,
-    message_blend::crypto::{
-        IncomingEncapsulatedMessageWithValidatedPublicHeader,
-        OutgoingEncapsulatedMessageWithValidatedPublicHeader,
-    },
+    message_blend::crypto::EncapsulatedMessageWithVerifiedPublicHeader,
     serialize_encapsulated_message,
 };
 
@@ -43,7 +40,7 @@ where
     pub fn verify_encapsulated_message_public_header(
         &self,
         message: EncapsulatedMessage,
-    ) -> Result<IncomingEncapsulatedMessageWithValidatedPublicHeader, Error> {
+    ) -> Result<EncapsulatedMessageWithVerifiedPublicHeader, Error> {
         message
             .verify_public_header(&self.poq_verifier)
             .map_err(|_| Error::InvalidMessage)
@@ -51,12 +48,11 @@ where
 
     /// Validates the public header of an encapsulated message, and
     /// if valid, forwards it to all negotiated peers.
-    pub fn validate_and_publish_message(
+    pub fn publish_message(
         &mut self,
-        message: EncapsulatedMessage,
+        message: &EncapsulatedMessageWithVerifiedPublicHeader,
     ) -> Result<(), Error> {
-        let validated_message = self.verify_encapsulated_message_public_header(message)?;
-        self.forward_validated_message_and_maybe_exclude(&validated_message.into(), None)
+        self.forward_validated_message_and_maybe_exclude(message, None)
     }
 
     pub(super) fn start_new_epoch(&mut self, new_pol_inputs: LeaderInputs) {
@@ -114,11 +110,11 @@ impl<ProofsVerifier> OldSession<ProofsVerifier> {
     /// assumed to have been properly formed.
     pub fn forward_validated_message_and_maybe_exclude(
         &mut self,
-        message: &OutgoingEncapsulatedMessageWithValidatedPublicHeader,
+        message: &EncapsulatedMessageWithVerifiedPublicHeader,
         except: Option<PeerId>,
     ) -> Result<(), Error> {
         let message_id = message.id();
-        let serialized_message = serialize_encapsulated_message(&message.clone().into());
+        let serialized_message = serialize_encapsulated_message(message);
         let mut at_least_one_receiver = false;
         self.negotiated_peers
             .iter()

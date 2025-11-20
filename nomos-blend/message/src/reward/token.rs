@@ -76,10 +76,7 @@ fn hamming_distance(a: &[u8], b: &[u8]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crypto::proofs::{
-        quota::{PROOF_OF_QUOTA_SIZE, ProofOfQuota},
-        selection::{PROOF_OF_SELECTION_SIZE, ProofOfSelection},
-    };
+    use crate::crypto::proofs::{quota::PROOF_OF_QUOTA_SIZE, selection::PROOF_OF_SELECTION_SIZE};
 
     #[test]
     fn test_hamming_distance() {
@@ -125,13 +122,11 @@ mod tests {
 
     fn blending_token(proof_of_quota: u8, proof_of_selection: u8) -> BlendingToken {
         BlendingToken {
-            proof_of_quota: VerifiedProofOfQuota::from_proof_of_quota_unchecked(
-                ProofOfQuota::from_bytes_unchecked([proof_of_quota; PROOF_OF_QUOTA_SIZE]),
+            proof_of_quota: VerifiedProofOfQuota::from_bytes_unchecked(
+                [proof_of_quota; PROOF_OF_QUOTA_SIZE],
             ),
-            proof_of_selection: VerifiedProofOfSelection::from_proof_of_selection_unchecked(
-                ProofOfSelection::from_bytes_unchecked(
-                    [proof_of_selection; PROOF_OF_SELECTION_SIZE],
-                ),
+            proof_of_selection: VerifiedProofOfSelection::from_bytes_unchecked(
+                [proof_of_selection; PROOF_OF_SELECTION_SIZE],
             ),
         }
     }

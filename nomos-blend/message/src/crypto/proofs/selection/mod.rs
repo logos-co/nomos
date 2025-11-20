@@ -27,51 +27,7 @@ pub struct ProofOfSelection {
     selection_randomness: ZkHash,
 }
 
-#[derive(Clone, Debug, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
-pub struct VerifiedProofOfSelection(ProofOfSelection);
-
-impl VerifiedProofOfSelection {
-    #[must_use]
-    pub const fn from_proof_of_selection_unchecked(proof: ProofOfSelection) -> Self {
-        Self(proof)
-    }
-}
-
-impl From<VerifiedProofOfSelection> for ProofOfSelection {
-    fn from(value: VerifiedProofOfSelection) -> Self {
-        value.0
-    }
-}
-
-#[derive(Debug, Error)]
-pub enum Error {
-    #[error("Index mismatch. Expected {expected}, provided {provided}.")]
-    IndexMismatch { expected: u64, provided: u64 },
-    #[error("Overflow when verifying PoSel.")]
-    Overflow,
-    #[error("Key nullifier mismatch. Expected {expected}, provided {provided}.")]
-    KeyNullifierMismatch { expected: ZkHash, provided: ZkHash },
-    #[error("Invalid input: {0}.")]
-    InvalidInput(Box<dyn core::error::Error>),
-    #[error("Proof of Selection verification failed.")]
-    Verification,
-}
-
 impl ProofOfSelection {
-    #[must_use]
-    pub const fn new(selection_randomness: ZkHash) -> Self {
-        Self {
-            selection_randomness,
-        }
-    }
-
-    #[must_use]
-    pub fn from_bytes_unchecked(bytes: [u8; PROOF_OF_SELECTION_SIZE]) -> Self {
-        Self {
-            selection_randomness: fr_from_bytes_unchecked(&bytes),
-        }
-    }
-
     /// Returns the index the Proof of Selection refers to, for the provided
     /// membership size.
     pub fn expected_index(&self, membership_size: usize) -> Result<usize, Error> {
@@ -120,12 +76,62 @@ impl ProofOfSelection {
 
         Ok(VerifiedProofOfSelection(self))
     }
+}
+
+#[derive(Clone, Debug, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct VerifiedProofOfSelection(ProofOfSelection);
+
+impl VerifiedProofOfSelection {
+    #[must_use]
+    pub const fn new(selection_randomness: ZkHash) -> Self {
+        Self(ProofOfSelection {
+            selection_randomness,
+        })
+    }
+
+    #[must_use]
+    pub fn from_bytes_unchecked(bytes: [u8; PROOF_OF_SELECTION_SIZE]) -> Self {
+        Self(ProofOfSelection {
+            selection_randomness: fr_from_bytes_unchecked(&bytes),
+        })
+    }
 
     #[cfg(test)]
     #[must_use]
     pub fn dummy() -> Self {
         Self::from_bytes_unchecked([0u8; _])
     }
+
+    #[must_use]
+    pub const fn from_proof_of_selection_unchecked(proof: ProofOfSelection) -> Self {
+        Self(proof)
+    }
+}
+
+impl From<VerifiedProofOfSelection> for ProofOfSelection {
+    fn from(value: VerifiedProofOfSelection) -> Self {
+        value.0
+    }
+}
+
+impl AsRef<ProofOfSelection> for VerifiedProofOfSelection {
+    fn as_ref(&self) -> &ProofOfSelection {
+        &self.0
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("Index mismatch. Expected {expected}, provided {provided}.")]
+    IndexMismatch { expected: u64, provided: u64 },
+    #[error("Overflow when verifying PoSel.")]
+    Overflow,
+    #[error("Key nullifier mismatch. Expected {expected}, provided {provided}.")]
+    KeyNullifierMismatch { expected: ZkHash, provided: ZkHash },
+    #[error("Invalid input: {0}.")]
+    InvalidInput(Box<dyn core::error::Error>),
+    #[error("Proof of Selection verification failed.")]
+    Verification,
 }
 
 const KEY_NULLIFIER_DERIVATION_DOMAIN_SEPARATION_TAG: [u8; 16] = *b"KEY_NULLIFIER_V1";
@@ -144,15 +150,4 @@ pub fn derive_key_nullifier_from_secret_selection_randomness(
         secret_selection_randomness,
     ]
     .compress()
-}
-
-impl TryFrom<[u8; PROOF_OF_SELECTION_SIZE]> for ProofOfSelection {
-    type Error = Error;
-
-    fn try_from(value: [u8; PROOF_OF_SELECTION_SIZE]) -> Result<Self, Self::Error> {
-        Ok(Self {
-            selection_randomness: fr_from_bytes(&value)
-                .map_err(|e| Error::InvalidInput(Box::new(e)))?,
-        })
-    }
 }

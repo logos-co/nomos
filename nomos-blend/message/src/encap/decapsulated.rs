@@ -30,14 +30,17 @@ pub enum DecapsulationOutput<const ENCAPSULATION_COUNT: usize> {
 )]
 pub(super) enum PartDecapsulationOutput<const ENCAPSULATION_COUNT: usize> {
     Incompleted {
+        // Encapsulated part of the next layer.
         encapsulated_part: EncapsulatedPart<ENCAPSULATION_COUNT>,
+        // Public (unverified) header of the next layer.
         public_header: PublicHeader,
-        proof_of_selection: VerifiedProofOfSelection,
+        // Verified PoSel of the current layer.
+        verified_proof_of_selection: VerifiedProofOfSelection,
     },
 
     Completed {
         payload: Payload,
-        proof_of_selection: VerifiedProofOfSelection,
+        verified_proof_of_selection: VerifiedProofOfSelection,
     },
 }
 
@@ -74,8 +77,11 @@ impl DecapsulatedMessage {
 /// The output of [`EncapsulatedPrivateHeader::decapsulate`]
 pub(super) enum PrivateHeaderDecapsulationOutput<const ENCAPSULATION_COUNT: usize> {
     Incompleted {
+        // Encapsulated part of the next layer.
         encapsulated_private_header: EncapsulatedPrivateHeader<ENCAPSULATION_COUNT>,
+        // Public (unverified) header of the next layer.
         public_header: PublicHeader,
+        // Verified PoSel of the current layer.
         proof_of_selection: VerifiedProofOfSelection,
     },
     Completed {

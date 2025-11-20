@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 use crate::crypto::{
     keys::{Ed25519PrivateKey, Ed25519PublicKey, KEY_SIZE},
     proofs::{
-        quota::{PROOF_OF_QUOTA_SIZE, ProofOfQuota},
-        selection::{PROOF_OF_SELECTION_SIZE, ProofOfSelection},
+        quota::{PROOF_OF_QUOTA_SIZE, ProofOfQuota, VerifiedProofOfQuota},
+        selection::{PROOF_OF_SELECTION_SIZE, ProofOfSelection, VerifiedProofOfSelection},
     },
     pseudo_random_sized_bytes, random_sized_bytes,
     signatures::{SIGNATURE_SIZE, Signature},
@@ -37,9 +37,9 @@ impl BlendingHeader {
             // because a public key cannot always be successfully derived from random bytes.
             // TODO: This will be changed once we have zerocopy serde.
             signing_pubkey: Ed25519PrivateKey::from(r1).public_key(),
-            proof_of_quota: ProofOfQuota::from_bytes_unchecked(r2),
+            proof_of_quota: VerifiedProofOfQuota::from_bytes_unchecked(r2).into(),
             signature: Signature::from(r3),
-            proof_of_selection: ProofOfSelection::from_bytes_unchecked(r4),
+            proof_of_selection: VerifiedProofOfSelection::from_bytes_unchecked(r4).into(),
             is_last: false,
         }
     }

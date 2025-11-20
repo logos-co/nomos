@@ -11,10 +11,12 @@ use nomos_blend_message::{
 };
 
 use crate::{
-    EncapsulatedMessage,
     membership::Membership,
     message_blend::{
-        crypto::{EncapsulationInputs, SessionCryptographicProcessorSettings},
+        crypto::{
+            EncapsulatedMessageWithVerifiedPublicHeader, EncapsulationInputs,
+            SessionCryptographicProcessorSettings,
+        },
         provers::{ProofsGeneratorSettings, leader::LeaderProofsGenerator},
     },
     serialize_encapsulated_message,
@@ -74,7 +76,7 @@ where
     pub async fn encapsulate_data_payload(
         &mut self,
         payload: &[u8],
-    ) -> Result<EncapsulatedMessage, Error> {
+    ) -> Result<EncapsulatedMessageWithVerifiedPublicHeader, Error> {
         let mut proofs = Vec::with_capacity(self.num_blend_layers.get() as usize);
 
         for _ in 0..self.num_blend_layers.into() {
@@ -118,7 +120,7 @@ where
                 .into_boxed_slice(),
         )?;
 
-        EncapsulatedMessage::new(&inputs, PayloadType::Data, payload)
+        EncapsulatedMessageWithVerifiedPublicHeader::new(&inputs, PayloadType::Data, payload)
     }
 
     pub async fn encapsulate_and_serialize_data_payload(

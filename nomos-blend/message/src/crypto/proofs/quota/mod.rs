@@ -28,7 +28,7 @@ const PROOF_CIRCUIT_SIZE: usize = size_of::<PoQProof>();
 pub const PROOF_OF_QUOTA_SIZE: usize = KEY_NULLIFIER_SIZE.checked_add(PROOF_CIRCUIT_SIZE).unwrap();
 
 /// A Proof of Quota as described in the Blend v1 spec: <https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#26a261aa09df80f4b119f900fbb36f3f>.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ProofOfQuota {
     #[serde(with = "groth16::serde::serde_fr")]
     key_nullifier: ZkHash,
@@ -36,38 +36,27 @@ pub struct ProofOfQuota {
     proof: PoQProof,
 }
 
+impl ProofOfQuota {
+    /// Verify a Proof of Quota with the provided inputs.
+    ///
+    /// The key nullifier required to verify the proof is taken from the proof
+    /// itself and is not contained in the passed inputs.
+    pub fn verify(self, public_inputs: &PublicInputs) -> Result<VerifiedProofOfQuota, Error> {
+        let verifier_input =
+            VerifyInputs::from_prove_inputs_and_nullifier(*public_inputs, self.key_nullifier);
+        let is_proof_valid = matches!(verify(&self.proof, verifier_input.into()), Ok(true));
+        if is_proof_valid {
+            Ok(VerifiedProofOfQuota(self))
+        } else {
+            Err(Error::InvalidProof)
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct VerifiedProofOfQuota(ProofOfQuota);
 
 impl VerifiedProofOfQuota {
-    #[must_use]
-    pub const fn key_nullifier(&self) -> ZkHash {
-        self.0.key_nullifier
-    }
-
-    #[must_use]
-    pub const fn from_proof_of_quota_unchecked(proof: ProofOfQuota) -> Self {
-        Self(proof)
-    }
-}
-
-impl From<VerifiedProofOfQuota> for ProofOfQuota {
-    fn from(value: VerifiedProofOfQuota) -> Self {
-        value.0
-    }
-}
-
-#[derive(Debug, Error)]
-pub enum Error {
-    #[error("Invalid input: {0}.")]
-    InvalidInput(#[from] Box<dyn core::error::Error + Send + Sync>),
-    #[error("Proof generation failed: {0}.")]
-    ProofGeneration(#[from] ProveError),
-    #[error("Invalid proof")]
-    InvalidProof,
-}
-
-impl ProofOfQuota {
     /// Generate a new Proof of Quota with the provided public and private
     /// inputs, along with the secret selection randomness for the Proof of
     /// Selection associated to this Proof of Quota.
@@ -91,10 +80,10 @@ impl ProofOfQuota {
             public_inputs.session,
         );
         Ok((
-            Self {
+            Self(ProofOfQuota {
                 key_nullifier: key_nullifier.into_inner(),
                 proof,
-            },
+            }),
             secret_selection_randomness,
         ))
     }
@@ -108,30 +97,10 @@ impl ProofOfQuota {
             <Bn254 as CompressSize>::G2CompressedSize,
         >(proof_circuit_bytes.try_into().unwrap());
 
-        Self {
+        Self(ProofOfQuota {
             key_nullifier,
             proof: PoQProof::new(pi_a, pi_b, pi_c),
-        }
-    }
-
-    /// Verify a Proof of Quota with the provided inputs.
-    ///
-    /// The key nullifier required to verify the proof is taken from the proof
-    /// itself and is not contained in the passed inputs.
-    pub fn verify(self, public_inputs: &PublicInputs) -> Result<VerifiedProofOfQuota, Error> {
-        let verifier_input =
-            VerifyInputs::from_prove_inputs_and_nullifier(*public_inputs, self.key_nullifier);
-        let is_proof_valid = matches!(verify(&self.proof, verifier_input.into()), Ok(true));
-        if is_proof_valid {
-            Ok(VerifiedProofOfQuota(self))
-        } else {
-            Err(Error::InvalidProof)
-        }
-    }
-
-    #[must_use]
-    pub const fn key_nullifier(&self) -> ZkHash {
-        self.key_nullifier
+        })
     }
 
     #[cfg(test)]
@@ -139,6 +108,38 @@ impl ProofOfQuota {
     pub fn dummy() -> Self {
         Self::from_bytes_unchecked([0u8; _])
     }
+
+    #[must_use]
+    pub const fn key_nullifier(&self) -> ZkHash {
+        self.0.key_nullifier
+    }
+
+    #[must_use]
+    pub const fn from_proof_of_quota_unchecked(proof: ProofOfQuota) -> Self {
+        Self(proof)
+    }
+}
+
+impl From<VerifiedProofOfQuota> for ProofOfQuota {
+    fn from(value: VerifiedProofOfQuota) -> Self {
+        value.0
+    }
+}
+
+impl AsRef<ProofOfQuota> for VerifiedProofOfQuota {
+    fn as_ref(&self) -> &ProofOfQuota {
+        &self.0
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("Invalid input: {0}.")]
+    InvalidInput(#[from] Box<dyn core::error::Error + Send + Sync>),
+    #[error("Proof generation failed: {0}.")]
+    ProofGeneration(#[from] ProveError),
+    #[error("Invalid proof")]
+    InvalidProof,
 }
 
 const DOMAIN_SEPARATION_TAG: [u8; 23] = *b"SELECTION_RANDOMNESS_V1";

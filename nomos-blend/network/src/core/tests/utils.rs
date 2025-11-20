@@ -25,9 +25,9 @@ use nomos_blend_message::{
     encap::ProofsVerifier,
     input::EncapsulationInput,
 };
-use nomos_blend_scheduling::{
-    EncapsulatedMessage,
-    message_blend::{crypto::EncapsulationInputs, provers::BlendLayerProof},
+use nomos_blend_scheduling::message_blend::{
+    crypto::{EncapsulatedMessageWithVerifiedPublicHeader, EncapsulationInputs},
+    provers::BlendLayerProof,
 };
 use nomos_core::sdp::SessionNumber;
 use nomos_libp2p::{NetworkBehaviour, ed25519, upgrade::Version};
@@ -104,13 +104,17 @@ where
     }
 }
 
-pub struct TestEncapsulatedMessage(EncapsulatedMessage);
+pub struct TestEncapsulatedMessage(EncapsulatedMessageWithVerifiedPublicHeader);
 
 impl TestEncapsulatedMessage {
     pub fn new(payload: &[u8]) -> Self {
         Self(
-            EncapsulatedMessage::new(&generate_valid_inputs(0), PayloadType::Data, payload)
-                .unwrap(),
+            EncapsulatedMessageWithVerifiedPublicHeader::new(
+                &generate_valid_inputs(0),
+                PayloadType::Data,
+                payload,
+            )
+            .unwrap(),
         )
     }
 
@@ -120,24 +124,28 @@ impl TestEncapsulatedMessage {
             Signature::from([100u8; SIGNATURE_SIZE]);
         self_instance
     }
-
-    pub fn into_inner(self) -> EncapsulatedMessage {
-        self.0
-    }
 }
 
-pub struct TestEncapsulatedMessageWithSession(EncapsulatedMessage);
+pub struct TestEncapsulatedMessageWithSession(EncapsulatedMessageWithVerifiedPublicHeader);
 
 impl TestEncapsulatedMessageWithSession {
     pub fn new(session: SessionNumber, payload: &[u8]) -> Self {
         Self(
-            EncapsulatedMessage::new(&generate_valid_inputs(session), PayloadType::Data, payload)
-                .unwrap(),
+            EncapsulatedMessageWithVerifiedPublicHeader::new(
+                &generate_valid_inputs(session),
+                PayloadType::Data,
+                payload,
+            )
+            .unwrap(),
         )
     }
+}
 
-    pub fn into_inner(self) -> EncapsulatedMessage {
-        self.0
+impl Deref for TestEncapsulatedMessageWithSession {
+    type Target = EncapsulatedMessageWithVerifiedPublicHeader;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
@@ -161,7 +169,7 @@ fn generate_valid_inputs(session: SessionNumber) -> EncapsulationInputs {
 }
 
 impl Deref for TestEncapsulatedMessage {
-    type Target = EncapsulatedMessage;
+    type Target = EncapsulatedMessageWithVerifiedPublicHeader;
 
     fn deref(&self) -> &Self::Target {
         &self.0

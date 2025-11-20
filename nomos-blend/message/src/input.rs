@@ -1,7 +1,7 @@
 use crate::{
     crypto::{
         keys::{Ed25519PrivateKey, Ed25519PublicKey, SharedKey},
-        proofs::{quota::ProofOfQuota, selection::ProofOfSelection},
+        proofs::{quota::VerifiedProofOfQuota, selection::VerifiedProofOfSelection},
     },
     error::Error,
 };
@@ -46,9 +46,9 @@ pub struct EncapsulationInput {
     /// Encryption keys are derived from the signing keys.
     shared_key: SharedKey,
     /// A proof of quota for the encapsulation.
-    proof_of_quota: ProofOfQuota,
+    proof_of_quota: VerifiedProofOfQuota,
     /// A proof of selection of the selected blend node.
-    proof_of_selection: ProofOfSelection,
+    proof_of_selection: VerifiedProofOfSelection,
 }
 
 impl EncapsulationInput {
@@ -60,8 +60,8 @@ impl EncapsulationInput {
     pub fn new(
         ephemeral_signing_key: Ed25519PrivateKey,
         blend_node_signing_key: &Ed25519PublicKey,
-        proof_of_quota: ProofOfQuota,
-        proof_of_selection: ProofOfSelection,
+        proof_of_quota: VerifiedProofOfQuota,
+        proof_of_selection: VerifiedProofOfSelection,
     ) -> Self {
         let ephemeral_encryption_key = ephemeral_signing_key
             .derive_x25519()
@@ -85,12 +85,12 @@ impl EncapsulationInput {
     }
 
     #[must_use]
-    pub const fn proof_of_quota(&self) -> &ProofOfQuota {
+    pub const fn proof_of_quota(&self) -> &VerifiedProofOfQuota {
         &self.proof_of_quota
     }
 
     #[must_use]
-    pub const fn proof_of_selection(&self) -> &ProofOfSelection {
+    pub const fn proof_of_selection(&self) -> &VerifiedProofOfSelection {
         &self.proof_of_selection
     }
 }
@@ -133,8 +133,8 @@ mod tests {
                     EncapsulationInput::new(
                         Ed25519PrivateKey::generate(),
                         &recipient_signing_pubkey,
-                        ProofOfQuota::dummy(),
-                        ProofOfSelection::dummy(),
+                        VerifiedProofOfQuota::dummy(),
+                        VerifiedProofOfSelection::dummy(),
                     )
                 })
                 .collect::<Vec<_>>()

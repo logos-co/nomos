@@ -24,12 +24,8 @@ use nomos_blend_message::{
     MessageIdentifier, crypto::proofs::quota::inputs::prove::public::LeaderInputs, encap,
 };
 use nomos_blend_scheduling::{
-    EncapsulatedMessage, deserialize_encapsulated_message,
-    membership::Membership,
-    message_blend::crypto::{
-        IncomingEncapsulatedMessageWithValidatedPublicHeader,
-        OutgoingEncapsulatedMessageWithValidatedPublicHeader,
-    },
+    EncapsulatedMessage, deserialize_encapsulated_message, membership::Membership,
+    message_blend::crypto::EncapsulatedMessageWithVerifiedPublicHeader,
     serialize_encapsulated_message,
 };
 
@@ -169,7 +165,7 @@ pub enum Event {
     /// A message received from one of the core peers, after its public header
     /// has been verified.
     Message(
-        Box<IncomingEncapsulatedMessageWithValidatedPublicHeader>,
+        Box<EncapsulatedMessageWithVerifiedPublicHeader>,
         (PeerId, ConnectionId),
     ),
     /// A peer on a given connection has been detected as unhealthy.
@@ -271,7 +267,7 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
     /// assumed to have been properly formed.
     pub fn publish_validated_message(
         &mut self,
-        message: &OutgoingEncapsulatedMessageWithValidatedPublicHeader,
+        message: &EncapsulatedMessageWithVerifiedPublicHeader,
     ) -> Result<(), Error> {
         self.forward_validated_message_and_maybe_exclude(message, None)?;
         Ok(())
@@ -291,7 +287,7 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
     /// the blend protocol.
     pub fn forward_validated_message(
         &mut self,
-        message: &OutgoingEncapsulatedMessageWithValidatedPublicHeader,
+        message: &EncapsulatedMessageWithVerifiedPublicHeader,
         except: (PeerId, ConnectionId),
     ) -> Result<(), Error> {
         if let Some(old_session) = &mut self.old_session
@@ -322,12 +318,10 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
             .saturating_sub(self.negotiated_peers.len())
     }
 
-    /// Force send a message to a peer (without validating it first), as long as
-    /// the peer is connected, no matter the state the connection is in.
     #[cfg(any(test, feature = "unsafe-test-functions"))]
     pub fn force_send_message_to_peer(
         &mut self,
-        message: &EncapsulatedMessage,
+        message: &EncapsulatedMessageWithVerifiedPublicHeader,
         peer_id: PeerId,
     ) -> Result<(), Error> {
         let Some(RemotePeerConnectionDetails { connection_id, .. }) =
@@ -393,12 +387,12 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
     /// message.
     fn forward_validated_message_and_maybe_exclude(
         &mut self,
-        message: &OutgoingEncapsulatedMessageWithValidatedPublicHeader,
+        message: &EncapsulatedMessageWithVerifiedPublicHeader,
         excluded_peer: Option<PeerId>,
     ) -> Result<(), Error> {
         let message_id = message.id();
 
-        let serialized_message = serialize_encapsulated_message(&message.clone().into());
+        let serialized_message = serialize_encapsulated_message(message);
         let mut at_least_one_receiver = false;
         self.negotiated_peers
             .iter()
@@ -788,21 +782,18 @@ where
     /// it is published using the old session.
     /// Otherwise, it is validated with the current session verifier, and
     /// if valid, published using the current session.
-    pub fn validate_and_publish_message(
+    pub fn publish_message(
         &mut self,
-        message: EncapsulatedMessage,
+        message: &EncapsulatedMessageWithVerifiedPublicHeader,
     ) -> Result<(), Error> {
+        // TODO: Check this.
         if let Some(old_session) = &mut self.old_session
-            && old_session
-                .validate_and_publish_message(message.clone())
-                .is_ok()
+            && old_session.publish_message(message).is_ok()
         {
             return Ok(());
         }
 
-        let validated_message =
-            self.validate_encapsulated_message_public_header_with_current_session(message)?;
-        self.forward_validated_message_and_maybe_exclude(&validated_message.into(), None)
+        self.forward_validated_message_and_maybe_exclude(message, None)
     }
 
     // Try to validate an encapsulated public header with the current session
@@ -810,7 +801,7 @@ where
     fn validate_encapsulated_message_public_header_with_current_session(
         &self,
         message: EncapsulatedMessage,
-    ) -> Result<IncomingEncapsulatedMessageWithValidatedPublicHeader, Error> {
+    ) -> Result<EncapsulatedMessageWithVerifiedPublicHeader, Error> {
         message
             .verify_public_header(&self.poq_verifier)
             .map_err(|_| Error::InvalidMessage)
