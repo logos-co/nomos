@@ -1,13 +1,20 @@
-use std::{collections::HashSet, path::PathBuf, str::FromStr as _, sync::LazyLock, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+    str::FromStr as _,
+    sync::LazyLock,
+    time::Duration,
+};
 
 use ed25519_dalek::SigningKey;
+use nomos_core::sdp::SessionNumber;
 use nomos_da_network_core::swarm::{
     DAConnectionMonitorSettings, DAConnectionPolicySettings, ReplicationConfig,
 };
 use nomos_libp2p::{Multiaddr, PeerId, ed25519};
 use nomos_node::NomosDaMembership;
 use num_bigint::BigUint;
-use subnetworks_assignations::MembershipHandler as _;
+use subnetworks_assignations::{MembershipCreator as _, MembershipHandler as _};
 use zksign::SecretKey;
 
 use crate::secret_key_to_peer_id;
@@ -128,8 +135,21 @@ pub fn create_da_configs(
         listening_addresses.push(listening_address);
     }
 
-    let membership =
-        NomosDaMembership::new(0, da_params.subnetwork_size, da_params.dispersal_factor);
+    let membership = {
+        let template = NomosDaMembership::new(
+            SessionNumber::default(),
+            da_params.subnetwork_size,
+            da_params.dispersal_factor,
+        );
+        let mut assignations: HashMap<u16, HashSet<PeerId>> = (0..da_params.subnetwork_size)
+            .map(|id| (u16::try_from(id).unwrap_or(0), HashSet::new()))
+            .collect();
+        for (idx, peer_id) in peer_ids.iter().enumerate() {
+            let subnet_id = u16::try_from(idx % da_params.subnetwork_size).unwrap_or_default();
+            assignations.entry(subnet_id).or_default().insert(*peer_id);
+        }
+        template.init(SessionNumber::default(), assignations)
+    };
 
     ids.iter()
         .zip(node_keys)

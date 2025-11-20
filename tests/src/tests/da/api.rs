@@ -86,12 +86,12 @@ async fn test_get_commitments_from_peers() {
 
     let _ = wait_for_blob_onchain(executor, test_channel_id, blob_id).await;
 
-    lone_validator.get_commitments(blob_id, 0).await.unwrap();
+    lone_validator.get_commitments(blob_id).await.unwrap();
 
     let timeout = adjust_timeout(Duration::from_secs(DA_TESTS_TIMEOUT));
     assert!(
         (tokio::time::timeout(timeout, async {
-            lone_validator.get_commitments(blob_id, 0).await
+            lone_validator.get_commitments(blob_id).await
         })
         .await)
             .is_ok(),

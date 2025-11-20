@@ -3,7 +3,6 @@ pub mod blend;
 pub mod bootstrap;
 pub mod consensus;
 pub mod da;
-pub mod deployment;
 pub mod network;
 pub mod time;
 pub mod tracing;
@@ -13,7 +12,7 @@ use consensus::{GeneralConsensusConfig, ProviderInfo, create_genesis_tx_with_dec
 use da::GeneralDaConfig;
 use key_management_system::{
     backend::preload::PreloadKMSBackendSettings,
-    keys::{Ed25519Key, ZkKey},
+    keys::{Ed25519Key, Key, ZkKey},
 };
 use network::GeneralNetworkConfig;
 use nomos_core::{
@@ -102,11 +101,11 @@ pub fn create_general_configs_with_blend_core_subset(
         .iter()
         .enumerate()
         .take(n_blend_core_nodes)
-        .map(|(i, (blend_conf, secret_zk_key))| ProviderInfo {
+        .map(|(i, blend_conf)| ProviderInfo {
             service_type: ServiceType::BlendNetwork,
-            provider_sk: blend_conf.common.non_ephemeral_signing_key.clone().into(),
-            zk_sk: secret_zk_key.clone(),
-            locator: Locator(blend_conf.core.backend.listening_address.clone()),
+            provider_sk: blend_conf.signer.clone(),
+            zk_sk: blend_conf.secret_zk_key.clone(),
+            locator: Locator(blend_conf.backend_core.listening_address.clone()),
             note: consensus_configs[0].blend_notes[i].clone(),
         })
         .collect();
@@ -123,24 +122,22 @@ pub fn create_general_configs_with_blend_core_subset(
     // Set Blend and DA keys in KMS of each node config.
     let kms_configs: Vec<_> = blend_configs
         .iter()
-        .map(|(blend_conf, zk_secret_key)| PreloadKMSBackendSettings {
-            keys: [
-                (
-                    key_id_for_preload_backend(
-                        &Ed25519Key::new(
-                            blend_conf.common.non_ephemeral_signing_key.clone().into(),
-                        )
-                        .into(),
+        .map(|blend_conf| {
+            let ed_key = Ed25519Key::new(blend_conf.signer.clone());
+            let zk_key = ZkKey::new(blend_conf.secret_zk_key.clone());
+            PreloadKMSBackendSettings {
+                keys: [
+                    (
+                        key_id_for_preload_backend(&Key::from(ed_key.clone())),
+                        Key::from(ed_key),
                     ),
-                    Ed25519Key::new(blend_conf.common.non_ephemeral_signing_key.clone().into())
-                        .into(),
-                ),
-                (
-                    blend_conf.core.zk.secret_key_kms_id.clone(),
-                    ZkKey::new(zk_secret_key.clone()).into(),
-                ),
-            ]
-            .into(),
+                    (
+                        key_id_for_preload_backend(&Key::from(zk_key.clone())),
+                        Key::from(zk_key),
+                    ),
+                ]
+                .into(),
+            }
         })
         .collect();
 

@@ -209,24 +209,21 @@ fn create_providers(
             note: consensus_configs[0].da_notes[i].clone(),
         })
         .collect();
-    providers.extend(
-        blend_configs
-            .iter()
-            .enumerate()
-            .map(|(i, (blend_conf, secret_zk_key))| ProviderInfo {
-                service_type: ServiceType::BlendNetwork,
-                provider_sk: blend_conf.common.non_ephemeral_signing_key.clone().into(),
-                zk_sk: secret_zk_key.clone(),
-                locator: Locator(
-                    Multiaddr::from_str(&format!(
-                        "/ip4/{}/udp/{}/quic-v1",
-                        hosts[i].ip, hosts[i].blend_port
-                    ))
-                    .unwrap(),
-                ),
-                note: consensus_configs[0].blend_notes[i].clone(),
-            }),
-    );
+    providers.extend(blend_configs.iter().enumerate().map(|(i, blend_conf)| {
+        ProviderInfo {
+            service_type: ServiceType::BlendNetwork,
+            provider_sk: blend_conf.signer.clone(),
+            zk_sk: blend_conf.secret_zk_key.clone(),
+            locator: Locator(
+                Multiaddr::from_str(&format!(
+                    "/ip4/{}/udp/{}/quic-v1",
+                    hosts[i].ip, hosts[i].blend_port
+                ))
+                .unwrap(),
+            ),
+            note: consensus_configs[0].blend_notes[i].clone(),
+        }
+    }));
 
     providers
 }
@@ -341,7 +338,7 @@ mod cfgsync_tests {
         for (host, config) in &configs {
             let network_port = config.network_config.swarm_config.port;
             let da_network_port = extract_port(&config.da_config.listening_address);
-            let blend_port = extract_port(&config.blend_config.0.core.backend.listening_address);
+            let blend_port = extract_port(&config.blend_config.backend_core.listening_address);
 
             assert_eq!(network_port, host.network_port);
             assert_eq!(da_network_port, host.da_network_port);

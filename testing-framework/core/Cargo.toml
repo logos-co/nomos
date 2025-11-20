@@ -1,8 +1,13 @@
 [package]
-edition.workspace = true
-license.workspace = true
-name              = "testing-framework-core"
-version           = "0.1.0"
+categories.workspace  = true
+description.workspace = true
+edition.workspace     = true
+keywords.workspace    = true
+license.workspace     = true
+name                  = "testing-framework-core"
+readme.workspace      = true
+repository.workspace  = true
+version               = "0.1.0"
 
 [lints]
 workspace = true
@@ -36,7 +41,7 @@ nomos-utils              = { workspace = true }
 prometheus-http-query    = "0.8"
 rand                     = { workspace = true }
 reqwest                  = { workspace = true, features = ["json"] }
-serde                    = { workspace = true, features = ["derive"] }
+serde                    = { workspace = true }
 serde_json               = { workspace = true }
 serde_yaml               = { workspace = true }
 serde_with               = { workspace = true }

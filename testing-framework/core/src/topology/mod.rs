@@ -23,7 +23,7 @@ use key_management_system::{
 };
 use nomos_core::{
     mantle::GenesisTx as _,
-    sdp::{Locator, ProviderId, ServiceType, SessionNumber},
+    sdp::{Locator, ServiceType, SessionNumber},
 };
 use nomos_da_network_core::swarm::DAConnectionPolicySettings;
 use nomos_da_network_service::MembershipResponse;
@@ -104,8 +104,15 @@ impl TopologyConfig {
         assert!(participants > 0, "topology must include at least one node");
 
         let mut da_params = DaParams::default();
-        if participants > 1 {
-            let dispersal = participants.min(da_params.dispersal_factor.max(2));
+        let da_nodes = participants;
+        if da_nodes <= 1 {
+            da_params.subnetwork_size = 1;
+            da_params.num_subnets = 1;
+            da_params.dispersal_factor = 1;
+            da_params.policy_settings.min_dispersal_peers = 0;
+            da_params.policy_settings.min_replication_peers = 0;
+        } else {
+            let dispersal = da_nodes.min(da_params.dispersal_factor.max(2));
             da_params.dispersal_factor = dispersal;
             da_params.subnetwork_size = da_params.subnetwork_size.max(dispersal);
             da_params.num_subnets = da_params.subnetwork_size as u16;
@@ -455,11 +462,10 @@ impl TopologyBuilder {
             .enumerate()
             .map(|(i, da_conf)| ProviderInfo {
                 service_type: ServiceType::DataAvailability,
-                provider_id: ProviderId(da_conf.signer.verifying_key()),
-                zk_id: da_conf.secret_zk_key.to_public_key(),
+                provider_sk: da_conf.signer.clone(),
+                zk_sk: da_conf.secret_zk_key.clone(),
                 locator: Locator(da_conf.listening_address.clone()),
                 note: consensus_configs[0].da_notes[i].clone(),
-                signer: da_conf.signer.clone(),
             })
             .collect();
         providers.extend(
@@ -468,11 +474,10 @@ impl TopologyBuilder {
                 .enumerate()
                 .map(|(i, blend_conf)| ProviderInfo {
                     service_type: ServiceType::BlendNetwork,
-                    provider_id: ProviderId(blend_conf.signer.verifying_key()),
-                    zk_id: blend_conf.secret_zk_key.to_public_key(),
+                    provider_sk: blend_conf.signer.clone(),
+                    zk_sk: blend_conf.secret_zk_key.clone(),
                     locator: Locator(blend_conf.backend_core.listening_address.clone()),
                     note: consensus_configs[0].blend_notes[i].clone(),
-                    signer: blend_conf.signer.clone(),
                 }),
         );
 
@@ -575,11 +580,10 @@ impl Topology {
             .enumerate()
             .map(|(i, da_conf)| ProviderInfo {
                 service_type: ServiceType::DataAvailability,
-                provider_id: ProviderId(da_conf.signer.verifying_key()),
-                zk_id: da_conf.secret_zk_key.to_public_key(),
+                provider_sk: da_conf.signer.clone(),
+                zk_sk: da_conf.secret_zk_key.clone(),
                 locator: Locator(da_conf.listening_address.clone()),
                 note: consensus_configs[0].da_notes[i].clone(),
-                signer: da_conf.signer.clone(),
             })
             .collect();
         providers.extend(
@@ -588,11 +592,10 @@ impl Topology {
                 .enumerate()
                 .map(|(i, blend_conf)| ProviderInfo {
                     service_type: ServiceType::BlendNetwork,
-                    provider_id: ProviderId(blend_conf.signer.verifying_key()),
-                    zk_id: blend_conf.secret_zk_key.to_public_key(),
+                    provider_sk: blend_conf.signer.clone(),
+                    zk_sk: blend_conf.secret_zk_key.clone(),
                     locator: Locator(blend_conf.backend_core.listening_address.clone()),
                     note: consensus_configs[0].blend_notes[i].clone(),
-                    signer: blend_conf.signer.clone(),
                 }),
         );
 
@@ -1205,23 +1208,23 @@ pub fn create_kms_configs(
             keys: [
                 (
                     hex::encode(blend_conf.signer.verifying_key().as_bytes()),
-                    Key::Ed25519(Ed25519Key(blend_conf.signer.clone())),
+                    Key::Ed25519(Ed25519Key::new(blend_conf.signer.clone())),
                 ),
                 (
                     hex::encode(fr_to_bytes(
                         &blend_conf.secret_zk_key.to_public_key().into_inner(),
                     )),
-                    Key::Zk(ZkKey(blend_conf.secret_zk_key.clone())),
+                    Key::Zk(ZkKey::new(blend_conf.secret_zk_key.clone())),
                 ),
                 (
                     hex::encode(da_conf.signer.verifying_key().as_bytes()),
-                    Key::Ed25519(Ed25519Key(da_conf.signer.clone())),
+                    Key::Ed25519(Ed25519Key::new(da_conf.signer.clone())),
                 ),
                 (
                     hex::encode(fr_to_bytes(
                         &da_conf.secret_zk_key.to_public_key().into_inner(),
                     )),
-                    Key::Zk(ZkKey(da_conf.secret_zk_key.clone())),
+                    Key::Zk(ZkKey::new(da_conf.secret_zk_key.clone())),
                 ),
             ]
             .into(),

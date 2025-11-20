@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     num::{NonZeroU64, NonZeroUsize},
     path::PathBuf,
     time::Duration,
@@ -8,8 +8,7 @@ use std::{
 use chain_leader::LeaderSettings;
 use chain_service::{CryptarchiaSettings, OrphanConfig, StartingState, SyncConfig};
 use cryptarchia_engine::time::SlotConfig;
-use key_management_system::backend::preload::PreloadKMSBackendSettings;
-use nomos_blend_scheduling::message_blend::crypto::SessionCryptographicProcessorSettings;
+use key_management_system::keys::{Key, ZkKey};
 use nomos_blend_service::{
     core::settings::{CoverTrafficSettings, MessageDelayerSettings, SchedulerSettings, ZkSettings},
     settings::TimingSettings,
@@ -34,7 +33,14 @@ use nomos_network::{backends::libp2p::Libp2pConfig, config::NetworkConfig};
 use nomos_node::{
     Config as ValidatorConfig, RocksBackendSettings,
     api::backend::AxumBackendSettings as NodeAxumBackendSettings,
-    config::{blend::BlendConfig, mempool::MempoolConfig},
+    config::{
+        blend::{
+            deployment::{self as blend_deployment},
+            serde as blend_serde,
+        },
+        deployment::{CustomDeployment, Settings as NodeDeploymentSettings},
+        mempool::MempoolConfig,
+    },
 };
 use nomos_sdp::SdpSettings;
 use nomos_time::{
@@ -44,7 +50,11 @@ use nomos_time::{
 use nomos_utils::{math::NonNegativeF64, net::get_available_tcp_port};
 use nomos_wallet::WalletServiceSettings;
 
-use crate::{adjust_timeout, topology::configs::GeneralConfig};
+use crate::{
+    adjust_timeout,
+    common::kms::key_id_for_preload_backend,
+    topology::configs::{GeneralConfig, blend::GeneralBlendConfig as TopologyBlendConfig},
+};
 
 #[must_use]
 #[expect(
@@ -57,6 +67,7 @@ pub fn create_validator_config(config: GeneralConfig) -> ValidatorConfig {
         .unwrap();
 
     let da_policy_settings = config.da_config.policy_settings;
+    let (blend_user_config, deployment_settings) = build_blend_service_config(&config.blend_config);
     ValidatorConfig {
         network: NetworkConfig {
             backend: Libp2pConfig {
@@ -64,52 +75,8 @@ pub fn create_validator_config(config: GeneralConfig) -> ValidatorConfig {
                 initial_peers: config.network_config.initial_peers,
             },
         },
-        blend: BlendConfig::new(nomos_blend_service::settings::Settings {
-            common: nomos_blend_service::settings::CommonSettings {
-                crypto: SessionCryptographicProcessorSettings {
-                    non_ephemeral_signing_key: config.blend_config.private_key.clone(),
-                    num_blend_layers: 1,
-                },
-                minimum_network_size: 1
-                    .try_into()
-                    .expect("Minimum Blend network size cannot be zero."),
-                time: TimingSettings {
-                    round_duration: Duration::from_secs(1),
-                    rounds_per_interval: NonZeroU64::try_from(30u64)
-                        .expect("Rounds per interval cannot be zero."),
-                    // (21,600 blocks * 30s per block) / 1s per round = 648,000 rounds
-                    rounds_per_session: NonZeroU64::try_from(648_000u64)
-                        .expect("Rounds per session cannot be zero."),
-                    rounds_per_observation_window: NonZeroU64::try_from(30u64)
-                        .expect("Rounds per observation window cannot be zero."),
-                    rounds_per_session_transition_period: NonZeroU64::try_from(30u64)
-                        .expect("Rounds per session transition period cannot be zero."),
-                    epoch_transition_period_in_slots: NonZeroU64::try_from(2_600)
-                        .expect("Epoch transition period in slots cannot be zero."),
-                },
-                recovery_path_prefix: "./recovery/blend".into(),
-            },
-            core: nomos_blend_service::settings::CoreSettings {
-                backend: config.blend_config.backend_core,
-                scheduler: SchedulerSettings {
-                    cover: CoverTrafficSettings {
-                        intervals_for_safety_buffer: 100,
-                        message_frequency_per_round: NonNegativeF64::try_from(1f64)
-                            .expect("Message frequency per round cannot be negative."),
-                    },
-                    delayer: MessageDelayerSettings {
-                        maximum_release_delay_in_rounds: NonZeroU64::try_from(3u64)
-                            .expect("Maximum release delay between rounds cannot be zero."),
-                    },
-                },
-                zk: ZkSettings {
-                    sk: config.blend_config.secret_zk_key,
-                },
-            },
-            edge: nomos_blend_service::settings::EdgeSettings {
-                backend: config.blend_config.backend_edge,
-            },
-        }),
+        blend: blend_user_config,
+        deployment: deployment_settings,
         cryptarchia: CryptarchiaSettings {
             config: config.consensus_config.ledger_config.clone(),
             starting_state: StartingState::Genesis {
@@ -248,9 +215,7 @@ pub fn create_validator_config(config: GeneralConfig) -> ValidatorConfig {
         wallet: WalletServiceSettings {
             known_keys: HashSet::from_iter([config.consensus_config.leader_config.pk]),
         },
-        key_management: PreloadKMSBackendSettings {
-            keys: HashMap::new(),
-        },
+        key_management: config.kms_config,
         testing_http: nomos_api::ApiServiceSettings {
             backend_settings: NodeAxumBackendSettings {
                 address: testing_http_address,
@@ -261,4 +226,75 @@ pub fn create_validator_config(config: GeneralConfig) -> ValidatorConfig {
             },
         },
     }
+}
+
+fn build_blend_service_config(
+    config: &TopologyBlendConfig,
+) -> (blend_serde::Config, NodeDeploymentSettings) {
+    let zk_key_id =
+        key_id_for_preload_backend(&Key::from(ZkKey::new(config.secret_zk_key.clone())));
+
+    let backend_core = &config.backend_core;
+    let backend_edge = &config.backend_edge;
+
+    let user = blend_serde::Config {
+        common: blend_serde::common::Config {
+            non_ephemeral_signing_key: config.private_key.clone(),
+            recovery_path_prefix: PathBuf::from("./recovery/blend"),
+        },
+        core: blend_serde::core::Config {
+            backend: blend_serde::core::BackendConfig {
+                listening_address: backend_core.listening_address.clone(),
+                core_peering_degree: backend_core.core_peering_degree.clone(),
+                edge_node_connection_timeout: backend_core.edge_node_connection_timeout,
+                max_edge_node_incoming_connections: backend_core.max_edge_node_incoming_connections,
+                max_dial_attempts_per_peer: backend_core.max_dial_attempts_per_peer,
+            },
+            zk: ZkSettings {
+                secret_key_kms_id: zk_key_id,
+            },
+        },
+        edge: blend_serde::edge::Config {
+            backend: blend_serde::edge::BackendConfig {
+                max_dial_attempts_per_peer_per_message: backend_edge
+                    .max_dial_attempts_per_peer_per_message,
+                replication_factor: backend_edge.replication_factor,
+            },
+        },
+    };
+
+    let deployment_settings = blend_deployment::Settings {
+        common: blend_deployment::CommonSettings {
+            num_blend_layers: NonZeroU64::try_from(1).unwrap(),
+            minimum_network_size: NonZeroU64::try_from(1).unwrap(),
+            timing: TimingSettings {
+                round_duration: Duration::from_secs(1),
+                rounds_per_interval: NonZeroU64::try_from(30u64).unwrap(),
+                rounds_per_session: NonZeroU64::try_from(648_000u64).unwrap(),
+                rounds_per_observation_window: NonZeroU64::try_from(30u64).unwrap(),
+                rounds_per_session_transition_period: NonZeroU64::try_from(30u64).unwrap(),
+                epoch_transition_period_in_slots: NonZeroU64::try_from(2_600).unwrap(),
+            },
+            protocol_name: backend_core.protocol_name.clone(),
+        },
+        core: blend_deployment::CoreSettings {
+            scheduler: SchedulerSettings {
+                cover: CoverTrafficSettings {
+                    intervals_for_safety_buffer: 100,
+                    message_frequency_per_round: NonNegativeF64::try_from(1f64).unwrap(),
+                },
+                delayer: MessageDelayerSettings {
+                    maximum_release_delay_in_rounds: NonZeroU64::try_from(3u64).unwrap(),
+                },
+            },
+            minimum_messages_coefficient: backend_core.minimum_messages_coefficient,
+            normalization_constant: backend_core.normalization_constant,
+        },
+    };
+
+    let deployment = NodeDeploymentSettings::Custom(CustomDeployment {
+        blend: deployment_settings,
+    });
+
+    (user, deployment)
 }

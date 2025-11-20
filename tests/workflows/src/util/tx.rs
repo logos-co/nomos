@@ -1,12 +1,10 @@
 use ed25519_dalek::{Signer as _, SigningKey};
-use nomos_core::{
-    mantle::{
-        MantleTx, Op, OpProof, SignedMantleTx, Transaction as _,
-        ledger::Tx as LedgerTx,
-        ops::channel::{ChannelId, MsgId, inscribe::InscriptionOp},
-    },
-    proofs::zksig::{DummyZkSignature, ZkSignaturePublic},
+use nomos_core::mantle::{
+    MantleTx, Op, OpProof, SignedMantleTx, Transaction as _,
+    ledger::Tx as LedgerTx,
+    ops::channel::{ChannelId, MsgId, inscribe::InscriptionOp},
 };
+use zksign::SecretKey;
 
 #[must_use]
 pub fn create_inscription_transaction_with_id(id: ChannelId) -> SignedMantleTx {
@@ -33,10 +31,7 @@ pub fn create_inscription_transaction_with_id(id: ChannelId) -> SignedMantleTx {
     SignedMantleTx::new(
         mantle_tx,
         vec![OpProof::Ed25519Sig(signature)],
-        DummyZkSignature::prove(&ZkSignaturePublic {
-            msg_hash: tx_hash.into(),
-            pks: vec![],
-        }),
+        SecretKey::multi_sign(&[], tx_hash.as_ref()).expect("zk signature generation"),
     )
     .expect("valid transaction")
 }

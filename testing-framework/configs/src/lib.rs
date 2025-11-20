@@ -3,6 +3,7 @@ use std::{env, net::Ipv4Addr, ops::Mul as _, sync::LazyLock, time::Duration};
 use nomos_core::sdp::ProviderId;
 use nomos_libp2p::{Multiaddr, PeerId, multiaddr};
 
+pub mod common;
 pub mod nodes;
 pub mod topology;
 

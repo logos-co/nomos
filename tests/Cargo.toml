@@ -19,6 +19,9 @@ ed25519-dalek            = { version = "2.2.0", features = ["rand_core", "serde"
 executor-http-client     = { workspace = true }
 futures                  = { default-features = false, version = "0.3" }
 futures-util             = { default-features = false, version = "0.3.31" }
+groth16                  = { workspace = true }
+hex                      = { workspace = true }
+key-management-system    = { workspace = true }
 kzgrs-backend            = { workspace = true }
 nomos-core               = { workspace = true }
 nomos-libp2p             = { workspace = true }
@@ -34,6 +37,7 @@ serial_test              = "3.1.1"
 subnetworks-assignations = { workspace = true }
 testing-framework-core   = { workspace = true, default-features = false }
 tokio                    = "1"
+zksign                   = { workspace = true }
 
 [[test]]
 name = "test_cryptarchia_happy_path"

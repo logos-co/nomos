@@ -1,8 +1,13 @@
 [package]
-edition.workspace = true
-license.workspace = true
-name              = "integration-configs"
-version           = "0.1.0"
+categories.workspace  = true
+description.workspace = true
+edition.workspace     = true
+keywords.workspace    = true
+license.workspace     = true
+name                  = "integration-configs"
+readme.workspace      = true
+repository.workspace  = true
+version               = "0.1.0"
 
 [dependencies]
 blst                     = "0.3.11"
@@ -16,7 +21,6 @@ hex                      = { version = "0.4.3", default-features = false }
 key-management-system    = { workspace = true }
 nomos-api                = { workspace = true }
 nomos-blend-message      = { workspace = true }
-nomos-blend-scheduling   = { workspace = true }
 nomos-blend-service      = { workspace = true, features = ["libp2p"] }
 nomos-core               = { workspace = true }
 nomos-da-dispersal       = { workspace = true }
