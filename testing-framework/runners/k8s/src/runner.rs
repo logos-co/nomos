@@ -20,6 +20,7 @@ use crate::{
     assets::{AssetsError, RunnerAssets, prepare_assets},
     cleanup::RunnerCleanup,
     helm::{HelmError, install_release},
+    host::node_host,
     logs::dump_namespace_logs,
     wait::{ClusterPorts, ClusterWaitError, NodeConfigPorts, wait_for_cluster_ready},
 };
@@ -145,15 +146,15 @@ fn readiness_urls(ports: &[u16], role: NodeRole) -> Result<Vec<Url>, RemoteReadi
 }
 
 fn readiness_url(role: NodeRole, port: u16) -> Result<Url, RemoteReadinessError> {
-    localhost_url(port).map_err(|source| RemoteReadinessError::Endpoint { role, port, source })
+    cluster_host_url(port).map_err(|source| RemoteReadinessError::Endpoint { role, port, source })
 }
 
-fn localhost_url(port: u16) -> Result<Url, ParseError> {
-    Url::parse(&format!("http://127.0.0.1:{port}/"))
+fn cluster_host_url(port: u16) -> Result<Url, ParseError> {
+    Url::parse(&format!("http://{}:{port}/", node_host()))
 }
 
 fn metrics_handle_from_port(port: u16) -> Result<Metrics, MetricsError> {
-    let url = localhost_url(port)
+    let url = cluster_host_url(port)
         .map_err(|err| MetricsError::new(format!("invalid prometheus url: {err}")))?;
     Metrics::from_prometheus(url)
 }
@@ -351,7 +352,7 @@ fn api_client_from_ports(
     api_port: u16,
     testing_port: u16,
 ) -> Result<ApiClient, NodeClientError> {
-    let base_endpoint = localhost_url(api_port).map_err(|source| NodeClientError::Endpoint {
+    let base_endpoint = cluster_host_url(api_port).map_err(|source| NodeClientError::Endpoint {
         role,
         endpoint: "api",
         port: api_port,
@@ -359,7 +360,7 @@ fn api_client_from_ports(
     })?;
     let testing_endpoint =
         Some(
-            localhost_url(testing_port).map_err(|source| NodeClientError::Endpoint {
+            cluster_host_url(testing_port).map_err(|source| NodeClientError::Endpoint {
                 role,
                 endpoint: "testing",
                 port: testing_port,

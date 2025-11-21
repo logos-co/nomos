@@ -6,6 +6,8 @@ use testing_framework_core::scenario::http_probe::{self, HttpReadinessError, Nod
 use thiserror::Error;
 use tokio::time::sleep;
 
+use crate::host::node_host;
+
 const DEPLOYMENT_TIMEOUT: Duration = Duration::from_secs(180);
 const PROMETHEUS_HTTP_PORT: u16 = 9090;
 const PROMETHEUS_SERVICE_NAME: &str = "prometheus";
@@ -216,9 +218,11 @@ pub async fn wait_for_cluster_ready(
 }
 
 async fn wait_for_node_http(ports: &[u16], role: NodeRole) -> Result<(), ClusterWaitError> {
-    http_probe::wait_for_http_ports(
+    let host = node_host();
+    http_probe::wait_for_http_ports_with_host(
         ports,
         role,
+        &host,
         Duration::from_secs(240),
         Duration::from_secs(1),
     )
@@ -236,7 +240,7 @@ const fn map_http_error(error: HttpReadinessError) -> ClusterWaitError {
 
 pub async fn wait_for_prometheus_http(port: u16) -> Result<(), ClusterWaitError> {
     let client = reqwest::Client::new();
-    let url = format!("http://127.0.0.1:{port}/-/ready");
+    let url = format!("http://{}:{port}/-/ready", node_host());
 
     for _ in 0..240 {
         if let Ok(resp) = client.get(&url).send().await
