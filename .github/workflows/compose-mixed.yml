@@ -5,6 +5,7 @@ on:
 
 jobs:
   compose-mixed-workload:
+    if: github.actor != 'nektos/act'
     runs-on:
       - self-hosted
       - mac-docker
@@ -12,7 +13,7 @@ jobs:
       TMPDIR: ${{ github.workspace }}/.tmp
       NOMOS_TESTNET_PLATFORM: linux/amd64
 
-    steps:
+    steps: &compose-steps
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -25,7 +26,16 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang llvm-dev libclang-dev pkg-config cmake libssl-dev
+          sudo apt-get install -y curl docker.io clang llvm-dev libclang-dev pkg-config cmake libssl-dev
+
+      - name: Detect host architecture circuits override
+        run: |
+          ARCH=$(docker info -f '{{.Architecture}}' 2>/dev/null || uname -m)
+          if [ "$ARCH" = "arm64" ] || [ "$ARCH" = "aarch64" ]; then
+            if [ -d nomos-circuits-arm64 ]; then
+              echo "CIRCUITS_OVERRIDE=nomos-circuits-arm64" >> $GITHUB_ENV
+            fi
+          fi
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -57,13 +67,18 @@ jobs:
       - name: Build compose test image
         env:
           DOCKER_CLI_HINTS: "false"
-        run: >
-          docker build --platform linux/amd64
-          -t nomos-testnet:local
-          -f testing-framework/runners/docker/runner.Dockerfile
-          .
+        run: |
+          BUILD_ARGS=""
+          if [ -n "${CIRCUITS_OVERRIDE:-}" ]; then
+            BUILD_ARGS="--build-arg CIRCUITS_OVERRIDE=${CIRCUITS_OVERRIDE}"
+          fi
+          docker build --platform linux/amd64 \
+            $BUILD_ARGS \
+            -t nomos-testnet:local \
+            -f testing-framework/runners/docker/runner.Dockerfile \
+            .
 
-      - name: Run compose mixed workload test
+      - name: Run compose mixed workload binary
         env:
           POL_PROOF_DEV_MODE: "true"
         run: |
@@ -71,7 +86,119 @@ jobs:
           if [ "${{ env.ACT }}" = "true" ]; then
             export COMPOSE_RUNNER_PRESERVE=1
           fi
-          cargo test -p tests-workflows --all-features compose_runner_mixed_workloads -- --ignored --nocapture
+          cargo run -p tests-workflows --all-features --bin compose_runner_ci
+
+      - name: Collect compose logs
+        if: failure()
+        run: |
+          mkdir -p ci-artifacts/compose
+          docker ps -a --filter "name=nomos-compose-" --format '{{.ID}} {{.Names}} {{.Status}}' > ci-artifacts/compose/containers.txt || true
+          for id in $(docker ps -a --filter "name=nomos-compose-" -q); do
+            docker logs "$id" > "ci-artifacts/compose/${id}.log" 2>&1 || true
+          done
+          if compgen -G "tests/.tmp*/__logs.*" > /dev/null; then
+            mkdir -p ci-artifacts/tests
+            find tests -path "tests/.tmp*/__logs.*" -type d -print0 | while IFS= read -r -d '' dir; do
+              tar -czf "ci-artifacts/tests/$(basename "$(dirname "$dir")")-$(basename "$dir").tgz" -C "$dir" .
+            done
+          fi
+
+      - name: Upload compose artifacts
+        if: failure() && env.ACT != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: compose-mixed-workload-logs
+          path: ci-artifacts
+
+      - name: Cleanup compose containers
+        if: always()
+        run: |
+          ids=$(docker ps -a --filter "name=nomos-compose-" -q)
+          if [ -n "$ids" ]; then
+            docker rm -f $ids
+          fi
+
+  compose-mixed-workload-act:
+    if: github.actor == 'nektos/act'
+    runs-on: ubuntu-22.04
+    env:
+      TMPDIR: ${{ github.workspace }}/.tmp
+      NOMOS_TESTNET_PLATFORM: linux/amd64
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prepare workspace tmpdir
+        run: mkdir -p "$TMPDIR"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl docker.io clang llvm-dev libclang-dev pkg-config cmake libssl-dev
+
+      - name: Detect host architecture circuits override
+        run: |
+          ARCH=$(docker info -f '{{.Architecture}}' 2>/dev/null || uname -m)
+          if [ "$ARCH" = "arm64" ] || [ "$ARCH" = "aarch64" ]; then
+            if [ -d nomos-circuits-arm64 ]; then
+              echo "CIRCUITS_OVERRIDE=nomos-circuits-arm64" >> $GITHUB_ENV
+            fi
+          fi
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Cache target directory
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-target-compose-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-target-compose-
+
+      - name: Install nomos circuits
+        env:
+          NOMOS_CIRCUITS_PLATFORM: linux-x86_64
+        run: |
+          CIRCUITS_DIR="${RUNNER_TEMP:-$TMPDIR}/nomos-circuits"
+          chmod +x scripts/setup-nomos-circuits.sh
+          scripts/setup-nomos-circuits.sh v0.2.0 "$CIRCUITS_DIR"
+          echo "NOMOS_CIRCUITS=$CIRCUITS_DIR" >> $GITHUB_ENV
+
+      - name: Build compose test image
+        env:
+          DOCKER_CLI_HINTS: "false"
+        run: |
+          BUILD_ARGS=""
+          if [ -n "${CIRCUITS_OVERRIDE:-}" ]; then
+            BUILD_ARGS="--build-arg CIRCUITS_OVERRIDE=${CIRCUITS_OVERRIDE}"
+          fi
+          docker build --platform linux/amd64 \
+            $BUILD_ARGS \
+            -t nomos-testnet:local \
+            -f testing-framework/runners/docker/runner.Dockerfile \
+            .
+
+      - name: Run compose mixed workload binary
+        env:
+          POL_PROOF_DEV_MODE: "true"
+        run: |
+          mkdir -p "$TMPDIR"
+          if [ "${{ env.ACT }}" = "true" ]; then
+            export COMPOSE_RUNNER_PRESERVE=1
+          fi
+          cargo run -p tests-workflows --all-features --bin compose_runner_ci
 
       - name: Collect compose logs
         if: failure()
