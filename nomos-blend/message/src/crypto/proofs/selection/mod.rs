@@ -1,8 +1,8 @@
 use core::fmt::Debug;
-use std::sync::LazyLock;
+use std::{ops::Deref, sync::LazyLock};
 
 use ::serde::{Deserialize, Serialize};
-use groth16::{fr_from_bytes, fr_from_bytes_unchecked, fr_to_bytes};
+use groth16::{fr_from_bytes, fr_to_bytes};
 use nomos_core::{blend::PROOF_OF_SELECTION_SIZE, crypto::ZkHash};
 use num_bigint::BigUint;
 use thiserror::Error;
@@ -23,10 +23,7 @@ const DOMAIN_SEPARATION_TAG: [u8; 9] = *b"BlendNode";
 // TODO: To avoid proofs being misused, remove the `Clone` and `Copy` derives,
 // so once a proof is verified it cannot be (mis)used anymore.
 #[derive(Clone, Debug, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
-pub struct ProofOfSelection {
-    #[serde(with = "groth16::serde::serde_fr")]
-    selection_randomness: ZkHash,
-}
+pub struct ProofOfSelection(nomos_core::blend::ProofOfSelection);
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -42,19 +39,33 @@ pub enum Error {
     Verification,
 }
 
+impl Deref for ProofOfSelection {
+    type Target = nomos_core::blend::ProofOfSelection;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<ProofOfSelection> for nomos_core::blend::ProofOfSelection {
+    fn from(proof: ProofOfSelection) -> Self {
+        proof.0
+    }
+}
+
 impl ProofOfSelection {
     #[must_use]
     pub const fn new(selection_randomness: ZkHash) -> Self {
-        Self {
+        Self(nomos_core::blend::ProofOfSelection {
             selection_randomness,
-        }
+        })
     }
 
     #[must_use]
     pub fn from_bytes_unchecked(bytes: [u8; PROOF_OF_SELECTION_SIZE]) -> Self {
-        Self {
-            selection_randomness: fr_from_bytes_unchecked(&bytes),
-        }
+        Self(nomos_core::blend::ProofOfSelection::from_bytes_unchecked(
+            bytes,
+        ))
     }
 
     /// Returns the index the Proof of Selection refers to, for the provided
@@ -129,20 +140,4 @@ pub fn derive_key_nullifier_from_secret_selection_randomness(
         secret_selection_randomness,
     ]
     .compress()
-}
-
-impl TryFrom<&[u8; PROOF_OF_SELECTION_SIZE]> for ProofOfSelection {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(value: &[u8; PROOF_OF_SELECTION_SIZE]) -> Result<Self, Self::Error> {
-        Ok(Self {
-            selection_randomness: fr_from_bytes(value).map_err(Box::new)?,
-        })
-    }
-}
-
-impl From<&ProofOfSelection> for [u8; PROOF_OF_SELECTION_SIZE] {
-    fn from(proof: &ProofOfSelection) -> Self {
-        fr_to_bytes(&proof.selection_randomness)
-    }
 }

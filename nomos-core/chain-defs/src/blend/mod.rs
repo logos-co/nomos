@@ -1,8 +1,8 @@
-use poq::PoQProof;
-use poseidon2::ZkHash;
+mod proofs;
+mod reward;
 
-pub const KEY_NULLIFIER_SIZE: usize = size_of::<ZkHash>();
-pub const PROOF_CIRCUIT_SIZE: usize = size_of::<PoQProof>();
-pub const PROOF_OF_QUOTA_SIZE: usize = KEY_NULLIFIER_SIZE.checked_add(PROOF_CIRCUIT_SIZE).unwrap();
-
-pub const PROOF_OF_SELECTION_SIZE: usize = size_of::<ZkHash>();
+pub use proofs::{
+    quota::{PROOF_OF_QUOTA_SIZE, ProofOfQuota},
+    selection::{PROOF_OF_SELECTION_SIZE, ProofOfSelection},
+};
+pub use reward::{session::SessionRandomness, token::BlendingToken};

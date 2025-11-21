@@ -1,10 +1,10 @@
-use std::ops::{Add as _, Deref};
+use std::ops::Add as _;
 
-use groth16::fr_to_bytes;
-use nomos_core::{crypto::ZkHash, sdp::SessionNumber};
+use nomos_core::{blend::SessionRandomness, crypto::ZkHash, sdp::SessionNumber};
 use nomos_utils::math::{F64Ge1, NonNegativeF64};
+use tracing::debug;
 
-use crate::{crypto::blake2b512, reward::activity::activity_threshold};
+use crate::reward::LOG_TARGET;
 
 /// Session-specific information to compute an activity proof.
 pub struct SessionInfo {
@@ -53,39 +53,6 @@ impl SessionInfo {
     }
 }
 
-/// Deterministic unbiased randomness for a session.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct SessionRandomness([u8; 64]);
-
-impl Deref for SessionRandomness {
-    type Target = [u8];
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl From<[u8; 64]> for SessionRandomness {
-    fn from(bytes: [u8; 64]) -> Self {
-        Self(bytes)
-    }
-}
-
-const SESSION_RANDOMNESS_TAG: [u8; 27] = *b"BLEND_SESSION_RANDOMNESS_V1";
-
-impl SessionRandomness {
-    /// Derive the session randomness from the given session number and epoch
-    /// nonce.
-    #[must_use]
-    fn new(session_number: SessionNumber, epoch_nonce: &ZkHash) -> Self {
-        Self(blake2b512(&[
-            &SESSION_RANDOMNESS_TAG,
-            &fr_to_bytes(epoch_nonce),
-            &session_number.to_le_bytes(),
-        ]))
-    }
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("the total core quota({0}) is too large to compute the Hamming distance")]
@@ -104,6 +71,23 @@ fn token_count_bit_len(total_core_quota: u64) -> Result<u64, Error> {
         .expect("must be >= 1.0")
         .log2()
         .ceil() as u64)
+}
+
+/// Sensitivity parameter to control the lottery winning conditions.
+const ACTIVITY_THRESHOLD_SENSITIVITY_PARAM: u64 = 1;
+
+/// Computes the activity threshold, which is the expected maximum Hamming
+/// distance from any blending token in a session to the next session
+/// randomness.
+pub fn activity_threshold(token_count_bit_len: u64, network_size_bit_len: u64) -> u64 {
+    debug!(
+        target: LOG_TARGET,
+        "Calculating activity threshold: token_count_bit_len={token_count_bit_len}, network_size_repr_bit_len={network_size_bit_len}"
+    );
+
+    token_count_bit_len
+        .saturating_sub(network_size_bit_len)
+        .saturating_sub(ACTIVITY_THRESHOLD_SENSITIVITY_PARAM)
 }
 
 #[cfg(test)]

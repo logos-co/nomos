@@ -1,9 +1,10 @@
+use nomos_core::blend::BlendingToken;
+
 use crate::{
     PayloadType,
     crypto::proofs::selection::ProofOfSelection,
     encap::encapsulated::{EncapsulatedMessage, EncapsulatedPart, EncapsulatedPrivateHeader},
     message::{Payload, PublicHeader},
-    reward::BlendingToken,
 };
 
 /// The output of [`EncapsulatedMessage::decapsulate`]

@@ -1,13 +1,9 @@
-use std::sync::LazyLock;
+use std::{ops::Deref, sync::LazyLock};
 
-use ::serde::{Deserialize, Serialize};
-use generic_array::{ArrayLength, GenericArray};
-use groth16::{Bn254, CompressSize, fr_from_bytes, fr_from_bytes_unchecked, fr_to_bytes};
-use nomos_core::{
-    blend::{KEY_NULLIFIER_SIZE, PROOF_CIRCUIT_SIZE, PROOF_OF_QUOTA_SIZE},
-    crypto::ZkHash,
-};
-use poq::{PoQProof, PoQVerifierInput, PoQWitnessInputs, ProveError, prove, verify};
+use groth16::fr_from_bytes;
+use nomos_core::{blend::PROOF_OF_QUOTA_SIZE, crypto::ZkHash};
+use poq::{PoQVerifierInput, PoQWitnessInputs, ProveError, prove, verify};
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::crypto::proofs::{
@@ -19,7 +15,6 @@ use crate::crypto::proofs::{
 };
 
 pub mod inputs;
-mod serde;
 #[cfg(test)]
 mod tests;
 
@@ -30,12 +25,7 @@ pub mod fixtures;
 // TODO: To avoid proofs being misused, remove the `Clone` and `Copy` derives, so once a proof is
 // verified it cannot be (mis)used anymore.
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ProofOfQuota {
-    #[serde(with = "groth16::serde::serde_fr")]
-    key_nullifier: ZkHash,
-    #[serde(with = "self::serde::proof::SerializablePoQProof")]
-    proof: PoQProof,
-}
+pub struct ProofOfQuota(nomos_core::blend::ProofOfQuota);
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -45,6 +35,20 @@ pub enum Error {
     ProofGeneration(#[from] ProveError),
     #[error("Invalid proof")]
     InvalidProof,
+}
+
+impl Deref for ProofOfQuota {
+    type Target = nomos_core::blend::ProofOfQuota;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<ProofOfQuota> for nomos_core::blend::ProofOfQuota {
+    fn from(proof: ProofOfQuota) -> Self {
+        proof.0
+    }
 }
 
 impl ProofOfQuota {
@@ -71,27 +75,17 @@ impl ProofOfQuota {
             public_inputs.session,
         );
         Ok((
-            Self {
+            Self(nomos_core::blend::ProofOfQuota {
                 key_nullifier: key_nullifier.into_inner(),
                 proof,
-            },
+            }),
             secret_selection_randomness,
         ))
     }
 
     #[must_use]
     pub fn from_bytes_unchecked(bytes: [u8; PROOF_OF_QUOTA_SIZE]) -> Self {
-        let (key_nullifier_bytes, proof_circuit_bytes) = bytes.split_at(KEY_NULLIFIER_SIZE);
-        let key_nullifier = fr_from_bytes_unchecked(key_nullifier_bytes);
-        let (pi_a, pi_b, pi_c) = split_proof_components::<
-            <Bn254 as CompressSize>::G1CompressedSize,
-            <Bn254 as CompressSize>::G2CompressedSize,
-        >(proof_circuit_bytes.try_into().unwrap());
-
-        Self {
-            key_nullifier,
-            proof: PoQProof::new(pi_a, pi_b, pi_c),
-        }
+        Self(nomos_core::blend::ProofOfQuota::from_bytes_unchecked(bytes))
     }
 
     /// Verify a Proof of Quota with the provided inputs.
@@ -110,7 +104,7 @@ impl ProofOfQuota {
     }
 
     #[must_use]
-    pub const fn key_nullifier(&self) -> ZkHash {
+    pub fn key_nullifier(&self) -> ZkHash {
         self.key_nullifier
     }
 
@@ -118,33 +112,6 @@ impl ProofOfQuota {
     #[must_use]
     pub fn dummy() -> Self {
         Self::from_bytes_unchecked([0u8; _])
-    }
-}
-
-impl TryFrom<&[u8; PROOF_OF_QUOTA_SIZE]> for ProofOfQuota {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(bytes: &[u8; PROOF_OF_QUOTA_SIZE]) -> Result<Self, Self::Error> {
-        let (key_nullifier_bytes, proof_circuit_bytes) = bytes.split_at(KEY_NULLIFIER_SIZE);
-        let key_nullifier = fr_from_bytes(key_nullifier_bytes).map_err(Box::new)?;
-        let (pi_a, pi_b, pi_c) = split_proof_components::<
-            <Bn254 as CompressSize>::G1CompressedSize,
-            <Bn254 as CompressSize>::G2CompressedSize,
-        >(proof_circuit_bytes.try_into().map_err(Box::new)?);
-
-        Ok(Self {
-            key_nullifier,
-            proof: PoQProof::new(pi_a, pi_b, pi_c),
-        })
-    }
-}
-
-impl From<&ProofOfQuota> for [u8; PROOF_OF_QUOTA_SIZE] {
-    fn from(proof: &ProofOfQuota) -> Self {
-        let mut bytes = [0u8; PROOF_OF_QUOTA_SIZE];
-        bytes[..KEY_NULLIFIER_SIZE].copy_from_slice(&fr_to_bytes(&proof.key_nullifier));
-        bytes[KEY_NULLIFIER_SIZE..].copy_from_slice(&proof.proof.to_bytes());
-        bytes
     }
 }
 
@@ -162,51 +129,4 @@ fn generate_secret_selection_randomness(sk: ZkHash, key_index: u64, session: u64
         session.into(),
     ]
     .hash()
-}
-
-fn split_proof_components<G1Compressed, G2Compressed>(
-    bytes: [u8; PROOF_CIRCUIT_SIZE],
-) -> (
-    GenericArray<u8, G1Compressed>,
-    GenericArray<u8, G2Compressed>,
-    GenericArray<u8, G1Compressed>,
-)
-where
-    G1Compressed: ArrayLength,
-    G2Compressed: ArrayLength,
-{
-    let first_point_end_index = G1Compressed::USIZE;
-    let second_point_end_index = first_point_end_index
-        .checked_add(G2Compressed::USIZE)
-        .expect("Second index overflow");
-    let third_point_end_index = second_point_end_index
-        .checked_add(G1Compressed::USIZE)
-        .expect("Third index overflow");
-
-    (
-        GenericArray::try_from_iter(
-            bytes
-                .get(..first_point_end_index)
-                .expect("Input byte array is not large enough for the first G1 compressed point.")
-                .iter()
-                .copied(),
-        )
-        .unwrap(),
-        GenericArray::try_from_iter(
-            bytes
-                .get(first_point_end_index..second_point_end_index)
-                .expect("Input byte array is not large enough for the first G2 compressed point.")
-                .iter()
-                .copied(),
-        )
-        .unwrap(),
-        GenericArray::try_from_iter(
-            bytes
-                .get(second_point_end_index..third_point_end_index)
-                .expect("Input byte array is not large enough for the second G1 compressed point.")
-                .iter()
-                .copied(),
-        )
-        .unwrap(),
-    )
 }
