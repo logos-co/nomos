@@ -299,17 +299,6 @@ fn generate_random_configs(
     let da_configs = configs::da::create_da_configs(&ids, da_params, &da_ports);
     let network_configs = configs::network::create_network_configs(&ids, &NetworkParams::default());
     let blend_configs = configs::blend::create_blend_configs(&ids, &blend_ports);
-    let api_configs = ids
-        .iter()
-        .map(|_| {
-            let address = format!("0.0.0.0:{DEFAULT_API_PORT}").parse().unwrap();
-            GeneralApiConfig {
-                address,
-                testing_http_address: address,
-            }
-        })
-        .collect::<Vec<_>>();
-
     let providers = create_providers(&hosts, &consensus_configs, &blend_configs, &da_configs);
     let ledger_tx = consensus_configs[0]
         .genesis_tx
@@ -362,6 +351,13 @@ fn generate_random_configs(
             update_tracing_identifier(tracing_settings.clone(), host.identifier.clone());
         let time_config = default_time_config();
 
+        let api_config = GeneralApiConfig {
+            address: format!("0.0.0.0:{}", host.ports.api_port).parse().unwrap(),
+            testing_http_address: format!("0.0.0.0:{}", host.ports.testing_http_port)
+                .parse()
+                .unwrap(),
+        };
+
         configured_hosts.insert(
             host,
             GeneralConfig {
@@ -370,7 +366,7 @@ fn generate_random_configs(
                 da_config,
                 network_config,
                 blend_config,
-                api_config: api_configs[i].clone(),
+                api_config,
                 tracing_config,
                 time_config,
                 kms_config: kms_configs[i].clone(),

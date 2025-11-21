@@ -94,11 +94,14 @@ pub fn prepare_assets(topology: &GeneratedTopology) -> Result<RunnerAssets, Asse
     })
 }
 
+const CFGSYNC_K8S_TIMEOUT_SECS: u64 = 300;
+
 fn render_cfgsync_config(root: &Path, topology: &GeneratedTopology) -> Result<String, AssetsError> {
     let cfgsync_template_path = root.join("testnet/cfgsync.yaml");
     let mut cfg = load_cfgsync_template(&cfgsync_template_path)
         .map_err(|source| AssetsError::Cfgsync { source })?;
     apply_topology_overrides(&mut cfg, topology, true);
+    cfg.timeout = cfg.timeout.max(CFGSYNC_K8S_TIMEOUT_SECS);
     render_cfgsync_yaml(&cfg).map_err(|source| AssetsError::Cfgsync { source })
 }
 

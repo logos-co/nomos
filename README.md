@@ -158,6 +158,17 @@ To build the Nomos Docker image, run:
 docker build -t nomos .
 ```
 
+If you have a locally built `nomos-circuits` bundle (for example an arm64 prover), place it somewhere inside the
+repository and pass its relative path via `CIRCUITS_OVERRIDE` so the image copies it instead of downloading the default
+release:
+
+```bash
+docker build \
+    --build-arg CIRCUITS_OVERRIDE=ci/nomos-circuits-arm64 \
+    -t nomos-testnet:local \
+    -f testnet/Dockerfile .
+```
+
 #### Running a Nomos Node
 
 To run a docker container with the Nomos node you need to mount both `config.yml` and `global_params_path` specified in

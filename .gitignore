@@ -30,3 +30,9 @@ zk/**/bin/*
 
 # C headers
 nomos-c/libnomos.h
+
+# Local prover/circuit bundles and build logs
+nomos-circuits-arm64/
+ci/nomos-circuits-arm64/
+build_gmp.log
+build_prover.log

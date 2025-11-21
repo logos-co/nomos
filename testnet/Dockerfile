@@ -3,6 +3,7 @@
 # Ignore warnings about sensitive information as this is test data.
 
 ARG VERSION=v0.3.1
+ARG CIRCUITS_OVERRIDE
 
 # ===========================
 # BUILD IMAGE
@@ -11,6 +12,7 @@ ARG VERSION=v0.3.1
 FROM rust:1.91.0-slim-bookworm AS builder
 
 ARG VERSION
+ARG CIRCUITS_OVERRIDE
 
 LABEL maintainer="augustinas@status.im" \
     source="https://github.com/logos-co/nomos-node" \
@@ -23,8 +25,14 @@ COPY . .
 RUN apt-get update && apt-get install -yq \
     git gcc g++ clang libssl-dev pkg-config ca-certificates curl
 
-RUN chmod +x scripts/setup-nomos-circuits.sh && \
-    scripts/setup-nomos-circuits.sh "$VERSION" "/opt/circuits"
+RUN if [ -n "$CIRCUITS_OVERRIDE" ]; then \
+        mkdir -p /opt/circuits && \
+        echo "Using prebuilt circuits bundle from ${CIRCUITS_OVERRIDE}" && \
+        cp -R "/nomos/${CIRCUITS_OVERRIDE}/." /opt/circuits; \
+    else \
+        chmod +x scripts/setup-nomos-circuits.sh && \
+        scripts/setup-nomos-circuits.sh "$VERSION" "/opt/circuits"; \
+    fi
 
 ENV NOMOS_CIRCUITS=/opt/circuits
 
